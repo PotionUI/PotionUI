@@ -690,6 +690,223 @@ describe('createSessionController', () => {
 		expect(harness.toasts.info).toHaveBeenCalledTimes(1);
 	});
 
+	// A completion that also answers a dialog carries two separate rights: to
+	// close the dialog the view is showing, and to put down the busy flag it
+	// raised. The first belongs to the operation the view is still waiting on;
+	// the second belongs to whoever raised it, or the control stays busy.
+	it('closes the confirmation and drops the record for a delete under the live context', async () => {
+		await bootWithDirtySession();
+
+		expect(await controller.deleteSession()).toBe(true);
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.sessions.map((entry) => entry.id)).toEqual([SESSION_B]);
+		expect(state.selectedSessionId).toBe('');
+		expect(state.isSessionLoading).toBe(false);
+	});
+
+	it('does not close a delete confirmation opened after the context switched', async () => {
+		await bootWithDirtySession();
+		const first = deferred<{ success: boolean; data: { message: string } }>();
+		const second = deferred<{ success: boolean; data: { message: string } }>();
+		let call = 0;
+		harness.api.deleteSession.mockImplementation(
+			(() => (call++ === 0 ? first.promise : second.promise)) as never
+		);
+
+		const firstDelete = controller.deleteSession();
+		await settle();
+
+		harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [] });
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+		const secondDelete = controller.deleteSession();
+		await settle();
+
+		first.resolve({ success: true, data: { message: 'ok' } });
+		await settle();
+		expect(await firstDelete).toBe(false);
+
+		second.resolve({ success: true, data: { message: 'ok' } });
+		await settle();
+		expect(await secondDelete).toBe(true);
+	});
+
+	it('leaves a newer delete busy when an older one completes under it', async () => {
+		await bootWithDirtySession();
+		const first = deferred<{ success: boolean; data: { message: string } }>();
+		const second = deferred<{ success: boolean; data: { message: string } }>();
+		let call = 0;
+		harness.api.deleteSession.mockImplementation(
+			(() => (call++ === 0 ? first.promise : second.promise)) as never
+		);
+
+		void controller.deleteSession();
+		await settle();
+
+		harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [] });
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+		void controller.deleteSession();
+		await settle();
+		expect(get(controller.state).isSessionLoading).toBe(true);
+
+		first.resolve({ success: true, data: { message: 'ok' } });
+		await settle();
+		expect(get(controller.state).isSessionLoading).toBe(true);
+
+		second.resolve({ success: true, data: { message: 'ok' } });
+		await settle();
+		expect(get(controller.state).isSessionLoading).toBe(false);
+	});
+
+	it('raises no delete toast for a failure under a context the user has left', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: { message: string } }>();
+		harness.api.deleteSession.mockReturnValue(pending.promise as never);
+
+		void controller.deleteSession();
+		await settle();
+
+		harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [] });
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+
+		pending.reject(new Error('server said no'));
+		await settle();
+
+		expect(harness.toasts.error).not.toHaveBeenCalled();
+	});
+
+	it('raises no delete toast for a failure that lands after destroy', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: { message: string } }>();
+		harness.api.deleteSession.mockReturnValue(pending.promise as never);
+
+		const deleting = controller.deleteSession();
+		await settle();
+
+		controller.destroy();
+		pending.reject(new Error('server said no'));
+		await settle();
+
+		expect(harness.toasts.error).not.toHaveBeenCalled();
+		expect(await deleting).toBe(false);
+	});
+
+	it('does not close a save dialog a newer save-as has taken over', async () => {
+		await bootWithDirtySession();
+		const first = deferred<{ success: boolean; data: Session }>();
+		const second = deferred<{ success: boolean; data: Session }>();
+		let call = 0;
+		harness.api.saveSession.mockImplementation(
+			(() => (call++ === 0 ? first.promise : second.promise)) as never
+		);
+
+		const firstSave = controller.saveAs('First name', 'save-as');
+		await settle();
+		const secondSave = controller.saveAs('Second name', 'save-as');
+		await settle();
+
+		first.resolve({ success: true, data: makeSession('created-first', { name: 'First name' }) });
+		await settle();
+		expect(await firstSave).toBe(false);
+		// The record the server did accept still belongs in the list.
+		expect(get(controller.state).sessions.some((entry) => entry.id === 'created-first')).toBe(true);
+
+		second.resolve({ success: true, data: makeSession('created-second', { name: 'Second name' }) });
+		await settle();
+		expect(await secondSave).toBe(true);
+	});
+
+	it('leaves a newer save-as saving when an older one completes under it', async () => {
+		await bootWithDirtySession();
+		const first = deferred<{ success: boolean; data: Session }>();
+		const second = deferred<{ success: boolean; data: Session }>();
+		let call = 0;
+		harness.api.saveSession.mockImplementation(
+			(() => (call++ === 0 ? first.promise : second.promise)) as never
+		);
+
+		void controller.saveAs('First name', 'save-as');
+		await settle();
+		void controller.saveAs('Second name', 'save-as');
+		await settle();
+		expect(get(controller.state).isSaving).toBe(true);
+
+		first.resolve({ success: true, data: makeSession('created-first', { name: 'First name' }) });
+		await settle();
+		expect(get(controller.state).isSaving).toBe(true);
+
+		second.resolve({ success: true, data: makeSession('created-second', { name: 'Second name' }) });
+		await settle();
+		expect(get(controller.state).isSaving).toBe(false);
+	});
+
+	it('does not answer for a save dialog when the save-as lands after destroy', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: Session }>();
+		harness.api.saveSession.mockReturnValue(pending.promise as never);
+
+		const saving = controller.saveAs('Fresh', 'save-as');
+		await settle();
+
+		controller.destroy();
+		pending.resolve({ success: true, data: makeSession('created', { name: 'Fresh' }) });
+		await settle();
+
+		expect(await saving).toBe(false);
+	});
+
+	it('raises no restore toast for a failure under a context the user has left', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: unknown }>();
+		harness.api.getSessionVersion.mockReturnValue(pending.promise as never);
+
+		void controller.restoreVersion(SESSION_A, 2);
+		await settle();
+
+		harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [] });
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+
+		pending.reject(new Error('gone'));
+		await settle();
+
+		expect(harness.toasts.error).not.toHaveBeenCalled();
+	});
+
+	it('leaves a newer restore in progress when an older one completes under it', async () => {
+		await bootWithDirtySession();
+		const first = deferred<{ success: boolean; data: unknown }>();
+		const second = deferred<{ success: boolean; data: unknown }>();
+		let call = 0;
+		harness.api.getSessionVersion.mockImplementation(
+			(() => (call++ === 0 ? first.promise : second.promise)) as never
+		);
+
+		void controller.restoreVersion(SESSION_A, 2);
+		await settle();
+		void controller.restoreVersion(SESSION_A, 3);
+		await settle();
+		expect(get(controller.state).isRestoringVersion).toBe(true);
+
+		first.resolve({
+			success: true,
+			data: { version_number: 2, created_at: '2026-01-01T00:00:00Z', summary: 'Save 2', data: {} }
+		});
+		await settle();
+		expect(get(controller.state).isRestoringVersion).toBe(true);
+
+		second.resolve({
+			success: true,
+			data: { version_number: 3, created_at: '2026-01-01T00:00:00Z', summary: 'Save 3', data: {} }
+		});
+		await settle();
+		expect(get(controller.state).isRestoringVersion).toBe(false);
+	});
+
 	// Reads replace the selection, the rows and the loading flags without ever
 	// touching the server, so an out-of-order or obsolete completion is just as
 	// destructive as a stale save landing on the active state.

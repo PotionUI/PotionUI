@@ -35,6 +35,13 @@
 // after a preset switch must not insert its record into the new preset's list,
 // nor answer for a dialog the user has since opened under it.
 //
+// A command that also drives a DIALOG or a busy control (save-as, delete,
+// restore) needs one more thing on top of that: the view has to be told
+// whether to close, and its busy flag has to come down exactly once. Each such
+// kind keeps an in-flight handle naming the operation the view is waiting on,
+// so an older completion answers for no dialog it no longer owns
+// (`ownsDialog`) while still putting down the flag it raised itself.
+//
 // READS (hydrating a session, the preset's session list, a session's version
 // list) need the same treatment for the opposite reason: they do not write the
 // server, but they DO replace the selection, the rows, the error and the
@@ -345,7 +352,14 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	// quick save rather than the first to finish. See the ownership rule at the
 	// top of this file for what the seq counters add on top.
 	let commandGeneration = 0;
+	// One handle per kind of operation a view puts a dialog or a busy control
+	// behind. The handle names the operation the view is currently waiting on,
+	// so an older one can neither release the newer one's busy flag nor answer
+	// for the dialog now on screen.
 	let quickSaveInFlight: SessionCommandToken | null = null;
+	let saveAsInFlight: SessionCommandToken | null = null;
+	let deleteInFlight: SessionCommandToken | null = null;
+	let restoreInFlight: SessionCommandToken | null = null;
 	let commandSeq = 0;
 	let lastAppliedSeq = 0;
 	const newestIssuedSeq = new Map<SessionCommandIntent, number>();
@@ -557,6 +571,20 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	 *  this command started under. */
 	function ownsSessionList(command: SessionCommandToken): boolean {
 		return command.listGeneration === listGeneration;
+	}
+
+	/** Whether this command may still answer for the view: close its dialog,
+	 *  raise its toast, own its feedback. It must be the operation the view is
+	 *  waiting on (a newer one of the same kind has taken the handle otherwise),
+	 *  under a context still on screen, on a controller still alive. Releasing a
+	 *  busy flag is deliberately NOT gated on this — see the finally blocks. */
+	function ownsDialog(
+		command: SessionCommandToken,
+		inFlight: SessionCommandToken | null
+	): boolean {
+		if (destroyed) return false;
+		if (inFlight !== command) return false;
+		return ownsSessionList(command);
 	}
 
 	function beginSessionRead(
@@ -1060,6 +1088,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		}
 
 		const command = beginSessionCommand('save-as');
+		saveAsInFlight = command;
 		let closed = false;
 
 		try {
@@ -1114,8 +1143,9 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			}
 
 			// Answering for the dialog is only this command's business while the
-			// context it was opened under is still the one on screen.
-			closed = ownsSessionList(command);
+			// context it was opened under is still the one on screen, and while
+			// no later save has taken over the dialog the view is showing.
+			closed = ownsDialog(command, saveAsInFlight);
 		} catch (err) {
 			if (ownsActiveState(command)) {
 				markApplied(command);
@@ -1123,7 +1153,12 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			}
 			deps.logger.error('Failed to save session:', err);
 		} finally {
-			isSaving = false;
+			// Identity only: a save whose context has moved on still has to put
+			// down the flag it raised, or the control stays busy for good.
+			if (saveAsInFlight === command) {
+				saveAsInFlight = null;
+				isSaving = false;
+			}
 			publish();
 		}
 
@@ -1134,6 +1169,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		if (!selectedSessionId) return false;
 
 		const command = beginSessionCommand('delete');
+		deleteInFlight = command;
 		let deleted = false;
 
 		try {
@@ -1149,12 +1185,19 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 				deps.tabs.updateTab(ctx.tabId, { selectedSessionId: null, savedSessionSignature: null });
 			}
 
-			deleted = true;
+			// The record is gone from the server either way; what is scoped here
+			// is the confirmation dialog the view should close.
+			deleted = ownsDialog(command, deleteInFlight);
 		} catch (err) {
-			deps.toasts.error(err instanceof Error ? err.message : 'Failed to delete session');
+			if (ownsDialog(command, deleteInFlight)) {
+				deps.toasts.error(err instanceof Error ? err.message : 'Failed to delete session');
+			}
 			deps.logger.error('Failed to delete session:', err);
 		} finally {
-			isSessionLoading = false;
+			if (deleteInFlight === command) {
+				deleteInFlight = null;
+				isSessionLoading = false;
+			}
 			publish();
 		}
 
@@ -1210,6 +1253,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		}
 
 		const command = beginSessionCommand('restore');
+		restoreInFlight = command;
 
 		try {
 			isRestoringVersion = true;
@@ -1226,9 +1270,14 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			}
 		} catch (err) {
 			deps.logger.error('Failed to restore session version:', err);
-			deps.toasts.error('Could not load that save.');
+			if (ownsDialog(command, restoreInFlight)) {
+				deps.toasts.error('Could not load that save.');
+			}
 		} finally {
-			isRestoringVersion = false;
+			if (restoreInFlight === command) {
+				restoreInFlight = null;
+				isRestoringVersion = false;
+			}
 			publish();
 		}
 	}

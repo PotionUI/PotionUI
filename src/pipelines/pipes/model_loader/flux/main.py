@@ -237,9 +237,15 @@ class ModelLoaderFluxPipe(BaseModelLoaderPipe):
         add/remove-LoRA case this exists for) or a cache MISS whose loader
         already applied+stamped the correct stack, in which case the stamps
         already match and this function never reaches the branch below.
+
+        The revision bump precedes the mutation so an ``_apply_loras`` that raises
+        midway (leaving a stripped or half-patched module, with the stamp
+        deliberately left stale so the next call retries) still cannot serve a
+        cache keyed on the pre-mutation weights.
         """
         if getattr(dit_model, "_active_lora_fp", None) == lora_fp:
             return
+        dit_model.bump_weight_revision(f"lora stack -> {lora_fp}")
         _remove_loras(dit_model.module)
         if loras:
             ModelLoaderFluxPipe._apply_loras(dit_model, loras)

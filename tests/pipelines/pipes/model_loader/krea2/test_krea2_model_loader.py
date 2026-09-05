@@ -24,7 +24,7 @@ from src.pipelines.pipes.model_loader.krea2 import main as krea2_main
 from src.pipelines.pipes.model_loader.krea2.main import ModelLoaderKrea2Pipe
 from src.pipelines.pipes.model_loader.krea2.bundle import Krea2ModelBundle
 from src.pipelines.pipes.model_loader.krea2.krea2_clip import Krea2ClipTextEncoder
-from src.platform.runtime.native.engine import NativeEngineLoader
+from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
 
 
 class _FakeModule:
@@ -86,7 +86,8 @@ def _fake_engine(monkeypatch):
 
     def _fake_load(self, path, kind, **kwargs):
         counts[kind] = counts.get(kind, 0) + 1
-        return SimpleNamespace(module=_FakeModule(), spec=None, estimated_vram_gb=1.0, kind=kind)
+        # A real wrapper, not a stand-in: the loaders revise its weight identity.
+        return NativeModel(kind, _FakeModule(), spec=None, estimated_vram_gb=1.0)
 
     monkeypatch.setattr(NativeEngineLoader, "load", _fake_load)
     return counts

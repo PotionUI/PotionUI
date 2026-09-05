@@ -89,11 +89,11 @@ def test_resume_rejects_non_euler_sampler():
 
 # --- engine gating + metadata (via _plan_warm_start, no real model) -------
 
-def _fake_generator():
+def _fake_generator(weight_revision=1):
     g = SimpleNamespace(
         spec=SimpleNamespace(family="flux", variant="dev",
                              sampling_settings={"guidance": None, "shift": 2.02}),
-        dit=SimpleNamespace(module=object()),
+        dit=SimpleNamespace(module=object(), weight_revision=weight_revision),
     )
     return g
 
@@ -212,3 +212,29 @@ def test_two_explicit_sigma_runs_share_a_cache_entry_when_identical():
     entry.checkpoints = {1: torch.full((1, 4, 4, 4), 3.0)}
     resume2, _ = _plan(g, cond=cond, steps=2, sigmas=explicit)
     assert resume2 is not None and resume2[0] == 1
+
+
+# --- effective-weight identity -----------------------------------------
+
+def test_weight_revision_change_prevents_cross_resume():
+    # An in-place LoRA reconciliation leaves id(module) alone, so the revision is
+    # the only thing separating the two trajectories.
+    g = _fake_generator()
+    cond = {"context": torch.randn(1, 4, 8)}
+    _plan(g, cond=cond)
+    entry = get_trajectory_cache().get(next(iter(get_trajectory_cache()._entries)))
+    entry.checkpoints = {6: torch.full((1, 4, 4, 4), 2.0)}
+    g.dit.weight_revision += 1
+    assert _plan(g, cond=cond)[0] is None
+
+
+def test_module_identity_still_separates_runs_at_an_equal_revision():
+    # The revision joins id(module) in the key, it does not replace it: a swapped
+    # checkpoint whose wrapper happens to carry the same counter value is cold.
+    g = _fake_generator(weight_revision=7)
+    cond = {"context": torch.randn(1, 4, 8)}
+    _plan(g, cond=cond)
+    entry = get_trajectory_cache().get(next(iter(get_trajectory_cache()._entries)))
+    entry.checkpoints = {6: torch.full((1, 4, 4, 4), 2.0)}
+    g.dit.module = object()
+    assert _plan(g, cond=cond)[0] is None

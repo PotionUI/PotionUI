@@ -26,6 +26,7 @@ no scaling. See the module docstring in ``vendor/gpl/comfyui/flux/layers.py``
 
 from __future__ import annotations
 
+import itertools
 import logging
 import os
 from pathlib import Path
@@ -253,12 +254,27 @@ def _latent_frames(shape) -> int:
     return int(shape[2]) if len(shape) == 5 else 1
 
 
+# Process-global source of ``NativeModel.weight_revision`` values. Every
+# constructed wrapper and every ``bump_weight_revision`` draws the next value, so
+# a revision is never reused by a later wrapper — CPython recycles ``id()`` for a
+# freed module, and a per-instance counter restarting at 0 could hand a recycled
+# ``id`` + counter pair back to a cache as a stale HIT.
+_weight_revisions = itertools.count(1)
+
+
 class NativeModel:
     """An evictable wrapper around one loaded component.
 
     Carries the shape ``ModelLifecycle._best_effort_unload`` expects
     (a callable ``.unload()``) plus ``.spec`` / ``.module`` / ``.estimated_vram_gb``
     and the ``move_to`` / ``offload`` pair the generator uses to sequence phases.
+
+    ``weight_revision`` is the identity of the EFFECTIVE weights this wrapper
+    computes with: include it in any cache keyed on model outputs (the trajectory
+    warm-start cache does). The module object alone is not that identity — the
+    Flux and Krea-2 loaders reconcile a LoRA stack IN PLACE on the cached module,
+    so the same ``id(module)`` can denote different weights across generations.
+    Mutators call :meth:`bump_weight_revision` at the mutation boundary.
     """
 
     # A partial-residency teardown that vacated at least this much page-locked
@@ -290,6 +306,7 @@ class NativeModel:
         self.compute_dtype = compute_dtype
         self.quant_format = quant_format
         self.device = device
+        self.weight_revision = next(_weight_revisions)
         # Set when this component is placed with PARTIAL residency (some leaves on
         # the GPU, the rest streamed from pinned CPU RAM). ``None`` = all-or-nothing
         # residency via ``move_to``. See ``memory/partial.py``.
@@ -299,6 +316,21 @@ class NativeModel:
         # handle. Restored whenever the module leaves the GPU so the RAM-cached
         # copy never holds a compiled graph. ``None`` = not compiled.
         self._compiled = None
+
+    def bump_weight_revision(self, reason: str) -> int:
+        """Declare that this component's effective weights are about to change.
+
+        Call it BEFORE the mutation (adapter add/remove/rescale, a scheduled-window
+        reconfiguration), never after: a reconciliation that raises midway leaves a
+        half-patched module, and a revision bumped up front already invalidates
+        every cache keyed on it. Bumping is cheap (one counter read) and monotonic
+        — a revision, once left behind, can never come back.
+        """
+        self.weight_revision = next(_weight_revisions)
+        logger.debug(
+            "[NATIVE] %s weights revised to r%d: %s", self.kind, self.weight_revision, reason,
+        )
+        return self.weight_revision
 
     def _reclaim_host_after_teardown(self, pinned_gb: float) -> None:
         """Return the host pages a partial-residency teardown vacated to the OS.
@@ -1589,8 +1621,12 @@ class NativeGenerator:
             settings, guidance_options, sampler_options, step_cache_options)
         # Session-scoped model identity: id(module) changes on a reload, so a
         # swapped checkpoint (same family/variant) never resumes a stale latent.
+        # id alone is NOT the effective-weight identity — the Flux/Krea-2 loaders
+        # reconcile a LoRA stack in place on the cached module — so the wrapper's
+        # weight revision rides alongside it (see NativeModel.weight_revision).
         static_key = (
-            self.spec.family, self.spec.variant, id(self.dit.module), int(seed),
+            self.spec.family, self.spec.variant, id(self.dit.module),
+            self.dit.weight_revision, int(seed),
             tuple(latents_shape), sampler, int(steps),
             settings.get("guidance"), sched_sig, settings_sig,
         )

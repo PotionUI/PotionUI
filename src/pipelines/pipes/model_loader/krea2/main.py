@@ -73,6 +73,17 @@ from src.pipelines.pipes.model_loader.krea2.krea2_clip import Krea2ClipTextEncod
 _LOG_TAG = "MODEL LOADER KREA2"
 
 
+def _window_fingerprint(windowed_loras: List[Dict[str, Any]]) -> str:
+    """Stamp of the step-windowed stack: file, weight and the window itself.
+
+    ``window`` is a frozen :class:`LoraStepWindow`, so its repr is order-stable
+    and a start/end edit shows up here even when the file and weight are unchanged.
+    """
+    return "+".join(
+        f"{lora['file_path']}@{lora['weight']}{lora['window']}" for lora in windowed_loras
+    ) or "none"
+
+
 class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
     name = "model_loader"
     description = "Load a native Krea-2 checkpoint set (DiT + Qwen3-VL TE + Qwen-Image VAE)"
@@ -196,10 +207,13 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
         def load_vae() -> NativeModel:
             return loader.load(vae_path, "vae")
 
+        window_fp = _window_fingerprint(windowed_loras)
+
         def load_dit() -> NativeModel:
             model = loader.load(dit_path, "diffusion_model")
             self._apply_loras(model, loras)
             model._active_lora_fp = lora_fp  # noqa: SLF001 - our own stamp, not the wrapper's private state
+            model._active_lora_window_fp = window_fp  # noqa: SLF001 - see _sync_lora_windows
             return model
 
         models = pipe_input.input.get("MODELS", None)
@@ -230,6 +244,7 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
             progress.advance("DiT", f"native/dit/{dit_path}")
             dit_model = models.acquire(key=f"native/dit/{dit_path}", fingerprint=dit_fp, loader=load_dit, estimated_vram_gb=file_size_gb(dit_path))
             self._sync_loras(dit_model, loras, lora_fp)
+            self._sync_lora_windows(dit_model, window_fp)
         else:
             # No lifecycle service to defer through (isolated pipe use, e.g.
             # tests) -- nothing to gain from laziness, so load everything
@@ -284,10 +299,32 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
         add/remove-LoRA case this exists for) or a cache MISS whose loader
         already applied+stamped the correct stack, in which case the stamps
         already match and this function never reaches the branch below.
+
+        The revision bump precedes the mutation so an ``_apply_loras`` that raises
+        midway (leaving a stripped or half-patched module, with the stamp
+        deliberately left stale so the next call retries) still cannot serve a
+        cache keyed on the pre-mutation weights.
         """
         if getattr(dit_model, "_active_lora_fp", None) == lora_fp:
             return
+        dit_model.bump_weight_revision(f"lora stack -> {lora_fp}")
         _remove_loras(dit_model.module)
         if loras:
             ModelLoaderKrea2Pipe._apply_loras(dit_model, loras)
         dit_model._active_lora_fp = lora_fp  # noqa: SLF001 - our own stamp, not the wrapper's private state
+
+    @staticmethod
+    def _sync_lora_windows(dit_model: NativeModel, window_fp: str) -> None:
+        """Revise the shared DiT's weight identity when the step-windowed stack changes.
+
+        Windowed entries are never patched into the cached module (see ``process``),
+        so ``_sync_loras`` cannot see them — but the sampler switches them on at
+        their window's first step and off after its last, which changes the weights
+        the trajectory is actually computed under. A cache-HIT DiT whose windowed
+        request differs from the stamped one therefore needs a fresh revision even
+        though nothing about the resting module changed.
+        """
+        if getattr(dit_model, "_active_lora_window_fp", None) == window_fp:
+            return
+        dit_model.bump_weight_revision(f"lora windows -> {window_fp}")
+        dit_model._active_lora_window_fp = window_fp  # noqa: SLF001 - our own stamp

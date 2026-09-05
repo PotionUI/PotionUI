@@ -2128,3 +2128,21 @@ class TestMoveCondListValues:
         gen = self._generator()
         out = gen._move_cond({"a": None, "b": torch.ones(2)}, torch.device("cpu"), torch.float32)
         assert "a" not in out and out["b"].dtype == torch.float32
+
+
+class TestWeightRevision:
+    """``NativeModel.weight_revision`` is the effective-weight identity caches key on."""
+
+    def test_every_wrapper_starts_on_its_own_revision(self):
+        # Two wrappers must never collide: CPython recycles id() for a freed
+        # module, so a per-instance counter restarting at 0 could hand a recycled
+        # id + revision pair back to a cache as a stale hit.
+        assert NativeModel("vae", object()).weight_revision != NativeModel("vae", object()).weight_revision
+
+    def test_bump_is_strictly_monotonic(self):
+        model = NativeModel("diffusion_model", object())
+        revisions = [model.weight_revision]
+        for _ in range(3):
+            revisions.append(model.bump_weight_revision("test"))
+        assert revisions == sorted(set(revisions))
+        assert model.weight_revision == revisions[-1]

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { pluginStore, frontendHooks, type PluginHook } from '$lib/stores/plugins';
 	import { api } from '$lib/services/api/index';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
@@ -92,31 +92,50 @@
 		}
 	}
 
+	// A load run is asynchronous and unordered: without this generation counter an
+	// older run (a plugin since disabled, a slot since re-pointed at another
+	// `hookName`/`position`) resolves last and restores components that are no
+	// longer contributed. Every hook-set change and the teardown bump the counter,
+	// so only the newest run may publish.
+	let loadGeneration = 0;
+
+	function invalidateLoads(): number {
+		return ++loadGeneration;
+	}
+
 	// Load all components for this slot
-	async function loadAllComponents() {
+	async function loadAllComponents(hooks: PluginHook[]) {
+		const generation = invalidateLoads();
+
 		loading = true;
 		error = null;
 
 		const newComponents = [];
 
-		for (const hook of relevantHooks) {
+		for (const hook of hooks) {
 			const component = await loadComponent(hook);
 			if (component) {
 				newComponents.push({ hook, component });
 			}
 		}
 
+		if (generation !== loadGeneration) return;
+
 		loadedComponents = newComponents;
 		loading = false;
 	}
 
-	// Reactive loading when hooks change
+	// Reactive loading when hooks change. `relevantHooks` is a fresh array on every
+	// recompute, so passing it hands the run its own snapshot.
 	$: if (relevantHooks.length > 0) {
-		loadAllComponents();
+		loadAllComponents(relevantHooks);
 	} else {
+		invalidateLoads();
 		loading = false;
 		loadedComponents = [];
 	}
+
+	onDestroy(invalidateLoads);
 
 	onMount(async () => {
 		// Ensure hooks are loaded

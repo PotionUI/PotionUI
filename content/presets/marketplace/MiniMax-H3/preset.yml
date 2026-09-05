@@ -106,6 +106,16 @@ vars:
   # `media`); Wan and LTX-2 read the same document shape, just through their
   # own generators.
   video_director:
+    # Read only by the orchestrator (src/features/generation/orchestrator.py),
+    # never by normalize_video_director itself -- the normalizer stays
+    # family-agnostic (docs/video-director.md's "Per-family interpretation").
+    # Names which family's own window-planner arithmetic
+    # src.features.video_director.compile.compile_shot_plan should use to
+    # derive the stitched timeline a per-shot render's free-floating
+    # keyframes/audio are rebased against (video_minimax_h3/windows.py's
+    # 17n+5 frame snap and continuation-overlap trim) -- see compile.py's
+    # `_MINIMAX_H3_FAMILY`.
+    family: "minimax_h3"
     # `refs` (ref2va) additionally exposes the Director here, but with a
     # different capability set -- see `preset_mode_overrides` below
     # (apply_preset_mode_overlay(), src/features/video_director/normalize.py).

@@ -636,7 +636,15 @@ class GenerationOrchestrator:
                 # normalized document untouched.
                 render = normalized_doc.get('render')
                 if isinstance(render, dict) and render.get('scope') == 'shots':
-                    normalized_doc = compile_shot_plan(normalized_doc, render.get('shot_ids') or [])
+                    # `family` (from the SAME post-overlay capabilities block
+                    # normalize_video_director validated the document against,
+                    # never re-derived from the document itself) tells the
+                    # compiler which family's own window-planner arithmetic
+                    # the stitched timeline it rebases keyframes/audio against
+                    # actually follows -- see compile_shot_plan's docstring.
+                    normalized_doc = compile_shot_plan(
+                        normalized_doc, render.get('shot_ids') or [], family=capabilities.get('family'),
+                    )
 
                 request.form_data['video_director'] = normalized_doc
 

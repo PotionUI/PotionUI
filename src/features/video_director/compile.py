@@ -44,6 +44,19 @@ from src.features.video_director.normalize import (
     derive_ltx_media_fields,
     wan_model_set_for,
 )
+from src.pipelines.pipes.generator.video_minimax_h3.windows import resolve_window_geometry
+
+# The one family whose stitched timeline this module knows how to derive from
+# something OTHER than a segment's own raw `frames / fps` -- see
+# `_effective_segment_durations`. Keyed off `family` (the orchestrator's own
+# read of the target preset's `video_director.family` capability, resolved
+# from the SAME preset capabilities block `normalize_video_director` was
+# handed, never guessed from the document's shape); every other family,
+# including Wan and an absent/unknown `family`, keeps the legacy raw-frame
+# axis -- Wan's own effective per-window overlap depends on a pipe-config
+# knob (`motion_latent_count`) that never travels with the Video Director
+# document, so there is no document-only "Wan planner" to call here yet.
+_MINIMAX_H3_FAMILY = "minimax_h3"
 
 
 def _segment_duration(segment: Dict[str, Any], fps: Optional[float]) -> float:
@@ -59,7 +72,33 @@ def _segment_duration(segment: Dict[str, Any], fps: Optional[float]) -> float:
     return 0.0
 
 
-def compile_shot_plan(normalized_doc: Dict[str, Any], shot_ids: List[str]) -> Dict[str, Any]:
+def _effective_segment_durations(
+    segments: List[Dict[str, Any]], settings: Dict[str, Any], fps: Optional[float], family: Optional[str],
+) -> List[float]:
+    """Each segment's own CONTRIBUTION to the stitched timeline, in seconds,
+    in document order -- the axis every cumulative offset, keyframe `at` and
+    audio `start`/`length` in this module is expressed against.
+
+    For the `minimax_h3` family this is the window planner's actual
+    emitted-frame timeline (`video_minimax_h3/windows.py`'s
+    `resolve_window_geometry` -- the SAME snap-to-`17n+5` and
+    overlap-frame-trim arithmetic `build_director_plan` runs at generation
+    time, called here without a model loaded), not a raw `frames / fps` sum:
+    a continuation window's leading `overlap_frames` replay the previous
+    window's tail rather than adding new footage, and a requested frame count
+    that isn't already on the VAE's lattice is snapped up before it ever
+    reaches seconds. Every other family falls back to the legacy raw-frame
+    axis (`_segment_duration`) -- see the module-level `_MINIMAX_H3_FAMILY`
+    comment for why that isn't yet wrong to leave alone for Wan.
+    """
+    if family == _MINIMAX_H3_FAMILY and isinstance(fps, (int, float)) and fps > 0:
+        return [geometry.emitted_frames / fps for geometry in resolve_window_geometry(segments, settings)]
+    return [_segment_duration(segment, fps) for segment in segments]
+
+
+def compile_shot_plan(
+    normalized_doc: Dict[str, Any], shot_ids: List[str], *, family: Optional[str] = None,
+) -> Dict[str, Any]:
     """Cut `normalized_doc` (the return value of `normalize_video_director`,
     already validated against a chain-style/`segment_routing` preset) down to
     the contiguous span of segments named by `shot_ids`, with every
@@ -67,6 +106,16 @@ def compile_shot_plan(normalized_doc: Dict[str, Any], shot_ids: List[str]) -> Di
     explicitly. Returns a NEW dict shaped exactly like `normalized_doc` --
     every pipeline/pipe that reads `form.video_director.*` sees a document
     indistinguishable from one that was always just this span.
+
+    `family` is the orchestrator's own read of the target preset's
+    `video_director.family` capability (the SAME capabilities block
+    `normalize_video_director` validated the document against) -- it selects
+    which family's own window-planner arithmetic derives the stitched
+    timeline every free-floating keyframe/audio offset in this document is
+    rebased against (see `_effective_segment_durations`). `None` (the
+    default) keeps the legacy raw `frames / fps` axis, correct for every
+    family that doesn't snap frame counts or trim continuation overlap off
+    the FRONT of a window's decoded output.
 
     Raises `VideoDirectorValidationError` when:
     - `shot_ids` is empty, or names an id the document has no segment for
@@ -147,14 +196,20 @@ def compile_shot_plan(normalized_doc: Dict[str, Any], shot_ids: List[str]) -> Di
     # the same "chain's total duration" axis a free-floating (`anywhere`)
     # keyframe's `at` and an audio track's `start` are expressed against
     # (normalize.py's `chain_keyframes_anywhere`; windows.py's `_locate_frame`
-    # walks this same axis one cumulative window at a time).
+    # walks this same axis one cumulative window at a time). Each segment's
+    # own width on that axis is what it actually CONTRIBUTES to the stitched
+    # result -- for `minimax_h3` that is the window planner's emitted-frame
+    # duration (aligned frames minus the overlap trimmed off a continuation
+    # window's front), never a raw `frames / fps` sum -- see
+    # `_effective_segment_durations`.
+    effective_durations = _effective_segment_durations(segments, settings, fps, family)
     cumulative_starts: List[float] = []
     running = 0.0
-    for segment in segments:
+    for duration in effective_durations:
         cumulative_starts.append(running)
-        running += _segment_duration(segment, fps)
+        running += duration
     span_start = cumulative_starts[start_index]
-    span_duration = sum(_segment_duration(segment, fps) for segment in span_segments)
+    span_duration = sum(effective_durations[start_index:end_index + 1])
     span_end = span_start + span_duration
 
     compiled_media: List[Dict[str, Any]] = []

@@ -246,6 +246,63 @@ def resolve_mux_audio(document: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+@dataclass(frozen=True)
+class SegmentWindowGeometry:
+    """One segment's own frame/overlap geometry on the VAE's `17n+5` lattice --
+    the pure-arithmetic half of a `WindowPlan`, with no prompt/seed/reference
+    bookkeeping attached.
+
+    Split out of `build_director_plan`'s per-window loop so the Director
+    per-shot compiler (`src.features.video_director.compile`) can derive the
+    SAME emitted-frame timeline the generator will actually produce, without
+    running the rest of this module's plan-building (keyframe attachment,
+    reference validation, mux-audio resolution) and without a model loaded.
+    """
+
+    frames: int
+    num_latent_frames: int
+    overlap_latents: int
+    overlap_frames: int
+
+    @property
+    def emitted_frames(self) -> int:
+        return self.frames - self.overlap_frames
+
+
+def resolve_window_geometry(
+    segments: List[Dict[str, Any]], settings: Dict[str, Any],
+) -> List[SegmentWindowGeometry]:
+    """Per-segment frame/overlap geometry, in document order.
+
+    Raises `DirectorPlanError` under the same conditions `build_director_plan`
+    does (a segment missing its frame count, or a window past the released
+    per-window duration ceiling) -- this function performs that same snap and
+    validation, just without the prompt/seed/reference bookkeeping layered on
+    top in `build_director_plan`.
+    """
+    overlap_latents_default, _stitch = _resolve_overlap(settings)
+    geometry: List[SegmentWindowGeometry] = []
+    for index, segment in enumerate(segments):
+        sub_type = segment.get("sub_type") or (CONTINUING_SUB_TYPE if index else "t2v")
+        requested = segment.get("frames")
+        if not isinstance(requested, int):
+            raise DirectorPlanError(
+                f"segments[{index}]: a MiniMax-H3 Director segment needs an explicit frame count"
+            )
+        frames = _window_frames(requested, context=f"segments[{index}]")
+        num_latent_frames = video_latent_num_frames(frames)
+
+        continues = index > 0 and sub_type == CONTINUING_SUB_TYPE
+        overlap_latents = min(overlap_latents_default, num_latent_frames - 1) if continues else 0
+        geometry.append(SegmentWindowGeometry(
+            frames=frames,
+            num_latent_frames=num_latent_frames,
+            overlap_latents=overlap_latents,
+            overlap_frames=head_frames_for_latents(overlap_latents),
+        ))
+    return geometry
+
+
 def build_director_plan(document: Optional[Dict[str, Any]], *, default_seed: int) -> Optional[DirectorPlan]:
     """Cut a normalized Director document into the windows this pipe runs.
 
@@ -260,23 +317,16 @@ def build_director_plan(document: Optional[Dict[str, Any]], *, default_seed: int
         return None
 
     settings = document.get("settings") or {}
-    overlap_latents_default, stitch = _resolve_overlap(settings)
+    _, stitch = _resolve_overlap(settings)
     document_seed = settings.get("seed")
     base_seed = int(document_seed) if isinstance(document_seed, int) else int(default_seed)
+    window_geometry = resolve_window_geometry(segments, settings)
 
     windows: List[WindowPlan] = []
     for index, segment in enumerate(segments):
         sub_type = segment.get("sub_type") or (CONTINUING_SUB_TYPE if index else "t2v")
+        geometry = window_geometry[index]
         requested = segment.get("frames")
-        if not isinstance(requested, int):
-            raise DirectorPlanError(
-                f"segments[{index}]: a MiniMax-H3 Director segment needs an explicit frame count"
-            )
-        frames = _window_frames(requested, context=f"segments[{index}]")
-        num_latent_frames = video_latent_num_frames(frames)
-
-        continues = index > 0 and sub_type == CONTINUING_SUB_TYPE
-        overlap_latents = min(overlap_latents_default, num_latent_frames - 1) if continues else 0
         segment_seed = segment.get("seed")
 
         raw_reference_indices = segment.get("reference_indices")
@@ -297,13 +347,13 @@ def build_director_plan(document: Optional[Dict[str, Any]], *, default_seed: int
             sub_type=sub_type,
             prompt=str(segment.get("prompt") or ""),
             requested_frames=requested,
-            frames=frames,
-            num_latent_frames=num_latent_frames,
-            num_audio_latents=audio_latent_num_frames(frames),
+            frames=geometry.frames,
+            num_latent_frames=geometry.num_latent_frames,
+            num_audio_latents=audio_latent_num_frames(geometry.frames),
             seed=int(segment_seed) if isinstance(segment_seed, int) else base_seed + index,
             steps=segment.get("steps") if isinstance(segment.get("steps"), int) else None,
-            overlap_latents=overlap_latents,
-            overlap_frames=head_frames_for_latents(overlap_latents),
+            overlap_latents=geometry.overlap_latents,
+            overlap_frames=geometry.overlap_frames,
             reference_indices=reference_indices,
         ))
 

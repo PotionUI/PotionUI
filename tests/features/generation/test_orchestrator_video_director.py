@@ -354,7 +354,11 @@ class TestPerShotCompileWiring:
         ):
             await orchestrator.start_generation(request, 'user_123')
 
-        mock_compile.assert_called_once_with(normalized, ['seg-2'])
+        # `family` is the preset's `video_director.family` capability
+        # (src.features.video_director.compile.compile_shot_plan) --
+        # `mock_preset_template_loader`'s preset declares no `family` key, so
+        # it resolves to `None` here (the untouched legacy geometry path).
+        mock_compile.assert_called_once_with(normalized, ['seg-2'], family=None)
         assert request.form_data['video_director'] == compiled
 
         gen_arg = mock_generation_repo.create.call_args[0][0]

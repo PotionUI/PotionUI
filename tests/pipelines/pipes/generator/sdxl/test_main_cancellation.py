@@ -150,3 +150,64 @@ class TestImg2ImgCancellation:
             generator_pipe.process(pipe_input, Mock(), is_cancelled=lambda: mock_model.img2img.call_count >= 1)
 
         assert mock_model.img2img.call_count == 1
+
+
+class TestFinalBoundaryCancellation:
+    """A cancellation that flips only once inside the (uninterruptible) VAE
+    decode of the single/last image -- after its last sampling-step callback
+    already saw `is_cancelled() == False` -- must still stop the pipe before
+    any gallery output reaches `generation_outputs`. The fake model methods
+    below flip the REAL probe's own state right before returning their
+    completed output, exactly reproducing that boundary.
+    """
+
+    @pytest.fixture
+    def one_image_pipe(self):
+        config = GeneratorSDXLPipe.get_default_config()
+        config["quantity"] = 1
+        return GeneratorSDXLPipe(config)
+
+    def test_txt2img_cancelled_during_final_decode_never_reaches_gallery(
+        self, one_image_pipe, mock_conditioning
+    ):
+        state = {"cancelled": False}
+        probe = lambda: state["cancelled"]
+
+        def fake_txt2img(generation_input, generation_outputs, is_cancelled=None):
+            state["cancelled"] = True  # flips only now -- too late for any earlier probe check
+            return ImageGenerationOutput(image=Image.new("RGB", (64, 64)), seed=1)
+
+        model = Mock()
+        model.txt2img = fake_txt2img
+        outputs = Mock()
+        pipe_input = PipeInput(input={"model": model, "conditioning": [mock_conditioning], "seed": [1]})
+
+        with pytest.raises(SamplingCancelled):
+            one_image_pipe.process(pipe_input, outputs, is_cancelled=probe)
+
+        outputs.assert_not_called()
+        assert model.clear_cuda_cache.called
+
+    def test_img2img_cancelled_during_final_decode_never_reaches_gallery(
+        self, one_image_pipe, mock_conditioning
+    ):
+        state = {"cancelled": False}
+        probe = lambda: state["cancelled"]
+
+        def fake_img2img(generation_input, generation_outputs, is_cancelled=None):
+            state["cancelled"] = True
+            return ImageGenerationOutput(image=Image.new("RGB", (64, 64)), seed=1)
+
+        model = Mock()
+        model.img2img = fake_img2img
+        outputs = Mock()
+        pipe_input = PipeInput(input={
+            "model": model, "conditioning": [mock_conditioning], "seed": [1],
+            "image": [Image.new("RGB", (64, 64))],
+        })
+
+        with pytest.raises(SamplingCancelled):
+            one_image_pipe.process(pipe_input, outputs, is_cancelled=probe)
+
+        outputs.assert_not_called()
+        assert model.clear_cuda_cache.called

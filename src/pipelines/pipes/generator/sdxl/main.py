@@ -143,6 +143,14 @@ class GeneratorSDXLPipe(BasePipe):
                     is_cancelled,
                 )
 
+            # Last-line-of-defense: a cancellation that flipped inside the
+            # final image's own (uninterruptible) decode is already caught
+            # per-image above, but this makes it explicit that nothing
+            # reaches the gallery once cancelled regardless of how `images`
+            # was built.
+            if is_cancelled is not None and is_cancelled():
+                self._raise_sampling_cancelled()
+
             emit_gallery(generation_outputs, images)
         finally:
             # One aggressive cleanup per pipe run; per-image cleanups inside
@@ -155,10 +163,12 @@ class GeneratorSDXLPipe(BasePipe):
     def _call_with_cancellation(method: Callable, *args, is_cancelled: Optional[Callable[[], bool]], **kwargs):
         """Call ``method`` forwarding ``is_cancelled`` only if it declares that parameter.
 
-        `SDXLModel.txt2img`/`img2img`/their ControlNet variants do not accept
-        `is_cancelled` yet; this stays a no-op passthrough until they do, the
-        same signature-introspection convention `GenerationEngine` already uses
-        to decide whether a pipe's `process()` wants the probe.
+        `SDXLModel.txt2img`/`img2img`/their ControlNet variants all accept
+        `is_cancelled` now; the signature-introspection stays anyway (rather
+        than passing it unconditionally) so this keeps working against any
+        model implementation that hasn't adopted the parameter yet, the same
+        convention `GenerationEngine` already uses to decide whether a pipe's
+        `process()` wants the probe.
         """
         if is_cancelled is not None:
             import inspect
@@ -237,6 +247,14 @@ class GeneratorSDXLPipe(BasePipe):
                     model.img2img, g_input, generation_outputs, is_cancelled=is_cancelled,
                 )
 
+            # A cancellation that flipped during this image's VAE decode (or
+            # inside the model call after its last sampling callback) is
+            # otherwise invisible: the decode itself is uninterruptible, and
+            # without this check the completed-but-cancelled output would
+            # still be appended and, on the last image, reach the gallery.
+            if is_cancelled is not None and is_cancelled():
+                self._raise_sampling_cancelled()
+
             results.append(output)
 
         return results
@@ -277,6 +295,12 @@ class GeneratorSDXLPipe(BasePipe):
                 output = self._call_with_cancellation(
                     model.txt2img, g_input, generation_outputs, is_cancelled=is_cancelled,
                 )
+
+            # See the matching comment in _generate_img2img: catches a
+            # cancellation that flipped during this image's (uninterruptible)
+            # VAE decode, before the completed output is appended.
+            if is_cancelled is not None and is_cancelled():
+                self._raise_sampling_cancelled()
 
             results.append(output)
 

@@ -172,7 +172,10 @@ class LLMRepository:
         self.config_repo = LLMConfigurationRepository()
         self._default_provider = None
         self._load_default_provider()
-        self._config_cache: TTLCache[str, Optional[LLMConfig]] = TTLCache(_CONFIG_CACHE_TTL_SECONDS)
+        # max_entries=64: a self-hosted install has at most a handful of LLM configs.
+        self._config_cache: TTLCache[str, Optional[LLMConfig]] = TTLCache(
+            _CONFIG_CACHE_TTL_SECONDS, max_entries=64
+        )
 
     def _load_default_provider(self):
         """Load default provider from configuration"""
@@ -460,7 +463,3 @@ class LLMRepository:
         except Exception:
             return False
 
-
-# Global repository instances
-llm_config_repo = LLMConfigurationRepository()
-llm_repository = LLMRepository()

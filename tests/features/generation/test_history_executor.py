@@ -361,6 +361,39 @@ class TestCancelledResultDisposal:
         disposer.assert_not_called()
         executor.shutdown()
 
+    async def test_disposer_runs_when_the_worker_already_finished_before_cancellation_lands(self, monkeypatch):
+        """The other three fixtures above cancel while the worker is still
+        sleeping - `work` isn't done yet when `run()` catches CancelledError.
+        The narrower race is: `work` finishes (the thread returns, the future
+        has its result) but the awaiting task's cancellation still wins,
+        raising CancelledError instead of delivering that result - real
+        asyncio guarantees this when a task's cancel() lands on an
+        already-done awaited future (`_must_cancel`), but winning that exact
+        interleaving for real is not reproducible on demand from a test.
+        `asyncio.wrap_future` is patched to wait out real worker completion
+        and then always raise CancelledError, which reproduces the race's
+        shape deterministically: `work.done()` is True by the time `run()`'s
+        `except CancelledError` branch registers the disposal callback, so
+        `Future.add_done_callback` fires it immediately rather than later."""
+        import src.features.generation.history_executor as history_executor_module
+
+        executor = HistoryExecutor(max_workers=1, max_pending=0)
+        tracked = Mock(closed=False)
+        tracked.close.side_effect = lambda: setattr(tracked, "closed", True)
+
+        async def cancel_after_completion(work, loop=None):
+            while not work.done():
+                await asyncio.sleep(0.005)
+            raise asyncio.CancelledError()
+
+        monkeypatch.setattr(history_executor_module.asyncio, "wrap_future", cancel_after_completion)
+
+        with pytest.raises(asyncio.CancelledError):
+            await executor.run(lambda: tracked, on_cancelled_result=lambda result: result.close())
+
+        assert tracked.closed is True
+        executor.shutdown()
+
 
 class TestExportCancellationDisposesOfSpooledFile:
     """End-to-end proof for the facade's export methods: a real

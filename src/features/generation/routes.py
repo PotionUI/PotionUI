@@ -487,28 +487,35 @@ class GenerationController(BaseController):
         `SpooledTemporaryFile` seeked to 0 - without ever holding the archive
         fully in memory as bytes. The returned `_SpooledZipResponse` is the
         sole owner of closing `zip_file` from here on (which also removes its
-        backing temp file, if the export rolled over to disk).
+        backing temp file, if the export rolled over to disk) - until it is
+        actually returned, ownership hasn't transferred yet, so any failure
+        while measuring or constructing the response here closes `zip_file`
+        itself rather than leaving it ownerless.
         """
-        zip_file.seek(0, io.SEEK_END)
-        content_length = zip_file.tell()
-        zip_file.seek(0)
+        try:
+            zip_file.seek(0, io.SEEK_END)
+            content_length = zip_file.tell()
+            zip_file.seek(0)
 
-        def iter_chunks():
-            while True:
-                chunk = zip_file.read(_EXPORT_STREAM_CHUNK_BYTES)
-                if not chunk:
-                    break
-                yield chunk
+            def iter_chunks():
+                while True:
+                    chunk = zip_file.read(_EXPORT_STREAM_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    yield chunk
 
-        return _SpooledZipResponse(
-            zip_file,
-            iter_chunks(),
-            media_type="application/zip",
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "Content-Length": str(content_length),
-            },
-        )
+            return _SpooledZipResponse(
+                zip_file,
+                iter_chunks(),
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}"',
+                    "Content-Length": str(content_length),
+                },
+            )
+        except Exception:
+            _close_spooled_file(zip_file)
+            raise
 
     async def get_generation_history(
         self,

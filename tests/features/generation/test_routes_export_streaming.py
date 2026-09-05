@@ -86,6 +86,39 @@ def _contains_connection_reset(exc: BaseException) -> bool:
     return False
 
 
+class _RaisingTellFile:
+    """Wraps a real spooled file so `.tell()` raises - simulates a failure
+    inside `_stream_zip_response`'s measure/construct interval, before any
+    `_SpooledZipResponse` exists to take over ownership of closing it."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.closed = False
+
+    def seek(self, *args, **kwargs):
+        return self._inner.seek(*args, **kwargs)
+
+    def tell(self):
+        raise OSError("simulated failure measuring content length")
+
+    def read(self, *args, **kwargs):
+        return self._inner.read(*args, **kwargs)
+
+    def close(self):
+        self.closed = True
+        self._inner.close()
+
+
+class TestStreamZipResponseConstructionFailure:
+    def test_closes_the_file_when_measuring_content_length_raises(self):
+        tracked = _RaisingTellFile(_spooled_zip({"a.txt": b"hello"}))
+
+        with pytest.raises(OSError):
+            GenerationController._stream_zip_response(tracked, "export.zip")
+
+        assert tracked.closed is True
+
+
 class TestStreamZipResponseHeaders:
     def test_sets_content_length_and_disposition_headers(self):
         zip_file = _spooled_zip({"a.txt": b"hello world"})

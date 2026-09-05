@@ -981,3 +981,64 @@ def test_ltx_rendered_pipe_configs_validate_with_upscale_and_audio_active(ltx_te
 def test_ltx_rendered_pipe_configs_validate_against_declared_spec(ltx_template, doc, form_over):
     pipes = _process_ltx(ltx_template, doc, form_over=form_over)
     _validate_configs(pipes)
+
+
+# -- Wan TI2V-5B is text-to-video only: not i2v/flf/Director ----------------
+#
+# generator/img2vid_wan22 rejects a checkpoint whose in_dim isn't the
+# 36-channel concat-i2v contract it implements (the 5B TI2V is in_dim=48 with
+# its own built-in conditioning) -- see that generator's own unit tests. The
+# preset copy must not invite a 5B selection into the i2v picker, and a
+# document that already carries one (an old saved selection, or a user who
+# ignores the copy) must still route to that rejecting generator rather than
+# being silently dropped or blocked at the form layer.
+
+def _find_field(fields, name):
+    for f in fields:
+        if f.name == name:
+            return f
+        if isinstance(f.children, list):
+            found = _find_field(f.children, name)
+            if found is not None:
+                return found
+    return None
+
+
+def test_i2v_picker_5b_recommendation_is_qualified_text_to_video_only(wan_template):
+    form = wan_template.modes["video"].forms[0]
+    field = _find_field(form.fields, "i2v_high_noise_model")
+    assert field is not None
+    recs = field.configuration["recommendations"]
+    five_b = next(r for r in recs if "5B" in r["name"])
+    assert "text-to-video only" in five_b["description"]
+
+
+def test_t2v_picker_5b_recommendation_does_not_claim_i2v_support(wan_template):
+    form = wan_template.modes["video"].forms[0]
+    field = _find_field(form.fields, "t2v_high_noise_model")
+    assert field is not None
+    recs = field.configuration["recommendations"]
+    five_b = next(r for r in recs if "5B" in r["name"])
+    assert "and i2v" not in five_b["description"]
+    assert "text-to-video only" in five_b["description"]
+
+
+def test_i2v_mode_with_5b_checkpoint_selection_keeps_value_and_routes_to_rejecting_generator(wan_template):
+    """A document carrying a 5B selection in the i2v picker (e.g. a save made
+    before this copy fix) still renders that value through untouched -- no
+    field rename/option removal drops it -- and i2v mode still routes to
+    generator/img2vid_wan22, which rejects a 48-channel DiT before any
+    conditioning work."""
+    five_b_path = "/models/wan2.2_ti2v_5B_fp16.safetensors"
+    pipes = _process(wan_template, DOC_I2V, form_over={"i2v_high_noise_model": five_b_path})
+    i2v_loader = _pipe(pipes, "model_loader/wan22", pipe_id="i2v_loader")
+    assert i2v_loader["config"]["high_noise_model"]["file_path"] == five_b_path
+    assert _enabled_generators(pipes) == ["generator/img2vid_wan22"]
+
+
+def test_director_mode_with_5b_i2v_selection_keeps_value_and_routes_to_rejecting_generator(wan_template):
+    five_b_path = "/models/wan2.2_ti2v_5B_fp16.safetensors"
+    pipes = _process(wan_template, DOC_CHAIN, form_over={"i2v_high_noise_model": five_b_path})
+    i2v_loader = _pipe(pipes, "model_loader/wan22", pipe_id="i2v_loader")
+    assert i2v_loader["config"]["high_noise_model"]["file_path"] == five_b_path
+    assert _enabled_generators(pipes) == ["generator/chain_video_wan22"]

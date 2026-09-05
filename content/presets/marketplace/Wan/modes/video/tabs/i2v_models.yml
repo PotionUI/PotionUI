@@ -24,7 +24,7 @@ fields:
               link: "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors"
               size: "9.31 GB"
               sha256: "456f901338bd9eadbded3828b819109a9b68e8a525ca5cf8d0049a69fcfeca1e"
-              description: "Wan 2.2 5B TI2V - the same single DiT as the t2v picker; select it in both and leave low-noise empty."
+              description: "Wan 2.2 5B TI2V - text-to-video only. Its built-in image conditioning is not the 36-channel concat contract this picker's generator implements, so it does not work in i2v, flf, or the Director; use an A14B i2v checkpoint above for those."
 
       # Wan 2.2 14B dual-expert only; leave empty for 2.1 / 5B.
       - name: "i2v_low_noise_model"

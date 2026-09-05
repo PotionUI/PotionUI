@@ -36,7 +36,7 @@ The shipped Wan preset's only generation mode is `video`, a Video Director flow 
 
 ### Two checkpoint sets
 
-Wan 2.2 ships architecturally-separate t2v (in_dim 16) and i2v (in_dim 36, 20-channel concat conditioning) checkpoints, so the form carries **two** DiT sets — `t2v_high_noise_model` / `t2v_low_noise_model` and `i2v_high_noise_model` / `i2v_low_noise_model` — plus a shared text encoder and VAE, and per-set base LoRA stacks on the LoRA tab. Each set's loader is enabled only when the submitted document actually contains a segment that needs it (the `needs_t2v_set` / `needs_i2v_set` flags `normalize_video_director` precomputes): a pure-t2v request never loads the i2v pair, a pure-chain-from-an-image request never loads the t2v pair. The 5B TI2V checkpoint does both jobs — pick the same file in both sets and the lifecycle cache (path-keyed) loads it once.
+Wan 2.2 ships architecturally-separate t2v (in_dim 16) and i2v (in_dim 36, 20-channel concat conditioning) checkpoints, so the form carries **two** DiT sets — `t2v_high_noise_model` / `t2v_low_noise_model` and `i2v_high_noise_model` / `i2v_low_noise_model` — plus a shared text encoder and VAE, and per-set base LoRA stacks on the LoRA tab. Each set's loader is enabled only when the submitted document actually contains a segment that needs it (the `needs_t2v_set` / `needs_i2v_set` flags `normalize_video_director` precomputes): a pure-t2v request never loads the i2v pair, a pure-chain-from-an-image request never loads the t2v pair. The 5B TI2V checkpoint (in_dim 48, dense, no CLIP-vision `img_emb`) belongs in the **t2v set only**: its built-in image conditioning is not the 36-channel concat contract `generator/img2vid_wan22` implements, so that generator rejects it before doing any conditioning work — see [Mode support matrix](#mode-support-matrix) below.
 
 ### Per-segment sub-type routing
 
@@ -75,6 +75,18 @@ Not surfaced on the preset:
 ## Limitations
 
 `wan22_i2v_14b` and `wan_i2v_14b` are structurally different (channel-concatenation vs. CLIP-vision cross-attention) despite both being casually called "Wan i2v" — pointing a preset built for one checkpoint shape at the other's file fails detection outright rather than silently misbehaving, but the two aren't interchangeable.
+
+### Mode support matrix
+
+Which checkpoint works in which Director mode, and what evidence backs each cell. A checkpoint's file size or VRAM footprint says nothing about which modes it supports — the 5B TI2V's small 9.31 GB file does **not** imply it works in i2v/flf/Director; its `in_dim` (48) is simply not the 36-channel concat-i2v contract `generator/img2vid_wan22` implements.
+
+| Checkpoint | t2v | i2v | flf | Director |
+| --- | --- | --- | --- | --- |
+| Wan 2.1 t2v (in_dim 16) | Supported — model detection + `test_wan_detect.py`; model-free pipeline validation via `generator/txt2vid_wan22` fixtures; no GPU validation on record for this shipped preset | N/A (no image conditioning) | N/A | Supported as a fresh t2v shot only — `chain_video_wan22` requires in_dim 16 for a t2v shot |
+| Wan 2.1 FLF2V (CLIP-vision img_emb) | N/A | Rejected — `generator/img2vid_wan22` detects `img_emb.emb_pos` and raises (model detection only; no GPU validation) | Rejected, same guard | Rejected — the chain generator routes flf/i2v shots through the same generator |
+| Wan 2.2 A14B t2v (in_dim 16, dual-expert) | Supported — model detection + `test_wan_detect.py`; model-free pipeline validation; GPU-validated peak measured (see Hardware) | N/A | N/A | Supported as a fresh t2v shot — `chain_video_wan22` requires in_dim 16 |
+| Wan 2.2 A14B i2v (in_dim 36, dual-expert) | Rejected — `generator/txt2vid_wan22` rejects in_dim 36 (model-free pipeline validation) | Supported — model detection + `test_wan_detect.py`; model-free pipeline validation (`test_wan_i2v_generator.py`'s 36ch concat wiring tests); GPU-validated peak measured (see Hardware) | Supported, same generator/tests | Supported as an i2v/chain shot — `chain_video_wan22` requires in_dim 36 |
+| Wan 2.2 TI2V-5B (in_dim 48/out_dim 48, dense, no img_emb) | Supported — model detection (`test_detect_5b_by_out_dim`) + model-free pipeline validation (`test_ti2v_5b_model_in_txt2vid_mode_proceeds`); no separately measured GPU peak | **Rejected** — `generator/img2vid_wan22` raises before any VAE/concat work (model-free pipeline test); no GPU validation needed to reach this conclusion | **Rejected**, same guard | **Rejected** — a chain segment resolving to i2v/chain still routes through `generator/img2vid_wan22` / the i2v set's in_dim-36 guard in `chain_video_wan22` |
 
 ## Hardware
 

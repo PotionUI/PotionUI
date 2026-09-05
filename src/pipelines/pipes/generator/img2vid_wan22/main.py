@@ -237,12 +237,23 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
         if not images:
             raise ValueError("generator/img2vid_wan22 requires a start image input")
 
+        mode_label = "flf" if end_images else "i2v"
+
         dit_in_dim = bundle.high_dit.module.in_dim
         if dit_in_dim == 16:
             raise ValueError(
                 f"generator/img2vid_wan22: loaded model '{bundle.spec.variant}' is a t2v Wan "
                 f"checkpoint (in_dim=16) with no image conditioning support, but the pipeline "
                 f"mode is img2vid. Pick an i2v Wan model, or use the Director's t2v sub-type."
+            )
+        if dit_in_dim != 36:
+            raise ValueError(
+                f"generator/img2vid_wan22: loaded model '{bundle.spec.variant}' has in_dim="
+                f"{dit_in_dim}, not the 36-channel concat-i2v contract this generator implements "
+                f"(e.g. the Wan 2.2 TI2V-5B checkpoint has its own built-in text+image "
+                f"conditioning that this concat path does not replicate). {mode_label} mode needs "
+                f"a Wan 2.2 A14B i2v checkpoint (in_dim=36); the 5B checkpoint only works in "
+                f"text-to-video."
             )
 
         # Wan 2.1 FLF2V-style checkpoints condition first/last frames through CLIP-vision

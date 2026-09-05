@@ -242,6 +242,51 @@ def test_t2v_model_in_img2vid_mode_raises_clear_error():
         _pipe().build_context(_pipe_input(in_dim=16))
 
 
+def test_ti2v_5b_model_in_img2vid_mode_raises_before_any_vae_or_concat_work():
+    """The TI2V-5B checkpoint (in_dim=48) does its own built-in text+image
+    conditioning -- feeding it into this generator's 36-channel concat
+    contract would silently produce a wrong/garbage conditioning tensor
+    instead of failing loudly. Must reject before touching the VAE (move_to/
+    encode/offload) or building the concat, not just before sampling."""
+    import pytest
+    bundle = _bundle(in_dim=48)
+    calls = {"vae_move_to": 0, "vae_encode": 0, "vae_offload": 0, "concat": 0}
+    bundle.vae.move_to = lambda d: calls.__setitem__("vae_move_to", calls["vae_move_to"] + 1)
+    bundle.vae.offload = lambda: calls.__setitem__("vae_offload", calls["vae_offload"] + 1)
+    bundle.vae.module.encode = lambda px: (calls.__setitem__("vae_encode", calls["vae_encode"] + 1) or None)
+    pipe_input = PipeInput(input={
+        "model": bundle,
+        "conditioning": [SimpleNamespace(embeds={"context": torch.ones(1, 4, 8)}, n_embeds=None)],
+        "image": [torch.rand(64, 64, 3)],
+        "seed": [1],
+    })
+    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.build_i2v_concat") as mock_concat, \
+         patch("src.pipelines.pipes.generator.img2vid_wan22.main.denoise") as mock_denoise:
+        with pytest.raises(ValueError, match="in_dim=48"):
+            _pipe(device="cpu").build_context(pipe_input)
+        mock_concat.assert_not_called()
+        mock_denoise.assert_not_called()
+    assert calls == {"vae_move_to": 0, "vae_encode": 0, "vae_offload": 0, "concat": 0}
+
+
+def test_a14b_i2v_model_in_dim_36_proceeds():
+    """Control: the in_dim=36 concat-i2v contract this generator implements
+    stays accepted."""
+    ctx = _pipe(device="cpu").build_context(_pipe_input(in_dim=36))
+    assert ctx.extra.forward.router.high.module.in_dim == 36
+
+
+def test_ti2v_5b_model_in_flf_mode_also_raises():
+    """Same rejection reached through the FLF path (end_image provided) --
+    one generator instance covers both i2v and flf (see the module docstring
+    / pipeline.yml)."""
+    import pytest
+    pi = _pipe_input(in_dim=48)
+    pi.input["end_image"] = [torch.rand(64, 64, 3)]
+    with pytest.raises(ValueError, match="flf"):
+        _pipe(device="cpu").build_context(pi)
+
+
 def test_build_context_snaps_resolution_and_frames():
     # 1000x540 -> 16px grid (992x544); frames 100 -> nearest 1+4k (101). Snapping
     # runs before the start frame is encoded into the concat.

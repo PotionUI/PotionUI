@@ -168,6 +168,17 @@ def test_expert_boundary_override_applied_to_router():
     assert ctx.extra.router.boundary == 0.6
 
 
+def test_ti2v_5b_model_in_txt2vid_mode_proceeds():
+    """Control: the TI2V-5B checkpoint (in_dim=48, model_type 't2v') is a
+    dense single-DiT that does its own built-in text+image conditioning --
+    it stays valid for THIS generator (only in_dim=36 i2v checkpoints are
+    rejected here). See generator/img2vid_wan22's matching rejection: the 5B
+    checkpoint is t2v-only, its own image-conditioning path is not the
+    36-channel concat contract that generator implements."""
+    ctx = _pipe(device="cpu").build_context(_pipe_input(in_dim=48))
+    assert ctx.extra.router.high.module.in_dim == 48
+
+
 def test_expert_boundary_defaults_to_spec():
     ctx = _pipe().build_context(_pipe_input())
     assert ctx.extra.router.boundary == 0.875  # _FakeSpec expert_boundary

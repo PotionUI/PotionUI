@@ -29,8 +29,10 @@
 # ONLY when the document contains a segment that needs it (needs_t2v_set /
 # needs_i2v_set), so a pure-t2v document never loads the i2v pair, a pure-chain
 # document never loads the t2v pair, and a chain that opens on a fresh t2v shot
-# and continues as i2v loads both. Picking the SAME file in both sets (the 5B
-# TI2V checkpoint) is a single load -- the lifecycle cache keys DiTs by path.
+# and continues as i2v loads both. The 5B TI2V checkpoint belongs in the t2v
+# set ONLY -- generator/img2vid_wan22 rejects it (in_dim=48, not the 36-channel
+# concat contract it implements), so an i2v/flf/chain segment always needs a
+# real A14B i2v checkpoint in the i2v set, never the 5B file.
 #
 # -- i2v/flf as one generator instance --
 # generator/img2vid_wan22 declares `end_image` OPTIONAL. Its `image` input stays

@@ -4,8 +4,11 @@
 # i2v pair). Wan 2.2 14B is a HIGH/LOW-noise expert PAIR -- supply both files and
 # the generator's expert router switches at the sampling boundary; Wan 2.1 / the
 # 5B ti2v are single-DiT, so leave the low-noise picker empty. The 5B TI2V
-# checkpoint does both jobs -- pick the same file in the T2V and I2V high-noise
-# pickers and the lifecycle cache (path-keyed) loads it once.
+# checkpoint (in_dim=48, dense, no CLIP-vision img_emb) is TEXT-TO-VIDEO ONLY in
+# this preset: its built-in image conditioning is not the 36-channel concat
+# contract generator/img2vid_wan22 implements, so it must go in the T2V picker
+# only -- never also in the I2V picker (i2v/flf modes and the Director's i2v/
+# chain shots need an A14B i2v checkpoint, in_dim=36).
 fields:
   - type: "section"
     label: "T2V Models"
@@ -32,7 +35,7 @@ fields:
               link: "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors"
               size: "9.31 GB"
               sha256: "456f901338bd9eadbded3828b819109a9b68e8a525ca5cf8d0049a69fcfeca1e"
-              description: "Wan 2.2 5B TI2V - single DiT, does t2v and i2v. Leave the low-noise picker empty and use wan2.2_vae."
+              description: "Wan 2.2 5B TI2V - single DiT, text-to-video only in this preset (its built-in image conditioning needs a different i2v path than the A14B checkpoints' concat contract). Leave the low-noise picker empty and use wan2.2_vae; do not also pick it in the i2v/Director pickers."
 
       # Wan 2.2 14B dual-expert only; leave empty for 2.1 / 5B.
       - name: "t2v_low_noise_model"

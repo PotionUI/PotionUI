@@ -44,7 +44,13 @@ module has no way to know whether the wizard has since moved on to a
 different draft); once that passes, every op is still validated against the
 CURRENT form/candidates before it mutates anything - `form_revision` is
 consulted only to say whether a skip is because the form changed since the
-proposal, or because the op was never valid to begin with.
+proposal, or because the op was never valid to begin with. The one place it
+gates rather than just phrases: a `map` (or an `add_field` mapping) that
+would UPDATE the transform an existing mapping on the same field already has
+only lands when the proposal's revision is known current or the requested
+transform already matches what's there - a differing transform from an
+older/unknown revision is refused rather than silently overwriting a change
+the user made since.
 
 ``lora_chain`` mirrors the wizard's own `suggest.LoraChainInfo.nodes` plus
 its current keep-fixed/replaced split (`schema.LoraChainSelection`) - absent

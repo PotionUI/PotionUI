@@ -902,14 +902,35 @@
 		return !owner || owner === forField;
 	}
 
-	function applyImportMapping(field, nodeId, inputName, transform) {
+	// `revisionKnownCurrent` - true only when the proposal's form_revision is
+	// known AND equals the CURRENT one - gates overwriting a transform an
+	// existing mapping already has: requesting the transform it already has
+	// is always a no-op (nothing to conflict with); requesting a DIFFERENT
+	// one from an older or unknown revision is a real conflict (the user may
+	// have changed it since) and is refused rather than silently overwritten.
+	// A brand-new mapping (no existing entry) is unaffected by this - it's
+	// additive, not an update, and applies regardless of revision as long as
+	// `importMappingAvailable` allows it.
+	function applyImportMapping(field, nodeId, inputName, transform, revisionKnownCurrent) {
 		if (!importMappingAvailable(nodeId, inputName, field)) {
 			console.warn('propose_form_changes: mapping unavailable (missing target, locked, unknown, or mapped elsewhere)', { field: field?.field_name, nodeId, inputName });
 			return false;
 		}
 		const candidate = mappingCandidate(nodeId, inputName);
+		const requestedTransform = transform && transform !== 'none' ? transform : 'none';
+		const existing = field.mappings.find((m) => m.node_id === nodeId && m.input_name === inputName);
+		if (existing) {
+			const currentTransform = existing.transform || 'none';
+			if (currentTransform === requestedTransform) return true;
+			if (!revisionKnownCurrent) {
+				console.warn('propose_form_changes: mapping already has a different transform set since this was proposed - not overwritten', { field: field?.field_name, nodeId, inputName, requestedTransform, currentTransform });
+				return false;
+			}
+			setMappingTransform(field, candidate, requestedTransform);
+			return true;
+		}
 		toggleMapping(field, candidate, true);
-		if (transform && transform !== 'none') setMappingTransform(field, candidate, transform);
+		if (requestedTransform !== 'none') setMappingTransform(field, candidate, requestedTransform);
 		return true;
 	}
 
@@ -933,11 +954,19 @@
 	// mutation (tab existence with no retargeting, and for add_field every
 	// requested mapping's availability, all pre-checked before the field is
 	// created) regardless of whether form_revision drifted, so this is
-	// correct whether or not anything actually changed; `form_revision` is
-	// consulted only to say whether a skip happened because "the form changed
-	// since this was proposed" or because the op was never valid to begin
-	// with. Only ever additive against a live edit - nothing the user already
-	// changed is replaced.
+	// correct whether or not anything actually changed. The one place
+	// `form_revision` gates rather than just phrases: a `map` (or an
+	// add_field mapping) UPDATING a transform an existing mapping on the same
+	// field already has only lands when the proposal's revision is known to
+	// be current, or the requested transform already matches - a
+	// same-transform "update" is always a no-op, but a genuinely different
+	// one from an older/unknown revision could be overwriting a change the
+	// user made after the proposal was built, so it's refused (see
+	// applyImportMapping). Otherwise `form_revision` is consulted only to say
+	// whether a skip happened because "the form changed since this was
+	// proposed" or because the op was never valid to begin with. Only ever
+	// additive against a live edit - nothing the user already changed is
+	// replaced.
 	function applyImportFormChanges(result) {
 		const ops = result?.ops;
 		if (!Array.isArray(ops) || ops.length === 0) return { status: 'noop', applied: 0, skipped: 0 };
@@ -966,6 +995,10 @@
 
 		const proposalRevision = typeof result?.form_revision === 'number' ? result.form_revision : null;
 		const revisionDrifted = proposalRevision !== null && proposalRevision !== formRevision;
+		// Distinct from `!revisionDrifted` - null/unknown counts as NOT known
+		// current (conservative default for a caller that never sent one),
+		// where `revisionDrifted` alone would treat unknown as "not drifted".
+		const revisionKnownCurrent = proposalRevision !== null && !revisionDrifted;
 
 		let lastTabId = null;
 		let applied = 0;
@@ -1011,7 +1044,7 @@
 				created.field_type = op.field_type || 'text';
 				created.label = op.label || created.field_name;
 				if ('default' in op) created.default = op.default ?? null;
-				for (const m of mappings) applyImportMapping(created, m.node_id, m.input_name, m.transform);
+				for (const m of mappings) applyImportMapping(created, m.node_id, m.input_name, m.transform, revisionKnownCurrent);
 				lastTabId = tab.id;
 				applied += 1;
 			} else if (op.op === 'map') {
@@ -1021,7 +1054,7 @@
 					skipped += 1;
 					continue;
 				}
-				if (!applyImportMapping(field, op.node_id, op.input_name, op.transform)) {
+				if (!applyImportMapping(field, op.node_id, op.input_name, op.transform, revisionKnownCurrent)) {
 					skipped += 1;
 					continue;
 				}

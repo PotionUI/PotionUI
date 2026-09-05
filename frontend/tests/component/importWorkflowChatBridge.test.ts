@@ -634,4 +634,124 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 
 		unmount(instance);
 	});
+
+	// Sets up a field mapped to node 3's "sampler_name" candidate (default
+	// transform 'none') and returns the mapping editor's transform <select>
+	// for it, expanding the card's mapping editor first.
+	async function mapSamplerNameAndGetTransformSelect(el: HTMLElement) {
+		el.querySelector<HTMLButtonElement>('[data-input-key="3:sampler_name"] [data-action="add-input"]')!.click();
+		await settle();
+		const card = el.querySelector('[data-field-name="sampler_name"]')!;
+		card.querySelector<HTMLButtonElement>('[data-action="toggle-mapping"]')!.click();
+		await settle();
+		const editor = card.querySelector('[data-mapping-editor]')!;
+		const row = editor.querySelector('[data-mapedit-key="3:sampler_name"]')!;
+		const select = row.querySelector<HTMLSelectElement>('.di-mapedit-transform select')!;
+		return { card, select };
+	}
+
+	it('a stale map op requesting a different transform than the one the user set since is skipped - the user\'s transform is preserved', async () => {
+		const el = target();
+		const host = stubChatHost();
+		const instance = await mountOnFormStep(el);
+
+		const { card, select } = await mapSamplerNameAndGetTransformSelect(el);
+		expect(select.value).toBe('none');
+
+		const provider = host.providers.get('comfyui_import')!;
+		const ctxAtProposal = provider() as any;
+		const handler = host.toolHandlers.get('propose_form_changes')![0];
+
+		// Intervening manual edit: the user picks a transform themselves.
+		select.value = 'strip_model_prefix';
+		select.dispatchEvent(new Event('change', { bubbles: true }));
+		await settle();
+
+		const ctxNow = provider() as any;
+		expect(ctxNow.draft_id).toBe(ctxAtProposal.draft_id);
+		expect(ctxNow.form_revision).toBeGreaterThan(ctxAtProposal.form_revision);
+
+		// The (stale) proposal wants "none" - what the mapping had when it was
+		// built - but the user has since set it to something else.
+		const outcome = handler({
+			action: 'apply_import_form_changes',
+			draft_id: ctxAtProposal.draft_id,
+			form_revision: ctxAtProposal.form_revision,
+			ops: [{ op: 'map', field_name: 'sampler_name', node_id: '3', input_name: 'sampler_name', transform: 'none' }]
+		});
+		await settle();
+
+		expect(outcome).toEqual({
+			status: 'stale',
+			applied: 0,
+			skipped: 1,
+			message: expect.stringContaining('form changed')
+		});
+		expect(card.querySelector('.di-mapping')?.textContent).toContain('3.inputs.sampler_name');
+		expect(select.value).toBe('strip_model_prefix');
+		expect(host.notifications.toast).not.toHaveBeenCalled();
+
+		unmount(instance);
+	});
+
+	it('a current-revision map op updating a mapping\'s transform is applied', async () => {
+		const el = target();
+		const host = stubChatHost();
+		const instance = await mountOnFormStep(el);
+
+		const { card, select } = await mapSamplerNameAndGetTransformSelect(el);
+		expect(select.value).toBe('none');
+
+		const provider = host.providers.get('comfyui_import')!;
+		const ctx = provider() as any;
+		const handler = host.toolHandlers.get('propose_form_changes')![0];
+
+		const outcome = handler({
+			action: 'apply_import_form_changes',
+			draft_id: ctx.draft_id,
+			form_revision: ctx.form_revision,
+			ops: [{ op: 'map', field_name: 'sampler_name', node_id: '3', input_name: 'sampler_name', transform: 'strip_model_prefix' }]
+		});
+		await settle();
+
+		expect(outcome).toEqual({ status: 'applied', applied: 1, skipped: 0 });
+		expect(select.value).toBe('strip_model_prefix');
+		expect(host.notifications.toast).toHaveBeenCalledWith('success', expect.stringContaining('Applied 1 change'));
+
+		unmount(instance);
+	});
+
+	it('an older-revision map op requesting the SAME transform the mapping already has is a no-op that still counts as applied', async () => {
+		const el = target();
+		const host = stubChatHost();
+		const instance = await mountOnFormStep(el);
+
+		const { card, select } = await mapSamplerNameAndGetTransformSelect(el);
+		expect(select.value).toBe('none');
+
+		const provider = host.providers.get('comfyui_import')!;
+		const ctxAtProposal = provider() as any;
+		const handler = host.toolHandlers.get('propose_form_changes')![0];
+
+		// An unrelated manual edit bumps the revision past the proposal's -
+		// the transform itself is left exactly as it was.
+		el.querySelector<HTMLButtonElement>('[data-action="add-tab"]')!.click();
+		await settle();
+		const ctxNow = provider() as any;
+		expect(ctxNow.form_revision).toBeGreaterThan(ctxAtProposal.form_revision);
+
+		const outcome = handler({
+			action: 'apply_import_form_changes',
+			draft_id: ctxAtProposal.draft_id,
+			form_revision: ctxAtProposal.form_revision,
+			ops: [{ op: 'map', field_name: 'sampler_name', node_id: '3', input_name: 'sampler_name', transform: 'none' }]
+		});
+		await settle();
+
+		expect(outcome).toEqual({ status: 'applied', applied: 1, skipped: 0 });
+		expect(select.value).toBe('none');
+		expect(card.querySelector('.di-mapping')?.textContent).toContain('3.inputs.sampler_name');
+
+		unmount(instance);
+	});
 });

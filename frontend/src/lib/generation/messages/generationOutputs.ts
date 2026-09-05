@@ -86,17 +86,80 @@ export function peekGenerationOutputs(generationId: string | undefined): Generat
 	return outputsByGenerationId.get(generationId) ?? empty();
 }
 
+/** Ids `retireGeneration` has permanently closed the door on -- bounded (FIFO
+ *  eviction) so a long session retiring many generations can't grow this
+ *  forever; the eviction only means a VERY old id could theoretically be
+ *  cached again, which is harmless since nothing still references it by
+ *  then. */
+const RETIRED_GENERATION_ID_LIMIT = 200;
+const retiredGenerationIds = new Set<string>();
+
+function rememberRetired(generationId: string): void {
+	if (retiredGenerationIds.has(generationId)) return;
+	if (retiredGenerationIds.size >= RETIRED_GENERATION_ID_LIMIT) {
+		const oldest = retiredGenerationIds.values().next().value;
+		if (oldest !== undefined) retiredGenerationIds.delete(oldest);
+	}
+	retiredGenerationIds.add(generationId);
+}
+
+/** True once `retireGeneration` has closed this id out -- guards against a
+ *  late/reordered `gallery_update` (or any other producer) recreating a
+ *  cache entry for a generation nothing is watching any more. */
+export function isGenerationOutputsRetired(generationId: string | undefined): boolean {
+	return !!generationId && retiredGenerationIds.has(generationId);
+}
+
 export function setGenerationOutputs(generationId: string | undefined, outputs: GenerationGalleryOutputs): void {
-	if (!generationId) return;
+	if (!generationId || retiredGenerationIds.has(generationId)) return;
 	outputsByGenerationId.set(generationId, outputs);
 }
 
-/** Reads and forgets a generation's cached outputs -- called once its
- *  terminal event (complete/error/cancelled) has consumed them, so the cache
- *  never outlives the generation it belongs to. */
-export function takeGenerationOutputs(generationId: string | undefined): GenerationGalleryOutputs {
-	if (!generationId) return empty();
-	const outputs = outputsByGenerationId.get(generationId) ?? empty();
+/** The one place a generation's cached outputs are dropped AND its WebSocket
+ *  subscription is closed together -- called once nothing consumes that
+ *  generation any more: its own terminal event (complete/error/cancelled,
+ *  whether or not a tab was found to display it), a tab close that removed
+ *  its last owning tab, or reconnect reconciliation resolving it terminal.
+ *  Marks the id retired (see `isGenerationOutputsRetired`) so a stray event
+ *  arriving afterwards can never recreate its cache entry. Idempotent --
+ *  retiring an already-retired id repeats the (harmless) unsubscribe call
+ *  but touches nothing else. */
+export function retireGeneration(generationId: string | undefined, unsubscribe: (id: string) => void): void {
+	if (!generationId) return;
 	outputsByGenerationId.delete(generationId);
-	return outputs;
+	rememberRetired(generationId);
+	unsubscribe(generationId);
+}
+
+/** Test-only: production never needs this (retirement is permanent for a
+ *  page's lifetime), but a test suite reusing generation ids across
+ *  unrelated cases needs a clean slate. */
+export function resetGenerationOutputsRetirementForTests(): void {
+	retiredGenerationIds.clear();
+}
+
+/** The live page's `(generationId) => ws?.unsubscribe(generationId)`,
+ *  registered once (see routes/generate/+page.svelte's `onMount`, right
+ *  where its `WebSocketService` is created). `tabsStore.removeTab` needs a
+ *  way to unsubscribe an orphaned generation's WebSocket subscription, but --
+ *  unlike `dispatchGenerationMessage`'s per-call `DispatchDeps` -- has no
+ *  caller-supplied `unsubscribe` to thread through: it is called directly by
+ *  more than one component (the tab bar's close button, this page's
+ *  close-tab keybinding) that share no per-call context. `null` (the default,
+ *  and what a component that tears down without ever mounting the socket
+ *  leaves it as) makes `retireOrphanedGenerationIds` a no-op unsubscribe --
+ *  the cache is still retired either way. */
+let generationUnsubscribeHandler: ((generationId: string) => void) | null = null;
+
+export function setGenerationUnsubscribeHandler(handler: ((generationId: string) => void) | null): void {
+	generationUnsubscribeHandler = handler;
+}
+
+/** Retires every id in `generationIds` using the registered unsubscribe
+ *  handler (a no-op when none is registered) -- the entry point
+ *  `tabsStore.removeTab` uses for the ids a closed tab was its last
+ *  consumer of. */
+export function retireOrphanedGenerationIds(generationIds: Iterable<string>): void {
+	const unsubscribe = generationUnsubscribeHandler ?? (() => {});
+	for (const generationId of generationIds) retireGeneration(generationId, unsubscribe);
 }

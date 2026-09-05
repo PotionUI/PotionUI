@@ -2,7 +2,7 @@ import { generationMessageRegistry, type GenerationMessageHandler } from '$lib/r
 import { playGenerationErrorSound } from '$lib/utils/generationSounds';
 import { directorShotIdsFor, withDirectorRunTerminal, withoutDirectorRunLink } from './directorRuns';
 import { isTabsCurrentGeneration, withoutQueueEntry, nextQueueCandidate, beginGenerationOwnership } from './ownership';
-import { takeGenerationOutputs } from './generationOutputs';
+import { peekGenerationOutputs, retireGeneration } from './generationOutputs';
 
 // Handles both 'generation_error' and 'generation_cancelled' - moved verbatim
 // from the shared switch-case in generate/+page.svelte.
@@ -19,7 +19,7 @@ const handler: GenerationMessageHandler = {
 		// Cleared regardless of ownership -- a failed/cancelled generation gets
 		// no further gallery_update, so its cache entry would otherwise never
 		// be reclaimed.
-		const { images, videos, audios } = takeGenerationOutputs(ctx.generationId);
+		const { images, videos, audios } = peekGenerationOutputs(ctx.generationId);
 
 		// Video Director run tracking (PLAN.md §C W3) -- a cancellation resolves
 		// to 'failed' the same as a real error: Retry is the right recovery
@@ -92,10 +92,9 @@ const handler: GenerationMessageHandler = {
 			playGenerationErrorSound();
 		}
 
-		// Unsubscribe from WebSocket updates
-		if (ctx.generationId) {
-			ctx.unsubscribe(ctx.generationId);
-		}
+		// Drop the cache entry for good (no further gallery_update follows a
+		// terminal event, so nothing may recreate it) and unsubscribe.
+		retireGeneration(ctx.generationId, ctx.unsubscribe);
 	}
 };
 

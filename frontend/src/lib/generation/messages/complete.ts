@@ -2,7 +2,7 @@ import { generationMessageRegistry } from '$lib/registries/generationMessageRegi
 import { playGenerationCompleteSound } from '$lib/utils/generationSounds';
 import { directorShotIdsFor, withDirectorRunTerminal, withoutDirectorRunLink } from './directorRuns';
 import { isTabsCurrentGeneration, withoutQueueEntry, nextQueueCandidate, beginGenerationOwnership } from './ownership';
-import { takeGenerationOutputs, leadOutputPatch } from './generationOutputs';
+import { peekGenerationOutputs, retireGeneration, leadOutputPatch } from './generationOutputs';
 
 generationMessageRegistry.register('generation_complete', {
 	type: 'generation_complete',
@@ -15,7 +15,7 @@ generationMessageRegistry.register('generation_complete', {
 		// broadcasts only `status.model_dump()`) -- read what THIS generation's
 		// own `gallery_update`(s) produced, and forget it: no further
 		// gallery_update follows a terminal event.
-		const outputs = takeGenerationOutputs(ctx.generationId);
+		const outputs = peekGenerationOutputs(ctx.generationId);
 		const output = leadOutputPatch(outputs);
 
 		// Video Director run tracking (PLAN.md §C W3) -- the poster is this
@@ -109,9 +109,8 @@ generationMessageRegistry.register('generation_complete', {
 			playGenerationCompleteSound();
 		}
 
-		// Unsubscribe from WebSocket updates
-		if (ctx.generationId) {
-			ctx.unsubscribe(ctx.generationId);
-		}
+		// Drop the cache entry for good (no further gallery_update follows a
+		// terminal event, so nothing may recreate it) and unsubscribe.
+		retireGeneration(ctx.generationId, ctx.unsubscribe);
 	}
 });

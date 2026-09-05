@@ -29,6 +29,23 @@
 import type { Tab, GenerationState, QueuedGeneration } from '$lib/types/tabs';
 import { peekGenerationOutputs, leadOutputPatch } from './generationOutputs';
 
+/** Every generation id `tab` currently claims: the one it owns as its shared
+ *  display (`activeGenerationId`), every entry in its backend-enqueued
+ *  `generation.queue`, and every id `directorRunLinks` still maps to a shot
+ *  (a Director run can be routed to a tab through its queue entry alone,
+ *  before/after it also owns the display -- see `directorShotIdsFor`).
+ *  This is the full set that loses `tab` as a consumer the moment it closes
+ *  -- see `tabsStore.removeTab`'s resource retirement. */
+export function tabClaimedGenerationIds(
+	tab: Pick<Tab, 'activeGenerationId' | 'generation' | 'directorRunLinks'>
+): Set<string> {
+	const ids = new Set<string>();
+	if (tab.activeGenerationId) ids.add(tab.activeGenerationId);
+	for (const queued of tab.generation.queue || []) ids.add(queued.generation_id);
+	for (const linkedId of Object.keys(tab.directorRunLinks || {})) ids.add(linkedId);
+	return ids;
+}
+
 export function isTabsCurrentGeneration(
 	tab: Pick<Tab, 'activeGenerationId' | 'generation'>,
 	generationId: string | undefined

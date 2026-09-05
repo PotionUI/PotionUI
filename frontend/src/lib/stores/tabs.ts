@@ -4,6 +4,8 @@ import { saveTabsToLocalStorage, loadTabsFromLocalStorage, debounce } from './ta
 import { DEFAULT_PROMPT_PANEL_WIDTH } from './generationLayout';
 import { randomUUID } from '$lib/utils/uuid';
 import { getGlobalSoundDefault } from '$lib/utils/soundSettings';
+import { tabClaimedGenerationIds } from '$lib/generation/messages/ownership';
+import { retireOrphanedGenerationIds } from '$lib/generation/messages/generationOutputs';
 
 function createInitialGenerationState(): GenerationState {
 	return {
@@ -175,10 +177,28 @@ function createTabsStore() {
 
 		removeTab: (tabId: string) => {
 			update((state) => {
+				const closedTab = state.tabs.find((t) => t.id === tabId);
 				const newTabs = state.tabs.filter((t) => t.id !== tabId);
 				if (newTabs.length === 0) {
 					// Always keep at least one tab
 					return state;
+				}
+
+				// Consumer-tied generation resource lifetime: a generation this
+				// closed tab was the LAST consumer of (nothing else claims it --
+				// see tabClaimedGenerationIds) loses its cached outputs and
+				// WebSocket subscription now; one a still-open tab also claims
+				// (a shared Director run, say) keeps them untouched.
+				if (closedTab) {
+					const claimed = tabClaimedGenerationIds(closedTab);
+					if (claimed.size > 0) {
+						const stillClaimed = new Set<string>();
+						for (const tab of newTabs) {
+							for (const id of tabClaimedGenerationIds(tab)) stillClaimed.add(id);
+						}
+						const orphaned = [...claimed].filter((id) => !stillClaimed.has(id));
+						if (orphaned.length > 0) retireOrphanedGenerationIds(orphaned);
+					}
 				}
 
 				let newActiveId = state.activeTabId;

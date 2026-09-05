@@ -1,7 +1,10 @@
 import { tabsStore } from './tabs';
 import type { WebSocketMessage } from '$lib/services/websocket';
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
+import { retireGeneration } from '$lib/generation/messages/generationOutputs';
 import '$lib/generation/messages';
+
+const TERMINAL_MESSAGE_TYPES = new Set(['generation_complete', 'generation_error', 'generation_cancelled']);
 
 export interface DispatchDeps {
 	/** Unsubscribes the WebSocket from a generation id (complete/error/cancelled). */
@@ -53,6 +56,17 @@ export function dispatchGenerationMessage(message: WebSocketMessage, deps: Dispa
 
 	const targetTabId = findTabByGenerationId(generationId);
 	if (!targetTabId) {
+		// A terminal event for a generation nothing owns any more (its last
+		// tab was already removed, or reconcile.ts already resolved it) still
+		// has to release ITS resources -- the complete/error handler that
+		// would normally do this never runs without a tab. Non-terminal
+		// events (gallery_update, status, ...) for an unowned id are simply
+		// dropped, same as before: there is no display to update and no cache
+		// worth creating for a generation nothing is watching.
+		if (TERMINAL_MESSAGE_TYPES.has(message.type) && generationId) {
+			retireGeneration(generationId, deps.unsubscribe);
+			return;
+		}
 		console.error('[WS] Tab not found for generation:', {
 			generationId,
 			messageType: message.type

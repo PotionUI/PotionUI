@@ -76,6 +76,7 @@ import {
 	withoutDirectorRunLink
 } from '$lib/generation/messages/directorRuns';
 import { withoutQueueEntry } from '$lib/generation/messages/ownership';
+import { retireGeneration } from '$lib/generation/messages/generationOutputs';
 
 /** Minimal surface `reconcileTabGenerations` needs from `tabsStore` -- the
  *  real store (`$lib/stores/tabs`) satisfies this as-is. */
@@ -104,6 +105,15 @@ export interface ReconcileOptions {
 	 *  header on why queue membership is what tracks this), and never called
 	 *  for an id this tab has since retired. */
 	onSubscribe?: (generationId: string) => void;
+	/** Called for every generation id this pass resolves terminal (completed/
+	 *  failed/cancelled/missing) -- the caller's live WebSocket unsubscribe,
+	 *  same contract as `dispatchGenerationMessage`'s `DispatchDeps.unsubscribe`.
+	 *  A generation resolved here can have been subscribed in an EARLIER
+	 *  session/pass (its live `generation_complete`/`generation_error` never
+	 *  arrived before disconnect) without this pass ever calling `onSubscribe`
+	 *  for it, so the unsubscribe still has to happen even though no matching
+	 *  subscribe happens in THIS pass. Defaults to a no-op. */
+	unsubscribe?: (generationId: string) => void;
 	/** Ids the caller already knows are this tab's from a source OUTSIDE
 	 *  persisted tab state (e.g. the live `/api/generations/queue` snapshot,
 	 *  scoped to this tab's `tab_id`) -- folded into the same reconciliation
@@ -439,6 +449,7 @@ export async function reconcileTabGenerations(
 	const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
 	const now = options.now ?? Date.now;
 	const onSubscribe = options.onSubscribe;
+	const unsubscribe = options.unsubscribe ?? (() => {});
 	const signal = options.signal;
 
 	const readTab = (): Tab | undefined => get(tabsStore).tabs.find((t) => t.id === tabId);
@@ -512,6 +523,7 @@ export async function reconcileTabGenerations(
 			patch.directorRunLinks = withoutDirectorRunLink(tab, generationId);
 		}
 		tabsStore.updateTab(tabId, patch);
+		retireGeneration(generationId, unsubscribe);
 	}
 
 	function applyKeep(generationId: string, status: GenerationStatus): void {
@@ -573,6 +585,7 @@ export async function reconcileTabGenerations(
 			}
 		}
 		tabsStore.updateTab(tabId, patch);
+		retireGeneration(generationId, unsubscribe);
 	}
 
 	async function reconcileOne(generationId: string, isRetry: boolean): Promise<void> {

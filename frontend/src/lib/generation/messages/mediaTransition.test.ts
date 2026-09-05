@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { dispatchGenerationMessage } from '$lib/stores/generation';
 import { tabsStore } from '$lib/stores/tabs';
+import { resetGenerationOutputsRetirementForTests } from './generationOutputs';
 
 function seedGeneration() {
 	const tab = get(tabsStore).tabs[0];
@@ -22,7 +23,14 @@ function seedGeneration() {
 }
 
 describe('workbench media transitions', () => {
-	beforeEach(() => tabsStore.reset());
+	beforeEach(() => {
+		tabsStore.reset();
+		// Every test here reuses the literal id 'gen-video' for an independent
+		// scenario (never true in production, where ids are server-generated
+		// UUIDs) -- an earlier test's generation_complete would otherwise mark
+		// it permanently retired and silently drop a later test's gallery_update.
+		resetGenerationOutputsRetirementForTests();
+	});
 
 	it('prefers an authoritative video path over an accompanying preview image', () => {
 		const tabId = seedGeneration();

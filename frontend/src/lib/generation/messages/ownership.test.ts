@@ -10,6 +10,8 @@ vi.mock('$lib/utils/generationSounds', () => ({
 
 import { tabsStore } from '$lib/stores/tabs';
 import { dispatchGenerationMessage } from '$lib/stores/generation';
+import { tabClaimedGenerationIds } from './ownership';
+import { resetGenerationOutputsRetirementForTests } from './generationOutputs';
 
 // Importing '$lib/stores/generation' pulls in '$lib/generation/messages' as a
 // side effect, which registers every handler under test.
@@ -62,8 +64,36 @@ function currentTab(tabId: string) {
 	return get(tabsStore).tabs.find((t) => t.id === tabId)!;
 }
 
+describe('tabClaimedGenerationIds', () => {
+	it('dedupes across activeGenerationId, queue entries and directorRunLinks keys', () => {
+		const ids = tabClaimedGenerationIds({
+			activeGenerationId: 'gen-1',
+			generation: { queue: [{ generation_id: 'gen-1', queue_position: null, status: 'running' }, { generation_id: 'gen-2', queue_position: 1, status: 'pending' }] } as any,
+			directorRunLinks: { 'gen-1': ['shot-1'], 'gen-3': ['shot-2'] }
+		});
+		expect(ids).toEqual(new Set(['gen-1', 'gen-2', 'gen-3']));
+	});
+
+	it('returns an empty set for a tab claiming nothing', () => {
+		const ids = tabClaimedGenerationIds({
+			activeGenerationId: null,
+			generation: { queue: [] } as any,
+			directorRunLinks: {}
+		});
+		expect(ids.size).toBe(0);
+	});
+});
+
 describe('generation message ownership — A running, B queued in the same tab', () => {
-	beforeEach(() => tabsStore.reset());
+	beforeEach(() => {
+		tabsStore.reset();
+		// Every test here reuses the literal ids 'gen-a'/'gen-b' for an
+		// independent scenario (never true in production, where ids are
+		// server-generated UUIDs) -- an earlier test's terminal event would
+		// otherwise mark one permanently retired and silently drop a later
+		// test's gallery_update for the "same" id.
+		resetGenerationOutputsRetirementForTests();
+	});
 
 	it('cancelling B leaves A running, untouched, and only removes B from the queue', () => {
 		const tabId = defaultTabId();

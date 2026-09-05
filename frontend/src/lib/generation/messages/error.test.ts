@@ -11,6 +11,7 @@ vi.mock('$lib/utils/generationSounds', () => ({
 import { tabsStore } from '$lib/stores/tabs';
 import { dispatchGenerationMessage } from '$lib/stores/generation';
 import { playGenerationErrorSound } from '$lib/utils/generationSounds';
+import { isGenerationOutputsRetired, resetGenerationOutputsRetirementForTests } from './generationOutputs';
 
 // Importing '$lib/stores/generation' pulls in '$lib/generation/messages' as a
 // side effect, which registers the generation_error/generation_cancelled
@@ -65,5 +66,19 @@ describe('generation_error / generation_cancelled message handler — sound gati
 		});
 
 		expect(playGenerationErrorSound).not.toHaveBeenCalled();
+	});
+
+	it('retires the generationOutputs cache and unsubscribes on generation_error', () => {
+		resetGenerationOutputsRetirementForTests();
+		const tabId = defaultTabId();
+		setCurrentGeneration(tabId, { generation_id: 'gen-4' });
+		const unsubscribe = vi.fn();
+
+		dispatchGenerationMessage({ type: 'generation_error', generation_id: 'gen-4', error: 'boom' } as any, {
+			unsubscribe
+		});
+
+		expect(unsubscribe).toHaveBeenCalledWith('gen-4');
+		expect(isGenerationOutputsRetired('gen-4')).toBe(true);
 	});
 });

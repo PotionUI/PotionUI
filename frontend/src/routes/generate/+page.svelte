@@ -49,7 +49,7 @@
 	import { planDirectorSelection } from '$lib/utils/directorPlanner';
 	import { runDirectorDependencyPlan, type DirectorShotSubmitOutcome, type DirectorShotTerminalOutcome } from '$lib/utils/directorDependencyRunner';
 	import { resolvePredecessorFrame, type PredecessorOutputLike } from '$lib/utils/directorContinuation';
-	import { peekGenerationOutputs } from '$lib/generation/messages/generationOutputs';
+	import { peekGenerationOutputs, setGenerationUnsubscribeHandler } from '$lib/generation/messages/generationOutputs';
 	import type { VideoDirectorWireDoc, VideoDirectorValue, DirectorMediaValue } from '$lib/types/videoDirector';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import { resolveMusicDirectorCapabilities, normalizeMusicDirectorValue, validateMusicDirector, buildMusicDirectorSubmission } from '$lib/utils/musicDirector';
@@ -692,6 +692,12 @@
 
 		// Initialize WebSocket
 		ws = createGenerationSocket();
+		// tabsStore.removeTab has no per-call context to unsubscribe an
+		// orphaned generation's WebSocket subscription (it's called directly
+		// from the tab bar's close button and this page's close-tab
+		// keybinding, sharing no caller-supplied `deps`) -- registered once
+		// here instead, cleared in onDestroy below.
+		setGenerationUnsubscribeHandler((generationId) => ws?.unsubscribe(generationId));
 		ws.onConnectionChange((connected) => {
 			isConnected = connected;
 			if (connected && !restoreInFlight) {
@@ -880,7 +886,8 @@
 						ws?.subscribe(generationId, (message: WebSocketMessage) => {
 							handleGenerationMessage(message);
 						});
-					}
+					},
+					unsubscribe: (generationId) => ws?.unsubscribe(generationId)
 				});
 			})
 		);
@@ -888,6 +895,7 @@
 
 	onDestroy(() => {
 		restoreController.abort();
+		setGenerationUnsubscribeHandler(null);
 		if (ws) {
 			ws.disconnect();
 		}

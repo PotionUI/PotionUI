@@ -2,6 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from './tabs';
 import { dispatchGenerationMessage, findTabByGenerationId } from './generation';
+import {
+	setGenerationOutputs,
+	peekGenerationOutputs,
+	isGenerationOutputsRetired,
+	resetGenerationOutputsRetirementForTests
+} from '$lib/generation/messages/generationOutputs';
 
 // Tab ids are crypto.randomUUID() (not the literal 'tab-1' of older builds), so
 // every test resolves the default tab's id from the store rather than assuming it.
@@ -136,6 +142,58 @@ describe('dispatchGenerationMessage', () => {
 
 		expect(errorSpy).toHaveBeenCalled();
 		errorSpy.mockRestore();
+	});
+
+	it('a terminal event for a generation no tab owns still drops its cache and unsubscribes', () => {
+		resetGenerationOutputsRetirementForTests();
+		// No tab claims 'gen-orphaned' at all (its owning tab was already
+		// closed) -- the cache still holds whatever its last gallery_update
+		// produced, since nothing has consumed it yet.
+		setGenerationOutputs('gen-orphaned', {
+			images: [],
+			videos: [{ url: '/v.mp4', originalUrl: '/v.mp4' } as any],
+			audios: [],
+			meshes: []
+		});
+		const unsubscribe = vi.fn();
+		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+		dispatchGenerationMessage(
+			{ type: 'generation_complete', data: { id: 'gen-orphaned' } } as any,
+			{ unsubscribe }
+		);
+
+		expect(unsubscribe).toHaveBeenCalledWith('gen-orphaned');
+		expect(peekGenerationOutputs('gen-orphaned')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
+		expect(isGenerationOutputsRetired('gen-orphaned')).toBe(true);
+		// This is the expected/handled shape of "no tab found" for a terminal
+		// event, not a bug -- unlike the unowned non-terminal case, it must not
+		// be logged as an error.
+		expect(errorSpy).not.toHaveBeenCalled();
+		errorSpy.mockRestore();
+	});
+
+	it('a stray gallery_update for an already-retired (orphaned) generation cannot recreate its cache entry', () => {
+		resetGenerationOutputsRetirementForTests();
+		dispatchGenerationMessage(
+			{ type: 'generation_error', generation_id: 'gen-retired', error: 'boom' } as any,
+			{ unsubscribe: vi.fn() }
+		);
+		expect(isGenerationOutputsRetired('gen-retired')).toBe(true);
+
+		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+		dispatchGenerationMessage(
+			{
+				type: 'gallery_update',
+				generation_id: 'gen-retired',
+				videos: [{ path: '/late.mp4' }],
+				video_urls_list: [{ path: '/late.mp4' }]
+			} as any,
+			{ unsubscribe: vi.fn() }
+		);
+		errorSpy.mockRestore();
+
+		expect(peekGenerationOutputs('gen-retired')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
 	});
 
 	it('logs unknown message types once and otherwise no-ops', () => {

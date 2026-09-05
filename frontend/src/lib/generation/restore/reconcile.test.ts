@@ -17,6 +17,12 @@ import {
 } from './reconcile';
 import type { DirectorRunState } from '$lib/types/tabs';
 import type { APIResponse, GenerationStatus } from '$lib/types/api';
+import {
+	setGenerationOutputs,
+	peekGenerationOutputs,
+	isGenerationOutputsRetired,
+	resetGenerationOutputsRetirementForTests
+} from '$lib/generation/messages/generationOutputs';
 
 function defaultTabId(): string {
 	return get(tabsStore).tabs[0].id;
@@ -646,5 +652,80 @@ describe('reconcileTabGenerations', () => {
 
 		expect(fake.historyCalls).toEqual(['gen-1', 'gen-1', 'gen-1']);
 		expect(currentTab(tabId).directorRuns!['shot-1'].posterUrl).toBeNull();
+	});
+});
+
+describe('reconcileTabGenerations retires the generationOutputs cache and unsubscribes on terminal resolution', () => {
+	beforeEach(() => {
+		tabsStore.reset();
+		resetPendingPosterRecoveriesForTests();
+		resetGenerationOutputsRetirementForTests();
+	});
+
+	it('retires a stale cache entry and unsubscribes when a generation resolves completed while offline', async () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: 'gen-1',
+			generation: { ...currentTab(tabId).generation, isGenerating: true }
+		});
+		// Some gallery_update arrived before the disconnect -- a live
+		// generation_complete would normally retire this, but none is coming.
+		setGenerationOutputs('gen-1', {
+			images: [],
+			videos: [{ url: '/stale.mp4', originalUrl: '/stale.mp4' } as any],
+			audios: [],
+			meshes: []
+		});
+		const fake = createFakeApi();
+		fake.scriptStatus('gen-1', { ok: statusResponse({ status: 'completed', id: 'gen-1' }) });
+		fake.scriptHistory('gen-1', { ok: { success: true, data: { files: [videoFile('gen-1/0.mp4')] } } });
+		const unsubscribe = vi.fn();
+
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { unsubscribe });
+
+		expect(unsubscribe).toHaveBeenCalledWith('gen-1');
+		expect(peekGenerationOutputs('gen-1')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
+		expect(isGenerationOutputsRetired('gen-1')).toBe(true);
+	});
+
+	it('retires the cache and unsubscribes when a generation is confirmed missing', async () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: 'gen-2',
+			generation: { ...currentTab(tabId).generation, isGenerating: true }
+		});
+		setGenerationOutputs('gen-2', {
+			images: [],
+			videos: [],
+			audios: [{ url: '/a.wav' } as any],
+			meshes: []
+		});
+		const fake = createFakeApi();
+		fake.scriptStatus('gen-2', { err: notFoundError() });
+		const unsubscribe = vi.fn();
+
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { unsubscribe });
+
+		expect(unsubscribe).toHaveBeenCalledWith('gen-2');
+		expect(peekGenerationOutputs('gen-2')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
+	});
+
+	it('never unsubscribes an id reconciliation resolves as "keep" (still pending/running)', async () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: 'gen-3',
+			generation: {
+				...currentTab(tabId).generation,
+				isGenerating: true,
+				queue: [{ generation_id: 'gen-3', queue_position: null, status: 'running' }]
+			}
+		});
+		const fake = createFakeApi();
+		fake.scriptStatus('gen-3', { ok: statusResponse({ status: 'running', progress: 0.3 }) });
+		const unsubscribe = vi.fn();
+
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { unsubscribe, onSubscribe: () => {} });
+
+		expect(unsubscribe).not.toHaveBeenCalled();
 	});
 });

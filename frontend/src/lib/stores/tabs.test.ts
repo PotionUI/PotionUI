@@ -2,6 +2,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from './tabs';
 import { TABS_STORAGE_KEY } from '$lib/types/tabs';
+import {
+	setGenerationOutputs,
+	peekGenerationOutputs,
+	isGenerationOutputsRetired,
+	setGenerationUnsubscribeHandler,
+	resetGenerationOutputsRetirementForTests
+} from '$lib/generation/messages/generationOutputs';
 
 describe('tabsStore tab ids', () => {
 	beforeEach(() => tabsStore.reset());
@@ -42,6 +49,101 @@ describe('tabsStore tab ids', () => {
 		expect(tab?.selectedPreset).toBe('native/SDXL/realistic');
 		expect(tab?.formData).toEqual({ steps: 30, seed: 123 });
 		expect(tab?.promptSegments).toEqual([{ id: 's1', content: 'a cat' }]);
+	});
+});
+
+describe('removeTab retires the closed tab\'s abandoned generations', () => {
+	beforeEach(() => {
+		tabsStore.reset();
+		resetGenerationOutputsRetirementForTests();
+		setGenerationUnsubscribeHandler(null);
+	});
+
+	it('retires a generation only the closed tab claimed (cache dropped, WebSocket unsubscribed)', () => {
+		const unsubscribe = vi.fn();
+		setGenerationUnsubscribeHandler(unsubscribe);
+		setGenerationOutputs('gen-1', {
+			images: [],
+			videos: [{ url: '/v.mp4', originalUrl: '/v.mp4' } as any],
+			audios: [],
+			meshes: []
+		});
+		const closingTabId = tabsStore.addTabWithData('Closing', { activeGenerationId: 'gen-1' });
+
+		tabsStore.removeTab(closingTabId);
+
+		expect(unsubscribe).toHaveBeenCalledWith('gen-1');
+		expect(peekGenerationOutputs('gen-1')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
+		expect(isGenerationOutputsRetired('gen-1')).toBe(true);
+	});
+
+	it('does not retire a generation a still-open tab also claims (shared consumer)', () => {
+		const unsubscribe = vi.fn();
+		setGenerationUnsubscribeHandler(unsubscribe);
+		setGenerationOutputs('gen-shared', {
+			images: [],
+			videos: [{ url: '/v.mp4', originalUrl: '/v.mp4' } as any],
+			audios: [],
+			meshes: []
+		});
+		// Two tabs both reference the same generation id (e.g. a Video Director
+		// run linked from more than one place) -- closing one must not
+		// unsubscribe or drop the cache the other still needs.
+		tabsStore.addTabWithData('Also watching', { activeGenerationId: 'gen-shared' });
+		const closingTabId = tabsStore.addTabWithData('Closing', { activeGenerationId: 'gen-shared' });
+
+		tabsStore.removeTab(closingTabId);
+
+		expect(unsubscribe).not.toHaveBeenCalled();
+		expect(isGenerationOutputsRetired('gen-shared')).toBe(false);
+		expect(peekGenerationOutputs('gen-shared').videos).toHaveLength(1);
+	});
+
+	it('retires every generation the closed tab uniquely claimed via activeGenerationId, queue and directorRunLinks', () => {
+		const unsubscribe = vi.fn();
+		setGenerationUnsubscribeHandler(unsubscribe);
+		const tab = get(tabsStore).tabs[0];
+		const closingTabId = tabsStore.addTabWithData('Closing', {
+			activeGenerationId: 'gen-active',
+			generation: {
+				...tab.generation,
+				queue: [
+					{ generation_id: 'gen-active', queue_position: null, status: 'running' },
+					{ generation_id: 'gen-queued', queue_position: 1, status: 'pending' }
+				]
+			},
+			directorRunLinks: { 'gen-director': ['shot-1'] }
+		});
+
+		tabsStore.removeTab(closingTabId);
+
+		expect(unsubscribe).toHaveBeenCalledWith('gen-active');
+		expect(unsubscribe).toHaveBeenCalledWith('gen-queued');
+		expect(unsubscribe).toHaveBeenCalledWith('gen-director');
+		expect(unsubscribe).toHaveBeenCalledTimes(3);
+	});
+
+	it('does nothing when the closed tab claims no generations', () => {
+		const unsubscribe = vi.fn();
+		setGenerationUnsubscribeHandler(unsubscribe);
+		const closingTabId = tabsStore.addTabWithData('Idle', {});
+
+		tabsStore.removeTab(closingTabId);
+
+		expect(unsubscribe).not.toHaveBeenCalled();
+	});
+
+	it('retires nothing (there is nothing left to close) when removing the sole remaining tab', () => {
+		const unsubscribe = vi.fn();
+		setGenerationUnsubscribeHandler(unsubscribe);
+		setGenerationOutputs('gen-only', { images: [], videos: [], audios: [], meshes: [] });
+		const state = get(tabsStore);
+		tabsStore.updateTab(state.tabs[0].id, { activeGenerationId: 'gen-only' });
+
+		tabsStore.removeTab(state.tabs[0].id);
+
+		expect(get(tabsStore).tabs.length).toBe(1);
+		expect(unsubscribe).not.toHaveBeenCalled();
 	});
 });
 

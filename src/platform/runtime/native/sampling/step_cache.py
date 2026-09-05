@@ -177,12 +177,15 @@ class StepCacheSet:
     """Lazily mints one :class:`FirstBlockCache` per guidance branch.
 
     ``denoise()`` builds one set per generation and asks it for a branch cache
-    keyed by an opaque branch label (``"cond"`` / ``"uncond"``). Caches are made
-    on first use and capped so a misbehaving caller cannot mint an unbounded
-    number of them. All branches share the same options.
+    keyed by an opaque branch label — ``("cond"|"uncond", network identity)``,
+    since a multi-expert router must never let one network read another's cached
+    output (see ``denoise_loop._CachingGuidance``). Caches are made on first use
+    and capped so a misbehaving caller cannot mint an unbounded number of them;
+    the cap allows every guidance branch times a couple of routed networks. All
+    branches share the same options.
     """
 
-    def __init__(self, options: dict | None = None, max_branches: int = 3) -> None:
+    def __init__(self, options: dict | None = None, max_branches: int = 8) -> None:
         self.options = normalize_options(options)
         self.max_branches = max_branches
         self._caches: dict[object, FirstBlockCache] = {}

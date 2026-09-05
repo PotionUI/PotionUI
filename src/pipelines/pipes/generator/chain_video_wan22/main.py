@@ -106,6 +106,12 @@ class _ChainForward:
             x = torch.cat([x, self.concat], dim=1)
         return self.router(x, sigma, conditioning)
 
+    def cache_identity(self, sigma_val: float) -> tuple:
+        """Forward the router's per-expert step-cache identity through the wrapper
+        (``denoise()`` sees this object, not the router). A mid-chain LoRA swap
+        replaces ``router.high``/``.low``, so the identity moves with it."""
+        return self.router.cache_identity(sigma_val)
+
 
 @dataclass
 class _DecodeCtx:

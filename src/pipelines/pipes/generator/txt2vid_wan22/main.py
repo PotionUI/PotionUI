@@ -131,6 +131,20 @@ class _ExpertRouter:
             return self.high
         return self.low
 
+    def cache_identity(self, sigma_val: float) -> tuple:
+        """Which network a step at ``sigma_val`` will run, as a cache key.
+
+        Read by ``denoise()``'s FBCache wiring (``_CachingGuidance``) so the two
+        experts never share a step cache: the cached value is one network's
+        output, and block-0 probes either side of the boundary can be close
+        enough to pass the skip gate. ``effective_revision`` (not
+        ``weight_revision``) is the live-weights identity a value cache must key
+        on — see ``NativeModel``; ``id(module)`` alone is not enough because
+        loaders reconcile adapter stacks in place on a cached module.
+        """
+        dit = self._select(sigma_val)
+        return (id(dit.module), getattr(dit, "effective_revision", None))
+
     def _own_experts(self) -> list:
         """Our own experts -- never evicted to make room for ourselves."""
         return [e for e in (self.high, self.low) if e is not None]

@@ -65,6 +65,11 @@ class _I2VForward:
     def __call__(self, x: torch.Tensor, sigma: torch.Tensor, conditioning: dict) -> torch.Tensor:
         return self.router(torch.cat([x, self.concat], dim=1), sigma, conditioning)
 
+    def cache_identity(self, sigma_val: float) -> tuple:
+        """Forward the router's per-expert step-cache identity through the wrapper
+        (``denoise()`` sees this object, not the router)."""
+        return self.router.cache_identity(sigma_val)
+
 
 @dataclass
 class _Ctx:

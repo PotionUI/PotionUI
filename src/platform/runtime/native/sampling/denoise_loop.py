@@ -251,12 +251,31 @@ class _CachingGuidance:
     carries a known marker (S19: e.g. a strategy that shallow-copies ``uncond``) —
     is NOT cached (rather than silently poisoning the cond cache). ``FirstBlockCache``
     is injected into a shallow copy under the reserved ``"step_cache"`` key.
+
+    A branch is not enough when ``model_forward`` routes to more than one network.
+    Wan 2.2's dual expert switches transformer at the sampling boundary, and the
+    cached value is a network OUTPUT: a low-expert step whose block-0 probe happens
+    to sit within ``rel_threshold`` of the high expert's last probe would otherwise
+    replay the high expert's velocity. So the cache key is ``(branch, network)``,
+    where ``network`` comes from an optional ``model_forward.cache_identity(sigma)``
+    — the router answers with the identity of the expert THAT sigma selects, so the
+    two experts accumulate warmup and skip state independently and neither ever
+    reads the other's. A ``model_forward`` without the method (every single-network
+    family) yields ``None`` and keys exactly as before.
     """
 
-    def __init__(self, inner: GuidanceStrategy, caches: StepCacheSet, total_steps: int) -> None:
+    def __init__(self, inner: GuidanceStrategy, caches: StepCacheSet, total_steps: int,
+                 model_forward=None) -> None:
         self.inner = inner
         self.caches = caches
         self.total_steps = total_steps
+        self.identify = getattr(model_forward, "cache_identity", None)
+
+    def _network(self, sigma) -> object:
+        if self.identify is None:
+            return None
+        value = float(sigma.reshape(-1)[0]) if torch.is_tensor(sigma) else float(sigma)
+        return self.identify(value)
 
     def __call__(self, model_fn, x, sigma, cond, uncond, step_index) -> Tensor:
         final = step_index >= self.total_steps - 1
@@ -265,11 +284,12 @@ class _CachingGuidance:
             if final or "skip_layers" in conditioning:
                 return model_fn(xx, ss, conditioning)
             if uncond is not None and conditioning is uncond:
-                cache = self.caches.for_branch("uncond")
+                branch = "uncond"
             elif conditioning is cond or "guidance" in conditioning:
-                cache = self.caches.for_branch("cond")
+                branch = "cond"
             else:
                 return model_fn(xx, ss, conditioning)  # unknown branch: don't cache
+            cache = self.caches.for_branch((branch, self._network(ss)))
             return model_fn(xx, ss, {**conditioning, "step_cache": cache})
 
         return self.inner(cached_model_fn, x, sigma, cond, uncond, step_index)
@@ -444,7 +464,8 @@ def denoise(
 
     cache_set = StepCacheSet(step_cache_options) if step_cache_options else None
     if cache_set is not None and cache_set.enabled:
-        guidance = _CachingGuidance(guidance, cache_set, total_steps=len(sigmas) - 1)
+        guidance = _CachingGuidance(guidance, cache_set, total_steps=len(sigmas) - 1,
+                                    model_forward=model_forward)
     else:
         cache_set = None
 

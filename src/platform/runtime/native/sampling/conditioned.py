@@ -136,7 +136,8 @@ def denoise_prenoised(
 
         cache_set = StepCacheSet(step_cache_options) if step_cache_options else None
         if cache_set is not None and cache_set.enabled:
-            guidance = _CachingGuidance(guidance, cache_set, total_steps=len(sigmas) - 1)
+            guidance = _CachingGuidance(guidance, cache_set, total_steps=len(sigmas) - 1,
+                                        model_forward=model_forward)
         else:
             cache_set = None
 

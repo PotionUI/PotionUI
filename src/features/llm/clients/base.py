@@ -29,6 +29,11 @@ class LLMResponse(BaseModel):
     # template has no `enable_thinking` switch, so a requested mode is never
     # silently claimed as applied. `None` for providers that don't report it.
     thinking_mode: Optional[Dict[str, Any]] = None
+    # Normalized completion outcome — see clients.completion —
+    # {"reason": "stop"|"length"|"tool_calls"|"unknown", "raw": <provider
+    # string or None>}. `finish_reason` above stays the raw provider string;
+    # this is the shared shape every caller renders/persists against.
+    completion: Optional[Dict[str, Any]] = None
 
 
 class LLMClient(Protocol):

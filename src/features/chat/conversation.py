@@ -328,6 +328,7 @@ class ConversationRunner:
                 context_ledger=context_ledger,
                 tool_failures=getattr(llm_response, "tool_failures", None),
                 thinking_mode=getattr(llm_response, "thinking_mode", None),
+                completion=getattr(llm_response, "completion", None),
             ),
         }
 
@@ -620,6 +621,7 @@ class ConversationRunner:
         rescues: Optional[List[Dict[str, Any]]] = None
         tool_failures: Optional[Any] = None
         thinking_mode: Optional[Dict[str, Any]] = None
+        turn_completion: Optional[Dict[str, Any]] = None
         usage_data: Dict[str, Any] = {}
 
         _thinking_start = time.monotonic()
@@ -687,6 +689,7 @@ class ConversationRunner:
                             rescues = event["data"].get("rescues")
                             tool_failures = event["data"].get("tool_failures")
                             thinking_mode = event["data"].get("thinking_mode")
+                            turn_completion = event["data"].get("completion")
                             if not full_content:
                                 full_content = event["data"].get("full_content", "")
                             # Extract token usage from done event
@@ -736,6 +739,7 @@ class ConversationRunner:
                                 "completion_tokens": event.get("completion_tokens"),
                             }
                             thinking_mode = event.get("thinking_mode")
+                            turn_completion = event.get("completion")
 
             step_records.append({
                 "step": "answering",
@@ -766,6 +770,7 @@ class ConversationRunner:
                     context_ledger=context_ledger,
                     tool_failures=tool_failures,
                     thinking_mode=thinking_mode,
+                    completion=turn_completion,
                 ),
             }
 
@@ -1156,6 +1161,7 @@ class ConversationRunner:
         context_ledger: Optional[Dict[str, Any]] = None,
         tool_failures: Optional[Any] = None,
         thinking_mode: Optional[Dict[str, Any]] = None,
+        completion: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Assemble the persisted per-message behavior-trace manifest.
 
@@ -1176,6 +1182,12 @@ class ConversationRunner:
         explicit thinking-mode outcome (``LLMResponse.thinking_mode`` — see
         ``NativeLLMClient._chat_template_kwargs``): ``None`` for any provider
         that doesn't report it.
+
+        ``completion`` is the normalized completion outcome from
+        ``clients.completion`` (``{"reason": ..., "raw": ...}``) — ``None``
+        when the terminal round was a rescue's fallback message rather than a
+        genuine model completion (see ``ToolExecutor``'s "answer"/"budget"
+        guards) or when a provider reported nothing.
         """
         session_metadata = getattr(session, 'metadata', None) or {}
         system_prompt_source = (
@@ -1193,6 +1205,7 @@ class ConversationRunner:
             "rescues": rescues,
             "tool_failures": tool_failures,
             "thinking_mode": thinking_mode,
+            "completion": completion,
             "token_counts": {"prompt": prompt_tokens, "completion": completion_tokens},
             "steps": steps,
             "image_attached": {

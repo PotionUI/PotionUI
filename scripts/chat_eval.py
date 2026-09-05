@@ -104,6 +104,7 @@ Report JSON schema (both entry points write the same shape; see
                       {"config_id": "...", "type": "...", "model": "...",
                        "is_default": bool, "unverified": false},
           "thinking_mode": null | {"requested": ..., "effective": "..."},
+          "completion": null | {"reason": "stop"|"length"|"tool_calls"|"unknown", "raw": "..."|null},
           "context": {"unverified": true} |
                       {"capacity_tokens": int, "capacity_source": "...",
                        "accounting_tier": "...", "measured": bool,
@@ -145,6 +146,13 @@ per-tool and per-phase timings the persisted ``assistant_message`` already
 carries (from its last turn, when there is more than one) — labeled
 ``measured: true`` because, unlike ``latency_ms``/``memory_mb`` below, this
 is an actual number the backend reported, not something this script inferred.
+
+``completion`` (the normalized `{"reason", "raw"}` shape from
+``src.features.llm.clients.completion`` — see LLM-08) is read from the same
+persisted ``behavior_trace`` as ``thinking_mode`` and follows the identical
+rule: always ``null`` in ``replay`` mode (an authored canned fixture was never
+a real ``done`` event and so never carried one), the real persisted value in
+``run`` mode. Never guessed from token counts or the transcript's own content.
 
 The summary distinguishes ``unsupported`` (a scenario whose fixture declares
 ``live_supported: false``, reported but never actually attempted) from
@@ -237,7 +245,7 @@ def _empty_result(scenario_id: str, scenario_version: Any, variant: Optional[str
         "scenario": scenario_id, "scenario_version": scenario_version, "transcript": None, "variant": variant,
         "http_completed": None, "passed": False,
         "checks": [{"check": check, "passed": False, "detail": detail, "unverified": False}],
-        "provider": _unverified_block(), "thinking_mode": None, "context": _unverified_block(),
+        "provider": _unverified_block(), "thinking_mode": None, "completion": None, "context": _unverified_block(),
         "tokens": _unverified_tokens_block(), "turns_with_tools": 0, "tool_executions": 0,
         "actual_rounds": _unverified_actual_rounds(), "tool_durations_ms": [],
         "behavior_trace_steps": _unverified_behavior_trace_steps(),
@@ -292,6 +300,7 @@ def _replay_result(scenario_id: str, scenario: Dict[str, Any], tool_schemas: Dic
         "checks": [asdict(r) for r in evaluation.results],
         "provider": _unverified_block(),
         "thinking_mode": None,
+        "completion": None,
         "context": _unverified_block(),
         "tokens": _unverified_tokens_block(),
         "turns_with_tools": _turns_with_tools_count(transcript["messages"]),
@@ -800,6 +809,7 @@ def _run_scenario_live(
             "is_default": config.get("is_default"), "unverified": False,
         },
         "thinking_mode": behavior_trace.get("thinking_mode"),
+        "completion": behavior_trace.get("completion"),
         "context": {
             "capacity_tokens": budget.get("capacity_tokens"),
             "capacity_source": budget.get("capacity_source"),

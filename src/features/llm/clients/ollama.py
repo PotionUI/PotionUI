@@ -5,6 +5,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 import httpx
 
 from src.features.llm import trace_collector
+from src.features.llm.clients import completion as completion_outcome
 from src.features.llm.clients.base import LLMResponse
 from src.features.llm.clients.ollama_wire import (
     TOOLS_AUTO,
@@ -157,6 +158,8 @@ class OllamaClient:
                     logging.warning("Model returned empty content but has thinking field.")
                     content = message.get("thinking", "")
 
+                finish_reason = data.get("done_reason")
+
                 trace_collector.record(
                     provider="ollama",
                     model=config.model,
@@ -175,7 +178,9 @@ class OllamaClient:
                     provider_id=config.id,
                     tokens_used=data.get("eval_count"),
                     prompt_tokens=data.get("prompt_eval_count"),
-                    completion_tokens=data.get("eval_count")
+                    completion_tokens=data.get("eval_count"),
+                    finish_reason=finish_reason,
+                    completion=completion_outcome.from_ollama(finish_reason),
                 )
         except httpx.HTTPStatusError as e:
             logging.error(f"Ollama HTTP error: {e.response.text if e.response else str(e)}")
@@ -218,6 +223,8 @@ class OllamaClient:
                         elif isinstance(event, Usage):
                             usage_event = self._usage_event(event)
                         elif isinstance(event, Done):
+                            usage_event = usage_event or self._usage_event(Usage(None, None, None))
+                            usage_event["completion"] = completion_outcome.from_ollama(event.finish_reason)
                             yield usage_event
                             stop = True
                             break
@@ -305,7 +312,7 @@ class OllamaClient:
                     logging.warning("Model returned empty content but has thinking field.")
                     content = message.get("thinking", "")
 
-                finish_reason = "tool_calls" if tool_calls else "stop"
+                finish_reason = data.get("done_reason")
 
                 trace_collector.record(
                     provider="ollama",
@@ -329,7 +336,8 @@ class OllamaClient:
                     prompt_tokens=data.get("prompt_eval_count"),
                     completion_tokens=data.get("eval_count"),
                     tool_calls=tool_calls,
-                    finish_reason=finish_reason
+                    finish_reason=finish_reason,
+                    completion=completion_outcome.from_ollama(finish_reason),
                 )
         except httpx.HTTPStatusError as e:
             logging.error(f"Ollama HTTP error: {e.response.text if e.response else str(e)}")
@@ -387,6 +395,8 @@ class OllamaClient:
                         elif isinstance(event, Done):
                             if tool_calls:
                                 yield {"type": "tool_calls", "tool_calls": tool_calls}
+                            usage_event = usage_event or self._usage_event(Usage(None, None, None))
+                            usage_event["completion"] = completion_outcome.from_ollama(event.finish_reason)
                             yield usage_event
                             stop = True
                             break

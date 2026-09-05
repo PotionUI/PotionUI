@@ -5,6 +5,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 import httpx
 
 from src.features.llm import trace_collector
+from src.features.llm.clients import completion as completion_outcome
 from src.features.llm.clients.base import LLMResponse
 from src.features.llm.clients.openai_wire import (
     OpenAICompatSSEDecoder,
@@ -110,7 +111,9 @@ class OpenAIClient:
                 response.raise_for_status()
                 data = response.json()
                 usage = data.get("usage", {})
-                content = data["choices"][0]["message"]["content"]
+                choice = data["choices"][0]
+                content = choice["message"]["content"]
+                finish_reason = choice.get("finish_reason")
 
                 trace_collector.record(
                     provider="openai",
@@ -130,7 +133,9 @@ class OpenAIClient:
                     provider_id=config.id,
                     tokens_used=usage.get("total_tokens"),
                     prompt_tokens=usage.get("prompt_tokens"),
-                    completion_tokens=usage.get("completion_tokens")
+                    completion_tokens=usage.get("completion_tokens"),
+                    finish_reason=finish_reason,
+                    completion=completion_outcome.from_openai_compat(finish_reason),
                 )
         except Exception as e:
             raise ValueError(f"Error generating OpenAI response: {str(e)}")
@@ -152,6 +157,7 @@ class OpenAIClient:
 
         decoder = OpenAICompatSSEDecoder("OpenAI Stream")
         usage_data = None
+        finish_reason_raw = None
         full_content_parts: List[str] = []
         _trace_start = time.monotonic()
         async with httpx.AsyncClient(timeout=self._stream_timeout(config)) as client:
@@ -164,6 +170,7 @@ class OpenAIClient:
                     stop = False
                     for event in decoder.feed(line):
                         if isinstance(event, Done):
+                            finish_reason_raw = event.finish_reason
                             stop = True
                             break
                         if isinstance(event, Usage):
@@ -191,8 +198,10 @@ class OpenAIClient:
             duration_ms=int((time.monotonic() - _trace_start) * 1000),
         )
 
-        # Yield usage data at the end
-        yield usage_data or dict(NO_USAGE)
+        # Yield usage data at the end, always carrying the normalized completion outcome.
+        result = usage_data or dict(NO_USAGE)
+        result["completion"] = completion_outcome.from_openai_compat(finish_reason_raw)
+        yield result
 
     async def generate_with_tools(
         self,
@@ -231,7 +240,7 @@ class OpenAIClient:
                 message = choice.get("message", {})
                 content = message.get("content") or ""
                 tool_calls = message.get("tool_calls") or None
-                finish_reason = choice.get("finish_reason", "stop")
+                finish_reason = choice.get("finish_reason")
 
                 trace_collector.record(
                     provider="openai",
@@ -255,7 +264,8 @@ class OpenAIClient:
                     prompt_tokens=usage.get("prompt_tokens"),
                     completion_tokens=usage.get("completion_tokens"),
                     tool_calls=tool_calls,
-                    finish_reason=finish_reason
+                    finish_reason=finish_reason,
+                    completion=completion_outcome.from_openai_compat(finish_reason),
                 )
         except Exception as e:
             raise ValueError(f"Error generating OpenAI response: {str(e)}")
@@ -294,6 +304,7 @@ class OpenAIClient:
         decoder = OpenAICompatSSEDecoder("OpenAI Tools Stream")
         assembler = ToolCallAssembler()
         usage_data = None
+        finish_reason_raw = None
         full_content_parts: List[str] = []
         _trace_start = time.monotonic()
         async with httpx.AsyncClient(timeout=self._stream_timeout(config)) as client:
@@ -306,6 +317,7 @@ class OpenAIClient:
                     stop = False
                     for event in decoder.feed(line):
                         if isinstance(event, Done):
+                            finish_reason_raw = event.finish_reason
                             stop = True
                             break
                         if isinstance(event, Usage):
@@ -342,4 +354,6 @@ class OpenAIClient:
         if assembled_tool_calls:
             yield {"type": "tool_calls", "tool_calls": assembled_tool_calls}
 
-        yield usage_data or dict(NO_USAGE)
+        result = usage_data or dict(NO_USAGE)
+        result["completion"] = completion_outcome.from_openai_compat(finish_reason_raw)
+        yield result

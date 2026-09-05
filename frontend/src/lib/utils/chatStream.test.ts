@@ -17,11 +17,13 @@ import {
 	mergeTraceTimeline,
 	hydrateTraceSteps,
 	formatContextLedgerSummary,
-	sumMemoryDropped
+	sumMemoryDropped,
+	mapPersistedMessage
 } from './chatStream';
 import { chatSession } from '$lib/stores/chatSession';
 import { get } from 'svelte/store';
 import type { UnifiedChatMessageData, BehaviorTraceManifest, ContextLedger } from '$lib/types/chat';
+import type { ChatMessageResponse } from '$lib/types/api';
 
 function fixture(): UnifiedChatMessageData[] {
 	return [
@@ -416,6 +418,35 @@ describe('applyDone', () => {
 		const out = applyDone(msgs, { assistant_message: { id: 'a1', content: 'done' } });
 		expect(out[1].trace_steps).toHaveLength(1);
 		expect(out[1].trace_steps![0]).toMatchObject({ step: 'thinking', state: 'started' });
+	});
+
+	it('carries metadata.behavior_trace.completion through unmodified, for ChatMessage.svelte\'s output-limit note', () => {
+		const msgs = applyToken(fixture(), 'stream');
+		const out = applyDone(msgs, {
+			assistant_message: {
+				id: 'a1',
+				content: 'cut off mid',
+				metadata: { behavior_trace: { completion: { reason: 'length', raw: 'length' } } }
+			}
+		});
+		expect(out[1].metadata?.behavior_trace.completion).toEqual({ reason: 'length', raw: 'length' });
+	});
+});
+
+describe('mapPersistedMessage', () => {
+	it('carries metadata.behavior_trace.completion through for the reload case, exactly like the live done path', () => {
+		const msg = {
+			id: 'a1',
+			session_id: 's1',
+			role: 'assistant',
+			content: 'cut off mid',
+			created_at: null,
+			metadata: { behavior_trace: { completion: { reason: 'length', raw: 'length' } } }
+		} as ChatMessageResponse;
+
+		const mapped = mapPersistedMessage(msg);
+
+		expect(mapped.metadata?.behavior_trace.completion).toEqual({ reason: 'length', raw: 'length' });
 	});
 });
 

@@ -484,6 +484,30 @@ class TestChatRepository(PersistenceTestBase):
         self.assertEqual(message.role, 'user')
         self.assertEqual(message.content, 'Hello!')
 
+    def test_completion_outcome_round_trips_through_persisted_metadata(self):
+        """`assistant_metadata['behavior_trace']['completion']` (see
+        ConversationRunner._build_behavior_trace — LLM-08's normalized
+        completion contract) must survive a real DB round-trip: it is what
+        the frontend's output-limit note reads
+        (metadata.behavior_trace.completion.reason), so a fetch that only
+        echoes back the object `add_message` was handed, without a real
+        write, would not be caught by asserting on that return value alone."""
+        session = self.repo.create_session(user_id=self.test_user_id)
+
+        self.repo.add_message(
+            session_id=session.id,
+            role='assistant',
+            content='cut off mid',
+            metadata={'behavior_trace': {'completion': {'reason': 'length', 'raw': 'length'}}},
+        )
+
+        retrieved = self.repo.get_messages(session.id)
+        self.assertEqual(len(retrieved), 1)
+        self.assertEqual(
+            retrieved[0].metadata['behavior_trace']['completion'],
+            {'reason': 'length', 'raw': 'length'},
+        )
+
     def test_add_message_to_nonexistent_session(self):
         """Test adding a message to a nonexistent session"""
         message = self.repo.add_message(

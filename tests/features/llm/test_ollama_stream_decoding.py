@@ -88,7 +88,13 @@ async def test_the_done_object_carries_the_token_counts(monkeypatch, client):
 
     assert events == [
         {"type": "token", "content": "hi"},
-        {"type": "usage", "tokens_used": 30, "prompt_tokens": 20, "completion_tokens": 10},
+        {
+            "type": "usage",
+            "tokens_used": 30,
+            "prompt_tokens": 20,
+            "completion_tokens": 10,
+            "completion": {"reason": "unknown", "raw": None},
+        },
     ]
 
 
@@ -100,6 +106,7 @@ async def test_a_done_object_without_counts_reports_no_total(monkeypatch, client
         "tokens_used": None,
         "prompt_tokens": None,
         "completion_tokens": None,
+        "completion": {"reason": "unknown", "raw": None},
     }
 
 
@@ -111,7 +118,26 @@ async def test_one_missing_count_still_produces_a_total(monkeypatch, client):
         "tokens_used": 10,
         "prompt_tokens": None,
         "completion_tokens": 10,
+        "completion": {"reason": "unknown", "raw": None},
     }
+
+
+async def test_done_reason_length_normalizes_to_length(monkeypatch, client):
+    events = await _stream(monkeypatch, client, [_token("hi") + _done(done_reason="length")])
+
+    assert events[-1]["completion"] == {"reason": "length", "raw": "length"}
+
+
+async def test_done_reason_stop_normalizes_to_stop(monkeypatch, client):
+    events = await _stream(monkeypatch, client, [_token("hi") + _done(done_reason="stop")])
+
+    assert events[-1]["completion"] == {"reason": "stop", "raw": "stop"}
+
+
+async def test_an_undocumented_done_reason_stays_unknown_with_its_raw_value(monkeypatch, client):
+    events = await _stream(monkeypatch, client, [_token("hi") + _done(done_reason="unload")])
+
+    assert events[-1]["completion"] == {"reason": "unknown", "raw": "unload"}
 
 
 async def test_done_stops_reading_the_body(monkeypatch, client):
@@ -147,7 +173,13 @@ async def test_tool_calls_arrive_complete_and_are_yielded_before_usage(monkeypat
 
     assert events == [
         {"type": "tool_calls", "tool_calls": TOOL_CALLS},
-        {"type": "usage", "tokens_used": 3, "prompt_tokens": 2, "completion_tokens": 1},
+        {
+            "type": "usage",
+            "tokens_used": 3,
+            "prompt_tokens": 2,
+            "completion_tokens": 1,
+            "completion": {"reason": "unknown", "raw": None},
+        },
     ]
 
 

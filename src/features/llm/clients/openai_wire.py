@@ -175,13 +175,18 @@ class OpenAICompatSSEDecoder:
 
     def __init__(self, label: str):
         self._label = label
+        # The choice that carries `finish_reason` arrives on a delta chunk
+        # BEFORE the separate choice-less usage chunk and the terminal
+        # `[DONE]` frame, so it has to be remembered across `feed()` calls
+        # rather than read off the frame that triggers Done().
+        self._finish_reason: Optional[str] = None
 
     def feed(self, line: str) -> Iterator[Any]:
         if not line or not line.startswith("data: "):
             return
         data_str = line[len("data: "):]
         if data_str.strip() == "[DONE]":
-            yield Done()
+            yield Done(finish_reason=self._finish_reason)
             return
         try:
             data = json.loads(data_str)
@@ -201,6 +206,9 @@ class OpenAICompatSSEDecoder:
         choices = data.get("choices", [])
         if not choices:
             return
+        finish_reason = choices[0].get("finish_reason")
+        if finish_reason:
+            self._finish_reason = finish_reason
         delta = choices[0].get("delta", {})
         content = delta.get("content")
         if content:

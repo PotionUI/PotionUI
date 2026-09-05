@@ -197,17 +197,21 @@ class _StreamToolCallFilter:
 
 
 def _usage_fields(usage: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """The token-count and thinking-mode keys a `done` event carries, from
-    either a provider response or a stream's usage event. `thinking_mode` is
-    `None` for any provider that doesn't report it (see
-    `LLMResponse.thinking_mode`); a rescue's fallback message never reaches
-    here since callers only merge this in on a genuine LLM completion."""
+    """The token-count, thinking-mode and completion keys a `done` event
+    carries, from either a provider response or a stream's usage event.
+    `thinking_mode` is `None` for any provider that doesn't report it (see
+    `LLMResponse.thinking_mode`); `completion` is the normalized outcome from
+    `clients.completion` (`None` if the round's turn never carried one). A
+    rescue's fallback message never reaches here since callers only merge
+    this in on a genuine LLM completion — see the `event.reason in ("answer",
+    "budget")` guards at both call sites below."""
     usage = usage or {}
     return {
         "tokens_used": usage.get("tokens_used"),
         "prompt_tokens": usage.get("prompt_tokens"),
         "completion_tokens": usage.get("completion_tokens"),
         "thinking_mode": usage.get("thinking_mode"),
+        "completion": usage.get("completion"),
     }
 
 
@@ -248,6 +252,7 @@ class _BufferedTurnSource:
                 "prompt_tokens": response.prompt_tokens,
                 "completion_tokens": response.completion_tokens,
                 "thinking_mode": getattr(response, "thinking_mode", None),
+                "completion": getattr(response, "completion", None),
             },
             response=response,
         )
@@ -612,6 +617,13 @@ class ToolExecutor:
 
         response = terminal.response
         response.content = "" if isinstance(terminal, PendingDecision) else terminal.content
+        # Same "answer"/"budget" guard as the streaming entry points: a
+        # rescue's fallback message (truncated/ambiguous) is never the
+        # model's own completion, so the round's completion outcome must not
+        # be attributed to it even though `response` is still that round's
+        # real API object.
+        if isinstance(terminal, Completed) and terminal.reason not in ("answer", "budget"):
+            response.completion = None
         response.rescues = workflow.rescues
         response.tool_failures = workflow.tool_failures
         return response, workflow.tool_executions
@@ -878,7 +890,12 @@ class ToolExecutor:
                 if event.content:
                     yield {"type": "token", "data": {"content": event.content}}
                 data = self._done_data(workflow, event.content, False)
-                data.update(_usage_fields(event.usage))
+                # Same "answer"/"budget" guard as execute_with_tools_stream:
+                # a rescue's fallback message (truncated/ambiguous) is never a
+                # genuine LLM completion, so its round's usage/completion must
+                # not be attributed to it.
+                if event.reason in ("answer", "budget"):
+                    data.update(_usage_fields(event.usage))
                 yield {"type": "done", "data": data}
 
     @staticmethod

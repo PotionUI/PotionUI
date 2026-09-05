@@ -22,7 +22,13 @@ from tests.features.llm.wire_capture import (
 
 HISTORY = [{"role": "user", "content": "hello"}]
 
-NO_USAGE = {"type": "usage", "tokens_used": None, "prompt_tokens": None, "completion_tokens": None}
+NO_USAGE = {
+    "type": "usage",
+    "tokens_used": None,
+    "prompt_tokens": None,
+    "completion_tokens": None,
+    "completion": {"reason": "unknown", "raw": None},
+}
 
 
 @pytest.fixture
@@ -87,8 +93,37 @@ async def test_usage_from_the_final_chunk_is_yielded_last(monkeypatch, client):
 
     assert events == [
         {"type": "token", "content": "hi"},
-        {"type": "usage", "tokens_used": 30, "prompt_tokens": 20, "completion_tokens": 10},
+        {
+            "type": "usage",
+            "tokens_used": 30,
+            "prompt_tokens": 20,
+            "completion_tokens": 10,
+            "completion": {"reason": "unknown", "raw": None},
+        },
     ]
+
+
+async def test_finish_reason_arrives_before_the_usage_chunk_and_done(monkeypatch, client):
+    """The choice carrying `finish_reason` precedes the separate choice-less
+    usage chunk and `[DONE]` — the decoder must remember it across chunks."""
+    finish_frame = _frame({"choices": [{"delta": {}, "finish_reason": "length"}]})
+    usage_frame = _frame(
+        {"choices": [], "usage": {"total_tokens": 30, "prompt_tokens": 20, "completion_tokens": 10}}
+    )
+
+    events = await _stream(
+        monkeypatch, client, [_delta("hi") + finish_frame + usage_frame + _frame("[DONE]")]
+    )
+
+    assert events[-1]["completion"] == {"reason": "length", "raw": "length"}
+
+
+async def test_finish_reason_stop_normalizes_to_stop(monkeypatch, client):
+    finish_frame = _frame({"choices": [{"delta": {}, "finish_reason": "stop"}]})
+
+    events = await _stream(monkeypatch, client, [_delta("hi") + finish_frame + _frame("[DONE]")])
+
+    assert events[-1]["completion"] == {"reason": "stop", "raw": "stop"}
 
 
 async def test_a_stream_without_usage_still_ends_with_an_empty_usage_event(monkeypatch, client):

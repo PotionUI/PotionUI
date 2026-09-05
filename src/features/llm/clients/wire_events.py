@@ -47,4 +47,13 @@ class Usage:
 
 @dataclass(frozen=True)
 class Done:
-    """The terminator: an SSE ``[DONE]`` frame, or an NDJSON ``done: true``."""
+    """The terminator: an SSE ``[DONE]`` frame, or an NDJSON ``done: true``.
+
+    ``finish_reason`` is the provider's own raw stop-reason string (OpenAI's
+    ``choices[0].finish_reason``, Ollama's ``done_reason``) when the decoder
+    saw one, else ``None`` — never inferred from reaching the terminator
+    itself. See ``clients.completion`` for the normalized shape a client
+    builds from it.
+    """
+
+    finish_reason: Optional[str] = None

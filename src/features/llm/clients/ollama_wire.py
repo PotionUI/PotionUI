@@ -395,4 +395,4 @@ class OllamaNDJSONDecoder:
                 prompt_tokens=prompt_eval_count,
                 completion_tokens=eval_count,
             )
-            yield Done()
+            yield Done(finish_reason=data.get("done_reason"))

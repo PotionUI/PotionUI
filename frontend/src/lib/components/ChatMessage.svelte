@@ -192,6 +192,13 @@
 		return match?.title || match?.label || uri;
 	}
 
+	// The final answer round hit its output limit (see clients/completion.py) —
+	// distinct from `isPartial`, which is a transport/replay marker, not a
+	// model outcome. Absent on messages persisted before this field existed,
+	// and on any round whose visible content was a rescue's fallback message
+	// rather than a genuine completion.
+	$: hitOutputLimit = metadata?.behavior_trace?.completion?.reason === 'length';
+
 	// Trailing "MODEL · N TOKENS" line: both come straight from the backend's
 	// per-message metadata (conversation.py's assistant_metadata) — never
 	// derived from the session's current model, which can differ from what
@@ -233,6 +240,11 @@
 			{#if isPartial}
 				<div class="font-mono text-2xs text-fg-subtle" data-testid="partial-reply-note">
 					Earlier part of this reply isn't shown — loading the full version&hellip;
+				</div>
+			{/if}
+			{#if hitOutputLimit}
+				<div class="font-mono text-2xs text-fg-subtle" data-testid="output-limit-note">
+					Stopped at the output limit; the reply may be incomplete.
 				</div>
 			{/if}
 			<div class="assistant-copy">

@@ -284,6 +284,17 @@ script has no way to measure itself). The summary distinguishes
 isn't `live_supported`) from `failed` (a scenario that WAS attempted and did
 not pass) — `passed + failed + unsupported == total` always.
 
+The report also carries `completion` — the normalized `{"reason":
+"stop"|"length"|"tool_calls"|"unknown", "raw": <provider string or null>}`
+outcome from `src.features.llm.clients.completion` (see LLM-08), read off the
+same persisted `behavior_trace` as `thinking_mode` and following the same
+rule: `null` for every `replay` result (a canned fixture transcript was
+authored, never produced by a real `done` event, so it never carries one —
+older saved transcripts and reports predating this field are no different in
+that respect, they simply have nothing here either) and the real persisted
+value for a live `run` capture. Never inferred from token counts or from the
+transcript's own text.
+
 A metric this run could not actually measure is marked `"unverified": true`
 (or, for a value that might legitimately be a known `null`, a
 `{"value": ..., "unverified": bool}` pair — used for token counts and

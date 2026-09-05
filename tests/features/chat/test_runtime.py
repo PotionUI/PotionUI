@@ -755,6 +755,42 @@ class TestSendMessageBehaviorTrace:
         assert trace["thinking_mode"] == {"requested": True, "effective": True}
 
     @pytest.mark.asyncio
+    async def test_completion_outcome_persisted_from_the_llm_response(self):
+        """`LLMResponse.completion` (the normalized `{"reason", "raw"}` shape
+        from `clients.completion`) is forwarded into the persisted behavior
+        trace exactly like `thinking_mode` — it is what the frontend's
+        output-limit note reads."""
+        self._setup_session_and_messages()
+        self.mock_llm.generate_with_history.return_value.completion = {
+            "reason": "length", "raw": "length",
+        }
+
+        await self.manager.send_message(
+            session_id="session-123", user_id="user-123", content="Hello",
+        )
+
+        second_call = self.mock_repo.add_message.call_args_list[1][1]
+        trace = second_call["metadata"]["behavior_trace"]
+        assert trace["completion"] == {"reason": "length", "raw": "length"}
+
+    @pytest.mark.asyncio
+    async def test_absent_completion_persists_as_none_not_invented(self):
+        """A response that never set `.completion` (the default `Mock()`
+        auto-attribute, or a real `LLMResponse` with the field left at its
+        `None` default) must never be turned into a guessed "stop" — the
+        trace stays `None` rather than defaulting."""
+        self._setup_session_and_messages()
+        self.mock_llm.generate_with_history.return_value.completion = None
+
+        await self.manager.send_message(
+            session_id="session-123", user_id="user-123", content="Hello",
+        )
+
+        second_call = self.mock_repo.add_message.call_args_list[1][1]
+        trace = second_call["metadata"]["behavior_trace"]
+        assert trace["completion"] is None
+
+    @pytest.mark.asyncio
     async def test_behavior_trace_records_image_attached_with_size(self):
         """When an image is attached, the trace should record it was attached
         and its (resolved, base64) size — never the base64 payload itself, so

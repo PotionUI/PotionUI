@@ -169,6 +169,21 @@ export interface BehaviorTraceManifest {
 	context_ledger?: ContextLedger;
 	/** Tool name -> failure count for this turn, e.g. `{ write_memory: 2 }`. */
 	tool_failures?: Record<string, number> | null;
+	/** Normalized completion outcome (see `src/features/llm/clients/completion.py`)
+	 * for the final answer round — absent on manifests persisted before this
+	 * field existed, and `null` when the provider reported nothing or the
+	 * round was a rescue's canned fallback message rather than a genuine
+	 * model completion. `reason: 'length'` drives the output-limit note in
+	 * ChatMessage.svelte. */
+	completion?: CompletionOutcome | null;
+}
+
+/** `{"reason", "raw"}` shape every LLM client normalizes its stop reason
+ * into (`src/features/llm/clients/completion.py`) — `raw` is the verbatim
+ * provider string (or `null`), `reason` is the shared bucket. */
+export interface CompletionOutcome {
+	reason: 'stop' | 'length' | 'tool_calls' | 'unknown';
+	raw: string | null;
 }
 
 /**

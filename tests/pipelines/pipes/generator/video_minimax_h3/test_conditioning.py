@@ -703,12 +703,12 @@ class _CountingVideoVae(_ChunkingFakeVideoVae):
         return super().encode(*args, **kwargs)
 
 
-# The cache key's `latents_mean_id`/`latents_std_id` fields are OBJECT
-# identity (see `VisualLatentCacheKey`'s docstring) -- a real VAE module's
-# `latents_mean`/`latents_std` are stable attributes, the same object on
-# every access, but a test building `[0.0] * N` fresh per call would get a
-# NEW id() each time and defeat every cache hit below by construction. These
-# two are shared across a whole test the way a real module's buffers are.
+# Shared normalization constants for the tests below -- the cache key hashes
+# `latents_mean`/`latents_std` by VALUE (`_normalization_digest`), not object
+# identity, precisely so that a fresh `[0.0] * N` list on every call (or a
+# real VAE's buffer getting reassigned by a device move) still hits. These
+# are still centralized here rather than inlined per call so a test that
+# means to vary them (`test_a_different_...`) reads as a deliberate change.
 _SHARED_LATENTS_MEAN = [0.0] * LATENT_CHANNELS
 _SHARED_LATENTS_STD = [1.0] * LATENT_CHANNELS
 
@@ -867,6 +867,95 @@ def test_a_different_weight_revision_misses_the_cache():
     assert vae.encode_calls == 2
 
 
+def test_a_different_normalization_value_misses_the_cache():
+    """The other half of `_normalization_digest`'s job: it must still catch
+    an ACTUAL change in what `latents_mean`/`latents_std` hold, not just
+    tolerate a harmless object-identity change."""
+    image = Image.new("RGB", (48, 32), (1, 2, 3))
+    vae = _CountingVideoVae()
+    cache = VisualLatentCache()
+
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(1),
+        **_keyframe_kwargs(vae, cache=cache, latents_mean=[0.0] * LATENT_CHANNELS),
+    )
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(1),
+        **_keyframe_kwargs(vae, cache=cache, latents_mean=[1.0] * LATENT_CHANNELS),
+    )
+
+    assert vae.encode_calls == 2
+
+
+class _RebufferingVideoVae(_ChunkingFakeVideoVae):
+    """`_ChunkingFakeVideoVae` plus an `encode()` call counter and
+    `simulate_placement()`, which mimics `nn.Module.to()`'s own `Module.
+    _apply`: it replaces the `latents_mean`/`latents_std` buffer OBJECTS with
+    NEW tensors holding the SAME values -- exactly what a real video VAE's
+    `move_to`/`offload` (both routed through `Module.to`) does on every
+    device conversion. Proves the cache key must survive that churn (it
+    hashes the VALUES, not `id()` -- see `_normalization_digest`)."""
+
+    def __init__(self):
+        super().__init__()
+        self.latents_mean = torch.zeros(LATENT_CHANNELS)
+        self.latents_std = torch.ones(LATENT_CHANNELS)
+        self.encode_calls = 0
+
+    def encode(self, *args, **kwargs):
+        self.encode_calls += 1
+        return super().encode(*args, **kwargs)
+
+    def simulate_placement(self) -> None:
+        self.latents_mean = self.latents_mean.clone()
+        self.latents_std = self.latents_std.clone()
+
+
+def test_a_buffer_object_replaced_with_identical_values_still_hits():
+    """The load-bearing regression case: a real request calls `move_to`
+    before an encode and `offload` after it, and BOTH reassign the VAE's
+    normalization buffers -- so the SECOND occurrence's key must be built
+    from post-placement buffer objects that are not the ones the first
+    occurrence's key was built from, yet still collide."""
+    image = Image.new("RGB", (48, 32), (10, 20, 30))
+    vae = _RebufferingVideoVae()
+    cache = VisualLatentCache()
+
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(1),
+        **_keyframe_kwargs(vae, cache=cache, latents_mean=vae.latents_mean, latents_std=vae.latents_std),
+    )
+    vae.simulate_placement()  # move_to then offload, in one step
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(2),
+        **_keyframe_kwargs(vae, cache=cache, latents_mean=vae.latents_mean, latents_std=vae.latents_std),
+    )
+
+    assert vae.encode_calls == 1
+
+
+def test_bite_check_a_buffer_object_replaced_with_DIFFERENT_values_still_misses():
+    """BITE CHECK for the hit above: `_normalization_digest` must not become
+    so permissive it hits regardless of content -- an actual value change
+    riding along with the object replacement still has to miss."""
+    image = Image.new("RGB", (48, 32), (10, 20, 30))
+    vae = _RebufferingVideoVae()
+    cache = VisualLatentCache()
+
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(1),
+        **_keyframe_kwargs(vae, cache=cache, latents_mean=vae.latents_mean, latents_std=vae.latents_std),
+    )
+    vae.simulate_placement()
+    vae.latents_mean = vae.latents_mean + 1.0  # an actual normalization change
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(2),
+        **_keyframe_kwargs(vae, cache=cache, latents_mean=vae.latents_mean, latents_std=vae.latents_std),
+    )
+
+    assert vae.encode_calls == 2
+
+
 def test_the_fit_role_distinguishes_an_anchor_from_a_follower_with_identical_pixels():
     """A square image fit onto a square canvas: `fit_keyframe_to_canvas`'s
     stretch (anchor) and cover-crop (follower) branches produce IDENTICAL
@@ -909,9 +998,8 @@ def test_keyframes_need_encode_reports_a_miss_then_a_hit():
 
 def _ref_encode_kwargs(**overrides):
     """`_encode_kwargs`, pinned to the SAME shared `latents_mean`/
-    `latents_std` objects `_keyframe_kwargs` uses -- see
-    `_SHARED_LATENTS_MEAN`'s docstring for why the object identity has to be
-    stable across the calls a cache-hit test makes."""
+    `latents_std` values `_keyframe_kwargs` uses (`_SHARED_LATENTS_MEAN`'s
+    docstring)."""
     kwargs = dict(latents_mean=_SHARED_LATENTS_MEAN, latents_std=_SHARED_LATENTS_STD)
     kwargs.update(overrides)
     return _encode_kwargs(**kwargs)
@@ -1089,6 +1177,49 @@ def test_an_oversize_entry_is_skipped_not_evicted_around():
     )
 
     cache.put(key, entry)
+
+    assert cache.contains(key) is False
+    assert cache.oversize_skips == 1
+    assert cache.retained_bytes == 0
+
+
+class _ForbiddenTransferTensor:
+    """A tensor-shaped stand-in for an oversized latent that raises if `put`
+    ever tries to transfer or copy it -- `numel()`/`element_size()` are the
+    only calls admission may make before rejecting it."""
+
+    def __init__(self, numel: int, element_size: int):
+        self._numel = numel
+        self._element_size = element_size
+
+    def numel(self) -> int:
+        return self._numel
+
+    def element_size(self) -> int:
+        return self._element_size
+
+    def detach(self):
+        raise AssertionError("oversize rejection must not call .detach() before deciding")
+
+    def to(self, *args, **kwargs):
+        raise AssertionError("oversize rejection must not call .to() before deciding")
+
+    def clone(self):
+        raise AssertionError("oversize rejection must not call .clone() before deciding")
+
+
+def test_an_oversize_entry_is_rejected_before_any_host_copy():
+    """The admission decision must come from shape/dtype alone -- an
+    oversized latent must never pay for the very host transfer the skip
+    exists to avoid."""
+    cache = VisualLatentCache(budget_bytes=100)
+    oversized = _ForbiddenTransferTensor(numel=1000, element_size=4)  # 4000 bytes > 100
+    key = visual_latent_cache_key(
+        np.zeros((2, 2), dtype=np.uint8), fit_role="keyframe:anchor", target_size=(2, 2), frame_selection=(),
+        vae_module=object(), weight_revision=1, latents_mean=[0.0], latents_std=[1.0], device="cpu",
+    )
+
+    cache.put(key, oversized)  # must not raise
 
     assert cache.contains(key) is False
     assert cache.oversize_skips == 1

@@ -351,8 +351,10 @@ class VisualLatentCacheKey:
     theoretical -- two different fits producing identical output bytes -- but
     cheap to include and exactly what the fit step could vary); the rest pins
     the VAE this would be re-encoded through: its identity and live weight
-    revision, the normalization buffers' identity, the dtype the encode ran
-    in and the device the result lives on.
+    revision, the normalization buffers' VALUES (`latents_mean_digest`/
+    `latents_std_digest` -- see `_normalization_digest`'s docstring for why
+    this is a content digest and not `id()`), the dtype the encode ran in and
+    the device the result lives on.
     """
 
     content_digest: str
@@ -362,8 +364,8 @@ class VisualLatentCacheKey:
     frame_selection: tuple[int, ...]
     vae_id: int
     weight_revision: Any
-    latents_mean_id: int
-    latents_std_id: int
+    latents_mean_digest: str
+    latents_std_digest: str
     encode_dtype: str
     device: str
 
@@ -382,6 +384,31 @@ def _fitted_content_digest(pixels: np.ndarray) -> str:
     return hashlib.sha256(header + contiguous.tobytes()).hexdigest()
 
 
+def _normalization_digest(values: Any) -> str:
+    """sha256 of a normalization buffer's VALUES (`latents_mean`/`latents_
+    std`), not its object identity.
+
+    `id()` would look attractive here -- a real VAE's `latents_mean`/
+    `latents_std` are registered buffers -- but `nn.Module.to()` (what a video
+    VAE's `move_to`/`offload` calls) reassigns buffer OBJECTS on every device
+    conversion (`Module._apply`), even though the values they hold do not
+    change. A key built from `id(latents_mean)` would therefore miss on the
+    very next occurrence after an ordinary placement round-trip -- exactly
+    the case (an actual encode about to run) a hit is worth the most. Hashing
+    the VALUES is stable across that churn and still misses when the
+    normalization actually changes (a different VAE, or a real revision
+    change) -- `weight_revision` covers the latter independently, this field
+    covers the former.
+
+    Tiny tensors (`latent_channels` elements, tens of bytes) -- recomputed on
+    every key build rather than cached on the VAE instance, since hashing
+    them costs nothing next to hashing a keyframe's own pixels.
+    """
+    tensor = torch.as_tensor(values, dtype=torch.float64).detach().to("cpu").contiguous()
+    header = f"{tensor.shape}".encode("utf-8")
+    return hashlib.sha256(header + tensor.numpy().tobytes()).hexdigest()
+
+
 def visual_latent_cache_key(
     fitted_pixels: np.ndarray, *, fit_role: str, target_size: tuple[int, int], frame_selection: tuple[int, ...],
     vae_module: Any, weight_revision: Any, latents_mean: Any, latents_std: Any, device: Any,
@@ -397,8 +424,8 @@ def visual_latent_cache_key(
         frame_selection=tuple(frame_selection),
         vae_id=id(vae_module),
         weight_revision=weight_revision,
-        latents_mean_id=id(latents_mean),
-        latents_std_id=id(latents_std),
+        latents_mean_digest=_normalization_digest(latents_mean),
+        latents_std_digest=_normalization_digest(latents_std),
         encode_dtype=str(_encode_dtype(vae_module)),
         device=str(device),
     )
@@ -479,12 +506,17 @@ class VisualLatentCache:
     def put(self, key: VisualLatentCacheKey, latent: Tensor) -> None:
         """Store a CPU clone of `latent` under `key`, evicting LRU entries
         until the budget is met. A `latent` whose own cost exceeds the whole
-        budget is skipped rather than stored (`oversize_skips`)."""
-        cpu_latent = latent.detach().to("cpu").clone()
-        cost = self._cost(cpu_latent)
+        budget is skipped rather than stored (`oversize_skips`) -- admission
+        is decided from `latent`'s OWN shape/dtype, before any transfer or
+        copy: `numel()`/`element_size()` are pure metadata reads, so an
+        oversized latent never pays for the `.detach()/.to("cpu")/.clone()`
+        the skip exists to avoid.
+        """
+        cost = self._cost(latent)
         if cost > self._budget:
             self.oversize_skips += 1
             return
+        cpu_latent = latent.detach().to("cpu").clone()
         if key in self._store:
             self._bytes -= self._cost(self._store[key])
         self._store[key] = cpu_latent

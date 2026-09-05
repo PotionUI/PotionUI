@@ -17,12 +17,17 @@ import pytest
 
 from src.pipelines.contracts import PipeInput
 from src.pipelines.outputs import ProgressGenerationOutput
+from src.platform.runtime.native.arch.trellis2 import load as trellis2_load
 from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
 from src.pipelines.pipes.model_loader.anima.main import ModelLoaderAnimaPipe
 from src.pipelines.pipes.model_loader.flux.main import ModelLoaderFluxPipe
 from src.pipelines.pipes.model_loader.krea2.main import ModelLoaderKrea2Pipe
+from src.pipelines.pipes.model_loader.ltx.main import ModelLoaderLtxPipe
+from src.pipelines.pipes.model_loader.minimax_h3.main import ModelLoaderMinimaxH3Pipe
+from src.pipelines.pipes.model_loader.minimax_music3.main import ModelLoaderMinimaxMusic3Pipe
 from src.pipelines.pipes.model_loader.qwen.main import ModelLoaderQwenPipe
 from src.pipelines.pipes.model_loader.seedvr2.main import ModelLoaderSeedVR2Pipe
+from src.pipelines.pipes.model_loader.trellis2.main import ModelLoaderTrellis2Pipe
 from src.pipelines.pipes.model_loader.wan22.main import ModelLoaderWan22Pipe
 from src.pipelines.pipes.model_loader.z_image.main import ModelLoaderZImagePipe
 
@@ -58,6 +63,21 @@ def _fake_engine(monkeypatch):
         "src.pipelines.pipes.model_loader.seedvr2.main.load_seedvr2_prompt_embedding",
         lambda path: object(),
     )
+    monkeypatch.setattr(
+        "src.pipelines.pipes.model_loader.ltx.main.load_projection", lambda *a, **kw: {},
+    )
+    monkeypatch.setattr(
+        "src.pipelines.pipes.model_loader.minimax_music3.main.load_minimax_music3_te",
+        lambda path, device: NativeModel("text_encoder", _FakeModule()),
+    )
+    monkeypatch.setattr(
+        "src.pipelines.pipes.model_loader.trellis2.main._load_matting", lambda path: _FakeModule(),
+    )
+    monkeypatch.setattr(
+        "src.pipelines.pipes.model_loader.trellis2.main.prefix_size_gb", lambda *a, **kw: 1.0,
+    )
+    for name in [n for n in dir(trellis2_load) if n.startswith("load_")]:
+        monkeypatch.setattr(trellis2_load, name, lambda *a, **kw: _FakeModule())
     for pipe in (ModelLoaderFluxPipe, ModelLoaderKrea2Pipe):
         monkeypatch.setattr(pipe, "_apply_loras", staticmethod(lambda dit, loras: None))
 
@@ -70,10 +90,20 @@ def _components(pipe, models):
     out = pipe.process(PipeInput(input={"MODELS": models}), lambda o: (
         states.append(o.state) if isinstance(o, ProgressGenerationOutput) else None
     ))
-    clip = out.output.get("text_encoder")
-    if clip is not None:
-        clip.encoder  # noqa: B018 - resolves a deferred acquisition, as the first encode does
+    _resolve_encoder(out)
     return [state.split("— ", 1)[1].split(".")[0] for state in states]
+
+
+def _resolve_encoder(out) -> None:
+    """Touch the adapter's encoder, which is what the first cold encode does:
+    on a family that deferred acquisition this is where the thunk runs and the
+    component announces itself. LTX exposes it as ``te_encoder``; everyone
+    else as ``encoder``. A family with no text-encoder output has nothing to
+    resolve."""
+    clip = out.output.get("text_encoder")
+    if clip is None:
+        return
+    getattr(clip, "te_encoder" if hasattr(type(clip), "te_encoder") else "encoder")
 
 
 def _cfg(pipe_cls, **over):
@@ -141,9 +171,101 @@ _FAMILIES = [
     ),
 ]
 
+_TRELLIS = [
+    "image encoder", "sparse-structure flow", "sparse-structure decoder", "shape flow",
+    "shape decoder", "texture flow (1024)", "texture decoder", "high-resolution shape flow",
+]
+
+_FAMILIES += [
+    (
+        ModelLoaderMinimaxH3Pipe,
+        {
+            "model": {"file_path": "/m/dit.safetensors"},
+            "text_encoder": {"file_path": "/m/te.safetensors"},
+            "video_vae": {"file_path": "/m/vvae.safetensors"},
+            "audio_vae": {"file_path": "/m/avae.safetensors"},
+        },
+        # The text encoder is deferred on BOTH paths here (H3 has no eager
+        # branch), so the cold encode's announce closes the run at 4 of 4.
+        ["DiT (1 of 4)", "video VAE (2 of 4)", "audio VAE (3 of 4)", "text encoder (4 of 4)"],
+        ["DiT (1 of 4)", "video VAE (2 of 4)", "audio VAE (3 of 4)", "text encoder (4 of 4)"],
+    ),
+    (
+        ModelLoaderLtxPipe,
+        {
+            "model": {"file_path": "/m/ltx.safetensors"},
+            "text_encoder": {"file_path": "/m/te.safetensors"},
+            "vae": {"file_path": "/m/vae.safetensors"},
+        },
+        ["DiT (1 of 4)", "VAE (2 of 4)", "text embedding projection (3 of 4)", "text encoder (4 of 4)"],
+        ["DiT (1 of 4)", "text encoder (2 of 4)", "VAE (3 of 4)", "text embedding projection (4 of 4)"],
+    ),
+    (
+        ModelLoaderLtxPipe,
+        {
+            "model": {"file_path": "/m/ltx.safetensors"},
+            "text_encoder": {"file_path": "/m/te.safetensors"},
+            "vae": {"file_path": "/m/vae.safetensors"},
+            "audio": True,
+            "audio_model": {"file_path": "/m/audio.safetensors"},
+            "upscale_model": {"file_path": "/m/up.safetensors"},
+            "temporal_upscale_model": {"file_path": "/m/tup.safetensors"},
+            "duration_head": {"file_path": "/m/dh.safetensors"},
+        },
+        [
+            "DiT (1 of 9)", "VAE (2 of 9)", "audio VAE (3 of 9)", "vocoder (4 of 9)",
+            "spatial upsampler (5 of 9)", "temporal upsampler (6 of 9)", "duration head (7 of 9)",
+            "text embedding projection (8 of 9)", "text encoder (9 of 9)",
+        ],
+        [
+            "DiT (1 of 9)", "text encoder (2 of 9)", "VAE (3 of 9)", "audio VAE (4 of 9)",
+            "vocoder (5 of 9)", "spatial upsampler (6 of 9)", "temporal upsampler (7 of 9)",
+            "duration head (8 of 9)", "text embedding projection (9 of 9)",
+        ],
+    ),
+    (
+        ModelLoaderMinimaxMusic3Pipe,
+        {
+            "model": {"file_path": "/m/dit.safetensors"},
+            "text_encoder": {"file_path": "/m/te.safetensors"},
+            "vae": {"file_path": "/m/vae.safetensors"},
+        },
+        # Music3 acquires its language model eagerly on both paths -- there is
+        # no clip adapter to defer through.
+        ["DiT (1 of 3)", "audio VAE (2 of 3)", "text encoder (3 of 3)"],
+        ["DiT (1 of 3)", "audio VAE (2 of 3)", "text encoder (3 of 3)"],
+    ),
+    (
+        ModelLoaderTrellis2Pipe,
+        {
+            "diffusion_model": {"file_path": "/m/dit.safetensors"},
+            "shape_vae": {"file_path": "/m/svae.safetensors"},
+            "texture_vae": {"file_path": "/m/tvae.safetensors"},
+            "image_encoder": {"file_path": "/m/dino.safetensors"},
+        },
+        [f"{label} ({n} of 8)" for n, label in enumerate(_TRELLIS, 1)],
+        [f"{label} ({n} of 8)" for n, label in enumerate(_TRELLIS, 1)],
+    ),
+    (
+        ModelLoaderTrellis2Pipe,
+        {
+            "diffusion_model": {"file_path": "/m/dit.safetensors"},
+            "shape_vae": {"file_path": "/m/svae.safetensors"},
+            "texture_vae": {"file_path": "/m/tvae.safetensors"},
+            "image_encoder": {"file_path": "/m/dino.safetensors"},
+            "matting_model": {"file_path": "/m/matting.safetensors"},
+            "resolution_tier": "1536",
+        },
+        [f"{label} ({n} of 9)" for n, label in enumerate(_TRELLIS + ["matting model"], 1)],
+        [f"{label} ({n} of 9)" for n, label in enumerate(_TRELLIS + ["matting model"], 1)],
+    ),
+]
+
 _IDS = [
     "anima", "qwen", "z_image", "krea2", "flux", "seedvr2",
     "wan22-single-expert", "wan22-dual-expert",
+    "minimax_h3", "ltx-minimal", "ltx-audio-and-upsamplers", "minimax_music3",
+    "trellis2-1024", "trellis2-1536-matting",
 ]
 
 
@@ -157,8 +279,14 @@ def test_progress_sequence_without_a_lifecycle_service(pipe_cls, config, _cached
     assert _components(pipe_cls(_cfg(pipe_cls, **config)), None) == uncached
 
 
-_DEFERS_TE = [entry for entry in _FAMILIES if entry[0] is not ModelLoaderSeedVR2Pipe]
-_DEFERS_TE_IDS = [name for name in _IDS if name != "seedvr2"]
+# Families whose bundle carries a ``te`` the loader deliberately leaves unset.
+# SeedVR2 has no text encoder; Music3's language model is acquired eagerly and
+# Trellis2's image encoder is not a text encoder at all.
+_EAGER_OR_NO_TE = (ModelLoaderSeedVR2Pipe, ModelLoaderMinimaxMusic3Pipe, ModelLoaderTrellis2Pipe)
+_DEFERS_TE = [entry for entry in _FAMILIES if entry[0] not in _EAGER_OR_NO_TE]
+_DEFERS_TE_IDS = [
+    name for entry, name in zip(_FAMILIES, _IDS) if entry[0] not in _EAGER_OR_NO_TE
+]
 
 
 @pytest.mark.parametrize("pipe_cls,config,_cached,_uncached", _DEFERS_TE, ids=_DEFERS_TE_IDS)
@@ -174,6 +302,6 @@ def test_text_encoder_is_never_acquired_by_process_itself(pipe_cls, config, _cac
     assert not [key for key in models.keys if key.startswith("native/te/")]
     assert out.output["model"].te is None
 
-    out.output["text_encoder"].encoder
+    _resolve_encoder(out)
 
     assert [key for key in models.keys if key.startswith("native/te/")]

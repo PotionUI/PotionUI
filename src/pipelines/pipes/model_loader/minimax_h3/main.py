@@ -169,7 +169,11 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
         loader = NativeEngineLoader(device=device, vram_gb=vram_gb)
 
         models = pipe_input.input.get("MODELS", None)
-        progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=3)
+        # Four, not three: the deferred text encoder announces itself when its
+        # thunk runs, so leaving it out of the total overshoots ("4 of 3") on
+        # the first cold encode. A warm conditioning cache never resolves the
+        # thunk and the run ends at 3 of 4, the same posture as LTX.
+        progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=4)
         lifecycle = ComponentLifecycle(models, progress)
 
         # Every H3 component lives in its OWN standalone file (unlike LTX's

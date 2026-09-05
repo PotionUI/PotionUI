@@ -6,6 +6,47 @@ from src.platform.observability.logger import logger
 from src.platform.runtime.vram_cap import apply_vram_cap_bytes, get_vram_cap_gb
 
 
+def effective_vram_budget_gb(
+    backend_cap_gb: Optional[float],
+    pipe_hint_gb: Optional[float],
+    available_gb: float,
+) -> float:
+    """Compose the model-loading/placement VRAM budget from the backend's
+    configured cap (``NativeBackendConfig.gpu_max_vram``, applied via
+    ``GpuMonitor.set_vram_cap_gb``) and an optional per-pipe hint (a preset's
+    `vram_limit_gb` on one pipe), then bound the result by hardware.
+
+    Semantics:
+        - ``None`` means "no cap from that source" - it never affects the result.
+        - A cap `<= 0` is invalid configuration, not "unlimited" or "raise the
+          budget": it is ignored and logged once, exactly like ``None``.
+        - The two caps compose as the stricter (lesser) of the two valid ones,
+          so a pipe hint can only ever lower the budget below the backend's
+          configured maximum, never raise it - the result does not depend on
+          which of the two is passed first.
+        - With both absent, the result is bounded by ``available_gb`` alone
+          (today's uncapped behaviour).
+        - This is a planning budget for model-loading/placement decisions, not
+          an OS-enforced VRAM quota and not a guarantee a generation fits.
+    """
+    valid_caps = []
+    for label, cap in (("backend cap", backend_cap_gb), ("pipe hint", pipe_hint_gb)):
+        if cap is None:
+            continue
+        if cap <= 0:
+            logger.warning(
+                f"[GPU_MANAGER] Ignoring non-positive VRAM {label} ({cap}); "
+                f"a VRAM cap must be > 0 to take effect."
+            )
+            continue
+        valid_caps.append(float(cap))
+
+    if not valid_caps:
+        return available_gb
+
+    return min(min(valid_caps), available_gb)
+
+
 class _CappedMemInfo:
     """Minimal stand-in for NVML's ``nvmlMemory_t`` (``.total``/``.free``/``.used``
     in bytes), used to return a capped reading from ``_get_memory_info``
@@ -165,28 +206,26 @@ class GpuMonitor:
         safety_margin: float = 0.85,
     ) -> float:
         """
-        Get VRAM budget in GB: the lesser of the applicable cap and what is available.
+        Get VRAM budget in GB: the stricter of the owning backend's configured cap
+        and an explicit per-pipe hint, bounded by what is actually available.
 
         Args:
             max_vram_gb: An explicit cap, e.g. a pipe's `vram_limit_gb` config key.
-                When omitted, the cap set by the owning backend is used. When neither
-                is present, only the hardware bounds the budget.
+                Composes with the owning backend's cap via `effective_vram_budget_gb`
+                - it can lower the budget below the backend's configured maximum,
+                never raise it. When neither is present, only the hardware bounds
+                the budget.
             safety_margin: Multiply available VRAM by this factor for safety (default 0.85)
 
         Returns:
             float: VRAM budget in GB
         """
-        cap = max_vram_gb if max_vram_gb is not None else self._vram_cap_gb
         available_vram = self.get_available_vram() * safety_margin
-
-        if cap is None:
-            logger.debug(f"[GPU_MANAGER] VRAM Budget: {available_vram:.2f}GB (uncapped)")
-            return available_vram
-
-        budget = min(float(cap), available_vram)
+        budget = effective_vram_budget_gb(self._vram_cap_gb, max_vram_gb, available_vram)
         logger.debug(
             f"[GPU_MANAGER] VRAM Budget: {budget:.2f}GB "
-            f"(cap: {float(cap):.2f}GB, available: {available_vram:.2f}GB)"
+            f"(backend cap: {self._vram_cap_gb}, pipe hint: {max_vram_gb}, "
+            f"available: {available_vram:.2f}GB)"
         )
         return budget
 

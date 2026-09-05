@@ -6,6 +6,9 @@ from unittest.mock import Mock, patch
 from src.features.backends.backend_config import NativeBackendConfig
 from src.features.backends.model_listing import BackendModel
 from src.features.backends.native_backend import NativeBackend
+from src.pipelines.contracts import PipeInput
+from src.pipelines.pipes._shared.generation.loader_helpers import vram_budget as _loader_vram_budget
+from src.platform.runtime.gpu import GpuMonitor
 
 
 def _backend(**config_overrides) -> NativeBackend:
@@ -62,6 +65,45 @@ class TestNativeBackendPreparePipes(unittest.TestCase):
         pipes = backend.prepare_pipes([{"name": "generator", "config": {}}])
 
         self.assertEqual(pipes[0]["config"]["device"], "cuda")
+
+
+def _real_gpu_monitor(available_gb: float) -> GpuMonitor:
+    """A real GpuMonitor (bypassing NVML init) so the composition logic in
+    `get_vram_budget` actually runs, rather than a Mock that would only prove
+    the mock was configured."""
+    g = GpuMonitor.__new__(GpuMonitor)
+    g._vram_cap_gb = None
+    g.get_available_vram = lambda: available_gb
+    return g
+
+
+class TestNativeBackendVramBudgetComposition(unittest.TestCase):
+    """The real prepare_pipes -> shared loader helper -> GpuMonitor path: a
+    preset's pipe-level `vram_limit_gb` must only ever lower the effective
+    budget below the backend's configured cap, never raise it."""
+
+    def _effective_budget_for(self, gpu_max_vram: float, pipe_vram_limit_gb) -> float:
+        backend = _backend(gpu_max_vram=gpu_max_vram)
+        gpu_monitor = _real_gpu_monitor(available_gb=1000.0)
+        backend.generation_engine.gpu_monitor = gpu_monitor
+
+        config = {} if pipe_vram_limit_gb is None else {"vram_limit_gb": pipe_vram_limit_gb}
+        pipes = backend.prepare_pipes([{"name": "flux_loader", "config": config}])
+
+        pipe_input = PipeInput(input={"GPU": gpu_monitor})
+        return _loader_vram_budget(pipe_input, pipes[0]["config"]["vram_limit_gb"], "TEST")
+
+    def test_preset_hint_above_backend_cap_cannot_raise_the_budget(self):
+        budget = self._effective_budget_for(gpu_max_vram=8, pipe_vram_limit_gb=24)
+        self.assertAlmostEqual(budget, 8.0)
+
+    def test_preset_hint_below_backend_cap_lowers_the_budget(self):
+        budget = self._effective_budget_for(gpu_max_vram=24, pipe_vram_limit_gb=4)
+        self.assertAlmostEqual(budget, 4.0)
+
+    def test_no_preset_hint_falls_back_to_backend_cap(self):
+        budget = self._effective_budget_for(gpu_max_vram=8, pipe_vram_limit_gb=None)
+        self.assertAlmostEqual(budget, 8.0)
 
 
 class TestNativeBackendListModels(unittest.IsolatedAsyncioTestCase):

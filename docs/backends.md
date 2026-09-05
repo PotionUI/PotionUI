@@ -114,9 +114,16 @@ that pins `device` on a particular pipe still wins.
 
 `GpuMonitor` remains a host-level service and holds no budget of its own. The backend that owns the
 GPU calls `set_vram_cap_gb()` before each run, so services that consult the GPU manager directly
-(`MemoryAdvisor`, `ModelLifecycle`) see the same cap the pipes do. Budget precedence is:
-an explicit `vram_limit_gb` argument, then the owner's cap, then available hardware — always bounded
-by what is actually free.
+(`MemoryAdvisor`, `ModelLifecycle`) see the same cap the pipes do. This is a **model-loading and
+placement planning budget** — it steers load-time decisions like offload tier and fp8-quantize —
+not an OS-enforced process VRAM quota, and reaching it is not a measured guarantee that a given
+generation will fit. `effective_vram_budget_gb()` (`src/platform/runtime/gpu.py`) composes it as the
+**stricter** of the backend's configured cap and an explicit `vram_limit_gb` argument (e.g. a
+preset's pipe-level hint), then bounds that by available hardware: a pipe hint can lower the budget
+below the backend's configured maximum, but can never raise it above that maximum, regardless of
+which of the two is supplied first. `None` on either source means "no cap from that source"; a cap
+`<= 0` is invalid configuration and is ignored (logged once), never read as "unlimited" or as a
+larger budget. With both absent, only available hardware bounds the budget.
 
 Current native-v2 boundary: the cap reaches model loaders and can influence FP8/load decisions,
 but the standard flow generator does not yet pass it into `NativeGenerator`. Runtime placement for

@@ -166,12 +166,14 @@ class CheckpointLoaderSDXLPipe(BaseModelLoaderPipe):
         memory_advisor = pipe_input.input.get("MEMORY", None)
 
         vram_limit_gb = self.config.get("vram_limit_gb", None)
-        if gpu_monitor and vram_limit_gb is None:
-            # No cap configured on the backend - bound only by available hardware
-            vram_limit_gb = gpu_monitor.get_vram_budget()
-            logger.info(f"[CHECKPOINT LOADER SDXL] Using dynamic VRAM budget: {vram_limit_gb:.2f}GB")
+        if gpu_monitor:
+            # Composes this pipe's configured hint with the owning backend's cap
+            # and available hardware - the hint can only lower the budget, never
+            # raise it above the backend's configured maximum.
+            vram_limit_gb = gpu_monitor.get_vram_budget(vram_limit_gb)
+            logger.info(f"[CHECKPOINT LOADER SDXL] Using VRAM budget: {vram_limit_gb:.2f}GB")
         elif vram_limit_gb is not None:
-            logger.info(f"[CHECKPOINT LOADER SDXL] Using configured VRAM limit: {vram_limit_gb}GB")
+            logger.info(f"[CHECKPOINT LOADER SDXL] Using configured VRAM limit (no GPU service): {vram_limit_gb}GB")
         else:
             # No service and no config - use conservative default
             vram_limit_gb = 8.0

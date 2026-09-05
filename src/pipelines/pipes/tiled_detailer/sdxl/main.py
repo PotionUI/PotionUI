@@ -325,12 +325,14 @@ class TiledDetailerSDXL(BasePipe):
 
         # Determine VRAM budget
         vram_limit = self.config.get("vram_limit_gb", None)
-        if gpu_monitor and vram_limit is None:
-            # No cap configured on the backend - bound only by available hardware
-            vram_limit = gpu_monitor.get_vram_budget()
-            logger.debug(f"[TILED_DETAILER SDXL] Using dynamic VRAM budget: {vram_limit:.2f}GB")
+        if gpu_monitor:
+            # Composes this pipe's configured hint with the owning backend's cap
+            # and available hardware - the hint can only lower the budget, never
+            # raise it above the backend's configured maximum.
+            vram_limit = gpu_monitor.get_vram_budget(vram_limit)
+            logger.debug(f"[TILED_DETAILER SDXL] Using VRAM budget: {vram_limit:.2f}GB")
         elif vram_limit is not None:
-            logger.debug(f"[TILED_DETAILER SDXL] Using configured VRAM limit: {vram_limit}GB")
+            logger.debug(f"[TILED_DETAILER SDXL] Using configured VRAM limit (no GPU service): {vram_limit}GB")
         else:
             # No service and no config - use conservative default
             vram_limit = 12.0

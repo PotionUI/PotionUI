@@ -386,11 +386,11 @@ class GenerationHistoryQuery:
           than one page's worth.
 
         Both stay off the expensive paths. The query text is embedded once
-        and every widening pass reuses that vector; each pass only filters
-        the ids the previous pass had not seen; and both the widening and
-        the total intersect ids against ``matching_generation_ids``, which
-        answers in ids rather than building a ``Generation`` per candidate -
-        only the page itself is ever materialized.
+        and every widening pass reuses that vector; a pass only asks SQL
+        about ids no earlier pass has already decided; and both the widening
+        and the total intersect ids against ``matching_generation_ids``,
+        which answers in ids rather than building a ``Generation`` per
+        candidate - only the page itself is ever materialized.
         """
         from src.features.media_index.indexer import SEMANTIC_TOP_K
 
@@ -399,12 +399,16 @@ class GenerationHistoryQuery:
 
         embedding = self._semantic_query_embedding(user_id, semantic_query)
 
-        # Matching ids in rank order. A widened query returns the previous
-        # window's ids as its prefix (the relative cutoff keys off the best
-        # hit, which widening cannot change), so each pass contributes only
-        # the ids it added and the accumulated order stays the ranked one.
+        # Widening re-runs the vector query, and nothing holds the index
+        # still while it does: a concurrent write, or a relative cutoff
+        # recomputed against a different best hit, can reorder a later
+        # ranking or drop an id an earlier one returned. So only the
+        # matched/not-matched decision per id is carried between passes
+        # (`decided`, which is what keeps SQL from re-checking a seen id);
+        # the ordered result is rebuilt from the ranking in hand, every
+        # pass, and never accumulated across them.
+        decided: Dict[str, bool] = {}
         matched_ids: List[str] = []
-        scanned: set = set()
         query_limit = SEMANTIC_TOP_K
         # `ranked_ids` is deduped down from file-level hits (several files can
         # share a generation), so its length can't tell "more to find" from
@@ -413,12 +417,14 @@ class GenerationHistoryQuery:
         collection_size: Optional[int] = None
         while embedding is not None:
             ranked_ids = self._semantic_generation_ids(user_id, embedding, limit=query_limit)
-            fresh_ids = [gen_id for gen_id in ranked_ids if gen_id not in scanned]
-            scanned.update(fresh_ids)
-            if fresh_ids:
-                matched_ids.extend(
-                    self.generation_repo.matching_generation_ids(fresh_ids, **filter_kwargs)
+            undecided = [gen_id for gen_id in ranked_ids if gen_id not in decided]
+            if undecided:
+                matches = set(
+                    self.generation_repo.matching_generation_ids(undecided, **filter_kwargs)
                 )
+                for gen_id in undecided:
+                    decided[gen_id] = gen_id in matches
+            matched_ids = [gen_id for gen_id in ranked_ids if decided[gen_id]]
             if not ranked_ids:
                 break
             if needed is not None and len(matched_ids) >= needed:

@@ -14,8 +14,13 @@ class FakeIndexer:
     is counted: a widening request must embed once and search per pass.
     """
 
-    def __init__(self, hits=None, error=None, collection_size=None, embed_error=None):
+    def __init__(self, hits=None, error=None, collection_size=None, embed_error=None,
+                 rankings=None):
         self.hits = hits or []
+        # One hit list per search call, for the case the real store makes no
+        # promise about: a later ranking that is not the earlier one plus a
+        # tail. The last entry answers any further calls.
+        self.rankings = list(rankings) if rankings is not None else None
         self.error = error
         self.embed_error = embed_error
         self.collection_size_value = (
@@ -38,6 +43,9 @@ class FakeIndexer:
         self.calls.append({"user_id": user_id, "embedding": embedding, "limit": limit})
         if self.error:
             raise self.error
+        if self.rankings is not None:
+            ranking = self.rankings[min(len(self.calls) - 1, len(self.rankings) - 1)]
+            return list(ranking[:limit])
         return list(self.hits[:limit])
 
     def search_gallery(self, user_id, query, limit=100):

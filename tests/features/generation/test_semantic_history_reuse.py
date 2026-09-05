@@ -41,8 +41,10 @@ class CountingRepository:
 
 
 class SemanticCostTestBase(SemanticHistoryTestBase):
-    def _counting_query(self, hits=None, collection_size=None):
-        self.search_manager = FakeIndexer(hits=hits, collection_size=collection_size)
+    def _counting_query(self, hits=None, collection_size=None, rankings=None):
+        self.search_manager = FakeIndexer(
+            hits=hits, collection_size=collection_size, rankings=rankings
+        )
         self.counting_repo = CountingRepository(self.generation_repo)
         return GenerationHistoryQuery(
             self.counting_repo,
@@ -142,6 +144,90 @@ class TestWideningFiltersOnlyWhatItAdded(SemanticCostTestBase):
         assert [g["id"] for g in result["generations"]] == ["gen1"]
         assert result["total"] == 1
         assert self.counting_repo.id_filter_batches[0] == ["gen1"]
+
+
+class TestWideningTrustsOnlyTheRankingInHand(SemanticCostTestBase):
+    """Nothing holds the vector index still between widening passes, and the
+    relative cutoff is recomputed per call, so a later ranking is not the
+    earlier one plus a tail. Carrying the ordered result across passes would
+    freeze the first pass's order and keep ids a later pass no longer ranks."""
+
+    def _generations(self, *specs):
+        for gen_id, status in specs:
+            self._generation_with_file(gen_id, f"file-{gen_id}", status=status)
+
+    def test_a_reordered_widened_ranking_wins_over_the_earlier_one(self):
+        # Pass 1 ranks [a, b]; only `a` matches. Pass 2 ranks [c, a, b, d],
+        # putting `c` ahead of `a` - so the answer is [c, a, d]. Appending
+        # pass 2's additions to pass 1's matches would answer [a, c, d].
+        self._generations(
+            ("a", "completed"), ("b", "processing"),
+            ("c", "completed"), ("d", "completed"),
+        )
+        query = self._counting_query(
+            hits=[self._hit(f"file-{g}", g, 0.3) for g in ("c", "a", "b", "d")],
+            collection_size=150,
+            rankings=[
+                [self._hit("file-a", "a", 0.30), self._hit("file-b", "b", 0.29)],
+                [self._hit("file-c", "c", 0.40), self._hit("file-a", "a", 0.30),
+                 self._hit("file-b", "b", 0.29), self._hit("file-d", "d", 0.20)],
+            ],
+        )
+
+        result = query.get_history(
+            self.user_id, limit=4, include_tags=False,
+            semantic_query="castle", status="completed",
+        )
+
+        assert [g["id"] for g in result["generations"]] == ["c", "a", "d"]
+        assert self.search_manager.embed_calls == ["castle"]
+        assert [call["limit"] for call in self.search_manager.calls] == [100, 150]
+
+    def test_a_hit_the_widened_ranking_drops_is_not_carried_forward(self):
+        # `a` ranks in pass 1 and is gone from pass 2 - removed from the
+        # index, or cut when the best hit moved. It must not survive in the
+        # answer just because an earlier pass had already matched it.
+        self._generations(("a", "completed"), ("b", "completed"))
+        query = self._counting_query(
+            hits=[self._hit("file-b", "b", 0.3)],
+            collection_size=150,
+            rankings=[
+                [self._hit("file-a", "a", 0.30), self._hit("file-b", "b", 0.29)],
+                [self._hit("file-b", "b", 0.29)],
+            ],
+        )
+
+        result = query.get_history(
+            self.user_id, limit=5, include_tags=False,
+            semantic_query="castle", status="completed",
+        )
+
+        assert [g["id"] for g in result["generations"]] == ["b"]
+        assert self.search_manager.embed_calls == ["castle"]
+        assert [call["limit"] for call in self.search_manager.calls] == [100, 150]
+
+    def test_an_id_seen_by_an_earlier_pass_is_never_filtered_twice(self):
+        self._generations(
+            ("a", "completed"), ("b", "processing"),
+            ("c", "completed"), ("d", "completed"),
+        )
+        query = self._counting_query(
+            hits=[self._hit(f"file-{g}", g, 0.3) for g in ("c", "a", "b", "d")],
+            collection_size=150,
+            rankings=[
+                [self._hit("file-a", "a", 0.30), self._hit("file-b", "b", 0.29)],
+                [self._hit("file-c", "c", 0.40), self._hit("file-a", "a", 0.30),
+                 self._hit("file-b", "b", 0.29), self._hit("file-d", "d", 0.20)],
+            ],
+        )
+
+        query.get_history(
+            self.user_id, limit=4, include_tags=False,
+            semantic_query="castle", status="completed",
+        )
+
+        page_batches = self.counting_repo.id_filter_batches[:-1]
+        assert page_batches == [["a", "b"], ["c", "d"]]
 
 
 class TestTotalDoesNotMaterializeTheGallery(SemanticCostTestBase):

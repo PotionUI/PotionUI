@@ -484,9 +484,13 @@ class MediaIndexer:
         """Rank a user's gallery files against an already-embedded query.
 
         Returns ``[{file_id, generation_id, similarity}]`` best-first, top-K
-        with the relative cutoff applied. The cutoff is relative to the best
-        hit, which a larger ``limit`` cannot change, so widening a search
-        yields the same prefix with more results appended.
+        with the relative cutoff applied. Each call is ranked and cut against
+        the collection as it stands at that moment, so two calls with the
+        same vector are not guaranteed to agree: a write in between changes
+        what is ranked, and a different best hit moves the cutoff, which can
+        drop an id an earlier call returned. A caller running several calls
+        to widen a search must treat each result as the whole answer for that
+        moment, not as the previous one plus a tail.
         """
         hits = self.gallery_vector_store.search(user_id, query_embedding, limit=limit)
         return self.apply_relative_cutoff(hits)

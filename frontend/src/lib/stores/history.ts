@@ -1,5 +1,5 @@
 import { logger, getErrorMessage } from '$lib/utils/logger';
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import type {
 	GenerationHistoryItem,
@@ -120,9 +120,103 @@ const initialState: HistoryPageState = {
 	facets: { modes: [], presets: [], models: [] }
 };
 
+export type HistoryQueryState = Pick<HistoryPageState, 'currentPage' | 'itemsPerPage' | 'filters'>;
+
+// The exact payload sent to GET /api/generations. Also the source of the query
+// key, so anything that changes the request necessarily changes the key.
+function buildHistoryRequest(state: HistoryQueryState) {
+	const { currentPage, itemsPerPage, filters } = state;
+	return {
+		limit: itemsPerPage,
+		offset: (currentPage - 1) * itemsPerPage,
+		status: filters.status === 'all' ? undefined : filters.status,
+		createdFrom: filters.dateFrom,
+		createdTo: filters.dateTo,
+		tagIds: filters.selectedTagIds.length > 0 ? filters.selectedTagIds : undefined,
+		includeTags: true,
+		mediaType: filters.mediaType === 'all' ? undefined : filters.mediaType,
+		search: filters.searchMode === 'semantic' ? undefined : filters.search || undefined,
+		semanticQuery: filters.searchMode === 'semantic' ? filters.search || undefined : undefined,
+		mode: filters.mode || undefined,
+		presetId: filters.presetId || undefined,
+		modelName: filters.modelName || undefined,
+		collectionId: filters.collectionId || undefined,
+		usedPhrasebookValueId: filters.usedPhrasebookValueId || undefined,
+		systemTag: filters.systemTag || undefined,
+		minRating: filters.minRating || undefined,
+		favoritesOnly: filters.favoritesOnly || undefined,
+		sortBy: filters.sortBy,
+		sortDir: filters.sortDir
+	};
+}
+
+// Stable identity of the list the current page/filter state describes.
+export function historyQueryKey(state: HistoryQueryState): string {
+	return JSON.stringify(buildHistoryRequest(state));
+}
+
+export interface RequestLifecycleRun<T> {
+	// Identity of the query being issued, compared against currentKey() on resolve.
+	key: string;
+	// Requests sharing a key but applying results differently (replace vs merge)
+	// must not coalesce onto each other.
+	bucket?: string;
+	silent?: boolean;
+	fetch: () => Promise<T>;
+	// Invoked only when the response is still the one the caller is waiting for.
+	commit: (value: T) => void;
+}
+
+export interface RequestLifecycle {
+	run<T>(request: RequestLifecycleRun<T>): Promise<boolean>;
+	hasForegroundInFlight(): boolean;
+}
+
+// Guards an async read against out-of-order responses: a response commits only
+// if its epoch is the newest issued and the caller's state still describes the
+// same query. Identical in-flight requests share one fetch; a foreground
+// request never joins a silent one, so it can own the loading state.
+export function createRequestLifecycle(currentKey: () => string): RequestLifecycle {
+	let issued = 0;
+	let latest = 0;
+	let foreground = 0;
+	const pending = new Map<string, { silent: boolean; epoch: number; promise: Promise<boolean> }>();
+
+	return {
+		hasForegroundInFlight: () => foreground > 0,
+
+		run<T>({ key, bucket = '', silent = false, fetch, commit }: RequestLifecycleRun<T>) {
+			const slot = `${bucket}\u0000${key}`;
+			const existing = pending.get(slot);
+			if (existing && (silent || !existing.silent)) return existing.promise;
+
+			const epoch = ++issued;
+			latest = epoch;
+			if (!silent) foreground += 1;
+
+			const promise = (async () => {
+				try {
+					const value = await fetch();
+					if (epoch !== latest || key !== currentKey()) return false;
+					commit(value);
+					return true;
+				} finally {
+					if (pending.get(slot)?.epoch === epoch) pending.delete(slot);
+					if (!silent) foreground -= 1;
+				}
+			})();
+
+			pending.set(slot, { silent, epoch, promise });
+			return promise;
+		}
+	};
+}
+
 // Create the store
 function createHistoryStore() {
-	const { subscribe, set, update } = writable<HistoryPageState>(initialState);
+	const store = writable<HistoryPageState>(initialState);
+	const { subscribe, set, update } = store;
+	const lifecycle = createRequestLifecycle(() => historyQueryKey(get(store)));
 
 	return {
 		subscribe,
@@ -133,80 +227,55 @@ function createHistoryStore() {
 		// of in-progress generations instead of overwriting them with the DB row
 		// (the DB keeps a running generation as 'pending', which would flicker).
 		async loadGenerations(opts?: { silent?: boolean; merge?: boolean }) {
-			if (!opts?.silent) {
+			const silent = opts?.silent === true;
+			const merge = opts?.merge === true;
+			const snapshot = get(store);
+			const request = buildHistoryRequest(snapshot);
+			const key = historyQueryKey(snapshot);
+
+			if (!silent) {
 				update((state) => ({ ...state, loading: true }));
 			}
 
 			try {
-				const { currentPage, itemsPerPage, filters } = await new Promise<HistoryPageState>(
-					(resolve) => {
-						let unsubscribe: (() => void) | undefined;
-						unsubscribe = subscribe((state) => {
-							if (unsubscribe) unsubscribe();
-							resolve(state);
+				await lifecycle.run({
+					key,
+					bucket: merge ? 'merge' : 'replace',
+					silent,
+					fetch: () => api.getGenerationHistory(request),
+					commit: (response) => {
+						if (!response.success || !response.data) return;
+						const data = response.data;
+						update((state) => {
+							if (!merge) {
+								return { ...state, generations: data.generations, totalCount: data.total };
+							}
+							// Merge: keep live status/progress for generations that are
+							// in-progress both locally and on the server, so a background
+							// refetch never downgrades 'running' back to 'pending'.
+							const localById = new Map(state.generations.map((g) => [g.id, g]));
+							const terminal = (s: string) =>
+								s === 'completed' || s === 'failed' || s === 'cancelled';
+							const generations = data.generations.map((incoming) => {
+								const local = localById.get(incoming.id);
+								if (!local) return incoming;
+								if (!terminal(incoming.status) && !terminal(local.status)) {
+									return { ...incoming, status: local.status, progress: local.progress };
+								}
+								return incoming;
+							});
+							return { ...state, generations, totalCount: data.total };
 						});
 					}
-				);
-
-				const offset = (currentPage - 1) * itemsPerPage;
-				const status = filters.status === 'all' ? undefined : filters.status;
-
-				const response = await api.getGenerationHistory({
-					limit: itemsPerPage,
-					offset,
-					status,
-					createdFrom: filters.dateFrom,
-					createdTo: filters.dateTo,
-					tagIds: filters.selectedTagIds.length > 0 ? filters.selectedTagIds : undefined,
-					includeTags: true,
-					mediaType: filters.mediaType === 'all' ? undefined : filters.mediaType,
-					search:
-						filters.searchMode === 'semantic' ? undefined : filters.search || undefined,
-					semanticQuery:
-						filters.searchMode === 'semantic' ? filters.search || undefined : undefined,
-					mode: filters.mode || undefined,
-					presetId: filters.presetId || undefined,
-					modelName: filters.modelName || undefined,
-					collectionId: filters.collectionId || undefined,
-					usedPhrasebookValueId: filters.usedPhrasebookValueId || undefined,
-					systemTag: filters.systemTag || undefined,
-					minRating: filters.minRating || undefined,
-					favoritesOnly: filters.favoritesOnly || undefined,
-					sortBy: filters.sortBy,
-					sortDir: filters.sortDir
 				});
-
-				if (response.success && response.data) {
-					const data = response.data;
-					update((state) => {
-						if (!opts?.merge) {
-							return {
-								...state,
-								generations: data.generations,
-								totalCount: data.total,
-								loading: false
-							};
-						}
-						// Merge: keep live status/progress for generations that are
-						// in-progress both locally and on the server, so a background
-						// refetch never downgrades 'running' back to 'pending'.
-						const localById = new Map(state.generations.map((g) => [g.id, g]));
-						const terminal = (s: string) =>
-							s === 'completed' || s === 'failed' || s === 'cancelled';
-						const generations = data.generations.map((incoming) => {
-							const local = localById.get(incoming.id);
-							if (!local) return incoming;
-							if (!terminal(incoming.status) && !terminal(local.status)) {
-								return { ...incoming, status: local.status, progress: local.progress };
-							}
-							return incoming;
-						});
-						return { ...state, generations, totalCount: data.total, loading: false };
-					});
-				}
 			} catch (error) {
 				logger.error('Failed to load generation history:', error);
-				update((state) => ({ ...state, loading: false }));
+			} finally {
+				// Only the last foreground request in flight owns the loading flag, so a
+				// superseded response cannot end the newer one's loading state.
+				if (!silent && !lifecycle.hasForegroundInFlight()) {
+					update((state) => ({ ...state, loading: false }));
+				}
 			}
 		},
 
@@ -496,13 +565,7 @@ function createHistoryStore() {
 		// Bulk delete selected generations
 		async bulkDeleteGenerations() {
 			try {
-				const state = await new Promise<HistoryPageState>((resolve) => {
-					let unsubscribe: (() => void) | undefined;
-					unsubscribe = subscribe((s) => {
-						if (unsubscribe) unsubscribe();
-						resolve(s);
-					});
-				});
+				const state = get(store);
 
 				if (state.selectedGenerationIds.length === 0) {
 					throw new Error('No generations selected');

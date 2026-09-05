@@ -45,12 +45,20 @@ Forward contract (canonical, for the generator / sampling agents)
 Returns the UNPACKED velocity prediction ``(B, out_channels, H, W)`` (Klein:
 128ch; Flux1: 16ch), cropped back to the input H/W.
 
+Only ``x`` and ``timestep`` move between the steps of a run; the text stream, the
+pooled/distilled conditioning, the reference latents and the sequence geometry
+belong to the guidance branch. Everything derived from the latter alone is
+hoisted into :class:`_FluxPrepared` and built once per branch when the engine has
+attached a ``run_cache``. Without one, every forward prepares its own —
+byte-identical either way.
+
 ``pack_latents`` / ``unpack_latents`` / ``prepare_ids`` are exposed as methods so
 the sampler never re-derives the patch/token bookkeeping.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, TYPE_CHECKING
 
 import torch
@@ -72,6 +80,7 @@ from vendor.gpl.comfyui.flux.math_ops import set_attention_backend
 
 from ...attention import attention as _dispatch_attention
 from ...base import NativeArchModule
+from ...cache_identity import identity_usable, tensor_identity
 from .config import FluxParams
 
 if TYPE_CHECKING:
@@ -93,6 +102,40 @@ def _pad_to_patch_size(img: Tensor, patch_size: int) -> Tensor:
     if all(p == 0 for p in pad):
         return img
     return F.pad(img, pad, mode="circular")
+
+
+@dataclass
+class _FluxPrepared:
+    """One guidance branch's step-invariant forward inputs, plus their sources.
+
+    The RoPE table, the joint key-padding mask, the packed clean reference tokens
+    and the ``txt_norm``/``txt_in`` projection are properties of the branch and
+    the weights, rebuilt identically at every step of a run.
+
+    ``guidance_vec`` and ``pooled_vec`` are filled on first use rather than with
+    the rest: both are cast to the dtype ``img_in`` produces, which the branch
+    preparation runs before. ``vec_dtype`` records the dtype they were built under
+    so a differing one rebuilds them instead of answering with the wrong cast.
+
+    ``context``, ``token_mask``, ``y``, ``guidance`` and ``refs`` are the tensors
+    the cache key names. Holding them closes the one hole ``tensor_identity``
+    cannot see: a freed tensor's address can be handed to a new allocation whose
+    version counter starts over, and while an entry lives its sources cannot be
+    freed.
+    """
+
+    pe: Tensor
+    attn_mask: Tensor | None
+    ref_tokens: Tensor | None
+    txt: Tensor
+    context: Tensor
+    token_mask: Tensor | None
+    y: Tensor | None
+    guidance: Tensor | None
+    refs: tuple
+    guidance_vec: Tensor | None = None
+    pooled_vec: Tensor | None = None
+    vec_dtype: Any = None
 
 
 class Flux(NativeArchModule):
@@ -183,22 +226,34 @@ class Flux(NativeArchModule):
         Returns ``(img_tokens, img_ids)`` where ``img_tokens`` is
         ``(B, h*w, C*patch*patch)`` and ``img_ids`` is ``(B, h*w, len(axes_dim))``.
         """
-        bs, c, h, w = x.shape
+        return (self._pack_tokens(x),
+                self._pack_ids(x.shape, x.device, index=index, h_offset=h_offset, w_offset=w_offset))
+
+    def _pack_tokens(self, x: Tensor) -> Tensor:
+        """The value half of :meth:`pack_latents`.
+
+        Split from the ids because the noisy target is repacked every step, while
+        its ids follow from the latent's shape alone and ride the cached RoPE table.
+        """
         patch_size = self.patch_size
         x = _pad_to_patch_size(x, patch_size)
-        img = rearrange(x, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=patch_size, pw=patch_size)
+        return rearrange(x, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=patch_size, pw=patch_size)
 
+    def _pack_ids(self, shape, device, index: float = 0, h_offset: int = 0, w_offset: int = 0) -> Tensor:
+        """The position half of :meth:`pack_latents`, from the UNPADDED shape."""
+        bs, _, h, w = shape
+        patch_size = self.patch_size
         h_len = (h + (patch_size // 2)) // patch_size
         w_len = (w + (patch_size // 2)) // patch_size
         h_off = (h_offset + (patch_size // 2)) // patch_size
         w_off = (w_offset + (patch_size // 2)) // patch_size
 
         n_axes = len(self.params.axes_dim)
-        img_ids = torch.zeros((h_len, w_len, n_axes), device=x.device, dtype=torch.float32)
+        img_ids = torch.zeros((h_len, w_len, n_axes), device=device, dtype=torch.float32)
         img_ids[:, :, 0] = img_ids[:, :, 0] + index
-        img_ids[:, :, 1] = img_ids[:, :, 1] + torch.linspace(h_off, h_len - 1 + h_off, steps=h_len, device=x.device, dtype=torch.float32).unsqueeze(1)
-        img_ids[:, :, 2] = img_ids[:, :, 2] + torch.linspace(w_off, w_len - 1 + w_off, steps=w_len, device=x.device, dtype=torch.float32).unsqueeze(0)
-        return img, repeat(img_ids, "h w c -> b (h w) c", b=bs)
+        img_ids[:, :, 1] = img_ids[:, :, 1] + torch.linspace(h_off, h_len - 1 + h_off, steps=h_len, device=device, dtype=torch.float32).unsqueeze(1)
+        img_ids[:, :, 2] = img_ids[:, :, 2] + torch.linspace(w_off, w_len - 1 + w_off, steps=w_len, device=device, dtype=torch.float32).unsqueeze(0)
+        return repeat(img_ids, "h w c -> b (h w) c", b=bs)
 
     def unpack_latents(self, out: Tensor, h_len: int, w_len: int, h_orig: int, w_orig: int) -> Tensor:
         """Inverse of :meth:`pack_latents`: token seq -> ``(B, C, H, W)`` latent."""
@@ -217,24 +272,121 @@ class Flux(NativeArchModule):
             txt_ids[:, :, i] = torch.linspace(0, context_len - 1, steps=context_len, device=device, dtype=dtype)
         return txt_ids
 
+    # -- step-invariant preparation -----------------------------------------
+
+    def _branch_inputs(self, x: Tensor, context: Tensor, y: Tensor | None,
+                       guidance: Tensor | None, token_mask: Tensor | None,
+                       refs: tuple, ref_method: str) -> _FluxPrepared:
+        """:meth:`_prepare_branch`, once per guidance branch when a run cache is up.
+
+        When the engine has attached a ``run_cache`` (``NativeGenerator.sample``)
+        the prepared bundle is reused for the rest of the run; without one every
+        forward prepares its own, exactly as before.
+
+        ``cache.revision`` is read here, per lookup, and never hoisted across
+        steps: a step-windowed LoRA applies and restores at step boundaries WITHIN
+        a run, so a projection computed at step 1 must not answer a lookup at
+        step 3 under different weights.
+        """
+        cache = getattr(self, "run_cache", None)
+        key = None
+        if cache is not None:
+            ids = (tensor_identity(context), tensor_identity(token_mask),
+                   tensor_identity(y), tensor_identity(guidance),
+                   *(tensor_identity(ref) for ref in refs))
+            if identity_usable(*ids):
+                key = ("flux.branch", cache.revision, tuple(x.shape), x.dtype, x.device,
+                       ref_method if refs else None, *ids)
+                hit = cache.get(key)
+                if hit is not None:
+                    return hit
+
+        prepared = self._prepare_branch(x, context, y, guidance, token_mask, refs, ref_method)
+        if key is not None:
+            cache.put(key, prepared)
+        return prepared
+
+    def _prepare_branch(self, x: Tensor, context: Tensor, y: Tensor | None,
+                        guidance: Tensor | None, token_mask: Tensor | None,
+                        refs: tuple, ref_method: str) -> _FluxPrepared:
+        """Reference packing, positional ids, RoPE, the joint mask and ``txt_in``."""
+        img_ids = self._pack_ids(x.shape, x.device)
+        ref_tokens = None
+        if refs:
+            patch_size = self.patch_size
+            h_len = (x.shape[-2] + (patch_size // 2)) // patch_size
+            w_len = (x.shape[-1] + (patch_size // 2)) // patch_size
+            packed: list[Tensor] = []
+            ref_ids: list[Tensor] = []
+            h = w = index = 0
+            for ref in refs:
+                if ref_method == "index":
+                    index += self.params.ref_index_scale
+                    h_offset = w_offset = 0
+                elif ref_method == "uxo":
+                    index = 0
+                    h_offset = h_len * patch_size + h
+                    w_offset = w_len * patch_size + w
+                    h += ref.shape[-2]
+                    w += ref.shape[-1]
+                else:  # "offset"
+                    index = 1
+                    h_offset = w_offset = 0
+                    if ref.shape[-2] + h > ref.shape[-1] + w:
+                        w_offset = w
+                    else:
+                        h_offset = h
+                    h = max(h, ref.shape[-2] + h_offset)
+                    w = max(w, ref.shape[-1] + w_offset)
+                packed.append(self._pack_tokens(ref))
+                ref_ids.append(self._pack_ids(ref.shape, ref.device, index=index,
+                                              h_offset=h_offset, w_offset=w_offset))
+            # Reference latents are clean VAE encodings, fixed for the whole run,
+            # so tokens and ids are joined in one concatenation rather than one
+            # per reference per step.
+            ref_tokens = torch.cat(packed, dim=1)
+            img_ids = torch.cat([img_ids, *ref_ids], dim=1)
+
+        txt_ids = self.prepare_ids(context.shape[1], x.shape[0], x.device)
+        txt = self.txt_norm(context) if self.txt_norm is not None else context
+        return _FluxPrepared(
+            pe=self.pe_embedder(torch.cat((txt_ids, img_ids), dim=1)),
+            attn_mask=self._expand_attention_mask(token_mask, img_ids.shape[1]),
+            ref_tokens=ref_tokens,
+            txt=self.txt_in(txt),
+            context=context, token_mask=token_mask, y=y, guidance=guidance, refs=refs,
+        )
+
+    def _fill_vec_terms(self, prepared: _FluxPrepared, img: Tensor) -> None:
+        """The two timestep-INDEPENDENT ``vec`` contributions, in ``img``'s dtype.
+
+        Held out of :meth:`_prepare_branch` because both are cast to the dtype
+        ``img_in`` produces, which the branch preparation runs before.
+        """
+        if prepared.vec_dtype == img.dtype:
+            return
+        guidance_vec = None
+        if self.params.guidance_embed and prepared.guidance is not None:
+            guidance_vec = self.guidance_in(timestep_embedding(prepared.guidance, 256).to(img.dtype))
+        pooled_vec = None
+        if self.vector_in is not None:
+            y = prepared.y
+            if y is None:
+                y = torch.zeros((img.shape[0], self.params.vec_in_dim), device=img.device, dtype=img.dtype)
+            pooled_vec = self.vector_in(y[:, : self.params.vec_in_dim])
+        prepared.guidance_vec, prepared.pooled_vec = guidance_vec, pooled_vec
+        prepared.vec_dtype = img.dtype
+
     # -- forward ------------------------------------------------------------
 
     def forward_orig(
         self,
         img: Tensor,
-        img_ids: Tensor | None,
-        txt: Tensor,
-        txt_ids: Tensor,
+        prepared: _FluxPrepared,
         timesteps: Tensor,
-        y: Tensor | None,
-        guidance: Tensor | None = None,
         control: dict | None = None,
-        attn_mask: Tensor | None = None,
         step_cache: "FirstBlockCache | None" = None,
     ) -> Tensor:
-        if img.ndim != 3 or txt.ndim != 3:
-            raise ValueError("Input img and txt tensors must have 3 dimensions.")
-
         # FBCache's probe is captured at block 0 only; ControlNet residuals
         # applied at LATER blocks (control["input"][1:], control["output"]) are
         # invisible to it, so a residual payload that changes between calls
@@ -246,28 +398,20 @@ class Flux(NativeArchModule):
         if control is not None:
             step_cache = None
 
+        if prepared.ref_tokens is not None:
+            img = torch.cat([img, prepared.ref_tokens], dim=1)
         img = self.img_in(img)
         vec = self.time_in(timestep_embedding(timesteps, 256).to(img.dtype))
-        if self.params.guidance_embed and guidance is not None:
-            vec = vec + self.guidance_in(timestep_embedding(guidance, 256).to(img.dtype))
-        if self.vector_in is not None:
-            if y is None:
-                y = torch.zeros((img.shape[0], self.params.vec_in_dim), device=img.device, dtype=img.dtype)
-            vec = vec + self.vector_in(y[:, : self.params.vec_in_dim])
+        self._fill_vec_terms(prepared, img)
+        if prepared.guidance_vec is not None:
+            vec = vec + prepared.guidance_vec
+        if prepared.pooled_vec is not None:
+            vec = vec + prepared.pooled_vec
 
-        if self.txt_norm is not None:
-            txt = self.txt_norm(txt)
-        txt = self.txt_in(txt)
-
+        txt, pe, attn_mask = prepared.txt, prepared.pe, prepared.attn_mask
         vec_orig = vec
         if self.params.global_modulation:
             vec = (self.double_stream_modulation_img(vec_orig), self.double_stream_modulation_txt(vec_orig))
-
-        if img_ids is not None:
-            ids = torch.cat((txt_ids, img_ids), dim=1)
-            pe = self.pe_embedder(ids)
-        else:
-            pe = None
 
         # FBCache probe: block 0's img-stream output is the cheap change proxy.
         # ``should_skip`` gates reusing the last computed output and skipping the
@@ -330,47 +474,25 @@ class Flux(NativeArchModule):
 
     def forward(self, x: Tensor, timestep: Tensor, context: Tensor, y: Tensor | None = None,
                 guidance: Tensor | None = None, **kwargs) -> Tensor:
-        bs, c, h_orig, w_orig = x.shape
+        h_orig, w_orig = x.shape[-2], x.shape[-1]
         patch_size = self.patch_size
         h_len = (h_orig + (patch_size // 2)) // patch_size
         w_len = (w_orig + (patch_size // 2)) // patch_size
 
-        img, img_ids = self.pack_latents(x)
+        img = self._pack_tokens(x)
+        if img.ndim != 3 or context.ndim != 3:
+            raise ValueError("Input img and txt tensors must have 3 dimensions.")
         img_tokens = img.shape[1]
 
         ref_latents = kwargs.get("ref_latents", None)
-        if ref_latents is not None:
-            ref_method = kwargs.get("ref_latents_method", self.params.default_ref_method)
-            h = w = index = 0
-            for ref in ref_latents:
-                if ref_method == "index":
-                    index += self.params.ref_index_scale
-                    h_offset = w_offset = 0
-                elif ref_method == "uxo":
-                    index = 0
-                    h_offset = h_len * patch_size + h
-                    w_offset = w_len * patch_size + w
-                    h += ref.shape[-2]
-                    w += ref.shape[-1]
-                else:  # "offset"
-                    index = 1
-                    h_offset = w_offset = 0
-                    if ref.shape[-2] + h > ref.shape[-1] + w:
-                        w_offset = w
-                    else:
-                        h_offset = h
-                    h = max(h, ref.shape[-2] + h_offset)
-                    w = max(w, ref.shape[-1] + w_offset)
-                kontext, kontext_ids = self.pack_latents(ref, index=index, h_offset=h_offset, w_offset=w_offset)
-                img = torch.cat([img, kontext], dim=1)
-                img_ids = torch.cat([img_ids, kontext_ids], dim=1)
-
-        txt_ids = self.prepare_ids(context.shape[1], bs, x.device)
-        attn_mask = self._expand_attention_mask(kwargs.get("attention_mask"), img.shape[1])
+        prepared = self._branch_inputs(
+            x, context, y, guidance, kwargs.get("attention_mask"),
+            tuple(ref_latents) if ref_latents is not None else (),
+            kwargs.get("ref_latents_method", self.params.default_ref_method),
+        )
         out = self.forward_orig(
-            img, img_ids, context, txt_ids, timestep, y, guidance,
-            control=kwargs.get("control"), attn_mask=attn_mask,
-            step_cache=kwargs.get("step_cache"),
+            img, prepared, timestep,
+            control=kwargs.get("control"), step_cache=kwargs.get("step_cache"),
         )
         out = out[:, :img_tokens]
         return self.unpack_latents(out, h_len, w_len, h_orig, w_orig)

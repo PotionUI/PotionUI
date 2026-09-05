@@ -10,22 +10,33 @@ default on) and by a minimum number of unreflected user messages, so it
 doesn't fire on every single turn.
 
 A single pass never re-sends a whole unbounded transcript: it covers a
-*bounded span* — whole unreflected messages up to a char budget (see
-``_span_char_budget``), chunking mid-message only when one message alone
-exceeds the budget (see ``_build_span``) — and records exactly how far it
-got as ``{message_id, offset}`` in session metadata (see ``_METADATA_KEY``),
-never claiming coverage past what was actually sent to the model and
-successfully handled. ``ChatRepository.record_memory_reflection`` only ever
-moves that cursor forward, so two overlapping passes (a slow one racing a
-fast one) can't move it backward. Any span left uncovered by the char budget
-is surfaced via ``pending_reflection_backlog`` and picked up by exactly one
-coalesced follow-up pass per trigger burst (see ``trigger``/``_run_pass``) —
-never an unbounded chain.
+*bounded span* — whole unreflected messages up to a char budget priced from
+the SAME accounting ``LLMGateway`` enforces on the real wire call, after
+reserving room for the fixed reflection prompt and the response (see
+``_resolve_span_budget``); when even that reservation exceeds the config's
+window, no span runs this pass. A message alone exceeding the budget is
+chunked mid-message (see ``_build_span``), and the pass records exactly how
+far it got as ``{message_id, offset, seq}`` in session metadata (see
+``_METADATA_KEY``) — ``offset`` is chars of that message covered so far, and
+is the message's FULL length (never 0) when it's covered in full, so a pass
+that later completes a message a previous pass had only partially chunked
+always compares as later than that partial position, never regressing it.
+``ChatRepository.record_memory_reflection`` only ever moves that cursor
+forward by that ``(seq, offset)`` ordering, so two overlapping passes (a
+slow one racing a fast one) can't move it backward. Any span left uncovered
+by the char budget is surfaced via ``pending_reflection_backlog`` and picked
+up by exactly one coalesced follow-up pass per trigger burst (see
+``trigger``/``_run_pass``) — never an unbounded chain. A malformed/missing
+model response and a call/persistence failure both claim no coverage (the
+span stays eligible for the next natural trigger, never retried
+immediately); a syntactically valid empty extraction (the model genuinely
+found nothing) still advances the cursor.
 """
 
 import asyncio
 import json
 import logging
+import math
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -43,15 +54,17 @@ logger = logging.getLogger(__name__)
 # (or since the session started, if it has never been reflected).
 MIN_UNREFLECTED_USER_MESSAGES = 4
 
-# Upper bound on a single span's transcript, and the fallback when the
-# session's LLM config declares no context window (see `_span_char_budget`).
+# Upper bound on a single span's transcript, and the fallback when a span's
+# budget can't be resolved from real accounting (see `_resolve_span_budget`).
 MAX_TRANSCRIPT_CHARS = 12000
 
-# How much of the config's declared context window a span may use, leaving
-# the rest for the reflection prompt/instructions and the model's response.
-_TRANSCRIPT_WINDOW_FRACTION = 0.5
-
 _LINE_SEP = "\n\n"
+
+# The explicit response reservation for a reflection call - passed to BOTH
+# the real `generate_with_history` call AND `LLMGateway.accounting_inputs_for`
+# (see `_resolve_span_budget`), so the budget check and the real send can
+# never reserve a different amount for the output than each other.
+_REFLECTION_OPTIONS_OVERRIDE = {"max_tokens": 800, "temperature": 0.2, "think": False}
 
 # The model is told to keep facts well under the manager's hard cap so a
 # little formatting overhead from write_note never trips MAX_CONTENT_LENGTH;
@@ -70,8 +83,13 @@ class _ReflectionSpan:
 
     ``end_message_id``/``end_offset`` is the cursor position the span
     actually covers — passed to ``record_memory_reflection`` only after the
-    model call and persistence both succeed. ``end_seq`` is that message's
-    index in the ``messages`` list the span was built from, purely so the
+    model call and persistence both succeed. ``end_offset`` counts
+    characters of ``end_message_id`` covered so far: when that message is
+    covered IN FULL it is the message's whole content length (never 0 -
+    0 would compare as *earlier* than a prior partial offset over the same
+    message, which is exactly what let a completing pass regress a chunk
+    boundary it had already recorded). ``end_seq`` is that message's index
+    in the ``messages`` list the span was built from, purely so the
     repository can tell two spans' end positions apart without re-deriving
     message order itself (see its monotonic-advance docstring).
     ``has_backlog`` is True when the budget was hit before every unreflected
@@ -83,6 +101,24 @@ class _ReflectionSpan:
     end_offset: int = 0
     end_seq: int = -1
     has_backlog: bool = False
+
+
+@dataclass
+class _SpanBudget:
+    """How many transcript chars one span may carry, and the accounting
+    that produced the number (see ``_resolve_span_budget``).
+
+    ``exhausted`` is True when there is no room even for the fixed
+    reflection prompt plus the response reservation, before a single
+    character of transcript is considered - `span_chars` is 0 in that case
+    and no span can run at all this pass.
+    """
+
+    span_chars: int
+    capacity_tokens: int
+    reserve_tokens: int
+    prompt_tokens: int
+    exhausted: bool = False
 
 
 class ChatReflectionGenerator:
@@ -103,9 +139,14 @@ class ChatReflectionGenerator:
         # Per-session single-flight bookkeeping for `trigger` - in-memory
         # only (a session's flag not surviving a restart is fine, since the
         # very next turn re-triggers naturally). Never read/written outside
-        # `trigger`/`_run_pass`.
+        # `trigger`/`_run_pass`. `_latest_form_state` is updated on EVERY
+        # trigger (not just the one that started the running task) so a
+        # coalesced follow-up covering genuinely new messages reflects them
+        # under the most recently active preset/model, not a stale one from
+        # whichever trigger happened to start the task - see `_run_pass`.
         self._in_flight: set = set()
         self._rerun_requested: set = set()
+        self._latest_form_state: Dict[str, Optional[Dict[str, Any]]] = {}
 
     def should_reflect(self, session: SessionResponse, messages: List[Any]) -> bool:
         """Whether a *new* reflection pass is due for this session right now
@@ -139,6 +180,7 @@ class ChatReflectionGenerator:
         after the response path has already returned to the caller.
         """
         try:
+            self._latest_form_state[session_id] = form_state
             if session_id in self._in_flight:
                 self._rerun_requested.add(session_id)
                 return
@@ -157,6 +199,14 @@ class ChatReflectionGenerator:
         or whole messages deferred past the char budget). The follow-up
         itself never schedules another one, so a standing backlog or a
         burst of triggers can never chain into an unbounded loop.
+
+        Context for the follow-up: a BACKLOG follow-up is still finishing
+        the very same span (a chunk boundary mid-message) this pass was
+        built under, so it keeps this pass's own ``form_state``. A pure
+        RERUN follow-up covers messages that arrived after this pass
+        started, so it uses whichever ``form_state`` the most recent
+        `trigger` call recorded - never the one this task happened to be
+        created with, which could be stale by the time the follow-up runs.
         """
         try:
             await self.reflect(session_id, form_state)
@@ -169,9 +219,11 @@ class ChatReflectionGenerator:
                 # regardless of the four-message threshold; a pure rerun
                 # (no backlog) is a genuinely new trigger and is still
                 # threshold-gated like any other.
-                await self.reflect(session_id, form_state, require_threshold=not backlog)
+                follow_up_form_state = form_state if backlog else self._latest_form_state.get(session_id, form_state)
+                await self.reflect(session_id, follow_up_form_state, require_threshold=not backlog)
         finally:
             self._in_flight.discard(session_id)
+            self._latest_form_state.pop(session_id, None)
 
     async def reflect(
         self,
@@ -204,19 +256,36 @@ class ChatReflectionGenerator:
         elif not self._reflection_enabled(session):
             return []
 
-        span = self._build_span(session, messages)
-        if not span.transcript:
-            return []
-
+        # Prompt first: its own token cost has to come out of the budget
+        # before we know how much room is left for transcript text.
         active_preset, active_model = self._resolve_active_context(form_state)
         prompt = self._build_prompt(active_preset, active_model)
+
+        budget = self._resolve_span_budget(session, prompt)
+        if budget.exhausted:
+            # No coverage claimed - nothing changed about the messages
+            # themselves, so nothing here would resolve on an immediate
+            # retry; only a smaller model, a larger configured
+            # context_window, or a shorter active-preset/model label
+            # (which lengthens the prompt) changes this outcome.
+            logger.warning(
+                f"Memory reflection: session {session_id}'s configured context window "
+                f"({budget.capacity_tokens} tokens) can't fit the fixed reflection prompt "
+                f"({budget.prompt_tokens} tokens) plus the {budget.reserve_tokens}-token "
+                "response reservation - no span can run this pass."
+            )
+            return []
+
+        span = self._build_span(session, messages, budget.span_chars)
+        if not span.transcript:
+            return []
 
         try:
             with trace_collector.activate(session_id, session.user_id, purpose="memory_reflection"):
                 response = await self._m.llm_service.generate_with_history(
                     messages=[{"role": "user", "content": f"{prompt}\n\n---\n\n{span.transcript}"}],
                     llm_id=session.llm_config_id,
-                    options_override={"max_tokens": 800, "temperature": 0.2, "think": False},
+                    options_override=_REFLECTION_OPTIONS_OVERRIDE,
                 )
         except Exception as e:
             # Failure: no coverage claimed, this span stays eligible. Not
@@ -227,6 +296,18 @@ class ChatReflectionGenerator:
             return []
 
         items = self._parse_items(response.content if response else None)
+        if items is None:
+            # The model's output had no reasonable interpretation (missing,
+            # not JSON, no array found, or a non-array top level) - distinct
+            # from a VALID empty array, which is a real "nothing durable"
+            # answer. No coverage claimed either way: the span stays
+            # discoverable and is picked up by the next natural trigger or
+            # coalesced follow-up, never retried immediately from here.
+            logger.warning(
+                f"Memory reflection: unparseable model output for session {session_id}; no coverage claimed"
+            )
+            return []
+
         saved = self._persist_items(
             session.user_id, items,
             active_preset_id=active_preset[0] if active_preset else None,
@@ -234,18 +315,24 @@ class ChatReflectionGenerator:
         )
 
         # A valid empty extraction (the model found nothing durable) still
-        # advances the cursor - only a call/persistence failure above skips
-        # this. `record_memory_reflection` itself only moves the cursor
-        # forward, so a slow pass finishing after a newer one can't clobber it.
-        recorded = self._m.chat_repository.record_memory_reflection(
-            session_id, span.end_message_id,
-            offset=span.end_offset, seq=span.end_seq,
-            pending_backlog=span.has_backlog,
-        )
+        # advances the cursor - only the malformed-output and call-failure
+        # cases above skip this. `record_memory_reflection` itself only
+        # moves the cursor forward, so a slow pass finishing after a newer
+        # one can't clobber it; a raised persistence failure is treated the
+        # same as a rejected (non-monotonic) write - no coverage claimed.
+        try:
+            recorded = self._m.chat_repository.record_memory_reflection(
+                session_id, span.end_message_id,
+                offset=span.end_offset, seq=span.end_seq,
+                pending_backlog=span.has_backlog,
+            )
+        except Exception as e:
+            logger.warning(f"Memory reflection: failed to persist cursor for session {session_id}: {e}")
+            recorded = False
         if not recorded:
             logger.info(
                 f"Memory reflection: cursor for session {session_id} not advanced "
-                "(a newer pass already covers this span)"
+                "(a newer pass already covers this span, or the write failed)"
             )
 
         logger.info(f"Memory reflection saved {len(saved)} note(s) for session {session_id}")
@@ -297,40 +384,60 @@ class ChatReflectionGenerator:
     def _unreflected_user_count(self, session: SessionResponse, messages: List[Any]) -> int:
         return sum(1 for _, m, _ in self._unreflected_entries(session, messages) if m.role == "user")
 
-    def _span_char_budget(self, session: SessionResponse) -> int:
-        """Char budget for one span: the ``MAX_TRANSCRIPT_CHARS`` default,
-        capped further when the session's LLM config declares a smaller
-        context window. Reads capacity read-only via
-        ``context_budget.resolve_capacity`` (the same accounting
-        ``LLMGateway`` enforces on the wire) rather than re-deriving it;
-        half the window is reserved for the reflection prompt and the
-        model's own response.
+    def _resolve_span_budget(self, session: SessionResponse, prompt: str) -> "_SpanBudget":
+        """How many transcript chars one span may carry, after reserving
+        room for the fixed reflection prompt itself and the model's
+        response - using the SAME accounting ``LLMGateway`` enforces on the
+        real wire call (``LLMGateway.accounting_inputs_for``, given the
+        actual ``_REFLECTION_OPTIONS_OVERRIDE`` this call will use, and
+        ``context_budget.count_text`` for the prompt's real token cost),
+        never a flat fraction of the window. A flat fraction ignored the
+        prompt and the response reservation entirely, so a small configured
+        ``context_window`` could leave a "budget" that was already spoken
+        for before a single transcript character - this prices exactly what
+        the real send will pay for everything except the transcript, then
+        gives the rest to it.
+
+        Degrades to the previous window-only estimate (still reserving the
+        response and the prompt's char-estimated cost) when the collaborator
+        doesn't implement the real gateway accounting - never fails the pass
+        over a missing test double or a provider hook raising.
         """
         if not session.llm_config_id:
-            return MAX_TRANSCRIPT_CHARS
+            return _SpanBudget(MAX_TRANSCRIPT_CHARS, 0, 0, 0)
         config = self._m.llm_service.repository.get_configuration(session.llm_config_id)
         if not config:
-            return MAX_TRANSCRIPT_CHARS
-        capacity = context_budget.resolve_capacity(config)
-        window_chars = int(
-            capacity.capacity_tokens * _TRANSCRIPT_WINDOW_FRACTION * context_budget.DEFAULT_CHARS_PER_TOKEN
-        )
-        if window_chars <= 0:
-            return MAX_TRANSCRIPT_CHARS
-        return min(MAX_TRANSCRIPT_CHARS, window_chars)
+            return _SpanBudget(MAX_TRANSCRIPT_CHARS, 0, 0, 0)
+        try:
+            inputs = self._m.llm_service.accounting_inputs_for(config, _REFLECTION_OPTIONS_OVERRIDE)
+            capacity_tokens = int(inputs.capacity.capacity_tokens)
+            reserve_tokens = int(inputs.reserve_tokens)
+            prompt_tokens = context_budget.count_text(prompt, inputs.counter).tokens
+        except Exception:
+            capacity_tokens = context_budget.resolve_capacity(config).capacity_tokens
+            reserve_tokens = _REFLECTION_OPTIONS_OVERRIDE["max_tokens"]
+            prompt_tokens = math.ceil(len(prompt) / context_budget.DEFAULT_CHARS_PER_TOKEN)
 
-    def _build_span(self, session: SessionResponse, messages: List[Any]) -> "_ReflectionSpan":
-        """Greedily gather whole unreflected messages up to the char budget.
+        available_tokens = capacity_tokens - reserve_tokens - prompt_tokens
+        if available_tokens <= 0:
+            return _SpanBudget(0, capacity_tokens, reserve_tokens, prompt_tokens, exhausted=True)
+        span_chars = min(MAX_TRANSCRIPT_CHARS, int(available_tokens * context_budget.DEFAULT_CHARS_PER_TOKEN))
+        return _SpanBudget(span_chars, capacity_tokens, reserve_tokens, prompt_tokens)
+
+    def _build_span(self, session: SessionResponse, messages: List[Any], char_budget: int) -> "_ReflectionSpan":
+        """Greedily gather whole unreflected messages up to ``char_budget``
+        (see ``_resolve_span_budget``).
 
         Offset policy: a message that doesn't fit whole is deferred to a
         later span in full, UNLESS nothing has been included yet this pass -
         i.e. the message alone exceeds the entire budget - in which case it
         is chunked, taking as much of it (from its own ``start_offset``) as
         fits; the cursor then records the exact offset reached so the next
-        span resumes mid-message rather than re-sending or skipping text.
+        span resumes mid-message rather than re-sending or skipping text. A
+        message covered IN FULL records its whole content length as the
+        offset, never 0 - see ``_ReflectionSpan``'s docstring for why.
         """
         entries = self._unreflected_entries(session, messages)
-        budget = self._span_char_budget(session)
         parts: List[str] = []
         total = 0
         end_seq, end_id, end_offset = -1, None, 0
@@ -341,18 +448,18 @@ class ChatReflectionGenerator:
             content = m.content or ""
             text = content[start_offset:]
             if not text.strip():
-                end_seq, end_id, end_offset = seq, m.id, 0
+                end_seq, end_id, end_offset = seq, m.id, len(content)
                 continue
             line = f"{m.role.capitalize()}: {text}"
             projected = total + (len(_LINE_SEP) if parts else 0) + len(line)
-            if projected <= budget:
+            if projected <= char_budget:
                 parts.append(line)
                 total = projected
-                end_seq, end_id, end_offset = seq, m.id, 0
+                end_seq, end_id, end_offset = seq, m.id, len(content)
                 continue
             if not parts:
                 prefix = f"{m.role.capitalize()}: "
-                room = budget - len(prefix)
+                room = char_budget - len(prefix)
                 if room > 0:
                     chunk = text[:room]
                     parts.append(f"{prefix}{chunk}")
@@ -452,20 +559,28 @@ class ChatReflectionGenerator:
     # --- parsing / persistence ---
 
     @staticmethod
-    def _parse_items(text: Optional[str]) -> List[Dict[str, Any]]:
-        """Leniently extract a JSON array of memory items from model output."""
+    def _parse_items(text: Optional[str]) -> Optional[List[Dict[str, Any]]]:
+        """Leniently extract a JSON array of memory items from model output.
+
+        Returns ``None`` when the output has no reasonable interpretation as
+        an extraction - missing text, no JSON array found, invalid JSON, or
+        a non-array top level - distinct from a genuinely empty array
+        (``[]``), which returns ``[]``: the caller treats these as different
+        outcomes (a malformed/missing response claims no coverage; a valid
+        empty extraction does).
+        """
         if not text:
-            return []
+            return None
         stripped = _THINK_BLOCK_RE.sub("", text).strip()
         match = _JSON_ARRAY_RE.search(stripped)
         if not match:
-            return []
+            return None
         try:
             data = json.loads(match.group(0))
         except (json.JSONDecodeError, ValueError):
-            return []
+            return None
         if not isinstance(data, list):
-            return []
+            return None
         return [entry for entry in data if isinstance(entry, dict)]
 
     @staticmethod

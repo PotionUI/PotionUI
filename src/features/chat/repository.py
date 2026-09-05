@@ -511,8 +511,14 @@ class ChatRepository:
         caller's message list at read time (see ``ChatReflectionGenerator``,
         which is the only caller and owns that ordering); it is meaningless
         compared across sessions but stable within one, since a session's
-        transcript only ever grows. ``offset`` distinguishes a message
-        covered in full (0) from a chunk boundary mid-message.
+        transcript only ever grows. ``offset`` is chars of that SAME message
+        covered so far - the caller always passes the message's full content
+        length (never 0) when it covers that message in full, precisely so
+        that position compares as strictly LATER than any earlier partial
+        (mid-message chunk) offset for that same ``seq``; comparing raw
+        offsets with a 0-means-complete convention would make a completing
+        pass look older than the partial progress it is finishing, and the
+        completion would be silently rejected forever.
 
         Metadata schema (key ``memory_reflection``): ``reflected_up_to_message_id``
         (str), ``reflected_up_to_offset`` (int, chars into that message

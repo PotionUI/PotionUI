@@ -121,17 +121,19 @@ class TestParseItems:
         items = ChatReflectionGenerator._parse_items(raw)
         assert items == [{"scope": "global", "key": "k", "content": "c"}]
 
-    def test_empty_array_returns_empty_list(self):
+    def test_empty_array_is_a_valid_empty_extraction(self):
+        """A genuine `[]` is a real answer (nothing durable found) - distinct
+        from the malformed/missing cases below, which return `None`."""
         assert ChatReflectionGenerator._parse_items("[]") == []
 
-    def test_malformed_json_returns_empty_list(self):
-        assert ChatReflectionGenerator._parse_items("[{not json}]") == []
+    def test_malformed_json_returns_none(self):
+        assert ChatReflectionGenerator._parse_items("[{not json}]") is None
 
-    def test_non_array_json_returns_empty_list(self):
-        assert ChatReflectionGenerator._parse_items('{"scope": "global"}') == []
+    def test_non_array_json_returns_none(self):
+        assert ChatReflectionGenerator._parse_items('{"scope": "global"}') is None
 
-    def test_none_input_returns_empty_list(self):
-        assert ChatReflectionGenerator._parse_items(None) == []
+    def test_none_input_returns_none(self):
+        assert ChatReflectionGenerator._parse_items(None) is None
 
     def test_drops_non_dict_array_entries(self):
         items = ChatReflectionGenerator._parse_items('["not a dict", {"key": "k", "content": "c"}]')
@@ -175,7 +177,9 @@ class TestReflect:
         )
         manager.chat_repository.record_memory_reflection.assert_called_once_with(
             "session-1", messages[-1].id,
-            offset=0, seq=len(messages) - 1, pending_backlog=False,
+            # A message covered in FULL records its whole length as the
+            # offset (never 0) - see `_ReflectionSpan`'s docstring.
+            offset=len(messages[-1].content), seq=len(messages) - 1, pending_backlog=False,
         )
 
     @pytest.mark.asyncio

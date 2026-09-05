@@ -28,8 +28,11 @@ from src.features.generation.run_report_recorder import (
     SCHEMA_VERSION,
     _ARTIFACTS_CAP,
     _ARTIFACT_ITEM_BYTES_CAP,
+    _ARTIFACT_STORAGE_BYTES_CAP,
     _ARTIFACTS_BYTES_CAP,
     _PLUGIN_OUTPUT_ITEM_BYTES_CAP,
+    _PLUGIN_OUTPUT_TYPES_CAP,
+    _REPORT_BYTES_CAP,
     RunReportRecorder,
 )
 from src.features.generation.run_report_repository import GenerationRunReportRepository
@@ -60,6 +63,17 @@ def _jpeg_base64(size_px: int = 256) -> str:
     buffer = io.BytesIO()
     image.save(buffer, format="JPEG", quality=95)
     return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def _status_message(pipe_id, step, message="working", progress=0.5):
+    return {
+        "type": "generation_status",
+        "pipe_id": pipe_id,
+        "pipe_name": f"pipe-{pipe_id}",
+        "current_step": step,
+        "message": message,
+        "progress": progress,
+    }
 
 
 def _artifact_message(artifact_data, artifact_type="compare_images", pipe_id=0):
@@ -356,3 +370,130 @@ class TestStoreUnavailable(RunReportOffloadCase):
         artifact = self._saved_report()["artifacts"][0]
         self.assertIsNone(artifact["artifact_data"])
         self.assertEqual(artifact["omitted"]["reason"], "unstorable_payload")
+
+
+class TestEnvelopeBound(RunReportOffloadCase):
+    """The bound is on the serialized report, so the proof is its byte size -
+    never the recorder's own counters."""
+
+    def _adversarial_run(self):
+        long_name = "T" * 4000
+        for i in range(3000):
+            self.recorder.record_output("gen-1", {
+                "type": f"{i}-{long_name}",
+                "pipe_name": long_name,
+                "output_type": long_name,
+                "blob": "b" * 5000,
+            })
+        for i in range(3000):
+            self.recorder.record_output(
+                "gen-1", _status_message(f"{i}-{long_name}", f"{i}-step-{long_name}", long_name)
+            )
+        for i in range(400):
+            self.recorder.record_output("gen-1", _artifact_message(
+                {"note": "v" * 500}, artifact_type=f"{i}-{long_name}", pipe_id=f"{i}-{long_name}"
+            ))
+        return self.recorder.flush("gen-1", terminal_status="completed")
+
+    def test_the_serialized_report_stays_under_the_envelope_cap(self):
+        self._adversarial_run()
+
+        saved = self._saved_report()
+        self.assertLessEqual(len(json.dumps(saved).encode("utf-8")), _REPORT_BYTES_CAP)
+
+    def test_the_persisted_row_stays_under_the_envelope_cap(self):
+        self._adversarial_run()
+
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                "SELECT length(report) AS n FROM generation_run_reports WHERE generation_id = 'gen-1'"
+            ).fetchone()
+        self.assertLessEqual(row["n"], _REPORT_BYTES_CAP)
+
+    def test_further_omissions_are_summarised_rather_than_each_kept(self):
+        saved = self._adversarial_run()
+
+        self.assertLessEqual(len(saved["plugin_outputs"]), _PLUGIN_OUTPUT_TYPES_CAP)
+        self.assertGreater(saved["plugin_output_types_dropped"], 0)
+        self.assertGreater(saved["pipe_timers_dropped"], 0)
+
+    def test_long_identifiers_are_truncated_before_they_are_stored(self):
+        saved = self._adversarial_run()
+
+        for key, entry in saved["plugin_outputs"].items():
+            self.assertLessEqual(len(key), 120)
+            self.assertLessEqual(len(entry["plugin_id"]), 120)
+        for artifact in saved["artifacts"]:
+            self.assertLessEqual(len(artifact["artifact_type"]), 120)
+
+    def test_evicting_an_omitted_artifact_gives_back_only_what_it_took(self):
+        oversized = "n" * (_ARTIFACT_ITEM_BYTES_CAP + 1024)
+        for _ in range(_ARTIFACTS_CAP + 5):
+            self.recorder.record_output(
+                "gen-1", _artifact_message({"workflow": oversized}, "workflow")
+            )
+        saved = self.recorder.flush("gen-1", terminal_status="completed")
+
+        self.assertEqual(len(saved["artifacts"]), _ARTIFACTS_CAP)
+        self.assertEqual(saved["artifacts_omitted"], _ARTIFACTS_CAP)
+        self.assertGreater(saved["artifacts_bytes"], 0)
+        self.assertLessEqual(saved["artifacts_bytes"], _ARTIFACTS_BYTES_CAP)
+
+
+class TestStorageBudgetBoundary(RunReportOffloadCase):
+
+    def test_the_shipped_storage_budget_is_thirty_two_megabytes(self):
+        self.assertEqual(_ARTIFACT_STORAGE_BYTES_CAP, 32 * 1024 * 1024)
+
+    def test_a_payload_crossing_the_storage_budget_is_omitted_not_written(self):
+        payload = _jpeg_base64()
+        budget = len(payload) + 16
+
+        with patch(
+            "src.features.generation.run_report_recorder._ARTIFACT_STORAGE_BYTES_CAP", budget
+        ):
+            self.recorder.record_output("gen-1", _artifact_message({"compare_image": payload}))
+            self.recorder.record_output("gen-1", _artifact_message({"compare_image": payload}))
+            saved = self.recorder.flush("gen-1", terminal_status="completed")
+
+        self.assertIsNotNone(saved["artifacts"][0]["artifact_data"])
+        self.assertIsNone(saved["artifacts"][1]["artifact_data"])
+        self.assertEqual(saved["artifacts"][1]["omitted"]["reason"], "unstorable_payload")
+        self.assertEqual(len(self._stored_files()), 1)
+        self.assertLessEqual(saved["stored_bytes"], budget)
+
+    def test_a_write_failure_cleans_up_the_offloads_that_already_succeeded(self):
+        payload = _jpeg_base64()
+        real_save = self.recorder._artifacts.save
+        calls = {"n": 0}
+
+        def flaky(generation_id, value):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return real_save(generation_id, value)
+            raise OSError("storage went away")
+
+        with patch.object(self.recorder._artifacts, "save", side_effect=flaky):
+            self.recorder.record_output(
+                "gen-1", _artifact_message({"compare_image": payload, "to_image": payload})
+            )
+        saved = self.recorder.flush("gen-1", terminal_status="completed")
+
+        self.assertEqual(calls["n"], 2)
+        self.assertIsNone(saved["artifacts"][0]["artifact_data"])
+        self.assertEqual(saved["artifacts"][0]["omitted"]["reason"], "unstorable_payload")
+        self.assertEqual(self._stored_files(), [])
+        self.assertEqual(saved["stored_bytes"], 0)
+
+
+class TestFlushReadOwnership(RunReportOffloadCase):
+
+    def test_a_failed_superseded_read_removes_the_files_this_run_wrote(self):
+        self.recorder.record_output("gen-1", _artifact_message({"compare_image": _jpeg_base64()}))
+
+        with patch.object(self.repository, "get", side_effect=RuntimeError("db gone")):
+            with self.assertRaises(RuntimeError):
+                self.recorder.flush("gen-1", terminal_status="completed")
+
+        self.assertEqual(self._stored_files(), [])
+        self.assertIsNone(self._saved_report())

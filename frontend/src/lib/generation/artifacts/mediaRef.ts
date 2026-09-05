@@ -28,11 +28,24 @@ export function isMediaRef(value: unknown): value is RunReportMediaRef {
 	);
 }
 
+/** A `generations/<date>/<generation id>/<file>` storage key as the media
+ * route serves it - the same last-two-segments convention `formMedia.ts` and
+ * `generationOrchestrator.ts` use to turn a `file_path` into a URL. */
+export function storageKeyToMediaUrl(value: string): string | null {
+	const segments = value.split('/').filter((segment) => segment.length > 0);
+	if (segments[0] !== 'generations' || segments.length < 3) return null;
+	const filename = segments[segments.length - 1];
+	const generationId = segments[segments.length - 2];
+	return `/api/media/generations/${generationId}/${filename}`;
+}
+
 export function resolveArtifactImageSrc(value: ArtifactImageValue, baseURL = ''): string {
 	if (!value) return '';
 	if (isMediaRef(value)) return `${baseURL}${value.url}`;
 	if (value.startsWith('/api/')) return `${baseURL}${value}`;
 	if (value.startsWith('http') || value.startsWith('data:')) return value;
+	const storageUrl = storageKeyToMediaUrl(value);
+	if (storageUrl) return `${baseURL}${storageUrl}`;
 	return `data:image/png;base64,${value}`;
 }
 

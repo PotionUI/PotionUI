@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { isMediaRef, resolveArtifactImageSrc, type RunReportMediaRef } from './mediaRef';
+import {
+	isMediaRef,
+	resolveArtifactImageSrc,
+	storageKeyToMediaUrl,
+	type RunReportMediaRef
+} from './mediaRef';
 
 const ref: RunReportMediaRef = {
 	$media: 'run_report_artifact',
@@ -52,8 +57,31 @@ describe('resolveArtifactImageSrc', () => {
 		);
 	});
 
+	it('serves a generations storage key through the media route, not as base64', () => {
+		expect(resolveArtifactImageSrc('generations/g-1/frame.png', 'http://host:7680')).toBe(
+			'http://host:7680/api/media/generations/g-1/frame.png'
+		);
+		expect(
+			resolveArtifactImageSrc('generations/2026-09-05/gen-1/0.png', 'http://host:7680')
+		).toBe('http://host:7680/api/media/generations/gen-1/0.png');
+	});
+
 	it('returns nothing for an omitted payload', () => {
 		expect(resolveArtifactImageSrc(undefined)).toBe('');
 		expect(resolveArtifactImageSrc(null)).toBe('');
+	});
+});
+
+describe('storageKeyToMediaUrl', () => {
+	it('takes the generation id and filename from the last two segments', () => {
+		expect(storageKeyToMediaUrl('generations/2026-09-05/gen-1/0.png')).toBe(
+			'/api/media/generations/gen-1/0.png'
+		);
+	});
+
+	it('declines anything that is not a generations key', () => {
+		expect(storageKeyToMediaUrl('iVBORw0KGgo=')).toBeNull();
+		expect(storageKeyToMediaUrl('uploads/photo.png')).toBeNull();
+		expect(storageKeyToMediaUrl('generations/0.png')).toBeNull();
 	});
 });

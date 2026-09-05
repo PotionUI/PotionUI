@@ -53,6 +53,28 @@ _PLUGIN_OUTPUT_ITEM_BYTES_CAP = 64 * 1024
 _PLUGIN_OUTPUTS_BYTES_CAP = 256 * 1024
 _ARTIFACT_STORAGE_BYTES_CAP = 32 * 1024 * 1024
 
+# The ceiling on the serialized report, not on the payloads inside it: an
+# entry's own keys, timestamps, identifiers and omission markers are what a
+# report full of *rejected* input is made of, so they are what has to be
+# counted. Every admission below is checked against this.
+_REPORT_BYTES_CAP = 1024 * 1024
+# Reserved for the envelope's own scaffold (section keys and the counters),
+# which is written at flush and never passes through an admission check.
+_ENVELOPE_OVERHEAD_BYTES = 2048
+
+# Identifiers arrive from plugin-defined message types and pipe names, so
+# their length is attacker-controlled; text fields carry rendered step
+# templates. Both are truncated before they are ever accounted or stored.
+_IDENTIFIER_CHARS = 120
+_TEXT_CHARS = 2048
+
+# Distinct plugin message types keep a dict entry each (latest wins), and
+# distinct pipe ids keep a timer each; both dimensions need a count bound of
+# their own, since a byte bound alone still admits an unbounded number of
+# ever-smaller keys.
+_PLUGIN_OUTPUT_TYPES_CAP = 50
+_PIPE_TIMERS_CAP = 200
+
 # Message types with a dedicated report section - anything else is treated as
 # a plugin/custom output type and captured generically (latest wins).
 _STATUS_MESSAGE_TYPE = "generation_status"
@@ -80,12 +102,26 @@ class _Accumulator:
     artifacts: List[Dict[str, Any]] = field(default_factory=list)
     artifacts_truncated: bool = False
     artifacts_omitted: int = 0
+    artifacts_dropped: int = 0
     artifacts_bytes: int = 0
     stored_bytes: int = 0
     plugin_outputs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     plugin_outputs_omitted: int = 0
+    plugin_output_types_dropped: int = 0
     plugin_outputs_bytes: int = 0
+    status_history_dropped: int = 0
+    pipe_timers_dropped: int = 0
+    envelope_bytes: int = _ENVELOPE_OVERHEAD_BYTES
     _last_boundary_key: Optional[tuple] = None
+
+    def admit(self, size: int) -> bool:
+        if self.envelope_bytes + size > _REPORT_BYTES_CAP:
+            return False
+        self.envelope_bytes += size
+        return True
+
+    def release(self, size: int) -> None:
+        self.envelope_bytes = max(_ENVELOPE_OVERHEAD_BYTES, self.envelope_bytes - size)
 
 
 def normalize_report(report: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -105,6 +141,10 @@ def normalize_report(report: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any
     normalized.setdefault("stored_bytes", 0)
     normalized.setdefault("plugin_outputs_omitted", 0)
     normalized.setdefault("plugin_outputs_bytes", 0)
+    normalized.setdefault("artifacts_dropped", 0)
+    normalized.setdefault("plugin_output_types_dropped", 0)
+    normalized.setdefault("status_history_dropped", 0)
+    normalized.setdefault("pipe_timers_dropped", 0)
     return normalized
 
 
@@ -113,6 +153,20 @@ def _json_bytes(value: Any) -> int:
         return len(json.dumps(value, default=str).encode("utf-8"))
     except (TypeError, ValueError):
         return 0
+
+
+def _bounded(value: Any, limit: int) -> Any:
+    if isinstance(value, str) and len(value) > limit:
+        return value[:limit]
+    return value
+
+
+def _bounded_identifier(value: Any) -> Any:
+    return _bounded(value, _IDENTIFIER_CHARS)
+
+
+def _bounded_text(value: Any) -> Any:
+    return _bounded(value, _TEXT_CHARS)
 
 
 class RunReportRecorder:
@@ -151,31 +205,45 @@ class RunReportRecorder:
 
     @staticmethod
     def _touch_pipe_timer(acc: _Accumulator, pipe_id: Any, at: str) -> None:
-        key = str(pipe_id)
+        key = _bounded_identifier(str(pipe_id))
         timer = acc.pipe_timers.get(key)
-        if timer is None:
-            acc.pipe_timers[key] = {"started_at": at, "ended_at": at}
-        else:
+        if timer is not None:
             timer["ended_at"] = at
+            return
+        if len(acc.pipe_timers) >= _PIPE_TIMERS_CAP:
+            acc.pipe_timers_dropped += 1
+            return
+        timer = {"started_at": at, "ended_at": at}
+        if not acc.admit(_json_bytes({key: timer})):
+            acc.pipe_timers_dropped += 1
+            return
+        acc.pipe_timers[key] = timer
 
     def _record_status_boundary(
         self, acc: _Accumulator, message: Dict[str, Any], pipe_id: Any, at: str
     ) -> None:
-        step = message.get("current_step")
+        step = _bounded_text(message.get("current_step"))
         boundary_key = (pipe_id, step)
         if boundary_key == acc._last_boundary_key:
             return
         acc._last_boundary_key = boundary_key
-        self._append_capped(
-            acc, "status_history", "status_history_truncated", _STATUS_HISTORY_CAP,
-            {
-                "at": at,
-                "pipe_id": pipe_id,
-                "step": step,
-                "message": message.get("message"),
-                "progress": message.get("progress"),
-            },
-        )
+        self._append_status(acc, {
+            "at": at,
+            "pipe_id": _bounded_identifier(pipe_id),
+            "step": step,
+            "message": _bounded_text(message.get("message")),
+            "progress": message.get("progress"),
+        })
+
+    @staticmethod
+    def _append_status(acc: _Accumulator, entry: Dict[str, Any]) -> None:
+        if not acc.admit(_json_bytes(entry)):
+            acc.status_history_dropped += 1
+            return
+        acc.status_history.append(entry)
+        if len(acc.status_history) > _STATUS_HISTORY_CAP:
+            acc.status_history_truncated = True
+            acc.release(_json_bytes(acc.status_history.pop(0)))
 
     def _record_artifact(
         self,
@@ -187,8 +255,8 @@ class RunReportRecorder:
     ) -> None:
         entry: Dict[str, Any] = {
             "at": at,
-            "pipe_id": pipe_id,
-            "artifact_type": message.get("artifact_type"),
+            "pipe_id": _bounded_identifier(pipe_id),
+            "artifact_type": _bounded_identifier(message.get("artifact_type")),
         }
 
         data, omission = self._durable_artifact_data(
@@ -197,15 +265,21 @@ class RunReportRecorder:
         entry["artifact_data"] = data
         if omission is not None:
             entry["omitted"] = omission
-            acc.artifacts_omitted += 1
-        else:
-            acc.artifacts_bytes += _json_bytes(data)
 
-        evicted = self._append_capped(
-            acc, "artifacts", "artifacts_truncated", _ARTIFACTS_CAP, entry
-        )
-        if evicted is not None:
-            self._release_entry(acc, evicted)
+        size = _json_bytes(entry)
+        if not acc.admit(size):
+            self._release_data(acc, data)
+            acc.artifacts_dropped += 1
+            return
+
+        acc.artifacts.append(entry)
+        acc.artifacts_bytes += size
+        if omission is not None:
+            acc.artifacts_omitted += 1
+
+        if len(acc.artifacts) > _ARTIFACTS_CAP:
+            acc.artifacts_truncated = True
+            self._release_entry(acc, acc.artifacts.pop(0))
 
     def _durable_artifact_data(
         self, acc: _Accumulator, generation_id: str, artifact_data: Any
@@ -276,48 +350,53 @@ class RunReportRecorder:
         acc.stored_bytes = max(0, acc.stored_bytes - sum(ref.get("bytes", 0) for ref in refs))
 
     def _release_entry(self, acc: _Accumulator, entry: Dict[str, Any]) -> None:
-        acc.artifacts_bytes = max(0, acc.artifacts_bytes - _json_bytes(entry.get("artifact_data")))
+        """Give back exactly what admitting `entry` took - the whole entry,
+        so an omitted one (which contributed only its marker) never has a
+        payload's worth of bytes subtracted on its behalf."""
+        size = _json_bytes(entry)
+        acc.release(size)
+        acc.artifacts_bytes = max(0, acc.artifacts_bytes - size)
+        if entry.get("omitted") is not None:
+            acc.artifacts_omitted = max(0, acc.artifacts_omitted - 1)
         self._release_data(acc, entry.get("artifact_data"))
 
     def _record_plugin_output(self, acc: _Accumulator, message: Dict[str, Any], at: str) -> None:
-        message_type = message["type"]
-        previous = acc.plugin_outputs.get(message_type)
+        key = _bounded_identifier(message["type"])
+        previous = acc.plugin_outputs.pop(key, None)
         if previous is not None:
-            acc.plugin_outputs_bytes = max(
-                0, acc.plugin_outputs_bytes - _json_bytes(previous.get("message"))
-            )
+            released = _json_bytes({key: previous})
+            acc.release(released)
+            acc.plugin_outputs_bytes = max(0, acc.plugin_outputs_bytes - released)
+            if previous.get("omitted") is not None:
+                acc.plugin_outputs_omitted = max(0, acc.plugin_outputs_omitted - 1)
+        elif len(acc.plugin_outputs) >= _PLUGIN_OUTPUT_TYPES_CAP:
+            acc.plugin_output_types_dropped += 1
+            return
 
         entry: Dict[str, Any] = {
-            "plugin_id": message.get("pipe_name") or message.get("output_type"),
+            "plugin_id": _bounded_identifier(message.get("pipe_name") or message.get("output_type")),
             "at": at,
         }
 
-        size = _json_bytes(message)
-        if size > _PLUGIN_OUTPUT_ITEM_BYTES_CAP:
+        payload_bytes = _json_bytes(message)
+        if payload_bytes > _PLUGIN_OUTPUT_ITEM_BYTES_CAP:
             entry["message"] = None
-            entry["omitted"] = {"reason": "item_bytes", "bytes": size}
-            acc.plugin_outputs_omitted += 1
-        elif acc.plugin_outputs_bytes + size > _PLUGIN_OUTPUTS_BYTES_CAP:
+            entry["omitted"] = {"reason": "item_bytes", "bytes": payload_bytes}
+        elif acc.plugin_outputs_bytes + payload_bytes > _PLUGIN_OUTPUTS_BYTES_CAP:
             entry["message"] = None
-            entry["omitted"] = {"reason": "report_bytes", "bytes": size}
-            acc.plugin_outputs_omitted += 1
+            entry["omitted"] = {"reason": "report_bytes", "bytes": payload_bytes}
         else:
             entry["message"] = copy.deepcopy(message)
-            acc.plugin_outputs_bytes += size
 
-        acc.plugin_outputs[message_type] = entry
+        size = _json_bytes({key: entry})
+        if not acc.admit(size):
+            acc.plugin_output_types_dropped += 1
+            return
 
-    @staticmethod
-    def _append_capped(
-        acc: _Accumulator, list_attr: str, truncated_attr: str, cap: int, entry: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
-        """Append `entry`, returning whatever the cap evicted."""
-        items: List[Dict[str, Any]] = getattr(acc, list_attr)
-        items.append(entry)
-        if len(items) > cap:
-            setattr(acc, truncated_attr, True)
-            return items.pop(0)
-        return None
+        acc.plugin_outputs[key] = entry
+        acc.plugin_outputs_bytes += size
+        if entry.get("omitted") is not None:
+            acc.plugin_outputs_omitted += 1
 
     def flush(
         self,
@@ -343,16 +422,13 @@ class RunReportRecorder:
 
             boundary_key = ("__terminal__", terminal_status)
             if boundary_key != acc._last_boundary_key:
-                self._append_capped(
-                    acc, "status_history", "status_history_truncated", _STATUS_HISTORY_CAP,
-                    {
-                        "at": now_iso(),
-                        "pipe_id": None,
-                        "step": terminal_status,
-                        "message": terminal_message,
-                        "progress": None,
-                    },
-                )
+                self._append_status(acc, {
+                    "at": now_iso(),
+                    "pipe_id": None,
+                    "step": _bounded_text(terminal_status),
+                    "message": _bounded_text(terminal_message),
+                    "progress": None,
+                })
 
             report = {
                 "schema_version": SCHEMA_VERSION,
@@ -362,15 +438,19 @@ class RunReportRecorder:
                 "artifacts": acc.artifacts,
                 "artifacts_truncated": acc.artifacts_truncated,
                 "artifacts_omitted": acc.artifacts_omitted,
+                "artifacts_dropped": acc.artifacts_dropped,
                 "artifacts_bytes": acc.artifacts_bytes,
                 "stored_bytes": acc.stored_bytes,
                 "plugin_outputs": acc.plugin_outputs,
                 "plugin_outputs_omitted": acc.plugin_outputs_omitted,
+                "plugin_output_types_dropped": acc.plugin_output_types_dropped,
                 "plugin_outputs_bytes": acc.plugin_outputs_bytes,
+                "status_history_dropped": acc.status_history_dropped,
+                "pipe_timers_dropped": acc.pipe_timers_dropped,
             }
 
-        superseded = self._repository.get(generation_id)
         try:
+            superseded = self._repository.get(generation_id)
             self._repository.save(generation_id, report)
         except Exception:
             self._discard_files(report)

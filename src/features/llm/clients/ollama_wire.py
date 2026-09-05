@@ -345,7 +345,13 @@ def build_ollama_generate_request(
     as a system turn — matches OpenWebUI and works on more of them.
     """
     provider_opts = config.provider_options or {}
-    options, think_enabled = build_ollama_options(config)
+    options, think = build_ollama_options(config)
+    # This call path never carries tools, so there is no "off by default
+    # while tools are on the wire" case here — the automatic default is
+    # always on, same as build_ollama_options returned unconditionally
+    # before it started leaving None unresolved for build_ollama_chat_request
+    # to interpret.
+    think_enabled = True if think is None else think
     keep_alive = provider_opts.get("keep_alive", 0)
 
     if image_data:

@@ -307,3 +307,81 @@ describe('LLMConfigForm — native and Ollama sampling controls', () => {
 		}
 	});
 });
+
+describe('LLMConfigForm — Ollama thinking mode', () => {
+	function select(target: HTMLElement) {
+		return target.querySelector('#test-ollama-think') as HTMLSelectElement;
+	}
+
+	function choose(sel: HTMLSelectElement, value: string) {
+		sel.value = value;
+		sel.dispatchEvent(new Event('change', { bubbles: true }));
+	}
+
+	it('defaults to Automatic (unset), never storing a guessed Enabled', async () => {
+		const draft = makeDraft({ type: 'ollama', model: 'llama3' });
+		mounted = mount(draft);
+		await settle();
+
+		const sel = select(mounted.target);
+		expect(sel).toBeTruthy();
+		expect(sel.value).toBe(''); // "Automatic" option's value
+		expect('think' in draft.provider_options).toBe(false);
+	});
+
+	it('stores an explicit Enabled as a real boolean, not a string', async () => {
+		const draft = makeDraft({ type: 'ollama', model: 'llama3' });
+		mounted = mount(draft);
+		await settle();
+
+		choose(select(mounted.target), 'true');
+		await settle();
+
+		expect(draft.provider_options.think).toBe(true);
+	});
+
+	it('stores an explicit Disabled as a real boolean', async () => {
+		const draft = makeDraft({ type: 'ollama', model: 'llama3' });
+		mounted = mount(draft);
+		await settle();
+
+		choose(select(mounted.target), 'false');
+		await settle();
+
+		expect(draft.provider_options.think).toBe(false);
+	});
+
+	it('stores a named level as its string, distinct from a plain boolean', async () => {
+		const draft = makeDraft({ type: 'ollama', model: 'llama3' });
+		mounted = mount(draft);
+		await settle();
+
+		choose(select(mounted.target), 'high');
+		await settle();
+
+		expect(draft.provider_options.think).toBe('high');
+	});
+
+	it('clearing an explicit choice back to Automatic removes the override entirely', async () => {
+		const draft = makeDraft({ type: 'ollama', model: 'llama3', provider_options: { think: 'medium' } });
+		mounted = mount(draft);
+		await settle();
+
+		const sel = select(mounted.target);
+		expect(sel.value).toBe('medium');
+
+		choose(sel, '');
+		await settle();
+
+		expect('think' in draft.provider_options).toBe(false);
+	});
+
+	it('a saved explicit level survives opening the form unchanged', async () => {
+		const draft = makeDraft({ type: 'ollama', model: 'llama3', provider_options: { think: 'low' } });
+		mounted = mount(draft);
+		await settle();
+
+		expect(select(mounted.target).value).toBe('low');
+		expect(draft.provider_options.think).toBe('low');
+	});
+});

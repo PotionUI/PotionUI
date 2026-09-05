@@ -362,6 +362,84 @@ async def test_stream_with_tools_pins_payload(monkeypatch, client):
     }
 
 
+# --- explicit think survives native tool calls (buffered and streaming) ---
+#
+# Before this fix, build_ollama_chat_request hard-coded
+# `"think": False if native_tools else think_enabled`, discarding any
+# explicit saved/per-call choice the instant `tools` was non-empty. These pin
+# that an explicit value now always wins, tools or not, while the
+# unspecified-plus-tools case above (test_native_tools_payload_and_trace,
+# test_stream_with_tools_pins_payload) still resolves to the legacy
+# automatic `False` default.
+
+async def test_explicit_true_survives_native_tools_buffered(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+    config = make_config("ollama", provider_options={"think": True})
+
+    await client.generate_with_tools(tool_history(), config, "SYS", tools=tool_schemas())
+
+    assert capture.body["think"] is True
+    assert capture.body["tools"] == tool_schemas()
+
+
+async def test_explicit_false_survives_native_tools_buffered(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+    config = make_config("ollama", provider_options={"think": False})
+
+    await client.generate_with_tools(tool_history(), config, "SYS", tools=tool_schemas())
+
+    assert capture.body["think"] is False
+    assert capture.body["tools"] == tool_schemas()
+
+
+async def test_explicit_named_level_survives_native_tools_buffered(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+    config = make_config("ollama", provider_options={"think": "high"})
+
+    await client.generate_with_tools(tool_history(), config, "SYS", tools=tool_schemas())
+
+    assert capture.body["think"] == "high"
+    assert capture.body["tools"] == tool_schemas()
+
+
+async def test_explicit_named_level_survives_native_tools_streaming(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [_ndjson()])
+    config = make_config("ollama", provider_options={"think": "low"})
+
+    await collect(
+        client.stream_with_tools(tool_history(), config, "SYS", tools=tool_schemas())
+    )
+
+    assert capture.body["think"] == "low"
+    assert capture.body["tools"] == tool_schemas()
+
+
+async def test_per_call_think_override_wins_over_saved_think_with_tools(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+    config = make_config("ollama", provider_options={"think": True})
+
+    await client.generate_with_tools(
+        tool_history(), config, "SYS", tools=tool_schemas(), options_override={"think": "medium"}
+    )
+
+    assert capture.body["think"] == "medium"
+
+
+async def test_an_unrelated_per_call_override_never_clobbers_saved_explicit_think(monkeypatch, client):
+    """A per-call override that names some other sampling knob (not think)
+    must leave a saved explicit think value alone — this is the "override
+    only wins when it is itself explicit" half of the precedence."""
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+    config = make_config("ollama", provider_options={"think": True})
+
+    await client.generate_with_tools(
+        tool_history(), config, "SYS", tools=tool_schemas(), options_override={"top_p": 0.5}
+    )
+
+    assert capture.body["think"] is True
+    assert capture.body["options"]["top_p"] == 0.5
+
+
 async def test_stream_and_buffered_history_send_the_same_request(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY), _ndjson()])
     config = make_config("ollama", provider_options=PROVIDER_OPTIONS)

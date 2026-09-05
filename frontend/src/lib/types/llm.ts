@@ -54,6 +54,12 @@ export interface OllamaOptions {
 	// Other
 	stop?: string[];               // Stop sequences
 
+	// Reasoning — a root request field, not one of the nested `options` above.
+	// null/omitted = automatic (off while native tool calls are on the wire,
+	// on otherwise); true/false or a named level ('low'|'medium'|'high', model
+	// support varies) always wins over that default, tool calls or not.
+	think?: boolean | 'low' | 'medium' | 'high' | null;
+
 	// Tool calling
 	force_prompt_tools?: boolean;  // Inject tool schemas into system prompt instead of native tool calling (for models like Gemma 4 where native tools don't work)
 }

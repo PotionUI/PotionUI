@@ -82,9 +82,19 @@
 		]},
 		mirostat_tau: { default: 5.0, type: 'number', label: 'Mirostat Tau', description: 'Target entropy for Mirostat' },
 		mirostat_eta: { default: 0.1, type: 'number', label: 'Mirostat Eta', description: 'Learning rate for Mirostat' },
-		think: { default: true, type: 'select', label: 'Thinking Mode', description: 'Enable/disable reasoning/thinking (disable for faster responses)', options: [
+		// Automatic (the default) is distinct from an explicit Enabled — the
+		// current automatic behavior turns thinking off while native tool
+		// calls are on the wire and on otherwise; an explicit choice below
+		// always wins over that, tool calls or not. Named levels are legacy
+		// automatic behavior's opposite number: not every model supports a
+		// graded level, and not every model can disable thinking at all.
+		think: { default: null, type: 'select', label: 'Thinking Mode', description: 'Automatic follows this provider\'s default (off during native tool calls, on otherwise). An explicit choice always applies instead, tool calls or not. Which levels — or disabling thinking at all — a model actually honours depends on the model.', options: [
+			{ value: null, label: 'Automatic' },
 			{ value: true, label: 'Enabled' },
-			{ value: false, label: 'Disabled' }
+			{ value: false, label: 'Disabled' },
+			{ value: 'low', label: 'Low' },
+			{ value: 'medium', label: 'Medium' },
+			{ value: 'high', label: 'High' }
 		]},
 		force_prompt_tools: { default: false, type: 'select', label: 'Force Prompt Tools', description: 'Inject tool definitions into system prompt instead of native tool calling. Enable this for models where native tools don\'t work (e.g. Gemma 4).', options: [
 			{ value: false, label: 'Disabled (native)' },

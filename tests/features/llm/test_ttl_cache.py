@@ -126,6 +126,72 @@ class TestOverwriteAndInvalidation:
         assert len(cache._entries) == 0
 
 
+class TestExpiryBookkeepingBounded:
+    """A frequently-touched, long-lived key sitting at the head of the expiry
+    order must not block reclamation of unrelated keys behind it (the FIFO
+    deque this replaced stopped scanning the moment its head was still live,
+    so evicted/overwritten keys queued behind that head piled up forever)."""
+
+    def test_live_anchor_with_churn_keeps_expiry_bookkeeping_bounded(self):
+        clock = FakeClock()
+        max_entries = 2
+        cache: TTLCache[str, str] = TTLCache(ttl_seconds=1000.0, max_entries=max_entries, clock=clock)
+
+        cache.set("anchor", "anchor-value")
+        for i in range(10_000):
+            assert cache.get("anchor") == "anchor-value"
+            cache.set(f"churn-{i}", "v")
+            if i % 1000 == 0:
+                # the invariant (one expiry record per live entry) holds throughout,
+                # not just once the loop finishes
+                assert len(cache._expiry) == len(cache._entries) <= max_entries
+
+        assert len(cache._entries) <= max_entries
+        assert len(cache._expiry) <= max_entries  # not ~10,001 as with the earlier FIFO queue
+
+        # long-evicted churn keys leave no trace in either structure - their
+        # values are actually released, not just unreachable via get()
+        assert "churn-0" not in cache._entries
+        assert "churn-0" not in cache._expiry
+        assert "churn-9000" not in cache._entries
+        assert "churn-9000" not in cache._expiry
+
+    def test_sweep_work_per_call_is_bounded_by_sweep_budget(self):
+        clock = FakeClock()
+        cache: TTLCache[str, str] = TTLCache(
+            ttl_seconds=10.0, max_entries=100, sweep_budget=2, clock=clock
+        )
+
+        for i in range(5):
+            cache.set(f"k{i}", "v")
+        clock.advance(11.0)  # all 5 expire and are never read again
+
+        # one call reclaims exactly `sweep_budget` of the backlog, not all of it
+        cache.set("trigger-1", "x")
+        assert len(cache._expiry) == 4  # 5 - 2 removed + 1 added
+        assert "k0" not in cache._expiry and "k1" not in cache._expiry
+        assert "k2" in cache._expiry
+
+        cache.set("trigger-2", "y")
+        assert len(cache._expiry) == 3  # 4 - 2 removed + 1 added
+        assert "k2" not in cache._expiry and "k3" not in cache._expiry
+        assert "k4" in cache._expiry
+
+    def test_overwrite_freshness_survives_surrounding_churn(self):
+        clock = FakeClock()
+        cache: TTLCache[str, str] = TTLCache(ttl_seconds=10.0, max_entries=50, clock=clock)
+
+        cache.set("k", "v1")
+        for i in range(20):
+            cache.set(f"churn-{i}", "x")
+        clock.advance(6.0)
+        cache.set("k", "v2")  # refresh before original expiry, amid live churn keys
+        clock.advance(6.0)  # 12s since the first set of "k", but only 6s since the refresh
+
+        assert cache.get("k") == "v2"
+        assert len(cache._expiry) == len(cache._entries)
+
+
 class TestDefaultClockBackwardCompatibility:
     def test_default_clock_reads_time_monotonic_live(self, monkeypatch):
         """No `clock` passed: behaves like the pre-existing inline time.monotonic()

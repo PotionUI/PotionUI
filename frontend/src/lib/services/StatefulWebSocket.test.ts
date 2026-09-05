@@ -17,6 +17,7 @@ class MockWebSocket {
 	onmessage: ((event: MessageEvent) => void) | null = null;
 	onerror: ((event: Event) => void) | null = null;
 	onclose: ((event: CloseEvent) => void) | null = null;
+	sent: unknown[] = [];
 
 	constructor(public url: string) {
 		if (MockWebSocket.nextConstructError) {
@@ -27,7 +28,9 @@ class MockWebSocket {
 		MockWebSocket.instances.push(this);
 	}
 
-	send(): void {}
+	send(data: string): void {
+		this.sent.push(JSON.parse(data));
+	}
 
 	close(): void {
 		this.readyState = MockWebSocket.CLOSED;
@@ -45,6 +48,15 @@ class MockWebSocket {
 	fail(code: number): void {
 		this.readyState = MockWebSocket.CLOSED;
 		this.onclose?.({ code } as CloseEvent);
+	}
+
+	/** Simulates the server starting a close handshake: readyState moves to CLOSING before the eventual onclose. */
+	startClosing(): void {
+		this.readyState = MockWebSocket.CLOSING;
+	}
+
+	message(data: unknown): void {
+		this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent);
 	}
 }
 
@@ -228,13 +240,18 @@ describe('StatefulWebSocket', () => {
 		expect(get(state)).toBe('connected');
 	});
 
-	it('the WebSocket constructor throwing rejects the waiter immediately, without waiting for the backoff', async () => {
-		const socket = new TestSocket();
+	it('the WebSocket constructor throwing rejects the waiter immediately and does not retry', async () => {
+		const state = writable<ConnectionState>('disconnected');
+		const socket = new TestSocket(state);
 
 		MockWebSocket.nextConstructError = new Error('blocked by browser policy');
 		const pending = socket.connectAsync();
 
 		await expect(pending).rejects.toThrow('blocked by browser policy');
+		expect(get(state)).toBe('disconnected');
+
+		await vi.advanceTimersByTimeAsync(60000);
+		expect(MockWebSocket.instances.length).toBe(0);
 	});
 
 	it('retry exhaustion rejects a waiter that never saw a successful open', async () => {
@@ -274,5 +291,69 @@ describe('StatefulWebSocket', () => {
 		MockWebSocket.instances[1].open();
 		await expect(second).resolves.toBeUndefined();
 		expect(get(state)).toBe('connected');
+	});
+
+	it('a lingering CLOSING socket cannot touch state once a replacement is pending', async () => {
+		const state = writable<ConnectionState>('disconnected');
+		const socket = new TestSocket(state);
+
+		const first = socket.connectAsync();
+		const a = MockWebSocket.instances[0];
+		a.open();
+		await first;
+		expect(get(state)).toBe('connected');
+
+		// Server starts closing A, but the close event hasn't landed yet.
+		a.startClosing();
+		const second = socket.connectAsync();
+		const b = MockWebSocket.instances[1];
+		expect(get(state)).toBe('connecting');
+
+		// A's belated events must not touch state, messages, or B's waiter.
+		a.message({ type: 'stale-from-a' });
+		a.error();
+		a.fail(1006);
+
+		expect(get(state)).toBe('connecting');
+		expect(socket.messages).toEqual([]);
+		expect(MockWebSocket.instances.length).toBe(2); // no reconnect scheduled off A's close
+
+		b.open();
+		await expect(second).resolves.toBeUndefined();
+		expect(get(state)).toBe('connected');
+	});
+
+	it('a lingering CLOSING socket cannot touch state, heartbeat, or messages once the replacement is connected', async () => {
+		const state = writable<ConnectionState>('disconnected');
+		const socket = new TestSocket(state);
+
+		const first = socket.connectAsync();
+		const a = MockWebSocket.instances[0];
+		a.open();
+		await first;
+
+		a.startClosing();
+		socket.connectAsync();
+		const b = MockWebSocket.instances[1];
+		b.open();
+		expect(get(state)).toBe('connected');
+
+		// B's heartbeat is running.
+		await vi.advanceTimersByTimeAsync(30000);
+		expect(b.sent.length).toBe(1);
+
+		// A's belated open/message/error/close must all be ignored now that B is current.
+		a.open();
+		a.message({ type: 'stale-from-a' });
+		a.error();
+		a.fail(1006);
+
+		expect(get(state)).toBe('connected');
+		expect(socket.messages).toEqual([]);
+		expect(MockWebSocket.instances.length).toBe(2); // no reconnect scheduled off A's close
+
+		// B's heartbeat must still be alive - A's close must not have stopped it.
+		await vi.advanceTimersByTimeAsync(30000);
+		expect(b.sent.length).toBe(2);
 	});
 });

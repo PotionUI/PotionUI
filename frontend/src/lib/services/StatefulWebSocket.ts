@@ -29,23 +29,22 @@ interface ConnectWaiter {
  * once, on open. A close before ever opening does not reject by itself - it
  * keeps retrying (matching pre-existing behaviour) and the waiter resolves
  * on a later open. Callers reject once (with a typed reason where this class
- * controls it) on: explicit disconnect(), the WebSocket constructor
- * throwing (not retryable, so no point waiting out the backoff), or
- * reconnect attempts being exhausted. No caller is left pending once the
- * underlying attempt is decided.
+ * controls it) on: explicit disconnect(), the WebSocket constructor throwing
+ * (treated as non-retryable - rejected immediately with no backoff attempt,
+ * since the same construction is expected to throw again), or reconnect
+ * attempts being exhausted. No caller is left pending once the underlying
+ * attempt is decided.
  *
- * Every scheduled reconnect is tagged with the generation live when it was
- * scheduled; disconnect()/a fresh connectAsync() bump the generation and
- * cancel the pending timer, so a retry that was already in flight cannot
- * create a socket for a lifetime the caller has since abandoned.
+ * Every scheduled reconnect is tagged with the (inherited) generation live
+ * when it was scheduled; disconnect() bumps it and cancels the pending
+ * timer, so a retry already in flight cannot create a socket for a lifetime
+ * the caller has since abandoned.
  */
 export abstract class StatefulWebSocket extends BaseWebSocket {
 	protected reconnectAttempts = 0;
 	protected readonly maxReconnectAttempts = 5;
 	protected intentionalDisconnect = false;
 
-	/** Bumped by disconnect() and by a fresh connectAsync() so a superseded retry's captured value goes stale. */
-	private generation = 0;
 	private waiters: ConnectWaiter[] = [];
 
 	protected constructor(
@@ -69,9 +68,8 @@ export abstract class StatefulWebSocket extends BaseWebSocket {
 
 			this.cancelReconnect();
 			this.intentionalDisconnect = false;
-			this.generation++;
 			this.connectionState.set('connecting');
-			this.connect();
+			this.connect(); // bumps the inherited generation for the new attempt
 		});
 	}
 
@@ -111,8 +109,10 @@ export abstract class StatefulWebSocket extends BaseWebSocket {
 
 	protected override onConstructError(error: unknown): void {
 		logger.error(`${this.serviceName} WebSocket construction failed:`, error);
+		// Non-retryable: the same URL/environment is expected to throw again, so
+		// don't burn an attempt slot waiting out a backoff for it.
+		this.connectionState.set('disconnected');
 		this.settleWaiters('reject', error);
-		this.scheduleReconnect();
 	}
 
 	/**

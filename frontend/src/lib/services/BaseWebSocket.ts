@@ -21,6 +21,15 @@ export abstract class BaseWebSocket {
 	protected currentReconnectDelay: number = 1000;
 	protected reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	protected heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+	/**
+	 * Bumped every time connect() actually constructs a socket. A closing/closed
+	 * socket can linger with its handlers still attached while a replacement is
+	 * created (connect()'s guard only blocks OPEN/CONNECTING) - each handler
+	 * captures the socket and token it was registered for and no-ops once
+	 * either has been superseded, so a stale socket's events can never touch
+	 * this.ws, the heartbeat, or connection state again.
+	 */
+	protected generation = 0;
 
 	constructor(
 		protected readonly url: string,
@@ -41,16 +50,23 @@ export abstract class BaseWebSocket {
 		const wsUrl = this.buildWsUrl();
 
 		try {
-			this.ws = new WebSocket(wsUrl);
+			const socket = new WebSocket(wsUrl);
+			const token = ++this.generation;
+			this.ws = socket;
+			// True once this specific socket+token is still the active attempt -
+			// every handler below checks this before touching shared state.
+			const isCurrent = () => socket === this.ws && token === this.generation;
 
-			this.ws.onopen = () => {
+			socket.onopen = () => {
+				if (!isCurrent()) return;
 				logger.debug(`[${this.constructor.name}] connected`);
 				this.currentReconnectDelay = this.reconnectDelay;
 				this.onOpen();
 				this.startHeartbeat();
 			};
 
-			this.ws.onmessage = (event) => {
+			socket.onmessage = (event) => {
+				if (!isCurrent()) return;
 				try {
 					const message = JSON.parse(event.data) as BaseWebSocketMessage;
 					this.onMessage(message);
@@ -59,12 +75,14 @@ export abstract class BaseWebSocket {
 				}
 			};
 
-			this.ws.onerror = (error) => {
+			socket.onerror = (error) => {
+				if (!isCurrent()) return;
 				logger.error(`[${this.constructor.name}] error:`, error);
 				this.onError(error);
 			};
 
-			this.ws.onclose = (event) => {
+			socket.onclose = (event) => {
+				if (!isCurrent()) return;
 				logger.debug(`[${this.constructor.name}] disconnected, code:`, event.code);
 				this.stopHeartbeat();
 				this.onClose(event);

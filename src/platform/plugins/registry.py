@@ -199,6 +199,11 @@ class PluginRegistry:
         """
         Enable a plugin and register its hooks.
 
+        Transactional: either every contribution the manifest declares lands,
+        or none does. Each stage may fail by returning an error message or by
+        raising; both funnel through `_fail_enable`, which tears the plugin's
+        partial contributions back out before recording the ERROR state.
+
         Args:
             plugin_id: ID of the plugin to enable
 
@@ -222,111 +227,96 @@ class PluginRegistry:
 
             # A plugin with an invalid manifest can never be enabled
             if manifest.validation_error:
-                logger.error(
-                    f"Cannot enable plugin {plugin_id}: invalid manifest "
-                    f"({manifest.validation_error})"
-                )
-                self._plugin_states[plugin_id] = PluginState.ERROR
-                self._plugin_errors[plugin_id] = manifest.validation_error
-                return False
+                return self._fail_enable(plugin_id, manifest.validation_error)
 
             try:
-                # Validate dependencies
-                deps_satisfied, missing_deps = self.loader.validate_dependencies(manifest)
-                if not deps_satisfied:
-                    error_msg = f"Missing dependencies: {', '.join(missing_deps)}"
-                    logger.error(f"Cannot enable plugin {plugin_id}: {error_msg}")
-                    self._plugin_states[plugin_id] = PluginState.ERROR
-                    self._plugin_errors[plugin_id] = error_msg
-                    return False
+                error_msg = self._run_enable_stages(manifest)
+            except BaseException as e:
+                failed = self._fail_enable(plugin_id, f"Error enabling plugin: {e}", exc_info=True)
+                # An interrupt gets the same teardown as a failure, but is
+                # never swallowed into a False return.
+                if not isinstance(e, Exception):
+                    raise
+                return failed
 
-                # Load and register hooks
-                for hook_name, handler_path in manifest.hooks.items():
-                    if hooks_registry.get(hook_name) is None:
-                        logger.warning(
-                            f"Plugin {plugin_id} registers handler for undeclared hook "
-                            f"'{hook_name}' (typo, or a hook point that no longer exists?)"
-                        )
+            if error_msg:
+                return self._fail_enable(plugin_id, error_msg)
 
-                    handler = self.loader.load_hook_handler(manifest, handler_path)
-                    if handler is None:
-                        error_msg = f"Failed to load hook handler: {handler_path}"
-                        logger.error(f"Cannot enable plugin {plugin_id}: {error_msg}")
-                        self._plugin_states[plugin_id] = PluginState.ERROR
-                        self._plugin_errors[plugin_id] = error_msg
-                        return False
+            self._plugin_states[plugin_id] = PluginState.ENABLED
+            self._plugin_errors.pop(plugin_id, None)
 
-                    # Register the handler with the hook chain
-                    self.hook_chain.register(hook_name, plugin_id, handler)
-                    self._plugin_hooks[plugin_id].add(hook_name)
+            logger.info(
+                f"Enabled plugin {manifest.name} ({plugin_id}) with "
+                f"{len(manifest.hooks)} hooks"
+            )
+            return True
 
-                # Load and register plugin-provided form field types
-                if self.field_registry is not None and manifest.field_types:
-                    error_msg = self._register_plugin_field_types(manifest)
-                    if error_msg:
-                        logger.error(f"Cannot enable plugin {plugin_id}: {error_msg}")
-                        self.field_registry.unregister_source(plugin_id)
-                        self._plugin_states[plugin_id] = PluginState.ERROR
-                        self._plugin_errors[plugin_id] = error_msg
-                        return False
+    def _run_enable_stages(self, manifest: PluginManifest) -> Optional[str]:
+        """Register everything `manifest` contributes, in dependency order.
 
-                # Load and register plugin-provided model attribute definitions
-                if self.model_attributes_manager is not None and manifest.model_metadata_fields:
-                    error_msg = self._register_plugin_model_metadata_fields(manifest)
-                    if error_msg:
-                        logger.error(f"Cannot enable plugin {plugin_id}: {error_msg}")
-                        self.model_attributes_manager.remove_source(plugin_id)
-                        self._plugin_states[plugin_id] = PluginState.ERROR
-                        self._plugin_errors[plugin_id] = error_msg
-                        return False
+        Returns an error message from the first stage that fails (leaving the
+        earlier stages' registrations in place for the caller to roll back), or
+        None when the whole set landed.
+        """
+        deps_satisfied, missing_deps = self.loader.validate_dependencies(manifest)
+        if not deps_satisfied:
+            return f"Missing dependencies: {', '.join(missing_deps)}"
 
-                # Load and register LLM chat extensions (tools, chat modes,
-                # resource providers)
-                for register_step in (
-                    self._register_plugin_tools,
-                    self._register_plugin_chat_modes,
-                    self._register_plugin_resources,
-                    self._register_plugin_automation_nodes,
-                    self._register_plugin_automation_templates,
-                    self._register_plugin_prompt_importers,
-                    self._register_plugin_phrasebook_ops,
-                    self._register_plugin_requirement_checkers,
-                ):
-                    error_msg = register_step(manifest)
-                    if error_msg:
-                        logger.error(f"Cannot enable plugin {plugin_id}: {error_msg}")
-                        self._rollback_partial_enable(plugin_id)
-                        self._plugin_states[plugin_id] = PluginState.ERROR
-                        self._plugin_errors[plugin_id] = error_msg
-                        return False
+        for register_step in (
+            self._register_plugin_hooks,
+            self._register_plugin_field_types,
+            self._register_plugin_model_metadata_fields,
+            self._register_plugin_tools,
+            self._register_plugin_chat_modes,
+            self._register_plugin_resources,
+            self._register_plugin_automation_nodes,
+            self._register_plugin_automation_templates,
+            self._register_plugin_prompt_importers,
+            self._register_plugin_phrasebook_ops,
+            self._register_plugin_requirement_checkers,
+        ):
+            error_msg = register_step(manifest)
+            if error_msg:
+                return error_msg
 
-                # Mount the plugin's API router(s), if it declares any
-                if self.router_mounter is not None:
-                    if not self.router_mounter.mount(manifest, loader=self.loader):
-                        error_msg = "Failed to mount plugin API router"
-                        logger.error(f"Cannot enable plugin {plugin_id}: {error_msg}")
-                        self._rollback_partial_enable(plugin_id)
-                        self._plugin_states[plugin_id] = PluginState.ERROR
-                        self._plugin_errors[plugin_id] = error_msg
-                        return False
+        # Mount the plugin's API router(s), if it declares any
+        if self.router_mounter is not None:
+            if not self.router_mounter.mount(manifest, loader=self.loader):
+                return "Failed to mount plugin API router"
 
-                # Update state
-                self._plugin_states[plugin_id] = PluginState.ENABLED
-                if plugin_id in self._plugin_errors:
-                    del self._plugin_errors[plugin_id]
+        return None
 
-                logger.info(
-                    f"Enabled plugin {manifest.name} ({plugin_id}) with "
-                    f"{len(manifest.hooks)} hooks"
+    def _fail_enable(self, plugin_id: str, error_msg: str, exc_info: bool = False) -> bool:
+        """The single exit for a failed enable: roll back, record, return False."""
+        logger.error(f"Cannot enable plugin {plugin_id}: {error_msg}", exc_info=exc_info)
+        self._rollback_partial_enable(plugin_id)
+        self._plugin_states[plugin_id] = PluginState.ERROR
+        self._plugin_errors[plugin_id] = error_msg
+        return False
+
+    def _register_plugin_hooks(self, manifest: PluginManifest) -> Optional[str]:
+        """
+        Load a plugin's `hooks.backend:` handlers and register them on the hook
+        chain. Returns an error message on the first handler that fails to
+        load, or None on success.
+        """
+        plugin_id = manifest.id
+
+        for hook_name, handler_path in manifest.hooks.items():
+            if hooks_registry.get(hook_name) is None:
+                logger.warning(
+                    f"Plugin {plugin_id} registers handler for undeclared hook "
+                    f"'{hook_name}' (typo, or a hook point that no longer exists?)"
                 )
-                return True
 
-            except Exception as e:
-                error_msg = f"Error enabling plugin: {e}"
-                logger.error(f"Failed to enable plugin {plugin_id}: {error_msg}", exc_info=True)
-                self._plugin_states[plugin_id] = PluginState.ERROR
-                self._plugin_errors[plugin_id] = error_msg
-                return False
+            handler = self.loader.load_hook_handler(manifest, handler_path)
+            if handler is None:
+                return f"Failed to load hook handler: {handler_path}"
+
+            self.hook_chain.register(hook_name, plugin_id, handler)
+            self._plugin_hooks.setdefault(plugin_id, set()).add(hook_name)
+
+        return None
 
     def _register_plugin_field_types(self, manifest: PluginManifest) -> Optional[str]:
         """
@@ -335,8 +325,13 @@ class PluginRegistry:
 
         Returns an error message string on failure (schema class / options
         handler failed to load, or the type name collides with an existing
-        registration), or None on success.
+        registration), or None on success. A process with no field registry
+        wired up runs without plugin field types rather than failing the
+        enable.
         """
+        if self.field_registry is None or not manifest.field_types:
+            return None
+
         plugin_id = manifest.id
 
         for field_type in manifest.field_types:
@@ -383,8 +378,12 @@ class PluginRegistry:
 
         Returns an error message string on failure (missing required key, or
         the `key` collides with a definition owned by someone else - including
-        core), or None on success.
+        core), or None on success. A process with no attributes manager wired
+        up runs without plugin model attributes rather than failing the enable.
         """
+        if self.model_attributes_manager is None or not manifest.model_metadata_fields:
+            return None
+
         return self.model_attributes_manager.upsert_from_plugin(manifest.id, manifest.model_metadata_fields)
 
     def _register_plugin_prompt_importers(self, manifest: PluginManifest) -> Optional[str]:
@@ -544,8 +543,17 @@ class PluginRegistry:
         return None
 
     def _rollback_partial_enable(self, plugin_id: str) -> None:
-        """Tear down everything a partially-enabled plugin registered so far:
-        hooks, field types, and LLM chat extensions (tools/modes/resources)."""
+        """Tear down everything the plugin registered: hooks, field types,
+        model attributes, LLM chat extensions (tools/modes/resources),
+        automation nodes and templates, prompt importers, phrasebook
+        operations, requirement checkers, mounted API routes, and its cached
+        modules.
+
+        Every step is unregister-by-source and no-op when the plugin owns
+        nothing there, so this is safe to run against a plugin that failed at
+        the first stage, and it doubles as the full teardown for
+        `disable_plugin`.
+        """
         for hook_name in self._plugin_hooks.get(plugin_id, set()):
             self.hook_chain.unregister(hook_name, plugin_id)
         if plugin_id in self._plugin_hooks:
@@ -565,6 +573,11 @@ class PluginRegistry:
             self.phrasebook_operation_registry.unregister_source(plugin_id)
         if self.requirement_checker_registry is not None:
             self.requirement_checker_registry.unregister_source(plugin_id)
+        if self.router_mounter is not None:
+            self.router_mounter.unmount(plugin_id)
+        # Drop this plugin's imported modules so a retry re-imports fresh code;
+        # other plugins' cached modules are untouched.
+        self.loader.evict_plugin(plugin_id)
 
     def _require_registry(
         self, items, registry, attr_name: str, singular: str
@@ -873,20 +886,9 @@ class PluginRegistry:
                 return True
 
             try:
-                # Unregister everything this plugin registered (hooks, field
-                # types, model attributes, chat extensions, automation nodes,
-                # prompt importers) - the same teardown a partial enable rolls
-                # back, plus the two extras below that only apply on a full
-                # disable.
+                # Unregister everything this plugin registered - the same
+                # teardown a partial enable rolls back.
                 self._rollback_partial_enable(plugin_id)
-
-                # Unmount the plugin's API router(s), if any were mounted
-                if self.router_mounter is not None:
-                    self.router_mounter.unmount(plugin_id)
-
-                # Evict this plugin's cached modules only - other enabled
-                # plugins keep their already-imported modules untouched.
-                self.loader.evict_plugin(plugin_id)
 
                 # Update state
                 self._plugin_states[plugin_id] = PluginState.DISABLED

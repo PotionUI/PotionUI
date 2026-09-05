@@ -106,7 +106,10 @@ class PluginRouterMounter:
 
         self._validate_route_prefix(plugin_id, module)
 
-        before = list(self._app.router.routes)
+        # Identity, not equality: Starlette's Route.__eq__ compares path +
+        # endpoint + methods, so a plugin route that looks like an existing one
+        # would be mistaken for it and left behind on both paths below.
+        before_ids = {id(r) for r in self._app.router.routes}
         try:
             if hasattr(module, "router"):
                 self._app.include_router(module.router)
@@ -116,12 +119,26 @@ class PluginRouterMounter:
                 logger.info(f"Mounted plugin WebSocket router: {plugin_id}")
         except Exception as e:
             logger.error(f"Failed to mount plugin router for {plugin_id}: {e}", exc_info=True)
+            # A partial mount (e.g. `router` included, `ws_router` blew up)
+            # would otherwise leave live routes nobody owns - `unmount` only
+            # removes what a *successful* mount recorded.
+            removed = self._discard_routes_added_since(before_ids)
+            if removed:
+                logger.info(f"Removed {removed} partially mounted route(s) for plugin: {plugin_id}")
             return False
 
-        after = self._app.router.routes
-        added = after[len(before):] if after[:len(before)] == before else [r for r in after if r not in before]
-        self._plugin_routes[plugin_id] = added
+        self._plugin_routes[plugin_id] = [
+            r for r in self._app.router.routes if id(r) not in before_ids
+        ]
         return True
+
+    def _discard_routes_added_since(self, before_ids: set) -> int:
+        """Drop every route not present when `before_ids` was taken."""
+        routes = self._app.router.routes
+        kept = [r for r in routes if id(r) in before_ids]
+        removed = len(routes) - len(kept)
+        routes[:] = kept
+        return removed
 
     def unmount(self, plugin_id: str) -> bool:
         """

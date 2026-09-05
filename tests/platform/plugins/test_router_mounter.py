@@ -26,6 +26,30 @@ def ping():
     return {{"ok": True, "plugin": "{plugin_id}"}}
 """
 
+# The HTTP router includes cleanly; the WebSocket router blows up while
+# FastAPI walks its routes - a mount that fails halfway through.
+PARTIAL_MOUNT_API_MODULE_SOURCE = """
+from fastapi import APIRouter
+
+router = APIRouter(prefix="/api/plugins/{plugin_id}", tags=["Test"])
+
+
+@router.get("/ping")
+def ping():
+    return {{"ok": True}}
+
+
+class _ExplodingRouter:
+    prefix = "/api/plugins/{plugin_id}"
+
+    @property
+    def routes(self):
+        raise RuntimeError("ws_router is broken")
+
+
+ws_router = _ExplodingRouter()
+"""
+
 BAD_PREFIX_API_MODULE_SOURCE = """
 from fastapi import APIRouter
 
@@ -153,6 +177,59 @@ class TestPluginRouterMounter(unittest.TestCase):
         # Mounted despite the prefix violation (warning, not a hard failure).
         resp = self.client.get("/api/wrong-prefix/ping")
         self.assertEqual(resp.status_code, 200)
+
+    def test_failed_mount_removes_the_routes_it_already_added(self):
+        self._create_plugin(
+            "plugin-partial", PARTIAL_MOUNT_API_MODULE_SOURCE.format(plugin_id="plugin-partial")
+        )
+        manifest = self._manifest_for("plugin-partial")
+
+        routes_before = list(self.app.router.routes)
+
+        self.assertFalse(self.router_mounter.mount(manifest, loader=self.loader))
+
+        self.assertFalse(self.router_mounter.is_mounted("plugin-partial"))
+        # The HTTP router went in before ws_router raised; nothing of it is left.
+        self.assertEqual(self.client.get("/api/plugins/plugin-partial/ping").status_code, 404)
+        self.assertEqual(
+            [id(r) for r in self.app.router.routes], [id(r) for r in routes_before]
+        )
+
+    def test_failed_mount_leaves_another_plugins_routes_alone(self):
+        self._create_plugin("plugin-a", API_MODULE_SOURCE.format(plugin_id="plugin-a"))
+        self._create_plugin(
+            "plugin-partial", PARTIAL_MOUNT_API_MODULE_SOURCE.format(plugin_id="plugin-partial")
+        )
+
+        self.assertTrue(self.router_mounter.mount(self._manifest_for("plugin-a"), loader=self.loader))
+        self.assertFalse(
+            self.router_mounter.mount(self._manifest_for("plugin-partial"), loader=self.loader)
+        )
+
+        self.assertEqual(self.client.get("/api/plugins/plugin-a/ping").status_code, 200)
+        self.assertEqual(self.client.get("/api/plugins/plugin-partial/ping").status_code, 404)
+
+        # plugin-a is still unmountable on its own terms afterwards
+        self.router_mounter.unmount("plugin-a")
+        self.assertEqual(self.client.get("/api/plugins/plugin-a/ping").status_code, 404)
+
+    def test_mount_after_a_failed_mount_of_the_same_plugin_works(self):
+        plugin_dir = self._create_plugin(
+            "plugin-partial", PARTIAL_MOUNT_API_MODULE_SOURCE.format(plugin_id="plugin-partial")
+        )
+        self.assertFalse(
+            self.router_mounter.mount(self._manifest_for("plugin-partial"), loader=self.loader)
+        )
+
+        (plugin_dir / "backend" / "api.py").write_text(
+            API_MODULE_SOURCE.format(plugin_id="plugin-partial")
+        )
+        self.loader.evict_plugin("plugin-partial")
+
+        self.assertTrue(
+            self.router_mounter.mount(self._manifest_for("plugin-partial"), loader=self.loader)
+        )
+        self.assertEqual(self.client.get("/api/plugins/plugin-partial/ping").status_code, 200)
 
     def test_mount_before_attach_defers(self):
         deferred_manager = PluginRouterMounter(loader=self.loader)

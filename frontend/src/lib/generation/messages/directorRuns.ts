@@ -8,6 +8,17 @@
 // touches `directorRuns` goes through these so the merge logic (only ever
 // updating an id that already has a run record; never inventing one) lives
 // in one place.
+//
+// A shot can be re-submitted under a NEW generation id while an OLDER
+// generation covering that same shot is still in flight (e.g. Retry before
+// the first attempt's terminal event has arrived) -- `directorRunLinks` keeps
+// both generation ids mapped to the shot, but `directorRuns[shotId]` only
+// ever tracks the latest one it was resubmitted under
+// (`buildDirectorRunEntries` in +page.svelte stamps a fresh `generationId`
+// on the run at submit time). Every function below requires
+// `existing.generationId === generationId` before touching a run, so a
+// belated event from the SUPERSEDED generation can't clobber the shot's
+// newer run.
 import type { Tab, DirectorRunState } from '$lib/types/tabs';
 
 /** The shot id(s) `generationId` covers, or `null` when this generation
@@ -34,12 +45,13 @@ export function directorShotIdsFor(
 export function withDirectorRunGenerating(
 	tab: Pick<Tab, 'directorRuns'>,
 	shotIds: string[],
-	progress: number | null
+	progress: number | null,
+	generationId: string | undefined
 ): Record<string, DirectorRunState> {
 	const runs = { ...(tab.directorRuns || {}) };
 	for (const id of shotIds) {
 		const existing = runs[id];
-		if (!existing) continue;
+		if (!existing || existing.generationId !== generationId) continue;
 		runs[id] = { ...existing, status: 'generating', progress };
 	}
 	return runs;
@@ -55,12 +67,13 @@ export function withDirectorRunTerminal(
 	shotIds: string[],
 	status: 'done' | 'failed',
 	posterUrl: string | null,
-	finishedAt: number
+	finishedAt: number,
+	generationId: string | undefined
 ): Record<string, DirectorRunState> {
 	const runs = { ...(tab.directorRuns || {}) };
 	for (const id of shotIds) {
 		const existing = runs[id];
-		if (!existing) continue;
+		if (!existing || existing.generationId !== generationId) continue;
 		runs[id] = {
 			...existing,
 			status,
@@ -80,13 +93,27 @@ export function withDirectorRunTerminal(
 export function withDirectorRunPoster(
 	tab: Pick<Tab, 'directorRuns'>,
 	shotIds: string[],
-	posterUrl: string
+	posterUrl: string,
+	generationId: string | undefined
 ): Record<string, DirectorRunState> {
 	const runs = { ...(tab.directorRuns || {}) };
 	for (const id of shotIds) {
 		const existing = runs[id];
-		if (!existing) continue;
+		if (!existing || existing.generationId !== generationId) continue;
 		runs[id] = { ...existing, posterUrl };
 	}
 	return runs;
+}
+
+/** Drops a terminated generation's `directorRunLinks` entry -- a link only
+ *  ever fires one terminal event for its generation id, so leaving it would
+ *  accumulate stale entries on the tab forever (harmless for a run that
+ *  matched above, dead weight for one superseded by a resubmission). */
+export function withoutDirectorRunLink(
+	tab: Pick<Tab, 'directorRunLinks'>,
+	generationId: string | undefined
+): Record<string, string[]> {
+	const links = { ...(tab.directorRunLinks || {}) };
+	if (generationId) delete links[generationId];
+	return links;
 }

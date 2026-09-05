@@ -1,5 +1,7 @@
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
 import { directorShotIdsFor, withDirectorRunPoster } from './directorRuns';
+import { isTabsCurrentGeneration } from './ownership';
+import { peekGenerationOutputs, setGenerationOutputs } from './generationOutputs';
 
 // Gallery updates can contain any combination of images, videos, and audio.
 generationMessageRegistry.register('gallery_update', {
@@ -7,10 +9,14 @@ generationMessageRegistry.register('gallery_update', {
 		handle(message: any, ctx) {
 		const targetTabId = ctx.tabId;
 		const targetTab = ctx.tab;
-		let nextImages = targetTab.generation.batchImages || [];
-		let nextVideos = targetTab.generation.batchVideos || [];
-		let nextAudios = targetTab.generation.batchAudios || [];
-		let nextMeshes = targetTab.generation.batchMeshes || [];
+		// Seeded from this generation's OWN prior output, not the tab's shared
+		// batch* arrays: those belong to whichever generation currently owns
+		// the tab's display, which may not be this one (see ownership.ts).
+		const cached = peekGenerationOutputs(ctx.generationId);
+		let nextImages = cached.images;
+		let nextVideos = cached.videos;
+		let nextAudios = cached.audios;
+		let nextMeshes = cached.meshes;
 
 		// The message has 'images' array (base64 data) AND 'image_urls_list' (metadata)
 		if (message.images && Array.isArray(message.images)) {
@@ -165,23 +171,39 @@ generationMessageRegistry.register('gallery_update', {
 				.filter(Boolean);
 		}
 
+		setGenerationOutputs(ctx.generationId, {
+			images: nextImages,
+			videos: nextVideos,
+			audios: nextAudios,
+			meshes: nextMeshes
+		});
+
 		// Video Director run tracking (PLAN.md §C W3): the row thumb switches to
 		// the output poster as soon as the final video is known, without
-		// waiting for `generation_complete`.
+		// waiting for `generation_complete`. Independent of tab ownership below
+		// -- a backgrounded Director shot still needs its own poster tracked.
 		const directorShotIds = directorShotIdsFor(targetTab, ctx.generationId);
 		const directorPosterUrl = nextVideos[0]?.originalUrl ?? nextVideos[0]?.url ?? null;
 
+		// The tab's shared batch*/workbenchTotal only ever reflect the
+		// generation currently owning the display.
+		const isOwner = isTabsCurrentGeneration(targetTab, ctx.generationId);
+
 		ctx.tabsStore.updateTab(targetTabId, {
-			generation: {
-				...targetTab.generation,
-				batchImages: nextImages,
-				batchVideos: nextVideos,
-				batchAudios: nextAudios,
-				batchMeshes: nextMeshes,
-				workbenchTotal: nextImages.length + nextVideos.length + nextAudios.length + nextMeshes.length
-			},
+			...(isOwner
+				? {
+						generation: {
+							...targetTab.generation,
+							batchImages: nextImages,
+							batchVideos: nextVideos,
+							batchAudios: nextAudios,
+							batchMeshes: nextMeshes,
+							workbenchTotal: nextImages.length + nextVideos.length + nextAudios.length + nextMeshes.length
+						}
+					}
+				: {}),
 			...(directorShotIds && directorPosterUrl
-				? { directorRuns: withDirectorRunPoster(targetTab, directorShotIds, directorPosterUrl) }
+				? { directorRuns: withDirectorRunPoster(targetTab, directorShotIds, directorPosterUrl, ctx.generationId) }
 				: {})
 		});
 	}

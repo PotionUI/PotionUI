@@ -1,9 +1,13 @@
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
+import { isTabsCurrentGeneration } from './ownership';
 
 generationMessageRegistry.register('timer_update', {
 	type: 'timer_update',
 	handle(message: any, ctx) {
 		if (!message.timer_name) return;
+		// Per-pipe timers are the tab's shared display -- a background/queued
+		// generation's timers have nowhere to render.
+		if (!isTabsCurrentGeneration(ctx.tab, ctx.generationId)) return;
 
 		const updatedTimers = {
 			...(ctx.tab.generation.pipeTimers || {}),

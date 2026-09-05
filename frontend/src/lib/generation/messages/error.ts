@@ -1,6 +1,8 @@
 import { generationMessageRegistry, type GenerationMessageHandler } from '$lib/registries/generationMessageRegistry';
 import { playGenerationErrorSound } from '$lib/utils/generationSounds';
-import { directorShotIdsFor, withDirectorRunTerminal } from './directorRuns';
+import { directorShotIdsFor, withDirectorRunTerminal, withoutDirectorRunLink } from './directorRuns';
+import { isTabsCurrentGeneration, withoutQueueEntry } from './ownership';
+import { takeGenerationOutputs } from './generationOutputs';
 
 // Handles both 'generation_error' and 'generation_cancelled' - moved verbatim
 // from the shared switch-case in generate/+page.svelte.
@@ -9,28 +11,40 @@ const handler: GenerationMessageHandler = {
 	handle(message: any, ctx) {
 		const targetTabId = ctx.tabId;
 		const targetTab = ctx.tab;
+		const isOwner = isTabsCurrentGeneration(targetTab, ctx.generationId);
 
 		const error = message.error ?? message.data?.message ?? message.data?.error ?? 'Generation failed';
 		const detail = message.detail ?? message.data?.detail ?? null;
 
-		// For errors, preserve any partial results (images/videos/audios) that were generated
-		const totalItems =
-			(targetTab.generation.batchImages?.length || 0) +
-			(targetTab.generation.batchVideos?.length || 0) +
-			(targetTab.generation.batchAudios?.length || 0);
-		const totalTime = targetTab.generation.startedAt
-			? Math.max(0, (Date.now() - targetTab.generation.startedAt) / 1000)
-			: targetTab.generation.totalTime;
+		// Cleared regardless of ownership -- a failed/cancelled generation gets
+		// no further gallery_update, so its cache entry would otherwise never
+		// be reclaimed.
+		const { images, videos, audios } = takeGenerationOutputs(ctx.generationId);
 
 		// Video Director run tracking (PLAN.md §C W3) -- a cancellation resolves
 		// to 'failed' the same as a real error: Retry is the right recovery
 		// either way, and DirectorRunState has no separate 'cancelled' state.
+		// Independent of tab ownership below -- a backgrounded Director shot's
+		// own run must still resolve.
 		const directorShotIds = directorShotIdsFor(targetTab, ctx.generationId);
 
-		ctx.tabsStore.updateTab(targetTabId, {
-			activeGenerationId: null,
-			generation: {
-				...targetTab.generation,
+		const generationPatch: Record<string, unknown> = {
+			queue: withoutQueueEntry(targetTab.generation.queue, ctx.generationId)
+		};
+
+		// The rest of this generation's state (display, progress, timers) only
+		// ever belongs to the tab if this generation currently owns the shared
+		// display -- see ownership.ts. A queued/backgrounded generation
+		// terminating must not disturb whatever the tab is actually showing.
+		if (isOwner) {
+			// For errors, preserve any partial results (images/videos/audios)
+			// this generation produced before it failed/was cancelled.
+			const totalItems = images.length + videos.length + audios.length;
+			const totalTime = targetTab.generation.startedAt
+				? Math.max(0, (Date.now() - targetTab.generation.startedAt) / 1000)
+				: targetTab.generation.totalTime;
+
+			Object.assign(generationPatch, {
 				isGenerating: false,
 				currentGeneration:
 					message.type === 'generation_error'
@@ -44,13 +58,21 @@ const handler: GenerationMessageHandler = {
 				currentProgress: null,
 				totalTime,
 				workbenchIndex: totalItems > 0 ? 0 : targetTab.generation.workbenchIndex,
-				workbenchTotal: totalItems,
-				queue: (targetTab.generation.queue || []).filter(
-					(q: { generation_id: string }) => q.generation_id !== ctx.generationId
-				)
+				workbenchTotal: totalItems
+			});
+		}
+
+		ctx.tabsStore.updateTab(targetTabId, {
+			...(isOwner ? { activeGenerationId: null } : {}),
+			generation: {
+				...targetTab.generation,
+				...generationPatch
 			},
 			...(directorShotIds
-				? { directorRuns: withDirectorRunTerminal(targetTab, directorShotIds, 'failed', null, Date.now()) }
+				? {
+						directorRuns: withDirectorRunTerminal(targetTab, directorShotIds, 'failed', null, Date.now(), ctx.generationId),
+						directorRunLinks: withoutDirectorRunLink(targetTab, ctx.generationId)
+					}
 				: {})
 		});
 

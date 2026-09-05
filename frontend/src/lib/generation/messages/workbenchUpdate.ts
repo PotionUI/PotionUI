@@ -1,10 +1,16 @@
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
+import { isTabsCurrentGeneration } from './ownership';
 
 // Moved verbatim from generate/+page.svelte handleGenerationMessage's
 // 'workbench_update' case (image/video/audio branching).
 generationMessageRegistry.register('workbench_update', {
 	type: 'workbench_update',
 	handle(message: any, ctx) {
+		// The live in-progress preview is the tab's shared display -- a
+		// background/queued generation's preview has nowhere to render and
+		// must never overwrite the one actually shown.
+		if (!isTabsCurrentGeneration(ctx.tab, ctx.generationId)) return;
+
 		const targetTabId = ctx.tabId;
 		const targetTab = ctx.tab;
 

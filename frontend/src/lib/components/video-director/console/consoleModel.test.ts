@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { deriveConsoleModel } from './consoleModel';
-import { resolveDirectorCapabilities, directorShotFingerprint } from '$lib/utils/videoDirector';
+import { resolveDirectorCapabilities } from '$lib/utils/videoDirector';
+import { directorShotInputIdentity } from '$lib/utils/directorInputIdentity';
 import type { VideoDirectorValue, DirectorCapabilities, DirectorModeCapability, ChainSegment } from '$lib/types/videoDirector';
 import type { DirectorRunState } from '$lib/types/tabs';
 
@@ -496,23 +497,26 @@ describe('deriveConsoleModel — W3 dependency badges (chain: continue join betw
 		expect(model.shots[1].badge).toBe('input-ready');
 	});
 
-	it('continuous when both are done and the predecessor has not changed since', () => {
+	it('continuous when both are done with a complete identity and the predecessor has not changed since', () => {
 		const doc = wanDoc();
-		const s1Hash = directorShotFingerprint(doc, 's1');
+		const s1Hash = directorShotInputIdentity(doc, 's1', { caps: wanCaps(), formData: null });
 		const runs: Record<string, DirectorRunState> = {
-			s1: run({ status: 'done', finishedAt: 1000, inputsHash: s1Hash }),
-			s2: run({ status: 'done', finishedAt: 2000 })
+			s1: run({ status: 'done', finishedAt: 1000, inputsHash: s1Hash, generationId: 'gen-1' }),
+			s2: run({ status: 'done', finishedAt: 2000, predecessorRef: { generationId: 'gen-1', outputKey: 's1' } })
 		};
 		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
 		expect(model.shots[1].badge).toBe('continuous');
 	});
 
-	it('stale when the predecessor rendered again AFTER this shot\'s own run', () => {
+	it('stale when the predecessor was regenerated under a new generation since this run\'s predecessorRef was stamped, even with identical inputs', () => {
 		const doc = wanDoc();
-		const s1Hash = directorShotFingerprint(doc, 's1');
+		const s1Hash = directorShotInputIdentity(doc, 's1', { caps: wanCaps(), formData: null });
 		const runs: Record<string, DirectorRunState> = {
-			s1: run({ status: 'done', finishedAt: 3000, inputsHash: s1Hash }),
-			s2: run({ status: 'done', finishedAt: 2000 }) // s2 rendered BEFORE s1's latest render
+			// s1's CURRENT run is gen-1-retry -- s2 was submitted against the
+			// earlier gen-1, so its stamped predecessorRef no longer matches,
+			// even though s1's document content itself never changed.
+			s1: run({ status: 'done', finishedAt: 3000, inputsHash: s1Hash, generationId: 'gen-1-retry' }),
+			s2: run({ status: 'done', finishedAt: 2000, predecessorRef: { generationId: 'gen-1', outputKey: 's1' } })
 		};
 		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
 		expect(model.shots[1].badge).toBe('stale');
@@ -520,13 +524,35 @@ describe('deriveConsoleModel — W3 dependency badges (chain: continue join betw
 
 	it('stale when the predecessor\'s live document changed since its own run (edited, not re-rendered)', () => {
 		const doc = wanDoc();
-		const staleHash = directorShotFingerprint(doc, 's1') + '-old';
+		const staleHash = directorShotInputIdentity(doc, 's1', { caps: wanCaps(), formData: null }) + '-old';
 		const runs: Record<string, DirectorRunState> = {
-			s1: run({ status: 'done', finishedAt: 1000, inputsHash: staleHash }),
-			s2: run({ status: 'done', finishedAt: 2000 })
+			s1: run({ status: 'done', finishedAt: 1000, inputsHash: staleHash, generationId: 'gen-1' }),
+			s2: run({ status: 'done', finishedAt: 2000, predecessorRef: { generationId: 'gen-1', outputKey: 's1' } })
 		};
 		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
 		expect(model.shots[1].badge).toBe('stale');
+	});
+
+	it('unverified when the predecessor\'s stored inputsHash predates versioned identities (old fingerprint format)', () => {
+		const doc = wanDoc();
+		const runs: Record<string, DirectorRunState> = {
+			// A bare JSON.stringify, the retired directorShotFingerprint's shape -- no version prefix.
+			s1: run({ status: 'done', finishedAt: 1000, inputsHash: JSON.stringify(doc.chain.segments[0]), generationId: 'gen-1' }),
+			s2: run({ status: 'done', finishedAt: 2000, predecessorRef: { generationId: 'gen-1', outputKey: 's1' } })
+		};
+		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
+		expect(model.shots[1].badge).toBe('unverified');
+	});
+
+	it('unverified when this shot\'s own run has no predecessorRef (an old stored session)', () => {
+		const doc = wanDoc();
+		const s1Hash = directorShotInputIdentity(doc, 's1', { caps: wanCaps(), formData: null });
+		const runs: Record<string, DirectorRunState> = {
+			s1: run({ status: 'done', finishedAt: 1000, inputsHash: s1Hash, generationId: 'gen-1' }),
+			s2: run({ status: 'done', finishedAt: 2000 }) // predecessorRef absent
+		};
+		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
+		expect(model.shots[1].badge).toBe('unverified');
 	});
 
 	it('a shot with no dependency (both its joins are cuts) never consults runs', () => {

@@ -89,7 +89,9 @@
 						? 'Input ready'
 						: shot.badge === 'stale'
 							? 'Stale dependency'
-							: 'Part of continuous render'}
+							: shot.badge === 'unverified'
+								? 'Dependency unverified'
+								: 'Part of continuous render'}
 		</span>
 
 		{#if checked}

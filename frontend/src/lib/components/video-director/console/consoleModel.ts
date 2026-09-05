@@ -38,10 +38,14 @@
 //   is derived from `runs` via `dependentBadge` below: no predecessor run (or
 //   not 'done') is 'needs-previous'; predecessor done and this shot never
 //   itself rendered is 'input-ready'; predecessor done and this shot's OWN
-//   last render is stale relative to it (predecessor rendered again, or its
-//   live document changed since ITS OWN run) is 'stale'; otherwise
-//   'continuous' (W1/W2's steady state). A shot with no such dependency keeps
-//   its plain 'independent'/'continuous' read, unchanged.
+//   last render is stale relative to it (the predecessor's live document
+//   changed since ITS OWN run, or the predecessor was regenerated under a
+//   different generation since this run's `predecessorRef` was stamped --
+//   see utils/directorInputIdentity.ts) is 'stale'; either run missing a
+//   complete identity (an old stored run, or `predecessorRef` absent) is
+//   'unverified' rather than a guessed 'continuous'; otherwise 'continuous'
+//   (W1/W2's steady state). A shot with no such dependency keeps its plain
+//   'independent'/'continuous' read, unchanged.
 // - A join whose kind would be 'native'/'continue' (i.e. NOT a hard cut)
 //   becomes `kind: 'missing'` -- rendering the warning block instead of the
 //   normal chip/toggle -- only when its downstream shot is CHECKED and the
@@ -95,13 +99,17 @@ import {
 	DEFAULT_MAX_KEYFRAMES,
 	collectFormMediaOptions,
 	resolveDirectorMediaDisplay,
-	validateDirector,
-	directorShotFingerprint
+	validateDirector
 } from '$lib/utils/videoDirector';
+import {
+	directorShotInputIdentity,
+	hasVersionedShotIdentity,
+	type DirectorShotIdentityContext
+} from '$lib/utils/directorInputIdentity';
 
 // ─── Public types (verbatim from W1-BRIEF.md's contract) ───────────────────
 
-export type ConsoleBadge = 'independent' | 'needs-previous' | 'input-ready' | 'stale' | 'continuous';
+export type ConsoleBadge = 'independent' | 'needs-previous' | 'input-ready' | 'stale' | 'continuous' | 'unverified';
 export type ConsoleRunState = null | { kind: 'queued' } | { kind: 'generating'; percent: number } | { kind: 'done'; time: string } | { kind: 'failed' };
 
 export interface ConsoleThumb {
@@ -304,23 +312,37 @@ function formatRunFinishedAt(finishedAt: number | null): string {
 /** Dependency badge for a shot that DEPENDS on `predecessorId`'s output (a
  * continue-style seam/join) -- see this file's W3 header note for the state
  * machine. `runs` absent/empty degrades to 'needs-previous' throughout,
- * matching W1/W2 (no runs map existed yet). */
+ * matching W1/W2 (no runs map existed yet).
+ *
+ * Once both rows are 'done', freshness needs BOTH runs to carry a complete
+ * identity (a versioned `inputsHash` on the predecessor, a `predecessorRef`
+ * on this shot's own run) -- either missing (an old stored run, or one from
+ * before this shot had a predecessor at all) can't be trusted to answer "did
+ * the predecessor change since", so that reads 'unverified' rather than
+ * risking a false 'continuous'. With both present, 'stale' fires on EITHER
+ * signal: the predecessor's live document has drifted from what its own run
+ * captured, or the predecessor was regenerated under a different generation
+ * since this run's `predecessorRef` was stamped (catches a same-input
+ * regenerate producing a different output, which a content diff alone can't
+ * see, and is exact where the retired `finishedAt`-ordering heuristic was
+ * only a guess). */
 function dependentBadge(
 	doc: VideoDirectorValue,
 	predecessorId: string,
 	shotId: string,
-	runs: Record<string, DirectorRunState> | null | undefined
+	runs: Record<string, DirectorRunState> | null | undefined,
+	identityCtx: DirectorShotIdentityContext
 ): ConsoleBadge {
 	const predecessorRun = runs?.[predecessorId];
 	if (!predecessorRun || predecessorRun.status !== 'done') return 'needs-previous';
 	const ownRun = runs?.[shotId];
 	if (!ownRun || ownRun.status !== 'done') return 'input-ready';
-	const predecessorFinishedAfterOwnRun =
-		predecessorRun.finishedAt != null && ownRun.finishedAt != null && predecessorRun.finishedAt > ownRun.finishedAt;
-	const predecessorLiveHash = directorShotFingerprint(doc, predecessorId);
-	const predecessorEditedSinceItsRun =
-		predecessorRun.inputsHash != null && predecessorLiveHash != null && predecessorRun.inputsHash !== predecessorLiveHash;
-	return predecessorFinishedAfterOwnRun || predecessorEditedSinceItsRun ? 'stale' : 'continuous';
+	if (!hasVersionedShotIdentity(predecessorRun.inputsHash) || !ownRun.predecessorRef) return 'unverified';
+	const predecessorLiveIdentity = directorShotInputIdentity(doc, predecessorId, identityCtx);
+	const predecessorEditedSinceItsRun = predecessorLiveIdentity != null && predecessorLiveIdentity !== predecessorRun.inputsHash;
+	const predecessorResultChanged =
+		ownRun.predecessorRef.generationId !== predecessorRun.generationId || ownRun.predecessorRef.outputKey !== predecessorId;
+	return predecessorEditedSinceItsRun || predecessorResultChanged ? 'stale' : 'continuous';
 }
 
 // ─── Chain shots/joins ──────────────────────────────────────────────────────
@@ -329,12 +351,13 @@ function chainShotBadge(
 	doc: VideoDirectorValue,
 	rail: RailModel,
 	index: number,
-	runs: Record<string, DirectorRunState> | null | undefined
+	runs: Record<string, DirectorRunState> | null | undefined,
+	identityCtx: DirectorShotIdentityContext
 ): ConsoleBadge {
 	const incoming = index > 0 ? rail.seams[index - 1] : null;
 	const outgoing = index < rail.shots.length - 1 ? rail.seams[index] : null;
 	if (incoming && incoming.kind === 'continue') {
-		return dependentBadge(doc, doc.chain.segments[index - 1].id, doc.chain.segments[index].id, runs);
+		return dependentBadge(doc, doc.chain.segments[index - 1].id, doc.chain.segments[index].id, runs, identityCtx);
 	}
 	const continuous = outgoing && outgoing.kind === 'continue';
 	return continuous ? 'continuous' : 'independent';
@@ -397,6 +420,7 @@ function buildChainShots(
 	runs: Record<string, DirectorRunState> | null | undefined
 ): ConsoleShot[] {
 	const dc = caps.modes.director;
+	const identityCtx: DirectorShotIdentityContext = { caps, formData };
 	return rail.shots.map((block, index) => {
 		const segment = doc.chain.segments[index];
 		const tabs: ConsoleShot['tabs'] = [{ id: 'selection', label: 'Selection' }];
@@ -422,7 +446,7 @@ function buildChainShots(
 			fps: rail.fps,
 			fpsLocked: dc?.fpsLocked === true,
 			thumb: withRunPoster(chainShotThumb(doc, rail, segment, block, formData), runs?.[segment.id]),
-			badge: chainShotBadge(doc, rail, index, runs),
+			badge: chainShotBadge(doc, rail, index, runs, identityCtx),
 			hasIcLora: false,
 			icLoraCount: 0,
 			run: consoleRunState(runs?.[segment.id]),
@@ -514,6 +538,7 @@ function buildTimelineShots(
 ): ConsoleShot[] {
 	const dc = caps.modes.director;
 	const shots = doc.timeline.shots;
+	const identityCtx: DirectorShotIdentityContext = { caps, formData };
 	return shots.map((shot, index) => {
 		const rail = deriveRailModel(doc, caps, shot.id);
 		// Every row the user added counts, picked LoRA or not — the tab and the
@@ -553,7 +578,7 @@ function buildTimelineShots(
 			// though the join control below renders a toggle, not a chip.
 			badge:
 				shot.continue_from_previous && index > 0
-					? dependentBadge(doc, shots[index - 1].id, shot.id, runs)
+					? dependentBadge(doc, shots[index - 1].id, shot.id, runs, identityCtx)
 					: 'independent',
 			hasIcLora,
 			icLoraCount: icLoraEntries.length,

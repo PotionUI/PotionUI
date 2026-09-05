@@ -1811,29 +1811,6 @@ export function buildDirectorSubmission(
 	}
 }
 
-/**
- * Canonical-JSON fingerprint of a single shot's own generation-defining
- * fields -- a chain segment carries its own keyframe/last_keyframe media
- * inline (`ChainSegment`), so `JSON.stringify` of the segment itself already
- * captures everything that changes what it renders; a timeline shot is the
- * same for `DirectorTimelineShot`. Not a real hash (no algorithm, just the
- * canonical string) -- every caller only ever compares two fingerprints for
- * equality, so a cheap deterministic string serves exactly as well as a real
- * hash and avoids picking/vendoring one. Field order is stable because every
- * writer in this module always constructs these objects with the same key
- * order; this is a change-detector across ONE session's lifetime, not a
- * durable content-addressed id. Returns null when the doc has no shot with
- * that id (a stale reference -- the shot was removed since). See
- * `DirectorRunState.inputsHash` (types/tabs.ts).
- */
-export function directorShotFingerprint(value: VideoDirectorValue, shotId: string): string | null {
-	const chainSegment = value.chain.segments.find((s) => s.id === shotId);
-	if (chainSegment) return JSON.stringify(chainSegment);
-	const timelineShot = value.timeline.shots.find((s) => s.id === shotId);
-	if (timelineShot) return JSON.stringify(timelineShot);
-	return null;
-}
-
 // Wan's routed multi-shot chain (director mode with segment_routing). Produces
 // the same wire shape the retired `chain` mode did -- N segments with per-shot
 // frames/loras, a first-only leading keyframe, and chain-wide continuation --

@@ -39,6 +39,7 @@
 	import { isMobile, viewportWidth } from '$lib/stores/viewport';
 	import { settingsPaneWidth } from '$lib/stores/generationLayout';
 	import { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission, representativeDirectorPrompt, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText } from '$lib/utils/videoDirector';
+	import { directorShotInputIdentity, directorPredecessorShotId } from '$lib/utils/directorInputIdentity';
 	import { planDirectorSelection } from '$lib/utils/directorPlanner';
 	import type { VideoDirectorWireDoc, VideoDirectorValue } from '$lib/types/videoDirector';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
@@ -76,24 +77,35 @@
 	}
 
 	/** One `DirectorRunState` per shot id a just-started generation covers
-	 *  (PLAN.md §C W3) -- `inputsHash` is captured from `doc` NOW, at submit
-	 *  time, so it reflects what was actually sent even if the document keeps
-	 *  changing while the generation is in flight. */
+	 *  (PLAN.md §C W3) -- `inputsHash`/`predecessorRef` are captured from `doc`/
+	 *  `runs` NOW, at submit time, so they reflect what was actually sent even
+	 *  if the document (or the predecessor's own run) keeps changing while the
+	 *  generation is in flight. `runs` is the freshest known runs map for
+	 *  looking up a dependent shot's predecessor -- callers pass whatever they
+	 *  already have in scope (a multi-shot submission's later shots must see
+	 *  the entries an earlier shot in the SAME call just recorded). */
 	function buildDirectorRunEntries(
 		shotIds: string[],
 		generationId: string,
 		status: 'queued' | 'generating',
-		doc: VideoDirectorValue
+		doc: VideoDirectorValue,
+		caps: DirectorCapabilities,
+		formData: Record<string, unknown> | null | undefined,
+		runs: Record<string, DirectorRunState> | null | undefined
 	): Record<string, DirectorRunState> {
 		const entries: Record<string, DirectorRunState> = {};
 		for (const shotId of shotIds) {
+			const predecessorId = directorPredecessorShotId(doc, caps, shotId);
+			const predecessorRun = predecessorId ? runs?.[predecessorId] : null;
 			entries[shotId] = {
 				generationId,
 				status,
 				progress: null,
 				finishedAt: null,
 				posterUrl: null,
-				inputsHash: directorShotFingerprint(doc, shotId)
+				inputsHash: directorShotInputIdentity(doc, shotId, { caps, formData }),
+				predecessorRef:
+					predecessorId && predecessorRun ? { generationId: predecessorRun.generationId, outputKey: predecessorId } : null
 			};
 		}
 		return entries;
@@ -186,7 +198,15 @@
 						},
 						directorRuns: {
 							...(liveTab.directorRuns || {}),
-							...buildDirectorRunEntries(shotsForDoc, generation_id, isQueued ? 'queued' : 'generating', doc)
+							...buildDirectorRunEntries(
+								shotsForDoc,
+								generation_id,
+								isQueued ? 'queued' : 'generating',
+								doc,
+								caps,
+								tab.formData,
+								liveTab.directorRuns
+							)
 						},
 						directorRunLinks: {
 							...(liveTab.directorRunLinks || {}),
@@ -1521,7 +1541,7 @@
 					// when this submission actually covered shot(s) (Video Director
 					// active and the film has at least one shot, always true once
 					// `videoDirectorActive` since a document always has ≥1 shot).
-					...(directorValueForRuns && primaryDirectorShotIds.length > 0
+					...(directorValueForRuns && videoDirectorCaps && primaryDirectorShotIds.length > 0
 						? {
 								directorRuns: {
 									...(currentTab.directorRuns || {}),
@@ -1589,7 +1609,7 @@
 										}
 									]
 								},
-								...(directorValueForRuns && shotIdsForThisDoc.length > 0
+								...(directorValueForRuns && videoDirectorCaps && shotIdsForThisDoc.length > 0
 									? {
 											directorRuns: {
 												...(liveTab.directorRuns || {}),

@@ -6,7 +6,7 @@
 // enum value gets.
 import type { ConsoleIconName } from './ConsoleIcon.svelte';
 
-export type ConsoleBadge = 'independent' | 'needs-previous' | 'input-ready' | 'stale' | 'continuous';
+export type ConsoleBadge = 'independent' | 'needs-previous' | 'input-ready' | 'stale' | 'continuous' | 'unverified';
 export type ConsoleJoinKind = 'cut' | 'continue' | 'native' | 'missing';
 
 export interface BadgeMeta {
@@ -20,7 +20,8 @@ const BADGE_META: Record<ConsoleBadge, BadgeMeta> = {
 	'needs-previous': { icon: 'corner-down-right', tone: 'warning' },
 	'input-ready': { icon: 'link', tone: 'ready' },
 	stale: { icon: 'refresh-cw', tone: 'warning' },
-	continuous: { icon: 'git-merge', tone: 'neutral' }
+	continuous: { icon: 'git-merge', tone: 'neutral' },
+	unverified: { icon: 'alert-triangle', tone: 'warning' }
 };
 
 export function badgeMeta(badge: ConsoleBadge): BadgeMeta {

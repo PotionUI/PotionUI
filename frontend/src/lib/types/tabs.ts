@@ -3,6 +3,7 @@ import type { AudioData } from '$lib/types/audio';
 import type { VideoDirectorValue } from '$lib/types/videoDirector';
 import type { MusicDirectorValue } from '$lib/types/musicDirector';
 import type { VariablesMap, VariableRoll } from '$lib/utils/variableDefs';
+import type { DirectorPredecessorRef } from '$lib/utils/directorInputIdentity';
 
 // LocalStorage key for tab persistence
 export const TABS_STORAGE_KEY = 'potionui_tabs_state';
@@ -109,15 +110,27 @@ export interface DirectorRunState {
 	/** The output video's servable URL once 'done' -- becomes the row's thumb
 	 *  in place of the shot's own keyframe/slate thumb. */
 	posterUrl: string | null;
-	/** Canonical-JSON fingerprint (see `directorShotFingerprint` in
-	 *  utils/videoDirector.ts) of this shot's OWN generation-defining fields,
-	 *  captured at the moment this run was SUBMITTED (so it reflects what was
-	 *  actually sent, not whatever the document drifts to while the run is in
-	 *  flight). `deriveConsoleModel`'s stale-dependency badge compares a
-	 *  PREDECESSOR shot's live, freshly-recomputed fingerprint against the
-	 *  predecessor's own stored value here -- never a shot's own live
-	 *  fingerprint against its own stored one. */
+	/** Canonical shot input identity (see `directorShotInputIdentity` in
+	 *  utils/directorInputIdentity.ts) of this shot's complete generation-
+	 *  defining input -- its own object, resolved form_ref media, and the
+	 *  film-level fields (prompt/negative/fps/shared media) that reach its
+	 *  wire document -- captured at the moment this run was SUBMITTED (so it
+	 *  reflects what was actually sent, not whatever the document drifts to
+	 *  while the run is in flight). `deriveConsoleModel`'s stale-dependency
+	 *  badge compares a PREDECESSOR shot's live, freshly-recomputed identity
+	 *  against the predecessor's own stored value here -- never a shot's own
+	 *  live identity against its own stored one. A value from the retired
+	 *  `directorShotFingerprint` (no version prefix) or `null` reads as
+	 *  incomplete -- see `hasVersionedShotIdentity`. */
 	inputsHash: string | null;
+	/** The predecessor generation/output this run actually consumed as its
+	 *  input, when this shot depends on one (`directorPredecessorShotId`) --
+	 *  see `DirectorPredecessorRef`'s own doc comment. `null`/absent means
+	 *  either this shot has no predecessor, or (an old stored session) the
+	 *  run predates this field; either way `deriveConsoleModel` can't confirm
+	 *  the dependency is still satisfied and reports `unverified` rather than
+	 *  `continuous`/`stale`. */
+	predecessorRef?: DirectorPredecessorRef | null;
 }
 
 /** Maps a generation id back to the shot id(s) it covers -- see

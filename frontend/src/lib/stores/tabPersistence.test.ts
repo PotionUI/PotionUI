@@ -167,6 +167,64 @@ describe('saveTabsToLocalStorage / loadTabsFromLocalStorage', () => {
 		expect(variables.note.value).toBeNull();
 	});
 
+	it('round-trips directorRuns, including a predecessorRef, through localStorage', async () => {
+		const { saveTabsToLocalStorage, loadTabsFromLocalStorage } = await import('./tabPersistence');
+		const tab = fakeTab({
+			directorRuns: {
+				s1: {
+					generationId: 'gen-1',
+					status: 'done',
+					progress: 1,
+					finishedAt: 1000,
+					posterUrl: 'https://x/out.mp4',
+					inputsHash: 'div1:{"own":{}}',
+					predecessorRef: null
+				},
+				s2: {
+					generationId: 'gen-2',
+					status: 'done',
+					progress: 1,
+					finishedAt: 2000,
+					posterUrl: 'https://x/out2.mp4',
+					inputsHash: 'div1:{"own":{}}',
+					predecessorRef: { generationId: 'gen-1', outputKey: 's1' }
+				}
+			} as any
+		});
+
+		saveTabsToLocalStorage([tab], tab.id);
+		const restored = loadTabsFromLocalStorage();
+
+		const runs = restored!.tabs[0].directorRuns as any;
+		expect(runs.s1.predecessorRef).toBeNull();
+		expect(runs.s2.predecessorRef).toEqual({ generationId: 'gen-1', outputKey: 's1' });
+		expect(runs.s2.inputsHash).toBe('div1:{"own":{}}');
+	});
+
+	it('an OLD stored run lacking predecessorRef entirely still round-trips (no migration breaks loading)', async () => {
+		const { saveTabsToLocalStorage, loadTabsFromLocalStorage } = await import('./tabPersistence');
+		const tab = fakeTab({
+			directorRuns: {
+				s1: {
+					generationId: 'gen-1',
+					status: 'done',
+					progress: 1,
+					finishedAt: 1000,
+					posterUrl: null,
+					inputsHash: JSON.stringify({ id: 's1' }) // pre-migration bare fingerprint, no version prefix
+					// predecessorRef intentionally absent, as an old session would have it
+				}
+			} as any
+		});
+
+		saveTabsToLocalStorage([tab], tab.id);
+		const restored = loadTabsFromLocalStorage();
+
+		const runs = restored!.tabs[0].directorRuns as any;
+		expect(runs.s1.status).toBe('done');
+		expect(runs.s1.predecessorRef).toBeUndefined();
+	});
+
 	it('does not touch ordinary media references (path/url strings)', async () => {
 		const { saveTabsToLocalStorage, loadTabsFromLocalStorage } = await import('./tabPersistence');
 		const tab = fakeTab({

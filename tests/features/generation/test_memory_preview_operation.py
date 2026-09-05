@@ -13,8 +13,16 @@ from unittest.mock import AsyncMock, Mock, patch
 from src.features.backends.backend_config import NativeBackendConfig, NativeRemoteBackendConfig
 from src.features.backends.native_backend import NativeBackend
 from src.features.backends.native_remote_backend import RemoteNativeBackend
+from src.platform.runtime.gpu import DeviceIdentity
 from src.features.generation.pipeline_builder import BuiltPipeline
 from src.features.generation.queue_dispatcher import QueueDispatcher
+
+# Two distinct fake hardware identities - `native_1`'s default `cuda:0`
+# resolves to GPU_0, `cuda:1` to GPU_1. `_gpu_monitor()`'s own default
+# identity is GPU_0, so most tests below (which don't care about identity
+# nuance) keep matching "local" behavior without repeating this everywhere.
+GPU_0 = DeviceIdentity(uuid="GPU-aaaa")
+GPU_1 = DeviceIdentity(uuid="GPU-bbbb")
 
 
 @pytest.fixture(autouse=True)
@@ -27,6 +35,18 @@ def _bind_form_passthrough():
 
     with patch('src.features.generation.orchestrator.bind_form', side_effect=_passthrough):
         yield
+
+
+@pytest.fixture(autouse=True)
+def _patch_cuda_identity(monkeypatch):
+    """`NativeBackend.resolve_execution_device()` calls the module-level
+    `_cuda_device_identity(index)` to resolve a real CUDA UUID - monkeypatched
+    here for every test in this file rather than touched for real (REQ-01's
+    device-identity contract; see docs/backends.md)."""
+    monkeypatch.setattr(
+        'src.features.backends.native_backend._cuda_device_identity',
+        lambda index: {0: GPU_0, 1: GPU_1}.get(index),
+    )
 
 
 _KNOWN_PIPES = [
@@ -96,10 +116,10 @@ def _settings():
     return settings
 
 
-def _gpu_monitor(free_mb=8192, total_mb=24576, available=True, device_index=0):
+def _gpu_monitor(free_mb=8192, total_mb=24576, available=True, device_identity=GPU_0):
     monitor = Mock()
     monitor.available = available
-    monitor.device_index = device_index
+    monitor.device_identity = device_identity
     monitor.get_free_vram = Mock(return_value=free_mb)
     monitor.get_total_vram = Mock(return_value=total_mb)
     return monitor
@@ -217,7 +237,7 @@ async def test_cpu_configured_native_backend_reports_no_gpu_end_to_end():
     (the monitor below reports real numbers) must never borrow that
     reading - this backend is definite "no GPU", not "unknown"."""
     backend = _local_backend(device='cpu')
-    orchestrator = _orchestrator(backend, gpu_monitor=_gpu_monitor(free_mb=8192, total_mb=24576, device_index=0))
+    orchestrator = _orchestrator(backend, gpu_monitor=_gpu_monitor(free_mb=8192, total_mb=24576))
 
     with patch('src.features.models.repository.model_repo', _model_repo_with({})):
         result = await orchestrator.preview_memory(_make_request(), 'user_1')
@@ -229,19 +249,36 @@ async def test_cpu_configured_native_backend_reports_no_gpu_end_to_end():
 
 
 @pytest.mark.asyncio
-async def test_mismatched_gpu_index_reports_unknown_end_to_end():
+async def test_remapped_ordinal_but_identity_mismatch_reports_unknown_end_to_end():
     """A `NativeBackend` configured for cuda:1 must never borrow a monitor
-    bound to GPU 0 - two DISTINCT fake totals (24GB vs 99GB) prove nothing
-    is borrowed: the returned numbers must be null, not either total."""
+    watching a DIFFERENT physical card just because some enumeration index
+    happens to match - only a differing UUID proves it. Two DISTINCT fake
+    totals (24GB "GPU 0" vs a 99GB cap) prove nothing is borrowed: the
+    returned numbers must be null, not either total."""
     backend = _local_backend(device='cuda:1', gpu_max_vram=99)
-    orchestrator = _orchestrator(backend, gpu_monitor=_gpu_monitor(free_mb=8192, total_mb=24576, device_index=0))
+    orchestrator = _orchestrator(backend, gpu_monitor=_gpu_monitor(free_mb=8192, total_mb=24576, device_identity=GPU_0))
 
     with patch('src.features.models.repository.model_repo', _model_repo_with({})):
         result = await orchestrator.preview_memory(_make_request(), 'user_1')
 
     assert result['device']['kind'] == 'unknown'
     assert result['device']['free_gb'] is None and result['device']['total_gb'] is None
-    assert 'GPU 1' in result['device']['provenance'] and 'GPU 0' in result['device']['provenance']
+    assert result['device']['provenance'] == 'this backend\'s configured GPU is not the specific GPU this process monitors (identity mismatch)'
+
+
+@pytest.mark.asyncio
+async def test_backend_identity_unavailable_reports_unknown_end_to_end(monkeypatch):
+    """`_cuda_device_identity` returning `None` for every index (torch/CUDA
+    genuinely unavailable) must never be treated as "assume it matches"."""
+    monkeypatch.setattr('src.features.backends.native_backend._cuda_device_identity', lambda index: None)
+    backend = _local_backend(device='cuda:0')
+    orchestrator = _orchestrator(backend, gpu_monitor=_gpu_monitor())
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
+        result = await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    assert result['device']['kind'] == 'unknown'
+    assert 'backend\'s GPU identity could not be established' in result['device']['provenance']
 
 
 @pytest.mark.asyncio

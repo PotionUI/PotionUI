@@ -12,9 +12,11 @@ import pytest
 from src.features.backends.backend_config import NativeBackendConfig, NativeRemoteBackendConfig
 from src.features.backends.native_backend import NativeBackend
 from src.features.backends.native_remote_backend import RemoteNativeBackend
+from src.platform.runtime.gpu import DeviceIdentity
 from src.features.generation.memory_advisory import (
     active_model_ids,
     active_loader_settings,
+    active_pipe_device_overrides,
     active_pipe_vram_hints,
     estimate_request_memory,
     resolve_budget_evidence,
@@ -95,6 +97,22 @@ def test_active_pipe_vram_hints_ignores_disabled_and_missing_reports_every_activ
 
 def test_active_pipe_vram_hints_empty_when_absent():
     assert active_pipe_vram_hints([{"name": "generator/x", "enabled": True, "config": {}}]) == []
+
+
+def test_active_pipe_device_overrides_flags_a_pinned_pipe_device():
+    pipes = [
+        {"name": "generator/x", "id": "gen1", "enabled": True, "config": {"device": "cpu"}},
+        {"name": "generator/y", "id": "gen2", "enabled": False, "config": {"device": "cpu"}},  # disabled, ignored
+        {"name": "generator/z", "id": "gen3", "enabled": True, "config": {}},  # no override, ignored
+    ]
+    notes = active_pipe_device_overrides(pipes, "cuda:0")
+    assert len(notes) == 1
+    assert "gen1" in notes[0] and "cpu" in notes[0] and "cuda:0" in notes[0]
+
+
+def test_active_pipe_device_overrides_empty_without_a_backend_device():
+    pipes = [{"name": "generator/x", "id": "gen1", "enabled": True, "config": {"device": "cpu"}}]
+    assert active_pipe_device_overrides(pipes, None) == []
 
 
 # -- estimate_request_memory: coverage/known/unknown ----------------------------
@@ -179,7 +197,10 @@ def test_pinned_components_note_always_present():
 # Real `NativeBackend`/`NativeRemoteBackend` instances (not bare
 # execution_device strings) so `resolve_device_evidence` exercises the
 # REQ-01 `resolve_execution_device()` seam exactly as `preview_memory` calls
-# it, including a `NativeBackend`'s own device/index resolution.
+# it. `NativeBackend.resolve_execution_device()` calls the module-level
+# `_cuda_device_identity(index)` to resolve a real CUDA UUID - monkeypatched
+# below rather than touched for real, per docs/backends.md's device-identity
+# section ("never touch real CUDA" in tests).
 
 def _native_backend(device: str) -> NativeBackend:
     config = NativeBackendConfig(id="native_1", name="Local", device=device, dtype="float32", gpu_max_vram=10)
@@ -190,15 +211,30 @@ def _remote_backend() -> RemoteNativeBackend:
     return RemoteNativeBackend(NativeRemoteBackendConfig(id="remote_1", name="Remote"))
 
 
-def _monitor(free_mb=8192, total_mb=24576, available=True, device_index=0):
+def _monitor(free_mb=8192, total_mb=24576, available=True, device_identity=None):
     return types.SimpleNamespace(
-        available=available, device_index=device_index,
+        available=available, device_identity=device_identity,
         get_free_vram=lambda: free_mb, get_total_vram=lambda: total_mb,
     )
 
 
-def test_device_evidence_local_reads_gpu_monitor_when_index_matches():
-    device = resolve_device_evidence(_native_backend("cuda:0"), _monitor(device_index=0))
+def _patch_cuda_identity(monkeypatch, by_index: dict):
+    """`_cuda_device_identity(index) -> by_index.get(index)` - the seam
+    `NativeBackend.resolve_execution_device()` calls, patched module-level so
+    no real `torch.cuda` call ever happens in this test file."""
+    monkeypatch.setattr(
+        "src.features.backends.native_backend._cuda_device_identity",
+        lambda index: by_index.get(index),
+    )
+
+
+GPU_0 = DeviceIdentity(uuid="GPU-aaaa")
+GPU_1 = DeviceIdentity(uuid="GPU-bbbb")
+
+
+def test_device_evidence_local_reads_gpu_monitor_when_identity_matches(monkeypatch):
+    _patch_cuda_identity(monkeypatch, {0: GPU_0})
+    device = resolve_device_evidence(_native_backend("cuda:0"), _monitor(device_identity=GPU_0))
 
     assert device.kind == "local"
     assert device.free_gb == 8.0
@@ -206,21 +242,54 @@ def test_device_evidence_local_reads_gpu_monitor_when_index_matches():
     assert device.provenance == "this host's GPU monitor"
 
 
-def test_device_evidence_unknown_when_gpu_index_does_not_match_the_monitor():
-    """A `NativeBackend` configured for cuda:1 must NEVER borrow a monitor
-    bound to GPU 0 - two distinct fake totals (a 24GB "GPU 0" reading vs the
+def test_device_evidence_unknown_when_remapped_ordinal_but_identity_mismatches(monkeypatch):
+    """A `NativeBackend` configured for cuda:1 that HAPPENS to enumerate at
+    the same NVML index the monitor watches (a remapped ordinal) must NEVER
+    be treated as a match on index alone - only a differing UUID proves it's
+    a different physical card. Two distinct fake totals (24GB "GPU 0" vs the
     backend's own cuda:1) prove nothing is borrowed: the assertion-throwing
-    monitor below must never even be READ from in this case."""
+    monitor below must never even be READ from."""
+    _patch_cuda_identity(monkeypatch, {1: GPU_1})
     monitor = types.SimpleNamespace(
-        available=True, device_index=0,
-        get_free_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - index mismatch")),
-        get_total_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - index mismatch")),
+        available=True, device_identity=GPU_0,  # a DIFFERENT physical card than GPU_1
+        get_free_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - identity mismatch")),
+        get_total_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - identity mismatch")),
     )
     device = resolve_device_evidence(_native_backend("cuda:1"), monitor)
 
     assert device.kind == "unknown"
     assert device.free_gb is None and device.total_gb is None
-    assert "GPU 1" in device.provenance and "GPU 0" in device.provenance
+    assert device.provenance == "this backend's configured GPU is not the specific GPU this process monitors (identity mismatch)"
+
+
+def test_device_evidence_unknown_when_backend_identity_unavailable(monkeypatch):
+    """`_cuda_device_identity` returning `None` (torch/CUDA unavailable, or
+    the index is out of range) must never be treated as "assume it matches"."""
+    _patch_cuda_identity(monkeypatch, {})  # every index resolves to None
+    monitor = types.SimpleNamespace(
+        available=True, device_identity=GPU_0,
+        get_free_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - backend identity unresolved")),
+        get_total_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - backend identity unresolved")),
+    )
+    device = resolve_device_evidence(_native_backend("cuda:0"), monitor)
+
+    assert device.kind == "unknown"
+    assert "backend's GPU identity could not be established" in device.provenance
+
+
+def test_device_evidence_unknown_when_monitor_identity_unavailable(monkeypatch):
+    """NVML not reporting a UUID for the monitored device (`device_identity`
+    is `None`) must never be treated as "assume it matches" either."""
+    _patch_cuda_identity(monkeypatch, {0: GPU_0})
+    monitor = types.SimpleNamespace(
+        available=True, device_identity=None,
+        get_free_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - monitor identity unresolved")),
+        get_total_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - monitor identity unresolved")),
+    )
+    device = resolve_device_evidence(_native_backend("cuda:0"), monitor)
+
+    assert device.kind == "unknown"
+    assert "host's GPU identity could not be established" in device.provenance
 
 
 def test_device_evidence_cpu_on_a_gpu_host_is_no_gpu_regardless_of_the_monitor():
@@ -228,7 +297,7 @@ def test_device_evidence_cpu_on_a_gpu_host_is_no_gpu_regardless_of_the_monitor()
     THIS backend - even when the host's own monitor has a real GPU (proven
     unread via the assertion-throwing lambdas), it must never be consulted."""
     monitor = types.SimpleNamespace(
-        available=True, device_index=0,
+        available=True, device_identity=GPU_0,
         get_free_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - backend is cpu")),
         get_total_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - backend is cpu")),
     )
@@ -239,7 +308,8 @@ def test_device_evidence_cpu_on_a_gpu_host_is_no_gpu_regardless_of_the_monitor()
     assert device.provenance == "this backend is configured with no GPU"
 
 
-def test_device_evidence_none_without_a_monitor_on_the_host():
+def test_device_evidence_none_without_a_monitor_on_the_host(monkeypatch):
+    _patch_cuda_identity(monkeypatch, {0: GPU_0})
     device = resolve_device_evidence(_native_backend("cuda:0"), None)
     assert device.kind == "none"
     assert device.free_gb is None
@@ -250,7 +320,7 @@ def test_device_evidence_none_without_a_monitor_on_the_host():
 
 def test_device_evidence_remote_never_reads_this_host():
     monitor = types.SimpleNamespace(
-        available=True, device_index=0,
+        available=True, device_identity=GPU_0,
         get_free_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called")),
         get_total_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called")),
     )
@@ -278,7 +348,7 @@ def test_device_evidence_unknown_for_comfyui_shaped_backend_with_remote_host():
     REAL numbers (not an exception) - a broad `except Exception` around a
     driver-substring check could otherwise mask a real regression here."""
     comfyui_backend = types.SimpleNamespace(driver="comfyui", host="192.0.2.10")
-    monitor = _monitor()
+    monitor = _monitor(device_identity=GPU_0)
 
     device = resolve_device_evidence(comfyui_backend, monitor)
 
@@ -286,9 +356,10 @@ def test_device_evidence_unknown_for_comfyui_shaped_backend_with_remote_host():
     assert device.free_gb is None and device.total_gb is None
 
 
-def test_device_evidence_none_on_read_failure_at_a_matching_index():
+def test_device_evidence_none_on_read_failure_at_a_matching_identity(monkeypatch):
+    _patch_cuda_identity(monkeypatch, {0: GPU_0})
     monitor = types.SimpleNamespace(
-        available=True, device_index=0,
+        available=True, device_identity=GPU_0,
         get_free_vram=lambda: (_ for _ in ()).throw(RuntimeError("nvml down")),
         get_total_vram=lambda: 24576,
     )

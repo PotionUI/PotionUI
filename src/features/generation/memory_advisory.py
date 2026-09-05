@@ -389,13 +389,16 @@ def resolve_device_evidence(backend: Any, gpu_monitor: Optional[Any]) -> DeviceE
     - `kind="no_gpu"` (a `NativeBackend` explicitly configured with no GPU,
       e.g. `device="cpu"`): `kind: "none"` - definite evidence, not
       "unknown".
-    - `kind="this_host_gpu"`, `gpu_index=N`: a LOCAL reading is trusted ONLY
-      when a `GpuMonitor` is wired, available, AND its own bound
-      `device_index` equals `N` - the same guard
-      `build_requirement_context_for_backend` applies. GPU 0's reading is
-      never borrowed for a backend configured at index 1 (or vice versa);
-      a mismatch (or no monitor to confirm against) yields `kind: "unknown"`
-      with a reason naming the indices, never a silent `"none"`.
+    - `kind="this_host_gpu"`: a LOCAL reading is trusted ONLY when a
+      `GpuMonitor` is wired, available, AND its `device_identity` (a stable
+      hardware UUID) EQUALS `evidence.identity` - the same guard
+      `build_requirement_context_for_backend` applies. `gpu_index` is
+      display/log only and is never compared: an NVML enumeration index need
+      not agree with CUDA's own (further remappable) ordinal numbering, so
+      "index 0 on both sides" is not proof of the same physical card. Either
+      side's identity being unresolvable (`None`), or the two disagreeing,
+      yields `kind: "unknown"` with a reason distinguishing which - never a
+      silent `"none"` and never a guess.
     - `kind="unestablished"` (the default for anything that hasn't declared,
       e.g. a plugin backend that predates this seam): `kind: "unknown"` -
       genuinely undetermined, not "no GPU".
@@ -420,16 +423,29 @@ def resolve_device_evidence(backend: Any, gpu_monitor: Optional[Any]) -> DeviceE
                 kind="none", free_gb=None, total_gb=None,
                 provenance="no GPU detected on this host",
             )
-        monitor_device_index = getattr(gpu_monitor, "device_index", 0)
-        if evidence.gpu_index != monitor_device_index:
+        monitor_identity = getattr(gpu_monitor, "device_identity", None)
+        if evidence.identity is None:
+            return DeviceEvidence(
+                kind="unknown", free_gb=None, total_gb=None,
+                provenance=(
+                    "this backend's GPU identity could not be established "
+                    "(torch/CUDA unavailable, or the configured device index is out of range)"
+                ),
+            )
+        if monitor_identity is None:
+            return DeviceEvidence(
+                kind="unknown", free_gb=None, total_gb=None,
+                provenance=(
+                    "this host's GPU identity could not be established "
+                    "(NVML did not report a UUID for the monitored device)"
+                ),
+            )
+        if evidence.identity != monitor_identity:
             # A GPU IS being monitored, just not necessarily this backend's -
             # never borrow another device's numbers to fill the gap.
             return DeviceEvidence(
                 kind="unknown", free_gb=None, total_gb=None,
-                provenance=(
-                    f"this backend is configured for GPU {evidence.gpu_index}, but this "
-                    f"host's GPU monitor is bound to GPU {monitor_device_index}"
-                ),
+                provenance="this backend's configured GPU is not the specific GPU this process monitors (identity mismatch)",
             )
         try:
             free_gb = round(gpu_monitor.get_free_vram() / 1024, 2)
@@ -448,6 +464,40 @@ def resolve_device_evidence(backend: Any, gpu_monitor: Optional[Any]) -> DeviceE
         kind="unknown", free_gb=None, total_gb=None,
         provenance="execution device not declared by this backend",
     )
+
+
+def active_pipe_device_overrides(pipes: List[Dict[str, Any]], backend_device: Optional[str]) -> List[str]:
+    """Every ENABLED pipe whose own config carries a literal `device` that
+    differs from the routed backend's configured one - one plain-language
+    note per pipe, meant to be folded into `Coverage.uncertainty`.
+
+    A preset's own `pipeline.yml` authoring can win over the backend's
+    configured device: `NativeBackend.prepare_pipes` only `setdefault`s its
+    configured device onto a pipe's config, so an explicit `configuration:
+    {device: ...}` on any pipe wins (see
+    `src.features.presets.requirements.context_builder._preset_device_override`,
+    the requirements-time analogue for a preset's declared modes as a
+    whole). This is deliberately a narrower, preview-only echo of that: the
+    preview already has the RESOLVED, active pipeline, so a plain per-pipe
+    scan over it is enough - it does not walk every mode of the preset the
+    way the requirements-time checker does, and it never changes
+    `DeviceEvidence.kind` - it only flags that the device evidence above may
+    not apply to one particular stage.
+    """
+    if backend_device is None:
+        return []
+    notes: List[str] = []
+    for pipe in pipes:
+        if not pipe.get("enabled"):
+            continue
+        device = (pipe.get("config") or {}).get("device")
+        if device is not None and device != backend_device:
+            pipe_key = pipe.get("id") or pipe.get("name") or ""
+            notes.append(
+                f"pipe '{pipe_key}' is configured for device '{device}', overriding the "
+                f"backend's '{backend_device}' - the device evidence above may not apply to that stage"
+            )
+    return notes
 
 
 def resolve_budget_evidence(

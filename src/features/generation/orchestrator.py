@@ -88,6 +88,7 @@ from src.features.generation.memory_advisory import (
     _activation_headroom_gb,
     _frame_count,
     _parse_resolution,
+    active_pipe_device_overrides,
     active_pipe_vram_hints,
     estimate_request_memory,
     resolve_budget_evidence,
@@ -733,9 +734,18 @@ class GenerationOrchestrator:
         pipe_hints = active_pipe_vram_hints(pipes) if pipes is not None else []
         budget = resolve_budget_evidence(backend_cap_gb, pipe_hints, device)
 
+        coverage_dict = result.coverage.to_dict()
+        if pipes is not None:
+            # A preset's own pipeline.yml can pin a pipe's device, overriding
+            # the backend's configured one - a plain per-pipe echo of
+            # `_preset_device_override`'s requirements-time check, scoped to
+            # the RESOLVED active pipeline this preview already has.
+            device_overrides = active_pipe_device_overrides(pipes, getattr(backend.config, "device", None))
+            coverage_dict['uncertainty'] = [*coverage_dict['uncertainty'], *device_overrides]
+
         return {
             'estimate': result.estimate.to_dict(),
-            'coverage': result.coverage.to_dict(),
+            'coverage': coverage_dict,
             'device': device.to_dict(),
             'budget': budget.to_dict(),
             'backend': {

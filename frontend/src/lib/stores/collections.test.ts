@@ -74,7 +74,7 @@ describe('stores/collections request sequencing', () => {
 		expect(get(historyCollectionsStore).collections[0].name).toBe('Renamed');
 	});
 
-	it('an older failure settling after a newer request has applied does not clear loading it does not own', async () => {
+	it('an old failure while a newer request is still pending does not clear loading owned by the newer request', async () => {
 		const first = deferred<unknown>();
 		mockListCollections.mockImplementationOnce(() => first.promise);
 		const firstLoad = historyCollectionsStore.load();
@@ -82,17 +82,18 @@ describe('stores/collections request sequencing', () => {
 		const second = deferred<unknown>();
 		mockListCollections.mockImplementationOnce(() => second.promise);
 		const secondLoad = historyCollectionsStore.load();
+		expect(get(historyCollectionsStore).loading).toBe(true);
 
-		// The newer (second) request finishes first and owns loading afterwards.
-		second.resolve(listResponse([collection()]));
-		await secondLoad;
-		expect(get(historyCollectionsStore).loading).toBe(false);
-
-		// The stale first request now fails - must not flip loading back on,
-		// nor overwrite the already-applied collections.
+		// The stale (earlier-issued) request fails while the second, newer
+		// request still owns loading - must not clear it or touch collections.
 		first.reject(new Error('stale network error'));
 		await firstLoad;
+		expect(get(historyCollectionsStore).loading).toBe(true);
+		expect(get(historyCollectionsStore).collections).toEqual([]);
 
+		// The still-pending second request then resolves and owns the result.
+		second.resolve(listResponse([collection()]));
+		await secondLoad;
 		expect(get(historyCollectionsStore).loading).toBe(false);
 		expect(get(historyCollectionsStore).collections).toHaveLength(1);
 	});
@@ -124,6 +125,39 @@ describe('stores/collections request sequencing', () => {
 		staleList.resolve(listResponse([]));
 		await staleLoad;
 
+		expect(get(historyCollectionsStore).collections.map((c) => c.id)).toEqual(['c2']);
+	});
+
+	it("create()'s optimistic row survives an older, earlier-issued list response resolving after it, even while the mutation's own refresh is still pending", async () => {
+		const staleList = deferred<unknown>();
+		mockListCollections.mockImplementationOnce(() => staleList.promise);
+		const staleLoad = historyCollectionsStore.load();
+
+		mockCreateCollection.mockResolvedValueOnce({
+			success: true,
+			data: { message: 'ok', collection: collection({ id: 'c2', name: 'New Collection' }) }
+		});
+		const mutationRefresh = deferred<unknown>();
+		mockListCollections.mockImplementationOnce(() => mutationRefresh.promise);
+		const createPromise = historyCollectionsStore.create('New Collection');
+
+		// The optimistic row lands as soon as createCollection resolves,
+		// independently of either list request settling.
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(get(historyCollectionsStore).collections.map((c) => c.id)).toEqual(['c2']);
+
+		// The stale list request - issued before create() - resolves without
+		// the new row while the mutation's own (newer) refresh is still
+		// pending. It must not wipe the optimistic row.
+		staleList.resolve(listResponse([]));
+		await staleLoad;
+		expect(get(historyCollectionsStore).collections.map((c) => c.id)).toEqual(['c2']);
+
+		// The mutation's own refresh finally resolves, confirming the row
+		// through the real list rather than only the optimistic insert.
+		mutationRefresh.resolve(listResponse([collection({ id: 'c2', name: 'New Collection' })]));
+		await createPromise;
 		expect(get(historyCollectionsStore).collections.map((c) => c.id)).toEqual(['c2']);
 	});
 

@@ -23,39 +23,38 @@ function createCollectionsStore(scope: CollectionScope) {
 
 	// Overlapping refresh()es race (create/rename/move/... all trigger one, and
 	// a plain load() can be in flight too), so every call is stamped with a
-	// monotonic sequence number and only the response with the highest applied
-	// sequence so far is allowed to touch the store - an older one settling
-	// later must not clobber a newer result or clear loading it doesn't own.
-	// reset() bumps the lifetime token instead, retiring every in-flight
-	// refresh at once so a pending response can never repopulate a reset store.
+	// monotonic sequence number. A response is applied only if it is still
+	// the most recently issued request when it settles - a response cannot be
+	// superseded only by one that has already applied; a newer request that
+	// is merely still in flight also permanently retires every older one, so
+	// an optimistic mutation isn't wiped by a stale list response that
+	// happens to resolve before the mutation's own refresh does.
+	// reset() bumps the lifetime token, retiring every in-flight refresh at
+	// once so a pending response can never repopulate a reset store.
 	let requestSeq = 0;
-	let appliedSeq = 0;
 	let lifetime = 0;
 
 	// Named refresh so the mutations below never depend on `this` binding.
 	async function refresh() {
 		const seq = ++requestSeq;
 		const requestLifetime = lifetime;
-		update((state) => (seq > appliedSeq ? { ...state, loading: true } : state));
+		update((state) => ({ ...state, loading: true }));
 		try {
 			const response = await api.listCollections(scope);
-			if (requestLifetime !== lifetime || seq <= appliedSeq) return;
+			if (requestLifetime !== lifetime || seq !== requestSeq) return;
 			if (response.success && response.data) {
 				const data = response.data;
-				appliedSeq = seq;
 				update((state) => ({
 					...state,
 					collections: data.collections,
 					loading: false
 				}));
 			} else {
-				appliedSeq = seq;
 				update((state) => ({ ...state, loading: false }));
 			}
 		} catch (error) {
 			logger.error('Failed to load collections:', getErrorMessage(error));
-			if (requestLifetime !== lifetime || seq <= appliedSeq) return;
-			appliedSeq = seq;
+			if (requestLifetime !== lifetime || seq !== requestSeq) return;
 			update((state) => ({ ...state, loading: false }));
 		}
 	}

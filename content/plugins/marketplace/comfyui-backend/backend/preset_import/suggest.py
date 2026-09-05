@@ -879,6 +879,22 @@ def suggest_fields(
             continue
         candidates.extend(_catalog_candidates_for_node(node, entry, claimed, used_field_names))
 
+    # Extra sampler-category nodes outside the primary sampler's own cluster
+    # - a base+refiner two-stage pipeline's second KSampler(Advanced), for
+    # instance. `_find_sampler`/`_sampling_cluster` only ever walk from ONE
+    # sampler, so without this such a node's literals would fall through to
+    # the generic "everything else literal" pass below instead of using its
+    # catalogued field types/config. Added after the cluster loop (not the
+    # loader/image_input/modifier one above) so it never disturbs that
+    # loop's "Models before Sampling" section-ordering guarantee.
+    for node in workflow.nodes.values():
+        if node.id in cluster:
+            continue
+        entry = catalog.get(node.class_type)
+        if entry is None or entry.category != "sampler":
+            continue
+        candidates.extend(_catalog_candidates_for_node(node, entry, claimed, used_field_names))
+
     # Prompts - the first prompt_positive/prompt_negative-kind link found on
     # any cluster node, followed through to the text node it resolves to.
     for role, link_kind in (("prompt_positive", "prompt_positive"), ("prompt_negative", "prompt_negative")):

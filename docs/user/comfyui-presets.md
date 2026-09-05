@@ -62,6 +62,18 @@ It walks through five steps:
 
 If your workflow uses a custom node your backend doesn't have installed yet, the import still goes through — you'll see a warning naming it, and its fields are still available to pick (best-effort, since PotionUI can't ask that node what its inputs are called). Install the node pack and re-import once you can, but you don't have to stop and do that first.
 
+### Advanced sampling controls
+
+A workflow built around **KSampler (Advanced)** gets four extra fields in its **Advanced
+Sampling** section: **Add noise** and **Return with leftover noise** (each `enable`/`disable`),
+and **Start at step** / **End at step**. These are what a two-stage base-plus-refiner pipeline
+uses to split generation across two samplers — the base sampler ends early with **Return with
+leftover noise** set to `enable`, and the refiner picks up from that same step with **Add noise**
+set to `disable`. **End at step** defaults to `10000` in ComfyUI, which just means "run to the
+end" rather than a real step count — leave it alone unless you're deliberately stopping early. A
+workflow with two `KSampler (Advanced)` nodes (a base and a refiner) gets two full sets of these
+fields, numbered so each stays mapped to its own sampler.
+
 For scripting, the raw endpoints remain available — see "The two-minute path: import a workflow" in the developer [Preset Authoring Guide](../presets.md#comfyui-presets) for the exact calls.
 
 Imported presets are saved as **your own**, separate from anything your administrator ships or

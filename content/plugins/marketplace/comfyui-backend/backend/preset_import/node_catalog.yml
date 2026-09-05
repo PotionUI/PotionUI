@@ -867,6 +867,34 @@ nodes:
           file:
             path: "{{ paths._shared }}/comfyui/form/schedulers/all.yml"
         section: Sampling
+      add_noise:
+        role: option
+        field: select
+        name: add_noise
+        label: Add noise
+        config: {options: ["enable", "disable"]}
+        section: Advanced Sampling
+      start_at_step:
+        role: option
+        field: integer
+        name: start_at_step
+        label: Start at step
+        config: {min: 0, max: 10000, step: 1}
+        section: Advanced Sampling
+      end_at_step:
+        role: option
+        field: integer
+        name: end_at_step
+        label: End at step
+        config: {min: 0, max: 10000, step: 1}
+        section: Advanced Sampling
+      return_with_leftover_noise:
+        role: option
+        field: select
+        name: return_with_leftover_noise
+        label: Return with leftover noise
+        config: {options: ["enable", "disable"]}
+        section: Advanced Sampling
 
   KSamplerSelect:
     category: sampling

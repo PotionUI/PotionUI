@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
-import threading
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+from src.platform.vector.chroma_client import ChromaClientProvider
 
 if TYPE_CHECKING:
     import chromadb
@@ -18,24 +19,28 @@ class PromptVectorStore:
     ``chromadb`` and its ``PersistentClient`` are heavy to import (telemetry,
     OpenTelemetry exporters, ...) and generation never touches this store, so
     construction is deferred to the first real use rather than paid at process
-    boot. ``self.client`` stays a normal attribute access via a property so
-    every caller keeps working unchanged.
+    boot - via a ``ChromaClientProvider`` (see
+    ``src.platform.vector.chroma_client``), shared with the gallery vector
+    stores when they persist to the same directory. ``self.client`` stays a
+    normal attribute access via a property so every caller keeps working
+    unchanged.
     """
 
-    def __init__(self, persist_dir: str = "storage/chromadb", embedder_slug: str = "default"):
+    def __init__(
+        self,
+        persist_dir: str = "storage/chromadb",
+        embedder_slug: str = "default",
+        client_provider: Optional[ChromaClientProvider] = None,
+    ):
         self._persist_dir = persist_dir
         self._embedder_slug = embedder_slug
         self._client: Optional["chromadb.ClientAPI"] = None
-        self._client_lock = threading.Lock()
+        self._client_provider = client_provider or ChromaClientProvider(persist_dir)
 
     @property
     def client(self) -> "chromadb.ClientAPI":
         if self._client is None:
-            with self._client_lock:
-                if self._client is None:
-                    import chromadb
-
-                    self._client = chromadb.PersistentClient(path=self._persist_dir)
+            self._client = self._client_provider.get()
         return self._client
 
     def _collection_name(self, user_id: str) -> str:

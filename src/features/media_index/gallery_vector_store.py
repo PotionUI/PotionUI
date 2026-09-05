@@ -4,13 +4,19 @@ Mirrors ``PromptVectorStore``: lazy client construction (``chromadb`` is heavy
 to import and generation never touches this store) and per-user, per-embedder
 collection namespacing so switching the vision model - a different,
 non-comparable vector space - can never mix vectors across embedders.
+
+Lazy client construction is delegated to a shared ``ChromaClientProvider``
+(``src.platform.vector.chroma_client``), the same instance injected into
+``GalleryPromptVectorStore`` and ``PromptVectorStore`` when they persist to
+the same directory.
 """
 
 from __future__ import annotations
 
 import logging
-import threading
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+from src.platform.vector.chroma_client import ChromaClientProvider
 
 if TYPE_CHECKING:
     import chromadb
@@ -21,20 +27,21 @@ logger = logging.getLogger(__name__)
 class GalleryVectorStore:
     """Per-user gallery image embeddings, cosine-ranked."""
 
-    def __init__(self, persist_dir: str = "storage/chromadb", embedder_slug: str = "default"):
+    def __init__(
+        self,
+        persist_dir: str = "storage/chromadb",
+        embedder_slug: str = "default",
+        client_provider: Optional[ChromaClientProvider] = None,
+    ):
         self._persist_dir = persist_dir
         self._embedder_slug = embedder_slug
         self._client: Optional["chromadb.ClientAPI"] = None
-        self._client_lock = threading.Lock()
+        self._client_provider = client_provider or ChromaClientProvider(persist_dir)
 
     @property
     def client(self) -> "chromadb.ClientAPI":
         if self._client is None:
-            with self._client_lock:
-                if self._client is None:
-                    import chromadb
-
-                    self._client = chromadb.PersistentClient(path=self._persist_dir)
+            self._client = self._client_provider.get()
         return self._client
 
     def _collection_name(self, user_id: str) -> str:

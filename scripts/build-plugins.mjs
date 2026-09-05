@@ -24,11 +24,23 @@
  *      admin_tabs) is compiled standalone to `frontend/dist/<Name>.js` with
  *      a default export, for direct dynamic `import()` (componentResolver.ts).
  *
- * Usage: node scripts/build-plugins.mjs [pluginId ...]
- *   With no args, builds every discovered plugin. Exits non-zero if any
+ * Usage: node scripts/build-plugins.mjs [--debug] [pluginId ...]
+ *   With no plugin ids, builds every discovered plugin. Exits non-zero if any
  *   plugin fails to build.
+ *
+ * Build modes (`BUILD_OPTIONS` below):
+ *   - release (default) - minified, no source maps. This is what gets
+ *     committed to `frontend/dist/` for a marketplace plugin.
+ *   - debug - pass `--debug` or set `PLUGIN_BUILD=debug` to get unminified
+ *     output with source maps, for stepping through a plugin dist in the
+ *     browser devtools. Never commit a debug build.
+ * Both modes set `legalComments: 'eof'` explicitly (upstream MIT/GPL notices
+ * from bundled deps land at the end of the output file, not stripped) so the
+ * policy doesn't depend on esbuild's bundling-dependent default. Output is
+ * otherwise deterministic: no timestamps, dates or random ids are emitted,
+ * and entry/outfile names are derived from the component name, not a hash.
  */
-import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
+import { readFileSync, existsSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, basename } from 'path';
 import { createRequire } from 'module';
@@ -57,6 +69,21 @@ const PLUGIN_ROOTS = [
 // (none currently do - form-builder was the one outlier, and it left the
 // tree; see its own repo if it ever comes back).
 const PAGE_RUNES_OVERRIDES = {};
+
+const DEBUG_BUILD = process.argv.includes('--debug') || process.env.PLUGIN_BUILD === 'debug';
+
+const BUILD_OPTIONS = DEBUG_BUILD
+	? { minify: false, sourcemap: true, legalComments: 'eof' }
+	: { minify: true, sourcemap: false, legalComments: 'eof' };
+
+/** A release build doesn't emit a `.map`, but esbuild never cleans an outdir - a
+ * `.map` left over from a prior debug build (or from before this policy existed)
+ * would otherwise sit there stale, unreferenced and undetected. */
+function removeStaleMap(outfile) {
+	if (DEBUG_BUILD) return;
+	const mapFile = `${outfile}.map`;
+	if (existsSync(mapFile)) unlinkSync(mapFile);
+}
 
 function discoverPlugins(pluginIdFilter) {
 	const plugins = [];
@@ -128,9 +155,9 @@ async function buildPagePlugin(plugin, srcDir, distDir) {
 			})
 		],
 		external: [],
-		minify: false,
-		sourcemap: true
+		...BUILD_OPTIONS
 	});
+	removeStaleMap(outfile);
 
 	return [componentName];
 }
@@ -169,11 +196,13 @@ async function buildComponentPlugin(plugin, srcDir, distDir, skip = new Set()) {
 			})
 		],
 		external: [],
-		minify: false,
-		sourcemap: true,
+		...BUILD_OPTIONS,
 		target: 'es2020',
 		platform: 'browser'
 	});
+	for (const name of wanted) {
+		removeStaleMap(join(distDir, `${name}.js`));
+	}
 
 	return [...wanted];
 }
@@ -190,8 +219,10 @@ async function buildPlugin(plugin) {
 }
 
 async function main() {
-	const pluginIdFilter = process.argv.slice(2);
+	const pluginIdFilter = process.argv.slice(2).filter((arg) => arg !== '--debug');
 	const plugins = discoverPlugins(pluginIdFilter);
+
+	console.log(`Build mode: ${DEBUG_BUILD ? 'debug (unminified, source maps)' : 'release (minified, no source maps)'}`);
 
 	if (plugins.length === 0) {
 		console.log('No plugin frontends found to build.');

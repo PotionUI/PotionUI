@@ -705,6 +705,32 @@ yourself, and you should never call anything on `gen` beyond this surface — ev
 `src.plugin_api` exists to keep you out of. If your pipe genuinely needs another `NativeGenerator`
 operation, that is a gap in this surface — ask for it, the same as any other plugin_api gap.
 
+## Building your plugin's frontend
+
+Every plugin frontend (a `pages[].component`, a `field_types[].component`, an
+`admin_tabs[].component`, ...) compiles through the single shared toolchain in
+`content/plugins/package.json` (esbuild + esbuild-svelte, pinned to the frontend's Svelte
+major), driven by `scripts/build-plugins.mjs`:
+
+```bash
+cd content/plugins && npm install    # once
+node ../scripts/build-plugins.mjs [pluginId ...]   # or: npm run build:plugins from frontend/
+```
+
+The script auto-detects each plugin's build shape from `frontend/src/` (a page with
+`index.js`, or standalone components referenced from `manifest.yml`) and writes to
+`frontend/dist/`, which you commit alongside your source change.
+
+Two build modes:
+
+- **release (default)** — minified, no source maps, deterministic (identical inputs produce
+  byte-identical output). This is what belongs in a committed `frontend/dist/`.
+- **debug** — pass `--debug` or set `PLUGIN_BUILD=debug` for unminified output with source
+  maps, to step through your plugin dist in the browser devtools. Never commit a debug build.
+
+Both modes preserve upstream license notices (`legalComments: 'eof'`) from the bundled
+Svelte runtime and any other bundled dependency.
+
 ## Related
 
 - [Providers](providers.md) — writing a marketplace provider.

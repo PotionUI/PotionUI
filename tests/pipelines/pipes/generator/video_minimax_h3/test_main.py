@@ -538,6 +538,16 @@ def test_h3_inner_dim_is_the_wider_of_attn_inner_and_hidden():
 
 # -- forward wrapper: pack/unpack roundtrip ----------------------------------
 
+def _stub_prepare_text_context(encoder_hidden_states, weight_revision=None):
+    """Shared ``prepare_text_context`` stand-in for every fake DiT callable in
+    this file: passes the conditioning tensor straight through. None of these
+    fakes exercise the prepared-context reuse/staleness contract itself --
+    that is covered directly against the real model in
+    ``tests/platform/runtime/native/arch/test_minimax_h3_prepared_context.py``
+    -- they only need ``_MiniMaxH3Forward`` to find something callable here."""
+    return SimpleNamespace(text_embeds=encoder_hidden_states)
+
+
 def _fake_dit_module(video_patch_dim: int, audio_channels: int = 32, seen_step_caches: list | None = None,
                      seen_sol_attn: list | None = None):
     """Deterministic, non-degenerate "DiT": scales each stream by a constant
@@ -551,7 +561,8 @@ def _fake_dit_module(video_patch_dim: int, audio_channels: int = 32, seen_step_c
     def forward(*, hidden_states, audio_hidden_states, encoder_hidden_states, timestep,
                 timestep_indices, token_tags, position_ids, video_indices, audio_indices, text_indices,
                 num_condition_video_rows=0, num_condition_audio_rows=0,
-                step_cache=None, sparse_attn_ctx=None, seq_chunk_rows=0):
+                step_cache=None, sparse_attn_ctx=None, seq_chunk_rows=0,
+                prepared_context=None, weight_revision=None):
         seen_step_caches.append(step_cache)
         if seen_sol_attn is not None:
             # ONE context is reused across the window and its `dense` flag is
@@ -567,6 +578,7 @@ def _fake_dit_module(video_patch_dim: int, audio_channels: int = 32, seen_step_c
         video_pred = hidden_states * 0.1
         audio_pred = audio_hidden_states * -0.2
         return video_pred, audio_pred
+    forward.prepare_text_context = _stub_prepare_text_context
     return forward
 
 
@@ -1013,6 +1025,226 @@ def test_generate_one_skips_decode_when_cancelled_right_after_sampling():
     assert pipe._audio_results == []  # ...but nothing past it did
 
 
+# -- prepared text context: window-scoped hoist -------------------------------
+
+def _wrap_prepare_text_context_counter(dit_module) -> dict:
+    """Replace ``dit_module.prepare_text_context`` with a counting wrapper
+    (own copy, not the shared ``_stub_prepare_text_context`` -- other fakes in
+    this file must not see this module's call count) and return the counter."""
+    calls = {"n": 0}
+    original = dit_module.prepare_text_context
+
+    def counting(*args, **kwargs):
+        calls["n"] += 1
+        return original(*args, **kwargs)
+
+    dit_module.prepare_text_context = counting
+    return calls
+
+
+def _run_generate_one_capturing_forwards(steps: int, *, is_cancelled=None, dit_module=None):
+    """Run `generate_one` on a fake bundle, returning `(pipe, captured, prep_calls)`
+    where `captured` holds every `_MiniMaxH3Forward` instance `_sample_window`
+    constructed (one per window; a t2va request never windows, so exactly one)
+    and `prep_calls` counts calls into that instance's `dit_module.
+    prepare_text_context`."""
+    from src.pipelines.pipes.generator.video_minimax_h3 import main as h3_main
+
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    if dit_module is None:
+        dit_module = _fake_dit_module(video_patch_dim)
+    prep_calls = _wrap_prepare_text_context_counter(dit_module)
+
+    class _FakeVideoVae:
+        latents_mean = torch.zeros(24)
+        latents_std = torch.ones(24)
+
+        def decode(self, z):
+            b, c, f, h, w = z.shape
+            return torch.rand(b, 3, f, h, w)
+
+    dit_native = SimpleNamespace(
+        compute_dtype=torch.float32, estimated_vram_gb=0.0, module=dit_module,
+        move_to=lambda d: None, offload=lambda: None,
+    )
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=dit_native,
+        video_vae=SimpleNamespace(module=_FakeVideoVae(), compute_dtype=torch.float32,
+                                   move_to=lambda d: None, offload=lambda: None),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=lambda d: None, offload=lambda: None),
+        te=None, te_cache_key=None,
+    )
+
+    ctx_extra = _MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=steps,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[], keyframe_anchors=(), audio_source="generate", decode=True,
+    )
+    ctx_kwargs = {} if is_cancelled is None else {"is_cancelled": is_cancelled}
+    ctx = GeneratorContext(quantity=1, input_seeds=[7], extra=ctx_extra, **ctx_kwargs)
+
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False, "steps": steps})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    captured: list = []
+    real_cls = h3_main._MiniMaxH3Forward
+
+    def capturing_factory(*args, **kwargs):
+        # A plain factory, not a `_MiniMaxH3Forward` subclass: subclassing a
+        # dataclass without re-applying `@dataclass` does not wire a
+        # `__post_init__` added only on the subclass into the inherited
+        # (dataclass-generated) `__init__` -- it is only ever invoked if the
+        # class `@dataclass` actually decorated defined one.
+        instance = real_cls(*args, **kwargs)
+        captured.append(instance)
+        return instance
+
+    with (
+        patch("src.pipelines.pipes.generator.video_minimax_h3.main.encode_frames_to_mp4") as mock_encode,
+        patch("src.pipelines.pipes.generator.video_minimax_h3.main._MiniMaxH3Forward", capturing_factory),
+    ):
+        mock_encode.return_value = None
+        result = pipe.generate_one(ctx, 0, 7, progress)
+
+    return pipe, captured, prep_calls, result
+
+
+def test_prepared_context_computed_once_and_reused_across_every_step():
+    """`condition_proj`/`token_refiner`'s hoisted output must be computed ONCE
+    per window, not once per step -- proved directly against `prepare_text_
+    context`'s own call count, not by output equality (which a per-step
+    recompute would also satisfy for a constant prompt)."""
+    steps = 5
+    _pipe, captured, prep_calls, _result = _run_generate_one_capturing_forwards(steps)
+    assert len(captured) == 1  # one window, one _MiniMaxH3Forward
+    assert prep_calls["n"] == 1  # not `steps`
+
+
+def test_bite_check_removing_the_hoist_calls_prepare_every_step():
+    # BITE CHECK: a `__call__` that always recomputes proves the assertion
+    # above is not vacuous -- it must catch the un-hoisted behaviour too.
+    steps = 5
+    from src.pipelines.pipes.generator.video_minimax_h3 import main as h3_main
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    dit_module = _fake_dit_module(video_patch_dim)
+    prep_calls = _wrap_prepare_text_context_counter(dit_module)
+
+    class _AlwaysRecomputeForward(h3_main._MiniMaxH3Forward):
+        def __call__(self, *args, **kwargs):
+            self._prepared_context = None  # simulate a hoist that never sticks
+            return super().__call__(*args, **kwargs)
+
+    dit_native = SimpleNamespace(
+        compute_dtype=torch.float32, estimated_vram_gb=0.0, module=dit_module,
+        move_to=lambda d: None, offload=lambda: None,
+    )
+
+    class _FakeVideoVae:
+        latents_mean = torch.zeros(24)
+        latents_std = torch.ones(24)
+
+        def decode(self, z):
+            b, c, f, h, w = z.shape
+            return torch.rand(b, 3, f, h, w)
+
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=dit_native,
+        video_vae=SimpleNamespace(module=_FakeVideoVae(), compute_dtype=torch.float32,
+                                   move_to=lambda d: None, offload=lambda: None),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=lambda d: None, offload=lambda: None),
+        te=None, te_cache_key=None,
+    )
+    ctx_extra = _MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=steps,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[], keyframe_anchors=(), audio_source="generate", decode=True,
+    )
+    ctx = GeneratorContext(quantity=1, input_seeds=[7], extra=ctx_extra)
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False, "steps": steps})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    with (
+        patch("src.pipelines.pipes.generator.video_minimax_h3.main.encode_frames_to_mp4") as mock_encode,
+        patch("src.pipelines.pipes.generator.video_minimax_h3.main._MiniMaxH3Forward", _AlwaysRecomputeForward),
+    ):
+        mock_encode.return_value = None
+        pipe.generate_one(ctx, 0, 7, progress)
+
+    assert prep_calls["n"] == steps
+
+
+def test_prepared_context_released_after_a_successful_window():
+    """The window's `_MiniMaxH3Forward` must not still be holding the hoisted
+    text context once `_sample_window` returns -- nothing outlives the window
+    that keyed it."""
+    _pipe, captured, _prep_calls, _result = _run_generate_one_capturing_forwards(4)
+    assert len(captured) == 1
+    assert captured[0]._prepared_context is None
+
+
+def test_prepared_context_released_when_sampling_is_cancelled_mid_step():
+    """Cancellation raises `SamplingCancelled` out of the step loop -- the
+    `finally` in `_sample_window` must still release the hoisted context."""
+    is_cancelled, _calls = _cancel_after(2)
+    with pytest.raises(SamplingCancelled):
+        _run_generate_one_capturing_forwards(6, is_cancelled=is_cancelled)
+
+
+def test_prepared_context_released_when_the_dit_forward_raises():
+    """A plain failure inside the per-step DiT call (not cancellation) must
+    still release the hoisted context, not just the cancellation path."""
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    base = _fake_dit_module(video_patch_dim)
+    calls = {"n": 0}
+
+    def flaky(**kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("synthetic DiT failure")
+        return base(**kwargs)
+    flaky.prepare_text_context = base.prepare_text_context
+
+    with pytest.raises(RuntimeError, match="synthetic DiT failure"):
+        _run_generate_one_capturing_forwards(5, dit_module=flaky)
+
+
+# Both cancellation and failure tests above assert only that `generate_one`
+# raises: `_MiniMaxH3Forward` is a fresh local in `_sample_window`, so a
+# raise before `_run_generate_one_capturing_forwards` returns means the
+# `captured` list (and thus the released instance) is never handed back --
+# the release contract on those paths is proved by
+# `test_bite_check_release_runs_before_the_exception_propagates` instead.
+
+def test_bite_check_release_runs_before_the_exception_propagates():
+    # BITE CHECK: patch `_MiniMaxH3Forward.release` to record whether it ran
+    # even though the surrounding call raises -- proves the `finally` above
+    # is real (a bare `try`/no-finally would let the exception skip it).
+    from src.pipelines.pipes.generator.video_minimax_h3 import main as h3_main
+
+    released = {"called": False}
+    original_release = h3_main._MiniMaxH3Forward.release
+
+    def spy_release(self):
+        released["called"] = True
+        original_release(self)
+
+    is_cancelled, _calls = _cancel_after(2)
+    with (
+        patch.object(h3_main._MiniMaxH3Forward, "release", spy_release),
+        pytest.raises(SamplingCancelled),
+    ):
+        _run_generate_one_capturing_forwards(6, is_cancelled=is_cancelled)
+    assert released["called"] is True
+
+
 # -- FBCache step-cache wiring ------------------------------------------------
 
 def _run_generate_one(config_overrides: dict, *, steps: int = 4, tmp_path=None, ctx_overrides: dict | None = None,
@@ -1358,6 +1590,7 @@ def _run_director(document, *, steps=3, config_overrides=None, director_images=(
     def dit_forward(*, hidden_states, audio_hidden_states, **kwargs):
         forwards.append((hidden_states[0].clone(), audio_hidden_states[0].clone()))
         return hidden_states * 0.1, audio_hidden_states * -0.2
+    dit_forward.prepare_text_context = _stub_prepare_text_context
 
     bundle = SimpleNamespace(
         spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
@@ -1528,6 +1761,7 @@ def _run_refs_director(document, references, *, steps=2, config_overrides=None):
     """
     def dit_forward(*, hidden_states, audio_hidden_states, **kwargs):
         return hidden_states * 0.1, audio_hidden_states * -0.2
+    dit_forward.prepare_text_context = _stub_prepare_text_context
 
     bundle = SimpleNamespace(
         spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
@@ -1634,6 +1868,7 @@ def test_single_window_refs_and_a_1_shot_refs_director_plan_are_bit_identical():
         def dit_forward(*, hidden_states, audio_hidden_states, **kwargs):
             forwards.append((hidden_states[0].clone(), audio_hidden_states[0].clone()))
             return hidden_states * 0.1, audio_hidden_states * -0.2
+        dit_forward.prepare_text_context = _stub_prepare_text_context
 
         return SimpleNamespace(
             spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
@@ -1838,6 +2073,7 @@ def _run_director_with_keyframe(document, *, steps=3):
     def dit_forward(*, hidden_states, audio_hidden_states, **kwargs):
         forwards.append((hidden_states[0].clone(), audio_hidden_states[0].clone()))
         return hidden_states * 0.1, audio_hidden_states * -0.2
+    dit_forward.prepare_text_context = _stub_prepare_text_context
 
     vae_module = _FakeKeyframeVae()
     bundle = SimpleNamespace(
@@ -2444,6 +2680,7 @@ def _run_generate_one_with_preview(steps: int):
         row_timestep = kwargs["timestep"][kwargs["timestep_indices"][kwargs["video_indices"][-1]]]
         seen_forward.append((kwargs["hidden_states"][0].clone(), float(row_timestep)))
         return base_forward(**kwargs)
+    forward.prepare_text_context = base_forward.prepare_text_context
 
     class _FakeVideoVae:
         latents_mean = torch.zeros(24)

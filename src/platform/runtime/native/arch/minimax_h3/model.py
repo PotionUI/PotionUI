@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import dataclass
 from typing import Any
 
 import torch
@@ -70,6 +71,7 @@ from ...attention import attention as _dispatch_attention
 # SDPA on (B, H, L, D) -- see the fallback comment in MiniMaxH3Attention.
 _fallback_sdpa = F.scaled_dot_product_attention
 from ...base import NativeArchModule
+from ...cache_identity import identity_usable, tensor_identity
 from ...sampling.step_cache import GroupedProbe
 from ...sla_attn import SlaAttnContext
 from ...sol_attn import SolAttnContext
@@ -451,6 +453,36 @@ class MiniMaxH3FinalLayer(nn.Module):
         return self.video_out(h), self.audio_out(h)
 
 
+@dataclass
+class PreparedTextContext:
+    """A ``_prepare_context`` result plus the identity it was computed from.
+
+    Returned by :meth:`MiniMaxH3Model.prepare_text_context`, replayed into
+    :meth:`MiniMaxH3Model.forward` via ``prepared_context=``. ``is_stale``
+    is the only thing ``forward`` trusts to decide reuse -- an owner that
+    hands back a token from a different conditioning tensor, a different
+    weight revision, or a module now running at a different dtype/device
+    gets silently ignored (falls back to a fresh ``_prepare_context`` call)
+    rather than corrupting the packed sequence.
+    """
+
+    text_embeds: Tensor
+    source_identity: Any
+    weight_revision: Any = None
+
+    def is_stale(self, encoder_hidden_states: Tensor, weight_revision: Any,
+                 compute_dtype: torch.dtype, compute_device: torch.device) -> bool:
+        current_identity = tensor_identity(encoder_hidden_states)
+        if not identity_usable(current_identity, self.source_identity):
+            return True
+        return (
+            current_identity != self.source_identity
+            or weight_revision != self.weight_revision
+            or self.text_embeds.dtype != compute_dtype
+            or self.text_embeds.device != compute_device
+        )
+
+
 class MiniMaxH3Model(NativeArchModule):
     """MiniMax-H3 packed-sequence DiT (construction + load path + forward)."""
 
@@ -567,6 +599,27 @@ class MiniMaxH3Model(NativeArchModule):
     def _prepare_context(self, encoder_hidden_states: Tensor) -> Tensor:
         text_embeds = self.condition_proj(_cast_to(encoder_hidden_states, self.condition_proj))
         return self.token_refiner(text_embeds)
+
+    def prepare_text_context(self, encoder_hidden_states: Tensor, weight_revision: Any = None) -> "PreparedTextContext":
+        """Run ``condition_proj`` + ``token_refiner`` once and hand back a
+        token the caller can replay through :meth:`forward`'s ``prepared_
+        context=`` argument for every step of a window.
+
+        Both modules depend only on ``encoder_hidden_states`` -- no timestep,
+        no AdaLN, no rotary -- so their output is identical on every denoising
+        step of a window; recomputing it per step is pure waste. The caller
+        (one ``_MiniMaxH3Forward`` per window,
+        ``pipes/generator/video_minimax_h3``) owns the returned token for the
+        life of that window and must not let it outlive it: pass the DiT
+        wrapper's live ``effective_revision`` as ``weight_revision`` so a
+        reused module whose adapters changed between windows can never answer
+        a lookup with stale weights.
+        """
+        return PreparedTextContext(
+            text_embeds=self._prepare_context(encoder_hidden_states),
+            source_identity=tensor_identity(encoder_hidden_states),
+            weight_revision=weight_revision,
+        )
 
     def _lookup_adaln_curve(self, timestep: Tensor) -> Tensor:
         """Pruned-mode AdaLN: linear interpolation of ``adaln_t_table`` over
@@ -725,6 +778,16 @@ class MiniMaxH3Model(NativeArchModule):
         (fp8/int8) dequantizes its weight on every ``Linear.forward`` call, so
         this trades a smaller peak transient for one extra dequant per chunk
         per chunked Linear — pick the chunk size accordingly.
+
+        ``prepared_context`` (keyword, optional): a
+        :class:`PreparedTextContext` from :meth:`prepare_text_context`,
+        replayed in place of a fresh ``_prepare_context`` call when it is
+        still valid for this ``encoder_hidden_states``/``weight_revision``
+        (see :meth:`PreparedTextContext.is_stale`) — a stale or absent token
+        falls back to computing it here, so this argument only ever narrows
+        work, never changes the result. ``weight_revision`` (keyword,
+        optional) is the caller's DiT wrapper revision, compared against the
+        one the token was prepared under.
         """
         if position_ids.ndim != 2 or position_ids.shape[-1] != 3:
             raise ValueError(f"position_ids must be (seq_len, 3), got {list(position_ids.shape)}")
@@ -739,7 +802,16 @@ class MiniMaxH3Model(NativeArchModule):
         rotary_emb = self._prepare_positional_embeddings(position_ids)
 
         video_embeds, audio_embeds = self._process_input(hidden_states, audio_hidden_states)
-        text_embeds = self._prepare_context(encoder_hidden_states)
+        prepared_context: PreparedTextContext | None = kwargs.pop("prepared_context", None)
+        weight_revision = kwargs.pop("weight_revision", None)
+        compute_dtype = self.condition_proj.weight.dtype
+        compute_device = self.condition_proj.weight.device
+        if prepared_context is not None and not prepared_context.is_stale(
+            encoder_hidden_states, weight_revision, compute_dtype, compute_device,
+        ):
+            text_embeds = prepared_context.text_embeds
+        else:
+            text_embeds = self._prepare_context(encoder_hidden_states)
 
         # The text stream sets the packed buffer's dtype (matches diffusers'
         # own contract for this scatter).

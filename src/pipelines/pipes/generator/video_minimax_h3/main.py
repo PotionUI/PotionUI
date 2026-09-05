@@ -453,12 +453,22 @@ def _concat_audio_tracks(tracks: List[AudioInput]) -> AudioInput:
 @dataclass
 class _MiniMaxH3Forward:
     """One packed-sequence transformer call: video/audio rows -> predicted
-    velocities. Owns nothing beyond that one call -- the scheduler update
-    (row-sliced, per modality) lives in the loop below."""
+    velocities.
+
+    Owns one thing beyond that one call: the hoisted text context (``dit_
+    module.prepare_text_context`` -- ``condition_proj`` + ``token_refiner``
+    depend only on ``prompt_embeds``, which this instance's whole window
+    shares, so it is computed once, on first use, and replayed for every
+    step). ``release()`` drops it; the window loop that owns this instance
+    (``_sample_window``) calls it in a ``finally`` so nothing outlives the
+    window that keyed it -- this is a window-scoped token, never a
+    process-wide cache."""
 
     dit_module: Any
     layout: PackedLayout
     prompt_embeds: Tensor
+    weight_revision: Any = None
+    _prepared_context: Any = field(default=None, init=False, repr=False)
 
     def __call__(
         self, video_rows: Tensor, audio_rows: Tensor, unique_timesteps: Tensor, timestep_indices: Tensor,
@@ -466,10 +476,16 @@ class _MiniMaxH3Forward:
         sparse_attn_ctx: Optional[SolAttnContext | SlaAttnContext] = None,
         seq_chunk_rows: int = 0,
     ) -> tuple[Tensor, Tensor]:
+        if self._prepared_context is None:
+            self._prepared_context = self.dit_module.prepare_text_context(
+                self.prompt_embeds, weight_revision=self.weight_revision,
+            )
         video_pred, audio_pred = self.dit_module(
             hidden_states=video_rows[None],
             audio_hidden_states=audio_rows[None],
             encoder_hidden_states=self.prompt_embeds,
+            prepared_context=self._prepared_context,
+            weight_revision=self.weight_revision,
             timestep=unique_timesteps,
             timestep_indices=timestep_indices,
             token_tags=self.layout.token_tags,
@@ -484,6 +500,12 @@ class _MiniMaxH3Forward:
             seq_chunk_rows=seq_chunk_rows,
         )
         return video_pred[0], audio_pred[0]
+
+    def release(self) -> None:
+        """Drop the hoisted text context. Called by the owning window's
+        ``finally`` on every exit -- success, cancellation or failure -- so
+        it is never reused past the window that keyed it."""
+        self._prepared_context = None
 
 
 @dataclass
@@ -1543,7 +1565,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             # token-derived reserve cannot see.
             reserve_gb=sparse_attn_reserve,
         )
-        forward = _MiniMaxH3Forward(c.bundle.dit.module, layout, prompt_embeds)
+        forward = _MiniMaxH3Forward(
+            c.bundle.dit.module, layout, prompt_embeds,
+            weight_revision=getattr(c.bundle.dit, "effective_revision", None),
+        )
 
         reported_total = progress_total if progress_total is not None else num_steps
 
@@ -1566,67 +1591,70 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         # predecessor in frame count, condition rows or prompt length.
         step_cache = build_step_cache(self.config)
 
-        run_hooks(hooks, "on_start", num_steps)
-        for step_index in range(num_steps):
-            if is_cancelled is not None and is_cancelled():
-                raise SamplingCancelled(step_index=step_index)
+        try:
+            run_hooks(hooks, "on_start", num_steps)
+            for step_index in range(num_steps):
+                if is_cancelled is not None and is_cancelled():
+                    raise SamplingCancelled(step_index=step_index)
 
-            video_t = float(video_schedule.timesteps[step_index])
-            audio_t = float(audio_schedule.timesteps[step_index])
-            unique_timesteps, timestep_indices = build_row_timesteps(
-                layout.video_indices, layout.audio_indices,
-                num_condition_video_rows=n_cv, num_condition_audio_rows=n_ca, num_text_tokens=num_text_tokens,
-                video_timestep=video_t, audio_timestep=audio_t,
-                condition_video_timestep=max(video_t, KEYFRAME_NOISE_AUG), condition_audio_timestep=1.0,
-            )
-            # The last step is never cached: it is the one that lands on the
-            # final latent, so a replayed velocity there shows up directly in
-            # the output (the shared denoise loop makes the same exclusion).
-            is_final_step = step_index == num_steps - 1
-            if sparse_attn_ctx is not None:
-                sparse_attn_ctx.dense = is_dense_step(step_index, num_steps, dense_last_steps)
-            video_pred, audio_pred = forward(
-                video_rows, audio_rows, unique_timesteps.to(c.device), timestep_indices.to(c.device),
-                step_cache=None if is_final_step else step_cache,
-                sparse_attn_ctx=sparse_attn_ctx,
-                seq_chunk_rows=seq_chunk_rows,
-            )
-
-            # A step the cache skipped hands back the previous step's velocity;
-            # it enters the multistep history unchanged, because it is the
-            # model's most recent real output and the sample it moved is real
-            # too (samplers.py, `_MultistepStepper`).
-            video_velocity = video_pred[n_cv:].float()
-            video_sample = video_rows[n_cv:].float()
-            # Taken BEFORE the row update below: x0 is only this step's estimate
-            # while it pairs this step's velocity and timestep with the sample
-            # the stepper was handed, not the one it produced.
-            video_x0 = data_estimate(video_velocity, video_t, video_sample) if len(hooks) > 1 else None
-            video_rows[n_cv:] = video_stepper.step(
-                video_velocity, video_t, video_sample,
-                video_schedule.sigmas[step_index], video_schedule.sigmas[step_index + 1],
-            ).to(c.dtype)
-            audio_rows[n_ca:] = audio_stepper.step(
-                audio_pred[n_ca:].float(), audio_t, audio_rows[n_ca:].float(),
-                audio_schedule.sigmas[step_index], audio_schedule.sigmas[step_index + 1],
-            ).to(c.dtype)
-
-            if video_x0 is not None:  # a preview hook is registered
-                video_x0_5d = unpatchify_video_rows(
-                    video_x0, num_latent_frames=num_latent_frames, latent_height=c.latent_height,
-                    latent_width=c.latent_width, channels=VIDEO_LATENT_CHANNELS, patch_size=PATCH_SIZE,
+                video_t = float(video_schedule.timesteps[step_index])
+                audio_t = float(audio_schedule.timesteps[step_index])
+                unique_timesteps, timestep_indices = build_row_timesteps(
+                    layout.video_indices, layout.audio_indices,
+                    num_condition_video_rows=n_cv, num_condition_audio_rows=n_ca, num_text_tokens=num_text_tokens,
+                    video_timestep=video_t, audio_timestep=audio_t,
+                    condition_video_timestep=max(video_t, KEYFRAME_NOISE_AUG), condition_audio_timestep=1.0,
                 )
-            else:
-                video_x0_5d = None
-            run_hooks(hooks, "on_step", step_index, num_steps, video_rows, video_schedule.sigmas[step_index], video_x0_5d)
-        run_hooks(hooks, "on_end")
+                # The last step is never cached: it is the one that lands on the
+                # final latent, so a replayed velocity there shows up directly in
+                # the output (the shared denoise loop makes the same exclusion).
+                is_final_step = step_index == num_steps - 1
+                if sparse_attn_ctx is not None:
+                    sparse_attn_ctx.dense = is_dense_step(step_index, num_steps, dense_last_steps)
+                video_pred, audio_pred = forward(
+                    video_rows, audio_rows, unique_timesteps.to(c.device), timestep_indices.to(c.device),
+                    step_cache=None if is_final_step else step_cache,
+                    sparse_attn_ctx=sparse_attn_ctx,
+                    seq_chunk_rows=seq_chunk_rows,
+                )
 
-        if step_cache is not None:
-            stats = step_cache.stats()
-            logger.debug(
-                "[GENERATOR MINIMAX-H3] FBCache: skipped %d of %d model forwards (rel_threshold=%.3f)",
-                stats["skipped"], stats["skipped"] + stats["computed"], step_cache.rel_threshold,
-            )
+                # A step the cache skipped hands back the previous step's velocity;
+                # it enters the multistep history unchanged, because it is the
+                # model's most recent real output and the sample it moved is real
+                # too (samplers.py, `_MultistepStepper`).
+                video_velocity = video_pred[n_cv:].float()
+                video_sample = video_rows[n_cv:].float()
+                # Taken BEFORE the row update below: x0 is only this step's estimate
+                # while it pairs this step's velocity and timestep with the sample
+                # the stepper was handed, not the one it produced.
+                video_x0 = data_estimate(video_velocity, video_t, video_sample) if len(hooks) > 1 else None
+                video_rows[n_cv:] = video_stepper.step(
+                    video_velocity, video_t, video_sample,
+                    video_schedule.sigmas[step_index], video_schedule.sigmas[step_index + 1],
+                ).to(c.dtype)
+                audio_rows[n_ca:] = audio_stepper.step(
+                    audio_pred[n_ca:].float(), audio_t, audio_rows[n_ca:].float(),
+                    audio_schedule.sigmas[step_index], audio_schedule.sigmas[step_index + 1],
+                ).to(c.dtype)
+
+                if video_x0 is not None:  # a preview hook is registered
+                    video_x0_5d = unpatchify_video_rows(
+                        video_x0, num_latent_frames=num_latent_frames, latent_height=c.latent_height,
+                        latent_width=c.latent_width, channels=VIDEO_LATENT_CHANNELS, patch_size=PATCH_SIZE,
+                    )
+                else:
+                    video_x0_5d = None
+                run_hooks(hooks, "on_step", step_index, num_steps, video_rows, video_schedule.sigmas[step_index], video_x0_5d)
+            run_hooks(hooks, "on_end")
+
+            if step_cache is not None:
+                stats = step_cache.stats()
+                logger.debug(
+                    "[GENERATOR MINIMAX-H3] FBCache: skipped %d of %d model forwards (rel_threshold=%.3f)",
+                    stats["skipped"], stats["skipped"] + stats["computed"], step_cache.rel_threshold,
+                )
+        finally:
+            forward.release()
 
         c.bundle.dit.offload()
         clear_gpu_memory()

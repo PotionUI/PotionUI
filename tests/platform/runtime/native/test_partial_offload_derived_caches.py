@@ -27,7 +27,9 @@ import torch
 import torch.nn as nn
 
 from src.platform.runtime.native.arch.ltx.model import LTXAVModel
-from src.platform.runtime.native.base import release_derived_caches
+from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Model
+from src.platform.runtime.native.base import load_into_module, release_derived_caches
+from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
 from vendor.gpl.comfyui.ops import pick_operations
@@ -312,3 +314,99 @@ def test_failure_in_one_cache_owner_propagates_out_of_offload():
     # offload() raised before reaching note_offloaded()/device="cpu" -- the
     # model must not claim to have completed the transition it didn't finish.
     assert model.device == "cuda:0"
+
+
+# --- MiniMax-H3: same contract, its own RoPE cos/sin cache ---------------------
+#
+# Tiny config mirrors tests/platform/runtime/native/arch/test_minimax_h3_model.py's
+# TINY_FULL (keeps the real model's shape traps: heads*head_dim != hidden_size,
+# fused fc1). ``_build_h3`` goes through the real ``load_into_module`` path (like
+# that file) so ``rope.inv_freq`` is real post_load()-derived, not empty.
+
+TINY_H3 = {
+    "image_model": "minimax_h3", "hidden_size": 64, "num_layers": 2, "num_refiner_layers": 1,
+    "num_attention_heads": 2, "attention_head_dim": 40, "ffn_dim": 48, "in_channels": 4,
+    "audio_in_channels": 6, "patch_size": (1, 2, 2), "text_dim": 10, "rope_freq_dim": 3,
+    "pruned": False, "time_embed_dim": 12, "freq_dim": 8, "time_embed_hidden_dim": 16,
+}
+
+
+def _build_h3() -> MiniMaxH3Model:
+    m = MiniMaxH3Model.from_config(TINY_H3, pick_operations(torch.float32, torch.float32))
+    sd = {}
+    for k, v in m.state_dict().items():
+        sd[k] = v.clone() if not v.is_floating_point() else torch.randn_like(v) * 0.02
+    load_into_module(m, sd, match_model_spec(TINY_H3))
+    return m.eval()
+
+
+def _h3_streamed_model(m: nn.Module) -> tuple[NativeModel, ModuleStreamer]:
+    plan = plan_residency_split(m, resident_budget_gb=0.0)  # stream every leaf
+    streamer = ModuleStreamer(m)
+    streamer.apply("cpu", plan, pin=False)
+    model = NativeModel("diffusion_model", m, estimated_vram_gb=23.3)
+    model._streamer = streamer
+    return model, streamer
+
+
+def test_h3_streamed_offload_releases_pe_cache():
+    m = _build_h3()
+    model, _streamer = _h3_streamed_model(m)
+    position_ids = torch.rand(7, 3, dtype=torch.float64)
+    m._prepare_positional_embeddings(position_ids)
+    assert m._pe_cache is not None
+    cache_ref = weakref.ref(m._pe_cache[0])
+
+    model.offload()
+
+    assert model.device == "cpu"
+    assert m._pe_cache is None and m._pe_cache_key is None
+    gc.collect()
+    assert cache_ref() is None, "H3 RoPE cos/sin cache leaked past streamed offload"
+
+
+def test_h3_stale_cache_key_misses_after_streamed_offload():
+    """A key built for the pre-offload placement -- even from the SAME
+    ``position_ids`` tensor object, so id()/version/shape/device all still
+    match -- must not be silently served from a torn-down cache."""
+    m = _build_h3()
+    position_ids = torch.rand(7, 3, dtype=torch.float64)
+    old_result = m._prepare_positional_embeddings(position_ids)
+    old_key = m._pe_cache_key
+
+    model, _streamer = _h3_streamed_model(m)
+    model.offload()
+
+    assert m._pe_cache_key is None
+    assert m._pe_cache_key != old_key
+    # Recomputing with the identical tensor object must rebuild, not reuse the
+    # released tuple, since the cache holding it is gone.
+    new_result = m._prepare_positional_embeddings(position_ids)
+    assert new_result is not old_result
+    assert m._pe_cache_key == old_key  # id/version/shape/device do match again
+
+
+def test_h3_normal_offload_control_clears_cache_via_apply_as_before():
+    """Control: no active streamer -> offload()'s move_to("cpu") branch,
+    which already clears the cache via `_apply` -- untouched by the fix."""
+    m = _build_h3()
+    position_ids = torch.rand(7, 3, dtype=torch.float64)
+    m._prepare_positional_embeddings(position_ids)
+    model = NativeModel("diffusion_model", m, estimated_vram_gb=23.3)
+
+    model.offload()
+
+    assert model.device == "cpu"
+    assert m._pe_cache is None
+
+
+def test_h3_release_derived_caches_direct_call_is_idempotent():
+    m = _build_h3()
+    position_ids = torch.rand(7, 3, dtype=torch.float64)
+    m._prepare_positional_embeddings(position_ids)
+
+    released = release_derived_caches(m)
+
+    assert released > 0
+    assert m._pe_cache is None
+    assert release_derived_caches(m) == 0

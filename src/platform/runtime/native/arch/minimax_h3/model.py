@@ -77,6 +77,13 @@ from ...sparse_attn import sparse_attention
 from .config import MINIMAX_H3_MODALITY_NUM, MiniMaxH3Config
 
 
+def _cached_tensor_bytes(value: tuple[Tensor, Tensor] | None) -> int:
+    """Byte size of a ``(cos, sin)`` cache tuple, or 0 if unset."""
+    if value is None:
+        return 0
+    return sum(t.numel() * t.element_size() for t in value)
+
+
 def _apply_rotary_emb(x: Tensor, cos: Tensor | None, sin: Tensor | None) -> Tensor:
     """Rotate the leading ``rotary_dim`` channels of every head; pass the rest through.
 
@@ -516,9 +523,20 @@ class MiniMaxH3Model(NativeArchModule):
         self._pe_cache_key: tuple | None = None
         self._pe_cache: tuple[Tensor, Tensor] | None = None
 
-    def _apply(self, fn, recurse: bool = True):
+    def release_derived_caches(self) -> int:
+        """Drop the per-generation RoPE cos/sin cache; return its released byte count.
+
+        Called by ``_apply`` (a normal device/dtype move) and, explicitly, by
+        placement paths that move weights around it without going through
+        ``_apply`` at all (streamed offload / partial residency).
+        """
+        released = _cached_tensor_bytes(self._pe_cache)
         self._pe_cache_key = None
         self._pe_cache = None
+        return released
+
+    def _apply(self, fn, recurse: bool = True):
+        self.release_derived_caches()
         return super()._apply(fn, recurse=recurse)
 
     # -- foundation contract ------------------------------------------------

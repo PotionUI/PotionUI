@@ -14,7 +14,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 import numpy as np
 
@@ -24,11 +24,18 @@ from src.pipelines.pipes._shared.media.video_encode import (
 )
 from src.platform.observability.logger import logger
 
+_ABORT_WAIT_TIMEOUT = 10
+
 
 class StreamingMp4Writer:
     """Pipe RGB uint8 frames to ffmpeg's stdin, one at a time, into a
     video-only MP4. All frames must share the writer's ``(width, height)``,
-    which must be even (yuv420p)."""
+    which must be even (yuv420p).
+
+    Usable as a context manager: a clean exit calls :meth:`close` (raises on a
+    bad encode), an exception in the ``with`` block calls :meth:`abort`
+    instead so a cancelled or failed clip never leaves the ffmpeg child
+    running."""
 
     def __init__(self, out_path: Union[str, Path], width: int, height: int,
                  fps: float, codec: str = "libx264", crf: int = 18):
@@ -69,27 +76,69 @@ class StreamingMp4Writer:
             _, stderr = self._proc.communicate(timeout=600)
         except subprocess.TimeoutExpired:
             self._proc.kill()
+            self._reap()
             raise RuntimeError("ffmpeg encode timed out after 600s")
         if self._proc.returncode != 0:
             msg = stderr.decode("utf-8", errors="replace")[-2000:] if stderr else ""
             raise RuntimeError(f"ffmpeg encode failed (exit {self._proc.returncode}): {msg}")
+
+    def abort(self) -> None:
+        """Stop the ffmpeg child without waiting for a clean encode.
+
+        Idempotent -- safe to call more than once, and safe to call after
+        :meth:`close` (a no-op once the process has already exited). Used when
+        the clip this writer belongs to is cancelled or fails: closes stdin,
+        terminates, and reaps with a bounded wait, escalating to a kill if the
+        process does not exit on its own."""
+        if self._proc.poll() is not None:
+            self._reap()
+            return
+        try:
+            if self._proc.stdin is not None and not self._proc.stdin.closed:
+                self._proc.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
+        self._proc.terminate()
+        try:
+            self._proc.wait(timeout=_ABORT_WAIT_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            self._proc.kill()
+            self._reap()
+
+    def _reap(self) -> None:
+        try:
+            self._proc.wait(timeout=_ABORT_WAIT_TIMEOUT)
+        except subprocess.TimeoutExpired:  # pragma: no cover - a killed process not reaping is a hang, not a retry case
+            pass
 
     def _raise_with_stderr(self, prefix: str) -> None:
         try:
             _, stderr = self._proc.communicate(timeout=10)
         except Exception:
             self._proc.kill()
+            self._reap()
             stderr = b""
         msg = stderr.decode("utf-8", errors="replace")[-2000:] if stderr else ""
         raise RuntimeError(f"{prefix} (exit {self._proc.returncode}): {msg}")
+
+    def __enter__(self) -> "StreamingMp4Writer":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if exc_type is None:
+            self.close()
+        else:
+            self.abort()
 
 
 def mux_audio_from_source(video_only: Union[str, Path], source: Union[str, Path],
                           out_path: Union[str, Path]) -> bool:
     """Copy the video stream of ``video_only`` and the audio of ``source`` into
     ``out_path``, both at their full length. Returns True on success. On any
-    failure (no audio stream, ffmpeg error, timeout) leaves ``out_path``
-    untouched and returns False -- the caller then keeps the video-only file.
+    failure (no audio stream, ffmpeg error, timeout, non-zero exit) removes
+    whatever ``out_path`` may hold and returns False -- the caller then keeps
+    the video-only file; a caller never has to know a failed attempt left a
+    partial file at ``out_path``.
 
     Deliberately no ``-shortest``: the interpolated video already runs the
     source's length, so trimming to the shorter stream only ever cuts the audio.
@@ -110,6 +159,7 @@ def mux_audio_from_source(video_only: Union[str, Path], source: Union[str, Path]
             result = subprocess.run(cmd, capture_output=True, timeout=600)
         except (subprocess.TimeoutExpired, OSError) as exc:
             logger.warning("[INTERPOLATOR RIFE] audio mux failed (%s) -- keeping video-only output", exc)
+            Path(out_path).unlink(missing_ok=True)
             return False
         if result.returncode == 0:
             return True
@@ -117,5 +167,6 @@ def mux_audio_from_source(video_only: Union[str, Path], source: Union[str, Path]
             "[INTERPOLATOR RIFE] audio mux via '%s' failed (exit %d)",
             " ".join(audio_args), result.returncode,
         )
+        Path(out_path).unlink(missing_ok=True)
     logger.warning("[INTERPOLATOR RIFE] audio mux failed -- keeping video-only output")
     return False

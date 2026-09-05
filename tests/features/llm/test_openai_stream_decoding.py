@@ -11,6 +11,8 @@ import json
 import pytest
 
 from src.features.llm.clients.openai import OpenAIClient
+from src.features.llm.clients.openai_wire import OpenAICompatSSEDecoder
+from src.features.llm.clients.wire_events import Done, RecordTooLarge, TextDelta, ToolCallDelta
 from tests.features.llm.wire_capture import (
     chunked_response,
     closable_response,
@@ -407,6 +409,163 @@ async def test_an_oversized_record_is_dropped_and_the_next_record_still_decodes(
     events = await _stream(monkeypatch, client, [raw])
 
     assert _tokens(events) == ["after"]
+
+
+# ---------------------------------------------------------------------------
+# LLM-09 rework: the dropped record's OWN discard state must persist to its
+# own blank-line boundary. Exercised directly against the decoder with a
+# monkeypatched tiny `MAX_RECORD_BYTES` (a class attribute) so the fixtures
+# read as arithmetic rather than megabyte-sized strings — this is the one
+# place in this file that talks to the decoder in isolation rather than
+# through a real client method, because "does the discard flag survive to
+# its boundary" is a decoder-internal property no client-level assertion
+# can distinguish from "it happened to work this time". The two real-stream
+# fixtures below (history AND tools) are the end-to-end proof the bug
+# (a dropped record's suffix reaching the client as if it were a fresh one)
+# cannot resurface through the actual production call path.
+# ---------------------------------------------------------------------------
+
+def _decode(monkeypatch, max_bytes: int, lines: list[str]) -> list:
+    monkeypatch.setattr(OpenAICompatSSEDecoder, "MAX_RECORD_BYTES", max_bytes)
+    decoder = OpenAICompatSSEDecoder("test")
+    events: list = []
+    for line in lines:
+        events.extend(decoder.feed(line))
+    return events
+
+
+def test_overflow_suffix_that_would_decode_as_content_is_discarded(monkeypatch):
+    events = _decode(monkeypatch, 8, [
+        "data: " + "x" * 20,
+        'data: {"choices": [{"delta": {"content": "leaked"}}]}',
+        "",
+    ])
+
+    assert events == [RecordTooLarge(20)]
+
+
+def test_overflow_suffix_that_would_decode_as_a_tool_fragment_is_discarded(monkeypatch):
+    events = _decode(monkeypatch, 8, [
+        "data: " + "x" * 20,
+        'data: {"choices": [{"delta": {"tool_calls": '
+        '[{"index": 0, "id": "c", "type": "function", "function": {"name": "n", "arguments": "{}"}}]}}]}',
+        "",
+    ])
+
+    assert events == [RecordTooLarge(20)]
+
+
+def test_overflow_suffix_that_would_decode_as_done_is_discarded(monkeypatch):
+    """The exact reported bug: an oversized value immediately followed by
+    `data: [DONE]` must never dispatch `Done` from the dropped record's
+    own suffix."""
+    events = _decode(monkeypatch, 8, [
+        "data: " + "x" * 20,
+        "data: [DONE]",
+        "",
+    ])
+
+    assert events == [RecordTooLarge(20)]
+
+
+def test_a_comment_mid_discard_is_also_ignored(monkeypatch):
+    events = _decode(monkeypatch, 8, [
+        "data: " + "x" * 20,
+        ": a comment",
+        "data: [DONE]",
+        "",
+    ])
+
+    assert events == [RecordTooLarge(20)]
+
+
+def test_multiline_record_exceeding_the_bound_only_cumulatively_is_dropped(monkeypatch):
+    events = _decode(monkeypatch, 8, [
+        "data: 1234",    # 4 bytes — within the 8-byte cap so far
+        "data: 56789",   # +5 bytes = 9 > 8 — trips here, not on the first line
+        "",
+    ])
+
+    assert events == [RecordTooLarge(9)]
+
+
+def test_many_empty_data_fields_eventually_trip_the_bound(monkeypatch):
+    """Every `data:` line costs at least one byte toward the bound, even an
+    empty one — otherwise 10k of them would grow the retained list (and the
+    eventual `"\\n"`-joined payload) forever without ever tripping it."""
+    monkeypatch.setattr(OpenAICompatSSEDecoder, "MAX_RECORD_BYTES", 100)
+    decoder = OpenAICompatSSEDecoder("test")
+    events: list = []
+    for _ in range(10_000):
+        events.extend(decoder.feed("data:"))
+    events.extend(decoder.feed(""))
+
+    too_large = [e for e in events if isinstance(e, RecordTooLarge)]
+    assert len(too_large) == 1
+    assert too_large[0].size == 101
+
+
+def test_recovery_at_the_following_complete_record(monkeypatch):
+    # The cap is raised to 100 here (rather than the 8 used above) purely so
+    # the RECOVERY record's own real JSON (43 bytes) fits under it — the
+    # trigger record (200 "x"s) still comfortably overflows either way.
+    events = _decode(monkeypatch, 100, [
+        "data: " + "x" * 200,
+        "",
+        'data: {"choices": [{"delta": {"content": "ok"}}]}',
+        "",
+    ])
+
+    assert events == [RecordTooLarge(200), TextDelta("ok")]
+
+
+def test_malformed_complete_record_is_still_skipped_after_an_unrelated_overflow(monkeypatch):
+    """The pre-existing malformed-JSON skip policy is untouched by the
+    overflow/discard machinery — a normal-sized but broken record still
+    just logs and moves on (no RecordTooLarge for it), and the next good
+    one still decodes, after an unrelated EARLIER record was dropped for
+    size."""
+    events = _decode(monkeypatch, 100, [
+        "data: " + "x" * 200,
+        "",
+        "data: {not json",
+        "",
+        'data: {"choices": [{"delta": {"content": "ok"}}]}',
+        "",
+    ])
+
+    assert events == [RecordTooLarge(200), TextDelta("ok")]
+
+
+async def test_overflow_suffix_never_surfaces_as_done_on_the_history_stream(monkeypatch, client):
+    # Cap raised to 100 (vs. the 8 used in the decoder-level tests above) so
+    # the real "still going" delta (52 bytes) fits under it while the 200
+    # "x"s still comfortably overflow.
+    monkeypatch.setattr(OpenAICompatSSEDecoder, "MAX_RECORD_BYTES", 100)
+    raw = (
+        (f"data: {'x' * 200}\n").encode()
+        + b"data: [DONE]\n\n"
+        + _delta("still going")
+        + _frame("[DONE]")
+    )
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert _tokens(events) == ["still going"]
+
+
+async def test_overflow_suffix_never_surfaces_as_done_on_the_tools_stream(monkeypatch, client):
+    monkeypatch.setattr(OpenAICompatSSEDecoder, "MAX_RECORD_BYTES", 100)
+    raw = (
+        (f"data: {'x' * 200}\n").encode()
+        + b"data: [DONE]\n\n"
+        + _delta("still going")
+        + _frame("[DONE]")
+    )
+
+    events = await _stream(monkeypatch, client, [raw], tools=tool_schemas())
+
+    assert _tokens(events) == ["still going"]
 
 
 async def test_a_non_200_status_raises_with_the_body_text(monkeypatch, client):

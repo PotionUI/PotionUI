@@ -201,9 +201,14 @@ class OpenAICompatSSEDecoder:
     - A record with no terminating blank line when the body ends (a
       truncated response, a dropped connection) is discarded, never
       dispatched — see ``finish()``.
-    - A record whose accumulated ``data:`` payload exceeds
-      ``MAX_RECORD_BYTES`` (1 MiB) is dropped in full and logged; decoding
-      resumes cleanly on the next record — see ``RecordTooLarge``.
+    - A record whose accumulated ``data:`` payload would exceed
+      ``MAX_RECORD_BYTES`` (1 MiB — every ``data:`` line costs at least one
+      byte toward the bound, even an empty one, so an unbounded run of
+      empty ``data:`` lines can't evade it either) is dropped in full:
+      ``RecordTooLarge`` fires exactly once, every further field of that
+      SAME record — another ``data:`` line, a comment, anything — is
+      ignored until its own terminating blank line, and decoding resumes
+      cleanly on the next record. See ``RecordTooLarge``.
 
     ``label`` reaches only the warning logged for an undecodable, dropped or
     oversized record — the two stream methods have always logged under
@@ -218,8 +223,16 @@ class OpenAICompatSSEDecoder:
     def __init__(self, label: str):
         self._label = label
         self._data: List[str] = []
-        self._data_bytes = 0
+        self._record_size = 0
         self._seen_first_line = False
+        # Set the moment a record is dropped for size, cleared on that
+        # record's own terminating blank line — every field arriving in
+        # between (another `data:` line, a comment, anything) belongs to the
+        # ALREADY-dropped record and must never seed a fresh one; without
+        # this, `data: [DONE]` arriving right after the line that tripped
+        # the bound would look like the start of a brand new record and
+        # dispatch a `Done` built from the dropped record's own suffix.
+        self._discarding = False
         # The choice that carries `finish_reason` arrives on a delta chunk
         # BEFORE the separate choice-less usage chunk and the terminal
         # `[DONE]` frame, so it has to be remembered across records rather
@@ -228,7 +241,7 @@ class OpenAICompatSSEDecoder:
 
     def _reset_record(self) -> None:
         self._data = []
-        self._data_bytes = 0
+        self._record_size = 0
 
     def feed(self, line: str) -> Iterator[Any]:
         if not self._seen_first_line:
@@ -237,8 +250,13 @@ class OpenAICompatSSEDecoder:
                 line = line[1:]
 
         if line == "":
+            if self._discarding:
+                self._discarding = False
+                return  # the dropped record's own boundary — nothing to dispatch
             yield from self._dispatch()
             return
+        if self._discarding:
+            return  # every further field of the dropped record is ignored
         if line.startswith(":"):
             return  # comment — never part of a record's data
 
@@ -248,27 +266,34 @@ class OpenAICompatSSEDecoder:
         if field != "data":
             return  # event/id/retry/unknown — ignored; this protocol never sends them
 
-        value_bytes = len(value.encode("utf-8"))
-        if self._data_bytes + value_bytes > self.MAX_RECORD_BYTES:
-            size = self._data_bytes + value_bytes
+        # Every data line costs AT LEAST one byte toward the bound, even an
+        # empty one — otherwise an unbounded run of zero-length `data:`
+        # lines grows the retained list (and the eventual "\n"-joined
+        # payload) without ever tripping `MAX_RECORD_BYTES`.
+        line_cost = max(len(value.encode("utf-8")), 1)
+        if self._record_size + line_cost > self.MAX_RECORD_BYTES:
+            size = self._record_size + line_cost
             logging.warning(f"[{self._label}] SSE record exceeded {self.MAX_RECORD_BYTES} bytes; dropping it")
             self._reset_record()
+            self._discarding = True
             yield RecordTooLarge(size)
             return
         self._data.append(value)
-        self._data_bytes += value_bytes
+        self._record_size += line_cost
 
     def finish(self) -> None:
         """Call once after the response body's line loop ends normally. A
         record with no terminating blank line — the connection ended
         mid-record — is discarded, never dispatched: an incomplete
         ``[DON`` is not a completion terminator, and incomplete JSON is not
-        a valid one either."""
+        a valid one either. A record already dropped for size (mid-discard)
+        has nothing left to warn about — its own drop already logged."""
         if self._data:
             logging.warning(
                 f"[{self._label}] stream ended mid-record; discarding {len(self._data)} pending data line(s)"
             )
         self._reset_record()
+        self._discarding = False
 
     def _dispatch(self) -> Iterator[Any]:
         if not self._data:

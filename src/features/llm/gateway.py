@@ -1,4 +1,5 @@
 import logging
+from contextlib import aclosing
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from src.features.llm import context_budget
@@ -300,10 +301,17 @@ class LLMGateway:
         )
         messages = self._budgeted(config, system_message, messages, None, image_data, options_override)
 
-        async for event in self._client_for(config).stream_with_history(
+        # Owns the client's stream: closing THIS generator (aclose(), or an
+        # exception unwinding through it) must close the client's — an
+        # unguarded `async for` here would leave a suspended provider stream
+        # (and whatever it holds — an HTTP response, a lease) to the event
+        # loop's async-generator finalizer instead of closing it at the
+        # point this generator itself is closed.
+        async with aclosing(self._client_for(config).stream_with_history(
             messages, config, system_message, image_data, options_override
-        ):
-            yield event
+        )) as agen:
+            async for event in agen:
+                yield event
 
     async def generate_with_tools(
         self,
@@ -385,7 +393,9 @@ class LLMGateway:
         )
         messages = self._budgeted(config, system_message, messages, tools, image_data, options_override)
 
-        async for event in self._client_for(config).stream_with_tools(
+        # See stream_with_history's comment above — same ownership rule.
+        async with aclosing(self._client_for(config).stream_with_tools(
             messages, config, system_message, tools, image_data, options_override
-        ):
-            yield event
+        )) as agen:
+            async for event in agen:
+                yield event

@@ -264,8 +264,13 @@ async def cancel_live(executor_cls=ToolExecutor) -> Dict[str, Any]:
 
 
 async def close_live_then_drain(executor_cls=ToolExecutor) -> Dict[str, Any]:
-    """`close_live`, then force the loop to finalize its async generators —
-    the only point at which the provider's cleanup is observable."""
+    """`close_live`, then force the loop to finalize any async generators
+    still pending. Before LLM-10 this was the ONLY point at which the
+    provider's cleanup became observable (see the historical note on
+    `test_closing_the_live_stream_closes_the_provider_immediately` below);
+    now it is a no-op — `before_drain` already carries the marker — kept as
+    a regression guard against generator ownership quietly sliding back to
+    depending on the loop's finalizer."""
     tool = CountingEchoTool()
     executor, llm = build(LIVE_TOKENS_THEN_TOOL, tool, executor_cls=executor_cls)
 
@@ -325,19 +330,32 @@ class TestCancellation:
         assert out["provider_calls"] == 1
 
     @pytest.mark.asyncio
-    async def test_closing_the_live_stream_defers_the_provider_cleanup(self):
-        """`aclose()` unwinds only the generator it was called on. Every
-        generator below it — the workflow, the turn source, the provider's own
-        stream — is left to the event loop's async-generator finalizer, so the
-        provider's `finally` has NOT run when `aclose()` returns.
+    async def test_closing_the_live_stream_closes_the_provider_immediately(self):
+        """LLM-10: every generator between the outermost stream and the
+        provider (`ToolExecutor.execute_with_tools_stream`,
+        `ToolWorkflow.run`, `_LiveTurnSource.acquire`, and — outside this
+        executor-level fixture, which stands `InterruptibleLLM` in for the
+        gateway — `LLMGateway.stream_with_tools`) now owns an explicit close
+        scope (`contextlib.aclosing`) over the child generator it delegates
+        to. `aclose()` on the outermost stream therefore reaches the
+        provider's own `finally` synchronously, at the declared close
+        boundary — never deferred to the event loop's async-generator
+        finalizer or to garbage collection.
 
-        Pinned as the contract it is, not as the contract one might want: a
-        caller that must see the provider released before it proceeds has to
-        cancel the consuming task (see `test_cancelling_the_live_stream_...`),
-        which propagates as an exception and unwinds every frame at once.
+        Historical note (the contract this test pinned before LLM-10):
+        `aclose()` used to unwind only the generator it was called on. Every
+        generator below it — the workflow, the turn source, the provider's
+        own stream — was left for `loop.shutdown_asyncgens()` (or GC) to
+        eventually finalize, so the provider's `finally` had NOT run when
+        `aclose()` returned; observing it required cancelling the consuming
+        task instead (see `test_cancelling_the_live_stream_...`), which
+        propagates as an exception and unwinds every frame at once. That
+        deferral is gone: `before_drain` below already carries the marker,
+        and the trailing `shutdown_asyncgens()` in `close_live_then_drain`
+        is now a no-op kept only as a regression guard.
         """
         out = await close_live_then_drain()
-        assert out["before_drain"] == []
+        assert out["before_drain"] == ["stream_closed"]
         assert out["after_drain"] == ["stream_closed"]
         assert out["tool_runs"] == 0
         assert out["provider_calls"] == 1

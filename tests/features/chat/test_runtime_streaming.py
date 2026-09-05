@@ -1,5 +1,7 @@
 """Tests for ChatRuntime.send_message_stream method."""
 
+import asyncio
+
 import pytest
 from unittest.mock import ANY, Mock, MagicMock, AsyncMock, patch, call
 from typing import AsyncGenerator, List
@@ -1938,3 +1940,113 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
         assert trace["image_attached"] == {"attached": True, "base64_size_kb": 1.0}
         assert "y" * 1024 not in str(trace)
 
+
+
+class TestSendMessageStreamEarlyClosePropagation(BaseStreamingTest):
+    """LLM-10: closing the SSE stream early — a browser subscriber
+    disconnecting, or any other caller of `send_message_stream` walking
+    away — must close the still-open provider stream underneath it at the
+    SAME boundary, and must never make a further provider call or dispatch
+    a further tool afterward. Exercised through the real
+    ConversationRunner/ChatRuntime seam with fake gateway/executor doubles,
+    for one plain response and one tool round — see also
+    tests/features/llm/test_gateway.py (the gateway/client boundary) and
+    tests/features/llm/tools/test_tool_workflow_cancellation.py (the
+    workflow/executor boundary), which pin the same contract one and two
+    layers down.
+    """
+
+    @pytest.mark.asyncio
+    async def test_early_close_after_a_token_closes_the_provider_and_makes_no_further_call(self):
+        session = self._make_active_session()
+        self.mock_repo.get_session.return_value = session
+        self.mock_repo.get_conversation_history.return_value = []
+        self.mock_repo.add_message.side_effect = [make_message_response("msg-user", role="user")]
+
+        provider_calls = {"count": 0}
+        markers: List[str] = []
+
+        async def _gen(*args, **kwargs):
+            provider_calls["count"] += 1
+            try:
+                yield {"type": "token", "content": "he"}
+                # A real provider stream sits here awaiting its next network
+                # read; nothing past this point may run once the caller
+                # closes early.
+                await asyncio.Event().wait()
+            finally:
+                markers.append("llm_stream_closed")
+
+        self.mock_llm.stream_with_history = Mock(side_effect=_gen)
+
+        stream = self.manager.send_message_stream(
+            session_id="session-123", user_id="user-123", content="hello",
+        )
+        seen = []
+        async for event in stream:
+            seen.append(event["event"])
+            if event["event"] == "token":
+                break
+
+        assert markers == []  # not yet — the fake provider is still suspended
+        await stream.aclose()
+
+        assert markers == ["llm_stream_closed"]
+        assert provider_calls["count"] == 1  # no retry, no second turn requested
+
+    @pytest.mark.asyncio
+    async def test_early_close_after_a_tool_start_closes_the_provider_and_dispatches_no_further_tool(self):
+        session = self._make_active_session(metadata={"enable_tools": True})
+        self.mock_repo.get_session.return_value = session
+        self.mock_repo.get_conversation_history.return_value = []
+        self.mock_repo.add_message.side_effect = [make_message_response("msg-user", role="user")]
+
+        mock_tool_executor = Mock()
+        mock_tool = Mock()
+        mock_tool.name = "get_data"
+        mock_tool.hint = ""
+        mock_tool_executor.tool_registry.get_for_mode.return_value = [mock_tool]
+        mock_tool_executor.tool_registry.get_tool_hints_text.return_value = ""
+
+        provider_calls = {"count": 0}
+        tool_dispatches = {"count": 0}
+        markers: List[str] = []
+
+        async def _mock_execute_with_tools_stream(*args, **kwargs):
+            provider_calls["count"] += 1
+            try:
+                yield {"type": "tool_start", "data": {"tool_name": "get_data", "arguments": {}}}
+                # A second tool round (tool_end, a further provider call,
+                # the eventual `done`) would happen from here on — none of
+                # it may run once the caller closed after `tool_start`.
+                tool_dispatches["count"] += 1
+                await asyncio.Event().wait()
+            finally:
+                markers.append("executor_stream_closed")
+
+        mock_tool_executor.execute_with_tools_stream = Mock(side_effect=_mock_execute_with_tools_stream)
+
+        self.manager = ChatRuntime(
+            chat_repository=self.mock_repo,
+            llm_service=self.mock_llm,
+            response_processor=self.mock_processor,
+            plugin_registry=self.mock_plugins,
+            chat_mode_registry=_mode_registry(),
+            tool_executor=mock_tool_executor,
+        )
+
+        stream = self.manager.send_message_stream(
+            session_id="session-123", user_id="user-123", content="hello",
+        )
+        seen = []
+        async for event in stream:
+            seen.append(event["event"])
+            if event["event"] == "tool_start":
+                break
+
+        assert markers == []
+        await stream.aclose()
+
+        assert markers == ["executor_stream_closed"]
+        assert provider_calls["count"] == 1
+        assert tool_dispatches["count"] == 0  # the round after tool_start never ran

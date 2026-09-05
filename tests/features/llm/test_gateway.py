@@ -1,5 +1,7 @@
 """Tests for LLMGateway.test_configuration and its context-budget hook."""
 
+import asyncio
+
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
@@ -305,3 +307,67 @@ class TestLedgerMatchesGatewayHook:
         )
 
         assert ledger["budget"] == gateway_budget.ledger
+
+
+# ---------------------------------------------------------------------------
+# LLM-10: closing the gateway's own stream must close the client's stream at
+# the same boundary, not defer it to GC/loop shutdown. See also
+# tests/features/llm/tools/test_tool_workflow_cancellation.py, which pins the
+# same contract one layer up (through ToolExecutor.execute_with_tools_stream).
+# ---------------------------------------------------------------------------
+
+class _ParkingClient:
+    """Client double that yields one token, then parks forever in an await —
+    exactly the shape a real provider stream takes while waiting on its next
+    network read. `markers` records whether its `finally` actually ran."""
+
+    def __init__(self):
+        self.markers: list[str] = []
+
+    async def stream_with_history(self, *args, **kwargs):
+        try:
+            yield {"type": "token", "content": "hi"}
+            await asyncio.Event().wait()
+        finally:
+            self.markers.append("client_stream_closed")
+
+    def stream_with_tools(self, *args, **kwargs):
+        # Tool-calling turns share the same wire shape here — reuse the same
+        # generator rather than duplicate it.
+        return self.stream_with_history(*args, **kwargs)
+
+
+class TestGatewayStreamClosePropagation:
+    @pytest.fixture
+    def gateway(self):
+        gw = LLMGateway(llm_repository=Mock())
+        gw.repository.get_configuration.return_value = make_config()
+        return gw
+
+    @pytest.mark.asyncio
+    async def test_closing_stream_with_history_closes_the_client_at_once(self, gateway):
+        client = _ParkingClient()
+        gateway._ollama.stream_with_history = client.stream_with_history
+
+        agen = gateway.stream_with_history(messages=[{"role": "user", "content": "hi"}], llm_id="cfg-1")
+        first = await agen.__anext__()
+        assert first == {"type": "token", "content": "hi"}
+        assert client.markers == []  # not yet — the client is still suspended
+
+        await agen.aclose()
+
+        assert client.markers == ["client_stream_closed"]
+
+    @pytest.mark.asyncio
+    async def test_closing_stream_with_tools_closes_the_client_at_once(self, gateway):
+        client = _ParkingClient()
+        gateway._ollama.stream_with_tools = client.stream_with_tools
+
+        agen = gateway.stream_with_tools(messages=[{"role": "user", "content": "hi"}], llm_id="cfg-1")
+        first = await agen.__anext__()
+        assert first == {"type": "token", "content": "hi"}
+        assert client.markers == []
+
+        await agen.aclose()
+
+        assert client.markers == ["client_stream_closed"]

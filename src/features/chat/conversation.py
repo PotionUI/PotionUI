@@ -17,6 +17,7 @@ import json
 import logging
 import re
 import time
+from contextlib import aclosing
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from src.features.chat.dto import SessionResponse, SendMessageResponse
@@ -657,7 +658,13 @@ class ConversationRunner:
                 )
 
                 with trace_collector.activate(session_id, user_id, purpose="chat_tools"):
-                    async for event in self._m.tool_executor.execute_with_tools_stream(
+                    # Owns the executor's stream: this generator being closed
+                    # (the caller's subscriber disconnecting, or an exception
+                    # unwinding through it) must close the tool executor's
+                    # stream — which, through its own equivalent scopes,
+                    # reaches the workflow, the turn source and the provider
+                    # — rather than abandon a still-open provider connection.
+                    async with aclosing(self._m.tool_executor.execute_with_tools_stream(
                         messages=conversation_history,
                         llm_id=session.llm_config_id,
                         system_message=system_prompt or "",
@@ -667,37 +674,38 @@ class ConversationRunner:
                         allowed_tools=allowed_tools,
                         llm_options=mode.llm_options or None,
                         iteration_nudge=TOOL_LOOP_CONTINUATION_NUDGE if mode.structured_reply else None,
-                    ):
-                        if event["type"] in ("tool_start", "tool_end"):
-                            logger.debug(f"[ChatRuntime] Yielding SSE event: {event['type']} - {event['data'].get('tool_name', '')}")
-                            yield {"event": event["type"], "data": event["data"]}
-                        elif event["type"] == "status":
-                            yield {"event": "status", "data": event["data"]}
-                        elif event["type"] == "token":
-                            if not _answering_started:
-                                _answering_start = time.monotonic()
-                                step_records.append({
-                                    "step": "thinking",
-                                    "duration_ms": int((_answering_start - _thinking_start) * 1000),
-                                })
-                                yield {"event": "status", "data": {"step": "answering", "state": "started"}}
-                                _answering_started = True
-                            full_content += event["data"]["content"]
-                            yield {"event": "token", "data": event["data"]}
-                        elif event["type"] == "done":
-                            tool_executions = event["data"]["tool_executions"]
-                            rescues = event["data"].get("rescues")
-                            tool_failures = event["data"].get("tool_failures")
-                            thinking_mode = event["data"].get("thinking_mode")
-                            turn_completion = event["data"].get("completion")
-                            if not full_content:
-                                full_content = event["data"].get("full_content", "")
-                            # Extract token usage from done event
-                            usage_data = {
-                                "tokens_used": event["data"].get("tokens_used"),
-                                "prompt_tokens": event["data"].get("prompt_tokens"),
-                                "completion_tokens": event["data"].get("completion_tokens"),
-                            }
+                    )) as agen:
+                        async for event in agen:
+                            if event["type"] in ("tool_start", "tool_end"):
+                                logger.debug(f"[ChatRuntime] Yielding SSE event: {event['type']} - {event['data'].get('tool_name', '')}")
+                                yield {"event": event["type"], "data": event["data"]}
+                            elif event["type"] == "status":
+                                yield {"event": "status", "data": event["data"]}
+                            elif event["type"] == "token":
+                                if not _answering_started:
+                                    _answering_start = time.monotonic()
+                                    step_records.append({
+                                        "step": "thinking",
+                                        "duration_ms": int((_answering_start - _thinking_start) * 1000),
+                                    })
+                                    yield {"event": "status", "data": {"step": "answering", "state": "started"}}
+                                    _answering_started = True
+                                full_content += event["data"]["content"]
+                                yield {"event": "token", "data": event["data"]}
+                            elif event["type"] == "done":
+                                tool_executions = event["data"]["tool_executions"]
+                                rescues = event["data"].get("rescues")
+                                tool_failures = event["data"].get("tool_failures")
+                                thinking_mode = event["data"].get("thinking_mode")
+                                turn_completion = event["data"].get("completion")
+                                if not full_content:
+                                    full_content = event["data"].get("full_content", "")
+                                # Extract token usage from done event
+                                usage_data = {
+                                    "tokens_used": event["data"].get("tokens_used"),
+                                    "prompt_tokens": event["data"].get("prompt_tokens"),
+                                    "completion_tokens": event["data"].get("completion_tokens"),
+                                }
                 if not _answering_started:
                     # No token was ever emitted (e.g. empty tool-path response) — still
                     # close out "thinking" and mark "answering" for a consistent trace.
@@ -721,25 +729,30 @@ class ConversationRunner:
 
                 # Stream tokens from LLM (yields dicts with type "token" or "usage")
                 with trace_collector.activate(session_id, user_id, purpose="chat"):
-                    async for event in self._m.llm_service.stream_with_history(
+                    # Owns the gateway's stream — same reasoning as the
+                    # tools-path scope above: this generator closing must
+                    # close the gateway's, reaching the provider's own
+                    # stream rather than abandoning it.
+                    async with aclosing(self._m.llm_service.stream_with_history(
                         messages=conversation_history,
                         llm_id=session.llm_config_id,
                         image_data=image_base64,
                         custom_system_message=system_prompt or None,
                         mode=mode.id,
                         options_override=mode.llm_options or None,
-                    ):
-                        if event["type"] == "token":
-                            full_content += event["content"]
-                            yield {"event": "token", "data": {"content": event["content"]}}
-                        elif event["type"] == "usage":
-                            usage_data = {
-                                "tokens_used": event.get("tokens_used"),
-                                "prompt_tokens": event.get("prompt_tokens"),
-                                "completion_tokens": event.get("completion_tokens"),
-                            }
-                            thinking_mode = event.get("thinking_mode")
-                            turn_completion = event.get("completion")
+                    )) as agen:
+                        async for event in agen:
+                            if event["type"] == "token":
+                                full_content += event["content"]
+                                yield {"event": "token", "data": {"content": event["content"]}}
+                            elif event["type"] == "usage":
+                                usage_data = {
+                                    "tokens_used": event.get("tokens_used"),
+                                    "prompt_tokens": event.get("prompt_tokens"),
+                                    "completion_tokens": event.get("completion_tokens"),
+                                }
+                                thinking_mode = event.get("thinking_mode")
+                                turn_completion = event.get("completion")
 
             step_records.append({
                 "step": "answering",

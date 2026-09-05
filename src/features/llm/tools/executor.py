@@ -11,6 +11,7 @@ import inspect
 import json
 import logging
 import time
+from contextlib import aclosing
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple
 
 from src.features.llm.tools.base import (
@@ -295,8 +296,9 @@ class _LiveTurnSource:
 
     async def acquire(self, request: TurnRequest) -> AsyncGenerator[Any, None]:
         if request.final:
-            async for item in self._acquire_final(request):
-                yield item
+            async with aclosing(self._acquire_final(request)) as agen:
+                async for item in agen:
+                    yield item
             return
 
         workflow = self._workflow
@@ -316,35 +318,42 @@ class _LiveTurnSource:
             draining = False
             stream_filter = _StreamToolCallFilter(self._registered)
 
-            async for event in self._stream(request.messages, self._tool_schemas, request.image_data):
-                event_type = event.get("type")
-                if event_type == "token":
-                    content_parts.append(event["content"])
-                    if draining:
-                        continue
-                    for kind, value in stream_filter.feed(event["content"]):
+            # Owns the provider stream for this attempt: a retry, an
+            # approval mid-turn, or the caller closing this whole generator
+            # while suspended at one of the `yield`s below must close THIS
+            # stream rather than abandon it still parked on the provider.
+            async with aclosing(
+                self._stream(request.messages, self._tool_schemas, request.image_data)
+            ) as agen:
+                async for event in agen:
+                    event_type = event.get("type")
+                    if event_type == "token":
+                        content_parts.append(event["content"])
                         if draining:
-                            # A call earlier in this SAME feed() result already
-                            # turned out to need approval — nothing after it,
-                            # text or another call, is forwarded or dispatched.
-                            break
-                        if kind == "text":
-                            if value:
-                                yield AssistantDelta(value)
                             continue
-                        for call in _parse_xml_tool_calls(value):
-                            async for item in workflow.dispatch_inline(call):
-                                if isinstance(item, bool):
-                                    pending = item
-                                    continue
-                                yield item
-                            if pending:
-                                draining = True
+                        for kind, value in stream_filter.feed(event["content"]):
+                            if draining:
+                                # A call earlier in this SAME feed() result already
+                                # turned out to need approval — nothing after it,
+                                # text or another call, is forwarded or dispatched.
                                 break
-                elif event_type == "tool_calls":
-                    tool_calls = event["tool_calls"]
-                elif event_type == "usage":
-                    usage = event
+                            if kind == "text":
+                                if value:
+                                    yield AssistantDelta(value)
+                                continue
+                            for call in _parse_xml_tool_calls(value):
+                                async for item in workflow.dispatch_inline(call):
+                                    if isinstance(item, bool):
+                                        pending = item
+                                        continue
+                                    yield item
+                                if pending:
+                                    draining = True
+                                    break
+                    elif event_type == "tool_calls":
+                        tool_calls = event["tool_calls"]
+                    elif event_type == "usage":
+                        usage = event
 
             if not draining:
                 trailing = stream_filter.flush()
@@ -373,13 +382,14 @@ class _LiveTurnSource:
     async def _acquire_final(self, request: TurnRequest) -> AsyncGenerator[Any, None]:
         content_parts: List[str] = []
         usage: Dict[str, Any] = {}
-        async for event in self._stream(request.messages, None, None):
-            event_type = event.get("type")
-            if event_type == "token":
-                content_parts.append(event["content"])
-                yield AssistantDelta(event["content"])
-            elif event_type == "usage":
-                usage = event
+        async with aclosing(self._stream(request.messages, None, None)) as agen:
+            async for event in agen:
+                event_type = event.get("type")
+                if event_type == "token":
+                    content_parts.append(event["content"])
+                    yield AssistantDelta(event["content"])
+                elif event_type == "usage":
+                    usage = event
         yield ProviderTurn(content="".join(content_parts), usage=usage)
 
 
@@ -605,15 +615,21 @@ class ToolExecutor:
         )
 
         terminal: Any = None
-        async for event in workflow.run(source):
-            if isinstance(event, ToolStarted):
-                if on_tool_event:
-                    on_tool_event("tool_start", event.data)
-            elif isinstance(event, ToolFinished):
-                if on_tool_event:
-                    on_tool_event("tool_end", event.data)
-            elif isinstance(event, (PendingDecision, Completed)):
-                terminal = event
+        # Not itself an async-generator seam a caller can `aclose()` — this
+        # method is a plain coroutine — but the same ownership rule applies
+        # under task cancellation: cancelling the awaiting task must close
+        # `workflow.run(source)` (and, through it, the provider) rather than
+        # abandon it mid-iteration.
+        async with aclosing(workflow.run(source)) as agen:
+            async for event in agen:
+                if isinstance(event, ToolStarted):
+                    if on_tool_event:
+                        on_tool_event("tool_start", event.data)
+                elif isinstance(event, ToolFinished):
+                    if on_tool_event:
+                        on_tool_event("tool_end", event.data)
+                elif isinstance(event, (PendingDecision, Completed)):
+                    terminal = event
 
         response = terminal.response
         response.content = "" if isinstance(terminal, PendingDecision) else terminal.content
@@ -789,7 +805,7 @@ class ToolExecutor:
         the same behavior this method used before it streamed natively.
         """
         if await self._force_prompt_tools_for(llm_id):
-            async for event in self._execute_with_tools_stream_legacy(
+            async with aclosing(self._execute_with_tools_stream_legacy(
                 messages=messages,
                 llm_id=llm_id,
                 system_message=system_message,
@@ -801,8 +817,9 @@ class ToolExecutor:
                 llm_options=llm_options,
                 forced_tool_call=forced_tool_call,
                 iteration_nudge=iteration_nudge,
-            ):
-                yield event
+            )) as agen:
+                async for event in agen:
+                    yield event
             return
 
         workflow = ToolWorkflow(
@@ -816,28 +833,33 @@ class ToolExecutor:
             self._registered_allowed(allowed_tools), mode, llm_options,
         )
 
-        async for event in workflow.run(source):
-            if isinstance(event, AssistantDelta):
-                yield {"type": "token", "data": {"content": event.content}}
-            elif isinstance(event, ToolStarted):
-                yield {"type": "tool_start", "data": event.data}
-            elif isinstance(event, ToolFinished):
-                yield {"type": "tool_end", "data": event.data}
-            elif isinstance(event, IterationLimitReached):
-                yield {"type": "status", "data": {
-                    "step": "tool_budget_exhausted", "state": "completed",
-                    "detail": {"max_iterations": event.max_iterations},
-                }}
-            elif isinstance(event, PendingDecision):
-                yield {"type": "done", "data": self._done_data(workflow, "", True)}
-            elif isinstance(event, Completed):
-                data = self._done_data(workflow, event.content, False)
-                # The text already reached the caller as tokens, so only a
-                # terminal the model actually generated carries usage; a
-                # rescue's fallback message was never a completion.
-                if event.reason in ("answer", "budget"):
-                    data.update(_usage_fields(event.usage))
-                yield {"type": "done", "data": data}
+        # Owns the workflow's generator for this whole turn: closing THIS
+        # generator (a caller's aclose(), or an exception unwinding through
+        # it) must close `workflow.run(source)`, which — via the source's
+        # own equivalent scope — reaches the provider's stream.
+        async with aclosing(workflow.run(source)) as agen:
+            async for event in agen:
+                if isinstance(event, AssistantDelta):
+                    yield {"type": "token", "data": {"content": event.content}}
+                elif isinstance(event, ToolStarted):
+                    yield {"type": "tool_start", "data": event.data}
+                elif isinstance(event, ToolFinished):
+                    yield {"type": "tool_end", "data": event.data}
+                elif isinstance(event, IterationLimitReached):
+                    yield {"type": "status", "data": {
+                        "step": "tool_budget_exhausted", "state": "completed",
+                        "detail": {"max_iterations": event.max_iterations},
+                    }}
+                elif isinstance(event, PendingDecision):
+                    yield {"type": "done", "data": self._done_data(workflow, "", True)}
+                elif isinstance(event, Completed):
+                    data = self._done_data(workflow, event.content, False)
+                    # The text already reached the caller as tokens, so only a
+                    # terminal the model actually generated carries usage; a
+                    # rescue's fallback message was never a completion.
+                    if event.reason in ("answer", "budget"):
+                        data.update(_usage_fields(event.usage))
+                    yield {"type": "done", "data": data}
 
 
     async def _execute_with_tools_stream_legacy(
@@ -874,29 +896,30 @@ class ToolExecutor:
             mode, llm_options,
         )
 
-        async for event in workflow.run(source):
-            if isinstance(event, ToolStarted):
-                yield {"type": "tool_start", "data": event.data}
-            elif isinstance(event, ToolFinished):
-                yield {"type": "tool_end", "data": event.data}
-            elif isinstance(event, IterationLimitReached):
-                yield {"type": "status", "data": {
-                    "step": "tool_budget_exhausted", "state": "completed",
-                    "detail": {"max_iterations": event.max_iterations},
-                }}
-            elif isinstance(event, PendingDecision):
-                yield {"type": "done", "data": self._done_data(workflow, "", True)}
-            elif isinstance(event, Completed):
-                if event.content:
-                    yield {"type": "token", "data": {"content": event.content}}
-                data = self._done_data(workflow, event.content, False)
-                # Same "answer"/"budget" guard as execute_with_tools_stream:
-                # a rescue's fallback message (truncated/ambiguous) is never a
-                # genuine LLM completion, so its round's usage/completion must
-                # not be attributed to it.
-                if event.reason in ("answer", "budget"):
-                    data.update(_usage_fields(event.usage))
-                yield {"type": "done", "data": data}
+        async with aclosing(workflow.run(source)) as agen:
+            async for event in agen:
+                if isinstance(event, ToolStarted):
+                    yield {"type": "tool_start", "data": event.data}
+                elif isinstance(event, ToolFinished):
+                    yield {"type": "tool_end", "data": event.data}
+                elif isinstance(event, IterationLimitReached):
+                    yield {"type": "status", "data": {
+                        "step": "tool_budget_exhausted", "state": "completed",
+                        "detail": {"max_iterations": event.max_iterations},
+                    }}
+                elif isinstance(event, PendingDecision):
+                    yield {"type": "done", "data": self._done_data(workflow, "", True)}
+                elif isinstance(event, Completed):
+                    if event.content:
+                        yield {"type": "token", "data": {"content": event.content}}
+                    data = self._done_data(workflow, event.content, False)
+                    # Same "answer"/"budget" guard as execute_with_tools_stream:
+                    # a rescue's fallback message (truncated/ambiguous) is never a
+                    # genuine LLM completion, so its round's usage/completion must
+                    # not be attributed to it.
+                    if event.reason in ("answer", "budget"):
+                        data.update(_usage_fields(event.usage))
+                    yield {"type": "done", "data": data}
 
     @staticmethod
     def _done_data(workflow: ToolWorkflow, full_content: str, pending: bool) -> Dict[str, Any]:

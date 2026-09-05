@@ -23,6 +23,7 @@ and what their results mean for the turn.
 import json
 import logging
 import re
+from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Dict, List, Optional, Protocol
 
@@ -315,11 +316,18 @@ class ToolWorkflow:
         for iteration in range(self.max_iterations):
             logger.debug(f"[ToolWorkflow] Iteration {iteration + 1}/{self.max_iterations}")
             turn: Optional[ProviderTurn] = None
-            async for item in source.acquire(self._next_request()):
-                if isinstance(item, ProviderTurn):
-                    turn = item
-                else:
-                    yield item
+            # Owns the turn source's generator: this loop is the ONLY thing
+            # that can decide the round is over, so it is also the thing
+            # that must close `source.acquire(...)` — closing THIS workflow
+            # generator while suspended at one of the `yield item`s below
+            # must reach the source (and, through it, the provider) instead
+            # of abandoning it to the loop's async-generator finalizer.
+            async with aclosing(source.acquire(self._next_request())) as agen:
+                async for item in agen:
+                    if isinstance(item, ProviderTurn):
+                        turn = item
+                    else:
+                        yield item
             if turn.response is not None:
                 self._last_response = turn.response
 
@@ -358,11 +366,12 @@ class ToolWorkflow:
         yield IterationLimitReached(self.max_iterations)
 
         turn = None
-        async for item in source.acquire(self._final_request()):
-            if isinstance(item, ProviderTurn):
-                turn = item
-            else:
-                yield item
+        async with aclosing(source.acquire(self._final_request())) as agen:
+            async for item in agen:
+                if isinstance(item, ProviderTurn):
+                    turn = item
+                else:
+                    yield item
         yield Completed(strip_tool_call_xml(turn.content or ""), "budget", turn.usage, turn.response)
 
     # -- turn requests -------------------------------------------------------

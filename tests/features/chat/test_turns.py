@@ -68,6 +68,57 @@ class TestTurnRegistryMechanics:
         ]
 
     @pytest.mark.asyncio
+    async def test_subscriber_disconnect_never_closes_the_stream_factory(self):
+        """LLM-10 control: `turn.stream()` (the subscriber) and
+        `stream_factory()` (the turn's own drive task, ultimately the
+        provider stream several layers down) are two independent
+        generators with no ownership relationship — a subscriber's
+        `aclose()` must never reach into the still-running turn and close
+        the factory's generator. Only the turn itself ending (naturally,
+        via timeout, or via `request_cancel()`) may do that.
+
+        This is deliberately distinct from
+        `test_turn_runs_to_completion_after_subscriber_disconnects` above:
+        that test proves the turn's OBSERVABLE events keep arriving: this
+        one proves the factory generator's own `finally` — the same kind of
+        marker LLM-10's other fixtures use to prove the provider's cleanup
+        ran — stays unrun until the turn's own boundary, not the
+        subscriber's.
+        """
+        registry = ChatTurnRegistry()
+        markers: list = []
+
+        async def factory():
+            try:
+                yield {"event": "message_created", "data": {}}
+                yield {"event": "token", "data": {"content": "a"}}
+                # Still "streaming" — a real provider stream sits here
+                # awaiting its next network read. Only the turn ending
+                # (here, an explicit cancel) may close this.
+                await asyncio.Event().wait()
+            finally:
+                markers.append("factory_closed")
+
+        turn = registry.start("s1", "u1", factory)
+
+        stream = turn.stream()
+        first = await stream.__anext__()
+        assert first["event"] == "message_created"
+        await stream.aclose()
+
+        # Give the drive task every opportunity to run further before
+        # asserting nothing closed the factory prematurely.
+        await asyncio.sleep(0)
+        assert markers == []
+
+        # The factory is only closed when the TURN itself ends — never as a
+        # side effect of the subscriber having disconnected above.
+        turn.request_cancel()
+        await asyncio.wait_for(turn.done.wait(), timeout=2)
+        assert turn.status == "cancelled"
+        assert markers == ["factory_closed"]
+
+    @pytest.mark.asyncio
     async def test_late_subscriber_replays_full_sequence(self):
         """A subscriber that attaches after the turn ends still sees every event."""
         registry = ChatTurnRegistry()

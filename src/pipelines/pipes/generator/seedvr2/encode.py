@@ -9,16 +9,38 @@ ever being caught by the same ``except`` that also catches an audio-specific
 mux failure and silently retried away. Video failures always propagate; only
 a failure isolated to the mux step degrades to an audio-less output, and only
 then with an explicit, reported reason.
+
+:func:`encode_frames_stream_to_mp4` is the video half of that split for a
+STREAMED clip: it pipes frames to ffmpeg as they are produced instead of
+requiring the whole decoded clip as one array, so the video path's peak memory
+stays bounded by its temporal batch (see :mod:`stream`). It plugs into
+:func:`encode_video_with_audio` as ``encode_video``, leaving the mux step and
+its failure classification untouched.
 """
 
 from __future__ import annotations
 
+import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Union
+from typing import Callable, Iterable, Optional, Union
 
-from src.pipelines.pipes._shared.media.video_encode import has_audio_stream
+import numpy as np
+
+from src.pipelines.pipes._shared.media.video_encode import (
+    FFmpegNotFoundError,
+    _build_ffmpeg_args,
+    _pad_to_even,
+    has_audio_stream,
+)
+
+# The argv builder and the even-dimension pad are shared with the eager
+# `encode_frames_to_mp4` rather than restated here: a streamed encode that
+# drifted from the eager one's ffmpeg flags would silently change output
+# quality/container settings for the same pipe.
+_FFMPEG_WAIT_TIMEOUT = 600
 
 # `VideoAudioResult.audio_outcome` values.
 AUDIO_MUXED = "muxed"
@@ -113,3 +135,124 @@ def encode_video_with_audio(
             video_path=str(out_path), audio_outcome=AUDIO_MUX_FAILED, omitted_reason=str(exc),
         )
     return VideoAudioResult(video_path=muxed_path, audio_outcome=AUDIO_MUXED)
+
+
+def _even_frame(frame) -> "np.ndarray":
+    """One uint8 ``(H,W,3)`` frame, contiguous and edge-padded to even sides."""
+    arr = np.ascontiguousarray(frame, dtype=np.uint8)
+    if arr.ndim != 3 or arr.shape[-1] != 3:
+        raise ValueError(f"expected a (H,W,3) uint8 frame, got shape {arr.shape}")
+    return _pad_to_even(arr[np.newaxis])[0]
+
+
+def _stderr_tail(handle) -> str:
+    try:
+        handle.seek(0)
+        return handle.read().decode("utf-8", errors="replace")[-2000:]
+    except OSError:  # pragma: no cover - a diagnostic read must never mask the failure
+        return ""
+
+
+def _terminate(proc: "subprocess.Popen") -> None:
+    if proc.poll() is not None:
+        return
+    proc.kill()
+    try:
+        proc.wait(timeout=30)
+    except subprocess.TimeoutExpired:  # pragma: no cover - the kill above already fired
+        pass
+
+
+def encode_frames_stream_to_mp4(
+    frames: "Iterable[np.ndarray]",
+    out_path: Union[str, Path],
+    fps: float,
+    *,
+    codec: str = "libx264",
+    crf: int = 18,
+    audio: None = None,
+) -> Path:
+    """Encode an iterable of uint8 ``(H,W,3)`` RGB frames to ``out_path``,
+    writing each frame to ffmpeg's stdin as it is produced.
+
+    Video only: ``audio`` exists to match ``encode_frames_to_mp4``'s keyword and
+    must be ``None`` -- audio is muxed as a separate step by
+    :func:`encode_video_with_audio`, which is what keeps a mux failure
+    distinguishable from a video failure.
+
+    Frame geometry is taken from the first frame; a later frame of a different
+    size is a defect, not something to pad around, because ffmpeg is already
+    reading a fixed-size rawvideo stream by then. Any failure -- a frame the
+    producer could not compute, a non-zero ffmpeg exit, a timeout -- kills the
+    process and removes the partial file before propagating, so a failed encode
+    never leaves a playable-looking output behind.
+    """
+    if audio is not None:
+        raise TypeError(
+            "encode_frames_stream_to_mp4 encodes video only; mux audio with encode_video_with_audio"
+        )
+    if shutil.which("ffmpeg") is None:
+        raise FFmpegNotFoundError(
+            "ffmpeg binary not found on PATH -- required to encode video output. "
+            "Install ffmpeg (e.g. `apt install ffmpeg`) and retry."
+        )
+
+    frames_iter = iter(frames)
+    try:
+        frame = _even_frame(next(frames_iter))
+    except StopIteration:
+        raise ValueError("no frames to encode") from None
+
+    height, width = int(frame.shape[0]), int(frame.shape[1])
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = _build_ffmpeg_args(
+        width=width, height=height, fps=fps, codec=codec, crf=crf,
+        out_path=out_path, audio_path=None,
+    )
+
+    # ffmpeg's progress chatter goes to a file, not a pipe: a full stderr pipe
+    # would block ffmpeg mid-encode while this loop blocks writing to stdin.
+    stderr_file = tempfile.TemporaryFile()
+    proc = subprocess.Popen(
+        cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=stderr_file,
+    )
+    try:
+        while True:
+            if frame.shape[0] != height or frame.shape[1] != width:
+                raise ValueError(
+                    f"frame size changed mid-stream: expected {width}x{height}, "
+                    f"got {frame.shape[1]}x{frame.shape[0]}"
+                )
+            try:
+                proc.stdin.write(memoryview(frame.reshape(-1)))
+            except BrokenPipeError:
+                break
+            try:
+                frame = _even_frame(next(frames_iter))
+            except StopIteration:
+                break
+
+        proc.stdin.close()
+        try:
+            returncode = proc.wait(timeout=_FFMPEG_WAIT_TIMEOUT)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"ffmpeg timed out after {_FFMPEG_WAIT_TIMEOUT}s encoding {out_path}"
+            ) from exc
+
+        if returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg failed (exit {returncode}) encoding {out_path}: {_stderr_tail(stderr_file)}"
+            )
+        if not out_path.exists() or out_path.stat().st_size == 0:
+            raise RuntimeError(f"ffmpeg reported success but produced no output at {out_path}")
+        return out_path
+    except BaseException:
+        _terminate(proc)
+        out_path.unlink(missing_ok=True)
+        raise
+    finally:
+        if proc.stdin is not None and not proc.stdin.closed:
+            proc.stdin.close()
+        stderr_file.close()

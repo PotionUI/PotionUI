@@ -22,7 +22,7 @@ from __future__ import annotations
 import random
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, Iterator, List, Optional
 
 import numpy as np
 import torch
@@ -208,6 +208,21 @@ def _auto_batch_size(
     return max(5, min(_SEEDVR2_MAX_BATCH, frames))
 
 
+def _discard_output(path: str) -> None:
+    """Remove a video output and the audio-muxed sibling
+    ``encode_video_with_audio`` may have written next to it, so a partial or
+    superseded file is never left where something could publish it."""
+    import os
+
+    for candidate in (path, f"{path}.audio.mp4"):
+        try:
+            os.unlink(candidate)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:  # pragma: no cover - cleanup must not mask the real failure
+            logger.warning("[GENERATOR SEEDVR2] could not remove %s: %s", candidate, exc)
+
+
 def _sync_if_profiling(device: str) -> None:
     """Block on the CUDA stream so a ``time.perf_counter()`` delta measures actual
     kernel execution, not just async launch — but only when profiling is on (the
@@ -353,22 +368,23 @@ class SeedVR2NativeGenerator(NativeGenerator):
 
     def upscale_video(
         self,
-        batches: "List[np.ndarray]",
+        clips: "Iterable[np.ndarray]",
         prompt_embedding: torch.Tensor,
         *,
         seed: int,
         latent_noise_scale: float = 0.0,
-        progress_cb: Optional[callable] = None,
-        is_cancelled: Optional[callable] = None,
         tile_size: Optional[int] = None,
         tile_overlap: Optional[int] = None,
-    ) -> "List[np.ndarray]":
-        """Restore/upscale a list of already-resized, VAE-legal (4n+1) frame
-        clips, one temporal batch at a time.
+    ) -> "Iterator[np.ndarray]":
+        """Restore/upscale already-resized, VAE-legal (4n+1) frame clips, one
+        temporal batch at a time, yielding each decoded clip as it finishes.
 
-        Each ``batches[i]`` is a uint8 ``(T, H, W, 3)`` array whose ``T`` satisfies
-        ``T % 4 == 1``; the returned list holds the matching decoded uint8
-        ``(T, H*scale, W*scale, 3)`` clips (frame-count preserved). The DiT and VAE
+        ``clips`` is an ITERABLE of uint8 ``(T, H, W, 3)`` arrays whose ``T``
+        satisfies ``T % 4 == 1``; each yielded array is the matching decoded uint8
+        ``(T, H*scale, W*scale, 3)`` clip (frame-count preserved). Pulling one clip
+        at a time is what lets a caller stream a clip of any duration: the producer
+        only assembles the next input clip once the previous one has been decoded
+        and consumed. The DiT and VAE
         are moved onto the GPU once and kept resident across batches (weight thrash
         would dwarf the per-batch activation cost of a 3B model); only ONE batch's
         activations are live at a time, so VRAM is bounded by ``batch_size`` -- the
@@ -392,18 +408,13 @@ class SeedVR2NativeGenerator(NativeGenerator):
         profiler = get_profiler()
         profiler.mark(
             "seedvr2.video.start",
-            clips=len(batches),
-            frames_per_clip=int(batches[0].shape[0]) if batches else 0,
             attention=_effective_attention_backend(device),
         )
 
-        outputs: List[np.ndarray] = []
+        clips_done = 0
         dit_placed = False
         try:
-            for i, clip in enumerate(batches):
-                if is_cancelled and is_cancelled():
-                    break
-
+            for i, clip in enumerate(clips):
                 # 1. VAE-encode the whole (short) clip to a 5D conditioning latent.
                 t_enc = time.perf_counter()
                 cond_latent = self._encode_clip(
@@ -458,11 +469,10 @@ class SeedVR2NativeGenerator(NativeGenerator):
                     "seedvr2.decode", clip=i, seconds=time.perf_counter() - t_dec,
                     out_height=int(decoded.shape[1]), out_width=int(decoded.shape[2]),
                 )
-                outputs.append(decoded)
-                if progress_cb:
-                    progress_cb(i + 1, len(batches))
-            return outputs
+                clips_done += 1
+                yield decoded
         finally:
+            profiler.mark("seedvr2.video.end", clips=clips_done)
             # Free the per-clip GPU residency; weights survive on CPU (cached by
             # ModelLifecycle) and reload on the next generation.
             if not self._resident("dit"):
@@ -807,18 +817,18 @@ class GeneratorSeedVR2Pipe(BasePipe):
         generation_outputs: callable,
         is_cancelled: Optional[callable],
     ) -> PipeOutput:
-        """Frame-for-frame video restore: read -> resize -> 4n+1 temporal batches
-        (with optional prepend + overlap) -> per-batch one-step upscale -> stitch
-        -> per-frame color-fix -> re-encode at the source fps with audio passthrough."""
+        """Frame-for-frame video restore, streamed end to end: frames are read and
+        resized one at a time, assembled into 4n+1 temporal windows (with optional
+        prepend + overlap), one-step upscaled, blended, color-fixed and piped
+        straight into ffmpeg. Nothing holds the whole clip, so peak memory tracks
+        the temporal batch rather than the clip's duration. The source audio is
+        muxed afterwards as a separate step."""
+        import os
         import tempfile
 
         from src.pipelines.pipes.generator.seedvr2 import batching as B
-        from src.pipelines.pipes.generator.seedvr2.encode import (
-            AUDIO_MUX_FAILED,
-            encode_video_with_audio,
-        )
-        from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
-        from src.pipelines.pipes._shared.media.video_read import read_video_frames
+        from src.pipelines.pipes.generator.seedvr2 import frame_source as FS
+        from src.pipelines.pipes.generator.seedvr2.encode import AUDIO_MUX_FAILED
 
         videos = pipe_input.input["video"]
         if not isinstance(videos, list):
@@ -847,19 +857,21 @@ class GeneratorSeedVR2Pipe(BasePipe):
 
         progress = ProgressEmitter(generation_outputs, title=self.name)
 
-        # 1. Read every source frame at its native fps.
-        src_frames, fps = read_video_frames(video_path)
+        # 1. Open the source as a replayable stream and read its fps + the resized
+        #    geometry from frame one. All frames share the first frame's input
+        #    size, so that geometry (hence the output size) holds for the clip.
+        source = FS.ResizedFrameSource(
+            video_path, scale=scale, target_short_side=target_short_side,
+            crop_multiple=CROP_MULTIPLE,
+        )
+        source.probe()
+        fps = source.fps
+        out_h, out_w = source.frame_shape
         progress.state(
-            f"Loaded <<NUMBER:{len(src_frames)} frames>> @ <<NUMBER:{fps:.2f} fps>>",
+            f"Streaming <<NUMBER:{source.frame_count_hint} frames>> @ <<NUMBER:{fps:.2f} fps>>"
+            if source.frame_count_hint > 0 else f"Streaming @ <<NUMBER:{fps:.2f} fps>>",
             icon=Icon(name="film", effect="pulse"),
         )
-
-        # 2. SeedVR2 area-resize + /16 crop. All frames share the first frame's
-        #    input size, so the geometry (hence output size) is identical per frame.
-        resized_np = [
-            np.asarray(prepare_input(f, scale, target_short_side, CROP_MULTIPLE), dtype=np.uint8)
-            for f in src_frames
-        ]
 
         generator = build_native_generator(bundle, device=device)
 
@@ -871,7 +883,6 @@ class GeneratorSeedVR2Pipe(BasePipe):
         # way the OOM ladder below is the safety net: a batch that exceeds real
         # VRAM is halved and re-run, so an over-estimate never fails the job.
         free_gb = free_vram_gb(device)
-        out_h, out_w = int(resized_np[0].shape[0]), int(resized_np[0].shape[1])
         spatial_tokens = _spatial_tokens_per_latent_frame(out_h, out_w)
         weights_gb = float(getattr(getattr(generator, "dit", None), "estimated_vram_gb", 0.0) or 0.0)
         if requested_batch <= 0:
@@ -892,33 +903,33 @@ class GeneratorSeedVR2Pipe(BasePipe):
                 f" (free VRAM {free_gb:.1f}GB)" if free_gb is not None else " (free VRAM unknown)",
             )
 
-        def _cb(done: int, total: int) -> None:
-            progress.step(done, total, state="RESTORE", icon=Icon(name="film", effect="pulse"))
-
-        # 3-8 wrapped in a shrink-on-OOM ladder (coarse-grained analogue of the
-        # VAE tiles' ladder): on a CUDA OOM at this batch size, free the GPU,
-        # halve the batch (fewer frames per DiT forward) and re-run the whole
-        # clip. Any NON-OOM failure frees the GPU and propagates unchanged.
+        # 2. Each attempt streams the whole clip into its OWN output file. On a
+        #    CUDA OOM the file is discarded, the batch is halved and the clip is
+        #    re-read from frame 0 -- a retry never continues, appends to or
+        #    truncates a partial output. Any non-OOM failure frees the GPU,
+        #    discards the partial file and propagates unchanged.
+        final_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+        attempt_path = final_path
+        attempt = 0
         try:
             while True:
+                attempt_path = f"{final_path}.attempt{attempt}.mp4"
+                attempt += 1
                 try:
-                    out_frames = self._upscale_frames(
-                        generator, bundle, resized_np, batch_size,
+                    encode_result, stats = self._run_video_attempt(
+                        generator, bundle, source, attempt_path, batch_size,
                         temporal_overlap=temporal_overlap, prepend_frames=prepend_frames,
                         uniform=uniform, input_noise_scale=input_noise_scale, seed=seed,
                         latent_noise_scale=latent_noise_scale, color_mode=color_mode,
-                        tile_size=tile_size, tile_overlap=tile_overlap,
-                        scale=scale, target_short_side=target_short_side, fps=fps,
-                        device=device, progress_cb=_cb, is_cancelled=is_cancelled,
+                        tile_size=tile_size, tile_overlap=tile_overlap, keep_audio=keep_audio,
+                        device=device, progress=progress, is_cancelled=is_cancelled,
                     )
                     break
                 except torch.cuda.OutOfMemoryError:
                     if batch_size <= 1:
                         raise
-                    try:
-                        generator.release_gpu()
-                    except Exception:  # pragma: no cover - best-effort cleanup
-                        pass
+                    _discard_output(attempt_path)
+                    self._release_gpu_quietly(generator)
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                     smaller = B.snap_batch_size(max(1, batch_size // 2))
@@ -928,29 +939,22 @@ class GeneratorSeedVR2Pipe(BasePipe):
                         "[GENERATOR SEEDVR2] video OOM at batch %d — retrying at batch %d",
                         batch_size, smaller,
                     )
-                    get_profiler().mark("seedvr2.video.oom_retry", from_batch=batch_size, to_batch=smaller)
+                    get_profiler().mark(
+                        "seedvr2.video.oom_retry", from_batch=batch_size, to_batch=smaller,
+                    )
                     batch_size = smaller
-        except Exception:
-            try:
-                generator.release_gpu()
-            except Exception:  # pragma: no cover - best-effort cleanup
-                pass
+        except BaseException:
+            _discard_output(attempt_path)
+            _discard_output(final_path)
+            self._release_gpu_quietly(generator)
             raise
 
-        # 9. Re-encode at the source fps, then mux the source audio through as a
-        #    SEPARATE step when present -- see `encode.encode_video_with_audio` for
-        #    why the video encode and the audio mux are never allowed to share one
-        #    failure path. Stack the uint8 frames into one (T,H,W,3) array and hand
-        #    that straight to the encoder, avoiding a per-frame PIL round-trip.
-        out_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
-        frames_arr = np.stack(out_frames, axis=0)
-        t_enc = time.perf_counter()
-        encode_result = encode_video_with_audio(
-            frames_arr, out_path, fps,
-            source_audio_path=video_path, keep_audio=keep_audio,
-            encode_video=encode_frames_to_mp4,
-        )
-        out_path = encode_result.video_path
+        # 3. Publish only once the attempt is complete: move the finished file
+        #    onto the path handed downstream and drop whatever the mux step left
+        #    behind (the video-only file when a muxed sibling won).
+        os.replace(encode_result.video_path, final_path)
+        _discard_output(attempt_path)
+
         if encode_result.audio_outcome == AUDIO_MUX_FAILED:
             logger.warning(
                 "[GENERATOR SEEDVR2] audio mux failed — keeping video without audio (%s)",
@@ -960,96 +964,146 @@ class GeneratorSeedVR2Pipe(BasePipe):
                 "Audio mux failed — output has no audio track",
                 icon=Icon(name="alert-triangle"),
             )
-        get_profiler().mark(
-            "seedvr2.encode_mp4", seconds=time.perf_counter() - t_enc,
-            frames=int(frames_arr.shape[0]),
-            height=int(frames_arr.shape[1]), width=int(frames_arr.shape[2]),
+
+        profiler = get_profiler()
+        profiler.mark(
+            "seedvr2.assemble", streamed=True, frames=stats["frames"],
+            batch_size=batch_size, overlap=stats["overlap"],
+        )
+        if color_mode != "none":
+            profiler.mark(
+                "seedvr2.color_fix", seconds=round(stats["color_seconds"], 4),
+                frames=stats["color_frames"], mode=color_mode, device=str(device),
+            )
+        profiler.mark(
+            "seedvr2.encode_mp4", streamed=True, seconds=stats["encode_seconds"],
+            frames=stats["frames"], height=stats["height"], width=stats["width"],
             audio=encode_result.audio_outcome,
         )
 
-        out_h, out_w = out_frames[0].shape[0], out_frames[0].shape[1]
         progress.state(
-            f"Upscaled <<NUMBER:{len(out_frames)} frames>> to <<RESOLUTION:{out_w}x{out_h}>>",
+            f"Upscaled <<NUMBER:{stats['frames']} frames>> to "
+            f"<<RESOLUTION:{stats['width']}x{stats['height']}>>",
             icon=Icon(name="check-circle"),
         )
         generation_outputs(GalleryGenerationOutput(images=[], videos=[
-            VideoGenerationOutput(video_path=out_path, temporary=True, seed=seed,
-                                  resolution=(out_w, out_h), fps=fps),
+            VideoGenerationOutput(video_path=final_path, temporary=True, seed=seed,
+                                  resolution=(stats["width"], stats["height"]), fps=fps),
         ]))
-        return PipeOutput(output={"video": [out_path]})
+        return PipeOutput(output={"video": [final_path]})
 
-    def _upscale_frames(
-        self, generator, bundle, resized_np: "List[np.ndarray]", batch_size: int, *,
+    def _run_video_attempt(
+        self, generator, bundle, source, out_path: str, batch_size: int, *,
         temporal_overlap: int, prepend_frames: int, uniform: bool,
         input_noise_scale: float, seed: int, latent_noise_scale: float,
-        color_mode: str, tile_size: int, tile_overlap: int,
-        scale: float, target_short_side: int, fps: float,
-        device: str = "cuda", progress_cb: callable = None,
-        is_cancelled: Optional[callable] = None,
-    ) -> "List[np.ndarray]":
-        """Plan 4n+1 batches at ``batch_size``, one-step upscale each, stitch,
-        drop the prepend region and color-fix — the batch-size-dependent core of
-        the video path, isolated so the OOM ladder can re-run it at a smaller
-        batch. Returns the output frames (uint8 ``(H,W,3)``) in source order."""
-        from src.pipelines.pipes.generator.seedvr2 import batching as B
+        color_mode: str, tile_size: int, tile_overlap: int, keep_audio: bool,
+        device: str, progress: ProgressEmitter, is_cancelled: Optional[callable],
+    ):
+        """One streamed pass over the whole clip at ``batch_size``, writing into
+        ``out_path``; returns ``(encode_result, stats)``.
+
+        The batch-size-dependent core of the video path, isolated so the OOM
+        ladder can re-run it at a smaller batch against a freshly opened reader
+        and a fresh output file. Every stage is pulled by ffmpeg's appetite for
+        the next frame, so at most one temporal batch, the held-back overlap tail
+        and the source frames still owed to color correction are ever resident."""
+        from src.pipelines.pipes.generator.seedvr2 import stream as S
         from src.pipelines.pipes.generator.seedvr2.color_fix import color_correct_batch
+        from src.pipelines.pipes.generator.seedvr2.encode import (
+            encode_frames_stream_to_mp4,
+            encode_video_with_audio,
+        )
 
-        # 3. Optional reversed-head prepend to soften clip-start artifacts.
-        seq = B.pad_reversed(resized_np, prepend_frames, prepend=True) if prepend_frames > 0 else list(resized_np)
-
-        # 4. Plan sliding 4n+1 batches; build padded clips + remember true lengths.
-        windows, overlap = B.plan_batches(len(seq), batch_size, temporal_overlap)
-        clips: List[np.ndarray] = []
-        true_lens: List[int] = []
-        for (start, end) in windows:
-            frames = seq[start:end]
-            padded, true_len = B.pad_batch(frames, batch_size, uniform=uniform)
-            if input_noise_scale > 0:
-                padded = [self._apply_input_noise(f, input_noise_scale, seed) for f in padded]
-            clips.append(np.stack(padded, axis=0))
-            true_lens.append(true_len)
-
+        overlap = S.effective_overlap(batch_size, temporal_overlap)
+        total_batches = self._estimate_batches(
+            source.frame_count_hint, batch_size, temporal_overlap, prepend_frames,
+        )
         logger.debug(
-            "[GENERATOR SEEDVR2] video: %d frame(s) -> %d batch(es) of %d (overlap %d, prepend %d), "
-            "scale %.2fx%s, color=%s, fps=%.2f",
-            len(resized_np), len(clips), batch_size, overlap, prepend_frames, scale,
-            f" (short side {target_short_side}px)" if target_short_side > 0 else "", color_mode, fps,
+            "[GENERATOR SEEDVR2] video: streaming %s frame(s) in batches of %d "
+            "(overlap %d, prepend %d), color=%s, fps=%.2f",
+            source.frame_count_hint or "?", batch_size, overlap, prepend_frames,
+            color_mode, source.fps,
         )
 
-        # 5. One-step upscale each batch (bounded VRAM: one clip on the GPU at a time).
-        decoded = generator.upscale_video(
-            clips, bundle.prompt_embedding,
-            seed=seed, latent_noise_scale=latent_noise_scale,
-            progress_cb=progress_cb, is_cancelled=is_cancelled,
-            tile_size=tile_size, tile_overlap=tile_overlap,
-        )
+        stats = {
+            "frames": 0, "height": 0, "width": 0, "overlap": overlap,
+            "color_seconds": 0.0, "color_frames": 0, "encode_seconds": 0.0,
+        }
 
-        # 6. Trim each batch back to its true length, then stitch (blend overlaps).
-        profiler = get_profiler()
-        t_asm = time.perf_counter()
-        batch_frames = [[arr[i] for i in range(min(tl, arr.shape[0]))] for arr, tl in zip(decoded, true_lens)]
-        stitched = B.stitch_batches(batch_frames, overlap)
+        def _prepare(padded):
+            return [self._apply_input_noise(f, input_noise_scale, seed) for f in padded]
 
-        # 7. Drop the prepend region so the output aligns 1:1 with the source frames.
-        if prepend_frames > 0:
-            stitched = stitched[prepend_frames:]
-        profiler.mark("seedvr2.assemble", seconds=time.perf_counter() - t_asm, frames=len(stitched))
-
-        # 8. Color-fix each output frame against the (resized) source it came from.
-        #    Batched on the GPU: the DiT/VAE are already offloaded by
-        #    ``upscale_video`` before we get here, so the card is free.
-        #    ``color_correct_batch`` falls back to CPU on OOM, so its cost never
-        #    leaks into the temporal-batch OOM ladder.
-        if color_mode != "none":
-            t_cf = time.perf_counter()
-            sources = [resized_np[min(j, len(resized_np) - 1)] for j in range(len(stitched))]
-            corrected = color_correct_batch(stitched, sources, color_mode, device=device)
-            profiler.mark(
-                "seedvr2.color_fix", seconds=time.perf_counter() - t_cf,
-                frames=len(stitched), mode=color_mode, device=str(device),
-            )
+        def _correct(frames, sources):
+            t0 = time.perf_counter()
+            corrected = color_correct_batch(frames, sources, color_mode, device=device)
+            stats["color_seconds"] += time.perf_counter() - t0
+            stats["color_frames"] += len(frames)
             return corrected
-        return stitched
+
+        def _on_batch(done: int) -> None:
+            progress.step(done, max(total_batches, done), state="RESTORE",
+                          icon=Icon(name="film", effect="pulse"))
+
+        def _upscale(clips):
+            return generator.upscale_video(
+                clips, bundle.prompt_embedding, seed=seed,
+                latent_noise_scale=latent_noise_scale,
+                tile_size=tile_size, tile_overlap=tile_overlap,
+            )
+
+        def _counted(frames):
+            for frame in frames:
+                if stats["frames"] == 0:
+                    stats["height"], stats["width"] = int(frame.shape[0]), int(frame.shape[1])
+                stats["frames"] += 1
+                yield frame
+
+        frames_iter = source.iter_frames()
+        out_frames = S.stream_output_frames(
+            frames_iter,
+            batch_size=batch_size, temporal_overlap=temporal_overlap,
+            prepend_frames=prepend_frames, uniform=uniform,
+            upscale_clips=_upscale,
+            prepare_clip=_prepare if input_noise_scale > 0 else None,
+            correct=_correct if color_mode != "none" else None,
+            on_batch=_on_batch, is_cancelled=is_cancelled,
+        )
+        t_enc = time.perf_counter()
+        try:
+            encode_result = encode_video_with_audio(
+                _counted(out_frames), out_path, source.fps,
+                source_audio_path=source.video_path, keep_audio=keep_audio,
+                encode_video=encode_frames_stream_to_mp4,
+            )
+        finally:
+            stats["encode_seconds"] = round(time.perf_counter() - t_enc, 4)
+            out_frames.close()
+            frames_iter.close()
+        return encode_result, stats
+
+    @staticmethod
+    def _estimate_batches(
+        frame_hint: int, batch_size: int, temporal_overlap: int, prepend_frames: int
+    ) -> int:
+        """Batch count for the progress bar, derived from the container's
+        frame-count hint. The hint is metadata and can be absent or wrong, so it
+        only ever bounds the progress denominator (``0`` = unknown) and never
+        feeds geometry or batching."""
+        from src.pipelines.pipes.generator.seedvr2 import batching as B
+
+        if frame_hint <= 0:
+            return 0
+        windows, _ = B.plan_batches(
+            int(frame_hint) + max(0, int(prepend_frames)), batch_size, temporal_overlap,
+        )
+        return len(windows)
+
+    @staticmethod
+    def _release_gpu_quietly(generator) -> None:
+        try:
+            generator.release_gpu()
+        except Exception:  # pragma: no cover - best-effort cleanup
+            pass
 
     # -- helpers -----------------------------------------------------------
 

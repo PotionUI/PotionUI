@@ -11,12 +11,12 @@ encoder are all stubbed, and CUDA is forced unavailable.
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import torch
-from PIL import Image
 
 from src.pipelines.pipes.generator.seedvr2 import main as m
 from src.pipelines.pipes.generator.seedvr2.main import (
@@ -106,7 +106,10 @@ class _FakeGen:
     """Stand-in generator whose ``upscale_video`` OOMs whenever the batch's
     frame count is >= ``oom_at_or_above`` (simulating a card that only fits once
     the temporal batch shrinks). Otherwise it echoes decoded clips of the same
-    frame count (2x spatial, matching the real T-preserving contract)."""
+    frame count (2x spatial, matching the real T-preserving contract).
+
+    ``upscale_video`` is a generator, like the real one: it pulls one clip at a
+    time from the streamed producer and yields its decoded clip."""
 
     def __init__(self, oom_at_or_above: int):
         self.oom_at_or_above = oom_at_or_above
@@ -114,29 +117,66 @@ class _FakeGen:
         self.released = 0
 
     def upscale_video(self, clips, prompt_embedding, *, seed, latent_noise_scale,
-                      progress_cb=None, is_cancelled=None, tile_size=None, tile_overlap=None):
-        bs = int(clips[0].shape[0]) if clips else 0
-        self.batch_calls.append(bs)
-        if bs >= self.oom_at_or_above:
-            raise torch.cuda.OutOfMemoryError("synthetic batch OOM")
-        return [np.zeros((c.shape[0], c.shape[1] * 2, c.shape[2] * 2, 3), dtype=np.uint8) for c in clips]
+                      tile_size=None, tile_overlap=None):
+        first = True
+        for clip in clips:
+            if first:
+                bs = int(clip.shape[0])
+                self.batch_calls.append(bs)
+                if bs >= self.oom_at_or_above:
+                    raise torch.cuda.OutOfMemoryError("synthetic batch OOM")
+                first = False
+            yield np.zeros(
+                (clip.shape[0], clip.shape[1] * 2, clip.shape[2] * 2, 3), dtype=np.uint8,
+            )
 
     def release_gpu(self):
         self.released += 1
 
 
+class _FakeSource:
+    """Replayable stand-in for ``ResizedFrameSource``: a fixed list of resized
+    frames, re-iterable from index 0 as often as an OOM retry needs."""
+
+    def __init__(self, frames, fps=24.0, video_path="/fake.mp4"):
+        self._frames = frames
+        self.fps = fps
+        self.video_path = video_path
+        self.frame_count_hint = len(frames)
+        self.frame_shape = (int(frames[0].shape[0]), int(frames[0].shape[1]))
+        self.opened = 0
+
+    def probe(self):
+        pass
+
+    def iter_frames(self):
+        self.opened += 1
+        for frame in self._frames:
+            yield frame
+
+
+def _stub_stream_encode(frames, out_path, fps, *, codec="libx264", crf=18, audio=None):
+    """Consume the streamed frames and write a marker file, so the pipe's
+    move-into-place step has a real file to publish."""
+    count = sum(1 for _ in frames)
+    Path(out_path).write_text(f"video:{count}")
+    return Path(out_path)
+
+
 def _wire(monkeypatch, gen, n_frames=20):
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     monkeypatch.setattr(m, "build_native_generator", lambda bundle, device="cuda": gen)
-    frames = [Image.new("RGB", (32, 32)) for _ in range(n_frames)]
+    frames = [np.zeros((32, 32, 3), dtype=np.uint8) for _ in range(n_frames)]
+    source = _FakeSource(frames)
     monkeypatch.setattr(
-        "src.pipelines.pipes._shared.media.video_read.read_video_frames",
-        lambda path: (frames, 24.0),
+        "src.pipelines.pipes.generator.seedvr2.frame_source.ResizedFrameSource",
+        lambda path, **kw: source,
     )
     monkeypatch.setattr(
-        "src.pipelines.pipes._shared.media.video_encode.encode_frames_to_mp4",
-        lambda pil_frames, out_path, fps, audio=None: None,
+        "src.pipelines.pipes.generator.seedvr2.encode.encode_frames_stream_to_mp4",
+        _stub_stream_encode,
     )
+    return source
 
 
 def _video_input():
@@ -289,7 +329,7 @@ def test_real_upscale_video_emits_marks_and_returns_decoded_clips(monkeypatch):
     gen._maybe_compile = lambda: None
 
     clip = np.zeros((5, 64, 64, 3), dtype=np.uint8)
-    out = gen.upscale_video([clip], torch.ones((10, 5120)), seed=0)
+    out = list(gen.upscale_video([clip], torch.ones((10, 5120)), seed=0))
 
     reset_enabled_cache()  # don't leak the enabled flag into other tests
     assert len(out) == 1
@@ -327,7 +367,10 @@ def _wire_fake_audio_outcome(monkeypatch, *, audio_outcome, omitted_reason=None)
 
     def _fake(frames_arr, out_path, fps, *, source_audio_path, keep_audio, encode_video, **_kw):
         encode_video(frames_arr, out_path, fps=fps, audio=None)
-        video_path = f"{out_path}.audio.mp4" if audio_outcome == enc.AUDIO_MUXED else out_path
+        video_path = out_path
+        if audio_outcome == enc.AUDIO_MUXED:
+            video_path = f"{out_path}.audio.mp4"
+            Path(video_path).write_text("muxed")
         return enc.VideoAudioResult(
             video_path=video_path, audio_outcome=audio_outcome, omitted_reason=omitted_reason,
         )
@@ -383,4 +426,6 @@ def test_video_mux_success_reports_muxed_with_no_warning(monkeypatch):
 
     encode_marks = [fields for event, fields in rec.events if event == "seedvr2.encode_mp4"]
     assert encode_marks and encode_marks[0]["audio"] == enc.AUDIO_MUXED
-    assert out.output["video"][0].endswith(".audio.mp4")
+    # The MUXED file, not the video-only one, is what gets moved into place.
+    published = Path(out.output["video"][0])
+    assert published.read_text() == "muxed"

@@ -7,6 +7,7 @@ import trimesh
 
 from src.platform.runtime.native.arch.trellis2.postprocess import (
     _closest_point_on_triangles,
+    _fill_small_holes,
     build_textured_mesh,
     clean_and_decimate,
     inpaint_texture,
@@ -138,6 +139,97 @@ def test_an_inward_cube_comes_out_wound_outward():
     assert trimesh.Trimesh(out_vertices, out_faces, process=False).volume == pytest.approx(
         0.6 * 0.4 * 0.5, rel=1e-3
     )
+
+
+def _frame_mesh():
+    """A flat square frame: an outer 4-vertex boundary loop 10 units on a side
+    (perimeter 40) and an inner 4-vertex boundary loop 0.002 units on a side
+    (perimeter 0.008) — the same vertex count on both loops, so only geometric
+    size (not loop topology) can separate them."""
+    outer = np.array([[-5, -5, 0], [5, -5, 0], [5, 5, 0], [-5, 5, 0]], dtype=np.float64)
+    inner = np.array(
+        [[-0.001, -0.001, 0], [0.001, -0.001, 0], [0.001, 0.001, 0], [-0.001, 0.001, 0]], dtype=np.float64
+    )
+    vertices = np.concatenate([outer, inner])
+    faces = np.array(
+        [[0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]], dtype=np.int64
+    )
+    return trimesh.Trimesh(vertices, faces, process=False)
+
+
+def _bowtie_mesh(size=0.005):
+    """Two small square holes (perimeter ``4 * size``, well under the default
+    fill threshold) that touch at a single shared vertex — the boundary loops
+    around them are only separable because ``cycle_basis`` picks a basis, not
+    because the mesh says so, so both must be left unfilled."""
+    v0, v1 = [0, size, 0], [size, size, 0]
+    v2, v3 = [size, 2 * size, 0], [0, 2 * size, 0]
+    v4, v5, v6 = [size, 0, 0], [2 * size, 0, 0], [2 * size, size, 0]
+    vertices = np.array([v0, v1, v2, v3, v4, v5, v6], dtype=np.float64)
+    faces = np.array([[0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 1]], dtype=np.int64)
+    return trimesh.Trimesh(vertices, faces, process=False)
+
+
+def _box_with_missing_facet_triangles(extents, drop_both):
+    """A box with one triangle (``drop_both=False``, a 3-vertex hole) or both
+    triangles (``drop_both=True``, a 4-vertex hole) of one flat face removed."""
+    box = trimesh.creation.box(extents=extents)
+    facet = box.facets[0]
+    keep = np.ones(len(box.faces), dtype=bool)
+    keep[facet if drop_both else facet[0]] = False
+    return np.asarray(box.vertices, dtype=np.float32), np.asarray(box.faces, dtype=np.int64)[keep]
+
+
+def test_small_loop_is_filled_and_a_large_loop_of_the_same_vertex_count_is_preserved():
+    mesh = _frame_mesh()
+
+    _fill_small_holes(mesh)
+
+    assert mesh.faces.shape[0] == 8 + 2, "the 4-vertex pinhole should be closed with 2 triangles"
+    boundary = mesh.edges[trimesh.grouping.group_rows(mesh.edges_sorted, require_count=1)]
+    boundary_vertices = set(boundary.flatten().tolist())
+    assert boundary_vertices == {0, 1, 2, 3}, "the large outer loop must still be open"
+    assert not mesh.is_watertight
+
+
+def test_a_boundary_loop_sharing_a_vertex_with_another_is_never_filled():
+    """Both holes are well under the default perimeter threshold, so the only
+    reason to leave them alone is the shared vertex making the split ambiguous."""
+    mesh = _bowtie_mesh()
+
+    _fill_small_holes(mesh)
+
+    assert mesh.faces.shape[0] == 4
+
+
+def test_fill_small_holes_is_a_noop_on_an_already_watertight_mesh():
+    mesh = trimesh.creation.box(extents=(0.005, 0.005, 0.005))
+    faces_before = mesh.faces.copy()
+
+    _fill_small_holes(mesh)
+
+    assert np.array_equal(mesh.faces, faces_before)
+
+
+def test_clean_and_decimate_closes_a_voxel_scale_pinhole_into_a_watertight_solid():
+    vertices, faces = _box_with_missing_facet_triangles((0.005, 0.005, 0.005), drop_both=False)
+
+    out_vertices, out_faces = clean_and_decimate(vertices, faces, decimation_target=1_000_000)
+
+    mesh = trimesh.Trimesh(out_vertices, out_faces, process=False)
+    assert out_faces.shape[0] == 12, "the missing triangle should be refilled"
+    assert mesh.is_watertight
+    assert mesh.volume == pytest.approx(0.005**3, rel=1e-3)
+
+
+def test_clean_and_decimate_preserves_a_large_planar_opening():
+    vertices, faces = _box_with_missing_facet_triangles((1.0, 1.0, 1.0), drop_both=True)
+
+    out_vertices, out_faces = clean_and_decimate(vertices, faces, decimation_target=1_000_000)
+
+    mesh = trimesh.Trimesh(out_vertices, out_faces, process=False)
+    assert out_faces.shape[0] == 10, "the whole missing face must not be refilled"
+    assert not mesh.is_watertight
 
 
 def test_unwrap_produces_normalized_uvs_over_a_cut_vertex_set():

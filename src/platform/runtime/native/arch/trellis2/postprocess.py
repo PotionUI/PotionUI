@@ -29,11 +29,16 @@ Divergences worth knowing about:
   usual sources of such edges without reconstructing the ones that remain.
   xatlas tolerates them — it charts per face — so they survive into the output
   rather than failing the bake.
-* **Hole filling** is ``trimesh.repair.fill_holes``, which fills every boundary
-  loop it can triangulate rather than only loops under upstream's ``3e-2``
-  perimeter cap. On a decoded surface the open loops are voxel-scale, so the cap
-  rarely binds; a mesh with one genuinely large opening will come out closed
-  here and open upstream.
+* **Hole filling** replicates ``trimesh.repair.fill_holes`` per boundary loop
+  (:func:`_fill_small_holes`) instead of calling it directly: the installed
+  trimesh (``repair.py``) triangulates every loop uniformly by vertex count —
+  a 3- or 4-vertex loop is always fanned/quad-split regardless of its size,
+  and ``use_fan=True`` extends that to n-gons, so it cannot tell a stray
+  missing quad from a metre-wide window with a simple rectangular rim. This
+  filters loops by mesh-space perimeter against upstream's ``3e-2`` cap first,
+  so a genuinely large opening (cup mouth, arch, window) survives even when
+  its rim happens to be a low-vertex-count loop, while voxel-scale pinholes
+  are still closed.
 * **Projection to the source surface is off by default.** Upstream corrects
   decimation error by pushing every baked texel back onto the pre-decimation
   mesh with a CUDA BVH. There is no CPU equivalent: without an acceleration
@@ -88,6 +93,11 @@ PBR_ATTR_LAYOUT: Dict[str, slice] = {
 
 _MIN_COMPONENT_AREA = 1e-5
 
+#: Upstream's hole-fill perimeter cap. Mesh space here is the unit-side AABB
+#: every TRELLIS.2 volume decodes into (``((-0.5,)*3, (0.5,)*3)``, see
+#: ``image_to_mesh.AABB``), so this is 3% of that box's side length.
+_MAX_HOLE_PERIMETER = 3e-2
+
 
 def _to_numpy(value) -> np.ndarray:
     if isinstance(value, torch.Tensor):
@@ -126,14 +136,65 @@ def _drop_small_components(mesh) -> None:
         mesh.update_faces(keep)
 
 
-def _tidy(mesh) -> None:
-    import trimesh
+def _fill_small_holes(mesh, max_perimeter: float = _MAX_HOLE_PERIMETER) -> None:
+    """Close boundary loops under ``max_perimeter``, leaving larger geometric
+    openings intact.
 
+    Mirrors ``trimesh.repair.fill_holes`` (find boundary edges, take
+    ``nx.cycle_basis`` of them, triangulate, fix winding against the original
+    boundary, ``extend_faces``) but selects which loops to triangulate instead
+    of handing it every loop trimesh finds. A loop is eligible only if every
+    vertex on it has boundary-degree 2 — a higher degree means the vertex is
+    shared with another boundary loop, which makes ``cycle_basis``'s split
+    between them a topological artifact rather than a geometric fact, so
+    such loops are left untouched rather than filled on a guess.
+    """
+    import networkx as nx
+    from trimesh.geometry import faces_to_edges, triangulate_quads
+    from trimesh.grouping import group_rows, hashable_rows
+
+    if len(mesh.faces) < 3 or mesh.is_watertight:
+        return
+
+    boundary_groups = group_rows(mesh.edges_sorted, require_count=1)
+    if len(boundary_groups) < 3:
+        return
+    boundary = mesh.edges[boundary_groups]
+
+    boundary_graph = nx.from_edgelist(boundary)
+    vertices = mesh.vertices
+    eligible = []
+    for loop in nx.cycle_basis(boundary_graph):
+        if len(loop) < 3 or any(boundary_graph.degree[v] != 2 for v in loop):
+            continue
+        ring = loop + [loop[0]]
+        perimeter = np.linalg.norm(vertices[ring[1:]] - vertices[ring[:-1]], axis=1).sum()
+        if perimeter <= max_perimeter:
+            eligible.append(loop)
+    if not eligible:
+        return
+
+    new_faces = triangulate_quads(eligible, use_fan=True)
+    if len(new_faces) == 0:
+        return
+
+    # Same trick trimesh.repair.fill_holes uses: a new face whose edge already
+    # appears (in the same order) on the old boundary is wound backwards.
+    new_edges = faces_to_edges(new_faces)
+    hashable_new = hashable_rows(new_edges)
+    hashable_old = hashable_rows(boundary)
+    needs_reverse = np.isin(hashable_new, hashable_old).reshape((-1, 3)).any(axis=1)
+    new_faces[needs_reverse] = np.fliplr(new_faces[needs_reverse])
+
+    mesh.extend_faces(new_faces)
+
+
+def _tidy(mesh) -> None:
     mesh.update_faces(mesh.unique_faces())
     mesh.update_faces(mesh.nondegenerate_faces())
     mesh.remove_unreferenced_vertices()
     _drop_small_components(mesh)
-    trimesh.repair.fill_holes(mesh)
+    _fill_small_holes(mesh)
 
 
 def clean_and_decimate(
@@ -157,7 +218,7 @@ def clean_and_decimate(
     # flexible_dual_grid_to_mesh emits a vertex per input voxel whether or not a
     # face references it, so most of the array is unreferenced on arrival.
     mesh.remove_unreferenced_vertices()
-    trimesh.repair.fill_holes(mesh)
+    _fill_small_holes(mesh)
 
     verts, tris = _simplify(np.asarray(mesh.vertices), np.asarray(mesh.faces), decimation_target * 3)
     mesh = trimesh.Trimesh(vertices=verts, faces=tris, process=False)

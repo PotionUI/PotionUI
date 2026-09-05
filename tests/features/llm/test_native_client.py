@@ -277,6 +277,23 @@ LITERAL_TEXT_ONLY_TEMPLATE = "Note to the model: enable_thinking is not a real s
 # `chat_template=` override is passed (this client never passes one).
 DICT_TEMPLATE_COMPATIBLE_DEFAULT = {"default": QWEN3_THINKING_TEMPLATE, "tool_use": PLAIN_TEMPLATE}
 DICT_TEMPLATE_INCOMPATIBLE_DEFAULT = {"default": PLAIN_TEMPLATE, "tool_use": QWEN3_THINKING_TEMPLATE}
+# `enable_thinking` used only as a STRING LITERAL inside a `{{ }}` expression
+# — a regex over the raw source would match this; real Jinja parsing (a
+# `Const` node, never a `Name` load) correctly does not.
+QUOTED_EXPRESSION_TEMPLATE = "{{ 'enable_thinking' }}" + PLAIN_TEMPLATE
+# `enable_thinking` used only as a string literal inside a `{% %}` statement.
+QUOTED_STATEMENT_TEMPLATE = "{% if 'enable_thinking' == 'yes' %}X{% endif %}" + PLAIN_TEMPLATE
+# `enable_thinking` appears only inside a `{% raw %}` block — Jinja treats raw
+# content as literal text, never parses it as code at all.
+RAW_BLOCK_TEMPLATE = "{% raw %}{% if enable_thinking %}X{% endraw %}" + PLAIN_TEMPLATE
+# `enable_thinking` is a template-LOCAL variable a `{% set %}` already
+# assigned before use — declared, so `find_undeclared_variables` correctly
+# excludes it: the template consumes ITS OWN local, never this client's
+# `provider_options.thinking` setting.
+SET_SHADOW_TEMPLATE = "{% set enable_thinking = true %}{% if enable_thinking %}X{% endif %}" + PLAIN_TEMPLATE
+# Invalid Jinja syntax (an unterminated `{% if %}`) — a parse failure must
+# degrade to unsupported, never raise on the send path.
+PARSE_ERROR_TEMPLATE = "{% if enable_thinking %}unterminated"
 
 
 class _RecordingTokenizer:
@@ -400,6 +417,38 @@ class TestSupportsThinking:
         assert NativeLLMClient._supports_thinking(
             _RecordingTokenizer({"tool_use": QWEN3_THINKING_TEMPLATE})
         ) is False
+
+    def test_quoted_expression_is_unsupported(self):
+        """A regex over the raw source would match `{{ 'enable_thinking' }}`;
+        real Jinja parsing sees a string constant, never a variable load."""
+        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(QUOTED_EXPRESSION_TEMPLATE)) is False
+
+    def test_quoted_statement_is_unsupported(self):
+        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(QUOTED_STATEMENT_TEMPLATE)) is False
+
+    def test_raw_block_is_unsupported(self):
+        """`{% raw %}...{% endraw %}` content is literal text to Jinja —
+        never parsed as code, so a name appearing inside one is inert."""
+        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(RAW_BLOCK_TEMPLATE)) is False
+
+    def test_set_shadowed_local_is_unsupported(self):
+        """`{% set enable_thinking = true %}` declares a template-local
+        variable before it's used — the template consumes ITS OWN local,
+        never this client's `provider_options.thinking` setting, so this
+        must not be reported as a live external reference."""
+        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(SET_SHADOW_TEMPLATE)) is False
+
+    def test_parse_failure_degrades_to_unsupported_not_an_exception(self):
+        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(PARSE_ERROR_TEMPLATE)) is False
+
+    def test_the_real_qwen3_shape_with_is_defined_and_is_false_tests(self):
+        """`enable_thinking is defined and enable_thinking is false` is
+        exactly the real Qwen3 chat-template idiom — `is defined`/`is false`
+        are Jinja tests wrapping a `Name` load, which
+        `find_undeclared_variables` reports as external regardless (that's
+        its whole purpose: finding what a template needs from outside,
+        including names it merely checks `is defined`)."""
+        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(QWEN3_THINKING_TEMPLATE)) is True
 
 
 class TestThinkingSetting:
@@ -582,6 +631,12 @@ class TestPreflightAndGenerateAgreeOnThinkingKwargs:
             (LITERAL_TEXT_ONLY_TEMPLATE, {}, "unsupported"),
             (DICT_TEMPLATE_COMPATIBLE_DEFAULT, {"enable_thinking": True}, True),
             (DICT_TEMPLATE_INCOMPATIBLE_DEFAULT, {}, "unsupported"),
+            (QUOTED_EXPRESSION_TEMPLATE, {}, "unsupported"),
+            (QUOTED_STATEMENT_TEMPLATE, {}, "unsupported"),
+            (RAW_BLOCK_TEMPLATE, {}, "unsupported"),
+            (SET_SHADOW_TEMPLATE, {}, "unsupported"),
+            (PARSE_ERROR_TEMPLATE, {}, "unsupported"),
+            (QWEN3_THINKING_TEMPLATE, {"enable_thinking": True}, True),
         ],
     )
     @pytest.mark.asyncio

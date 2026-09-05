@@ -48,9 +48,11 @@ actually resolved for a request — a plain string as-is, or a dict-of-templates
 checkpoint's ``"default"`` entry (see ``NativeLLMClient._selected_chat_template``,
 matching how ``apply_chat_template`` itself resolves ``tokenizer.chat_template``
 when this client never passes a ``chat_template=`` override) — counts as
-compatible only when ``enable_thinking`` appears as a live Jinja variable
-reference inside a ``{{ ... }}``/``{% ... %}`` block, never inside a
-``{# ... #}`` comment or as literal prompt text (see
+compatible only when ``enable_thinking`` is an EXTERNAL variable the template
+actually needs, determined by parsing it as real Jinja
+(``jinja2.meta.find_undeclared_variables``, never a regex) so a string
+literal, a ``{% raw %}`` block, or a name a ``{% set %}`` already assigned
+before use are all correctly excluded (see
 ``NativeLLMClient._supports_thinking``). When a mode is requested against an
 incompatible or unresolved template, the kwarg is never sent (nothing is
 silently half-applied); every response instead reports ``LLMResponse.thinking_mode``
@@ -70,7 +72,6 @@ import base64
 import io
 import json
 import logging
-import re
 import threading
 import uuid
 import weakref
@@ -109,16 +110,6 @@ _LIFECYCLE_KEY_PREFIX = "native/llm/"
 # the same file (a different consumer, a different in-memory form).
 _LIFECYCLE_TE_KEY_PREFIX = "native/llm-te/"
 _SENTINEL = object()
-
-# `_supports_thinking`'s referenced-switch detection: a name only counts as a
-# real Jinja variable reference inside a `{{ ... }}` expression or a
-# `{% ... %}` statement — never inside a `{# ... #}` comment (stripped first,
-# so a fake `{% ... %}`-shaped fragment written INSIDE a comment can never be
-# mistaken for real code) and never in literal template text outside any
-# block.
-_JINJA_COMMENT_RE = re.compile(r"\{#.*?#\}", re.DOTALL)
-_JINJA_BLOCK_RE = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
-_ENABLE_THINKING_REFERENCE_RE = re.compile(r"\benable_thinking\b")
 
 
 def _is_oom(error: BaseException) -> bool:
@@ -722,29 +713,79 @@ class NativeLLMClient:
         return None
 
     @staticmethod
+    def _jinja_parse_environment():
+        """The Jinja2 ``Environment`` used ONLY to statically ``.parse()`` a
+        selected chat template for ``jinja2.meta.find_undeclared_variables``
+        — never to ``.render()`` anything, so nothing here ever executes
+        template code.
+
+        Reused from transformers' own ``apply_chat_template`` compilation
+        path (``transformers.utils.chat_template_utils``, which builds an
+        ``ImmutableSandboxedEnvironment`` with ``trim_blocks``/
+        ``lstrip_blocks`` and a couple of extensions — the loop-control
+        extension plus a custom ``{% generation %}`` tag some chat templates
+        use to mark assistant spans) whenever it's importable, by compiling
+        a harmless empty template purely to read off the ``Environment``
+        instance it was built with. That way a template ``apply_chat_template``
+        itself accepts to parse is never rejected here for lacking an
+        extension. This reaches into a private (``_``-prefixed) transformers
+        helper — acceptable here since this whole client already hard-depends
+        on ``transformers`` to run at all, and the fallback below degrades
+        cleanly if that helper's shape ever changes.
+
+        Falls back to a minimal equivalent (sandboxed, ``trim_blocks``/
+        ``lstrip_blocks``, the loop-control extension only — no
+        ``{% generation %}`` tag) when the helper can't be imported; a
+        template that specifically needs the missing extension then fails to
+        parse, which ``_supports_thinking`` already treats as conservatively
+        unsupported, never a crash.
+        """
+        try:
+            from transformers.utils.chat_template_utils import _compile_jinja_template
+
+            return _compile_jinja_template("").environment
+        except Exception:
+            pass
+        import jinja2.ext
+        from jinja2.sandbox import ImmutableSandboxedEnvironment
+
+        return ImmutableSandboxedEnvironment(
+            trim_blocks=True, lstrip_blocks=True, extensions=[jinja2.ext.loopcontrols],
+        )
+
+    @staticmethod
     def _supports_thinking(tokenizer: Any) -> bool:
         """Whether the chat template THIS request will actually run
-        references ``enable_thinking`` as a real Jinja variable — resolved
-        via ``_selected_chat_template`` (so a dict-of-templates checkpoint is
-        judged by the template that actually runs, not by treating the whole
-        dict as unsupported), and detected only inside a live ``{{ ... }}``
-        expression or ``{% ... %}`` statement, never inside a ``{# ... #}``
-        comment (stripped first) or in literal prompt text — a
-        commented-out or documentation-only mention of the name must never
-        be reported as an active switch. Never inferred from the model name
-        or parameter count: a Qwen3-named checkpoint with a stripped/custom
-        template is correctly reported unsupported, and a future family
-        whose template happens to reference the same variable is correctly
-        supported. An unresolved template is conservatively unsupported.
+        references ``enable_thinking`` as an EXTERNAL input variable —
+        resolved via ``_selected_chat_template`` (so a dict-of-templates
+        checkpoint is judged by the template that actually runs, not by
+        treating the whole dict as unsupported), then parsed as real Jinja
+        (never regex) with ``jinja2.meta.find_undeclared_variables``: a name
+        only counts when the template actually needs it supplied from
+        outside. That makes a string literal (``{{ 'enable_thinking' }}`` or
+        ``{% if 'enable_thinking' == x %}``), a ``{% raw %}`` block's literal
+        content, and a name a ``{% set %}`` already assigned before use (a
+        template-local shadow, not this client's setting) all correctly NOT
+        references — Jinja's own meta analysis already excludes declared
+        names and raw/literal text, which no regex heuristic can. Never
+        inferred from the model name or parameter count.
+
+        Any parse failure (invalid syntax, or an unresolved/missing
+        template) degrades to unsupported rather than raising — this must
+        never break a send.
         """
         template = NativeLLMClient._selected_chat_template(tokenizer)
         if template is None:
             return False
-        without_comments = _JINJA_COMMENT_RE.sub("", template)
-        return any(
-            _ENABLE_THINKING_REFERENCE_RE.search(block.group(0))
-            for block in _JINJA_BLOCK_RE.finditer(without_comments)
-        )
+        try:
+            import jinja2.meta
+
+            env = NativeLLMClient._jinja_parse_environment()
+            ast = env.parse(template)
+            undeclared = jinja2.meta.find_undeclared_variables(ast)
+        except Exception:
+            return False
+        return "enable_thinking" in undeclared
 
     @staticmethod
     def _thinking_setting(config: LLMConfig) -> Optional[bool]:

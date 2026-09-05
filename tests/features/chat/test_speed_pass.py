@@ -396,24 +396,45 @@ class TestBuildContextLedger:
         assert ledger["budget"]["capacity_tokens"] == context_budget.UNKNOWN_CAPACITY_TOKENS
         assert ledger["budget"]["measured"] is False
 
-    def test_budget_section_uses_the_given_capacity_reserve_and_counter(self):
-        capacity = context_budget.CapacityInfo(500, "config")
+    def test_budget_section_uses_the_given_accounting_inputs(self):
+        accounting = context_budget.AccountingInputs(
+            capacity=context_budget.CapacityInfo(500, "config"),
+            reserve_tokens=100,
+            counter=lambda t: len(t),
+        )
         ledger = ConversationRunner._build_context_ledger(
             "sys", [], {}, [{"role": "user", "content": "hello"}],
-            capacity=capacity, reserve_tokens=100, counter=lambda t: len(t),
+            accounting=accounting,
         )
         budget = ledger["budget"]
         assert budget["capacity_tokens"] == 500
         assert budget["capacity_source"] == "config"
         assert budget["reserve_tokens"] == 100
+        assert budget["accounting"] == "fragments+framing"
+
+    def test_budget_section_reports_chat_template_when_a_messages_counter_is_given(self):
+        accounting = context_budget.AccountingInputs(
+            capacity=context_budget.CapacityInfo(500, "config"),
+            reserve_tokens=100,
+            messages_counter=lambda system_message, messages: 12,
+        )
+        ledger = ConversationRunner._build_context_ledger(
+            None, [], {}, [{"role": "user", "content": "hello"}],
+            accounting=accounting,
+        )
+        budget = ledger["budget"]
+        assert budget["accounting"] == "chat_template"
         assert budget["measured"] is True
+        assert budget["estimated_tokens"] == 12
 
     def test_irreducibly_oversized_history_raises(self):
-        capacity = context_budget.CapacityInfo(10, "config")
+        accounting = context_budget.AccountingInputs(
+            capacity=context_budget.CapacityInfo(10, "config"), reserve_tokens=5, counter=len,
+        )
         with pytest.raises(context_budget.ContextBudgetExceededError):
             ConversationRunner._build_context_ledger(
                 None, [], {}, [{"role": "user", "content": "x" * 500}],
-                capacity=capacity, reserve_tokens=5, counter=len,
+                accounting=accounting,
             )
 
     def test_image_attached_is_reflected_in_the_budget_section(self):
@@ -424,6 +445,14 @@ class TestBuildContextLedger:
 
 
 class TestResolveBudgetInputs:
+    """`_resolve_budget_inputs` is a thin, defensive wrapper around
+    `LLMGateway.accounting_inputs_for` — the SAME builder the gateway uses
+    for every real send (see TestLedgerMatchesGatewayHook in
+    tests/features/llm/test_gateway.py for the end-to-end proof they can't
+    diverge); what belongs here is the wrapper's own contract: resolve the
+    config, pass through mode options, and degrade to None on any failure.
+    """
+
     def _session(self, llm_config_id="llm-1"):
         session = Mock()
         session.llm_config_id = llm_config_id
@@ -432,33 +461,40 @@ class TestResolveBudgetInputs:
     def test_no_llm_config_id_degrades_to_none(self):
         runner = ConversationRunner(Mock())
         result = runner._resolve_budget_inputs(self._session(llm_config_id=None), mode=None)
-        assert result == (None, None, None)
+        assert result is None
 
-    def test_resolves_capacity_reserve_and_counter_from_the_config(self):
+    def test_delegates_to_the_gateways_shared_builder_with_no_mode_options(self):
         manager = Mock()
         config = Mock(type="ollama", provider_options={"num_ctx": 4096}, max_tokens=2000)
         manager.llm_service.repository.get_configuration.return_value = config
-        manager.llm_service.token_counter_for.return_value = None
+        expected = context_budget.AccountingInputs(
+            capacity=context_budget.CapacityInfo(4096, "config"), reserve_tokens=2000,
+        )
+        manager.llm_service.accounting_inputs_for.return_value = expected
         runner = ConversationRunner(manager)
 
-        capacity, reserve, counter = runner._resolve_budget_inputs(self._session(), mode=None)
+        result = runner._resolve_budget_inputs(self._session(), mode=None)
 
-        assert capacity == context_budget.CapacityInfo(4096, "config")
-        assert reserve == 2000
+        assert result is expected
+        manager.llm_service.accounting_inputs_for.assert_called_once_with(config, None)
 
-    def test_mode_llm_options_max_tokens_overrides_config_default(self):
+    def test_mode_llm_options_is_passed_through_as_options_override(self):
         from types import SimpleNamespace
 
         manager = Mock()
         config = Mock(type="openai", provider_options={}, max_tokens=2000)
         manager.llm_service.repository.get_configuration.return_value = config
-        manager.llm_service.token_counter_for.return_value = None
+        manager.llm_service.accounting_inputs_for.return_value = context_budget.AccountingInputs(
+            capacity=context_budget.CapacityInfo(context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown"),
+            reserve_tokens=512,
+        )
         runner = ConversationRunner(manager)
         mode = SimpleNamespace(llm_options={"max_tokens": 512})
 
-        _, reserve, _ = runner._resolve_budget_inputs(self._session(), mode=mode)
+        result = runner._resolve_budget_inputs(self._session(), mode=mode)
 
-        assert reserve == 512
+        assert result.reserve_tokens == 512
+        manager.llm_service.accounting_inputs_for.assert_called_once_with(config, {"max_tokens": 512})
 
     def test_config_lookup_failure_degrades_to_none_never_raises(self):
         manager = Mock()
@@ -467,7 +503,7 @@ class TestResolveBudgetInputs:
 
         result = runner._resolve_budget_inputs(self._session(), mode=None)
 
-        assert result == (None, None, None)
+        assert result is None
 
     def test_a_config_missing_expected_attributes_degrades_to_none(self):
         """A test-double config (e.g. `SimpleNamespace(provider_options={})`,
@@ -477,11 +513,28 @@ class TestResolveBudgetInputs:
 
         manager = Mock()
         manager.llm_service.repository.get_configuration.return_value = SimpleNamespace(provider_options={})
+        manager.llm_service.accounting_inputs_for.return_value = context_budget.AccountingInputs(
+            capacity=context_budget.CapacityInfo(context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown"),
+            reserve_tokens=Mock(),  # non-numeric — exactly what a Mock-shaped max_tokens produces
+        )
         runner = ConversationRunner(manager)
 
         result = runner._resolve_budget_inputs(self._session(), mode=None)
 
-        assert result == (None, None, None)
+        assert result is None
+
+    def test_a_fully_generic_mock_llm_service_degrades_to_none(self):
+        """The common existing chat-test idiom — `llm_service` left as a bare
+        `Mock()`/`AsyncMock()` with nothing configured — must never crash a
+        send just because `accounting_inputs_for` auto-mocked to a generic
+        Mock whose `reserve_tokens` isn't a real number."""
+        manager = Mock()
+        manager.llm_service.repository.get_configuration.return_value = Mock()
+        runner = ConversationRunner(manager)
+
+        result = runner._resolve_budget_inputs(self._session(), mode=None)
+
+        assert result is None
 
 
 class TestResolveToolSchemasForLedger:

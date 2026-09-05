@@ -92,10 +92,11 @@ class TestCountText:
 
 
 class TestCountMessages:
-    def test_sums_content_across_messages(self):
+    def test_sums_content_plus_a_framing_allowance_per_message(self):
         messages = [{"role": "user", "content": "a" * 7}, {"role": "assistant", "content": "a" * 7}]
         result = count_messages(messages, lambda t: len(t))
-        assert result == context_budget.TokenCount(14, True)
+        expected = 14 + 2 * context_budget.FRAMING_TOKENS_PER_MESSAGE
+        assert result == context_budget.TokenCount(expected, False)
 
     def test_counts_serialized_tool_calls_as_real_payload(self):
         messages = [{
@@ -107,8 +108,15 @@ class TestCountMessages:
         without_calls = count_messages([{"role": "assistant", "content": ""}], None).tokens
         assert with_calls > without_calls
 
-    def test_empty_list_is_trivially_measured(self):
-        assert count_messages([], None) == context_budget.TokenCount(0, True)
+    def test_never_measured_even_with_a_real_per_fragment_tokenizer(self):
+        """The framing allowance is always an estimate layered on top, so a
+        per-fragment sum can never claim `measured=True` on its own — only a
+        whole-request chat-template count can (see TestEnforceBudget)."""
+        result = count_messages([{"role": "user", "content": "hi"}], lambda t: 1)
+        assert result.measured is False
+
+    def test_empty_list_is_zero_and_unmeasured(self):
+        assert count_messages([], None) == context_budget.TokenCount(0, False)
 
 
 class TestCountToolSchemas:
@@ -152,11 +160,13 @@ class TestFitMessages:
 
     def test_drops_oldest_first(self):
         messages = [_msg("user", "old " + "a" * 100), _msg("assistant", "mid " + "a" * 100), _msg("user", "new")]
-        # Budget for only the last two units (character counter for determinism).
+        # Budget for only the last unit or two (character counter for determinism;
+        # the exact cutoff shifts with FRAMING_TOKENS_PER_MESSAGE, so this only
+        # asserts oldest-first ordering, not a specific dropped count).
         result = fit_messages(messages, available_tokens=110, counter=len)
         assert result.messages[-1]["content"] == "new"
         assert not any("old" in m["content"] for m in result.messages)
-        assert result.dropped_messages == 1
+        assert result.dropped_messages >= 1
 
     def test_never_splits_a_tool_call_result_group(self):
         assistant_call = _msg("assistant", "", tool_calls=[{"function": {"name": "f", "arguments": {}}}])
@@ -254,7 +264,15 @@ class TestEnforceBudget:
         assert outcome.ledger["system_tokens"] > 0
         assert outcome.messages == [_msg("user", "a" * 50)]
 
-    def test_measured_true_only_when_every_component_was_counted(self):
+    def test_no_counter_is_the_estimate_tier(self):
+        outcome = enforce_budget(
+            capacity_tokens=10_000, capacity_source="config", reserve_tokens=0,
+            system_message="sys", messages=[_msg("user", "hi")],
+        )
+        assert outcome.ledger["accounting"] == "estimate"
+        assert outcome.ledger["measured"] is False
+
+    def test_a_real_per_fragment_counter_alone_is_fragments_plus_framing_never_measured(self):
         outcome = enforce_budget(
             capacity_tokens=10_000,
             capacity_source="config",
@@ -264,7 +282,63 @@ class TestEnforceBudget:
             tool_schemas=[{"function": {"name": "f"}}],
             counter=len,
         )
+        assert outcome.ledger["accounting"] == "fragments+framing"
+        assert outcome.ledger["measured"] is False
+
+    def test_a_working_messages_counter_is_the_chat_template_tier_and_is_measured(self):
+        outcome = enforce_budget(
+            capacity_tokens=10_000,
+            capacity_source="config",
+            reserve_tokens=0,
+            system_message="sys",
+            messages=[_msg("user", "hi")],
+            counter=len,
+            messages_counter=lambda system_message, messages: 42,
+        )
+        assert outcome.ledger["accounting"] == "chat_template"
+        assert outcome.ledger["estimated_tokens"] == 42
         assert outcome.ledger["measured"] is True
+
+    def test_a_raising_messages_counter_falls_back_to_fragments_plus_framing(self):
+        def broken(system_message, messages):
+            raise RuntimeError("template not supported")
+
+        outcome = enforce_budget(
+            capacity_tokens=10_000, capacity_source="config", reserve_tokens=0,
+            system_message="sys", messages=[_msg("user", "hi")],
+            counter=len, messages_counter=broken,
+        )
+        assert outcome.ledger["accounting"] == "fragments+framing"
+        assert outcome.ledger["measured"] is False
+
+    def test_image_attached_forces_measured_false_even_with_chat_template(self):
+        outcome = enforce_budget(
+            capacity_tokens=10_000, capacity_source="config", reserve_tokens=0,
+            system_message="sys", messages=[_msg("user", "hi")],
+            image_data="base64...", messages_counter=lambda s, m: 42,
+        )
+        assert outcome.ledger["accounting"] == "chat_template"
+        assert outcome.ledger["measured"] is False
+
+    def test_messages_counter_is_never_consulted_when_the_fragment_trim_already_overflows(self):
+        """A whole-request count can't decide what to keep — it only reports on
+        what fragment-based trimming already chose — so it must never even be
+        called when that trim alone says the irreducible protected tail
+        doesn't fit (the raise must reflect the fragment numbers, not require
+        a working template call)."""
+        calls = []
+
+        def spy(system_message, messages):
+            calls.append(1)
+            return 1
+
+        with pytest.raises(ContextBudgetExceededError):
+            enforce_budget(
+                capacity_tokens=10, capacity_source="config", reserve_tokens=5,
+                system_message=None, messages=[_msg("user", "a" * 200)],
+                counter=len, messages_counter=spy,
+            )
+        assert calls == []
 
     def test_image_attached_adds_the_multimodal_allowance(self):
         without_image = enforce_budget(
@@ -289,3 +363,156 @@ class TestEnforceBudget:
         assert outcome.ledger["groups_dropped"] == 1
         assert outcome.ledger["messages_sent"] == 1
         assert outcome.ledger["messages_total"] == 2
+
+
+# ---------------------------------------------------------------------------
+# resolve_image_token_override
+# ---------------------------------------------------------------------------
+
+class TestResolveImageTokenOverride:
+    def test_unset_is_none(self):
+        assert context_budget.resolve_image_token_override(_config()) is None
+
+    def test_explicit_override_is_honoured(self):
+        config = _config(provider_options={"image_token_estimate": 250})
+        assert context_budget.resolve_image_token_override(config) == 250
+
+    @pytest.mark.parametrize("bad_value", [0, -5, "250", None, True])
+    def test_non_positive_or_non_numeric_is_none(self, bad_value):
+        config = _config(provider_options={"image_token_estimate": bad_value})
+        assert context_budget.resolve_image_token_override(config) is None
+
+    def test_threaded_through_enforce_budget_as_the_per_image_cost(self):
+        outcome = enforce_budget(
+            capacity_tokens=10_000, capacity_source="config", reserve_tokens=0,
+            system_message="", messages=[_msg("user", "hi")],
+            image_data="base64...", image_tokens=context_budget.resolve_image_token_override(
+                _config(provider_options={"image_token_estimate": 77})
+            ),
+        )
+        assert outcome.ledger["image_tokens"] == 77
+
+
+# ---------------------------------------------------------------------------
+# Current-turn protection against realistic ToolWorkflow-built message lists
+# ---------------------------------------------------------------------------
+
+def _workflow(messages, iteration_nudge=None, wrap_up_on_limit=True):
+    from unittest.mock import Mock
+
+    from src.features.llm.tools.workflow import ToolWorkflow
+
+    return ToolWorkflow(
+        executor=Mock(),
+        messages=messages,
+        tool_context=Mock(),
+        allowed_tools=None,
+        max_iterations=5,
+        iteration_nudge=iteration_nudge,
+        wrap_up_on_limit=wrap_up_on_limit,
+    )
+
+
+class TestCurrentTurnProtectionAcrossWorkflowCalls:
+    """The current turn — its injected context blocks, its tool rounds, and
+    any trailing nudge the workflow appends — must survive trimming at every
+    stage of a tool loop, built through the SAME `ToolWorkflow` helpers the
+    real send paths use so the message shape can't drift from what this
+    test exercises.
+    """
+
+    OLD_HISTORY = [
+        {"role": "user", "content": "an old unrelated question " + "x" * 300},
+        {"role": "assistant", "content": "an old unrelated answer " + "x" * 300},
+    ]
+    CONTEXT_BLOCKS = [
+        {"role": "system", "content": "recalled memory: the user prefers dark mode"},
+        {"role": "system", "content": "contributor: active preset is SDXL-Anime"},
+    ]
+    QUESTION = {"role": "user", "content": "What resolution does the Anime preset render at?"}
+    TOOL_CALL = {
+        "role": "assistant", "content": "",
+        "tool_calls": [{"function": {"name": "get_model_info", "arguments": {}}}],
+    }
+    TOOL_RESULT = {"role": "tool", "content": "resolution: 896x1152", "tool_call_id": "1"}
+
+    # Small enough that the old history is clearly dropped, large enough
+    # that the current turn's own stack (question + context + one tool
+    # round + a nudge) fits.
+    BUDGET_TOKENS = 400
+
+    def _base_messages(self):
+        return list(self.OLD_HISTORY) + list(self.CONTEXT_BLOCKS) + [dict(self.QUESTION)]
+
+    def _assert_current_turn_survived(self, sent):
+        contents = [m.get("content") or "" for m in sent]
+        assert not any("old unrelated" in c for c in contents)
+        assert any("resolution does the Anime preset" in c for c in contents)
+        assert any("dark mode" in c for c in contents)
+        assert any("SDXL-Anime" in c for c in contents)
+
+    def test_first_call(self):
+        """The turn's very first request — no tool round has happened yet."""
+        messages = self._base_messages()
+        outcome = enforce_budget(
+            capacity_tokens=self.BUDGET_TOKENS, capacity_source="config", reserve_tokens=0,
+            system_message=None, messages=messages, counter=len,
+        )
+        self._assert_current_turn_survived(outcome.messages)
+        assert outcome.messages[-1] == self.QUESTION
+
+    def test_next_call_with_the_iteration_nudge(self):
+        """A tool round has completed; the workflow's own `_next_request`
+        appends the iteration nudge exactly as it would for a live turn —
+        built through the real method, not a hand-rolled equivalent."""
+        nudge = "Reminder: call a tool or answer now."
+        workflow = _workflow(self._base_messages(), iteration_nudge=nudge)
+        workflow.working_messages.append(dict(self.TOOL_CALL))
+        workflow.working_messages.append(dict(self.TOOL_RESULT))
+        workflow._any_tool_round_completed = True
+
+        request = workflow._next_request()
+
+        outcome = enforce_budget(
+            capacity_tokens=self.BUDGET_TOKENS, capacity_source="config", reserve_tokens=0,
+            system_message=None, messages=request.messages, counter=len,
+        )
+        self._assert_current_turn_survived(outcome.messages)
+        sent_roles = [m["role"] for m in outcome.messages]
+        assert "tool" in sent_roles  # the completed round's result must survive
+        assert outcome.messages[-1] == {"role": "system", "content": nudge}
+
+    def test_final_call_with_the_budget_exhausted_message(self):
+        """The tool-iteration budget ran out; `_final_request` appends the
+        real `TOOL_BUDGET_EXHAUSTED_MESSAGE`, built the same way the live
+        wrap-up call does."""
+        workflow = _workflow(self._base_messages(), wrap_up_on_limit=True)
+        workflow.working_messages.append(dict(self.TOOL_CALL))
+        workflow.working_messages.append(dict(self.TOOL_RESULT))
+
+        request = workflow._final_request()
+
+        outcome = enforce_budget(
+            capacity_tokens=self.BUDGET_TOKENS, capacity_source="config", reserve_tokens=0,
+            system_message=None, messages=request.messages, counter=len,
+        )
+        self._assert_current_turn_survived(outcome.messages)
+        assert outcome.messages[-1] == {
+            "role": "system", "content": workflow.TOOL_BUDGET_EXHAUSTED_MESSAGE,
+        }
+
+    def test_irreducible_current_turn_raises_rather_than_trimming_into_it(self):
+        """When the current turn's own stack alone doesn't fit, the request
+        must be refused, never silently trimmed into the question, its
+        context blocks, or its tool round."""
+        workflow = _workflow(self._base_messages(), iteration_nudge="go on")
+        workflow.working_messages.append(dict(self.TOOL_CALL))
+        workflow.working_messages.append(dict(self.TOOL_RESULT))
+        workflow._any_tool_round_completed = True
+        request = workflow._next_request()
+
+        with pytest.raises(ContextBudgetExceededError):
+            enforce_budget(
+                capacity_tokens=20, capacity_source="config", reserve_tokens=5,
+                system_message=None, messages=request.messages, counter=len,
+            )

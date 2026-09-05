@@ -32,6 +32,19 @@ class LLMGateway:
             return self._native
         raise ValueError(f"Unsupported LLM type: {config.type}")
 
+    @staticmethod
+    def _safe_provider_hook(provider_method: Optional[Any], config: LLMConfig, label: str) -> Optional[Any]:
+        """Call an optional per-provider accounting hook (``token_counter``/
+        ``messages_token_counter``), degrading to ``None`` on any failure —
+        a provider hook is best-effort, never allowed to break a send."""
+        if provider_method is None:
+            return None
+        try:
+            return provider_method(config)
+        except Exception:
+            logging.debug("[LLMGateway] %s failed for '%s'", label, config.id, exc_info=True)
+            return None
+
     def token_counter_for(self, config: LLMConfig) -> Optional[context_budget.TokenCounter]:
         """A cheap, already-available tokenizer for *config*'s provider, or
         ``None`` when only the chars-per-token estimate is available.
@@ -40,17 +53,37 @@ class LLMGateway:
         tokenizer in-process; ``NativeLLMClient`` exposes one via an optional
         ``token_counter(config)`` method, but only while the checkpoint is
         already warm (see its docstring) — this never triggers a model load
-        just to count tokens for budgeting.
+        just to count tokens for budgeting. A thin wrapper around
+        ``accounting_inputs_for`` kept for callers that only need this one
+        piece.
+        """
+        return self.accounting_inputs_for(config).counter
+
+    def accounting_inputs_for(
+        self, config: LLMConfig, options_override: Optional[Dict[str, Any]] = None,
+    ) -> context_budget.AccountingInputs:
+        """The single shared source of (capacity, reserve, tokenizer(s),
+        per-image override) for *config* — built here ONCE and used both by
+        ``estimate_context_budget`` (every real send, via ``_budgeted``) and
+        by ``ConversationRunner``'s pre-flight ledger check
+        (``_resolve_budget_inputs``), so the two can never compute different
+        numbers for the same request.
         """
         client = self._client_for(config)
-        provider_counter = getattr(client, "token_counter", None)
-        if provider_counter is None:
-            return None
-        try:
-            return provider_counter(config)
-        except Exception:
-            logging.debug("[LLMGateway] token_counter_for failed for '%s'", config.id, exc_info=True)
-            return None
+        capacity = context_budget.resolve_capacity(config)
+        reserve_tokens = (options_override or {}).get("max_tokens", config.max_tokens)
+        counter = self._safe_provider_hook(getattr(client, "token_counter", None), config, "token_counter")
+        messages_counter = self._safe_provider_hook(
+            getattr(client, "messages_token_counter", None), config, "messages_token_counter",
+        )
+        image_tokens_override = context_budget.resolve_image_token_override(config)
+        return context_budget.AccountingInputs(
+            capacity=capacity,
+            reserve_tokens=reserve_tokens,
+            counter=counter,
+            messages_counter=messages_counter,
+            image_tokens_override=image_tokens_override,
+        )
 
     def estimate_context_budget(
         self,
@@ -68,17 +101,18 @@ class LLMGateway:
         the request doesn't fit even after trimming every eligible older
         message.
         """
-        capacity = context_budget.resolve_capacity(config)
-        reserve_tokens = (options_override or {}).get("max_tokens", config.max_tokens)
+        inputs = self.accounting_inputs_for(config, options_override)
         return context_budget.enforce_budget(
-            capacity_tokens=capacity.capacity_tokens,
-            capacity_source=capacity.source,
-            reserve_tokens=reserve_tokens,
+            capacity_tokens=inputs.capacity.capacity_tokens,
+            capacity_source=inputs.capacity.source,
+            reserve_tokens=inputs.reserve_tokens,
             system_message=system_message,
             messages=messages,
             tool_schemas=tool_schemas,
             image_data=image_data,
-            counter=self.token_counter_for(config),
+            image_tokens=inputs.image_tokens_override,
+            counter=inputs.counter,
+            messages_counter=inputs.messages_counter,
         )
 
     def _budgeted(

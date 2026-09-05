@@ -164,3 +164,144 @@ class TestGatewayTokenCounterFor:
         config = make_config(type="native", model="native-model")
         gateway._native.token_counter = Mock(side_effect=RuntimeError("boom"))
         assert gateway.token_counter_for(config) is None
+
+
+class TestGatewayAccountingInputsFor:
+    """`accounting_inputs_for` is the single shared builder — both the real
+    send hook and ConversationRunner's pre-flight ledger call it, so both
+    must see exactly this bundle for a given config/options_override."""
+
+    def test_bundles_capacity_reserve_counter_and_image_override(self):
+        gateway = LLMGateway(llm_repository=Mock())
+        config = make_config(
+            type="native", model="native-model",
+            provider_options={"context_window": 4096, "image_token_estimate": 200},
+            max_tokens=777,
+        )
+        gateway._native.token_counter = Mock(return_value=lambda text: len(text))
+        gateway._native.messages_token_counter = Mock(return_value=lambda s, m: 99)
+
+        inputs = gateway.accounting_inputs_for(config)
+
+        assert inputs.capacity == context_budget.CapacityInfo(4096, "config")
+        assert inputs.reserve_tokens == 777
+        assert inputs.counter("hi") == 2
+        assert inputs.messages_counter(None, []) == 99
+        assert inputs.image_tokens_override == 200
+
+    def test_options_override_max_tokens_wins_over_config_default(self):
+        gateway = LLMGateway(llm_repository=Mock())
+        config = make_config(max_tokens=2000)
+        inputs = gateway.accounting_inputs_for(config, options_override={"max_tokens": 4096})
+        assert inputs.reserve_tokens == 4096
+
+    def test_a_raising_messages_token_counter_hook_degrades_to_none(self):
+        gateway = LLMGateway(llm_repository=Mock())
+        config = make_config(type="native", model="native-model")
+        gateway._native.messages_token_counter = Mock(side_effect=RuntimeError("boom"))
+        inputs = gateway.accounting_inputs_for(config)
+        assert inputs.messages_counter is None
+
+    def test_ollama_openai_never_get_a_messages_counter(self):
+        gateway = LLMGateway(llm_repository=Mock())
+        for provider_type in ("ollama", "openai"):
+            inputs = gateway.accounting_inputs_for(make_config(type=provider_type))
+            assert inputs.messages_counter is None
+
+
+class TestGatewayImageTokenOverrideThreading:
+    """A `provider_options.image_token_estimate` override must actually
+    reach the real budget check, not just exist as an unused parameter."""
+
+    @pytest.fixture
+    def gateway(self):
+        gw = LLMGateway(llm_repository=Mock())
+        gw._ollama.generate_with_history = AsyncMock(return_value=Mock(
+            content="ok", tool_calls=None, tokens_used=1, prompt_tokens=1, completion_tokens=0,
+        ))
+        return gw
+
+    @pytest.mark.asyncio
+    async def test_override_changes_the_enforced_image_cost(self, gateway):
+        gateway.repository.get_configuration.return_value = make_config(
+            provider_options={"context_window": 10_000, "image_token_estimate": 5},
+        )
+        messages = [{"role": "user", "content": "hi"}]
+
+        with patch.object(context_budget, "enforce_budget", wraps=context_budget.enforce_budget) as spy:
+            await gateway.generate_with_history(
+                messages=messages, llm_id="cfg-1", image_data="base64...",
+            )
+
+        assert spy.call_args.kwargs["image_tokens"] == 5
+
+    @pytest.mark.asyncio
+    async def test_no_override_leaves_image_tokens_unset(self, gateway):
+        gateway.repository.get_configuration.return_value = make_config(
+            provider_options={"context_window": 10_000},
+        )
+        messages = [{"role": "user", "content": "hi"}]
+
+        with patch.object(context_budget, "enforce_budget", wraps=context_budget.enforce_budget) as spy:
+            await gateway.generate_with_history(
+                messages=messages, llm_id="cfg-1", image_data="base64...",
+            )
+
+        assert spy.call_args.kwargs["image_tokens"] is None
+
+
+class TestLedgerMatchesGatewayHook:
+    """ConversationRunner's pre-flight ledger and the gateway's real send
+    hook must compute identical numbers for the identical request — they
+    share `accounting_inputs_for`, so this pins that down end to end."""
+
+    @pytest.mark.asyncio
+    async def test_same_config_and_request_yield_the_same_ledger(self):
+        from src.features.chat.conversation import ConversationRunner
+
+        gateway = LLMGateway(llm_repository=Mock())
+        config = make_config(
+            type="native", model="native-model",
+            provider_options={"context_window": 500, "image_token_estimate": 30},
+            max_tokens=64,
+        )
+        gateway.repository.get_configuration.return_value = config
+        gateway._native.token_counter = Mock(return_value=lambda text: len(text))
+        gateway._native.messages_token_counter = Mock(return_value=lambda system_message, messages: 37)
+        gateway._native.generate_with_history = AsyncMock(return_value=Mock(
+            content="ok", tool_calls=None, tokens_used=1, prompt_tokens=1, completion_tokens=0,
+        ))
+
+        messages = [{"role": "user", "content": "a distinctive question"}]
+        system_message = "You are helpful."
+        # An attached image plus the config's `image_token_estimate` override
+        # and a working `messages_token_counter` exercise every field
+        # `accounting_inputs_for` produces — a ledger built by bypassing that
+        # shared builder (recomputing capacity/reserve/counter inline instead
+        # of delegating to it) would diverge here even though it agrees when
+        # no image is attached, which is exactly the gap this guards.
+        image_data = "base64imagebytes..."
+
+        gateway_outcome = await gateway.generate_with_history(
+            messages=list(messages), llm_id="cfg-1", custom_system_message=system_message,
+            image_data=image_data,
+        )
+        # generate_with_history returns the client's response, not the
+        # BudgetOutcome — recompute it the same way `_budgeted` did, so this
+        # asserts the SAME accounting_inputs_for bundle the send used.
+        gateway_budget = gateway.estimate_context_budget(
+            config, system_message, list(messages), image_data=image_data,
+        )
+        assert gateway_budget.ledger["image_tokens"] == 30
+        assert gateway_budget.ledger["accounting"] == "chat_template"
+
+        session = Mock(llm_config_id="cfg-1")
+        manager = Mock()
+        manager.llm_service = gateway
+        runner = ConversationRunner(manager)
+        accounting = runner._resolve_budget_inputs(session, mode=None)
+        ledger = ConversationRunner._build_context_ledger(
+            system_message, [], {}, list(messages), accounting=accounting, image_data=image_data,
+        )
+
+        assert ledger["budget"] == gateway_budget.ledger

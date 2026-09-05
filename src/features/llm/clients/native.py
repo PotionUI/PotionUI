@@ -55,7 +55,7 @@ from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from src.features.llm.clients.base import LLMResponse
-from src.features.llm.context_budget import TokenCounter
+from src.features.llm.context_budget import MessagesCounter, TokenCounter
 from src.features.llm.native_library import (
     NATIVE_LLM_QUANT_MODES,
     NATIVE_LLM_QUANT_SIZE_FACTORS,
@@ -436,10 +436,10 @@ class NativeLLMClient:
         self._remember_checkpoint(self._cache_key(path, False), checkpoint)
         return checkpoint
 
-    def token_counter(self, config: LLMConfig) -> Optional[TokenCounter]:
-        """A token counter using this config's own tokenizer — used by
-        ``LLMGateway`` for context-budget accounting, but ONLY when the
-        checkpoint is already warm from a prior turn.
+    def _warm_checkpoint(self, config: LLMConfig) -> Optional[_LoadedCheckpoint]:
+        """The checkpoint for *config*, but ONLY if it's already warm from a
+        prior turn — shared by ``token_counter`` and
+        ``messages_token_counter``.
 
         Looked up through a weak reference (see ``_checkpoint_refs``), never
         through ``_acquire``/``ModelLifecycle.acquire`` — calling those here
@@ -447,21 +447,61 @@ class NativeLLMClient:
         or, worse, a fingerprint-bust reload (a placeholder fingerprint
         wouldn't match the real cached one), exactly the network/GPU work
         budgeting must not cause. A dead or absent weak reference — evicted,
-        or never loaded this process — degrades cleanly to ``None``, and the
-        caller falls back to the chars-per-token estimate.
+        or never loaded this process — degrades cleanly to ``None``.
         """
         try:
             path, is_te = self._resolve_model(config.model)
         except Exception:
             return None
         ref = self._checkpoint_refs.get(self._cache_key(path, is_te))
-        checkpoint = ref() if ref is not None else None
+        return ref() if ref is not None else None
+
+    def token_counter(self, config: LLMConfig) -> Optional[TokenCounter]:
+        """A per-fragment token counter using this config's own tokenizer —
+        used by ``context_budget``'s incremental trimming walk, which needs
+        the cost of ONE candidate message at a time (a whole-request count
+        can't give that). ``None`` when the checkpoint isn't warm; the
+        caller then falls back to the chars-per-token estimate.
+        """
+        checkpoint = self._warm_checkpoint(config)
         if checkpoint is None:
             return None
         tokenizer = checkpoint.tokenizer
 
         def _count(text: str) -> int:
             encoded = tokenizer(text, return_tensors=None)
+            ids = encoded["input_ids"] if isinstance(encoded, dict) else encoded.input_ids
+            if ids and isinstance(ids[0], list):
+                ids = ids[0]
+            return len(ids)
+
+        return _count
+
+    def messages_token_counter(self, config: LLMConfig) -> Optional[MessagesCounter]:
+        """A whole-request token counter using this checkpoint's own chat
+        template — the actual wire prompt-token count (framing included),
+        not a per-fragment sum. ``context_budget.enforce_budget`` uses this
+        once, on the final message set its fragment-based trim already
+        decided to keep, as the authoritative number it reports/enforces
+        (see the module's "chat_template" accounting tier).
+
+        Built the same way ``generate_with_history`` prepares a real turn
+        (``_build_chat`` + ``apply_chat_template``), minus the image: an
+        attached image's cost is accounted separately (a fixed allowance —
+        see ``context_budget.multimodal_allowance``), and re-decoding it here
+        would just be wasted work for a number this call discards anyway.
+        Same warm-only, no-load contract as ``token_counter`` — looked up
+        through the same weak reference, never through ``_acquire``.
+        """
+        checkpoint = self._warm_checkpoint(config)
+        if checkpoint is None:
+            return None
+        tokenizer = checkpoint.tokenizer
+
+        def _count(system_message: Optional[str], messages: List[Dict[str, Any]]) -> int:
+            chat, _image = self._build_chat(list(messages), system_message, None)
+            prompt_text = tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
+            encoded = tokenizer(prompt_text, return_tensors=None)
             ids = encoded["input_ids"] if isinstance(encoded, dict) else encoded.input_ids
             if ids and isinstance(ids[0], list):
                 ids = ids[0]

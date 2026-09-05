@@ -26,11 +26,31 @@ capacity is reported honestly as ``capacity_source="unknown"`` with a
 conservative, clearly-labelled default (see ``UNKNOWN_CAPACITY_TOKENS``)
 rather than a guess dressed up as a fact.
 
-Token counting prefers a real tokenizer when one is already available
-in-process for free (``counter``, e.g. ``NativeLLMClient.token_counter`` while
-its checkpoint is warm) and otherwise falls back to a labelled chars-per-token
-estimate (``measured=False`` everywhere the estimate was used) — this module
-never claims the chars/4-style shortcut is an exact count.
+Token counting has three tiers, reported per turn as ``accounting`` in the
+ledger:
+
+- ``"chat_template"`` — a whole-request count via a warm native checkpoint's
+  own tokenizer, applying its chat template to the actually-kept system +
+  history exactly as ``NativeLLMClient`` would before generating (see
+  ``NativeLLMClient.messages_token_counter``). The only tier that reports
+  ``measured=True`` (and only when no image is attached and the tool-schema
+  count also came from a real tokenizer) — everything else is honestly an
+  estimate, never presented as exact.
+- ``"fragments+framing"`` — a real per-fragment tokenizer (``counter``, e.g.
+  ``NativeLLMClient.token_counter``) summed message-by-message, plus
+  ``FRAMING_TOKENS_PER_MESSAGE`` per message. A per-fragment sum never sees
+  the chat template's role/special-token wrapping, so even with a real
+  tokenizer behind it this tier is always ``measured=False`` — it is what
+  drives the incremental per-unit trimming decision (a whole-request
+  chat-template count can't tell you what ONE candidate message costs), not
+  what gets reported as the authoritative total when a better one is
+  available.
+- ``"estimate"`` — no tokenizer at all (Ollama/OpenAI never have one
+  in-process): the labelled chars-per-token heuristic throughout.
+
+An attached image always forces ``measured=False`` (its cost is inherently an
+estimate — see ``multimodal_allowance``) regardless of which tier text
+accounting used.
 """
 
 from __future__ import annotations
@@ -52,6 +72,16 @@ logger = logging.getLogger(__name__)
 # this number gates whether a request is even submitted.
 DEFAULT_CHARS_PER_TOKEN = 3.5
 
+# Conservative per-message allowance for the chat-template role/special-token
+# wrapping a per-fragment count never sees (e.g. a `<|im_start|>role\n ...
+# <|im_end|>\n`-style wrapper) — applied once per message whenever accounting
+# falls back to summing fragments (with or without a real per-fragment
+# tokenizer), so that tier never quietly under-reports what the wire actually
+# carries. This is also why "fragments+framing" is never `measured=True`: the
+# allowance is itself an estimate layered on top of whatever the fragments
+# measured.
+FRAMING_TOKENS_PER_MESSAGE = 4
+
 # Capacity used when a config carries no explicit context-window
 # configuration and no provider metadata is available — deliberately close to
 # the long-standing `chat_history_token_budget` default (8000) so an
@@ -72,6 +102,13 @@ DEFAULT_IMAGE_TOKEN_ESTIMATE = 1100
 DEFAULT_RESERVE_TOKENS = 1024
 
 TokenCounter = Callable[[str], int]
+# A whole-request counter: (system_message, kept_messages) -> exact token
+# count for that combination via a real chat template (see
+# `NativeLLMClient.messages_token_counter`). Unlike `TokenCounter` this can't
+# price a single candidate message in isolation, so it is only used once, on
+# the final kept set `fit_messages` already decided on — never inside the
+# incremental trimming walk itself.
+MessagesCounter = Callable[[Optional[str], List[Dict[str, Any]]], int]
 
 
 @dataclass(frozen=True)
@@ -104,6 +141,22 @@ class BudgetOutcome:
 
     messages: List[Dict[str, Any]]
     ledger: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AccountingInputs:
+    """The (capacity, reserve, tokenizer(s), per-image override) bundle for
+    one ``LLMConfig`` — built ONCE by ``LLMGateway.accounting_inputs_for``
+    and passed to ``enforce_budget`` by every caller (every real send AND
+    ``ConversationRunner``'s pre-flight ledger check), so the two can never
+    compute different numbers for the same request.
+    """
+
+    capacity: CapacityInfo
+    reserve_tokens: int
+    counter: Optional[TokenCounter] = None
+    messages_counter: Optional[MessagesCounter] = None
+    image_tokens_override: Optional[int] = None
 
 
 class ContextBudgetExceededError(Exception):
@@ -167,6 +220,18 @@ def resolve_capacity(config: "LLMConfig") -> CapacityInfo:
     return CapacityInfo(UNKNOWN_CAPACITY_TOKENS, "unknown")
 
 
+def resolve_image_token_override(config: "LLMConfig") -> Optional[int]:
+    """An operator-configured override for the per-image token cost —
+    ``provider_options.image_token_estimate``, documented alongside
+    ``context_window``/``num_ctx``. ``None`` when unset or not a positive
+    number; ``multimodal_allowance`` then falls back to
+    ``DEFAULT_IMAGE_TOKEN_ESTIMATE``.
+    """
+    provider_opts = getattr(config, "provider_options", None) or {}
+    value = provider_opts.get("image_token_estimate")
+    return int(value) if _is_positive_number(value) else None
+
+
 def _is_positive_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
 
@@ -198,14 +263,24 @@ def _message_text_units(message: Dict[str, Any]) -> List[str]:
 
 
 def count_messages(messages: List[Dict[str, Any]], counter: Optional[TokenCounter]) -> TokenCount:
+    """Sum of per-fragment costs across *messages*, plus
+    ``FRAMING_TOKENS_PER_MESSAGE`` per message for the chat-template wrapping
+    a per-fragment sum can't see. Always ``measured=False`` — see the module
+    docstring's "fragments+framing" tier: the framing allowance is itself an
+    estimate no matter how the fragments themselves were counted, so this is
+    never presented as an exact count. (``enforce_budget`` uses a real
+    whole-request chat-template count instead, when one is available, for
+    the number it actually reports/enforces; this function only drives the
+    incremental per-unit trimming decision, which needs a per-candidate
+    cost a whole-request count can't give.)
+    """
     total = 0
-    measured = True
     for message in messages:
         for unit in _message_text_units(message):
-            c = count_text(unit, counter)
-            total += c.tokens
-            measured = measured and c.measured
-    return TokenCount(total, measured if messages else True)
+            total += count_text(unit, counter).tokens
+    if messages:
+        total += FRAMING_TOKENS_PER_MESSAGE * len(messages)
+    return TokenCount(total, False)
 
 
 def count_tool_schemas(
@@ -257,29 +332,63 @@ def _atomic_units(messages: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
     return units
 
 
-def _protected_unit_count(units: List[List[Dict[str, Any]]]) -> int:
-    """How many trailing units are never eligible for trimming.
+def _current_turn_anchor(units: List[List[Dict[str, Any]]]) -> Optional[int]:
+    """Index of the unit that anchors the current turn: the LAST user-role
+    unit in the list.
 
-    Always at least the last unit (the current user turn, or the most recent
-    tool-call/result group when a round is mid-loop) plus, walking backward
-    from there, every immediately preceding single system-role message — the
-    per-turn context blocks (memory/contributor/resource/workspace/prompt
-    state/reply-contract) are always inserted as single system messages
-    stacked right before the last user message, so this protects that whole
-    stack structurally without the caller having to say how many there are.
+    A user message is always its own atomic unit — `_atomic_units` only ever
+    groups an assistant tool-calls message with the `tool` results that
+    follow it, never a user message with anything else — so the last unit
+    whose sole message has role "user" reliably identifies the turn every
+    later unit (its injected context blocks before it, its tool rounds and
+    any trailing nudge after it) belongs to, even across several prior
+    turns of history.
+    """
+    for i in range(len(units) - 1, -1, -1):
+        unit = units[i]
+        if len(unit) == 1 and unit[0].get("role") == "user":
+            return i
+    return None
+
+
+def _protected_unit_count(units: List[List[Dict[str, Any]]]) -> int:
+    """How many trailing units belong to the current turn and are never
+    eligible for trimming.
+
+    The current turn is not simply "the last unit": once a tool loop is
+    running, the workflow appends more units AFTER the user message that
+    started the turn — the tool-call/result group(s) each round produces,
+    and a trailing system nudge appended fresh on the next/final request
+    (see ``ToolWorkflow._next_request``/``_final_request``). Protecting only
+    the physically-last unit would let the budget silently trim the user's
+    own question (and its injected context blocks) out from under a
+    still-running tool loop, while reporting the request as fitting.
+
+    Protected, in full — everything from the current-turn anchor (see
+    ``_current_turn_anchor``) to the end of the list, PLUS, walking backward
+    from the anchor, every immediately preceding single system-role
+    message: the per-turn context blocks (memory/contributor/resource/
+    workspace/prompt state/reply-contract) always stack directly before the
+    user message that triggered them, so this protects that whole stack
+    structurally without the caller having to say how many blocks there
+    are. No user-role unit found at all (should not happen in practice)
+    degrades to protecting just the last unit.
     """
     if not units:
         return 0
-    protected = 1
-    i = len(units) - 2
+    anchor = _current_turn_anchor(units)
+    if anchor is None:
+        return 1
+    protected_from = anchor
+    i = anchor - 1
     while i >= 0:
         unit = units[i]
         if len(unit) == 1 and unit[0].get("role") == "system":
-            protected += 1
+            protected_from = i
             i -= 1
         else:
             break
-    return protected
+    return len(units) - protected_from
 
 
 def fit_messages(
@@ -338,15 +447,24 @@ def enforce_budget(
     image_data: Optional[str] = None,
     image_tokens: Optional[int] = None,
     counter: Optional[TokenCounter] = None,
+    messages_counter: Optional[MessagesCounter] = None,
 ) -> BudgetOutcome:
     """The one shared budgeting step every send path runs through.
 
     Accounts system text, tool schemas, a multimodal allowance and the
     reserved output tokens as fixed costs, then trims *messages* (oldest
-    eligible whole group first — see ``fit_messages``) to whatever remains.
-    Raises ``ContextBudgetExceededError`` when even the protected tail alone
-    (plus the fixed costs) doesn't fit — the caller must not submit that
-    request.
+    eligible whole group first, current-turn units always protected — see
+    ``fit_messages``) to whatever remains. When *messages_counter* is given
+    and the fragment-based trim already fits, one whole-request chat-template
+    count of the actually-kept system+history replaces the fragment estimate
+    as the authoritative ``estimated_tokens`` (see the module docstring's
+    ``"chat_template"`` tier) — the fragment/framing numbers still decided
+    WHICH messages to keep (a whole-request count can't price one candidate
+    message on its own), so a request that only fits by the fragment
+    estimate but not the exact recount still raises rather than being
+    silently trimmed further. Raises ``ContextBudgetExceededError`` when even
+    the protected tail alone (plus the fixed costs) doesn't fit, or the exact
+    recount disagrees — the caller must not submit that request.
     """
     reserve = max(0, int(reserve_tokens))
     system_count = count_text(system_message, counter)
@@ -358,8 +476,22 @@ def enforce_budget(
 
     trim = fit_messages(messages, available_tokens=max(0, available_for_messages), counter=counter)
 
-    estimated_tokens = fixed_tokens + trim.used_tokens
-    measured = system_count.measured and tools_count.measured and trim.measured
+    accounting = "fragments+framing" if counter is not None else "estimate"
+    combined_system_history_tokens = system_count.tokens + trim.used_tokens
+
+    if trim.fits and messages_counter is not None:
+        try:
+            exact = max(0, int(messages_counter(system_message, trim.messages)))
+        except Exception:
+            logger.debug(
+                "[ContextBudget] messages_counter failed; keeping the fragment-based estimate", exc_info=True
+            )
+        else:
+            combined_system_history_tokens = exact
+            accounting = "chat_template"
+
+    estimated_tokens = combined_system_history_tokens + tools_count.tokens + image_count
+    measured = accounting == "chat_template" and image_count == 0 and tools_count.measured
 
     ledger: Dict[str, Any] = {
         "capacity_tokens": capacity_tokens,
@@ -367,9 +499,14 @@ def enforce_budget(
         "reserve_tokens": reserve,
         "estimated_tokens": estimated_tokens,
         "measured": measured,
+        "accounting": accounting,
         "system_tokens": system_count.tokens,
         "tool_schema_tokens": tools_count.tokens,
         "image_tokens": image_count,
+        # Always the fragment/framing figure, even in "chat_template" mode —
+        # a whole-request count can't be cleanly split back into a
+        # history-only share without a second tokenize pass; `estimated_tokens`
+        # is the authoritative total, this is diagnostic granularity only.
         "history_tokens": trim.used_tokens,
         "messages_total": len(messages),
         "messages_sent": len(trim.messages),
@@ -377,7 +514,8 @@ def enforce_budget(
         "groups_dropped": trim.dropped_groups,
     }
 
-    if available_for_messages < 0 or not trim.fits:
+    over_budget = (not trim.fits) or (estimated_tokens > capacity_tokens - reserve)
+    if over_budget:
         raise ContextBudgetExceededError(
             capacity_tokens=capacity_tokens,
             capacity_source=capacity_source,

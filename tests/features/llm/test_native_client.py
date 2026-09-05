@@ -326,6 +326,80 @@ class TestTokenCounterWeakrefMechanics:
             assert client.token_counter(_config("no-such-checkpoint")) is None
 
 
+class TestMessagesTokenCounterWeakrefMechanics:
+    """messages_token_counter's whole-request (chat-template) accounting —
+    same warm-only weak-reference contract as token_counter, proven here with
+    a fake tokenizer/template so it runs without the broken transformers
+    fixture (see TestTokenCounter's real-model equivalent below)."""
+
+    def _client(self) -> NativeLLMClient:
+        return NativeLLMClient(ModelLifecycle(gpu_monitor=None, settings=None))
+
+    @staticmethod
+    def _fake_tokenizer(rendered_ids):
+        """A tokenizer stub whose `apply_chat_template` renders a fixed
+        marker string and whose `__call__` reports *rendered_ids* for it —
+        decoupling "did we build the right chat list" from "did we count the
+        template's own tokens", exactly like the real HF contract."""
+        tok = Mock()
+        tok.apply_chat_template = Mock(return_value="<rendered-prompt>")
+        tok.side_effect = lambda text, return_tensors=None: {"input_ids": [rendered_ids]}
+        return tok
+
+    def test_none_when_never_populated(self):
+        client = self._client()
+        with patch.object(client, "_resolve_model", return_value=("/fake/path", False)):
+            assert client.messages_token_counter(_config("anything")) is None
+
+    def test_counts_the_rendered_chat_template_not_raw_fragments(self):
+        client = self._client()
+        tokenizer = self._fake_tokenizer([1, 2, 3, 4, 5])
+        fake_checkpoint = native_module._LoadedCheckpoint(
+            model=Mock(), tokenizer=tokenizer, vision=False, model_type="qwen3",
+        )
+        with patch.object(client, "_resolve_model", return_value=("/fake/path", False)):
+            client._checkpoint_refs[client._cache_key("/fake/path", False)] = weakref.ref(fake_checkpoint)
+            counter = client.messages_token_counter(_config("anything"))
+
+        assert counter is not None
+        messages = [{"role": "user", "content": "hi"}]
+        assert counter("You are helpful.", messages) == 5
+        # The template call, not a per-fragment sum, is what's actually
+        # counted — verify the real chat list (system + history) was built.
+        chat_arg = tokenizer.apply_chat_template.call_args.args[0]
+        assert chat_arg == [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "hi"},
+        ]
+
+    def test_never_calls_acquire_or_the_lifecycle(self):
+        client = self._client()
+        tokenizer = self._fake_tokenizer([1])
+        fake_checkpoint = native_module._LoadedCheckpoint(
+            model=Mock(), tokenizer=tokenizer, vision=False, model_type="qwen3",
+        )
+        with patch.object(client, "_resolve_model", return_value=("/fake/path", False)), \
+             patch.object(client, "_acquire") as acquire_spy:
+            client._checkpoint_refs[client._cache_key("/fake/path", False)] = weakref.ref(fake_checkpoint)
+            counter = client.messages_token_counter(_config("anything"))
+            counter(None, [{"role": "user", "content": "hi"}])
+            acquire_spy.assert_not_called()
+
+    def test_dead_weakref_degrades_to_none(self):
+        client = self._client()
+        fake_checkpoint = native_module._LoadedCheckpoint(
+            model=Mock(), tokenizer=self._fake_tokenizer([1]), vision=False, model_type="qwen3",
+        )
+        with patch.object(client, "_resolve_model", return_value=("/fake/path", False)):
+            client._checkpoint_refs[client._cache_key("/fake/path", False)] = weakref.ref(fake_checkpoint)
+            assert client.messages_token_counter(_config("anything")) is not None
+
+            del fake_checkpoint
+            gc.collect()
+
+            assert client.messages_token_counter(_config("anything")) is None
+
+
 class TestTokenCounter:
     """context_budget-facing: a real tokenizer, but only while warm.
 

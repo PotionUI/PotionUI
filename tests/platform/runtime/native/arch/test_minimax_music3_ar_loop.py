@@ -348,6 +348,111 @@ class TestFrameZeroDiscardAndShape:
         assert len(on_frame_calls) == out.shape[1]
 
 
+class TestSkipsUnusedFinalLmStep:
+    """``generate()`` must not assemble the feedback embedding or run
+    ``lm.step`` on the LAST requested frame -- the loop ends right after, so
+    nothing ever reads that hidden state. Compared against
+    :func:`_reference_generate`, which always steps every iteration (the
+    pre-fix semantics), for output/RNG bit-parity, real invocation counts,
+    progress events, and cache-size headroom.
+    """
+
+    @pytest.mark.parametrize("max_frames", [1, 5])
+    def test_output_and_generator_state_match_the_always_step_reference(self, max_frames):
+        lm = _build_lm(pruned=True, seed=40)
+        ids = torch.randint(0, 500, (2, 4), generator=torch.Generator().manual_seed(41))
+
+        ref_generator = torch.Generator().manual_seed(99)
+        with torch.inference_mode():
+            reference = _reference_generate(lm, ids.clone(), ref_generator, max_frames=max_frames)
+
+        actual_generator = torch.Generator().manual_seed(99)
+        actual = generate(lm, ids.clone(), actual_generator, max_frames=max_frames)
+
+        assert actual.shape == reference.shape == (1, max_frames, 8 * lm.cfg.hidden_size)
+        torch.testing.assert_close(actual, reference, atol=0.0, rtol=0.0)
+        assert torch.equal(ref_generator.get_state(), actual_generator.get_state())
+
+    def test_output_and_generator_state_match_reference_when_stop_fires_early(self):
+        row = torch.randint(0, 500, (1, 4))
+        ids = row.repeat(2, 1)
+        lm = _build_lm(pruned=True, seed=42)
+        _force_stop_token(lm, ids)
+
+        ref_generator = torch.Generator().manual_seed(5)
+        with torch.inference_mode():
+            reference = _reference_generate(lm, ids.clone(), ref_generator, max_frames=5)
+        actual_generator = torch.Generator().manual_seed(5)
+        actual = generate(lm, ids.clone(), actual_generator, max_frames=5)
+
+        assert actual.shape == reference.shape == (1, 0, 8 * lm.cfg.hidden_size)
+        torch.testing.assert_close(actual, reference, atol=0.0, rtol=0.0)
+        assert torch.equal(ref_generator.get_state(), actual_generator.get_state())
+
+    def test_lm_step_is_called_n_times_for_n_frames_not_n_plus_one(self):
+        lm = _build_lm(pruned=True, seed=43)
+        ids = torch.randint(0, 500, (2, 4))
+        max_frames = 4
+
+        calls = 0
+        original_step = MiniMaxMusic3AudioLM.step
+
+        def counting_step(self, *a, **k):
+            nonlocal calls
+            calls += 1
+            return original_step(self, *a, **k)
+
+        MiniMaxMusic3AudioLM.step = counting_step
+        try:
+            out = generate(lm, ids, torch.Generator().manual_seed(6), max_frames=max_frames)
+        finally:
+            MiniMaxMusic3AudioLM.step = original_step
+
+        assert out.shape[1] == max_frames  # no stop token forced -> every frame kept
+        assert calls == max_frames  # not max_frames + 1
+
+    def test_progress_events_are_unaffected_by_the_skip(self):
+        lm = _build_lm(pruned=True, seed=44)
+        ids = torch.randint(0, 500, (2, 4))
+        max_frames = 3
+        seen: list[tuple[int, int]] = []
+        out = generate(
+            lm, ids, torch.Generator().manual_seed(7), max_frames=max_frames,
+            on_frame=lambda i, m: seen.append((i, m)),
+        )
+        assert seen == [(i, max_frames) for i in range(1, out.shape[1] + 1)]
+
+    def test_cache_headroom_one_slot_unused_after_the_skip(self, monkeypatch):
+        """The KV cache is sized ``prompt_tokens + max_frames + 1`` -- the
+        ``+1`` exists ONLY for the now-skipped final step's forward. Pre-fix
+        that step ran and ``cache.filled_len`` ended exactly at ``max_len``
+        (the position budget's own accounting, see the module docstring);
+        post-fix it ends one short, proving the removed step was never
+        load-bearing for the cache either.
+        """
+        lm = _build_lm(pruned=True, seed=45)
+        ids = torch.randint(0, 500, (2, 4))
+        max_frames = 4
+        prompt_tokens = ids.shape[1]
+
+        captured: dict[str, object] = {}
+        original_new_kv_cache = MiniMaxMusic3AudioLM.new_kv_cache
+
+        def capturing_new_kv_cache(self, max_len, **kwargs):
+            cache = original_new_kv_cache(self, max_len, **kwargs)
+            captured["cache"] = cache
+            captured["max_len"] = max_len
+            return cache
+
+        monkeypatch.setattr(MiniMaxMusic3AudioLM, "new_kv_cache", capturing_new_kv_cache)
+
+        out = generate(lm, ids, torch.Generator().manual_seed(8), max_frames=max_frames)
+
+        assert out.shape[1] == max_frames  # no stop token forced -> every frame kept
+        assert captured["max_len"] == prompt_tokens + max_frames + 1
+        assert captured["cache"].filled_len == prompt_tokens + max_frames
+
+
 class TestArTiming:
     """The sub-stage timing added on top of the AR loop: emitted through the
     same ``get_profiler().mark(...)`` mechanism as ``native.move_to`` /
@@ -403,11 +508,17 @@ class TestArTiming:
         assert prefill["cpu_s"] > 0
         assert prefill["gpu_s"] == 0.0  # CPU device: no CUDA events recorded
 
-        for name in ("ar.lm_step", "ar.depth"):
-            fields = by_event[name]
-            assert fields["calls"] == runs
-            assert fields["cpu_s"] > 0
-            assert fields["gpu_s"] == 0.0
+        depth = by_event["ar.depth"]
+        assert depth["calls"] == runs
+        assert depth["cpu_s"] > 0
+        assert depth["gpu_s"] == 0.0
+
+        # lm_step is skipped on the LAST requested frame -- nothing ever
+        # reads the hidden state it would produce (see ar_loop.generate).
+        lm_step = by_event["ar.lm_step"]
+        assert lm_step["calls"] == frame_count
+        assert lm_step["cpu_s"] > 0
+        assert lm_step["gpu_s"] == 0.0
 
         # sampling_feedback is entered twice per iteration (semantic sample,
         # then feedback embedding + bookkeeping) -- see ar_loop.generate.

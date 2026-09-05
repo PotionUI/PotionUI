@@ -159,6 +159,8 @@ def generate(
                 if on_frame is not None:
                     on_frame(frame_idx, max_frames)
 
+            if frame_idx == max_frames:  # no further iteration will ever read llm_hidden again
+                continue
             feedback = _feedback_embedding(lm, code0, codes).to(device)  # [1, hidden]
         with timing.track("lm_step"):
             llm_hidden = lm.step(feedback.unsqueeze(0).expand(2, 1, -1), cache).squeeze(1)  # [2, hidden]

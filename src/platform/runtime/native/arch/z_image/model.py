@@ -208,9 +208,10 @@ class ZImageDiT(NativeArchModule):
                 if step_cache.should_skip(probe):
                     return step_cache.record_skip()
 
-        joint = self.final_layer(joint, adaln_input)
-        # unpatchify the real image tokens (drop caption + trailing x-pad tokens).
-        img_tokens = joint[:, cap_len:cap_len + h_tok * w_tok]
+        # Take the real image tokens (drop caption + trailing x-pad tokens) BEFORE
+        # the head: _FinalLayer is token-local (per-token norm, broadcast adaLN
+        # scale, per-token linear), so head work on the dropped rows is discarded.
+        img_tokens = self.final_layer(joint[:, cap_len:cap_len + h_tok * w_tok], adaln_input)
         out = img_tokens.view(bsz, h_tok, w_tok, p, p, self.out_channels)
         out = out.permute(0, 5, 1, 3, 2, 4).reshape(bsz, self.out_channels, ph, pw)
         out_final = -out[:, :, :h, :w]

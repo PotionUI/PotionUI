@@ -1156,6 +1156,128 @@ describe('createSessionController', () => {
 		expect(state.isHistoryLoading).toBe(false);
 	});
 
+	// The busy flag a command raised gates tab adoption and the session
+	// controls, so a request left behind in the old context holds the new one
+	// hostage to a response that may never come.
+	it('is not left busy by a delete the context switch retired', async () => {
+		await bootWithDirtySession();
+		const stalled = deferred<{ success: boolean; data: { message: string } }>();
+		harness.api.deleteSession.mockReturnValue(stalled.promise as never);
+
+		const deleting = controller.deleteSession();
+		await settle();
+		expect(get(controller.state).isSessionLoading).toBe(true);
+
+		harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [] });
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+
+		// Usable before the old delete has answered at all.
+		let state = get(controller.state);
+		expect(state.isSessionLoading).toBe(false);
+		expect(state.sessionControlsEnabled).toBe(true);
+
+		stalled.resolve({ success: true, data: { message: 'ok' } });
+		await settle();
+
+		state = get(controller.state);
+		expect(state.isSessionLoading).toBe(false);
+		expect(await deleting).toBe(false);
+		expect(harness.toasts.error).not.toHaveBeenCalled();
+	});
+
+	it('does not let a retired delete lower the flag of one issued in the new context', async () => {
+		await bootWithDirtySession();
+		const stalled = deferred<{ success: boolean; data: { message: string } }>();
+		const replacement = deferred<{ success: boolean; data: { message: string } }>();
+		let call = 0;
+		harness.api.deleteSession.mockImplementation(
+			(() => (call++ === 0 ? stalled.promise : replacement.promise)) as never
+		);
+
+		void controller.deleteSession();
+		await settle();
+
+		harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [] });
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+
+		void controller.deleteSession();
+		await settle();
+		expect(get(controller.state).isSessionLoading).toBe(true);
+
+		stalled.resolve({ success: true, data: { message: 'ok' } });
+		await settle();
+		expect(get(controller.state).isSessionLoading).toBe(true);
+
+		replacement.resolve({ success: true, data: { message: 'ok' } });
+		await settle();
+		expect(get(controller.state).isSessionLoading).toBe(false);
+	});
+
+	it('is not left saving by a save-as the context switch retired', async () => {
+		await bootWithDirtySession();
+		const stalled = deferred<{ success: boolean; data: Session }>();
+		harness.api.saveSession.mockReturnValue(stalled.promise as never);
+
+		const saving = controller.saveAs('Fresh', 'save-as');
+		await settle();
+		expect(get(controller.state).isSaving).toBe(true);
+
+		harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [] });
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+		expect(get(controller.state).isSaving).toBe(false);
+
+		stalled.resolve({ success: true, data: makeSession('created', { name: 'Fresh' }) });
+		await settle();
+
+		expect(get(controller.state).isSaving).toBe(false);
+		expect(await saving).toBe(false);
+	});
+
+	it('is not left restoring by a restore the context switch retired', async () => {
+		await bootWithDirtySession();
+		const stalled = deferred<{ success: boolean; data: unknown }>();
+		harness.api.getSessionVersion.mockReturnValue(stalled.promise as never);
+
+		void controller.restoreVersion(SESSION_A, 2);
+		await settle();
+		expect(get(controller.state).isRestoringVersion).toBe(true);
+
+		harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [] });
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+		expect(get(controller.state).isRestoringVersion).toBe(false);
+
+		stalled.resolve({
+			success: true,
+			data: { version_number: 2, created_at: '2026-01-01T00:00:00Z', summary: 'Save 2', data: {} }
+		});
+		await settle();
+
+		expect(get(controller.state).isRestoringVersion).toBe(false);
+		expect(harness.toasts.info).not.toHaveBeenCalled();
+	});
+
+	it('does not carry a cancelled save dialog busy indicator into the reopened one', async () => {
+		await bootWithDirtySession();
+		const stalled = deferred<{ success: boolean; data: Session }>();
+		harness.api.saveSession.mockReturnValue(stalled.promise as never);
+
+		controller.openDialog('save');
+		void controller.saveAs('Fresh', 'save-as');
+		await settle();
+		expect(get(controller.state).isSaving).toBe(true);
+
+		controller.closeDialog('save');
+		expect(get(controller.state).isSaving).toBe(false);
+
+		controller.openDialog('save');
+		await settle();
+		expect(get(controller.state).isSaving).toBe(false);
+	});
+
 	// A read the context switch retired is not coming back to lower its own
 	// flag, and it may never arrive at all. The new context must not wait on it.
 	it('is not left busy by a selection the context switch retired', async () => {

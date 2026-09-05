@@ -600,13 +600,45 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		};
 	}
 
+	/**
+	 * Lowers the busy indicator a dialog is showing. The handle is deliberately
+	 * left alone here: it is what stops a late `finally` from lowering a LATER
+	 * operation's flag, while the dialog token is what decides who may still
+	 * answer for the dialog. Only a departed context retires both.
+	 */
+	function lowerDialogBusy(kind: SessionDialogKind) {
+		if (kind === 'save') isSaving = false;
+		else if (kind === 'delete') isDeleteLoading = false;
+		else isRestoringVersion = false;
+	}
+
 	function openDialog(kind: SessionDialogKind) {
 		dialogSeq += 1;
 		openDialogTokens.set(kind, dialogSeq);
+		// A fresh opening is not the one that was working.
+		lowerDialogBusy(kind);
+		publish();
 	}
 
 	function closeDialog(kind: SessionDialogKind) {
 		openDialogTokens.delete(kind);
+		lowerDialogBusy(kind);
+		publish();
+	}
+
+	/**
+	 * Drops the view state a command raised for a context the user has left.
+	 * `sessionBusy()` gates tab adoption and the session controls, so a delete
+	 * still waiting on the old preset's server would otherwise hold the new
+	 * context hostage to a response that may never come.
+	 */
+	function retireCommandView() {
+		saveAsInFlight = null;
+		deleteInFlight = null;
+		restoreInFlight = null;
+		isSaving = false;
+		isDeleteLoading = false;
+		isRestoringVersion = false;
 	}
 
 	function ownsActiveState(command: SessionCommandToken): boolean {
@@ -1402,6 +1434,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			listGeneration += 1;
 			// Any of the three invalidates a selection hydration.
 			retireSelectionRead();
+			retireCommandView();
 		}
 		// The list belongs to the preset and mode, not the tab: a switch onto the
 		// same preset leaves an in-flight load perfectly valid, and nothing would

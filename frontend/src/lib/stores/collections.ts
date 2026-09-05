@@ -21,23 +21,41 @@ const initialState: CollectionsState = {
 function createCollectionsStore(scope: CollectionScope) {
 	const { subscribe, update, set } = writable<CollectionsState>(initialState);
 
+	// Overlapping refresh()es race (create/rename/move/... all trigger one, and
+	// a plain load() can be in flight too), so every call is stamped with a
+	// monotonic sequence number and only the response with the highest applied
+	// sequence so far is allowed to touch the store - an older one settling
+	// later must not clobber a newer result or clear loading it doesn't own.
+	// reset() bumps the lifetime token instead, retiring every in-flight
+	// refresh at once so a pending response can never repopulate a reset store.
+	let requestSeq = 0;
+	let appliedSeq = 0;
+	let lifetime = 0;
+
 	// Named refresh so the mutations below never depend on `this` binding.
 	async function refresh() {
-		update((state) => ({ ...state, loading: true }));
+		const seq = ++requestSeq;
+		const requestLifetime = lifetime;
+		update((state) => (seq > appliedSeq ? { ...state, loading: true } : state));
 		try {
 			const response = await api.listCollections(scope);
+			if (requestLifetime !== lifetime || seq <= appliedSeq) return;
 			if (response.success && response.data) {
 				const data = response.data;
+				appliedSeq = seq;
 				update((state) => ({
 					...state,
 					collections: data.collections,
 					loading: false
 				}));
 			} else {
+				appliedSeq = seq;
 				update((state) => ({ ...state, loading: false }));
 			}
 		} catch (error) {
 			logger.error('Failed to load collections:', getErrorMessage(error));
+			if (requestLifetime !== lifetime || seq <= appliedSeq) return;
+			appliedSeq = seq;
 			update((state) => ({ ...state, loading: false }));
 		}
 	}
@@ -131,6 +149,7 @@ function createCollectionsStore(scope: CollectionScope) {
 		},
 
 		reset() {
+			lifetime++;
 			set(initialState);
 		}
 	};

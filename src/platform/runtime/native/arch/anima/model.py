@@ -80,6 +80,7 @@ from vendor.gpl.comfyui.anima.layers import (
 
 from ...attention import attention as _dispatch_attention
 from ...base import NativeArchModule
+from ...cache_identity import identity_usable, tensor_identity
 from .config import AnimaConfig
 
 Tensor = torch.Tensor
@@ -111,21 +112,16 @@ def _pad_to_patch_size(img: Tensor, patch_size: Tuple[int, int, int]) -> Tensor:
 class _FusedText(NamedTuple):
     """A cached fused cross-attention context plus the tensors its key names.
 
-    Holding the sources is what makes ``data_ptr`` identity a sound key: while an
-    entry lives its source tensors cannot be freed, so no later tensor can be
-    allocated at one of those addresses and be mistaken for it.
+    Holding the sources closes the one hole ``tensor_identity`` cannot see: a
+    freed tensor's address can be handed to a new allocation, whose version
+    counter starts over. While an entry lives its sources cannot be freed, so no
+    later tensor can occupy one of those addresses and be mistaken for it.
     """
 
     fused: Tensor
     context: Tensor
     t5xxl_ids: Tensor
     t5xxl_weights: Optional[Tensor]
-
-
-def _tensor_id(t: Optional[Tensor]):
-    if t is None:
-        return None
-    return (t.data_ptr(), tuple(t.shape), t.dtype, t.device)
 
 
 # ---------------------------------------------------------------------------
@@ -214,13 +210,16 @@ class Anima(NativeArchModule):
         cache = getattr(self, "run_cache", None)
         key = None
         if cache is not None:
-            key = (
-                "anima.fused_text", cache.revision, x.dtype, x.device,
-                _tensor_id(context), _tensor_id(t5xxl_ids), _tensor_id(t5xxl_weights),
-            )
-            hit = cache.get(key)
-            if hit is not None:
-                return hit.fused
+            ids = (tensor_identity(context), tensor_identity(t5xxl_ids),
+                   tensor_identity(t5xxl_weights))
+            if identity_usable(*ids):
+                # cache.revision is read here, per lookup, never hoisted across
+                # steps: it tracks the model's effective weights and may move
+                # mid-run when a scheduled adapter window applies or restores.
+                key = ("anima.fused_text", cache.revision, x.dtype, x.device, *ids)
+                hit = cache.get(key)
+                if hit is not None:
+                    return hit.fused
 
         crossattn = self.preprocess_text_embeds(context.to(dtype=x.dtype), t5xxl_ids.to(device=x.device))
         if t5xxl_weights is not None:

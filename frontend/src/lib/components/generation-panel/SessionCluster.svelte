@@ -26,6 +26,10 @@
 		sessionIsDirty,
 		shouldHydrateSessionSelection
 	} from '$lib/utils/sessionTabState';
+	import {
+		sessionCommandOwnsActiveState,
+		type SessionCommandToken
+	} from '$lib/utils/sessionCommandOwnership';
 	import { activeWorkspaceSaveRequest, settleWorkspaceSaveRequest } from '$lib/stores/workspaceSaveRequest';
 	import { activeWorkspaceDirtyQuery, answerWorkspaceDirtyQuery } from '$lib/stores/workspaceDirtyQuery';
 	import { toasts } from '$lib/stores/toast';
@@ -55,6 +59,13 @@
 	let isSaving = false;
 	let isQuickSaving = false;
 	let error: string | null = null;
+
+	// Ownership of the active state for in-flight session commands. See
+	// utils/sessionCommandOwnership.ts: `commandGeneration` moves on every
+	// selection/tab/preset change and on destroy, `quickSaveInFlight` keeps the
+	// saving flag owned by the newest quick save rather than the first to finish.
+	let commandGeneration = 0;
+	let quickSaveInFlight: SessionCommandToken | null = null;
 
 	let historySessionId: string | null = null;
 	let historyVersions: SessionVersionSummary[] = [];
@@ -172,6 +183,20 @@
 				sessionBaselineAwaitingFormNormalization: false
 			});
 		}
+	}
+
+	$: bumpCommandGeneration(tabId, presetId, currentMode, selectedSessionId);
+
+	function bumpCommandGeneration(..._selectionContext: unknown[]) {
+		commandGeneration += 1;
+	}
+
+	function beginSessionCommand(): SessionCommandToken {
+		return { sessionId: selectedSessionId, generation: commandGeneration };
+	}
+
+	function ownsActiveState(command: SessionCommandToken): boolean {
+		return sessionCommandOwnsActiveState(command, commandGeneration, selectedSessionId);
 	}
 
 	$: currentSessionSignature =
@@ -301,6 +326,7 @@
 
 	onDestroy(() => {
 		stopAutoSave();
+		commandGeneration += 1;
 		if (loadSessionsRetryTimer !== null) clearTimeout(loadSessionsRetryTimer);
 	});
 
@@ -409,6 +435,8 @@
 		}
 
 		const savingSession = currentSession;
+		const command = beginSessionCommand();
+		quickSaveInFlight = command;
 
 		try {
 			isQuickSaving = true;
@@ -421,15 +449,20 @@
 
 			if (response.success && response.data) {
 				sessions = sessions.map((s) => (s.id === savingSession.id ? response.data! : s));
-				currentSession = response.data;
-				recordSavedBaseline(JSON.stringify(sessionData));
-				hasUnsavedChanges = false;
-				lastSavedTime = new Date();
+				if (ownsActiveState(command)) {
+					currentSession = response.data;
+					recordSavedBaseline(JSON.stringify(sessionData));
+					hasUnsavedChanges = false;
+					lastSavedTime = new Date();
+				}
 			}
 		} catch (err) {
 			logger.error('Auto-save failed:', err);
 		} finally {
-			isQuickSaving = false;
+			if (quickSaveInFlight === command) {
+				quickSaveInFlight = null;
+				isQuickSaving = false;
+			}
 		}
 	}
 
@@ -572,10 +605,12 @@
 			return;
 		}
 
+		const command = beginSessionCommand();
+
 		try {
 			isRestoringVersion = true;
 			const response = await api.getSessionVersion(sessionId, versionNumber);
-			if (response.success && response.data) {
+			if (response.success && response.data && ownsActiveState(command)) {
 				const version = response.data;
 				await applySessionModeData(sessionId, version.data, sessionMeta, { markSaved: false });
 				closeSessionHistory();
@@ -611,6 +646,8 @@
 		}
 
 		const savingSession = currentSession;
+		const command = beginSessionCommand();
+		quickSaveInFlight = command;
 
 		try {
 			isQuickSaving = true;
@@ -625,16 +662,23 @@
 
 			if (response.success && response.data) {
 				sessions = sessions.map((s) => (s.id === savingSession.id ? response.data! : s));
-				currentSession = response.data;
-				recordSavedBaseline(JSON.stringify(sessionData));
-				hasUnsavedChanges = false;
-				lastSavedTime = new Date();
+				if (ownsActiveState(command)) {
+					currentSession = response.data;
+					recordSavedBaseline(JSON.stringify(sessionData));
+					hasUnsavedChanges = false;
+					lastSavedTime = new Date();
+				}
 			}
 		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to save session';
+			if (ownsActiveState(command)) {
+				error = err instanceof Error ? err.message : 'Failed to save session';
+			}
 			logger.error('Failed to quick save:', err);
 		} finally {
-			isQuickSaving = false;
+			if (quickSaveInFlight === command) {
+				quickSaveInFlight = null;
+				isQuickSaving = false;
+			}
 		}
 	}
 
@@ -669,26 +713,30 @@
 			return;
 		}
 
+		const command = beginSessionCommand();
+
 		try {
 			isSaving = true;
 			error = null;
 
 			const sessionData = collectCurrentSessionData();
 
-			if (!isSaveAs && selectedSessionId) {
-				const response = await api.updateSession(selectedSessionId, {
+			if (!isSaveAs && command.sessionId) {
+				const response = await api.updateSession(command.sessionId, {
 					name: sessionName.trim(),
 					data: sessionData
 				});
 
 				if (response.success && response.data) {
 					sessions = sessions.map((s) =>
-						s.id === selectedSessionId ? response.data! : s
+						s.id === command.sessionId ? response.data! : s
 					);
-					currentSession = response.data;
-					recordSavedBaseline(JSON.stringify(sessionData));
-					hasUnsavedChanges = false;
-					lastSavedTime = new Date();
+					if (ownsActiveState(command)) {
+						currentSession = response.data;
+						recordSavedBaseline(JSON.stringify(sessionData));
+						hasUnsavedChanges = false;
+						lastSavedTime = new Date();
+					}
 				}
 			} else {
 				const response = await api.saveSession({
@@ -699,19 +747,23 @@
 
 				if (response.success && response.data) {
 					sessions = [response.data, ...sessions];
-					selectedSessionId = response.data.id;
-					currentSession = response.data;
-					recordSavedBaseline(JSON.stringify(sessionData));
-					hasUnsavedChanges = false;
-					lastSavedTime = new Date();
+					if (ownsActiveState(command)) {
+						selectedSessionId = response.data.id;
+						currentSession = response.data;
+						recordSavedBaseline(JSON.stringify(sessionData));
+						hasUnsavedChanges = false;
+						lastSavedTime = new Date();
 
-					tabsStore.updateTab(tabId, { selectedSessionId: response.data.id });
+						tabsStore.updateTab(tabId, { selectedSessionId: response.data.id });
+					}
 				}
 			}
 
 			closeModals();
 		} catch (err) {
-			nameError = err instanceof Error ? err.message : 'Failed to save session';
+			if (ownsActiveState(command)) {
+				nameError = err instanceof Error ? err.message : 'Failed to save session';
+			}
 			logger.error('Failed to save session:', err);
 		} finally {
 			isSaving = false;
@@ -725,19 +777,23 @@
 	async function confirmDelete() {
 		if (!selectedSessionId) return;
 
+		const command = beginSessionCommand();
+
 		try {
 			isSessionLoading = true;
 
-			await api.deleteSession(selectedSessionId);
+			await api.deleteSession(command.sessionId);
 
-			sessions = sessions.filter((s) => s.id !== selectedSessionId);
-			selectedSessionId = '';
-			currentSession = null;
-			hasUnsavedChanges = false;
-			recordSavedBaseline(null);
-			lastSavedTime = null;
+			sessions = sessions.filter((s) => s.id !== command.sessionId);
+			if (ownsActiveState(command)) {
+				selectedSessionId = '';
+				currentSession = null;
+				hasUnsavedChanges = false;
+				recordSavedBaseline(null);
+				lastSavedTime = null;
 
-			tabsStore.updateTab(tabId, { selectedSessionId: null, savedSessionSignature: null });
+				tabsStore.updateTab(tabId, { selectedSessionId: null, savedSessionSignature: null });
+			}
 
 			showDeleteConfirm = false;
 		} catch (err) {

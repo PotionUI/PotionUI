@@ -16,6 +16,8 @@ from __future__ import annotations
 import pytest
 import torch
 
+from src.features.generation.handlers.artifact_handlers import serialize_models_output
+from src.features.generation.output_types import SerializeContext
 from src.platform.runtime.native.arch.flux.model import Flux
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
@@ -229,6 +231,52 @@ def test_failed_reconciliation_leaves_no_success_stamp_or_evidence(dit, fake_lor
     assert dit._active_lora_application == ()
     assert rec.events == [], "a failed reconciliation must not emit a success diagnostic"
     assert torch.equal(_target_weight(dit.module), before)
+
+
+# -- file identity: same basename, different directory -----------------------
+
+SAME_NAME_VALID = "/models/loras/dir1/adapter.safetensors"
+SAME_NAME_BOGUS = "/models/loras/dir2/adapter.safetensors"
+
+
+@pytest.fixture
+def fake_same_basename_files(monkeypatch):
+    """Two files sharing a basename but living in different directories --
+    `Path(source).stem` alone ("adapter") cannot tell them apart."""
+    files = {
+        SAME_NAME_VALID: _kohya_lora("lora_unet_double_blocks_0_img_attn_qkv", seed=41),
+        SAME_NAME_BOGUS: _kohya_lora("lora_unet_totally_bogus", seed=42),
+    }
+    monkeypatch.setattr(
+        "src.pipelines.pipes._shared.generation.loader_helpers.load_torch_file",
+        lambda path, device="cpu": (files[path], {}),
+    )
+    return files
+
+
+def test_same_basename_files_are_distinguishable_in_the_serialized_artifact(dit, fake_same_basename_files):
+    """The durable, SERIALIZED evidence -- what actually reaches the run
+    report -- must keep the two files apart even though their friendly
+    display name collides."""
+    rec = _Recorder()
+    loras = [_entry(SAME_NAME_VALID), _entry(SAME_NAME_BOGUS)]
+
+    sync_loras(dit, loras, "same-name-stack", _apply, generation_outputs=rec.outputs, log_tag="TEST")
+
+    (artifact,) = rec.model_artifacts
+    serialized = serialize_models_output(artifact, SerializeContext(generation_id="test"))
+    models = serialized["artifact_data"]["models"]
+
+    assert len(models) == 2
+    assert {m["name"] for m in models} == {"adapter"}, "friendly names DO collide"
+    source_ids = {m["source_id"] for m in models}
+    assert len(source_ids) == 2, "but the bounded source_id must not"
+    assert any(sid.startswith("dir1/adapter.safetensors#") for sid in source_ids)
+    assert any(sid.startswith("dir2/adapter.safetensors#") for sid in source_ids)
+
+    zero_effect = [m for m in models if m["zero_effect"]]
+    assert len(zero_effect) == 1
+    assert zero_effect[0]["unmatched_sample"] == ["lora_unet_totally_bogus"]
 
 
 # -- through the real Flux/Krea-2 process() ----------------------------------

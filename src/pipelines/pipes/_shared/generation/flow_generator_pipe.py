@@ -37,7 +37,10 @@ from src.pipelines.contracts import PipeConfigSpec, PipeInput
 from src.pipelines.outputs import Icon
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
 from src.pipelines.pipes._shared.generation.img2img import Img2ImgGeneratorMixin
-from src.pipelines.pipes._shared.generation.loader_helpers import load_windowed_lora_stack
+from src.pipelines.pipes._shared.generation.loader_helpers import (
+    emit_lora_application_diagnostics,
+    load_windowed_lora_stack,
+)
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter, native_step_hooks
 
 # `spectral_progressive`'s only recognised sub-keys -- everything
@@ -285,6 +288,32 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
         hook = getattr(self, "_lora_window_hook", None)
         return (hook,) if hook is not None else ()
 
+    def _emit_lora_window_diagnostics(self, progress: ProgressEmitter) -> None:
+        """Surface the current item's windowed-LoRA evidence (``hook.history``
+        -- the union across every window this item's hook has actually
+        applied, see :class:`LoraStepWindowHook`) through the SAME
+        generation-visible idiom the model-loader boundary uses.
+
+        Called once per item, right after sampling finishes and before the
+        hook closes (``last_application``/``history`` are still populated at
+        that point) -- not from :meth:`generation_scope`, which has no
+        ``ProgressEmitter`` of its own. Deduped on ``self`` by content: a
+        batch of N items reusing the SAME windowed stack (the overwhelming
+        common case — the LoRA config doesn't vary by seed) emits exactly
+        once for the whole generation, not once per item; a later item whose
+        evidence genuinely differs (a distinct window mix) still gets its own
+        emission. Applies regardless of whether the underlying DiT was a
+        cache hit or a fresh load -- a windowed LoRA is never baked/cached,
+        so it is always freshly (re)applied per item either way.
+        """
+        hook = getattr(self, "_lora_window_hook", None)
+        if hook is None or not hook.history:
+            return
+        if getattr(self, "_lora_window_diag_emitted", None) == hook.history:
+            return
+        self._lora_window_diag_emitted = hook.history
+        emit_lora_application_diagnostics(progress.emit, hook.history, self.family_tag)
+
     @contextmanager
     def generation_scope(self, ctx: GeneratorContext, index: int) -> Iterator[None]:
         """Install a :class:`LoraStepWindowHook` for ONE generated item.
@@ -375,6 +404,7 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
                                     extra=self.extra_step_hooks()),
             is_cancelled=ctx.is_cancelled,
         )
+        self._emit_lora_window_diagnostics(progress)
         # Iterate mode: when sample() actually resumed from a cached trajectory,
         # surface it as a pipe_artifact + a status line. A cold run leaves
         # gen.last_warm_start None/absent and emits nothing.

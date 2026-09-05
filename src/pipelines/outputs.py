@@ -264,6 +264,15 @@ class ModelGenerationOutput(GenerationOutput):
     unmatched_keys: int = None
     zero_effect: bool = None
     ignored: List[str] = None
+    # A bounded, directory-disambiguating identifier for the underlying LoRA
+    # file (see loader_helpers._bounded_source_id) -- `name` alone (a bare
+    # filename stem) collapses two same-named files from different
+    # directories into one indistinguishable label.
+    source_id: str = None
+    # A bounded sample (see AdapterApplication.unmatched_sample) of the keys
+    # this file's stems failed to resolve, for diagnosing WHY without
+    # replaying the request.
+    unmatched_sample: List[str] = None
 
 @dataclass
 class ModelsGenerationOutput(GenerationOutput):

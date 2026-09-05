@@ -169,7 +169,7 @@ class TestApplyLorasTo:
     def test_empty_loras_is_a_noop(self, monkeypatch):
         called = []
         monkeypatch.setattr(lh, "load_torch_file", lambda *a, **kw: called.append("load"))
-        monkeypatch.setattr(lh, "apply_loras", lambda *a, **kw: called.append("apply"))
+        monkeypatch.setattr(lh, "apply_loras_with_report", lambda *a, **kw: called.append("apply"))
         lh.apply_loras_to(object(), [], "TEST")
         assert called == []
 
@@ -182,13 +182,14 @@ class TestApplyLorasTo:
 
         applied = {}
 
-        def fake_apply(module, stack):
+        def fake_apply(module, stack, names=None):
             applied["module"] = module
             applied["stack"] = stack
-            return (3, ["unmatched.key"])
+            applied["names"] = names
+            return (3, ["unmatched.key"], [])
 
         monkeypatch.setattr(lh, "load_torch_file", fake_load)
-        monkeypatch.setattr(lh, "apply_loras", fake_apply)
+        monkeypatch.setattr(lh, "apply_loras_with_report", fake_apply)
 
         dit_model = types.SimpleNamespace(module="THE_MODULE")
         loras = [

@@ -9,6 +9,7 @@ existing per-preset log lines.
 """
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -126,10 +127,14 @@ def partition_step_windows(
 
 
 def load_windowed_lora_stack(loras: List[Dict[str, Any]]) -> List[Any]:
-    """Load windowed entries into the ``(state_dict, strength, window)`` triples
-    :class:`~src.platform.runtime.native.lora.LoraStepWindowHook` toggles."""
+    """Load windowed entries into the ``(state_dict, strength, window,
+    file_path)`` 4-tuples :class:`~src.platform.runtime.native.lora.LoraStepWindowHook`
+    toggles -- ``file_path`` is what the hook's application-evidence diagnostics
+    use as the adapter's durable source identity (see ``AdapterApplication``);
+    without it every windowed LoRA would report as an indistinguishable
+    ``"window-lora[i]"`` placeholder."""
     return [
-        (load_torch_file(lora["file_path"], device="cpu")[0], lora["weight"], lora["window"])
+        (load_torch_file(lora["file_path"], device="cpu")[0], lora["weight"], lora["window"], lora["file_path"])
         for lora in loras
     ]
 
@@ -204,6 +209,26 @@ def apply_loras_to(
     return reports
 
 
+def _bounded_source_id(source: str) -> str:
+    """A bounded, directory-disambiguating identifier for a LoRA's ``source``.
+
+    ``ModelGenerationOutput.name`` (``Path(source).stem``) is a friendly
+    label, not an identifier — two trainers both shipping a
+    ``v1.safetensors`` collapse to the same display name, and evidence keyed
+    only on that name for two different files is not durable evidence at
+    all. This is the last TWO path segments (parent dir + filename) plus an
+    8-hex-char hash of the FULL source string, so it stays short (bounded)
+    while remaining unique per distinct source even when the friendly name
+    collides. A non-path source (the step-window hook's positional
+    ``"window-lora[i]"`` placeholder, absent a real file) degrades to just
+    that string plus its own hash — still bounded, still unique per label.
+    """
+    parts = Path(source).parts
+    short = "/".join(parts[-2:]) if len(parts) >= 2 else (parts[-1] if parts else source)
+    digest = hashlib.sha1(source.encode("utf-8")).hexdigest()[:8]
+    return f"{short}#{digest}"
+
+
 def emit_lora_application_diagnostics(
     generation_outputs: Optional[Callable],
     reports: Sequence[AdapterApplication],
@@ -221,7 +246,12 @@ def emit_lora_application_diagnostics(
     carrying the per-adapter evidence — captured durably into the
     generation's run report by the existing pipe_artifact recording, and
     distinct from the *requested* stack identity a loader's
-    ``describe_models()`` emits up front.
+    ``describe_models()`` emits up front. Each entry carries both the
+    friendly ``name`` AND the unambiguous ``source_id`` (see
+    :func:`_bounded_source_id`) plus a bounded sample of its unmatched keys,
+    so the durable evidence distinguishes same-named files in different
+    directories and keeps enough of the "why" to diagnose without the raw
+    request needing to be replayed.
     """
     if generation_outputs is None or not reports:
         return
@@ -242,6 +272,8 @@ def emit_lora_application_diagnostics(
             unmatched_keys=r.unmatched_keys,
             zero_effect=r.zero_effect,
             ignored=[f"{ic.kind}×{ic.count}" for ic in r.ignored] or None,
+            source_id=_bounded_source_id(r.source),
+            unmatched_sample=list(r.unmatched_sample) or None,
         )
         for r in reports
     ]))

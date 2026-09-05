@@ -445,6 +445,10 @@ def serialize_models_output(output: ModelsGenerationOutput, ctx: SerializeContex
                 model_data['zero_effect'] = bool(model.zero_effect)
             if getattr(model, 'ignored', None):
                 model_data['ignored'] = [str(item) for item in model.ignored]
+            if getattr(model, 'source_id', None):
+                model_data['source_id'] = str(model.source_id)
+            if getattr(model, 'unmatched_sample', None):
+                model_data['unmatched_sample'] = [str(item) for item in model.unmatched_sample]
             models_data.append(model_data)
 
         result['artifact_data']['models'] = models_data

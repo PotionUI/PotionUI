@@ -113,8 +113,37 @@ def has_lora_window(entry: Dict[str, Any]) -> bool:
     )
 
 
-# A windowed LoRA ready to toggle: its loaded state dict, its strength, and when.
-WindowedLora = Tuple[Dict[str, torch.Tensor], float, LoraStepWindow]
+# A windowed LoRA ready to toggle: its loaded state dict, its strength, when,
+# and (optionally, 4th) its source file path -- used only as the adapter's
+# durable identity in application-evidence diagnostics (see
+# `_entry_source`); every 3-tuple test fixture in this codebase omits it and
+# falls back to a positional "window-lora[i]" placeholder.
+WindowedLora = Tuple[Dict[str, torch.Tensor], float, LoraStepWindow, "str | None"]
+
+
+def _entry_source(entry: "WindowedLora | tuple", index: int) -> str:
+    """The durable source identity for ``entry`` -- its file path when the
+    caller supplied one (``load_windowed_lora_stack``, the real production
+    path), else a positional placeholder (hand-built test tuples)."""
+    if len(entry) > 3 and entry[3]:
+        return entry[3]
+    return f"window-lora[{index}]"
+
+
+def _merge_reports(
+    existing: Tuple[AdapterApplication, ...],
+    new: Tuple[AdapterApplication, ...],
+) -> Tuple[AdapterApplication, ...]:
+    """Union ``existing`` and ``new`` by ``.source``, ``new`` winning ties.
+
+    A source's evidence is a pure function of (module, its own state dict) —
+    it cannot change from one window transition to the next — so "latest
+    wins" is just a cheap way to dedupe, not a real overwrite of stale data.
+    """
+    by_source = {r.source: r for r in existing}
+    for r in new:
+        by_source[r.source] = r
+    return tuple(by_source.values())
 
 
 class LoraStepWindowHook(BaseStepHook):
@@ -180,6 +209,14 @@ class LoraStepWindowHook(BaseStepHook):
         #: once, not per step. Cleared to ``()`` on a failed apply — a
         #: half-patched module has no evidence describing it as applied.
         self.last_application: Tuple[AdapterApplication, ...] = ()
+        #: The UNION of every adapter's evidence seen across every window
+        #: transition this hook has made (merged by ``source``, latest wins –
+        #: a source's evidence cannot actually change run to run, only which
+        #: sources are active). This, not ``last_application`` alone, is what
+        #: a caller diagnosing "did any windowed adapter this item used ever
+        #: have a problem" should read: a run whose LAST window was clean can
+        #: still have carried a wholly-unmatched adapter in an EARLIER one.
+        self.history: Tuple[AdapterApplication, ...] = ()
 
     def on_start(self, total_steps: int) -> None:
         self.started = True
@@ -268,7 +305,8 @@ class LoraStepWindowHook(BaseStepHook):
         self._dirty = False
 
     def _warn_unreachable(self) -> None:
-        for index, (_sd, _weight, window) in enumerate(self._loras):
+        for index, entry in enumerate(self._loras):
+            window = entry[2]
             if window.start > self._total_steps:
                 logger.warning(
                     "LoRA #%d window (%s) starts past the run's %d step(s) — it will never apply",
@@ -276,8 +314,8 @@ class LoraStepWindowHook(BaseStepHook):
                 )
 
     def _active_at(self, step_index: int) -> Tuple[int, ...]:
-        return tuple(i for i, (_sd, _w, window) in enumerate(self._loras)
-                     if window.contains(step_index))
+        return tuple(i for i, entry in enumerate(self._loras)
+                     if entry[2].contains(step_index))
 
     def _sync(self, step_index: int) -> None:
         """Make the module's windowed patches match the active set at ``step_index``."""
@@ -292,7 +330,7 @@ class LoraStepWindowHook(BaseStepHook):
         stack: List[Tuple[Dict[str, torch.Tensor], float]] = [
             (self._loras[i][0], self._loras[i][1]) for i in wanted
         ]
-        names = [f"window-lora[{i}]" for i in wanted]
+        names = [_entry_source(self._loras[i], i) for i in wanted]
         # Marked dirty BEFORE the patch: a mid-apply failure still needs
         # close() to run the restore that undoes the partial work.
         self._dirty = True
@@ -309,4 +347,5 @@ class LoraStepWindowHook(BaseStepHook):
             raise
         self._applied = wanted
         self.last_application = tuple(report)
+        self.history = _merge_reports(self.history, self.last_application)
         logger.debug("step %d: windowed LoRA set -> %s", step_index, list(wanted))

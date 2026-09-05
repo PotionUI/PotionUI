@@ -1,9 +1,26 @@
 <script lang="ts">
-	export let artifact: { artifact_data: { models: Array<{ name: string; type: string; weight?: number }> } };
+	import Badge from '$lib/components/ui/Badge.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { describeLoraDiagnostic } from '$lib/utils/loraApplicationDiagnostics';
+
+	export let artifact: {
+		artifact_data: {
+			models: Array<{
+				name: string;
+				type: string;
+				weight?: number;
+				zero_effect?: boolean | null;
+				unmatched_keys?: number | null;
+				ignored?: string[] | null;
+				unmatched_sample?: string[] | null;
+			}>;
+		};
+	};
 </script>
 
 <div class="space-y-2">
 	{#each artifact.artifact_data.models as model}
+		{@const diagnostic = describeLoraDiagnostic(model)}
 		<div class="flex items-center gap-2 flex-wrap p-2 bg-surface-2/50">
 			<span class="px-2 py-1 bg-surface-3 text-fg text-xs font-semibold flex items-center gap-1">
 				<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -18,6 +35,16 @@
 				<span class="px-2 py-1 bg-success/10 text-success text-xs font-bold font-mono tabular-nums border border-success/25">
 					{model.weight}x
 				</span>
+			{/if}
+			{#if diagnostic}
+				<Tooltip
+					text={diagnostic.unmatchedSample.length
+						? `${diagnostic.reason} (${diagnostic.unmatchedSample.join(', ')})`
+						: diagnostic.reason}
+					position="top"
+				>
+					<Badge variant={diagnostic.tone} size="sm">{diagnostic.label}</Badge>
+				</Tooltip>
 			{/if}
 		</div>
 	{/each}

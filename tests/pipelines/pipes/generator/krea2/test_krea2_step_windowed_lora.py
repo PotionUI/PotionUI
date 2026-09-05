@@ -76,8 +76,9 @@ class _Journal:
         self.events: list[str] = []
         self.step = "pre"
 
-    def apply(self, module, stack):
+    def apply(self, module, stack, names=None):
         self.events.append(f"{self.step}:apply({len(stack)})")
+        return len(stack), [], []
 
     def restore(self, snapshot):
         self.events.append(f"{self.step}:restore")
@@ -86,7 +87,7 @@ class _Journal:
 @pytest.fixture
 def journal(monkeypatch):
     j = _Journal()
-    monkeypatch.setattr(f"{_WINDOW}.apply_loras", j.apply)
+    monkeypatch.setattr(f"{_WINDOW}.apply_loras_with_report", j.apply)
     monkeypatch.setattr(f"{_WINDOW}.restore_lora_state", j.restore)
     monkeypatch.setattr(f"{_WINDOW}.snapshot_lora_state", lambda module: "SNAP")
 

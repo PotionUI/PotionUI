@@ -78,11 +78,14 @@ class SDXLPostProcessor:
                     models.cleanup(aggressive=True)
                 else:
                     clear_gpu_memory()
-                if hasattr(vae, 'enable_tiling'):
-                    vae.enable_tiling()
-                image = vae.decode(latents, return_dict=False)[0]
-                if hasattr(vae, 'disable_tiling'):
-                    vae.disable_tiling()
+                was_tiling = getattr(vae, "use_tiling", False)
+                try:
+                    if not was_tiling and hasattr(vae, 'enable_tiling'):
+                        vae.enable_tiling()
+                    image = vae.decode(latents, return_dict=False)[0]
+                finally:
+                    if not was_tiling and hasattr(vae, 'disable_tiling'):
+                        vae.disable_tiling()
             else:
                 raise
 

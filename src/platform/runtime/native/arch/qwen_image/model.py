@@ -185,6 +185,10 @@ class QwenImageDiT(NativeArchModule):
         # for the common batch=1 case — exactly the sdpa fallback this is
         # meant to avoid.
         if mask is not None and not torch.is_floating_point(mask):
+            # Normalise once to a boolean keep-mask: an integer mask arrives as
+            # 0/1, but arithmetic on a genuinely boolean mask (`mask - 1`)
+            # raises, so every subsequent step works off `bool_mask` alone and
+            # the additive mask is built via masked_fill, never subtraction.
             bool_mask = mask.bool()
             # Trimming to `[:txt_len]` from the sequence START only preserves every
             # real token when padding trails (right-padded: real tokens form a
@@ -193,19 +197,23 @@ class QwenImageDiT(NativeArchModule):
             # sequence) — and skip the trim entirely in that case: real tokens must
             # never be silently dropped just to win back sage/flash eligibility.
             row_has_real_after_pad = (
-                bool((~bool_mask[:, :-1] & bool_mask[:, 1:]).any()) if mask.shape[1] > 1 else False
+                bool((~bool_mask[:, :-1] & bool_mask[:, 1:]).any()) if bool_mask.shape[1] > 1 else False
             )
             if not row_has_real_after_pad:
-                real_len = max(int(mask.sum(dim=1).max().item()), 1)
+                real_len = max(int(bool_mask.sum(dim=1).max().item()), 1)
                 txt_len = min(real_len, context.shape[1])
                 context = context[:, :txt_len]
-                mask = mask[:, :txt_len]
-                if bool(mask.all()):
+                bool_mask = bool_mask[:, :txt_len]
+                if bool(bool_mask.all()):
                     mask = None  # no padding left in the trimmed window: sage/flash eligible
                 else:
-                    mask = (mask - 1).to(x.dtype) * torch.finfo(x.dtype).max
+                    mask = torch.zeros(bool_mask.shape, dtype=x.dtype, device=x.device).masked_fill(
+                        ~bool_mask, torch.finfo(x.dtype).min
+                    )
             else:
-                mask = (mask - 1).to(x.dtype) * torch.finfo(x.dtype).max
+                mask = torch.zeros(bool_mask.shape, dtype=x.dtype, device=x.device).masked_fill(
+                    ~bool_mask, torch.finfo(x.dtype).min
+                )
 
         hidden_states, img_ids, orig_shape = self.pack_latents(x)
         num_embeds = hidden_states.shape[1]

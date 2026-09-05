@@ -21,9 +21,10 @@ class Settings:
             setting = self.setting_repository.get_setting_by_key(key)
             return setting.get_typed_value() if setting else default
         
-        # For system-wide requests
-        settings = self.setting_repository.get_effective_settings(user_id)
-        return settings.get(key, default)
+        # For system-wide requests: read the single row directly rather than
+        # materializing and type-converting every row in the settings table.
+        setting = self.setting_repository.get_setting_by_key(key)
+        return setting.get_typed_value() if setting else default
 
     def set_setting(self, key: str, value: Any, user_id: Optional[str] = None) -> bool:
         """Set a setting value directly in database"""

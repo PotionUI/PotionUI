@@ -34,18 +34,21 @@ class TestSettings:
             "civitai_api_key": ""
         }
 
-    def test_get_setting_system_wide(self, settings, mock_repository, sample_settings):
-        """Test getting a setting system-wide (no user)"""
-        mock_repository.get_effective_settings.return_value = sample_settings
+    def test_get_setting_system_wide(self, settings, mock_repository):
+        """System-wide get_setting reads the single row by key, not the full table."""
+        mock_setting = Mock(spec=Setting)
+        mock_setting.get_typed_value.return_value = "models"
+        mock_repository.get_setting_by_key.return_value = mock_setting
 
         result = settings.get_setting("models_dir")
 
         assert result == "models"
-        mock_repository.get_effective_settings.assert_called_once_with(None)
+        mock_repository.get_setting_by_key.assert_called_once_with("models_dir")
+        mock_repository.get_effective_settings.assert_not_called()
 
     def test_get_setting_with_default(self, settings, mock_repository):
         """Test getting a setting with default value"""
-        mock_repository.get_effective_settings.return_value = {}
+        mock_repository.get_setting_by_key.return_value = None
 
         result = settings.get_setting("nonexistent", default="default_value")
 
@@ -150,11 +153,15 @@ class TestSettings:
 
     def test_convenience_methods(self, settings, mock_repository):
         """Test convenience methods for common settings"""
-        sample_settings = {
-            "models_dir": "test_models",
-            "nsfw": True,
-        }
-        mock_repository.get_effective_settings.return_value = sample_settings
+        def setting_for(key):
+            mock_setting = Mock(spec=Setting)
+            mock_setting.get_typed_value.return_value = {
+                "models_dir": "test_models",
+                "nsfw": True,
+            }[key]
+            return mock_setting
+
+        mock_repository.get_setting_by_key.side_effect = setting_for
 
         assert settings.get_models_dir() == "test_models"
         assert settings.is_nsfw_enabled() is True
@@ -170,7 +177,7 @@ class TestSettings:
 
     def test_convenience_methods_defaults(self, settings, mock_repository):
         """Test convenience methods with default values when setting doesn't exist"""
-        mock_repository.get_effective_settings.return_value = {}
+        mock_repository.get_setting_by_key.return_value = None
 
         assert settings.get_models_dir() == "models"
         assert settings.is_nsfw_enabled() is False
@@ -205,6 +212,8 @@ class TestGpuSettingsMovedToNativeBackend:
 
     def test_file_storage_directory_is_still_a_setting(self, settings, mock_repository):
         """It is genuinely global - both engines write files to this host."""
-        mock_repository.get_effective_settings.return_value = {"file_storage_directory": "/data"}
+        mock_setting = Mock(spec=Setting)
+        mock_setting.get_typed_value.return_value = "/data"
+        mock_repository.get_setting_by_key.return_value = mock_setting
 
         assert settings.get_file_storage_directory() == "/data"

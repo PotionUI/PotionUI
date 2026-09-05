@@ -21,10 +21,21 @@
  *
  * OWNERSHIP. Each registration is made under its plugin's ownership token and
  * remembered with the disposer that reverses exactly it (see
- * `registries/registry.ts` for the layering rules). Applying a snapshot runs
- * the previous snapshot's disposers first, so removing one plugin can neither
- * drop core's registration for a key it shadowed nor another plugin's live one:
- * the shadowed layer becomes visible again instead.
+ * `registries/registry.ts` for the layering rules), so removing one plugin can
+ * neither drop core's registration for a key it shadowed nor another plugin's
+ * live one: the shadowed layer becomes visible again instead.
+ *
+ * RECONCILIATION. Applying a snapshot is a diff, not a rebuild. A registration
+ * is RETAINED when its identity - owner, kind, key, declared component and the
+ * plugin's revision - appears unchanged in the new snapshot, and only genuine
+ * removals and revisions are disposed. This matters because a disposer is a
+ * real teardown with effects beyond the registry: dropping a
+ * `generation.output` handler also drops the output messages already stored on
+ * every tab (`generation/messages/pluginOutput.ts`). Disposing indiscriminately
+ * would mean an identical refresh, or toggling an unrelated plugin, deleted a
+ * live plugin's rendered output - which may never be emitted again. Every
+ * snapshot entry is then registered in snapshot order, retained ones included,
+ * so the last-wins stack order remains a function of the snapshot alone.
  *
  * COALESCING. At most one refresh is in flight. Callers that arrive during a
  * run share one follow-up run scheduled after it, so a burst of toggles issues
@@ -87,7 +98,18 @@ interface ExtensionSnapshot {
 
 type Disposer = () => void;
 
-let disposers: Disposer[] = [];
+/**
+ * One extension a snapshot asks for. `id` is its identity across snapshots:
+ * two descriptors with the same id describe the same live registration, so it
+ * survives a refresh untouched.
+ */
+interface RegistrationDescriptor {
+	id: string;
+	register: () => void;
+	dispose: Disposer;
+}
+
+let applied: RegistrationDescriptor[] = [];
 let inFlight: Promise<void> | null = null;
 let queued: Promise<void> | null = null;
 
@@ -129,34 +151,56 @@ async function fetchSnapshot(): Promise<ExtensionSnapshot> {
 	return { ...extensions, fieldTypes, pages, quickActions, widgets, hooks };
 }
 
-function registerRenderer(renderer: FrontendExtensionRenderer): Disposer | null {
-	const { plugin_id: pluginId, key, component } = renderer;
+function describeRenderer(
+	renderer: FrontendExtensionRenderer,
+	revision: string
+): RegistrationDescriptor | null {
+	const { plugin_id: pluginId, kind, key, component } = renderer;
 	const entry = { pluginId, asset: component };
 	const owner = pluginOwner(pluginId);
+	const id = `renderer|${owner}|${kind}|${key}|${component}|${revision}`;
 
-	switch (renderer.kind) {
+	switch (kind) {
 		case 'history.artifact':
-			artifactRendererRegistry.register(key, entry);
-			return () => artifactRendererRegistry.unregister(key, owner);
+			return {
+				id,
+				register: () => artifactRendererRegistry.register(key, entry),
+				dispose: () => artifactRendererRegistry.unregister(key, owner)
+			};
 		case 'workbench.file':
-			registerWorkbenchFileRenderer(key, entry);
-			return () => unregisterWorkbenchFileRenderer(key, owner);
+			return {
+				id,
+				register: () => registerWorkbenchFileRenderer(key, entry),
+				dispose: () => unregisterWorkbenchFileRenderer(key, owner)
+			};
 		case 'model.view':
-			registerModelView(pluginId, key, component);
-			return () => unregisterModelView(pluginId, key);
+			return {
+				id,
+				register: () => registerModelView(pluginId, key, component),
+				dispose: () => unregisterModelView(pluginId, key)
+			};
 		case 'generation.output':
-			registerPluginOutputHandler(key, pluginId, component);
-			return () => unregisterPluginOutputHandler(key, pluginId);
+			return {
+				id,
+				register: () => registerPluginOutputHandler(key, pluginId, component),
+				dispose: () => unregisterPluginOutputHandler(key, pluginId)
+			};
 		case 'chat.tool':
-			chatToolRendererRegistry.register(key, entry);
-			return () => chatToolRendererRegistry.unregister(key, owner);
+			return {
+				id,
+				register: () => chatToolRendererRegistry.register(key, entry),
+				dispose: () => chatToolRendererRegistry.unregister(key, owner)
+			};
 		default:
-			logger.warn(`Unknown renderer kind "${renderer.kind}" from plugin ${pluginId}`);
+			logger.warn(`Unknown renderer kind "${kind}" from plugin ${pluginId}`);
 			return null;
 	}
 }
 
-function registerFieldType(entry: FieldTypeManifestEntry): Disposer | null {
+function describeFieldType(
+	entry: FieldTypeManifestEntry,
+	revisionOf: (pluginId: string) => string
+): RegistrationDescriptor | null {
 	// Core entries are already registered statically by `fields/builtin.ts`,
 	// which owns the canonical alias table.
 	if (entry.source === 'core') return null;
@@ -164,34 +208,48 @@ function registerFieldType(entry: FieldTypeManifestEntry): Disposer | null {
 	const ref = parseComponentRef(entry.component);
 	if (!ref) return null;
 
-	registerFieldComponent(entry.type, { pluginId: ref.pluginId, asset: ref.asset });
-	return () => unregisterFieldComponent(entry.type, pluginOwner(ref.pluginId));
+	const owner = pluginOwner(ref.pluginId);
+	return {
+		id: `field|${owner}|${entry.type}|${ref.asset}|${revisionOf(ref.pluginId)}`,
+		register: () => registerFieldComponent(entry.type, { pluginId: ref.pluginId, asset: ref.asset }),
+		dispose: () => unregisterFieldComponent(entry.type, owner)
+	};
+}
+
+function describeSnapshot(snapshot: ExtensionSnapshot): RegistrationDescriptor[] {
+	const revisionOf = (pluginId: string) => snapshot.revisions[pluginId] ?? '';
+	const descriptors: RegistrationDescriptor[] = [];
+
+	for (const renderer of snapshot.renderers) {
+		if (!renderer.key || !renderer.component) continue;
+		const descriptor = describeRenderer(renderer, revisionOf(renderer.plugin_id));
+		if (descriptor) descriptors.push(descriptor);
+	}
+	for (const entry of snapshot.fieldTypes) {
+		if (!entry.component) continue;
+		const descriptor = describeFieldType(entry, revisionOf);
+		if (descriptor) descriptors.push(descriptor);
+	}
+	return descriptors;
 }
 
 function applySnapshot(snapshot: ExtensionSnapshot): void {
-	for (const dispose of disposers.reverse()) {
+	const desired = describeSnapshot(snapshot);
+	const wanted = new Set(desired.map((descriptor) => descriptor.id));
+
+	for (const descriptor of [...applied].reverse()) {
+		if (wanted.has(descriptor.id)) continue;
 		try {
-			dispose();
+			descriptor.dispose();
 		} catch (err) {
 			logger.error('Failed to dispose a plugin extension registration:', err);
 		}
 	}
-	disposers = [];
 
 	setPluginRevisions(snapshot.revisions);
 
-	const next: Disposer[] = [];
-	for (const renderer of snapshot.renderers) {
-		if (!renderer.key || !renderer.component) continue;
-		const disposer = registerRenderer(renderer);
-		if (disposer) next.push(disposer);
-	}
-	for (const entry of snapshot.fieldTypes) {
-		if (!entry.component) continue;
-		const disposer = registerFieldType(entry);
-		if (disposer) next.push(disposer);
-	}
-	disposers = next;
+	for (const descriptor of desired) descriptor.register();
+	applied = desired;
 
 	setContributions(snapshot.contributions);
 	pluginPages.set(snapshot.pages);

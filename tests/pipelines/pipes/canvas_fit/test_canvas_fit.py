@@ -250,3 +250,148 @@ def test_config_spec_matches_contract():
     assert specs["anchor"].default == "center"
     assert specs["fill"].default == "transparent"
     assert set(specs["anchor"].choices) == set(ANCHOR_CHOICES)
+
+
+# -- transparent-canvas alpha preservation (MEDIA-01) ------------------------
+#
+# `_place_one`'s transparent branch pastes the resized image onto an empty
+# (0,0,0,0) canvas using the resized image's OWN alpha as the paste mask.
+# `Image.paste(im, box, mask)` blends against the destination pixel using
+# that mask, so every semitransparent source pixel gets blended against the
+# destination's alpha-0 background - halving its alpha and dragging its RGB
+# toward black - instead of landing on the canvas unchanged.
+
+def _rgba_from_pixels(pixels, size=(4, 4)):
+    """Build an RGBA image with per-pixel values from a ``{(x, y): (r, g, b,
+    a)}`` map; unset pixels default to a non-zero-RGB, alpha-0 sentinel so a
+    leak-into-black bug would show up there too."""
+    image = Image.new("RGBA", size, (0, 0, 0, 0))
+    px = image.load()
+    for (x, y), value in pixels.items():
+        px[x, y] = value
+    return image
+
+
+def test_semitransparent_pixels_preserved_exactly_at_unchanged_scale():
+    """Bite check: reverting `canvas.paste(resized_rgba, (x, y))` back to
+    `canvas.paste(resized_rgba, (x, y), resized_rgba)` halves every
+    semitransparent alpha value here (0/64/128/255 -> 0/32/64/255) and
+    blends the RGB under it toward black."""
+    source = _rgba_from_pixels({
+        (0, 0): (10, 20, 30, 0),
+        (1, 0): (40, 50, 60, 64),
+        (2, 0): (70, 80, 90, 128),
+        (3, 0): (100, 110, 120, 255),
+    })
+    # canvas == source size at scale_percent=100 -> factor 1, no resampling.
+    pipe = CanvasFitPipe({"width": 4, "height": 4, "scale_percent": 100.0,
+                          "anchor": "center", "fill": "transparent"})
+    result = pipe.process(PipeInput(input={"image": [source]}), lambda o: None)
+    out = result.output["image"][0]
+
+    assert out.mode == "RGBA"
+    assert np.array_equal(np.array(out), np.array(source))
+
+
+def test_opaque_background_branch_still_blends_partial_alpha():
+    """The `fill=<hex colour>` branch is untouched by this fix - alpha 128
+    red over a white background must still Porter-Duff blend to the mid
+    value, not pass through unmodified."""
+    image = _rgba_from_pixels({(x, y): (255, 0, 0, 128) for x in range(4) for y in range(4)})
+    pipe = CanvasFitPipe({"width": 4, "height": 4, "scale_percent": 100.0,
+                          "anchor": "center", "fill": "#ffffff"})
+    result = pipe.process(PipeInput(input={"image": [image]}), lambda o: None)
+    out = result.output["image"][0]
+
+    assert out.mode == "RGB"
+    assert tuple(np.array(out)[0, 0]) == (255, 127, 127)
+
+
+def test_transparent_canvas_clips_and_preserves_alpha_under_resampling():
+    """Overflowing placement (scale_percent > 100) forces resampling AND
+    exercises PIL's paste clipping for an out-of-bounds box: the resized
+    image is wider than the canvas and offset so one edge is clipped off
+    and the other axis leaves a real transparent margin.
+
+    Bite check: with the old alpha-as-mask paste, the visible alpha would
+    be blended toward 0 (roughly halved) instead of landing near the
+    source's 90.
+    """
+    source = _rgba_from_pixels({(x, y): (30, 200, 10, 90) for x in range(4) for y in range(2)}, size=(4, 2))
+    canvas_w, canvas_h, scale_percent, anchor = 6, 12, 150.0, "left"
+    pipe = CanvasFitPipe({"width": canvas_w, "height": canvas_h, "scale_percent": scale_percent,
+                          "anchor": anchor, "fill": "transparent"})
+    result = pipe.process(PipeInput(input={"image": [source]}), lambda o: None)
+    out = result.output["image"][0]
+
+    new_w, new_h = compute_scaled_size(4, 2, canvas_w, canvas_h, scale_percent)
+    h_anchor, v_anchor = parse_anchor(anchor)
+    x = round((canvas_w - new_w) * h_anchor)
+    y = round((canvas_h - new_h) * v_anchor)
+    assert new_w > canvas_w  # this axis overflows and gets clipped
+    assert new_h < canvas_h  # this axis leaves a real transparent margin
+
+    expected_bbox = (
+        max(x, 0), max(y, 0),
+        min(x + new_w, canvas_w) - max(x, 0),
+        min(y + new_h, canvas_h) - max(y, 0),
+    )
+    assert alpha_bbox(out, threshold=0) == expected_bbox
+
+    inside = np.array(out)[expected_bbox[1] + 1, expected_bbox[0] + 1]
+    assert inside[3] == pytest.approx(90, abs=3)
+    assert tuple(inside[:3]) == pytest.approx((30, 200, 10), abs=3)
+
+    outside = np.array(out)[0, 0]
+    assert tuple(outside) == (0, 0, 0, 0)
+
+
+def test_transparent_canvas_preserves_alpha_under_downscale_resampling():
+    """The common real-world path (thumbnailing, scale_percent < 100): no
+    clipping, but resampling still runs. Bite check: the old code halves
+    ~90 down toward ~32 here too."""
+    source = _rgba_from_pixels({(x, y): (30, 200, 10, 90) for x in range(8) for y in range(8)}, size=(8, 8))
+    pipe = CanvasFitPipe({"width": 20, "height": 20, "scale_percent": 50.0,
+                          "anchor": "center", "fill": "transparent"})
+    result = pipe.process(PipeInput(input={"image": [source]}), lambda o: None)
+    out = result.output["image"][0]
+
+    new_w, new_h = compute_scaled_size(8, 8, 20, 20, 50.0)
+    bbox = alpha_bbox(out, threshold=0)
+    assert bbox[2:4] == (new_w, new_h)  # placement is exact regardless of resampling
+
+    x0, y0, w, h = bbox
+    center_pixel = np.array(out)[y0 + h // 2, x0 + w // 2]
+    assert center_pixel[3] == pytest.approx(90, abs=3)
+    assert tuple(center_pixel[:3]) == pytest.approx((30, 200, 10), abs=3)
+
+
+def test_p_mode_with_transparency_converts_correctly_on_transparent_canvas():
+    palette_image = Image.new("P", (4, 4), 1)
+    palette = [0] * (256 * 3)
+    palette[3:6] = [200, 100, 50]  # index 1 -> opaque colour
+    palette_image.putpalette(palette)
+    palette_image.info["transparency"] = 0
+    px = palette_image.load()
+    px[0, 0] = 0  # transparent pixel (index 0, marked via 'transparency')
+
+    pipe = CanvasFitPipe({"width": 4, "height": 4, "scale_percent": 100.0,
+                          "anchor": "center", "fill": "transparent"})
+    result = pipe.process(PipeInput(input={"image": [palette_image]}), lambda o: None)
+    out = result.output["image"][0]
+
+    arr = np.array(out)
+    assert tuple(arr[0, 0]) == (0, 0, 0, 0)
+    assert tuple(arr[0, 1]) == (200, 100, 50, 255)
+
+
+def test_la_mode_converts_correctly_on_transparent_canvas():
+    la_image = Image.new("LA", (4, 4), (150, 100))
+
+    pipe = CanvasFitPipe({"width": 4, "height": 4, "scale_percent": 100.0,
+                          "anchor": "center", "fill": "transparent"})
+    result = pipe.process(PipeInput(input={"image": [la_image]}), lambda o: None)
+    out = result.output["image"][0]
+
+    arr = np.array(out)
+    assert tuple(arr[0, 0]) == (150, 150, 150, 100)

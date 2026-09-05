@@ -181,9 +181,13 @@ class CanvasFitPipe(BasePipe):
         y = round((height - new_h) * v_anchor)
 
         if color is None:
+            # No mask: the canvas starts fully transparent, so pasting with
+            # the source's own alpha as mask would blend it against that
+            # destination alpha (0), halving semitransparent source pixels
+            # instead of carrying them through unchanged.
             canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
             resized_rgba = resized.convert("RGBA")
-            canvas.paste(resized_rgba, (x, y), resized_rgba)
+            canvas.paste(resized_rgba, (x, y))
             return canvas
 
         canvas = Image.new("RGB", (width, height), color)

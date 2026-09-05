@@ -878,20 +878,17 @@ class ConversationRunner:
 
         Never awaited by the response path — unlike the title task, nothing
         downstream needs its result this turn, so a slow or failed reflection
-        call can never delay or break what the user sees. The task validates
-        its own trigger conditions (config toggle, unreflected-message
-        threshold) on entry, since it runs after this method returns.
+        call can never delay or break what the user sees. Delegates entirely
+        to ``ChatReflectionGenerator.trigger``, which owns the per-session
+        single-flight/coalescing bookkeeping (at most one pass in flight per
+        session) and its own trigger-condition gating — this call site does
+        not need to know whether a pass is already running.
 
         ``form_state`` is this turn's active preset/model context — it only
         exists on the live turn, not the persisted session, so it must be
         passed in here rather than re-resolved inside the task.
         """
-        try:
-            task = asyncio.create_task(self._m.reflection_generator.reflect(session_id, form_state))
-            self._m._reflection_tasks.add(task)
-            task.add_done_callback(self._m._reflection_tasks.discard)
-        except Exception as e:
-            logger.warning(f"Could not start memory reflection for session {session_id}: {e}")
+        self._m.reflection_generator.trigger(session_id, form_state)
 
     def _history_token_budget(self) -> int:
         """Read the `chat_history_token_budget` setting; 0 or unset/unparsable = unlimited."""

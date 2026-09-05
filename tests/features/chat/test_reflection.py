@@ -175,6 +175,7 @@ class TestReflect:
         )
         manager.chat_repository.record_memory_reflection.assert_called_once_with(
             "session-1", messages[-1].id,
+            offset=0, seq=len(messages) - 1, pending_backlog=False,
         )
 
     @pytest.mark.asyncio

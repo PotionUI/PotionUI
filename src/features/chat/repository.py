@@ -496,8 +496,29 @@ class ChatRepository:
         """Set the LLM-generated title and mark the session as titled."""
         return self.session_repo.set_title(session_id, name)
 
-    def record_memory_reflection(self, session_id: str, message_id: str) -> bool:
-        """Merge reflected-up-to bookkeeping into session metadata.
+    def record_memory_reflection(
+        self, session_id: str, message_id: str, *, offset: int = 0, seq: int = -1, pending_backlog: bool = False,
+    ) -> bool:
+        """Merge reflected-up-to bookkeeping into session metadata, advancing
+        the cursor only if ``(seq, offset)`` is strictly later than what's
+        already stored there.
+
+        Two reflection passes for the same session can overlap (a slow pass
+        started from an older cursor racing a fast one started later); this
+        makes whichever one WRITES LAST harmless if it isn't the one that
+        covers the most text - a stale completion can never move a newer
+        cursor backward. ``seq`` is the covered message's index in the
+        caller's message list at read time (see ``ChatReflectionGenerator``,
+        which is the only caller and owns that ordering); it is meaningless
+        compared across sessions but stable within one, since a session's
+        transcript only ever grows. ``offset`` distinguishes a message
+        covered in full (0) from a chunk boundary mid-message.
+
+        Metadata schema (key ``memory_reflection``): ``reflected_up_to_message_id``
+        (str), ``reflected_up_to_offset`` (int, chars into that message
+        already covered), ``reflected_up_to_seq`` (int, ordering key above),
+        ``pending_backlog`` (bool, whether a later pass still has unreflected
+        text to pick up).
 
         Read-modify-write so this never clobbers the other keys already living
         in session metadata (``system_message``, ``enabled_tools``).
@@ -506,7 +527,17 @@ class ChatRepository:
         if not session:
             return False
         metadata = dict(session.metadata or {})
-        metadata['memory_reflection'] = {'reflected_up_to_message_id': message_id}
+        current = metadata.get('memory_reflection') or {}
+        current_seq = current.get('reflected_up_to_seq', -1)
+        current_offset = current.get('reflected_up_to_offset', 0)
+        if (seq, offset) <= (current_seq, current_offset):
+            return False
+        metadata['memory_reflection'] = {
+            'reflected_up_to_message_id': message_id,
+            'reflected_up_to_offset': offset,
+            'reflected_up_to_seq': seq,
+            'pending_backlog': pending_backlog,
+        }
         return self.session_repo.update(session_id, metadata=metadata)
 
     def delete_session(self, session_id: str) -> bool:

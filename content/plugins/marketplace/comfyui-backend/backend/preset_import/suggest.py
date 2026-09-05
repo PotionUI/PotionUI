@@ -12,6 +12,8 @@ see `node_catalog.py`'s module docstring for the schema.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -236,6 +238,46 @@ class AnalyzeResult:
             ),
             "candidates": [c.to_dict() for c in self.candidates],
         }
+
+
+def classification_fingerprint(analysis: AnalyzeResult) -> str:
+    """A stable hash of the structural facts `emit.emit_preset` actually
+    depends on: `mode`, the sampling cluster's model-chain/LoRA-chain
+    identity, and each candidate's `(node_id, input_name, role,
+    suggested_field_type, suggested_folder)` - the classification a mapping's
+    legality (`schema.validate_against_workflow`'s prompt-target rejection)
+    and a model file's `comfyui_model` requirement (`emit._infer_requirements`'s
+    `suggested_folder` reads) are decided from.
+
+    Two analyses of the same workflow that resolve the same way hash equal
+    regardless of whether `object_info` happened to be present for both;
+    deliberately blind to cosmetic-only enrichment (live combo option lists,
+    numeric min/max/step) that changes a field's presentation but not what
+    gets wired or required. A mismatch between what a client was shown
+    (`/presets/import/analyze` or `.../source`) and what saving would now
+    produce means the workflow's own classification drifted in between - see
+    `emit._check_schema_drift`, the only place this is compared."""
+    signature = {
+        "mode": analysis.mode,
+        "sampler_node_id": analysis.sampler_node_id,
+        "model_chain": (
+            [
+                analysis.model_chain.source_node_id,
+                analysis.model_chain.source_output_index,
+                analysis.model_chain.target_node_id,
+                analysis.model_chain.target_input,
+            ]
+            if analysis.model_chain
+            else None
+        ),
+        "lora_chain_node_ids": analysis.lora_chain.lora_node_ids if analysis.lora_chain else None,
+        "candidates": sorted(
+            (c.node_id, c.input_name, c.role, c.suggested_field_type, c.suggested_folder or "")
+            for c in analysis.candidates
+        ),
+    }
+    payload = json.dumps(signature, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _infer_value_type(value: Any) -> str:
@@ -647,6 +689,48 @@ def _looks_like_model_file_combo(options: List[Any]) -> bool:
     return matches * 2 >= len(values)
 
 
+# Types a combo option is trusted to be - anything else (a nested list/dict
+# shape, `None`, ...) means this importer doesn't understand what the widget
+# actually is, so `_combo_options` refuses the whole list rather than
+# guessing (see its own docstring).
+_COMBO_OPTION_SCALAR_TYPES = (str, int, float, bool)
+
+
+def _combo_options(type_spec: Any, config: Dict[str, Any]) -> Optional[List[Any]]:
+    """The resolved option list for a combo input, under either of ComfyUI's
+    two equivalent `/object_info` spellings - the inline
+    `[[opt1, opt2, ...], {...}]` form, or the named
+    `["COMBO", {"options": [...]}]` form (`comfy/comfy_types/node_typing.py`'s
+    own preferred spelling; `node_scaffold.extract_from_object_info` already
+    normalizes both the same way for catalogue drafts, this is the
+    suggestion path's equivalent).
+
+    `None` for anything this can't safely resolve to a static, complete
+    option list - not a combo at all, `options` missing/not a list/empty, an
+    option that isn't a plain scalar (a nested widget shape this importer
+    doesn't model), or a remotely-populated combo (a `remote` config key -
+    ComfyUI's own UI fetches those from a live endpoint at edit time, which
+    this importer never does). Every `None` case is the caller's cue to
+    leave the candidate as its generic literal-field guess - never invent
+    options, never guess at a dynamic combo's real choices."""
+    if "remote" in config:
+        return None
+    if isinstance(type_spec, (list, tuple)):
+        options = list(type_spec)
+    elif type_spec == "COMBO":
+        raw = config.get("options")
+        if not isinstance(raw, (list, tuple)):
+            return None
+        options = list(raw)
+    else:
+        return None
+    if not options:
+        return None
+    if any(not isinstance(v, _COMBO_OPTION_SCALAR_TYPES) for v in options):
+        return None
+    return options
+
+
 def _enrich_with_object_info(
     candidates: List[InputCandidate], workflow: Workflow, object_info: Dict[str, Any]
 ) -> None:
@@ -673,12 +757,13 @@ def _enrich_with_object_info(
             continue
         type_spec, config = spec
 
-        if isinstance(type_spec, list):
+        combo_options = _combo_options(type_spec, config)
+        if combo_options is not None:
             if candidate.suggested_field_type in ("model", "lora_picker"):
                 pass  # already a catalog/chain-driven model field - leave it alone
             else:
                 model_file = _model_file_type_for_combo(node.class_type, candidate.input_name)
-                if model_file is None and _looks_like_model_file_combo(type_spec):
+                if model_file is None and _looks_like_model_file_combo(combo_options):
                     # Sure it's a model file, not sure which folder - "checkpoint"
                     # is this field's own default `model_type` (src/features/
                     # fields/model.py) when none is set, and no `folder` means
@@ -695,7 +780,7 @@ def _enrich_with_object_info(
                     # config outright - a static `file:` pointer and a live
                     # `options:` list would otherwise both be present at once.
                     candidate.suggested_field_type = "select"
-                    candidate.suggested_config = {"options": list(type_spec)}
+                    candidate.suggested_config = {"options": combo_options}
         elif type_spec in ("INT", "FLOAT"):
             numeric_config = {k: config[k] for k in ("min", "max", "step") if k in config}
             for bound_key in ("min", "max"):

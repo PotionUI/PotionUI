@@ -1909,6 +1909,23 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    preset's `import.json` sidecar, or `default_form`/`default_history` for a preset imported before
    the sidecar carried them) so the wizard can reopen an imported preset exactly as it was built.
 
+   **Schema consistency.** `analyze`/`source` resolve a reachable ComfyUI backend's `object_info`
+   once and classify every candidate from it (which inputs are prompts, which are model files and
+   under which `models/` folder); the response carries that classification's own
+   `schema_fingerprint` and `object_info_used`. `import`/reload re-resolve `object_info` fresh and
+   re-run the same classification before writing anything - `import` only if the caller echoes back
+   the `schema_fingerprint`/`object_info_used` it was given (both optional; omit them to skip the
+   check entirely, e.g. a script driving `import` without ever calling `analyze`), reload against
+   its own `import.json` sidecar's stored fingerprint. A resulting classification that disagrees
+   with what was shown refuses the save with a 400 naming the drift, rather than silently
+   re-wiring a mapping or dropping a `comfyui_model` requirement; a backend that answered at
+   analyze/source time but not at save/reload time always refuses too, since there's no way to
+   confirm the classification is still the same one shown. The one exception is proceeding on a
+   *richer* schema than what analyze saw (no backend was reachable then, one is now) - allowed
+   only when the newly available `object_info` classifies the workflow exactly the same way.
+   The no-backend-reachable path itself (`object_info_used: false` both times) is unaffected: an
+   unmodified workflow always reclassifies identically, so it's never refused.
+
 4. **Tweak the generated YAML.** The importer gets you a working skeleton, not a finished preset:
    check which fields you picked up (a "Power Lora Loader"-style single multi-LoRA node, or a
    pass-through node sitting between a LoRA chain and the sampler, aren't detected yet), rename

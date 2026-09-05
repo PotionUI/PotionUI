@@ -42,7 +42,7 @@ from .schema import (
     all_field_items,
     validate_against_workflow,
 )
-from .suggest import InputCandidate, _infer_value_type, suggest_fields
+from .suggest import AnalyzeResult, InputCandidate, _infer_value_type, classification_fingerprint, suggest_fields
 
 # `description.md`'s opening line for every preset this module emits - the
 # provenance marker `GET /api/plugins/comfyui-backend/presets/imported`
@@ -621,6 +621,50 @@ def _lora_node_manipulations(
     return manipulations
 
 
+def _check_schema_drift(
+    analysis: AnalyzeResult,
+    object_info: Optional[Dict[str, Any]],
+    expected_schema_fingerprint: Optional[str],
+    expected_object_info_used: Optional[bool],
+) -> None:
+    """Refuses to save when the workflow's node classification (prompt/model
+    field roles - `suggest.classification_fingerprint`) has drifted from what
+    the caller was shown at analyze/source time, rather than silently
+    re-classifying and either mis-wiring the preset or spuriously rejecting a
+    mapping the wizard itself offered. Never trusts a client-declared role -
+    only ever compares the schema-derived fingerprint the caller echoes back
+    against what saving would actually produce right now.
+
+    `expected_schema_fingerprint=None` means the caller has no baseline to
+    compare against (a direct `emit_preset` call, or a reload whose sidecar
+    predates this check) - saving proceeds unchecked, exactly as before this
+    existed. Otherwise the rule is deliberately asymmetric: `object_info`
+    available when analyzed but unreachable now always refuses (a save must
+    never silently fall back to a weaker classification than what the caller
+    saw); the reverse - unavailable then, reachable now - proceeds when the
+    richer classification agrees with what was shown, and refuses when it
+    doesn't; with `object_info` equally available (or equally unavailable)
+    both times, any fingerprint change refuses. An unmodified workflow run
+    through this twice with `object_info=None` both times - the offline,
+    no-backend-configured path - always agrees with itself and is never
+    refused by this."""
+    if expected_schema_fingerprint is None:
+        return
+    if expected_object_info_used and object_info is None:
+        raise PresetEmitError(
+            "This workflow was analyzed with a reachable ComfyUI backend, but none is reachable now - "
+            "its field classification (which inputs are prompts, model files, or plain fields) can't be "
+            "re-verified. Re-open the import wizard once the backend is reachable again before saving."
+        )
+    actual_fingerprint = classification_fingerprint(analysis)
+    if actual_fingerprint != expected_schema_fingerprint:
+        raise PresetEmitError(
+            "This workflow's node classification (which inputs are prompts, model files, or plain form "
+            "fields) has changed since this form was analyzed - re-open the import wizard to refresh the "
+            "form before saving."
+        )
+
+
 def emit_preset(
     workflow: Workflow,
     form: ImportForm,
@@ -631,6 +675,8 @@ def emit_preset(
     display_name: str,
     dest_root: Path,
     object_info: Optional[Dict[str, Any]] = None,
+    expected_schema_fingerprint: Optional[str] = None,
+    expected_object_info_used: Optional[bool] = None,
     overwrite: bool = False,
     preset_id: Optional[str] = None,
 ) -> EmittedPreset:
@@ -649,12 +695,14 @@ def emit_preset(
     if overwrite and not preset_id:
         raise PresetEmitError("overwrite=True requires preset_id.")
 
-    validate_against_workflow(form, history, workflow, object_info=object_info)
-
     # `object_info` mirrors what /presets/import/analyze was given for this
     # exact workflow - the same structural facts (sampler, prompts, mode,
     # LoRA chain) analyze/defaults.py used to seed the wizard.
     analysis = suggest_fields(workflow, object_info=object_info)
+    _check_schema_drift(analysis, object_info, expected_schema_fingerprint, expected_object_info_used)
+
+    validate_against_workflow(form, history, workflow, object_info=object_info)
+
     mode = analysis.mode
 
     dest_root_resolved = Path(dest_root).resolve()
@@ -880,6 +928,14 @@ def emit_preset(
         "display_name": display_name,
         "mode": mode,
         "created_at": int(time.time()),
+        # This save's own classification, so a later reload can refuse
+        # (rather than silently re-classify and possibly mis-save) if the
+        # workflow's structural facts have drifted since - see
+        # `_check_schema_drift`. A sidecar written before this existed
+        # simply lacks these keys, which `api.reload_imported_preset` reads
+        # as "no baseline to compare" (unchecked, same as before).
+        "schema_fingerprint": classification_fingerprint(analysis),
+        "schema_object_info_used": object_info is not None,
     }
 
     # ------------------------------------------------------------------

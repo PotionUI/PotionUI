@@ -32,7 +32,7 @@ from .preset_import.emit import (
 )
 from .preset_import.parser import Workflow, WorkflowFormatError, parse_api_workflow
 from .preset_import.schema import parse_form, parse_history
-from .preset_import.suggest import suggest_fields
+from .preset_import.suggest import AnalyzeResult, classification_fingerprint, suggest_fields
 from .requirements import ComfyUIModelChecker, ComfyUINodeChecker, _fetch_object_info
 
 logger = logging.getLogger(__name__)
@@ -146,6 +146,30 @@ async def _try_object_info() -> Optional[Dict[str, Any]]:
         return None
 
 
+@dataclass
+class _ResolvedAnalysis:
+    """One `_try_object_info()` fetch and the `suggest_fields` analysis built
+    from it - every endpoint below that classifies a workflow's inputs
+    (analyze, source, requirements-preview, import, reload) resolves through
+    `_resolve_analysis` instead of fetching/analyzing independently, so two
+    of them can never end up classifying the same input differently within
+    one request (see `emit._check_schema_drift`, which then compares this
+    across *requests*)."""
+
+    object_info: Optional[Dict[str, Any]]
+    analysis: AnalyzeResult
+
+    @property
+    def fingerprint(self) -> str:
+        return classification_fingerprint(self.analysis)
+
+
+async def _resolve_analysis(workflow: Workflow) -> _ResolvedAnalysis:
+    object_info = await _try_object_info()
+    analysis = suggest_fields(workflow, object_info=object_info)
+    return _ResolvedAnalysis(object_info=object_info, analysis=analysis)
+
+
 def _requirement_preview_name(checker: Any, entry: Dict[str, Any]) -> str:
     describe = getattr(checker, "describe", None) if checker else None
     if describe is not None:
@@ -224,6 +248,14 @@ class ImportWorkflowRequest(BaseModel):
     # directory under this same id instead of refusing an existing one - see
     # emit_preset's overwrite/preset_id.
     overwrite_preset_id: Optional[str] = None
+    # Echoed back from analyze/source's own `schema_fingerprint`/
+    # `object_info_used` - never trusted as a declared role, only compared
+    # against a freshly-resolved analysis to refuse a save whose workflow
+    # classification drifted since the client was shown it (see
+    # emit._check_schema_drift). `None` (a caller that never analyzed
+    # through this session, or an older client) skips the check entirely.
+    schema_fingerprint: Optional[str] = None
+    schema_object_info_used: Optional[bool] = None
 
 
 @router.get("/presets/families")
@@ -250,14 +282,14 @@ async def analyze_workflow(
     ones become preset form fields."""
     workflow = _parse_workflow(body.workflow)
 
-    object_info = await _try_object_info()
-    analysis = suggest_fields(workflow, object_info=object_info)
-    default_form = build_default_form(analysis)
-    default_history = build_default_history(default_form, analysis)
+    resolved = await _resolve_analysis(workflow)
+    default_form = build_default_form(resolved.analysis)
+    default_history = build_default_history(default_form, resolved.analysis)
     return {
-        **analysis.to_dict(),
+        **resolved.analysis.to_dict(),
         "format": "api",
-        "object_info_used": object_info is not None,
+        "object_info_used": resolved.object_info is not None,
+        "schema_fingerprint": resolved.fingerprint,
         "default_form": default_form.model_dump(mode="json"),
         "default_history": [entry.model_dump(mode="json") for entry in default_history],
     }
@@ -275,7 +307,10 @@ async def preview_workflow_requirements(
     the core preset-requirements evaluator to check against."""
     workflow = _parse_workflow(body.workflow)
 
-    entries = _infer_requirements(workflow)
+    resolved = await _resolve_analysis(workflow)
+    entries = _infer_requirements(
+        workflow, object_info=resolved.object_info, candidates=resolved.analysis.candidates
+    )
     ctx = RequirementContext(
         models=None,
         gpu_available=False,
@@ -316,6 +351,7 @@ async def import_workflow(
     ComfyUI Export (API) workflow plus the admin's `form`/`history` (see
     /presets/import/analyze's default_form/default_history)."""
     workflow = _parse_workflow(body.workflow)
+    resolved = await _resolve_analysis(workflow)
 
     try:
         form = parse_form(body.form)
@@ -328,6 +364,9 @@ async def import_workflow(
             variant=body.variant,
             display_name=body.display_name,
             dest_root=_IMPORTED_PRESETS_ROOT,
+            object_info=resolved.object_info,
+            expected_schema_fingerprint=body.schema_fingerprint,
+            expected_object_info_used=body.schema_object_info_used,
             overwrite=bool(body.overwrite_preset_id),
             preset_id=body.overwrite_preset_id,
         )
@@ -507,8 +546,8 @@ async def get_imported_preset_source(preset_id: str, current_user=Depends(get_cu
     raw_workflow = _read_stored_workflow(entry)
     workflow = _parse_workflow(raw_workflow)
 
-    object_info = await _try_object_info()
-    analysis = suggest_fields(workflow, object_info=object_info)
+    resolved = await _resolve_analysis(workflow)
+    analysis = resolved.analysis
 
     stored_form = entry.sidecar.get("form") if entry.sidecar else None
     stored_history = entry.sidecar.get("history") if entry.sidecar else None
@@ -526,7 +565,8 @@ async def get_imported_preset_source(preset_id: str, current_user=Depends(get_cu
         "workflow": raw_workflow,
         **analysis.to_dict(),
         "format": "api",
-        "object_info_used": object_info is not None,
+        "object_info_used": resolved.object_info is not None,
+        "schema_fingerprint": resolved.fingerprint,
         "model_family": entry.family,
         "variant": entry.variant,
         "display_name": entry.preset_yml.get("name", entry.variant),
@@ -549,18 +589,23 @@ async def reload_imported_preset(preset_id: str, current_user=Depends(get_curren
 
     raw_workflow = _read_stored_workflow(entry)
     workflow = _parse_workflow(raw_workflow)
+    resolved = await _resolve_analysis(workflow)
 
     extra_warnings: List[str] = []
     stored_form = entry.sidecar.get("form") if entry.sidecar else None
     stored_history = entry.sidecar.get("history") if entry.sidecar else None
+    # A sidecar written before schema-drift checking existed simply lacks
+    # these keys - `_check_schema_drift` treats `None` as "no baseline",
+    # same as the has_sidecar=False case just below.
+    expected_schema_fingerprint = entry.sidecar.get("schema_fingerprint") if entry.sidecar else None
+    expected_object_info_used = entry.sidecar.get("schema_object_info_used") if entry.sidecar else None
     try:
         if stored_form is not None:
             form = parse_form(stored_form)
             history = parse_history(stored_history or [])
         else:
-            analysis = suggest_fields(workflow)
-            form = build_default_form(analysis)
-            history = build_default_history(form, analysis)
+            form = build_default_form(resolved.analysis)
+            history = build_default_history(form, resolved.analysis)
             extra_warnings.append("re-imported with the default form/history")
 
         result = emit_preset(
@@ -571,6 +616,9 @@ async def reload_imported_preset(preset_id: str, current_user=Depends(get_curren
             variant=entry.variant,
             display_name=entry.preset_yml.get("name", entry.variant),
             dest_root=_IMPORTED_PRESETS_ROOT,
+            object_info=resolved.object_info,
+            expected_schema_fingerprint=expected_schema_fingerprint,
+            expected_object_info_used=expected_object_info_used,
             overwrite=True,
             preset_id=preset_id,
         )

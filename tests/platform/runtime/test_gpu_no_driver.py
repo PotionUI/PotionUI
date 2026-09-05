@@ -76,3 +76,84 @@ class TestConstructionWithAWorkingDriver:
         g = gpu_module.GpuMonitor()
         assert g.available is False
         assert g.get_total_vram() == 0
+
+
+def _stub_working_driver(monkeypatch, *, uuid=None, pci_bus_id=None, uuid_raises=False, pci_raises=False):
+    """A driver present with a real handle at whatever index is asked for -
+    never real NVML. `nvmlDeviceGetName`/`_get_memory_info` are left alone
+    (already exercised by the tests above); only the identity-resolution
+    calls are controlled here."""
+    monkeypatch.setattr(gpu_module, "nvmlInit", lambda: None)
+    monkeypatch.setattr(gpu_module, "nvmlDeviceGetHandleByIndex", lambda index: f"handle-{index}")
+    monkeypatch.setattr(gpu_module, "nvmlDeviceGetName", lambda handle: "Fake GPU")
+    monkeypatch.setattr(
+        gpu_module, "nvmlDeviceGetMemoryInfo",
+        lambda handle: gpu_module._CappedMemInfo(total=0, free=0, used=0),
+    )
+
+    def _get_uuid(handle):
+        if uuid_raises:
+            raise RuntimeError("NVML UUID query failed")
+        return uuid
+
+    def _get_pci_info(handle):
+        if pci_raises:
+            raise RuntimeError("NVML PCI query failed")
+
+        class _Pci:
+            busId = pci_bus_id
+
+        return _Pci()
+
+    monkeypatch.setattr(gpu_module, "nvmlDeviceGetUUID", _get_uuid)
+    monkeypatch.setattr(gpu_module, "nvmlDeviceGetPciInfo", _get_pci_info)
+
+
+class TestDeviceIdentity:
+    """`GpuMonitor.device_identity` - a stable UUID, resolved once at init,
+    that a preset requirement check (`vram_min_gb`) uses to confirm a
+    backend's own resolved device is THIS exact physical card, never just
+    an index match (see `src.features.backends.base_backend.DeviceIdentity`
+    - re-exported from `src.platform.runtime.gpu`)."""
+
+    def test_no_driver_leaves_identity_none(self, monkeypatch):
+        monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)
+        g = gpu_module.GpuMonitor()
+        assert g.device_identity is None
+
+    def test_working_driver_resolves_uuid_and_pci_bus_id(self, monkeypatch):
+        _stub_working_driver(monkeypatch, uuid="GPU-abc123", pci_bus_id="00000000:01:00.0")
+        g = gpu_module.GpuMonitor()
+        assert g.device_identity == gpu_module.DeviceIdentity(uuid="GPU-abc123", pci_bus_id="00000000:01:00.0")
+
+    def test_uuid_query_failure_leaves_identity_none_not_raising(self, monkeypatch):
+        _stub_working_driver(monkeypatch, uuid_raises=True)
+        g = gpu_module.GpuMonitor()  # must not raise
+        assert g.device_identity is None
+
+    def test_pci_query_failure_still_yields_an_identity_from_the_uuid_alone(self, monkeypatch):
+        """PCI location is a secondary, informational signal
+        (`DeviceIdentity.pci_bus_id` is `compare=False`) - its absence must
+        not withhold the UUID, which is the only thing correspondence
+        checks actually need."""
+        _stub_working_driver(monkeypatch, uuid="GPU-abc123", pci_raises=True)
+        g = gpu_module.GpuMonitor()  # must not raise
+        assert g.device_identity == gpu_module.DeviceIdentity(uuid="GPU-abc123")
+        assert g.device_identity.pci_bus_id is None
+
+    def test_device_identity_is_bound_to_the_requested_index(self, monkeypatch):
+        """Two `DeviceIdentity` values naming DIFFERENT physical cards must
+        never compare equal even if some other signal (an index) matches -
+        the whole reason this type exists."""
+        _stub_working_driver(monkeypatch, uuid="GPU-gpu0")
+        g0 = gpu_module.GpuMonitor(device_index=0)
+
+        _stub_working_driver(monkeypatch, uuid="GPU-gpu1")
+        g1 = gpu_module.GpuMonitor(device_index=1)
+
+        assert g0.device_identity != g1.device_identity
+
+    def test_pci_bus_id_does_not_affect_equality(self, monkeypatch):
+        a = gpu_module.DeviceIdentity(uuid="GPU-abc123", pci_bus_id="00000000:01:00.0")
+        b = gpu_module.DeviceIdentity(uuid="GPU-abc123", pci_bus_id="00000000:02:00.0")
+        assert a == b

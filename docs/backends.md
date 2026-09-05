@@ -438,13 +438,24 @@ backend.
   A `native` backend's actual device is admin-configured (`NativeBackendConfig.device` - `cpu`, or
   any `cuda:N`), so the class tag alone can't say which GPU (or whether one at all) applies -
   `NativeBackend` overrides this to read `self.config.device` and returns `kind="no_gpu"` for `cpu`
-  or `kind="this_host_gpu"` with the parsed index for `cuda:N`. The base implementation simply wraps
-  the class tag with no index, which is already correct for `RemoteNativeBackend` and every
-  `"unestablished"` backend. This is what `src/features/presets/requirements/context_builder.py`'s
-  `vram_min_gb` path reads (`RequirementBackendInfo.execution_device`) - and it only trusts a local
-  reading when the resolved `gpu_index` matches `GpuMonitor.device_index`, the specific GPU this
-  process's one monitor is actually bound to (default 0). A `native` backend configured for `cuda:1`
-  must never be judged by GPU 0's reading just because a GPU happens to be present.
+  or `kind="this_host_gpu"` with the parsed `gpu_index` AND a resolved `identity` for `cuda:N`. The
+  base implementation simply wraps the class tag with no index/identity, which is already correct
+  for `RemoteNativeBackend` and every `"unestablished"` backend.
+
+  `gpu_index` is display/log only - an NVML enumeration index and a CUDA ordinal are independently
+  remappable (driver enumeration order; `CUDA_VISIBLE_DEVICES`), so "index 0" agreeing on both sides
+  is never proof of the same physical card. What a correspondence check actually trusts is
+  `identity` (`src.platform.runtime.gpu.DeviceIdentity` - a stable UUID, resolved once at
+  `GpuMonitor` init via NVML and, for a native backend's CUDA ordinal, via
+  `native_backend._cuda_device_identity()` reading `torch.cuda.get_device_properties(idx).uuid`,
+  normalised to NVML's `"GPU-xxxx"` string form). `None` on either side (torch/CUDA unavailable, the
+  ordinal out of range, or NVML unable to report a UUID) is never treated as a match.
+  `src/features/presets/requirements/context_builder.py`'s `vram_min_gb` path is what actually
+  compares the two (`RequirementBackendInfo.execution_device.identity` against
+  `GpuMonitor.device_identity`) and only trusts a local reading when both are present and equal -
+  a `native` backend configured for `cuda:1`, or one whose CUDA ordinal has been remapped to a
+  different physical card than the one this process's `GpuMonitor` watches, must never be judged by
+  that monitor's reading just because a GPU happens to be present somewhere.
 
 `InProcessBackend` factors out what every backend so far actually does: it owns the `_active` set of
 in-flight generation ids, the `_run` coroutine that drives `GenerationEngine` on a worker thread and

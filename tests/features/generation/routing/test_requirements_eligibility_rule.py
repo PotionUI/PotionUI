@@ -10,6 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from src.features.backends import native_backend as native_backend_module
 from src.features.backends.base_backend import ExecutionDeviceEvidence
 from src.features.generation.routing.contracts import Candidate, RoutingContext, RoutingRequest
 from src.features.generation.routing.rules import RequirementsEligibility
@@ -18,6 +19,17 @@ from src.features.presets.requirements.context_builder import build_requirement_
 from src.features.presets.requirements.contracts import RequirementBackendInfo, RequirementResult
 from src.features.presets.requirements.evaluator import RequirementsCache
 from src.platform.plugins.requirement_checkers import RequirementCheckerRegistration, requirement_checker_registry
+from src.platform.runtime.gpu import DeviceIdentity
+
+
+def _identity(tag: str) -> DeviceIdentity:
+    return DeviceIdentity(uuid=f"GPU-{tag}")
+
+
+def _patch_cuda_identity(monkeypatch, by_index: dict):
+    """Never touches real CUDA - see test_context_builder.py's identical
+    helper for the full rationale."""
+    monkeypatch.setattr(native_backend_module, "_cuda_device_identity", lambda index: by_index.get(index))
 
 
 def _candidates(*backend_ids):
@@ -111,13 +123,21 @@ class TestRequirementsEligibility:
 
 
 class _FakeGpuMonitor:
-    def __init__(self, total_vram_mb: int, available: bool = True, device_index: int = 0):
+    def __init__(self, total_vram_mb: int, available: bool = True, device_index: int = 0, device_identity=None):
         self.available = available
         self._total_vram_mb = total_vram_mb
         self.device_index = device_index
+        self.device_identity = device_identity
 
     def get_total_vram(self) -> int:
         return self._total_vram_mb
+
+
+def _preset_mock(id, requirements):
+    """A `Mock` preset carrying real `modes={}` - `build_requirement_context_for_backend`
+    scans `preset.modes` (for a per-pipe device override) unconditionally,
+    which a plain `Mock` attribute would return as another unusable `Mock`."""
+    return Mock(id=id, requirements=requirements, modes={})
 
 
 class TestRequirementsEligibilityWithRealVramMinGb:
@@ -133,11 +153,11 @@ class TestRequirementsEligibilityWithRealVramMinGb:
 
     @pytest.mark.asyncio
     async def test_hard_missing_local_backend_is_dropped_remote_unknown_is_kept(self):
-        preset = Mock(id="native-preset", requirements=[{"type": "vram_min_gb", "gb": 16}])
-        gpu_monitor = _FakeGpuMonitor(total_vram_mb=8 * 1024)  # 8 GB - below the 16 GB floor
+        preset = _preset_mock("native-preset", [{"type": "vram_min_gb", "gb": 16}])
+        gpu_monitor = _FakeGpuMonitor(total_vram_mb=8 * 1024, device_identity=_identity("local"))  # 8 GB - below the 16 GB floor
         local_info = RequirementBackendInfo(
             id="native-local", engine="native", driver="native",
-            execution_device=ExecutionDeviceEvidence(kind="this_host_gpu", gpu_index=0),
+            execution_device=ExecutionDeviceEvidence(kind="this_host_gpu", gpu_index=0, identity=_identity("local")),
         )
         remote_info = RequirementBackendInfo(
             id="native-remote-1", engine="native", driver="native.remote",
@@ -170,7 +190,7 @@ class TestRequirementsEligibilityWithRealVramMinGb:
         this API host's own GPU total - it must never be excluded by
         routing eligibility for a requirement it cannot be evaluated
         against."""
-        preset = Mock(id="comfy-preset", requirements=[{"type": "vram_min_gb", "gb": 16}])
+        preset = _preset_mock("comfy-preset", [{"type": "vram_min_gb", "gb": 16}])
         gpu_monitor = _FakeGpuMonitor(total_vram_mb=24 * 1024)  # plenty, but irrelevant here
         comfy_info = RequirementBackendInfo(
             id="comfy-worker", engine="comfyui", driver="comfyui",
@@ -191,7 +211,7 @@ class TestRequirementsEligibilityWithRealVramMinGb:
         assert result[0].reasons[-1] == "requirements satisfied"
 
     @pytest.mark.asyncio
-    async def test_cuda1_candidate_against_an_index0_monitor_is_kept_as_unknown_not_falsely_dropped(self):
+    async def test_cuda1_candidate_against_an_index0_monitor_is_kept_as_unknown_not_falsely_dropped(self, monkeypatch):
         """The reopened bug, at the routing layer: GPU0=24 GiB (this
         process's one `GpuMonitor`), GPU1=8 GiB, 16 GiB requirement - a
         REAL `NativeBackend` resolved to `cuda:1` must never be judged by
@@ -202,8 +222,9 @@ class TestRequirementsEligibilityWithRealVramMinGb:
         from src.features.backends.backend_config import NativeBackendConfig
         from src.features.backends.native_backend import NativeBackend
 
-        preset = Mock(id="dual-gpu-preset", requirements=[{"type": "vram_min_gb", "gb": 16}])
-        gpu_monitor = _FakeGpuMonitor(total_vram_mb=24 * 1024, device_index=0)
+        _patch_cuda_identity(monkeypatch, {0: _identity("gpu0"), 1: _identity("gpu1")})
+        preset = _preset_mock("dual-gpu-preset", [{"type": "vram_min_gb", "gb": 16}])
+        gpu_monitor = _FakeGpuMonitor(total_vram_mb=24 * 1024, device_index=0, device_identity=_identity("gpu0"))
         gpu1_backend = NativeBackend(
             backend_config=NativeBackendConfig(id="gpu1-backend", name="GPU 1", device="cuda:1", dtype="float16", gpu_max_vram=0)
         )
@@ -224,6 +245,40 @@ class TestRequirementsEligibilityWithRealVramMinGb:
 
         assert not result[0].dropped
         assert result[0].reasons[-1] == "requirements satisfied"
+
+    @pytest.mark.asyncio
+    async def test_matching_identity_on_the_correct_index_is_still_a_hard_drop(self, monkeypatch):
+        """The positive control alongside the mismatch test above: a REAL
+        `NativeBackend` at `cuda:0` whose identity DOES match the one
+        `GpuMonitor` this process runs is still judged normally (dropped
+        for a genuine hard miss) - this rework must not make every
+        `this_host_gpu` candidate read `unknown`."""
+        from src.features.backends.backend_config import NativeBackendConfig
+        from src.features.backends.native_backend import NativeBackend
+
+        _patch_cuda_identity(monkeypatch, {0: _identity("gpu0")})
+        preset = _preset_mock("gpu0-preset", [{"type": "vram_min_gb", "gb": 16}])
+        gpu_monitor = _FakeGpuMonitor(total_vram_mb=8 * 1024, device_index=0, device_identity=_identity("gpu0"))
+        gpu0_backend = NativeBackend(
+            backend_config=NativeBackendConfig(id="gpu0-backend", name="GPU 0", device="cuda:0", dtype="float16", gpu_max_vram=0)
+        )
+        gpu0_info = RequirementBackendInfo(
+            id="gpu0-backend", engine="native", driver="native",
+            execution_device=gpu0_backend.resolve_execution_device(),
+        )
+        host_ctx = build_requirement_context_for_backend(preset, None, gpu_monitor, None)
+        backend_ctxs = {"gpu0-backend": build_requirement_context_for_backend(preset, None, gpu_monitor, gpu0_info)}
+        cache = RequirementsCache()
+        await cache.get_or_evaluate_for_backends(requirement_checker_registry, preset, host_ctx, backend_ctxs)
+
+        candidates = _candidates("gpu0-backend")
+        ctx = RoutingContext(backend_registry=Mock(), requirements_cache=cache)
+        request = RoutingRequest(engine="native", preset=preset, form_data={})
+
+        result = await RequirementsEligibility().apply(candidates, request, ctx)
+
+        assert result[0].dropped
+        assert "16 GB" in result[0].reasons[-1]
 
 
 class _AlwaysMissingHostChecker:

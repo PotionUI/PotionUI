@@ -5,7 +5,7 @@ container.
 """
 
 import sys
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.backends.base_backend import ExecutionDeviceEvidence
@@ -15,6 +15,12 @@ from src.features.presets.templates import PresetTemplate
 from src.platform.runtime.gpu import GpuMonitor
 
 _UNESTABLISHED = ExecutionDeviceEvidence(kind="unestablished")
+
+# The literal `pipe['config']` key `NativeBackend.prepare_pipes` `setdefault`s
+# the backend's configured device onto - the same key a preset author can
+# set explicitly under a pipe's `configuration:` block in `pipeline.yml`
+# to win over it (see docs/presets.md's `vram_min_gb` paragraph).
+_PIPE_DEVICE_KEY = "device"
 
 
 def _resolve_execution_device(backend) -> ExecutionDeviceEvidence:
@@ -84,6 +90,95 @@ def backend_infos_for_engine(backend_registry: Optional[BackendRegistry], engine
     ]
 
 
+def _resolve_gpu_reading(
+    evidence: Optional[ExecutionDeviceEvidence],
+    gpu_monitor: Optional[GpuMonitor],
+    gpu_available: bool,
+) -> Tuple[Optional[float], Optional[str]]:
+    """`(gpu_total_vram_gb, reason)` from a backend's own resolved
+    `ExecutionDeviceEvidence` - never inferred from the backend's driver
+    *name* (an in-process backend that only coordinates a pipeline talking
+    to some other server, e.g. the ComfyUI plugin's backend, must not read
+    as local; that's "unestablished"), and never from "some GPU exists on
+    this host" alone. `reason` is `None` when a reading WAS taken, or when
+    the generic per-type detail (`VramMinGbRequirementChecker`'s own
+    message) already says enough (no backend, remote, unestablished) - it
+    carries a specific note only where there's something more precise to
+    say about a `"this_host_gpu"` backend that still got no reading.
+
+    The gate is physical IDENTITY, not an index: a `NativeBackend`
+    configured for `cuda:1` is not satisfied by a monitor bound to a
+    DIFFERENT physical card just because some enumeration index happens to
+    match - NVML's enumeration order need not agree with CUDA's own
+    (further remappable via `CUDA_VISIBLE_DEVICES`) ordinal numbering, so an
+    integer match alone is never treated as proof. Both sides must report a
+    `DeviceIdentity` and those identities must be equal (see
+    `src.platform.runtime.gpu.DeviceIdentity`)."""
+    if evidence is None:
+        return None, None
+    if evidence.kind == "no_gpu":
+        return None, "this backend is explicitly configured with no GPU (device: cpu)"
+    if evidence.kind in ("remote", "unestablished"):
+        return None, None
+    # kind == "this_host_gpu"
+    if not gpu_available:
+        return None, None
+    monitor_identity = getattr(gpu_monitor, "device_identity", None)
+    if evidence.identity is None:
+        return None, (
+            "this backend's GPU identity could not be established "
+            "(torch/CUDA unavailable, or the configured device index is out of range)"
+        )
+    if monitor_identity is None:
+        return None, (
+            "this host's GPU identity could not be established "
+            "(NVML did not report a UUID for the monitored device)"
+        )
+    if evidence.identity != monitor_identity:
+        return None, "this backend's configured GPU is not the specific GPU this process monitors (identity mismatch)"
+    return gpu_monitor.get_total_vram() / 1024.0, None
+
+
+def _preset_device_override(preset: PresetTemplate, backend_device: Optional[str]) -> Optional[str]:
+    """A reason to distrust an otherwise-applicable GPU reading because the
+    PRESET's own `pipeline.yml` authoring - not the backend's admin
+    configuration - decides which device a pipe actually runs on:
+    `NativeBackend.prepare_pipes` only `setdefault`s its configured device
+    onto a pipe's config, so an explicit `configuration: {device: ...}` on
+    any pipe in any of the preset's modes wins over it
+    (`src/features/presets/processor.py`'s `_process_pipes` turns that
+    block into `pipe['config']` verbatim, unrendered - see docs/presets.md).
+
+    `None` when nothing overrides `device` at all, or the one literal
+    override present already agrees with `backend_device` - checked
+    STATICALLY, before any Jinja rendering (this evaluates independent of
+    form data), so a templated value is conservatively treated as an
+    override this check cannot resolve, never as "probably fine"."""
+    if backend_device is None:
+        return None
+    for mode in preset.modes.values():
+        for pipe in mode.pipes:
+            if pipe.enabled is False:
+                continue
+            config = pipe.configuration or {}
+            if _PIPE_DEVICE_KEY not in config:
+                continue
+            value = config[_PIPE_DEVICE_KEY]
+            if not isinstance(value, str):
+                continue
+            if "{{" in value or "{%" in value:
+                return (
+                    f"pipe '{pipe.name}' overrides its device with a template "
+                    "this check has no form data to resolve"
+                )
+            if value != backend_device:
+                return (
+                    f"pipe '{pipe.name}' overrides its device to '{value}', "
+                    f"different from this backend's configured '{backend_device}'"
+                )
+    return None
+
+
 def build_requirement_context_for_backend(
     preset: PresetTemplate,
     models: Optional[ModelIndexCollaborators],
@@ -96,29 +191,20 @@ def build_requirement_context_for_backend(
     `evaluate_preset_requirements_for_backends` uses to check a preset
     against one specific backend of its engine."""
     gpu_available = bool(gpu_monitor is not None and gpu_monitor.available)
-    # A local VRAM reading applies only when the resolved backend's OWN
-    # evidence (see `RequirementBackendInfo.execution_device`,
-    # `ExecutionDeviceEvidence`) affirmatively says so - never inferred from
-    # the backend's driver *name* (an in-process backend that only
-    # coordinates a pipeline talking to some other server, e.g. the ComfyUI
-    # plugin's backend, must not read as local; that's "unestablished").
-    # Nor is "some GPU exists on this host" enough on its own: a
-    # `NativeBackend` configured for `cuda:1` is not satisfied by a monitor
-    # bound to a DIFFERENT device - `gpu_monitor.device_index` must match
-    # the backend's own resolved index, or this stays `unknown` rather than
-    # borrowing another GPU's reading. A `NativeBackend` explicitly
-    # configured with no GPU at all (`kind="no_gpu"`, e.g. `device="cpu"`)
-    # never matches either, for the same reason.
     evidence = backend.execution_device if backend is not None else None
-    monitor_device_index = getattr(gpu_monitor, "device_index", 0)
-    reading_applies = (
-        evidence is not None
-        and evidence.kind == "this_host_gpu"
-        and evidence.gpu_index == monitor_device_index
-    )
-    gpu_total_vram_gb = None
-    if gpu_available and reading_applies:
-        gpu_total_vram_gb = gpu_monitor.get_total_vram() / 1024.0
+    gpu_total_vram_gb, gpu_unavailable_reason = _resolve_gpu_reading(evidence, gpu_monitor, gpu_available)
+
+    if gpu_total_vram_gb is not None:
+        # A reading would otherwise apply from the backend's own
+        # device-identity evidence - but the preset's own pipeline
+        # authoring can still put a DIFFERENT device on the pipe that would
+        # actually run, in a way this backend-level evidence has no
+        # visibility into (see `_preset_device_override`).
+        backend_device = getattr(backend.config, "device", None) if backend is not None else None
+        override_reason = _preset_device_override(preset, backend_device)
+        if override_reason is not None:
+            gpu_total_vram_gb = None
+            gpu_unavailable_reason = override_reason
 
     return RequirementContext(
         models=models,
@@ -126,6 +212,7 @@ def build_requirement_context_for_backend(
         gpu_total_vram_gb=gpu_total_vram_gb,
         backend=backend,
         platform=sys.platform,
+        gpu_unavailable_reason=gpu_unavailable_reason,
     )
 
 

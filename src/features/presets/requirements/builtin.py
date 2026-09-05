@@ -258,10 +258,10 @@ class VramMinGbRequirementChecker:
     async def check(self, spec: Dict[str, Any], ctx: RequirementContext) -> RequirementResult:
         parsed = self.schema.model_validate(spec)
         if ctx.gpu_total_vram_gb is None:
-            return RequirementResult(
-                status="unknown",
-                detail="no local VRAM reading available (no GPU on this host, or the preset's backend is remote)",
+            detail = ctx.gpu_unavailable_reason or (
+                "no local VRAM reading available (no GPU on this host, or the preset's backend is remote)"
             )
+            return RequirementResult(status="unknown", detail=detail)
         if ctx.gpu_total_vram_gb + 1e-6 >= parsed.gb:
             return RequirementResult(
                 status="ok",

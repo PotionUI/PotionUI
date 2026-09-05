@@ -108,6 +108,15 @@ class RequirementContext:
     backend: Optional[RequirementBackendInfo]
     # `sys.platform` ("linux", "darwin", "win32", ...).
     platform: str
+    # A short, human-readable note on why `gpu_total_vram_gb` ended up
+    # `None` for a backend that otherwise looked like it should have a
+    # local reading - identity unestablished, an identity mismatch, a
+    # preset-authored per-pipe device override, or an explicit "no GPU
+    # configured" - set by `context_builder.build_requirement_context_for_backend`.
+    # `None` when there's nothing more specific to say than the checker's
+    # own generic detail (no backend, remote, unestablished, or a reading
+    # WAS taken).
+    gpu_unavailable_reason: Optional[str] = None
 
 
 @runtime_checkable

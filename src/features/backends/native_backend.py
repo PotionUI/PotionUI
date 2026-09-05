@@ -1,6 +1,7 @@
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar, Dict, List, Optional
 
 from src.platform.observability.logger import logger
+from src.platform.runtime.gpu import DeviceIdentity
 
 from .base_backend import ExecutionDevice, ExecutionDeviceEvidence
 from .in_process_backend import InProcessBackend
@@ -18,6 +19,35 @@ def _cuda_device_index(device: str) -> int:
     return 0
 
 
+def _cuda_device_identity(index: int) -> Optional[DeviceIdentity]:
+    """This CUDA ordinal's stable hardware identity, as torch itself
+    reports it - normalised to NVML's canonical `"GPU-xxxxxxxx-...."` form
+    (torch's own `torch.cuda.get_device_properties(idx).uuid` renders as
+    just the hex-and-dashes body, no "GPU-" prefix) so it compares equal to
+    a `GpuMonitor.device_identity` naming the SAME physical card - a CUDA
+    ordinal is independently remappable from an NVML enumeration index
+    (`CUDA_VISIBLE_DEVICES`, driver enumeration order), so the ordinal
+    itself is never trusted as proof.
+
+    `None` when torch/CUDA is unavailable or `index` is out of range on
+    this host - never a guess. PCI location is deliberately not carried
+    here: torch reports it in a different shape (a raw bus number) than
+    NVML's domain:bus:device.function string, and `DeviceIdentity.pci_bus_id`
+    is informational only regardless (`compare=False`).
+
+    A module-level function, not inlined into `resolve_execution_device`,
+    specifically so a test can monkeypatch it instead of touching real
+    CUDA (see `docs/backends.md`'s device-identity section)."""
+    try:
+        import torch
+
+        if not torch.cuda.is_available() or index >= torch.cuda.device_count():
+            return None
+        return DeviceIdentity(uuid=f"GPU-{torch.cuda.get_device_properties(index).uuid}")
+    except Exception:
+        return None
+
+
 class NativeBackend(InProcessBackend):
     """
     The built-in `native` engine: diffusers pipes executed in this process.
@@ -32,14 +62,17 @@ class NativeBackend(InProcessBackend):
         """The class tag above is necessarily coarse: THIS instance's real
         device is admin-configured (`NativeBackendConfig.device`), and a
         native backend can be pointed at `cpu` just as validly as any
-        `cuda:N` - a caller that wants to know whether ITS OWN GPU reading
-        (bound to one specific index, see `GpuMonitor.device_index`) applies
-        to this backend needs to know THIS device's index, not just that
-        `NativeBackend`-the-class is capable of local GPU inference."""
+        `cuda:N`. `gpu_index` is display/log only; `identity` (this
+        ordinal's stable hardware UUID, via `_cuda_device_identity`) is what
+        a caller must actually compare against its own device's identity -
+        an index match alone is not proof of the same physical card."""
         device = self.config.device
         if device == "cpu":
             return ExecutionDeviceEvidence(kind="no_gpu")
-        return ExecutionDeviceEvidence(kind="this_host_gpu", gpu_index=_cuda_device_index(device))
+        index = _cuda_device_index(device)
+        return ExecutionDeviceEvidence(
+            kind="this_host_gpu", gpu_index=index, identity=_cuda_device_identity(index),
+        )
 
     def supports_model_listing(self) -> bool:
         return True

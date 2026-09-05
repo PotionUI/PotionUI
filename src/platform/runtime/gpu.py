@@ -1,9 +1,29 @@
 from pynvml import *
+from dataclasses import dataclass, field
 from threading import Lock
 from typing import Tuple, Optional
 
 from src.platform.observability.logger import logger
 from src.platform.runtime.vram_cap import apply_vram_cap_bytes, get_vram_cap_gb
+
+
+@dataclass(frozen=True)
+class DeviceIdentity:
+    """A GPU's own stable hardware identity - deliberately not an index.
+    Neither an NVML enumeration index nor a CUDA ordinal is a safe proxy
+    for "the same physical card": NVML's enumeration order need not agree
+    with CUDA's (itself further remappable by `CUDA_VISIBLE_DEVICES`), so
+    "index 0 on both sides" is not proof of anything. `uuid` is NVML's
+    canonical `"GPU-xxxxxxxx-...."` form - the same PyTorch and `nvidia-smi`
+    both ultimately report (PyTorch's own `.uuid` omits the "GPU-" prefix;
+    see `src.features.backends.native_backend._cuda_device_identity`'s
+    normalisation) - and is the ONLY field two `DeviceIdentity` values
+    compare on (`pci_bus_id` is carried for logs/debugging only, via
+    `compare=False`: it's cheap to read from NVML but PyTorch reports PCI
+    location in a different shape, so it is never required to agree)."""
+
+    uuid: str
+    pci_bus_id: Optional[str] = field(default=None, compare=False)
 
 
 def effective_vram_budget_gb(
@@ -80,12 +100,15 @@ class GpuMonitor:
         (NativeBackendConfig.gpu_max_vram), passed in per call, because a budget
         is engine configuration while the hardware is not.
 
-        `device_index` is recorded as `self.device_index` so a caller with
-        per-device evidence (e.g. a preset requirement checker holding a
-        `NativeBackend`'s own configured `cuda:N`, see
-        `src.features.backends.base_backend.ExecutionDeviceEvidence`) can confirm
-        THIS monitor's reading actually corresponds to that device before
-        trusting it - a reading bound to GPU 0 must never be read as GPU 1's.
+        `device_index` is recorded as `self.device_index` (display/log only -
+        an NVML enumeration index is not itself proof of correspondence with
+        anything, see `DeviceIdentity`) and, once NVML confirms a handle,
+        `self.device_identity` is resolved once (`DeviceIdentity` - a stable
+        UUID, not an index) so a caller with per-device evidence (e.g. a
+        preset requirement checker holding a `NativeBackend`'s own resolved
+        `ExecutionDeviceEvidence.identity`) can confirm THIS monitor's
+        reading actually corresponds to that exact physical card before
+        trusting it - never by comparing indices alone.
 
         No NVIDIA driver/GPU is a legitimate host state (CPU-only hosts are
         supported for claim/setup work) - construction must never raise. `nvmlInit`
@@ -95,6 +118,7 @@ class GpuMonitor:
         """
         self.lock = Lock()
         self.device_index = device_index
+        self.device_identity: Optional[DeviceIdentity] = None
         # Set by whichever backend currently owns the GPU (NativeBackend, from its
         # `gpu_max_vram` config) before it runs a pipeline. None = bound only by hardware.
         self._vram_cap_gb: Optional[float] = None
@@ -107,6 +131,9 @@ class GpuMonitor:
             self.available = True
         except Exception as e:
             logger.warning(f"[GPU_MANAGER] No GPU/NVML available - VRAM readings will report 0: {e}")
+
+        if self.available:
+            self.device_identity = self._resolve_device_identity()
 
         # Debug-only rig-simulation knob (POTIONUI_VRAM_CAP_GB, see vram_cap.py):
         # touching it here logs its loud one-time warning at process startup,
@@ -123,6 +150,23 @@ class GpuMonitor:
                 logger.info(f"[GPU_MANAGER] Initialized: {gpu_name_str} with {total_vram_gb:.1f}GB VRAM")
             except Exception as e:
                 logger.warning(f"[GPU_MANAGER] Could not get GPU name: {e}")
+
+    def _resolve_device_identity(self) -> Optional[DeviceIdentity]:
+        """Best-effort - a live NVML handle does not guarantee every query on
+        it succeeds (an older driver, a sandboxed/virtualised GPU). `None`
+        here means every consumer wanting physical-identity correspondence
+        (e.g. `vram_min_gb`) degrades to `unknown`, never to guessing this
+        is any particular card."""
+        try:
+            uuid = nvmlDeviceGetUUID(self.handle)
+        except Exception:
+            return None
+        pci_bus_id = None
+        try:
+            pci_bus_id = nvmlDeviceGetPciInfo(self.handle).busId
+        except Exception:
+            pass
+        return DeviceIdentity(uuid=uuid, pci_bus_id=pci_bus_id)
 
     def _get_memory_info(self):
         """Get NVML memory info (thread-safe).

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Dict, Any, List, Literal, Optional, Callable, TYPE_CHECKING
 from src.pipelines.outputs import GenerationOutput
 from src.features.backends.model_listing import BackendModel, ModelListingNotSupported
+from src.platform.runtime.gpu import DeviceIdentity
 
 if TYPE_CHECKING:
     from src.features.generation.dto import GenerationRequest
@@ -49,9 +50,14 @@ class ExecutionDeviceEvidence:
     config - and a preset checker reading a stale/mismatched index must
     never borrow another GPU's reading.
 
-    - `kind="this_host_gpu"`, `gpu_index=N`: inference runs on this
-      process's own GPU N. A caller must confirm ITS OWN GPU reading is
-      actually for index N before trusting it as this backend's.
+    - `kind="this_host_gpu"`, `gpu_index=N`, `identity=<DeviceIdentity or None>`:
+      inference runs on this process's own GPU N. `gpu_index` is display/log
+      only (an enumeration index proves nothing - NVML order need not agree
+      with CUDA's own remappable ordinal numbering); a caller deciding
+      whether ITS OWN GPU reading applies to this backend must compare
+      `identity`, not `gpu_index`, against its own device's identity, and
+      treat a `None` identity (torch/CUDA couldn't report one) the same as a
+      mismatch - never a guess.
     - `kind="no_gpu"`: this backend is explicitly configured with no GPU at
       all (e.g. `device="cpu"`) - definite evidence, not "unknown".
     - `kind="remote"`: inference runs on hardware this process cannot see.
@@ -60,8 +66,18 @@ class ExecutionDeviceEvidence:
     """
 
     kind: ExecutionDeviceKind
-    # Only meaningful when `kind == "this_host_gpu"`; `None` otherwise.
+    # Display/log only - see the `identity` field below for what a
+    # correspondence check must actually use. Meaningful only when
+    # `kind == "this_host_gpu"`; `None` otherwise.
     gpu_index: Optional[int] = None
+    # This device's stable hardware identity (a UUID, not an index) - the
+    # ONLY thing a caller may compare against another device's identity to
+    # decide "is this the same physical card". Meaningful only when
+    # `kind == "this_host_gpu"`; `None` there means the identity could not
+    # be established (torch/CUDA unavailable, or the index is out of
+    # range) - a caller must treat that the same as "no match", never as
+    # "assume yes".
+    identity: Optional[DeviceIdentity] = None
 
 
 class BaseBackend(ABC):

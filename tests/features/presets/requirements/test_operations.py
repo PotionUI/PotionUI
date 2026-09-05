@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.features.backends import native_backend as native_backend_module
 from src.features.backends.base_backend import ExecutionDeviceEvidence
 from src.features.backends.in_process_backend import InProcessBackend
 from src.features.presets import operations
@@ -14,11 +15,22 @@ from src.features.presets.exceptions import PresetNotFoundException
 from src.features.presets.requirements.builtin import register_builtin_requirement_checkers
 from src.features.presets.requirements.contracts import RequirementResult
 from src.features.presets.requirements.evaluator import RequirementsCache
-from src.features.presets.templates import PresetTemplate
+from src.features.presets.templates import ModeTemplate, PipeTemplate, PresetTemplate
 from src.platform.plugins.requirement_checkers import (
     RequirementCheckerRegistration,
     requirement_checker_registry,
 )
+from src.platform.runtime.gpu import DeviceIdentity
+
+
+def _identity(tag: str) -> DeviceIdentity:
+    return DeviceIdentity(uuid=f"GPU-{tag}")
+
+
+def _patch_cuda_identity(monkeypatch, by_index: dict):
+    """Never touches real CUDA - see test_context_builder.py's identical
+    helper for the full rationale."""
+    monkeypatch.setattr(native_backend_module, "_cuda_device_identity", lambda index: by_index.get(index))
 
 
 def setup_module(module):
@@ -365,10 +377,11 @@ class TestGetPresetRequirementsMultiBackend:
 
 
 class _FakeGpuMonitor:
-    def __init__(self, total_vram_mb: int, available: bool = True, device_index: int = 0):
+    def __init__(self, total_vram_mb: int, available: bool = True, device_index: int = 0, device_identity=None):
         self.available = available
         self._total_vram_mb = total_vram_mb
         self.device_index = device_index
+        self.device_identity = device_identity
 
     def get_total_vram(self) -> int:
         return self._total_vram_mb
@@ -378,7 +391,7 @@ def _native_backends():
     return [
         _FakeBackend(
             _FakeBackendConfig("native-local", "Local GPU", "native", driver="native"),
-            ExecutionDeviceEvidence(kind="this_host_gpu", gpu_index=0),
+            ExecutionDeviceEvidence(kind="this_host_gpu", gpu_index=0, identity=_identity("local")),
         ),
         _FakeBackend(
             _FakeBackendConfig("native-remote-1", "Remote Worker", "native", driver="native.remote"),
@@ -413,7 +426,7 @@ class TestGetPresetRequirementsVramMinGbPerBackend:
         collaborators = _collaborators(
             file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
             backend_registry=_FakeBackendRegistry(_native_backends(), default_id=default_id),
-            gpu_monitor=_FakeGpuMonitor(int(gpu_total_gb * 1024)),
+            gpu_monitor=_FakeGpuMonitor(int(gpu_total_gb * 1024), device_identity=_identity("local")),
             requirements_cache=RequirementsCache(),
         )
         return preset, collaborators
@@ -512,7 +525,7 @@ class TestGetPresetRequirementsVramMinGbPerBackend:
         collaborators = _collaborators(
             file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
             backend_registry=_FakeBackendRegistry(_native_backends(), default_id="native-local"),
-            gpu_monitor=_FakeGpuMonitor(8 * 1024),
+            gpu_monitor=_FakeGpuMonitor(8 * 1024, device_identity=_identity("local")),
             requirements_cache=RequirementsCache(),
         )
 
@@ -622,7 +635,8 @@ class TestVramMinGbDeviceIdentityAcrossRealNativeBackends:
     device - it must read `unknown`, never borrow the other GPU's number in
     either direction."""
 
-    def _collaborators_for(self, gpu0_total_gb, default_id, gb=16):
+    def _collaborators_for(self, monkeypatch, gpu0_total_gb, default_id, gb=16):
+        _patch_cuda_identity(monkeypatch, {0: _identity("gpu0"), 1: _identity("gpu1")})
         preset = _preset(preset_id="dual-gpu-preset", requirements=[{"type": "vram_min_gb", "gb": gb}])
         preset.engine = "native"
         backends = [
@@ -632,54 +646,102 @@ class TestVramMinGbDeviceIdentityAcrossRealNativeBackends:
         collaborators = _collaborators(
             file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
             backend_registry=_FakeBackendRegistry(backends, default_id=default_id),
-            gpu_monitor=_FakeGpuMonitor(int(gpu0_total_gb * 1024), device_index=0),
+            gpu_monitor=_FakeGpuMonitor(int(gpu0_total_gb * 1024), device_index=0, device_identity=_identity("gpu0")),
             requirements_cache=RequirementsCache(),
         )
         return preset, collaborators
 
     @pytest.mark.asyncio
-    async def test_gpu0_24gb_gpu1_8gb_cuda1_candidate_reads_unknown_not_falsely_ok(self):
+    async def test_gpu0_24gb_gpu1_8gb_cuda1_candidate_reads_unknown_not_falsely_ok(self, monkeypatch):
         """The exact repro: GPU0=24 GiB (this process's one monitor),
         GPU1=8 GiB, 16 GiB requirement - before this rework the cuda:1
         candidate falsely read "ok" by borrowing GPU0's reading."""
-        _, collaborators = self._collaborators_for(gpu0_total_gb=24, default_id="gpu0-backend")
+        _, collaborators = self._collaborators_for(monkeypatch, gpu0_total_gb=24, default_id="gpu0-backend")
 
         data = await operations.get_preset_requirements(collaborators, "dual-gpu-preset", backend_id="gpu1-backend")
 
         assert data["results"][0]["status"] == "unknown"
 
     @pytest.mark.asyncio
-    async def test_gpu0_8gb_cuda1_candidate_still_reads_unknown_not_falsely_excluded(self):
+    async def test_gpu0_8gb_cuda1_candidate_still_reads_unknown_not_falsely_excluded(self, monkeypatch):
         """Reversed sizes: GPU0=8 GiB - the cuda:1 candidate must not
         falsely read "missing" either (borrowing GPU0's 8 GiB); with no
         telemetry for its own index it stays `unknown`, never excluded for
         a requirement this process cannot check for it."""
-        _, collaborators = self._collaborators_for(gpu0_total_gb=8, default_id="gpu0-backend")
+        _, collaborators = self._collaborators_for(monkeypatch, gpu0_total_gb=8, default_id="gpu0-backend")
 
         data = await operations.get_preset_requirements(collaborators, "dual-gpu-preset", backend_id="gpu1-backend")
 
         assert data["results"][0]["status"] == "unknown"
 
     @pytest.mark.asyncio
-    async def test_gpu0_candidate_is_still_judged_by_its_own_matching_reading(self):
-        _, collaborators = self._collaborators_for(gpu0_total_gb=24, default_id="gpu0-backend")
+    async def test_gpu0_candidate_is_still_judged_by_its_own_matching_reading(self, monkeypatch):
+        _, collaborators = self._collaborators_for(monkeypatch, gpu0_total_gb=24, default_id="gpu0-backend")
 
         data = await operations.get_preset_requirements(collaborators, "dual-gpu-preset", backend_id="gpu0-backend")
 
         assert data["results"][0]["status"] == "ok"
 
     @pytest.mark.asyncio
-    async def test_cpu_configured_backend_on_a_gpu_host_reads_unknown_never_borrows(self):
+    async def test_ordinal_remapped_to_a_different_physical_card_is_unknown(self, monkeypatch):
+        """The physical-identity gap: CUDA_VISIBLE_DEVICES (or any other
+        remap) can make CUDA ordinal 0 point at a DIFFERENT physical card
+        than the one this process's NVML-bound monitor watches - both are
+        "index 0", but an index match alone is never proof."""
+        _patch_cuda_identity(monkeypatch, {0: _identity("physical-gpu-1")})
+        preset = _preset(preset_id="remapped-preset", requirements=[{"type": "vram_min_gb", "gb": 16}])
+        preset.engine = "native"
+        backend = _real_native_backend("gpu0-backend", "cuda:0")
+        collaborators = _collaborators(
+            file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
+            backend_registry=_FakeBackendRegistry([backend], default_id="gpu0-backend"),
+            gpu_monitor=_FakeGpuMonitor(24 * 1024, device_index=0, device_identity=_identity("physical-gpu-0")),
+            requirements_cache=RequirementsCache(),
+        )
+
+        data = await operations.get_preset_requirements(collaborators, "remapped-preset")
+
+        assert data["results"][0]["status"] == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_cpu_configured_backend_on_a_gpu_host_reads_unknown_never_borrows(self, monkeypatch):
+        _patch_cuda_identity(monkeypatch, {0: _identity("gpu0")})
         preset = _preset(preset_id="cpu-preset", requirements=[{"type": "vram_min_gb", "gb": 16}])
         preset.engine = "native"
         backend = _real_native_backend("cpu-backend", "cpu")
         collaborators = _collaborators(
             file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
             backend_registry=_FakeBackendRegistry([backend], default_id="cpu-backend"),
-            gpu_monitor=_FakeGpuMonitor(24 * 1024, device_index=0),  # plenty, but not applicable
+            gpu_monitor=_FakeGpuMonitor(24 * 1024, device_index=0, device_identity=_identity("gpu0")),
             requirements_cache=RequirementsCache(),
         )
 
         data = await operations.get_preset_requirements(collaborators, "cpu-preset")
 
         assert data["results"][0]["status"] == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_per_pipe_device_override_degrades_an_otherwise_matching_reading(self, monkeypatch):
+        """A preset that authors `configuration: {device: ...}` on a pipe,
+        conflicting with the backend's own configured device, must not read
+        "ok" just because the backend's own identity matches this process's
+        monitor - the requirements check has no way to know that pipe won't
+        be the one that actually runs."""
+        _patch_cuda_identity(monkeypatch, {0: _identity("gpu0")})
+        preset = _preset(preset_id="override-preset", requirements=[{"type": "vram_min_gb", "gb": 16}])
+        preset.engine = "native"
+        preset.modes["txt2img"] = ModeTemplate(
+            forms=[], pipes=[PipeTemplate(name="generator/native", configuration={"device": "cuda:1"})],
+        )
+        backend = _real_native_backend("gpu0-backend", "cuda:0")
+        collaborators = _collaborators(
+            file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
+            backend_registry=_FakeBackendRegistry([backend], default_id="gpu0-backend"),
+            gpu_monitor=_FakeGpuMonitor(24 * 1024, device_index=0, device_identity=_identity("gpu0")),
+            requirements_cache=RequirementsCache(),
+        )
+
+        data = await operations.get_preset_requirements(collaborators, "override-preset")
+
+        assert data["results"][0]["status"] == "unknown"
+        assert "overrides its device" in data["results"][0]["detail"]

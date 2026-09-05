@@ -35,11 +35,12 @@ TARGET = "double_blocks.0.img_attn.qkv"
 def _build():
     m = Flux.from_config(TINY, pick_operations(torch.float32, torch.float32))
     sd = {}
+    g = torch.Generator().manual_seed(1234)
     for k, v in m.state_dict().items():
         if k.endswith(".scale") and "norm" in k:
             sd[k] = torch.ones_like(v)
         elif v.is_floating_point():
-            sd[k] = torch.randn_like(v) * 0.05
+            sd[k] = torch.randn(v.shape, dtype=v.dtype, generator=g) * 0.05
         else:
             sd[k] = v.clone()
     load_into_module(m, sd, match_model_spec(TINY))

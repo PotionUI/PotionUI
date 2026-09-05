@@ -79,6 +79,7 @@ afterEach(() => {
 	mounted?.destroy();
 	mounted = undefined;
 	vi.clearAllMocks();
+	vi.useRealTimers();
 });
 
 describe('ModelBrowserPanel fetch ownership', () => {
@@ -160,5 +161,128 @@ describe('ModelBrowserPanel fetch ownership', () => {
 		expect(vi.mocked(api.getModels)).toHaveBeenCalledTimes(1);
 		const params = vi.mocked(api.getModels).mock.calls[0][0] as Record<string, unknown>;
 		expect(params.favorites_only).toBe(true);
+	});
+
+	it('does not let an old response published during a query change\'s debounce gap - it is retired the instant the scope changes, not only once the replacement fetch is issued', async () => {
+		vi.useFakeTimers();
+		const oldRequest = deferred<unknown>();
+		const newRequest = deferred<unknown>();
+		const calls: Array<ReturnType<typeof deferred<unknown>>> = [oldRequest, newRequest];
+		vi.mocked(api.getModels).mockImplementation(() => calls.shift()!.promise as never);
+		vi.mocked(api.getTags).mockResolvedValue({ success: true, data: { tags: [] } } as never);
+
+		mounted = mountPanel({ searchQuery: 'old' });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(vi.mocked(api.getModels)).toHaveBeenCalledTimes(1);
+
+		// A pure text edit - the replacement fetch is debounced 300ms.
+		mounted.component.$set({ searchQuery: 'new' });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(vi.mocked(api.getModels), 'still inside the debounce gap - no second fetch yet').toHaveBeenCalledTimes(1);
+
+		// The pre-change request resolves mid-gap.
+		oldRequest.resolve(modelResponse('old-result'));
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(rowNames(mounted.target).some((text) => text.includes('old-result'))).toBe(false);
+		expect(mounted.target.textContent).toContain('Loading models...');
+
+		// The debounce fires; the replacement request resolves normally.
+		await vi.advanceTimersByTimeAsync(300);
+		expect(vi.mocked(api.getModels)).toHaveBeenCalledTimes(2);
+		newRequest.resolve(modelResponse('new-result'));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(rowNames(mounted.target).some((text) => text.includes('new-result'))).toBe(true);
+	});
+
+	it('cancels the old scope and switches to preset-scoped routing when presetId changes, even with the same text/tags', async () => {
+		const oldGlobal = deferred<unknown>();
+		vi.mocked(api.getModels).mockReturnValue(oldGlobal.promise as never);
+		vi.mocked(api.getPresetModels).mockResolvedValue(modelResponse('preset-result') as never);
+		vi.mocked(api.getTags).mockResolvedValue({ success: true, data: { tags: [] } } as never);
+
+		mounted = mountPanel({});
+		await flush(0);
+		expect(vi.mocked(api.getModels)).toHaveBeenCalledTimes(1);
+
+		mounted.component.$set({ presetId: 'preset-1' });
+		await flush(0);
+		expect(vi.mocked(api.getPresetModels), 'preset-only change schedules its own fetch').toHaveBeenCalledTimes(1);
+
+		// The stale global-scope request must not publish once it lands.
+		oldGlobal.resolve(modelResponse('old-global-result'));
+		await flush(0);
+
+		expect(rowNames(mounted.target).some((text) => text.includes('preset-result'))).toBe(true);
+		expect(rowNames(mounted.target).some((text) => text.includes('old-global-result'))).toBe(false);
+	});
+
+	it('cancels the old scope and issues a fetch when modelType changes, even with the same text/tags', async () => {
+		const oldRequest = deferred<unknown>();
+		const newRequest = deferred<unknown>();
+		const calls: Array<ReturnType<typeof deferred<unknown>>> = [oldRequest, newRequest];
+		vi.mocked(api.getModels).mockImplementation(() => calls.shift()!.promise as never);
+		vi.mocked(api.getTags).mockResolvedValue({ success: true, data: { tags: [] } } as never);
+
+		mounted = mountPanel({ modelType: 'checkpoint' });
+		await flush(0);
+
+		mounted.component.$set({ modelType: 'lora' });
+		await flush(0);
+		expect(vi.mocked(api.getModels), 'modelType-only change schedules its own fetch').toHaveBeenCalledTimes(2);
+
+		oldRequest.resolve(modelResponse('old-result'));
+		await flush(0);
+		newRequest.resolve(modelResponse('new-result'));
+		await flush(0);
+
+		expect(rowNames(mounted.target).some((text) => text.includes('new-result'))).toBe(true);
+		expect(rowNames(mounted.target).some((text) => text.includes('old-result'))).toBe(false);
+	});
+
+	it('cancels the old scope and issues a fetch when filterTagIds changes, even with the same text/tags', async () => {
+		const oldRequest = deferred<unknown>();
+		const newRequest = deferred<unknown>();
+		const calls: Array<ReturnType<typeof deferred<unknown>>> = [oldRequest, newRequest];
+		vi.mocked(api.getModels).mockImplementation(() => calls.shift()!.promise as never);
+		vi.mocked(api.getTags).mockResolvedValue({ success: true, data: { tags: [] } } as never);
+
+		mounted = mountPanel({ filterTagIds: ['base-a'] });
+		await flush(0);
+
+		mounted.component.$set({ filterTagIds: ['base-b'] });
+		await flush(0);
+		expect(vi.mocked(api.getModels), 'filterTagIds-only change schedules its own fetch').toHaveBeenCalledTimes(2);
+
+		oldRequest.resolve(modelResponse('old-result'));
+		await flush(0);
+		newRequest.resolve(modelResponse('new-result'));
+		await flush(0);
+
+		expect(rowNames(mounted.target).some((text) => text.includes('new-result'))).toBe(true);
+		expect(rowNames(mounted.target).some((text) => text.includes('old-result'))).toBe(false);
+	});
+
+	it('cancels the old scope and issues a fetch when limit changes, even with the same text/tags', async () => {
+		const oldRequest = deferred<unknown>();
+		const newRequest = deferred<unknown>();
+		const calls: Array<ReturnType<typeof deferred<unknown>>> = [oldRequest, newRequest];
+		vi.mocked(api.getModels).mockImplementation(() => calls.shift()!.promise as never);
+		vi.mocked(api.getTags).mockResolvedValue({ success: true, data: { tags: [] } } as never);
+
+		mounted = mountPanel({ limit: 100 });
+		await flush(0);
+
+		mounted.component.$set({ limit: 50 });
+		await flush(0);
+		expect(vi.mocked(api.getModels), 'limit-only change schedules its own fetch').toHaveBeenCalledTimes(2);
+
+		oldRequest.resolve(modelResponse('old-result'));
+		await flush(0);
+		newRequest.resolve(modelResponse('new-result'));
+		await flush(0);
+
+		expect(rowNames(mounted.target).some((text) => text.includes('new-result'))).toBe(true);
+		expect(rowNames(mounted.target).some((text) => text.includes('old-result'))).toBe(false);
 	});
 });

@@ -84,14 +84,33 @@
 	// this an older completion (e.g. a slow tag-resolve chain from a stale
 	// search) can overwrite a newer result, and its `finally` can clear
 	// `loading` out from under a request still in flight.
+	//
+	// `fetchSeq` is bumped in TWO places: once by `fetchModels` itself when it
+	// actually issues a request, and once by `scheduleFilterFetch` the instant
+	// it detects the scope has moved on - even when the replacement fetch is
+	// debounced. Without that second bump, a request issued for the OLD scope
+	// stays "current" for the whole 300ms debounce window (nothing has
+	// incremented `fetchSeq` yet), so it can publish stale results/loading
+	// state under a scope the user has already left.
 	let disposed = false;
 	let fetchSeq = 0;
 
 	async function fetchModels() {
 		const seq = ++fetchSeq;
 		// Snapshot the full request scope now, before any await - props can
-		// change while `resolveTagIds`/the search request are in flight.
-		const scope = { modelType, presetId, searchQuery, limit, tagFilters, filterTagIds, favoritesOnly };
+		// change while `resolveTagIds`/the search request are in flight. Array
+		// fields are copied, not referenced, so a later in-place mutation of
+		// `tagFilters`/`filterTagIds` can't retroactively change what this
+		// specific request believes its own scope was.
+		const scope = {
+			modelType,
+			presetId,
+			searchQuery,
+			limit,
+			tagFilters: [...tagFilters],
+			filterTagIds: [...filterTagIds],
+			favoritesOnly
+		};
 		const isCurrent = () => !disposed && seq === fetchSeq;
 
 		loading = true;
@@ -136,47 +155,99 @@
 	}
 
 	// Fetch on mount, then re-fetch on any filter change - debounced only for a
-	// pure search-text edit, immediate for a tag/favorites toggle (matches the
-	// pre-extraction behavior in both ModelField.fetchModels and
-	// LoraPickerField.runSearch/scheduleSearch).
+	// pure search-text edit, immediate for everything else (tags, favorites,
+	// and - per the routing/type/limit fix below - preset, model type and the
+	// admin filter-tag ids), matching the pre-extraction behavior in both
+	// ModelField.fetchModels and LoraPickerField.runSearch/scheduleSearch.
 	let mounted = false;
 	let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-	let lastParams = { tagFilters: '', searchQuery: '', favoritesOnly: false };
+	let lastScope = {
+		modelType: '',
+		presetId: '',
+		searchQuery: '',
+		limit: 0,
+		tagFilters: '',
+		filterTagIds: '',
+		favoritesOnly: false
+	};
 
-	// Filters are passed as arguments, never read through a helper inside the
-	// statement: Svelte's reactive dependencies are syntactic and it does not look
-	// inside a called function, so `currentParams()` left all three untracked and
-	// this only ever ran once, when `mounted` flipped.
-	$: scheduleFilterFetch(tagFilters.join(','), searchQuery, favoritesOnly, mounted);
+	// Every field of `lastScope` above must appear as an argument here -
+	// Svelte's reactive dependencies are syntactic and it does not look inside
+	// a called function, so a scope field only read through a helper inside
+	// the statement is untracked and this never reruns for it. `modelType`,
+	// `presetId`, `limit` and `filterTagIds` used to be missing entirely: a
+	// preset/type/limit-only change (same text, same tags) never scheduled a
+	// fetch at all.
+	$: scheduleFilterFetch(
+		modelType,
+		presetId,
+		searchQuery,
+		limit,
+		tagFilters.join(','),
+		filterTagIds.join(','),
+		favoritesOnly,
+		mounted
+	);
 
 	function scheduleFilterFetch(
-		tagKey: string,
+		mt: string,
+		pid: string,
 		query: string,
+		lim: number,
+		tagKey: string,
+		filterKey: string,
 		favOnly: boolean,
 		isMounted: boolean
 	) {
 		if (!isMounted) return;
-		const current = { tagFilters: tagKey, searchQuery: query, favoritesOnly: favOnly };
-		const searchQueryChanged = current.searchQuery !== lastParams.searchQuery;
+		const current = {
+			modelType: mt,
+			presetId: pid,
+			searchQuery: query,
+			limit: lim,
+			tagFilters: tagKey,
+			filterTagIds: filterKey,
+			favoritesOnly: favOnly
+		};
+		const searchQueryChanged = current.searchQuery !== lastScope.searchQuery;
 		const othersChanged =
-			current.tagFilters !== lastParams.tagFilters ||
-			current.favoritesOnly !== lastParams.favoritesOnly;
+			current.modelType !== lastScope.modelType ||
+			current.presetId !== lastScope.presetId ||
+			current.limit !== lastScope.limit ||
+			current.tagFilters !== lastScope.tagFilters ||
+			current.filterTagIds !== lastScope.filterTagIds ||
+			current.favoritesOnly !== lastScope.favoritesOnly;
 		if (!searchQueryChanged && !othersChanged) return;
+
+		// The scope has moved on RIGHT NOW - retire whatever request is still
+		// in flight for the old one immediately, even though the replacement
+		// fetch for a pure text edit won't actually be issued for another
+		// 300ms. `lastScope` also updates now, not when the fetch eventually
+		// fires, so a second rapid change is compared against the newest known
+		// scope rather than the last one a request actually completed for.
+		fetchSeq++;
+		lastScope = current;
 
 		if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
 		if (searchQueryChanged && !othersChanged) {
 			searchDebounceTimer = setTimeout(() => {
 				fetchModels();
-				lastParams = current;
 			}, 300);
 		} else {
 			fetchModels();
-			lastParams = current;
 		}
 	}
 
 	onMount(() => {
-		lastParams = { tagFilters: tagFilters.join(','), searchQuery, favoritesOnly };
+		lastScope = {
+			modelType,
+			presetId,
+			searchQuery,
+			limit,
+			tagFilters: tagFilters.join(','),
+			filterTagIds: filterTagIds.join(','),
+			favoritesOnly
+		};
 		fetchModels();
 		if ($authStore.user?.account_type === 'ADMIN') void loadUnindexedForType();
 		mounted = true;

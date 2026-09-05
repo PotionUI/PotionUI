@@ -48,15 +48,25 @@ function modelById(id: string, name: string) {
 	return { success: true, data: { model: { id, filename: `${name}.safetensors`, model_type: 'checkpoint', name } } };
 }
 
+// Typed explicitly (not inferred from the literal below) so createClassComponent's
+// generic Props - and therefore `component.$set(...)` - accepts `preset_id`,
+// which only the preset-scope test needs to set.
+type MountFieldConfig = {
+	title: string;
+	configuration: { model_type: string };
+	preset_id?: string;
+};
+
 function mountField(props: Record<string, unknown> = {}) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
+	const defaultConfig: MountFieldConfig = { title: 'Checkpoint', configuration: { model_type: 'checkpoint' } };
 	const component = createClassComponent({
 		component: ModelField as never,
 		target,
 		props: {
 			name: 'checkpoint',
-			config: { title: 'Checkpoint', configuration: { model_type: 'checkpoint' } },
+			config: defaultConfig,
 			value: '',
 			onChange: vi.fn(),
 			...props
@@ -130,6 +140,55 @@ describe('ModelField selected-model lookup ownership', () => {
 		lookup.resolve(modelById('A', 'Model A'));
 		await flush(20);
 		expect(mounted.target.textContent).toContain('Model A');
+	});
+
+	it('re-issues the legacy filename lookup when presetId changes, even though the stored path text stays the same', async () => {
+		// Both presets happen to have a model with the same filename, so
+		// `matchesStoredValue` alone (path/filename match) can't tell the two
+		// scopes apart - only the (path, presetId, modelType) key can.
+		function presetModelsResponse(name: string) {
+			return {
+				success: true,
+				data: { models: [{ id: name, filename: 'shared-name.safetensors', model_type: 'checkpoint', name }] }
+			};
+		}
+		const lookups: Record<string, ReturnType<typeof deferred<unknown>>> = {
+			'preset-1': deferred<unknown>(),
+			'preset-2': deferred<unknown>()
+		};
+		vi.mocked(api.getPresetModels).mockImplementation(
+			(presetId: string) => lookups[presetId].promise as never
+		);
+
+		mounted = mountField({
+			value: 'shared-name.safetensors',
+			config: { title: 'Checkpoint', configuration: { model_type: 'checkpoint' }, preset_id: 'preset-1' }
+		});
+		await flush(0);
+		expect(vi.mocked(api.getPresetModels)).toHaveBeenCalledTimes(1);
+		expect(vi.mocked(api.getPresetModels).mock.calls[0][0]).toBe('preset-1');
+
+		// Switch presets while preset-1's lookup is still pending - same
+		// stored path text, so the old "already resolved?" guard alone would
+		// never have scheduled a second lookup.
+		mounted.component.$set({
+			config: { title: 'Checkpoint', configuration: { model_type: 'checkpoint' }, preset_id: 'preset-2' }
+		});
+		await flush(0);
+		expect(
+			vi.mocked(api.getPresetModels),
+			'preset-only change re-issues its own lookup'
+		).toHaveBeenCalledTimes(2);
+		expect(vi.mocked(api.getPresetModels).mock.calls[1][0]).toBe('preset-2');
+
+		// preset-1's slow lookup lands now, well after the switch to preset-2.
+		lookups['preset-1'].resolve(presetModelsResponse('model-under-preset-1'));
+		await flush(20);
+		expect(mounted.target.textContent).not.toContain('model-under-preset-1');
+
+		lookups['preset-2'].resolve(presetModelsResponse('model-under-preset-2'));
+		await flush(20);
+		expect(mounted.target.textContent).toContain('model-under-preset-2');
 	});
 
 	it('discards a lookup result that resolves after the field is destroyed', async () => {

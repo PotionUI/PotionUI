@@ -121,7 +121,72 @@
 		}
 	}
 
-	// Update search query when modelPath changes (for session loading)
+	// Reactive re-runs (typing/focus toggles, prop churn) can call this again
+	// for the same still-unresolved `modelPath` before the first lookup lands,
+	// and the value itself can move on to something else while a lookup is in
+	// flight - so lookups for one (path, presetId, modelType) scope are
+	// coalesced onto a single in-flight promise, and a result is only applied
+	// while the field is still mounted and that scope is still the current
+	// one. presetId/modelType are part of the key (not just modelPath)
+	// because the legacy (path/filename) lookup below is scoped to them - a
+	// preset/type-only change with the same stored path must re-resolve
+	// rather than keep showing (or waiting on) a lookup done for the old
+	// scope; `matchesStoredValue` alone can't detect that since it only
+	// compares the path/filename.
+	let disposed = false;
+	let pendingModelLookups: Record<string, Promise<any>> = {};
+	let selectedModelScopeKey: string | null = null;
+
+	function lookupKey(path: string, pid: string, mt: string): string {
+		return `${path}::${pid}::${mt}`;
+	}
+
+	async function lookupModel(path: string, pid: string, mt: string): Promise<any> {
+		if (path.startsWith(MODEL_REF_PREFIX)) {
+			const modelId = path.slice(MODEL_REF_PREFIX.length);
+			const response = await api.getModelById(modelId, true);
+			return response.success && response.data?.model ? response.data.model : null;
+		}
+
+		// Legacy value (file_path or bare filename) - resolve against the same
+		// source the picker itself uses, so a preset-scoped field doesn't
+		// resolve against models unavailable to its engine.
+		const pathParts = path.split('/');
+		const filename = pathParts[pathParts.length - 1];
+
+		const request = buildModelSearchRequest({ modelType: mt, presetId: pid, searchQuery: filename, limit: 10 });
+		const response =
+			request.kind === 'preset'
+				? await api.getPresetModels(request.presetId, request.modelType, request.search, request.opts)
+				: await api.getModels(request.params);
+		const list = response.data?.models || [];
+		return findModelForValue(path, list) || null;
+	}
+
+	async function fetchSelectedModel(path: string, pid: string, mt: string) {
+		const key = lookupKey(path, pid, mt);
+		let lookup = pendingModelLookups[key];
+		if (!lookup) {
+			lookup = lookupModel(path, pid, mt).catch((error) => {
+				logger.error('Failed to fetch selected model:', error);
+				return null;
+			});
+			pendingModelLookups[key] = lookup;
+			lookup.finally(() => {
+				if (pendingModelLookups[key] === lookup) delete pendingModelLookups[key];
+			});
+		}
+
+		const model = await lookup;
+		if (disposed || lookupKey(modelPath, presetId, modelType) !== key || !model) return;
+		selectedModelData = model;
+		selectedModelScopeKey = key;
+	}
+
+	// Update search query when modelPath changes (for session loading). Also
+	// depends on presetId/modelType (referenced below via `scopeKey`) so a
+	// scope-only change re-issues the legacy lookup even when the stored path
+	// text hasn't moved.
 	$: if (modelPath && modelPath.trim() !== '') {
 		// Only meaningful for legacy (path/filename) values - a `model:<id>` ref
 		// has nothing displayable until the model row is resolved below.
@@ -136,68 +201,21 @@
 			}
 		}
 
-		// Resolve the selected model's own data whenever it isn't already resolved.
-		if (!selectedModelData || !matchesStoredValue(selectedModelData, modelPath)) {
-			fetchSelectedModel();
+		// Resolve the selected model's own data whenever it isn't already
+		// resolved for the current (path, preset, model type) scope.
+		const scopeKey = lookupKey(modelPath, presetId, modelType);
+		if (!selectedModelData || !matchesStoredValue(selectedModelData, modelPath) || selectedModelScopeKey !== scopeKey) {
+			fetchSelectedModel(modelPath, presetId, modelType);
 		}
 	} else if (!modelPath || modelPath.trim() === '') {
 		// Clear selected model data when modelPath is empty
 		if (selectedModelData) {
 			selectedModelData = null;
+			selectedModelScopeKey = null;
 		}
 		if (searchQuery && !userIsTyping && !inputHasFocus) {
 			searchQuery = '';
 		}
-	}
-
-	// Reactive re-runs (typing/focus toggles, prop churn) can call this again
-	// for the same still-unresolved `modelPath` before the first lookup lands,
-	// and the value itself can move on to something else while a lookup is in
-	// flight - so lookups for one value are coalesced onto a single in-flight
-	// promise, and a result is only applied while the field is still mounted
-	// and `modelPath` still equals the value that was resolved.
-	let disposed = false;
-	let pendingModelLookups: Record<string, Promise<any>> = {};
-
-	async function lookupModel(path: string): Promise<any> {
-		if (path.startsWith(MODEL_REF_PREFIX)) {
-			const modelId = path.slice(MODEL_REF_PREFIX.length);
-			const response = await api.getModelById(modelId, true);
-			return response.success && response.data?.model ? response.data.model : null;
-		}
-
-		// Legacy value (file_path or bare filename) - resolve against the same
-		// source the picker itself uses, so a preset-scoped field doesn't
-		// resolve against models unavailable to its engine.
-		const pathParts = path.split('/');
-		const filename = pathParts[pathParts.length - 1];
-
-		const request = buildModelSearchRequest({ modelType, presetId, searchQuery: filename, limit: 10 });
-		const response =
-			request.kind === 'preset'
-				? await api.getPresetModels(request.presetId, request.modelType, request.search, request.opts)
-				: await api.getModels(request.params);
-		const list = response.data?.models || [];
-		return findModelForValue(path, list) || null;
-	}
-
-	async function fetchSelectedModel() {
-		const scopedPath = modelPath;
-		let lookup = pendingModelLookups[scopedPath];
-		if (!lookup) {
-			lookup = lookupModel(scopedPath).catch((error) => {
-				logger.error('Failed to fetch selected model:', error);
-				return null;
-			});
-			pendingModelLookups[scopedPath] = lookup;
-			lookup.finally(() => {
-				if (pendingModelLookups[scopedPath] === lookup) delete pendingModelLookups[scopedPath];
-			});
-		}
-
-		const model = await lookup;
-		if (disposed || modelPath !== scopedPath || !model) return;
-		selectedModelData = model;
 	}
 
 	function handleSelectionChange(model: any) {

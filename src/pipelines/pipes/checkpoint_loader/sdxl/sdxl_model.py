@@ -78,6 +78,50 @@ def _lora_adapter_identity(lora_dir: str, weight_name: str) -> str:
     return f"lora_{readable}_{digest}" if readable else f"lora_{digest}"
 
 
+def resolve_lora_stack(loras) -> list:
+    """The effective LoRA stack for a configured ``loras`` list, in activation order.
+
+    Zero, empty and ``None`` weights drop out. Entries are keyed by resolved
+    file identity, so two spellings of one path ('..' segments, a relative and
+    an absolute form) are one adapter: the last reference's weight wins and the
+    adapter keeps the first reference's position.
+
+    ``CheckpointLoaderSDXLPipe.fingerprint()`` keys the model cache off this
+    same function. Sharing it is what stops a reordering that changes an
+    adapter's effective weight from looking unchanged to the cache.
+    """
+    stack = []
+    by_identity = {}
+    for lora in loras:
+        weight = lora.get("weight")
+        if weight == "" or weight is None or float(weight) == 0:
+            continue
+
+        lora_dir, weight_name = _resolve_lora_source(lora["file_path"])
+        adapter_name = _lora_adapter_identity(lora_dir, weight_name)
+
+        existing = by_identity.get(adapter_name)
+        if existing is not None:
+            logger.debug(
+                f"[MODEL][SDXL] LoRA {lora['file_path']} already in the stack as "
+                f"{adapter_name}; weight {existing['weight']} -> {float(weight)}"
+            )
+            existing["weight"] = float(weight)
+            continue
+
+        entry = {
+            "adapter_name": adapter_name,
+            "dir": lora_dir,
+            "weight_name": weight_name,
+            "resolved": os.path.join(lora_dir, weight_name),
+            "weight": float(weight),
+            "source": str(lora["file_path"]),
+        }
+        by_identity[adapter_name] = entry
+        stack.append(entry)
+    return stack
+
+
 class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
     """SDXL-specific model implementation"""
 
@@ -252,50 +296,21 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
             pipe.enable_freeu(s1=0.9, s2=0.2, b1=1.3, b2=1.4)
 
     def _resolve_lora_stack(self) -> list:
-        """The LoRA stack to apply, in activation order.
-
-        Zero, empty and ``None`` weights drop out. A LoRA referenced more than
-        once collapses to a single adapter: the last reference's weight wins and
-        the adapter keeps the first reference's position, which is how
-        ``CheckpointLoaderSDXLPipe.fingerprint()`` de-duplicates the same list.
-        """
-        stack = []
-        by_identity = {}
-        for lora in self.config.get("loras", []):
-            weight = lora.get("weight")
-            if weight == "" or weight is None or float(weight) == 0:
-                continue
-
-            lora_dir, weight_name = _resolve_lora_source(lora["file_path"])
-            adapter_name = _lora_adapter_identity(lora_dir, weight_name)
-
-            existing = by_identity.get(adapter_name)
-            if existing is not None:
-                logger.debug(
-                    f"[MODEL][SDXL] LoRA {lora['file_path']} already in the stack as "
-                    f"{adapter_name}; weight {existing['weight']} -> {float(weight)}"
-                )
-                existing["weight"] = float(weight)
-                continue
-
-            entry = {
-                "adapter_name": adapter_name,
-                "dir": lora_dir,
-                "weight_name": weight_name,
-                "weight": float(weight),
-                "source": str(lora["file_path"]),
-            }
-            by_identity[adapter_name] = entry
-            stack.append(entry)
-        return stack
+        return resolve_lora_stack(self.config.get("loras", []))
 
     @staticmethod
     def _discard_loaded_adapters(pipe, adapter_names: list) -> None:
-        """Return ``pipe`` to no-adapters, the state it was in before loading.
+        """Best-effort return of ``pipe`` to no-adapters, the state it was in
+        before loading.
 
         ``_load_loras`` only ever runs against a freshly built pipeline, so
         dropping every adapter is a full restore, and ``unload_lora_weights()``
-        is a safe fallback when per-adapter deletion is unavailable.
+        is a safe fallback when per-adapter deletion is unavailable. Neither
+        call can be trusted to undo a ``load_lora_weights`` that mutated the
+        pipeline before raising, so this is not a promise that every pipeline
+        behind a failed load is adapter-free. What the caller does guarantee is
+        that such a pipeline is never published: ``self.pipe`` stays unset and
+        the half-built object is dropped.
         """
         if not adapter_names:
             return

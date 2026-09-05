@@ -9,7 +9,7 @@ from src.pipelines.contracts import logger
 from src.pipelines.contracts import PipeInput, IOType, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.models import BaseModel
 from src.pipelines.pipes._shared.generation.loader_base import BaseModelLoaderPipe
-from src.pipelines.pipes.checkpoint_loader.sdxl.sdxl_model import SDXLModel
+from src.pipelines.pipes.checkpoint_loader.sdxl.sdxl_model import SDXLModel, resolve_lora_stack
 
 
 class _SdxlResidencyHandle:
@@ -151,14 +151,15 @@ class CheckpointLoaderSDXLPipe(BaseModelLoaderPipe):
 
     def fingerprint(self) -> str:
         model_path = self.config.get("model")['file_path']
-        desired_loras = {}
-        for lora in self.config.get("loras", []):
-            if lora['weight'] == '' or lora['weight'] is None or float(lora['weight']) == 0:
-                continue
-            desired_loras[Path(lora['file_path'])] = lora['weight']
-        # Fingerprint is model path + active LoRAs, so a cache hit requires
-        # both to match exactly.
-        return f"{model_path}|{sorted(desired_loras.items(), key=lambda kv: str(kv[0]))}"
+        # Keyed off the same effective stack SDXLModel will apply, not off the
+        # configured spellings: two paths that resolve to one file are one
+        # adapter there, and only the resolved stack shows which weight won.
+        # Sorted, because adapter order does not change the merged result.
+        effective = sorted(
+            (entry["resolved"], entry["weight"])
+            for entry in resolve_lora_stack(self.config.get("loras", []))
+        )
+        return f"{model_path}|{effective}"
 
     def _resolve_vram_limit_gb(self, pipe_input: PipeInput) -> float:
         gpu_monitor = pipe_input.input.get("GPU", None)

@@ -21,6 +21,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
+from src.pipelines.pipes.checkpoint_loader.sdxl.main import CheckpointLoaderSDXLPipe
 from src.pipelines.pipes.checkpoint_loader.sdxl.sdxl_model import (
     SDXLLoraStackError,
     SDXLModel,
@@ -409,3 +410,95 @@ class TestLoadEntryPoint:
         assert len(pipe.load_calls) == 1
         assert model.loaded_pipe_type == "img2img"
         assert model.applied_lora_stack == stack_after_first
+
+
+# --- the model cache key agrees with the stack the model will apply ---------
+
+
+def make_loader_pipe(loras, model_path="/models/checkpoints/test.safetensors"):
+    config = CheckpointLoaderSDXLPipe.get_default_config()
+    config["model"] = {"file_path": model_path, "base": "SDXL", "name": "test"}
+    config["loras"] = loras
+    return CheckpointLoaderSDXLPipe(config)
+
+
+class TestFingerprintMatchesEffectiveStack:
+    """One file reached by two spellings is one adapter, so reversing the two
+    entries changes which weight survives. The cache key has to move with it,
+    or a cached model keeps generating at the old strength.
+    """
+
+    def test_reordering_two_spellings_of_one_file_changes_the_fingerprint(self, tmp_path):
+        real = write_lora(tmp_path / "loras", "style.safetensors")
+        alias = tmp_path / "loras" / ".." / "loras" / "style.safetensors"
+
+        strong_last = make_loader_pipe(
+            [{"file_path": alias, "weight": 0.2}, {"file_path": real, "weight": 0.8}]
+        ).fingerprint()
+        weak_last = make_loader_pipe(
+            [{"file_path": real, "weight": 0.8}, {"file_path": alias, "weight": 0.2}]
+        ).fingerprint()
+
+        assert strong_last != weak_last
+
+    def test_the_two_orders_really_do_apply_different_weights(self, tmp_path):
+        real = write_lora(tmp_path / "loras", "style.safetensors")
+        alias = tmp_path / "loras" / ".." / "loras" / "style.safetensors"
+
+        strong_last = FakePipe()
+        make_model(
+            [{"file_path": alias, "weight": 0.2}, {"file_path": real, "weight": 0.8}]
+        )._load_loras(strong_last)
+        weak_last = FakePipe()
+        make_model(
+            [{"file_path": real, "weight": 0.8}, {"file_path": alias, "weight": 0.2}]
+        )._load_loras(weak_last)
+
+        assert len(strong_last.unet_adapters) == 1
+        assert strong_last.active[1] == [0.8]
+        assert weak_last.active[1] == [0.2]
+
+    def test_equivalent_spellings_of_the_same_stack_share_a_fingerprint(self, tmp_path):
+        real = write_lora(tmp_path / "loras", "style.safetensors")
+        alias = tmp_path / "loras" / ".." / "loras" / "style.safetensors"
+
+        assert (
+            make_loader_pipe([{"file_path": real, "weight": 0.6}]).fingerprint()
+            == make_loader_pipe([{"file_path": alias, "weight": 0.6}]).fingerprint()
+        )
+
+    def test_reordering_two_different_files_keeps_the_fingerprint(self, tmp_path):
+        a = write_lora(tmp_path / "loras", "a.safetensors")
+        b = write_lora(tmp_path / "loras", "b.safetensors")
+
+        ab = make_loader_pipe(
+            [{"file_path": a, "weight": 0.8}, {"file_path": b, "weight": 0.5}]
+        ).fingerprint()
+        ba = make_loader_pipe(
+            [{"file_path": b, "weight": 0.5}, {"file_path": a, "weight": 0.8}]
+        ).fingerprint()
+
+        assert ab == ba
+
+    def test_changing_one_weight_changes_the_fingerprint(self, tmp_path):
+        a = write_lora(tmp_path / "loras", "a.safetensors")
+        b = write_lora(tmp_path / "loras", "b.safetensors")
+        loras = [{"file_path": a, "weight": 0.8}, {"file_path": b, "weight": 0.5}]
+
+        before = make_loader_pipe(loras).fingerprint()
+        after = make_loader_pipe(
+            [dict(loras[0], weight=0.3), loras[1]]
+        ).fingerprint()
+
+        assert before != after
+
+    def test_zero_weight_loras_stay_out_of_the_fingerprint(self, tmp_path):
+        kept = write_lora(tmp_path / "loras", "kept.safetensors")
+        dropped = write_lora(tmp_path / "loras", "dropped.safetensors")
+
+        assert (
+            make_loader_pipe(
+                [{"file_path": kept, "weight": 0.6}, {"file_path": dropped, "weight": 0}]
+            ).fingerprint()
+            == make_loader_pipe([{"file_path": kept, "weight": 0.6}]).fingerprint()
+        )

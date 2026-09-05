@@ -23,18 +23,28 @@ them fresh on every message. Wire contract (sent by the frontend wizard)::
     }
 
 ``draft_id``/``form_revision`` identify which import draft and which point in
-its editing history the wizard was at when it rendered this context - the
-wizard mints/bumps them itself (see ``ImportWorkflowTab.svelte``'s
-`sourceToken`/`formRevision`). Both tools stamp them from
+its editing history the wizard was at when it rendered this context.
+``draft_id`` is a dedicated, globally-unique id the wizard mints itself
+(``ImportWorkflowTab.svelte``'s `mintDraftId`/`draftId`, minted at component
+init and on every `retireSource()`) - deliberately NOT `sourceToken` (a local
+async-ownership counter that restarts at 0 per mount, so two different mounts'
+drafts could otherwise stamp the same value and let one's proposal apply onto
+the other). ``form_revision`` is a counter the wizard bumps on any change to a
+fuller signature of the form (tab id/label, field name/label/type/default/
+config, mappings, transforms). Both tools stamp them from
 ``context.session_metadata`` straight onto their result, never from the
 model's own arguments (the ops schema has no such fields, and never should) -
 `execute` at proposal time, `execute_confirmed` at approval time from the
 SAME persisted context the proposal turn saw (approval rebuilds
 ``ToolContext`` from the message's stored ``context_metadata``, not a live
-resync - see ``ToolCallDispatcher.approve_tool_execution``). The wizard
-compares the stamped values against its own current draft/revision before
-applying anything (see `applyImportFormChanges`) - this module has no way to
-know whether the wizard has since moved on.
+resync - see ``ToolCallDispatcher.approve_tool_execution``). The wizard checks
+the stamped values before applying anything (see `applyImportFormChanges`):
+a missing or mismatched `draft_id` rejects the whole batch outright (this
+module has no way to know whether the wizard has since moved on to a
+different draft); once that passes, every op is still validated against the
+CURRENT form/candidates before it mutates anything - `form_revision` is
+consulted only to say whether a skip is because the form changed since the
+proposal, or because the op was never valid to begin with.
 
 ``lora_chain`` mirrors the wizard's own `suggest.LoraChainInfo.nodes` plus
 its current keep-fixed/replaced split (`schema.LoraChainSelection`) - absent

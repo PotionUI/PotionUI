@@ -191,14 +191,18 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 		unmount(instance);
 	});
 
-	it('applies add_tab + add_field + map ops from an approved propose_form_changes result', async () => {
+	it('applies add_tab + add_field + map ops from an approved propose_form_changes result tagged with the current draft', async () => {
 		const el = target();
 		const host = stubChatHost();
 		const instance = await mountOnFormStep(el);
 
+		const provider = host.providers.get('comfyui_import')!;
+		const ctx = provider() as any;
 		const handler = host.toolHandlers.get('propose_form_changes')![0];
-		handler({
+		const outcome = handler({
 			action: 'apply_import_form_changes',
+			draft_id: ctx.draft_id,
+			form_revision: ctx.form_revision,
 			ops: [
 				{ op: 'add_tab', label: 'Assistant', id: 'assistant' },
 				{
@@ -213,6 +217,8 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 			]
 		});
 		await settle();
+
+		expect(outcome).toEqual({ status: 'applied', applied: 3, skipped: 0 });
 
 		const newTab = el.querySelector('[data-tab-id="assistant"]');
 		expect(newTab).toBeTruthy();
@@ -230,16 +236,21 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 		unmount(instance);
 	});
 
-	it('skips a map op onto a locked candidate without throwing, and applies the rest of the batch', async () => {
+	it('an add_field op whose only mapping targets a locked candidate is skipped entirely (the field is not created), without throwing', async () => {
 		const el = target();
 		const host = stubChatHost();
 		const instance = await mountOnFormStep(el);
 		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
+		const provider = host.providers.get('comfyui_import')!;
+		const ctx = provider() as any;
 		const handler = host.toolHandlers.get('propose_form_changes')![0];
-		expect(() =>
-			handler({
+		let outcome: any;
+		expect(() => {
+			outcome = handler({
 				action: 'apply_import_form_changes',
+				draft_id: ctx.draft_id,
+				form_revision: ctx.form_revision,
 				ops: [
 					{
 						op: 'add_field',
@@ -250,14 +261,22 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 						mappings: [{ node_id: '3', input_name: 'seed', transform: 'none' }]
 					}
 				]
-			})
-		).not.toThrow();
+			});
+		}).not.toThrow();
 		await settle();
 
 		expect(warnSpy).toHaveBeenCalled();
-		const card = el.querySelector('[data-field-name="weird_seed_field"]');
-		expect(card).toBeTruthy();
-		expect(card?.querySelector('.di-mapping')).toBeNull();
+		// All-or-nothing: a mapping the op can't have (seed is locked) means
+		// the whole op - including the field itself - is skipped, not a
+		// field created with a hole where that mapping would be.
+		expect(outcome).toEqual({
+			status: 'stale',
+			applied: 0,
+			skipped: 1,
+			message: expect.stringContaining('could not be applied')
+		});
+		expect(el.querySelector('[data-field-name="weird_seed_field"]')).toBeNull();
+		expect(host.notifications.toast).not.toHaveBeenCalled();
 
 		warnSpy.mockRestore();
 		unmount(instance);
@@ -285,6 +304,69 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 		expect(host.notifications.toast).toHaveBeenCalledWith('success', expect.stringContaining('Applied 1 change'));
 
 		unmount(instance);
+	});
+
+	it('reports "stale" for a result carrying no draft_id at all - it has no provable owner', async () => {
+		const el = target();
+		const host = stubChatHost();
+		const instance = await mountOnFormStep(el);
+
+		const handler = host.toolHandlers.get('propose_form_changes')![0];
+		const outcome = handler({
+			action: 'apply_import_form_changes',
+			ops: [{ op: 'add_tab', label: 'Assistant', id: 'assistant' }]
+		});
+		await settle();
+
+		expect(outcome).toEqual({
+			status: 'stale',
+			applied: 0,
+			skipped: 1,
+			message: 'This proposal predates the current import session, so nothing was applied. Ask for a fresh proposal.'
+		});
+		expect(el.querySelector('[data-tab-id="assistant"]')).toBeNull();
+		expect(host.notifications.toast).not.toHaveBeenCalled();
+
+		unmount(instance);
+	});
+
+	it('a proposal from a torn-down mount is reported stale even against a fresh mount that lands on the same local sourceToken count (draft_id must not collide across instances)', async () => {
+		const el1 = target();
+		const host1 = stubChatHost();
+		const instance1 = await mountOnFormStep(el1);
+
+		const draftIdMount1 = (host1.providers.get('comfyui_import')!() as any).draft_id;
+
+		unmount(instance1);
+		await settle();
+		document.body.innerHTML = '';
+
+		// A second, independent mount that goes through the EXACT same
+		// sequence (mountOnFormStep: one textarea edit, one analyze) as the
+		// first - its local sourceToken/formRevision counters land on the
+		// same values the first mount had, which is exactly the collision a
+		// counter-derived draft_id would have had.
+		const el2 = target();
+		const host2 = stubChatHost();
+		const instance2 = await mountOnFormStep(el2);
+
+		const draftIdMount2 = (host2.providers.get('comfyui_import')!() as any).draft_id;
+		expect(draftIdMount2).not.toBe(draftIdMount1);
+
+		const handlerMount2 = host2.toolHandlers.get('propose_form_changes')![0];
+		const outcome = handlerMount2({
+			action: 'apply_import_form_changes',
+			draft_id: draftIdMount1,
+			form_revision: 0,
+			ops: [{ op: 'add_tab', label: 'Assistant', id: 'assistant' }]
+		});
+		await settle();
+
+		expect(outcome).toMatchObject({ status: 'stale', applied: 0 });
+		expect(el2.querySelector('[data-tab-id="assistant"]')).toBeNull();
+		expect(host2.notifications.toast).not.toHaveBeenCalled();
+
+		unmount(instance2);
 	});
 
 	it('reports "stale" (and never mutates the form) for a proposal built for a workflow that was replaced with "Change workflow"', async () => {
@@ -443,6 +525,111 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 		expect(el.querySelector('[data-tab-id="assistant"]')).toBeTruthy();
 		// The user's deletion is not undone by the stale op that referenced it.
 		expect(el.querySelector('[data-field-name="sampler_name"]')).toBeNull();
+		expect(host.notifications.toast).not.toHaveBeenCalled();
+
+		unmount(instance);
+	});
+
+	it('an op naming a tab that has since been removed is skipped, never retargeted onto the active/first tab', async () => {
+		const el = target();
+		const host = stubChatHost();
+		const instance = await mountOnFormStep(el);
+
+		el.querySelector<HTMLButtonElement>('[data-action="add-tab"]')!.click();
+		await settle();
+		const secondTab = el.querySelector('[data-tab-id="tab_2"]')!;
+		expect(secondTab).toBeTruthy();
+
+		secondTab.querySelector<HTMLButtonElement>('[data-action="tab-menu"]')!.click();
+		await settle();
+		document.querySelector<HTMLButtonElement>('[data-action="delete-tab"]:not([disabled])')!.click();
+		await settle();
+		expect(el.querySelector('[data-tab-id="tab_2"]')).toBeNull();
+
+		const provider = host.providers.get('comfyui_import')!;
+		const ctx = provider() as any;
+		const handler = host.toolHandlers.get('propose_form_changes')![0];
+
+		const outcome = handler({
+			action: 'apply_import_form_changes',
+			draft_id: ctx.draft_id,
+			form_revision: ctx.form_revision,
+			ops: [
+				{
+					op: 'add_field',
+					tab: 'tab_2',
+					field_type: 'number',
+					field_name: 'upscale_width',
+					label: 'Upscale width',
+					mappings: [{ node_id: '9', input_name: 'width', transform: 'none' }]
+				}
+			]
+		});
+		await settle();
+
+		expect(outcome).toEqual({
+			status: 'stale',
+			applied: 0,
+			skipped: 1,
+			message: expect.stringContaining('could not be applied')
+		});
+		// Not retargeted onto "generation" (the active/first tab) either.
+		expect(el.querySelector('[data-field-name="upscale_width"]')).toBeNull();
+		expect(host.notifications.toast).not.toHaveBeenCalled();
+
+		unmount(instance);
+	});
+
+	it('a mapping the user claimed for their own field after the proposal was built is not stolen by a stale op targeting it', async () => {
+		const el = target();
+		const host = stubChatHost();
+		const instance = await mountOnFormStep(el);
+
+		const provider = host.providers.get('comfyui_import')!;
+		const ctxAtProposal = provider() as any;
+		const handler = host.toolHandlers.get('propose_form_changes')![0];
+
+		// The user maps node 9's "width" candidate to their own field AFTER
+		// the (simulated) proposal above was built.
+		el.querySelector<HTMLButtonElement>('[data-input-key="9:width"] [data-action="add-input"]')!.click();
+		await settle();
+		const usersCard = el.querySelector('[data-field-name="upscale_width"]')!;
+		expect(usersCard).toBeTruthy();
+		expect(usersCard.querySelector('.di-mapping')?.textContent).toContain('9.inputs.width');
+
+		const outcome = handler({
+			action: 'apply_import_form_changes',
+			draft_id: ctxAtProposal.draft_id,
+			form_revision: ctxAtProposal.form_revision,
+			ops: [
+				{ op: 'add_tab', label: 'Assistant', id: 'assistant' },
+				{
+					op: 'add_field',
+					tab: 'generation',
+					field_type: 'number',
+					field_name: 'stale_width',
+					label: 'Stale width',
+					mappings: [{ node_id: '9', input_name: 'width', transform: 'none' }]
+				}
+			]
+		});
+		await settle();
+
+		expect(outcome).toEqual({
+			status: 'partial',
+			applied: 1,
+			skipped: 1,
+			message: expect.stringContaining('1 change')
+		});
+		expect(el.querySelector('[data-tab-id="assistant"]')).toBeTruthy();
+		// The stale op's field is never created (all-or-nothing: its only
+		// mapping is unavailable), and the user's own field/mapping survives
+		// untouched - checked via context (the batch's add_tab switched the
+		// active tab away from "generation", where upscale_width lives, so
+		// its card isn't the one currently rendered in the DOM).
+		expect(el.querySelector('[data-field-name="stale_width"]')).toBeNull();
+		const ctxAfter = provider() as any;
+		expect(ctxAfter.mapped).toContainEqual({ field_name: 'upscale_width', node_id: '9', input_name: 'width', transform: 'none' });
 		expect(host.notifications.toast).not.toHaveBeenCalled();
 
 		unmount(instance);

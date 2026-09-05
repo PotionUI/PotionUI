@@ -83,11 +83,27 @@
 	// analyze, requirements preview, create) captures this value before
 	// awaiting and checks it before writing - a response for a source no
 	// longer current is dropped instead of clobbering whatever replaced it.
+	// Local-only (never leaves this component) and NOT a draft identity - it
+	// restarts at 0 on every mount, so two different mounts can land on the
+	// same value (see `draftId` below for the identity that leaves the
+	// component).
 	let sourceToken = 0;
 	// sourceToken value the in-flight/last requirements request belongs to,
 	// so goToRequirementsStep's "already have it" guard isn't fooled by a
 	// retired source's requirementsLoading/requirementsResults.
 	let requirementsToken = null;
+
+	// Globally-unique identity for the draft currently loaded (sent to the
+	// chat assistant as `draft_id` - see buildImportChatContext). Unlike
+	// sourceToken this must never collide across mounts/instances, since a
+	// stale proposal's draft_id is trusted as proof of which draft it was
+	// built for; two different imports racing to stamp the same small
+	// integer would let one apply onto the other silently.
+	function mintDraftId() {
+		if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+		return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+	}
+	let draftId = $state(mintDraftId());
 
 	// Every user action that changes or discards the current source - typing
 	// or pasting into the source textarea, picking/dropping a new file,
@@ -99,9 +115,12 @@
 	// stuck until - or unless - that request's `finally` happens to run: a
 	// pending analyze/edit-load/requirements-preview/create for a source the
 	// user has already moved on from must not wedge the UI (analyzing stuck
-	// true blocks every later "Continue", etc).
+	// true blocks every later "Continue", etc). It also retires the current
+	// draft identity - any propose_form_changes result stamped with the
+	// draft_id this replaces is reported stale, never applied.
 	function retireSource() {
 		sourceToken += 1;
+		draftId = mintDraftId();
 		analyzing = false;
 		editLoading = false;
 		requirementsToken = null;
@@ -755,6 +774,10 @@
 	// point here no-ops rather than throwing when it's missing. Wire contract
 	// (context payload shape, op shapes, draft_id/form_revision) is documented
 	// on the plugin's `backend.chat.tools` module - keep this in sync with it.
+	// `draft_id` is a dedicated globally-unique id (`mintDraftId()`/`draftId`
+	// above) minted at component init and on every `retireSource()` - NOT
+	// `sourceToken`, which restarts at 0 per mount and would let two
+	// different mounts' drafts collide on the same stamped value.
 	function serializeImportItem(it) {
 		if (it.kind === 'field') {
 			return {
@@ -769,19 +792,39 @@
 		return { kind: it.kind, label: it.title ?? null, items: (it.items || []).map(serializeImportItem) };
 	}
 
-	// Bumped whenever the serialized form changes (tab/field add-remove,
-	// mapping toggles, transform/type/label/default edits, lora conversion -
-	// anything that changes what `serializeImportItem` would emit for it),
-	// whether from a manual edit or an approved assistant proposal. Sent
-	// alongside `draft_id` (== sourceToken, stable for as long as the current
-	// source is neither replaced nor reset) so a `propose_form_changes` result
-	// approved after the form moved on can tell "nothing changed" apart from
-	// "the user kept editing while this was pending" (see
-	// applyImportFormChanges).
+	// A fuller fingerprint than `serializeImportItem` (which is the wire
+	// shape sent as `form` below, and stays exactly that) - covers every
+	// property a manual edit or an assistant proposal can change: tab id and
+	// label, field name/label/type/default/config, mappings and their
+	// transforms. Only used locally to compute `formRevision`, never sent.
+	function revisionSignatureForItem(it) {
+		if (it.kind === 'field') {
+			return {
+				kind: 'field',
+				field_name: it.field_name,
+				label: it.label,
+				field_type: it.field_type,
+				default: it.default ?? null,
+				config: it.config ?? null,
+				mappings: (it.mappings || []).map((m) => ({ node_id: m.node_id, input_name: m.input_name, transform: m.transform || 'none' }))
+			};
+		}
+		if (it.kind === 'header') return { kind: 'header', text: it.text };
+		return { kind: it.kind, label: it.title ?? null, items: (it.items || []).map(revisionSignatureForItem) };
+	}
+
+	// Bumped whenever the form's revision signature changes (tab id/label
+	// add-remove-rename, field name/label/type/default/config edits, mapping
+	// toggles, transforms, lora conversion), whether from a manual edit or an
+	// approved assistant proposal. Sent alongside `draft_id` so a
+	// `propose_form_changes` result approved after the form moved on can be
+	// told apart from one approved with nothing having changed since -
+	// consulted (not just carried) in applyImportFormChanges, which reports
+	// a skipped op as "the form changed" only when this actually drifted.
 	let formRevision = $state(0);
 	let _formRevisionSignature = null;
 	$effect(() => {
-		const signature = JSON.stringify(form.tabs.map((t) => ({ id: t.id, label: t.label, items: t.items.map(serializeImportItem) })));
+		const signature = JSON.stringify(form.tabs.map((t) => ({ id: t.id, label: t.label, items: t.items.map(revisionSignatureForItem) })));
 		if (_formRevisionSignature !== null && signature !== _formRevisionSignature) formRevision += 1;
 		_formRevisionSignature = signature;
 	});
@@ -789,7 +832,7 @@
 	function buildImportChatContext() {
 		if (!analysis) return null;
 		return {
-			draft_id: String(sourceToken),
+			draft_id: draftId,
 			form_revision: formRevision,
 			workflow_name: displayName || '',
 			format: analysis.format,
@@ -841,40 +884,60 @@
 		return null;
 	}
 
-	function applyImportMapping(field, nodeId, inputName, transform) {
-		if (!nodeId || !inputName) {
-			console.warn('propose_form_changes: mapping missing node_id/input_name', { field: field?.field_name, nodeId, inputName });
-			return false;
-		}
-		const candidate = (analysis?.candidates || []).find((c) => c.node_id === nodeId && c.input_name === inputName);
-		if (!candidate) {
-			console.warn(`propose_form_changes: no such candidate ${nodeId}.${inputName}`);
-			return false;
-		}
-		if (isLockedCandidate(candidate)) {
-			console.warn(`propose_form_changes: skipping locked candidate ${nodeId}.${inputName}`);
-			return false;
-		}
+	function mappingCandidate(nodeId, inputName) {
+		if (!nodeId || !inputName) return null;
+		return (analysis?.candidates || []).find((c) => c.node_id === nodeId && c.input_name === inputName) || null;
+	}
+
+	// `forField` is the field this mapping would belong to once applied -
+	// `null` for a mapping on a field that doesn't exist yet (add_field: it
+	// can only ever be unowned), the field object itself for a mapping onto
+	// an EXISTING field (map: also fine if the candidate is already mapped to
+	// that same field - re-applying isn't a conflict).
+	function importMappingAvailable(nodeId, inputName, forField) {
+		const candidate = mappingCandidate(nodeId, inputName);
+		if (!candidate) return false;
+		if (isLockedCandidate(candidate)) return false;
 		const owner = mappedFieldByKey.get(candidateKey(candidate));
-		if (owner && owner !== field) {
-			console.warn(`propose_form_changes: ${nodeId}.${inputName} is already mapped to '${owner.field_name}'`);
+		return !owner || owner === forField;
+	}
+
+	function applyImportMapping(field, nodeId, inputName, transform) {
+		if (!importMappingAvailable(nodeId, inputName, field)) {
+			console.warn('propose_form_changes: mapping unavailable (missing target, locked, unknown, or mapped elsewhere)', { field: field?.field_name, nodeId, inputName });
 			return false;
 		}
+		const candidate = mappingCandidate(nodeId, inputName);
 		toggleMapping(field, candidate, true);
 		if (transform && transform !== 'none') setMappingTransform(field, candidate, transform);
 		return true;
+	}
+
+	// An op naming a tab (`op.tab`) that no longer exists is never retargeted
+	// onto the active tab or form.tabs[0] - that would apply it somewhere the
+	// proposal never asked for. Only an op with NO tab at all falls back to
+	// "wherever the user is looking right now", matching where a manual "+
+	// Add" from the toolbar would land.
+	function resolveOpTab(op) {
+		if (op.tab) return findImportTab(op.tab);
+		return activeTab || form.tabs[0] || null;
 	}
 
 	// Returns an outcome the chat host surfaces instead of a blanket success
 	// toast/narration - {status: 'applied'|'stale'|'partial'|'noop', applied,
 	// skipped, message?}. `draft_id` is a hard gate (a proposal built for a
 	// workflow that's since been replaced/reset never touches the live form,
-	// no matter how much its tab/field names happen to overlap); once that
-	// passes, every op is still checked against the CURRENT form/candidates
-	// (not just once, at proposal time) so an intervening manual edit that
-	// took over a tab/field/mapping the proposal wanted is skipped rather
-	// than silently overwritten - only ever additive against a live edit, so
-	// nothing the user already changed is replaced.
+	// no matter how much its tab/field names happen to overlap, and a result
+	// with no draft_id at all has no provable owner) - once that passes,
+	// every op is validated against the CURRENT form/candidates BEFORE any
+	// mutation (tab existence with no retargeting, and for add_field every
+	// requested mapping's availability, all pre-checked before the field is
+	// created) regardless of whether form_revision drifted, so this is
+	// correct whether or not anything actually changed; `form_revision` is
+	// consulted only to say whether a skip happened because "the form changed
+	// since this was proposed" or because the op was never valid to begin
+	// with. Only ever additive against a live edit - nothing the user already
+	// changed is replaced.
 	function applyImportFormChanges(result) {
 		const ops = result?.ops;
 		if (!Array.isArray(ops) || ops.length === 0) return { status: 'noop', applied: 0, skipped: 0 };
@@ -882,10 +945,17 @@
 		// Stamped by the backend tool from the wizard's own context at the
 		// moment the proposal was made (see backend.chat.tools) - never
 		// model-supplied, so it can't be spoofed by a hallucinated op. A
-		// missing draft_id (an older/incompatible caller) is trusted, matching
-		// this function's pre-draft-identity behaviour.
+		// result with no draft_id has no provable owner and is never applied.
 		const proposalDraftId = result?.draft_id != null ? String(result.draft_id) : null;
-		if (proposalDraftId !== null && proposalDraftId !== String(sourceToken)) {
+		if (proposalDraftId === null) {
+			return {
+				status: 'stale',
+				applied: 0,
+				skipped: ops.length,
+				message: 'This proposal predates the current import session, so nothing was applied. Ask for a fresh proposal.'
+			};
+		}
+		if (proposalDraftId !== draftId) {
 			return {
 				status: 'stale',
 				applied: 0,
@@ -893,6 +963,9 @@
 				message: "This proposal was for a workflow that's no longer loaded here, so nothing was applied. Ask again if you still want these changes."
 			};
 		}
+
+		const proposalRevision = typeof result?.form_revision === 'number' ? result.form_revision : null;
+		const revisionDrifted = proposalRevision !== null && proposalRevision !== formRevision;
 
 		let lastTabId = null;
 		let applied = 0;
@@ -917,9 +990,15 @@
 				lastTabId = id;
 				applied += 1;
 			} else if (op.op === 'add_field') {
-				const tab = findImportTab(op.tab) || activeTab || form.tabs[0];
+				const tab = resolveOpTab(op);
 				if (!tab) {
-					console.warn('propose_form_changes: add_field has no target tab', op);
+					console.warn('propose_form_changes: add_field target tab not found', op);
+					skipped += 1;
+					continue;
+				}
+				const mappings = op.mappings || [];
+				if (!mappings.every((m) => importMappingAvailable(m.node_id, m.input_name, null))) {
+					console.warn('propose_form_changes: add_field skipped - a requested mapping is no longer available', op);
 					skipped += 1;
 					continue;
 				}
@@ -932,7 +1011,7 @@
 				created.field_type = op.field_type || 'text';
 				created.label = op.label || created.field_name;
 				if ('default' in op) created.default = op.default ?? null;
-				for (const m of op.mappings || []) applyImportMapping(created, m.node_id, m.input_name, m.transform);
+				for (const m of mappings) applyImportMapping(created, m.node_id, m.input_name, m.transform);
 				lastTabId = tab.id;
 				applied += 1;
 			} else if (op.op === 'map') {
@@ -949,9 +1028,9 @@
 				lastTabId = tabIdForField(field) || lastTabId;
 				applied += 1;
 			} else if (op.op === 'lora_picker') {
-				const tab = findImportTab(op.tab) || activeTab || form.tabs[0];
+				const tab = resolveOpTab(op);
 				if (!tab) {
-					console.warn('propose_form_changes: lora_picker has no target tab', op);
+					console.warn('propose_form_changes: lora_picker target tab not found', op);
 					skipped += 1;
 					continue;
 				}
@@ -970,26 +1049,21 @@
 		}
 
 		if (applied === 0) {
-			return skipped > 0
-				? {
-						status: 'stale',
-						applied: 0,
-						skipped,
-						message: `The form changed since the assistant proposed this - none of the ${skipped} change${skipped === 1 ? '' : 's'} still applied.`
-					}
-				: { status: 'noop', applied: 0, skipped: 0 };
+			if (skipped === 0) return { status: 'noop', applied: 0, skipped: 0 };
+			const message = revisionDrifted
+				? `The form changed since the assistant proposed this - none of the ${skipped} change${skipped === 1 ? '' : 's'} still applied.`
+				: `None of the ${skipped} proposed change${skipped === 1 ? '' : 's'} could be applied.`;
+			return { status: 'stale', applied: 0, skipped, message };
 		}
 
 		if (step < 2) step = 2;
 		if (lastTabId) activeTabId = lastTabId;
 
 		if (skipped > 0) {
-			return {
-				status: 'partial',
-				applied,
-				skipped,
-				message: `Applied ${applied} change${applied === 1 ? '' : 's'} from the assistant - ${skipped} ${skipped === 1 ? 'was' : 'were'} skipped because the form changed since the proposal was made.`
-			};
+			const message = revisionDrifted
+				? `Applied ${applied} change${applied === 1 ? '' : 's'} from the assistant - ${skipped} ${skipped === 1 ? 'was' : 'were'} skipped because the form changed since the proposal was made.`
+				: `Applied ${applied} change${applied === 1 ? '' : 's'} from the assistant - ${skipped} could not be applied.`;
+			return { status: 'partial', applied, skipped, message };
 		}
 
 		window.__potionui?.notifications?.toast?.('success', `Applied ${applied} change${applied === 1 ? '' : 's'} from the assistant`);

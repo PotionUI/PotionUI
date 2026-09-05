@@ -34,9 +34,38 @@
 import type { VideoDirectorValue, DirectorCapabilities } from '$lib/types/videoDirector';
 import { collectFormMediaOptions, deriveChainSegmentSubType, isFormMediaRef, resolveFormMediaItem } from './videoDirector';
 
+/** The active generation context a shot's request would actually be
+ * submitted under. Required scope, not an optional nicety: a preset/variant/
+ * mode switch changes what the SAME `formData` keys even MEAN (a different
+ * preset's form can reuse a field name like `steps` for something else
+ * entirely, or route to a wholly different pipeline) without necessarily
+ * changing any individual formData value or the director document itself --
+ * missing this, a preset switch back and forth could read back as
+ * "unchanged". `null` for a field that genuinely isn't known yet (never
+ * silently coerced to a placeholder string) still participates in the
+ * identity -- unknown-vs-known is itself a real difference. */
+export interface DirectorGenerationContext {
+	presetId: string | null;
+	variant: string | null;
+	mode: string | null;
+}
+
+/** The identity's neutral generation context when a caller has none yet
+ * (e.g. `deriveConsoleModel` invoked without one) -- every field `null`,
+ * still a real, comparable value rather than an omitted one. */
+export const EMPTY_GENERATION_CONTEXT: DirectorGenerationContext = { presetId: null, variant: null, mode: null };
+
 export interface DirectorShotIdentityContext {
 	caps: DirectorCapabilities;
 	formData: Record<string, unknown> | null | undefined;
+	/** Optional at the TYPE level only so a caller that predates this field
+	 * (+page.svelte's submit-time stamping is mid-migration as of this
+	 * writing -- see this module's header note) still compiles; functionally
+	 * it is REQUIRED scope -- `directorShotInputIdentity` always folds SOME
+	 * value in, defaulting to `EMPTY_GENERATION_CONTEXT` rather than skipping
+	 * it, so every caller either supplies the real context or explicitly gets
+	 * the neutral one (never silently omitted from the identity). */
+	generationContext?: DirectorGenerationContext | null;
 }
 
 /** Chain routing has no discrete "consumed predecessor output" at all: every
@@ -76,19 +105,22 @@ export interface DirectorPredecessorRef {
 // old string compare equal (or unequal) for the wrong reason. Prefixed onto
 // the serialized string (not embedded as a JSON field) so a stored value from
 // an earlier format -- the retired `directorShotFingerprint`'s bare
-// `JSON.stringify`, or `div1:`'s narrower payload (missing continuation
-// geometry/form settings/media revisions) -- is trivially distinguishable by
-// a plain substring check, no JSON.parse or try/catch required.
+// `JSON.stringify`, `div1:` (missing continuation geometry/form settings/
+// media revisions), or `div2:` (unsorted object keys -- `{steps:20,cfg:7}`
+// and `{cfg:7,steps:20}` hashed differently; width/height/duration/fps
+// wrongly accepted as revision evidence; no preset/variant/mode) -- is
+// trivially distinguishable by a plain substring check, no JSON.parse or
+// try/catch required.
 //
-// Two prefixes share the same payload version: `div2:` means every media
+// Two prefixes share the same payload version: `div3:` means every media
 // entry folded into this identity carried enough revision evidence to trust
-// an equality match; `div2u:` means at least one didn't (see
+// an equality match; `div3u:` means at least one didn't (see
 // `mediaSourceIdentity`) -- the string still changes when the content
-// actually does, but a caller must not read an unchanged `div2u:` string as
+// actually does, but a caller must not read an unchanged `div3u:` string as
 // proof nothing changed (`isUnverifiedShotIdentity`), only as "no evidence
 // either way".
-const IDENTITY_PREFIX = 'div2:';
-const IDENTITY_PREFIX_UNVERIFIED = 'div2u:';
+const IDENTITY_PREFIX = 'div3:';
+const IDENTITY_PREFIX_UNVERIFIED = 'div3u:';
 
 /** True when `inputsHash` was produced by `directorShotInputIdentity` (either
  * prefix) -- false for a value the retired `directorShotFingerprint` or the
@@ -167,12 +199,20 @@ function boundedValue(v: unknown): unknown {
 	return v;
 }
 
-/** Known revision-signal keys, checked on the item itself and (uploads carry
+/** Known revision-signal keys -- proof two items at the same path are (or
+ * aren't) the same BYTES, checked on the item itself and (uploads carry
  * their own metadata alongside the path -- `buildUploadedMediaItem`,
- * mediaLoaderUpload.ts) a nested `metadata` object. Not an exhaustive
+ * mediaLoaderUpload.ts) a nested `metadata` object.
+ *
+ * Deliberately EXCLUDES `width`/`height`/`duration_seconds`/`fps`: those are
+ * descriptive/dimensional metadata, not revision evidence -- two DIFFERENT
+ * photos, or a photo re-exported after an edit, routinely share the exact
+ * same dimensions, so a shape-only match must never be read as "same file".
+ * Only a byte-identity signal counts: a size in bytes, a modification time,
+ * a hash/etag, or an explicit revision/version id/tag. Not an exhaustive
  * contract, just every revision-ish field this codebase's media items are
  * ever seen carrying. */
-const REVISION_KEYS = ['size', 'width', 'height', 'duration_seconds', 'fps', 'mtime', 'updated_at', 'hash', 'content_hash', 'etag'] as const;
+const REVISION_KEYS = ['size', 'mtime', 'updated_at', 'modified_at', 'hash', 'content_hash', 'etag', 'revision', 'version'] as const;
 
 // `item` is typed `object`, not `Record<string, unknown>`, so a caller can
 // pass a resolved `MediaRef` (types/tabs.ts) or any other named interface
@@ -223,11 +263,11 @@ function mediaSourceIdentity(item: object, markUnverified: () => void): unknown 
 	const revision = extractRevisionSignals(item);
 	const hasRevisionEvidence = Object.keys(revision).length > 0;
 	if (!hasRevisionEvidence) markUnverified();
-	// Deliberately NOT `path`/`url` -- JSON.stringify's replacer keeps
-	// descending into whatever a replaced value returns, so a result shaped
-	// like `{path, ...}` would get re-matched by `isMediaLike` and
-	// reprocessed as if IT were a raw media item (losing the revision this
-	// call already extracted). `mediaPath`/`mediaUrl` sidestep that.
+	// Deliberately NOT `path`/`url` -- `canonicalizeValue` recurses into
+	// whatever this returns (to sort ITS keys too), so a result shaped like
+	// `{path, ...}` would get re-matched by `isMediaLike` and reprocessed as
+	// if IT were a raw media item (losing the revision this call already
+	// extracted). `mediaPath`/`mediaUrl` sidestep that.
 	return { mediaPath: path, ...(url !== undefined ? { mediaUrl: url } : {}), revision, unverified: !hasRevisionEvidence };
 }
 
@@ -235,26 +275,50 @@ function isMediaLike(v: unknown): v is Record<string, unknown> {
 	return isRecord(v) && (typeof v.path === 'string' || typeof v.url === 'string');
 }
 
-/** JSON.stringify replacer applied to the WHOLE identity payload (own shot,
- * film-level fields, shared media, the rest of the generation form): a
- * `form_ref` pointer resolves to the CURRENT item it points at (by stable
- * `path`, never an index) and that item's source identity, not the pointer
- * literal or the file's bytes; anything else that already structurally looks
- * like media (`{path}`/`{url}`, embedded directly rather than via a
- * `form_ref`) gets the same source-identity treatment; every other string
- * gets bounded so a raw inline payload can never blow up the identity's
- * size. */
-function identityReplacer(formData: Record<string, unknown> | null | undefined, markUnverified: () => void) {
-	return (_key: string, value: unknown): unknown => {
-		if (isFormMediaRef(value)) {
-			const resolved = resolveFormMediaItem(value.form_ref.field, value.form_ref.path, formData);
-			return resolved ? { formRefResolved: mediaSourceIdentity(resolved, markUnverified) } : { formRefBroken: true };
+/**
+ * Deep-walks the WHOLE identity payload (own shot, film-level fields, shared
+ * media, the rest of the generation form) into a canonical, JSON.stringify-
+ * ready structure:
+ *   - a `form_ref` pointer resolves to the CURRENT item it points at (by
+ *     stable `path`, never an index) and that item's source identity, never
+ *     the pointer literal or the file's bytes;
+ *   - anything else that already structurally looks like media (`{path}`/
+ *     `{url}`, embedded directly rather than via a `form_ref`) gets the same
+ *     source-identity treatment;
+ *   - every PLAIN OBJECT's keys are emitted in SORTED order at every nesting
+ *     level -- `{steps:20,cfg:7}` and `{cfg:7,steps:20}` must be the same
+ *     shot input, so key order can never be load-bearing;
+ *   - every ARRAY keeps its own order untouched -- `chain.segments`,
+ *     keyframe lists, prompt segments etc. are semantically ORDERED
+ *     sequences (segment 1 then segment 2 is a different film from segment 2
+ *     then segment 1), never a set;
+ *   - every other string gets bounded so a raw inline payload can never blow
+ *     up the identity's size.
+ * `JSON.stringify` on the RESULT needs no replacer of its own -- every plain
+ * object built here already has its keys inserted in the order they should
+ * serialize in, which `JSON.stringify` preserves faithfully.
+ */
+function canonicalizeValue(value: unknown, formData: Record<string, unknown> | null | undefined, markUnverified: () => void): unknown {
+	if (isFormMediaRef(value)) {
+		const resolved = resolveFormMediaItem(value.form_ref.field, value.form_ref.path, formData);
+		return resolved
+			? { formRefResolved: canonicalizeValue(mediaSourceIdentity(resolved, markUnverified), formData, markUnverified) }
+			: { formRefBroken: true };
+	}
+	if (isMediaLike(value)) {
+		return canonicalizeValue(mediaSourceIdentity(value, markUnverified), formData, markUnverified);
+	}
+	if (Array.isArray(value)) {
+		return value.map((item) => canonicalizeValue(item, formData, markUnverified));
+	}
+	if (isRecord(value)) {
+		const out: Record<string, unknown> = {};
+		for (const key of Object.keys(value).sort()) {
+			out[key] = canonicalizeValue(value[key], formData, markUnverified);
 		}
-		if (isMediaLike(value)) {
-			return mediaSourceIdentity(value, markUnverified);
-		}
-		return boundedValue(value);
-	};
+		return out;
+	}
+	return boundedValue(value);
 }
 
 /** Every media/reference input shared across EVERY shot in a CHAIN document
@@ -311,7 +375,13 @@ function withoutKey(obj: Record<string, unknown> | null | undefined, key: string
  *     `video_director` key itself) -- steps/cfg/seed/sampler/model/LoRA/
  *     resolution/... under whatever field names this preset's form uses, all
  *     of which reach the request exactly as much as the director document
- *     does (`request.form_data = {...tab.formData, video_director: ...}`).
+ *     does (`request.form_data = {...tab.formData, video_director: ...}`);
+ *   - `ctx.generationContext` -- the preset/variant/mode this shot's request
+ *     would actually submit under (required, not optional: see
+ *     `DirectorGenerationContext`'s own doc comment).
+ * Object keys are emitted in SORTED order at every nesting level (array
+ * order is left untouched -- see `canonicalizeValue`), so `{steps:20,cfg:7}`
+ * and `{cfg:7,steps:20}` are the same identity.
  *
  * `null` when the document has no shot with that id (a stale reference --
  * the shot was removed since). Two calls with an unchanged (value, shotId,
@@ -330,7 +400,7 @@ export function directorShotInputIdentity(
 ): string | null {
 	const own = ownShotValue(value, shotId);
 	if (own == null) return null;
-	const { caps, formData } = ctx;
+	const { caps, formData, generationContext } = ctx;
 	const fps = caps.segmentRouting ? value.chain.fps : value.timeline.fps;
 	const payload = {
 		own,
@@ -344,10 +414,12 @@ export function directorShotInputIdentity(
 			continuation: caps.segmentRouting ? value.chain.continuation : null
 		},
 		sharedMedia: sharedFilmMedia(value, caps),
-		effectiveFormSettings: withoutKey(formData, 'video_director')
+		effectiveFormSettings: withoutKey(formData, 'video_director'),
+		generationContext: generationContext ?? EMPTY_GENERATION_CONTEXT
 	};
 	let unverified = false;
-	const serialized = JSON.stringify(payload, identityReplacer(formData, () => (unverified = true)));
+	const canonical = canonicalizeValue(payload, formData, () => (unverified = true));
+	const serialized = JSON.stringify(canonical);
 	const bounded = serialized.length > MAX_IDENTITY_LENGTH ? `~digest:${hashString(serialized)}:${serialized.length}` : serialized;
 	return (unverified ? IDENTITY_PREFIX_UNVERIFIED : IDENTITY_PREFIX) + bounded;
 }

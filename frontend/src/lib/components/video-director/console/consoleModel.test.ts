@@ -555,6 +555,61 @@ describe('deriveConsoleModel — W3 dependency badges (chain: continue join betw
 		expect(model.shots[1].badge).toBe('unverified');
 	});
 
+	it('stale when the LIVE generationContext (preset/variant/mode) differs from what the predecessor\'s run was stamped under', () => {
+		const doc = wanDoc();
+		const stampedContext = { presetId: 'preset-a', variant: 'default', mode: 'video' };
+		const s1Hash = directorShotInputIdentity(doc, 's1', { caps: wanCaps(), formData: null, generationContext: stampedContext });
+		const runs: Record<string, DirectorRunState> = {
+			s1: run({ status: 'done', finishedAt: 1000, inputsHash: s1Hash, generationId: 'gen-1' }),
+			s2: run({ status: 'done', finishedAt: 2000, predecessorRef: { generationId: 'gen-1', outputKey: directorPredecessorOutputKey(wanCaps(), 's1') } })
+		};
+		// The console is now rendering under a DIFFERENT preset context (e.g.
+		// the user switched presets) -- neither the document nor formData
+		// changed, only what this shot would actually submit under.
+		const liveContext = { presetId: 'preset-b', variant: 'default', mode: 'video' };
+		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs, undefined, liveContext);
+		expect(model.shots[1].badge).toBe('stale');
+	});
+
+	it('a same-native-span completion (predecessor and dependent submitted under the SAME generation) reads continuous once both are done', () => {
+		const doc = wanDoc();
+		const sharedGenerationId = 'gen-native-span';
+		// The correct page-side stamping this fixture assumes (see the DIR-03
+		// report's page snippet): both shots in a native chain span share ONE
+		// generationId, and a chain shot's predecessorRef.outputKey is always
+		// the native-continuation sentinel, never a shot id (no discrete
+		// output is ever consumed for chain routing).
+		const s1Hash = directorShotInputIdentity(doc, 's1', { caps: wanCaps(), formData: null });
+		const runs: Record<string, DirectorRunState> = {
+			s1: run({ status: 'done', finishedAt: 1000, inputsHash: s1Hash, generationId: sharedGenerationId }),
+			s2: run({
+				status: 'done',
+				finishedAt: 1000,
+				predecessorRef: { generationId: sharedGenerationId, outputKey: directorPredecessorOutputKey(wanCaps(), 's1') }
+			})
+		};
+		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
+		expect(model.shots[1].badge).toBe('continuous');
+	});
+
+	it('rerender control: once the predecessor is regenerated under a NEW generation, the same-span run now reads stale', () => {
+		const doc = wanDoc();
+		const originalGenerationId = 'gen-native-span';
+		const s1Hash = directorShotInputIdentity(doc, 's1', { caps: wanCaps(), formData: null });
+		const runs: Record<string, DirectorRunState> = {
+			// s1 was regenerated (e.g. Retry) under a NEW id -- s2's stored
+			// predecessorRef still names the ORIGINAL shared span.
+			s1: run({ status: 'done', finishedAt: 2000, inputsHash: s1Hash, generationId: 'gen-native-span-retry' }),
+			s2: run({
+				status: 'done',
+				finishedAt: 1000,
+				predecessorRef: { generationId: originalGenerationId, outputKey: directorPredecessorOutputKey(wanCaps(), 's1') }
+			})
+		};
+		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
+		expect(model.shots[1].badge).toBe('stale');
+	});
+
 	it('a shot with no dependency (both its joins are cuts) never consults runs', () => {
 		const model = deriveConsoleModel(wanDoc(), wanCaps(), { activeShotId: null }, null, {});
 		expect(model.shots[2].badge).toBe('independent');

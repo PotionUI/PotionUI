@@ -116,7 +116,9 @@ import {
 	directorPredecessorOutputKey,
 	hasVersionedShotIdentity,
 	isUnverifiedShotIdentity,
-	type DirectorShotIdentityContext
+	EMPTY_GENERATION_CONTEXT,
+	type DirectorShotIdentityContext,
+	type DirectorGenerationContext
 } from '$lib/utils/directorInputIdentity';
 
 // ─── Public types (verbatim from W1-BRIEF.md's contract) ───────────────────
@@ -466,10 +468,11 @@ function buildChainShots(
 	caps: DirectorCapabilities,
 	rail: RailModel,
 	formData: Record<string, unknown> | null | undefined,
-	runs: Record<string, DirectorRunState> | null | undefined
+	runs: Record<string, DirectorRunState> | null | undefined,
+	generationContext: DirectorGenerationContext
 ): ConsoleShot[] {
 	const dc = caps.modes.director;
-	const identityCtx: DirectorShotIdentityContext = { caps, formData };
+	const identityCtx: DirectorShotIdentityContext = { caps, formData, generationContext };
 	return rail.shots.map((block, index) => {
 		const segment = doc.chain.segments[index];
 		const tabs: ConsoleShot['tabs'] = [{ id: 'selection', label: 'Selection' }];
@@ -632,11 +635,12 @@ function buildTimelineShots(
 	doc: VideoDirectorValue,
 	caps: DirectorCapabilities,
 	formData: Record<string, unknown> | null | undefined,
-	runs: Record<string, DirectorRunState> | null | undefined
+	runs: Record<string, DirectorRunState> | null | undefined,
+	generationContext: DirectorGenerationContext
 ): ConsoleShot[] {
 	const dc = caps.modes.director;
 	const shots = doc.timeline.shots;
-	const identityCtx: DirectorShotIdentityContext = { caps, formData };
+	const identityCtx: DirectorShotIdentityContext = { caps, formData, generationContext };
 	return shots.map((shot, index) => {
 		const rail = deriveRailModel(doc, caps, shot.id);
 		// Every row the user added counts, picked LoRA or not — the tab and the
@@ -759,12 +763,21 @@ export function deriveConsoleModel(
 	 * component state) -- only ever used to decide whether a broken
 	 * continuation's warning block should show (see this file's header note);
 	 * never affects which shots/joins/badges exist otherwise. */
-	checked?: Set<string> | null
+	checked?: Set<string> | null,
+	/** The preset/variant/mode this document would actually submit under --
+	 * required scope on the shot input identity (`DirectorGenerationContext`'s
+	 * own doc comment), not optional here either; a caller with none yet
+	 * (or one written before this param existed) gets the neutral
+	 * `EMPTY_GENERATION_CONTEXT`, which still participates in the identity
+	 * (a real value showing up later is itself a change, correctly read as
+	 * `stale`/`unverified` rather than silently reproducing old behaviour). */
+	generationContext?: DirectorGenerationContext | null
 ): ConsoleModel {
 	const rail = deriveRailModel(doc, caps);
+	const resolvedGenerationContext = generationContext ?? EMPTY_GENERATION_CONTEXT;
 
 	if (rail.routing === 'chain') {
-		const shots = buildChainShots(doc, caps, rail, formData, runs);
+		const shots = buildChainShots(doc, caps, rail, formData, runs, resolvedGenerationContext);
 		const joins = buildChainJoins(doc, rail, caps, runs, checked);
 		return {
 			header: buildHeader(doc, caps, rail, shots.length, rail.totalSeconds, runs),
@@ -778,7 +791,7 @@ export function deriveConsoleModel(
 		};
 	}
 
-	const shots = buildTimelineShots(doc, caps, formData, runs);
+	const shots = buildTimelineShots(doc, caps, formData, runs, resolvedGenerationContext);
 	const joins = buildTimelineJoins(doc.timeline.shots, runs, checked);
 	const totalSeconds = shots.reduce((sum, s) => sum + s.durationSeconds, 0);
 	return {

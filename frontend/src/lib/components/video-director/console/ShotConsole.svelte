@@ -53,6 +53,8 @@
 		value,
 		capabilities,
 		presetId,
+		selectedVariant = null,
+		selectedMode = null,
 		formData,
 		runs,
 		onChange,
@@ -64,8 +66,17 @@
 		capabilities: DirectorCapabilities;
 		/** Still threaded down to ShotStage (LoRA/IC-LoRA picker scoping) --
 		 * NOT used for the header any more (maintainer ruling: no preset chip
-		 * in the console). */
+		 * in the console). ALSO part of the shot input identity's
+		 * `generationContext` below (a preset switch is required scope, not an
+		 * optional nicety -- see directorInputIdentity.ts's
+		 * `DirectorGenerationContext`). */
 		presetId: string;
+		/** `Tab.selectedVariant`/`Tab.selectedMode` -- the rest of
+		 * `generationContext`, alongside `presetId`. Optional/nullable because
+		 * not every caller has them handy yet; `null` still participates in the
+		 * identity (see `DirectorGenerationContext`'s doc comment). */
+		selectedVariant?: string | null;
+		selectedMode?: string | null;
 		formData: Record<string, unknown> | null | undefined;
 		/** `Tab.directorRuns` (PLAN.md §C W3) -- per-shot generation state, keyed
 		 * by shot id. Read-only here (ShotConsole never writes it; +page.svelte
@@ -128,7 +139,8 @@
 	let selection: ConsoleSelection = $state(null);
 	let checked: Set<string> = $state(new Set());
 
-	let model = $derived(deriveConsoleModel(doc, capabilities, { activeShotId }, formData, runs, checked));
+	let generationContext = $derived({ presetId: presetId || null, variant: selectedVariant, mode: selectedMode });
+	let model = $derived(deriveConsoleModel(doc, capabilities, { activeShotId }, formData, runs, checked, generationContext));
 	// The default active shot is the first one; a stale id (its shot got
 	// removed) resolves back to the first shot too -- never a dangling
 	// expansion. Reading this everywhere instead of the raw `activeShotId`

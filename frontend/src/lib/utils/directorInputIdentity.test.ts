@@ -425,6 +425,36 @@ describe('directorShotInputIdentity', () => {
 		expect(isUnverifiedShotIdentity(identity)).toBe(false);
 	});
 
+	it('shape-only metadata (width/height/duration/fps) is NOT revision evidence -- a same-shaped replacement stays unverified', () => {
+		const doc = baseValue();
+		doc.chain.segments[1] = { ...doc.chain.segments[1], keyframe: { form_ref: { field: 'reference_image', path: 'same.png' } } };
+		const caps = chainCaps();
+		// Two DIFFERENT photos (or a re-export of the same one) routinely share
+		// identical dimensions/duration/fps -- shape alone must never read as
+		// "same file".
+		const before = directorShotInputIdentity(doc, 's2', {
+			caps,
+			formData: { reference_image: { path: 'same.png', metadata: { width: 64, height: 64, duration_seconds: 3, fps: 24 } } }
+		});
+		const after = directorShotInputIdentity(doc, 's2', {
+			caps,
+			formData: { reference_image: { path: 'same.png', metadata: { width: 64, height: 64, duration_seconds: 3, fps: 24 } } }
+		});
+		expect(isUnverifiedShotIdentity(before)).toBe(true);
+		expect(isUnverifiedShotIdentity(after)).toBe(true);
+	});
+
+	it('a size/hash/etc IS real revision evidence, even alongside shape-only fields -- verified, not unverified', () => {
+		const doc = baseValue();
+		doc.chain.segments[1] = { ...doc.chain.segments[1], keyframe: { form_ref: { field: 'reference_image', path: 'same.png' } } };
+		const caps = chainCaps();
+		const identity = directorShotInputIdentity(doc, 's2', {
+			caps,
+			formData: { reference_image: { path: 'same.png', metadata: { width: 64, height: 64, size: 4096 } } }
+		});
+		expect(isUnverifiedShotIdentity(identity)).toBe(false);
+	});
+
 	it('an inline data: payload alongside a stable path is real revision evidence (digested, not the pointer\'s bare path alone)', () => {
 		const doc = baseValue();
 		doc.chain.segments[1] = { ...doc.chain.segments[1], keyframe: { form_ref: { field: 'reference_image', path: 'same.png' } } };
@@ -441,6 +471,92 @@ describe('directorShotInputIdentity', () => {
 		expect(after).not.toBe(before);
 		expect(before).not.toContain('AAAA');
 		expect(after).not.toContain('BBBB');
+	});
+
+	// ─── Generation context: preset/variant/mode are required scope ───────────
+
+	it('changes when the preset id changes, even though the document and formData did not', () => {
+		const doc = baseValue();
+		const caps = chainCaps();
+		const before = directorShotInputIdentity(doc, 's2', {
+			caps,
+			formData: null,
+			generationContext: { presetId: 'preset-a', variant: 'default', mode: 'video' }
+		});
+		const after = directorShotInputIdentity(doc, 's2', {
+			caps,
+			formData: null,
+			generationContext: { presetId: 'preset-b', variant: 'default', mode: 'video' }
+		});
+		expect(after).not.toBe(before);
+	});
+
+	it('changes when the variant changes', () => {
+		const doc = baseValue();
+		const caps = chainCaps();
+		const ctx = (variant: string) => ({
+			caps,
+			formData: null,
+			generationContext: { presetId: 'preset-a', variant, mode: 'video' }
+		});
+		expect(directorShotInputIdentity(doc, 's2', ctx('a'))).not.toBe(directorShotInputIdentity(doc, 's2', ctx('b')));
+	});
+
+	it('changes when the mode changes', () => {
+		const doc = baseValue();
+		const caps = chainCaps();
+		const ctx = (mode: string) => ({
+			caps,
+			formData: null,
+			generationContext: { presetId: 'preset-a', variant: 'default', mode }
+		});
+		expect(directorShotInputIdentity(doc, 's2', ctx('video'))).not.toBe(directorShotInputIdentity(doc, 's2', ctx('refs')));
+	});
+
+	it('a caller with no generationContext yet gets the neutral EMPTY_GENERATION_CONTEXT, distinct from any real one', () => {
+		const doc = baseValue();
+		const caps = chainCaps();
+		const omitted = directorShotInputIdentity(doc, 's2', { caps, formData: null });
+		const explicitNull = directorShotInputIdentity(doc, 's2', { caps, formData: null, generationContext: null });
+		const real = directorShotInputIdentity(doc, 's2', {
+			caps,
+			formData: null,
+			generationContext: { presetId: 'preset-a', variant: null, mode: null }
+		});
+		expect(omitted).toBe(explicitNull); // both fall back to EMPTY_GENERATION_CONTEXT
+		expect(real).not.toBe(omitted);
+	});
+
+	// ─── Canonical (sorted) object keys; array order stays significant ────────
+
+	it('object key order never changes the identity, at any nesting level', () => {
+		const doc = baseValue();
+		const caps = chainCaps();
+		const a = directorShotInputIdentity(doc, 's2', { caps, formData: { steps: 20, cfg: 7 } });
+		const b = directorShotInputIdentity(doc, 's2', { caps, formData: { cfg: 7, steps: 20 } });
+		expect(a).toBe(b);
+	});
+
+	it('nested object key order never changes the identity either', () => {
+		const doc = baseValue();
+		const caps = chainCaps();
+		const a = directorShotInputIdentity(doc, 's2', { caps, formData: { model: { name: 'sdxl', path: '/m.safetensors' } } });
+		const b = directorShotInputIdentity(doc, 's2', { caps, formData: { model: { path: '/m.safetensors', name: 'sdxl' } } });
+		expect(a).toBe(b);
+	});
+
+	it('array order DOES change the identity -- shots/keyframes/segments are ordered sequences, not sets', () => {
+		const caps = chainCaps();
+		const forward = baseValue();
+		forward.chain.keyframes = [
+			{ id: 'kf-1', at: 1, strength: 1, media: { path: '/a.png' } },
+			{ id: 'kf-2', at: 2, strength: 1, media: { path: '/b.png' } }
+		];
+		const reversed = baseValue();
+		reversed.chain.keyframes = [...forward.chain.keyframes].reverse();
+		const a = directorShotInputIdentity(forward, 's2', { caps, formData: null });
+		const b = directorShotInputIdentity(reversed, 's2', { caps, formData: null });
+		expect(a).not.toBe(b);
 	});
 });
 

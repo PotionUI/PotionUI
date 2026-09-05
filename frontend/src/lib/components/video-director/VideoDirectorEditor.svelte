@@ -27,6 +27,8 @@
 		value,
 		capabilities,
 		presetId,
+		selectedVariant = null,
+		selectedMode = null,
 		formData,
 		runs,
 		onChange,
@@ -38,6 +40,10 @@
 		value: VideoDirectorValue | undefined;
 		capabilities: DirectorCapabilities;
 		presetId: string;
+		/** See ShotConsole.svelte's own doc comments -- passed straight through
+		 *  (part of the shot input identity's `generationContext`). */
+		selectedVariant?: string | null;
+		selectedMode?: string | null;
 		/** The generate form's own field values -- threaded down so a Director
 		 * media slot can offer "From form" (Stage B reference media). */
 		formData: Record<string, unknown> | null | undefined;
@@ -88,6 +94,8 @@
 		{value}
 		{capabilities}
 		{presetId}
+		{selectedVariant}
+		{selectedMode}
 		{formData}
 		{runs}
 		{onChange}

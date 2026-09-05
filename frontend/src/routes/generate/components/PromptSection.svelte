@@ -93,6 +93,8 @@
 			value={tab.videoDirector}
 			capabilities={videoDirectorCaps}
 			presetId={tab.selectedPreset || ''}
+			selectedVariant={tab.selectedVariant}
+			selectedMode={tab.selectedMode}
 			formData={tab.formData}
 			runs={directorRuns}
 			onChange={(v) => tabsStore.updateTab(tab.id, { videoDirector: v })}

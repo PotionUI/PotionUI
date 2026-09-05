@@ -19,6 +19,7 @@ The hook system supports:
 """
 
 import asyncio
+import inspect
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import (
@@ -265,6 +266,42 @@ class HookResult:
     modified: bool = False  # Whether the hook modified the context
 
 
+class HookContractError(TypeError):
+    """A hook handler breaks the synchronous handler contract."""
+
+
+def _handler_name(handler: Callable) -> str:
+    """A name for `handler` usable in an error message, for any callable shape."""
+    return getattr(handler, "__qualname__", None) or repr(handler)
+
+
+def _is_async_callable(handler: Callable) -> bool:
+    """True for `async def` / `async def` generator handlers, including callable objects."""
+    if inspect.iscoroutinefunction(handler) or inspect.isasyncgenfunction(handler):
+        return True
+    call = getattr(handler, "__call__", None)
+    return call is not None and (
+        inspect.iscoroutinefunction(call) or inspect.isasyncgenfunction(call)
+    )
+
+
+def _shallow_data_changed(before: Dict[str, Any], after: Dict[str, Any]) -> bool:
+    """Whether a handler's returned data differs from what it was handed, by identity.
+
+    Payload values are arbitrary objects (tensors, PIL images, service objects):
+    `==` on them can be expensive, raise, or return an array rather than a bool,
+    so only keys and value identity are compared. A handler that mutates a nested
+    value in place therefore reads as unchanged - the flag is diagnostic, and the
+    returned data propagates either way.
+    """
+    if before is after:
+        return False
+    if len(before) != len(after):
+        return True
+    missing = object()
+    return any(after.get(key, missing) is not value for key, value in before.items())
+
+
 class HookChain:
     """
     Executes hooks in chain, allowing each to modify the context.
@@ -290,7 +327,19 @@ class HookChain:
             hook_name: Name of the hook (e.g., "generation.before_start")
             plugin_id: Unique identifier of the plugin registering the handler
             handler: Callable that accepts HookContext and returns HookContext
+
+        Raises:
+            HookContractError: if `handler` is asynchronous
         """
+        if _is_async_callable(handler):
+            raise HookContractError(
+                f"Plugin '{plugin_id}' registered async handler "
+                f"{_handler_name(handler)} for hook '{hook_name}'. Hook handlers are "
+                f"synchronous - the chain calls them and reads the returned context "
+                f"immediately. To defer work to the caller, schedule it and leave the "
+                f"awaitables on context.data[{HOOK_BLOCKING_WAITS_KEY!r}]."
+            )
+
         if hook_name not in self._handlers:
             self._handlers[hook_name] = []
 
@@ -424,13 +473,29 @@ class HookChain:
                 logger.debug(f"Executing hook {hook_name} for plugin {plugin_id}")
                 result_context = handler(plugin_context)
 
-                # Check if context was modified
-                modified = result_context.data != context.data
+                if inspect.isawaitable(result_context):
+                    close = getattr(result_context, "close", None)
+                    if close is not None:
+                        close()
+                    raise HookContractError(
+                        f"handler {_handler_name(handler)} returned "
+                        f"{type(result_context).__name__}. Hook handlers are "
+                        f"synchronous - to defer work to the caller, schedule it and "
+                        f"leave the awaitables on "
+                        f"context.data[{HOOK_BLOCKING_WAITS_KEY!r}]."
+                    )
 
-                # Update the main context with any changes
-                if modified:
-                    context.data = result_context.data
-                    context.metadata.update(result_context.metadata)
+                if not isinstance(result_context, HookContext):
+                    raise HookContractError(
+                        f"handler {_handler_name(handler)} returned "
+                        f"{type(result_context).__name__}, expected the HookContext "
+                        f"it was given"
+                    )
+
+                modified = _shallow_data_changed(context.data, result_context.data)
+
+                context.data = result_context.data
+                context.metadata.update(result_context.metadata)
 
                 # Record successful execution
                 results.append(HookResult(

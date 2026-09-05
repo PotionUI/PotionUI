@@ -140,10 +140,28 @@ A hook handler:
 from src.plugin_api import HookContext
 
 
-async def on_generation_complete(context: HookContext) -> HookContext:
-    ...
+def on_generation_complete(context: HookContext) -> HookContext:
+    context.data["my-plugin.notified"] = True
+    context.metadata["my-plugin.seen"] = context.data["generation_id"]
     return context
 ```
+
+**Handlers are synchronous.** The hook chain calls your handler and reads the
+returned `HookContext` immediately, so an `async def` handler is rejected at
+registration and a handler that returns a coroutine is recorded as a failed hook
+result. Return the context you were given (data changes and metadata annotations
+both propagate to the next handler and to the caller); returning anything else is
+a contract error.
+
+To hand long-running work back to the caller, schedule it and leave the
+awaitables under `HookContext.data[HOOK_BLOCKING_WAITS_KEY]` (the constant lives in
+`src/platform/plugins/hooks.py`; its value is the literal key
+`"__hook_blocking_waits__"`). Only call sites that drain them wait: today
+`generation.before_start`
+(`src/features/generation/orchestrator.py`) and `chat.message.before_send`
+(`src/features/chat/conversation.py`). Every other hook point ignores the key, so a
+handler for one of them must not rely on the work being finished when the hook
+returns.
 
 Reaching the application's managers — always inside the function that needs them, never
 at import time, because the container does not exist yet while your module is being

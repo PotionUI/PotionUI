@@ -421,18 +421,33 @@ Core ships five types (`src/features/presets/requirements/builtin.py`): `binary`
 or the first of `names:` found), `python_package` (`importlib.metadata` + a PEP 440 `version:`
 specifier), `model` (a tag name or exact sha256 present and available in the depot — `tag:` matches
 the same admin `Tag` concept a `configuration: {type: model_tags}` picker filter already uses, not
-a marketplace-specific id), `vram_min_gb` (this host's total VRAM), and `platform` (`sys.platform`).
+a marketplace-specific id), `vram_min_gb` (the resolved backend's physical VRAM total — see below),
+and `platform` (`sys.platform`).
 Engine-specific checks (a ComfyUI custom node or model) are not core — a plugin registers its own
 under a `requirement_checkers:` manifest root (see `src.plugin_api.presets.RequirementChecker`).
 
+`vram_min_gb` reads **physical device memory**, not a configured budget: it checks whichever
+backend of the preset's engine is actually being asked (see "Host-scoped vs backend-scoped
+checkers" below), against that backend's own hardware. A backend whose driver is local resolves
+against this host's GPU; a remote-worker driver (e.g. `native.remote`) always resolves to `unknown`
+— this process has no local reading for hardware it cannot see, and the check never substitutes a
+guess. A passing `vram_min_gb` reading is evidence a card is physically present, not a guarantee a
+given model fits: that is a function of the *loading budget* an admin configures per native backend
+(`gpu_max_vram`, composed at load time via `effective_vram_budget_gb()` — see
+[Backends](/admin?tab=docs&doc=dev/backends) "Why GPU settings live on the native backend"), which
+can be set below the physical total. The static `requires:` block earlier in this document is a
+third, unrelated thing again: author-written hardware guidance shown before a download, never
+checked live.
+
 ### Host-scoped vs backend-scoped checkers
 
-A checker declares a `scope` of `"host"` (the default — every core checker) or `"backend"`. A
-`"host"` entry answers something true of this *process* no matter which backend of the preset's
-engine ends up executing it (a binary on `PATH`, this host's VRAM, an installed Python package) and
-is evaluated **once** per preset. A `"backend"` entry's answer depends on *which* backend of the
-engine is asked — `comfyui-backend`'s `comfyui_node`/`comfyui_model` checkers are `"backend"`-scoped,
-since one ComfyUI server can have a custom node or model another doesn't — and is evaluated **once
+A checker declares a `scope` of `"host"` (the default) or `"backend"`. A `"host"` entry answers
+something true of this *process* no matter which backend of the preset's engine ends up executing
+it (a binary on `PATH`, an installed Python package) and is evaluated **once** per preset. A
+`"backend"` entry's answer depends on *which* backend of the engine is asked — `comfyui-backend`'s
+`comfyui_node`/`comfyui_model` checkers are `"backend"`-scoped, since one ComfyUI server can have a
+custom node or model another doesn't, and so is core's own `vram_min_gb` (a local backend and a
+remote-worker backend of the same engine do not share one VRAM reading) — and is evaluated **once
 per enabled backend** of that engine. A plugin engine with several interchangeable backends should
 mark its engine-specific checkers `"backend"`.
 

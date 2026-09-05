@@ -349,3 +349,144 @@ class TestGetPresetRequirementsMultiBackend:
         data = await operations.get_preset_requirements(collaborators, "comfy-preset", backend_id="does-not-exist")
 
         assert data["results"][0]["backend_id"] == "comfy-b"
+
+
+class _FakeGpuMonitor:
+    def __init__(self, total_vram_mb: int, available: bool = True):
+        self.available = available
+        self._total_vram_mb = total_vram_mb
+
+    def get_total_vram(self) -> int:
+        return self._total_vram_mb
+
+
+def _native_backends():
+    return [
+        _FakeBackend(_FakeBackendConfig("native-local", "Local GPU", "native", driver="native")),
+        _FakeBackend(_FakeBackendConfig("native-remote-1", "Remote Worker", "native", driver="native.remote")),
+    ]
+
+
+class TestGetPresetRequirementsVramMinGbPerBackend:
+    """`vram_min_gb` is backend-scoped, so a local backend's VRAM
+    reading and a remote worker's (always "unknown" - no local reading
+    applies to hardware this process cannot see) must be evaluated and
+    reported independently, never merged into one shared verdict. Uses the
+    REAL `VramMinGbRequirementChecker` (seeded by `setup_module`), not a
+    fixture checker."""
+
+    def _preset_and_collaborators(self, gpu_total_gb, default_id=None, gb=16):
+        preset = _preset(
+            preset_id="native-preset", requirements=[{"type": "vram_min_gb", "gb": gb}],
+        )
+        collaborators = _collaborators(
+            file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
+            backend_registry=_FakeBackendRegistry(_native_backends(), default_id=default_id),
+            gpu_monitor=_FakeGpuMonitor(int(gpu_total_gb * 1024)),
+            requirements_cache=RequirementsCache(),
+        )
+        return preset, collaborators
+
+    @pytest.mark.asyncio
+    async def test_low_vram_local_default_is_missing_remote_is_unknown(self):
+        _, collaborators = self._preset_and_collaborators(gpu_total_gb=8, default_id="native-local")
+
+        data = await operations.get_preset_requirements(collaborators, "native-preset")
+
+        assert data["results"][0]["status"] == "missing"
+        assert data["results"][0]["backend_id"] == "native-local"
+        by_id = {b["id"]: b for b in data["backends"]}
+        assert by_id["native-local"]["summary"] == {"ok": 0, "missing": 1, "unknown": 0, "optional_missing": 0}
+        assert by_id["native-remote-1"]["summary"] == {"ok": 0, "missing": 0, "unknown": 1, "optional_missing": 0}
+
+    @pytest.mark.asyncio
+    async def test_low_vram_remote_default_does_not_inherit_locals_missing_verdict(self):
+        """The bug this guards: `vram_min_gb` used to be host-scoped,
+        so its ONE verdict came from whichever backend `build_requirement_context`
+        picked as default and was then copied onto every other candidate -
+        picking the remote backend as default must read "unknown" for it,
+        never the local host's "missing"."""
+        _, collaborators = self._preset_and_collaborators(gpu_total_gb=8, default_id="native-remote-1")
+
+        data = await operations.get_preset_requirements(collaborators, "native-preset")
+
+        assert data["results"][0]["status"] == "unknown"
+        assert data["results"][0]["backend_id"] == "native-remote-1"
+        by_id = {b["id"]: b for b in data["backends"]}
+        assert by_id["native-local"]["summary"]["missing"] == 1
+
+    @pytest.mark.asyncio
+    async def test_high_vram_local_is_ok_remote_stays_unknown(self):
+        _, collaborators = self._preset_and_collaborators(gpu_total_gb=24, default_id="native-local")
+
+        data = await operations.get_preset_requirements(collaborators, "native-preset")
+
+        assert data["results"][0]["status"] == "ok"
+        by_id = {b["id"]: b for b in data["backends"]}
+        assert by_id["native-remote-1"]["summary"]["unknown"] == 1
+
+    @pytest.mark.asyncio
+    async def test_explicit_backend_id_selects_that_backends_own_verdict(self):
+        _, collaborators = self._preset_and_collaborators(gpu_total_gb=8, default_id="native-remote-1")
+
+        data = await operations.get_preset_requirements(collaborators, "native-preset", backend_id="native-local")
+
+        assert data["results"][0]["status"] == "missing"
+        assert data["results"][0]["backend_id"] == "native-local"
+
+    @pytest.mark.asyncio
+    async def test_cached_read_returns_the_same_per_candidate_results(self):
+        _, collaborators = self._preset_and_collaborators(gpu_total_gb=8, default_id="native-local")
+
+        first = await operations.get_preset_requirements(collaborators, "native-preset")
+        second = await operations.get_preset_requirements(collaborators, "native-preset")
+
+        assert first["results"] == second["results"]
+        assert first["backends"] == second["backends"]
+
+    @pytest.mark.asyncio
+    async def test_refresh_reevaluates_every_candidate(self):
+        _, collaborators = self._preset_and_collaborators(gpu_total_gb=8, default_id="native-local")
+
+        first = await operations.get_preset_requirements(collaborators, "native-preset")
+        second = await operations.get_preset_requirements(collaborators, "native-preset", refresh=True)
+
+        assert first["results"][0]["status"] == second["results"][0]["status"] == "missing"
+        assert second["checked_at"] >= first["checked_at"]
+
+    @pytest.mark.asyncio
+    async def test_no_backend_registered_yields_explicit_unknown_not_a_local_guess(self):
+        preset = _preset(preset_id="native-preset-orphan", requirements=[{"type": "vram_min_gb", "gb": 16}])
+        collaborators = _collaborators(
+            file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
+            backend_registry=_FakeBackendRegistry([], default_id=None),
+            gpu_monitor=_FakeGpuMonitor(8 * 1024),
+            requirements_cache=RequirementsCache(),
+        )
+
+        data = await operations.get_preset_requirements(collaborators, "native-preset-orphan")
+
+        assert data["results"][0]["status"] == "unknown"
+        assert data["backends"] == []
+
+    @pytest.mark.asyncio
+    async def test_host_scoped_entry_alongside_vram_is_still_evaluated_once(self):
+        """A mixed requirements list: `platform` (host-scoped) must still be
+        shared across both backends' summaries while `vram_min_gb`
+        (backend-scoped) differs between them."""
+        preset = _preset(preset_id="native-preset-mixed", requirements=[
+            {"type": "platform", "os": ["linux", "darwin", "windows"]},
+            {"type": "vram_min_gb", "gb": 16},
+        ])
+        collaborators = _collaborators(
+            file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
+            backend_registry=_FakeBackendRegistry(_native_backends(), default_id="native-local"),
+            gpu_monitor=_FakeGpuMonitor(8 * 1024),
+            requirements_cache=RequirementsCache(),
+        )
+
+        data = await operations.get_preset_requirements(collaborators, "native-preset-mixed")
+
+        by_id = {b["id"]: b for b in data["backends"]}
+        assert by_id["native-local"]["summary"] == {"ok": 1, "missing": 1, "unknown": 0, "optional_missing": 0}
+        assert by_id["native-remote-1"]["summary"] == {"ok": 1, "missing": 0, "unknown": 1, "optional_missing": 0}

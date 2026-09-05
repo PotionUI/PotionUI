@@ -12,6 +12,11 @@ import pytest
 
 from src.features.generation.routing.contracts import Candidate, RoutingContext, RoutingRequest
 from src.features.generation.routing.rules import RequirementsEligibility
+from src.features.presets.requirements.builtin import register_builtin_requirement_checkers
+from src.features.presets.requirements.context_builder import build_requirement_context_for_backend
+from src.features.presets.requirements.contracts import RequirementBackendInfo
+from src.features.presets.requirements.evaluator import RequirementsCache
+from src.platform.plugins.requirement_checkers import requirement_checker_registry
 
 
 def _candidates(*backend_ids):
@@ -102,3 +107,50 @@ class TestRequirementsEligibility:
 
         cache.peek_backend_missing.assert_called_once()
         assert cache.peek_backend_missing.call_args[0][2] == "comfy_a"
+
+
+class _FakeGpuMonitor:
+    def __init__(self, total_vram_mb: int, available: bool = True):
+        self.available = available
+        self._total_vram_mb = total_vram_mb
+
+    def get_total_vram(self) -> int:
+        return self._total_vram_mb
+
+
+class TestRequirementsEligibilityWithRealVramMinGb:
+    """End-to-end: `vram_min_gb` is backend-scoped, so a real cached
+    evaluation of a preset against a local (hard-missing) backend and a
+    remote-worker (unknown, no local reading applies) backend of the same
+    engine must only narrow routing to the backend that actually satisfies
+    it - a host-scoped verdict would have dropped (or kept) both alike."""
+
+    def setup_method(self):
+        if not requirement_checker_registry.all():
+            register_builtin_requirement_checkers(requirement_checker_registry)
+
+    @pytest.mark.asyncio
+    async def test_hard_missing_local_backend_is_dropped_remote_unknown_is_kept(self):
+        preset = Mock(id="native-preset", requirements=[{"type": "vram_min_gb", "gb": 16}])
+        gpu_monitor = _FakeGpuMonitor(total_vram_mb=8 * 1024)  # 8 GB - below the 16 GB floor
+        local_info = RequirementBackendInfo(id="native-local", engine="native", driver="native")
+        remote_info = RequirementBackendInfo(id="native-remote-1", engine="native", driver="native.remote")
+        host_ctx = build_requirement_context_for_backend(preset, None, gpu_monitor, None)
+        backend_ctxs = {
+            "native-local": build_requirement_context_for_backend(preset, None, gpu_monitor, local_info),
+            "native-remote-1": build_requirement_context_for_backend(preset, None, gpu_monitor, remote_info),
+        }
+        cache = RequirementsCache()
+        await cache.get_or_evaluate_for_backends(requirement_checker_registry, preset, host_ctx, backend_ctxs)
+
+        candidates = _candidates("native-local", "native-remote-1")
+        ctx = RoutingContext(backend_registry=Mock(), requirements_cache=cache)
+        request = RoutingRequest(engine="native", preset=preset, form_data={})
+
+        result = await RequirementsEligibility().apply(candidates, request, ctx)
+
+        by_id = {c.backend_id: c for c in result}
+        assert by_id["native-local"].dropped
+        assert "16 GB" in by_id["native-local"].reasons[-1]
+        assert not by_id["native-remote-1"].dropped
+        assert by_id["native-remote-1"].reasons[-1] == "requirements satisfied"

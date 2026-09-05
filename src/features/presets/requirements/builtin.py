@@ -247,6 +247,13 @@ class VramMinGbRequirementSchema(_RequirementEntryModel):
 class VramMinGbRequirementChecker:
     type = "vram_min_gb"
     schema = VramMinGbRequirementSchema
+    # The physical VRAM total is a property of the backend that would
+    # actually run the preset, not of this host in the abstract - a preset
+    # with several candidate backends of the same engine (e.g. a local
+    # native backend and a native_remote worker) can have one reading per
+    # candidate, so this must be re-evaluated per backend rather than once
+    # and shared (see contracts.RequirementChecker's scope attribute).
+    scope = "backend"
 
     async def check(self, spec: Dict[str, Any], ctx: RequirementContext) -> RequirementResult:
         parsed = self.schema.model_validate(spec)

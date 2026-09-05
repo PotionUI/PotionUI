@@ -330,6 +330,16 @@ class TestEntryScope:
         registry = _registry(_BackendChecker(ok_backend_id="b1"))
         assert entry_scope(registry, {"type": "backend-type"}) == "backend"
 
+    def test_vram_min_gb_is_backend_scoped(self):
+        """A preset's declared VRAM floor is a property of whichever
+        backend would actually run it (a local GPU reading does not apply
+        to a remote worker of the same engine) - it must not be shared
+        across every candidate the way a genuinely host-wide check is."""
+        from src.features.presets.requirements.builtin import VramMinGbRequirementChecker
+
+        registry = _registry(VramMinGbRequirementChecker())
+        assert entry_scope(registry, {"type": "vram_min_gb", "gb": 16}) == "backend"
+
 
 class TestEvaluatePresetRequirementsForBackends:
     @pytest.mark.asyncio

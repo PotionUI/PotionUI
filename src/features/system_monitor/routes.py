@@ -27,7 +27,7 @@ class SystemMonitorController(BaseController):
     async def get_system_stats(self, user: User) -> APIResponse:
         """Get current system statistics."""
         try:
-            stats = self.manager.get_system_stats()
+            stats = await self.manager.collect_system_stats()
             return self.success_response(data=stats)
         except ValueError as e:
             return self.error_response(str(e))

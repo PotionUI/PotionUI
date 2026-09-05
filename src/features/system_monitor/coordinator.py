@@ -6,6 +6,7 @@ monitoring operations by delegating to existing services and managing
 WebSocket broadcasting for real-time updates.
 """
 from typing import Dict, Any, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor
 import asyncio
 import logging
 import json
@@ -48,6 +49,8 @@ class SystemMonitorCoordinator:
         self.monitoring_task: Optional[asyncio.Task] = None
         self.monitoring_interval: float = 3.0
         self.logger = logging.getLogger(__name__)
+        self._sampling_executor: Optional[ThreadPoolExecutor] = None
+        self._pending_sample: Optional[asyncio.Future] = None
 
     def get_system_stats(self) -> Dict[str, Any]:
         """
@@ -85,6 +88,50 @@ class SystemMonitorCoordinator:
         )
 
         return hook_data.get("stats", stats)
+
+    async def collect_system_stats(self) -> Dict[str, Any]:
+        """
+        Collect system stats off the event loop.
+
+        get_system_stats() samples CPU with a 100ms blocking wait and reads NVML
+        under a lock, so it must never run on the loop thread. Concurrent callers
+        share one in-flight sample instead of queueing a probe each.
+
+        Returns:
+            Dictionary containing GPU, RAM, and CPU statistics
+
+        Raises:
+            ValueError: If stats collection is blocked by a plugin hook
+        """
+        pending = self._pending_sample
+        if pending is None or pending.done():
+            loop = asyncio.get_running_loop()
+            pending = loop.run_in_executor(
+                self._ensure_sampling_executor(),
+                self.get_system_stats
+            )
+            self._pending_sample = pending
+
+        # Shielded: a cancelled caller must not cancel the sample other callers
+        # are waiting on, and the worker thread cannot be interrupted anyway.
+        return await asyncio.shield(pending)
+
+    def _ensure_sampling_executor(self) -> ThreadPoolExecutor:
+        """Get the sampling executor, creating it on first use."""
+        if self._sampling_executor is None:
+            self._sampling_executor = ThreadPoolExecutor(
+                max_workers=1,
+                thread_name_prefix="system-monitor-probe"
+            )
+        return self._sampling_executor
+
+    def _shutdown_sampling_executor(self) -> None:
+        """Release the sampling executor without waiting on a running probe."""
+        executor = self._sampling_executor
+        self._sampling_executor = None
+        self._pending_sample = None
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
 
     def set_monitoring_interval(self, interval: float) -> None:
         """
@@ -124,6 +171,7 @@ class SystemMonitorCoordinator:
             except asyncio.CancelledError:
                 pass
             self.monitoring_task = None
+        self._shutdown_sampling_executor()
 
     async def handle_websocket_connection(
         self,
@@ -150,7 +198,7 @@ class SystemMonitorCoordinator:
         try:
             # Send initial system stats
             try:
-                stats = self.get_system_stats()
+                stats = await self.collect_system_stats()
                 await websocket.send_text(json.dumps({
                     "type": "system_update",
                     "data": stats,
@@ -205,7 +253,7 @@ class SystemMonitorCoordinator:
         while self.connection_hub.has_connections():
             try:
                 # Get system stats
-                stats = self.get_system_stats()
+                stats = await self.collect_system_stats()
 
                 # Broadcast to all connected clients
                 await self.connection_hub.broadcast(stats)

@@ -57,20 +57,24 @@ class SystemMonitor:
                 'core_count_physical': int
             }
         """
-        with self.lock:
-            try:
-                return {
-                    'usage_percent': psutil.cpu_percent(interval=0.1),
-                    'core_count': psutil.cpu_count(logical=True),
-                    'core_count_physical': psutil.cpu_count(logical=False)
-                }
-            except Exception as e:
-                logger.error(f"[SYSTEM_MONITOR] Error getting CPU info: {e}")
-                return {
-                    'usage_percent': 0.0,
-                    'core_count': 1,
-                    'core_count_physical': 1
-                }
+        # Blocks for 100ms: callers must be off the event loop. The probe lock is
+        # deliberately not held across it (psutil needs no serializing, and the
+        # wait would otherwise stall RAM/GPU readers on other threads); the
+        # blocking interval also keeps this independent of the process-wide
+        # sampling state that interval=None shares between callers.
+        try:
+            return {
+                'usage_percent': psutil.cpu_percent(interval=0.1),
+                'core_count': psutil.cpu_count(logical=True),
+                'core_count_physical': psutil.cpu_count(logical=False)
+            }
+        except Exception as e:
+            logger.error(f"[SYSTEM_MONITOR] Error getting CPU info: {e}")
+            return {
+                'usage_percent': 0.0,
+                'core_count': 1,
+                'core_count_physical': 1
+            }
 
     def get_ram_info(self) -> Dict[str, Any]:
         """

@@ -5,9 +5,15 @@ This module provides framework-agnostic WebSocket connection management
 for broadcasting system monitoring updates to connected clients.
 """
 from typing import Protocol, List, Dict, Any, runtime_checkable
+import asyncio
 import logging
 import json
 import time
+
+# A client that cannot absorb a frame within this deadline is treated as dead and
+# dropped: without it one stalled socket holds up every other client's update.
+SEND_TIMEOUT_SECONDS = 2.0
+MAX_CONCURRENT_SENDS = 16
 
 
 @runtime_checkable
@@ -66,26 +72,36 @@ class MonitoringConnectionHub:
         Returns:
             List of connections that failed and were removed
         """
-        if not self.active_connections:
+        connections = list(self.active_connections)
+        if not connections:
             return []
 
-        # Create message payload
-        message_payload = {
+        payload = json.dumps({
             "type": "system_update",
             "data": message,
             "timestamp": time.time()
-        }
+        })
 
-        # Send to all connected clients
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_SENDS)
+
+        async def send(connection: WebSocketProtocol) -> None:
+            async with semaphore:
+                await asyncio.wait_for(
+                    connection.send_text(payload),
+                    timeout=SEND_TIMEOUT_SECONDS
+                )
+
+        results = await asyncio.gather(
+            *(send(connection) for connection in connections),
+            return_exceptions=True
+        )
+
         disconnected_clients: List[WebSocketProtocol] = []
-        for connection in self.active_connections:
-            try:
-                await connection.send_text(json.dumps(message_payload))
-            except Exception as e:
-                self.logger.warning(f"Failed to send system update to client: {e}")
+        for connection, result in zip(connections, results):
+            if isinstance(result, BaseException):
+                self.logger.warning(f"Failed to send system update to client: {result}")
                 disconnected_clients.append(connection)
 
-        # Remove disconnected clients
         for client in disconnected_clients:
             self.remove_connection(client)
 

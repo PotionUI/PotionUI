@@ -196,3 +196,67 @@ class TestMultiShotSpanAndOverlapVariants:
         compiled = compile_shot_plan(doc, ["seg-a"], family="minimax_h3")
         assert compiled["settings"]["duration"] == pytest.approx(141 / FPS)
         assert compiled["settings"]["duration"] != pytest.approx(130 / FPS)
+
+
+class TestFinalSpanEndpointParity:
+    """`windows.py`'s `_locate_frame` doesn't hand a keyframe past the last
+    window's own emitted frames to a window that doesn't exist -- it clamps
+    to the LAST window's own last decoded frame instead (and
+    `normalize_video_director` allows `at` up to the film's raw, un-effective
+    duration, which can land past the real emitted total once alignment/
+    overlap are accounted for). `compile_shot_plan` must preserve that
+    ownership when the selected span is the one that ends the film, not drop
+    the keyframe outright the way it would for any other span's overshoot."""
+
+    @pytest.fixture
+    def endpoint_doc(self, storage_dir):
+        # Same 56/56/56 shape as `three_shot_doc`, with one keyframe pinned
+        # exactly at the full plan's real total emitted duration
+        # (56 + 39 + 56 = 151 frames, 151/24s) -- the boundary the naive
+        # `at >= span_end` check used to drop outright.
+        raw = _doc(segments=[
+            _segment("seg-a", 56, sub_type="t2v"),
+            _segment("seg-b", 56),
+            _segment("seg-c", 56, sub_type="t2v"),
+        ], media=[_keyframe(151 / FPS)])
+        return normalize_video_director(raw, H3_CAPS, str(storage_dir))
+
+    def test_the_full_plan_clamps_it_to_cs_last_decoded_frame(self, endpoint_doc):
+        """Ground truth: the real generator planner, not hand arithmetic."""
+        plan = build_director_plan(endpoint_doc, default_seed=1000)
+        assert [w.emitted_frames for w in plan.windows] == [56, 39, 56]
+        (keyframe,) = plan.windows[2].keyframes
+        assert keyframe.frame == plan.windows[2].frames - 1 == 55
+
+    def test_compiling_the_final_span_alone_keeps_it_and_reproduces_the_clamp(self, endpoint_doc):
+        compiled = compile_shot_plan(endpoint_doc, ["seg-c"], family="minimax_h3")
+        assert len(compiled["media"]) == 1  # kept, not dropped
+
+        # Re-planning the compiled (single-shot) document independently
+        # rediscovers the SAME clamp -- proving parity with the full plan
+        # above, not a hand-picked rebase value.
+        plan = build_director_plan(compiled, default_seed=1000)
+        (replanned_keyframe,) = plan.windows[0].keyframes
+        assert replanned_keyframe.frame == plan.windows[0].frames - 1 == 55
+
+    def test_a_non_final_span_still_drops_the_same_overshoot(self, endpoint_doc):
+        """Endpoint ownership belongs to whichever span actually ends the
+        film -- compiling seg-a alone (mid-film) must still drop it, exactly
+        as before: the full plan hands that time to seg-c, not seg-a."""
+        compiled = compile_shot_plan(endpoint_doc, ["seg-a"], family="minimax_h3")
+        assert compiled["media"] == []
+
+    def test_without_a_family_it_is_kept_but_rebased_onto_the_wrong_naive_axis(self, endpoint_doc):
+        """The endpoint-ownership rule is `minimax_h3`-specific (see the
+        module docstring's `_MINIMAX_H3_FAMILY` note). Without it, the raw
+        axis's own span_end for the film's last span always equals
+        `normalize_video_director`'s own upper bound on `at` (both are the
+        RAW, un-effective `sum(frames)/fps`), so nothing is ever dropped as
+        an overshoot there -- the keyframe survives regardless, just rebased
+        onto the wrong (naive) axis instead of the real emitted one."""
+        compiled = compile_shot_plan(endpoint_doc, ["seg-c"])
+        (keyframe,) = [m for m in compiled["media"] if m["role"] == "keyframe"]
+        # Legacy axis: span_start = (56 + 56) / 24 (two whole raw segments),
+        # not the real 95/24 -- so 151/24 rebases to 39/24, not the correct
+        # clamp-to-last-frame position.
+        assert keyframe["at"] == pytest.approx(151 / FPS - (56 + 56) / FPS)

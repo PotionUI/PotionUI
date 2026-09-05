@@ -473,6 +473,10 @@ export function parseDirectorCapabilities(raw: unknown): DirectorCapabilities | 
 	const referenceFields = Array.isArray(raw.reference_fields)
 		? raw.reference_fields.filter((f): f is string => typeof f === 'string')
 		: [];
+	// Orchestrator-only in the backend (never read by normalize_video_director
+	// itself -- see preset.yml's comment); parsed here purely so railModel.ts's
+	// H3 geometry port can select on it, same as any other capability.
+	const family = typeof raw.family === 'string' ? raw.family : null;
 
 	return {
 		presetModes,
@@ -484,7 +488,8 @@ export function parseDirectorCapabilities(raw: unknown): DirectorCapabilities | 
 		maxFrames,
 		segmentRouting,
 		references,
-		referenceFields
+		referenceFields,
+		family
 	};
 }
 

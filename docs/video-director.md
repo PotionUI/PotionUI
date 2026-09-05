@@ -525,7 +525,35 @@ explicitly before slicing:
   straddling the span boundary has its `trim_start` extended and its `length` clipped to
   match), or dropped outright when it falls entirely outside the span. Per-segment `first`/
   `last` media is filtered by whether its owning segment survived into the span — never
-  rebased, since it isn't film-time positioned to begin with.
+  rebased, since it isn't film-time positioned to begin with. The timeline `at`/`start` is
+  addressed against is family-aware, not always a raw `sum(frames) / fps`: see "Requested
+  vs. emitted timing" below.
+
+#### Requested vs. emitted timing
+
+A chain-style preset can declare `video_director.family` (a string the orchestrator reads,
+never `normalize_video_director` — the normalizer stays family-agnostic per [Per-family
+interpretation](#per-family-interpretation)). For `family: "minimax_h3"`, the compiler
+derives `span_start`/`span_end`/`settings.duration` — and every keyframe/audio rebase above
+— from `video_minimax_h3/windows.py`'s own `resolve_window_geometry`, not a raw
+`sum(segment.frames) / fps`: a requested frame count snaps UP to the video VAE's `17n+5`
+lattice, and a continuation shot's leading overlap frames REPLAY the previous shot's tail
+rather than adding new footage to the stitched result. A keyframe landing at or past the
+real emitted total of the FILM's own last shot is not dropped — it is retained and clamped
+to that shot's own last decoded frame, mirroring `windows.py`'s `_locate_frame` clamp
+exactly (this is why `normalize_video_director` accepts an `at` slightly past the real
+emitted total in the first place: its own upper bound is the raw, un-snapped duration).
+Every other family (no `family` declared, or any value besides `minimax_h3` — Wan
+included) keeps the legacy raw-frame axis: Wan's own effective per-shot overlap depends on
+a generation-time pipe config value (`motion_latent_count`) that never travels with this
+document, so there is no document-only "Wan planner" to call here yet — the raw axis is the
+existing (unfixed) approximation for Wan, not a claim that it is correct.
+
+The Director console's stage rail (`frontend/.../stage-rail/railModel.ts`) mirrors this: a
+small pure TypeScript port of `resolve_window_geometry`, selected by the same
+`family === "minimax_h3"` read off the parsed capabilities, so a rail block's width and a
+seam's overlap shoulder show the SAME emitted geometry the compiler and generator actually
+run, instead of a raw `Math.round(duration * fps)`.
 - **`settings.duration`**, **`needs_t2v_set`**/**`needs_i2v_set`**, and
   `media_images`/`media_videos`/`media_placements` are all recomputed from the compiled
   span alone, exactly as `normalize_video_director` computes them for a whole film.

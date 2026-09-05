@@ -297,6 +297,14 @@ export interface DirectorCapabilities {
 	 * `reference_videos`, `reference_audios` for MiniMax-H3's refs mode). Empty
 	 * when `references` is null. */
 	referenceFields: string[];
+	/** Mirrors `video_director.family` (preset.yml) -- names which family's own
+	 * window-planner arithmetic owns this preset's chain geometry (see
+	 * `src.features.video_director.compile`'s `_MINIMAX_H3_FAMILY`). Read only
+	 * by railModel.ts's H3 geometry port today; optional/absent for every
+	 * preset that hasn't declared one (Wan, LTX) -- NOT a claim that the
+	 * legacy raw-frame axis is correct for them, only that no family-specific
+	 * port exists for them yet. */
+	family?: string | null;
 }
 
 // ─── Wire document (form_data.video_director sent to the backend) ─────────────

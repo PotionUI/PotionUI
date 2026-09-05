@@ -211,6 +211,11 @@ def compile_shot_plan(
     span_start = cumulative_starts[start_index]
     span_duration = sum(effective_durations[start_index:end_index + 1])
     span_end = span_start + span_duration
+    # Whether this span reaches the film's own last segment -- the ONE case
+    # where the family's endpoint-ownership rule (below) can apply, since
+    # every other span's tail hands off to a segment that still exists and
+    # still owns that time.
+    is_final_span = end_index == len(segments) - 1
 
     compiled_media: List[Dict[str, Any]] = []
     for item in normalized_doc.get("media") or []:
@@ -229,8 +234,24 @@ def compile_shot_plan(
         # Rebase its `at` onto the span's own local time, or drop it
         # outright when it lands on a shot this render doesn't cover.
         at = item.get("at")
-        if not isinstance(at, (int, float)) or at < span_start or at >= span_end:
+        if not isinstance(at, (int, float)) or at < span_start:
             continue
+        if at >= span_end:
+            # `minimax_h3`'s own full-plan rule (windows.py's `_locate_frame`)
+            # does NOT hand a keyframe past the last window's own emitted
+            # frames to a window that doesn't exist -- it clamps to the LAST
+            # window's own last decoded frame instead (normalize.py already
+            # allows `at` up to the film's raw, un-effective duration, which
+            # can overshoot the real emitted total once alignment/overlap are
+            # accounted for). That ownership only transfers to THIS span when
+            # it's the one ending the film; every other span's overshoot
+            # still belongs to the segment right after it, so it's dropped as
+            # before. Kept UNCLAMPED (not pinned to any specific value): any
+            # `at - span_start` here is already `>= span_duration` by
+            # construction, which is all `_locate_frame` needs to re-derive
+            # the identical clamp once this compiled document is re-planned.
+            if not (family == _MINIMAX_H3_FAMILY and is_final_span):
+                continue
         rebased_item = dict(item)
         rebased_item["at"] = at - span_start
         compiled_media.append(rebased_item)

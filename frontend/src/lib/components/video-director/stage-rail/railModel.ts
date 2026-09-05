@@ -343,6 +343,93 @@ export function withTimelineSegmentEdge(
 	};
 }
 
+// ─── MiniMax-H3 window geometry ─────────────────────────────────────────────
+// Pure TS port of `resolve_window_geometry`
+// (src/pipelines/pipes/generator/video_minimax_h3/windows.py, itself backed
+// by geometry.py's `17n+5` lattice arithmetic) -- selected below only when
+// the preset's `video_director.family` capability reads `"minimax_h3"`
+// (parseDirectorCapabilities -> DirectorCapabilities.family), so the rail
+// shows the SAME block widths and seam offsets the backend compiler
+// (compile.py's `_effective_segment_durations`) and the generator itself
+// actually run, instead of a raw `duration * fps` that ignores the video
+// VAE's frame-count snap and its continuation-overlap trim.
+//
+// Requested (`duration * fps`) vs emitted (this module's `frames`/
+// `contributedFrames`) timing: MiniMax-H3 snaps a segment's requested frame
+// count UP to the video VAE's `17n+5` lattice before it ever generates, and a
+// continuation shot's leading `overlapFrames` REPLAY the previous shot's tail
+// rather than adding new footage -- see docs/video-director.md's "Requested
+// vs. emitted timing (MiniMax-H3)" section. Every other family (Wan
+// included) keeps the legacy raw axis below unchanged: Wan's own effective
+// per-shot overlap depends on a generation-time pipe config value
+// (`motion_latent_count`) that never travels with this document, so there is
+// no document-only way to port Wan's real geometry here yet -- the raw axis
+// is left in place as the existing (unfixed) approximation, not claimed
+// correct for it.
+const H3_FAMILY = 'minimax_h3';
+const H3_FRAMES_PER_CHUNK = 17;
+const H3_LATENTS_PER_CHUNK = 5;
+const H3_LATENT_FRAME_PIXEL_SPANS = [1, 4, 4, 4, 4];
+
+/** Snaps `requested` UP to the next `17n+5` the video VAE can encode. */
+function h3AlignNumFrames(requested: number): number {
+	let frames = Math.max(1, Math.round(requested));
+	while (frames % H3_FRAMES_PER_CHUNK !== H3_LATENTS_PER_CHUNK) frames += 1;
+	return frames;
+}
+
+/** Latent frame count for an already-aligned `frames` (`5n+2`). */
+function h3VideoLatentNumFrames(frames: number): number {
+	return ((frames - H3_LATENTS_PER_CHUNK) / H3_FRAMES_PER_CHUNK) * H3_LATENTS_PER_CHUNK + 2;
+}
+
+/** Pixel frames the first `numLatents` latent frames of a clip cover. */
+function h3HeadFramesForLatents(numLatents: number): number {
+	let total = 0;
+	for (let i = 0; i < numLatents; i++) total += H3_LATENT_FRAME_PIXEL_SPANS[i % H3_LATENT_FRAME_PIXEL_SPANS.length];
+	return total;
+}
+
+/** Trailing latent frames of an aligned clip needed to cover at least
+ * `numFrames` pixel frames -- walked from the TAIL, a different phase of the
+ * (1,4,4,4,4) cycle than the head walk above (see geometry.py's docstring). */
+function h3TailLatentsForFrames(numFrames: number): number {
+	let covered = 0;
+	let count = 0;
+	while (covered < numFrames) {
+		const index = (((1 - count) % H3_LATENT_FRAME_PIXEL_SPANS.length) + H3_LATENT_FRAME_PIXEL_SPANS.length) % H3_LATENT_FRAME_PIXEL_SPANS.length;
+		covered += H3_LATENT_FRAME_PIXEL_SPANS[index];
+		count += 1;
+	}
+	return count;
+}
+
+interface H3SegmentGeometry {
+	frames: number;
+	overlapFrames: number;
+}
+
+/** One segment's frame/overlap geometry, mirroring `resolve_window_geometry`'s
+ * per-segment body exactly (source dispatch, `min(default, numLatentFrames -
+ * 1)` clamp, head/tail conversions). `continuation` is the CAPABILITY default
+ * (`caps.modes.director.continuation`), not the document's own
+ * `chain.continuation` -- the wire submission takes `source` from there too
+ * (see `buildChainDirectorSubmission`). */
+function resolveH3SegmentGeometry(
+	requestedFrames: number,
+	isContinue: boolean,
+	overlapFramesSetting: number,
+	continuationSource: 'tail_frames' | 'last_frame' | undefined
+): H3SegmentGeometry {
+	const frames = h3AlignNumFrames(requestedFrames);
+	const numLatentFrames = h3VideoLatentNumFrames(frames);
+	let overlapLatentsDefault = 0;
+	if (continuationSource === 'last_frame') overlapLatentsDefault = 1;
+	else if (continuationSource === 'tail_frames') overlapLatentsDefault = h3TailLatentsForFrames(Math.max(0, overlapFramesSetting));
+	const overlapLatents = isContinue ? Math.min(overlapLatentsDefault, numLatentFrames - 1) : 0;
+	return { frames, overlapFrames: h3HeadFramesForLatents(overlapLatents) };
+}
+
 function deriveChainRail(
 	doc: VideoDirectorValue,
 	caps: DirectorCapabilities
@@ -352,6 +439,7 @@ function deriveChainRail(
 	const fps = safeFps(chain.fps);
 	const capFrames = directorCap?.maxFramesPerSegment ?? null;
 	const overlapSetting = Math.max(0, chain.continuation.overlap_frames);
+	const isH3 = caps.family === H3_FAMILY;
 	// MiniMax-H3 refs mode: continuation and the reference pool can't coexist
 	// (normalize.py's `chain_continuation_disabled`) -- every shot is an
 	// independent hard cut, so the structural derivation is overridden rather
@@ -363,14 +451,18 @@ function deriveChainRail(
 	let cumulativeFrames = 0;
 
 	chain.segments.forEach((segment, index) => {
-		const totalFrames = Math.round(segment.duration * fps);
+		const requestedFrames = Math.round(segment.duration * fps);
 		// A segment continues from its predecessor iff it resolves to the
 		// 'chain' sub-type -- NOT merely "isn't 't2v'": once a non-first
 		// segment can carry its own leading (or leading+trailing) media, it can
 		// resolve to 'i2v'/'flf' too, and either of those is a FRESH open, the
 		// same as an explicit 't2v' cut (see chainSegmentEdgeAllowances).
 		const isContinue = !continuationDisabled && index > 0 && deriveChainSegmentSubType(segment, index) === 'chain';
-		const overlapInFrames = isContinue ? Math.min(overlapSetting, totalFrames) : 0;
+		const h3Geometry = isH3
+			? resolveH3SegmentGeometry(requestedFrames, isContinue, overlapSetting, directorCap?.continuation?.source)
+			: null;
+		const totalFrames = h3Geometry ? h3Geometry.frames : requestedFrames;
+		const overlapInFrames = h3Geometry ? h3Geometry.overlapFrames : isContinue ? Math.min(overlapSetting, totalFrames) : 0;
 		const contributedFrames = Math.max(0, totalFrames - overlapInFrames);
 		const startFrame = cumulativeFrames;
 

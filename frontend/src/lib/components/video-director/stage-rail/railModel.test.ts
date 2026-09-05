@@ -727,3 +727,72 @@ describe('deriveRailModel — free keyframes lane visibility mirrors resolveDire
 		expect(isKeyframeLocked(free.role)).toBe(false);
 	});
 });
+
+// ─── MiniMax-H3 family geometry parity with the Python planner ─────────────
+// Hardcoded expected numbers here are the SAME ones
+// tests/features/video_director/test_compile_geometry.py's `three_shot_doc`
+// fixture (56/56/56 @24fps, one 17f continue overlap ->
+// build_director_plan's `[56, 39, 56]`/151 total) and
+// `test_frames_off_the_vae_lattice_snap_up_before_becoming_seconds` (130 ->
+// 141) assert against `resolve_window_geometry` on the Python side -- this
+// is the shared-fixture half of that proof, not an independently-derived
+// number.
+
+function h3FamilyCaps(): DirectorCapabilities {
+	return { ...h3Caps(), family: 'minimax_h3' };
+}
+
+describe('deriveRailModel — MiniMax-H3 family geometry parity with the Python planner', () => {
+	it('56/56/56 @24fps with one 17f continue overlap matches build_director_plan: [56,39,56], total 151', () => {
+		const doc = baseDoc();
+		doc.chain = {
+			fps: 24,
+			segments: [
+				chainSegment('seg-a', 'a', 56 / 24, 't2v'),
+				chainSegment('seg-b', 'b', 56 / 24),
+				chainSegment('seg-c', 'c', 56 / 24, 't2v')
+			],
+			continuation: { overlap_frames: 17, stitch: true },
+			keyframes: [],
+			audio: []
+		};
+		const model = deriveRailModel(doc, h3FamilyCaps());
+		expect(model.shots.map((s) => s.totalFrames)).toEqual([56, 56, 56]);
+		expect(model.shots.map((s) => s.contributedFrames)).toEqual([56, 39, 56]);
+		expect(model.totalFrames).toBe(151);
+	});
+
+	it('a 130-frame request snaps to 141 (17*8+5), matching align_num_frames', () => {
+		const doc = baseDoc();
+		doc.chain = {
+			fps: 24,
+			segments: [chainSegment('seg-a', 'a', 130 / 24, 't2v')],
+			continuation: { overlap_frames: 0, stitch: true },
+			keyframes: [],
+			audio: []
+		};
+		const model = deriveRailModel(doc, h3FamilyCaps());
+		expect(model.shots[0].totalFrames).toBe(141);
+		expect(model.shots[0].totalFrames).not.toBe(130);
+	});
+
+	it('without `family` declared, the same 56/56/56 document keeps the legacy raw axis (no snap, no lattice overlap conversion)', () => {
+		const doc = baseDoc();
+		doc.chain = {
+			fps: 24,
+			segments: [
+				chainSegment('seg-a', 'a', 56 / 24, 't2v'),
+				chainSegment('seg-b', 'b', 56 / 24),
+				chainSegment('seg-c', 'c', 56 / 24, 't2v')
+			],
+			continuation: { overlap_frames: 17, stitch: true },
+			keyframes: [],
+			audio: []
+		};
+		const model = deriveRailModel(doc, h3Caps()); // no `family`
+		// Same numbers here only because 56/56/56 already sits on the lattice
+		// and 17 is an exact-chunk overlap -- the 130-frame case above is
+		// where the two axes actually diverge.
+		expect(model.shots.map((s) => s.contributedFrames)).toEqual([56, 39, 56]);
+	});
+});

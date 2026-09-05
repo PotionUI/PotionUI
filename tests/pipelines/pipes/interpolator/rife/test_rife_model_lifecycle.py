@@ -328,3 +328,142 @@ def test_process_idles_the_model_when_the_video_cannot_be_opened(tmp_path, monke
         pipe.process(PipeInput(input={"video": ["missing.mp4"], "MODELS": models}), lambda o: None)
 
     assert model.device_calls[-2:] == [("to", "cpu"), ("float",)]
+
+
+# -- failed placement/cast: invalidate the cache entry, never mask the error -
+# A `.to()`/`.half()`/`.float()` that raises partway can leave the CACHED
+# object's parameters split across devices/dtypes. `_load_model` must not
+# hand that object back to a later acquire as if placement had succeeded.
+
+class _PartialPlacementModule:
+    """`.to()` records the attempted move, then raises -- as a CUDA OOM or an
+    interrupted transfer would leave a real module part-moved."""
+
+    def __init__(self):
+        self.to_calls = []
+
+    def to(self, device):
+        self.to_calls.append(device)
+        raise RuntimeError("placement failed partway")
+
+    def parameters(self):
+        return iter([torch.zeros(1)])
+
+
+class _HalfCastFailsModule:
+    """`.to()` succeeds; `.half()` (the CUDA-only cast step) raises partway."""
+
+    def __init__(self):
+        self.calls = []
+
+    def to(self, device):
+        self.calls.append(("to", device))
+        return self
+
+    def half(self):
+        self.calls.append(("half",))
+        raise RuntimeError("half cast failed partway")
+
+    def parameters(self):
+        return iter([torch.zeros(1)])
+
+
+def _replacing_loader(calls, broken):
+    """First call returns the injected broken module; every later call
+    returns a fresh, real one -- so a second acquire after invalidation
+    proves the cache reloaded rather than silently reusing `broken`."""
+    def load(_path, device):
+        calls["n"] += 1
+        return broken if calls["n"] == 1 else IFNet(NARROW_NO_ENCODER_BLOCKS, None).eval()
+    return load
+
+
+def test_failed_to_invalidates_the_models_entry_not_reused(tmp_path, monkeypatch):
+    path = _checkpoint(tmp_path)
+    broken = _PartialPlacementModule()
+    models = _lifecycle()
+    calls = {"n": 0}
+    monkeypatch.setattr(rife_main, "load_ifnet", _replacing_loader(calls, broken))
+
+    with pytest.raises(RuntimeError, match="placement failed partway"):
+        rife_main._load_model(path, "cuda", models)
+
+    assert broken.to_calls == ["cuda"]
+    assert calls["n"] == 1
+
+    # The broken entry is gone: the next acquire reloads instead of silently
+    # reusing a module that may now be split across devices/dtypes.
+    second = rife_main._acquire_base_model(models, path)
+    assert calls["n"] == 2
+    assert second is not broken
+
+
+def test_failed_half_cast_invalidates_the_models_entry_not_reused(tmp_path, monkeypatch):
+    path = _checkpoint(tmp_path)
+    broken = _HalfCastFailsModule()
+    models = _lifecycle()
+    calls = {"n": 0}
+    monkeypatch.setattr(rife_main, "load_ifnet", _replacing_loader(calls, broken))
+
+    with pytest.raises(RuntimeError, match="half cast failed partway"):
+        rife_main._load_model(path, "cuda", models)
+
+    assert broken.calls == [("to", "cuda"), ("half",)]
+
+    second = rife_main._acquire_base_model(models, path)
+    assert calls["n"] == 2
+    assert second is not broken
+
+
+def test_failed_placement_clears_the_fallback_slot_not_reused(tmp_path, monkeypatch):
+    monkeypatch.setattr(rife_main, "_FALLBACK_MODEL", {})
+    path = _checkpoint(tmp_path)
+    broken = _PartialPlacementModule()
+    calls = {"n": 0}
+    monkeypatch.setattr(rife_main, "load_ifnet", _replacing_loader(calls, broken))
+
+    with pytest.raises(RuntimeError, match="placement failed partway"):
+        rife_main._load_model(path, "cuda", None)
+
+    assert rife_main._FALLBACK_MODEL == {}  # invalidated, not left holding the broken module
+
+    second = rife_main._acquire_base_model(None, path)
+    assert calls["n"] == 2
+    assert second is not broken
+
+
+class _EvictTrackingModels:
+    """A MODELS double whose `acquire` hands out one pinned model and whose
+    `evict_dead_weight` records the key -- proves `process()` invalidates
+    through the SAME mechanism other native pipes use to release dead
+    weight, not a bespoke one."""
+
+    def __init__(self, model):
+        self.model = model
+        self.evicted = []
+
+    def acquire(self, key, fingerprint, loader, estimated_vram_gb=None):
+        return self.model
+
+    def evict_dead_weight(self, key):
+        self.evicted.append(key)
+        return True
+
+
+def test_process_invalidates_the_models_entry_on_failed_placement(tmp_path, monkeypatch):
+    _force_cpu(monkeypatch)
+    broken = _PartialPlacementModule()
+    models = _EvictTrackingModels(broken)
+    video = tmp_path / "in.mp4"
+    _write_input_video(video)
+    checkpoint = _checkpoint(tmp_path)
+    monkeypatch.setattr(rife_main, "StreamingMp4Writer", _FakeWriter)
+    pipe = RifeInterpolatorPipe({"model": {"file_path": checkpoint}, "factor": 2, "keep_audio": False})
+
+    with pytest.raises(RuntimeError, match="placement failed partway"):
+        pipe.process(PipeInput(input={"video": [str(video)], "MODELS": models}), lambda o: None)
+
+    # The original placement error propagated unmasked, AND the cache entry
+    # was invalidated through the same evict_dead_weight() mechanism other
+    # native pipes use to release dead weight.
+    assert models.evicted == [f"native/rife/{checkpoint}"]

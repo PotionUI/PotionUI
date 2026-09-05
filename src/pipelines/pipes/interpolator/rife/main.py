@@ -93,17 +93,55 @@ def _acquire_base_model(models: Optional[Any], model_path: str) -> "torch.nn.Mod
     return module
 
 
-def _load_model(model_path: str, device: str, models: Optional[Any] = None) -> "torch.nn.Module":
-    """Acquire the checkpoint (see :func:`_acquire_base_model`) and place it on
-    ``device`` for use. ``nn.Module.to()``/``.half()``/``.float()`` mutate the
-    module in place and return it, so this moves the SAME cached object, not a
-    copy -- fp16 on CUDA (upstream inference_video.py runs the flownet +
-    inputs half), fp32 on CPU (half convs are unsupported / slow there).
-    :func:`_idle_model` undoes exactly this once the clip is done, so the
-    entry goes back to idle CPU/fp32 rather than pinning VRAM between clips."""
-    module = _acquire_base_model(models, model_path)
+def _place_model(module: "torch.nn.Module", device: str) -> "torch.nn.Module":
+    """Move ``module`` onto ``device`` and to its compute dtype -- fp16 on CUDA
+    (upstream inference_video.py runs the flownet + inputs half), fp32 on CPU
+    (half convs are unsupported / slow there). Mutates and returns the SAME
+    object (``nn.Module.to()``/``.half()``/``.float()`` do this by contract).
+
+    A raise from here (mid-``.to()``, mid-``.half()``/``.float()``) can leave
+    ``module`` with its parameters split across devices or dtypes -- and
+    ``module`` is the object CACHED under this checkpoint's key, so a caller
+    must treat that as an unsafe cache entry (see :func:`_invalidate_model`),
+    never hand it back to the next acquire as if placement had succeeded."""
     module = module.to(device)
     return module.half() if device == "cuda" else module.float()
+
+
+def _invalidate_model(models: Optional[Any], model_path: str, module: "torch.nn.Module") -> None:
+    """Drop the cache entry for ``module`` after a failed device/dtype
+    transition (see :func:`_place_model`'s docstring for why the entry can no
+    longer be trusted). Best-effort and silent -- this runs from a cleanup
+    path and must never replace the caller's original exception with one of
+    its own, nor mask it by raising here instead."""
+    key = f"native/rife/{model_path}"
+    try:
+        if models is not None:
+            evict = getattr(models, "evict_dead_weight", None)
+            if callable(evict):
+                evict(key)
+        elif _FALLBACK_MODEL.get("module") is module:
+            _FALLBACK_MODEL.clear()
+    except Exception:
+        pass
+
+
+def _load_model(model_path: str, device: str, models: Optional[Any] = None) -> "torch.nn.Module":
+    """Acquire the checkpoint (see :func:`_acquire_base_model`) -- the handle
+    is retained across the placement step below so a failed transition can
+    still be invalidated rather than silently reused by the next acquire.
+
+    :func:`_idle_model` undoes a SUCCESSFUL placement once the clip is done,
+    so the entry goes back to idle CPU/fp32 rather than pinning VRAM between
+    clips; a FAILED placement is invalidated instead (see
+    :func:`_invalidate_model`) and the original exception propagates
+    unmasked."""
+    module = _acquire_base_model(models, model_path)
+    try:
+        return _place_model(module, device)
+    except Exception:
+        _invalidate_model(models, model_path, module)
+        raise
 
 
 def _idle_model(model: "torch.nn.Module") -> None:

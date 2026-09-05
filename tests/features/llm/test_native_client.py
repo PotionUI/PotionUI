@@ -15,8 +15,12 @@ project's "no GPU ever" test rule).
 
 from __future__ import annotations
 
+import numpy._core.multiarray  # noqa: F401
+
+import asyncio
 import gc
 import json
+import time
 import weakref
 from unittest.mock import Mock, patch
 
@@ -218,6 +222,244 @@ async def test_stream_with_history_yields_tokens_then_usage(client, native_check
     assert all(e["type"] in ("token", "usage") for e in events)
     token_events = [e for e in events if e["type"] == "token"]
     assert all(isinstance(e["content"], str) and e["content"] for e in token_events)
+
+
+# --- streaming: worker failure / consumer cancellation ---------------------
+#
+# `TextIteratorStreamer`'s `end()` is what unblocks the consumer's `next()`
+# loop in `stream_with_history` — real `generate()` only calls it on normal
+# completion, so these tests replace `checkpoint.model.generate` with a
+# fake that still drives the REAL streamer/stopping_criteria contract (real
+# `put()`, real `tokenizer.decode`, the real `StoppingCriteriaList` the
+# fixed code now wires up) while letting the test inject a failure or a
+# cancellation delay at a precise point — proving the fix's own `finally:
+# streamer.end()` (not `generate()`'s own normal-path call) is what wakes the
+# consumer.
+#
+# The fixture's WordPiece decoder never inserts word-boundary spaces between
+# these plain-vocabulary tokens, so `TextStreamer.put()`'s incremental
+# space-boundary flush never fires; repeating the vocab's "\n" token (id 15
+# in `tiny_qwen3_checkpoint_dir`'s fixed vocab) instead triggers `put()`'s
+# other flush path (`text.endswith("\n")`), guaranteeing every put()　call
+# yields real, immediately-visible content instead of sitting in the
+# streamer's cache until a final `end()` flush a test would otherwise have to
+# wait for.
+_NEWLINE_TOKEN_ID = 15
+
+
+async def _drain(agen, events):
+    """Awaitable wrapper so a hung consumer loop fails a bounded
+    `asyncio.wait_for` instead of hanging pytest — the whole reason every
+    test below routes its `async for` through this instead of a bare loop."""
+    async for event in agen:
+        events.append(event)
+
+
+def _fake_streaming_generate(*, tokens=(), fail_after=None, error_factory=None,
+                              delay_after_stop=None, poll_interval=0.005,
+                              max_iterations=2000, events=None):
+    """A `checkpoint.model.generate` replacement driving the real streamer.
+
+    Puts `input_ids` first (the "prompt" put — always discarded by the real
+    streamer's `skip_prompt=True`, exactly like real `generate()`), then one
+    token from *tokens* per iteration. Raises at iteration *fail_after* when
+    given. After each iteration, evaluates the `stopping_criteria` kwarg
+    `stream_with_history` wires up — the exact seam the cancellation fix
+    added — and, once it reports stopped, optionally sleeps
+    *delay_after_stop* (simulating a worker slow to wind down) before
+    returning. *events* (a plain list — safe to append to cross-thread under
+    the GIL without a lock) records what happened, in order, for the
+    ordering assertions below.
+    """
+
+    def _log(name):
+        if events is not None:
+            events.append(name)
+
+    def _generate(*, input_ids, streamer, stopping_criteria=None, **_kwargs):
+        _log("worker_started")
+        streamer.put(input_ids)
+        last = input_ids
+        for i in range(max_iterations):
+            if fail_after is not None and i == fail_after:
+                _log("worker_raising")
+                raise (error_factory() if error_factory else RuntimeError("synthetic mid-generation failure"))
+            if i < len(tokens):
+                last = torch.tensor([[tokens[i]]])
+                streamer.put(last)
+                _log(f"token_put:{i}")
+            if stopping_criteria is not None and bool(stopping_criteria(last, None)[0]):
+                _log("worker_saw_stop")
+                if delay_after_stop:
+                    time.sleep(delay_after_stop)
+                _log("worker_returning_after_stop")
+                return last
+            if fail_after is None and i >= len(tokens) - 1:
+                break
+            time.sleep(poll_interval)
+        _log("worker_returning_normally")
+        return last
+
+    return _generate
+
+
+class TestStreamWithHistoryWorkerFailure:
+    """`stream_with_history` must wake the consumer promptly on a worker
+    failure — never hang on `next()` waiting for an end-of-stream marker
+    `generate()` never got the chance to enqueue — draining any tokens
+    already produced first and never emitting a `usage` event after a
+    failure."""
+
+    @pytest.mark.asyncio
+    async def test_failure_before_first_token_is_raised_not_hung(self, client, native_checkpoint, monkeypatch):
+        name, path = native_checkpoint
+        config = _config(name)
+        checkpoint = client._acquire(path, config)
+        monkeypatch.setattr(
+            checkpoint.model, "generate",
+            _fake_streaming_generate(tokens=(), fail_after=0),
+        )
+
+        events = []
+        with pytest.raises(RuntimeError, match="synthetic mid-generation failure"):
+            await asyncio.wait_for(_drain(client.stream_with_history(
+                [{"role": "user", "content": "hi"}], config, config.system_message,
+            ), events), timeout=10)
+
+        assert events == []
+
+    @pytest.mark.asyncio
+    async def test_partial_token_then_failure_yields_partial_then_raises(self, client, native_checkpoint, monkeypatch):
+        name, path = native_checkpoint
+        config = _config(name)
+        checkpoint = client._acquire(path, config)
+        monkeypatch.setattr(
+            checkpoint.model, "generate",
+            _fake_streaming_generate(tokens=(_NEWLINE_TOKEN_ID,), fail_after=1),
+        )
+
+        events = []
+        with pytest.raises(RuntimeError, match="synthetic mid-generation failure"):
+            await asyncio.wait_for(_drain(client.stream_with_history(
+                [{"role": "user", "content": "hi"}], config, config.system_message,
+            ), events), timeout=10)
+
+        token_events = [e for e in events if e["type"] == "token"]
+        assert len(token_events) == 1
+        assert token_events[0]["content"]
+        assert not any(e["type"] == "usage" for e in events)
+
+    @pytest.mark.asyncio
+    async def test_oom_during_streaming_is_reported_cleanly(self, client, native_checkpoint, monkeypatch):
+        name, path = native_checkpoint
+        config = _config(name)
+        checkpoint = client._acquire(path, config)
+
+        def _oom_error():
+            return RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB")
+
+        monkeypatch.setattr(
+            checkpoint.model, "generate",
+            _fake_streaming_generate(tokens=(), fail_after=0, error_factory=_oom_error),
+        )
+
+        events = []
+        with pytest.raises(ValueError, match="ran out of GPU memory"):
+            await asyncio.wait_for(_drain(client.stream_with_history(
+                [{"role": "user", "content": "hi"}], config, config.system_message,
+            ), events), timeout=10)
+        assert not any(e["type"] == "usage" for e in events)
+
+
+class TestStreamWithHistoryConsumerCancellation:
+    """A consumer that stops reading (`aclose()`) must both stop the
+    producer thread (through the `stopping_criteria` seam) and hold the
+    turn's lease until that thread has actually exited — never let
+    `_leased()`'s CPU-restore race a still-running `generate()` call."""
+
+    @pytest.mark.asyncio
+    async def test_aclose_stops_the_producer_before_releasing_the_lease(
+        self, client, models_manager, native_checkpoint, monkeypatch
+    ):
+        name, path = native_checkpoint
+        key = f"native/llm/{path}"
+        config = _config(name)
+        checkpoint = client._acquire(path, config)
+
+        events = []
+        monkeypatch.setattr(
+            checkpoint.model, "generate",
+            _fake_streaming_generate(
+                tokens=(_NEWLINE_TOKEN_ID,) * 200, poll_interval=0.01,
+                delay_after_stop=0.05, events=events,
+            ),
+        )
+
+        original_end_lease = ModelLifecycle.end_lease
+
+        def _recording_end_lease(self, *a, **k):
+            events.append("lease_released")
+            return original_end_lease(self, *a, **k)
+
+        monkeypatch.setattr(ModelLifecycle, "end_lease", _recording_end_lease)
+
+        agen = client.stream_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
+        try:
+            first = await asyncio.wait_for(agen.__anext__(), timeout=10)
+            assert first["type"] == "token"
+
+            await asyncio.wait_for(agen.aclose(), timeout=10)
+        finally:
+            await agen.aclose()  # no-op if already closed; never leaves the fake producer running
+
+        assert "worker_saw_stop" in events
+        assert "worker_returning_after_stop" in events
+        assert "lease_released" in events
+        stop_seen_at = events.index("worker_saw_stop")
+        worker_returned_at = events.index("worker_returning_after_stop")
+        lease_released_at = events.index("lease_released")
+        assert stop_seen_at < worker_returned_at < lease_released_at, events
+        assert not models_manager._entries[key].leased_by
+
+    @pytest.mark.asyncio
+    async def test_bounded_wait_gives_up_and_logs_when_worker_outlives_the_bound(
+        self, client, native_checkpoint, monkeypatch, caplog
+    ):
+        name, path = native_checkpoint
+        config = _config(name)
+        checkpoint = client._acquire(path, config)
+
+        monkeypatch.setattr(native_module, "_STOP_WAIT_TIMEOUT_SECONDS", 0.02)
+
+        events = []
+        monkeypatch.setattr(
+            checkpoint.model, "generate",
+            _fake_streaming_generate(
+                tokens=(_NEWLINE_TOKEN_ID,) * 200, poll_interval=0.01,
+                delay_after_stop=0.3, events=events,
+            ),
+        )
+
+        agen = client.stream_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
+        try:
+            with caplog.at_level("WARNING", logger="src.features.llm.clients.native"):
+                first = await asyncio.wait_for(agen.__anext__(), timeout=10)
+                assert first["type"] == "token"
+                # aclose() itself must return within its own bound, not the
+                # (much larger) delay the fake worker takes to actually exit —
+                # this is the whole point of the bounded wait.
+                await asyncio.wait_for(agen.aclose(), timeout=2)
+        finally:
+            # Let the still-running fake worker actually finish before the
+            # test ends, so it never leaks a live background thread touching
+            # this test's checkpoint into later teardown.
+            deadline = time.monotonic() + 5
+            while "worker_returning_after_stop" not in events and time.monotonic() < deadline:
+                await asyncio.sleep(0.02)
+            await agen.aclose()
+
+        assert any("did not exit" in r.message for r in caplog.records)
+        assert "worker_returning_after_stop" in events
 
 
 # --- tool calling: always prompt-injected ---------------------------------

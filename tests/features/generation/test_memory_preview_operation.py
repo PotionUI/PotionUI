@@ -281,6 +281,110 @@ async def test_backend_identity_unavailable_reports_unknown_end_to_end(monkeypat
     assert 'backend\'s GPU identity could not be established' in result['device']['provenance']
 
 
+def _pipes_with_active_device(device):
+    return [
+        {"name": "model_loader/krea2", "id": "loader", "enabled": True, "config": {"checkpoint": "model:ckpt1"}},
+        {"name": "generator/x", "id": "gen1", "enabled": True, "config": {"device": device}},
+    ]
+
+
+def _pipes_with_disabled_device_override(device):
+    return [
+        {"name": "model_loader/krea2", "id": "loader", "enabled": True, "config": {"checkpoint": "model:ckpt1"}},
+        {"name": "generator/x", "id": "gen1", "enabled": False, "config": {"device": device}},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_conflicting_gpu_override_reports_unknown_end_to_end():
+    """A GENUINELY matching backend/monitor (would otherwise be "local", real
+    numbers) must still report "unknown" once an active stage pins a
+    CONFLICTING device - the backend's own reading cannot be attributed to a
+    request that pins one of its stages elsewhere. Two distinct fake totals
+    (24GB backend monitor vs a 99GB cap) prove nothing is borrowed."""
+    backend = _local_backend(device='cuda:0', gpu_max_vram=99)
+    orchestrator = _orchestrator(
+        backend,
+        gpu_monitor=_gpu_monitor(free_mb=8192, total_mb=24576, device_identity=GPU_0),
+        pipes=_pipes_with_active_device('cuda:1'),
+    )
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({"ckpt1": 1 * 1024 ** 3})):
+        result = await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    assert result['device']['kind'] == 'unknown'
+    assert result['device']['free_gb'] is None and result['device']['total_gb'] is None
+    assert 'gen1' in result['device']['provenance']
+    assert result['budget']['configured_gb'] == 99.0  # the backend's own cap, unbounded - never dropped
+    assert 'not bounded by device evidence' in result['budget']['source']
+
+
+@pytest.mark.asyncio
+async def test_conflicting_gpu_override_on_a_cpu_backend_reports_unknown_end_to_end():
+    """A `device="cpu"` backend normally reports the more confident "none" -
+    an active stage pinning a GPU device must upgrade that to "unknown"."""
+    backend = _local_backend(device='cpu')
+    orchestrator = _orchestrator(backend, gpu_monitor=_gpu_monitor(), pipes=_pipes_with_active_device('cuda:0'))
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
+        result = await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    assert result['device']['kind'] == 'unknown'
+
+
+@pytest.mark.asyncio
+async def test_matching_gpu_override_stays_local_end_to_end():
+    backend = _local_backend(device='cuda:0')
+    orchestrator = _orchestrator(
+        backend, gpu_monitor=_gpu_monitor(device_identity=GPU_0), pipes=_pipes_with_active_device('cuda:0'),
+    )
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
+        result = await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    assert result['device']['kind'] == 'local'
+
+
+@pytest.mark.asyncio
+async def test_absent_override_stays_local_end_to_end():
+    backend = _local_backend(device='cuda:0')
+    orchestrator = _orchestrator(backend, gpu_monitor=_gpu_monitor(device_identity=GPU_0))  # default _KNOWN_PIPES, no device key
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({"ckpt1": 1 * 1024 ** 3})):
+        result = await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    assert result['device']['kind'] == 'local'
+
+
+@pytest.mark.asyncio
+async def test_disabled_stage_override_stays_local_end_to_end():
+    backend = _local_backend(device='cuda:0')
+    orchestrator = _orchestrator(
+        backend, gpu_monitor=_gpu_monitor(device_identity=GPU_0), pipes=_pipes_with_disabled_device_override('cuda:1'),
+    )
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
+        result = await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    assert result['device']['kind'] == 'local'
+
+
+@pytest.mark.asyncio
+async def test_templated_override_reports_unknown_end_to_end():
+    """A non-string `device` (an unrendered template, or anything else that
+    isn't a plain comparable literal) is treated conservatively as a
+    conflict, never assumed to match."""
+    backend = _local_backend(device='cuda:0')
+    orchestrator = _orchestrator(
+        backend, gpu_monitor=_gpu_monitor(device_identity=GPU_0), pipes=_pipes_with_active_device({"unexpected": "shape"}),
+    )
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
+        result = await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    assert result['device']['kind'] == 'unknown'
+
+
 @pytest.mark.asyncio
 async def test_budget_reflects_backend_cap_change():
     with patch('src.features.models.repository.model_repo', _model_repo_with({})):

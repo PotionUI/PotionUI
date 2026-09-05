@@ -16,7 +16,6 @@ from src.platform.runtime.gpu import DeviceIdentity
 from src.features.generation.memory_advisory import (
     active_model_ids,
     active_loader_settings,
-    active_pipe_device_overrides,
     active_pipe_vram_hints,
     estimate_request_memory,
     resolve_budget_evidence,
@@ -99,20 +98,90 @@ def test_active_pipe_vram_hints_empty_when_absent():
     assert active_pipe_vram_hints([{"name": "generator/x", "enabled": True, "config": {}}]) == []
 
 
-def test_active_pipe_device_overrides_flags_a_pinned_pipe_device():
-    pipes = [
-        {"name": "generator/x", "id": "gen1", "enabled": True, "config": {"device": "cpu"}},
-        {"name": "generator/y", "id": "gen2", "enabled": False, "config": {"device": "cpu"}},  # disabled, ignored
-        {"name": "generator/z", "id": "gen3", "enabled": True, "config": {}},  # no override, ignored
-    ]
-    notes = active_pipe_device_overrides(pipes, "cuda:0")
-    assert len(notes) == 1
-    assert "gen1" in notes[0] and "cpu" in notes[0] and "cuda:0" in notes[0]
+# -- active device-override conflict (resolve_device_evidence's `pipes` arg) ------
+#
+# An active stage's own pinned `device`, conflicting with the backend's
+# configured one, must make the device evidence for THIS request "unknown" -
+# checked FIRST, before the backend/monitor's own kind-based resolution runs
+# at all (see resolve_device_evidence's docstring). These tests exercise the
+# ordering directly against a bare backend double (no real NativeBackend
+# needed - the override check runs before `resolve_execution_device()` is
+# even consulted for a conflicting case).
+
+def _backend_with_device(device):
+    return types.SimpleNamespace(config=types.SimpleNamespace(device=device))
 
 
-def test_active_pipe_device_overrides_empty_without_a_backend_device():
-    pipes = [{"name": "generator/x", "id": "gen1", "enabled": True, "config": {"device": "cpu"}}]
-    assert active_pipe_device_overrides(pipes, None) == []
+def test_conflicting_active_override_forces_unknown_even_for_a_would_be_local_backend(monkeypatch):
+    """A backend that WOULD resolve to a confident "local" reading (matched
+    identity, real numbers) must still come back "unknown" once an active
+    stage pins a conflicting device - the monitor here is never even READ."""
+    monkeypatch.setattr(
+        "src.features.generation.memory_advisory._resolve_execution_device_evidence",
+        lambda backend: (_ for _ in ()).throw(AssertionError("must not be called - override short-circuits first")),
+    )
+    pipes = [{"name": "generator/x", "id": "gen1", "enabled": True, "config": {"device": "cuda:1"}}]
+    monitor = types.SimpleNamespace(
+        available=True,
+        get_free_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called")),
+        get_total_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called")),
+    )
+
+    device = resolve_device_evidence(_backend_with_device("cuda:0"), monitor, pipes)
+
+    assert device.kind == "unknown"
+    assert device.free_gb is None and device.total_gb is None
+    assert "gen1" in device.provenance
+    assert "cuda:1" in device.provenance and "cuda:0" in device.provenance
+
+
+def test_conflicting_active_override_on_a_no_gpu_backend_is_unknown_not_none():
+    """A CPU-configured backend normally reports a confident "none" - an
+    active stage pinning a GPU device must upgrade that to "unknown", never
+    leave it as the more confident "none"."""
+    pipes = [{"name": "generator/x", "id": "gen1", "enabled": True, "config": {"device": "cuda:0"}}]
+    device = resolve_device_evidence(_native_backend("cpu"), None, pipes)
+    assert device.kind == "unknown"
+
+
+def test_matching_active_override_leaves_the_ordinary_path_unchanged(monkeypatch):
+    _patch_cuda_identity(monkeypatch, {0: GPU_0})
+    pipes = [{"name": "generator/x", "id": "gen1", "enabled": True, "config": {"device": "cuda:0"}}]
+    device = resolve_device_evidence(_native_backend("cuda:0"), _monitor(device_identity=GPU_0), pipes)
+    assert device.kind == "local"
+
+
+def test_absent_override_leaves_the_ordinary_path_unchanged(monkeypatch):
+    _patch_cuda_identity(monkeypatch, {0: GPU_0})
+    pipes = [{"name": "generator/x", "id": "gen1", "enabled": True, "config": {}}]
+    device = resolve_device_evidence(_native_backend("cuda:0"), _monitor(device_identity=GPU_0), pipes)
+    assert device.kind == "local"
+
+
+def test_override_on_a_disabled_stage_is_never_consulted(monkeypatch):
+    _patch_cuda_identity(monkeypatch, {0: GPU_0})
+    pipes = [{"name": "generator/x", "id": "gen1", "enabled": False, "config": {"device": "cuda:1"}}]
+    device = resolve_device_evidence(_native_backend("cuda:0"), _monitor(device_identity=GPU_0), pipes)
+    assert device.kind == "local"
+
+
+def test_non_string_templated_override_is_conservatively_unknown():
+    """A non-string `device` (an unrendered template, or anything else this
+    module can't compare as a plain literal) is treated the same as a real
+    conflict - never assumed to match just because it isn't a differing
+    string."""
+    pipes = [{"name": "generator/x", "id": "gen1", "enabled": True, "config": {"device": {"unexpected": "shape"}}}]
+    device = resolve_device_evidence(_backend_with_device("cuda:0"), None, pipes)
+    assert device.kind == "unknown"
+    assert "gen1" in device.provenance
+
+
+def test_no_pipes_argument_is_backward_compatible():
+    """Every existing 2-arg call site (and every test above this section)
+    must keep working unchanged - `pipes` defaults to `None`, meaning "no
+    override information available", not "no active pipes"."""
+    device = resolve_device_evidence(_remote_backend(), None)
+    assert device.kind == "remote"
 
 
 # -- estimate_request_memory: coverage/known/unknown ----------------------------
@@ -275,6 +344,24 @@ def test_device_evidence_unknown_when_backend_identity_unavailable(monkeypatch):
 
     assert device.kind == "unknown"
     assert "backend's GPU identity could not be established" in device.provenance
+
+
+def test_device_evidence_bare_cuda_surfaces_the_backends_specific_reason():
+    """A bare `"cuda"` device (no explicit `:N` ordinal) resolves
+    `identity=None` with a SPECIFIC `reason` from the backend itself
+    (REQ-01) - the advisory must surface that verbatim rather than its own
+    generic "could not be established" wording, and never read any monitor
+    numbers (there is no ordinal to attribute them to)."""
+    monitor = types.SimpleNamespace(
+        available=True, device_identity=GPU_0,
+        get_free_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - no explicit ordinal")),
+        get_total_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - no explicit ordinal")),
+    )
+    device = resolve_device_evidence(_native_backend("cuda"), monitor)
+
+    assert device.kind == "unknown"
+    assert device.free_gb is None and device.total_gb is None
+    assert device.provenance == "configured device 'cuda' has no explicit ordinal; the worker's device cannot be established"
 
 
 def test_device_evidence_unknown_when_monitor_identity_unavailable(monkeypatch):

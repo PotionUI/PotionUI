@@ -373,7 +373,48 @@ class BudgetEvidence:
         }
 
 
-def resolve_device_evidence(backend: Any, gpu_monitor: Optional[Any]) -> DeviceEvidence:
+@dataclass
+class _DeviceOverrideConflict:
+    pipe: str
+    device: Any
+
+
+def _active_device_override_conflict(
+    pipes: List[Dict[str, Any]], backend_device: Optional[str],
+) -> Optional["_DeviceOverrideConflict"]:
+    """The first ACTIVE (enabled) pipe whose own config carries a `device`
+    that does not plainly match the backend's own configured device -
+    `None` when the backend's device isn't known, when no active pipe
+    declares its own `device` at all, or when every declared one is a plain
+    string equal to the backend's.
+
+    Conservative on purpose: a non-string value (a templated/unrendered
+    override, or anything else that isn't a comparable literal) counts as a
+    conflict too, even though it isn't literally "different" from the
+    backend's string - REQ-01's own rule is to never claim a scoped reading
+    unless it is genuinely established, and an override this module cannot
+    even compare is exactly the case it can't establish.
+
+    A DISABLED pipe's own `device` is never consulted - only an unused
+    selection, not something any real generation would actually run on.
+    """
+    if backend_device is None:
+        return None
+    for pipe in pipes:
+        if not pipe.get("enabled"):
+            continue
+        device = (pipe.get("config") or {}).get("device")
+        if device is None:
+            continue
+        if isinstance(device, str) and device == backend_device:
+            continue
+        return _DeviceOverrideConflict(pipe=pipe.get("id") or pipe.get("name") or "", device=device)
+    return None
+
+
+def resolve_device_evidence(
+    backend: Any, gpu_monitor: Optional[Any], pipes: Optional[List[Dict[str, Any]]] = None,
+) -> DeviceEvidence:
     """Physical GPU evidence for the backend a preview would route to -
     never this host's reading for a backend that isn't this host, and never
     a configured cap (see `resolve_budget_evidence` for that).
@@ -383,6 +424,18 @@ def resolve_device_evidence(backend: Any, gpu_monitor: Optional[Any]) -> DeviceE
     nothing about whether that server is this host or a remote one (it's
     admin-configured), so a substring check on it would wrongly treat an
     in-process plugin backend with a remote host as local.
+
+    When `pipes` is given (the preview's RESOLVED active pipeline) and an
+    ACTIVE stage's own config pins a `device` conflicting with (or not
+    plainly comparable to) the backend's configured one, the device evidence
+    for THIS SPECIFIC REQUEST is `kind: "unknown"` - checked FIRST, before
+    any of the cases below, and regardless of what the backend/monitor would
+    otherwise report. The backend's own GPU reading cannot honestly be
+    claimed to apply to a stage a preset has pinned somewhere else - "local"
+    (or even a confident "none" for a `no_gpu` backend) would overstate what
+    is actually known, so this always resolves to "unknown" instead. A
+    matching literal override, an absent one, or one on a DISABLED stage
+    changes nothing (see `_active_device_override_conflict`).
 
     - `kind="remote"`: `kind: "remote"`, no numbers - that hardware isn't
       this process's to read.
@@ -403,6 +456,19 @@ def resolve_device_evidence(backend: Any, gpu_monitor: Optional[Any]) -> DeviceE
       e.g. a plugin backend that predates this seam): `kind: "unknown"` -
       genuinely undetermined, not "no GPU".
     """
+    if pipes is not None:
+        backend_device = getattr(getattr(backend, "config", None), "device", None)
+        conflict = _active_device_override_conflict(pipes, backend_device)
+        if conflict is not None:
+            return DeviceEvidence(
+                kind="unknown", free_gb=None, total_gb=None,
+                provenance=(
+                    f"active stage '{conflict.pipe}' is configured for device {conflict.device!r} "
+                    f"while the backend runs on {backend_device!r}; this host's reading is not "
+                    "attributed to this request"
+                ),
+            )
+
     evidence = _resolve_execution_device_evidence(backend)
 
     if evidence.kind == "remote":
@@ -427,7 +493,11 @@ def resolve_device_evidence(backend: Any, gpu_monitor: Optional[Any]) -> DeviceE
         if evidence.identity is None:
             return DeviceEvidence(
                 kind="unknown", free_gb=None, total_gb=None,
-                provenance=(
+                # A specific cause (e.g. a bare "cuda" device with no explicit
+                # ordinal) wins over the generic wording when the backend
+                # supplies one - same discipline as
+                # `context_builder.build_requirement_context_for_backend`.
+                provenance=evidence.reason or (
                     "this backend's GPU identity could not be established "
                     "(torch/CUDA unavailable, or the configured device index is out of range)"
                 ),
@@ -464,40 +534,6 @@ def resolve_device_evidence(backend: Any, gpu_monitor: Optional[Any]) -> DeviceE
         kind="unknown", free_gb=None, total_gb=None,
         provenance="execution device not declared by this backend",
     )
-
-
-def active_pipe_device_overrides(pipes: List[Dict[str, Any]], backend_device: Optional[str]) -> List[str]:
-    """Every ENABLED pipe whose own config carries a literal `device` that
-    differs from the routed backend's configured one - one plain-language
-    note per pipe, meant to be folded into `Coverage.uncertainty`.
-
-    A preset's own `pipeline.yml` authoring can win over the backend's
-    configured device: `NativeBackend.prepare_pipes` only `setdefault`s its
-    configured device onto a pipe's config, so an explicit `configuration:
-    {device: ...}` on any pipe wins (see
-    `src.features.presets.requirements.context_builder._preset_device_override`,
-    the requirements-time analogue for a preset's declared modes as a
-    whole). This is deliberately a narrower, preview-only echo of that: the
-    preview already has the RESOLVED, active pipeline, so a plain per-pipe
-    scan over it is enough - it does not walk every mode of the preset the
-    way the requirements-time checker does, and it never changes
-    `DeviceEvidence.kind` - it only flags that the device evidence above may
-    not apply to one particular stage.
-    """
-    if backend_device is None:
-        return []
-    notes: List[str] = []
-    for pipe in pipes:
-        if not pipe.get("enabled"):
-            continue
-        device = (pipe.get("config") or {}).get("device")
-        if device is not None and device != backend_device:
-            pipe_key = pipe.get("id") or pipe.get("name") or ""
-            notes.append(
-                f"pipe '{pipe_key}' is configured for device '{device}', overriding the "
-                f"backend's '{backend_device}' - the device evidence above may not apply to that stage"
-            )
-    return notes
 
 
 def resolve_budget_evidence(

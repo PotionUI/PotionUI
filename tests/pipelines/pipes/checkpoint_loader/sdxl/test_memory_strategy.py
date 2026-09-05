@@ -5,6 +5,14 @@ Tests all memory optimization decision methods and pipeline application logic
 for different VRAM configurations.
 """
 
+# This venv's accelerate/diffusers import chain (accelerate.utils.other) reads
+# `numpy._core.multiarray` as an attribute access; that submodule is only
+# populated on `numpy` once something has explicitly imported it, so the very
+# first import of `diffusers.loaders` (pulled in transitively by
+# checkpoint_loader.sdxl's package __init__) raises AttributeError unless this
+# runs first.
+import numpy._core.multiarray  # noqa: F401
+
 import pytest
 import torch
 from unittest.mock import Mock, MagicMock, patch, call
@@ -394,22 +402,26 @@ class TestPipelineApplication:
         mock_pipe.enable_vae_tiling.assert_not_called()
 
     @patch('torch.cuda.is_available', return_value=True)
-    def test_apply_max_attention_slicing(self, mock_cuda, mock_pipe):
-        """Test max attention slicing is applied for low VRAM."""
+    def test_apply_max_attention_slicing_despite_sdpa(self, mock_cuda, mock_pipe):
+        """Test max attention slicing is still applied for very low VRAM (<8GB)
+        even though SDPA (AttnProcessor2_0) is active — this is the one tier
+        the policy deliberately trades speed for the extra memory headroom."""
         strategy = MemoryPolicy(vram_gb=6.0)
         apply_to_pipeline(mock_pipe, strategy)
 
-        # Verify max attention slicing was enabled
         mock_pipe.enable_attention_slicing.assert_called_once_with(slice_size="max")
 
     @patch('torch.cuda.is_available', return_value=True)
-    def test_apply_auto_attention_slicing(self, mock_cuda, mock_pipe):
-        """Test auto attention slicing is applied for medium VRAM."""
+    def test_skip_auto_attention_slicing_when_sdpa_active(self, mock_cuda, mock_pipe):
+        """Regression: enable_attention_slicing() replaces the processor set
+        by set_attn_processor() rather than stacking with it (diffusers'
+        Attention.set_attention_slice() unconditionally calls set_processor).
+        For the mid VRAM tier ("auto"), SDPA is already memory-efficient, so
+        slicing must not silently discard it."""
         strategy = MemoryPolicy(vram_gb=10.0)
         apply_to_pipeline(mock_pipe, strategy)
 
-        # Verify auto attention slicing was enabled
-        mock_pipe.enable_attention_slicing.assert_called_once_with(slice_size="auto")
+        mock_pipe.enable_attention_slicing.assert_not_called()
 
     @patch('torch.cuda.is_available', return_value=True)
     def test_skip_attention_slicing_for_high_vram(self, mock_cuda, mock_pipe):
@@ -419,6 +431,27 @@ class TestPipelineApplication:
 
         # Verify attention slicing was NOT enabled
         mock_pipe.enable_attention_slicing.assert_not_called()
+
+    @patch('torch.cuda.is_available', return_value=True)
+    def test_skip_attention_slicing_when_xformers_active_even_at_max_tier(self, mock_cuda, mock_pipe):
+        """xformers takes precedence over slicing at every tier, including the
+        "max" tier that would otherwise force slicing on top of SDPA."""
+        strategy = MemoryPolicy(vram_gb=6.0)
+        apply_to_pipeline(mock_pipe, strategy, use_xformers=True)
+
+        mock_pipe.enable_xformers_memory_efficient_attention.assert_called_once()
+        mock_pipe.enable_attention_slicing.assert_not_called()
+
+    @patch('torch.cuda.is_available', return_value=True)
+    def test_auto_attention_slicing_applied_when_sdpa_setup_fails(self, mock_cuda, mock_pipe):
+        """When AttnProcessor2_0 could not be installed (unsupported kernel),
+        slicing is the only memory lever left and must still fire for the
+        "auto" tier."""
+        mock_pipe.unet.set_attn_processor.side_effect = RuntimeError("no SDPA kernel")
+        strategy = MemoryPolicy(vram_gb=10.0)
+        apply_to_pipeline(mock_pipe, strategy)
+
+        mock_pipe.enable_attention_slicing.assert_called_once_with(slice_size="auto")
 
     @patch('torch.cuda.is_available', return_value=True)
     def test_handle_missing_pipeline_methods(self, mock_cuda):
@@ -545,3 +578,100 @@ class TestComprehensiveVRAMProfiles:
         assert strategy.should_enable_vae_slicing() is False
         assert strategy.should_enable_vae_tiling() is False
         assert strategy.get_attention_slicing() == "none"
+
+
+def _make_tiny_unet():
+    """A real, CPU-sized UNet2DConditionModel — enough attention layers to
+    exercise set_attn_processor()/set_attention_slice() for real, cheap enough
+    to build per-test."""
+    from diffusers.models.unets.unet_2d_condition import UNet2DConditionModel
+
+    return UNet2DConditionModel(
+        block_out_channels=(4, 8),
+        layers_per_block=1,
+        sample_size=16,
+        in_channels=4,
+        out_channels=4,
+        down_block_types=("CrossAttnDownBlock2D", "DownBlock2D"),
+        up_block_types=("UpBlock2D", "CrossAttnUpBlock2D"),
+        cross_attention_dim=8,
+        attention_head_dim=2,
+        norm_num_groups=2,
+    )
+
+
+class _FakePipe:
+    """Minimal pipe stand-in exposing only what apply_to_pipeline touches,
+    backed by a real UNet so the attention processor assertions are against
+    actual diffusers classes rather than a Mock."""
+
+    def __init__(self, unet, xformers_available=False):
+        self.unet = unet
+        self._xformers_available = xformers_available
+
+    def enable_sequential_cpu_offload(self):
+        pass
+
+    def enable_model_cpu_offload(self):
+        pass
+
+    def enable_vae_slicing(self):
+        pass
+
+    def enable_vae_tiling(self):
+        pass
+
+    def enable_attention_slicing(self, slice_size):
+        self.unet.set_attention_slice(slice_size)
+
+    def enable_xformers_memory_efficient_attention(self):
+        if not self._xformers_available:
+            raise ImportError("xformers not installed")
+        from diffusers.models.attention_processor import XFormersAttnProcessor
+        self.unet.set_attn_processor(XFormersAttnProcessor())
+
+
+def _processor_classes(unet):
+    return {type(p).__name__ for p in unet.attn_processors.values()}
+
+
+class TestRealAttentionProcessorSelection:
+    """ACCEPTANCE: assert the ACTUAL final attention processor installed on a
+    real diffusers UNet, not just which setup methods were called on a mock."""
+
+    @patch('torch.cuda.is_available', return_value=True)
+    def test_sdpa_kept_for_mid_and_high_vram(self, mock_cuda):
+        for vram_gb in (10.0, 16.0, 24.0):
+            pipe = _FakePipe(_make_tiny_unet())
+            apply_to_pipeline(pipe, MemoryPolicy(vram_gb=vram_gb))
+            assert _processor_classes(pipe.unet) == {"AttnProcessor2_0"}, vram_gb
+
+    @patch('torch.cuda.is_available', return_value=True)
+    def test_slicing_overrides_sdpa_at_max_tier(self, mock_cuda):
+        pipe = _FakePipe(_make_tiny_unet())
+        apply_to_pipeline(pipe, MemoryPolicy(vram_gb=6.0))
+        assert _processor_classes(pipe.unet) == {"SlicedAttnProcessor"}
+
+    @patch('torch.cuda.is_available', return_value=True)
+    def test_xformers_kept_over_slicing_at_max_tier(self, mock_cuda):
+        pipe = _FakePipe(_make_tiny_unet(), xformers_available=True)
+        apply_to_pipeline(pipe, MemoryPolicy(vram_gb=6.0), use_xformers=True)
+        assert _processor_classes(pipe.unet) == {"XFormersAttnProcessor"}
+
+    @patch('torch.cuda.is_available', return_value=True)
+    def test_xformers_kept_over_no_slicing_at_auto_tier(self, mock_cuda):
+        pipe = _FakePipe(_make_tiny_unet(), xformers_available=True)
+        apply_to_pipeline(pipe, MemoryPolicy(vram_gb=10.0), use_xformers=True)
+        assert _processor_classes(pipe.unet) == {"XFormersAttnProcessor"}
+
+    @patch('torch.cuda.is_available', return_value=True)
+    def test_xformers_requested_but_unavailable_falls_back_to_sdpa_at_auto_tier(self, mock_cuda):
+        pipe = _FakePipe(_make_tiny_unet(), xformers_available=False)
+        apply_to_pipeline(pipe, MemoryPolicy(vram_gb=10.0), use_xformers=True)
+        assert _processor_classes(pipe.unet) == {"AttnProcessor2_0"}
+
+    @patch('torch.cuda.is_available', return_value=True)
+    def test_xformers_requested_but_unavailable_falls_back_to_slicing_at_max_tier(self, mock_cuda):
+        pipe = _FakePipe(_make_tiny_unet(), xformers_available=False)
+        apply_to_pipeline(pipe, MemoryPolicy(vram_gb=6.0), use_xformers=True)
+        assert _processor_classes(pipe.unet) == {"SlicedAttnProcessor"}

@@ -4,6 +4,24 @@ SDXL-specific application of the core MemoryPolicy.
 The VRAM tier table itself lives in src.platform.runtime.model_lifecycle.memory_policy
 (MemoryPolicy) — this module only applies those decisions to a diffusers
 SDXL pipeline (offload, TF32, attention backend, VAE slicing/tiling).
+
+Attention backend decision table
+---------------------------------
+`Attention.set_attention_slice()` (what `pipe.enable_attention_slicing()` calls)
+unconditionally replaces whatever processor is installed — including
+AttnProcessor2_0 (SDPA) and an xformers processor — with `SlicedAttnProcessor`;
+it does not stack with them. diffusers' own docstring warns that slicing on
+top of SDPA/xformers "can lead to serious slow downs". So slicing is applied
+only where it is a deliberate trade, never as an extra safety net stacked on
+an already-efficient backend:
+
+| xformers            | SDPA setup | policy attention-slicing tier | final processor                      |
+|----------------------|-----------|--------------------------------|----------------------------------------|
+| requested & succeeds  | any       | any                             | xformers (kept; slicing skipped)       |
+| not requested/failed  | succeeds  | "none" / "auto" (>=8GB VRAM)   | AttnProcessor2_0 (kept; slicing skipped)|
+| not requested/failed  | succeeds  | "max" (<8GB VRAM)               | SlicedAttnProcessor — deliberate low-VRAM trade despite SDPA working |
+| not requested/failed  | fails     | "auto" or "max"                | SlicedAttnProcessor — fallback for an unsupported/broken SDPA kernel |
+| not requested/failed  | fails     | "none"                          | diffusers' own default processor |
 """
 
 import torch
@@ -48,18 +66,22 @@ def apply_to_pipeline(pipe, policy: MemoryPolicy, offload_override: str = None,
         torch.backends.cudnn.allow_tf32 = True
         logger.debug("[MEMORY STRATEGY] Enabled TF32 for matmul and cuDNN")
 
+    sdpa_active = False
     try:
         if hasattr(pipe, "unet") and hasattr(pipe.unet, "set_attn_processor"):
             from diffusers.models.attention_processor import AttnProcessor2_0
             pipe.unet.set_attn_processor(AttnProcessor2_0())
+            sdpa_active = True
             logger.debug("[MEMORY STRATEGY] Using PyTorch 2.0 native attention (AttnProcessor2_0)")
     except Exception as e:
         logger.warning(f"[MEMORY STRATEGY] Could not enable PyTorch 2.0 attention: {e}")
 
+    xformers_active = False
     if use_xformers and policy.should_enable_xformers():
         if hasattr(pipe, "enable_xformers_memory_efficient_attention"):
             try:
                 pipe.enable_xformers_memory_efficient_attention()
+                xformers_active = True
                 logger.debug("[MEMORY STRATEGY] Enabled xformers memory efficient attention")
             except ImportError:
                 logger.debug("[MEMORY STRATEGY] xformers not available, using PyTorch attention")
@@ -86,21 +108,23 @@ def apply_to_pipeline(pipe, policy: MemoryPolicy, offload_override: str = None,
                 logger.warning(f"[MEMORY STRATEGY] Could not enable VAE tiling: {e}")
 
     attention_slicing = policy.get_attention_slicing()
-    if attention_slicing == "max":
-        if hasattr(pipe, "enable_attention_slicing"):
-            try:
-                pipe.enable_attention_slicing(slice_size="max")
-                logger.debug("[MEMORY STRATEGY] Enabled max attention slicing (minimal memory)")
-            except Exception as e:
-                logger.warning(f"[MEMORY STRATEGY] Could not enable max attention slicing: {e}")
-    elif attention_slicing == "auto":
-        if hasattr(pipe, "enable_attention_slicing"):
-            try:
-                pipe.enable_attention_slicing(slice_size="auto")
-                logger.debug("[MEMORY STRATEGY] Enabled auto attention slicing (balanced)")
-            except Exception as e:
-                logger.warning(f"[MEMORY STRATEGY] Could not enable auto attention slicing: {e}")
-    else:
+    if attention_slicing == "none":
         logger.debug("[MEMORY STRATEGY] Attention slicing disabled (best performance)")
+    elif xformers_active:
+        logger.debug(
+            "[MEMORY STRATEGY] Skipping attention slicing - xformers is already the most "
+            "memory-efficient backend and slicing would silently replace it"
+        )
+    elif sdpa_active and attention_slicing == "auto":
+        logger.debug(
+            "[MEMORY STRATEGY] Skipping attention slicing - PyTorch SDPA is already "
+            "memory-efficient at this VRAM tier and slicing would silently replace it"
+        )
+    elif hasattr(pipe, "enable_attention_slicing"):
+        try:
+            pipe.enable_attention_slicing(slice_size=attention_slicing)
+            logger.debug(f"[MEMORY STRATEGY] Enabled {attention_slicing} attention slicing")
+        except Exception as e:
+            logger.warning(f"[MEMORY STRATEGY] Could not enable {attention_slicing} attention slicing: {e}")
 
     logger.debug("[MEMORY STRATEGY] Memory optimizations applied successfully")

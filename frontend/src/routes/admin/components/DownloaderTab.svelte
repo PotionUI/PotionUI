@@ -98,29 +98,45 @@
 		selectedId = $downloads[0].id;
 	}
 
+	// Owns this mount's async onMount chain: connectAsync() and every serial
+	// load below can still be pending when the component is torn down, and
+	// the store's own session guard can't see that - a stale continuation
+	// that calls initializeWebSocket()/loadDownloads() after destroy becomes
+	// the store's new "current" session since nothing else has claimed it,
+	// leaking WS handlers and publishing into a component nobody sees. Checked
+	// after every await, including the rejected-connect catch path.
+	let destroyed = false;
+
 	onMount(async () => {
 		try {
 			await downloaderWebSocket.connectAsync();
+			if (destroyed) return;
 			downloadStore.initializeWebSocket();
 		} catch (err) {
-			logger.error('Failed to connect downloader WebSocket:', err);
+			if (!destroyed) logger.error('Failed to connect downloader WebSocket:', err);
 		}
 
+		if (destroyed) return;
 		await downloadStore.loadDownloads();
+		if (destroyed) return;
 		await downloadStore.loadSettings();
+		if (destroyed) return;
 		await downloadStore.loadRemoteBackends();
+		if (destroyed) return;
 
 		try {
 			const res = await api.getProviders();
+			if (destroyed) return;
 			if (res.success && res.data) {
 				providers = (res.data as { id: string; name: string }[]).map((p) => ({ id: p.id, name: p.name }));
 			}
 		} catch (err) {
-			logger.error('Failed to load providers:', err);
+			if (!destroyed) logger.error('Failed to load providers:', err);
 		}
 	});
 
 	onDestroy(() => {
+		destroyed = true;
 		downloadStore.cleanupWebSocket();
 		downloaderWebSocket.disconnect();
 	});

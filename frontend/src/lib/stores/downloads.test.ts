@@ -64,7 +64,7 @@ vi.mock('$lib/services/downloaderWebsocket', () => ({
 	}
 }));
 
-import { downloadStore, downloads, downloadCounts, type Download } from './downloads';
+import { downloadStore, downloads, downloadCounts, loading, type Download } from './downloads';
 
 /** A resolvable/rejectable promise for driving out-of-order async responses. */
 function deferred<T>() {
@@ -403,5 +403,136 @@ describe('stores/downloads WebSocket lifecycle and reconciliation', () => {
 		await loadPromise;
 
 		expect(get(downloads).map((d) => d.id)).toContain('d2');
+	});
+
+	it('two list requests issued with no intervening mutation: the later-issued response always wins, arrival order aside', async () => {
+		downloadStore.initializeWebSocket();
+
+		const first = deferred<{ data: unknown }>();
+		const second = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => first.promise);
+		const firstLoad = downloadStore.loadDownloads();
+		mockGet.mockImplementationOnce(() => second.promise);
+		const secondLoad = downloadStore.loadDownloads();
+
+		// The later-issued request's (fresher) response arrives first.
+		second.resolve({
+			data: {
+				success: true,
+				data: { downloads: [download({ status: 'completed' })], counts: { completed: 1 } }
+			}
+		});
+		await secondLoad;
+		expect(get(downloads)[0].status).toBe('completed');
+
+		// The earlier-issued (stale) response arrives after - must not
+		// overwrite the fresher state even though it arrives second.
+		first.resolve({
+			data: {
+				success: true,
+				data: { downloads: [download({ status: 'downloading' })], counts: { downloading: 1 } }
+			}
+		});
+		await firstLoad;
+
+		expect(get(downloads)[0].status).toBe('completed');
+		expect(get(downloadCounts)).toEqual({ completed: 1 });
+	});
+
+	it('loading is owned by the most recently issued list request: an earlier one settling first must not clear it early', async () => {
+		downloadStore.initializeWebSocket();
+
+		const first = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => first.promise);
+		const firstLoad = downloadStore.loadDownloads();
+		expect(get(loading)).toBe(true);
+
+		const second = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => second.promise);
+		const secondLoad = downloadStore.loadDownloads();
+
+		// The stale first request resolves while the second (which now owns
+		// loading) is still pending.
+		first.resolve({ data: { success: true, data: { downloads: [], counts: {} } } });
+		await firstLoad;
+		expect(get(loading)).toBe(true);
+
+		second.resolve({ data: { success: true, data: { downloads: [], counts: {} } } });
+		await secondLoad;
+		expect(get(loading)).toBe(false);
+	});
+
+	it('accumulates per-id patches: a status update then a progress tick, both before the row ever arrives, both survive the merge', async () => {
+		downloadStore.initializeWebSocket();
+
+		const listResponse = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => listResponse.promise);
+		const loadPromise = downloadStore.loadDownloads();
+
+		for (const cb of wsMocks.statusCallbacks) {
+			cb({ download_id: 'd1', status: 'completed', filename: 'x.safetensors' });
+		}
+		for (const cb of wsMocks.progressCallbacks) {
+			cb({
+				download_id: 'd1',
+				progress: 1,
+				downloaded_bytes: 100,
+				total_bytes: 100,
+				speed_bytes_per_sec: 0,
+				filename: 'x.safetensors'
+			});
+		}
+
+		listResponse.resolve({
+			data: {
+				success: true,
+				data: {
+					downloads: [download({ status: 'downloading', progress: 0 })],
+					counts: { downloading: 1 }
+				}
+			}
+		});
+		await loadPromise;
+
+		const row = get(downloads)[0];
+		expect(row.status).toBe('completed'); // the earlier patch's field must survive the later one
+		expect(row.progress).toBe(1);
+	});
+
+	it('a counts-affecting event during an in-flight counts fetch discards its stale result and schedules exactly one fresh refresh', async () => {
+		downloadStore.initializeWebSocket();
+
+		const stale = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => stale.promise);
+		const staleCounts = downloadStore.loadCounts();
+
+		// A counts-affecting mutation lands while the fetch above is in flight.
+		for (const cb of wsMocks.statusCallbacks) {
+			cb({ download_id: 'd1', status: 'completed', filename: 'x.safetensors' });
+		}
+
+		// The status handler's own loadCounts() call coalesces onto the same
+		// in-flight attempt - no second request is issued yet, only the dirty
+		// flag records that a fresher answer will be needed.
+		expect(mockGet).toHaveBeenCalledTimes(1);
+
+		const followUp = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => followUp.promise);
+
+		// The stale attempt resolves with pre-event data - must be discarded,
+		// not even transiently, while the follow-up it schedules is still
+		// pending.
+		stale.resolve({ data: { success: true, data: { counts: { downloading: 1 } } } });
+		await staleCounts;
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(mockGet).toHaveBeenCalledTimes(2); // the stale attempt plus exactly one follow-up
+		expect(get(downloadCounts)).toEqual({}); // the stale downloading:1 was never published
+
+		followUp.resolve({ data: { success: true, data: { counts: { completed: 1 } } } });
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(get(downloadCounts)).toEqual({ completed: 1 });
 	});
 });

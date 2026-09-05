@@ -204,31 +204,47 @@ function createDownloadStore() {
 	// Monotonic clock recording every local mutation to a download (WS event
 	// or a queue/pause/resume/cancel/retry/delete command), keyed by id, so a
 	// delayed list snapshot can tell whether its own view of an id is stale.
+	// `patch` accumulates: a later touch merges its fields onto the previous
+	// patch instead of replacing it, so e.g. a status update followed by a
+	// progress tick doesn't lose the status field when both predate the id's
+	// first list row.
 	let seqCounter = 0;
 	interface Touch {
 		seq: number;
 		deleted: boolean;
-		/** Fields to reapply on top of whatever row a merge finds - carries a
-		 * WS-delivered field update through even when it arrives before the id
-		 * has ever appeared in a list response. */
-		patch?: Partial<Download>;
+		patch: Partial<Download>;
 	}
 	const perIdSeq = new Map<string, Touch>();
-	let lastListSeqApplied = -1;
+
+	function touchId(
+		id: string,
+		opts: { deleted?: boolean; patch?: Partial<Download>; countsAffected?: boolean } = {}
+	): void {
+		const prev = perIdSeq.get(id);
+		const patch = { ...(prev?.patch ?? {}), ...(opts.patch ?? {}) };
+		const deleted = opts.deleted ?? prev?.deleted ?? false;
+		perIdSeq.set(id, { seq: ++seqCounter, deleted, patch });
+		// A counts-affecting mutation arriving while a counts fetch is already
+		// in flight means that fetch's eventual result predates this change -
+		// too stale to trust even once it resolves.
+		if (opts.countsAffected && countsInFlight) countsDirty = true;
+	}
+
+	// List-request ordering: a monotonic id per loadDownloads() call. Two
+	// requests can share the same mutation-clock reading (nothing touched a
+	// download between issuing them) yet still race - whichever was issued
+	// LAST must win regardless of which one's response arrives first.
+	let listRequestSeq = 0;
+	let lastAppliedListSeq = -1;
+
+	// Counts ordering: shared between loadDownloads()'s bundled counts and
+	// loadCounts()'s dedicated fetch, so whichever was issued most recently
+	// wins no matter which of the two it was or which arrives first.
+	let countsSeq = 0;
 	let lastAppliedCountsSeq = -1;
 	let countsInFlight: Promise<void> | null = null;
-
-	function touchId(id: string, opts: { deleted?: boolean; patch?: Partial<Download> } = {}): void {
-		perIdSeq.set(id, { seq: ++seqCounter, deleted: !!opts.deleted, patch: opts.patch });
-	}
-
-	function computeCountsFrom(list: Download[]): DownloadCounts {
-		const counts: DownloadCounts = {};
-		for (const d of list) {
-			counts[d.status] = (counts[d.status] ?? 0) + 1;
-		}
-		return counts;
-	}
+	let countsInFlightId = 0;
+	let countsDirty = false;
 
 	// Reconciles a list response issued at `seqAtIssue` against everything
 	// that has happened locally since: an id touched after issue keeps its
@@ -247,7 +263,7 @@ function createDownloadStore() {
 			if (touch && touch.seq > seqAtIssue) {
 				if (touch.deleted) continue;
 				const base = currentById.get(row.id) ?? row;
-				merged.push(touch.patch ? { ...base, ...touch.patch } : base);
+				merged.push({ ...base, ...touch.patch });
 			} else {
 				merged.push(row);
 			}
@@ -257,7 +273,7 @@ function createDownloadStore() {
 			if (seen.has(row.id)) continue;
 			const touch = perIdSeq.get(row.id);
 			if (touch && touch.seq > seqAtIssue && !touch.deleted) {
-				merged.unshift(touch.patch ? { ...row, ...touch.patch } : row);
+				merged.unshift({ ...row, ...touch.patch });
 			}
 		}
 
@@ -316,7 +332,7 @@ function createDownloadStore() {
 						status: update.status as DownloadStatus,
 						error_message: update.error || null
 					};
-					touchId(update.download_id, { patch });
+					touchId(update.download_id, { patch, countsAffected: true });
 					downloads.update((currentDownloads) =>
 						currentDownloads.map((d) => (d.id === update.download_id ? { ...d, ...patch } : d))
 					);
@@ -360,9 +376,13 @@ function createDownloadStore() {
 			// starts its own fetch instead of silently coalescing onto - and
 			// getting no publication from - a retired session's abandoned one.
 			countsInFlight = null;
+			countsDirty = false;
 		},
 
-		// Load downloads from API
+		// Load downloads from API. The response's `downloads` array is one
+		// page (default limit 50) but its `counts` field is the server's
+		// global tally - never recomputed from the page, only ever taken from
+		// a server response (this one, or loadCounts()'s dedicated fetch).
 		async loadDownloads(
 			status?: DownloadStatus,
 			type?: DownloadType,
@@ -370,6 +390,8 @@ function createDownloadStore() {
 			offset = 0
 		): Promise<void> {
 			const token = sessionToken;
+			const requestSeq = ++listRequestSeq;
+			const countsRequestSeq = ++countsSeq;
 			const seqAtIssue = seqCounter;
 			loading.set(true);
 			error.set(null);
@@ -389,56 +411,85 @@ function createDownloadStore() {
 				if (token !== sessionToken) return; // retired: view was torn down or replaced meanwhile
 
 				if (data.success && data.data) {
-					if (seqAtIssue >= lastListSeqApplied) {
+					// Each check is its own request-issuance clock: a request
+					// issued earlier never overwrites one issued later, no
+					// matter which settles first.
+					if (requestSeq > lastAppliedListSeq) {
 						const incoming: Download[] = data.data.downloads || [];
-						const merged = mergeListSnapshot(incoming, seqAtIssue);
-						const changedSince = Array.from(perIdSeq.values()).some((t) => t.seq > seqAtIssue);
-						downloads.set(merged);
-						downloadCounts.set(changedSince ? computeCountsFrom(merged) : data.data.counts || {});
-						lastListSeqApplied = seqAtIssue;
+						downloads.set(mergeListSnapshot(incoming, seqAtIssue));
+						lastAppliedListSeq = requestSeq;
+					}
+					if (countsRequestSeq > lastAppliedCountsSeq) {
+						downloadCounts.set(data.data.counts || {});
+						lastAppliedCountsSeq = countsRequestSeq;
 					}
 				} else {
 					throw new Error(data.message || 'Failed to load downloads');
 				}
 			} catch (err: unknown) {
-				if (token === sessionToken) {
+				// Only the most recently issued call still owns loading/error -
+				// an earlier, slower one finishing after a newer one started
+				// must not clear its busy state or inject a stale error.
+				if (token === sessionToken && requestSeq === listRequestSeq) {
 					error.set(getErrorMessage(err));
 				}
 				logger.error('Failed to load downloads:', err);
 			} finally {
-				if (token === sessionToken) {
+				if (token === sessionToken && requestSeq === listRequestSeq) {
 					loading.set(false);
 				}
 			}
 		},
 
 		// Load counts only. Concurrent calls coalesce onto one in-flight
-		// request/publication; a response older than the newest one already
-		// applied is dropped instead of overwriting it.
+		// request/publication. If a counts-affecting mutation lands while this
+		// fetch is in flight, its result is too stale to trust even once it
+		// resolves - it's dropped and exactly one fresh refresh is scheduled
+		// after it settles (not chained per-event). A response superseded by
+		// one issued later (from either this method or loadDownloads()'s own
+		// bundled counts) is dropped the same way.
 		async loadCounts(): Promise<void> {
 			if (countsInFlight) return countsInFlight;
 
 			const token = sessionToken;
-			const seqAtIssue = seqCounter;
+			const mySeq = ++countsSeq;
+			const myFlightId = ++countsInFlightId;
+			countsDirty = false;
 
-			countsInFlight = (async () => {
+			// `dirtyAtCompletion` is captured in `finally` rather than read after
+			// the try/catch: an early `return` from inside `try` (any of the
+			// staleness guards below) still runs `finally` but then exits this
+			// whole IIFE, skipping code placed after the try/catch/finally -
+			// so the follow-up-scheduling check has to live where it can't be
+			// skipped by those returns.
+			let dirtyAtCompletion = false;
+			const attempt: Promise<void> = (async () => {
 				try {
 					const response = await api.getClient().get('/api/downloads?limit=0');
 					const data = response.data;
-					if (token !== sessionToken) return;
-					if (seqAtIssue < lastAppliedCountsSeq) return;
-					if (data.success && data.data) {
+					const stillOwns = token === sessionToken && !countsDirty && mySeq > lastAppliedCountsSeq;
+					if (stillOwns && data.success && data.data) {
 						downloadCounts.set(data.data.counts || {});
-						lastAppliedCountsSeq = seqAtIssue;
+						lastAppliedCountsSeq = mySeq;
 					}
 				} catch (err) {
 					logger.error('Failed to load download counts:', err);
 				} finally {
-					countsInFlight = null;
+					dirtyAtCompletion = countsDirty;
+					// Identity guard (by id, not promise reference, to avoid a
+					// TDZ self-reference on `attempt`): if a remount already
+					// dropped this slot and started its own attempt, this
+					// abandoned one must not null out the new one.
+					if (countsInFlightId === myFlightId) countsInFlight = null;
+				}
+
+				if (dirtyAtCompletion && token === sessionToken) {
+					void this.loadCounts();
 				}
 			})();
 
-			return countsInFlight;
+			countsInFlight = attempt;
+			return attempt;
 		},
 
 		// Load settings
@@ -516,7 +567,7 @@ function createDownloadStore() {
 
 				if (data.success && data.data) {
 					if (token === sessionToken) {
-						touchId(data.data.id);
+						touchId(data.data.id, { countsAffected: true });
 						downloads.update((d) => [data.data, ...d]);
 					}
 					downloaderWebSocket.subscribeToDownload(data.data.id);
@@ -551,7 +602,7 @@ function createDownloadStore() {
 
 				if (data.success && data.data) {
 					if (token === sessionToken) {
-						touchId(data.data.id);
+						touchId(data.data.id, { countsAffected: true });
 						downloads.update((d) => [data.data, ...d]);
 					}
 					downloaderWebSocket.subscribeToDownload(data.data.id);
@@ -585,7 +636,7 @@ function createDownloadStore() {
 
 				if (data.success && data.data) {
 					if (token === sessionToken) {
-						touchId(data.data.id);
+						touchId(data.data.id, { countsAffected: true });
 						downloads.update((d) => [data.data, ...d]);
 					}
 					downloaderWebSocket.subscribeToDownload(data.data.id);
@@ -611,7 +662,7 @@ function createDownloadStore() {
 
 				if (data.success) {
 					if (token === sessionToken) {
-						touchId(downloadId, { patch: { status: 'paused' } });
+						touchId(downloadId, { patch: { status: 'paused' }, countsAffected: true });
 						downloads.update((d) =>
 							d.map((dl) => (dl.id === downloadId ? { ...dl, status: 'paused' } : dl))
 						);
@@ -636,7 +687,7 @@ function createDownloadStore() {
 
 				if (data.success) {
 					if (token === sessionToken) {
-						touchId(downloadId, { patch: { status: 'pending' } });
+						touchId(downloadId, { patch: { status: 'pending' }, countsAffected: true });
 						downloads.update((d) =>
 							d.map((dl) => (dl.id === downloadId ? { ...dl, status: 'pending' } : dl))
 						);
@@ -661,7 +712,7 @@ function createDownloadStore() {
 
 				if (data.success) {
 					if (token === sessionToken) {
-						touchId(downloadId, { patch: { status: 'cancelled' } });
+						touchId(downloadId, { patch: { status: 'cancelled' }, countsAffected: true });
 						downloads.update((d) =>
 							d.map((dl) => (dl.id === downloadId ? { ...dl, status: 'cancelled' } : dl))
 						);
@@ -686,7 +737,10 @@ function createDownloadStore() {
 
 				if (data.success) {
 					if (token === sessionToken) {
-						touchId(downloadId, { patch: { status: 'pending', error_message: null } });
+						touchId(downloadId, {
+						patch: { status: 'pending', error_message: null },
+						countsAffected: true
+					});
 						downloads.update((d) =>
 							d.map((dl) =>
 								dl.id === downloadId ? { ...dl, status: 'pending', error_message: null } : dl
@@ -713,7 +767,7 @@ function createDownloadStore() {
 
 				if (data.success) {
 					if (token === sessionToken) {
-						touchId(downloadId, { deleted: true });
+						touchId(downloadId, { deleted: true, countsAffected: true });
 						downloads.update((d) => d.filter((dl) => dl.id !== downloadId));
 					}
 					return true;
@@ -737,7 +791,7 @@ function createDownloadStore() {
 				if (data.success) {
 					if (token === sessionToken) {
 						for (const dl of get(downloads)) {
-							if (dl.status === 'completed') touchId(dl.id, { deleted: true });
+							if (dl.status === 'completed') touchId(dl.id, { deleted: true, countsAffected: true });
 						}
 						downloads.update((d) => d.filter((dl) => dl.status !== 'completed'));
 						void this.loadCounts();
@@ -762,9 +816,10 @@ function createDownloadStore() {
 		reset(): void {
 			this.cleanupWebSocket();
 			perIdSeq.clear();
-			lastListSeqApplied = -1;
+			lastAppliedListSeq = -1;
 			lastAppliedCountsSeq = -1;
 			countsInFlight = null;
+			countsDirty = false;
 			downloads.set([]);
 			downloadCounts.set({});
 			downloadSettings.set(null);

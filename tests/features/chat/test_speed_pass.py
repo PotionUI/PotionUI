@@ -416,7 +416,7 @@ class TestBuildContextLedger:
         accounting = context_budget.AccountingInputs(
             capacity=context_budget.CapacityInfo(500, "config"),
             reserve_tokens=100,
-            messages_counter=lambda system_message, messages: 12,
+            messages_counter=lambda system_message, messages, tools: 12,
         )
         ledger = ConversationRunner._build_context_ledger(
             None, [], {}, [{"role": "user", "content": "hello"}],

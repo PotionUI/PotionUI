@@ -30,22 +30,25 @@ Token counting has three tiers, reported per turn as ``accounting`` in the
 ledger:
 
 - ``"chat_template"`` / ``"chat_template_shrunk"`` — a whole-request count via
-  a warm native checkpoint's own tokenizer, applying its chat template to the
+  a warm native checkpoint's own tokenizer, applying its chat template (and,
+  when tools are given, the SAME prompt-injected tool text the real send
+  folds into the system message — see ``MessagesCounter``) to the
   actually-kept system + history exactly as ``NativeLLMClient`` would before
   generating (see ``NativeLLMClient.messages_token_counter``). The only tiers
-  that report ``measured=True`` (and only when no image is attached and the
-  tool-schema count also came from a real tokenizer) — everything else is
-  honestly an estimate, never presented as exact. The fragment-based trim
-  below decides an initial candidate; when a whole-request counter is
-  available, ``enforce_budget`` then RECOUNTS that candidate exactly and, if
-  it's over budget, drops the next-oldest eligible unit and recounts again
-  (bounded by how many eligible units remain) — ``"chat_template"`` means the
-  first recount already fit, ``"chat_template_shrunk"`` means one or more
-  extra units had to go (see ``chat_template_extra_dropped`` in the ledger).
-  This can go either way relative to the fragment estimate: the exact count
-  may fit a candidate the fragment/framing estimate thought didn't (framing
-  is deliberately conservative), or it may need to drop more than the
-  fragment estimate alone would have.
+  that report ``measured=True`` (and only when no image is attached — a
+  successful exact count already includes the tools, so nothing else is
+  estimated) — everything else is honestly an estimate, never presented as
+  exact. The fragment-based trim below decides an initial candidate; when a
+  whole-request counter is available, ``enforce_budget`` then RECOUNTS that
+  candidate exactly and, if it's over budget, drops the next-oldest eligible
+  unit and recounts again (bounded by how many eligible units remain) —
+  ``"chat_template"`` means the first recount already fit,
+  ``"chat_template_shrunk"`` means one or more extra units had to go (see
+  ``chat_template_extra_dropped`` in the ledger). This can go either way
+  relative to the fragment estimate: the exact count may fit a candidate the
+  fragment/framing estimate thought didn't (framing is deliberately
+  conservative), or it may need to drop more than the fragment estimate
+  alone would have.
 - ``"fragments+framing"`` — a real per-fragment tokenizer (``counter``, e.g.
   ``NativeLLMClient.token_counter``) summed message-by-message, plus
   ``FRAMING_TOKENS_PER_MESSAGE`` per message. A per-fragment sum never sees
@@ -115,13 +118,20 @@ DEFAULT_IMAGE_TOKEN_ESTIMATE = 1100
 DEFAULT_RESERVE_TOKENS = 1024
 
 TokenCounter = Callable[[str], int]
-# A whole-request counter: (system_message, kept_messages) -> exact token
-# count for that combination via a real chat template (see
-# `NativeLLMClient.messages_token_counter`). Unlike `TokenCounter` this can't
-# price a single candidate message in isolation, so it is only used once, on
-# the final kept set `fit_messages` already decided on — never inside the
-# incremental trimming walk itself.
-MessagesCounter = Callable[[Optional[str], List[Dict[str, Any]]], int]
+# A whole-request counter: (system_message, kept_messages, tool_schemas) ->
+# exact token count of the ACTUALLY PREPARED request via a real chat template
+# (see `NativeLLMClient.messages_token_counter`) — when tool_schemas is given
+# and the provider is prompt-injected-tools, the count already includes the
+# tool text folded into the system message exactly as the real send builds
+# it, so `enforce_budget` never adds a separate tool-schema estimate on top
+# of a count this counter produced. Unlike `TokenCounter` this can't price a
+# single candidate message in isolation, so it is only used on the final kept
+# set `fit_messages` already decided on (and its shrink-loop candidates —
+# see `enforce_budget`), never inside the incremental per-unit trimming walk
+# itself. A provider that can't reproduce its own prepared tool-request shape
+# should raise rather than approximate — `enforce_budget` then falls back to
+# the fragment/framing tier exactly as it does for any other counter failure.
+MessagesCounter = Callable[[Optional[str], List[Dict[str, Any]], Optional[List[Dict[str, Any]]]], int]
 
 
 @dataclass(frozen=True)
@@ -479,19 +489,26 @@ def enforce_budget(
     reserved output tokens as fixed costs, then trims *messages* (oldest
     eligible whole group first, current-turn units always protected — see
     ``fit_messages``) to an initial candidate. When *messages_counter* is
-    given, that candidate is then RECOUNTED exactly (system + kept history,
-    via the real chat template) regardless of what the fragment estimate
-    concluded: if the exact count already fits, it wins even over a fragment
-    estimate that thought otherwise (framing is deliberately conservative);
-    if it's over, the next-oldest eligible unit is dropped and it's recounted
-    again, bounded by how many eligible (non-protected) units remain — see
-    the module docstring's ``"chat_template"``/``"chat_template_shrunk"``
-    tiers. A *messages_counter* that raises mid-recount abandons the exact
-    path entirely and falls back to the plain fragment-based decision
-    (``"chat_template_fallback"``) rather than reporting a half-shrunk
-    result. Raises ``ContextBudgetExceededError`` when even the protected
-    tail alone doesn't fit, by whichever accounting produced the final
-    decision — the caller must not submit that request.
+    given, that candidate is then RECOUNTED exactly (system + kept history +
+    tool schemas, via the real chat template — see ``MessagesCounter``)
+    regardless of what the fragment estimate concluded: if the exact count
+    already fits, it wins even over a fragment estimate that thought
+    otherwise (framing is deliberately conservative); if it's over, the
+    next-oldest eligible unit is dropped and it's recounted again, bounded by
+    how many eligible (non-protected) units remain — see the module
+    docstring's ``"chat_template"``/``"chat_template_shrunk"`` tiers. Because
+    a successful exact count already includes the tool text (when
+    *tool_schemas* is given and the provider is prompt-injected-tools), it is
+    used as the WHOLE total for that tier — the separate ``tools_count``
+    estimate (JSON-size based) is reported in the ledger for visibility but
+    never added a second time on top. A *messages_counter* that raises
+    mid-recount abandons the exact path entirely and falls back to the plain
+    fragment-based decision (``"chat_template_fallback"``, which DOES add the
+    separate tool-schema estimate, same as ``"fragments+framing"``/
+    ``"estimate"``) rather than reporting a half-shrunk result. Raises
+    ``ContextBudgetExceededError`` when even the protected tail alone doesn't
+    fit, by whichever accounting produced the final decision — the caller
+    must not submit that request.
     """
     reserve = max(0, int(reserve_tokens))
     system_count = count_text(system_message, counter)
@@ -509,6 +526,7 @@ def enforce_budget(
     final_fits = trim.fits
     final_history_and_system_tokens = system_count.tokens + trim.used_tokens
     chat_template_extra_dropped = 0
+    exact_includes_tools = False
 
     if messages_counter is not None:
         kept_units = list(trim.kept_units)
@@ -517,7 +535,7 @@ def enforce_budget(
         while True:
             flat = [m for unit in kept_units for m in unit]
             try:
-                exact_combined = max(0, int(messages_counter(system_message, flat)))
+                exact_combined = max(0, int(messages_counter(system_message, flat, tool_schemas)))
             except Exception:
                 logger.debug(
                     "[ContextBudget] messages_counter failed mid-recount; falling back to the "
@@ -525,7 +543,7 @@ def enforce_budget(
                 )
                 counter_ok = False
                 break
-            if exact_combined + tools_count.tokens + image_count <= available_total:
+            if exact_combined + image_count <= available_total:
                 break
             if len(kept_units) <= trim.protected_count:
                 break
@@ -536,7 +554,8 @@ def enforce_budget(
             accounting = "chat_template_shrunk" if chat_template_extra_dropped else "chat_template"
             final_units = kept_units
             final_history_and_system_tokens = exact_combined
-            final_fits = exact_combined + tools_count.tokens + image_count <= available_total
+            final_fits = exact_combined + image_count <= available_total
+            exact_includes_tools = True
         else:
             accounting = "chat_template_fallback"
             chat_template_extra_dropped = 0
@@ -549,8 +568,9 @@ def enforce_budget(
     final_message_count = sum(len(u) for u in final_units)
     total_groups = len(all_units)
 
-    estimated_tokens = final_history_and_system_tokens + tools_count.tokens + image_count
-    measured = accounting in ("chat_template", "chat_template_shrunk") and image_count == 0 and tools_count.measured
+    tools_added_to_total = 0 if exact_includes_tools else tools_count.tokens
+    estimated_tokens = final_history_and_system_tokens + tools_added_to_total + image_count
+    measured = exact_includes_tools and image_count == 0
 
     ledger: Dict[str, Any] = {
         "capacity_tokens": capacity_tokens,
@@ -561,6 +581,10 @@ def enforce_budget(
         "accounting": accounting,
         "chat_template_extra_dropped": chat_template_extra_dropped,
         "system_tokens": system_count.tokens,
+        # A JSON-size estimate, reported for visibility even in a
+        # "chat_template*" tier where it is NOT part of `estimated_tokens` —
+        # the exact recount already folded the real tool text into the
+        # system message it counted (see `exact_includes_tools` above).
         "tool_schema_tokens": tools_count.tokens,
         "image_tokens": image_count,
         # Always the fragment/framing figure of the FINAL kept set, even in

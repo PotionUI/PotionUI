@@ -295,14 +295,14 @@ class TestEnforceBudget:
             system_message="sys",
             messages=[_msg("user", "hi")],
             counter=len,
-            messages_counter=lambda system_message, messages: 42,
+            messages_counter=lambda system_message, messages, tools: 42,
         )
         assert outcome.ledger["accounting"] == "chat_template"
         assert outcome.ledger["estimated_tokens"] == 42
         assert outcome.ledger["measured"] is True
 
     def test_a_raising_messages_counter_falls_back_to_the_fragment_decision(self):
-        def broken(system_message, messages):
+        def broken(system_message, messages, tools):
             raise RuntimeError("template not supported")
 
         outcome = enforce_budget(
@@ -318,7 +318,7 @@ class TestEnforceBudget:
         outcome = enforce_budget(
             capacity_tokens=10_000, capacity_source="config", reserve_tokens=0,
             system_message="sys", messages=[_msg("user", "hi")],
-            image_data="base64...", messages_counter=lambda s, m: 42,
+            image_data="base64...", messages_counter=lambda s, m, t: 42,
         )
         assert outcome.ledger["accounting"] == "chat_template"
         assert outcome.ledger["measured"] is False
@@ -329,7 +329,7 @@ class TestEnforceBudget:
         protected tail didn't fit."""
         calls = []
 
-        def generous_counter(system_message, messages):
+        def generous_counter(system_message, messages, tools):
             calls.append(len(messages))
             return 1  # the exact wire cost, however pessimistic the estimate was
 
@@ -355,7 +355,7 @@ class TestEnforceBudget:
         outcome = enforce_budget(
             capacity_tokens=250, capacity_source="config", reserve_tokens=0,
             system_message=None, messages=messages, counter=len,
-            messages_counter=lambda s, m: len(m) * 100,
+            messages_counter=lambda s, m, t: len(m) * 100,
         )
         assert [m["content"] for m in outcome.messages] == ["older", "current"]
         assert outcome.ledger["accounting"] == "chat_template_shrunk"
@@ -373,7 +373,7 @@ class TestEnforceBudget:
             enforce_budget(
                 capacity_tokens=50, capacity_source="config", reserve_tokens=0,
                 system_message=None, messages=messages, counter=len,
-                messages_counter=lambda s, m: len(m) * 100,
+                messages_counter=lambda s, m, t: len(m) * 100,
             )
         err = exc_info.value
         assert err.estimated_tokens == 100  # the protected unit alone, exactly
@@ -389,7 +389,7 @@ class TestEnforceBudget:
             _msg("user", "oldest"), _msg("assistant", "older"), _msg("user", "current"),
         ]
 
-        def flaky(system_message, kept_messages):
+        def flaky(system_message, kept_messages, tools):
             if len(kept_messages) == 3:
                 return 300  # over budget -> triggers one drop
             raise RuntimeError("template blew up on the shrunk candidate")

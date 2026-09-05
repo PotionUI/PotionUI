@@ -657,6 +657,75 @@ class TestMessagesTokenCounterWeakrefMechanics:
 
             assert client.messages_token_counter(_config("anything")) is None
 
+    @staticmethod
+    def _length_tokenizer():
+        """Renders the chat template as a literal joined string — content-
+        sensitive, unlike the fixed-marker `_fake_tokenizer` above — and
+        tokenizes one id per character, so a test can independently
+        reconstruct 'the real prepared inputs' the same way the real send
+        does and assert the counter agrees with it exactly, not just that it
+        changed by some amount."""
+        tok = Mock()
+        tok.apply_chat_template = Mock(
+            side_effect=lambda chat, add_generation_prompt=True, tokenize=False, **kw: (
+                "|".join(f"{m['role']}:{m['content']}" for m in chat)
+            )
+        )
+        tok.side_effect = lambda text, return_tensors=None: {"input_ids": [[0] * len(text)]}
+        return tok
+
+    def _counter_for(self, client, tokenizer):
+        fake_checkpoint = native_module._LoadedCheckpoint(
+            model=Mock(), tokenizer=tokenizer, vision=False, model_type="qwen3",
+        )
+        with patch.object(client, "_resolve_model", return_value=("/fake/path", False)):
+            client._checkpoint_refs[client._cache_key("/fake/path", False)] = weakref.ref(fake_checkpoint)
+            return client.messages_token_counter(_config("anything"))
+
+    def _real_prepared_count(self, client, tokenizer, system_message, messages, tools):
+        """Independently reconstructs the count the real send would produce:
+        inject tools into the system message FIRST (exactly what
+        generate_with_tools/stream_with_tools do), then build the chat and
+        template it — same tokenizer, same steps, computed here rather than
+        through the counter under test."""
+        effective_system = client._inject_tools_into_system_message(system_message, tools)
+        chat, _image = client._build_chat(list(messages), effective_system, None)
+        text = tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
+        return len(tokenizer(text, return_tensors=None)["input_ids"][0])
+
+    def test_folds_tools_into_the_system_message_like_the_real_send(self):
+        client = self._client()
+        tokenizer = self._length_tokenizer()
+        counter = self._counter_for(client, tokenizer)
+        system_message = "You are helpful."
+        messages = [{"role": "user", "content": "hi"}]
+        tools = [{"function": {"name": "get_weather", "description": "fetches the weather", "parameters": {}}}]
+
+        assert counter(system_message, messages, tools) == self._real_prepared_count(
+            client, tokenizer, system_message, messages, tools,
+        )
+
+    def test_tool_free_control_matches_the_untouched_system_message(self):
+        client = self._client()
+        tokenizer = self._length_tokenizer()
+        counter = self._counter_for(client, tokenizer)
+        system_message = "You are helpful."
+        messages = [{"role": "user", "content": "hi"}]
+
+        expected = self._real_prepared_count(client, tokenizer, system_message, messages, None)
+        assert counter(system_message, messages, None) == expected
+        assert counter(system_message, messages, []) == expected
+
+    def test_tools_present_increases_the_count_over_the_tool_free_control(self):
+        client = self._client()
+        tokenizer = self._length_tokenizer()
+        counter = self._counter_for(client, tokenizer)
+        system_message = "You are helpful."
+        messages = [{"role": "user", "content": "hi"}]
+        tools = [{"function": {"name": "get_weather", "description": "fetches the weather", "parameters": {}}}]
+
+        assert counter(system_message, messages, tools) > counter(system_message, messages, None)
+
 
 class TestTokenCounter:
     """context_budget-facing: a real tokenizer, but only while warm.

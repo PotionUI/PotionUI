@@ -497,16 +497,26 @@ class NativeLLMClient:
 
     def messages_token_counter(self, config: LLMConfig) -> Optional[MessagesCounter]:
         """A whole-request token counter using this checkpoint's own chat
-        template — the actual wire prompt-token count (framing included),
-        not a per-fragment sum. ``context_budget.enforce_budget`` uses this
-        once, on the final message set its fragment-based trim already
+        template — the actual wire prompt-token count (framing, thinking-mode
+        kwargs and tool text all included), not a per-fragment sum plus a
+        separately-estimated tool-schema size.
+        ``context_budget.enforce_budget`` uses this on the final message set
+        its fragment-based trim (and its own exact-recount shrink loop)
         decided to keep, as the authoritative number it reports/enforces
-        (see the module's "chat_template" accounting tier).
+        (see the module's "chat_template" accounting tier) — when *tools* is
+        given, it never adds a second tool-schema estimate on top of what
+        this returns, since this already counts them.
 
-        Built the same way ``generate_with_history`` prepares a real turn
-        (``_build_chat`` + ``apply_chat_template``), minus the image: an
-        attached image's cost is accounted separately (a fixed allowance —
-        see ``context_budget.multimodal_allowance``), and re-decoding it here
+        Built the same way ``generate_with_tools``/``generate_with_history``
+        prepare a real turn: tools (when given) are folded into the system
+        message with ``_inject_tools_into_system_message`` — the SAME call
+        those methods make, on the same input — before
+        ``_build_chat``/``apply_chat_template`` with the SAME
+        ``_chat_template_kwargs`` the real send uses (thinking-mode and all),
+        so the preflight count and the real request can never disagree about
+        what was sent. Minus the image: an attached image's cost is
+        accounted separately (a fixed allowance — see
+        ``context_budget.multimodal_allowance``), and re-decoding it here
         would just be wasted work for a number this call discards anyway.
         Same warm-only, no-load contract as ``token_counter`` — looked up
         through the same weak reference, never through ``_acquire``.
@@ -516,8 +526,18 @@ class NativeLLMClient:
             return None
         tokenizer = checkpoint.tokenizer
 
-        def _count(system_message: Optional[str], messages: List[Dict[str, Any]]) -> int:
-            chat, _image = self._build_chat(list(messages), system_message, None)
+        def _count(
+            system_message: Optional[str],
+            messages: List[Dict[str, Any]],
+            tools: Optional[List[Dict[str, Any]]] = None,
+        ) -> int:
+            # NativeLLMClient is always prompt-injected-tools (see the module
+            # docstring) — this is the identical call
+            # generate_with_tools/stream_with_tools make before ever reaching
+            # _build_chat, so a tool-bearing count really is the prepared
+            # request, not an approximation of it.
+            effective_system_message = self._inject_tools_into_system_message(system_message, tools)
+            chat, _image = self._build_chat(list(messages), effective_system_message, None)
             template_kwargs, _thinking_meta = self._chat_template_kwargs(checkpoint, config)
             prompt_text = tokenizer.apply_chat_template(
                 chat, add_generation_prompt=True, tokenize=False, **template_kwargs

@@ -179,14 +179,14 @@ class TestGatewayAccountingInputsFor:
             max_tokens=777,
         )
         gateway._native.token_counter = Mock(return_value=lambda text: len(text))
-        gateway._native.messages_token_counter = Mock(return_value=lambda s, m: 99)
+        gateway._native.messages_token_counter = Mock(return_value=lambda s, m, t: 99)
 
         inputs = gateway.accounting_inputs_for(config)
 
         assert inputs.capacity == context_budget.CapacityInfo(4096, "config")
         assert inputs.reserve_tokens == 777
         assert inputs.counter("hi") == 2
-        assert inputs.messages_counter(None, []) == 99
+        assert inputs.messages_counter(None, [], None) == 99
         assert inputs.image_tokens_override == 200
 
     def test_options_override_max_tokens_wins_over_config_default(self):
@@ -267,7 +267,7 @@ class TestLedgerMatchesGatewayHook:
         )
         gateway.repository.get_configuration.return_value = config
         gateway._native.token_counter = Mock(return_value=lambda text: len(text))
-        gateway._native.messages_token_counter = Mock(return_value=lambda system_message, messages: 37)
+        gateway._native.messages_token_counter = Mock(return_value=lambda system_message, messages, tools: 37)
         gateway._native.generate_with_history = AsyncMock(return_value=Mock(
             content="ok", tool_calls=None, tokens_used=1, prompt_tokens=1, completion_tokens=0,
         ))

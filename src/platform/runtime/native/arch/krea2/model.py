@@ -69,7 +69,7 @@ CFG (raw model) is the sampler's job — this module runs a single stream.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple
 
 import torch
 import torch.nn as nn
@@ -77,6 +77,7 @@ from einops import rearrange, repeat
 from torch import Tensor
 
 from ...base import NativeArchModule
+from ...cache_identity import identity_usable, tensor_identity
 from .config import Krea2Config
 from .layers import (
     Attention,
@@ -92,6 +93,25 @@ from .layers import (
     ref_attn_bias,
     temb,
 )
+
+
+class _BranchInputs(NamedTuple):
+    """One guidance branch's step-invariant forward inputs, plus their sources.
+
+    Holding the sources closes the one hole ``tensor_identity`` cannot see: a
+    freed tensor's address can be handed to a new allocation, whose version
+    counter starts over. While an entry lives its sources cannot be freed, so no
+    later tensor can occupy one of those addresses and be mistaken for it.
+    """
+
+    pos: Tensor
+    mask: Tensor | None
+    fused: Tensor
+    nag_fused: Tensor | None
+    context: Tensor
+    txt_mask: Tensor | None
+    nag_context: Tensor | None
+    nag_txt_mask: Tensor | None
 
 
 class Krea2(NativeArchModule):
@@ -202,36 +222,34 @@ class Krea2(NativeArchModule):
         BYTE-IDENTICAL to the code path below. Derived from:
         github.com/lbouaraba/comfyui-krea2edit (Apache-2.0).
         """
-        b, _, h, w = latent.shape
-        p = self.config.patch
-        h_, w_ = h // p, w // p
-        img = rearrange(latent, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=p, pw=p)
+        refs = self._ref_list(ref_latents)
+        img = self._pack_tokens(latent, refs)
+        pos, mask = self._stream_geometry(latent, txt_len, txt_mask, refs)
+        return img, pos, mask
 
-        imgids = torch.zeros((h_, w_, 3), device=latent.device, dtype=torch.float32)
-        imgids[..., 1] = torch.arange(h_, device=latent.device, dtype=torch.float32)[:, None]
-        imgids[..., 2] = torch.arange(w_, device=latent.device, dtype=torch.float32)[None, :]
-        imgpos = repeat(imgids, "h w three -> b (h w) three", b=b)
-        txtpos = torch.zeros(b, txt_len, 3, device=latent.device, dtype=torch.float32)
-
+    @staticmethod
+    def _ref_list(ref_latents: Tensor | list[Tensor] | None) -> list[Tensor]:
         if ref_latents is None:
-            pos = torch.cat((txtpos, imgpos), dim=1)
-            if txt_mask is None:
-                return img, pos, None
-            # coerce to bool so the joint key-padding mask stays a valid sdpa dtype
-            # (the tokenizer emits int64; cat with a bool would promote to long).
-            txt_mask = txt_mask.to(torch.bool)
-            if txt_mask.all():
-                return img, pos, None
-            imgmask = torch.ones(b, h_ * w_, device=latent.device, dtype=torch.bool)
-            mask = torch.cat((txt_mask, imgmask), dim=1)
-            return img, pos, mask
+            return []
+        if isinstance(ref_latents, (list, tuple)):
+            return list(ref_latents)
+        return [ref_latents]
 
+    def _pack_tokens(self, latent: Tensor, refs: list[Tensor]) -> Tensor:
+        """Patchify the noisy target latent, prefixed by any reference latents.
+
+        The one part of the stream inputs that reads latent VALUES, so it is
+        rebuilt on every call while :meth:`_stream_geometry` is not.
+        """
+        p = self.config.patch
+        _, _, h, w = latent.shape
+        img = rearrange(latent, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=p, pw=p)
+        if not refs:
+            return img
         # Derived from: github.com/lbouaraba/comfyui-krea2edit __init__.py
         # krea2_edit_forward (Apache-2.0) — the [text | source(frame=i+1) |
-        # target(frame=0)] sequence assembly and per-source RoPE frame index.
-        refs = ref_latents if isinstance(ref_latents, (list, tuple)) else [ref_latents]
+        # target(frame=0)] sequence assembly.
         ref_tokens: list[Tensor] = []
-        ref_pos: list[Tensor] = []
         for i, ref in enumerate(refs):
             _, _, rh, rw = ref.shape
             if rh > h or rw > w:
@@ -241,8 +259,35 @@ class Krea2(NativeArchModule):
                     "calling forward (geometry lives in the edit pipe, not "
                     "this arch module)"
                 )
-            gh, gw = rh // p, rw // p
             ref_tokens.append(rearrange(ref, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=p, pw=p))
+        return torch.cat(ref_tokens + [img], dim=1)
+
+    def _stream_geometry(self, latent: Tensor, txt_len: int, txt_mask: Tensor | None,
+                         refs: list[Tensor]) -> tuple[Tensor, Tensor | None]:
+        """The ``(pos, mask)`` half of :meth:`build_stream_inputs`.
+
+        A property of the sequence SHAPES alone (target grid, batch, text
+        length, reference grids) and of the text padding pattern — never of the
+        latent's values, the timestep or the weights.
+        """
+        b, _, h, w = latent.shape
+        p = self.config.patch
+        h_, w_ = h // p, w // p
+        device = latent.device
+
+        imgids = torch.zeros((h_, w_, 3), device=device, dtype=torch.float32)
+        imgids[..., 1] = torch.arange(h_, device=device, dtype=torch.float32)[:, None]
+        imgids[..., 2] = torch.arange(w_, device=device, dtype=torch.float32)[None, :]
+        imgpos = repeat(imgids, "h w three -> b (h w) three", b=b)
+        txtpos = torch.zeros(b, txt_len, 3, device=device, dtype=torch.float32)
+
+        # Derived from: github.com/lbouaraba/comfyui-krea2edit __init__.py
+        # krea2_edit_forward (Apache-2.0) — the per-source RoPE frame index.
+        ref_pos: list[Tensor] = []
+        ref_len = 0
+        for i, ref in enumerate(refs):
+            gh, gw = ref.shape[-2] // p, ref.shape[-1] // p
+            ref_len += gh * gw
             # Centered integer offset (matching comfyui-krea2edit's
             # `_imgids_offset`): a "fit" source is resampled to the target grid
             # DENSITY at a smaller grid, so its stride-1 position ids sit at a
@@ -250,25 +295,79 @@ class Krea2(NativeArchModule):
             # the target grid (the default), off_h == off_w == 0 and this
             # is BYTE-IDENTICAL to the plain (row, col) ids.
             off_h, off_w = (h_ - gh) // 2, (w_ - gw) // 2
-            refids = torch.zeros((gh, gw, 3), device=latent.device, dtype=torch.float32)
+            refids = torch.zeros((gh, gw, 3), device=device, dtype=torch.float32)
             refids[..., 0] = i + 1
-            refids[..., 1] = (torch.arange(gh, device=latent.device, dtype=torch.float32) + off_h)[:, None]
-            refids[..., 2] = (torch.arange(gw, device=latent.device, dtype=torch.float32) + off_w)[None, :]
+            refids[..., 1] = (torch.arange(gh, device=device, dtype=torch.float32) + off_h)[:, None]
+            refids[..., 2] = (torch.arange(gw, device=device, dtype=torch.float32) + off_w)[None, :]
             ref_pos.append(repeat(refids, "h w three -> b (h w) three", b=b))
 
-        img = torch.cat(ref_tokens + [img], dim=1)
         pos = torch.cat([txtpos] + ref_pos + [imgpos], dim=1)
-
         if txt_mask is None:
-            return img, pos, None
+            return pos, None
+        # coerce to bool so the joint key-padding mask stays a valid sdpa dtype
+        # (the tokenizer emits int64; cat with a bool would promote to long).
         txt_mask = txt_mask.to(torch.bool)
         if txt_mask.all():
-            return img, pos, None
-        reflen = sum(rt.shape[1] for rt in ref_tokens)
-        refmask = torch.ones(b, reflen, device=latent.device, dtype=torch.bool)
-        imgmask = torch.ones(b, h_ * w_, device=latent.device, dtype=torch.bool)
-        mask = torch.cat((txt_mask, refmask, imgmask), dim=1)
-        return img, pos, mask
+            return pos, None
+        parts = [txt_mask]
+        if ref_len:
+            parts.append(torch.ones(b, ref_len, device=device, dtype=torch.bool))
+        parts.append(torch.ones(b, h_ * w_, device=device, dtype=torch.bool))
+        return pos, torch.cat(parts, dim=1)
+
+    def _branch_inputs(self, x: Tensor, context: Tensor, txt_mask: Tensor | None,
+                       refs: list[Tensor], nag_context: Tensor | None,
+                       nag_txt_mask: Tensor | None, nag: dict | None) -> _BranchInputs:
+        """Position ids, joint key-padding mask and fused text for one branch.
+
+        Every one of them is a property of the guidance branch and the weights,
+        recomputed identically at every step of a run: the text fusion
+        (``txtfusion`` + ``txtmlp``) reads only the encoder hidden states and the
+        text half of the mask, and the geometry reads only shapes. The noisy
+        image tokens, the timestep vectors and the joint transformer states are
+        NOT here — they stay live.
+
+        When the engine has attached a ``run_cache``
+        (``NativeGenerator.sample``) this is computed once per branch and
+        reused; without one every forward builds its own, exactly as before.
+        A cached ``pos``/``mask``/``fused`` is handed to every step as the same
+        tensor object, which is byte-for-byte the recompute because nothing
+        downstream writes to any of them.
+        """
+        cache = getattr(self, "run_cache", None)
+        nag_on = nag_context is not None and _nag_active(nag)
+        key = None
+        if cache is not None:
+            ids = (tensor_identity(context), tensor_identity(txt_mask),
+                   tensor_identity(nag_context if nag_on else None),
+                   tensor_identity(nag_txt_mask if nag_on else None))
+            if identity_usable(*ids):
+                b, _, h, w = x.shape
+                # cache.revision is read here, per lookup, never hoisted across
+                # steps: a step-windowed LoRA applies and restores at step
+                # boundaries WITHIN a run, and the fused text is computed with
+                # the weights in effect at the time.
+                key = ("krea2.branch", cache.revision, x.dtype, x.device, b, h, w,
+                       tuple(tuple(r.shape[-2:]) for r in refs), nag_on, *ids)
+                hit = cache.get(key)
+                if hit is not None:
+                    return hit
+
+        pos, mask = self._stream_geometry(x, context.shape[1], txt_mask, refs)
+        fused = self.prepare_context(context, mask)
+        nag_fused = None
+        if nag_on:
+            # ``prepare_context`` expects an already-bool mask (``_stream_geometry``
+            # coerces ``txt_mask`` before the positive path's own call above);
+            # ``nag_txt_mask`` arrives raw from the caller (e.g. an int64
+            # tokenizer mask), so coerce it here the same way.
+            nag_bool = nag_txt_mask.to(torch.bool) if nag_txt_mask is not None else None
+            nag_fused = self.prepare_context(nag_context, nag_bool)
+        branch = _BranchInputs(pos, mask, fused, nag_fused, context, txt_mask,
+                               nag_context, nag_txt_mask)
+        if key is not None:
+            cache.put(key, branch)
+        return branch
 
     def unpatchify(self, out: Tensor, h_: int, w_: int) -> Tensor:
         """Inverse of the patchify in :meth:`build_stream_inputs`."""
@@ -480,35 +579,22 @@ class Krea2(NativeArchModule):
         if t.shape[0] == 1 and b > 1:
             t = t.expand(b)
 
-        ref_len = 0
-        refs: list[Tensor] = []
-        if ref_latents is not None:
-            refs = ref_latents if isinstance(ref_latents, (list, tuple)) else [ref_latents]
-            refs = [r.squeeze(2) if r.ndim == 5 else r for r in refs]
-            ref_len = sum((r.shape[-2] // self.config.patch) * (r.shape[-1] // self.config.patch) for r in refs)
-            ref_latents = refs if isinstance(ref_latents, (list, tuple)) else refs[0]
+        refs = [r.squeeze(2) if r.ndim == 5 else r for r in self._ref_list(ref_latents)]
+        ref_len = sum((r.shape[-2] // self.config.patch) * (r.shape[-1] // self.config.patch)
+                      for r in refs)
 
-        img_tokens, pos, mask = self.build_stream_inputs(
-            x, txt_len=context.shape[1], txt_mask=attention_mask, ref_latents=ref_latents,
-        )
+        img_tokens = self._pack_tokens(x, refs)
+        branch = self._branch_inputs(x, context, attention_mask, refs,
+                                     nag_context, nag_attention_mask, nag)
         t_emb, tvec = self.prepare_timestep(t, x.dtype)
-        fused = self.prepare_context(context, mask)
-        nag_fused = None
-        if nag_context is not None and _nag_active(nag):
-            # ``prepare_context`` expects an already-bool mask (``build_stream_inputs``
-            # coerces ``attention_mask`` before the plain path's own call above);
-            # ``nag_attention_mask`` arrives raw from the caller (e.g. an int64
-            # tokenizer mask), so coerce it here the same way.
-            nag_mask_bool = nag_attention_mask.to(torch.bool) if nag_attention_mask is not None else None
-            nag_fused = self.prepare_context(nag_context, nag_mask_bool)
         p = self.config.patch
         attn_bias = self._maybe_ref_bias(
             refs, context.shape[1], (h // p) * (w // p), ref_boost, ref_boost_a, x.device, x.dtype,
             ref_boost_mask=ref_boost_mask,
         )
-        out = self.run_blocks(img_tokens, fused, t_emb, tvec, pos, mask,
+        out = self.run_blocks(img_tokens, branch.fused, t_emb, tvec, branch.pos, branch.mask,
                                step_cache=kwargs.get("step_cache"), ref_len=ref_len,
-                               attn_bias=attn_bias, nag_fused=nag_fused, nag=nag,
+                               attn_bias=attn_bias, nag_fused=branch.nag_fused, nag=nag,
                                nag_attention_mask=nag_attention_mask)
         latent = self.unpatchify(out, h // self.config.patch, w // self.config.patch)
         return latent.unsqueeze(2) if video_5d else latent

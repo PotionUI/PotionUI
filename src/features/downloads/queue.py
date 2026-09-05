@@ -36,6 +36,7 @@ from src.features.downloads.models import Download, DownloadStatus, DownloadType
 from src.features.downloads.repository import DownloadRepository
 from src.features.downloads.persistent_loop import PersistentLoop
 from src.features.downloads.hooks import DOWNLOAD_HOOKS
+from src.features.downloads.utils import derived_download_name, safe_download_name
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import execute_hook
 from src.platform.websocket.download_connection_hub import DownloadConnectionHub
@@ -384,23 +385,31 @@ class DownloadQueue:
 
     @staticmethod
     def _filename_from_url(url: str, fallback_prefix: str) -> str:
-        """A single safe path segment derived from `url`'s last path component.
+        """A single safe path segment derived from `url`'s last path component,
+        or a generated name when the URL names none that passes the filename
+        policy (`src/features/downloads/utils.py`).
 
-        Must unquote BEFORE splitting on `/`: an encoded segment like
-        `..%2F..%2Fetc%2Fcron` has no raw slash, so `os.path.basename` on the
-        still-encoded path leaves it whole, and unquoting afterwards turns it
-        into `../../etc/cron` - which `os.path.join(destination_dir, filename)`
-        then walks straight out of the depot. Decoding first makes
-        `os.path.basename` split on the real separators, collapsing any
-        traversal down to its last segment; that segment is still rejected if
-        it is `..`, `.`, empty, or itself carries a separator (e.g. the URL
-        path ended in `/foo/..`).
+        Unlike `extract_filename_from_url`, a basename without an extension is
+        still a name here - this is the last resort before a generated one.
+        The decode-then-basename order the two share is what keeps an encoded
+        `..%2F..%2Fetc%2Fcron` from walking out of the depot.
         """
-        decoded_path = unquote(urlparse(url).path)
-        name = os.path.basename(decoded_path)
-        if not name or name in (".", "..") or os.sep in name or (os.altsep and os.altsep in name):
+        name = derived_download_name(os.path.basename(unquote(urlparse(url).path)))
+        if not name:
             name = f"{fallback_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         return name
+
+    def _contained_destination_path(self, destination_dir: str, filename: str) -> str:
+        """The file `filename` names inside the already-contained
+        `destination_dir`.
+
+        `filename` may carry a relative subpath (an explicit override, a
+        grouped repo's per-file path), so the join is verified rather than
+        assumed: it can descend inside `destination_dir` but never leave it.
+        """
+        path = os.path.join(destination_dir, filename)
+        self._verify_contained_dir(destination_dir, Path(path).parent, label=filename)
+        return path
 
     # ========== Queue Operations ==========
 
@@ -494,11 +503,15 @@ class DownloadQueue:
             trusted_subdir=trusted_subdir,
         ))
 
-        # Extract filename from URL if not provided
-        if not filename:
+        # An explicit name (request body, internal caller, or a `before_queue`
+        # hook's rewrite) is untrusted and refused outright when unsafe; a
+        # URL-derived one falls back to a generated name.
+        if filename:
+            filename = safe_download_name(filename, single_segment=False)
+        else:
             filename = self._filename_from_url(url, "download")
 
-        destination_path = os.path.join(destination_dir, filename)
+        destination_path = self._contained_destination_path(destination_dir, filename)
 
         # Create download record
         download = Download(
@@ -600,11 +613,13 @@ class DownloadQueue:
             requested=destination_dir,
         ))
 
-        # Extract filename from URL if not provided
-        if not filename:
+        # Explicit names are untrusted here too - see queue_model_download.
+        if filename:
+            filename = safe_download_name(filename, single_segment=False)
+        else:
             filename = self._filename_from_url(url, "media")
 
-        destination_path = os.path.join(destination_dir, filename)
+        destination_path = self._contained_destination_path(destination_dir, filename)
 
         # Create download record
         download = Download(
@@ -880,11 +895,15 @@ class DownloadQueue:
 
         children = []
         for rfilename, size, url in files:
+            # A repo's file paths are intentionally relative subpaths, so they
+            # keep their directories - contained against the resolved
+            # destination rather than flattened to one segment.
+            child_name = safe_download_name(rfilename, single_segment=False)
             children.append(self.repo.create(Download(
                 type=DownloadType.MODEL,
                 url=url,
-                destination_path=os.path.join(destination_dir, rfilename),
-                filename=rfilename,
+                destination_path=self._contained_destination_path(destination_dir, child_name),
+                filename=child_name,
                 status=DownloadStatus.PENDING,
                 total_bytes=size,
                 group_id=parent.id,

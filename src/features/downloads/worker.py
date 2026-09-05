@@ -27,7 +27,11 @@ from urllib.parse import urlparse
 from src.features.downloads.exceptions import DownloadAuthenticationException
 from src.features.downloads.models import Download, DownloadStatus, DownloadType, DownloadSettings
 from src.features.downloads.repository import DownloadRepository
-from src.features.downloads.utils import extract_filename_from_url
+from src.features.downloads.utils import (
+    extract_filename_from_url,
+    safe_download_name,
+    verify_file_target,
+)
 from src.platform.websocket.download_connection_hub import DownloadConnectionHub
 
 if TYPE_CHECKING:
@@ -603,6 +607,7 @@ class DownloadWorker:
 
         # Check if partial file exists for resume
         temp_path = Path(str(dest_path) + '.part')
+        self._verify_write_targets(dest_path, temp_path)
         resume_from = 0
         if temp_path.exists():
             resume_from = temp_path.stat().st_size
@@ -627,6 +632,7 @@ class DownloadWorker:
                     dest_path = Path(download.destination_path)
                     dest_path.parent.mkdir(parents=True, exist_ok=True)
                     temp_path = Path(str(dest_path) + '.part')
+                    self._verify_write_targets(dest_path, temp_path)
                     resume_from = temp_path.stat().st_size if temp_path.exists() else 0
                     download.downloaded_bytes = resume_from
 
@@ -640,6 +646,7 @@ class DownloadWorker:
             if response.status == 416:
                 # Range not satisfiable - file may be complete
                 if temp_path.exists():
+                    self._verify_write_targets(dest_path, temp_path)
                     temp_path.rename(dest_path)
                     return True
                 raise Exception("Invalid range request")
@@ -734,6 +741,7 @@ class DownloadWorker:
 
         # Rename temp file to final destination
         logger.debug(f"Download loop finished. Downloaded {downloaded} bytes, total_bytes={download.total_bytes}")
+        self._verify_write_targets(dest_path, temp_path)
         temp_path.rename(dest_path)
 
         # Final progress update
@@ -934,29 +942,49 @@ class DownloadWorker:
             logger.error(f"Checksum verification error for {download.filename}: {e}")
             return False
 
+    def _verify_write_targets(self, dest_path: Path, temp_path: Path) -> None:
+        """The final file and its `.part` sibling are writable inside the
+        destination directory the queue already contained against the depot.
+
+        Re-run at each write, resume and rename boundary: the check is taken
+        against the filesystem as it stands, so repeating it is what narrows
+        the window, not a redundancy (see `verify_file_target`'s honest
+        statement of what it does not guarantee).
+        """
+        approved_dir = dest_path.parent
+        verify_file_target(dest_path, approved_dir)
+        verify_file_target(temp_path, approved_dir)
+
     async def _update_download_filename(self, download: Download, new_filename: str) -> None:
         """Update a download's filename and destination path.
 
         Called when the real filename surfaces from a provider-resolved URL.
+        The new name stays a single segment inside the directory the queue
+        already resolved: a provider cannot move a download by renaming it.
 
         Args:
             download: The download to update
             new_filename: The new filename
+
+        Raises:
+            UnsafeFilenameException: If `new_filename` would leave the
+                download's destination directory
         """
         old_filename = download.filename
         old_dest_path = download.destination_path
 
-        # Update filename
-        download.filename = new_filename
+        dest_dir = os.path.dirname(old_dest_path) or "."
+        safe_name = safe_download_name(new_filename)
+        new_dest_path = os.path.join(dest_dir, safe_name)
+        verify_file_target(Path(new_dest_path), Path(dest_dir))
 
-        # Update destination path (same directory, new filename)
-        dest_dir = os.path.dirname(old_dest_path)
-        download.destination_path = os.path.join(dest_dir, new_filename)
+        download.filename = safe_name
+        download.destination_path = new_dest_path
 
         # Update in database
-        self.repo.update_filename(download.id, new_filename, download.destination_path)
+        self.repo.update_filename(download.id, safe_name, new_dest_path)
 
-        logger.info(f"Updated download filename: {old_filename} -> {new_filename}")
+        logger.info(f"Updated download filename: {old_filename} -> {safe_name}")
 
     async def _resume_pending_downloads(self) -> None:
         """Resume downloads that were in progress when worker stopped."""

@@ -11,6 +11,7 @@ from __future__ import annotations
 import types
 import weakref
 
+import pytest
 import torch
 
 from src.platform.runtime.native.engine import NativeGenerator, NativeModel, RunCache
@@ -110,7 +111,7 @@ def test_weight_revision_is_part_of_the_key():
     x = _latents()[0]
     ctx, ids, w = _branch(1)
     dit = NativeModel("dit", m)
-    cache = RunCache(dit.weight_revision)
+    cache = RunCache(lambda: dit.effective_revision)
     m.run_cache = cache
     calls = _count_adapter(m)
 
@@ -118,7 +119,7 @@ def test_weight_revision_is_part_of_the_key():
         m(x, _SIGMAS[0], ctx, t5xxl_ids=ids, t5xxl_weights=w)
         m(x, _SIGMAS[1], ctx, t5xxl_ids=ids, t5xxl_weights=w)
         assert calls["n"] == 1
-        cache.revision = dit.bump_weight_revision("scheduled adapter window")
+        dit.bump_weight_revision("scheduled adapter window")
         m(x, _SIGMAS[2], ctx, t5xxl_ids=ids, t5xxl_weights=w)
 
     assert calls["n"] == 2
@@ -173,3 +174,100 @@ def test_model_eviction_releases_the_run_cache_tensors():
 
     assert len(cache) == 0
     assert alive() is None
+
+
+# --- identity: in-place mutation, aliasing views, inference tensors ---------
+
+def test_in_place_mutation_of_the_same_weights_tensor_recomputes():
+    """The killer case for a (data_ptr, shape, dtype, device) key: every one of
+    those components survives ``mul_``, so the stale fusion would be reused."""
+    m = _build_ready(TINY)
+    x = _latents()[0]
+    ctx, ids, w = _branch(1)
+    m.run_cache = RunCache(revision=1)
+    calls = _count_adapter(m)
+
+    with torch.no_grad():
+        first = m(x, _SIGMAS[0], ctx, t5xxl_ids=ids, t5xxl_weights=w)
+        w.mul_(2.0)
+        after = m(x, _SIGMAS[0], ctx, t5xxl_ids=ids, t5xxl_weights=w)
+
+    assert calls["n"] == 2
+    assert not torch.equal(first, after)
+
+
+def test_different_stride_views_of_one_storage_are_separate_entries():
+    """Two same-shape views over one storage share a ``data_ptr`` while
+    addressing different elements; only stride/offset tell them apart."""
+    base = torch.randn(1, 16, 16, generator=torch.Generator().manual_seed(5))
+    a = base[:, :5, :]
+    b = base[:, :, :5].transpose(1, 2)
+    assert a.data_ptr() == b.data_ptr() and a.shape == b.shape
+    assert not torch.equal(a, b)
+
+    m = _build_ready(TINY)
+    x = _latents()[0]
+    _, ids, w = _branch(1)
+    m.run_cache = RunCache(revision=1)
+    calls = _count_adapter(m)
+
+    with torch.no_grad():
+        out_a = m(x, _SIGMAS[0], a, t5xxl_ids=ids, t5xxl_weights=w)
+        out_b = m(x, _SIGMAS[0], b, t5xxl_ids=ids, t5xxl_weights=w)
+
+    assert calls["n"] == 2
+    assert not torch.equal(out_a, out_b)
+
+
+def test_inference_mode_conditioning_is_cached_and_torch_forbids_mutating_it():
+    """Text encoders encode under ``inference_mode``, so conditioning routinely
+    arrives as inference tensors. They have no version counter, and are cached
+    anyway because PyTorch refuses the in-place write the counter would catch —
+    the second half of this test is that guarantee."""
+    with torch.inference_mode():
+        ctx = torch.randn(1, 5, 16)
+        ids = torch.randint(0, 100, (1, 7))
+        w = torch.rand(1, 7)
+    assert ctx.is_inference() and ids.is_inference() and w.is_inference()
+
+    m = _build_ready(TINY)
+    latents = _latents()
+    m.run_cache = RunCache(revision=1)
+    calls = _count_adapter(m)
+
+    with torch.no_grad():
+        for sigma, x in zip(_SIGMAS, latents):
+            m(x, sigma, ctx, t5xxl_ids=ids, t5xxl_weights=w)
+
+    assert calls["n"] == 1
+    with pytest.raises(RuntimeError, match="[Ii]nference"):
+        w.mul_(2.0)
+
+
+def test_unidentifiable_component_disables_caching():
+    """A tensor whose identity cannot be established must not be keyed on."""
+    from src.platform.runtime.native import cache_identity
+
+    m = _build_ready(TINY)
+    x = _latents()[0]
+    ctx, ids, w = _branch(1)
+    m.run_cache = RunCache(revision=1)
+    calls = _count_adapter(m)
+
+    real = cache_identity.tensor_identity
+
+    def unidentifiable(t):
+        return cache_identity.UNIDENTIFIABLE if t is w else real(t)
+
+    import src.platform.runtime.native.arch.anima.model as anima_model
+
+    anima_model.tensor_identity = unidentifiable
+    try:
+        with torch.no_grad():
+            m(x, _SIGMAS[0], ctx, t5xxl_ids=ids, t5xxl_weights=w)
+            m(x, _SIGMAS[0], ctx, t5xxl_ids=ids, t5xxl_weights=w)
+    finally:
+        anima_model.tensor_identity = real
+
+    assert calls["n"] == 2
+    assert len(m.run_cache) == 0

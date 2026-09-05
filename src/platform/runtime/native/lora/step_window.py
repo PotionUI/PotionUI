@@ -30,13 +30,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Sequence, Tuple
 
 import torch
-import torch.nn as nn
 
 from ..sampling.hooks import BaseStepHook
 from .apply import apply_loras, restore_lora_state, snapshot_lora_state
+
+if TYPE_CHECKING:  # a runtime import would close the engine -> lora -> engine loop
+    from ..engine import NativeModel
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +140,15 @@ class LoraStepWindowHook(BaseStepHook):
     ``finally`` rather than relying on ``on_end``, because the sampler isolates
     (swallows) hook exceptions and a swallowed removal would leave the shared,
     cached model permanently patched.
+
+    Every boundary that actually changes the patches advances the DiT wrapper's
+    ``effective_revision``, which is what run-scoped caches of weight-dependent
+    work key on (``NativeGenerator.RunCache``). ``weight_revision`` is left alone
+    on the success path — it is the cross-run identity, and moving it per step
+    would change the trajectory warm-start key under an unchanged schedule. The
+    one exception is a FAILED apply: a half-patched module is no longer the base
+    stack the loader stamped, so the base identity is forced forward too and can
+    never be reused.
     """
 
     # Ahead of preview/progress so a step's weights are settled before anything
@@ -145,10 +156,11 @@ class LoraStepWindowHook(BaseStepHook):
     # hook reads model weights) but keeps the trace easy to read.
     priority = 900
 
-    def __init__(self, module: nn.Module, loras: Sequence[WindowedLora]) -> None:
-        self._module = module
+    def __init__(self, dit: "NativeModel", loras: Sequence[WindowedLora]) -> None:
+        self._dit = dit
+        self._module = dit.module
         self._loras = tuple(loras)
-        self._base = snapshot_lora_state(module)
+        self._base = snapshot_lora_state(self._module)
         self._applied: Tuple[int, ...] = ()
         self._dirty = False
         self._closed = False
@@ -185,6 +197,12 @@ class LoraStepWindowHook(BaseStepHook):
         restore_lora_state(self._base)
         self._applied = ()
         self._dirty = False
+        # A FRESH epoch, not the pre-apply value. Restoring from the base snapshot
+        # is believed exact, but "believed" is not "verified" across the
+        # quantised runtime-delta path, and a wrong reuse here is a silently
+        # wrong image. A fresh epoch costs at most a recompute of run-scoped work
+        # nothing is going to ask for again — the run is over.
+        self._dit.bump_effective_revision("windowed LoRA restored at run end")
 
     def _warn_unreachable(self) -> None:
         for index, (_sd, _weight, window) in enumerate(self._loras):
@@ -207,6 +225,7 @@ class LoraStepWindowHook(BaseStepHook):
             restore_lora_state(self._base)
             self._applied = ()
             self._dirty = False
+            self._dit.bump_effective_revision(f"windowed LoRA cleared entering step {step_index}")
         if not wanted:
             return
         stack: List[Tuple[Dict[str, torch.Tensor], float]] = [
@@ -215,6 +234,15 @@ class LoraStepWindowHook(BaseStepHook):
         # Marked dirty BEFORE the patch: a mid-apply failure still needs
         # close() to run the restore that undoes the partial work.
         self._dirty = True
-        apply_loras(self._module, stack)
+        # Revised BEFORE the patch for the same reason: a partial apply must not
+        # leave any cache able to answer from the pre-apply weights. A failure
+        # additionally forces the CROSS-run identity forward, since a half-patched
+        # module is no longer the base stack the loader stamped.
+        self._dit.bump_effective_revision(f"windowed LoRA set {list(wanted)} entering step {step_index}")
+        try:
+            apply_loras(self._module, stack)
+        except Exception:
+            self._dit.bump_weight_revision("windowed LoRA apply failed, module half-patched")
+            raise
         self._applied = wanted
         logger.debug("step %d: windowed LoRA set -> %s", step_index, list(wanted))

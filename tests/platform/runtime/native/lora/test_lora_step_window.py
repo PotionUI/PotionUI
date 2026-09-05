@@ -13,6 +13,7 @@ import torch
 from src.platform.runtime.native.arch.flux.model import Flux
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
+from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.lora import apply_loras
 from src.platform.runtime.native.lora.step_window import (
     LoraStepWindow,
@@ -119,10 +120,16 @@ def test_parse_rejects_a_non_numeric_window_rather_than_dropping_it():
 
 # --- hook: real weights at real step edges -------------------------------
 
+def _dit(module) -> NativeModel:
+    """Wrap a bare module the way the generator hands one to the hook."""
+    return NativeModel("diffusion_model", module)
+
+
+
 def test_hook_patches_only_inside_the_window():
     module = _build()
     baseline = _target_weight(module).clone()
-    hook = LoraStepWindowHook(module, [(_kohya_lora(), 1.0, LoraStepWindow(1, 2))])
+    hook = LoraStepWindowHook(_dit(module), [(_kohya_lora(), 1.0, LoraStepWindow(1, 2))])
 
     hook.on_start(8)
     assert _is_patched(module, baseline), "window opens at step 1: must be patched entering step 0"
@@ -143,7 +150,7 @@ def test_hook_patches_only_inside_the_window():
 def test_hook_opens_a_late_window_at_the_right_step():
     module = _build()
     baseline = _target_weight(module).clone()
-    hook = LoraStepWindowHook(module, [(_kohya_lora(), 1.0, LoraStepWindow(3, 4))])
+    hook = LoraStepWindowHook(_dit(module), [(_kohya_lora(), 1.0, LoraStepWindow(3, 4))])
 
     hook.on_start(8)
     assert not _is_patched(module, baseline)
@@ -161,7 +168,7 @@ def test_close_restores_the_weights_when_the_run_dies_mid_window():
     model patched — this is the cache-poisoning guarantee."""
     module = _build()
     baseline = _target_weight(module).clone()
-    hook = LoraStepWindowHook(module, [(_kohya_lora(), 1.0, LoraStepWindow(1, 6))])
+    hook = LoraStepWindowHook(_dit(module), [(_kohya_lora(), 1.0, LoraStepWindow(1, 6))])
 
     hook.on_start(8)
     hook.on_step(0, 8, None, 0.0, None)
@@ -174,7 +181,7 @@ def test_close_restores_the_weights_when_the_run_dies_mid_window():
 def test_close_is_idempotent():
     module = _build()
     baseline = _target_weight(module).clone()
-    hook = LoraStepWindowHook(module, [(_kohya_lora(), 1.0, LoraStepWindow(1, 2))])
+    hook = LoraStepWindowHook(_dit(module), [(_kohya_lora(), 1.0, LoraStepWindow(1, 2))])
     hook.on_start(8)
     hook.close()
     hook.close()
@@ -190,7 +197,7 @@ def test_a_loader_baked_lora_survives_the_window_hook():
     baked = _target_weight(module).clone()
     assert not torch.equal(baked, bare)
 
-    hook = LoraStepWindowHook(module, [(_kohya_lora(seed=3), 1.0, LoraStepWindow(1, 2))])
+    hook = LoraStepWindowHook(_dit(module), [(_kohya_lora(seed=3), 1.0, LoraStepWindow(1, 2))])
     hook.on_start(8)
     hook.on_step(1, 8, None, 0.0, None)
     hook.close()
@@ -203,7 +210,7 @@ def test_overlapping_windows_each_leave_at_their_own_edge():
     baseline = _target_weight(module).clone()
     a = _kohya_lora(seed=11)
     b = _kohya_lora(seed=12)
-    hook = LoraStepWindowHook(module, [
+    hook = LoraStepWindowHook(_dit(module), [
         (a, 1.0, LoraStepWindow(1, 4)),
         (b, 1.0, LoraStepWindow(3, 6)),
     ])
@@ -236,7 +243,7 @@ def _build_from(baseline):
 def test_no_windowed_loras_is_a_pure_noop():
     module = _build()
     baseline = _target_weight(module).clone()
-    hook = LoraStepWindowHook(module, [])
+    hook = LoraStepWindowHook(_dit(module), [])
     hook.on_start(8)
     for i in range(8):
         hook.on_step(i, 8, None, 0.0, None)
@@ -247,7 +254,7 @@ def test_no_windowed_loras_is_a_pure_noop():
 def test_window_starting_past_the_run_warns_and_never_applies(caplog):
     module = _build()
     baseline = _target_weight(module).clone()
-    hook = LoraStepWindowHook(module, [(_kohya_lora(), 1.0, LoraStepWindow(20, 24))])
+    hook = LoraStepWindowHook(_dit(module), [(_kohya_lora(), 1.0, LoraStepWindow(20, 24))])
     with caplog.at_level("WARNING"):
         hook.on_start(8)
     assert "never apply" in caplog.text
@@ -255,3 +262,146 @@ def test_window_starting_past_the_run_warns_and_never_applies(caplog):
         hook.on_step(i, 8, None, 0.0, None)
     assert torch.equal(_target_weight(module), baseline)
     hook.close()
+
+
+# --- effective-weight identity across a window edge -----------------------
+
+def _cached_forward(cache, dit, module):
+    """Cache one weight-dependent value under the DiT's live revision, as an arch does."""
+    key = ("windowed.probe", cache.revision)
+    hit = cache.get(key)
+    if hit is not None:
+        return hit, True
+    value = _target_weight(module).sum().item()
+    cache.put(key, value)
+    return value, False
+
+
+def test_a_cached_value_cannot_survive_a_window_edge():
+    """A RunCache entry computed before a window applies must not answer after it.
+
+    The value here IS the patched weight, so a stale hit is a wrong answer, not
+    just a stale one.
+    """
+    from src.platform.runtime.native.engine import RunCache
+
+    module = _build()
+    dit = _dit(module)
+    cache = RunCache(lambda: dit.effective_revision)
+    hook = LoraStepWindowHook(dit, [(_kohya_lora(), 1.0, LoraStepWindow(3, 4))])
+
+    hook.on_start(6)
+    before, hit = _cached_forward(cache, dit, module)
+    assert hit is False
+    assert _cached_forward(cache, dit, module) == (before, True)  # same weights, reused
+
+    hook.on_step(1, 6, None, 0.0, None)  # entering step 2 (0-based) = window opens
+    after, hit = _cached_forward(cache, dit, module)
+    assert hit is False, "the window applied: the cached value must not answer"
+    assert after != before
+
+    hook.on_step(3, 6, None, 0.0, None)  # entering step 4 = window closes
+    restored, hit = _cached_forward(cache, dit, module)
+    assert hit is False, "the window restored: still a fresh epoch, correctness first"
+    assert restored == pytest.approx(before)
+
+
+def test_close_leaves_a_fresh_epoch_rather_than_the_pre_apply_revision():
+    module = _build()
+    dit = _dit(module)
+    hook = LoraStepWindowHook(dit, [(_kohya_lora(), 1.0, LoraStepWindow(1, 4))])
+    start = dit.effective_revision
+
+    hook.on_start(4)
+    applied = dit.effective_revision
+    hook.close()
+
+    assert applied > start
+    assert dit.effective_revision > applied
+
+
+def test_an_unused_window_never_moves_either_revision():
+    module = _build()
+    dit = _dit(module)
+    hook = LoraStepWindowHook(dit, [(_kohya_lora(), 1.0, LoraStepWindow(20, 24))])
+    effective, weights = dit.effective_revision, dit.weight_revision
+
+    hook.on_start(4)
+    for step in range(4):
+        hook.on_step(step, 4, None, 0.0, None)
+    hook.close()
+
+    assert (dit.effective_revision, dit.weight_revision) == (effective, weights)
+
+
+def test_a_failed_apply_forces_the_cross_run_identity_forward(monkeypatch):
+    """A half-patched module is no longer the base stack the loader stamped."""
+    import src.platform.runtime.native.lora.step_window as step_window
+
+    module = _build()
+    dit = _dit(module)
+    hook = LoraStepWindowHook(dit, [(_kohya_lora(), 1.0, LoraStepWindow(1, 2))])
+    weights = dit.weight_revision
+
+    def _boom(module, stack):
+        raise RuntimeError("half-patched")
+
+    monkeypatch.setattr(step_window, "apply_loras", _boom)
+    with pytest.raises(RuntimeError, match="half-patched"):
+        hook.on_start(4)
+
+    assert dit.weight_revision > weights
+
+
+def test_the_success_path_never_moves_the_cross_run_identity():
+    """Warm-start keys on weight_revision, so a window crossing must not move it."""
+    module = _build()
+    dit = _dit(module)
+    hook = LoraStepWindowHook(dit, [(_kohya_lora(), 1.0, LoraStepWindow(2, 3))])
+    weights = dit.weight_revision
+
+    hook.on_start(6)
+    for step in range(5):
+        hook.on_step(step, 6, None, 0.0, None)
+    hook.close()
+
+    assert dit.weight_revision == weights
+
+
+def test_a_full_window_cycle_leaves_the_trajectory_key_reusable():
+    """The point of the two-level split: warm reuse survives a windowed run.
+
+    Bumping ``weight_revision`` per apply/restore would make every run cold.
+    """
+    from types import SimpleNamespace
+
+    from src.platform.runtime.native.engine import NativeGenerator
+    from src.platform.runtime.native.sampling.trajectory_cache import get_trajectory_cache
+
+    module = _build()
+    dit = _dit(module)
+    gen = SimpleNamespace(spec=SimpleNamespace(family="flux", variant="dev"), dit=dit)
+    cond = {"context": torch.randn(1, 4, 8)}
+
+    def plan():
+        resume, _ = NativeGenerator._plan_warm_start(
+            gen, True, "euler", None, cond, None, 1234, (1, 4, 4, 4), 6, None, (),
+            {"guidance": None, "shift": 2.02}, {}, None, None, sigmas=None,
+        )
+        return resume[0] if resume is not None else None
+
+    cache = get_trajectory_cache()
+    cache.clear()
+    try:
+        assert plan() is None  # cold first run
+        cache.get(next(iter(cache._entries))).checkpoints = {4: torch.full((1, 4, 4, 4), 2.0)}
+
+        hook = LoraStepWindowHook(dit, [(_kohya_lora(), 1.0, LoraStepWindow(1, 2))])
+        hook.on_start(6)
+        for step in range(5):
+            hook.on_step(step, 6, None, 0.0, None)
+        hook.close()
+
+        assert plan() == 4, "an unchanged schedule must still resume after a windowed run"
+    finally:
+        cache.clear()

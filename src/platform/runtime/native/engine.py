@@ -31,7 +31,7 @@ import logging
 import os
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Literal, Sequence
+from typing import Any, Callable, Literal, Sequence
 
 import numpy as np
 import torch
@@ -272,24 +272,47 @@ class RunCache:
     every step (``arch/anima/model.py``). An arch looks for ``run_cache`` on
     itself, so a family that has nothing step-invariant to hoist is unaffected.
 
-    ``revision`` is the DiT's :attr:`NativeModel.weight_revision` at run start:
-    every key must carry it, so a value computed before an in-place adapter
-    reconciliation can never answer a lookup made after one.
+    ``revision`` is the DiT's :attr:`NativeModel.effective_revision`, read LIVE on
+    every access rather than frozen at run start: a step-windowed LoRA applies and
+    restores at step boundaries WITHIN a run, so a value computed at step 1 must
+    not answer a lookup at step 3. Every key must carry it, and any entry keyed
+    under a different one is dropped on the next access as a second line of
+    defence for an arch that forgets to include it.
+
+    The ``revision`` argument is either that live accessor (a zero-argument
+    callable — what the engine passes) or a plain int, which freezes the revision
+    for a caller that has no model wrapper to read from.
 
     Capacity is the number of guidance branches a run can have; a further
     distinct key evicts the oldest rather than growing. The engine drops the
     whole cache at run end, so no entry outlives the run that keyed it.
     """
 
-    def __init__(self, revision: int, max_entries: int = 2) -> None:
-        self.revision = revision
+    def __init__(self, revision: int | Callable[[], int], max_entries: int = 2) -> None:
+        self._revision = revision
         self.max_entries = max_entries
         self._entries: dict[tuple, Any] = {}
+        self._entries_revision = self.revision
+
+    @property
+    def revision(self) -> int:
+        source = self._revision
+        return source() if callable(source) else source
+
+    def _drop_stale(self) -> int:
+        """Discard everything keyed under a superseded revision; return the current one."""
+        current = self.revision
+        if current != self._entries_revision:
+            self._entries.clear()
+            self._entries_revision = current
+        return current
 
     def get(self, key: tuple) -> Any:
+        self._drop_stale()
         return self._entries.get(key)
 
     def put(self, key: tuple, value: Any) -> Any:
+        self._drop_stale()
         if key not in self._entries and len(self._entries) >= self.max_entries:
             del self._entries[next(iter(self._entries))]
         self._entries[key] = value
@@ -309,12 +332,22 @@ class NativeModel:
     (a callable ``.unload()``) plus ``.spec`` / ``.module`` / ``.estimated_vram_gb``
     and the ``move_to`` / ``offload`` pair the generator uses to sequence phases.
 
-    ``weight_revision`` is the identity of the EFFECTIVE weights this wrapper
-    computes with: include it in any cache keyed on model outputs (the trajectory
-    warm-start cache does). The module object alone is not that identity — the
-    Flux and Krea-2 loaders reconcile a LoRA stack IN PLACE on the cached module,
-    so the same ``id(module)`` can denote different weights across generations.
-    Mutators call :meth:`bump_weight_revision` at the mutation boundary.
+    Two revisions describe what this wrapper computes with; both draw from one
+    process-global counter, so a value is never reused by either.
+
+    ``weight_revision`` is the CROSS-RUN identity: the base adapter stack plus the
+    step-window configuration a run was set up with. It is what a cache spanning
+    runs must key on (the trajectory warm-start cache does), and it holds still
+    for the whole of a run so an unchanged schedule keeps resuming. The module
+    object alone is not that identity — the Flux and Krea-2 loaders reconcile a
+    LoRA stack IN PLACE on the cached module, so the same ``id(module)`` can
+    denote different weights across generations. Mutators call
+    :meth:`bump_weight_revision` at the mutation boundary.
+
+    ``effective_revision`` is the LIVE identity: what is actually patched in right
+    now. The step-windowed LoRA hook moves it at every apply and every restore, so
+    a cache whose values depend on the weights (:class:`RunCache`) must key on
+    this one instead. It advances with ``weight_revision`` too.
     """
 
     # A partial-residency teardown that vacated at least this much page-locked
@@ -347,6 +380,7 @@ class NativeModel:
         self.quant_format = quant_format
         self.device = device
         self.weight_revision = next(_weight_revisions)
+        self.effective_revision = self.weight_revision
         # Set when this component is placed with PARTIAL residency (some leaves on
         # the GPU, the rest streamed from pinned CPU RAM). ``None`` = all-or-nothing
         # residency via ``move_to``. See ``memory/partial.py``.
@@ -365,12 +399,33 @@ class NativeModel:
         half-patched module, and a revision bumped up front already invalidates
         every cache keyed on it. Bumping is cheap (one counter read) and monotonic
         — a revision, once left behind, can never come back.
+
+        A base-stack change is also a change to what is patched in right now, so
+        this advances :attr:`effective_revision` with it.
         """
         self.weight_revision = next(_weight_revisions)
+        self.effective_revision = self.weight_revision
         logger.debug(
             "[NATIVE] %s weights revised to r%d: %s", self.kind, self.weight_revision, reason,
         )
         return self.weight_revision
+
+    def bump_effective_revision(self, reason: str) -> int:
+        """Declare that the patches currently IN the module changed, mid-run.
+
+        The step-windowed LoRA hook patches and unpatches at step boundaries, so
+        the weights a forward computes with are not constant across a run even
+        though the base stack and the window configuration are. This is the signal
+        for that; :attr:`weight_revision` deliberately does NOT move, or the
+        trajectory warm-start key would change under an unchanged schedule and
+        warm reuse would die.
+        """
+        self.effective_revision = next(_weight_revisions)
+        logger.debug(
+            "[NATIVE] %s effective weights revised to r%d: %s",
+            self.kind, self.effective_revision, reason,
+        )
+        return self.effective_revision
 
     def _reclaim_host_after_teardown(self, pinned_gb: float) -> None:
         """Return the host pages a partial-residency teardown vacated to the OS.
@@ -1623,9 +1678,14 @@ class NativeGenerator:
         ``_make_forward`` in its own pipe. Always detached: an entry that outlived
         its run would hold conditioning-sized tensors alive behind a cached module
         and could answer a lookup made after an in-place weight change.
+
+        The cache reads the DiT's effective revision live, not once here: a
+        step-windowed LoRA changes the patched weights at step boundaries inside
+        this very scope.
         """
         module = self.dit.module
-        module.run_cache = RunCache(self.dit.weight_revision)
+        dit = self.dit
+        module.run_cache = RunCache(lambda: dit.effective_revision)
         try:
             yield
         finally:

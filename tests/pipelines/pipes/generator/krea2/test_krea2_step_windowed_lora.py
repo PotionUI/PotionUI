@@ -18,6 +18,7 @@ import torch
 
 from src.pipelines.contracts import PipeInput
 from src.pipelines.pipes.generator.krea2.main import GeneratorKrea2Pipe
+from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.lora.step_window import LoraStepWindow
 
 _FLOW = "src.pipelines.pipes._shared.generation.flow_generator_pipe"
@@ -115,7 +116,7 @@ def journal(monkeypatch):
 
 def _bundle(windowed_loras=()):
     return SimpleNamespace(
-        dit=SimpleNamespace(estimated_vram_gb=26.0, module=object()),
+        dit=NativeModel("diffusion_model", object(), estimated_vram_gb=26.0),
         te_encoder=object(),
         vae=object(),
         te_cache_key=None,
@@ -232,7 +233,7 @@ def test_a_bundle_without_the_field_is_supported(journal):
     """Families whose loader has not adopted windows hand over a bundle with no
     ``windowed_loras`` at all — that must read as "none", not crash."""
     bundle = SimpleNamespace(
-        dit=SimpleNamespace(estimated_vram_gb=26.0, module=object()),
+        dit=NativeModel("diffusion_model", object(), estimated_vram_gb=26.0),
         te_encoder=object(), vae=object(), te_cache_key=None,
     )
     pipe = _make_pipe(steps=4, preview=False)

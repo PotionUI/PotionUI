@@ -302,7 +302,10 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
             yield
             return
         gen: NativeGenerator = ctx.extra["generator"]
-        hook = LoraStepWindowHook(gen.dit.module, stack)
+        # The wrapper, not the bare module: the hook revises the DiT's effective
+        # weight identity at every apply/restore so run-scoped caches of
+        # weight-dependent work miss across a window edge.
+        hook = LoraStepWindowHook(gen.dit, stack)
         self._lora_window_hook = hook
         completed = False
         try:

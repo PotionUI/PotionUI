@@ -19,6 +19,13 @@
 #   * rife46 has no feature encoder; rife47-49 do.
 #   * rife46 accumulates each block's mask residual (`mask = mask + m`);
 #     rife47-49 replace it (`mask = m`). Only the flow accumulates in both.
+#
+# Local modification (PotionUI): `IFNet.forward` takes optional `f0`/`f1`
+# encoder features and only runs `self.encode` on the frames whose features were
+# not supplied, so a caller interpolating several timesteps between the same
+# pair encodes each source frame once (see inference.py's `prepare_frame`).
+# Nothing else about the forward changed, and omitting both keeps upstream's
+# behaviour.
 
 from __future__ import annotations
 
@@ -104,7 +111,7 @@ class IFNet(nn.Module):
         self.encode = encoder(*encode_spec) if encode_spec is not None else None
         self.mask_is_residual = self.encode is None
 
-    def forward(self, x, timestep=0.5, scale_list=(8, 4, 2, 1)):
+    def forward(self, x, timestep=0.5, scale_list=(8, 4, 2, 1), f0=None, f1=None):
         channel = x.shape[1] // 2
         img0 = x[:, :channel]
         img1 = x[:, channel:]
@@ -113,8 +120,13 @@ class IFNet(nn.Module):
         else:
             timestep = timestep.repeat(1, 1, img0.shape[2], img0.shape[3])
 
-        f0 = self.encode(img0[:, :3]) if self.encode is not None else None
-        f1 = self.encode(img1[:, :3]) if self.encode is not None else None
+        if self.encode is None:
+            f0 = f1 = None
+        else:
+            if f0 is None:
+                f0 = self.encode(img0[:, :3])
+            if f1 is None:
+                f1 = self.encode(img1[:, :3])
 
         blocks = [getattr(self, f"block{i}") for i in range(self.num_blocks)]
         flow = None

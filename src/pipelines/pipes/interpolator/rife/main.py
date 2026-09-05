@@ -44,8 +44,8 @@ from src.pipelines.pipes.interpolator.rife.encode import (
     StreamingMp4Writer,
     mux_audio_from_source,
 )
-from vendor.rife import interpolate as rife_interpolate
 from vendor.rife import load_ifnet
+from vendor.rife.inference import PreparedFrame, interpolate_prepared, prepare_frame
 
 _MODEL_CACHE: Dict[Tuple[str, float], "torch.nn.Module"] = {}
 _PROGRESS_EVERY = 8
@@ -169,6 +169,8 @@ class RifeInterpolatorPipe(BasePipe):
 
             prev_rgb: Optional[np.ndarray] = None
             prev_tensor: Optional[torch.Tensor] = None
+            prev_prepared: Optional[PreparedFrame] = None
+            f0 = f1 = None
             read_idx = 0
             while True:
                 if is_cancelled and is_cancelled():
@@ -190,8 +192,10 @@ class RifeInterpolatorPipe(BasePipe):
                     written += 1
                     continue
 
+                f0, f1 = self._prepare_pair(model, prev_tensor, cur_tensor,
+                                            flow_scale, prev_prepared)
                 for t in timesteps:
-                    mid = self._run(model, prev_tensor, cur_tensor, t, flow_scale)
+                    mid = self._run(model, f0, f1, t, flow_scale)
                     writer.write(mid)
                     written += 1
                 writer.write(rgb)
@@ -199,6 +203,7 @@ class RifeInterpolatorPipe(BasePipe):
 
                 prev_rgb = rgb
                 prev_tensor = cur_tensor
+                prev_prepared = f1
 
                 if out_total and read_idx % _PROGRESS_EVERY == 0:
                     generation_outputs(ProgressGenerationOutput(
@@ -208,6 +213,11 @@ class RifeInterpolatorPipe(BasePipe):
                     ))
         finally:
             cap.release()
+            # Padded frames and encoder features are the largest tensors the loop
+            # holds; drop them on the normal exit, on cancellation and on an
+            # exception alike. `prev_rgb` outlives this block -- the tail hold and
+            # the output resolution read it.
+            prev_tensor = prev_prepared = f0 = f1 = None
 
         if writer is None:
             raise ValueError(f"interpolator/rife: no frames decoded from {video_path}")
@@ -252,9 +262,22 @@ class RifeInterpolatorPipe(BasePipe):
         return t.permute(2, 0, 1).unsqueeze(0).to(device=device, dtype=dtype)
 
     @staticmethod
-    def _run(model, img0: torch.Tensor, img1: torch.Tensor, timestep: float,
+    def _prepare_pair(model, img0: torch.Tensor, img1: torch.Tensor, flow_scale: float,
+                      carried: Optional[PreparedFrame] = None,
+                      ) -> Tuple[PreparedFrame, PreparedFrame]:
+        """Pad and feature-encode the pair's two frames once, reusing ``carried``
+        (the previous pair's right frame, which is this pair's left one) when it
+        was prepared from ``img0`` under the same model, geometry, device, dtype
+        and flow scale. Every timestep in the pair then shares this work."""
+        if carried is not None and carried.matches(model, img0, flow_scale):
+            f0 = carried
+        else:
+            f0 = prepare_frame(model, img0, flow_scale)
+        return f0, prepare_frame(model, img1, flow_scale)
+
+    @staticmethod
+    def _run(model, f0: PreparedFrame, f1: PreparedFrame, timestep: float,
              flow_scale: float) -> np.ndarray:
-        with torch.no_grad():
-            mid = rife_interpolate(model, img0, img1, timestep, flow_scale)
+        mid = interpolate_prepared(model, f0, f1, timestep, flow_scale)
         mid = mid.float().clamp_(0.0, 1.0).mul_(255.0).round_().to(torch.uint8)[0]
         return mid.permute(1, 2, 0).contiguous().cpu().numpy()

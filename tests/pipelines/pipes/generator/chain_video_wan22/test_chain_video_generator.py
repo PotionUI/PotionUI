@@ -32,14 +32,21 @@ class _FakeSpec:
     latent_format: dict = field(default_factory=lambda: {"latent_channels": 16, "format": "wan21", "spatial_downscale": 8})
 
 
-def _fake_dit(in_dim=36):
+def _fake_dit(in_dim=36, img_emb=None):
     return SimpleNamespace(
         compute_dtype=torch.float32,
         spec=_FakeSpec(),
-        module=SimpleNamespace(patch_size=(1, 2, 2), in_dim=in_dim),
+        module=SimpleNamespace(patch_size=(1, 2, 2), in_dim=in_dim, img_emb=img_emb),
         move_to=lambda d: None,
         offload=lambda: None,
     )
+
+
+def _fake_img_emb(flf=False):
+    """A classic Wan i2v checkpoint's img_emb (CLIP-vision projector) --
+    ``emb_pos`` is only populated for the first-last-frame (FLF) variant, see
+    arch/wan/model.py's MLPProj."""
+    return SimpleNamespace(emb_pos=SimpleNamespace() if flf else None)
 
 
 def _bundle(in_dim=36, dual=True, variant="wan22_i2v_14b", loras_high=None, loras_low=None):
@@ -223,6 +230,95 @@ def test_missing_segments_raises():
     pi = _inputs(model=_bundle(in_dim=16, dual=False), conditioning=_cond(1))
     with pytest.raises(ValueError, match="segments"):
         pipe.process(pi, lambda o: None)
+
+
+# -- classic Wan i2v (CLIP-vision img_emb) is rejected, not just in_dim -----
+#
+# Classic Wan i2v checkpoints (with or without the FLF `emb_pos` table) share
+# in_dim=36 with the concat-i2v contract this generator implements, but need
+# CLIP-vision features (`clip_fea`) neither this generator nor img2vid_wan22
+# ever supplies -- see src/pipelines/pipes/_shared/generation/wan_i2v_contract.py.
+
+def test_i2v_set_classic_i2v_without_flf_raises_before_any_work():
+    doc = _document(n_segments=1, start_on_seg0=True)
+    pipe = _pipe(document=doc)
+    bundle = _bundle(in_dim=36, variant="wan_i2v_14b")
+    bundle.high_dit.module.img_emb = _fake_img_emb(flf=False)
+    pi = _inputs(model=bundle, conditioning=_cond(1), image=[torch.rand(8, 8, 3)])
+
+    with patch("src.pipelines.pipes.generator.chain_video_wan22.main.build_i2v_concat") as mock_build, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.denoise") as mock_denoise, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main._decode_video") as mock_decode, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.encode_frames_to_mp4") as mock_encode_mp4, \
+         _no_stitch():
+        with pytest.raises(ValueError, match="i2v"):
+            pipe.process(pi, lambda o: None)
+        mock_build.assert_not_called()
+        mock_denoise.assert_not_called()
+        mock_decode.assert_not_called()
+        mock_encode_mp4.assert_not_called()
+
+
+def test_i2v_set_classic_flf2v_raises_before_any_work():
+    doc = _document(n_segments=1, start_on_seg0=True)
+    pipe = _pipe(document=doc)
+    bundle = _bundle(in_dim=36, variant="wan_i2v_14b")
+    bundle.high_dit.module.img_emb = _fake_img_emb(flf=True)
+    pi = _inputs(model=bundle, conditioning=_cond(1), image=[torch.rand(8, 8, 3)])
+
+    with patch("src.pipelines.pipes.generator.chain_video_wan22.main.build_i2v_concat") as mock_build, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.denoise") as mock_denoise, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main._decode_video") as mock_decode, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.encode_frames_to_mp4") as mock_encode_mp4, \
+         _no_stitch():
+        with pytest.raises(ValueError, match="i2v"):
+            pipe.process(pi, lambda o: None)
+        mock_build.assert_not_called()
+        mock_denoise.assert_not_called()
+        mock_decode.assert_not_called()
+        mock_encode_mp4.assert_not_called()
+
+
+def test_i2v_set_incompatible_low_expert_raises_even_with_compatible_high():
+    # High is a compatible modern concat-i2v expert; low is the incompatible
+    # classic CLIP-vision expert -- BOTH experts that can execute must be
+    # checked, not just the one routing decisions are made from.
+    doc = _document(n_segments=1, start_on_seg0=True)
+    pipe = _pipe(document=doc)
+    bundle = _bundle(in_dim=36, dual=True, variant="wan_i2v_14b_mixed")
+    bundle.low_dit.module.img_emb = _fake_img_emb(flf=False)
+    pi = _inputs(model=bundle, conditioning=_cond(1), image=[torch.rand(8, 8, 3)])
+
+    with patch("src.pipelines.pipes.generator.chain_video_wan22.main.build_i2v_concat") as mock_build, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.denoise") as mock_denoise, \
+         _no_stitch():
+        with pytest.raises(ValueError, match="i2v"):
+            pipe.process(pi, lambda o: None)
+        mock_build.assert_not_called()
+        mock_denoise.assert_not_called()
+
+
+def test_chain_continuation_needing_incompatible_i2v_set_raises_before_that_segments_concat():
+    """A chain that opens on a compatible t2v shot and continues into an
+    incompatible classic-i2v set must still reject before the continuation
+    segment's own concat/denoise work, even though segment 0 already ran."""
+    doc = _document(n_segments=2, start_on_seg0=False)
+    pipe = _pipe(document=doc)
+    t2v_bundle = _bundle(in_dim=16, dual=False, variant="wan22_t2v")
+    i2v_bundle = _bundle(in_dim=36, variant="wan_i2v_14b")
+    i2v_bundle.high_dit.module.img_emb = _fake_img_emb(flf=True)
+    pi = _inputs(model=i2v_bundle, model_t2v=t2v_bundle, conditioning=_cond(2))
+
+    build, captured = _fake_build_i2v_concat_factory()
+    p1, p2, p3, p4 = _patches(fake_build=build)
+    with p1, p2 as mock_denoise, p3, p4, _no_stitch():
+        with pytest.raises(ValueError, match="i2v"):
+            pipe.process(pi, lambda o: None)
+
+    # Segment 0 (t2v) ran its own denoise/no-concat pass; the guard fired
+    # before segment 1 (chain, needs the i2v set) reached any concat work.
+    assert mock_denoise.call_count == 1
+    assert captured == []
 
 
 # -- per-segment sub-type routing -------------------------------------------

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 import torch
 
 from src.pipelines.outputs import GalleryGenerationOutput

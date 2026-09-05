@@ -56,6 +56,7 @@ from src.pipelines.contracts import (
 )
 from src.pipelines.outputs import Icon
 from src.pipelines.pipes._shared.generation.generator_base import emit_gallery
+from src.pipelines.pipes._shared.generation.wan_i2v_contract import require_concat_i2v_contract
 from src.pipelines.pipes._shared.generation.guidance_options import (
     apg_settings_config_specs,
     apg_settings_overrides,
@@ -469,6 +470,21 @@ class GeneratorWanChainVideoPipe(BasePipe):
                     f"generator/chain_video_wan22: the i2v set holds '{spec.variant}' (in_dim={in_dim}); an "
                     f"image-conditioned/chain shot needs a concat-i2v Wan checkpoint (in_dim=36)."
                 )
+            if set_name == "i2v":
+                # Classic Wan i2v checkpoints share in_dim=36 with the concat-i2v
+                # contract this generator implements, but condition through
+                # CLIP-vision `img_emb` cross-attention instead -- which this
+                # generator (like img2vid_wan22) never feeds `clip_fea` into. Check
+                # EVERY expert that can actually execute: a dual-expert pair whose
+                # low-noise file is the incompatible one must still reject, not
+                # just a mismatched high-noise expert.
+                for expert in (mset.base_high, mset.base_low):
+                    if expert is None:
+                        continue
+                    require_concat_i2v_contract(
+                        expert.module, generator="generator/chain_video_wan22",
+                        variant=spec.variant, mode_label="an image-conditioned/chain shot",
+                    )
             mset.sampling_settings = {
                 **spec.sampling_settings,
                 **apg_settings_overrides(self.config),

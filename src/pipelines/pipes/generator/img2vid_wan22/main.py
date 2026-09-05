@@ -39,6 +39,7 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
     slg_settings_overrides,
 )
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
+from src.pipelines.pipes._shared.generation.wan_i2v_contract import require_concat_i2v_contract
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
 from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_wan_vae_encode
 from src.pipelines.pipes.generator.img2vid_wan22.concat import build_i2v_concat
@@ -256,18 +257,16 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
                 f"text-to-video."
             )
 
-        # Wan 2.1 FLF2V-style checkpoints condition first/last frames through CLIP-vision
-        # (img_emb with position embeddings for the two image tokens), not through this
-        # generator's concat-only construction -- using one here would silently drop the
-        # image conditioning the checkpoint actually expects.
-        img_emb = getattr(bundle.high_dit.module, "img_emb", None)
-        if img_emb is not None and getattr(img_emb, "emb_pos", None) is not None:
-            raise ValueError(
-                f"generator/img2vid_wan22: loaded model '{bundle.spec.variant}' is a Wan 2.1 "
-                f"FLF2V-style checkpoint (CLIP-vision image conditioning with position "
-                f"embeddings), which this generator does not support. Use a Wan 2.2 i2v "
-                f"checkpoint instead."
-            )
+        # Classic Wan i2v checkpoints (with or without the FLF `emb_pos` table)
+        # condition through CLIP-vision `img_emb` cross-attention, not through
+        # this generator's concat-only construction -- using one here would
+        # silently drop the image conditioning the checkpoint actually expects.
+        # Also has in_dim=36 (same as the concat-i2v contract above), so only
+        # `img_emb`'s presence tells the two apart.
+        require_concat_i2v_contract(
+            bundle.high_dit.module, generator="generator/img2vid_wan22",
+            variant=bundle.spec.variant, mode_label=mode_label,
+        )
 
         steps = int(self.config.get("steps", 30))
         cfg = float(self.config.get("cfg", 5.0))

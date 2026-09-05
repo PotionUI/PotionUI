@@ -226,6 +226,93 @@ describe('runDirectorDependencyPlan', () => {
 		expect(onBlocked).not.toHaveBeenCalled();
 	});
 
+	// The EXACT contract the ordinary Generate button's main path uses
+	// (+page.svelte's `startGeneration`): the primary shot ('a') is submitted
+	// OUTSIDE this runner entirely and is NEVER itself a member of
+	// `shotsToSubmit` -- only `directorRemainingShotIds` (here, just ['b']) is
+	// passed in, with 'a' seeded via `presubmittedGenerationIds`. Distinct from
+	// the "shot presubmitted by the caller" control above, which (unrealistically
+	// for that call site) still lists 'a' in `shotsToSubmit` too -- these three
+	// cases prove the fix holds even when 'a' is ABSENT from that array, which is
+	// what actually reaches this function from `startGeneration`.
+	it('remaining-only contract (shotsToSubmit=[b], presubmitted={a}): b waits once on a\'s seeded generation, then submits with a\'s fresh frame', async () => {
+		const doc = timelineDoc([shot('a'), shot('b', { continue_from_previous: true })]);
+		const outputs: Record<string, PredecessorOutputLike> = { 'gen-a-primary': { videos: [{ url: 'generations/gen-a/1.mp4' }] } };
+		const submit = vi.fn().mockResolvedValue({ ok: true, generationId: 'gen-b' });
+		const waitForTerminal = vi.fn().mockResolvedValue('done');
+		const onBlocked = vi.fn();
+
+		await runDirectorDependencyPlan(
+			['b'],
+			doc,
+			caps,
+			{
+				getRuns: () => ({ a: { status: 'done', generationId: 'gen-a-primary' } }),
+				getOutputs: () => outputs,
+				submit,
+				waitForTerminal,
+				onBlocked
+			},
+			{ a: 'gen-a-primary' }
+		);
+
+		expect(submit).toHaveBeenCalledTimes(1); // 'a' never (re)submitted -- it isn't even in shotsToSubmit
+		expect(waitForTerminal).toHaveBeenCalledTimes(1);
+		expect(waitForTerminal).toHaveBeenCalledWith('a', 'gen-a-primary');
+		expect(submit).toHaveBeenCalledWith('b', GEN_A_FRAME, { generationId: 'gen-a-primary', outputKey: 'a' });
+		expect(onBlocked).not.toHaveBeenCalled();
+	});
+
+	it('remaining-only contract: the presubmitted primary fails -> b is blocked, never submitted', async () => {
+		const doc = timelineDoc([shot('a'), shot('b', { continue_from_previous: true })]);
+		const submit = vi.fn().mockResolvedValue({ ok: true, generationId: 'gen-b' });
+		const waitForTerminal = vi.fn().mockResolvedValue('failed');
+		const onBlocked = vi.fn();
+
+		await runDirectorDependencyPlan(
+			['b'],
+			doc,
+			caps,
+			{
+				getRuns: () => ({ a: { status: 'generating', generationId: 'gen-a-primary' } }),
+				getOutputs: () => ({}),
+				submit,
+				waitForTerminal,
+				onBlocked
+			},
+			{ a: 'gen-a-primary' }
+		);
+
+		expect(waitForTerminal).toHaveBeenCalledWith('a', 'gen-a-primary');
+		expect(submit).not.toHaveBeenCalled();
+		expect(onBlocked).toHaveBeenCalledWith('b', 'Its previous shot failed to generate');
+	});
+
+	it('remaining-only contract: the presubmitted primary is abandoned (tab removed / superseded) -> b is blocked with the abandon reason, never submitted', async () => {
+		const doc = timelineDoc([shot('a'), shot('b', { continue_from_previous: true })]);
+		const submit = vi.fn().mockResolvedValue({ ok: true, generationId: 'gen-b' });
+		const waitForTerminal = vi.fn().mockResolvedValue('abandoned');
+		const onBlocked = vi.fn();
+
+		await runDirectorDependencyPlan(
+			['b'],
+			doc,
+			caps,
+			{
+				getRuns: () => ({ a: { status: 'generating', generationId: 'gen-a-primary' } }),
+				getOutputs: () => ({}),
+				submit,
+				waitForTerminal,
+				onBlocked
+			},
+			{ a: 'gen-a-primary' }
+		);
+
+		expect(waitForTerminal).toHaveBeenCalledWith('a', 'gen-a-primary');
+		expect(submit).not.toHaveBeenCalled();
+		expect(onBlocked).toHaveBeenCalledWith('b', "Its previous shot's generation was interrupted");
+	});
+
 	it('three-shot chain: b waits on a, c waits on b, each inheriting its OWN immediate predecessor (never a\'s)', async () => {
 		const doc = timelineDoc([
 			shot('a'),

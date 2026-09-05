@@ -143,7 +143,18 @@ export async function runDirectorDependencyPlan(
 
 		const predecessorId = directorPredecessorShotId(doc, caps, shotId);
 
-		if (predecessorId && batch.has(predecessorId)) {
+		// A predecessor this call is responsible for -- either it's itself in
+		// `shotsToSubmit` (submitted, or about to be, by THIS loop), or it was
+		// PRESUBMITTED by the caller (`generationIdByShot` is seeded with those
+		// up front, line 137) -- must be waited on before its output can be
+		// resolved, even when it isn't in `shotsToSubmit` itself (the "remaining
+		// shots only" caller contract: the primary shot is presubmitted, never
+		// part of `shotsToSubmit`, but a remaining shot continuing from it still
+		// depends on ITS generation finishing). Only a predecessor genuinely
+		// OUTSIDE this call's knowledge (neither in the batch nor presubmitted)
+		// skips the wait -- `planDirectorSelection`'s own guarantee that such a
+		// predecessor already reads 'done'.
+		if (predecessorId && (batch.has(predecessorId) || generationIdByShot.has(predecessorId))) {
 			if (failedInBatch.has(predecessorId)) {
 				deps.onBlocked(shotId, PREDECESSOR_FAILED_REASON);
 				failedInBatch.add(shotId);

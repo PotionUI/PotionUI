@@ -42,6 +42,16 @@ class ChromaClientProvider:
         yet. A failed ``get()`` never caches anything, so a later ``get()``
         call already retries on its own; ``close()`` is for a caller that
         holds a live client and wants it released deliberately.
+
+        This provider is the only place a live client may be cached - callers
+        (the vector stores) must call ``get()`` on every access rather than
+        holding their own reference, or a store that cached an earlier result
+        keeps serving a client this provider has since closed. ``close()``
+        assumes a quiescent boundary: call it only when nothing else is
+        concurrently reading the client returned by a still-in-flight
+        ``get()`` call, since closing races with an in-progress read of the
+        about-to-be-replaced client are the caller's to avoid, not this
+        provider's to prevent.
         """
         with self._lock:
             client, self._client = self._client, None

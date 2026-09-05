@@ -153,6 +153,61 @@ def test_stores_sharing_a_provider_use_one_underlying_client(monkeypatch, tmp_pa
     assert len(calls) == 1
 
 
+class _FakeClient:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+@pytest.fixture
+def shared_stores(monkeypatch, tmp_path):
+    """Three real stores sharing one provider, with a fake chromadb client
+    factory - used to prove no store keeps serving a client the provider
+    has since closed."""
+    from src.features.media_index.gallery_prompt_vector_store import GalleryPromptVectorStore
+    from src.features.media_index.gallery_vector_store import GalleryVectorStore
+    from src.features.prompt_database.vector_store import PromptVectorStore
+
+    built = []
+
+    def fake_persistent_client(path):
+        client = _FakeClient()
+        built.append(client)
+        return client
+
+    import chromadb
+
+    monkeypatch.setattr(chromadb, "PersistentClient", fake_persistent_client)
+
+    provider = ChromaClientProvider(str(tmp_path))
+    stores = [
+        GalleryVectorStore(persist_dir=str(tmp_path), client_provider=provider),
+        GalleryPromptVectorStore(persist_dir=str(tmp_path), client_provider=provider),
+        PromptVectorStore(persist_dir=str(tmp_path), client_provider=provider),
+    ]
+    return provider, stores, built
+
+
+def test_shared_store_lifecycle_never_serves_a_closed_client_across_close_boundary(shared_stores):
+    provider, stores, built = shared_stores
+
+    before = [store.client for store in stores]
+    assert len({id(client) for client in before}) == 1
+    assert len(built) == 1
+
+    provider.close()
+
+    assert built[0].closed is True
+
+    after = [store.client for store in stores]
+    assert len({id(client) for client in after}) == 1
+    assert len(built) == 2
+    assert all(client is not before[0] for client in after)
+    assert all(client.closed is False for client in after)
+
+
 def test_importing_bootstrap_app_does_not_import_chromadb():
     env = dict(os.environ)
     site_packages = os.path.join(REPO_ROOT, "venv", "lib", "python3.12", "site-packages")

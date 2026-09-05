@@ -40,14 +40,20 @@ class GalleryPromptVectorStore:
     ):
         self._persist_dir = persist_dir
         self._embedder_slug = embedder_slug
+        # Test-injection override only (see the `client` property) - stays
+        # None in production, where the provider is the sole cache.
         self._client: Optional["chromadb.ClientAPI"] = None
         self._client_provider = client_provider or ChromaClientProvider(persist_dir)
 
     @property
     def client(self) -> "chromadb.ClientAPI":
-        if self._client is None:
-            self._client = self._client_provider.get()
-        return self._client
+        # `self._client` is a test-injection override, never a production
+        # cache: production reads delegate to the provider's cache on every
+        # access, so a store never keeps serving a client the provider has
+        # since closed via ChromaClientProvider.close().
+        if self._client is not None:
+            return self._client
+        return self._client_provider.get()
 
     def _collection_name(self, user_id: str) -> str:
         return f"gallery_prompts_{user_id}__{self._embedder_slug}"

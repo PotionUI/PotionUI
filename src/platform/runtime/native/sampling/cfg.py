@@ -141,6 +141,18 @@ def _cfg_zero_star_alpha(cond: Tensor, uncond: Tensor, eps: float = 1e-8) -> Ten
     return alpha.view(batch, *([1] * (cond.ndim - 1))).to(cond.dtype)
 
 
+def _mask_alpha_no_op(alpha: Tensor, mask: Tensor, like: Tensor) -> Tensor:
+    """Blend a per-batch CFG-Zero* ``alpha`` down to a per-token no-op
+    (``1.0``) wherever ``mask`` names a fully-pinned reference position (see
+    ``TrueCFG``'s ``reference_mask`` doc). ``mask`` is ``[B_or_1, S]``;
+    reshaped to broadcast against ``like``'s ``[B, S, ...]`` shape by
+    appending singleton dims for ``like``'s trailing (channel) axes.
+    """
+    view_shape = mask.shape + (1,) * (like.ndim - mask.ndim)
+    m = mask.view(view_shape)
+    return m + (1.0 - m) * alpha
+
+
 def _batch_flat_dot(a: Tensor, b: Tensor) -> Tensor:
     """Per-batch-element dot product over all non-batch dims, float32, shape (batch, 1)."""
     batch = a.shape[0]
@@ -190,6 +202,24 @@ class TrueCFG:
       ``uncond`` onto ``cond``'s direction via :func:`_cfg_zero_star_alpha`:
       ``out = uncond*alpha + scale*(cond - uncond*alpha)``. Free (no extra
       forward pass); disable via the kill-switch if it ever regresses a model.
+
+      ``alpha`` is a single scalar PER BATCH ELEMENT (dot product over every
+      token and channel flattened together), so applying it uniformly would
+      rescale token-conditioned callers' fully-pinned reference positions
+      (LTX keyframes / IC-LoRA references, see
+      ``src.pipelines.pipes._shared.generation.ltx_conditioned_forward``) away
+      from the exact clean value those callers already forced ``cond``/
+      ``uncond`` to agree on at the model-forward level, independent of
+      guidance. ``reference_mask`` (optional, ``None`` by default — bit-
+      identical to before this existed) is a per-token strength in ``[0, 1]``,
+      broadcastable against ``uncond``: at ``m=1`` the rescale is skipped
+      entirely for that token (``alpha`` forced to ``1.0``, so ``uncond``
+      stays exactly what it already was — equal to ``cond`` there); at ``m=0``
+      the plain per-batch ``alpha`` applies unchanged; fractional strengths
+      blend linearly (``m + (1-m)*alpha``), i.e. the rescale's departure from
+      a no-op is scaled down by the token's remaining free strength.
+      ``conditioned.py``'s ``denoise_prenoised`` attaches this automatically
+      from the ``model_forward``'s own ``mask`` when one is present.
     * ``zero_init_steps`` (default ``0`` = off) — for the first N steps, skip
       both forward passes and return a zero velocity prediction outright
       (kijai's zero-init trick for flow-matching CFG).
@@ -266,6 +296,7 @@ class TrueCFG:
         apg_momentum: float = 0.0,
         guidance_rescale: float = 0.0,
         interval: tuple[float, float] | None = None,
+        reference_mask: Tensor | None = None,
     ) -> None:
         self.scale = scale
         self.cfg_zero_star = cfg_zero_star
@@ -275,6 +306,7 @@ class TrueCFG:
         self.apg_momentum = apg_momentum
         self.guidance_rescale = guidance_rescale
         self.interval = interval
+        self.reference_mask = reference_mask
         self.reset_momentum()
 
     def reset_momentum(self) -> None:
@@ -338,7 +370,10 @@ class TrueCFG:
             return cond_v
         uncond_v = model_fn(x, sigma, uncond)
         if self.cfg_zero_star:
-            uncond_v = uncond_v * _cfg_zero_star_alpha(cond_v, uncond_v)
+            alpha = _cfg_zero_star_alpha(cond_v, uncond_v)
+            if self.reference_mask is not None:
+                alpha = _mask_alpha_no_op(alpha, self.reference_mask, uncond_v)
+            uncond_v = uncond_v * alpha
         self.last_uncond_v = uncond_v  # CFG++ anchor (see reset_momentum)
 
         delta_v = cond_v - uncond_v

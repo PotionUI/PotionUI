@@ -105,6 +105,91 @@ def test_cfg_zero_star_known_tensors_analytic():
     assert torch.allclose(out, expected, atol=1e-5)
 
 
+def test_true_cfg_reference_mask_forces_alpha_to_one_at_fully_masked_tokens():
+    """A token-conditioned caller (LTX keyframes/IC-LoRA references) already
+    forces cond_v == uncond_v at fully-pinned (mask=1) positions BEFORE
+    guidance combines them (see ltx_conditioned_forward.ConditionedAVForward).
+    Without `reference_mask`, CFG-Zero*'s per-batch scalar `alpha` rescales
+    the WHOLE uncond branch -- including those already-agreeing positions --
+    breaking the agreement. `reference_mask` must skip the rescale (alpha=1)
+    at mask=1 tokens and leave the existing per-batch alpha unchanged at
+    mask=0 tokens."""
+    cond_v = torch.tensor([[[3.0, 4.0], [10.0, 20.0]]])       # [1, 2 tokens, 2 chans]
+    uncond_v = torch.tensor([[[1.0, 2.0], [2.0, 1.0]]])
+    mask = torch.tensor([[1.0, 0.0]])  # token 0 fully pinned, token 1 free
+
+    def model_fn(x, sigma, cond):
+        return cond_v if cond["tag"] == "c" else uncond_v
+
+    x = torch.zeros(1, 2, 2)
+    scale = 2.0
+    out = TrueCFG(scale, cfg_zero_star=True, reference_mask=mask)(
+        model_fn, x, torch.ones(1), {"tag": "c"}, {"tag": "u"}, 0
+    )
+
+    # alpha = dot(cond_flat, uncond_flat) / (||uncond_flat||^2 + eps) over ALL
+    # tokens/channels flattened together -- same formula as the analytic test
+    # above, unaffected by reference_mask (only its APPLICATION is masked).
+    alpha = (3 * 1 + 4 * 2 + 10 * 2 + 20 * 1) / (1 + 4 + 4 + 1)  # 5.1
+
+    # Token 0 (mask=1): uncond unscaled (alpha forced to 1) -- exactly the
+    # plain-CFG formula for this token alone.
+    expected_t0 = uncond_v[:, 0] + scale * (cond_v[:, 0] - uncond_v[:, 0])
+    # Token 1 (mask=0): the ordinary CFG-Zero* formula, unchanged.
+    rescaled_t1 = uncond_v[:, 1] * alpha
+    expected_t1 = rescaled_t1 + scale * (cond_v[:, 1] - rescaled_t1)
+
+    assert torch.allclose(out[:, 0], expected_t0, atol=1e-5)
+    assert torch.allclose(out[:, 1], expected_t1, atol=1e-5)
+    # And token 0's result is the conditional prediction exactly (uncond ==
+    # cond at that token in this fixture is NOT assumed -- this fixture uses
+    # differing cond/uncond specifically to prove the per-token alpha, not
+    # the ConditionedAVForward-level agreement, which is covered at the LTX
+    # pipe level in test_video_ltx_generator.py).
+
+
+def test_true_cfg_reference_mask_fractional_blends_linearly():
+    """A fractional mask strength blends the rescale's departure from a
+    no-op by the token's remaining free strength: alpha_token = m + (1-m)*alpha."""
+    cond_v = torch.tensor([[[3.0, 4.0]]])   # [1, 1 token, 2 chans]
+    uncond_v = torch.tensor([[[1.0, 2.0]]])
+    mask = torch.tensor([[0.5]])
+
+    def model_fn(x, sigma, cond):
+        return cond_v if cond["tag"] == "c" else uncond_v
+
+    x = torch.zeros(1, 1, 2)
+    scale = 3.0
+    out = TrueCFG(scale, cfg_zero_star=True, reference_mask=mask)(
+        model_fn, x, torch.ones(1), {"tag": "c"}, {"tag": "u"}, 0
+    )
+    alpha_full = (3 * 1 + 4 * 2) / (1 + 4)  # 2.2
+    alpha_blended = 0.5 * 1.0 + 0.5 * alpha_full
+    rescaled = uncond_v * alpha_blended
+    expected = rescaled + scale * (cond_v - rescaled)
+    assert torch.allclose(out, expected, atol=1e-5)
+
+
+def test_true_cfg_reference_mask_none_is_default_and_unchanged():
+    """`reference_mask` defaults to `None` and, left unset, reproduces the
+    pre-existing (pre-mask-awareness) analytic result exactly -- every other
+    TrueCFG caller (Wan, SDXL, ...) never sets it, so this is the guaranteed
+    no-op path."""
+    assert TrueCFG(2.0).reference_mask is None
+    cond_v = torch.tensor([[3.0, 4.0]])
+    uncond_v = torch.tensor([[1.0, 2.0]])
+
+    def model_fn(x, sigma, cond):
+        return cond_v if cond["tag"] == "c" else uncond_v
+
+    x = torch.zeros(1, 2)
+    out = TrueCFG(2.0, cfg_zero_star=True)(model_fn, x, torch.ones(1), {"tag": "c"}, {"tag": "u"}, 0)
+    alpha = 2.2
+    rescaled = uncond_v * alpha
+    expected = rescaled + 2.0 * (cond_v - rescaled)
+    assert torch.allclose(out, expected, atol=1e-5)
+
+
 def test_cfg_zero_star_disabled_reproduces_plain_formula():
     def model_fn(x, sigma, cond):
         return torch.full_like(x, cond["v"])

@@ -16,6 +16,7 @@ import math
 
 import torch
 
+from .cfg import SkipLayerGuidance, TrueCFG
 from .denoise_loop import SAMPLERS, _CachingGuidance, make_guidance
 from .flow_schedule import build_sigmas
 from .hooks import with_numerics_watchdog
@@ -57,6 +58,45 @@ def conditioned_sigmas(
         detail_start=sampling_settings.get("detail_start", 0.1),
         detail_end=sampling_settings.get("detail_end", 0.9),
     )
+
+
+def _attach_reference_mask(guidance, model_forward, x_init: Tensor) -> None:
+    """Both ``denoise_prenoised`` callers (``generator/video_ltx``,
+    ``generator/dfr_video_ltx``) always pass a
+    ``ConditionedAVForward``-shaped ``model_forward`` (see
+    ``src.pipelines.pipes._shared.generation.ltx_conditioned_forward``),
+    which exposes a per-token ``mask`` naming positions its own model-input
+    clamp + x0-space blend already force to an exact clean value at every
+    forward call, independent of guidance. Duck-typed (this module has no
+    dependency on that class) exactly like ``ctx`` is duck-typed on the
+    other side of that same seam.
+
+    Without this, ``TrueCFG``'s CFG-Zero* correction (on by default) rescales
+    the WHOLE uncond branch by one per-batch scalar, which is not a no-op in
+    general and so perturbs those positions away from clean at ``cfg>1`` --
+    see ``TrueCFG``'s ``reference_mask`` doc for the fix. A ``model_forward``
+    with no ``mask`` attribute (or an all-zero one -- pure t2v, no
+    conditioning) leaves ``TrueCFG.reference_mask`` at its default ``None``
+    and is a bit-identical no-op.
+
+    ``mask`` only covers the video-token prefix; padded with zeros (never
+    pinned) for any trailing tokens (e.g. jointly-generated audio) the mask
+    doesn't reach. A no-op when ``guidance`` isn't (or doesn't wrap) a
+    ``TrueCFG`` -- ``NoCFG``/``EmbeddedGuidance`` have no uncond branch to
+    rescale, so the exactness this fixes doesn't apply to them either way.
+    """
+    mask = getattr(model_forward, "mask", None)
+    if mask is None or not getattr(model_forward, "has_conditioning", True):
+        return
+    target = guidance.inner if isinstance(guidance, SkipLayerGuidance) else guidance
+    if not isinstance(target, TrueCFG):
+        return
+    pad = x_init.shape[1] - mask.shape[1]
+    if pad > 0:
+        mask = torch.cat(
+            [mask, torch.zeros(mask.shape[0], pad, device=mask.device, dtype=mask.dtype)], dim=1
+        )
+    target.reference_mask = mask.to(device=x_init.device, dtype=x_init.dtype)
 
 
 def denoise_prenoised(
@@ -129,10 +169,20 @@ def denoise_prenoised(
                 type(guidance_override).__name__, float(guidance_scale),
                 f"{override_cfg:.3f}" if override_cfg is not None else "n/a",
             )
+        if getattr(model_forward, "mask", None) is not None and getattr(model_forward, "has_conditioning", False):
+            logger.warning(
+                "denoise_prenoised: guidance_override (%s) is active alongside a conditioned "
+                "(masked) model_forward -- the reference-position exactness fix "
+                "(TrueCFG.reference_mask) only applies to the 'cfg' guidance mode and is NOT "
+                "in effect here; the override's own guidance is responsible for reference "
+                "exactness, if any",
+                type(guidance_override).__name__,
+            )
         guidance = guidance_override
         cache_set = None
     else:
         guidance = make_guidance(sampling_settings, guidance_scale, cfg_zero_star, zero_init_steps)
+        _attach_reference_mask(guidance, model_forward, x_init)
 
         cache_set = StepCacheSet(step_cache_options) if step_cache_options else None
         if cache_set is not None and cache_set.enabled:

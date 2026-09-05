@@ -286,19 +286,35 @@ def test_ancestral_cfg_pp_matches_plain_euler_at_conditioned_position():
     assert not torch.allclose(out_euler * unmasked, out_cfg_pp * unmasked, atol=1e-3)
 
 
-def test_ancestral_cfg_pp_conditioned_position_bounded_at_cfg_above_one():
-    """At cfg>1 the CFG-Zero* rescale (default on) multiplies the WHOLE
-    uncond velocity by a single per-batch scalar alpha (see
-    _cfg_zero_star_alpha in sampling/cfg.py), which is not exactly 1 in
-    general -- so the masked-position forcing is only exact when alpha==1 or
-    cfg==1 (measured empirically: ~0.75 max abs deviation at cfg=2.5,
-    clean-value magnitude 5.0, for THIS synthetic fixture -- see the next
-    test for the fix). This is a PRE-EXISTING property of the conditioning +
-    CFG-Zero* interaction, unrelated to which sampler drives it (plain euler
-    has it too) -- this test just confirms the ancestral/cfg_pp path doesn't
-    make it materially worse (stays bounded, doesn't diverge/blow up) rather
-    than asserting bit-exactness, which isn't guaranteed off the cfg=1 recipe
-    or with cfg_zero_star left on."""
+@pytest.mark.parametrize("sampler_name,sampler_options", [
+    ("euler", None),
+    ("euler_ancestral_cfg_pp", {"eta": 1.0, "generator": torch.Generator().manual_seed(4)}),
+])
+def test_conditioned_position_exact_at_cfg_above_one_with_cfg_zero_star_default(sampler_name, sampler_options):
+    """Reference-position exactness must hold with CFG-Zero* left ON (the
+    default) at cfg>1, not just with the ``cfg_zero_star=False`` kill-switch
+    below. Before the fix, CFG-Zero*'s per-batch scalar ``alpha`` rescaled
+    the WHOLE uncond velocity -- including masked (keyframe-pinned)
+    positions where ``cond_v == uncond_v`` exactly, independent of guidance
+    (both branches are forced to the same ``m*(x-clean)/sigma`` value inside
+    ``ConditionedAVForward`` regardless of what the DiT returned) -- breaking
+    that agreement whenever ``alpha != 1``. ``TrueCFG.reference_mask``
+    (auto-attached by ``denoise_prenoised`` from ``ConditionedAVForward``'s
+    own ``mask``) skips the rescale at those positions, restoring exactness
+    for both a plain deterministic sampler and the stochastic ancestral
+    CFG++ variant.
+
+    ``x_init`` is deliberately displaced away from ``clean`` at the masked
+    position before sampling starts (simulating a stage-2 refine's carried
+    prior latent not exactly matching the fresh keyframe encode, per this
+    pipe's own module docstring -- ``PreparedConditioning``'s ``clean`` and a
+    caller's own initial state are independent fields). The ordinary
+    ``mix_initial_noise`` init already sets ``x = clean`` exactly at mask=1
+    positions, which makes deterministic (non-ancestral) euler's masked-token
+    velocity IDENTICALLY zero every step regardless of any guidance bug (a
+    euler-only degenerate case, verified separately) -- the displacement
+    gives BOTH samplers a real, nonzero deviation from clean to correct,
+    which is where CFG-Zero*'s bug (and the fix) actually shows up."""
     torch.manual_seed(2)
     prepared = _prepared([LTXMediaCondition(frames=torch.rand(1, H, W, 3), latent_index=0, strength=1.0)])
     ctx = _ctx(prepared)
@@ -309,15 +325,88 @@ def test_ancestral_cfg_pp_conditioned_position_bounded_at_cfg_above_one():
     sigmas = conditioned_sigmas(8, {"guidance": "cfg", "shift": 1.0})
     noise = torch.randn(1, S_BASE, C_LAT)
     x_init = mix_initial_noise(prepared, noise, float(sigmas[0]))
+    m = prepared.mask.unsqueeze(-1)
+    x_init = x_init + m * 3.0
     # uncond embedding differs from cond so TrueCFG's uncond branch actually runs.
     out = denoise_prenoised(
         ConditionedAVForward(fake_dit, ctx), x_init, cond={"context": None}, uncond={"context": None},
-        steps=8, sampler_name="euler_ancestral_cfg_pp", sampling_settings={"guidance": "cfg"}, guidance_scale=2.5,
-        sigmas=sigmas, sampler_options={"eta": 1.0, "generator": torch.Generator().manual_seed(4)},
+        steps=8, sampler_name=sampler_name, sampling_settings={"guidance": "cfg"}, guidance_scale=2.5,
+        sigmas=sigmas, sampler_options=sampler_options,
+    )
+    assert torch.isfinite(out).all()
+    assert torch.allclose(out * m, prepared.clean * m, atol=1e-4)
+    # Unmasked (actually-generated) positions must still move -- the fix
+    # must not accidentally pin the whole tensor.
+    unmasked = 1.0 - m
+    assert torch.any(unmasked > 0)
+    assert not torch.allclose(out * unmasked, prepared.clean * unmasked, atol=1e-2)
+
+
+def test_conditioned_position_deterministic_euler_never_leaves_clean_from_a_clean_init():
+    """Documents the degenerate case the test above works around: when
+    ``x_init`` starts EXACTLY at ``clean`` at a fully-pinned position (the
+    ordinary ``mix_initial_noise`` result -- ``scaled = (1-mask)*sigma0 == 0``
+    at mask=1), deterministic (non-ancestral) euler's masked-position
+    velocity is IDENTICALLY zero at every step regardless of guidance, so it
+    never leaves ``clean`` in the first place -- this holds with OR without
+    the CFG-Zero* mask fix, and is why the exactness test above must displace
+    ``x_init`` to exercise the bug under a deterministic sampler."""
+    torch.manual_seed(3)
+    prepared = _prepared([LTXMediaCondition(frames=torch.rand(1, H, W, 3), latent_index=0, strength=1.0)])
+    ctx = _ctx(prepared)
+
+    def fake_dit(model_x, timestep, context, **kw):
+        return torch.randn_like(model_x[0]) * 20.0
+
+    sigmas = conditioned_sigmas(8, {"guidance": "cfg", "shift": 1.0})
+    noise = torch.randn(1, S_BASE, C_LAT)
+    x_init = mix_initial_noise(prepared, noise, float(sigmas[0]))
+    out = denoise_prenoised(
+        ConditionedAVForward(fake_dit, ctx), x_init, cond={"context": None}, uncond={"context": None},
+        steps=8, sampler_name="euler", sampling_settings={"guidance": "cfg"}, guidance_scale=2.5, sigmas=sigmas,
     )
     m = prepared.mask.unsqueeze(-1)
-    assert torch.isfinite(out).all()
-    assert torch.allclose(out * m, prepared.clean * m, atol=1.0)  # bounded, not necessarily exact
+    assert torch.equal(out * m, prepared.clean * m)
+
+
+def test_conditioned_position_fractional_strength_via_real_entry():
+    """Same real ``ConditionedAVForward``/``denoise_prenoised`` entry, but
+    with a media condition at ``strength=0.5`` (fractional mask) alongside a
+    fully-pinned one -- exactness only holds at strength 1.0; the fractional
+    position must land strictly closer to its own per-branch-agreed target
+    than an unmasked position would, at the same cfg/alpha."""
+    torch.manual_seed(6)
+    prepared = _prepared([
+        LTXMediaCondition(frames=torch.rand(1, H, W, 3), latent_index=0, strength=1.0),
+        LTXMediaCondition(frames=torch.rand(1, H, W, 3), latent_index=1, strength=0.5),
+    ])
+    ctx = _ctx(prepared)
+    n_extra = prepared.n_extra
+
+    def fake_dit(model_x, timestep, context, **kw):
+        # n_extra > 0 (the strength=0.5 condition appends, see the module
+        # docstring's "n_extra" contract): the DiT return must be the
+        # 3-tuple (video, audio_or_None, extra) regardless of audio.
+        return (torch.randn_like(model_x[0]) * 2.0, None, torch.randn(1, n_extra, C_LAT) * 2.0)
+
+    sigmas = conditioned_sigmas(8, {"guidance": "cfg", "shift": 1.0})
+    # latent_index=1 is an APPENDED keyframe (extra token), so the packed
+    # state is longer than S_BASE -- size noise off `prepared.tokens` itself.
+    noise = torch.randn_like(prepared.tokens)
+    x_init = mix_initial_noise(prepared, noise, float(sigmas[0]))
+    out = denoise_prenoised(
+        ConditionedAVForward(fake_dit, ctx), x_init, cond={"context": None}, uncond={"context": None},
+        steps=8, sampler_name="euler", sampling_settings={"guidance": "cfg"}, guidance_scale=2.5, sigmas=sigmas,
+    )
+    full = prepared.mask == 1.0
+    fractional = (prepared.mask > 0.0) & (prepared.mask < 1.0)
+    free = prepared.mask == 0.0
+    assert full.any() and fractional.any() and free.any()
+    m_full = full.unsqueeze(-1).float()
+    assert torch.allclose(out * m_full, prepared.clean * m_full, atol=1e-4)
+    dist_frac = (out[fractional] - prepared.clean[fractional]).norm()
+    dist_free = (out[free] - prepared.clean[free]).norm()
+    assert dist_frac < dist_free
 
 
 def test_ancestral_cfg_pp_conditioned_position_exact_with_cfg_zero_star_disabled():

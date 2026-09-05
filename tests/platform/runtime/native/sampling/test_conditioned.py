@@ -12,6 +12,8 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from src.platform.runtime.native.sampling import build_sigmas, conditioned_sigmas, denoise_prenoised  # noqa: E402
+from src.platform.runtime.native.sampling.cfg import NoCFG, SkipLayerGuidance, TrueCFG  # noqa: E402
+from src.platform.runtime.native.sampling.conditioned import _attach_reference_mask  # noqa: E402
 
 SETTINGS_NOCFG = {"guidance": None, "shift": 2.37}
 SETTINGS_CFG = {"guidance": "cfg", "shift": 2.37}
@@ -30,6 +32,90 @@ def _blended_forward(mask: torch.Tensor, clean: torch.Tensor, raw_velocity):
         return (x - x0) / s
 
     return forward
+
+
+# -- _attach_reference_mask wiring -------------------------------------------
+
+def _forward_with_mask(mask, has_conditioning=True):
+    def forward(x, sigma, conditioning):
+        return torch.zeros_like(x)
+    forward.mask = mask
+    forward.has_conditioning = has_conditioning
+    return forward
+
+
+def test_attach_reference_mask_sets_it_on_true_cfg():
+    mask = torch.tensor([[1.0, 0.0]])
+    forward = _forward_with_mask(mask)
+    guidance = TrueCFG(2.0)
+    _attach_reference_mask(guidance, forward, torch.zeros(1, 2, 3))
+    assert torch.equal(guidance.reference_mask, mask)
+
+
+def test_attach_reference_mask_pads_zeros_for_trailing_tokens():
+    """`model_forward.mask` only covers the video-token prefix; any trailing
+    tokens in the sampler's packed state (e.g. jointly-generated audio) must
+    be padded with zeros (never pinned), not left unmasked-by-omission."""
+    mask = torch.tensor([[1.0, 0.0]])
+    forward = _forward_with_mask(mask)
+    guidance = TrueCFG(2.0)
+    _attach_reference_mask(guidance, forward, torch.zeros(1, 5, 3))  # 3 extra (audio) tokens
+    assert torch.equal(guidance.reference_mask, torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.0]]))
+
+
+def test_attach_reference_mask_reaches_true_cfg_under_skip_layer_guidance():
+    mask = torch.tensor([[1.0, 0.0]])
+    forward = _forward_with_mask(mask)
+    inner = TrueCFG(2.0)
+    wrapped = SkipLayerGuidance(inner, slg_scale=1.0, layers={0}, sigma_start=1.0, sigma_end=0.0)
+    _attach_reference_mask(wrapped, forward, torch.zeros(1, 2, 3))
+    assert torch.equal(inner.reference_mask, mask)
+
+
+def test_attach_reference_mask_noop_when_model_forward_has_no_mask():
+    guidance = TrueCFG(2.0)
+    _attach_reference_mask(guidance, lambda x, s, c: x, torch.zeros(1, 2, 3))
+    assert guidance.reference_mask is None
+
+
+def test_attach_reference_mask_noop_when_no_conditioning():
+    forward = _forward_with_mask(torch.tensor([[1.0, 0.0]]), has_conditioning=False)
+    guidance = TrueCFG(2.0)
+    _attach_reference_mask(guidance, forward, torch.zeros(1, 2, 3))
+    assert guidance.reference_mask is None
+
+
+def test_attach_reference_mask_noop_for_non_true_cfg_strategy():
+    forward = _forward_with_mask(torch.tensor([[1.0, 0.0]]))
+    guidance = NoCFG()
+    _attach_reference_mask(guidance, forward, torch.zeros(1, 2, 3))  # must not raise
+    assert not hasattr(guidance, "reference_mask")
+
+
+def test_denoise_prenoised_wires_reference_mask_from_model_forward():
+    """End-to-end through the real `denoise_prenoised` entry (not just the
+    `_attach_reference_mask` unit): a `model_forward` exposing `mask` gets it
+    attached to the guidance strategy it builds internally, observable via
+    the strategy actually running the mask-aware branch (see the exactness
+    test below for the full effect on the output)."""
+    torch.manual_seed(9)
+    seen_guidance = {}
+    orig = TrueCFG.__call__
+
+    def spy(self, *a, **kw):
+        seen_guidance["reference_mask"] = self.reference_mask
+        return orig(self, *a, **kw)
+
+    forward = _forward_with_mask(torch.tensor([[1.0, 0.0]]))
+    x_init = torch.randn(1, 2, 3)
+    try:
+        TrueCFG.__call__ = spy
+        denoise_prenoised(forward, x_init, {"tag": "c"}, {"tag": "u"},
+                          steps=2, sampling_settings=SETTINGS_CFG, guidance_scale=2.0)
+    finally:
+        TrueCFG.__call__ = orig
+    assert seen_guidance["reference_mask"] is not None
+    assert torch.equal(seen_guidance["reference_mask"], torch.tensor([[1.0, 0.0]]))
 
 
 def test_conditioned_sigmas_schedule_shape_and_start():
@@ -82,6 +168,153 @@ def test_x0_blend_commutes_with_velocity_cfg():
     inside = blend(v_uncond) + scale * (blend(v_cond) - blend(v_uncond))
     outside = blend(v_uncond + scale * (v_cond - v_uncond))
     assert torch.allclose(inside, outside, atol=1e-5)
+
+
+# -- reference-position exactness under CFG-Zero* at cfg > 1 -----------------
+#
+# `_blended_forward` reproduces, generically, the invariant
+# `ConditionedAVForward` gives every LTX conditioned forward call: whatever
+# raw velocity the model returns, the x0-space blend forces PINNED (mask=1)
+# positions to `clean` regardless of branch -- so `cond_v == uncond_v` exactly
+# there BEFORE guidance combines them. `raw_velocity` below returns
+# DIFFERENT constants per branch specifically to prove that agreement comes
+# from the blend, not from the two branches coincidentally matching.
+
+def _differing_branches_forward(mask, clean):
+    def raw_velocity(x, sigma, conditioning):
+        return torch.full_like(x, 3.0 if conditioning["tag"] == "cond" else -7.0)
+    forward = _blended_forward(mask, clean, raw_velocity)
+    forward.mask = mask
+    forward.has_conditioning = True
+    return forward
+
+
+@pytest.mark.parametrize("sampler_name,sampler_options", [
+    ("euler", None),
+    ("euler_ancestral_cfg_pp", {"eta": 1.0, "generator": None}),
+])
+def test_reference_mask_keeps_pinned_positions_exact_at_cfg_above_one(sampler_name, sampler_options):
+    """``x_init`` is deliberately displaced away from ``clean`` at the pinned
+    tokens after the ordinary mix (which itself sets ``x = clean`` exactly at
+    mask=1 -- ``scaled = (1-mask)*sigma0 == 0`` there). Without the
+    displacement, deterministic (non-ancestral) euler's masked-token velocity
+    is IDENTICALLY zero every step regardless of any guidance bug (see the
+    dedicated degenerate-case test in the LTX pipe suite), so it would never
+    exercise CFG-Zero*'s rescale at all; the displacement gives BOTH samplers
+    a real deviation from clean to correct."""
+    torch.manual_seed(11)
+    clean = torch.randn(1, 6, 4)
+    mask = torch.zeros(1, 6)
+    mask[:, :2] = 1.0  # tokens 0-1 fully pinned, 2-5 free
+
+    sigmas = conditioned_sigmas(6, SETTINGS_CFG)
+    noise = torch.randn(1, 6, 4)
+    scaled = (1 - mask).unsqueeze(-1) * float(sigmas[0])
+    x_init = noise * scaled + clean * (1 - scaled)
+    x_init = x_init + mask.unsqueeze(-1) * 3.0
+
+    opts = dict(sampler_options) if sampler_options else None
+    if opts is not None:
+        opts["generator"] = torch.Generator().manual_seed(3)
+
+    forward = _differing_branches_forward(mask, clean)
+    out = denoise_prenoised(
+        forward, x_init.clone(), {"tag": "cond"}, {"tag": "uncond"},
+        steps=6, sampler_name=sampler_name, sampling_settings=SETTINGS_CFG,
+        guidance_scale=2.5, sigmas=sigmas, sampler_options=opts,
+    )
+    assert torch.allclose(out[:, :2], clean[:, :2], atol=1e-4)
+    # Unmasked tokens genuinely moved (not vacuously trivial).
+    assert not torch.allclose(out[:, 2:], clean[:, 2:])
+
+
+def test_reference_mask_fractional_strength_stays_close_to_clean():
+    """A fractional mask is NOT snapped to full strength -- the policy blends
+    the rescale's departure from a no-op by (1 - m), so exactness is only
+    guaranteed at m=1; this asserts the intermediate strength moves the
+    result STRICTLY CLOSER to clean than an unmasked (m=0) token, at the
+    same cfg/alpha, rather than an exact match."""
+    torch.manual_seed(12)
+    clean = torch.randn(1, 3, 4)
+    mask = torch.zeros(1, 3)
+    mask[:, 0] = 1.0   # fully pinned
+    mask[:, 1] = 0.5   # fractional
+    # token 2 (mask=0) is the free baseline.
+
+    sigmas = conditioned_sigmas(6, SETTINGS_CFG)
+    noise = torch.randn(1, 3, 4)
+    scaled = (1 - mask).unsqueeze(-1) * float(sigmas[0])
+    x_init = noise * scaled + clean * (1 - scaled)
+
+    forward = _differing_branches_forward(mask, clean)
+    out = denoise_prenoised(
+        forward, x_init, {"tag": "cond"}, {"tag": "uncond"},
+        steps=6, sampling_settings=SETTINGS_CFG, guidance_scale=2.5, sigmas=sigmas,
+    )
+    assert torch.allclose(out[:, 0], clean[:, 0], atol=1e-4)
+    dist_frac = (out[:, 1] - clean[:, 1]).norm()
+    dist_free = (out[:, 2] - clean[:, 2]).norm()
+    assert dist_frac < dist_free
+
+
+def test_reference_mask_no_mask_attribute_is_bit_identical_to_before_the_fix():
+    """A `model_forward` with no `mask` attribute (every non-LTX TrueCFG
+    caller) takes the exact pre-existing code path -- `_attach_reference_mask`
+    returns before touching the guidance, so `TrueCFG.reference_mask` stays
+    `None` and `__call__` never enters the masked branch."""
+    torch.manual_seed(13)
+    x_init = torch.randn(1, 4, 2)
+
+    def forward(x, sigma, conditioning):
+        return torch.full_like(x, 3.0 if conditioning["tag"] == "cond" else -1.0)
+
+    kwargs = dict(steps=4, sampling_settings=SETTINGS_CFG, guidance_scale=2.5, sigmas=None)
+    out_a = denoise_prenoised(forward, x_init.clone(), {"tag": "cond"}, {"tag": "uncond"}, **kwargs)
+    out_b = denoise_prenoised(forward, x_init.clone(), {"tag": "cond"}, {"tag": "uncond"}, **kwargs)
+    assert torch.equal(out_a, out_b)
+
+
+def test_reference_mask_cfg_equal_one_skips_uncond_branch_and_is_unaffected():
+    """At cfg=1 TrueCFG skips the uncond branch entirely (pre-existing
+    short-circuit) -- reference_mask has nothing to do there, and the pinned
+    positions are exact for the same reason they always were."""
+    torch.manual_seed(14)
+    clean = torch.randn(1, 4, 3)
+    mask = torch.zeros(1, 4)
+    mask[:, 0] = 1.0
+    sigmas = conditioned_sigmas(4, SETTINGS_CFG)
+    noise = torch.randn(1, 4, 3)
+    scaled = (1 - mask).unsqueeze(-1) * float(sigmas[0])
+    x_init = noise * scaled + clean * (1 - scaled)
+
+    forward = _differing_branches_forward(mask, clean)
+    out = denoise_prenoised(
+        forward, x_init, {"tag": "cond"}, {"tag": "uncond"},
+        steps=4, sampling_settings=SETTINGS_CFG, guidance_scale=1.0, sigmas=sigmas,
+    )
+    assert torch.allclose(out[:, 0], clean[:, 0], atol=1e-4)
+
+
+def test_reference_mask_cfg_zero_star_disabled_still_exact():
+    """The pre-existing escape hatch (cfg_zero_star=False) remains exact and
+    is unaffected by reference_mask being attached (the masked branch in
+    TrueCFG.__call__ lives inside `if self.cfg_zero_star:`)."""
+    torch.manual_seed(15)
+    clean = torch.randn(1, 4, 3)
+    mask = torch.zeros(1, 4)
+    mask[:, 0] = 1.0
+    sigmas = conditioned_sigmas(4, SETTINGS_CFG)
+    noise = torch.randn(1, 4, 3)
+    scaled = (1 - mask).unsqueeze(-1) * float(sigmas[0])
+    x_init = noise * scaled + clean * (1 - scaled)
+
+    forward = _differing_branches_forward(mask, clean)
+    out = denoise_prenoised(
+        forward, x_init, {"tag": "cond"}, {"tag": "uncond"},
+        steps=4, sampling_settings=SETTINGS_CFG, guidance_scale=2.5, sigmas=sigmas,
+        cfg_zero_star=False,
+    )
+    assert torch.allclose(out[:, 0], clean[:, 0], atol=1e-4)
 
 
 def test_denoise_prenoised_runs_cfg_strategy():

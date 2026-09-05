@@ -53,6 +53,10 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     path_of as _path_of,
     vram_budget as _vram_budget_fn,
 )
+from src.pipelines.pipes._shared.generation.loader_lifecycle import (
+    Component,
+    ComponentLifecycle,
+)
 from src.platform.runtime.native.base import NativeArchModule
 from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Model
 from src.platform.runtime.native.vae.minimax_h3_audio import MiniMaxH3AudioVAE
@@ -165,40 +169,33 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
         loader = NativeEngineLoader(device=device, vram_gb=vram_gb)
 
         models = pipe_input.input.get("MODELS", None)
-
-        def acquire(key: str, fp: str, kind: str, path: str, **kwargs: Any) -> NativeModel:
-            # Every H3 component lives in its OWN standalone file (unlike
-            # LTX's all-in-one checkpoint), so every acquire estimates from
-            # its own file size -- no slice-before-estimate special-casing.
-            estimated_vram_gb = file_size_gb(path)
-            if models is not None:
-                return models.acquire(
-                    key=key, fingerprint=fp, loader=lambda: loader.load(path, kind, **kwargs),
-                    estimated_vram_gb=estimated_vram_gb,
-                )
-            return loader.load(path, kind, **kwargs)
-
-        def acquire_dit() -> NativeModel:
-            lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in loras) or "none"
-            def load():
-                model = loader.load(model_path, "diffusion_model")
-                self._apply_loras(model, loras)
-                return model
-            if models is not None:
-                return models.acquire(
-                    key=f"native/dit/{model_path}", fingerprint=f"{model_path}|{dtype}|{lora_fp}", loader=load,
-                    estimated_vram_gb=file_size_gb(model_path),
-                )
-            return load()
-
         progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=3)
-        progress.advance("DiT", f"native/dit/{model_path}")
-        dit_model = acquire_dit()
-        progress.advance("video VAE", f"native/vae/{video_vae_path}")
-        video_vae_model = acquire(f"native/vae/{video_vae_path}", f"{video_vae_path}|{dtype}", "vae", video_vae_path)
-        progress.advance("audio VAE", f"native/audio_vae/{audio_vae_path}")
-        audio_vae_model = acquire(
-            f"native/audio_vae/{audio_vae_path}", f"{audio_vae_path}|{dtype}", "audio_vae", audio_vae_path,
+        lifecycle = ComponentLifecycle(models, progress)
+
+        # Every H3 component lives in its OWN standalone file (unlike LTX's
+        # all-in-one checkpoint), so every estimate comes from its own file
+        # size -- no slice-before-estimate special-casing.
+        def _component(label: str, key: str, kind: str, path: str) -> Component:
+            return Component(
+                label, key, f"{path}|{dtype}", lambda: loader.load(path, kind), file_size_gb(path),
+            )
+
+        lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in loras) or "none"
+
+        def load_dit() -> NativeModel:
+            model = loader.load(model_path, "diffusion_model")
+            self._apply_loras(model, loras)
+            return model
+
+        dit_model = lifecycle.acquire(Component(
+            "DiT", f"native/dit/{model_path}", f"{model_path}|{dtype}|{lora_fp}",
+            load_dit, file_size_gb(model_path),
+        ))
+        video_vae_model = lifecycle.acquire(
+            _component("video VAE", f"native/vae/{video_vae_path}", "vae", video_vae_path)
+        )
+        audio_vae_model = lifecycle.acquire(
+            _component("audio VAE", f"native/audio_vae/{audio_vae_path}", "audio_vae", audio_vae_path)
         )
 
         # The TE is NOT acquired here -- deferred into `clip`'s own lazy
@@ -212,10 +209,10 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
         # is folded into the fingerprint unconditionally (documented hazard,
         # text_encoders/loader.py:435-449: a text-only and a vision-enabled
         # load of the SAME path build DIFFERENT modules).
-        def _acquire_te() -> Any:
-            return acquire(
-                f"native/te/{te_path}", f"{te_path}|{dtype}|vision=True", "text_encoder", te_path, vision=True,
-            ).module
+        te = Component(
+            "text encoder", f"native/te/{te_path}", f"{te_path}|{dtype}|vision=True",
+            lambda: loader.load(te_path, "text_encoder", vision=True), file_size_gb(te_path),
+        )
 
         _assert_h3_component("model", dit_model, MiniMaxH3Model, model_path)
         _assert_h3_component("video_vae", video_vae_model, MiniMaxH3VideoVAE, video_vae_path)
@@ -223,10 +220,10 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
 
         bundle = MiniMaxH3ModelBundle(
             dit=dit_model, te=None, video_vae=video_vae_model, audio_vae=audio_vae_model,
-            te_cache_key=f"native/te/{te_path}",
+            te_cache_key=te.key,
         )
         clip = MiniMaxH3ClipTextEncoder(
-            _acquire_te, device=device, model_fingerprint=f"{te_path}|vision=True",
+            lifecycle.deferred_module(te), device=device, model_fingerprint=f"{te_path}|vision=True",
         )
         return PipeOutput(output={"model": bundle, "text_encoder": clip})
 

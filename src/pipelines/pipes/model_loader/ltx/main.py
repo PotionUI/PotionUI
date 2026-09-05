@@ -76,6 +76,10 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     path_of as _path_of,
     vram_budget as _vram_budget_fn,
 )
+from src.pipelines.pipes._shared.generation.loader_lifecycle import (
+    Component,
+    ComponentLifecycle,
+)
 from src.pipelines.pipes.model_loader.ltx.bundle import LTXModelBundle
 from src.pipelines.pipes.model_loader.ltx.ltx_clip import LTXClipTextEncoder
 from src.pipelines.pipes.model_loader.ltx.projection import load_projection
@@ -231,8 +235,9 @@ class ModelLoaderLtxPipe(BaseModelLoaderPipe):
             + 1  # text_embedding_projection
         )
         progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=total_components)
+        lifecycle = ComponentLifecycle(models, progress)
 
-        def acquire(key: str, fp: str, kind: str, path: str) -> NativeModel:
+        def _component(label: str, key: str, kind: str, path: str) -> Component:
             # The DiT's file-size estimate already covers the all-in-one
             # checkpoint's footprint; a VAE/audio_vae/vocoder acquired from
             # that SAME file must not re-count the whole ~40GB file on top of
@@ -241,28 +246,21 @@ class ModelLoaderLtxPipe(BaseModelLoaderPipe):
             # file; the manager records the real (much smaller) per-component
             # size after load either way.
             estimated_vram_gb = None if path == model_path else file_size_gb(path)
-            if models is not None:
-                return models.acquire(
-                    key=key, fingerprint=fp, loader=lambda: loader.load(path, kind),
-                    estimated_vram_gb=estimated_vram_gb,
-                )
-            return loader.load(path, kind)
+            return Component(
+                label, key, f"{path}|{dtype}", lambda: loader.load(path, kind), estimated_vram_gb,
+            )
 
-        def acquire_dit() -> NativeModel:
-            lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in loras) or "none"
-            def load():
-                model = loader.load(model_path, "diffusion_model")
-                self._apply_loras(model, loras)
-                return model
-            if models is not None:
-                return models.acquire(
-                    key=f"native/dit/{model_path}", fingerprint=f"{model_path}|{dtype}|{lora_fp}", loader=load,
-                    estimated_vram_gb=file_size_gb(model_path),
-                )
-            return load()
+        lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in loras) or "none"
 
-        progress.advance("DiT", f"native/dit/{model_path}")
-        dit_model = acquire_dit()
+        def load_dit() -> NativeModel:
+            model = loader.load(model_path, "diffusion_model")
+            self._apply_loras(model, loras)
+            return model
+
+        dit_model = lifecycle.acquire(Component(
+            "DiT", f"native/dit/{model_path}", f"{model_path}|{dtype}|{lora_fp}",
+            load_dit, file_size_gb(model_path),
+        ))
 
         # The TE is NOT acquired here when a lifecycle service is available:
         # it is deferred into `clip`'s own `te_factory`, run at most once and
@@ -272,19 +270,15 @@ class ModelLoaderLtxPipe(BaseModelLoaderPipe):
         # pays a full from-disk load for a component `release_idle_te` then
         # evicts, a few pipes later, without a single encode having run.
         te_key = f"native/te/{te_path}"
-
-        def acquire_te() -> NativeModel:
-            progress.advance("text encoder", te_key)
-            return acquire(te_key, f"{te_path}|{dtype}", "text_encoder", te_path)
+        te = _component("text encoder", te_key, "text_encoder", te_path)
 
         # No lifecycle service to defer through (isolated pipe use, e.g.
         # tests): nothing would hold the acquired encoder between the factory
         # returning and the first encode, so load it up front exactly as
         # before.
-        te_model: Optional[NativeModel] = acquire_te() if models is None else None
+        te_model: Optional[NativeModel] = None if lifecycle.caching else lifecycle.acquire(te)
 
-        progress.advance("VAE", f"native/vae/{vae_path}")
-        vae_model = acquire(f"native/vae/{vae_path}", f"{vae_path}|{dtype}", "vae", vae_path)
+        vae_model = lifecycle.acquire(_component("VAE", f"native/vae/{vae_path}", "vae", vae_path))
 
         audio_vae_model: Optional[NativeModel] = None
         vocoder_model: Optional[NativeModel] = None
@@ -294,39 +288,38 @@ class ModelLoaderLtxPipe(BaseModelLoaderPipe):
             # `audio_vae.*` and `vocoder.*` prefixes) -- see
             # engine._load_audio_vae / _load_vocoder for the slice-before-
             # estimate treatment either way.
-            progress.advance("audio VAE", f"native/audio_vae/{audio_path}")
-            audio_vae_model = acquire(f"native/audio_vae/{audio_path}", f"{audio_path}|{dtype}", "audio_vae", audio_path)
-            progress.advance("vocoder", f"native/vocoder/{audio_path}")
-            vocoder_model = acquire(f"native/vocoder/{audio_path}", f"{audio_path}|{dtype}", "vocoder", audio_path)
+            audio_vae_model = lifecycle.acquire(
+                _component("audio VAE", f"native/audio_vae/{audio_path}", "audio_vae", audio_path)
+            )
+            vocoder_model = lifecycle.acquire(
+                _component("vocoder", f"native/vocoder/{audio_path}", "vocoder", audio_path)
+            )
 
         upsampler_model: Optional[NativeModel] = None
         if upscale_model_path:
             # A small standalone checkpoint (not sliced from the all-in-one
-            # file) -- the plain `acquire` path's file-size estimate applies
-            # directly, unlike the DiT/audio_vae/vocoder special-casing above.
-            progress.advance("spatial upsampler", f"native/ltx_upsampler/{upscale_model_path}")
-            upsampler_model = acquire(
-                f"native/ltx_upsampler/{upscale_model_path}", f"{upscale_model_path}|{dtype}",
+            # file) -- `_component`'s file-size estimate applies directly,
+            # unlike the DiT/audio_vae/vocoder special-casing above.
+            upsampler_model = lifecycle.acquire(_component(
+                "spatial upsampler", f"native/ltx_upsampler/{upscale_model_path}",
                 "latent_upscaler", upscale_model_path,
-            )
+            ))
 
         # Same shape, second slot: a pipeline may need BOTH a spatial and a
         # temporal upsampler resident (see the module docstring).
         temporal_upsampler_model: Optional[NativeModel] = None
         if temporal_upscale_path:
-            progress.advance("temporal upsampler", f"native/ltx_upsampler/{temporal_upscale_path}")
-            temporal_upsampler_model = acquire(
-                f"native/ltx_upsampler/{temporal_upscale_path}", f"{temporal_upscale_path}|{dtype}",
+            temporal_upsampler_model = lifecycle.acquire(_component(
+                "temporal upsampler", f"native/ltx_upsampler/{temporal_upscale_path}",
                 "latent_upscaler", temporal_upscale_path,
-            )
+            ))
 
         duration_head_model: Optional[NativeModel] = None
         if duration_head_path:
-            progress.advance("duration head", f"native/ltx_duration_head/{duration_head_path}")
-            duration_head_model = acquire(
-                f"native/ltx_duration_head/{duration_head_path}", f"{duration_head_path}|{dtype}",
+            duration_head_model = lifecycle.acquire(_component(
+                "duration head", f"native/ltx_duration_head/{duration_head_path}",
                 "duration_head", duration_head_path,
-            )
+            ))
 
         # The text_embedding_projection tensors are small (a few MB) but still
         # cheap to cache, keyed off the DiT path + its resolved compute dtype
@@ -338,16 +331,11 @@ class ModelLoaderLtxPipe(BaseModelLoaderPipe):
         # correctly invalidates the cached projection.
         proj_dtype = dit_model.compute_dtype
 
-        def load_proj():
-            return load_projection(model_path, "cpu", proj_dtype, te_path=te_path)
-
-        progress.advance("text embedding projection", f"native/ltx_proj/{model_path}")
-        if models is not None:
-            projections = models.acquire(
-                key=f"native/ltx_proj/{model_path}", fingerprint=f"{model_path}|{te_path}|{proj_dtype}", loader=load_proj,
-            )
-        else:
-            projections = load_proj()
+        projections = lifecycle.acquire(Component(
+            "text embedding projection", f"native/ltx_proj/{model_path}",
+            f"{model_path}|{te_path}|{proj_dtype}",
+            lambda: load_projection(model_path, "cpu", proj_dtype, te_path=te_path),
+        ))
 
         bundle = LTXModelBundle(
             dit=dit_model, te=te_model, vae=vae_model, projections=projections,
@@ -359,7 +347,7 @@ class ModelLoaderLtxPipe(BaseModelLoaderPipe):
             te_model.module if te_model is not None else None,
             dit_model.module, projections, device=device,
             model_fingerprint=f"{te_path}|{model_path}",
-            te_factory=(None if te_model is not None else lambda: acquire_te().module),
+            te_factory=(None if te_model is not None else lifecycle.deferred_module(te)),
         )
         return PipeOutput(output={"model": bundle, "text_encoder": clip})
 

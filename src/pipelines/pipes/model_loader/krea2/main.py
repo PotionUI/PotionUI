@@ -49,7 +49,6 @@ from src.pipelines.outputs import (
 )
 from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
 from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
-from src.platform.runtime.native.lora import remove_loras as _remove_loras
 from src.pipelines.contracts import (
     IOType,
     PipeInput,
@@ -66,6 +65,11 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     partition_step_windows as _partition_step_windows,
     path_of as _path_of,
     vram_budget as _vram_budget_fn,
+)
+from src.pipelines.pipes._shared.generation.loader_lifecycle import (
+    Component,
+    ComponentLifecycle,
+    sync_loras as _sync_loras,
 )
 from src.pipelines.pipes.model_loader.krea2.bundle import Krea2ModelBundle
 from src.pipelines.pipes.model_loader.krea2.krea2_clip import Krea2ClipTextEncoder
@@ -218,44 +222,22 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
 
         models = pipe_input.input.get("MODELS", None)
         progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=3)
+        lifecycle = ComponentLifecycle(models, progress)
 
-        # The TE's own `MODELS.acquire()` is deferred to `te_loader` below,
-        # run at most once and only by `Krea2ClipTextEncoder.encoder` — the
-        # first time `prompt_encoder` actually needs it, i.e. the first
-        # request in the batch that MISSES the (cheaper, model-free)
-        # prompt-embed cache. Acquiring it here unconditionally is exactly
-        # the churn this loader used to pay for nothing: a warm embed-cache
-        # hit never touches the TE again after the batch it was first
-        # encoded for, yet every later generation re-acquired (and
-        # `generator/krea2` immediately re-evicted) it regardless. See
-        # `krea2_clip.py`'s module docstring.
-        def te_loader() -> Any:
-            if models is not None:
-                progress.advance("text encoder", f"native/te/{te_path}")
-                return models.acquire(
-                    key=f"native/te/{te_path}", fingerprint=te_fp, loader=load_te,
-                    estimated_vram_gb=file_size_gb(te_path),
-                ).module
-            return load_te().module
+        te_key = f"native/te/{te_path}"
+        te = Component("text encoder", te_key, te_fp, load_te, file_size_gb(te_path))
+        vae = Component("VAE", f"native/vae/{vae_path}", vae_fp, load_vae, file_size_gb(vae_path))
+        dit = Component("DiT", f"native/dit/{dit_path}", dit_fp, load_dit, file_size_gb(dit_path))
 
-        if models is not None:
-            progress.advance("VAE", f"native/vae/{vae_path}")
-            vae_model = models.acquire(key=f"native/vae/{vae_path}", fingerprint=vae_fp, loader=load_vae, estimated_vram_gb=file_size_gb(vae_path))
-            progress.advance("DiT", f"native/dit/{dit_path}")
-            dit_model = models.acquire(key=f"native/dit/{dit_path}", fingerprint=dit_fp, loader=load_dit, estimated_vram_gb=file_size_gb(dit_path))
-            self._sync_loras(dit_model, loras, lora_fp)
-            self._sync_lora_windows(dit_model, window_fp)
-        else:
-            # No lifecycle service to defer through (isolated pipe use, e.g.
-            # tests) -- nothing to gain from laziness, so load everything
-            # up front exactly as before.
-            progress.advance("text encoder", f"native/te/{te_path}")
-            progress.advance("VAE", f"native/vae/{vae_path}")
-            progress.advance("DiT", f"native/dit/{dit_path}")
-            te_model, vae_model, dit_model = load_te(), load_vae(), load_dit()
+        if not lifecycle.caching:
+            # Nothing would hold a deferred encoder between the thunk
+            # returning and the first encode, so load everything up front.
+            te_model = lifecycle.acquire(te)
+            vae_model = lifecycle.acquire(vae)
+            dit_model = lifecycle.acquire(dit)
             return PipeOutput(output={
                 "model": Krea2ModelBundle(
-                    dit=dit_model, te=te_model, vae=vae_model, te_cache_key=f"native/te/{te_path}",
+                    dit=dit_model, te=te_model, vae=vae_model, te_cache_key=te_key,
                     windowed_loras=tuple(windowed_loras),
                 ),
                 "text_encoder": Krea2ClipTextEncoder(
@@ -263,18 +245,32 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
                 ),
             })
 
+        vae_model = lifecycle.acquire(vae)
+        dit_model = lifecycle.acquire(dit)
+        self._sync_loras(dit_model, loras, lora_fp)
+        self._sync_lora_windows(dit_model, window_fp)
         bundle = Krea2ModelBundle(
-            # `te` stays unset (never acquired) unless/until `te_loader` above
-            # actually runs -- `bundle.te_cache_key` (a plain string) is what
-            # `generator/krea2`'s `_release_idle_te` evicts by, independent of
-            # whether this bundle ever saw a real `NativeModel` for it, and
-            # `evict_dead_weight` on an absent key is already a documented
-            # no-op (see ModelLifecycle.evict_dead_weight).
-            dit=dit_model, te=None, vae=vae_model, te_cache_key=f"native/te/{te_path}",
+            # `te` stays unset (never acquired) unless/until the deferred
+            # thunk below actually runs -- `bundle.te_cache_key` (a plain
+            # string) is what `generator/krea2`'s `_release_idle_te` evicts
+            # by, independent of whether this bundle ever saw a real
+            # `NativeModel` for it, and `evict_dead_weight` on an absent key
+            # is already a documented no-op (see
+            # ModelLifecycle.evict_dead_weight).
+            dit=dit_model, te=None, vae=vae_model, te_cache_key=te_key,
             windowed_loras=tuple(windowed_loras),
         )
+        # The TE is acquired at most once and only by
+        # `Krea2ClipTextEncoder.encoder` — the first request in the batch that
+        # MISSES the (cheaper, model-free) prompt-embed cache. Acquiring it
+        # here unconditionally is exactly the churn this loader used to pay
+        # for nothing: a warm embed-cache hit never touches the TE again after
+        # the batch it was first encoded for, yet every later generation
+        # re-acquired (and `generator/krea2` immediately re-evicted) it
+        # regardless. See `krea2_clip.py`'s module docstring.
         clip = Krea2ClipTextEncoder(
-            device=device, model_fingerprint=f"{te_fp}|{dit_fp}", te_loader=te_loader,
+            device=device, model_fingerprint=f"{te_fp}|{dit_fp}",
+            te_loader=lifecycle.deferred_module(te),
         )
         return PipeOutput(output={"model": bundle, "text_encoder": clip})
 
@@ -287,31 +283,7 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
 
     @staticmethod
     def _sync_loras(dit_model: NativeModel, loras: List[Dict[str, Any]], lora_fp: str) -> None:
-        """Reconcile a (possibly cache-HIT, already-patched) DiT's applied
-        LoRA stack with the requested one, in place — never re-reads the
-        checkpoint (see this module's docstring).
-
-        ``dit_model._active_lora_fp`` is our own stamp of what's currently
-        patched into the weights (set here and by ``load_dit`` on a fresh
-        load). Equal to the requested ``lora_fp`` -> nothing to do, the common
-        "same preset, same LoRAs, next generation" case is a pure no-op. A
-        mismatch means either a cache HIT with a different LoRA request (the
-        add/remove-LoRA case this exists for) or a cache MISS whose loader
-        already applied+stamped the correct stack, in which case the stamps
-        already match and this function never reaches the branch below.
-
-        The revision bump precedes the mutation so an ``_apply_loras`` that raises
-        midway (leaving a stripped or half-patched module, with the stamp
-        deliberately left stale so the next call retries) still cannot serve a
-        cache keyed on the pre-mutation weights.
-        """
-        if getattr(dit_model, "_active_lora_fp", None) == lora_fp:
-            return
-        dit_model.bump_weight_revision(f"lora stack -> {lora_fp}")
-        _remove_loras(dit_model.module)
-        if loras:
-            ModelLoaderKrea2Pipe._apply_loras(dit_model, loras)
-        dit_model._active_lora_fp = lora_fp  # noqa: SLF001 - our own stamp, not the wrapper's private state
+        _sync_loras(dit_model, loras, lora_fp, ModelLoaderKrea2Pipe._apply_loras)
 
     @staticmethod
     def _sync_lora_windows(dit_model: NativeModel, window_fp: str) -> None:

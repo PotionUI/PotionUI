@@ -48,6 +48,10 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     path_of as _path_of,
     vram_budget as _vram_budget_fn,
 )
+from src.pipelines.pipes._shared.generation.loader_lifecycle import (
+    Component,
+    ComponentLifecycle,
+)
 from src.pipelines.pipes.model_loader.trellis2.bundle import Trellis2ModelBundle
 from src.pipelines.pipes.model_loader.trellis2.weights import prefix_size_gb
 from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
@@ -227,19 +231,12 @@ class ModelLoaderTrellis2Pipe(BaseModelLoaderPipe):
 
         models = pipe_input.input.get("MODELS", None)
         progress = ComponentProgress(generation_outputs, models, self.progress_message(), len(plan))
+        lifecycle = ComponentLifecycle(models, progress)
 
-        loaded = {}
-        for label, key, loader, estimated_gb in plan:
-            progress.advance(label, key)
-            fingerprint = f"{key}|{dtype_name}"
-            if models is not None:
-                loaded[key] = models.acquire(
-                    key=key, fingerprint=fingerprint, loader=loader, estimated_vram_gb=estimated_gb
-                )
-            else:
-                # No MODELS service injected (e.g. isolated pipe test) — load
-                # directly, with no cross-generation reuse.
-                loaded[key] = loader()
+        loaded = {
+            key: lifecycle.acquire(Component(label, key, f"{key}|{dtype_name}", loader, estimated_gb))
+            for label, key, loader, estimated_gb in plan
+        }
 
         bundle = Trellis2ModelBundle(
             conditioner=loaded[f"native/trellis2/dino/{paths['image_encoder']}"],

@@ -31,7 +31,6 @@ from src.pipelines.outputs import (
 )
 from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
 from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
-from src.platform.runtime.native.lora import remove_loras as _remove_loras
 from src.pipelines.contracts import (
     IOType,
     PipeInput,
@@ -47,6 +46,11 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     apply_loras_to as _apply_loras_to,
     path_of as _path_of,
     vram_budget as _vram_budget_fn,
+)
+from src.pipelines.pipes._shared.generation.loader_lifecycle import (
+    Component,
+    ComponentLifecycle,
+    sync_loras as _sync_loras,
 )
 from src.pipelines.pipes.model_loader.flux.bundle import FluxModelBundle
 from src.pipelines.pipes.model_loader.flux.flux_clip import FluxClipTextEncoder
@@ -175,32 +179,18 @@ class ModelLoaderFluxPipe(BaseModelLoaderPipe):
 
         models = pipe_input.input.get("MODELS", None)
         progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=3)
+        lifecycle = ComponentLifecycle(models, progress)
 
-        # TE acquisition is deferred to `te_loader`, run at most once by
-        # `FluxClipTextEncoder.encoder` -- the first time `prompt_encoder`
-        # actually misses the prompt-embed cache. See model_loader/krea2's
-        # identical deferral for the full rationale.
-        def te_loader() -> Any:
-            if models is not None:
-                progress.advance("text encoder", te_key)
-                return models.acquire(
-                    key=te_key, fingerprint=te_fp, loader=load_te, estimated_vram_gb=te_estimate_gb,
-                ).module
-            return load_te().module
+        te = Component("text encoder", te_key, te_fp, load_te, te_estimate_gb)
+        vae = Component("VAE", f"native/vae/{vae_path}", vae_fp, load_vae, file_size_gb(vae_path))
+        dit = Component("DiT", f"native/dit/{dit_path}", dit_fp, load_dit, file_size_gb(dit_path))
 
-        if models is not None:
-            progress.advance("VAE", f"native/vae/{vae_path}")
-            vae_model = models.acquire(key=f"native/vae/{vae_path}", fingerprint=vae_fp, loader=load_vae, estimated_vram_gb=file_size_gb(vae_path))
-            progress.advance("DiT", f"native/dit/{dit_path}")
-            dit_model = models.acquire(key=f"native/dit/{dit_path}", fingerprint=dit_fp, loader=load_dit, estimated_vram_gb=file_size_gb(dit_path))
-            self._sync_loras(dit_model, loras, lora_fp)
-        else:
-            # No lifecycle service to defer through (isolated pipe use, e.g.
-            # tests) -- load everything up front exactly as before.
-            progress.advance("text encoder", te_key)
-            progress.advance("VAE", f"native/vae/{vae_path}")
-            progress.advance("DiT", f"native/dit/{dit_path}")
-            te_model, vae_model, dit_model = load_te(), load_vae(), load_dit()
+        if not lifecycle.caching:
+            # Nothing would hold a deferred encoder between the thunk
+            # returning and the first encode, so load everything up front.
+            te_model = lifecycle.acquire(te)
+            vae_model = lifecycle.acquire(vae)
+            dit_model = lifecycle.acquire(dit)
             return PipeOutput(output={
                 "model": FluxModelBundle(dit=dit_model, te=te_model, vae=vae_model, te_cache_key=te_key),
                 "text_encoder": FluxClipTextEncoder(
@@ -208,9 +198,16 @@ class ModelLoaderFluxPipe(BaseModelLoaderPipe):
                 ),
             })
 
+        # The TE is acquired at most once, by `FluxClipTextEncoder.encoder`,
+        # the first time `prompt_encoder` actually misses the prompt-embed
+        # cache. See model_loader/krea2 for the full rationale.
+        vae_model = lifecycle.acquire(vae)
+        dit_model = lifecycle.acquire(dit)
+        self._sync_loras(dit_model, loras, lora_fp)
         bundle = FluxModelBundle(dit=dit_model, te=None, vae=vae_model, te_cache_key=te_key)
         clip = FluxClipTextEncoder(
-            device=device, model_fingerprint=f"{te_fp}|{dit_fp}", te_loader=te_loader,
+            device=device, model_fingerprint=f"{te_fp}|{dit_fp}",
+            te_loader=lifecycle.deferred_module(te),
         )
         return PipeOutput(output={"model": bundle, "text_encoder": clip})
 
@@ -225,28 +222,4 @@ class ModelLoaderFluxPipe(BaseModelLoaderPipe):
 
     @staticmethod
     def _sync_loras(dit_model: NativeModel, loras: List[Dict[str, Any]], lora_fp: str) -> None:
-        """Reconcile a (possibly cache-HIT, already-patched) DiT's applied
-        LoRA stack with the requested one, in place — never re-reads the
-        checkpoint (see this module's docstring).
-
-        ``dit_model._active_lora_fp`` is our own stamp of what's currently
-        patched into the weights (set here and by ``load_dit`` on a fresh
-        load). Equal to the requested ``lora_fp`` -> nothing to do, the common
-        "same preset, same LoRAs, next generation" case is a pure no-op. A
-        mismatch means either a cache HIT with a different LoRA request (the
-        add/remove-LoRA case this exists for) or a cache MISS whose loader
-        already applied+stamped the correct stack, in which case the stamps
-        already match and this function never reaches the branch below.
-
-        The revision bump precedes the mutation so an ``_apply_loras`` that raises
-        midway (leaving a stripped or half-patched module, with the stamp
-        deliberately left stale so the next call retries) still cannot serve a
-        cache keyed on the pre-mutation weights.
-        """
-        if getattr(dit_model, "_active_lora_fp", None) == lora_fp:
-            return
-        dit_model.bump_weight_revision(f"lora stack -> {lora_fp}")
-        _remove_loras(dit_model.module)
-        if loras:
-            ModelLoaderFluxPipe._apply_loras(dit_model, loras)
-        dit_model._active_lora_fp = lora_fp  # noqa: SLF001 - our own stamp, not the wrapper's private state
+        _sync_loras(dit_model, loras, lora_fp, ModelLoaderFluxPipe._apply_loras)

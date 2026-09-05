@@ -20,7 +20,6 @@ from types import SimpleNamespace
 import pytest
 
 from src.pipelines.contracts import IOType, PipeInput
-from src.pipelines.pipes.model_loader.krea2 import main as krea2_main
 from src.pipelines.pipes.model_loader.krea2.main import ModelLoaderKrea2Pipe
 from src.pipelines.pipes.model_loader.krea2.bundle import Krea2ModelBundle
 from src.pipelines.pipes.model_loader.krea2.krea2_clip import Krea2ClipTextEncoder
@@ -256,7 +255,7 @@ def test_removing_all_loras_on_warm_dit_unpatches_without_reload(_fake_engine, _
     (``remove_loras``) rather than leaving stale deltas applied or forcing a
     reload just to get back to the bare checkpoint."""
     remove_calls = []
-    monkeypatch.setattr(krea2_main, "_remove_loras", lambda module: remove_calls.append(module))
+    monkeypatch.setattr("src.pipelines.pipes._shared.generation.loader_lifecycle.remove_loras", lambda module: remove_calls.append(module))
 
     models = _FakeModels()
     _run(ModelLoaderKrea2Pipe(config=_config(loras=[{"model": "/m/style.safetensors", "strength": 0.8}])), models)

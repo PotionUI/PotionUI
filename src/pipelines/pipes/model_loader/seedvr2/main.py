@@ -38,6 +38,10 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     path_of as _path_of,
     vram_budget as _vram_budget_fn,
 )
+from src.pipelines.pipes._shared.generation.loader_lifecycle import (
+    Component,
+    ComponentLifecycle,
+)
 from src.pipelines.pipes.model_loader.seedvr2.bundle import SeedVR2ModelBundle
 
 
@@ -137,21 +141,14 @@ class ModelLoaderSeedVR2Pipe(BaseModelLoaderPipe):
 
         models = pipe_input.input.get("MODELS", None)
         progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=2)
-        if models is not None:
-            progress.advance("VAE", f"native/vae/{vae_path}")
-            vae_model = models.acquire(
-                key=f"native/vae/{vae_path}", fingerprint=vae_fp, loader=load_vae,
-                estimated_vram_gb=file_size_gb(vae_path),
-            )
-            progress.advance("DiT", f"native/dit/{dit_path}")
-            dit_model = models.acquire(
-                key=f"native/dit/{dit_path}", fingerprint=dit_fp, loader=load_dit,
-                estimated_vram_gb=file_size_gb(dit_path),
-            )
-        else:
-            progress.advance("VAE", f"native/vae/{vae_path}")
-            progress.advance("DiT", f"native/dit/{dit_path}")
-            vae_model, dit_model = load_vae(), load_dit()
+        lifecycle = ComponentLifecycle(models, progress)
+
+        vae_model = lifecycle.acquire(
+            Component("VAE", f"native/vae/{vae_path}", vae_fp, load_vae, file_size_gb(vae_path))
+        )
+        dit_model = lifecycle.acquire(
+            Component("DiT", f"native/dit/{dit_path}", dit_fp, load_dit, file_size_gb(dit_path))
+        )
 
         prompt_embedding = load_seedvr2_prompt_embedding(emb_path)
 

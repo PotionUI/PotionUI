@@ -32,7 +32,9 @@ def _clean_cache():
 
 @pytest.fixture
 def fake_lora_io(monkeypatch):
-    """Replace the two weight-touching calls in ``_sync_loras`` with recorders."""
+    """Replace the two weight-touching calls in the shared ``sync_loras`` with
+    recorders (``remove_loras`` lives there now; ``_apply_loras`` is still the
+    per-family callback it is handed)."""
     calls = {"removed": 0, "applied": []}
 
     def _remove(module):
@@ -41,11 +43,8 @@ def fake_lora_io(monkeypatch):
     def _apply(dit_model, loras):
         calls["applied"].append(list(loras))
 
-    for pipe, module_path in (
-        (ModelLoaderFluxPipe, "src.pipelines.pipes.model_loader.flux.main"),
-        (ModelLoaderKrea2Pipe, "src.pipelines.pipes.model_loader.krea2.main"),
-    ):
-        monkeypatch.setattr(f"{module_path}._remove_loras", _remove)
+    monkeypatch.setattr("src.pipelines.pipes._shared.generation.loader_lifecycle.remove_loras", _remove)
+    for pipe in (ModelLoaderFluxPipe, ModelLoaderKrea2Pipe):
         monkeypatch.setattr(pipe, "_apply_loras", staticmethod(_apply))
     return calls
 
@@ -123,7 +122,7 @@ def test_failed_reconciliation_revises_and_leaves_the_stamp_stale(monkeypatch):
     advanced past a raising ``_apply_loras``, so the next call retries the whole
     reconciliation.
     """
-    monkeypatch.setattr("src.pipelines.pipes.model_loader.flux.main._remove_loras", lambda m: None)
+    monkeypatch.setattr("src.pipelines.pipes._shared.generation.loader_lifecycle.remove_loras", lambda m: None)
 
     def _boom(dit_model, loras):
         raise RuntimeError("unreadable LoRA")

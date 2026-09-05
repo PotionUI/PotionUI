@@ -15,7 +15,7 @@ from src.pipelines.outputs import (
     ModelGenerationOutput,
     ModelsGenerationOutput,
 )
-from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
+from src.platform.runtime.native.engine import NativeEngineLoader
 from src.pipelines.contracts import (
     IOType,
     PipeInput,
@@ -30,6 +30,10 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     active_loras as _active_loras,
     path_of as _path_of,
     vram_budget as _vram_budget_fn,
+)
+from src.pipelines.pipes._shared.generation.loader_lifecycle import (
+    Component,
+    ComponentLifecycle,
 )
 from src.pipelines.pipes.model_loader.wan22.acquire import acquire_wan_dit
 from src.pipelines.pipes.model_loader.wan22.bundle import WanModelBundle
@@ -126,40 +130,32 @@ class ModelLoaderWan22Pipe(BaseModelLoaderPipe):
         progress = ComponentProgress(
             generation_outputs, models, self.progress_message(), total=4 if low_path else 3,
         )
+        lifecycle = ComponentLifecycle(models, progress)
 
-        def acquire(key: str, fp: str, kind: str, path: str) -> NativeModel:
-            if models is not None:
-                return models.acquire(key=key, fingerprint=fp, loader=lambda: loader.load(path, kind))
-            return loader.load(path, kind)
-
+        # The two DiTs go through `acquire_wan_dit`, which owns the per-expert
+        # LoRA fingerprint the chain generator re-acquires against mid-chain;
+        # progress is announced here to keep the loader's component order.
         progress.advance("high-noise DiT" if low_path else "DiT", f"native/dit/{high_path}")
         high_dit = acquire_wan_dit(models, loader, high_path, dtype, loras_high, log_tag="MODEL LOADER WAN")
         low_dit = None
         if low_path:
             progress.advance("low-noise DiT", f"native/dit/{low_path}")
             low_dit = acquire_wan_dit(models, loader, low_path, dtype, loras_low, log_tag="MODEL LOADER WAN")
-        progress.advance("VAE", f"native/vae/{vae_path}")
-        vae_model = acquire(f"native/vae/{vae_path}", f"{vae_path}|{dtype}", "vae", vae_path)
+
+        vae_model = lifecycle.acquire(Component(
+            "VAE", f"native/vae/{vae_path}", f"{vae_path}|{dtype}", lambda: loader.load(vae_path, "vae"),
+        ))
 
         te_key = f"native/te/{te_path}"
-        te_fp = f"{te_path}|{dtype}"
         model_fingerprint = f"{te_path}|{high_path}|{low_path or ''}"
+        te = Component(
+            "text encoder", te_key, f"{te_path}|{dtype}", lambda: loader.load(te_path, "text_encoder"),
+        )
 
-        # TE acquisition is deferred to `te_loader`, run at most once by
-        # `WanClipTextEncoder.encoder` -- the first time `prompt_encoder`
-        # actually misses the prompt-embed cache. See model_loader/krea2's
-        # identical deferral for the full rationale.
-        def te_loader() -> Any:
-            if models is not None:
-                progress.advance("text encoder", te_key)
-                return acquire(te_key, te_fp, "text_encoder", te_path).module
-            return loader.load(te_path, "text_encoder").module
-
-        if models is None:
-            # No lifecycle service to defer through (isolated pipe use, e.g.
-            # tests) -- load everything up front exactly as before.
-            progress.advance("text encoder", te_key)
-            te_model = acquire(te_key, te_fp, "text_encoder", te_path)
+        if not lifecycle.caching:
+            # Nothing would hold a deferred encoder between the thunk
+            # returning and the first encode, so load it up front.
+            te_model = lifecycle.acquire(te)
             return PipeOutput(output={
                 "model": WanModelBundle(
                     high_dit=high_dit, te=te_model, vae=vae_model, low_dit=low_dit,
@@ -170,12 +166,16 @@ class ModelLoaderWan22Pipe(BaseModelLoaderPipe):
                 ),
             })
 
+        # The TE is acquired at most once, by `WanClipTextEncoder.encoder`, the
+        # first time `prompt_encoder` actually misses the prompt-embed cache.
+        # See model_loader/krea2 for the full rationale.
         bundle = WanModelBundle(
             high_dit=high_dit, te=None, vae=vae_model, low_dit=low_dit,
             loras_high=loras_high, loras_low=loras_low, te_cache_key=te_key,
         )
         clip = WanClipTextEncoder(
-            device=device, model_fingerprint=model_fingerprint, te_loader=te_loader,
+            device=device, model_fingerprint=model_fingerprint,
+            te_loader=lifecycle.deferred_module(te),
         )
         return PipeOutput(output={"model": bundle, "text_encoder": clip})
 

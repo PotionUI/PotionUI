@@ -16,7 +16,6 @@ from types import SimpleNamespace
 import pytest
 
 from src.pipelines.contracts import IOType, PipeInput
-from src.pipelines.pipes.model_loader.flux import main as flux_main
 from src.pipelines.pipes.model_loader.flux.main import ModelLoaderFluxPipe
 from src.pipelines.pipes.model_loader.flux.bundle import FluxModelBundle
 from src.pipelines.pipes.model_loader.flux.flux_clip import FluxClipTextEncoder
@@ -268,7 +267,7 @@ def test_removing_all_loras_on_warm_dit_unpatches_without_reload(_fake_engine, _
     (``remove_loras``) rather than leaving stale deltas applied or forcing a
     reload just to get back to the bare checkpoint."""
     remove_calls = []
-    monkeypatch.setattr(flux_main, "_remove_loras", lambda module: remove_calls.append(module))
+    monkeypatch.setattr("src.pipelines.pipes._shared.generation.loader_lifecycle.remove_loras", lambda module: remove_calls.append(module))
 
     models = _FakeModels()
     _run(ModelLoaderFluxPipe(config=_config(loras=[{"model": "/m/style.safetensors", "strength": 0.8}])), models)

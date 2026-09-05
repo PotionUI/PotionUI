@@ -30,7 +30,7 @@ from src.pipelines.outputs import (
     ModelsGenerationOutput,
 )
 from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
-from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
+from src.platform.runtime.native.engine import NativeEngineLoader
 from src.pipelines.contracts import (
     IOType,
     PipeInput,
@@ -44,6 +44,10 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     ComponentProgress,
     path_of as _path_of,
     vram_budget as _vram_budget_fn,
+)
+from src.pipelines.pipes._shared.generation.loader_lifecycle import (
+    Component,
+    ComponentLifecycle,
 )
 from src.pipelines.pipes.model_loader.minimax_music3.bundle import MiniMaxMusic3ModelBundle
 from src.pipelines.pipes.model_loader.minimax_music3.te_loader import load_minimax_music3_te
@@ -124,38 +128,29 @@ class ModelLoaderMinimaxMusic3Pipe(BaseModelLoaderPipe):
         loader = NativeEngineLoader(device=device, vram_gb=vram_gb)
 
         models = pipe_input.input.get("MODELS", None)
-
-        def acquire(key: str, fp: str, kind: str, path: str, **kwargs: Any) -> NativeModel:
-            # Every Music3 component lives in its OWN standalone file (same
-            # posture as MiniMax-H3), so every acquire estimates from its
-            # own file size -- no slice-before-estimate special-casing.
-            estimated_vram_gb = file_size_gb(path)
-            if models is not None:
-                return models.acquire(
-                    key=key, fingerprint=fp, loader=lambda: loader.load(path, kind, **kwargs),
-                    estimated_vram_gb=estimated_vram_gb,
-                )
-            return loader.load(path, kind, **kwargs)
-
         progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=3)
-        progress.advance("DiT", f"native/dit/{model_path}")
-        dit_model = acquire(f"native/dit/{model_path}", f"{model_path}|{dtype}", "diffusion_model", model_path)
-        progress.advance("audio VAE", f"native/audio_vae/{vae_path}")
-        vae_model = acquire(f"native/audio_vae/{vae_path}", f"{vae_path}|{dtype}", "audio_vae", vae_path)
+        lifecycle = ComponentLifecycle(models, progress)
+
+        # Every Music3 component lives in its OWN standalone file (same posture
+        # as MiniMax-H3), so every estimate comes from its own file size -- no
+        # slice-before-estimate special-casing.
+        def _component(label: str, key: str, kind: str, path: str) -> Component:
+            return Component(
+                label, key, f"{path}|{dtype}", lambda: loader.load(path, kind), file_size_gb(path),
+            )
+
+        dit_model = lifecycle.acquire(
+            _component("DiT", f"native/dit/{model_path}", "diffusion_model", model_path)
+        )
+        vae_model = lifecycle.acquire(
+            _component("audio VAE", f"native/audio_vae/{vae_path}", "audio_vae", vae_path)
+        )
 
         lm_cache_key = f"native/te/{te_path}"
-
-        def load_lm() -> NativeModel:
-            return load_minimax_music3_te(te_path, device=device)
-
-        progress.advance("text encoder", lm_cache_key)
-        if models is not None:
-            lm_model = models.acquire(
-                key=lm_cache_key, fingerprint=f"{te_path}|{dtype}", loader=load_lm,
-                estimated_vram_gb=file_size_gb(te_path),
-            )
-        else:
-            lm_model = load_lm()
+        lm_model = lifecycle.acquire(Component(
+            "text encoder", lm_cache_key, f"{te_path}|{dtype}",
+            lambda: load_minimax_music3_te(te_path, device=device), file_size_gb(te_path),
+        ))
 
         bundle = MiniMaxMusic3ModelBundle(
             dit=dit_model, lm=lm_model, dav=vae_model, lm_cache_key=lm_cache_key,

@@ -1,5 +1,5 @@
 import { createRegistry, CORE_OWNER, pluginOwner } from './registry';
-import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
+import { resolveLazyEntry } from './lazyResolve';
 
 /**
  * artifact_type -> Svelte component. Every registered component receives
@@ -42,23 +42,9 @@ function unregisterArtifactRenderer(artifactType: string, owner?: string): void 
 	resolvedCache.delete(artifactType);
 }
 
-/** Resolve `artifactType` to its component. Returns `null` if unregistered. */
-async function resolveArtifactRenderer(artifactType: string): Promise<any | null> {
-	if (resolvedCache.has(artifactType)) {
-		return resolvedCache.get(artifactType) ?? null;
-	}
-
-	const entry = registry.get(artifactType);
-	if (!entry) return null;
-
-	if (entry.kind === 'static') {
-		resolvedCache.set(artifactType, entry.component);
-		return entry.component;
-	}
-
-	const component = await resolvePluginComponent(entry.pluginId, entry.asset);
-	resolvedCache.set(artifactType, component);
-	return component;
+/** Resolve `artifactType` to its component. Returns `null` if unregistered. Publication rules in `lazyResolve.ts`. */
+function resolveArtifactRenderer(artifactType: string): Promise<any | null> {
+	return resolveLazyEntry(registry, resolvedCache, artifactType);
 }
 
 /**

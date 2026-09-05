@@ -7,7 +7,7 @@
  * `plugin-api/componentResolver`.
  */
 import { createRegistry, CORE_OWNER, pluginOwner } from '$lib/registries/registry';
-import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
+import { resolveLazyEntry } from '$lib/registries/lazyResolve';
 
 export type FieldComponentEntry =
 	| { kind: 'static'; component: any }
@@ -40,23 +40,10 @@ export function unregisterFieldComponent(type: string, owner?: string): void {
  * synchronously (wrapped in a resolved Promise); lazy plugin entries import
  * their compiled ES module on first use and cache the result. Unknown types
  * resolve to `null` - callers render the "unsupported field type" fallback.
+ * Publication rules in `registries/lazyResolve.ts`.
  */
-export async function resolveFieldComponent(type: string): Promise<any | null> {
-	if (resolvedCache.has(type)) {
-		return resolvedCache.get(type) ?? null;
-	}
-
-	const entry = registry.get(type);
-	if (!entry) return null;
-
-	if (entry.kind === 'static') {
-		resolvedCache.set(type, entry.component);
-		return entry.component;
-	}
-
-	const component = await resolvePluginComponent(entry.pluginId, entry.asset);
-	resolvedCache.set(type, component);
-	return component;
+export function resolveFieldComponent(type: string): Promise<any | null> {
+	return resolveLazyEntry(registry, resolvedCache, type);
 }
 
 export function hasFieldComponent(type: string): boolean {

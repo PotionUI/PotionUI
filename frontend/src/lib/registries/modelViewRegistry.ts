@@ -1,5 +1,6 @@
 import { createRegistry, pluginOwner } from './registry';
 import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
+import { lazyEntryIdentity } from './lazyResolve';
 
 /**
  * Plugin-provided model detail sections (`renderers: [{kind: "model.view",
@@ -25,14 +26,34 @@ export function unregisterModelView(pluginId: string, key: string): void {
 	registry.unregister(`${pluginId}:${key}`, pluginOwner(pluginId));
 }
 
-/** All registered sections, each resolving its component lazily via componentResolver. */
+/**
+ * All registered sections, each resolving its component lazily via
+ * componentResolver. Sections are not cached, but a resolve still outlives the
+ * registration that started it, so the same publication rule as
+ * `lazyResolve.ts` applies: a component whose entry was unregistered or revised
+ * mid-load resolves to null rather than rendering a section the plugin no
+ * longer contributes.
+ */
 export function listModelViewSections(): ModelViewSection[] {
 	return registry.keys().map((compositeKey) => {
 		const entry = registry.get(compositeKey)!;
 		return {
 			pluginId: entry.pluginId,
 			key: compositeKey.slice(entry.pluginId.length + 1),
-			component: resolvePluginComponent(entry.pluginId, entry.asset)
+			component: resolveSection(compositeKey, entry)
 		};
 	});
+}
+
+async function resolveSection(
+	compositeKey: string,
+	entry: { pluginId: string; asset: string }
+): Promise<any | null> {
+	const lazy = { kind: 'lazy', ...entry } as const;
+	const identity = lazyEntryIdentity(lazy);
+	const component = await resolvePluginComponent(entry.pluginId, entry.asset);
+
+	const current = registry.get(compositeKey);
+	if (!current || lazyEntryIdentity({ kind: 'lazy', ...current }) !== identity) return null;
+	return component;
 }

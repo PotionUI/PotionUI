@@ -1,5 +1,5 @@
 import { createRegistry, CORE_OWNER, pluginOwner } from './registry';
-import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
+import { resolveLazyEntry } from './lazyResolve';
 
 /**
  * file_type -> Svelte preview component, resolved by `Workbench.svelte` for
@@ -40,25 +40,9 @@ export function unregisterWorkbenchFileRenderer(fileType: string, owner?: string
 	resolvedCache.delete(fileType);
 }
 
-/** Resolve `fileType` to its component, falling back to `image`'s if unregistered. */
-export async function resolveWorkbenchFileRenderer(fileType: string): Promise<any | null> {
-	const key = registry.has(fileType) ? fileType : 'image';
-
-	if (resolvedCache.has(key)) {
-		return resolvedCache.get(key) ?? null;
-	}
-
-	const entry = registry.get(key);
-	if (!entry) return null;
-
-	if (entry.kind === 'static') {
-		resolvedCache.set(key, entry.component);
-		return entry.component;
-	}
-
-	const component = await resolvePluginComponent(entry.pluginId, entry.asset);
-	resolvedCache.set(key, component);
-	return component;
+/** Resolve `fileType` to its component, falling back to `image`'s if unregistered. Publication rules in `lazyResolve.ts`. */
+export function resolveWorkbenchFileRenderer(fileType: string): Promise<any | null> {
+	return resolveLazyEntry(registry, resolvedCache, registry.has(fileType) ? fileType : 'image');
 }
 
 export function hasWorkbenchFileRenderer(fileType: string): boolean {

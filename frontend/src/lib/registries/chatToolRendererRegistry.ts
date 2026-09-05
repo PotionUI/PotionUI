@@ -1,5 +1,5 @@
 import { createRegistry, CORE_OWNER, pluginOwner } from './registry';
-import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
+import { resolveLazyEntry } from './lazyResolve';
 
 /**
  * tool_name -> Svelte component for a per-tool chat rendering surface.
@@ -47,23 +47,9 @@ function unregisterChatToolRenderer(toolName: string, owner?: string): void {
 	resolvedCache.delete(toolName);
 }
 
-/** Resolve `toolName` to its renderer component. Returns `null` if unregistered. */
-async function resolveChatToolRenderer(toolName: string): Promise<any | null> {
-	if (resolvedCache.has(toolName)) {
-		return resolvedCache.get(toolName) ?? null;
-	}
-
-	const entry = registry.get(toolName);
-	if (!entry) return null;
-
-	if (entry.kind === 'static') {
-		resolvedCache.set(toolName, entry.component);
-		return entry.component;
-	}
-
-	const component = await resolvePluginComponent(entry.pluginId, entry.asset);
-	resolvedCache.set(toolName, component);
-	return component;
+/** Resolve `toolName` to its renderer component. Returns `null` if unregistered. Publication rules in `lazyResolve.ts`. */
+function resolveChatToolRenderer(toolName: string): Promise<any | null> {
+	return resolveLazyEntry(registry, resolvedCache, toolName);
 }
 
 export const chatToolRendererRegistry = {

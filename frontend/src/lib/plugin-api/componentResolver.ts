@@ -66,6 +66,16 @@ export function setPluginRevisions(next: Record<string, string>): void {
 	for (const [pluginId, revision] of Object.entries(next)) revisions.set(pluginId, revision);
 }
 
+/**
+ * The revision `pluginId`'s assets are currently served at, or '' when none has
+ * been published. Lazy registries fold this into the entry identity they check
+ * before publishing a resolved component, so a load started under an evicted
+ * revision cannot be cached or returned.
+ */
+export function getPluginRevision(pluginId: string): string {
+	return revisions.get(pluginId) ?? '';
+}
+
 function cacheKeyFor(pluginId: string, revision: string, componentPath: string): string {
 	return `${pluginId}@${revision}:${componentPath}`;
 }

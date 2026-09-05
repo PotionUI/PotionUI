@@ -65,6 +65,24 @@ describe('resolvePluginComponent revisions', () => {
 		expect(attemptedUrls('Cached.js')).toHaveLength(1);
 	});
 
+	it('starts a fresh import after a revision eviction rather than reusing the evicted load', async () => {
+		const resolver = await loadResolver();
+		resolver.setPluginRevisions({ example: 'rev-1' });
+
+		const evicted = resolver.resolvePluginComponent('example', 'Evicted.svelte');
+		resolver.setPluginRevisions({ example: 'rev-2' });
+		await evicted;
+
+		const reloaded = resolver.resolvePluginComponent('example', 'Evicted.svelte');
+		await reloaded;
+
+		expect(reloaded).not.toBe(evicted);
+		expect(attemptedUrls('Evicted.js')).toEqual([
+			'https://potion.test/api/plugins/example/assets/Evicted.js?v=rev-1',
+			'https://potion.test/api/plugins/example/assets/Evicted.js?v=rev-2'
+		]);
+	});
+
 	it('retries a failed import instead of caching the failure', async () => {
 		const resolver = await loadResolver();
 		resolver.setPluginRevisions({ example: 'rev-1' });

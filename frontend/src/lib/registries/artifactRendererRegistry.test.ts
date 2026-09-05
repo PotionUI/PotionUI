@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('$lib/plugin-api/componentResolver', () => ({
-	resolvePluginComponent: vi.fn()
+	resolvePluginComponent: vi.fn(),
+	getPluginRevision: () => 'rev-1'
 }));
 
 import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';

@@ -29,6 +29,19 @@
 
 	const LOCKED_ROLES = new Set(['seed', 'prompt_positive', 'prompt_negative', 'batch_size']);
 
+	// A JS `Number` is an IEEE-754 double, exact only up to
+	// `Number.MAX_SAFE_INTEGER` (2**53-1) - the backend
+	// (`backend/api.py`'s `_make_json_safe`) tags any integer literal beyond
+	// that as `{__exact_int__: "<digits>"}` instead of a raw JSON number, so
+	// this app's own `JSON.parse` of the response never rounds it further.
+	// These helpers are the one place that shape is recognized.
+	function isExactIntTag(value) {
+		return !!value && typeof value === 'object' && !Array.isArray(value) && typeof value.__exact_int__ === 'string';
+	}
+	function exactIntDigits(value) {
+		return isExactIntTag(value) ? value.__exact_int__ : null;
+	}
+
 	const TRANSFORM_OPTIONS = [
 		{ value: 'none', label: 'None' },
 		{ value: 'strip_model_prefix', label: 'Strip model prefix' },
@@ -136,6 +149,7 @@
 		creating = false;
 		analysis = null;
 		workflowJson = null;
+		workflowText = null;
 		pendingFileRead = false;
 	}
 
@@ -151,6 +165,15 @@
 	let analyzeError = $state('');
 	let analysis = $state(null);
 	let workflowJson = $state(null);
+	// The exact source text `workflowJson` was parsed from - byte-for-byte
+	// as pasted, uploaded, or returned by `/source`, NEVER re-derived from
+	// `workflowJson` via `JSON.stringify` (that would already have lost
+	// whatever precision `JSON.parse` cost it on the way in). Sent as
+	// `workflow_text` alongside `workflow` on every request that carries a
+	// workflow - see `backend/api.py`'s `_resolve_workflow_json`, which
+	// treats it as authoritative over `workflow` for every literal value.
+	// `null` whenever there is no source in hand (mirrors `workflowJson`).
+	let workflowText = $state(null);
 	// True from the moment a file is picked/dropped until its FileReader
 	// settles (or the source is retired again) - the selected file, not
 	// whatever the textarea still shows, owns the source while this is true,
@@ -274,8 +297,20 @@
 		return `${c.node_id}:${c.input_name}`;
 	}
 
+	// A candidate whose literal is an integer too large for this app to
+	// represent exactly as a Number (see `isExactIntTag`) is treated the
+	// same as a foundational always-wired candidate: never offered through
+	// "add to form", because mapping it into an editable control would
+	// still lose precision the moment the value is touched as a JS number.
+	// Left unmapped, the workflow's own baked-in literal (untouched by
+	// field_mappings) stays authoritative - see emit.py, an unmapped
+	// literal keeps its source value verbatim.
+	function hasExactLiteral(c) {
+		return isExactIntTag(c.current_value);
+	}
+
 	function isLockedCandidate(c) {
-		return LOCKED_ROLES.has(c.role);
+		return LOCKED_ROLES.has(c.role) || hasExactLiteral(c);
 	}
 
 	// Name-based mapping suggestions: "seed" (a workflow input) suggests
@@ -343,6 +378,22 @@
 			config: it.config ?? null,
 			mappings: (it.mappings || []).map((m) => ({ ...m }))
 		};
+		if (isExactIntTag(field.default)) {
+			// A mapped field's default the server had to tag (see
+			// `isExactIntTag`) - this happens for an "obvious" field the
+			// backend maps automatically (default_form) or a field an
+			// existing preset's stored sidecar already mapped, when its
+			// literal is too large for this editor to hold as a Number.
+			// Keeping it mapped would either display "[object Object]" or,
+			// on save, bake the tag object itself into the preset. Drop the
+			// mapping instead: the workflow's own baked-in literal (never
+			// touched by an unmapped field) stays authoritative - see
+			// emit.py's module docstring. `_exactLiteralDigits` drives the
+			// read-only "kept as imported" note in fieldCard below.
+			field._exactLiteralDigits = exactIntDigits(field.default);
+			field.default = null;
+			field.mappings = [];
+		}
 		if (field.field_type === 'resolution') {
 			const wh = parseWh(field.default);
 			if (wh) field._wh = wh;
@@ -455,6 +506,11 @@
 	}
 
 	function addCandidateToForm(c) {
+		// Belt-and-braces alongside the left panel's own row rendering (which
+		// never shows an "add" button for a locked candidate) - refuses the
+		// mapping outright rather than baking an unrepresentable value into a
+		// new field's default. See `hasExactLiteral`/`isLockedCandidate`.
+		if (isLockedCandidate(c)) return;
 		const key = candidateKey(c);
 		if (mappedKeySet.has(key)) return;
 		const name = c.suggested_field_name || c.input_name;
@@ -1359,6 +1415,7 @@
 	}
 
 	function displayDefault(item) {
+		if (item._exactLiteralDigits) return item._exactLiteralDigits;
 		if (item._wh) return `${item._wh.width ?? ''} × ${item._wh.height ?? ''}`;
 		const d = item.default;
 		if (Array.isArray(d)) return `${d.length} item${d.length === 1 ? '' : 's'}`;
@@ -1532,6 +1589,14 @@
 				return;
 			}
 			workflowJson = payload.workflow;
+			// The stored file's exact text, never round-tripped through this
+			// app's own JSON.parse/JSON.stringify - see `workflowText`'s own
+			// comment. `/source` always sends this now (same plugin commit
+			// chain as the backend that emits it); a missing field is a
+			// backend bug, not something to paper over with a re-serialized
+			// `payload.workflow` (which has already had anything oversized
+			// replaced with an `__exact_int__` tag by then).
+			workflowText = payload.workflow_text;
 			analysis = payload;
 			modelFamily = payload.model_family || '';
 			variant = payload.variant || 'imported';
@@ -1618,6 +1683,13 @@
 	async function runAnalyze() {
 		if (analyzing) return;
 		analyzeError = '';
+		// `parsed` is only ever used to validate that `rawText` is JSON at
+		// all and to populate `workflowJson` for this app's own later reads
+		// (node-class lookups, etc) - the wire value that actually reaches
+		// the server for every literal is `rawText` itself, sent unchanged
+		// as `workflow_text` below. `parsed` has already lost anything
+		// outside JS's safe integer range the instant JSON.parse ran; never
+		// re-derive `workflow_text` from it via JSON.stringify.
 		let parsed;
 		try {
 			parsed = JSON.parse(rawText);
@@ -1632,7 +1704,7 @@
 				method: 'POST',
 				credentials: 'include',
 				headers: { 'Content-Type': 'application/json', ...authHeaders() },
-				body: JSON.stringify({ workflow: parsed })
+				body: JSON.stringify({ workflow: parsed, workflow_text: rawText })
 			});
 			const payload = await res.json().catch(() => null);
 			if (token !== sourceToken) return;
@@ -1641,6 +1713,7 @@
 				return;
 			}
 			workflowJson = parsed;
+			workflowText = rawText;
 			analysis = payload;
 			initializeFormAndHistory(payload);
 			step = 2;
@@ -1683,7 +1756,7 @@
 				method: 'POST',
 				credentials: 'include',
 				headers: { 'Content-Type': 'application/json', ...authHeaders() },
-				body: JSON.stringify({ workflow: workflowJson })
+				body: JSON.stringify({ workflow: workflowJson, workflow_text: workflowText })
 			});
 			const payload = await res.json().catch(() => null);
 			if (token !== sourceToken) return;
@@ -1722,6 +1795,7 @@
 				headers: { 'Content-Type': 'application/json', ...authHeaders() },
 				body: JSON.stringify({
 					workflow: workflowJson,
+					workflow_text: workflowText,
 					model_family: modelFamily.trim(),
 					variant: variant.trim() || 'imported',
 					display_name: displayName.trim(),
@@ -1934,6 +2008,8 @@
 				inputmode={INT_FIELD_TYPES.has(item.field_type) || NUMERIC_FIELD_TYPES.has(item.field_type) ? 'decimal' : undefined}
 				value={displayDefault(item)}
 				oninput={(e) => setDefaultFromText(item, e.currentTarget.value)}
+				readonly={!!item._exactLiteralDigits}
+				title={item._exactLiteralDigits ? `Original value ${item._exactLiteralDigits} is larger than this editor can represent exactly - kept as imported, unmapped.` : undefined}
 				aria-label="Default value"
 			/>
 			<div class="di-field-actions">
@@ -1954,7 +2030,11 @@
 				<button type="button" class="iconbtn" title="Remove" onclick={() => removeItemAt(parentItems, index)} data-action="remove">{@render icon('x')}</button>
 			</div>
 		</div>
-		{#if item.mappings.length > 0}
+		{#if item._exactLiteralDigits}
+			<div class="di-mapping" title={`This value (${item._exactLiteralDigits}) is larger than the editor can represent exactly, so it was left unmapped - the workflow's own original value is used as-is.`}>
+				<span class="line mono">{@render icon('lock', 10)}kept as imported: {item._exactLiteralDigits}</span>
+			</div>
+		{:else if item.mappings.length > 0}
 			<div class="di-mapping"><span class="line mono"><span class="arrow">→</span>{item.mappings.map((m) => `${m.node_id}.inputs.${m.input_name}`).join(' · ')}</span></div>
 		{:else if !dismissedSuggestionIds[item._id]}
 			{@const suggestions = nameMatchSuggestionsFor(item)}
@@ -2347,7 +2427,14 @@
 								{@const mappedField = mappedFieldByKey.get(key)}
 								<div class="di-row" class:locked class:mapped={!!mappedField} data-input-key={key}>
 									<span class="di-row-name mono">{c.input_name}</span>
-									{#if locked}
+									{#if hasExactLiteral(c)}
+										<span
+											class="lock-badge"
+											title={`This value (${exactIntDigits(c.current_value)}) is larger than the editor can represent exactly - kept as imported, never mapped.`}
+											>{@render icon('lock', 10)}exact literal</span
+										>
+										<span class="di-row-value mono">{exactIntDigits(c.current_value)}</span>
+									{:else if locked}
 										<span class="lock-badge">{@render icon('lock', 10)}always wired</span>
 									{:else if mappedField}
 										<span class="di-row-value">{mappedField.label}</span>

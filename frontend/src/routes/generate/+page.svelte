@@ -42,9 +42,10 @@
 	import { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission, representativeDirectorPrompt, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText } from '$lib/utils/videoDirector';
 	import { directorShotInputIdentity, directorPredecessorShotId, directorPredecessorOutputKey } from '$lib/utils/directorInputIdentity';
 	import { planDirectorSelection } from '$lib/utils/directorPlanner';
-	import { runDirectorDependencyPlan } from '$lib/utils/directorDependencyRunner';
+	import { runDirectorDependencyPlan, type DirectorShotSubmitOutcome, type DirectorShotTerminalOutcome } from '$lib/utils/directorDependencyRunner';
+	import { resolvePredecessorFrame, type PredecessorOutputLike } from '$lib/utils/directorContinuation';
 	import { peekGenerationOutputs } from '$lib/generation/messages/generationOutputs';
-	import type { VideoDirectorWireDoc, VideoDirectorValue } from '$lib/types/videoDirector';
+	import type { VideoDirectorWireDoc, VideoDirectorValue, DirectorMediaValue } from '$lib/types/videoDirector';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import { resolveMusicDirectorCapabilities, normalizeMusicDirectorValue, validateMusicDirector, buildMusicDirectorSubmission } from '$lib/utils/musicDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
@@ -78,6 +79,13 @@
 	function handleDirectorCheckedChange(tabId: string, checked: Set<string>) {
 		directorCheckedByTab = { ...directorCheckedByTab, [tabId]: checked };
 	}
+
+	/** Cancel callbacks for every `waitForDirectorShotTerminal` promise
+	 *  currently outstanding -- settled (as `'abandoned'`) and cleared on
+	 *  `onDestroy` below, since this component's own WebSocket is torn down
+	 *  there too and nothing would ever move a pending wait to a real
+	 *  terminal state afterwards (see `waitForDirectorShotTerminal`). */
+	const pendingDirectorShotWaiters = new Set<() => void>();
 
 	/** One `DirectorRunState` per shot id a just-started generation covers
 	 *  (PLAN.md §C W3) -- `inputsHash`/`predecessorRef` are captured from `doc`/
@@ -116,14 +124,35 @@
 		return entries;
 	}
 
+	/** Fresh per-generation-id output snapshot from every run `tabId` currently
+	 *  knows about -- `resolvePredecessorFrame`'s `outputsById` (keyed by
+	 *  GENERATION id, `directorContinuation.ts`'s own doc comment on why this
+	 *  is tried before a run's persisted `posterUrl`). */
+	function snapshotDirectorGenerationOutputs(
+		runs: Record<string, DirectorRunState> | null | undefined
+	): Record<string, PredecessorOutputLike> | null {
+		if (!runs) return null;
+		const byGenerationId: Record<string, PredecessorOutputLike> = {};
+		for (const run of Object.values(runs)) {
+			if (run.generationId) byGenerationId[run.generationId] = peekGenerationOutputs(run.generationId);
+		}
+		return byGenerationId;
+	}
+
 	/**
 	 * Submits one Video Director wire doc (already built, form-ref-resolved
 	 * by the caller is NOT assumed -- this does that too) as a real
 	 * generation, and records `shotsForDoc`'s `directorRuns`/`directorRunLinks`
 	 * once it's queued. Factored out of `submitVideoDirectorShots` so the
-	 * LTX timeline path below can submit shots one at a time, gated by
+	 * LTX timeline path can submit shots one at a time, gated by
 	 * `directorDependencyRunner.ts`, instead of firing every wire doc in one
-	 * un-gated loop.
+	 * un-gated loop. Returns the generation id on success (so a dependant can
+	 * be told exactly which generation to wait for -- `directorDependencyRunner.ts`'s
+	 * own doc comment on why re-reading `directorRuns`' current status is not
+	 * a substitute) or `{ ok: false }` on a validation or start failure --
+	 * NEVER `void` either way, so the runner can tell "queued" apart from
+	 * "never actually submitted" instead of treating a failed rerender as if
+	 * it had succeeded (Codex review, 14:56 UTC).
 	 */
 	async function submitOneDirectorWireDoc(
 		tabId: string,
@@ -132,11 +161,12 @@
 		caps: DirectorCapabilities,
 		wireDoc: VideoDirectorWireDoc,
 		shotsForDoc: string[]
-	): Promise<void> {
+	): Promise<DirectorShotSubmitOutcome> {
 		const { doc: resolvedDoc, errors } = dereferenceFormMediaRefs(wireDoc, tab.formData);
 		if (errors.length > 0) {
-			toasts.error(`Video Director references media that's no longer on the form: ${errors.join('; ')}`);
-			return;
+			const reason = `Video Director references media that's no longer on the form: ${errors.join('; ')}`;
+			toasts.error(reason);
+			return { ok: false, reason };
 		}
 		const positive = resolvedDoc.segments[0]?.prompt ?? '';
 		const negative = resolvedDoc.segments[0]?.negative_prompt ?? '';
@@ -199,39 +229,128 @@
 				if (ws) {
 					ws.subscribe(generation_id, (message: WebSocketMessage) => handleGenerationMessage(message));
 				}
-			} else {
-				toasts.error('Shot failed to start.');
+				return { ok: true, generationId: generation_id };
 			}
+			toasts.error('Shot failed to start.');
+			return { ok: false, reason: 'Shot failed to start.' };
 		} catch (error) {
 			console.error('Failed to start Video Director shot generation:', error);
 			toasts.error('Shot failed to start.');
+			return { ok: false, reason: 'Shot failed to start.' };
 		}
 	}
 
-	/** Resolves once `shotId`'s own `directorRuns` entry (for `tabId`) reaches
-	 *  a terminal status -- driven by the same WebSocket
-	 *  `generation_complete`/`generation_error` handling that writes
-	 *  `directorRuns` (complete.ts/error.ts), never polled. Only ever awaited
-	 *  by `directorDependencyRunner.ts` for a shot THIS session just
-	 *  submitted, so a pre-existing terminal status on subscribe (the common
-	 *  case -- most runs finish long before anything awaits them) resolves
-	 *  immediately. */
-	function waitForDirectorShotTerminal(tabId: string, shotId: string): Promise<'done' | 'failed'> {
+	/**
+	 * Resolves once the run under `generationId` -- specifically THAT
+	 * generation, not "whichever run currently occupies `shotId`" -- reaches
+	 * a terminal state, or is abandoned. Driven by the same WebSocket
+	 * `generation_complete`/`generation_error` handling that writes
+	 * `directorRuns` (complete.ts/error.ts), never polled. Only ever awaited
+	 * by `directorDependencyRunner.ts` for a generation id it (or the caller
+	 * seeding it via `presubmittedGenerationIds`) just submitted, so a
+	 * pre-existing terminal status on subscribe (the common case -- most runs
+	 * finish long before anything awaits them) resolves immediately.
+	 *
+	 * `'abandoned'` -- resolved exactly like `'failed'` by the runner, never
+	 * left pending -- covers every way `generationId` will now NEVER report a
+	 * terminal state under `shotId`: the tab was closed, the shot's run entry
+	 * was removed, or the shot was resubmitted/superseded under a DIFFERENT
+	 * generation id before this one ever finished (`directorRuns.ts`'s own
+	 * `existing.generationId === generationId` guard means a stale
+	 * generation's terminal event can never resurrect this run once
+	 * superseded, so waiting on the OLD id would hang forever without this).
+	 * Also settled as `'abandoned'` from `onDestroy` if the page itself is
+	 * torn down first (`pendingDirectorShotWaiters`) -- this component's own
+	 * WebSocket disconnects there too, so nothing would ever arrive to
+	 * resolve it for real.
+	 */
+	function waitForDirectorShotTerminal(tabId: string, shotId: string, generationId: string): Promise<DirectorShotTerminalOutcome> {
 		return new Promise((resolve) => {
 			let unsubscribe: () => void = () => {};
 			let settled = false;
+			const settle = (outcome: DirectorShotTerminalOutcome) => {
+				if (settled) return;
+				settled = true;
+				pendingDirectorShotWaiters.delete(cancel);
+				resolve(outcome);
+				// `unsubscribe` isn't assigned yet the first time this runs
+				// (subscribe() invokes synchronously with the current value) --
+				// defer past that assignment instead of unsubscribing inline.
+				Promise.resolve().then(() => unsubscribe());
+			};
+			const cancel = () => settle('abandoned');
+			pendingDirectorShotWaiters.add(cancel);
 			unsubscribe = tabsStore.subscribe((state) => {
-				const status = state.tabs.find((t) => t.id === tabId)?.directorRuns?.[shotId]?.status;
-				if (!settled && (status === 'done' || status === 'failed')) {
-					settled = true;
-					resolve(status);
-					// `unsubscribe` isn't assigned yet the first time this runs
-					// (subscribe() invokes synchronously with the current value) --
-					// defer past that assignment instead of unsubscribing inline.
-					Promise.resolve().then(() => unsubscribe());
+				const liveTab = state.tabs.find((t) => t.id === tabId);
+				if (!liveTab) {
+					settle('abandoned'); // tab closed -- no generationId will ever report here again
+					return;
 				}
+				const run = liveTab.directorRuns?.[shotId];
+				if (!run || run.generationId !== generationId) {
+					settle('abandoned'); // run cleared, or superseded by a different resubmission
+					return;
+				}
+				if (run.status === 'done' || run.status === 'failed') settle(run.status);
 			});
 		});
+	}
+
+	/**
+	 * Runs `shotsToSubmit` (already dependency-ordered, e.g. from
+	 * `planDirectorSelection`) through `runDirectorDependencyPlan`, wiring it
+	 * to this component's real submission (`submitOneDirectorWireDoc`) and
+	 * real WebSocket-driven completion (`waitForDirectorShotTerminal`) --
+	 * the ONE place either the contextual Retry/span path
+	 * (`submitVideoDirectorShots`) or the ordinary Generate button's
+	 * multi-shot follow-up (`startGeneration`) hands shots to the dependency
+	 * runner, so both go through the identical handoff rather than two
+	 * separately-maintained copies of it.
+	 *
+	 * `presubmittedGenerationIds` lets a caller that already submitted one of
+	 * these shots through some OTHER mechanism (the ordinary Generate
+	 * button's PRIMARY shot, which keeps its own tab-initializing submission
+	 * path unchanged) tell the runner which generation id that shot is
+	 * running under, so a dependant of it still waits on the real thing
+	 * instead of being resubmitted here. `shotNumberOffset` keeps a "Shot N:"
+	 * toast numbered against the FULL film when `shotsToSubmit` itself only
+	 * covers a tail of it (the primary shot is never in `shotsToSubmit` here,
+	 * so its own count is folded into the offset instead).
+	 */
+	async function submitDirectorTimelinePlan(
+		tabId: string,
+		tab: Tab,
+		doc: VideoDirectorValue,
+		caps: DirectorCapabilities,
+		shotsToSubmit: string[],
+		options: { presubmittedGenerationIds?: Record<string, string> | null; shotNumberOffset?: number } = {}
+	): Promise<void> {
+		if (shotsToSubmit.length === 0) return;
+		const shotNumberOffset = options.shotNumberOffset ?? 0;
+		const multi = shotNumberOffset > 0 || shotsToSubmit.length > 1;
+		await runDirectorDependencyPlan(
+			shotsToSubmit,
+			doc,
+			caps,
+			{
+				getRuns: () => $tabsStore.tabs.find((t) => t.id === tabId)?.directorRuns,
+				getOutputs: () => snapshotDirectorGenerationOutputs($tabsStore.tabs.find((t) => t.id === tabId)?.directorRuns),
+				submit: (shotId, predecessorFrame) => {
+					const liveTab = $tabsStore.tabs.find((t) => t.id === tabId) || tab;
+					const predecessorFrames = predecessorFrame ? { [shotId]: predecessorFrame } : undefined;
+					const wireDocs = buildDirectorSubmission(doc, caps, new Set([shotId]), predecessorFrames);
+					if (wireDocs.length === 0) return Promise.resolve({ ok: false, reason: 'Nothing to submit' });
+					return submitOneDirectorWireDoc(tabId, liveTab, doc, caps, wireDocs[0], [shotId]);
+				},
+				waitForTerminal: (shotId, generationId) => waitForDirectorShotTerminal(tabId, shotId, generationId),
+				onBlocked: (shotId, reason) => {
+					const index = shotsToSubmit.indexOf(shotId);
+					const shotNumber = shotNumberOffset + index + 1;
+					toasts.error(multi ? `Shot ${shotNumber}: ${reason}` : reason);
+				}
+			},
+			options.presubmittedGenerationIds
+		);
 	}
 
 	/**
@@ -279,30 +398,7 @@
 		// wait for that predecessor's generation to actually finish (and
 		// inherit ITS resolved output) before submitting -- see
 		// directorDependencyRunner.ts.
-		await runDirectorDependencyPlan(targetShotIds, doc, caps, {
-			getRuns: () => $tabsStore.tabs.find((t) => t.id === tabId)?.directorRuns,
-			getOutputs: () => {
-				const runs = $tabsStore.tabs.find((t) => t.id === tabId)?.directorRuns;
-				if (!runs) return null;
-				const byGenerationId: Record<string, ReturnType<typeof peekGenerationOutputs>> = {};
-				for (const run of Object.values(runs)) {
-					if (run.generationId) byGenerationId[run.generationId] = peekGenerationOutputs(run.generationId);
-				}
-				return byGenerationId;
-			},
-			submit: async (shotId, predecessorFrame) => {
-				const liveTab = $tabsStore.tabs.find((t) => t.id === tabId) || tab;
-				const predecessorFrames = predecessorFrame ? { [shotId]: predecessorFrame } : undefined;
-				const wireDocs = buildDirectorSubmission(doc, caps, new Set([shotId]), predecessorFrames);
-				if (wireDocs.length === 0) return;
-				await submitOneDirectorWireDoc(tabId, liveTab, doc, caps, wireDocs[0], [shotId]);
-			},
-			waitForTerminal: (shotId) => waitForDirectorShotTerminal(tabId, shotId),
-			onBlocked: (shotId, reason) => {
-				const index = targetShotIds.indexOf(shotId);
-				toasts.error(index >= 0 && targetShotIds.length > 1 ? `Shot ${index + 1}: ${reason}` : reason);
-			}
-		});
+		await submitDirectorTimelinePlan(tabId, tab, doc, caps, targetShotIds);
 	}
 
 	// Bumped whenever the active tab's generation completes, so the "last
@@ -733,6 +829,11 @@
 		if (ws) {
 			ws.disconnect();
 		}
+		// Settle every outstanding Video Director dependency wait as
+		// 'abandoned' -- `ws.disconnect()` above means no further terminal
+		// WebSocket event will ever arrive to resolve one for real.
+		for (const cancel of pendingDirectorShotWaiters) cancel();
+		pendingDirectorShotWaiters.clear();
 		// Unregister generate-context keybinding handlers
 		keybindingsStore.unregisterHandler('start_generation');
 		keybindingsStore.unregisterHandler('new_tab');
@@ -1121,16 +1222,15 @@
 
 		// "One clip = one generation" still holds (PLAN.md §B): a chain doc,
 		// or a single-shot timeline/t2v/i2v/flf doc, is exactly one wire doc,
-		// but a multi-shot LTX film is N -- `remainingDirectorDocs` carries
-		// docs[1..] for the follow-up submissions after the primary one below.
-		let remainingDirectorDocs: VideoDirectorWireDoc[] = [];
-		// Shot id(s) each doc above covers -- the console's checked rows scope
-		// which shot(s) actually submit (PLAN.md §C W3); parallel arrays to
-		// `wireDoc`/`remainingDirectorDocs`, populated alongside them below,
-		// consumed after a successful `api.startGeneration` to populate
-		// `directorRuns`/`directorRunLinks`.
+		// but a multi-shot LTX film is N -- `directorRemainingShotIds` carries
+		// the shot ids of the follow-up submissions after the primary one
+		// below, submitted through `submitDirectorTimelinePlan` (the SAME
+		// dependency-aware handoff `submitVideoDirectorShots` uses) rather
+		// than pre-built here: a later shot's wire doc can only be built once
+		// its own predecessor's resolved output is known, which isn't true
+		// yet at this point in the function for anything but the primary.
 		let primaryDirectorShotIds: string[] = [];
-		let remainingDirectorShotIds: string[][] = [];
+		let directorRemainingShotIds: string[] = [];
 		let directorValueForRuns: VideoDirectorValue | null = null;
 
 		if (videoDirectorActive && videoDirectorCaps) {
@@ -1151,17 +1251,54 @@
 				toasts.error(plan.blockingReasons[0] || 'Video Director is not ready to generate.');
 				return;
 			}
-			const wireDocs = buildDirectorSubmission(doc, videoDirectorCaps, directorChecked);
-			const [wireDoc, ...restDocs] = wireDocs;
-			remainingDirectorDocs = restDocs;
 			const isChainDoc = videoDirectorCaps.segmentRouting;
 			const targetShotIds = plan.shotsToSubmit;
-			// A chain doc is ONE generation covering every targeted shot at
-			// once; a timeline doc is one generation PER shot, in the same
-			// order `buildDirectorSubmission` filtered them in.
-			const shotIdCoverage: string[][] = isChainDoc ? [targetShotIds] : targetShotIds.map((id) => [id]);
-			primaryDirectorShotIds = shotIdCoverage[0] ?? [];
-			remainingDirectorShotIds = shotIdCoverage.slice(1);
+
+			let wireDoc: VideoDirectorWireDoc;
+			if (isChainDoc) {
+				// Wan/H3 routed chain -- ONE generation covers every targeted shot
+				// at once; its own continuation is server-side, in-process,
+				// within that single generation, so there is no "remaining
+				// shots" follow-up for a chain doc at all.
+				wireDoc = buildDirectorSubmission(doc, videoDirectorCaps, directorChecked)[0];
+				primaryDirectorShotIds = targetShotIds;
+			} else {
+				// LTX timeline -- one generation PER shot. The primary is
+				// always `targetShotIds[0]` (the film's own shot order, which
+				// `planDirectorSelection` already guarantees puts every
+				// predecessor before its dependant), so if IT continues from a
+				// predecessor, that predecessor can only be OUTSIDE this
+				// selection -- already done (directorPlanner.ts's own
+				// "predecessorDone" gate above already required that, or this
+				// plan would have been blocked). Resolve it here so the primary
+				// shot's own request carries it too, instead of only ever fixing
+				// this for `submitVideoDirectorShots`'s contextual path.
+				const primaryShotId = targetShotIds[0];
+				directorRemainingShotIds = targetShotIds.slice(1);
+				const predecessorId = directorPredecessorShotId(doc, videoDirectorCaps, primaryShotId);
+				let predecessorFrame: DirectorMediaValue | null = null;
+				if (predecessorId) {
+					const resolved = resolvePredecessorFrame(
+						doc,
+						videoDirectorCaps,
+						primaryShotId,
+						currentTab.directorRuns,
+						snapshotDirectorGenerationOutputs(currentTab.directorRuns)
+					);
+					if (!resolved.ok) {
+						toasts.error(resolved.reason);
+						return;
+					}
+					predecessorFrame = resolved.media;
+				}
+				wireDoc = buildDirectorSubmission(
+					doc,
+					videoDirectorCaps,
+					new Set([primaryShotId]),
+					predecessorFrame ? { [primaryShotId]: predecessorFrame } : undefined
+				)[0];
+				primaryDirectorShotIds = [primaryShotId];
+			}
 			// A media entry may point at the form's own media-loader field(s)
 			// (Stage B reference media) rather than embedding its own copy --
 			// resolve those live, right before the request is built. The server
@@ -1467,78 +1604,23 @@
 				}
 
 				// Multi-shot LTX film: shot 1 above already enqueued as the primary
-				// generation (tab state reset, `submittedPromptTemplate`, etc.); each
-				// remaining shot enqueues its own separate generation, in shot order,
-				// against the freshest tab snapshot so an earlier shot's queue entry
-				// is never clobbered by a later one's (unlike `currentTab`, captured
-				// once at the top of this function).
-				for (let shotIndex = 0; shotIndex < remainingDirectorDocs.length; shotIndex++) {
-					const shotNumber = shotIndex + 2; // shot 1 is the primary submission above
-					const shotDoc = remainingDirectorDocs[shotIndex];
-					const { doc: resolvedShotDoc, errors: shotFormRefErrors } = dereferenceFormMediaRefs(shotDoc, currentTab.formData);
-					if (shotFormRefErrors.length > 0) {
-						toasts.error(`Shot ${shotNumber} references media that's no longer on the form: ${shotFormRefErrors.join('; ')}`);
-						continue;
-					}
-					const shotPrompt = resolvedShotDoc.segments[0]?.prompt ?? '';
-					const shotNegative = resolvedShotDoc.segments[0]?.negative_prompt ?? '';
-					const shotRequest: GenerationRequest = {
-						...request,
-						form_data: { ...currentTab.formData, video_director: resolvedShotDoc },
-						prompts: [{ positive: shotPrompt, negative: shotNegative }]
-					};
-					try {
-						const shotResponse = await api.startGeneration(shotRequest);
-						if (shotResponse.success && shotResponse.data) {
-							const { generation_id: shotGenerationId, queue_position: shotQueuePosition } = shotResponse.data;
-							const shotIsQueued = shotQueuePosition !== null && shotQueuePosition !== undefined;
-							const liveTab = $tabsStore.tabs.find((t) => t.id === activeTabId) || currentTab;
-							const shotIdsForThisDoc = remainingDirectorShotIds[shotIndex] ?? [];
-							tabsStore.updateTab(activeTabId, {
-								generation: {
-									...liveTab.generation,
-									queue: [
-										...(liveTab.generation.queue || []),
-										{
-											generation_id: shotGenerationId,
-											queue_position: shotQueuePosition ?? null,
-											status: shotIsQueued ? 'pending' : 'running'
-										}
-									]
-								},
-								...(directorValueForRuns && videoDirectorCaps && shotIdsForThisDoc.length > 0
-									? {
-											directorRuns: {
-												...(liveTab.directorRuns || {}),
-												...buildDirectorRunEntries(
-													shotIdsForThisDoc,
-													shotGenerationId,
-													shotIsQueued ? 'queued' : 'generating',
-													directorValueForRuns,
-													videoDirectorCaps,
-													currentTab.formData,
-													liveTab.directorRuns
-												)
-											},
-											directorRunLinks: {
-												...(liveTab.directorRunLinks || {}),
-												[shotGenerationId]: shotIdsForThisDoc
-											}
-										}
-									: {})
-							});
-							if (ws) {
-								ws.subscribe(shotGenerationId, (message: WebSocketMessage) => {
-									handleGenerationMessage(message);
-								});
-							}
-						} else {
-							toasts.error(`Shot ${shotNumber} failed to start.`);
-						}
-					} catch (shotError) {
-						console.error(`Failed to start generation for shot ${shotNumber}:`, shotError);
-						toasts.error(`Shot ${shotNumber} failed to start.`);
-					}
+				// generation (tab state reset, `submittedPromptTemplate`, etc., all
+				// unchanged) -- every remaining shot goes through the SAME
+				// dependency-aware handoff `submitVideoDirectorShots`'s contextual
+				// path uses (`submitDirectorTimelinePlan`), seeded with the
+				// primary's own generation id so a remaining shot that continues
+				// from it waits on THIS run, never resubmits it, and is blocked
+				// rather than started on stale history if it failed or was
+				// abandoned.
+				if (directorValueForRuns && videoDirectorCaps && directorRemainingShotIds.length > 0 && primaryDirectorShotIds[0]) {
+					await submitDirectorTimelinePlan(
+						activeTabId,
+						currentTab,
+						directorValueForRuns,
+						videoDirectorCaps,
+						directorRemainingShotIds,
+						{ presubmittedGenerationIds: { [primaryDirectorShotIds[0]]: generation_id }, shotNumberOffset: 1 }
+					);
 				}
 			}
 		} catch (error) {

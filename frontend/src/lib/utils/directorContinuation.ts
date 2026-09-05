@@ -20,18 +20,15 @@
 // caller re-resolves a shot's predecessor after a reload or a delayed
 // dependency-runner step, only `posterUrl` survives).
 //
-// KNOWN BACKEND GAP (do not "fix" by inventing a different shape here): the
-// value this resolves to is the predecessor's rendered OUTPUT VIDEO, typed
-// `video` on the wire `MediaRef`. `derive_ltx_media_fields`
-// (src/features/video_director/normalize.py) currently drops a video-typed
-// `first`/`last`/`keyframe` media entry outright ("the v1 cut ... dropped
-// here, not loaded, not placed") -- there is today no backend-exposed way to
-// turn a plain (not library-saved) generation's video output into the
-// image-typed leading frame LTX's loader actually needs. Wiring the real
-// join through end-to-end (this shot's request now carries WHICH predecessor
-// output it depends on, instead of silently omitting it) is this file's
-// job; making the native LTX pipe accept it is server-side follow-up work,
-// out of this module's scope.
+// The value this resolves to is the predecessor's rendered OUTPUT VIDEO,
+// typed `video` on the wire `MediaRef` -- once a video-typed `first` entry
+// reaches a timeline-style shot, `derive_ltx_media_fields`
+// (src/features/video_director/normalize.py) treats it as a continuation
+// reference and extracts its last frame server-side (frame_extract, cached
+// under `generations/_director_continuation`) rather than dropping it; this
+// module's own job stops at wiring the real join through end-to-end (the
+// request now names WHICH predecessor output it depends on, instead of
+// silently omitting it).
 import type { VideoDirectorValue, DirectorCapabilities, DirectorMediaValue } from '$lib/types/videoDirector';
 import { directorPredecessorShotId } from './directorInputIdentity';
 

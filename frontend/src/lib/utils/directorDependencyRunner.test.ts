@@ -46,7 +46,7 @@ const GEN_A_FRAME = { path: 'generations/gen-a/1.mp4', relative_path: 'generatio
 describe('runDirectorDependencyPlan', () => {
 	it('submits an independent shot immediately -- no predecessor frame, no wait', async () => {
 		const doc = timelineDoc([shot('a')]);
-		const submit = vi.fn().mockResolvedValue(undefined);
+		const submit = vi.fn().mockResolvedValue({ ok: true, generationId: 'gen-a' });
 		const waitForTerminal = vi.fn();
 		const onBlocked = vi.fn();
 
@@ -71,10 +71,15 @@ describe('runDirectorDependencyPlan', () => {
 
 		const submit = vi.fn(async (shotId: string) => {
 			submitOrder.push(shotId);
-			if (shotId === 'a') runs = { a: { status: 'generating', generationId: 'gen-a' } };
+			if (shotId === 'a') {
+				runs = { a: { status: 'generating', generationId: 'gen-a' } };
+				return { ok: true as const, generationId: 'gen-a' };
+			}
+			return { ok: true as const, generationId: 'gen-b' };
 		});
-		const waitForTerminal = vi.fn(async (shotId: string) => {
+		const waitForTerminal = vi.fn(async (shotId: string, generationId: string) => {
 			expect(shotId).toBe('a'); // only ever awaited for the shot this plan itself submitted
+			expect(generationId).toBe('gen-a'); // the EXACT generation id submit() returned, not "whichever run occupies the shot"
 			runs = { a: { status: 'done', generationId: 'gen-a' } };
 			return 'done' as const;
 		});
@@ -89,26 +94,19 @@ describe('runDirectorDependencyPlan', () => {
 		});
 
 		expect(submitOrder).toEqual(['a', 'b']);
-		expect(waitForTerminal).toHaveBeenCalledWith('a');
+		expect(waitForTerminal).toHaveBeenCalledWith('a', 'gen-a');
 		expect(submit).toHaveBeenLastCalledWith('b', GEN_A_FRAME);
 		expect(onBlocked).not.toHaveBeenCalled();
 	});
 
 	it('predecessor fails -> successor is never submitted, and is reported blocked (not silently dropped, not a fresh cut)', async () => {
 		const doc = timelineDoc([shot('a'), shot('b', { continue_from_previous: true })]);
-		let runs: Record<string, PredecessorRunLike> = {};
-
-		const submit = vi.fn(async (shotId: string) => {
-			if (shotId === 'a') runs = { a: { status: 'generating', generationId: 'gen-a' } };
-		});
-		const waitForTerminal = vi.fn(async () => {
-			runs = { a: { status: 'failed', generationId: 'gen-a' } };
-			return 'failed' as const;
-		});
+		const submit = vi.fn().mockResolvedValue({ ok: true, generationId: 'gen-a' });
+		const waitForTerminal = vi.fn().mockResolvedValue('failed');
 		const onBlocked = vi.fn();
 
 		await runDirectorDependencyPlan(['a', 'b'], doc, caps, {
-			getRuns: () => runs,
+			getRuns: () => ({}),
 			getOutputs: () => ({}),
 			submit,
 			waitForTerminal,
@@ -117,6 +115,58 @@ describe('runDirectorDependencyPlan', () => {
 
 		expect(submit).toHaveBeenCalledTimes(1);
 		expect(submit).toHaveBeenCalledWith('a', null);
+		expect(waitForTerminal).toHaveBeenCalledWith('a', 'gen-a');
+		expect(onBlocked).toHaveBeenCalledWith('b', 'Its previous shot failed to generate');
+	});
+
+	it('predecessor\'s wait is abandoned (tab closed / superseded) -> successor is blocked with a distinct reason, never left hanging', async () => {
+		const doc = timelineDoc([shot('a'), shot('b', { continue_from_previous: true })]);
+		const submit = vi.fn().mockResolvedValue({ ok: true, generationId: 'gen-a' });
+		const waitForTerminal = vi.fn().mockResolvedValue('abandoned');
+		const onBlocked = vi.fn();
+
+		await runDirectorDependencyPlan(['a', 'b'], doc, caps, {
+			getRuns: () => ({}),
+			getOutputs: () => ({}),
+			submit,
+			waitForTerminal,
+			onBlocked
+		});
+
+		expect(onBlocked).toHaveBeenCalledWith('b', "Its previous shot's generation was interrupted");
+	});
+
+	it('a same-batch predecessor whose OWN submission fails to even start blocks its dependant -- never resolved from a stale OLD "done" run for that shot', async () => {
+		const doc = timelineDoc([shot('a'), shot('b', { continue_from_previous: true })]);
+		// getRuns() reflects an OLD, unrelated 'done' run for shot 'a' (e.g. a
+		// prior successful generation) that THIS plan's own resubmission of
+		// 'a' never actually superseded, because that resubmission failed to
+		// even start. The runner must never treat this stale snapshot as
+		// proof that 'a' succeeded in THIS plan.
+		const staleRuns: Record<string, PredecessorRunLike> = {
+			a: { status: 'done', generationId: 'gen-a-OLD', posterUrl: 'generations/gen-a-OLD/1.mp4' }
+		};
+		const staleOutputs: Record<string, PredecessorOutputLike> = {
+			'gen-a-OLD': { videos: [{ url: 'generations/gen-a-OLD/1.mp4' }] }
+		};
+		const submit = vi.fn(async (shotId: string) => {
+			if (shotId === 'a') return { ok: false as const, reason: 'Shot failed to start.' };
+			return { ok: true as const, generationId: 'gen-b' };
+		});
+		const waitForTerminal = vi.fn();
+		const onBlocked = vi.fn();
+
+		await runDirectorDependencyPlan(['a', 'b'], doc, caps, {
+			getRuns: () => staleRuns,
+			getOutputs: () => staleOutputs,
+			submit,
+			waitForTerminal,
+			onBlocked
+		});
+
+		expect(submit).toHaveBeenCalledTimes(1); // 'b' never submitted
+		expect(submit).toHaveBeenCalledWith('a', null);
+		expect(waitForTerminal).not.toHaveBeenCalled(); // 'a' never even got a generation id to wait on
 		expect(onBlocked).toHaveBeenCalledWith('b', 'Its previous shot failed to generate');
 	});
 
@@ -125,7 +175,7 @@ describe('runDirectorDependencyPlan', () => {
 		const runs: Record<string, PredecessorRunLike> = {
 			a: { status: 'done', generationId: 'gen-a', posterUrl: 'generations/gen-a/1.mp4' }
 		};
-		const submit = vi.fn().mockResolvedValue(undefined);
+		const submit = vi.fn().mockResolvedValue({ ok: true, generationId: 'gen-b' });
 		const waitForTerminal = vi.fn();
 		const onBlocked = vi.fn();
 
@@ -145,6 +195,37 @@ describe('runDirectorDependencyPlan', () => {
 		expect(onBlocked).not.toHaveBeenCalled();
 	});
 
+	it('a shot presubmitted by the caller (the ordinary Generate button\'s primary tab) is never resubmitted, and its dependant waits on the seeded generation id', async () => {
+		const doc = timelineDoc([shot('a'), shot('b', { continue_from_previous: true })]);
+		const outputs: Record<string, PredecessorOutputLike> = { 'gen-a-primary': { videos: [{ url: 'generations/gen-a/1.mp4' }] } };
+		const submit = vi.fn().mockResolvedValue({ ok: true, generationId: 'gen-b' });
+		const waitForTerminal = vi.fn(async (shotId: string, generationId: string) => {
+			expect(shotId).toBe('a');
+			expect(generationId).toBe('gen-a-primary');
+			return 'done' as const;
+		});
+		const onBlocked = vi.fn();
+
+		await runDirectorDependencyPlan(
+			['a', 'b'],
+			doc,
+			caps,
+			{
+				getRuns: () => ({ a: { status: 'done', generationId: 'gen-a-primary' } }),
+				getOutputs: () => outputs,
+				submit,
+				waitForTerminal,
+				onBlocked
+			},
+			{ a: 'gen-a-primary' }
+		);
+
+		expect(submit).toHaveBeenCalledTimes(1); // 'a' never resubmitted
+		expect(submit).toHaveBeenCalledWith('b', GEN_A_FRAME);
+		expect(waitForTerminal).toHaveBeenCalledWith('a', 'gen-a-primary');
+		expect(onBlocked).not.toHaveBeenCalled();
+	});
+
 	it('three-shot chain: b waits on a, c waits on b, each inheriting its OWN immediate predecessor (never a\'s)', async () => {
 		const doc = timelineDoc([
 			shot('a'),
@@ -161,6 +242,7 @@ describe('runDirectorDependencyPlan', () => {
 		const submit = vi.fn(async (shotId: string, frame: unknown) => {
 			submitted.push([shotId, frame]);
 			runs = { ...runs, [shotId]: { status: 'generating', generationId: `gen-${shotId}` } };
+			return { ok: true as const, generationId: `gen-${shotId}` };
 		});
 		const waitForTerminal = vi.fn(async (shotId: string) => {
 			runs = { ...runs, [shotId]: { status: 'done', generationId: `gen-${shotId}` } };

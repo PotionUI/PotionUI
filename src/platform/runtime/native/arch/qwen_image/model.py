@@ -50,6 +50,12 @@ Forward-call contract (for the generator / sampling agents)
 
 Returns UNPACKED velocity ``(B, out_channels=16, T, H, W)``.
 
+Only ``x`` and ``timestep`` move between the steps of a run; the text stream,
+the reference latents and the sequence geometry belong to the guidance branch.
+Everything derived from the latter alone is hoisted into ``_PreparedFixed`` and
+computed once per branch when the engine has attached a ``run_cache``. Without
+one, every forward prepares its own — byte-identical either way.
+
 Guidance is **true CFG** (the sampler runs cond/uncond) — the DiT has no embedded
 guidance input. ``pack_latents`` / ``unpack_latents`` are exposed so the
 generator does not re-derive the 2x2 packing + centred 3-axis positional ids.
@@ -57,7 +63,7 @@ generator does not re-derive the 2x2 packing + centred 3-axis positional ids.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple, Optional
 
 import torch
 import torch.nn as nn
@@ -75,6 +81,7 @@ from vendor.gpl.comfyui.qwen_image.layers import (
 
 from ...attention import attention as _dispatch_attention
 from ...base import NativeArchModule
+from ...cache_identity import identity_usable, tensor_identity
 from .config import QwenImageConfig
 
 # vendor/gpl/comfyui/qwen_image/layers.py must not import src (layering
@@ -91,6 +98,32 @@ def _pad_to_patch_size(x: Tensor, patch: int) -> Tensor:
     if pad[1] == 0 and pad[3] == 0:
         return x
     return F.pad(x, pad, mode="circular")
+
+
+class _PreparedFixed(NamedTuple):
+    """The part of a forward that every step of a run recomputes identically.
+
+    The text stream, the reference latents and the sequence geometry are all
+    properties of the guidance branch; only the noisy target tokens and the
+    timestep move between steps. So the padding-mask analysis (three host syncs
+    — ``any``/``max().item()``/``all`` — that stall the launch queue), the packed
+    reference tokens, the RoPE table and the ``txt_norm``/``txt_in`` projection
+    are computed once per branch and reused.
+
+    ``context``, ``attention_mask`` and ``refs`` are the tensors the key names.
+    Holding them closes the hole ``tensor_identity`` cannot see: a freed tensor's
+    address can be re-let to a new allocation whose version counter starts over,
+    and while an entry lives its sources cannot be freed.
+    """
+
+    mask: Optional[Tensor]
+    encoder_hidden_states: Tensor
+    ref_tokens: Optional[Tensor]
+    rope: Tensor
+    zero_timestep: bool
+    context: Tensor
+    attention_mask: Optional[Tensor]
+    refs: tuple
 
 
 class QwenImageDiT(NativeArchModule):
@@ -136,25 +169,43 @@ class QwenImageDiT(NativeArchModule):
     def pack_latents(self, x: Tensor, index: int = 0, h_offset: int = 0, w_offset: int = 0):
         """Patchify ``(B, C, T, H, W)`` -> token seq ``(B, T*h*w, C*4)`` + centred
         3-axis ids ``(B, T*h*w, 3)`` + the padded ``orig_shape``."""
+        hs, os = self._pack_tokens(x)
+        return hs, self._pack_ids(os, x.device, index, h_offset, w_offset), os
+
+    def _pack_tokens(self, x: Tensor) -> tuple[Tensor, torch.Size]:
+        """The value half of :meth:`pack_latents` — tokens + the padded shape.
+
+        Split out because the noisy target is repacked every step while its ids
+        depend on the shape alone and are folded into the run-cached RoPE table.
+        """
         x = _pad_to_patch_size(x, self.patch_size)
         os = x.shape
         bs, c, t = os[0], os[1], os[-3]
         h2, w2 = os[-2] // 2, os[-1] // 2
-        hs = x.view(bs, c, t, h2, 2, w2, 2).permute(0, 2, 3, 5, 1, 4, 6).reshape(bs, t * h2 * w2, c * 4)
+        return x.view(bs, c, t, h2, 2, w2, 2).permute(0, 2, 3, 5, 1, 4, 6).reshape(bs, t * h2 * w2, c * 4), os
 
+    def _padded_shape(self, x: Tensor) -> torch.Size:
+        """What :func:`_pad_to_patch_size` would make ``x.shape``, without padding it."""
+        p = self.patch_size
+        h, w = x.shape[-2], x.shape[-1]
+        return torch.Size((*x.shape[:-2], h + (-h) % p, w + (-w) % p))
+
+    def _pack_ids(self, os, device, index: int = 0, h_offset: int = 0, w_offset: int = 0) -> Tensor:
+        """The position half of :meth:`pack_latents`, derived from the padded shape."""
+        bs, t = os[0], os[-3]
         p = self.patch_size
         h_len = (os[-2] + (p // 2)) // p
         w_len = (os[-1] + (p // 2)) // p
         h_off = (h_offset + (p // 2)) // p
         w_off = (w_offset + (p // 2)) // p
-        ids = torch.zeros((t, h_len, w_len, 3), device=x.device, dtype=torch.float32)
+        ids = torch.zeros((t, h_len, w_len, 3), device=device, dtype=torch.float32)
         if t > 1:
-            ids[..., 0] = torch.linspace(0, t - 1, steps=t, device=x.device, dtype=torch.float32).view(t, 1, 1)
+            ids[..., 0] = torch.linspace(0, t - 1, steps=t, device=device, dtype=torch.float32).view(t, 1, 1)
         else:
             ids[..., 0] = index
-        ids[..., 1] = torch.linspace(h_off, h_len - 1 + h_off, steps=h_len, device=x.device, dtype=torch.float32).view(1, h_len, 1) - (h_len // 2)
-        ids[..., 2] = torch.linspace(w_off, w_len - 1 + w_off, steps=w_len, device=x.device, dtype=torch.float32).view(1, 1, w_len) - (w_len // 2)
-        return hs, repeat(ids, "t h w c -> b (t h w) c", b=bs), os
+        ids[..., 1] = torch.linspace(h_off, h_len - 1 + h_off, steps=h_len, device=device, dtype=torch.float32).view(1, h_len, 1) - (h_len // 2)
+        ids[..., 2] = torch.linspace(w_off, w_len - 1 + w_off, steps=w_len, device=device, dtype=torch.float32).view(1, 1, w_len) - (w_len // 2)
+        return repeat(ids, "t h w c -> b (t h w) c", b=bs)
 
     def unpack_latents(self, hs: Tensor, orig_shape, out_h: int, out_w: int) -> Tensor:
         os = orig_shape
@@ -162,10 +213,42 @@ class QwenImageDiT(NativeArchModule):
         hs = hs.permute(0, 4, 1, 2, 5, 3, 6)
         return hs.reshape(os)[:, :, :, :out_h, :out_w]
 
-    # -- forward ------------------------------------------------------------
+    # -- step-invariant preparation -----------------------------------------
 
-    def forward(self, x: Tensor, timestep: Tensor, context: Tensor, attention_mask: Tensor | None = None,
-                ref_latents=None, additional_t_cond=None, **kwargs) -> Tensor:
+    def _fixed_inputs(self, x: Tensor, context: Tensor, attention_mask: Tensor | None,
+                      ref_latents, ref_method: str) -> _PreparedFixed:
+        """:meth:`_prepare_fixed`, once per guidance branch when a run cache is up.
+
+        When the engine has attached a ``run_cache`` (``NativeGenerator.sample``)
+        the prepared bundle is reused for the rest of the run; without one every
+        forward prepares its own, exactly as before.
+
+        ``cache.revision`` is read here, per lookup, and never hoisted across
+        steps: a step-windowed LoRA applies and restores at step boundaries
+        WITHIN a run, so a projection computed at step 1 must not answer a lookup
+        at step 3 under different weights.
+        """
+        cache = getattr(self, "run_cache", None)
+        key = None
+        if cache is not None:
+            refs = tuple(ref_latents) if ref_latents is not None else ()
+            ids = (tensor_identity(context), tensor_identity(attention_mask),
+                   *(tensor_identity(ref) for ref in refs))
+            if identity_usable(*ids):
+                key = ("qwen_image.fixed", cache.revision, tuple(x.shape), x.dtype, x.device,
+                       ref_method if refs else None, *ids)
+                hit = cache.get(key)
+                if hit is not None:
+                    return hit
+
+        prepared = self._prepare_fixed(x, context, attention_mask, ref_latents, ref_method)
+        if key is not None:
+            cache.put(key, prepared)
+        return prepared
+
+    def _prepare_fixed(self, x: Tensor, context: Tensor, attention_mask: Tensor | None,
+                       ref_latents, ref_method: str) -> _PreparedFixed:
+        """Padding-mask analysis, reference packing, RoPE and the text projection."""
         mask = attention_mask
         # Boolean/int key-padding mask: trim the text stream to the longest real
         # (non-padded) prompt in the batch instead of masking the padding away.
@@ -215,29 +298,23 @@ class QwenImageDiT(NativeArchModule):
                     ~bool_mask, torch.finfo(x.dtype).min
                 )
 
-        hidden_states, img_ids, orig_shape = self.pack_latents(x)
-        num_embeds = hidden_states.shape[1]
-        control = kwargs.get("control")
+        img_ids = self._pack_ids(self._padded_shape(x), x.device)
 
-        timestep_zero_index = None
-        if ref_latents is not None:
-            index = 0
-            ref_method = kwargs.get("ref_latents_method", self.config.default_ref_method)
-            for ref in ref_latents:
-                index += 1
-                kontext, kontext_ids, _ = self.pack_latents(ref, index=index)
-                hidden_states = torch.cat([hidden_states, kontext], dim=1)
-                img_ids = torch.cat([img_ids, kontext_ids], dim=1)
-            if ref_method == "index_timestep_zero" and index > 0:
-                # The 2511 edit checkpoint's method: reference tokens are clean
-                # (not noised), so they get timestep 0 while the generated
-                # tokens keep the real step timestep. Doubling the batch dim of
-                # `timestep` produces two temb rows per real batch item — the
-                # real-timestep row and the zero-timestep row — which each
-                # block splits back out across the [real tokens | ref tokens]
-                # span (see _Block._modulate/_apply_gate in layers.py).
-                timestep = torch.cat([timestep, timestep * 0], dim=0)
-                timestep_zero_index = num_embeds
+        # Reference latents are clean VAE encodings, fixed for the whole run, so
+        # both their tokens and their ids are packed once and joined in a single
+        # concatenation rather than one per reference per step.
+        ref_tokens = None
+        zero_timestep = False
+        refs = tuple(ref_latents) if ref_latents is not None else ()
+        if refs:
+            packed, ref_ids = [], []
+            for index, ref in enumerate(refs, start=1):
+                kontext, ref_shape = self._pack_tokens(ref)
+                packed.append(kontext)
+                ref_ids.append(self._pack_ids(ref_shape, ref.device, index=index))
+            ref_tokens = torch.cat(packed, dim=1)
+            img_ids = torch.cat([img_ids, *ref_ids], dim=1)
+            zero_timestep = ref_method == "index_timestep_zero"
 
         # text ids sit on the shared diagonal offset (ComfyUI txt_start).
         txt_start = round(max(((x.shape[-1] + (self.patch_size // 2)) // self.patch_size) // 2,
@@ -246,8 +323,45 @@ class QwenImageDiT(NativeArchModule):
         ids = torch.cat((txt_ids, img_ids), dim=1)
         rope = self.pe_embedder(ids).to(x.dtype)
 
+        return _PreparedFixed(
+            mask=mask,
+            encoder_hidden_states=self.txt_in(self.txt_norm(context)),
+            ref_tokens=ref_tokens,
+            rope=rope,
+            zero_timestep=zero_timestep,
+            context=context,
+            attention_mask=attention_mask,
+            refs=refs,
+        )
+
+    # -- forward ------------------------------------------------------------
+
+    def forward(self, x: Tensor, timestep: Tensor, context: Tensor, attention_mask: Tensor | None = None,
+                ref_latents=None, additional_t_cond=None, **kwargs) -> Tensor:
+        ref_method = kwargs.get("ref_latents_method", self.config.default_ref_method)
+        prepared = self._fixed_inputs(x, context, attention_mask, ref_latents, ref_method)
+        mask, rope = prepared.mask, prepared.rope
+        control = kwargs.get("control")
+
+        hidden_states, orig_shape = self._pack_tokens(x)
+        num_embeds = hidden_states.shape[1]
+        if prepared.ref_tokens is not None:
+            hidden_states = torch.cat([hidden_states, prepared.ref_tokens], dim=1)
+
+        timestep_zero_index = None
+        if prepared.zero_timestep:
+            # The 2511 edit checkpoint's method: reference tokens are clean
+            # (not noised), so they get timestep 0 while the generated
+            # tokens keep the real step timestep. Doubling the batch dim of
+            # `timestep` produces two temb rows per real batch item — the
+            # real-timestep row and the zero-timestep row — which each
+            # block splits back out across the [real tokens | ref tokens]
+            # span (see _Block._modulate/_apply_gate in layers.py).
+            timestep = torch.cat([timestep, timestep * 0], dim=0)
+            timestep_zero_index = num_embeds
+
         hidden_states = self.img_in(hidden_states)
-        encoder_hidden_states = self.txt_in(self.txt_norm(context))
+        encoder_hidden_states = prepared.encoder_hidden_states
         temb = self.time_text_embed(timestep, hidden_states, additional_t_cond)
 
         # FBCache: block-0's image-stream output is the change proxy; a skip reuses

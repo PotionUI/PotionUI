@@ -1,6 +1,7 @@
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from src.features.llm import context_budget
 from src.features.llm.clients import LLMClient, LLMResponse, NativeLLMClient, OllamaClient, OpenAIClient
 from src.features.llm.repository import LLMConfig, LLMRepository
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
@@ -30,6 +31,72 @@ class LLMGateway:
         elif config.type == "native":
             return self._native
         raise ValueError(f"Unsupported LLM type: {config.type}")
+
+    def token_counter_for(self, config: LLMConfig) -> Optional[context_budget.TokenCounter]:
+        """A cheap, already-available tokenizer for *config*'s provider, or
+        ``None`` when only the chars-per-token estimate is available.
+
+        Ollama and OpenAI-compatible clients never have a compatible
+        tokenizer in-process; ``NativeLLMClient`` exposes one via an optional
+        ``token_counter(config)`` method, but only while the checkpoint is
+        already warm (see its docstring) — this never triggers a model load
+        just to count tokens for budgeting.
+        """
+        client = self._client_for(config)
+        provider_counter = getattr(client, "token_counter", None)
+        if provider_counter is None:
+            return None
+        try:
+            return provider_counter(config)
+        except Exception:
+            logging.debug("[LLMGateway] token_counter_for failed for '%s'", config.id, exc_info=True)
+            return None
+
+    def estimate_context_budget(
+        self,
+        config: LLMConfig,
+        system_message: Optional[str],
+        messages: List[Dict[str, Any]],
+        tool_schemas: Optional[List[Dict[str, Any]]] = None,
+        image_data: Optional[str] = None,
+        options_override: Optional[Dict[str, Any]] = None,
+    ) -> context_budget.BudgetOutcome:
+        """The one shared budgeting call every gateway send path routes
+        through (see ``_budgeted``) and that ``ConversationRunner`` also uses
+        for its pre-flight context-ledger check — same numbers, not a second
+        heuristic. Raises ``context_budget.ContextBudgetExceededError`` when
+        the request doesn't fit even after trimming every eligible older
+        message.
+        """
+        capacity = context_budget.resolve_capacity(config)
+        reserve_tokens = (options_override or {}).get("max_tokens", config.max_tokens)
+        return context_budget.enforce_budget(
+            capacity_tokens=capacity.capacity_tokens,
+            capacity_source=capacity.source,
+            reserve_tokens=reserve_tokens,
+            system_message=system_message,
+            messages=messages,
+            tool_schemas=tool_schemas,
+            image_data=image_data,
+            counter=self.token_counter_for(config),
+        )
+
+    def _budgeted(
+        self,
+        config: LLMConfig,
+        system_message: Optional[str],
+        messages: List[Dict[str, Any]],
+        tool_schemas: Optional[List[Dict[str, Any]]],
+        image_data: Optional[str],
+        options_override: Optional[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Budget-check and, if needed, trim *messages* before ANY client
+        call — the single choke point every one of the four send methods
+        below calls, so a provider-specific path can never skip it."""
+        outcome = self.estimate_context_budget(
+            config, system_message, messages, tool_schemas, image_data, options_override,
+        )
+        return outcome.messages
 
     def _resolve_system_message(
         self,
@@ -154,6 +221,7 @@ class LLMGateway:
         system_message = self._resolve_system_message(
             config, custom_system_message, log_prefix="[Chat]"
         )
+        messages = self._budgeted(config, system_message, messages, None, image_data, options_override)
 
         return await self._client_for(config).generate_with_history(
             messages, config, system_message, image_data, options_override
@@ -196,6 +264,7 @@ class LLMGateway:
         system_message = self._resolve_system_message(
             config, custom_system_message, log_prefix="[Chat Stream]"
         )
+        messages = self._budgeted(config, system_message, messages, None, image_data, options_override)
 
         async for event in self._client_for(config).stream_with_history(
             messages, config, system_message, image_data, options_override
@@ -240,6 +309,7 @@ class LLMGateway:
         system_message = self._resolve_system_message(
             config, custom_system_message, log_prefix="[Chat]"
         )
+        messages = self._budgeted(config, system_message, messages, tools, image_data, options_override)
 
         return await self._client_for(config).generate_with_tools(
             messages, config, system_message, tools, image_data, options_override
@@ -279,6 +349,7 @@ class LLMGateway:
         system_message = self._resolve_system_message(
             config, custom_system_message, log_prefix="[Chat Stream]"
         )
+        messages = self._budgeted(config, system_message, messages, tools, image_data, options_override)
 
         async for event in self._client_for(config).stream_with_tools(
             messages, config, system_message, tools, image_data, options_override

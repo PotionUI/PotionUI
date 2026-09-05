@@ -49,11 +49,13 @@ import json
 import logging
 import threading
 import uuid
+import weakref
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from src.features.llm.clients.base import LLMResponse
+from src.features.llm.context_budget import TokenCounter
 from src.features.llm.native_library import (
     NATIVE_LLM_QUANT_MODES,
     NATIVE_LLM_QUANT_SIZE_FACTORS,
@@ -155,6 +157,12 @@ class NativeLLMClient:
 
     def __init__(self, model_lifecycle: Optional[ModelLifecycle] = None):
         self._model_lifecycle = model_lifecycle
+        # Weak references only — this must never be the thing keeping a
+        # checkpoint alive. A dead/absent entry means "not warm right now"
+        # (evicted, or never loaded), which is exactly the signal
+        # `token_counter` needs to decide whether a real tokenizer is free to
+        # use or budgeting must fall back to the chars-per-token estimate.
+        self._checkpoint_refs: Dict[str, "weakref.ReferenceType[_LoadedCheckpoint]"] = {}
 
     # -- ModelLifecycle plumbing --------------------------------
 
@@ -392,26 +400,74 @@ class NativeLLMClient:
         prefix = _LIFECYCLE_TE_KEY_PREFIX if is_te else _LIFECYCLE_KEY_PREFIX
         return f"{prefix}{path}"
 
+    def _remember_checkpoint(self, key: str, checkpoint: Any) -> None:
+        """Record a weak reference to *checkpoint* for `token_counter` to
+        find later, best-effort: a value that can't hold a weak reference
+        (e.g. a plain str/None a test double's loader returns in place of a
+        real `_LoadedCheckpoint`) just never gets a live counter, same as any
+        other "not warm right now" outcome — never a crash."""
+        try:
+            self._checkpoint_refs[key] = weakref.ref(checkpoint)
+        except TypeError:
+            self._checkpoint_refs.pop(key, None)
+
     def _acquire(self, path: str, config: LLMConfig, is_te: bool = False) -> _LoadedCheckpoint:
         if is_te:
             quant_mode = self._quant_mode(config)
             size = file_size_gb(path)
             if size is not None and quant_mode != "none":
                 size *= NATIVE_LLM_QUANT_SIZE_FACTORS.get(quant_mode, 1.0)
-            return self._models().acquire(
+            checkpoint = self._models().acquire(
                 key=self._cache_key(path, True),
                 fingerprint=f"te|{path}|bf16|quant={quant_mode}",
                 loader=lambda: self._build_adopted(path, quant_mode),
                 estimated_vram_gb=size,
             )
+            self._remember_checkpoint(self._cache_key(path, True), checkpoint)
+            return checkpoint
         load_kwargs = self._load_kwargs(config)
         quant_mode = load_kwargs.get("quantization", "none")
-        return self._models().acquire(
+        checkpoint = self._models().acquire(
             key=self._cache_key(path, False),
             fingerprint=self._fingerprint(path, load_kwargs),
             loader=lambda: self._build(path, load_kwargs),
             estimated_vram_gb=self._estimated_size_gb(path, quant_mode),
         )
+        self._remember_checkpoint(self._cache_key(path, False), checkpoint)
+        return checkpoint
+
+    def token_counter(self, config: LLMConfig) -> Optional[TokenCounter]:
+        """A token counter using this config's own tokenizer — used by
+        ``LLMGateway`` for context-budget accounting, but ONLY when the
+        checkpoint is already warm from a prior turn.
+
+        Looked up through a weak reference (see ``_checkpoint_refs``), never
+        through ``_acquire``/``ModelLifecycle.acquire`` — calling those here
+        would either trigger a full cold load (the checkpoint isn't cached)
+        or, worse, a fingerprint-bust reload (a placeholder fingerprint
+        wouldn't match the real cached one), exactly the network/GPU work
+        budgeting must not cause. A dead or absent weak reference — evicted,
+        or never loaded this process — degrades cleanly to ``None``, and the
+        caller falls back to the chars-per-token estimate.
+        """
+        try:
+            path, is_te = self._resolve_model(config.model)
+        except Exception:
+            return None
+        ref = self._checkpoint_refs.get(self._cache_key(path, is_te))
+        checkpoint = ref() if ref is not None else None
+        if checkpoint is None:
+            return None
+        tokenizer = checkpoint.tokenizer
+
+        def _count(text: str) -> int:
+            encoded = tokenizer(text, return_tensors=None)
+            ids = encoded["input_ids"] if isinstance(encoded, dict) else encoded.input_ids
+            if ids and isinstance(ids[0], list):
+                ids = ids[0]
+            return len(ids)
+
+        return _count
 
     # -- GpuResidencyRegistry registration for CUDA-resident chat
     # models — belt-and-suspenders so a DiT load's own VRAM admission

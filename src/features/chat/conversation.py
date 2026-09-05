@@ -22,6 +22,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from src.features.chat.dto import SessionResponse, SendMessageResponse
 from src.features.chat.exceptions import (
     AdminOnlyModeException,
+    ContextBudgetExceededException,
     InvalidLLMConfigException,
     MessageCreationFailedException,
     PreChatActionError,
@@ -30,7 +31,7 @@ from src.features.chat.hooks import CHAT_MESSAGE_HOOKS, CHAT_RESPONSE_HOOKS
 from src.features.chat.modes import ChatMode
 from src.features.chat.pre_chat_actions import PreChatActionResult
 from src.features.chat.reply_contract import TOOL_LOOP_CONTINUATION_NUDGE
-from src.features.llm import trace_collector
+from src.features.llm import context_budget, trace_collector
 from src.features.llm.trace_repository import chat_call_trace_repository
 from src.features.llm.tools.base import ToolContext, ToolExecution, serialize_approval_preview
 from src.platform.plugins.hooks import await_hook_blocking_waits
@@ -216,7 +217,15 @@ class ConversationRunner:
         self._m._context.inject_reply_contract_reminder_block(conversation_history, mode)
 
         tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools)
-        context_ledger = self._build_context_ledger(system_prompt, tool_schemas, memory_result, conversation_history)
+        budget_capacity, budget_reserve, budget_counter = self._resolve_budget_inputs(session, mode)
+        try:
+            context_ledger = self._build_context_ledger(
+                system_prompt, tool_schemas, memory_result, conversation_history,
+                capacity=budget_capacity, reserve_tokens=budget_reserve, counter=budget_counter,
+                image_data=image_data,
+            )
+        except context_budget.ContextBudgetExceededError as e:
+            raise ContextBudgetExceededException(str(e)) from e
 
         # Execute pre-chat actions (e.g., clear ComfyUI VRAM)
         enabled_pre_chat_actions = self._enabled_pre_chat_actions(session.llm_config_id)
@@ -570,7 +579,15 @@ class ConversationRunner:
         self._m._context.inject_reply_contract_reminder_block(conversation_history, mode)
 
         tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools)
-        context_ledger = self._build_context_ledger(system_prompt, tool_schemas, memory_result, conversation_history)
+        budget_capacity, budget_reserve, budget_counter = self._resolve_budget_inputs(session, mode)
+        try:
+            context_ledger = self._build_context_ledger(
+                system_prompt, tool_schemas, memory_result, conversation_history,
+                capacity=budget_capacity, reserve_tokens=budget_reserve, counter=budget_counter,
+                image_data=image_data,
+            )
+        except context_budget.ContextBudgetExceededError as e:
+            raise ContextBudgetExceededException(str(e)) from e
 
         # Execute pre-chat actions (e.g., clear ComfyUI VRAM)
         enabled_pre_chat_actions = self._enabled_pre_chat_actions(session.llm_config_id)
@@ -885,6 +902,40 @@ class ConversationRunner:
             logger.debug("Could not read chat_history_token_budget setting", exc_info=True)
         return _DEFAULT_HISTORY_TOKEN_BUDGET
 
+    def _resolve_budget_inputs(
+        self, session: SessionResponse, mode: Optional[ChatMode],
+    ) -> "tuple[Optional[context_budget.CapacityInfo], Optional[int], Optional[context_budget.TokenCounter]]":
+        """This turn's (capacity, reserved-output-tokens, tokenizer) for the
+        context-ledger pre-flight check in ``_build_context_ledger`` —
+        derived from the session's resolved LLM config so the pre-flight
+        number matches what ``LLMGateway`` will compute internally for the
+        actual wire call (same function, same config, not a second
+        heuristic). Degrades to ``(None, None, None)`` — unknown capacity,
+        the module's default reserve, chars-per-token estimate — when the
+        config can't be resolved; the LLM call itself raises its own clear
+        error on a genuinely missing configuration.
+        """
+        llm_config_id = getattr(session, "llm_config_id", None)
+        if not llm_config_id:
+            return None, None, None
+        # Best-effort like every other per-turn lookup in this module (memory,
+        # workspace, contributor block): a test double or a not-yet-composed
+        # collaborator standing in for the real LLMGateway/LLMConfig must
+        # degrade to the unknown-capacity/default-reserve/estimate fallback,
+        # never break the send.
+        try:
+            config = self._m.llm_service.repository.get_configuration(llm_config_id)
+            if config is None:
+                return None, None, None
+            capacity = context_budget.resolve_capacity(config)
+            mode_options = (mode.llm_options or {}) if mode else {}
+            reserve_tokens = int(mode_options.get("max_tokens", config.max_tokens))
+            counter = self._m.llm_service.token_counter_for(config)
+            return capacity, reserve_tokens, counter
+        except Exception:
+            logger.debug("Could not resolve LLM config for context budget", exc_info=True)
+            return None, None, None
+
     def _apply_history_budget(
         self, conversation_history: List[Dict[str, Any]], min_protected: int = 1,
     ) -> Dict[str, Any]:
@@ -960,18 +1011,37 @@ class ConversationRunner:
         tool_schemas: List[Dict[str, Any]],
         memory_result: Dict[str, Any],
         conversation_history: List[Dict[str, Any]],
+        *,
+        capacity: Optional[context_budget.CapacityInfo] = None,
+        reserve_tokens: Optional[int] = None,
+        counter: Optional[context_budget.TokenCounter] = None,
+        image_data: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Per-turn size accounting for what actually reached the LLM.
 
-        ``est_tokens`` is the same chars/4 heuristic ``_apply_history_budget``
-        uses, not a real tokenizer count. ``history`` sizes
-        ``conversation_history`` as passed in — the messages actually sent
-        this turn, after budgeting and after every context block (contributor,
-        resource, memory, workspace, prompt state, reply-contract reminder)
-        has been injected; it
-        therefore already includes the memory block's chars, which ``memory``
-        also reports on its own so memory's share of the total is visible at
-        a glance.
+        The top-level fields (``system_prompt``/``tool_schemas``/``memory``/
+        ``history``/``total_est_tokens``) are the original chars/4 display
+        heuristic, unchanged, and size ``conversation_history`` as passed in —
+        the messages actually sent this turn, after budgeting and after every
+        context block (contributor, resource, memory, workspace, prompt
+        state, reply-contract reminder) has been injected; it therefore
+        already includes the memory block's chars, which ``memory`` also
+        reports on its own so memory's share of the total is visible at a
+        glance.
+
+        ``budget`` is the model-aware accounting from
+        ``context_budget.enforce_budget`` — same capacity/reserve/tokenizer
+        ``LLMGateway`` uses for the actual wire call (see
+        ``ConversationRunner._resolve_budget_inputs``), not a second
+        heuristic. ``capacity``/``reserve_tokens``/``counter`` default to an
+        unknown-capacity, module-default-reserve, chars-per-token-estimate
+        degrade when the caller couldn't resolve the session's LLM config
+        (see ``_resolve_budget_inputs``).
+
+        Raises ``context_budget.ContextBudgetExceededError`` when even the
+        protected tail of ``conversation_history`` doesn't fit — the caller
+        must convert this into an actionable chat-domain error (see
+        ``ContextBudgetExceededException``) and must not submit the request.
         """
         def _size(text: str) -> Dict[str, int]:
             chars = len(text or "")
@@ -999,12 +1069,26 @@ class ConversationRunner:
 
         total_chars = system_prompt_size["chars"] + tool_schemas_size["chars"] + history_size["chars"]
 
+        cap = capacity or context_budget.CapacityInfo(context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown")
+        reserve = reserve_tokens if reserve_tokens is not None else context_budget.DEFAULT_RESERVE_TOKENS
+        outcome = context_budget.enforce_budget(
+            capacity_tokens=cap.capacity_tokens,
+            capacity_source=cap.source,
+            reserve_tokens=reserve,
+            system_message=system_prompt,
+            messages=conversation_history,
+            tool_schemas=tool_schemas,
+            image_data=image_data,
+            counter=counter,
+        )
+
         return {
             "system_prompt": system_prompt_size,
             "tool_schemas": tool_schemas_size,
             "memory": memory_size,
             "history": history_size,
             "total_est_tokens": total_chars // 4,
+            "budget": outcome.ledger,
         }
 
     @staticmethod

@@ -55,3 +55,11 @@ class UnknownChatModeException(ChatException):
 class AdminOnlyModeException(ChatException):
     """The session's mode is restricted to administrators."""
     pass
+
+
+class ContextBudgetExceededException(ChatException):
+    """The turn's request doesn't fit the model's context window even after
+    trimming every eligible older message (see
+    ``src.features.llm.context_budget.ContextBudgetExceededError``, which
+    this wraps to keep the llm feature layer chat-agnostic)."""
+    pass

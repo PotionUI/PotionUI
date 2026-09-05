@@ -37,8 +37,13 @@ from src.features.chat import (
     SessionCreationFailedException,
 )
 from src.features.chat.context_builder import MEMORY_MAX_CONTENT_LEN, MEMORY_MAX_NOTES_PER_GROUP
-from src.features.chat.exceptions import AdminOnlyModeException, UnknownChatModeException
+from src.features.chat.exceptions import (
+    AdminOnlyModeException,
+    ContextBudgetExceededException,
+    UnknownChatModeException,
+)
 from src.features.chat.turns import ChatTurn, ChatTurnRegistry, TurnAlreadyRunningError
+from src.features.llm import context_budget
 from src.features.llm_memory import operations as memory_operations
 from src.platform.security.user import AccountType, User
 
@@ -252,6 +257,11 @@ class ChatController(BaseController):
                 error="message_creation_failed",
                 message=str(e)
             )
+        except (ContextBudgetExceededException, context_budget.ContextBudgetExceededError) as e:
+            return self.error_api_response(
+                error="context_budget_exceeded",
+                message=str(e)
+            )
         except ValueError as e:
             return self.error_api_response(
                 error="llm_error",
@@ -296,6 +306,8 @@ class ChatController(BaseController):
                     yield {"event": "error", "data": {"error": "no_llm_config", "message": "No LLM configuration"}}
                 except UnknownChatModeException as e:
                     yield {"event": "error", "data": {"error": "unknown_mode", "message": str(e)}}
+                except (ContextBudgetExceededException, context_budget.ContextBudgetExceededError) as e:
+                    yield {"event": "error", "data": {"error": "context_budget_exceeded", "message": str(e)}}
                 except Exception as e:
                     logger.exception(f"Error in streaming: {e}")
                     yield {"event": "error", "data": {"error": "stream_error", "message": str(e)}}

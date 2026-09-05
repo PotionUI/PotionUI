@@ -15,11 +15,15 @@ project's "no GPU ever" test rule).
 
 from __future__ import annotations
 
+import gc
 import json
+import weakref
+from unittest.mock import Mock, patch
 
 import pytest
 import torch
 
+from src.features.llm.clients import native as native_module
 from src.features.llm.clients.native import NativeLLMClient
 from src.features.llm.repository import LLMConfig
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
@@ -253,6 +257,129 @@ async def test_generate_registers_a_lifecycle_entry(client, models_manager, nati
     await client.generate_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
     key = f"native/llm/{path}"
     assert key in models_manager._entries
+
+
+class TestTokenCounterWeakrefMechanics:
+    """token_counter's own weak-reference lookup and dispatch, independent of
+    the heavy real-transformers fixture (see TestTokenCounter below) — a fake
+    tokenizer stands in for a real one; only the liveness/dispatch logic
+    under test here is NativeLLMClient's, not transformers'."""
+
+    def _client(self) -> NativeLLMClient:
+        return NativeLLMClient(ModelLifecycle(gpu_monitor=None, settings=None))
+
+    def test_none_when_never_populated(self):
+        client = self._client()
+        with patch.object(client, "_resolve_model", return_value=("/fake/path", False)):
+            assert client.token_counter(_config("anything")) is None
+
+    def test_uses_the_warm_checkpoints_tokenizer(self):
+        client = self._client()
+        fake_tokenizer = Mock(side_effect=lambda text, return_tensors=None: {"input_ids": [[1, 2, 3, 4]]})
+        fake_checkpoint = native_module._LoadedCheckpoint(
+            model=Mock(), tokenizer=fake_tokenizer, vision=False, model_type="qwen3",
+        )
+        with patch.object(client, "_resolve_model", return_value=("/fake/path", False)):
+            key = client._cache_key("/fake/path", False)
+            client._checkpoint_refs[key] = weakref.ref(fake_checkpoint)
+
+            counter = client.token_counter(_config("anything"))
+
+        assert counter is not None
+        assert counter("hello world") == 4
+        fake_tokenizer.assert_called_once_with("hello world", return_tensors=None)
+
+    def test_never_calls_acquire_or_the_lifecycle(self):
+        """The whole point of the weakref cache: token_counter must not go
+        through `_acquire`/`ModelLifecycle.acquire` at all — that path can
+        cold-load or fingerprint-bust reload, exactly what budgeting must
+        never trigger."""
+        client = self._client()
+        fake_checkpoint = native_module._LoadedCheckpoint(
+            model=Mock(), tokenizer=Mock(return_value={"input_ids": [[1]]}), vision=False, model_type="qwen3",
+        )
+        with patch.object(client, "_resolve_model", return_value=("/fake/path", False)), \
+             patch.object(client, "_acquire") as acquire_spy:
+            key = client._cache_key("/fake/path", False)
+            client._checkpoint_refs[key] = weakref.ref(fake_checkpoint)
+            client.token_counter(_config("anything"))
+            acquire_spy.assert_not_called()
+
+    def test_dead_weakref_after_the_checkpoint_is_garbage_collected(self):
+        client = self._client()
+        fake_checkpoint = native_module._LoadedCheckpoint(
+            model=Mock(), tokenizer=Mock(), vision=False, model_type="qwen3",
+        )
+        with patch.object(client, "_resolve_model", return_value=("/fake/path", False)):
+            key = client._cache_key("/fake/path", False)
+            client._checkpoint_refs[key] = weakref.ref(fake_checkpoint)
+            assert client.token_counter(_config("anything")) is not None
+
+            del fake_checkpoint
+            gc.collect()
+
+            assert client.token_counter(_config("anything")) is None
+
+    def test_unresolvable_model_returns_none(self):
+        client = self._client()
+        with patch.object(client, "_resolve_model", side_effect=ValueError("no such checkpoint")):
+            assert client.token_counter(_config("no-such-checkpoint")) is None
+
+
+class TestTokenCounter:
+    """context_budget-facing: a real tokenizer, but only while warm.
+
+    NOTE: these depend on the module's `native_checkpoint`/
+    `tiny_qwen3_checkpoint_dir` fixtures (a real, tiny transformers model) and
+    are subject to the same environment-only transformers/accelerate import
+    failure documented for every other fixture-based test in this file — see
+    `docs/testing-notes.md`. TestTokenCounterWeakrefMechanics above covers the
+    same logic without that dependency.
+    """
+
+    def test_no_warm_checkpoint_returns_none(self, client, native_checkpoint):
+        """Never loaded this process — must not trigger a load just to count."""
+        name, _ = native_checkpoint
+        assert client.token_counter(_config(name)) is None
+
+    @pytest.mark.asyncio
+    async def test_warm_checkpoint_exposes_a_real_counter(self, client, native_checkpoint):
+        name, _ = native_checkpoint
+        config = _config(name)
+        await client.generate_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
+
+        counter = client.token_counter(config)
+        assert counter is not None
+        # The fixture's tokenizer has a small fixed vocabulary (see
+        # tiny_qwen3_checkpoint_dir) — "hello world" tokenizes to a real,
+        # small, non-zero count via that vocab, not an estimate.
+        count = counter("hello world")
+        assert isinstance(count, int)
+        assert count > 0
+        assert count == counter("hello world")
+
+    @pytest.mark.asyncio
+    async def test_counter_reflects_length_not_a_constant(self, client, native_checkpoint):
+        name, _ = native_checkpoint
+        config = _config(name)
+        await client.generate_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
+
+        counter = client.token_counter(config)
+        assert counter("hello") < counter("hello world the cat sat on the mat")
+
+    @pytest.mark.asyncio
+    async def test_evicted_checkpoint_degrades_to_none(self, client, models_manager, native_checkpoint):
+        name, path = native_checkpoint
+        config = _config(name)
+        await client.generate_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
+        assert client.token_counter(config) is not None
+
+        models_manager.invalidate(f"native/llm/{path}")
+
+        assert client.token_counter(config) is None
+
+    def test_unresolvable_model_returns_none(self, client):
+        assert client.token_counter(_config("no-such-checkpoint")) is None
 
 
 @pytest.mark.asyncio

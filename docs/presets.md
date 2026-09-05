@@ -454,6 +454,15 @@ unestablished, or established but different) resolves to `unknown`, each with it
 `detail` explaining which — this process never substitutes a guess for hardware it cannot prove is
 its own device.
 
+**A `native` backend's `device` configured as a bare `"cuda"` (no explicit `:N`) never resolves an
+identity at all.** That string is forwarded unchanged to the pipe that actually runs inference, and
+torch resolves it at *execution* time to `torch.cuda.current_device()` for whichever thread runs
+it — not necessarily index 0, and not something this check can know in advance without querying the
+wrong thread at the wrong moment, which would prove nothing. `vram_min_gb` reads `unknown` for a
+bare-`"cuda"` backend with a specific reason ("configured device 'cuda' has no explicit ordinal; the
+worker's device cannot be established") rather than guessing index 0. An explicit `cuda:N` is
+unaffected — that ordinal is fixed and its identity is resolved normally.
+
 A preset's own `pipeline.yml` can also put a *different* device on a specific pipe:
 `configuration: {device: ...}` on any pipe wins over the backend's configured device, since
 `NativeBackend.prepare_pipes` only `setdefault`s its own onto a pipe's config
@@ -461,10 +470,11 @@ A preset's own `pipeline.yml` can also put a *different* device on a specific pi
 `pipe['config']` verbatim, unrendered, in `PresetProcessor._process_pipes` —
 `src/features/presets/processor.py`). `vram_min_gb` checks for this STATICALLY, before any Jinja
 rendering (independent of form data, since no requirements check has any to render with): a literal
-override that disagrees with the backend's configured device, or a templated value this check
-cannot resolve without form data, degrades an otherwise-matching reading to `unknown` rather than
-asserting past authoring it cannot see the effect of. A literal override that already agrees, or no
-override at all, is unaffected.
+override that disagrees with the backend's configured device, a templated value this check cannot
+resolve without form data, or a non-string value (a dict/list/int — an authoring mistake, or an
+unresolved indirection) all degrade an otherwise-matching reading to `unknown` rather than asserting
+past authoring it cannot see the effect of or reason about. A literal override that already agrees,
+or no override at all, is unaffected.
 
 A passing `vram_min_gb` reading is evidence a card is physically present, not a guarantee a
 given model fits: that is a function of the *loading budget* an admin configures per native backend

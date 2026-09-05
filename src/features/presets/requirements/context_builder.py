@@ -125,7 +125,7 @@ def _resolve_gpu_reading(
         return None, None
     monitor_identity = getattr(gpu_monitor, "device_identity", None)
     if evidence.identity is None:
-        return None, (
+        return None, evidence.reason or (
             "this backend's GPU identity could not be established "
             "(torch/CUDA unavailable, or the configured device index is out of range)"
         )
@@ -165,7 +165,12 @@ def _preset_device_override(preset: PresetTemplate, backend_device: Optional[str
                 continue
             value = config[_PIPE_DEVICE_KEY]
             if not isinstance(value, str):
-                continue
+                # A non-string override (a dict/list/int, e.g. an
+                # unresolved `@config:`-style indirection or an authoring
+                # mistake) is not "no override" - it's a shape this check
+                # cannot reason about at all, so it degrades conservatively
+                # rather than silently falling through to "no override".
+                return f"pipe '{pipe.name}'s device override is not a plain string (unresolvable device override)"
             if "{{" in value or "{%" in value:
                 return (
                     f"pipe '{pipe.name}' overrides its device with a template "

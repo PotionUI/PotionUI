@@ -14,6 +14,8 @@ physical IDENTITY (`src.platform.runtime.gpu.DeviceIdentity`, a stable UUID)
 (`_preset_device_override`), which this file also covers.
 """
 
+from unittest.mock import Mock
+
 import pytest
 
 from src.features.backends.backend_config import NativeBackendConfig
@@ -311,13 +313,61 @@ class TestNativeBackendRealInstanceDeviceIdentity:
     device, with its GPU-identity lookup (`_cuda_device_identity`)
     monkeypatched rather than touching real CUDA."""
 
-    def test_bare_cuda_device_string_resolves_to_index_0(self, monkeypatch):
-        _patch_cuda_identity(monkeypatch, {0: _identity("gpu0")})
-        backend = _native_backend("gpu0-backend", "cuda")
-
-        assert backend.resolve_execution_device() == ExecutionDeviceEvidence(
-            kind="this_host_gpu", gpu_index=0, identity=_identity("gpu0"),
+    def test_bare_cuda_has_no_established_identity(self, monkeypatch):
+        """A bare "cuda" (no explicit `:N`) is forwarded unchanged to the
+        pipes that actually run inference, and torch resolves it at
+        EXECUTION time to `torch.cuda.current_device()` for whichever
+        thread runs the pipe - not knowable in advance, and never 0 by
+        assumption. `_cuda_device_identity` must not even be called."""
+        calls = []
+        monkeypatch.setattr(
+            native_backend_module, "_cuda_device_identity", lambda index: calls.append(index),
         )
+        backend = _native_backend("gpu-backend", "cuda")
+
+        evidence = backend.resolve_execution_device()
+
+        assert evidence == ExecutionDeviceEvidence(
+            kind="this_host_gpu", gpu_index=None, identity=None,
+            reason="configured device 'cuda' has no explicit ordinal; the worker's device cannot be established",
+        )
+        assert calls == []
+
+    def test_bare_cuda_ignores_this_threads_current_device_even_when_reported(self, monkeypatch):
+        """Reading THIS thread's current CUDA device would not be proof of
+        anything - the thread that actually executes the pipe may differ.
+        Fake it as both 0 and 1 and confirm neither is even consulted, let
+        alone trusted."""
+        current_device = Mock(return_value=0)
+        monkeypatch.setattr("torch.cuda.current_device", current_device)
+        backend = _native_backend("gpu-backend", "cuda")
+
+        evidence = backend.resolve_execution_device()
+
+        assert evidence.identity is None
+        current_device.assert_not_called()
+
+        current_device_other = Mock(return_value=1)
+        monkeypatch.setattr("torch.cuda.current_device", current_device_other)
+
+        evidence_again = backend.resolve_execution_device()
+
+        assert evidence_again.identity is None
+        current_device_other.assert_not_called()
+
+    def test_bare_cuda_when_cuda_unavailable_still_reads_unestablished_not_no_gpu(self, monkeypatch):
+        """Unlike `device="cpu"` (definite "no_gpu" evidence), a bare
+        "cuda" on a host with no usable CUDA is still `kind="this_host_gpu"`
+        (that IS the configured intent) with no identity - "unestablished"
+        for a different, already-covered reason, not reclassified."""
+        monkeypatch.setattr("torch.cuda.is_available", lambda: False)
+        backend = _native_backend("gpu-backend", "cuda")
+
+        evidence = backend.resolve_execution_device()
+
+        assert evidence.kind == "this_host_gpu"
+        assert evidence.identity is None
+        assert "no explicit ordinal" in evidence.reason
 
     def test_cuda_colon_n_resolves_to_that_index(self, monkeypatch):
         _patch_cuda_identity(monkeypatch, {1: _identity("gpu1")})
@@ -484,6 +534,18 @@ class TestPresetDeviceOverride:
 
         assert ctx.gpu_total_vram_gb is None
         assert "template this check has no form data to resolve" in ctx.gpu_unavailable_reason
+
+    def test_non_string_override_is_unknown_not_silently_skipped(self):
+        """A `device` value that is present but not a plain string (a
+        dict/list/int - an authoring mistake, or an unresolved `@config:`-
+        style indirection) must be treated conservatively, never as "no
+        override" - the check cannot reason about its shape at all."""
+        preset = _preset(pipes=[PipeTemplate(name="generator/native", configuration={"device": {"nested": "value"}})])
+
+        ctx = build_requirement_context_for_backend(preset, None, self._monitor(), self._matching_info())
+
+        assert ctx.gpu_total_vram_gb is None
+        assert "unresolvable device override" in ctx.gpu_unavailable_reason
 
     def test_disabled_pipes_overrides_are_ignored(self):
         preset = _preset(pipes=[

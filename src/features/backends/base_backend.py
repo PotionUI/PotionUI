@@ -74,10 +74,22 @@ class ExecutionDeviceEvidence:
     # ONLY thing a caller may compare against another device's identity to
     # decide "is this the same physical card". Meaningful only when
     # `kind == "this_host_gpu"`; `None` there means the identity could not
-    # be established (torch/CUDA unavailable, or the index is out of
-    # range) - a caller must treat that the same as "no match", never as
+    # be established (torch/CUDA unavailable, the index is out of range, or
+    # the configured device has no explicit ordinal at all - see `reason`
+    # below) - a caller must treat that the same as "no match", never as
     # "assume yes".
     identity: Optional[DeviceIdentity] = None
+    # A specific, human-readable note on WHY `identity` is `None` despite
+    # `kind == "this_host_gpu"` - e.g. a bare `"cuda"` device (no explicit
+    # ordinal: it resolves at runtime to whatever `torch.cuda.current_device()`
+    # happens to be for the executing thread at that moment, which this
+    # process cannot know in advance and must never guess at). `None` when
+    # `identity` is present, or when there's nothing more specific to say
+    # than the generic "could not be established". A caller (e.g.
+    # `context_builder.build_requirement_context_for_backend`) surfaces this
+    # verbatim in its own `unknown` explanation when set, falling back to
+    # its own generic wording otherwise.
+    reason: Optional[str] = None
 
 
 class BaseBackend(ABC):

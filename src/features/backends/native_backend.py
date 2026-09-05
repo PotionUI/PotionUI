@@ -10,13 +10,42 @@ from .native_model_scan import scan_native_models
 
 
 def _cuda_device_index(device: str) -> int:
-    """Parse the index out of a "cuda"/"cuda:N" device string. Bare "cuda" is index 0."""
+    """Parse the index out of a "cuda"/"cuda:N" device string. Bare "cuda" is index 0.
+
+    This "assume 0" approximation is intentionally loose - it backs
+    `NativeBackend.health_check`'s device-COUNT validity check ("does this
+    host even expose that many CUDA devices"), where treating a bare "cuda"
+    as index 0 is a reasonable, harmless default. It is NOT used for
+    identity resolution (`resolve_execution_device` uses
+    `_explicit_cuda_index` instead, below) - health_check's use is
+    unaffected by that distinction and is deliberately left alone here."""
     if ":" in device:
         try:
             return int(device.split(":", 1)[1])
         except ValueError:
             return 0
     return 0
+
+
+def _explicit_cuda_index(device: str) -> Optional[int]:
+    """The ordinal from an explicit `"cuda:N"` ONLY - `None` for a bare
+    `"cuda"` (no explicit ordinal at all). A bare `"cuda"` device string is
+    forwarded unchanged to the pipes that actually run inference
+    (`prepare_pipes`, below) and torch resolves it to
+    `torch.cuda.current_device()` - the CALLING THREAD's current device at
+    THAT moment, which need not be 0 and is not something this process can
+    know in advance without querying from the same thread/context that will
+    actually execute. Reading some other thread's current device here would
+    not be proof of anything; the honest answer is "unestablished", not a
+    guess pinned to whatever index happens to be current when this function
+    runs. Deliberately distinct from `_cuda_device_index`'s looser
+    "assume 0" used elsewhere (see its docstring)."""
+    if ":" not in device:
+        return None
+    try:
+        return int(device.split(":", 1)[1])
+    except ValueError:
+        return None
 
 
 def _cuda_device_identity(index: int) -> Optional[DeviceIdentity]:
@@ -65,11 +94,27 @@ class NativeBackend(InProcessBackend):
         `cuda:N`. `gpu_index` is display/log only; `identity` (this
         ordinal's stable hardware UUID, via `_cuda_device_identity`) is what
         a caller must actually compare against its own device's identity -
-        an index match alone is not proof of the same physical card."""
+        an index match alone is not proof of the same physical card.
+
+        A bare `"cuda"` (no explicit `:N`) never resolves an identity at
+        all: torch would resolve it at execution time to whatever CUDA
+        device happens to be current on the executing thread, which this
+        method has no way to know in advance - reading THIS thread's
+        current device would not be proof of anything, so it stays
+        `identity=None` with a `reason` explaining why, rather than a
+        guess."""
         device = self.config.device
         if device == "cpu":
             return ExecutionDeviceEvidence(kind="no_gpu")
-        index = _cuda_device_index(device)
+        index = _explicit_cuda_index(device)
+        if index is None:
+            return ExecutionDeviceEvidence(
+                kind="this_host_gpu", gpu_index=None, identity=None,
+                reason=(
+                    f"configured device '{device}' has no explicit ordinal; "
+                    "the worker's device cannot be established"
+                ),
+            )
         return ExecutionDeviceEvidence(
             kind="this_host_gpu", gpu_index=index, identity=_cuda_device_identity(index),
         )

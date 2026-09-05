@@ -457,6 +457,17 @@ backend.
   different physical card than the one this process's `GpuMonitor` watches, must never be judged by
   that monitor's reading just because a GPU happens to be present somewhere.
 
+  **A bare `"cuda"` (no explicit `:N`) never resolves an identity, by design.** That string is
+  forwarded unchanged to the pipe that actually runs inference (`prepare_pipes`, below), and torch
+  resolves it at *execution* time to `torch.cuda.current_device()` for whichever thread runs it -
+  not knowable in advance, and reading some other thread's current device would prove nothing.
+  `resolve_execution_device()` returns `gpu_index=None`, `identity=None`, and a specific `reason`
+  ("configured device 'cuda' has no explicit ordinal...") for this case, without calling
+  `_cuda_device_identity()` or `torch.cuda.current_device()` at all - `ExecutionDeviceEvidence.reason`
+  is the additive field a caller (the `vram_min_gb` path, or MEM-03's advisory) surfaces verbatim
+  in its own `unknown` explanation instead of a generic "identity could not be established". An
+  explicit `cuda:N` is unaffected.
+
 `InProcessBackend` factors out what every backend so far actually does: it owns the `_active` set of
 in-flight generation ids, the `_run` coroutine that drives `GenerationEngine` on a worker thread and
 emits completion, and `cancel_generation`. Before executing it calls `self.prepare_pipes(pipes)`, the

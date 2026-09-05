@@ -6,7 +6,7 @@ bundles, no real weights, CPU-only."""
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
@@ -920,6 +920,139 @@ def test_generate_one_ref2va_routes_through_the_reference_layout(tmp_path):
     assert [r.kind for r in references] == ["image"]
     assert call_args[0][2] == (fake_condition_latent,)  # condition_latents forwarded as-is
     assert call_args[0][3] == ()  # no audio_condition_latents (images never carry audio)
+
+
+# -- video VAE placement: only when the conditioning phase actually encodes --
+
+def test_generate_one_text_only_never_places_the_video_vae():
+    """A plain text-to-video request (no keyframes, no references, no
+    initial_latent) hits `prepare_keyframe_condition_rows([], (), ...)`,
+    which returns its empty tensor without ever calling `encode` -- so the
+    video VAE must never be placed on device for it. `decode=False` isolates
+    the CONDITIONING phase's placement from `_decode_video`'s own (untouched,
+    legitimate) move_to/offload at the end of `generate_one`."""
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+
+    class _FakeVideoVae:
+        latents_mean = torch.zeros(24)
+        latents_std = torch.ones(24)
+
+        def encode(self, *args, **kwargs):
+            raise AssertionError("a text-only request must never encode through the video VAE")
+
+    move_to = Mock()
+    offload = Mock()
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=SimpleNamespace(compute_dtype=torch.float32, estimated_vram_gb=0.0,
+                            module=_fake_dit_module(video_patch_dim),
+                            move_to=lambda d: None, offload=lambda: None),
+        video_vae=SimpleNamespace(module=_FakeVideoVae(), compute_dtype=torch.float32,
+                                   move_to=move_to, offload=offload),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=lambda d: None, offload=lambda: None),
+        te=None, te_cache_key=None,
+    )
+    ctx_extra = _MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=3,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[], keyframe_anchors=(), audio_source="generate", decode=False,
+    )
+    ctx = GeneratorContext(quantity=1, input_seeds=[7], extra=ctx_extra)
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    result = pipe.generate_one(ctx, 0, 7, progress)
+
+    assert move_to.call_count == 0
+    assert offload.call_count == 0
+    assert isinstance(result, torch.Tensor)
+
+
+def test_generate_one_keyframe_path_still_places_the_video_vae_once():
+    """The opposite of the case above: a real `fl2va` keyframe image DOES
+    drive `prepare_keyframe_condition_rows` through a genuine `encode` call,
+    so the video VAE must still be placed and offloaded, exactly once
+    (`decode=False` again isolates this from the decode-phase placement)."""
+    from PIL import Image
+
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    move_to = Mock()
+    offload = Mock()
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=SimpleNamespace(compute_dtype=torch.float32, estimated_vram_gb=0.0,
+                            module=_fake_dit_module(video_patch_dim),
+                            move_to=lambda d: None, offload=lambda: None),
+        video_vae=SimpleNamespace(module=_FakeKeyframeVae(), compute_dtype=torch.float32,
+                                   move_to=move_to, offload=offload),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=lambda d: None, offload=lambda: None),
+        te=None, te_cache_key=None,
+    )
+    ctx_extra = _MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=3,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[Image.new("RGB", (32, 32), (10, 20, 30))], keyframe_anchors=(0,),
+        audio_source="generate", decode=False,
+    )
+    ctx = GeneratorContext(quantity=1, input_seeds=[7], extra=ctx_extra)
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    result = pipe.generate_one(ctx, 0, 7, progress)
+
+    assert move_to.call_count == 1
+    assert offload.call_count == 1
+    assert isinstance(result, torch.Tensor)
+
+
+def test_generate_one_video_vae_offload_runs_only_when_placed_on_failure():
+    """Failure/cancellation cleanup must offload exactly the components this
+    call actually placed -- a text-only request that blows up mid-sample
+    must not call `offload` on a video VAE it never moved."""
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+
+    class _FakeVideoVae:
+        latents_mean = torch.zeros(24)
+        latents_std = torch.ones(24)
+
+    def exploding_forward(*, hidden_states, audio_hidden_states, **kwargs):
+        raise RuntimeError("boom")
+    exploding_forward.prepare_text_context = _stub_prepare_text_context
+
+    move_to = Mock()
+    offload = Mock()
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=SimpleNamespace(compute_dtype=torch.float32, estimated_vram_gb=0.0, module=exploding_forward,
+                            move_to=lambda d: None, offload=lambda: None),
+        video_vae=SimpleNamespace(module=_FakeVideoVae(), compute_dtype=torch.float32,
+                                   move_to=move_to, offload=offload),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=lambda d: None, offload=lambda: None),
+        te=None, te_cache_key=None,
+    )
+    ctx_extra = _MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=3,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[], keyframe_anchors=(), audio_source="generate", decode=True,
+    )
+    ctx = GeneratorContext(quantity=1, input_seeds=[7], extra=ctx_extra)
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        pipe.generate_one(ctx, 0, 7, progress)
+
+    assert move_to.call_count == 0
+    assert offload.call_count == 0
 
 
 # -- cancellation -------------------------------------------------------------
@@ -2657,6 +2790,91 @@ def test_the_image_only_reference_path_is_unchanged(tmp_path):
     assert [tuple(l.shape) for l in current.condition_latents] == [tuple(l.shape) for l in legacy_latents]
     assert all(torch.equal(a, b) for a, b in zip(current.condition_latents, legacy_latents))
     assert current.condition_audio_rows is None
+
+
+# -- _build_ref2va_layout: VAE placement follows what the reference set needs --
+
+def test_build_ref2va_layout_skips_the_video_vae_for_an_audio_only_reference_set():
+    """`prepare_reference_conditioning` never calls `encode` through the video
+    VAE for a reference set with no image or video in it -- reachable when a
+    Director window's `reference_indices` narrows a mixed pool down to its
+    audio reference alone (`_build_ref2va_layout` runs per-window on THAT
+    subset, not on the whole document's own, already-validated set, which
+    can never be audio-only)."""
+    video_move_to, video_offload = Mock(), Mock()
+    audio_move_to, audio_offload = Mock(), Mock()
+    bundle = SimpleNamespace(
+        video_vae=SimpleNamespace(module=_RefVideoVae(), move_to=video_move_to, offload=video_offload),
+        audio_vae=SimpleNamespace(module=_RefAudioVae(), move_to=audio_move_to, offload=audio_offload),
+    )
+    c = _bare_ctx(bundle=bundle, num_latent_frames=2, latent_height=2, latent_width=2, num_audio_latents=2)
+    references = (_ref_audio(num_latents=3),)
+
+    GeneratorMinimaxH3Pipe._build_ref2va_layout(
+        c, references, torch.full((3,), TEXT_TAG, dtype=torch.long),
+        num_latent_frames=2, num_audio_latents=2, generator=torch.Generator().manual_seed(7),
+    )
+
+    assert video_move_to.call_count == 0
+    assert video_offload.call_count == 0
+    assert audio_move_to.call_count == 1
+    assert audio_offload.call_count == 1
+
+
+def test_build_ref2va_layout_still_places_the_video_vae_for_a_visual_reference():
+    """Bite check for the test above: the audio-only case is a narrowing, not
+    a blanket skip -- a reference set that DOES carry a visual reference must
+    still place the video VAE (and, carrying no soundtrack, must not place
+    the audio VAE)."""
+    video_move_to, video_offload = Mock(), Mock()
+    audio_move_to, audio_offload = Mock(), Mock()
+    bundle = SimpleNamespace(
+        video_vae=SimpleNamespace(module=_RefVideoVae(), move_to=video_move_to, offload=video_offload),
+        audio_vae=SimpleNamespace(module=_RefAudioVae(), move_to=audio_move_to, offload=audio_offload),
+    )
+    c = _bare_ctx(bundle=bundle, num_latent_frames=2, latent_height=2, latent_width=2, num_audio_latents=2)
+    references = (_ref_image_media((4, 4)),)
+
+    GeneratorMinimaxH3Pipe._build_ref2va_layout(
+        c, references, torch.full((3,), TEXT_TAG, dtype=torch.long),
+        num_latent_frames=2, num_audio_latents=2, generator=torch.Generator().manual_seed(7),
+    )
+
+    assert video_move_to.call_count == 1
+    assert video_offload.call_count == 1
+    assert audio_move_to.call_count == 0
+    assert audio_offload.call_count == 0
+
+
+def test_build_ref2va_layout_offload_runs_only_when_placed_on_failure():
+    """Failure cleanup must offload exactly what this call placed: an
+    audio-only reference set that blows up inside `prepare_reference_
+    conditioning` must not offload a video VAE it never moved."""
+    video_move_to, video_offload = Mock(), Mock()
+    audio_move_to, audio_offload = Mock(), Mock()
+    bundle = SimpleNamespace(
+        video_vae=SimpleNamespace(module=_RefVideoVae(), move_to=video_move_to, offload=video_offload),
+        audio_vae=SimpleNamespace(module=_RefAudioVae(), move_to=audio_move_to, offload=audio_offload),
+    )
+    c = _bare_ctx(bundle=bundle, num_latent_frames=2, latent_height=2, latent_width=2, num_audio_latents=2)
+    references = (_ref_audio(num_latents=3),)
+
+    with (
+        patch(
+            "src.pipelines.pipes.generator.video_minimax_h3.main.prepare_reference_conditioning",
+            side_effect=RuntimeError("boom"),
+        ),
+        pytest.raises(RuntimeError, match="boom"),
+    ):
+        GeneratorMinimaxH3Pipe._build_ref2va_layout(
+            c, references, torch.full((3,), TEXT_TAG, dtype=torch.long),
+            num_latent_frames=2, num_audio_latents=2, generator=torch.Generator().manual_seed(7),
+        )
+
+    assert video_move_to.call_count == 0
+    assert video_offload.call_count == 0
+    assert audio_move_to.call_count == 1
+    assert audio_offload.call_count == 1
 
 
 # -- live preview x0 -----------------------------------------------------------

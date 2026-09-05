@@ -1249,13 +1249,19 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         One draw off `generator` per VISUAL reference (`prepare_reference_
         conditioning`'s own "one generator, three draws, in order" contract)
         -- the caller must not have drawn its own video/audio noise yet.
-        Moves and offloads the video/audio VAE itself; the audio VAE only
-        when this reference set actually carries a soundtrack, same as the
+        Moves and offloads each VAE only when THIS reference set actually
+        needs it: the video VAE when at least one reference is an image or
+        video (`prepare_reference_conditioning` never encodes through it for
+        an audio-only set -- reachable when a Director window's `reference_
+        indices` narrows a mixed pool down to its audio reference alone), the
+        audio VAE only when the set carries a soundtrack -- same as the
         single-window path this replaces did inline.
         """
         video_vae_module = _require_h3_video_vae(c.bundle.video_vae.module)
+        needs_video_vae = any(reference.kind != "audio" for reference in references)
         needs_audio_vae = any(reference.has_audio for reference in references)
-        c.bundle.video_vae.move_to(c.device)
+        if needs_video_vae:
+            c.bundle.video_vae.move_to(c.device)
         if needs_audio_vae:
             c.bundle.audio_vae.move_to(c.device)
         try:
@@ -1267,7 +1273,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 generator=generator,
             )
         finally:
-            c.bundle.video_vae.offload()
+            if needs_video_vae:
+                c.bundle.video_vae.offload()
             if needs_audio_vae:
                 c.bundle.audio_vae.offload()
 
@@ -1349,7 +1356,15 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             )
         else:
             video_vae_module = _require_h3_video_vae(c.bundle.video_vae.module)
-            c.bundle.video_vae.move_to(c.device)
+            # Only `c.keyframe_images` drives an actual encoder forward here.
+            # An empty `keyframe_images` makes `prepare_keyframe_condition_rows`
+            # return its zero-row tensor without touching the module, and
+            # `_normalized_initial_latent`'s refine normalize below reads
+            # `latents_mean`/`latents_std` as plain buffers with its own
+            # `.to(device=...)` -- neither needs the module itself resident.
+            needs_video_encode = bool(c.keyframe_images)
+            if needs_video_encode:
+                c.bundle.video_vae.move_to(c.device)
             try:
                 condition_rows = prepare_keyframe_condition_rows(
                     c.keyframe_images, c.keyframe_anchors, vae_module=video_vae_module,
@@ -1357,15 +1372,15 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     latents_mean=video_vae_module.latents_mean, latents_std=video_vae_module.latents_std,
                     generator=gen,
                 )
-                # Refine entry path (module docstring, "Refine entry path"):
-                # normalized while the video VAE is still resident, the exact
-                # inverse of `_decode_video`'s `* latents_std + latents_mean`.
+                # Refine entry path (module docstring, "Refine entry path"): the
+                # exact inverse of `_decode_video`'s `* latents_std + latents_mean`.
                 # `c.keyframe_images`/`c.references` are both empty here (the
                 # mutual-exclusion guard in `build_context` guarantees it), so
                 # `condition_rows` above is always the empty tensor already.
                 initial_latent = self._normalized_initial_latent(c, index, video_vae_module)
             finally:
-                c.bundle.video_vae.offload()
+                if needs_video_encode:
+                    c.bundle.video_vae.offload()
 
         video_rows, audio_rows, layout = self._sample_window(
             c, prompt_embeds=prompt_embeds, text_token_tags=text_token_tags,

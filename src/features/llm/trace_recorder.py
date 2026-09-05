@@ -49,6 +49,18 @@ MAX_TRACE_STRING_BYTES = 8 * 1024
 # dropped, plus the brackets around it.
 _MARKER_ALLOWANCE_BYTES = 256
 
+# Ceiling on how many values one field's snapshot may visit, and how deep it
+# may nest: a field can be within its byte budget and still be a pathological
+# shape (a million empty dicts, or a structure deeper than the interpreter's
+# recursion limit).
+MAX_TRACE_NODES = 4096
+MAX_TRACE_DEPTH = 32
+
+# Ceiling on a whole record. The six capped fields account for at most six
+# field budgets; the rest is what identity metadata may add before the record
+# is refused, since session ids and model names are stored verbatim.
+MAX_TRACE_RECORD_BYTES = 7 * MAX_TRACE_FIELD_BYTES
+
 # The writer waits on the queue in slices rather than on a stop token: a token
 # cannot be delivered through a queue that is already full, which is exactly
 # the state a shutdown under load has to survive.
@@ -87,50 +99,111 @@ def _cap_string(value: str, limit: int) -> Tuple[str, bool]:
     return head + marker, True
 
 
-def _shrink_strings(value: Any) -> Tuple[Any, bool]:
-    if isinstance(value, str):
-        return _cap_string(value, MAX_TRACE_STRING_BYTES)
-    if isinstance(value, dict):
-        shrunk: Dict[Any, Any] = {}
-        cut = False
-        for key, item in value.items():
-            shrunk[key], item_cut = _shrink_strings(item)
-            cut = cut or item_cut
-        return shrunk, cut
-    if isinstance(value, list):
-        items = []
-        cut = False
-        for item in value:
-            shrunk_item, item_cut = _shrink_strings(item)
-            items.append(shrunk_item)
-            cut = cut or item_cut
-        return items, cut
-    return value, False
+class _TraversalBudget:
+    """What one field's snapshot may spend, and what the walk actually spent.
 
-
-def _keep_tail(items: List[Any]) -> List[Any]:
-    """Keep as many trailing entries as the field budget affords.
-
-    The tail of a message array is the part a debug trace is read for — the
-    turn that produced this call — so the head is what gets sacrificed. Each
-    entry is charged its own serialized bytes plus the separator that joins it
-    to the next one.
+    The walk is metered rather than merely limited: ``nodes_visited`` and
+    ``bytes_charged`` are the traversal's own account of what it touched, which
+    is what pins down that a discarded prefix is never visited at all.
     """
-    budget = MAX_TRACE_FIELD_BYTES - _MARKER_ALLOWANCE_BYTES
-    kept: List[Any] = []
-    for item in reversed(items):
-        cost = _utf8_len(json.dumps(item, default=str)) + len(", ")
-        if cost > budget:
-            break
-        budget -= cost
-        kept.append(item)
-    kept.reverse()
-    dropped = len(items) - len(kept)
-    marker = {
+
+    __slots__ = ("bytes_left", "nodes_left", "nodes_visited", "bytes_charged")
+
+    def __init__(
+        self,
+        max_bytes: int = MAX_TRACE_FIELD_BYTES,
+        max_nodes: int = MAX_TRACE_NODES,
+    ):
+        self.bytes_left = max_bytes
+        self.nodes_left = max_nodes
+        self.nodes_visited = 0
+        self.bytes_charged = 0
+
+    def charge(self, cost: int) -> bool:
+        if cost > self.bytes_left or self.nodes_left <= 0:
+            return False
+        self.bytes_left -= cost
+        self.nodes_left -= 1
+        self.nodes_visited += 1
+        self.bytes_charged += cost
+        return True
+
+
+def _dropped_marker(dropped: int) -> Dict[str, str]:
+    return {
         "role": "system",
         "content": f"[{dropped} earlier entries dropped: field over {MAX_TRACE_FIELD_BYTES} bytes]",
     }
-    return [marker] + kept
+
+
+def _snapshot_leaf(value: Any, budget: _TraversalBudget) -> Optional[Tuple[Any, bool]]:
+    if isinstance(value, str):
+        capped, cut = _cap_string(value, MAX_TRACE_STRING_BYTES)
+    else:
+        capped, cut = value, False
+    # json.dumps escapes to ASCII, so the text's length is its byte cost, and
+    # the string it measures is already capped.
+    if not budget.charge(len(json.dumps(capped, default=str))):
+        return None
+    return capped, cut
+
+
+def _snapshot_list(items: List[Any], budget: _TraversalBudget, depth: int) -> Optional[Tuple[Any, bool]]:
+    if not budget.charge(len("[]") + _MARKER_ALLOWANCE_BYTES):
+        return None
+    kept: List[Any] = []
+    cut = False
+    # Walked from the tail — the entries that explain the call being traced —
+    # and abandoned the moment the budget runs out, so the discarded prefix is
+    # never read, copied or serialized however long it is.
+    for item in reversed(items):
+        if not budget.charge(len(", ")):
+            cut = True
+            break
+        result = _snapshot(item, budget, depth + 1)
+        if result is None:
+            cut = True
+            break
+        snapshot, item_cut = result
+        kept.append(snapshot)
+        cut = cut or item_cut
+    kept.reverse()
+    if len(kept) != len(items):
+        return [_dropped_marker(len(items) - len(kept))] + kept, True
+    return kept, cut
+
+
+def _snapshot_dict(mapping: Dict[Any, Any], budget: _TraversalBudget, depth: int) -> Optional[Tuple[Any, bool]]:
+    if not budget.charge(len("{}") + _MARKER_ALLOWANCE_BYTES):
+        return None
+    out: Dict[Any, Any] = {}
+    cut = False
+    for key, item in mapping.items():
+        key_text, key_cut = _cap_string(str(key), MAX_TRACE_STRING_BYTES)
+        if not budget.charge(len(json.dumps(key_text)) + len(": , ")):
+            cut = True
+            break
+        result = _snapshot(item, budget, depth + 1)
+        if result is None:
+            cut = True
+            break
+        out[key_text], item_cut = result
+        cut = cut or item_cut or key_cut
+    if len(out) != len(mapping):
+        out["truncated"] = f"[{len(mapping) - len(out)} keys dropped: field over {MAX_TRACE_FIELD_BYTES} bytes]"
+        cut = True
+    return out, cut
+
+
+def _snapshot(value: Any, budget: _TraversalBudget, depth: int = 0) -> Optional[Tuple[Any, bool]]:
+    """Copy ``value`` under the budget, or None when it does not fit at all."""
+    if depth >= MAX_TRACE_DEPTH:
+        return _truncation_marker(0), True
+    if isinstance(value, list):
+        return _snapshot_list(value, budget, depth)
+    if isinstance(value, dict):
+        return _snapshot_dict(value, budget, depth)
+    return _snapshot_leaf(value, budget)
 
 
 def _dropped_value(value: Any) -> Any:
@@ -143,36 +216,54 @@ def _dropped_value(value: Any) -> Any:
 
 
 def _cap_json(value: Any) -> Tuple[Optional[str], bool]:
-    """Serialize a structured field, bounded, returning (json_text, truncated).
+    """Snapshot a structured field as bounded JSON text, and whether it was cut.
 
-    The JSON text *is* the snapshot: it is immutable, so a caller mutating the
-    history afterwards cannot change what gets persisted, and its length is the
-    memory a queued record holds. Strings are cut before the first ``dumps`` so
-    an inline base64 image is never rendered to JSON at all. The writer thread
-    decodes the text again for the repository, which owns the encoding of what
-    it stores — the same encoder settings, so the bytes measured here are the
-    bytes the column receives.
+    The traversal selects what survives before anything is copied, so the work
+    and the allocation are both bounded by the budget rather than by the size
+    of the caller's history. The resulting text is immutable, so a caller
+    mutating that history afterwards cannot change what gets persisted; it is
+    the field's serialized size, not the record's retained memory, which also
+    carries per-object interpreter overhead. The writer thread decodes the text
+    again for the repository, which owns the encoding of what it stores — the
+    same encoder settings, so the bytes counted here are the bytes the column
+    receives.
     """
     if value is None:
         return None, False
 
-    shrunk, cut = _shrink_strings(value)
-    text = json.dumps(shrunk, default=str)
-    if not _exceeds(text, MAX_TRACE_FIELD_BYTES):
-        return text, cut
+    result = _snapshot(value, _TraversalBudget())
+    if result is None:
+        return json.dumps(_dropped_value(value), default=str), True
 
-    if isinstance(shrunk, list):
-        text = json.dumps(_keep_tail(shrunk), default=str)
-        if not _exceeds(text, MAX_TRACE_FIELD_BYTES):
-            return text, True
-
-    return json.dumps(_dropped_value(shrunk), default=str), True
+    snapshot, cut = result
+    text = json.dumps(snapshot, default=str)
+    if _exceeds(text, MAX_TRACE_FIELD_BYTES):
+        return json.dumps(_dropped_value(snapshot), default=str), True
+    return text, cut
 
 
 def _cap_text(value: Optional[str]) -> Tuple[Optional[str], bool]:
     if value is None:
         return None, False
     return _cap_string(value, MAX_TRACE_FIELD_BYTES)
+
+
+def _record_bytes(item: "_QueuedTrace") -> int:
+    """Serialized size of a queued record, identity metadata included."""
+    total = 0
+    for value in (
+        item.session_id, item.user_id, item.purpose, item.provider, item.model,
+        item.request_system, item.response_text,
+    ):
+        if value is not None:
+            total += _utf8_len(value)
+    for text in (
+        item.request_messages, item.request_params,
+        item.request_tools, item.response_tool_calls,
+    ):
+        if text is not None:
+            total += len(text)
+    return total
 
 
 @dataclass(frozen=True)
@@ -290,6 +381,15 @@ class ChatCallTraceRecorder:
         truncated = any(
             (messages_cut, params_cut, tools_cut, tool_calls_cut, system_cut, response_cut)
         )
+
+        if _record_bytes(item) > MAX_TRACE_RECORD_BYTES:
+            # Identity metadata is stored verbatim — capping a session id or a
+            # model name would make the trace unattributable — so a record that
+            # blows the aggregate budget is refused whole rather than admitted
+            # unbounded.
+            self._bump("dropped")
+            logger.warning("Chat LLM call trace refused: over %d bytes", MAX_TRACE_RECORD_BYTES)
+            return
 
         with self._lock:
             if self._stopping:

@@ -18,8 +18,12 @@ import pytest
 
 from src.features.llm.trace_recorder import (
     MAX_TRACE_FIELD_BYTES,
+    MAX_TRACE_NODES,
+    MAX_TRACE_RECORD_BYTES,
     MAX_TRACE_STRING_BYTES,
     ChatCallTraceRecorder,
+    _snapshot,
+    _TraversalBudget,
 )
 
 
@@ -459,6 +463,79 @@ class TestStopAdmission:
         stats = recorder.stats()
         assert stats["discarded"] > 0
         assert stats["written"] + stats["discarded"] + stats["failed"] == 10
+
+
+class TestBoundedTraversal:
+    def _walk(self, prefix_entries):
+        """Snapshot a history whose tail is fixed and whose head grows."""
+        messages = (
+            [{"role": "user", "content": f"discarded {i:06d}"} for i in range(prefix_entries)]
+            + [{"role": "user", "content": "kept " + "k" * 4000} for _ in range(16)]
+        )
+        budget = _TraversalBudget()
+        snapshot, cut = _snapshot(messages, budget)
+        return budget, snapshot, cut
+
+    def test_a_fixed_tail_costs_the_same_however_long_the_discarded_prefix(self):
+        walks = {n: self._walk(n) for n in (100, 1000, 10000)}
+        counts = {n: (b.nodes_visited, b.bytes_charged) for n, (b, _, _) in walks.items()}
+
+        assert len(set(counts.values())) == 1, f"traversal cost tracks the prefix: {counts}"
+        assert len({len(snapshot) for _, snapshot, _ in walks.values()}) == 1
+        for prefix, (_, snapshot, cut) in walks.items():
+            assert cut
+            kept = len(snapshot) - 1
+            assert f"{prefix + 16 - kept} earlier entries dropped" in snapshot[0]["content"]
+            assert snapshot[-1]["content"].startswith("kept ")
+
+    def test_the_node_cap_stops_a_field_that_is_within_its_byte_budget(self):
+        budget = _TraversalBudget()
+        snapshot, cut = _snapshot([{} for _ in range(MAX_TRACE_NODES * 4)], budget)
+
+        assert cut
+        assert budget.nodes_visited <= MAX_TRACE_NODES
+        assert "earlier entries dropped" in snapshot[0]["content"]
+
+    def test_a_deeply_nested_value_does_not_recurse_without_bound(self):
+        nested: Any = "leaf"
+        for _ in range(500):
+            nested = [nested]
+        snapshot, cut = _snapshot(nested, _TraversalBudget())
+
+        assert cut
+        assert snapshot is not None
+
+
+class TestRecordBudget:
+    def test_an_oversized_identity_field_drops_the_whole_record(self, caplog):
+        repository = FakeTraceRepository()
+        recorder = make_recorder(repository)
+        with caplog.at_level("WARNING"):
+            record(recorder, session_id="s" * (MAX_TRACE_RECORD_BYTES + 1))
+        recorder.shutdown(timeout=5.0)
+
+        assert recorder.stats()["dropped"] == 1
+        assert recorder.stats()["queued"] == 0
+        assert repository.created == []
+        assert "refused" in caplog.text
+
+    def test_ordinary_identity_is_kept_verbatim(self):
+        repository = FakeTraceRepository()
+        recorder = make_recorder(repository)
+        record(
+            recorder,
+            session_id="01J8ZQ", user_id="user-42", purpose="chat_tools",
+            provider="ollama", model="qwen3:30b-a3b",
+        )
+        recorder.shutdown(timeout=5.0)
+
+        created = repository.created[0]
+        assert created["session_id"] == "01J8ZQ"
+        assert created["user_id"] == "user-42"
+        assert created["purpose"] == "chat_tools"
+        assert created["provider"] == "ollama"
+        assert created["model"] == "qwen3:30b-a3b"
+        assert recorder.stats()["dropped"] == 0
 
 
 @pytest.fixture(autouse=True)

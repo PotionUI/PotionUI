@@ -196,3 +196,114 @@ describe('LLMConfigForm — native checkpoint picker', () => {
 		expect(mounted.target.textContent).toContain('Ollama Options');
 	});
 });
+
+describe('LLMConfigForm — native and Ollama sampling controls', () => {
+	function numberInput(target: HTMLElement, id: string) {
+		return target.querySelector(`#${id}`) as HTMLInputElement;
+	}
+
+	function setValue(input: HTMLInputElement, value: string) {
+		input.value = value;
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+	}
+
+	it('renders the four native sampling fields unset, inserting no guessed value', async () => {
+		vi.mocked(api.api.listNativeCheckpoints).mockResolvedValue(ok([checkpoint()]));
+
+		const draft = makeDraft({ type: 'native', model: 'qwen3-tiny' });
+		mounted = mount(draft);
+		await settle();
+
+		for (const key of ['top_k', 'top_p', 'min_p', 'repetition_penalty']) {
+			const input = numberInput(mounted.target, `test-native-${key}`);
+			expect(input, `${key} input`).toBeTruthy();
+			expect(input.value).toBe('');
+			expect(input.placeholder).toBe('auto');
+			expect(key in draft.provider_options).toBe(false);
+		}
+	});
+
+	it('preserves explicit neutral values (top_k=0, min_p=0, repetition_penalty=1) instead of treating them as unset', async () => {
+		vi.mocked(api.api.listNativeCheckpoints).mockResolvedValue(ok([checkpoint()]));
+
+		const draft = makeDraft({ type: 'native', model: 'qwen3-tiny' });
+		mounted = mount(draft);
+		await settle();
+
+		setValue(numberInput(mounted.target, 'test-native-top_k'), '0');
+		setValue(numberInput(mounted.target, 'test-native-min_p'), '0');
+		setValue(numberInput(mounted.target, 'test-native-repetition_penalty'), '1');
+		await settle();
+
+		expect(draft.provider_options.top_k).toBe(0);
+		expect(draft.provider_options.min_p).toBe(0);
+		expect(draft.provider_options.repetition_penalty).toBe(1);
+	});
+
+	it('clearing a native sampling field back to blank removes its override entirely', async () => {
+		vi.mocked(api.api.listNativeCheckpoints).mockResolvedValue(ok([checkpoint()]));
+
+		const draft = makeDraft({
+			type: 'native',
+			model: 'qwen3-tiny',
+			provider_options: { top_p: 0.8 }
+		});
+		mounted = mount(draft);
+		await settle();
+
+		const input = numberInput(mounted.target, 'test-native-top_p');
+		expect(input.value).toBe('0.8');
+
+		setValue(input, '');
+		await settle();
+
+		expect('top_p' in draft.provider_options).toBe(false);
+	});
+
+	it('does not change temperature, thinking, quantization, model or default-provider choices when setting a sampling field', async () => {
+		vi.mocked(api.api.listNativeCheckpoints).mockResolvedValue(ok([checkpoint()]));
+
+		const draft = makeDraft({
+			type: 'native',
+			model: 'qwen3-tiny',
+			temperature: 0.42,
+			provider_options: { thinking: true, quantization: 'int8' }
+		});
+		mounted = mount(draft);
+		await settle();
+
+		setValue(numberInput(mounted.target, 'test-native-top_k'), '20');
+		await settle();
+
+		expect(draft.temperature).toBe(0.42);
+		expect(draft.model).toBe('qwen3-tiny');
+		expect(draft.provider_options.thinking).toBe(true);
+		expect(draft.provider_options.quantization).toBe('int8');
+	});
+
+	it('renders an unset Ollama Min-P field and lets it be set', async () => {
+		const draft = makeDraft({ type: 'ollama', model: 'llama3' });
+		mounted = mount(draft);
+		await settle();
+
+		const input = numberInput(mounted.target, 'test-ollama-min_p');
+		expect(input).toBeTruthy();
+		expect(input.value).toBe('');
+		expect('min_p' in draft.provider_options).toBe(false);
+
+		setValue(input, '0.05');
+		await settle();
+		expect(draft.provider_options.min_p).toBe(0.05);
+	});
+
+	it('an unrelated provider (openai) renders none of the native or Ollama sampling fields', async () => {
+		const draft = makeDraft({ type: 'openai', model: 'gpt-4o' });
+		mounted = mount(draft);
+		await settle();
+
+		for (const key of ['top_k', 'top_p', 'min_p', 'repetition_penalty']) {
+			expect(mounted.target.querySelector(`#test-native-${key}`)).toBeNull();
+			expect(mounted.target.querySelector(`#test-ollama-${key}`)).toBeNull();
+		}
+	});
+});

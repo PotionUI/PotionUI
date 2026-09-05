@@ -1,7 +1,20 @@
 """LLM Data Transfer Objects for API requests and responses."""
 
+import math
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, model_validator
+
+# provider_options keys shared by the native and Ollama sampling controls
+# (same name, same meaning on both providers) plus native's own
+# repetition_penalty (Ollama's equivalent, "repeat_penalty", is a distinct
+# key left unvalidated — legacy free-form).
+_PROBABILITY_OPTION_KEYS = ("top_p", "min_p")
+
+# Named thinking-effort levels Ollama accepts for models that support graded
+# reasoning (e.g. gpt-oss) alongside a plain boolean. Which of these — or
+# whether disabling thinking at all — a given model actually honours is up to
+# the model, not this layer.
+_OLLAMA_THINK_LEVELS = ("low", "medium", "high")
 
 
 # ============================================================================
@@ -44,6 +57,75 @@ class LLMConfigRequest(BaseModel):
                 "provider_options.thinking must be true, false, or omitted (null) "
                 f"for a 'native' config, got {value!r}"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_ollama_think(self) -> "LLMConfigRequest":
+        """``provider_options.think`` (the Ollama root-request thinking
+        toggle — see ``build_ollama_chat_request``) accepts ``null``/omitted
+        (automatic), a real ``bool``, or one of the named effort levels
+        ``_OLLAMA_THINK_LEVELS`` that some models support instead of a plain
+        on/off. No truthiness coercion: a stray ``1``/``"true"`` is rejected
+        rather than silently accepted as ``True``. Checked only for
+        ``type == "ollama"``."""
+        if self.type != "ollama" or not self.provider_options:
+            return self
+        if "think" not in self.provider_options:
+            return self
+        value = self.provider_options["think"]
+        if value is None or isinstance(value, bool):
+            return self
+        if isinstance(value, str) and value in _OLLAMA_THINK_LEVELS:
+            return self
+        raise ValueError(
+            "provider_options.think must be true, false, one of "
+            f"{_OLLAMA_THINK_LEVELS!r}, or omitted (null) for an 'ollama' config, got {value!r}"
+        )
+
+    @model_validator(mode="after")
+    def _validate_sampling_options(self) -> "LLMConfigRequest":
+        """``top_k``/``top_p``/``min_p``/``repetition_penalty`` are shared
+        sampling knobs (native reads them directly; Ollama copies ``top_k``/
+        ``top_p``/``min_p`` verbatim into its request options — see
+        ``OLLAMA_OPTION_KEYS``). Malformed values fail loudly here rather than
+        being silently truncated or substituted downstream. Omitted/null stays
+        valid — that is how a config leaves a knob to the provider/model."""
+        if not self.provider_options:
+            return self
+        opts = self.provider_options
+
+        if "top_k" in opts and opts["top_k"] is not None:
+            value = opts["top_k"]
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(
+                    f"provider_options.top_k must be a non-negative integer or omitted (null), got {value!r}"
+                )
+
+        for key in _PROBABILITY_OPTION_KEYS:
+            if key in opts and opts[key] is not None:
+                value = opts[key]
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(value)
+                    or not (0.0 <= value <= 1.0)
+                ):
+                    raise ValueError(
+                        f"provider_options.{key} must be a probability between 0 and 1, or omitted (null), got {value!r}"
+                    )
+
+        if "repetition_penalty" in opts and opts["repetition_penalty"] is not None:
+            value = opts["repetition_penalty"]
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value <= 0
+            ):
+                raise ValueError(
+                    f"provider_options.repetition_penalty must be a positive number, or omitted (null), got {value!r}"
+                )
+
         return self
 
 

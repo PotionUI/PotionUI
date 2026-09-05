@@ -80,8 +80,10 @@ PROMPT_TOOLS_TEXT = (
     "When you have enough information, respond normally without any tool_call blocks.\n\n"
     "### Tools\n\n"
     "**get_form_state**: Read the current form\n"
-    "  Parameters:\n"
-    "  - `scope` (string (required)): what to read\n"
+    # LLM-11: the complete parameters JSON Schema, verbatim, rather than a
+    # lossy top-level-only prose summary — see ollama_wire._render_prompt_tools_text.
+    '  Parameters: {"properties":{"scope":{"description":"what to read","type":"string"}},'
+    '"required":["scope"],"type":"object"}\n'
 )
 
 NDJSON_CHUNKS = [
@@ -192,6 +194,35 @@ async def test_override_wins_over_provider_options(monkeypatch, client):
     }
     assert capture.body["think"] is False
     assert capture.body["keep_alive"] == "5m"
+
+
+async def test_saved_min_p_reaches_the_options_object(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+    config = make_config("ollama", provider_options={"min_p": 0.05})
+
+    await client.generate_with_history(HISTORY, config, "SYS")
+
+    assert capture.body["options"]["min_p"] == 0.05
+
+
+async def test_per_call_min_p_override_wins_over_saved_provider_option(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+    config = make_config("ollama", provider_options={"min_p": 0.05})
+
+    await client.generate_with_history(HISTORY, config, "SYS", options_override={"min_p": 0.2})
+
+    assert capture.body["options"]["min_p"] == 0.2
+
+
+async def test_per_call_min_p_override_reaches_the_streamed_request_too(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [_ndjson()])
+    config = make_config("ollama", provider_options={"min_p": 0.05})
+
+    await collect(
+        client.stream_with_history(HISTORY, config, "SYS", options_override={"min_p": 0.2})
+    )
+
+    assert capture.body["options"]["min_p"] == 0.2
 
 
 async def test_history_image_attaches_to_the_last_user_message(monkeypatch, client):

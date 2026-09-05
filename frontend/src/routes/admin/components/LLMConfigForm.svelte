@@ -72,6 +72,7 @@
 		seed: { default: null, type: 'number', label: 'Seed', description: 'Random seed for reproducibility (leave empty for random)' },
 		top_k: { default: 40, type: 'number', label: 'Top-K', description: 'Limits token selection to top K options' },
 		top_p: { default: 0.9, type: 'number', label: 'Top-P', description: 'Nucleus sampling threshold (0-1)' },
+		min_p: { default: null, type: 'number', label: 'Min-P', description: 'Minimum token probability relative to the most likely token (0-1). An explicit tuning control, not an automatically selected preset.' },
 		repeat_penalty: { default: 1.1, type: 'number', label: 'Repeat Penalty', description: 'Penalty for repeating tokens (1.0 = no penalty)' },
 		repeat_last_n: { default: 64, type: 'number', label: 'Repeat Window', description: 'Tokens to look back for repeat penalty' },
 		mirostat: { default: 0, type: 'select', label: 'Mirostat', description: 'Mirostat sampling mode', options: [
@@ -99,7 +100,15 @@
 			{ value: true, label: 'Enabled' },
 			{ value: false, label: 'Disabled' }
 		]},
-		context_window: { default: null, type: 'number', label: 'Context window (tokens)', description: 'The capacity the context budget preflight uses for this config — not a promise the model actually fits that many tokens. Leave blank for a conservative unknown-capacity default.' }
+		context_window: { default: null, type: 'number', label: 'Context window (tokens)', description: 'The capacity the context budget preflight uses for this config — not a promise the model actually fits that many tokens. Leave blank for a conservative unknown-capacity default.' },
+		// Explicit tuning controls, not an automatically selected preset or a
+		// guaranteed repetition fix — see LLM-E01 for effectiveness comparisons.
+		// Left blank, none is passed to generate() and the model's own
+		// generation_config decides.
+		top_k: { default: null, type: 'number', label: 'Top-K', description: 'Limits token selection to the top K candidates. Leave blank to use the model default.' },
+		top_p: { default: null, type: 'number', label: 'Top-P', description: 'Nucleus sampling threshold (0-1). Leave blank to use the model default.' },
+		min_p: { default: null, type: 'number', label: 'Min-P', description: 'Minimum token probability relative to the most likely token (0-1). Leave blank to use the model default.' },
+		repetition_penalty: { default: null, type: 'number', label: 'Repetition Penalty', description: 'Penalty applied to already-generated tokens (1.0 = no penalty). Leave blank to use the model default.' }
 	};
 
 	const isPanel = $derived(layout === 'panel');
@@ -375,7 +384,7 @@
 						class="input text-sm"
 						value={draft.provider_options[key] ?? ''}
 						placeholder={opt.default !== null ? String(opt.default) : 'auto'}
-						step={key.includes('penalty') || key === 'top_p' || key === 'mirostat_eta' || key === 'mirostat_tau' ? '0.1' : '1'}
+						step={key === 'min_p' ? '0.01' : key.includes('penalty') || key === 'top_p' || key === 'mirostat_eta' || key === 'mirostat_tau' ? '0.1' : '1'}
 						oninput={(e) => {
 							const value = (e.target as HTMLInputElement).value;
 							if (value === '') {

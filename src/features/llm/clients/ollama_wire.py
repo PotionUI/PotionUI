@@ -78,9 +78,13 @@ def build_prompt_tools_text(tools: List[Dict]) -> str:
     Cached (see ``_prompt_tools_text_cache``) since the same tool set is
     re-rendered on every tool-loop iteration in force_prompt_tools mode. The
     key canonicalizes each tool's whole ``function`` object (name,
-    description, parameter schema) so a change to a parameter's type,
-    description or requiredness busts the cache even when the tool's name and
-    top-level description are unchanged.
+    description, parameter schema) so a change ANYWHERE in the schema — a
+    nested enum, a nested ``required`` list, an array's ``items`` contract,
+    a bound like ``minimum``/``maxItems``, a ``$defs``/``anyOf`` alternative —
+    busts the cache even when the tool's name and top-level description are
+    unchanged. This matches what ``_render_prompt_tools_text`` itself now
+    renders (see its docstring): the key was already correct for the FULL
+    schema before this became true of the rendered text too.
     """
     cache_key = tuple(
         json.dumps(t.get("function", {}), sort_keys=True, separators=(",", ":"))
@@ -95,7 +99,28 @@ def build_prompt_tools_text(tools: List[Dict]) -> str:
 
 
 def _render_prompt_tools_text(tools: List[Dict]) -> str:
-    """Actually render the tool-text block (the uncached half of ``build_prompt_tools_text``)."""
+    """Actually render the tool-text block (the uncached half of ``build_prompt_tools_text``).
+
+    Each tool's ``parameters`` value — the complete JSON Schema a caller
+    supplied, whatever shape it takes — is embedded verbatim as compact JSON
+    beside its name/description, rather than summarized through a second,
+    lossy prose schema language. A hand-rolled "type (required): description"
+    line per top-level property (the previous approach) can only describe a
+    flat object schema's immediate properties; it silently drops everything
+    else a JSON Schema can express — nested object/array item contracts,
+    enums, defaults, numeric/length bounds, ``anyOf``/``oneOf`` alternatives,
+    ``$defs`` — and misrepresents a schema with no top-level ``properties``
+    (an explicitly empty object, one built entirely from ``anyOf``, one
+    constrained only via ``additionalProperties``/``patternProperties``) as
+    simply "no parameters". Serializing the schema itself has none of these
+    gaps by construction, and needs no schema-shape special-casing: an
+    explicitly-empty object (``{"type":"object","properties":{}}``) and one
+    with constraints elsewhere (``{"type":"object","additionalProperties":false}``,
+    an ``anyOf``-only schema, ...) simply serialize to different JSON.
+    ``sort_keys=True`` keeps the output — and therefore the cache key
+    interaction and any test pinning it — deterministic regardless of the
+    key order a tool happened to build its schema dict in.
+    """
     lines = [
         "\n\n## Available Tools\n",
         "You have the following tools available. To call a tool, output a "
@@ -112,21 +137,10 @@ def _render_prompt_tools_text(tools: List[Dict]) -> str:
         name = func.get("name", "")
         desc = func.get("description", "")
         params = func.get("parameters", {})
-        props = params.get("properties", {})
-        required = params.get("required", [])
+        params_json = json.dumps(params, sort_keys=True, separators=(",", ":"))
 
         lines.append(f"**{name}**: {desc}")
-        if props:
-            param_parts = []
-            for pname, pschema in props.items():
-                req_mark = " (required)" if pname in required else ""
-                ptype = pschema.get("type", "any")
-                pdesc = pschema.get("description", "")
-                param_parts.append(f"  - `{pname}` ({ptype}{req_mark}): {pdesc}")
-            lines.append("  Parameters:")
-            lines.extend(param_parts)
-        else:
-            lines.append("  Parameters: none")
+        lines.append(f"  Parameters: {params_json}")
         lines.append("")
 
     return "\n".join(lines)
@@ -134,11 +148,17 @@ def _render_prompt_tools_text(tools: List[Dict]) -> str:
 
 def build_ollama_options(
     config: LLMConfig, options_override: Optional[Dict[str, Any]] = None
-) -> tuple[Dict[str, Any], bool]:
-    """Return the nested ``options`` object and the root ``think`` flag.
+) -> tuple[Dict[str, Any], Any]:
+    """Return the nested ``options`` object and the requested ``think`` value.
 
-    ``think`` is null-checked rather than defaulted, since a config may hold an
-    explicit null the user means as "unset".
+    The returned think value is the caller's explicit request, left
+    unresolved: ``None`` when neither the saved config nor a per-call
+    override named one. Resolving ``None`` to an automatic default is each
+    caller's job — ``build_ollama_chat_request``'s automatic default depends
+    on whether native tools end up on the wire, which this function has no
+    visibility into. A per-call override only wins when it is itself
+    explicit (non-``None``); an override dict that happens to carry
+    ``"think": None`` leaves the saved value in place rather than clearing it.
     """
     provider_opts = config.provider_options or {}
     options_override = options_override or {}
@@ -148,9 +168,7 @@ def build_ollama_options(
         "num_predict": config.max_tokens,
     }
 
-    think_enabled = provider_opts.get("think")
-    if think_enabled is None:
-        think_enabled = True
+    think = provider_opts.get("think")
 
     for key in OLLAMA_OPTION_KEYS:
         if key in provider_opts:
@@ -162,12 +180,14 @@ def build_ollama_options(
         options["top_p"] = options_override["top_p"]
     if "top_k" in options_override:
         options["top_k"] = options_override["top_k"]
+    if "min_p" in options_override:
+        options["min_p"] = options_override["min_p"]
     if "max_tokens" in options_override:
         options["num_predict"] = options_override["max_tokens"]
-    if "think" in options_override:
-        think_enabled = options_override["think"]
+    if options_override.get("think") is not None:
+        think = options_override["think"]
 
-    return options, think_enabled
+    return options, think
 
 
 def _attach_image(ollama_messages: List[Dict[str, Any]], image_data: str) -> None:
@@ -264,7 +284,7 @@ def build_ollama_chat_request(
 ) -> OllamaRequest:
     """Assemble an /api/chat call, injecting prompt-tool text when asked for."""
     provider_opts = config.provider_options or {}
-    options, think_enabled = build_ollama_options(config, options_override)
+    options, think = build_ollama_options(config, options_override)
 
     force_prompt_tools = tool_mode == TOOLS_AUTO and bool(
         provider_opts.get("force_prompt_tools", False)
@@ -283,15 +303,21 @@ def build_ollama_chat_request(
         force_prompt_tools=force_prompt_tools,
     )
 
+    if think is None:
+        # Automatic default, only when neither the saved config nor this call
+        # requested an explicit mode: thinking makes a model reason about a
+        # tool in the think phase and then describe the call in prose ("Let
+        # me check...") instead of emitting a structured tool_call, so it
+        # defaults off whenever native tools are on the wire. An explicit
+        # true/false/level always wins over this default, tools or not.
+        think = False if native_tools else True
+
     payload: Dict[str, Any] = {
         "model": config.model,
         "messages": ollama_messages,
         "stream": stream,
         "keep_alive": provider_opts.get("keep_alive", 0),
-        # Thinking mode makes models reason about a tool in the think phase and
-        # then describe the call in prose ("Let me check...") instead of emitting
-        # a structured tool_call, so it is off whenever native tools are on the wire.
-        "think": False if native_tools else think_enabled,
+        "think": think,
         "options": options,
     }
     if native_tools:

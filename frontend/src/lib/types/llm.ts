@@ -79,6 +79,12 @@ export interface NativeOptions {
 	quantization?: 'none' | 'int8' | 'nf4';
 	/** Context-window capacity (tokens) the budget preflight is told to use — see docs/user/admin.md. */
 	context_window?: number;
+	// Sampling — unset leaves the knob to the model's own generation_config;
+	// see docs/user/admin.md and LLM-E01 for later effectiveness comparisons.
+	top_k?: number;                // Limits token selection to the top K candidates
+	top_p?: number;                // Nucleus sampling threshold (0-1)
+	min_p?: number;                // Minimum token probability relative to the most likely token (0-1)
+	repetition_penalty?: number;   // Penalty applied to already-generated tokens (1.0 = no penalty)
 }
 
 /**

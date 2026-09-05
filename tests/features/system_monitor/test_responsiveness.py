@@ -170,11 +170,123 @@ class TestSamplingOffTheEventLoop:
         await slow_coordinator.stop_monitoring_task()
 
         assert slow_coordinator.monitoring_task is None
+        # The executor outlives the stop while its probe is still parked, so a
+        # caller arriving mid-cycle cannot start a second one.
+        assert slow_coordinator._sampling_executor is not None
+
+        deadline = time.perf_counter() + 2.0
+        while slow_coordinator._sampling_executor is not None and time.perf_counter() < deadline:
+            await asyncio.sleep(0.02)
+
         assert slow_coordinator._sampling_executor is None
         assert slow_coordinator._pending_sample is None
-
-        await asyncio.sleep(SLOW_PROBE_SECONDS)
         assert slow_coordinator.system_monitor.get_system_snapshot.call_count == 1
+
+
+class BlockingProbe:
+    """A probe that parks in the worker thread until released, counting overlap."""
+
+    def __init__(self):
+        self.release = threading.Event()
+        self.calls = 0
+        self.max_concurrent = 0
+        self._active = 0
+        self._lock = threading.Lock()
+
+    def get_system_snapshot(self):
+        with self._lock:
+            self.calls += 1
+            self._active += 1
+            self.max_concurrent = max(self.max_concurrent, self._active)
+        self.release.wait(timeout=10.0)
+        with self._lock:
+            self._active -= 1
+        return SNAPSHOT
+
+
+class TestSamplingLifecycle:
+    """Single-flight has to survive stop/start, not just concurrent callers."""
+
+    async def test_stop_start_cycles_never_overlap_probes(self):
+        probe = BlockingProbe()
+        coordinator = SystemMonitorCoordinator(
+            system_monitor=probe, gpu_monitor=None, plugin_registry=None
+        )
+        waiters = []
+
+        try:
+            waiters.append(asyncio.create_task(coordinator.collect_system_stats()))
+            deadline = time.perf_counter() + 2.0
+            while probe.calls < 1 and time.perf_counter() < deadline:
+                await asyncio.sleep(0.01)
+            assert probe.calls == 1, "the first probe never started"
+
+            # Disconnect and reconnect while the probe is still parked. The
+            # executor cannot be replaced here or a second probe joins the first.
+            for _ in range(3):
+                await coordinator.stop_monitoring_task()
+                waiters.append(asyncio.create_task(coordinator.collect_system_stats()))
+                await asyncio.sleep(0.05)
+
+            assert probe.calls == 1, (
+                f"{probe.calls} probes started while one was still running"
+            )
+            assert probe.max_concurrent == 1
+        finally:
+            probe.release.set()
+
+        results = await asyncio.gather(*waiters)
+
+        assert probe.max_concurrent == 1
+        assert len(results) == 4
+        for stats in results:
+            assert stats["cpu"]["usage_percent"] == 45.5
+
+        coordinator._shutdown_sampling_executor()
+
+    async def test_reconnect_during_a_parked_probe_does_not_start_a_second(self):
+        probe = BlockingProbe()
+        coordinator = SystemMonitorCoordinator(
+            system_monitor=probe, gpu_monitor=None, plugin_registry=None
+        )
+        received = []
+
+        class Client:
+            async def send_text(self, data):
+                received.append(data)
+
+        async def client_gone():
+            raise RuntimeError("client disconnected")
+
+        try:
+            first = asyncio.create_task(coordinator.collect_system_stats())
+            deadline = time.perf_counter() + 2.0
+            while probe.calls < 1 and time.perf_counter() < deadline:
+                await asyncio.sleep(0.01)
+            assert probe.calls == 1
+
+            await coordinator.stop_monitoring_task()
+            reconnect = asyncio.create_task(
+                coordinator.handle_websocket_connection(
+                    Client(), "client-1", receive_callback=client_gone
+                )
+            )
+            await asyncio.sleep(0.05)
+
+            assert probe.calls == 1, (
+                f"a reconnecting client started probe #{probe.calls} alongside a "
+                f"running one"
+            )
+        finally:
+            probe.release.set()
+
+        await first
+        await reconnect
+
+        assert probe.max_concurrent == 1
+        assert received, "the reconnecting client never got its snapshot"
+
+        coordinator._shutdown_sampling_executor()
 
 
 class HealthyClient:

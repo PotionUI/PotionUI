@@ -95,7 +95,8 @@ class SystemMonitorCoordinator:
 
         get_system_stats() samples CPU with a 100ms blocking wait and reads NVML
         under a lock, so it must never run on the loop thread. Concurrent callers
-        share one in-flight sample instead of queueing a probe each.
+        share one in-flight sample instead of queueing a probe each, and that
+        holds across a stop/start cycle too (see _shutdown_sampling_executor).
 
         Returns:
             Dictionary containing GPU, RAM, and CPU statistics
@@ -126,12 +127,32 @@ class SystemMonitorCoordinator:
         return self._sampling_executor
 
     def _shutdown_sampling_executor(self) -> None:
-        """Release the sampling executor without waiting on a running probe."""
+        """
+        Release the sampling executor, never while a probe is running.
+
+        A probe thread cannot be interrupted, so dropping the executor mid-sample
+        would let the next caller build a second one and run a second probe
+        beside it; a client that reconnects (or hits the REST route) during every
+        probe would stack them up. The rule is that the executor and its pending
+        future outlive the stop: a caller arriving mid-cycle joins the probe
+        already running, so at most one ever exists. Release is retried when that
+        probe finishes, unless monitoring has restarted by then.
+        """
+        pending = self._pending_sample
+        if pending is not None and not pending.done():
+            pending.add_done_callback(self._release_executor_when_idle)
+            return
+
         executor = self._sampling_executor
         self._sampling_executor = None
         self._pending_sample = None
         if executor is not None:
             executor.shutdown(wait=False, cancel_futures=True)
+
+    def _release_executor_when_idle(self, _sample: asyncio.Future) -> None:
+        """Retry a deferred release once the probe thread is free."""
+        if self.monitoring_task is None or self.monitoring_task.done():
+            self._shutdown_sampling_executor()
 
     def set_monitoring_interval(self, interval: float) -> None:
         """

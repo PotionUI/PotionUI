@@ -15,7 +15,8 @@ import {
 	applyToolEnd,
 	applyDone,
 	applyError,
-	applyStatus
+	applyStatus,
+	applyReplaySnapshot
 } from '$lib/utils/chatStream';
 
 export const DEFAULT_CHAT_MODE = 'generation';
@@ -100,6 +101,8 @@ function createChatSessionStore() {
 						return { ...s, messages: applyToolEnd(s.messages, event.data || {}) };
 					case 'status':
 						return { ...s, messages: applyStatus(s.messages, event.data || {}) };
+					case 'replay_snapshot':
+						return { ...s, messages: applyReplaySnapshot(s.messages, event.data || {}) };
 					case 'done':
 						return { ...s, messages: applyDone(s.messages, event.data || {}) };
 					case 'error':

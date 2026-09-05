@@ -27,16 +27,32 @@ re-derivable ones) are dropped and replaced by a single ``replay_snapshot``
 marker carrying the concatenated text of the dropped token deltas (itself
 capped at ``_MAX_SNAPSHOT_TEXT_CHARS``) and a sequence cursor. Essential events
 — tool calls/results, terminal outcomes, message/title events — are never
-compacted away. Every event carries a monotonic ``seq``; a subscriber can pass
-``after_seq`` to replay only what it doesn't already have, and if the requested
-prefix was compacted away it transparently receives the snapshot marker (whose
-own ``seq`` is the cursor) instead of a silent gap.
+compacted away *by choice*, but they are still bounded two ways so the cap
+holds for every event class, not just the compactable ones: a single essential
+event whose own payload exceeds ``max_essential_event_bytes`` is retained as a
+small truncated reference (same type/seq, a short preview, ``truncated:
+True``) rather than its full body — live subscribers still get the full event
+at emit time, only what's *retained for replay* is shrunk; and if essential
+events alone still exceed the caps (no compactable event left to drop), the
+oldest ones are folded into the same ``replay_snapshot`` marker as a
+``dropped_essential_count``/``dropped_essential_seq_range`` pair instead of
+being kept forever, with the newest essential events (most likely to matter
+to a reconnecting client) always preserved. Every event carries a monotonic
+``seq``; a subscriber can pass ``after_seq`` to replay only what it doesn't
+already have, and if the requested prefix was compacted away it transparently
+receives the snapshot marker (whose own ``seq`` is the cursor) instead of a
+silent gap.
 
 Slow subscribers never block the producer: each subscriber has a bounded
 queue, and a subscriber that falls behind has its oldest queued event dropped
 in favor of the newest one, with an explicit ``overflow`` event so its stream
 can tell it fell behind and resync (via ``after_seq``) rather than silently
-missing data.
+missing data. The same bound applies to a fresh subscriber's initial replay
+preload: if the retained buffer (up to ``max_events``) is larger than that
+subscriber's own queue capacity, the excess oldest events are folded into a
+*subscriber-local* snapshot marker (same folding rule as above) rather than
+raising ``QueueFull`` or silently truncating — a big retained buffer and a
+small queue are two independent, unrelated caps.
 
 Single-process assumption: this registry is in-memory. PotionUI runs as one
 uvicorn process, so a turn and its subscribers always share the loop; there is
@@ -79,6 +95,18 @@ _DEFAULT_SUBSCRIBER_QUEUE_MAXSIZE = 200
 # Compacted-away token text is kept for reconnect snapshots but itself capped
 # so an arbitrarily long streamed answer can't make the marker unbounded.
 _MAX_SNAPSHOT_TEXT_CHARS = 8192
+
+# An essential event this large is retained (for replay only — live delivery
+# is unaffected) as a truncated reference rather than its full body, so one
+# oversized tool result/done payload can't blow the per-turn byte cap on its
+# own. The full payload is already durably persisted by the ordinary message/
+# tool-execution persistence path this turn's stream factory drives.
+_DEFAULT_MAX_ESSENTIAL_EVENT_BYTES = 16 * 1024  # 16 KiB
+_ESSENTIAL_PREVIEW_CHARS = 512
+_ESSENTIAL_PREVIEW_KEYS = (
+    "tool_name", "tool_call_id", "id", "message_id", "session_id", "turn_id",
+    "success", "error", "step", "state",
+)
 
 # Event types compaction is allowed to drop: high-volume, re-derivable from a
 # snapshot. Every other event type (tool calls, terminal outcomes, message/
@@ -124,6 +152,7 @@ class ChatTurn:
         max_events: int = _DEFAULT_MAX_EVENTS_PER_TURN,
         max_replay_bytes: int = _DEFAULT_MAX_REPLAY_BYTES_PER_TURN,
         subscriber_queue_maxsize: int = _DEFAULT_SUBSCRIBER_QUEUE_MAXSIZE,
+        max_essential_event_bytes: int = _DEFAULT_MAX_ESSENTIAL_EVENT_BYTES,
     ):
         self.turn_id = uuid.uuid4().hex
         self.session_id = session_id
@@ -139,10 +168,13 @@ class ChatTurn:
         self._max_events = max_events
         self._max_replay_bytes = max_replay_bytes
         self._subscriber_queue_maxsize = subscriber_queue_maxsize
+        self._max_essential_event_bytes = max_essential_event_bytes
         self._next_seq = 1
         self._total_bytes = 0
         self._compacted_through = 0
         self._compacted_text = ""
+        self._dropped_essential_count = 0
+        self._dropped_essential_range: Optional[list] = None
         self._compaction_marker: Optional[dict] = None
 
         # Set by the registry so a lifecycle boundary (finish, subscriber
@@ -160,18 +192,48 @@ class ChatTurn:
         except (TypeError, ValueError):
             return 0
 
+    def _truncate_essential_event(self, event: dict) -> dict:
+        """A retained (replay-buffer) stand-in for an oversized essential event.
+
+        Only affects what's stored for replay — ``_emit`` still hands the full,
+        untruncated event to every live subscriber first.
+        """
+        data = event.get("data") or {}
+        preview = {k: data[k] for k in _ESSENTIAL_PREVIEW_KEYS if k in data}
+        try:
+            raw = json.dumps(data)
+        except (TypeError, ValueError):
+            raw = str(data)
+        preview["preview"] = raw[:_ESSENTIAL_PREVIEW_CHARS]
+        preview["truncated"] = True
+        return {"event": event.get("event"), "seq": event.get("seq"), "data": preview}
+
+    def _prepare_for_retention(self, event: dict) -> dict:
+        """The version of `event` stored in the replay buffer.
+
+        Compactable events are stored as-is (compaction may drop them later);
+        an oversized essential event is stored as a truncated reference so one
+        huge tool result/done payload can't blow the byte cap on its own.
+        """
+        if event.get("event") in _COMPACTABLE_EVENT_TYPES:
+            return event
+        if self._event_size(event) > self._max_essential_event_bytes:
+            return self._truncate_essential_event(event)
+        return event
+
     def _emit(self, event: dict) -> None:
-        """Append an event to the buffer and hand it to every live subscriber."""
+        """Hand the full event to every live subscriber, then retain a bounded copy."""
         event = dict(event)
         event["seq"] = self._next_seq
         self._next_seq += 1
-        self.events.append(event)
-        self._total_bytes += self._event_size(event)
-        self._compact_if_needed()
         for sub in self._subscribers:
             self._deliver(sub, event)
+        stored = self._prepare_for_retention(event)
+        self.events.append(stored)
+        self._total_bytes += self._event_size(stored)
+        self._compact_if_needed()
 
-    def _deliver(self, sub: "_Subscriber", event: dict) -> None:
+    def _deliver(self, sub: "_Subscriber", event) -> None:
         """Non-blocking push; a full queue drops its oldest entry first.
 
         The producer must never await a stalled consumer, so this only ever
@@ -200,12 +262,52 @@ class ChatTurn:
                 return i
         return None
 
+    def _next_essential_fallback_index(self) -> Optional[int]:
+        """The oldest essential event to fold away as a last resort.
+
+        Only used once no compactable event is left and the buffer is still
+        over cap. Never returns the newest (last) event — at least one
+        essential event (most likely the terminal outcome) always survives.
+        """
+        start = 1 if self._compaction_marker is not None else 0
+        if len(self.events) - start <= 1:
+            return None
+        return start
+
+    @staticmethod
+    def _fold_event(ev: dict, text: str, cursor: int, dropped_essential: int, drop_range: Optional[list]):
+        """Fold one removed event into a running (text, cursor, dropped-essential) state.
+
+        Shared by the turn's own compaction (`_fold_removed_into_state`) and a
+        subscriber-local preload collapse (`_collapse_to_capacity`) — the rule
+        for "how one event contributes to a snapshot marker" must stay the
+        same wherever it's applied.
+        """
+        seq = ev.get("seq", cursor)
+        event_type = ev.get("event")
+        if event_type == "token":
+            content = ev.get("data", {}).get("content", "")
+            text = (text + content)[-_MAX_SNAPSHOT_TEXT_CHARS:]
+        elif event_type != "status":
+            # Not a compactable type at all — this is the essential-fallback
+            # path folding away an essential event as a last resort.
+            dropped_essential += 1
+            drop_range = [seq, seq] if drop_range is None else [drop_range[0], seq]
+        return text, seq, dropped_essential, drop_range
+
+    @staticmethod
+    def _marker_from_state(text: str, cursor: int, dropped_essential: int, drop_range: Optional[list]) -> dict:
+        data = {"text_so_far": text, "cursor": cursor}
+        if dropped_essential:
+            data["dropped_essential_count"] = dropped_essential
+            data["dropped_essential_seq_range"] = list(drop_range)
+        return {"event": "replay_snapshot", "seq": cursor, "data": data}
+
     def _apply_compaction_marker(self) -> None:
-        marker = {
-            "event": "replay_snapshot",
-            "seq": self._compacted_through,
-            "data": {"text_so_far": self._compacted_text, "cursor": self._compacted_through},
-        }
+        marker = self._marker_from_state(
+            self._compacted_text, self._compacted_through,
+            self._dropped_essential_count, self._dropped_essential_range,
+        )
         if self._compaction_marker is not None:
             self._total_bytes -= self._event_size(self._compaction_marker)
             self.events[0] = marker
@@ -214,23 +316,31 @@ class ChatTurn:
         self._compaction_marker = marker
         self._total_bytes += self._event_size(marker)
 
-    def _compact_if_needed(self) -> None:
-        """Drop the oldest compactable events until back under both caps.
+    def _fold_removed_into_state(self, removed: dict) -> None:
+        self._compacted_text, self._compacted_through, self._dropped_essential_count, self._dropped_essential_range = (
+            self._fold_event(
+                removed, self._compacted_text, self._compacted_through,
+                self._dropped_essential_count, self._dropped_essential_range,
+            )
+        )
+        self._apply_compaction_marker()
 
-        Stops once nothing compactable is left even if still over cap — the
-        remaining entries are essential (or the marker) and are never dropped.
+    def _compact_if_needed(self) -> None:
+        """Drop the oldest events (compactable first) until back under both caps.
+
+        Once no compactable event is left, falls back to folding away the
+        oldest *essential* events too (keeping the newest) rather than letting
+        an essential-only backlog defeat the cap — see the module docstring.
         """
         while len(self.events) > self._max_events or self._total_bytes > self._max_replay_bytes:
             idx = self._next_compactable_index()
             if idx is None:
+                idx = self._next_essential_fallback_index()
+            if idx is None:
                 return
             removed = self.events.pop(idx)
             self._total_bytes -= self._event_size(removed)
-            if removed.get("event") == "token":
-                content = removed.get("data", {}).get("content", "")
-                self._compacted_text = (self._compacted_text + content)[-_MAX_SNAPSHOT_TEXT_CHARS:]
-            self._compacted_through = removed.get("seq", self._compacted_through)
-            self._apply_compaction_marker()
+            self._fold_removed_into_state(removed)
 
     def _finish(self, status: str) -> None:
         """Mark the turn finished and close out every subscriber's stream.
@@ -261,17 +371,74 @@ class ChatTurn:
             return list(self.events)
         return [e for e in self.events if e.get("seq", 0) > after_seq]
 
+    @staticmethod
+    def _collapse_to_capacity(events: list, capacity: int) -> list:
+        """Shrink `events` to at most `capacity` entries: snapshot + tail.
+
+        The retained replay buffer (up to ``max_events``) and one subscriber's
+        queue depth are independent caps — a buffer larger than a given
+        subscriber's queue must still produce a coherent preload, never a
+        ``QueueFull`` and never a silent truncation. Folds the oldest entries
+        (seeding from any marker already at the front) into a fresh, local
+        ``replay_snapshot`` — this never mutates the turn's own compaction
+        state, it only shapes what this one subscriber gets handed.
+        """
+        if capacity <= 0:
+            # A queue too small to hold even one event — best effort: the
+            # single newest event, so the subscriber gets *something* live.
+            return events[-1:]
+        if len(events) <= capacity:
+            return events
+
+        text, cursor, dropped_essential, drop_range = "", 0, 0, None
+        start = 0
+        if events and events[0].get("event") == "replay_snapshot":
+            seed = events[0].get("data", {})
+            text = seed.get("text_so_far", "")
+            cursor = seed.get("cursor", 0)
+            dropped_essential = seed.get("dropped_essential_count", 0)
+            rng = seed.get("dropped_essential_seq_range")
+            drop_range = list(rng) if rng else None
+            start = 1
+
+        body = events[start:]
+        keep_from = max(len(body) - (capacity - 1), 0)  # reserve one slot for the new marker
+        to_fold, tail = body[:keep_from], body[keep_from:]
+        for ev in to_fold:
+            text, cursor, dropped_essential, drop_range = ChatTurn._fold_event(
+                ev, text, cursor, dropped_essential, drop_range
+            )
+
+        marker = ChatTurn._marker_from_state(text, cursor, dropped_essential, drop_range)
+        return [marker] + tail
+
+    def _build_preload(self, after_seq: Optional[int]) -> list:
+        """The event batch to hand a new subscriber, guaranteed to fit its queue.
+
+        Reserves one slot for the terminating sentinel when the turn is
+        already finished (``add_subscriber`` pushes it right after).
+        """
+        replay = self._replay_from(after_seq)
+        capacity = self._subscriber_queue_maxsize - (1 if self.is_done else 0)
+        if len(replay) <= capacity:
+            return replay
+        return self._collapse_to_capacity(replay, capacity)
+
     def add_subscriber(self, after_seq: Optional[int] = None) -> "_Subscriber":
         """Register a subscriber, pre-loaded with the requested replay range.
 
         A still-running turn also gets future events, a finished turn gets the
-        terminating sentinel instead.
+        terminating sentinel instead. The preload is delivered through the same
+        drop-safe path as live events (``_deliver``) — by construction (see
+        ``_build_preload``) it always fits, but routing it through ``_deliver``
+        anyway means a preload can never raise even if that invariant is ever
+        violated.
         """
         sub = _Subscriber(self._subscriber_queue_maxsize)
-        for event in self._replay_from(after_seq):
-            sub.queue.put_nowait(event)
+        for event in self._build_preload(after_seq):
+            self._deliver(sub, event)
         if self.is_done:
-            sub.queue.put_nowait(_SENTINEL)
+            self._deliver(sub, _SENTINEL)
         else:
             self._subscribers.add(sub)
         return sub
@@ -332,6 +499,7 @@ class ChatTurnRegistry:
         subscriber_queue_maxsize: int = _DEFAULT_SUBSCRIBER_QUEUE_MAXSIZE,
         finished_turn_ttl_seconds: float = _DEFAULT_FINISHED_TURN_TTL_SECONDS,
         max_retained_turns: int = _MAX_RETAINED_TURNS,
+        max_essential_event_bytes: int = _DEFAULT_MAX_ESSENTIAL_EVENT_BYTES,
     ):
         # Safety net only: a hard ceiling so a wedged LLM call can't leave a turn
         # task running forever. Distinct from (and far larger than) the per-call
@@ -342,6 +510,7 @@ class ChatTurnRegistry:
         self._subscriber_queue_maxsize = subscriber_queue_maxsize
         self._finished_turn_ttl_seconds = finished_turn_ttl_seconds
         self._max_retained_turns = max_retained_turns
+        self._max_essential_event_bytes = max_essential_event_bytes
         self._turns: Dict[str, ChatTurn] = {}
 
     def active(self, session_id: str) -> Optional[ChatTurn]:
@@ -370,6 +539,7 @@ class ChatTurnRegistry:
             max_events=self._max_events_per_turn,
             max_replay_bytes=self._max_replay_bytes_per_turn,
             subscriber_queue_maxsize=self._subscriber_queue_maxsize,
+            max_essential_event_bytes=self._max_essential_event_bytes,
         )
         turn._on_change = self._evict_if_needed
         self._turns[session_id] = turn

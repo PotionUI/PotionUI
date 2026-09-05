@@ -7,6 +7,9 @@ import {
 	applyDone,
 	applyError,
 	applyTitle,
+	applyReplaySnapshot,
+	applyDurableRecovery,
+	needsDurableRecovery,
 	mergeTraceTimeline,
 	hydrateTraceSteps,
 	formatContextLedgerSummary,
@@ -424,6 +427,98 @@ describe('applyError', () => {
 	});
 });
 
+describe('applyReplaySnapshot', () => {
+	it('replaces the accumulated content with the snapshot text and flags the message partial', () => {
+		const out = applyReplaySnapshot(fixture(), { text_so_far: 'Here is the tail ', cursor: 42 });
+		expect(out[1].content).toBe('Here is the tail ');
+		expect(out[1].isPartial).toBe(true);
+	});
+
+	it('defaults to empty content when text_so_far is missing', () => {
+		const out = applyReplaySnapshot(fixture(), {});
+		expect(out[1].content).toBe('');
+	});
+
+	it('is a no-op when the last message is not an assistant message', () => {
+		const msgs: UnifiedChatMessageData[] = [{ role: 'user', content: 'a', timestamp: 1 }];
+		expect(applyReplaySnapshot(msgs, { text_so_far: 'x' })).toBe(msgs);
+	});
+});
+
+describe('needsDurableRecovery', () => {
+	it('always recovers on no_active_turn, partial or not', () => {
+		expect(needsDurableRecovery('no_active_turn', false)).toBe(true);
+		expect(needsDurableRecovery('no_active_turn', true)).toBe(true);
+	});
+
+	it('recovers on done/error only when the message was ever flagged partial', () => {
+		expect(needsDurableRecovery('done', true)).toBe(true);
+		expect(needsDurableRecovery('done', false)).toBe(false);
+		expect(needsDurableRecovery('error', true)).toBe(true);
+		expect(needsDurableRecovery('error', false)).toBe(false);
+	});
+
+	it('never recovers on a bare overflow — nothing is durable yet mid-turn', () => {
+		expect(needsDurableRecovery('overflow', true)).toBe(false);
+		expect(needsDurableRecovery('overflow', false)).toBe(false);
+	});
+
+	it('does not recover on ordinary streaming events', () => {
+		expect(needsDurableRecovery('token', true)).toBe(false);
+		expect(needsDurableRecovery('status', true)).toBe(false);
+	});
+});
+
+describe('applyDurableRecovery', () => {
+	const persisted: UnifiedChatMessageData = {
+		id: 'a1',
+		role: 'assistant',
+		content: 'The full, durable reply.',
+		timestamp: 999,
+		tool_executions: [
+			{ tool_name: 'search', arguments: {}, result: { success: true, data: 'ok' }, duration_ms: 5 }
+		]
+	};
+
+	it('replaces a streaming placeholder with the persisted message', () => {
+		const out = applyDurableRecovery(fixture(), persisted);
+		expect(out[1]).toMatchObject({
+			id: 'a1',
+			content: 'The full, durable reply.',
+			isStreaming: false,
+			isPartial: false
+		});
+		expect(out[1].tool_executions).toHaveLength(1);
+	});
+
+	it('replaces a partial (but no longer streaming) placeholder too', () => {
+		const msgs = fixture();
+		msgs[1] = { ...msgs[1], isStreaming: false, isPartial: true, content: 'stale snapshot' };
+		const out = applyDurableRecovery(msgs, persisted);
+		expect(out[1].content).toBe('The full, durable reply.');
+	});
+
+	it('is a no-op when nothing was persisted (falls through to applyError upstream)', () => {
+		const msgs = fixture();
+		expect(applyDurableRecovery(msgs, null)).toBe(msgs);
+	});
+
+	it('overwrites even an already-settled assistant message (applyDone already ran first on the real done path)', () => {
+		// applyDone unconditionally clears isStreaming/isPartial on every done,
+		// gapped or not — applyDurableRecovery must not re-gate on those flags,
+		// or a recovery that runs right after applyDone would silently no-op.
+		const msgs = fixture();
+		msgs[1] = { ...msgs[1], isStreaming: false, content: 'already done' };
+		const out = applyDurableRecovery(msgs, persisted);
+		expect(out[1].content).toBe('The full, durable reply.');
+	});
+
+	it('is a no-op when the last message is not an assistant message', () => {
+		const msgs: UnifiedChatMessageData[] = [{ role: 'user', content: 'a', timestamp: 1 }];
+		expect(applyDurableRecovery(msgs, persisted)).toBe(msgs);
+	});
+});
+
 describe('formatContextLedgerSummary', () => {
 	it('renders the compact per-component breakdown with a total', () => {
 		const ledger: ContextLedger = {
@@ -589,5 +684,142 @@ describe('reattach replay determinism', () => {
 			).filter((e) => !(e.type === 'token' && e.data.content === 'you go.'))
 		);
 		expect(oneChunk[1].content).toBe(split[1].content);
+	});
+});
+
+describe('gap recovery: replay_snapshot + overflow fall back to the durable message', () => {
+	// Mirrors createStreamEventHandler's full dispatch, including the two gap
+	// signals and the recovery decision — a long answer whose recognisable
+	// prefix ("The full answer starts here.") gets compacted away mid-stream,
+	// then an overflow drops more of it, and only the durable fetch (never a
+	// re-run of the tool or a second `done`) produces the final message.
+	function reduceWithRecovery(
+		initial: UnifiedChatMessageData[],
+		events: { type: string; data: any }[],
+		durableMessage: UnifiedChatMessageData | null
+	) {
+		let messages = initial.map((m) => ({ ...m }));
+		let accumulated = '';
+		let partial = false;
+		let recoveries = 0;
+
+		for (const event of events) {
+			switch (event.type) {
+				case 'token':
+					accumulated += event.data.content;
+					messages = applyToken(messages, accumulated);
+					break;
+				case 'tool_start':
+					messages = applyToolStart(messages, event.data || {});
+					break;
+				case 'tool_end':
+					messages = applyToolEnd(messages, event.data || {});
+					break;
+				case 'replay_snapshot':
+					accumulated = event.data?.text_so_far || '';
+					partial = true;
+					messages = applyReplaySnapshot(messages, event.data || {});
+					break;
+				case 'overflow':
+					partial = true;
+					break;
+				case 'done':
+					messages = applyDone(messages, event.data || {});
+					if (needsDurableRecovery('done', partial)) {
+						recoveries += 1;
+						messages = applyDurableRecovery(messages, durableMessage);
+					}
+					break;
+				case 'error':
+					if (needsDurableRecovery('error', partial)) {
+						recoveries += 1;
+						// Mirrors the real handler's recoverDurableMessage: fall
+						// back to the plain error cleanup when nothing was
+						// actually persisted (a genuine failure, not just a gap).
+						messages = durableMessage ? applyDurableRecovery(messages, durableMessage) : applyError(messages);
+					} else {
+						messages = applyError(messages);
+					}
+					break;
+			}
+		}
+		return { messages, recoveries };
+	}
+
+	const initial = (): UnifiedChatMessageData[] => [
+		{ id: 'u1', role: 'user', content: 'tell me a long story', timestamp: 1 },
+		{ role: 'assistant', content: '', timestamp: 2, isStreaming: true }
+	];
+
+	const durableMessage: UnifiedChatMessageData = {
+		id: 'a1',
+		role: 'assistant',
+		content: 'The full answer starts here. ...(the rest, recovered from the database)...',
+		timestamp: 999,
+		tool_executions: [
+			{ tool_name: 'search', arguments: { q: 'story' }, result: { success: true, data: 'ok' }, duration_ms: 8 }
+		]
+	};
+
+	it('recovers the durable message once a partial stream reaches done, keeping tool/terminal outcomes intact', () => {
+		const events: { type: string; data: any }[] = [
+			{ type: 'tool_start', data: { tool_name: 'search', arguments: { q: 'story' } } },
+			{ type: 'token', data: { content: 'The full answer starts here. ' } },
+			// The backend compacted the buffered prefix away before this client
+			// could reconnect; the snapshot is a bounded stand-in, not the whole
+			// reply — recognisable by its truncated, ellipsis-free tail.
+			{ type: 'replay_snapshot', data: { text_so_far: 'The full answer sta', cursor: 50 } },
+			{ type: 'tool_end', data: { tool_name: 'search', success: true, duration_ms: 8 } },
+			// This connection then fell behind live and missed more deltas.
+			{ type: 'overflow', data: {} },
+			{ type: 'done', data: {} }
+		];
+
+		const { messages, recoveries } = reduceWithRecovery(initial(), events, durableMessage);
+
+		expect(recoveries).toBe(1);
+		const assistant = messages[1];
+		expect(assistant.content).toBe(durableMessage.content);
+		expect(assistant.isPartial).toBe(false);
+		expect(assistant.isStreaming).toBe(false);
+		// The terminal outcome (done) and the tool round both survive the
+		// recovery — recovery replaces content/metadata, not history.
+		expect(assistant.tool_executions).toHaveLength(1);
+		expect(assistant.tool_executions?.[0].tool_name).toBe('search');
+	});
+
+	it('does not recover on a plain overflow while the turn is still running', () => {
+		const events: { type: string; data: any }[] = [
+			{ type: 'token', data: { content: 'partway ' } },
+			{ type: 'overflow', data: {} }
+		];
+		const { recoveries } = reduceWithRecovery(initial(), events, durableMessage);
+		expect(recoveries).toBe(0);
+	});
+
+	it('never recovers, and content matches the payload verbatim, on an ungapped done', () => {
+		const events: { type: string; data: any }[] = [
+			{ type: 'token', data: { content: 'all good' } },
+			{ type: 'done', data: { assistant_message: { id: 'a2', content: 'all good' } } }
+		];
+		const { messages, recoveries } = reduceWithRecovery(initial(), events, durableMessage);
+		expect(recoveries).toBe(0);
+		expect(messages[1].content).toBe('all good');
+		expect(messages[1].id).toBe('a2');
+	});
+
+	it('falls back to applyError when a partial stream errors and nothing was persisted', () => {
+		const events: { type: string; data: any }[] = [
+			{ type: 'token', data: { content: 'partway ' } },
+			{ type: 'overflow', data: {} },
+			{ type: 'error', data: { message: 'boom' } }
+		];
+		const { messages, recoveries } = reduceWithRecovery(initial(), events, null);
+		expect(recoveries).toBe(1);
+		// Nothing was persisted (a genuine failure, not just a gap): the
+		// streaming placeholder is dropped like an ordinary error, not left
+		// showing the stale partial snapshot.
+		expect(messages).toHaveLength(1);
+		expect(messages[0].role).toBe('user');
 	});
 });

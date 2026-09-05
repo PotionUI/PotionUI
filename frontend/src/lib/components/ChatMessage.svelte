@@ -22,6 +22,10 @@
 	export let imageUrl: string | undefined = undefined;
 	export let compact: boolean = false;
 	export let isStreaming: boolean = false;
+	// True while the displayed content is a bounded reconnect snapshot (the
+	// backend compacted away the prefix this client expected), not the whole
+	// reply — cleared once `done`/`error`/durable recovery settles the message.
+	export let isPartial: boolean = false;
 	export let toolExecutions: ToolExecution[] = [];
 	export let traceSteps: TraceStep[] = [];
 	export let sources: Array<{
@@ -226,6 +230,11 @@
 				{#if timestamp}<span>{formatTime(timestamp)}</span>{/if}
 			</div>
 
+			{#if isPartial}
+				<div class="font-mono text-2xs text-fg-subtle" data-testid="partial-reply-note">
+					Earlier part of this reply isn't shown — loading the full version&hellip;
+				</div>
+			{/if}
 			<div class="assistant-copy">
 				{@html renderedHtml}{#if isStreaming}<span class="inline-block w-2 h-4 ml-0.5 bg-signal animate-pulse rounded-sm"></span>{/if}
 

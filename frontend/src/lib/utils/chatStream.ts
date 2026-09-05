@@ -328,6 +328,72 @@ export function applyError(messages: Messages): Messages {
 	);
 }
 
+/**
+ * `replay_snapshot` event: the reconnecting subscriber's expected prefix was
+ * compacted away on the backend. Replaces the accumulated streamed text with
+ * the snapshot's own (bounded) `text_so_far` and flags the message partial —
+ * it is a truncated stand-in, not the full reply, until `done`/`error` or a
+ * durable-recovery fetch (`applyDurableRecovery`) replaces it for real.
+ */
+export function applyReplaySnapshot(
+	messages: Messages,
+	data: { text_so_far?: string; cursor?: number }
+): Messages {
+	const lastIdx = messages.length - 1;
+	if (lastIdx < 0 || messages[lastIdx].role !== 'assistant') return messages;
+	const msgs = [...messages];
+	msgs[lastIdx] = { ...msgs[lastIdx], content: data.text_so_far ?? '', isPartial: true };
+	return msgs;
+}
+
+/**
+ * Whether a stream event should trigger a durable-message recovery fetch, for
+ * a message that has (`wasPartial`) or hasn't been flagged partial so far.
+ *
+ * `no_active_turn` (reattaching to a turn that already finished and was
+ * evicted from the backend's retained buffer) always recovers — no further
+ * events are coming, so a REST fetch is the only way to get the real reply.
+ * `done`/`error` recover only when the message was ever flagged partial
+ * (a `replay_snapshot` or `overflow` happened earlier): a `done` not preceded
+ * by either already carries the authoritative content in its own payload, and
+ * recovering unconditionally would risk fetching mid-turn (nothing durable
+ * exists yet) or doing pointless extra requests on the common, ungapped path.
+ * A plain `overflow` while the turn is still running never recovers by
+ * itself — nothing is durably persisted for an in-progress turn yet.
+ */
+export function needsDurableRecovery(eventType: string, wasPartial: boolean): boolean {
+	if (eventType === 'no_active_turn') return true;
+	if (eventType === 'done' || eventType === 'error') return wasPartial;
+	return false;
+}
+
+/**
+ * Replace the trailing assistant message with the durable persisted one —
+ * used after an error that followed a partial replay, after a `done` whose
+ * own payload can't be trusted because the stream had a gap, and when
+ * reattaching to a turn that already finished and was evicted (no more
+ * stream events are coming, so this is the only way to recover it).
+ *
+ * Trusts the caller's `needsDurableRecovery` decision rather than re-checking
+ * `isStreaming`/`isPartial` here: `applyDone` already unconditionally clears
+ * both flags on the message this runs right after (it finalizes every done,
+ * gapped or not), so gating on them would silently no-op exactly when
+ * recovery matters most. No-op only if there's no trailing assistant message,
+ * or nothing was persisted (`persisted` is null): callers fall back to
+ * `applyError` in that case.
+ */
+export function applyDurableRecovery(
+	messages: Messages,
+	persisted: UnifiedChatMessageData | null | undefined
+): Messages {
+	const lastIdx = messages.length - 1;
+	if (lastIdx < 0 || messages[lastIdx].role !== 'assistant') return messages;
+	if (!persisted) return messages;
+	const msgs = [...messages];
+	msgs[lastIdx] = { ...persisted, isStreaming: false, isPartial: false };
+	return msgs;
+}
+
 /** `1234` -> `1.2k`, `800` -> `0.8k`; kept in one k-scaled unit throughout so the components in a ledger line stay comparable at a glance. */
 function formatTokenCount(n: number): string {
 	return n === 0 ? '0' : `${(n / 1000).toFixed(1)}k`;

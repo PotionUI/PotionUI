@@ -39,7 +39,7 @@
 	import { applySegmentUpdate } from '$lib/utils/promptSegments';
 	import { lastAppliedSegment } from '$lib/stores/lastAppliedSegment';
 	import { appliedSegmentActions } from '$lib/stores/appliedSegmentActions';
-	import { applyTitle } from '$lib/utils/chatStream';
+	import { applyTitle, applyDurableRecovery, applyError, needsDurableRecovery } from '$lib/utils/chatStream';
 	import {
 		resolveDirectorCapabilities,
 		normalizeDirectorValue,
@@ -671,6 +671,40 @@
 		}
 	}
 
+	/** Map one persisted `ChatMessageResponse` into the shape the message list
+	 * renders. Shared by the session-load path and the stream-recovery path
+	 * (`recoverDurableMessage` in `createStreamEventHandler`) so both produce
+	 * an identical message from the same backend record. */
+	function mapPersistedMessage(msg: ChatMessageResponse): ChatMessageData {
+		const metadata = (msg as any).metadata || {};
+		const toolExecs = metadata.tool_executions || (msg as any).tool_executions || [];
+		return {
+			id: msg.id,
+			role: msg.role,
+			content: msg.content,
+			timestamp: msg.created_at ? new Date(msg.created_at).getTime() : Date.now(),
+			imageUrl: metadata.image_url || null,
+			tokens_used: msg.tokens_used,
+			prompt_tokens: msg.prompt_tokens,
+			completion_tokens: msg.completion_tokens,
+			tool_executions: toolExecs,
+			sources: toolExecs.flatMap((te: any) => te.result?.sources || []),
+			metadata
+		};
+	}
+
+	/** The session's last persisted assistant message, mapped — or null if
+	 * the session has none yet (e.g. the in-progress turn never persisted). */
+	function lastPersistedAssistantMessage(
+		messages: ChatMessageResponse[] | undefined
+	): ChatMessageData | null {
+		if (!messages?.length) return null;
+		for (let i = messages.length - 1; i >= 0; i--) {
+			if (messages[i].role === 'assistant') return mapPersistedMessage(messages[i]);
+		}
+		return null;
+	}
+
 	async function loadSession(id: string) {
 		if (loadingSessionId === id) return;
 		if ($chatSession.sessionId === id && $chatSession.messages.length > 0) {
@@ -684,23 +718,7 @@
 			if (destroyed || requestId !== sessionLoadRequestId) return;
 
 			if (response.success && response.data) {
-				const loadedMessages = response.data.messages.map((msg: ChatMessageResponse) => {
-					const metadata = (msg as any).metadata || {};
-					const toolExecs = metadata.tool_executions || (msg as any).tool_executions || [];
-					return {
-						id: msg.id,
-						role: msg.role,
-						content: msg.content,
-						timestamp: msg.created_at ? new Date(msg.created_at).getTime() : Date.now(),
-						imageUrl: metadata.image_url || null,
-						tokens_used: msg.tokens_used,
-						prompt_tokens: msg.prompt_tokens,
-						completion_tokens: msg.completion_tokens,
-						tool_executions: toolExecs,
-						sources: toolExecs.flatMap((te: any) => te.result?.sources || []),
-						metadata
-					};
-				});
+				const loadedMessages = response.data.messages.map(mapPersistedMessage);
 
 				chatSession.loadedSession(
 					{
@@ -781,13 +799,53 @@
 		tick().then(scrollToBottom);
 	}
 
-	// One SSE event handler, shared by the live send stream and the reattach
-	// stream so a reloaded, resumed turn drives the exact same reducers. Closes
-	// over its own token accumulator; a reattach replays tokens from the start,
-	// so accumulating from '' reconstructs the same content the live path built.
-	function createStreamEventHandler() {
+	/**
+	 * One SSE event handler, shared by the live send stream and the reattach
+	 * stream so a reloaded, resumed turn drives the exact same reducers. Closes
+	 * over its own token accumulator; a reattach replays tokens from the start,
+	 * so accumulating from '' reconstructs the same content the live path built.
+	 *
+	 * `overflow`/`replay_snapshot`/`no_active_turn` mean the locally accumulated
+	 * text can no longer be trusted to be the whole reply: either events were
+	 * dropped in transit, or this reconnect's expected prefix was compacted
+	 * away on the backend. `partial` tracks that state per streamed message so
+	 * `done`/`error` know whether to trust their own payload or reconcile
+	 * against the durable persisted message once the turn is no longer live.
+	 */
+	function createStreamEventHandler(sessionId: string) {
 		let streamedContent = '';
-		return (event: { type: string; data: any }) => {
+		let lastSeq: number | undefined;
+		let partial = false;
+		let recovered = false;
+
+		// Fetches the session's last persisted assistant message and replaces
+		// the streaming/partial placeholder with it — the only way to recover
+		// the real reply once no more stream events are coming (a turn that
+		// finished and was evicted) or once a gap makes the accumulated text
+		// unreliable. Never re-runs a tool or re-invokes the stream: this is a
+		// read-only GET through the existing session/messages path. Idempotent
+		// per handler instance (`recovered` guards a second call), and falls
+		// back to the plain error cleanup when nothing was persisted.
+		async function recoverDurableMessage() {
+			if (recovered) return;
+			recovered = true;
+			let persisted: ChatMessageData | null = null;
+			try {
+				const response = await api.getChatSession(sessionId);
+				if (response.success) {
+					persisted = lastPersistedAssistantMessage(response.data?.messages);
+				}
+			} catch (err) {
+				logger.error('Failed to recover the persisted reply after a stream gap:', err);
+			}
+			chatSession.updateMessages((msgs) =>
+				persisted ? applyDurableRecovery(msgs, persisted) : applyError(msgs)
+			);
+		}
+
+		const handleEvent = async (event: { type: string; data: any }) => {
+			if (typeof event.data?.seq === 'number') lastSeq = event.data.seq;
+
 			if (event.type === 'message_created') {
 				// no-op
 			} else if (event.type === 'token') {
@@ -802,9 +860,26 @@
 			} else if (event.type === 'status') {
 				chatSession.applyStreamEvent(event);
 				scrollToBottom();
+			} else if (event.type === 'replay_snapshot') {
+				// This reconnect's expected prefix was compacted away; the
+				// snapshot's own bounded text replaces our accumulator so later
+				// token deltas append onto the right base, not a gap — the
+				// message is flagged partial until done/error/recovery settles it.
+				streamedContent = event.data?.text_so_far || '';
+				partial = true;
+				chatSession.applyStreamEvent(event);
+				scrollToBottom();
+			} else if (event.type === 'overflow') {
+				// Some live events were dropped for this connection. Nothing is
+				// durably persisted yet for a still-running turn, so recovery
+				// happens at done/error below rather than here — fetching now
+				// would find no new message (or, worse, a stale one from a
+				// previous turn) and overwrite live content with it.
+				partial = true;
 			} else if (event.type === 'done') {
 				chatSession.applyStreamEvent(event);
 				selectedImageData = null;
+				if (needsDurableRecovery('done', partial)) await recoverDurableMessage();
 			} else if (event.type === 'title') {
 				// Async LLM-generated session title (arrives after done)
 				const titled = event.data || {};
@@ -816,17 +891,26 @@
 				chatSession.applyStreamEvent({ type: 'error', data: {} });
 			} else if (event.type === 'error') {
 				chatSession.patch({ error: event.data.message || 'Streaming error' });
-				chatSession.applyStreamEvent(event);
+				if (needsDurableRecovery('error', partial)) {
+					await recoverDurableMessage();
+				} else {
+					chatSession.applyStreamEvent(event);
+				}
+			} else if (event.type === 'no_active_turn') {
+				// Reattached to a turn that already finished and was evicted from
+				// the backend's retained buffer — no more events are coming;
+				// recover the final reply from the durable path once, and stop.
+				if (needsDurableRecovery('no_active_turn', partial)) await recoverDurableMessage();
 			}
-			// 'no_active_turn' needs no handling — the trailing empty placeholder
-			// is cleaned up when the reattach stream ends.
 		};
+
+		return { handleEvent, getLastSeq: () => lastSeq };
 	}
 
 	// Reattach to a turn still running on the backend (page reload mid-response).
 	// The persisted messages already include the user message; we add a streaming
 	// assistant placeholder and replay the turn's events into it.
-	async function reattachToTurn(sessionId: string) {
+	async function reattachToTurn(sessionId: string, afterSeq?: number) {
 		chatSession.patch({ isGenerating: true, error: '' });
 		chatSession.addMessage({
 			role: 'assistant',
@@ -838,7 +922,8 @@
 		scrollToBottom();
 
 		try {
-			await api.reattachChatMessageStream(sessionId, createStreamEventHandler());
+			const { handleEvent } = createStreamEventHandler(sessionId);
+			await api.reattachChatMessageStream(sessionId, handleEvent, { afterSeq });
 		} catch (err) {
 			logger.error('Failed to reattach to in-flight turn:', err);
 		} finally {
@@ -1033,6 +1118,7 @@
 			scrollToBottom();
 
 			try {
+				const { handleEvent } = createStreamEventHandler($chatSession.sessionId!);
 				await api.sendChatMessageStream(
 					$chatSession.sessionId!,
 					{
@@ -1041,7 +1127,7 @@
 						contextMetadata,
 						resources: resourceRefs
 					},
-					createStreamEventHandler()
+					handleEvent
 				);
 			} catch (err: any) {
 				logger.error('Stream error, falling back to non-streaming:', err);
@@ -1259,6 +1345,14 @@
 		// An approved tool's result may carry an action the frontend must apply
 		// (form field changes, Video Director ops, a prompt-relay timeline) —
 		// same subtractive gate as every other AI-initiated mutation (enableTools).
+		// A plugin-registered handler may report back a ToolAppliedOutcome
+		// (see pageContext.ts) when what it narrated to the model doesn't match
+		// what actually landed - e.g. a proposal built for a page state the
+		// plugin has since moved on from. The backend's own narration below
+		// (data.assistantMessage) is generated before the plugin ever runs, so
+		// it can say "done" even when the outcome here is stale/partial; that
+		// case is shown in place of the backend's narration instead.
+		let toolOutcome: ReturnType<typeof dispatchToolApplied> | null = null;
 		if (data.approved && enableTools) {
 			try {
 				const resultData = JSON.parse(data.updatedExecution.result?.data || '');
@@ -1266,8 +1360,8 @@
 				// for this tool name takes over entirely - skip the hardcoded
 				// core actions below so a plugin tool's result isn't misread as
 				// one of these.
-				const handledByPlugin = dispatchToolApplied(data.updatedExecution.tool_name, resultData);
-				if (!handledByPlugin) {
+				toolOutcome = dispatchToolApplied(data.updatedExecution.tool_name, resultData);
+				if (!toolOutcome) {
 					if (resultData.action === 'apply_form_changes') {
 						handleFormChangesApplied(resultData.applied_changes);
 					}
@@ -1286,12 +1380,23 @@
 			}
 		}
 
+		const unappliedOutcome =
+			toolOutcome && typeof toolOutcome === 'object' && (toolOutcome.status === 'stale' || toolOutcome.status === 'partial')
+				? toolOutcome
+				: null;
+
 		// Append the assistant's continuation (what it did / that it declined).
 		const am = data.assistantMessage;
 		if (am) {
 			const metadata = am.metadata || {};
 			const toolExecs = metadata.tool_executions || am.tool_executions || [];
-			const hasContent = !!(am.content && am.content.trim());
+			// The backend narrates deterministically from the tool's own
+			// success/failure, which it decided before the plugin above ever
+			// ran - an unapplied/partial outcome overrides that narration
+			// rather than letting the user read "done" for a change that
+			// didn't (fully) land.
+			const content = unappliedOutcome?.message || am.content || '';
+			const hasContent = !!(content && content.trim());
 			if (!hasContent && toolExecs.length === 0) {
 				// Never render a dead-end blank bubble; the backend narrates
 				// approve/deny outcomes deterministically, so this only guards
@@ -1301,7 +1406,7 @@
 			chatSession.addMessage({
 				id: am.id,
 				role: am.role || 'assistant',
-				content: am.content || '',
+				content,
 				timestamp: am.created_at ? new Date(am.created_at).getTime() : Date.now(),
 				tokens_used: am.tokens_used,
 				prompt_tokens: am.prompt_tokens,
@@ -1661,6 +1766,7 @@
 							imageUrl={message.imageUrl || undefined}
 							compact={false}
 							isStreaming={message.isStreaming || false}
+							isPartial={message.isPartial || false}
 							onApplyAction={enableTools
 								? (action, actionIndex) =>
 										handleApplySegmentAction(action, message.id || '', actionIndex)

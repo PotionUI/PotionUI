@@ -316,12 +316,26 @@ class ChatController(BaseController):
 
     @staticmethod
     def _sse_response(event_source) -> StreamingResponse:
-        """Serialize an async iterator of ``{event, data}`` dicts as an SSE stream."""
+        """Serialize an async iterator of ``{event, data, seq}`` dicts as an SSE stream.
+
+        ``seq`` (the turn's monotonic replay cursor, when the event carries
+        one) is emitted both as the standard SSE ``id:`` field, for
+        EventSource-style clients and browser auto-reconnect, and mirrored
+        into ``data.seq`` for a hand-rolled reader (this app's own fetch-based
+        stream client) that doesn't parse ``id:`` — so ``after_seq`` on
+        reattach can be driven from either. ``data`` is copied before the
+        mirror so the turn's own retained event dict is never mutated.
+        """
         async def formatted():
             async for event in event_source:
                 event_type = event.get("event", "message")
-                event_data = json.dumps(event.get("data", {}))
-                yield f"event: {event_type}\ndata: {event_data}\n\n"
+                seq = event.get("seq")
+                data = dict(event.get("data") or {})
+                if seq is not None:
+                    data["seq"] = seq
+                event_data = json.dumps(data)
+                id_line = f"id: {seq}\n" if seq is not None else ""
+                yield f"{id_line}event: {event_type}\ndata: {event_data}\n\n"
 
         return StreamingResponse(
             formatted(),

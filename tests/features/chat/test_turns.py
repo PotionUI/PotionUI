@@ -6,6 +6,7 @@ must be able to replay the whole turn from the start.
 """
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -359,6 +360,119 @@ class TestBoundedReplayBuffer:
 
         # Each finish() ran a reclamation pass; the group is back under the cap.
         assert len(registry._turns) <= 2
+
+
+# ---------------------------------------------------------------------------
+# Subscriber-local preload collapsing and essential-event bounding
+# ---------------------------------------------------------------------------
+
+class TestSubscriberPreloadAndEssentialBounding:
+    @pytest.mark.asyncio
+    async def test_preload_larger_than_subscriber_queue_collapses_coherently(self):
+        """The retained buffer cap and one subscriber's queue depth are
+        independent: a buffer far bigger than the queue must still produce a
+        coherent snapshot+tail preload, never raise QueueFull."""
+        registry = ChatTurnRegistry(
+            max_events_per_turn=300, max_replay_bytes_per_turn=10_000_000,
+            subscriber_queue_maxsize=50,
+        )
+        events = [{"event": "token", "data": {"content": "x"}} for _ in range(280)]
+        events.append({"event": "done", "data": {}})
+
+        turn = registry.start("s1", "u1", lambda: _make_stream(events))
+        await asyncio.wait_for(turn.done.wait(), timeout=5)
+        # The retained buffer itself is bounded only by max_events (300), not
+        # by any one subscriber's queue depth (50) — confirms the two caps
+        # are genuinely independent before checking the preload shrinks to fit.
+        assert len(turn.events) > 50
+
+        replayed = [ev async for ev in turn.stream()]  # turn is done; terminates on its own
+        assert replayed[0]["event"] == "replay_snapshot"
+        assert replayed[-1]["event"] == "done"
+        assert len(replayed) <= 50
+
+    @pytest.mark.asyncio
+    async def test_finished_turn_replay_exactly_filling_queue_still_gets_sentinel(self):
+        """A replay that exactly fills the subscriber's queue (with the
+        sentinel appended right after) must not raise QueueFull."""
+        registry = ChatTurnRegistry(subscriber_queue_maxsize=6)
+        events = [{"event": "token", "data": {"content": str(i)}} for i in range(4)]
+        events.append({"event": "done", "data": {}})  # 5 events total
+
+        turn = registry.start("s1", "u1", lambda: _make_stream(events))
+        await asyncio.wait_for(turn.done.wait(), timeout=2)
+        assert len(turn.events) == 5  # no compaction at this scale; capacity = 6-1 = 5, exact fit
+
+        replayed = [ev async for ev in turn.stream()]
+        assert [e["event"] for e in replayed] == ["token", "token", "token", "token", "done"]
+
+    @pytest.mark.asyncio
+    async def test_oversized_essential_event_retained_as_truncated_reference(self):
+        """An essential event whose payload exceeds the per-event budget is
+        retained for replay as a small truncated reference, not its full body —
+        live delivery is unaffected."""
+        registry = ChatTurnRegistry(max_essential_event_bytes=100)
+        big_preview = "x" * 5000
+        events = [
+            {"event": "tool_start", "data": {"tool_name": "search"}},
+            {"event": "tool_end", "data": {"tool_name": "search", "success": True, "preview": big_preview}},
+            {"event": "done", "data": {}},
+        ]
+
+        live_collected = []
+
+        async def factory():
+            async for ev in _make_stream(events):
+                yield ev
+
+        turn = registry.start("s1", "u1", factory)
+
+        # A live subscriber attached before the oversized event is emitted
+        # must still see it in full.
+        stream = turn.stream()
+        first = await stream.__anext__()
+        assert first["event"] == "tool_start"
+
+        async def drain():
+            async for ev in stream:
+                live_collected.append(ev)
+
+        drain_task = asyncio.create_task(drain())
+        await asyncio.wait_for(turn.done.wait(), timeout=2)
+        await asyncio.wait_for(drain_task, timeout=2)
+
+        live_tool_end = next(e for e in live_collected if e["event"] == "tool_end")
+        assert live_tool_end["data"]["preview"] == big_preview  # full payload, live
+
+        retained_tool_end = next(e for e in turn.events if e["event"] == "tool_end")
+        assert retained_tool_end["data"]["truncated"] is True
+        assert retained_tool_end["data"]["tool_name"] == "search"
+        assert len(json.dumps(retained_tool_end)) < len(json.dumps(live_tool_end))
+
+    @pytest.mark.asyncio
+    async def test_essential_only_backlog_folds_oldest_keeps_newest(self):
+        """With no compactable events at all, an essential-only backlog past
+        the count cap folds its oldest entries into the snapshot marker
+        (recorded as a dropped-essential count + seq range) rather than
+        defeating the cap outright — the newest essential events survive."""
+        registry = ChatTurnRegistry(max_events_per_turn=4, max_replay_bytes_per_turn=10_000_000)
+        events = [{"event": "tool_start", "data": {"tool_name": f"t{i}"}} for i in range(10)]
+        events.append({"event": "done", "data": {}})
+
+        turn = registry.start("s1", "u1", lambda: _make_stream(events))
+        await asyncio.wait_for(turn.done.wait(), timeout=5)
+
+        assert len(turn.events) <= 5  # cap (4) + at most one marker
+        marker = turn.events[0]
+        assert marker["event"] == "replay_snapshot"
+        assert marker["data"]["dropped_essential_count"] > 0
+        assert len(marker["data"]["dropped_essential_seq_range"]) == 2
+
+        # The newest essential events (closest to the end) survive, including
+        # the terminal outcome.
+        kinds = [e["event"] for e in turn.events[1:]]
+        assert kinds[-1] == "done"
+        assert "tool_start" in kinds
 
 
 # ---------------------------------------------------------------------------

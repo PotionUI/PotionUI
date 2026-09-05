@@ -300,6 +300,11 @@ export interface UnifiedChatMessageData {
 	trace_steps?: TraceStep[];
 	sources?: MessageSource[];
 	isStreaming?: boolean;
+	/** Content was replaced with a bounded `replay_snapshot` (the reconnect
+	 * prefix this client expected was compacted away on the backend) — the
+	 * displayed text is a truncated stand-in until `done`/`error`/reattach
+	 * recovery replaces it with the durable persisted message. */
+	isPartial?: boolean;
 	isSystem?: boolean;
 	metadata?: Record<string, any>;
 	parsed_content?: { reply_contract?: ReplyContract } & Record<string, unknown>;

@@ -667,7 +667,12 @@ class TestChatController:
     async def test_send_message_stream_sse_format(
         self, controller, mock_chat_manager, sample_send_request, sample_user
     ):
-        """Test that streamed events follow the SSE format: event: type\\ndata: json\\n\\n"""
+        """Test that streamed events follow the SSE format: id: N\\nevent: type\\ndata: json\\n\\n
+
+        Every event that goes through send_message_stream is driven by a real
+        ChatTurn (mock_chat_manager only fakes the underlying event source), so
+        each one carries a turn-assigned seq — hence the leading `id:` line.
+        """
         async def mock_stream():
             yield {"event": "message_created", "data": {"user_message_id": "user-1", "assistant_message_id": ""}}
             yield {"event": "token", "data": {"content": "Hello"}}
@@ -693,28 +698,33 @@ class TestChatController:
 
         assert len(events) == 4
 
+        def parse(block: str):
+            lines = block.split("\n")
+            assert lines[0].startswith("id: ")
+            sse_id = int(lines[0][len("id: "):])
+            assert lines[1].startswith("event: ")
+            assert lines[2].startswith("data: ")
+            data = json.loads(lines[2][len("data: "):])
+            assert data["seq"] == sse_id  # mirrored per _sse_response's contract
+            return lines[1][len("event: "):], data
+
         # Verify first event: message_created
-        lines = events[0].split("\n")
-        assert lines[0] == "event: message_created"
-        assert lines[1].startswith("data: ")
-        data = json.loads(lines[1][len("data: "):])
+        event_type, data = parse(events[0])
+        assert event_type == "message_created"
         assert data["user_message_id"] == "user-1"
 
         # Verify token events
-        lines = events[1].split("\n")
-        assert lines[0] == "event: token"
-        data = json.loads(lines[1][len("data: "):])
+        event_type, data = parse(events[1])
+        assert event_type == "token"
         assert data["content"] == "Hello"
 
-        lines = events[2].split("\n")
-        assert lines[0] == "event: token"
-        data = json.loads(lines[1][len("data: "):])
+        event_type, data = parse(events[2])
+        assert event_type == "token"
         assert data["content"] == " world"
 
         # Verify done event
-        lines = events[3].split("\n")
-        assert lines[0] == "event: done"
-        data = json.loads(lines[1][len("data: "):])
+        event_type, data = parse(events[3])
+        assert event_type == "done"
         assert "assistant_message" in data
         assert "user_message" in data
 
@@ -958,14 +968,19 @@ class TestReattachStreamCursor:
 
     @staticmethod
     def _parse_sse(full_output: str):
+        """Parse SSE blocks, tolerating an optional leading ``id:`` line."""
         events = []
         for block in full_output.split("\n\n"):
             if not block.strip():
                 continue
             lines = block.split("\n")
+            sse_id = None
+            if lines[0].startswith("id: "):
+                sse_id = lines[0][len("id: "):]
+                lines = lines[1:]
             event_type = lines[0][len("event: "):]
             data = json.loads(lines[1][len("data: "):])
-            events.append((event_type, data))
+            events.append((event_type, data, sse_id))
         return events
 
     @pytest.mark.asyncio
@@ -986,15 +1001,42 @@ class TestReattachStreamCursor:
         full = await controller.reattach_stream("session-123", sample_user)
         full_chunks = [c async for c in full.body_iterator]
         full_events = self._parse_sse("".join(full_chunks))
-        assert [e for e, _ in full_events] == ["token", "token", "done"]
+        assert [e for e, _, _ in full_events] == ["token", "token", "done"]
 
         # after_seq = the first event's seq: only the later two replay.
         first_seq = turn.events[0]["seq"]
         partial = await controller.reattach_stream("session-123", sample_user, after_seq=first_seq)
         partial_chunks = [c async for c in partial.body_iterator]
         partial_events = self._parse_sse("".join(partial_chunks))
-        assert [e for e, _ in partial_events] == ["token", "done"]
+        assert [e for e, _, _ in partial_events] == ["token", "done"]
         assert partial_events[0][1]["content"] == "b"
+
+    @pytest.mark.asyncio
+    async def test_sse_frame_carries_id_and_seq(self, controller, mock_chat_manager, sample_user):
+        """Every event with a turn-assigned seq is emitted as SSE `id:` AND
+        mirrored into `data.seq`, monotonically — so a client can drive
+        `after_seq` from either an EventSource `lastEventId` or a hand-parsed
+        `data.seq`, whichever it reads."""
+        mock_chat_manager.get_session.return_value = Mock(id="session-123")
+
+        async def factory():
+            yield {"event": "token", "data": {"content": "a"}}
+            yield {"event": "token", "data": {"content": "b"}}
+            yield {"event": "done", "data": {}}
+
+        turn = controller.turn_registry.start("session-123", "user-123", factory)
+        await turn.done.wait()
+
+        reattached = await controller.reattach_stream("session-123", sample_user)
+        chunks = [c async for c in reattached.body_iterator]
+        events = self._parse_sse("".join(chunks))
+
+        assert [e for e, _, _ in events] == ["token", "token", "done"]
+        seqs = [int(sse_id) for _, _, sse_id in events]
+        assert seqs == sorted(seqs)
+        assert len(set(seqs)) == len(seqs)
+        for (_, data, sse_id) in events:
+            assert data["seq"] == int(sse_id)
 
 
 class TestChatModesEndpoints:

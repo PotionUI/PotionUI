@@ -13,10 +13,16 @@ import type { ChatMode, ChatToolInfo, MemoryNote, ResourceSuggestion } from '$li
  * Read a fetch Response body as an SSE stream, invoking `onEvent` per event.
  * Shared by the POST send stream and the GET reattach stream so both parse the
  * `event:`/`data:` framing identically.
+ *
+ * `onEvent` is awaited before the next line is parsed: a handler that does
+ * async recovery work (e.g. fetching the durable persisted message after a
+ * `no_active_turn`/`overflow`) must finish before this function's own promise
+ * resolves, so a caller's cleanup in its `finally` block never races ahead of
+ * that recovery and undoes it.
  */
 async function readSseStream(
 	response: Response,
-	onEvent?: (event: { type: string; data: any }) => void
+	onEvent?: (event: { type: string; data: any }) => void | Promise<void>
 ): Promise<void> {
 	const reader = response.body?.getReader();
 	if (!reader) throw new Error('No response body');
@@ -38,12 +44,16 @@ async function readSseStream(
 				if (line.startsWith('event: ')) {
 					currentEventType = line.slice(7).trim();
 				} else if (line.startsWith('data: ')) {
+					let data: any;
 					try {
-						const data = JSON.parse(line.slice(6));
-						onEvent?.({ type: currentEventType, data });
+						data = JSON.parse(line.slice(6));
 					} catch {
-						// Skip malformed JSON
+						// Skip malformed JSON — don't let a parse failure mask a
+						// genuine error thrown by onEvent below.
+						currentEventType = 'message';
+						continue;
 					}
+					await onEvent?.({ type: currentEventType, data });
 					currentEventType = 'message';
 				}
 			}
@@ -130,7 +140,7 @@ export function createChatApi(client: AxiosInstance, getToken: () => string | nu
 				contextMetadata?: Record<string, any>;
 				resources?: Array<{ uri: string }>;
 			},
-			onEvent?: (event: { type: string; data: any }) => void
+			onEvent?: (event: { type: string; data: any }) => void | Promise<void>
 		): Promise<void> {
 			const baseURL = getBaseURL();
 			const token = getToken();
@@ -169,12 +179,15 @@ export function createChatApi(client: AxiosInstance, getToken: () => string | nu
 
 		/**
 		 * Reattach to a turn already running on the backend for this session
-		 * (e.g. after a page reload). Replays the turn from its start and then
-		 * streams live, feeding the same event shape as sendChatMessageStream.
+		 * (e.g. after a page reload). Replays the turn from its start (or from
+		 * `afterSeq`, when the caller already has a cursor from a prior
+		 * connection to this same turn) and then streams live, feeding the same
+		 * event shape as sendChatMessageStream.
 		 */
 		async reattachChatMessageStream(
 			sessionId: string,
-			onEvent?: (event: { type: string; data: any }) => void
+			onEvent?: (event: { type: string; data: any }) => void | Promise<void>,
+			options: { afterSeq?: number } = {}
 		): Promise<void> {
 			const baseURL = getBaseURL();
 			const token = getToken();
@@ -183,8 +196,9 @@ export function createChatApi(client: AxiosInstance, getToken: () => string | nu
 				headers['Authorization'] = `Bearer ${token}`;
 			}
 
+			const query = typeof options.afterSeq === 'number' ? `?after_seq=${options.afterSeq}` : '';
 			const response = await fetch(
-				`${baseURL}/api/chat/sessions/${sessionId}/messages/stream`,
+				`${baseURL}/api/chat/sessions/${sessionId}/messages/stream${query}`,
 				{ method: 'GET', headers }
 			);
 

@@ -78,30 +78,48 @@
 		return [];
 	}
 
+	// Each call owns a sequence number; a call only publishes (models, error
+	// logging, clearing `loading`) if it is still the newest call by the time
+	// its awaits resolve, and only while the panel is still mounted. Without
+	// this an older completion (e.g. a slow tag-resolve chain from a stale
+	// search) can overwrite a newer result, and its `finally` can clear
+	// `loading` out from under a request still in flight.
+	let disposed = false;
+	let fetchSeq = 0;
+
 	async function fetchModels() {
+		const seq = ++fetchSeq;
+		// Snapshot the full request scope now, before any await - props can
+		// change while `resolveTagIds`/the search request are in flight.
+		const scope = { modelType, presetId, searchQuery, limit, tagFilters, filterTagIds, favoritesOnly };
+		const isCurrent = () => !disposed && seq === fetchSeq;
+
 		loading = true;
 		try {
-			const tagIds = await resolveTagIds(tagFilters);
+			const tagIds = await resolveTagIds(scope.tagFilters);
+			if (!isCurrent()) return;
 			const request = buildModelSearchRequest({
-				modelType,
-				presetId,
-				searchQuery,
-				limit,
+				modelType: scope.modelType,
+				presetId: scope.presetId,
+				searchQuery: scope.searchQuery,
+				limit: scope.limit,
 				tagIds,
-				anyTagIds: filterTagIds,
-				favoritesOnly
+				anyTagIds: scope.filterTagIds,
+				favoritesOnly: scope.favoritesOnly
 			});
 			const response =
 				request.kind === 'preset'
 					? await api.getPresetModels(request.presetId, request.modelType, request.search, request.opts)
 					: await api.getModels(request.params);
+			if (!isCurrent()) return;
 			if (response.success && response.data?.models) {
 				models = response.data.models;
 			}
 		} catch (error) {
+			if (!isCurrent()) return;
 			logger.error('[ModelBrowserPanel] Failed to fetch models:', error);
 		} finally {
-			loading = false;
+			if (isCurrent()) loading = false;
 		}
 	}
 
@@ -182,13 +200,23 @@
 	}
 
 	onDestroy(() => {
+		disposed = true;
 		if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
-		Object.values(pollTimers).forEach(clearInterval);
+		Object.values(pollTimeouts).forEach(clearTimeout);
+		pollTimeouts = {};
+		activeDownloadOps = {};
 	});
 
 	// --- Recommendation download offers (ModelField only - `recommendations` unset otherwise) ---
 	let downloadStates: Record<string, ModelDownloadState> = {};
-	let pollTimers: Record<string, ReturnType<typeof setInterval>> = {};
+	// setTimeout, not setInterval: each status fetch is rescheduled only once
+	// the previous one resolves, so a slow response can never overlap the next.
+	let pollTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
+	// One token per recommendation name, bumped on every new start/poll chain -
+	// an older chain's start/poll response checks it before touching state so
+	// it can never clobber a newer download for the same recommendation.
+	let activeDownloadOps: Record<string, number> = {};
+	let downloadOpSeq = 0;
 
 	function downloadStateFor(recommendation: ModelRecommendation): ModelDownloadState {
 		return downloadStates[recommendation.name] || initialModelDownloadState;
@@ -199,10 +227,16 @@
 	}
 
 	async function startRecommendationDownload(recommendation: ModelRecommendation) {
+		const key = recommendation.name;
+		const op = ++downloadOpSeq;
+		activeDownloadOps[key] = op;
+		const owns = () => !disposed && activeDownloadOps[key] === op;
+
 		setDownloadState(recommendation, reduceModelDownloadState(downloadStateFor(recommendation), { type: 'start' }));
 		try {
 			const payload = downloadPayloadForRecommendation(recommendation, modelType);
 			const response = await api.startModelDownload(payload);
+			if (!owns()) return;
 			if (!response.success || !response.data?.download_id) {
 				throw new Error(response.message || 'Failed to start download');
 			}
@@ -213,8 +247,9 @@
 					downloadId: response.data.download_id
 				})
 			);
-			pollRecommendationDownload(recommendation, response.data.download_id);
+			schedulePollRecommendationDownload(recommendation, response.data.download_id, op);
 		} catch (error: any) {
+			if (!owns()) return;
 			if (error?.response?.status === 403) {
 				setDownloadState(recommendation, reduceModelDownloadState(downloadStateFor(recommendation), { type: 'forbidden' }));
 				return;
@@ -230,22 +265,35 @@
 		}
 	}
 
-	function pollRecommendationDownload(recommendation: ModelRecommendation, downloadId: string) {
+	function schedulePollRecommendationDownload(recommendation: ModelRecommendation, downloadId: string, op: number) {
 		const key = recommendation.name;
-		if (pollTimers[key]) clearInterval(pollTimers[key]);
-		pollTimers[key] = setInterval(async () => {
+		if (pollTimeouts[key]) clearTimeout(pollTimeouts[key]);
+		pollTimeouts[key] = setTimeout(async () => {
+			const owns = () => !disposed && activeDownloadOps[key] === op;
+			if (!owns()) return;
 			try {
 				const response = await api.getModelDownloadStatus(downloadId);
-				if (!response.success || !response.data) return;
+				if (!owns()) return;
+				if (!response.success || !response.data) {
+					schedulePollRecommendationDownload(recommendation, downloadId, op);
+					return;
+				}
 				const { status, progress, error } = response.data;
-				setDownloadState(recommendation, reduceModelDownloadState(downloadStateFor(recommendation), { type: 'poll', status, progress, error }));
+				setDownloadState(
+					recommendation,
+					reduceModelDownloadState(downloadStateFor(recommendation), { type: 'poll', status, progress, error })
+				);
 				if (status === 'completed' || status === 'failed') {
-					clearInterval(pollTimers[key]);
-					delete pollTimers[key];
+					delete pollTimeouts[key];
+					delete activeDownloadOps[key];
 					if (status === 'completed') await fetchModels();
+				} else {
+					schedulePollRecommendationDownload(recommendation, downloadId, op);
 				}
 			} catch (error) {
+				if (!owns()) return;
 				logger.error('[ModelBrowserPanel] Failed to poll model download status:', error);
+				schedulePollRecommendationDownload(recommendation, downloadId, op);
 			}
 		}, 2000);
 	}

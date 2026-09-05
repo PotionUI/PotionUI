@@ -46,7 +46,7 @@ ComfyUI's flow ``denoised = x - model_output*sigma``).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple
 
 import torch
 import torch.nn as nn
@@ -71,6 +71,37 @@ from .config import ZImageConfig
 # attention backend), so wiring it here guarantees it's set before any
 # forward() runs.
 set_attention_backend(_dispatch_attention)
+
+
+class _RefinedCaption(NamedTuple):
+    """A refined caption plus the caption tensor its key names.
+
+    Holding the source is what makes ``data_ptr`` identity a sound key: while the
+    entry lives its source cannot be freed, so no later tensor can be allocated at
+    that address and be mistaken for it.
+    """
+
+    cap: Tensor
+    context: Tensor
+
+
+class _Geometry:
+    """RoPE for one sequence shape, plus the captions refined against it.
+
+    The refined captions hang off the geometry rather than off their own run-cache
+    key so that one run occupies one entry: the geometry is shared by both
+    guidance branches, and only the captions differ between them. Each caption
+    carries the weight revision in its own key too, so a branch refined under
+    superseded weights can never answer even while its geometry entry lives.
+    """
+
+    __slots__ = ("cap_rope", "img_rope", "joint_rope", "captions")
+
+    def __init__(self, cap_rope: Tensor, img_rope: Tensor) -> None:
+        self.cap_rope = cap_rope
+        self.img_rope = img_rope
+        self.joint_rope = torch.cat((cap_rope, img_rope), dim=1)
+        self.captions: dict[tuple, _RefinedCaption] = {}
 
 
 class ZImageDiT(NativeArchModule):
@@ -152,6 +183,77 @@ class ZImageDiT(NativeArchModule):
         ids[:, :, 2] = torch.arange(w_tok, dtype=torch.float32, device=device).view(1, -1).repeat(h_tok, 1).flatten()
         return ids
 
+    # -- per-run reuse ------------------------------------------------------
+
+    # One refined caption per guidance branch; a CFG run presents no third one.
+    _CAPTION_SLOTS = 2
+
+    def _geometry(self, bsz: int, h_tok: int, w_tok: int, cap_len: int, device,
+                  dtype: torch.dtype) -> "_Geometry":
+        """RoPE for one ``(batch, token grid, caption length)`` shape.
+
+        Position ids and the frequencies built from them are a property of the
+        sequence shape alone — never of the timestep, the latent or the weights.
+        The key carries the revision anyway, per ``RunCache``'s contract: the
+        cache drops every entry when the revision moves, so leaving it out would
+        not spare this entry a rebuild, and one rule for both keys is easier to
+        hold than an exception.
+
+        When the engine has attached a ``run_cache`` (``NativeGenerator.sample``)
+        this is built once per run; without one every forward builds its own,
+        exactly as before.
+        """
+        cache = getattr(self, "run_cache", None)
+        key = None
+        if cache is not None:
+            key = ("z_image.geometry", cache.revision, bsz, h_tok, w_tok, cap_len, device, dtype)
+            hit = cache.get(key)
+            if hit is not None:
+                return hit
+
+        cap_rope = self.rope_embedder(self._cap_pos_ids(cap_len, bsz, device)).movedim(1, 2).to(dtype)
+        img_pos = self._img_pos_ids(cap_len + 1, h_tok, w_tok, bsz, device)
+        img_len = h_tok * w_tok + (-(h_tok * w_tok)) % self.pad_tokens_multiple
+        if img_len != img_pos.shape[1]:  # x-pad tokens extend the position ids too
+            img_pos = F.pad(img_pos, (0, 0, 0, img_len - img_pos.shape[1]))
+        img_rope = self.rope_embedder(img_pos).movedim(1, 2).to(dtype)
+        geometry = _Geometry(cap_rope, img_rope)
+        if key is not None:
+            cache.put(key, geometry)
+        return geometry
+
+    def _refined_caption(self, geometry: "_Geometry", context: Tensor, bsz: int,
+                         cap_len: int, dtype: torch.dtype) -> Tensor:
+        """Caption embed + learned pad + the whole ``context_refiner`` stack.
+
+        The refiner blocks are built with ``modulation=False`` and are called with
+        ``adaln_input=None``, so this output is a property of the guidance branch
+        and the weights only — the timestep and the latent never reach it, and the
+        joint stack reads the result without writing it, so handing every step the
+        same tensor object is byte-for-byte the recompute.
+
+        The weight revision is read fresh on every lookup and never held across
+        steps: a step-windowed adapter applies and restores DURING a run, so a
+        value captured once at run start would answer with a caption refined by
+        weights that are no longer in effect.
+        """
+        cache = getattr(self, "run_cache", None)
+        revision = cache.revision if cache is not None else 0
+        key = (revision, context.data_ptr(), tuple(context.shape), context.dtype,
+               context.device, bsz, cap_len, dtype)
+        hit = geometry.captions.get(key)
+        if hit is not None:
+            return hit.cap
+
+        cap = self.cap_embedder(context)
+        cap = self._pad_tokens(cap, self.cap_pad_token)
+        for layer in self.context_refiner:
+            cap = layer(cap, geometry.cap_rope, None)
+        while len(geometry.captions) >= self._CAPTION_SLOTS:
+            del geometry.captions[next(iter(geometry.captions))]
+        geometry.captions[key] = _RefinedCaption(cap, context)
+        return cap
+
     # -- forward ------------------------------------------------------------
 
     def forward(self, x: Tensor, timestep: Tensor, context: Tensor, y=None, guidance=None,
@@ -172,31 +274,23 @@ class ZImageDiT(NativeArchModule):
         t = 1.0 - timestep
         adaln_input = self.t_embedder(t * self.time_scale, dtype=x.dtype)
 
-        # caption stream: embed -> pad -> context refiner.
-        cap = self.cap_embedder(context)
-        cap = self._pad_tokens(cap, self.cap_pad_token)
-        cap_len = cap.shape[1]
-        cap_pos = self._cap_pos_ids(cap_len, bsz, device)
-        cap_rope = self.rope_embedder(cap_pos).movedim(1, 2).to(x.dtype)
-        for layer in self.context_refiner:
-            cap = layer(cap, cap_rope, None)
+        # caption stream: embed -> pad -> context refiner. Reused across the steps
+        # of a run (the whole stream is timestep- and latent-independent), as are
+        # the position frequencies for this geometry.
+        cap_len = context.shape[1] + (-context.shape[1]) % self.pad_tokens_multiple
+        geometry = self._geometry(bsz, h_tok, w_tok, cap_len, device, x.dtype)
+        cap = self._refined_caption(geometry, context, bsz, cap_len, x.dtype)
 
         # image stream: patchify -> embed -> pad -> noise refiner.
         img = x.view(bsz, self.in_channels, h_tok, p, w_tok, p).permute(0, 2, 4, 3, 5, 1).flatten(3).flatten(1, 2)
         img = self.x_embedder(img)
-        img_pos = self._img_pos_ids(cap_len + 1, h_tok, w_tok, bsz, device)
         img = self._pad_tokens(img, self.x_pad_token)
-        if img.shape[1] != img_pos.shape[1]:  # x-pad tokens extend the position ids too
-            extra = img.shape[1] - img_pos.shape[1]
-            img_pos = F.pad(img_pos, (0, 0, 0, extra))
-        img_rope = self.rope_embedder(img_pos).movedim(1, 2).to(x.dtype)
-        img_len = img.shape[1]
         for layer in self.noise_refiner:
-            img = layer(img, img_rope, adaln_input)
+            img = layer(img, geometry.img_rope, adaln_input)
 
         # joint stack over [caption ; image].
         joint = torch.cat((cap, img), dim=1)
-        rope = torch.cat((cap_rope, img_rope), dim=1)
+        rope = geometry.joint_rope
         # FBCache: block-0's joint-sequence output is the change proxy; a skip
         # reuses the last computed output and bypasses layers 1..N + final_layer.
         step_cache = kwargs.get("step_cache")

@@ -124,7 +124,7 @@ export type HistoryQueryState = Pick<HistoryPageState, 'currentPage' | 'itemsPer
 
 // The exact payload sent to GET /api/generations. Also the source of the query
 // key, so anything that changes the request necessarily changes the key.
-function buildHistoryRequest(state: HistoryQueryState) {
+export function buildHistoryRequest(state: HistoryQueryState) {
 	const { currentPage, itemsPerPage, filters } = state;
 	return {
 		limit: itemsPerPage,
@@ -169,44 +169,77 @@ export interface RequestLifecycleRun<T> {
 
 export interface RequestLifecycle {
 	run<T>(request: RequestLifecycleRun<T>): Promise<boolean>;
+	// True only while the newest foreground request is unresolved. A superseded
+	// one that never settles must not hold the current query's spinner up.
 	hasForegroundInFlight(): boolean;
 }
 
-// Guards an async read against out-of-order responses: a response commits only
-// if its epoch is the newest issued and the caller's state still describes the
-// same query. Identical in-flight requests share one fetch; a foreground
-// request never joins a silent one, so it can own the loading state.
+// Every in-flight fetch is owned by the newest intent that wants it. Issuing a
+// request assigns the newest epoch; a response commits only if its owner still
+// holds that epoch and the caller's state still describes the same query.
+interface PendingRequest {
+	silent: boolean;
+	// Mutable so a later intent for the same query can take the fetch over
+	// rather than being answered by a response it has already invalidated.
+	owner: { epoch: number };
+	promise: Promise<boolean>;
+}
+
+// Guards an async read against out-of-order responses. Identical in-flight
+// requests share one fetch; a foreground request never joins a silent one, so
+// it can own the loading state.
 export function createRequestLifecycle(currentKey: () => string): RequestLifecycle {
 	let issued = 0;
 	let latest = 0;
-	let foreground = 0;
-	const pending = new Map<string, { silent: boolean; epoch: number; promise: Promise<boolean> }>();
+	let currentForeground: { epoch: number } | null = null;
+	const pending = new Map<string, PendingRequest>();
 
 	return {
-		hasForegroundInFlight: () => foreground > 0,
+		hasForegroundInFlight: () => currentForeground !== null,
 
 		run<T>({ key, bucket = '', silent = false, fetch, commit }: RequestLifecycleRun<T>) {
 			const slot = `${bucket}\u0000${key}`;
-			const existing = pending.get(slot);
-			if (existing && (silent || !existing.silent)) return existing.promise;
-
 			const epoch = ++issued;
 			latest = epoch;
-			if (!silent) foreground += 1;
+
+			const existing = pending.get(slot);
+			if (existing && (silent || !existing.silent)) {
+				// Returning to a query whose fetch is still running: hand that fetch
+				// the new epoch, or its answer would be read as stale and nothing
+				// would commit for either query.
+				existing.owner.epoch = epoch;
+				if (!silent) currentForeground = existing.owner;
+				return existing.promise;
+			}
+
+			const owner = { epoch };
+			if (!silent) currentForeground = owner;
+
+			let released = false;
+			const release = () => {
+				if (released) return;
+				released = true;
+				if (pending.get(slot)?.owner === owner) pending.delete(slot);
+				if (currentForeground === owner) currentForeground = null;
+			};
 
 			const promise = (async () => {
 				try {
 					const value = await fetch();
-					if (epoch !== latest || key !== currentKey()) return false;
+					// Released before commit: a subscriber that reloads synchronously
+					// from the commit must not join a fetch that is already answered.
+					release();
+					if (owner.epoch !== latest || key !== currentKey()) return false;
 					commit(value);
 					return true;
-				} finally {
-					if (pending.get(slot)?.epoch === epoch) pending.delete(slot);
-					if (!silent) foreground -= 1;
+				} catch (error) {
+					release();
+					throw error;
 				}
 			})();
 
-			pending.set(slot, { silent, epoch, promise });
+			// A fetch that threw synchronously has already released.
+			if (!released) pending.set(slot, { silent, owner, promise });
 			return promise;
 		}
 	};

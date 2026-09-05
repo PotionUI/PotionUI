@@ -114,6 +114,96 @@ describe('stores/history request lifecycle', () => {
 		expect(ids(get(historyStore))).toEqual(['page2-1']);
 	});
 
+	it('commits the query the user came back to when it resolves before the abandoned one', async () => {
+		const onA = deferred<unknown>();
+		const onB = deferred<unknown>();
+		mockGetGenerationHistory.mockReturnValueOnce(onA.promise).mockReturnValueOnce(onB.promise);
+
+		const firstA = historyStore.loadGenerations();
+		historyStore.setFilter('search', 'red fox');
+		const forB = historyStore.loadGenerations();
+		historyStore.setFilter('search', '');
+		const secondA = historyStore.loadGenerations();
+
+		// The re-request rides the still-pending fetch for the same query.
+		expect(mockGetGenerationHistory).toHaveBeenCalledTimes(2);
+
+		onA.resolve(pageOf([{ id: 'unfiltered-1' }]));
+		onB.resolve(pageOf([{ id: 'fox-1' }]));
+		await Promise.all([firstA, forB, secondA]);
+
+		const state = get(historyStore);
+		expect(ids(state)).toEqual(['unfiltered-1']);
+		expect(state.loading).toBe(false);
+	});
+
+	it('commits the query the user came back to when the abandoned one resolves first', async () => {
+		const onA = deferred<unknown>();
+		const onB = deferred<unknown>();
+		mockGetGenerationHistory.mockReturnValueOnce(onA.promise).mockReturnValueOnce(onB.promise);
+
+		const firstA = historyStore.loadGenerations();
+		historyStore.setFilter('search', 'red fox');
+		const forB = historyStore.loadGenerations();
+		historyStore.setFilter('search', '');
+		const secondA = historyStore.loadGenerations();
+
+		onB.resolve(pageOf([{ id: 'fox-1' }]));
+		onA.resolve(pageOf([{ id: 'unfiltered-1' }]));
+		await Promise.all([firstA, forB, secondA]);
+
+		const state = get(historyStore);
+		expect(ids(state)).toEqual(['unfiltered-1']);
+		expect(state.loading).toBe(false);
+	});
+
+	it('drops the spinner once the current request resolves, with an obsolete one still running', async () => {
+		const abandoned = deferred<unknown>();
+		const current = deferred<unknown>();
+		mockGetGenerationHistory
+			.mockReturnValueOnce(abandoned.promise)
+			.mockReturnValueOnce(current.promise);
+
+		const first = historyStore.loadGenerations();
+		historyStore.setPage(2);
+		const second = historyStore.loadGenerations();
+
+		current.resolve(pageOf([{ id: 'page2-1' }]));
+		await second;
+		expect(get(historyStore).loading).toBe(false);
+
+		abandoned.resolve(pageOf([{ id: 'page1-1' }]));
+		await first;
+
+		const state = get(historyStore);
+		expect(ids(state)).toEqual(['page2-1']);
+		expect(state.loading).toBe(false);
+	});
+
+	it('an obsolete completion leaves the current request spinner up', async () => {
+		const abandoned = deferred<unknown>();
+		const current = deferred<unknown>();
+		mockGetGenerationHistory
+			.mockReturnValueOnce(abandoned.promise)
+			.mockReturnValueOnce(current.promise);
+
+		const first = historyStore.loadGenerations();
+		historyStore.setPage(2);
+		const second = historyStore.loadGenerations();
+
+		abandoned.resolve(pageOf([{ id: 'page1-1' }]));
+		await first;
+		expect(get(historyStore).loading).toBe(true);
+		expect(get(historyStore).generations).toEqual([]);
+
+		current.resolve(pageOf([{ id: 'page2-1' }]));
+		await second;
+
+		const state = get(historyStore);
+		expect(ids(state)).toEqual(['page2-1']);
+		expect(state.loading).toBe(false);
+	});
+
 	it('a superseded failure leaves the newer result and its loading state alone', async () => {
 		const stale = deferred<unknown>();
 		const fresh = deferred<unknown>();
@@ -125,7 +215,7 @@ describe('stores/history request lifecycle', () => {
 
 		fresh.resolve(pageOf([{ id: 'page2-1' }]));
 		await second;
-		expect(get(historyStore).loading).toBe(true);
+		expect(get(historyStore).loading).toBe(false);
 
 		stale.reject(new Error('network down'));
 		await expect(first).resolves.toBeUndefined();

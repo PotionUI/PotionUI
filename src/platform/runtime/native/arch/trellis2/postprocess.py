@@ -32,13 +32,18 @@ Divergences worth knowing about:
 * **Hole filling** replicates ``trimesh.repair.fill_holes`` per boundary loop
   (:func:`_fill_small_holes`) instead of calling it directly: the installed
   trimesh (``repair.py``) triangulates every loop uniformly by vertex count —
-  a 3- or 4-vertex loop is always fanned/quad-split regardless of its size,
-  and ``use_fan=True`` extends that to n-gons, so it cannot tell a stray
-  missing quad from a metre-wide window with a simple rectangular rim. This
-  filters loops by mesh-space perimeter against upstream's ``3e-2`` cap first,
-  so a genuinely large opening (cup mouth, arch, window) survives even when
-  its rim happens to be a low-vertex-count loop, while voxel-scale pinholes
-  are still closed.
+  a 3- or 4-vertex loop is always fanned/quad-split regardless of its size, so
+  it cannot tell a stray missing quad from a metre-wide window with a simple
+  rectangular rim. This filters loops by mesh-space perimeter against
+  upstream's ``3e-2`` cap first, so a genuinely large opening (cup mouth,
+  arch, window) survives even when its rim happens to be a low-vertex-count
+  loop, while voxel-scale pinholes are still closed. Triangulation stays
+  ``use_fan=False`` (trimesh's own default): only 3- and 4-vertex loops are
+  ever filled. A fan over a 5+-vertex loop is only correct for a convex hole
+  — trimesh's own docs call out wrong answers on non-convex ones — and
+  eligibility here is decided by perimeter, not convexity, so a large
+  concave loop under the cap could otherwise be fanned wrong; such loops are
+  left open, deferred rather than risked.
 * **Projection to the source surface is off by default.** Upstream corrects
   decimation error by pushing every baked texel back onto the pre-decimation
   mesh with a CUDA BVH. The CPU stand-in indexes the source triangles with
@@ -152,6 +157,14 @@ def _fill_small_holes(mesh, max_perimeter: float = _MAX_HOLE_PERIMETER) -> None:
     shared with another boundary loop, which makes ``cycle_basis``'s split
     between them a topological artifact rather than a geometric fact, so
     such loops are left untouched rather than filled on a guess.
+
+    Triangulation uses ``use_fan=False``: a loop over four vertices is left
+    open even when its perimeter passes the cap. Fanning a polygon from its
+    first vertex is only guaranteed correct when the polygon is convex; the
+    perimeter cap says nothing about convexity, so a small concave loop (a
+    keyhole, a slot) fanned this way can produce triangles that fold outside
+    the hole. Filling those needs an actual triangulation (ear-clipping or
+    similar), which is deferred rather than risked here.
     """
     import networkx as nx
     from trimesh.geometry import faces_to_edges, triangulate_quads
@@ -178,7 +191,7 @@ def _fill_small_holes(mesh, max_perimeter: float = _MAX_HOLE_PERIMETER) -> None:
     if not eligible:
         return
 
-    new_faces = triangulate_quads(eligible, use_fan=True)
+    new_faces = triangulate_quads(eligible, use_fan=False)
     if len(new_faces) == 0:
         return
 

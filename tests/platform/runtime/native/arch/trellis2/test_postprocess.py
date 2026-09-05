@@ -170,6 +170,24 @@ def _bowtie_mesh(size=0.005):
     return trimesh.Trimesh(vertices, faces, process=False)
 
 
+def _concave_ring_cap_mesh(scale=1e-3):
+    """A cone over a concave 8-vertex ``U``-shaped ring (perimeter 16 units,
+    so ``perimeter * scale`` is well under the default fill threshold at
+    ``scale=1e-3``) — a triangle fan from an off-plane apex to every ring
+    edge, which makes the ring the mesh's only boundary loop regardless of
+    the ring's own (concave) shape. A fan filling *this* loop, the way
+    ``use_fan=True`` would, is exactly the wrong-answer case: fanning a
+    concave polygon from one of its own boundary vertices can cover area
+    outside the hole."""
+    ring = np.array([(0, 0), (3, 0), (3, 3), (2, 3), (2, 1), (1, 1), (1, 3), (0, 3)], dtype=np.float64)
+    ring = np.concatenate([ring * scale, np.zeros((ring.shape[0], 1))], axis=1)
+    apex = np.array([[ring[:, 0].mean(), ring[:, 1].mean(), 1.0]])
+    vertices = np.concatenate([apex, ring])
+    n = ring.shape[0]
+    faces = np.array([[0, 1 + i, 1 + (i + 1) % n] for i in range(n)], dtype=np.int64)
+    return trimesh.Trimesh(vertices, faces, process=False)
+
+
 def _box_with_missing_facet_triangles(extents, drop_both):
     """A box with one triangle (``drop_both=False``, a 3-vertex hole) or both
     triangles (``drop_both=True``, a 4-vertex hole) of one flat face removed."""
@@ -200,6 +218,17 @@ def test_a_boundary_loop_sharing_a_vertex_with_another_is_never_filled():
     _fill_small_holes(mesh)
 
     assert mesh.faces.shape[0] == 4
+
+
+def test_a_small_concave_ngon_hole_stays_open():
+    """Small and unshared, so both the perimeter and degree checks would pass
+    it — it must be excluded on vertex count alone (``use_fan=False``), since
+    fanning a concave loop from a single vertex is not a valid triangulation."""
+    mesh = _concave_ring_cap_mesh()
+
+    _fill_small_holes(mesh)
+
+    assert mesh.faces.shape[0] == 8
 
 
 def test_fill_small_holes_is_a_noop_on_an_already_watertight_mesh():

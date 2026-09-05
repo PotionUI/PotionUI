@@ -44,10 +44,23 @@
 		return '';
 	}
 
-	function highlightMatch(text: string, query: string): string {
-		if (!query) return text;
-		const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-		return text.replace(regex, '<mark class="bg-warning/20 text-white rounded px-0.5">$1</mark>');
+	function splitHighlight(text: string, query: string): Array<{ text: string; match: boolean }> {
+		if (!query) return [{ text, match: false }];
+		const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+		const segments: Array<{ text: string; match: boolean }> = [];
+		let lastIndex = 0;
+		let match: RegExpExecArray | null;
+		while ((match = regex.exec(text)) !== null) {
+			if (match.index > lastIndex) {
+				segments.push({ text: text.slice(lastIndex, match.index), match: false });
+			}
+			segments.push({ text: match[0], match: true });
+			lastIndex = match.index + match[0].length;
+		}
+		if (lastIndex < text.length) {
+			segments.push({ text: text.slice(lastIndex), match: false });
+		}
+		return segments.length ? segments : [{ text, match: false }];
 	}
 
 	$: isExpanded = expandedPaths.has(path);
@@ -75,11 +88,7 @@
 		<!-- Key -->
 		{#if keyName && !isRoot}
 			<span class="text-cyan-400">
-				{#if searchQuery}
-					{@html highlightMatch(keyName, searchQuery)}
-				{:else}
-					{keyName}
-				{/if}
+				{#if searchQuery}{#each splitHighlight(keyName, searchQuery) as segment}{#if segment.match}<mark class="bg-warning/20 text-white rounded px-0.5">{segment.text}</mark>{:else}{segment.text}{/if}{/each}{:else}{keyName}{/if}
 			</span>
 			<span class="text-fg-subtle">:</span>
 		{/if}
@@ -91,11 +100,7 @@
 			</span>
 		{:else}
 			<span class={getValueColor(data)}>
-				{#if searchQuery && typeof data === 'string'}
-					{@html highlightMatch(formatValue(data), searchQuery)}
-				{:else}
-					{formatValue(data)}
-				{/if}
+				{#if searchQuery && typeof data === 'string'}{#each splitHighlight(formatValue(data), searchQuery) as segment}{#if segment.match}<mark class="bg-warning/20 text-white rounded px-0.5">{segment.text}</mark>{:else}{segment.text}{/if}{/each}{:else}{formatValue(data)}{/if}
 			</span>
 		{/if}
 	</div>

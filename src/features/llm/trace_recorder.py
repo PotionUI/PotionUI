@@ -33,59 +33,113 @@ PRUNE_THROTTLE_SECONDS = 3600.0
 
 TRACE_QUEUE_MAXSIZE = 256
 
-# Per-field ceiling on the JSON a single trace contributes, in characters
-# (a close enough proxy for bytes on JSON text, and one full encode cheaper).
-# A history carrying an inline base64 image is megabytes on its own, and a
-# full queue of those would be gigabytes resident.
-MAX_TRACE_FIELD_CHARS = 64 * 1024
+# Ceiling on the serialized form of one field — the UTF-8 bytes the column
+# actually receives, markers and JSON separators included. A history carrying
+# an inline base64 image is megabytes on its own, and a full queue of those
+# would be gigabytes resident.
+MAX_TRACE_FIELD_BYTES = 64 * 1024
 
-# Ceiling on any one string nested inside a field. Shrinking these first keeps
-# an oversized history readable (its structure and short messages survive)
+# Ceiling on any one string nested inside a field, applied before the field is
+# serialized: it keeps a giant string from ever being rendered to JSON, and it
+# leaves an oversized history readable (structure and short messages survive)
 # instead of discarding the field wholesale.
-MAX_TRACE_STRING_CHARS = 8 * 1024
+MAX_TRACE_STRING_BYTES = 8 * 1024
 
-_STOP = object()
+# Reserved out of a field's budget for the marker entry that replaces what was
+# dropped, plus the brackets around it.
+_MARKER_ALLOWANCE_BYTES = 256
+
+# The writer waits on the queue in slices rather than on a stop token: a token
+# cannot be delivered through a queue that is already full, which is exactly
+# the state a shutdown under load has to survive.
+WORKER_POLL_SECONDS = 0.1
 
 
 def _truncation_marker(original_chars: int) -> str:
     return f"\n…[truncated: {original_chars} chars]"
 
 
-def _cap_text(value: Optional[str]) -> Tuple[Optional[str], bool]:
-    if value is None or len(value) <= MAX_TRACE_FIELD_CHARS:
+def _utf8_len(text: str) -> int:
+    return len(text.encode("utf-8"))
+
+
+def _exceeds(text: str, limit: int) -> bool:
+    """Whether ``text`` encodes to more than ``limit`` UTF-8 bytes.
+
+    Answers from the code-point count where that is already conclusive (a
+    UTF-8 encoding is never shorter than, nor more than four times, the number
+    of code points), so the encode only ever runs on a bounded slice.
+    """
+    if len(text) > limit:
+        return True
+    if len(text) <= limit // 4:
+        return False
+    return _utf8_len(text) > limit
+
+
+def _cap_string(value: str, limit: int) -> Tuple[str, bool]:
+    """Cut ``value`` to at most ``limit`` UTF-8 bytes, marker included."""
+    if not _exceeds(value, limit):
         return value, False
-    return value[:MAX_TRACE_FIELD_CHARS] + _truncation_marker(len(value)), True
+    marker = _truncation_marker(len(value))
+    budget = max(limit - _utf8_len(marker), 0)
+    head = value[:budget].encode("utf-8")[:budget].decode("utf-8", "ignore")
+    return head + marker, True
 
 
-def _shrink_strings(value: Any) -> Any:
+def _shrink_strings(value: Any) -> Tuple[Any, bool]:
     if isinstance(value, str):
-        if len(value) <= MAX_TRACE_STRING_CHARS:
-            return value
-        return value[:MAX_TRACE_STRING_CHARS] + _truncation_marker(len(value))
+        return _cap_string(value, MAX_TRACE_STRING_BYTES)
     if isinstance(value, dict):
-        return {key: _shrink_strings(item) for key, item in value.items()}
+        shrunk: Dict[Any, Any] = {}
+        cut = False
+        for key, item in value.items():
+            shrunk[key], item_cut = _shrink_strings(item)
+            cut = cut or item_cut
+        return shrunk, cut
     if isinstance(value, list):
-        return [_shrink_strings(item) for item in value]
-    return value
+        items = []
+        cut = False
+        for item in value:
+            shrunk_item, item_cut = _shrink_strings(item)
+            items.append(shrunk_item)
+            cut = cut or item_cut
+        return items, cut
+    return value, False
 
 
 def _keep_tail(items: List[Any]) -> List[Any]:
-    """Keep as many trailing entries as fit the field budget, oldest dropped.
+    """Keep as many trailing entries as the field budget affords.
 
     The tail of a message array is the part a debug trace is read for — the
-    turn that produced this call — so the head is what gets sacrificed.
+    turn that produced this call — so the head is what gets sacrificed. Each
+    entry is charged its own serialized bytes plus the separator that joins it
+    to the next one.
     """
+    budget = MAX_TRACE_FIELD_BYTES - _MARKER_ALLOWANCE_BYTES
     kept: List[Any] = []
-    budget = MAX_TRACE_FIELD_CHARS
     for item in reversed(items):
-        text = json.dumps(item, default=str)
-        if len(text) > budget:
+        cost = _utf8_len(json.dumps(item, default=str)) + len(", ")
+        if cost > budget:
             break
-        budget -= len(text)
+        budget -= cost
         kept.append(item)
     kept.reverse()
     dropped = len(items) - len(kept)
-    return [{"role": "system", "content": f"[{dropped} earlier entries dropped: trace field over {MAX_TRACE_FIELD_CHARS} chars]"}] + kept
+    marker = {
+        "role": "system",
+        "content": f"[{dropped} earlier entries dropped: field over {MAX_TRACE_FIELD_BYTES} bytes]",
+    }
+    return [marker] + kept
+
+
+def _dropped_value(value: Any) -> Any:
+    marker = f"[dropped: field over {MAX_TRACE_FIELD_BYTES} bytes]"
+    if isinstance(value, list):
+        return [{"role": "system", "content": marker}]
+    if isinstance(value, dict):
+        return {"truncated": marker}
+    return marker
 
 
 def _cap_json(value: Any) -> Tuple[Optional[str], bool]:
@@ -93,23 +147,32 @@ def _cap_json(value: Any) -> Tuple[Optional[str], bool]:
 
     The JSON text *is* the snapshot: it is immutable, so a caller mutating the
     history afterwards cannot change what gets persisted, and its length is the
-    exact memory a queued record holds. The writer thread decodes it again for
-    the repository, which owns the encoding of what it stores.
+    memory a queued record holds. Strings are cut before the first ``dumps`` so
+    an inline base64 image is never rendered to JSON at all. The writer thread
+    decodes the text again for the repository, which owns the encoding of what
+    it stores — the same encoder settings, so the bytes measured here are the
+    bytes the column receives.
     """
     if value is None:
         return None, False
-    text = json.dumps(value, default=str)
-    if len(text) <= MAX_TRACE_FIELD_CHARS:
-        return text, False
 
-    shrunk = _shrink_strings(value)
+    shrunk, cut = _shrink_strings(value)
     text = json.dumps(shrunk, default=str)
-    if len(text) <= MAX_TRACE_FIELD_CHARS:
-        return text, True
+    if not _exceeds(text, MAX_TRACE_FIELD_BYTES):
+        return text, cut
 
     if isinstance(shrunk, list):
-        return json.dumps(_keep_tail(shrunk), default=str), True
-    return json.dumps({"truncated": _truncation_marker(len(text))}), True
+        text = json.dumps(_keep_tail(shrunk), default=str)
+        if not _exceeds(text, MAX_TRACE_FIELD_BYTES):
+            return text, True
+
+    return json.dumps(_dropped_value(shrunk), default=str), True
+
+
+def _cap_text(value: Optional[str]) -> Tuple[Optional[str], bool]:
+    if value is None:
+        return None, False
+    return _cap_string(value, MAX_TRACE_FIELD_BYTES)
 
 
 @dataclass(frozen=True)
@@ -148,22 +211,24 @@ class ChatCallTraceRecorder:
         self._settings = settings
         self._clock = clock
         self._last_prune_at: Optional[float] = None
-        self._queue: "queue.Queue[Any]" = queue.Queue(maxsize=queue_maxsize)
+        self._queue: "queue.Queue[_QueuedTrace]" = queue.Queue(maxsize=queue_maxsize)
+        # One lock covers admission, the worker handle, the stop flags and the
+        # counters, so a record can never be admitted after a shutdown has
+        # begun to tear the writer down.
+        self._lock = threading.Lock()
         self._worker: Optional[threading.Thread] = None
-        self._worker_lock = threading.Lock()
-        self._stopped = False
-        self._discarding = threading.Event()
-        self._counters_lock = threading.Lock()
-        self._counters = {"written": 0, "dropped": 0, "truncated": 0, "failed": 0}
+        self._stopping = False
+        self._draining = True
+        self._counters = {"written": 0, "dropped": 0, "discarded": 0, "truncated": 0, "failed": 0}
 
     def stats(self) -> Dict[str, int]:
-        with self._counters_lock:
+        with self._lock:
             counters = dict(self._counters)
         counters["queued"] = self._queue.qsize()
         return counters
 
     def _bump(self, counter: str) -> None:
-        with self._counters_lock:
+        with self._lock:
             self._counters[counter] += 1
 
     def _enabled(self) -> bool:
@@ -195,7 +260,7 @@ class ChatCallTraceRecorder:
         completion_tokens: Optional[int],
         duration_ms: int,
     ) -> None:
-        if not self._enabled() or self._stopped:
+        if not self._enabled():
             return
 
         messages_json, messages_cut = _cap_json(request_messages)
@@ -222,40 +287,52 @@ class ChatCallTraceRecorder:
             completion_tokens=completion_tokens,
             duration_ms=duration_ms,
         )
+        truncated = any(
+            (messages_cut, params_cut, tools_cut, tool_calls_cut, system_cut, response_cut)
+        )
 
-        self._ensure_worker()
-        try:
-            self._queue.put_nowait(item)
-        except queue.Full:
-            # Drop the newest, never the oldest and never block: the queue is
-            # full because the DB is slower than the chat is producing, and the
-            # traces already in it are the earlier calls of the same turns —
-            # the ones that explain the later ones. Blocking here would put the
-            # write back on the response path, which is the whole point.
-            self._bump("dropped")
-            return
+        with self._lock:
+            if self._stopping:
+                self._counters["dropped"] += 1
+                return
+            self._start_worker_locked()
+            try:
+                self._queue.put_nowait(item)
+            except queue.Full:
+                # Drop the newest, never the oldest and never block: the queue
+                # is full because the DB is slower than the chat is producing,
+                # and the traces already in it are the earlier calls of the
+                # same turns — the ones that explain the later ones. Blocking
+                # here would put the write back on the response path, which is
+                # the whole point.
+                self._counters["dropped"] += 1
+                return
+            if truncated:
+                self._counters["truncated"] += 1
 
-        if messages_cut or params_cut or tools_cut or tool_calls_cut or system_cut or response_cut:
-            self._bump("truncated")
-
-    def _ensure_worker(self) -> None:
+    def _start_worker_locked(self) -> None:
         if self._worker is not None:
             return
-        with self._worker_lock:
-            if self._worker is not None or self._stopped:
-                return
-            self._worker = threading.Thread(
-                target=self._run, name="chat-trace-writer", daemon=True,
-            )
-            self._worker.start()
+        self._worker = threading.Thread(
+            target=self._run, name="chat-trace-writer", daemon=True,
+        )
+        self._worker.start()
 
     def _run(self) -> None:
         while True:
-            item = self._queue.get()
-            if item is _STOP:
-                return
-            if self._discarding.is_set():
+            try:
+                item = self._queue.get(timeout=WORKER_POLL_SECONDS)
+            except queue.Empty:
+                with self._lock:
+                    if self._stopping:
+                        return
                 continue
+
+            with self._lock:
+                if self._stopping and not self._draining:
+                    self._counters["discarded"] += 1
+                    continue
+
             try:
                 self._write(item)
             except Exception:
@@ -289,20 +366,25 @@ class ChatCallTraceRecorder:
         self._bump("written")
 
     def shutdown(self, drain: bool = True, timeout: float = 5.0) -> None:
-        """Stop the writer. With ``drain``, queued traces are written first."""
-        with self._worker_lock:
-            self._stopped = True
+        """Stop the writer. With ``drain``, queued traces are written first.
+
+        A writer still inside a slow write outlives ``timeout``; it stops on
+        its own once that write returns. The handle is kept in that case so a
+        later call joins the same thread rather than losing it.
+        """
+        with self._lock:
+            self._stopping = True
+            self._draining = drain
             worker = self._worker
-            self._worker = None
         if worker is None:
             return
-        if not drain:
-            self._discarding.set()
-        try:
-            self._queue.put(_STOP, timeout=timeout)
-        except queue.Full:
-            self._discarding.set()
-            logger.warning("Chat trace queue still full at shutdown; dropping pending traces")
         worker.join(timeout)
         if worker.is_alive():
-            logger.warning("Chat trace writer did not stop within %.1fs", timeout)
+            logger.warning(
+                "Chat trace writer still busy after %.1fs; it will stop once the write returns",
+                timeout,
+            )
+            return
+        with self._lock:
+            if self._worker is worker:
+                self._worker = None

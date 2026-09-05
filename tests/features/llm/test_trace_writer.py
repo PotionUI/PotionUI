@@ -17,10 +17,15 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from src.features.llm.trace_recorder import (
-    MAX_TRACE_FIELD_CHARS,
-    MAX_TRACE_STRING_CHARS,
+    MAX_TRACE_FIELD_BYTES,
+    MAX_TRACE_STRING_BYTES,
     ChatCallTraceRecorder,
 )
+
+
+def stored_json_bytes(value) -> int:
+    """Bytes the column receives: the repository encodes with plain json.dumps."""
+    return len(json.dumps(value).encode("utf-8"))
 
 
 class FakeTraceRepository:
@@ -293,13 +298,14 @@ class TestShutdown:
         assert len(repository.created) < 10
         assert not any(t.name == "chat-trace-writer" for t in threading.enumerate())
 
-    def test_record_after_shutdown_is_a_no_op(self):
+    def test_record_after_shutdown_is_dropped_and_counted(self):
         repository = FakeTraceRepository()
         recorder = make_recorder(repository)
         recorder.shutdown(timeout=5.0)
         record(recorder)
 
         assert recorder.stats()["queued"] == 0
+        assert recorder.stats()["dropped"] == 1
         assert repository.created == []
 
 
@@ -307,21 +313,21 @@ class TestByteCaps:
     def test_an_oversized_message_is_capped_and_marked(self):
         repository = FakeTraceRepository()
         recorder = make_recorder(repository)
-        huge = "x" * (MAX_TRACE_FIELD_CHARS * 2)
+        huge = "x" * (MAX_TRACE_FIELD_BYTES * 2)
         record(recorder, request_messages=[{"role": "user", "content": huge}])
         recorder.shutdown(timeout=5.0)
 
         stored = repository.created[0]["request_messages"]
         assert isinstance(stored, list)
         assert stored[0]["role"] == "user"
-        assert len(stored[0]["content"]) < MAX_TRACE_STRING_CHARS + 200
         assert "truncated" in stored[0]["content"]
+        assert stored_json_bytes(stored) <= MAX_TRACE_FIELD_BYTES
         assert recorder.stats()["truncated"] == 1
 
     def test_every_field_of_an_enormous_trace_stays_within_the_cap(self):
         repository = FakeTraceRepository()
         recorder = make_recorder(repository)
-        huge = "y" * (MAX_TRACE_FIELD_CHARS * 4)
+        huge = "y" * (MAX_TRACE_FIELD_BYTES * 4)
         record(
             recorder,
             request_system=huge,
@@ -333,34 +339,126 @@ class TestByteCaps:
 
         created = repository.created[0]
         for field in ("request_messages", "request_params"):
-            assert len(json.dumps(created[field])) <= MAX_TRACE_FIELD_CHARS * 1.1
+            assert stored_json_bytes(created[field]) <= MAX_TRACE_FIELD_BYTES
         for field in ("request_system", "response_text"):
-            assert len(created[field]) <= MAX_TRACE_FIELD_CHARS + 200
+            assert len(created[field].encode("utf-8")) <= MAX_TRACE_FIELD_BYTES
         assert recorder.stats()["truncated"] == 1
 
-    def test_many_small_messages_keep_their_tail_when_over_the_field_cap(self):
+    def test_many_tiny_entries_stay_within_the_serialized_field_cap(self):
+        # Every entry is far below the per-string cap, so the field only goes
+        # over through sheer count plus the separators between entries.
         repository = FakeTraceRepository()
         recorder = make_recorder(repository)
-        filler = "z" * (MAX_TRACE_STRING_CHARS - 100)
-        messages = [{"role": "user", "content": f"{i}-{filler}"} for i in range(40)]
+        messages = [{"role": "user", "content": str(i)} for i in range(20000)]
         record(recorder, request_messages=messages)
         recorder.shutdown(timeout=5.0)
 
         stored = repository.created[0]["request_messages"]
-        assert len(json.dumps(stored)) <= MAX_TRACE_FIELD_CHARS * 1.1
+        assert stored_json_bytes(stored) <= MAX_TRACE_FIELD_BYTES
         assert "earlier entries dropped" in stored[0]["content"]
-        assert stored[-1]["content"].startswith("39-")
+        assert stored[-1]["content"] == "19999"
+
+    def test_non_ascii_text_is_capped_by_bytes_not_code_points(self):
+        repository = FakeTraceRepository()
+        recorder = make_recorder(repository)
+        # Each of these code points is 3 UTF-8 bytes, and six ASCII bytes once
+        # JSON-escaped, so a code-point cap would overshoot several times over.
+        multibyte = "日" * (MAX_TRACE_FIELD_BYTES - 100)
+        record(
+            recorder,
+            request_system=multibyte,
+            request_messages=[{"role": "user", "content": multibyte}],
+            response_text=multibyte,
+        )
+        recorder.shutdown(timeout=5.0)
+
+        created = repository.created[0]
+        assert stored_json_bytes(created["request_messages"]) <= MAX_TRACE_FIELD_BYTES
+        assert len(created["request_system"].encode("utf-8")) <= MAX_TRACE_FIELD_BYTES
+        assert len(created["response_text"].encode("utf-8")) <= MAX_TRACE_FIELD_BYTES
+        assert "truncated" in created["response_text"]
+
+    def test_a_nested_string_is_capped_by_bytes(self):
+        repository = FakeTraceRepository()
+        recorder = make_recorder(repository)
+        record(recorder, request_params={"prompt": "é" * MAX_TRACE_STRING_BYTES})
+        recorder.shutdown(timeout=5.0)
+
+        stored = repository.created[0]["request_params"]["prompt"]
+        assert len(stored.encode("utf-8")) <= MAX_TRACE_STRING_BYTES + 100
+        assert "truncated" in stored
 
     def test_an_oversized_response_text_keeps_its_head(self):
         repository = FakeTraceRepository()
         recorder = make_recorder(repository)
-        record(recorder, response_text="a" * (MAX_TRACE_FIELD_CHARS + 500))
+        record(recorder, response_text="a" * (MAX_TRACE_FIELD_BYTES + 500))
         recorder.shutdown(timeout=5.0)
 
         stored = repository.created[0]["response_text"]
         assert stored.startswith("aaa")
         assert "truncated" in stored
-        assert len(stored) < MAX_TRACE_FIELD_CHARS + 200
+        assert len(stored.encode("utf-8")) <= MAX_TRACE_FIELD_BYTES
+
+
+class TestStopAdmission:
+    def test_a_timed_out_shutdown_still_stops_the_worker_and_a_later_join_succeeds(self):
+        gate = threading.Event()
+        repository = FakeTraceRepository(gate=gate)
+        recorder = make_recorder(repository, queue_maxsize=2)
+        try:
+            # Writer stuck inside a write, queue full behind it: there is no
+            # room for a stop token, so stopping cannot depend on one.
+            record(recorder, iteration=1)
+            assert repository.entered_create.wait(5.0)
+            record(recorder, iteration=2)
+            record(recorder, iteration=3)
+            assert wait_until(lambda: recorder.stats()["queued"] == 2)
+
+            recorder.shutdown(drain=True, timeout=0.01)
+            assert any(t.name == "chat-trace-writer" for t in threading.enumerate())
+        finally:
+            gate.set()
+
+        assert wait_until(lambda: not any(t.name == "chat-trace-writer" for t in threading.enumerate()))
+        recorder.shutdown(timeout=5.0)
+        assert [c["iteration"] for c in repository.created] == [1, 2, 3]
+
+    def test_nothing_is_admitted_after_stop_begins_and_every_attempt_is_counted(self):
+        gate = threading.Event()
+        repository = FakeTraceRepository(gate=gate)
+        recorder = make_recorder(repository, queue_maxsize=8)
+        try:
+            record(recorder, iteration=1)
+            assert repository.entered_create.wait(5.0)
+            record(recorder, iteration=2)
+            assert wait_until(lambda: recorder.stats()["queued"] == 1)
+
+            recorder.shutdown(drain=True, timeout=0.01)
+            for i in range(5):
+                record(recorder, iteration=100 + i)
+
+            assert recorder.stats()["queued"] == 1, "a record was admitted after stop"
+            assert recorder.stats()["dropped"] == 5
+        finally:
+            gate.set()
+
+        recorder.shutdown(timeout=5.0)
+        assert [c["iteration"] for c in repository.created] == [1, 2]
+        stats = recorder.stats()
+        assert stats["written"] + stats["dropped"] + stats["discarded"] == 7
+
+    def test_a_non_draining_shutdown_counts_what_it_throws_away(self):
+        repository = FakeTraceRepository(write_delay=0.2)
+        recorder = make_recorder(repository)
+        for i in range(10):
+            record(recorder, iteration=i + 1)
+        assert wait_until(lambda: recorder.stats()["queued"] >= 5)
+
+        recorder.shutdown(drain=False, timeout=5.0)
+
+        stats = recorder.stats()
+        assert stats["discarded"] > 0
+        assert stats["written"] + stats["discarded"] + stats["failed"] == 10
 
 
 @pytest.fixture(autouse=True)

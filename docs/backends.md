@@ -422,6 +422,15 @@ executors** — they start and cancel work and report health. Generation state (
 listing, subscription) is owned by `GenerationStatusTracker` on the orchestrator side, never by a
 backend.
 
+`BaseBackend` also carries one class-level declaration, `execution_device` (an `ExecutionDevice` —
+`"this_host_gpu"` | `"remote"` | `"unestablished"`, the default). It exists so a preset requirement
+check (`src/features/presets/requirements/context_builder.py`'s `vram_min_gb`) can tell whether this
+process's own GPU reading applies to a given backend, without ever guessing from the backend's
+driver *name*. `NativeBackend` overrides it to `"this_host_gpu"`; the Remote Native worker backend
+overrides it to `"remote"`. Every other backend, core or plugin, is left at `"unestablished"` — an
+`InProcessBackend` that only coordinates a pipeline talking to some other server (`ComfyUIBackend`
+included) does not thereby run inference on this host's GPU, so it must not read as local.
+
 `InProcessBackend` factors out what every backend so far actually does: it owns the `_active` set of
 in-flight generation ids, the `_run` coroutine that drives `GenerationEngine` on a worker thread and
 emits completion, and `cancel_generation`. Before executing it calls `self.prepare_pipes(pipes)`, the
@@ -519,6 +528,12 @@ Your backend class should subclass `InProcessBackend` and override `prepare_pipe
 `health_check` / `get_system_info`, which have no sensible default for a remote service). If it
 needs the `GenerationEngine`, expose a `set_generation_engine(manager)` method — the registry
 calls it after construction when present.
+
+Leave `execution_device` alone unless your backend genuinely runs inference on this host's own GPU
+in-process (it almost never does — talking to an external server, even one on `localhost`, does
+not count). The inherited `"unestablished"` default is correct for that case and keeps a
+`vram_min_gb` requirement reading `unknown` against your engine rather than silently attributing
+this host's VRAM to whatever server your backend is actually configured to reach.
 
 A plugin that provides an engine will normally also provide the pipes that speak it (manifest
 `pipes:` section) and ship the presets that declare it (manifest `presets:` section — a directory,

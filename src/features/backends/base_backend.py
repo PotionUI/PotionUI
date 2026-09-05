@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional, Callable, TYPE_CHECKING
+from typing import ClassVar, Dict, Any, List, Literal, Optional, Callable, TYPE_CHECKING
 from src.pipelines.outputs import GenerationOutput
 from src.features.backends.model_listing import BackendModel, ModelListingNotSupported
 
@@ -15,6 +15,22 @@ class GenerationResult:
         self.outputs = outputs or {}
 
 
+# Where a backend actually runs inference, as far as a caller off this
+# class (e.g. a preset requirement checker deciding whether this host's own
+# GPU reading applies - see src.features.presets.requirements.context_builder)
+# can trust without probing anything itself:
+# - "this_host_gpu": inference runs on this process's own GPU.
+# - "remote": inference runs on hardware this process cannot see (a worker
+#   over the network) - a local GPU reading must never be attributed to it.
+# - "unestablished": the backend hasn't declared either - the safe default,
+#   never treated as local. An `InProcessBackend` only says where the
+#   *coordinating pipeline* runs, not where inference happens (the ComfyUI
+#   plugin's backend executes in this process but drives an external
+#   ComfyUI server's own GPU), so it deliberately stays unestablished unless
+#   a subclass overrides it with real knowledge.
+ExecutionDevice = Literal["this_host_gpu", "remote", "unestablished"]
+
+
 class BaseBackend(ABC):
     """
     Abstract base class for all backend implementations.
@@ -24,6 +40,12 @@ class BaseBackend(ABC):
     progress, listing, subscription) is owned exclusively by
     GenerationStatusTracker on the orchestrator side.
     """
+
+    # See `ExecutionDevice` above. A subclass with real knowledge of where
+    # its inference runs overrides this at the class level (`NativeBackend`
+    # -> "this_host_gpu", `RemoteNativeBackend` -> "remote"); anything else,
+    # core or plugin, stays "unestablished" without needing to say so.
+    execution_device: ClassVar[ExecutionDevice] = "unestablished"
 
     def __init__(self, backend_config):
         self.config = backend_config

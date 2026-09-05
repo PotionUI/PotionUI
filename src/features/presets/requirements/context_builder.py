@@ -31,12 +31,21 @@ def _resolve_backend(backend_registry: Optional[BackendRegistry], engine: str) -
     config = backend_registry.backend_config_store.get_default_backend(engine)
     if config is None:
         return None
+    # The instantiated backend, not just its config - `execution_device` is a
+    # class attribute on the backend implementation (see
+    # `src.features.backends.base_backend.ExecutionDevice`), not something a
+    # config ever carries. `get_backend` can still return `None` (e.g. the
+    # config is enabled but the registry hasn't instantiated it yet) - the
+    # `getattr` default below then reads "unestablished", same as any other
+    # backend that hasn't declared where it executes.
+    backend = backend_registry.get_backend(config.id)
     return RequirementBackendInfo(
         id=config.id,
         engine=config.engine,
         driver=config.driver or config.engine,
         config=config,
         name=config.name,
+        execution_device=getattr(backend, "execution_device", "unestablished"),
     )
 
 
@@ -56,6 +65,7 @@ def backend_infos_for_engine(backend_registry: Optional[BackendRegistry], engine
             driver=backend.config.driver or backend.engine,
             config=backend.config,
             name=backend.name,
+            execution_device=getattr(backend, "execution_device", "unestablished"),
         )
         for backend in backend_registry.get_backends_for_engine(engine)
     ]
@@ -73,11 +83,19 @@ def build_requirement_context_for_backend(
     `evaluate_preset_requirements_for_backends` uses to check a preset
     against one specific backend of its engine."""
     gpu_available = bool(gpu_monitor is not None and gpu_monitor.available)
-    # No local VRAM reading for a remote backend - the GPU this process can
-    # see (if any) isn't the one the preset would actually run on.
-    is_remote_backend = backend is not None and "remote" in (backend.driver or "")
+    # A local VRAM reading applies only when the resolved backend has
+    # affirmatively declared it runs inference on this host's own GPU (see
+    # `RequirementBackendInfo.execution_device`) - never inferred from the
+    # backend's driver *name*. A plugin driver that happens to contain
+    # "remote" proves nothing on its own, and a driver name that doesn't
+    # contain it is equally not evidence this host's GPU is the one that
+    # would run the preset (an in-process backend that only coordinates a
+    # pipeline talking to some other server, e.g. the ComfyUI plugin's
+    # backend, must not read as local either) - `execution_device` defaults
+    # to "unestablished" for exactly that reason.
+    executes_on_this_host_gpu = backend is not None and backend.execution_device == "this_host_gpu"
     gpu_total_vram_gb = None
-    if gpu_available and not is_remote_backend:
+    if gpu_available and executes_on_this_host_gpu:
         gpu_total_vram_gb = gpu_monitor.get_total_vram() / 1024.0
 
     return RequirementContext(
@@ -100,7 +118,7 @@ def build_requirement_context(
     against the preset's engine's DEFAULT backend (or no backend at all, if
     none is configured). Host-scoped checkers (the only ones this context is
     meant for outside of `evaluate_preset_requirements_for_backends`) never
-    read `ctx.backend` for anything but the VRAM-reading's remote-backend
+    read `ctx.backend` for anything but the VRAM-reading's execution-device
     guard above."""
     backend = _resolve_backend(backend_registry, preset.engine)
     return build_requirement_context_for_backend(preset, models, gpu_monitor, backend)

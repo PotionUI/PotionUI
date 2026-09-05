@@ -72,6 +72,16 @@ class RequirementBackendInfo:
     # read by any core checker, only surfaced to the `requirements` API/UI
     # so a per-backend result can be labeled without a second lookup.
     name: str = ""
+    # Copied verbatim from the resolved backend instance's own
+    # `execution_device` class attribute (see
+    # `src.features.backends.base_backend.ExecutionDevice`) - "this_host_gpu",
+    # "remote", or "unestablished" (the default, e.g. no backend was
+    # resolved at all). This is the ONLY thing `vram_min_gb` trusts to
+    # decide whether this process's own GPU reading applies to a given
+    # backend - never the driver name (a plugin driver containing "remote"
+    # in its name proves nothing, and one that doesn't is not evidence of
+    # locality either).
+    execution_device: str = "unestablished"
 
 
 @dataclass(frozen=True)

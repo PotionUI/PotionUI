@@ -22,9 +22,9 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Set
 
-from src.features.backends.base_backend import BaseBackend
+from src.features.backends.base_backend import BaseBackend, ExecutionDevice
 from src.features.generation.input_assets import collect_input_assets
 from src.features.generation.package_assembly import (
     assemble_execution_package,
@@ -84,6 +84,8 @@ _CUDA_UNAVAILABLE_MESSAGE = (
 
 class RemoteNativeBackend(BaseBackend):
     """A configured Remote Native worker."""
+
+    execution_device: ClassVar[ExecutionDevice] = "remote"
 
     def __init__(self, backend_config, *, transport_override=None):
         super().__init__(backend_config)

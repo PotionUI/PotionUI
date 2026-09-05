@@ -428,10 +428,16 @@ under a `requirement_checkers:` manifest root (see `src.plugin_api.presets.Requi
 
 `vram_min_gb` reads **physical device memory**, not a configured budget: it checks whichever
 backend of the preset's engine is actually being asked (see "Host-scoped vs backend-scoped
-checkers" below), against that backend's own hardware. A backend whose driver is local resolves
-against this host's GPU; a remote-worker driver (e.g. `native.remote`) always resolves to `unknown`
-— this process has no local reading for hardware it cannot see, and the check never substitutes a
-guess. A passing `vram_min_gb` reading is evidence a card is physically present, not a guarantee a
+checkers" below), against that backend's own hardware — never against the backend's driver *name*.
+A backend resolves against this host's GPU only when its implementation class has declared it
+actually runs inference there (`execution_device = "this_host_gpu"` — see
+`src.features.backends.base_backend.ExecutionDevice`); one that declares it runs remotely
+(`"remote"`, e.g. `native.remote`) or hasn't declared anything at all (`"unestablished"` — the
+default every plugin-provided backend gets unless it says otherwise, since an in-process backend
+that merely coordinates a pipeline talking to some other server, like the ComfyUI plugin's own
+backend, is not thereby running inference on this host's GPU) always resolves to `unknown` — this
+process has no local reading for hardware it cannot prove is its own, and the check never
+substitutes a guess. A passing `vram_min_gb` reading is evidence a card is physically present, not a guarantee a
 given model fits: that is a function of the *loading budget* an admin configures per native backend
 (`gpu_max_vram`, composed at load time via `effective_vram_budget_gb()` — see
 [Backends](/admin?tab=docs&doc=dev/backends) "Why GPU settings live on the native backend"), which

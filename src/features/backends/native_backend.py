@@ -1,7 +1,8 @@
-from typing import Any, Dict, List
+from typing import Any, ClassVar, Dict, List
 
 from src.platform.observability.logger import logger
 
+from .base_backend import ExecutionDevice
 from .in_process_backend import InProcessBackend
 from .model_listing import BackendModel, deduplicate
 from .native_model_scan import scan_native_models
@@ -24,6 +25,8 @@ class NativeBackend(InProcessBackend):
     Because its executor holds a single GPU and a single cancellation flag, the
     native engine has exactly one backend, provisioned automatically.
     """
+
+    execution_device: ClassVar[ExecutionDevice] = "this_host_gpu"
 
     def supports_model_listing(self) -> bool:
         return True

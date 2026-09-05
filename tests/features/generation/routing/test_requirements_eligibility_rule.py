@@ -133,8 +133,12 @@ class TestRequirementsEligibilityWithRealVramMinGb:
     async def test_hard_missing_local_backend_is_dropped_remote_unknown_is_kept(self):
         preset = Mock(id="native-preset", requirements=[{"type": "vram_min_gb", "gb": 16}])
         gpu_monitor = _FakeGpuMonitor(total_vram_mb=8 * 1024)  # 8 GB - below the 16 GB floor
-        local_info = RequirementBackendInfo(id="native-local", engine="native", driver="native")
-        remote_info = RequirementBackendInfo(id="native-remote-1", engine="native", driver="native.remote")
+        local_info = RequirementBackendInfo(
+            id="native-local", engine="native", driver="native", execution_device="this_host_gpu",
+        )
+        remote_info = RequirementBackendInfo(
+            id="native-remote-1", engine="native", driver="native.remote", execution_device="remote",
+        )
         host_ctx = build_requirement_context_for_backend(preset, None, gpu_monitor, None)
         backend_ctxs = {
             "native-local": build_requirement_context_for_backend(preset, None, gpu_monitor, local_info),
@@ -154,3 +158,29 @@ class TestRequirementsEligibilityWithRealVramMinGb:
         assert "16 GB" in by_id["native-local"].reasons[-1]
         assert not by_id["native-remote-1"].dropped
         assert by_id["native-remote-1"].reasons[-1] == "requirements satisfied"
+
+    @pytest.mark.asyncio
+    async def test_unestablished_execution_device_backend_is_kept_not_excluded(self):
+        """A comfyui-shaped backend (network `host`, no `execution_device`
+        override) always reads `unknown` for `vram_min_gb` regardless of
+        this API host's own GPU total - it must never be excluded by
+        routing eligibility for a requirement it cannot be evaluated
+        against."""
+        preset = Mock(id="comfy-preset", requirements=[{"type": "vram_min_gb", "gb": 16}])
+        gpu_monitor = _FakeGpuMonitor(total_vram_mb=24 * 1024)  # plenty, but irrelevant here
+        comfy_info = RequirementBackendInfo(
+            id="comfy-worker", engine="comfyui", driver="comfyui", execution_device="unestablished",
+        )
+        host_ctx = build_requirement_context_for_backend(preset, None, gpu_monitor, None)
+        backend_ctxs = {"comfy-worker": build_requirement_context_for_backend(preset, None, gpu_monitor, comfy_info)}
+        cache = RequirementsCache()
+        await cache.get_or_evaluate_for_backends(requirement_checker_registry, preset, host_ctx, backend_ctxs)
+
+        candidates = _candidates("comfy-worker")
+        ctx = RoutingContext(backend_registry=Mock(), requirements_cache=cache)
+        request = RoutingRequest(engine="comfyui", preset=preset, form_data={})
+
+        result = await RequirementsEligibility().apply(candidates, request, ctx)
+
+        assert not result[0].dropped
+        assert result[0].reasons[-1] == "requirements satisfied"

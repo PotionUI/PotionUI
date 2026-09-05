@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.features.backends.in_process_backend import InProcessBackend
 from src.features.presets import operations
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets.exceptions import PresetNotFoundException
@@ -246,11 +247,17 @@ class _FakeBackendConfig:
 
 
 class _FakeBackend:
-    def __init__(self, config):
+    def __init__(self, config, execution_device="unestablished"):
         self.config = config
         self.backend_id = config.id
         self.name = config.name
         self.engine = config.engine
+        # Mirrors the real `BaseBackend.execution_device` class attribute
+        # (src.features.backends.base_backend.ExecutionDevice) - set
+        # explicitly per fixture backend, never derived from `driver`, the
+        # same way a real backend class declares it rather than the config
+        # inferring it from a name.
+        self.execution_device = execution_device
 
 
 class _FakeBackendConfigStore:
@@ -274,6 +281,9 @@ class _FakeBackendRegistry:
 
     def get_backends_for_engine(self, engine):
         return [b for b in self._backends if b.engine == engine]
+
+    def get_backend(self, backend_id):
+        return next((b for b in self._backends if b.backend_id == backend_id), None)
 
 
 def _two_comfyui_backends():
@@ -362,8 +372,14 @@ class _FakeGpuMonitor:
 
 def _native_backends():
     return [
-        _FakeBackend(_FakeBackendConfig("native-local", "Local GPU", "native", driver="native")),
-        _FakeBackend(_FakeBackendConfig("native-remote-1", "Remote Worker", "native", driver="native.remote")),
+        _FakeBackend(
+            _FakeBackendConfig("native-local", "Local GPU", "native", driver="native"),
+            execution_device="this_host_gpu",
+        ),
+        _FakeBackend(
+            _FakeBackendConfig("native-remote-1", "Remote Worker", "native", driver="native.remote"),
+            execution_device="remote",
+        ),
     ]
 
 
@@ -490,3 +506,92 @@ class TestGetPresetRequirementsVramMinGbPerBackend:
         by_id = {b["id"]: b for b in data["backends"]}
         assert by_id["native-local"]["summary"] == {"ok": 1, "missing": 1, "unknown": 0, "optional_missing": 0}
         assert by_id["native-remote-1"]["summary"] == {"ok": 1, "missing": 0, "unknown": 1, "optional_missing": 0}
+
+
+class _ComfyUIShapedConfig:
+    """Mirrors `ComfyUIBackendConfig`'s actual shape enough for this
+    fixture (a plain network `host`, `driver` defaulting to the engine
+    name) without importing content/plugins/marketplace/comfyui-backend -
+    that plugin keeps its own tests/ dir per the marketplace convention."""
+
+    def __init__(self, id, name, host):
+        self.id = id
+        self.name = name
+        self.engine = "comfyui"
+        self.driver = "comfyui"
+        self.host = host
+
+
+class _ComfyUIShapedBackend(InProcessBackend):
+    """The real plugin-registration shape (docs/backends.md "Contributing
+    an engine from a plugin"): a REAL `InProcessBackend` subclass, driver ==
+    engine == "comfyui", talking to a configurable network `host` - and
+    deliberately no `execution_device` override, exactly like the actual
+    `comfyui-backend` plugin's `ComfyUIBackend`, so it inherits
+    `BaseBackend`'s "unestablished" default rather than a test double
+    faking one. `health_check`/`get_system_info` are irrelevant here - just
+    enough to satisfy `BaseBackend`'s abstract contract."""
+
+    async def health_check(self):
+        return {"status": "healthy"}
+
+    async def get_system_info(self):
+        return {}
+
+
+class _ComfyUIShapedRegistry:
+    """Minimal `BackendRegistry` stand-in wired to one real
+    `_ComfyUIShapedBackend` instance (as opposed to `_FakeBackend`, which
+    fabricates a plain object with a hand-set `execution_device`) - proves
+    the fix reads `execution_device` off the real backend class hierarchy."""
+
+    def __init__(self, backend, default_id=None):
+        self._backend = backend
+        self.backend_config_store = _FakeBackendConfigStore(
+            {backend.config.id: backend.config}, default_id=default_id
+        )
+
+    def get_backends_for_engine(self, engine):
+        return [self._backend] if self._backend.engine == engine else []
+
+    def get_backend(self, backend_id):
+        return self._backend if self._backend.config.id == backend_id else None
+
+
+class TestVramMinGbAgainstRealComfyUIShapedBackend:
+    """A `comfyui`-engine backend pointed at a network host (e.g.
+    "gpu-worker") must read `vram_min_gb` as `unknown` regardless of this
+    API host's own VRAM - the exact bug a driver-name substring check
+    produced (see the module message this rework responds to)."""
+
+    def _collaborators_for(self, gpu_total_gb):
+        preset = _preset(preset_id="comfy-worker-preset", requirements=[{"type": "vram_min_gb", "gb": 16}])
+        preset.engine = "comfyui"
+        backend = _ComfyUIShapedBackend(_ComfyUIShapedConfig("comfy-worker", "GPU Worker", host="gpu-worker"))
+        collaborators = _collaborators(
+            file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
+            backend_registry=_ComfyUIShapedRegistry(backend, default_id="comfy-worker"),
+            gpu_monitor=_FakeGpuMonitor(int(gpu_total_gb * 1024)),
+            requirements_cache=RequirementsCache(),
+        )
+        return preset, collaborators
+
+    @pytest.mark.asyncio
+    async def test_unknown_on_an_8gb_api_host(self):
+        _, collaborators = self._collaborators_for(gpu_total_gb=8)
+
+        data = await operations.get_preset_requirements(collaborators, "comfy-worker-preset")
+
+        assert data["results"][0]["status"] == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_unknown_on_a_24gb_api_host(self):
+        """Before this rework, a driver name that merely didn't contain
+        "remote" was read as local - a beefy API host would have made a
+        genuinely remote ComfyUI worker's floor read "ok" for hardware it
+        never touched."""
+        _, collaborators = self._collaborators_for(gpu_total_gb=24)
+
+        data = await operations.get_preset_requirements(collaborators, "comfy-worker-preset")
+
+        assert data["results"][0]["status"] == "unknown"

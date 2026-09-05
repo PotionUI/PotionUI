@@ -303,46 +303,52 @@ def encode_frames_stream_to_mp4(
 
     # ffmpeg's progress chatter goes to a file, not a pipe: a full stderr pipe
     # would block ffmpeg mid-encode while this loop blocks writing to stdin.
+    # The stderr handle is acquired BEFORE entering the try below and Popen
+    # runs INSIDE it, so a spawn failure (missing binary despite the `which`
+    # check above, a permission error, ...) still closes the diagnostic handle
+    # rather than leaking it.
     stderr_file = tempfile.TemporaryFile()
-    proc = subprocess.Popen(
-        cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=stderr_file,
-    )
     try:
-        while True:
-            if frame.shape[0] != height or frame.shape[1] != width:
-                raise ValueError(
-                    f"frame size changed mid-stream: expected {width}x{height}, "
-                    f"got {frame.shape[1]}x{frame.shape[0]}"
-                )
-            try:
-                proc.stdin.write(memoryview(frame.reshape(-1)))
-            except BrokenPipeError:
-                break
-            try:
-                frame = _even_frame(next(frames_iter))
-            except StopIteration:
-                break
-
-        proc.stdin.close()
+        proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=stderr_file,
+        )
         try:
-            returncode = proc.wait(timeout=_FFMPEG_WAIT_TIMEOUT)
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(
-                f"ffmpeg timed out after {_FFMPEG_WAIT_TIMEOUT}s encoding {out_path}"
-            ) from exc
+            while True:
+                if frame.shape[0] != height or frame.shape[1] != width:
+                    raise ValueError(
+                        f"frame size changed mid-stream: expected {width}x{height}, "
+                        f"got {frame.shape[1]}x{frame.shape[0]}"
+                    )
+                try:
+                    proc.stdin.write(memoryview(frame.reshape(-1)))
+                except BrokenPipeError:
+                    break
+                try:
+                    frame = _even_frame(next(frames_iter))
+                except StopIteration:
+                    break
 
-        if returncode != 0:
-            raise RuntimeError(
-                f"ffmpeg failed (exit {returncode}) encoding {out_path}: {_stderr_tail(stderr_file)}"
-            )
-        if not out_path.exists() or out_path.stat().st_size == 0:
-            raise RuntimeError(f"ffmpeg reported success but produced no output at {out_path}")
-        return out_path
-    except BaseException:
-        _terminate(proc)
-        out_path.unlink(missing_ok=True)
-        raise
-    finally:
-        if proc.stdin is not None and not proc.stdin.closed:
             proc.stdin.close()
+            try:
+                returncode = proc.wait(timeout=_FFMPEG_WAIT_TIMEOUT)
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError(
+                    f"ffmpeg timed out after {_FFMPEG_WAIT_TIMEOUT}s encoding {out_path}"
+                ) from exc
+
+            if returncode != 0:
+                raise RuntimeError(
+                    f"ffmpeg failed (exit {returncode}) encoding {out_path}: {_stderr_tail(stderr_file)}"
+                )
+            if not out_path.exists() or out_path.stat().st_size == 0:
+                raise RuntimeError(f"ffmpeg reported success but produced no output at {out_path}")
+            return out_path
+        except BaseException:
+            _terminate(proc)
+            out_path.unlink(missing_ok=True)
+            raise
+        finally:
+            if proc.stdin is not None and not proc.stdin.closed:
+                proc.stdin.close()
+    finally:
         stderr_file.close()

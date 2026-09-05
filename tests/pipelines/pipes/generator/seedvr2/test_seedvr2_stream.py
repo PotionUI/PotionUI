@@ -682,3 +682,47 @@ def test_stream_encoder_times_out_and_cleans_up(monkeypatch, tmp_path):
         enc.encode_frames_stream_to_mp4(iter(_frames(2, size=4)), out_path, 24.0)
 
     assert not out_path.exists()
+
+
+def test_stream_encoder_closes_stderr_handle_on_a_popen_spawn_failure(monkeypatch, tmp_path):
+    """The stderr diagnostic file is opened before ffmpeg is spawned; if
+    ``Popen`` itself raises (a spawn failure -- missing binary despite the
+    ``which`` check above, a permission error, ...) that handle must still be
+    closed rather than leaked, and no output file must ever appear."""
+    monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    created_handles = []
+
+    class _TrackedHandle:
+        def __init__(self, real):
+            self._real = real
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+            self._real.close()
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+    orig_temporary_file = enc.tempfile.TemporaryFile
+
+    def _tracking_temporary_file(*args, **kwargs):
+        handle = _TrackedHandle(orig_temporary_file(*args, **kwargs))
+        created_handles.append(handle)
+        return handle
+
+    monkeypatch.setattr(enc.tempfile, "TemporaryFile", _tracking_temporary_file)
+
+    def _popen(cmd, stdin=None, stdout=None, stderr=None):
+        raise OSError("synthetic spawn failure -- ffmpeg never launched")
+
+    monkeypatch.setattr(enc.subprocess, "Popen", _popen)
+    out_path = tmp_path / "out.mp4"
+
+    with pytest.raises(OSError, match="synthetic spawn failure"):
+        enc.encode_frames_stream_to_mp4(iter(_frames(2, size=4)), out_path, 24.0)
+
+    assert len(created_handles) == 1
+    assert created_handles[0].closed, "the stderr handle must be closed even when Popen itself raises"
+    assert not out_path.exists()

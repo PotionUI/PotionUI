@@ -46,6 +46,19 @@ class Usage:
 
 
 @dataclass(frozen=True)
+class RecordTooLarge:
+    """An SSE record's accumulated ``data:`` payload exceeded
+    ``OpenAICompatSSEDecoder.MAX_RECORD_BYTES`` before its terminating blank
+    line ever arrived. The record is dropped in full — never dispatched,
+    even once (or if) a later blank line would have completed it — so one
+    connection can never grow this client's memory without bound. Decoding
+    resumes cleanly on the next record; ``size`` is the byte count at the
+    point of the drop, for the warning this rides alongside."""
+
+    size: int
+
+
+@dataclass(frozen=True)
 class Done:
     """The terminator: an SSE ``[DONE]`` frame, or an NDJSON ``done: true``.
 

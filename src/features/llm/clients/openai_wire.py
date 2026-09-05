@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterator, List, Optional
 
 from src.features.llm.clients.tool_call_shape import normalize_tool_calls
-from src.features.llm.clients.wire_events import Done, TextDelta, ToolCallDelta, Usage
+from src.features.llm.clients.wire_events import Done, RecordTooLarge, TextDelta, ToolCallDelta, Usage
 from src.features.llm.repository import LLMConfig
 
 
@@ -167,31 +167,122 @@ def prompt_from(prompt: str) -> List[Dict[str, Any]]:
 
 
 class OpenAICompatSSEDecoder:
-    """Turns SSE ``data:`` lines into protocol-neutral events.
+    """Turns SSE lines into protocol-neutral events.
 
-    ``label`` reaches only the warning logged for an undecodable frame — the two
-    stream methods have always logged under their own tag.
+    Implements the subset of the WHATWG "process a field"/event-stream
+    algorithm this wire actually needs: a logical record is one or more
+    ``data:`` field lines, joined with ``"\\n"`` and dispatched together on
+    the terminating blank line — NOT one record per line, which silently
+    drops any record a provider legally splits across several ``data:``
+    lines. A line starting with ``:`` is a comment (ignored); any other
+    field name (``event``, ``id``, ``retry``, ...) is accepted but ignored,
+    since this protocol never uses them; a line with no ``:`` at all is the
+    field name with an empty value, per spec. Exactly one leading space is
+    stripped from a field's value when present (``"data: x"`` and
+    ``"data:x"`` both carry ``"x"``).
+
+    This is record-boundary reassembly, not chunk/line reassembly —
+    ``response.aiter_lines()`` already yields complete lines with their
+    ``\\r\\n``/``\\n``/``\\r`` terminator stripped regardless of how the
+    transport chunked the bytes, so ``feed()`` is never handed a partial
+    line.
+
+    Supported SSE subset (this repo has no dedicated LLM-provider docs page
+    — see docs/chat-evaluation.md's own precedent for a field with nowhere
+    else to live — so this docstring is the reference):
+
+    - Multiple ``data:`` lines in one record join with ``"\\n"`` before
+      being interpreted, per spec — never parsed as separate records.
+    - A ``:``-prefixed line is a comment; ``event``/``id``/``retry`` (and
+      any other field name) are accepted but ignored — this protocol never
+      sends them.
+    - A single leading UTF-8 BOM on the very first line of the stream is
+      stripped once; a BOM anywhere else is ordinary data.
+    - A record with no terminating blank line when the body ends (a
+      truncated response, a dropped connection) is discarded, never
+      dispatched — see ``finish()``.
+    - A record whose accumulated ``data:`` payload exceeds
+      ``MAX_RECORD_BYTES`` (1 MiB) is dropped in full and logged; decoding
+      resumes cleanly on the next record — see ``RecordTooLarge``.
+
+    ``label`` reaches only the warning logged for an undecodable, dropped or
+    oversized record — the two stream methods have always logged under
+    their own tag.
     """
+
+    # A connection that never sends a terminating blank line for a record —
+    # or sends one absurdly large record — must not grow this client's
+    # memory without bound.
+    MAX_RECORD_BYTES = 1 * 1024 * 1024
 
     def __init__(self, label: str):
         self._label = label
+        self._data: List[str] = []
+        self._data_bytes = 0
+        self._seen_first_line = False
         # The choice that carries `finish_reason` arrives on a delta chunk
         # BEFORE the separate choice-less usage chunk and the terminal
-        # `[DONE]` frame, so it has to be remembered across `feed()` calls
-        # rather than read off the frame that triggers Done().
+        # `[DONE]` frame, so it has to be remembered across records rather
+        # than read off the record that triggers Done().
         self._finish_reason: Optional[str] = None
 
+    def _reset_record(self) -> None:
+        self._data = []
+        self._data_bytes = 0
+
     def feed(self, line: str) -> Iterator[Any]:
-        if not line or not line.startswith("data: "):
+        if not self._seen_first_line:
+            self._seen_first_line = True
+            if line.startswith("﻿"):  # a leading UTF-8 BOM, stripped once
+                line = line[1:]
+
+        if line == "":
+            yield from self._dispatch()
             return
-        data_str = line[len("data: "):]
-        if data_str.strip() == "[DONE]":
+        if line.startswith(":"):
+            return  # comment — never part of a record's data
+
+        field, _, value = line.partition(":")
+        if value.startswith(" "):
+            value = value[1:]
+        if field != "data":
+            return  # event/id/retry/unknown — ignored; this protocol never sends them
+
+        value_bytes = len(value.encode("utf-8"))
+        if self._data_bytes + value_bytes > self.MAX_RECORD_BYTES:
+            size = self._data_bytes + value_bytes
+            logging.warning(f"[{self._label}] SSE record exceeded {self.MAX_RECORD_BYTES} bytes; dropping it")
+            self._reset_record()
+            yield RecordTooLarge(size)
+            return
+        self._data.append(value)
+        self._data_bytes += value_bytes
+
+    def finish(self) -> None:
+        """Call once after the response body's line loop ends normally. A
+        record with no terminating blank line — the connection ended
+        mid-record — is discarded, never dispatched: an incomplete
+        ``[DON`` is not a completion terminator, and incomplete JSON is not
+        a valid one either."""
+        if self._data:
+            logging.warning(
+                f"[{self._label}] stream ended mid-record; discarding {len(self._data)} pending data line(s)"
+            )
+        self._reset_record()
+
+    def _dispatch(self) -> Iterator[Any]:
+        if not self._data:
+            return  # a blank line with no preceding data field never dispatches
+        payload = "\n".join(self._data)
+        self._reset_record()
+
+        if payload == "[DONE]":
             yield Done(finish_reason=self._finish_reason)
             return
         try:
-            data = json.loads(data_str)
+            data = json.loads(payload)
         except json.JSONDecodeError:
-            logging.warning(f"[{self._label}] Failed to parse SSE data: {data_str}")
+            logging.warning(f"[{self._label}] Failed to parse SSE data: {payload}")
             return
 
         # OpenAI puts usage on a final choice-less chunk when stream_options asks for it.

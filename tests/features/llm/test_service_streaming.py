@@ -394,9 +394,9 @@ class TestStreamOpenaiWithHistory:
         service = self._service(config)
 
         lines = [
-            self._sse_line("Hello"),
-            self._sse_line(" world"),
-            "data: [DONE]",
+            self._sse_line("Hello"), "",
+            self._sse_line(" world"), "",
+            "data: [DONE]", "",
         ]
         client_cm, _, _ = _make_stream_ctx(200, lines)
 
@@ -415,9 +415,9 @@ class TestStreamOpenaiWithHistory:
         service = self._service(config)
 
         lines = [
-            self._sse_line("chunk"),
-            "data: [DONE]",
-            self._sse_line("after-done"),
+            self._sse_line("chunk"), "",
+            "data: [DONE]", "",
+            self._sse_line("after-done"), "",
         ]
         client_cm, _, _ = _make_stream_ctx(200, lines)
 
@@ -441,7 +441,9 @@ class TestStreamOpenaiWithHistory:
             "event: message",
             "",
             self._sse_line("real"),
+            "",
             "data: [DONE]",
+            "",
         ]
         client_cm, _, _ = _make_stream_ctx(200, lines)
 
@@ -482,9 +484,9 @@ class TestStreamOpenaiWithHistory:
         service = self._service(config)
 
         lines = [
-            "data: {broken json",
-            self._sse_line("good"),
-            "data: [DONE]",
+            "data: {broken json", "",
+            self._sse_line("good"), "",
+            "data: [DONE]", "",
         ]
         client_cm, _, _ = _make_stream_ctx(200, lines)
 
@@ -517,7 +519,7 @@ class TestStreamOpenaiWithHistory:
         config = _make_config("openai", base_url="http://api.openai.test/v1", api_key="sk-secret")
         service = self._service(config)
 
-        lines = ["data: [DONE]"]
+        lines = ["data: [DONE]", ""]
         client_cm, mock_client, _ = _make_stream_ctx(200, lines)
 
         with patch("httpx.AsyncClient", return_value=client_cm):
@@ -535,7 +537,7 @@ class TestStreamOpenaiWithHistory:
         config = _make_config("openai", base_url="http://api.openai.test/v1", api_key=None)
         service = self._service(config)
 
-        lines = ["data: [DONE]"]
+        lines = ["data: [DONE]", ""]
         client_cm, mock_client, _ = _make_stream_ctx(200, lines)
 
         with patch("httpx.AsyncClient", return_value=client_cm):
@@ -553,7 +555,7 @@ class TestStreamOpenaiWithHistory:
         config = _make_config("openai", base_url="http://api.openai.test/v1")
         service = self._service(config)
 
-        lines = ["data: [DONE]"]
+        lines = ["data: [DONE]", ""]
         client_cm, mock_client, _ = _make_stream_ctx(200, lines)
 
         with patch("httpx.AsyncClient", return_value=client_cm):
@@ -571,7 +573,7 @@ class TestStreamOpenaiWithHistory:
         config = _make_config("openai", base_url="http://api.openai.test/v1")
         service = self._service(config)
 
-        lines = ["data: [DONE]"]
+        lines = ["data: [DONE]", ""]
         client_cm, mock_client, _ = _make_stream_ctx(200, lines)
 
         messages = [{"role": "user", "content": "describe this"}]
@@ -603,9 +605,9 @@ class TestStreamOpenaiWithHistory:
 
         role_delta = json.dumps({"choices": [{"delta": {"role": "assistant"}, "finish_reason": None}]})
         lines = [
-            f"data: {role_delta}",
-            self._sse_line("actual"),
-            "data: [DONE]",
+            f"data: {role_delta}", "",
+            self._sse_line("actual"), "",
+            "data: [DONE]", "",
         ]
         client_cm, _, _ = _make_stream_ctx(200, lines)
 
@@ -656,7 +658,7 @@ class TestStreamWithHistory:
         repo = _make_mock_repo(config)
         service = LLMGateway(llm_repository=repo)
 
-        lines = [self._sse_line("hello"), "data: [DONE]"]
+        lines = [self._sse_line("hello"), "", "data: [DONE]", ""]
         client_cm, _, _ = _make_stream_ctx(200, lines)
 
         with patch("httpx.AsyncClient", return_value=client_cm):

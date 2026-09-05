@@ -36,9 +36,10 @@ def client():
     return OpenAIClient()
 
 
-def _frame(obj) -> bytes:
+def _frame(obj, *, no_space: bool = False, ending: str = "\n\n") -> bytes:
     body = obj if isinstance(obj, str) else json.dumps(obj)
-    return f"data: {body}\n\n".encode()
+    sep = ":" if no_space else ": "
+    return f"data{sep}{body}{ending}".encode()
 
 
 def _delta(content: str) -> bytes:
@@ -268,6 +269,144 @@ async def test_closing_the_generator_midstream_releases_the_response(monkeypatch
     await stream.aclose()
 
     assert released == [True]
+
+
+# ---------------------------------------------------------------------------
+# LLM-09: proper SSE record framing (WHATWG event-stream field algorithm)
+# ---------------------------------------------------------------------------
+
+async def test_no_space_after_the_data_colon_is_still_parsed(monkeypatch, client):
+    """`data:{...}` (no space) is exactly as valid as `data: {...}` — the
+    decoder must strip AT MOST one leading space, never require one."""
+    raw = _frame({"choices": [{"delta": {"content": "hello"}}]}, no_space=True) + _frame("[DONE]")
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert _tokens(events) == ["hello"]
+
+
+async def test_no_space_after_the_data_colon_on_the_tools_stream_too(monkeypatch, client):
+    raw = _frame({"choices": [{"delta": {"content": "hello"}}]}, no_space=True) + _frame("[DONE]")
+
+    events = await _stream(monkeypatch, client, [raw], tools=tool_schemas())
+
+    assert _tokens(events) == ["hello"]
+
+
+def _split_data_record(payload: str, split_at: int) -> bytes:
+    """One SSE record whose `data:` value is legally split across two
+    `data:` lines — real event-stream framing joins their values with
+    `"\\n"` before the whole thing is interpreted as one payload; the split
+    point lands mid-token so a naive per-line JSON parse would see two
+    invalid halves instead of one valid whole."""
+    return f"data: {payload[:split_at]}\ndata: {payload[split_at:]}\n\n".encode()
+
+
+async def test_multiline_json_split_between_lexical_units_is_joined(monkeypatch, client):
+    payload = json.dumps({"choices": [{"delta": {"content": "hello"}}]})
+    split_at = payload.index('"content"') + len('"content"')  # mid-token: right after the key
+    raw = _split_data_record(payload, split_at) + _frame("[DONE]")
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert _tokens(events) == ["hello"]
+
+
+async def test_multiline_json_split_on_the_tools_stream_too(monkeypatch, client):
+    payload = json.dumps({"choices": [{"delta": {"content": "hello"}}]})
+    split_at = payload.index('"content"') + len('"content"')
+    raw = _split_data_record(payload, split_at) + _frame("[DONE]")
+
+    events = await _stream(monkeypatch, client, [raw], tools=tool_schemas())
+
+    assert _tokens(events) == ["hello"]
+
+
+async def test_a_comment_line_between_two_data_lines_of_the_same_record_is_ignored(monkeypatch, client):
+    payload = json.dumps({"choices": [{"delta": {"content": "hello"}}]})
+    split_at = payload.index('"content"') + len('"content"')
+    raw = (
+        f"data: {payload[:split_at]}\n: a keep-alive comment\ndata: {payload[split_at:]}\n\n".encode()
+        + _frame("[DONE]")
+    )
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert _tokens(events) == ["hello"]
+
+
+async def test_multiple_multiline_records_in_one_chunk_all_decode(monkeypatch, client):
+    payload_a = json.dumps({"choices": [{"delta": {"content": "a"}}]})
+    payload_b = json.dumps({"choices": [{"delta": {"content": "b"}}]})
+    split_a = payload_a.index('"content"')
+    split_b = payload_b.index('"content"')
+    raw = _split_data_record(payload_a, split_a) + _split_data_record(payload_b, split_b) + _frame("[DONE]")
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert _tokens(events) == ["a", "b"]
+
+
+async def test_multibyte_text_split_across_byte_chunks(monkeypatch, client):
+    """A UTF-8 multibyte character (café's `é`, 2 bytes) cut in the middle of
+    its own byte sequence by the transport must still decode correctly —
+    httpx's own incremental decoder handles this beneath the record framer,
+    which never sees a partial line, but this pins that the record layer
+    built on top of it doesn't regress that guarantee. `ensure_ascii=False`
+    is required here — the default `json.dumps` escapes 'é' as the ASCII
+    sequence `\\u00e9`, which would never exercise a real multibyte split."""
+    payload = json.dumps({"choices": [{"delta": {"content": "café"}}]}, ensure_ascii=False)
+    raw = f"data: {payload}\n\n".encode() + _frame("[DONE]")
+    # 'é' encodes as the two bytes 0xC3 0xA9 — cut the chunk boundary
+    # between them.
+    split_index = raw.index("caf".encode()) + len("caf".encode()) + 1
+
+    events = await _stream(monkeypatch, client, _split(raw, split_index))
+
+    assert _tokens(events) == ["café"]
+
+
+@pytest.mark.parametrize("ending", ["\n\n", "\r\n\r\n", "\r\r"], ids=["lf", "crlf", "cr"])
+async def test_every_documented_line_ending_style_decodes_identically(monkeypatch, client, ending):
+    raw = _frame({"choices": [{"delta": {"content": "hi"}}]}, ending=ending) + _frame("[DONE]", ending=ending)
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert _tokens(events) == ["hi"]
+
+
+async def test_an_unfinished_record_at_eof_emits_nothing(monkeypatch, client):
+    """A record with no terminating blank line before the connection ends
+    is discarded — never dispatched, so it emits neither text nor a
+    completion event for what would have been valid JSON had it closed."""
+    raw = _delta("kept") + b"data: " + json.dumps({"choices": [{"delta": {"content": "lost"}}]}).encode()
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert _tokens(events) == ["kept"]
+    # No Done ever arrived either, so the stream falls through to the
+    # unverified default rather than fabricating a finish reason.
+    assert events[-1] == NO_USAGE
+
+
+async def test_an_incomplete_done_sentinel_at_eof_is_never_treated_as_done(monkeypatch, client):
+    """`data: [DON` with no closing blank line is not `[DONE]` and is not
+    dispatched at all — the body simply ended, not "completed"."""
+    raw = _delta("kept") + b"data: [DON"
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert _tokens(events) == ["kept"]
+    assert events[-1] == NO_USAGE
+
+
+async def test_an_oversized_record_is_dropped_and_the_next_record_still_decodes(monkeypatch, client):
+    huge = "x" * (2 * 1024 * 1024)  # well past MAX_RECORD_BYTES
+    raw = f"data: {huge}\n\n".encode() + _delta("after") + _frame("[DONE]")
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert _tokens(events) == ["after"]
 
 
 async def test_a_non_200_status_raises_with_the_body_text(monkeypatch, client):

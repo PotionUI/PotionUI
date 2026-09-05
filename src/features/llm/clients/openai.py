@@ -13,7 +13,7 @@ from src.features.llm.clients.openai_wire import (
     build_openai_request,
     prompt_from,
 )
-from src.features.llm.clients.wire_events import Done, TextDelta, ToolCallDelta, Usage
+from src.features.llm.clients.wire_events import Done, RecordTooLarge, TextDelta, ToolCallDelta, Usage
 from src.features.llm.repository import LLMConfig
 
 NO_USAGE = {"type": "usage", "tokens_used": None, "prompt_tokens": None, "completion_tokens": None}
@@ -183,8 +183,13 @@ class OpenAIClient:
                         elif isinstance(event, TextDelta):
                             full_content_parts.append(event.text)
                             yield {"type": "token", "content": event.text}
+                        # RecordTooLarge falls through here on purpose: the
+                        # dropped record is never a completed payload, so
+                        # there is nothing to act on beyond the warning the
+                        # decoder itself already logged.
                     if stop:
                         break
+                decoder.finish()
 
         trace_collector.record(
             provider="openai",
@@ -332,8 +337,13 @@ class OpenAIClient:
                             yield {"type": "token", "content": event.text}
                         elif isinstance(event, ToolCallDelta):
                             assembler.add(event)
+                        # RecordTooLarge falls through here on purpose: the
+                        # dropped record is never a completed payload, so
+                        # there is nothing to act on beyond the warning the
+                        # decoder itself already logged.
                     if stop:
                         break
+                decoder.finish()
 
         assembled_tool_calls = assembler.assembled()
 

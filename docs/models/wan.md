@@ -65,12 +65,12 @@ Every knob below is exposed on the preset's **Advanced** tab and threaded into a
 | Detail warp (sigma daemon) | Bumps mid-trajectory sigmas up/down over a start/end trajectory window — a structure/fine-detail lever independent of, and layered on top of, whichever schedule (including manual) built the base sigmas | Advanced → Detail warp | strength 0 = off | all three |
 | [FreeInit](../techniques/freeinit.md) | Extra full denoise passes re-noised in 3D frequency space to cut temporal flicker | Advanced → FreeInit | 0 iterations = off | **text-to-video only** (no spec on i2v/chain) |
 | [RIFLEx](../techniques/riflex.md) | Clamps an intrinsic RoPE frequency to extrapolate past the trained frame count — for long single shots and director chains | Advanced → Long-video RoPE | off = byte-identical schedule | all three |
+| Step cache (FBCache) | Reuses a step's cached residual instead of recomputing it once its relative error against the previous step stays below the threshold (TeaCache-style step skipping) | Advanced → Step cache (`step_cache_threshold`/`step_cache_warmup_steps`/`step_cache_max_skips`) | threshold 0.0 = off | all three |
 
 `manual_sigmas` (non-empty) overrides the *scheduler pick* only — `linear_quadratic`'s own `threshold_noise`/`linear_steps` fields are silently ignored in favor of the manual list, same as `beta`/`exponential` would be. Detail warp is not part of that precedence: it still applies on top of a manual sigma list.
 
 Not surfaced on the preset:
 
-- **FBCache / step-cache** (TeaCache-style step skipping) is implemented and honored by the Wan forward, but its config is a single opaque dict (`rel_threshold`/`warmup_steps`/`max_consecutive_skips`); the flat preset form has no clean path to it without a `tojson` round-trip the codebase is deliberately retiring. Left internal pending a dedicated structured field.
 - **`sampler_options`** (e.g. stochastic-sampler `eta`) is a no-op for the three exposed samplers (`unipc`/`euler`/`dpmpp_2m`), so it stays internal.
 - **`beta`/`exponential` schedule options** (`alpha`/`beta`, `sigma_min`) have no preset-level fields of their own — those two families always run at `build_sigmas`'s own defaults (0.6/0.6, 1e-3); only `linear_quadratic` got typed fields, since it needed one to be usable at all beyond its own defaults.
 - **Engine-level levers** — sage attention, `NATIVE_TORCH_COMPILE`, `NATIVE_STREAM_PREFETCH`, fp8 quantize-at-load, partial layer residency, NVFP4 — are global backend/env settings (the admin Optimizations panel), not preset-scoped, and apply to Wan runs regardless of this preset.

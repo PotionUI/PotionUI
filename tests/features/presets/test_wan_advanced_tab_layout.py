@@ -31,6 +31,7 @@ EXPECTED_FIELD_NAMES = {
     "cfg",
     "schedule",
     "linear_quadratic_threshold_noise",
+    "linear_quadratic_linear_steps_auto",
     "linear_quadratic_linear_steps",
     "manual_sigmas",
     "expert_boundary_preset",
@@ -139,7 +140,8 @@ def test_sampling_section_is_first_and_orders_steps_sampler_cfg(advanced_tab):
     assert sampling["title"] == "Sampling"
     assert _all_field_names(sampling) == {
         "steps", "sampler", "cfg", "schedule",
-        "linear_quadratic_threshold_noise", "linear_quadratic_linear_steps",
+        "linear_quadratic_threshold_noise",
+        "linear_quadratic_linear_steps_auto", "linear_quadratic_linear_steps",
         "manual_sigmas",
     }
     assert [c.get("name") for c in sampling["children"][:3]] == ["steps", "sampler", "cfg"]

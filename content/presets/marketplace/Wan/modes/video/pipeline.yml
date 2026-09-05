@@ -247,7 +247,7 @@ pipeline:
       schedule: "{{ form.schedule | default('') }}"
       schedule_options:
         threshold_noise: "{{ form.linear_quadratic_threshold_noise | default(0.025) }}"
-        linear_steps: "{{ form.linear_quadratic_linear_steps | default(none) }}"
+        linear_steps: "{{ none if (form.linear_quadratic_linear_steps_auto | default(true)) else (form.linear_quadratic_linear_steps | default(none)) }}"
       manual_sigmas: "{{ form.manual_sigmas | default('') }}"
       detail_strength: "{{ form.detail_strength | default(0.0) }}"
       detail_start: "{{ form.detail_start | default(0.1) }}"
@@ -300,7 +300,7 @@ pipeline:
       schedule: "{{ form.schedule | default('') }}"
       schedule_options:
         threshold_noise: "{{ form.linear_quadratic_threshold_noise | default(0.025) }}"
-        linear_steps: "{{ form.linear_quadratic_linear_steps | default(none) }}"
+        linear_steps: "{{ none if (form.linear_quadratic_linear_steps_auto | default(true)) else (form.linear_quadratic_linear_steps | default(none)) }}"
       manual_sigmas: "{{ form.manual_sigmas | default('') }}"
       detail_strength: "{{ form.detail_strength | default(0.0) }}"
       detail_start: "{{ form.detail_start | default(0.1) }}"
@@ -355,7 +355,7 @@ pipeline:
       schedule: "{{ form.schedule | default('') }}"
       schedule_options:
         threshold_noise: "{{ form.linear_quadratic_threshold_noise | default(0.025) }}"
-        linear_steps: "{{ form.linear_quadratic_linear_steps | default(none) }}"
+        linear_steps: "{{ none if (form.linear_quadratic_linear_steps_auto | default(true)) else (form.linear_quadratic_linear_steps | default(none)) }}"
       manual_sigmas: "{{ form.manual_sigmas | default('') }}"
       detail_strength: "{{ form.detail_strength | default(0.0) }}"
       detail_start: "{{ form.detail_start | default(0.1) }}"

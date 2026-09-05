@@ -78,15 +78,46 @@ fields:
                 then: { set_visibility: true }
               - when: { field: "schedule", not_equals: "linear_quadratic" }
                 then: { set_visibility: false }
-          - name: "linear_quadratic_linear_steps"
-            type: "number"
-            label: "Linear steps (optional)"
-            configuration: {min: 1, step: 1, placeholder: "steps // 2"}
+
+      # "Automatic" owns whether `linear_quadratic_linear_steps` below is used at
+      # all (bound to None -- steps // 2 -- in pipeline.yml when true); the number
+      # field's own value is irrelevant while automatic is on. This dedicated
+      # boolean is the reset the shared numeric field type can't express itself:
+      # its input handler sends 0 on clear (never a real "unset"/null), so a
+      # generic optional-number field can only ever fall back to a real value,
+      # not to "nothing" -- see NumberInput.svelte. The number field's min is 0,
+      # not 1: a stale 0 left over from a clear must stay in-bounds (bind_form
+      # validates every submitted field regardless of what hides it), and
+      # `_linear_quadratic_sigmas` already floors linear_steps at 1 on its own.
+      # Both fields' reactions key off a SINGLE field each (bind_form's reaction
+      # evaluator has no AND/OR support -- see
+      # tests/features/forms/test_reaction_resolution.py's
+      # TestRealPresetTreeReactionShapes -- so the number field keys off
+      # `linear_quadratic_linear_steps_auto` alone, not a compound condition
+      # with `schedule` too; leaving `schedule` and flipping back to it later
+      # with automatic off is the one case that can leave it visibly stale,
+      # accepted since the rendered schedule never reads it outside the
+      # linear_quadratic branch regardless).
+      - type: "row"
+        children:
+          - name: "linear_quadratic_linear_steps_auto"
+            type: "checkbox"
+            label: "Automatic linear steps (steps ÷ 2)"
+            default: true
             reactions:
               - when: { field: "schedule", equals: "linear_quadratic" }
                 then: { set_visibility: true }
               - when: { field: "schedule", not_equals: "linear_quadratic" }
                 then: { set_visibility: false }
+          - name: "linear_quadratic_linear_steps"
+            type: "number"
+            label: "Linear steps"
+            configuration: {min: 0, step: 1, placeholder: "steps // 2"}
+            reactions:
+              - when: { field: "linear_quadratic_linear_steps_auto", equals: false }
+                then: { set_visibility: true }
+              - when: { field: "linear_quadratic_linear_steps_auto", equals: true }
+                then: { set_visibility: false, set_value: 1 }
 
       - name: "manual_sigmas"
         type: "textbox"

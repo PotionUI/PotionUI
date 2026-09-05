@@ -1325,7 +1325,7 @@ describe('createSessionController', () => {
 
 	it('does not close a history panel reopened while a restore was applying', async () => {
 		await bootWithDirtySession();
-		harness.api.getSessionVersions.mockResolvedValue({ success: true, data: [version(1)] });
+		harness.api.getSessionVersions.mockResolvedValue({ success: true, data: [version(1)] } as never);
 		const pending = deferred<{ success: boolean; data: unknown }>();
 		harness.api.getSessionVersion.mockReturnValue(pending.promise as never);
 

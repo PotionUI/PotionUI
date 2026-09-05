@@ -224,12 +224,22 @@ function createDownloadStore() {
 		const patch = { ...(prev?.patch ?? {}), ...(opts.patch ?? {}) };
 		const deleted = opts.deleted ?? prev?.deleted ?? false;
 		perIdSeq.set(id, { seq: ++seqCounter, deleted, patch });
-		// Every counts-affecting mutation bumps this, whether or not a counts
-		// fetch happens to be in flight right now - loadDownloads()'s bundled
-		// counts don't register as "in flight" the way loadCounts()'s dedicated
-		// fetch does, so this has to be unconditional for either path to be
-		// able to tell it was invalidated after it was issued.
-		if (opts.countsAffected) countsMutationSeq++;
+		if (opts.countsAffected) {
+			// Bumped unconditionally, whether or not a counts fetch happens to
+			// be in flight right now - loadDownloads()'s bundled counts don't
+			// register as "in flight" the way loadCounts()'s dedicated fetch
+			// does, so this has to work for either path to tell it was
+			// invalidated after it was issued.
+			countsMutationSeq++;
+			// A mutation landing while the dedicated slot is occupied means
+			// that read's eventual result predates this change - its owner
+			// has to notice and re-read once it settles. Coalescing callers
+			// that arrive after this point make the same check themselves in
+			// loadCounts() (their own view may already be fresher than what's
+			// in flight even without a mutation landing exactly here), so
+			// this only has to cover the mutation side of that rule.
+			if (countsInFlight) countsRefreshNeeded = true;
+		}
 	}
 
 	// List-request ordering: a monotonic id per loadDownloads() call. Two
@@ -251,6 +261,18 @@ function createDownloadStore() {
 	let countsMutationSeq = 0;
 	let countsInFlight: Promise<void> | null = null;
 	let countsInFlightId = 0;
+	// The mutation-clock reading the currently in-flight dedicated fetch saw
+	// at its own issuance - only meaningful while `countsInFlight` is set.
+	let inFlightMutationSeqAtIssue = -1;
+	// Set whenever something needs counts fresher than what the current
+	// dedicated slot will produce (a coalescing call whose own view is
+	// already newer, a counts-affecting mutation landing mid-flight, or the
+	// slot's own read discovering it was invalidated) while a request already
+	// occupies that slot. Consumed exactly once, by whichever attempt still
+	// owns the slot when it settles, which then issues exactly one more read
+	// - never coalesced away, never lost to whichever branch (published,
+	// superseded, invalidated, or errored) that settling attempt took.
+	let countsRefreshNeeded = false;
 
 	// Reconciles a list response issued at `seqAtIssue` against everything
 	// that has happened locally since: an id touched after issue keeps its
@@ -382,6 +404,7 @@ function createDownloadStore() {
 			// starts its own fetch instead of silently coalescing onto - and
 			// getting no publication from - a retired session's abandoned one.
 			countsInFlight = null;
+			countsRefreshNeeded = false;
 		},
 
 		// Load downloads from API. The response's `downloads` array is one
@@ -460,27 +483,31 @@ function createDownloadStore() {
 		},
 
 		// Load counts only. Concurrent calls coalesce onto one in-flight
-		// request/publication. Ownership is the same rule loadDownloads()'s
-		// bundled counts use: superseded by a later-issued counts-touching
-		// request (from either path) means that other request owns freshness
-		// now; only the still-latest-issued request acts on its own
-		// invalidation (a counts-affecting mutation since it was issued) by
-		// asking for a fresh reconciliation itself - exactly one follow-up,
-		// scheduled after this one settles, not chained per-event.
+		// request/publication - but a coalescing caller whose own view is
+		// already fresher than what that request was issued with marks
+		// `countsRefreshNeeded` rather than silently trusting a result that
+		// will already be stale. Ownership to publish is the same rule
+		// loadDownloads()'s bundled counts use: superseded by a later-issued
+		// counts-touching request (from either path) means that other
+		// request owns freshness now. Whatever settles the occupied slot -
+		// published, superseded, invalidated, or errored - checks the shared
+		// flag unconditionally and, if set, is the one that re-reads: exactly
+		// one follow-up, never chained per-event and never coalesced away.
 		async loadCounts(): Promise<void> {
-			if (countsInFlight) return countsInFlight;
+			if (countsInFlight) {
+				if (countsMutationSeq !== inFlightMutationSeqAtIssue) {
+					countsRefreshNeeded = true;
+				}
+				return countsInFlight;
+			}
 
 			const token = sessionToken;
 			const mySeq = ++countsSeq;
 			const myFlightId = ++countsInFlightId;
 			const mutationSeqAtIssue = countsMutationSeq;
+			inFlightMutationSeqAtIssue = mutationSeqAtIssue;
+			countsRefreshNeeded = false;
 
-			// `shouldRetry` is captured for use after the try/catch/finally
-			// rather than decided inside `try`: an early `return` from there
-			// still runs `finally` but then exits this whole IIFE, skipping
-			// code placed after it - so the follow-up check has to live where
-			// such a return can't skip it.
-			let shouldRetry = false;
 			const attempt: Promise<void> = (async () => {
 				try {
 					const response = await api.getClient().get('/api/downloads?limit=0');
@@ -491,7 +518,7 @@ function createDownloadStore() {
 								downloadCounts.set(data.data.counts || {});
 							}
 						} else {
-							shouldRetry = true;
+							countsRefreshNeeded = true;
 						}
 					}
 				} catch (err) {
@@ -504,7 +531,12 @@ function createDownloadStore() {
 					if (countsInFlightId === myFlightId) countsInFlight = null;
 				}
 
-				if (shouldRetry) {
+				// Checked unconditionally - regardless of which branch above
+				// ran - and only by whoever still owns the slot this attempt
+				// claimed, so an abandoned attempt can't fire a request for a
+				// session nobody's watching.
+				if (countsInFlightId === myFlightId && countsRefreshNeeded && token === sessionToken) {
+					countsRefreshNeeded = false;
 					void this.loadCounts();
 				}
 			})();

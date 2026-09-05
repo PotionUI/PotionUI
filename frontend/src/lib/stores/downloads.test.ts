@@ -617,4 +617,75 @@ describe('stores/downloads WebSocket lifecycle and reconciliation', () => {
 		await listCall;
 		expect(get(downloadCounts)).toEqual({ completed: 5 });
 	});
+
+	it('C1 (dedicated) then L2 (bundled), a completion event, L2 resolving, then C1 resolving: the refresh intent survives coalescing and fires exactly one more read', async () => {
+		downloadStore.initializeWebSocket();
+
+		const c1 = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => c1.promise);
+		const c1Call = downloadStore.loadCounts(); // C1: dedicated, claims the in-flight slot
+
+		const l2 = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => l2.promise);
+		const l2Call = downloadStore.loadDownloads(); // L2: bundled, issued after C1 (newer countsSeq)
+
+		// A completion status arrives while both are still pending - bumps the
+		// mutation clock and its own loadCounts() call coalesces onto C1.
+		for (const cb of wsMocks.statusCallbacks) {
+			cb({ download_id: 'd1', status: 'completed', filename: 'x.safetensors' });
+		}
+		expect(mockGet).toHaveBeenCalledTimes(2); // still only C1's and L2's own reads
+
+		// L2 resolves: invalidated by the mutation and still the latest-issued
+		// counts-touching request, so it also calls loadCounts() - which also
+		// coalesces onto C1 (still pending), not a new request.
+		l2.resolve({
+			data: { success: true, data: { downloads: [], counts: { downloading: 1, completed: 0 } } }
+		});
+		await l2Call;
+		expect(get(downloadCounts)).toEqual({}); // the stale bundled counts never published
+		expect(mockGet).toHaveBeenCalledTimes(2); // no third request yet - C1 hasn't settled
+
+		// C1 finally resolves: superseded by L2's issuance, so it can't
+		// publish its own (also stale) result either - but the refresh intent
+		// recorded above survives its settling and fires exactly one more read.
+		const c3 = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => c3.promise);
+		c1.resolve({ data: { success: true, data: { counts: { downloading: 1 } } } });
+		await c1Call;
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(mockGet).toHaveBeenCalledTimes(3); // exactly one more, freshness-driven read
+		expect(get(downloadCounts)).toEqual({}); // C1's own stale result never published either
+
+		c3.resolve({ data: { success: true, data: { counts: { completed: 100 } } } });
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(get(downloadCounts)).toEqual({ completed: 100 }); // only the third read's value ever lands
+	});
+
+	it('C1 then L2 with no intervening mutation: L2 (newer) publishes, superseded C1 is silently dropped, no third request', async () => {
+		downloadStore.initializeWebSocket();
+
+		const c1 = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => c1.promise);
+		const c1Call = downloadStore.loadCounts();
+
+		const l2 = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => l2.promise);
+		const l2Call = downloadStore.loadDownloads();
+
+		l2.resolve({ data: { success: true, data: { downloads: [], counts: { completed: 1 } } } });
+		await l2Call;
+		expect(get(downloadCounts)).toEqual({ completed: 1 });
+
+		c1.resolve({ data: { success: true, data: { counts: { downloading: 1 } } } });
+		await c1Call;
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(mockGet).toHaveBeenCalledTimes(2); // no refresh storm
+		expect(get(downloadCounts)).toEqual({ completed: 1 }); // untouched by the superseded C1
+	});
 });

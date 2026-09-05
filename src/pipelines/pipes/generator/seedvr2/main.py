@@ -828,7 +828,7 @@ class GeneratorSeedVR2Pipe(BasePipe):
 
         from src.pipelines.pipes.generator.seedvr2 import batching as B
         from src.pipelines.pipes.generator.seedvr2 import frame_source as FS
-        from src.pipelines.pipes.generator.seedvr2.encode import AUDIO_MUX_FAILED
+        from src.pipelines.pipes.generator.seedvr2.encode import AUDIO_MUX_FAILED, AUDIO_PROBE_FAILED
 
         videos = pipe_input.input["video"]
         if not isinstance(videos, list):
@@ -962,6 +962,16 @@ class GeneratorSeedVR2Pipe(BasePipe):
             )
             progress.state(
                 "Audio mux failed — output has no audio track",
+                icon=Icon(name="alert-triangle"),
+            )
+        elif encode_result.audio_outcome == AUDIO_PROBE_FAILED:
+            logger.warning(
+                "[GENERATOR SEEDVR2] could not determine whether the source has audio — "
+                "keeping video without audio (%s)",
+                encode_result.omitted_reason,
+            )
+            progress.state(
+                "Could not check source audio — output has no audio track",
                 icon=Icon(name="alert-triangle"),
             )
 

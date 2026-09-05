@@ -11,6 +11,7 @@ encoder are all stubbed, and CUDA is forced unavailable.
 
 from __future__ import annotations
 
+import glob
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -429,3 +430,165 @@ def test_video_mux_success_reports_muxed_with_no_warning(monkeypatch):
     # The MUXED file, not the video-only one, is what gets moved into place.
     published = Path(out.output["video"][0])
     assert published.read_text() == "muxed"
+
+
+# -- video path: file-set ownership through the real encode/mux/probe code --
+#
+# Unlike `_wire_fake_audio_outcome` above (which fakes the whole
+# `encode_video_with_audio` function), these fake only the OS boundary
+# (`subprocess.run`, `shutil.which`) that `mux_audio_into_video` and
+# `probe_audio_stream` call, so the REAL classification and file-ownership
+# logic in `encode.py` runs end to end through `_process_video`'s attempt/
+# publish machinery -- and the exact set of files left on disk afterward is
+# asserted, not just the returned path.
+
+def _fake_ffmpeg_mux(*, succeeds: bool, writes_partial_on_failure: bool = False):
+    def _run(cmd, **kwargs):
+        out_path = cmd[-1]
+        if succeeds:
+            Path(out_path).write_text("muxed")
+            return SimpleNamespace(returncode=0, stderr=b"")
+        if writes_partial_on_failure:
+            Path(out_path).write_text("partial")
+        return SimpleNamespace(returncode=1, stderr=b"synthetic encoder error")
+    return _run
+
+
+def _wire_real_audio_boundary(monkeypatch, *, ffprobe_present: bool, has_audio_stream: bool,
+                              mux_succeeds: bool = True, mux_writes_partial_on_failure: bool = False):
+    """Leaves `encode_video_with_audio`/`mux_audio_into_video`/`probe_audio_stream`
+    as the REAL implementations; fakes only what they shell out to."""
+    from src.pipelines.pipes.generator.seedvr2 import encode as enc
+
+    monkeypatch.setattr(
+        enc.shutil, "which", lambda name: (f"/usr/bin/{name}" if name != "ffprobe" or ffprobe_present else None),
+    )
+
+    def _run(cmd, **kwargs):
+        if cmd[0] == "ffprobe":
+            streams = [{"codec_type": "audio"}] if has_audio_stream else []
+            return SimpleNamespace(returncode=0, stdout=f'{{"streams": {streams!r}}}'.replace("'", '"'))
+        return _fake_ffmpeg_mux(succeeds=mux_succeeds, writes_partial_on_failure=mux_writes_partial_on_failure)(cmd, **kwargs)
+
+    monkeypatch.setattr(enc.subprocess, "run", _run)
+    return enc
+
+
+def test_video_mux_success_leaves_only_the_final_file_on_disk(monkeypatch):
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+    _wire_real_audio_boundary(monkeypatch, ffprobe_present=True, has_audio_stream=True, mux_succeeds=True)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=5, keep_audio=True))
+
+    out = pipe.process(_video_input(), lambda o: None)
+
+    final_path = out.output["video"][0]
+    assert glob.glob(f"{final_path}*") == [final_path]
+    assert Path(final_path).read_text() == "muxed"
+
+
+def test_video_mux_failure_leaves_only_the_silent_video_with_warning(monkeypatch):
+    from src.pipelines.outputs import ProgressGenerationOutput
+
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+    _wire_real_audio_boundary(
+        monkeypatch, ffprobe_present=True, has_audio_stream=True,
+        mux_succeeds=False, mux_writes_partial_on_failure=True,
+    )
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=5, keep_audio=True))
+
+    outputs = []
+    out = pipe.process(_video_input(), outputs.append)
+
+    final_path = out.output["video"][0]
+    # Only the published (silent) video remains -- the partial `.audio.mp4`
+    # ffmpeg wrote before failing is gone, and so is the pre-publish attempt file.
+    assert glob.glob(f"{final_path}*") == [final_path]
+    assert Path(final_path).read_text().startswith("video:")
+
+    warnings = [
+        o for o in outputs
+        if isinstance(o, ProgressGenerationOutput) and o.icon and o.icon.name == "alert-triangle"
+    ]
+    assert warnings
+
+
+def test_video_probe_failure_leaves_only_the_silent_video_with_warning(monkeypatch):
+    from src.pipelines.outputs import ProgressGenerationOutput
+
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+    # ffprobe missing entirely -- an INCONCLUSIVE probe, not a confirmed-silent
+    # source; `has_audio_stream` is irrelevant here since ffprobe never runs.
+    _wire_real_audio_boundary(monkeypatch, ffprobe_present=False, has_audio_stream=True)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=5, keep_audio=True))
+
+    outputs = []
+    out = pipe.process(_video_input(), outputs.append)
+
+    final_path = out.output["video"][0]
+    # No mux was ever attempted (nothing safe to hand ffmpeg) -- only the
+    # video-only attempt survives, published under `final_path`.
+    assert glob.glob(f"{final_path}*") == [final_path]
+    assert Path(final_path).read_text().startswith("video:")
+
+    warnings = [
+        o for o in outputs
+        if isinstance(o, ProgressGenerationOutput) and o.icon and o.icon.name == "alert-triangle"
+    ]
+    assert warnings
+
+
+def test_video_confirmed_silent_source_leaves_only_the_silent_video_no_warning(monkeypatch):
+    from src.pipelines.outputs import ProgressGenerationOutput
+
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+    _wire_real_audio_boundary(monkeypatch, ffprobe_present=True, has_audio_stream=False)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=5, keep_audio=True))
+
+    outputs = []
+    out = pipe.process(_video_input(), outputs.append)
+
+    final_path = out.output["video"][0]
+    assert glob.glob(f"{final_path}*") == [final_path]
+
+    warnings = [
+        o for o in outputs
+        if isinstance(o, ProgressGenerationOutput) and o.icon and o.icon.name == "alert-triangle"
+    ]
+    assert not warnings  # a confirmed-silent source is not a failure
+
+
+def test_video_encoder_failure_leaves_no_temp_files(monkeypatch):
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+
+    def _failing_stream_encode(frames, out_path, fps, *, codec="libx264", crf=18, audio=None):
+        for _ in frames:  # drain the generator like a real encoder would
+            pass
+        raise RuntimeError("ffmpeg failed (exit 1): synthetic video defect")
+
+    monkeypatch.setattr(
+        "src.pipelines.pipes.generator.seedvr2.encode.encode_frames_stream_to_mp4",
+        _failing_stream_encode,
+    )
+
+    created: list[str] = []
+    import tempfile
+    orig_ntf = tempfile.NamedTemporaryFile
+
+    def _tracking_ntf(*args, **kwargs):
+        f = orig_ntf(*args, **kwargs)
+        created.append(f.name)
+        return f
+
+    monkeypatch.setattr(tempfile, "NamedTemporaryFile", _tracking_ntf)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=5, keep_audio=True))
+
+    with pytest.raises(RuntimeError, match="synthetic video defect"):
+        pipe.process(_video_input(), lambda o: None)
+
+    final_path = created[0]  # the first NamedTemporaryFile _process_video creates
+    assert glob.glob(f"{final_path}*") == []

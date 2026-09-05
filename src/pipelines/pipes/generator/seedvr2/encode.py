@@ -20,6 +20,7 @@ its failure classification untouched.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import tempfile
@@ -33,7 +34,6 @@ from src.pipelines.pipes._shared.media.video_encode import (
     FFmpegNotFoundError,
     _build_ffmpeg_args,
     _pad_to_even,
-    has_audio_stream,
 )
 
 # The argv builder and the even-dimension pad are shared with the eager
@@ -47,6 +47,63 @@ AUDIO_MUXED = "muxed"
 AUDIO_NOT_REQUESTED = "not_requested"
 AUDIO_SILENT_SOURCE = "silent_source"
 AUDIO_MUX_FAILED = "mux_failed"
+AUDIO_PROBE_FAILED = "probe_failed"
+
+# `AudioProbeResult.status` values -- `AUDIO_PROBE_FAILED` is shared with the
+# `VideoAudioResult.audio_outcome` constant above so a failed probe's status
+# can be forwarded as the outcome verbatim.
+AUDIO_PROBE_PRESENT = "present"
+AUDIO_PROBE_SILENT = "silent"
+
+
+@dataclass(frozen=True)
+class AudioProbeResult:
+    """Outcome of :func:`probe_audio_stream` -- three-way, unlike the shared
+    ``has_audio_stream`` helper, which collapses "confirmed no audio track"
+    and "the probe itself failed" (missing ffprobe, timeout, corrupt JSON, an
+    unreadable source, a non-zero exit) into the same ``False``. Collapsing
+    those was the bug: :func:`encode_video_with_audio` treated an INCONCLUSIVE
+    probe as "nothing to mux" and dropped the audio silently, with no warning
+    and no recorded reason, indistinguishable from a source that genuinely
+    carries no audio.
+
+    ``reason`` is set only for :data:`AUDIO_PROBE_FAILED`.
+    """
+    status: str
+    reason: Optional[str] = None
+
+
+def probe_audio_stream(path: Union[str, Path]) -> AudioProbeResult:
+    """Classify whether ``path`` has an audio stream, a confirmed absence of
+    one, or an inconclusive probe -- via the same ``ffprobe`` invocation as
+    the shared ``has_audio_stream``, but reporting WHY when it can't tell."""
+    if shutil.which("ffprobe") is None:
+        return AudioProbeResult(AUDIO_PROBE_FAILED, "ffprobe not found on PATH")
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "quiet", "-print_format", "json",
+                "-show_streams", "-select_streams", "a",
+                str(path),
+            ],
+            capture_output=True, text=True, timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return AudioProbeResult(AUDIO_PROBE_FAILED, "ffprobe timed out")
+    except OSError as exc:
+        return AudioProbeResult(AUDIO_PROBE_FAILED, f"ffprobe could not run: {exc}")
+
+    if result.returncode != 0:
+        return AudioProbeResult(AUDIO_PROBE_FAILED, f"ffprobe exited {result.returncode}")
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return AudioProbeResult(AUDIO_PROBE_FAILED, "ffprobe returned unparseable output")
+
+    if data.get("streams"):
+        return AudioProbeResult(AUDIO_PROBE_PRESENT)
+    return AudioProbeResult(AUDIO_PROBE_SILENT)
 
 
 @dataclass(frozen=True)
@@ -55,7 +112,12 @@ class VideoAudioResult:
     the ACTUAL audio outcome, never just the requested ``keep_audio`` flag.
 
     ``audio_outcome`` is one of the ``AUDIO_*`` constants above.
-    ``omitted_reason`` is set only for :data:`AUDIO_MUX_FAILED`.
+    ``omitted_reason`` is set for :data:`AUDIO_MUX_FAILED` and
+    :data:`AUDIO_PROBE_FAILED` -- both are a PERMITTED fallback to an
+    audio-less output, but only because something genuinely went wrong, so
+    both carry a reason and both are worth a durable warning. A confirmed
+    :data:`AUDIO_SILENT_SOURCE` carries no reason and warrants no warning: a
+    source with no audio track is normal, not a failure.
     """
     video_path: str
     audio_outcome: str
@@ -67,9 +129,11 @@ def mux_audio_into_video(
 ) -> None:
     """Copy ``video_only``'s video stream and ``source``'s audio stream into
     ``out_path``. Raises ``RuntimeError`` on any mux failure (ffmpeg exit,
-    timeout, or a zero-byte result). Callers are expected to have already
-    confirmed ``source`` has an audio stream (see :func:`has_audio_stream`) --
-    that is a "nothing to mux" case, not a mux failure, and is handled by
+    timeout, or a zero-byte result), removing whatever partial file it may
+    have written first -- callers must be able to rely on ``out_path`` not
+    existing after this raises. Callers are expected to have already
+    confirmed ``source`` has an audio stream (see :func:`probe_audio_stream`)
+    -- that is a "nothing to mux" case, not a mux failure, and is handled by
     :func:`encode_video_with_audio` before this is ever called.
     """
     cmd = [
@@ -82,14 +146,17 @@ def mux_audio_into_video(
     try:
         result = subprocess.run(cmd, capture_output=True, timeout=600)
     except subprocess.TimeoutExpired as e:
+        Path(out_path).unlink(missing_ok=True)
         raise RuntimeError(f"ffmpeg audio mux timed out after 600s: {source}") from e
 
     if result.returncode != 0:
+        Path(out_path).unlink(missing_ok=True)
         stderr = result.stderr.decode("utf-8", errors="replace")
         raise RuntimeError(f"ffmpeg audio mux failed (exit {result.returncode}): {stderr[-2000:]}")
 
     out = Path(out_path)
     if not out.exists() or out.stat().st_size == 0:
+        out.unlink(missing_ok=True)
         raise RuntimeError(f"ffmpeg reported success but produced no muxed output at {out_path}")
 
 
@@ -102,7 +169,7 @@ def encode_video_with_audio(
     keep_audio: bool,
     encode_video: Callable[..., object],
     mux_audio: Callable[[Union[str, Path], Union[str, Path], Union[str, Path]], None] = mux_audio_into_video,
-    has_audio: Callable[[Union[str, Path]], bool] = has_audio_stream,
+    probe_audio: Callable[[Union[str, Path]], AudioProbeResult] = probe_audio_stream,
 ) -> VideoAudioResult:
     """Encode ``frames_arr`` to ``out_path`` (video only) then, if
     ``keep_audio``, mux in ``source_audio_path``'s audio track as a separate
@@ -113,19 +180,39 @@ def encode_video_with_audio(
     ``keep_audio``. Only once that has succeeded is muxing attempted, so a
     mux failure can never be mistaken for -- or mask -- a video failure.
 
-    A source with no audio stream at all is not a failure: it is reported as
-    :data:`AUDIO_SILENT_SOURCE` without ever invoking ``mux_audio``. Only an
-    actual ``mux_audio`` exception (ffmpeg error, timeout, empty output) is
-    the "genuine mux failure" that falls back to the audio-less video, via
-    :data:`AUDIO_MUX_FAILED` with ``omitted_reason`` set.
+    The source is probed three ways before muxing is even attempted: a
+    CONFIRMED absence of an audio stream is not a failure -- reported as
+    :data:`AUDIO_SILENT_SOURCE`, no warning, ``mux_audio`` never called. An
+    INCONCLUSIVE probe (missing ffprobe, timeout, corrupt output, an
+    unreadable source) is a genuine problem, not a silent source -- reported
+    as :data:`AUDIO_PROBE_FAILED` with the probe's reason, also without ever
+    calling ``mux_audio`` (there is nothing safe to hand it). Only an actual
+    ``mux_audio`` exception (ffmpeg error, timeout, empty output) against a
+    CONFIRMED-present audio stream is the "genuine mux failure" that falls
+    back to the audio-less video, via :data:`AUDIO_MUX_FAILED`.
+
+    This function owns the full lifecycle of the intermediate files it
+    creates: the pre-mux silent video at ``out_path`` is removed once a mux
+    succeeds (the muxed file at ``out_path`` + ``.audio.mp4`` is the sole
+    surviving output), and ``mux_audio`` is responsible for leaving no partial
+    file behind when it fails. A caller never has to know these two files
+    existed to keep its directory clean.
     """
     encode_video(frames_arr, out_path, fps=fps, audio=None)
 
     if not keep_audio:
         return VideoAudioResult(video_path=str(out_path), audio_outcome=AUDIO_NOT_REQUESTED)
 
-    if source_audio_path is None or not has_audio(source_audio_path):
+    if source_audio_path is None:
         return VideoAudioResult(video_path=str(out_path), audio_outcome=AUDIO_SILENT_SOURCE)
+
+    probe = probe_audio(source_audio_path)
+    if probe.status == AUDIO_PROBE_SILENT:
+        return VideoAudioResult(video_path=str(out_path), audio_outcome=AUDIO_SILENT_SOURCE)
+    if probe.status == AUDIO_PROBE_FAILED:
+        return VideoAudioResult(
+            video_path=str(out_path), audio_outcome=AUDIO_PROBE_FAILED, omitted_reason=probe.reason,
+        )
 
     muxed_path = f"{out_path}.audio.mp4"
     try:
@@ -134,6 +221,9 @@ def encode_video_with_audio(
         return VideoAudioResult(
             video_path=str(out_path), audio_outcome=AUDIO_MUX_FAILED, omitted_reason=str(exc),
         )
+    # The mux succeeded -- `muxed_path` is now the sole authoritative output;
+    # the pre-mux silent video is superseded, not a second copy to publish.
+    Path(out_path).unlink(missing_ok=True)
     return VideoAudioResult(video_path=muxed_path, audio_outcome=AUDIO_MUXED)
 
 

@@ -209,7 +209,9 @@ class TestFitMessages:
 
     def test_empty_messages_fits_trivially(self):
         result = fit_messages([], available_tokens=0, counter=None)
-        assert result == context_budget.TrimResult([], 0, 0, True, 0, True)
+        assert result == context_budget.TrimResult(
+            [], 0, 0, True, 0, True, kept_units=[], protected_count=0,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +301,7 @@ class TestEnforceBudget:
         assert outcome.ledger["estimated_tokens"] == 42
         assert outcome.ledger["measured"] is True
 
-    def test_a_raising_messages_counter_falls_back_to_fragments_plus_framing(self):
+    def test_a_raising_messages_counter_falls_back_to_the_fragment_decision(self):
         def broken(system_message, messages):
             raise RuntimeError("template not supported")
 
@@ -308,8 +310,9 @@ class TestEnforceBudget:
             system_message="sys", messages=[_msg("user", "hi")],
             counter=len, messages_counter=broken,
         )
-        assert outcome.ledger["accounting"] == "fragments+framing"
+        assert outcome.ledger["accounting"] == "chat_template_fallback"
         assert outcome.ledger["measured"] is False
+        assert outcome.messages == [_msg("user", "hi")]
 
     def test_image_attached_forces_measured_false_even_with_chat_template(self):
         outcome = enforce_budget(
@@ -320,25 +323,86 @@ class TestEnforceBudget:
         assert outcome.ledger["accounting"] == "chat_template"
         assert outcome.ledger["measured"] is False
 
-    def test_messages_counter_is_never_consulted_when_the_fragment_trim_already_overflows(self):
-        """A whole-request count can't decide what to keep — it only reports on
-        what fragment-based trimming already chose — so it must never even be
-        called when that trim alone says the irreducible protected tail
-        doesn't fit (the raise must reflect the fragment numbers, not require
-        a working template call)."""
+    def test_exact_recount_can_rescue_a_request_the_fragment_estimate_rejected(self):
+        """Framing is deliberately conservative — an exact whole-request count
+        must win even when the fragment/framing estimate alone said the
+        protected tail didn't fit."""
         calls = []
 
-        def spy(system_message, messages):
-            calls.append(1)
-            return 1
+        def generous_counter(system_message, messages):
+            calls.append(len(messages))
+            return 1  # the exact wire cost, however pessimistic the estimate was
 
-        with pytest.raises(ContextBudgetExceededError):
+        outcome = enforce_budget(
+            capacity_tokens=10, capacity_source="config", reserve_tokens=5,
+            system_message=None, messages=[_msg("user", "a" * 200)],
+            counter=len, messages_counter=generous_counter,
+        )
+        assert calls == [1]  # consulted despite the fragment trim not fitting
+        assert outcome.messages == [_msg("user", "a" * 200)]
+        assert outcome.ledger["accounting"] == "chat_template"
+        assert outcome.ledger["estimated_tokens"] == 1
+
+    def test_recount_drops_one_more_unit_when_the_exact_count_still_overflows(self):
+        """Fragment trimming decided to keep all three messages; the exact
+        recount disagrees, so the oldest eligible unit is dropped and
+        recounted again — bounded, one drop per failed recount."""
+        messages = [
+            _msg("user", "oldest"), _msg("assistant", "older"), _msg("user", "current"),
+        ]
+        # Exact cost scales with how many messages are in the candidate —
+        # 3 kept -> 300 (over), 2 kept -> 200 (fits at capacity 250).
+        outcome = enforce_budget(
+            capacity_tokens=250, capacity_source="config", reserve_tokens=0,
+            system_message=None, messages=messages, counter=len,
+            messages_counter=lambda s, m: len(m) * 100,
+        )
+        assert [m["content"] for m in outcome.messages] == ["older", "current"]
+        assert outcome.ledger["accounting"] == "chat_template_shrunk"
+        assert outcome.ledger["chat_template_extra_dropped"] == 1
+        assert outcome.ledger["estimated_tokens"] == 200
+        assert outcome.ledger["measured"] is True
+
+    def test_recount_raises_when_even_the_protected_unit_alone_overflows_exactly(self):
+        """Shrinks down to the protected floor, recounts, still over — must
+        raise using the EXACT numbers, not silently succeed."""
+        messages = [
+            _msg("user", "oldest"), _msg("assistant", "older"), _msg("user", "current"),
+        ]
+        with pytest.raises(ContextBudgetExceededError) as exc_info:
             enforce_budget(
-                capacity_tokens=10, capacity_source="config", reserve_tokens=5,
-                system_message=None, messages=[_msg("user", "a" * 200)],
-                counter=len, messages_counter=spy,
+                capacity_tokens=50, capacity_source="config", reserve_tokens=0,
+                system_message=None, messages=messages, counter=len,
+                messages_counter=lambda s, m: len(m) * 100,
             )
-        assert calls == []
+        err = exc_info.value
+        assert err.estimated_tokens == 100  # the protected unit alone, exactly
+        assert err.breakdown["accounting"] == "chat_template_shrunk"
+        assert err.breakdown["chat_template_extra_dropped"] == 2
+
+    def test_a_counter_that_raises_mid_shrink_falls_back_to_the_original_fragment_selection(self):
+        """The recount loop drops one unit, then the counter starts failing —
+        the whole exact-recount attempt is abandoned, reverting to whatever
+        the fragment-based trim originally decided (all three messages, in
+        this fixture), not the partially-shrunk candidate."""
+        messages = [
+            _msg("user", "oldest"), _msg("assistant", "older"), _msg("user", "current"),
+        ]
+
+        def flaky(system_message, kept_messages):
+            if len(kept_messages) == 3:
+                return 300  # over budget -> triggers one drop
+            raise RuntimeError("template blew up on the shrunk candidate")
+
+        outcome = enforce_budget(
+            capacity_tokens=250, capacity_source="config", reserve_tokens=0,
+            system_message=None, messages=messages, counter=len,
+            messages_counter=flaky,
+        )
+        assert [m["content"] for m in outcome.messages] == ["oldest", "older", "current"]
+        assert outcome.ledger["accounting"] == "chat_template_fallback"
+        assert outcome.ledger["chat_template_extra_dropped"] == 0
+        assert outcome.ledger["measured"] is False
 
     def test_image_attached_adds_the_multimodal_allowance(self):
         without_image = enforce_budget(

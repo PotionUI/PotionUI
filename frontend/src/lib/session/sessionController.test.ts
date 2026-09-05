@@ -1,0 +1,667 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { get } from 'svelte/store';
+import type { Tab } from '$lib/types/tabs';
+import type { Session } from '$lib/types/api';
+import {
+	createSessionController,
+	type SessionController,
+	type SessionControllerState,
+	type SessionControllerTimers
+} from './sessionController';
+
+const PRESET_ID = 'preset-1';
+const OTHER_PRESET_ID = 'preset-2';
+const MODE = 'image';
+const TAB_ID = 'tab-1';
+const SESSION_A = 'session-a';
+const SESSION_B = 'session-b';
+
+function makeSession(id: string, overrides: Partial<Session> = {}): Session {
+	return {
+		id,
+		preset_id: PRESET_ID,
+		name: `Session ${id}`,
+		data: { [MODE]: { promptSegments: [{ id: 's', content: 'saved' }] } },
+		created_at: '2026-01-01T00:00:00Z',
+		updated_at: '2026-01-01T00:00:00Z',
+		...overrides
+	} as Session;
+}
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (reason?: unknown) => void;
+	const promise = new Promise<T>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	// An unobserved rejection between `reject()` and the controller's own catch
+	// would fail the run under vitest's unhandled-rejection guard.
+	promise.catch(() => {});
+	return { promise, resolve, reject };
+}
+
+/** Drains the microtask queue the controller derives its state on. */
+async function settle() {
+	for (let i = 0; i < 20; i++) await Promise.resolve();
+}
+
+function createFakeTabs(seed: Partial<Tab>) {
+	let tabs: Tab[] = [{ id: TAB_ID, ...seed } as Tab];
+	const subscribers = new Set<(value: { tabs: Tab[] }) => void>();
+	/** Only the controller's own writes; a test's `edit` is not recorded. */
+	const writes: Array<Partial<Tab>> = [];
+
+	function emit(patch: Partial<Tab>) {
+		tabs = tabs.map((tab) => (tab.id === TAB_ID ? { ...tab, ...patch } : tab));
+		for (const subscriber of subscribers) subscriber({ tabs });
+	}
+
+	return {
+		writes,
+		get tab() {
+			return tabs[0];
+		},
+		/** A change made outside the controller (the live draft being edited). */
+		edit(patch: Partial<Tab>) {
+			emit(patch);
+		},
+		subscribe(run: (value: { tabs: Tab[] }) => void) {
+			subscribers.add(run);
+			run({ tabs });
+			return () => subscribers.delete(run);
+		},
+		updateTab(_tabId: string, patch: Partial<Tab>) {
+			writes.push(patch);
+			emit(patch);
+		}
+	};
+}
+
+function createFakeTimers() {
+	let time = 0;
+	let nextId = 1;
+	const entries = new Map<
+		number,
+		{ handler: () => void; due: number; interval: number | null }
+	>();
+
+	const timers: SessionControllerTimers & { advance(ms: number): void; pending(): number } = {
+		setInterval(handler, ms) {
+			const id = nextId++;
+			entries.set(id, { handler, due: time + ms, interval: ms });
+			return id;
+		},
+		clearInterval(id) {
+			entries.delete(id);
+		},
+		setTimeout(handler, ms) {
+			const id = nextId++;
+			entries.set(id, { handler, due: time + ms, interval: null });
+			return id;
+		},
+		clearTimeout(id) {
+			entries.delete(id);
+		},
+		advance(ms) {
+			const target = time + ms;
+			for (;;) {
+				const next = [...entries.entries()]
+					.filter(([, entry]) => entry.due <= target)
+					.sort((a, b) => a[1].due - b[1].due)[0];
+				if (!next) break;
+				const [id, entry] = next;
+				time = entry.due;
+				if (entry.interval === null) entries.delete(id);
+				else entry.due = time + entry.interval;
+				entry.handler();
+			}
+			time = target;
+		},
+		pending() {
+			return entries.size;
+		}
+	};
+
+	return timers;
+}
+
+function createFakeApi() {
+	return {
+		getSessionsForPreset: vi.fn(async (_presetId: string) => ({
+			success: true,
+			data: [] as Session[]
+		})),
+		getSessionById: vi.fn(async (id: string) => ({ success: true, data: makeSession(id) })),
+		saveSession: vi.fn(async () => ({ success: true, data: makeSession('new') })),
+		updateSession: vi.fn(async (id: string) => ({ success: true, data: makeSession(id) })),
+		deleteSession: vi.fn(async () => ({ success: true, data: { message: 'ok' } })),
+		getSessionVersions: vi.fn(async () => ({ success: true, data: [] })),
+		getSessionVersion: vi.fn(async () => ({
+			success: true,
+			data: { version: 1, created_at: '2026-01-01T00:00:00Z', data: {} }
+		}))
+	};
+}
+
+function createHarness(options: { tab?: Partial<Tab>; storage?: Record<string, string> } = {}) {
+	const api = createFakeApi();
+	const tabs = createFakeTabs(options.tab ?? {});
+	const timers = createFakeTimers();
+	const store = new Map(Object.entries(options.storage ?? {}));
+	const toasts = { info: vi.fn(), warning: vi.fn(), error: vi.fn() };
+	const logger = { warn: vi.fn(), error: vi.fn() };
+
+	const controller = createSessionController({
+		api: api as never,
+		tabs,
+		storage: {
+			get: (key) => store.get(key) ?? null,
+			set: (key, value) => void store.set(key, value)
+		},
+		toasts,
+		logger,
+		timers
+	});
+
+	return { api, tabs, timers, toasts, logger, controller, storage: store };
+}
+
+function context(overrides: Record<string, unknown> = {}) {
+	return {
+		tabId: TAB_ID,
+		presetId: PRESET_ID,
+		currentMode: MODE,
+		presetVersion: undefined,
+		modeVariants: [],
+		...overrides
+	} as never;
+}
+
+function baselineWrites(writes: Array<Partial<Tab>>) {
+	return writes.filter((write) => 'savedSessionSignature' in write);
+}
+
+let harness: ReturnType<typeof createHarness>;
+let controller: SessionController;
+
+function draft(content: string) {
+	return { promptSegments: [{ id: 's', content }] } as Partial<Tab>;
+}
+
+/** Boots a controller already bound to a tab whose live draft differs from the
+ *  session's saved baseline — i.e. dirty, with a real session selected. */
+async function bootWithDirtySession(options: { storage?: Record<string, string> } = {}) {
+	harness = createHarness({
+		tab: {
+			selectedPreset: PRESET_ID,
+			selectedMode: MODE,
+			selectedSessionId: SESSION_A,
+			savedSessionSignature: JSON.stringify({ [MODE]: { prompt: 'the saved baseline' } }),
+			promptSegments: [{ id: 's', content: 'live edit' }]
+		} as Partial<Tab>,
+		storage: options.storage
+	});
+	harness.api.getSessionsForPreset.mockResolvedValue({
+		success: true,
+		data: [makeSession(SESSION_A), makeSession(SESSION_B)]
+	});
+	controller = harness.controller;
+	controller.setContext(context());
+	controller.start();
+	await settle();
+	return harness;
+}
+
+beforeEach(() => {
+	vi.clearAllMocks();
+});
+
+describe('createSessionController', () => {
+	it('binds the tab selection and reports the live draft as unsaved', async () => {
+		await bootWithDirtySession();
+
+		const state = get(controller.state);
+		expect(state.currentSession?.id).toBe(SESSION_A);
+		expect(state.hasUnsavedChanges).toBe(true);
+		// Adopting a tab never refetches the session it is already linked to.
+		expect(harness.api.getSessionById).not.toHaveBeenCalled();
+	});
+
+	it('drops a save that lands after the mode was switched under it', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: Session }>();
+		harness.api.updateSession.mockReturnValue(pending.promise as never);
+
+		void controller.quickSave();
+		await settle();
+
+		controller.setContext(context({ currentMode: 'video' }));
+		await settle();
+
+		const baselinesBefore = baselineWrites(harness.tabs.writes).length;
+		pending.resolve({ success: true, data: makeSession(SESSION_A, { name: 'Renamed by save' }) });
+		await settle();
+
+		expect(baselineWrites(harness.tabs.writes).length).toBe(baselinesBefore);
+		// The saved session's own list entry is still refreshed.
+		expect(get(controller.state).sessions.find((s) => s.id === SESSION_A)?.name).toBe(
+			'Renamed by save'
+		);
+	});
+
+	it('drops a save that lands after the preset was switched under it', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: Session }>();
+		harness.api.updateSession.mockReturnValue(pending.promise as never);
+
+		void controller.quickSave();
+		await settle();
+
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+
+		const baselinesBefore = baselineWrites(harness.tabs.writes).length;
+		pending.resolve({ success: true, data: makeSession(SESSION_A) });
+		await settle();
+
+		expect(baselineWrites(harness.tabs.writes).length).toBe(baselinesBefore);
+	});
+
+	it('drops a save that lands after the user selected another session', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: Session }>();
+		harness.api.updateSession.mockReturnValue(pending.promise as never);
+
+		void controller.quickSave();
+		await settle();
+
+		await controller.select(SESSION_B);
+		await settle();
+		const baselineForB = harness.tabs.tab.savedSessionSignature;
+
+		pending.resolve({ success: true, data: makeSession(SESSION_A) });
+		await settle();
+
+		expect(get(controller.state).currentSession?.id).toBe(SESSION_B);
+		expect(harness.tabs.tab.savedSessionSignature).toBe(baselineForB);
+	});
+
+	it('refuses to save a session that belongs to another preset and unlinks it', async () => {
+		await bootWithDirtySession();
+		// The live preset moved on while this session stayed selected.
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+
+		await controller.quickSave();
+		await settle();
+
+		expect(harness.api.updateSession).not.toHaveBeenCalled();
+		const state = get(controller.state);
+		expect(state.error).toBe('Cannot save: Session belongs to a different preset');
+		expect(state.currentSession).toBeNull();
+		expect(state.selectedSessionId).toBe('');
+	});
+
+	it('warns once when the loaded session was saved under an older preset version', async () => {
+		await bootWithDirtySession();
+		harness.api.getSessionById.mockResolvedValue({
+			success: true,
+			data: makeSession(SESSION_B, {
+				data: { [MODE]: { presetVersion: '1.0.0' } }
+			})
+		});
+
+		controller.setContext(context({ presetVersion: '2.0.0' }));
+		await controller.select(SESSION_B);
+		await settle();
+
+		expect(harness.toasts.warning).toHaveBeenCalledTimes(1);
+		expect(harness.toasts.warning.mock.calls[0][0]).toContain('1.0.0');
+		expect(harness.toasts.warning.mock.calls[0][0]).toContain('2.0.0');
+	});
+
+	it('does not warn when the loaded session matches the live preset version', async () => {
+		await bootWithDirtySession();
+		harness.api.getSessionById.mockResolvedValue({
+			success: true,
+			data: makeSession(SESSION_B, {
+				data: { [MODE]: { presetVersion: '2.0.0' } }
+			})
+		});
+
+		controller.setContext(context({ presetVersion: '2.0.0' }));
+		await controller.select(SESSION_B);
+		await settle();
+
+		expect(harness.toasts.warning).not.toHaveBeenCalled();
+	});
+
+	it('autosaves on the stored cadence and stops on destroy', async () => {
+		await bootWithDirtySession({
+			storage: { autoSaveEnabled: 'true', autoSaveInterval: '5000' }
+		});
+
+		harness.timers.advance(4999);
+		expect(harness.api.updateSession).not.toHaveBeenCalled();
+
+		harness.timers.advance(1);
+		await settle();
+		expect(harness.api.updateSession).toHaveBeenCalledTimes(1);
+
+		// Still dirty (the draft moved again), so the next tick saves again.
+		harness.tabs.edit({ promptSegments: [{ id: 's', content: 'edited again' }] } as Partial<Tab>);
+		await settle();
+		harness.timers.advance(5000);
+		await settle();
+		expect(harness.api.updateSession).toHaveBeenCalledTimes(2);
+
+		controller.destroy();
+		harness.timers.advance(50000);
+		expect(harness.api.updateSession).toHaveBeenCalledTimes(2);
+		expect(harness.timers.pending()).toBe(0);
+	});
+
+	it('does not autosave when the stored preference is off', async () => {
+		await bootWithDirtySession({ storage: { autoSaveEnabled: 'false' } });
+
+		harness.timers.advance(60000);
+		await settle();
+
+		expect(harness.api.updateSession).not.toHaveBeenCalled();
+	});
+
+	it('publishes nothing and writes no baseline once destroyed mid-save', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: Session }>();
+		harness.api.updateSession.mockReturnValue(pending.promise as never);
+
+		void controller.quickSave();
+		await settle();
+
+		const emissions: SessionControllerState[] = [];
+		const unsubscribe = controller.state.subscribe((state) => emissions.push(state));
+		emissions.length = 0;
+
+		controller.destroy();
+		const baselinesBefore = baselineWrites(harness.tabs.writes).length;
+
+		pending.resolve({ success: true, data: makeSession(SESSION_A) });
+		await settle();
+
+		expect(emissions).toHaveLength(0);
+		expect(baselineWrites(harness.tabs.writes).length).toBe(baselinesBefore);
+		unsubscribe();
+	});
+
+	it('clears the list-load retry timer on destroy', async () => {
+		harness = createHarness({ tab: { selectedPreset: PRESET_ID, selectedMode: MODE } });
+		harness.api.getSessionsForPreset.mockRejectedValue(new Error('backend down'));
+		controller = harness.controller;
+
+		controller.setContext(context());
+		controller.start();
+		await settle();
+
+		expect(harness.api.getSessionsForPreset).toHaveBeenCalledTimes(1);
+		expect(harness.timers.pending()).toBe(1);
+
+		controller.destroy();
+		harness.timers.advance(60000);
+		await settle();
+
+		expect(harness.api.getSessionsForPreset).toHaveBeenCalledTimes(1);
+		expect(harness.timers.pending()).toBe(0);
+	});
+
+	it('retries the list load after a backend outage and binds the linked session', async () => {
+		harness = createHarness({
+			tab: {
+				selectedPreset: PRESET_ID,
+				selectedMode: MODE,
+				selectedSessionId: SESSION_A,
+				savedSessionSignature: null
+			} as Partial<Tab>
+		});
+		harness.api.getSessionsForPreset
+			.mockRejectedValueOnce(new Error('backend down'))
+			.mockResolvedValue({ success: true, data: [makeSession(SESSION_A)] });
+		controller = harness.controller;
+
+		controller.setContext(context());
+		controller.start();
+		await settle();
+		expect(get(controller.state).currentSession).toBeNull();
+
+		harness.timers.advance(2000);
+		await settle();
+
+		expect(get(controller.state).currentSession?.id).toBe(SESSION_A);
+		// A null baseline is the deliberate "restored, not yet saved" state.
+		expect(get(controller.state).hasUnsavedChanges).toBe(true);
+	});
+
+	// Two saves of the SAME selected session share a selection generation, so
+	// ordering between them needs its own counter: without one, whichever
+	// resolves LAST wins and an older snapshot silently becomes the baseline.
+	it('ignores an older save of the same session that lands after a newer one', async () => {
+		await bootWithDirtySession();
+		const older = deferred<{ success: boolean; data: Session }>();
+		const newer = deferred<{ success: boolean; data: Session }>();
+
+		harness.tabs.edit(draft('draft X'));
+		harness.api.updateSession.mockReturnValueOnce(older.promise as never);
+		void controller.quickSave();
+		await settle();
+
+		harness.tabs.edit(draft('draft Y'));
+		harness.api.updateSession.mockReturnValueOnce(newer.promise as never);
+		void controller.quickSave();
+		await settle();
+
+		newer.resolve({ success: true, data: makeSession(SESSION_A, { name: 'version 2' }) });
+		await settle();
+
+		older.resolve({ success: true, data: makeSession(SESSION_A, { name: 'version 1' }) });
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.currentSession?.name).toBe('version 2');
+		expect(harness.tabs.tab.savedSessionSignature).toContain('draft Y');
+		expect(harness.tabs.tab.savedSessionSignature).not.toContain('draft X');
+		expect(state.hasUnsavedChanges).toBe(false);
+	});
+
+	it('reports no error for an older save of the same session that fails after a newer one', async () => {
+		await bootWithDirtySession();
+		const older = deferred<{ success: boolean; data: Session }>();
+		const newer = deferred<{ success: boolean; data: Session }>();
+
+		harness.tabs.edit(draft('draft X'));
+		harness.api.updateSession.mockReturnValueOnce(older.promise as never);
+		void controller.quickSave();
+		await settle();
+
+		harness.tabs.edit(draft('draft Y'));
+		harness.api.updateSession.mockReturnValueOnce(newer.promise as never);
+		void controller.quickSave();
+		await settle();
+
+		newer.resolve({ success: true, data: makeSession(SESSION_A, { name: 'version 2' }) });
+		await settle();
+
+		older.reject(new Error('network down'));
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.error).toBeNull();
+		expect(state.currentSession?.name).toBe('version 2');
+		expect(harness.tabs.tab.savedSessionSignature).toContain('draft Y');
+		expect(state.isQuickSaving).toBe(false);
+	});
+
+	// The older save is superseded the moment the newer one is ISSUED, not when
+	// one of them lands: a stale success that arrives while the newer save is
+	// still in flight would otherwise publish a stale snapshot as the baseline,
+	// and be left standing there if the newer save then fails.
+	it('ignores an older save that lands while a newer save of the same session is in flight', async () => {
+		await bootWithDirtySession();
+		const bootBaseline = harness.tabs.tab.savedSessionSignature;
+		const older = deferred<{ success: boolean; data: Session }>();
+		const newer = deferred<{ success: boolean; data: Session }>();
+
+		harness.tabs.edit(draft('draft X'));
+		harness.api.updateSession.mockReturnValueOnce(older.promise as never);
+		void controller.quickSave();
+		await settle();
+
+		harness.tabs.edit(draft('draft Y'));
+		harness.api.updateSession.mockReturnValueOnce(newer.promise as never);
+		void controller.quickSave();
+		await settle();
+
+		older.resolve({ success: true, data: makeSession(SESSION_A, { name: 'version 1' }) });
+		await settle();
+
+		expect(harness.tabs.tab.savedSessionSignature).toBe(bootBaseline);
+		expect(get(controller.state).currentSession?.name).not.toBe('version 1');
+
+		newer.resolve({ success: true, data: makeSession(SESSION_A, { name: 'version 2' }) });
+		await settle();
+
+		expect(get(controller.state).currentSession?.name).toBe('version 2');
+		expect(harness.tabs.tab.savedSessionSignature).toContain('draft Y');
+	});
+
+	it('reports no error for an older save that fails while a newer one is in flight', async () => {
+		await bootWithDirtySession();
+		const older = deferred<{ success: boolean; data: Session }>();
+		const newer = deferred<{ success: boolean; data: Session }>();
+
+		harness.tabs.edit(draft('draft X'));
+		harness.api.updateSession.mockReturnValueOnce(older.promise as never);
+		void controller.quickSave();
+		await settle();
+
+		harness.tabs.edit(draft('draft Y'));
+		harness.api.updateSession.mockReturnValueOnce(newer.promise as never);
+		void controller.quickSave();
+		await settle();
+
+		older.reject(new Error('network down'));
+		await settle();
+		expect(get(controller.state).error).toBeNull();
+
+		newer.resolve({ success: true, data: makeSession(SESSION_A, { name: 'version 2' }) });
+		await settle();
+
+		// The newest save succeeded, so nothing is left claiming it failed.
+		expect(get(controller.state).error).toBeNull();
+		expect(harness.tabs.tab.savedSessionSignature).toContain('draft Y');
+	});
+
+	// Across intents the guard is the seq of whatever last wrote the active
+	// state: a restore deliberately leaves the tab dirty, and a save issued
+	// before it must not quietly mark that restored draft as saved.
+	it('ignores a save that lands after a restore replaced the active state', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: Session }>();
+		harness.api.updateSession.mockReturnValue(pending.promise as never);
+		harness.api.getSessionVersion.mockResolvedValue({
+			success: true,
+			data: { version: 2, created_at: '2026-01-01T00:00:00Z', data: { [MODE]: { prompt: 'old' } } }
+		} as never);
+
+		void controller.quickSave();
+		await settle();
+
+		await controller.restoreVersion(SESSION_A, 2);
+		await settle();
+
+		pending.resolve({ success: true, data: makeSession(SESSION_A) });
+		await settle();
+
+		expect(harness.tabs.tab.savedSessionSignature).toBeNull();
+		expect(get(controller.state).hasUnsavedChanges).toBe(true);
+	});
+
+	// A save-as that completes after a preset switch belongs to the preset it
+	// was started under: its record must not appear in the new preset's list,
+	// and it must not answer for a dialog the user has since opened.
+	it('keeps a save-as that completes under another preset out of that preset list', async () => {
+		const presetASession = makeSession(SESSION_A);
+		const presetBSession = makeSession(SESSION_B, { preset_id: OTHER_PRESET_ID });
+		const created = makeSession('session-created', { name: 'Created under A' });
+		const server: Record<string, Session[]> = {
+			[PRESET_ID]: [presetASession],
+			[OTHER_PRESET_ID]: [presetBSession]
+		};
+
+		harness = createHarness({ tab: { selectedPreset: PRESET_ID, selectedMode: MODE } });
+		harness.api.getSessionsForPreset.mockImplementation(async (presetId: string) => ({
+			success: true,
+			data: server[presetId]
+		}));
+		controller = harness.controller;
+		controller.setContext(context());
+		controller.start();
+		await settle();
+		expect(get(controller.state).sessions).toEqual([presetASession]);
+
+		const pending = deferred<{ success: boolean; data: Session }>();
+		harness.api.saveSession.mockReturnValue(pending.promise as never);
+		const saving = controller.saveAs('Created under A', 'save-as');
+		await settle();
+
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+		expect(get(controller.state).sessions).toEqual([presetBSession]);
+
+		// The server accepted it — under preset A.
+		server[PRESET_ID] = [created, presetASession];
+		pending.resolve({ success: true, data: created });
+		await settle();
+
+		// Preset B's list is untouched, and the caller is told not to close the
+		// dialog now on screen.
+		expect(get(controller.state).sessions).toEqual([presetBSession]);
+		expect(get(controller.state).selectedSessionId).toBe('');
+		expect(await saving).toBe(false);
+
+		// Switching back re-reads the list, which is where the record shows up.
+		controller.setContext(context());
+		await settle();
+		expect(get(controller.state).sessions).toEqual([created, presetASession]);
+	});
+
+	it('closes the dialog and inserts the record for a save-as under the live context', async () => {
+		await bootWithDirtySession();
+		const created = makeSession('session-created', { name: 'Fresh' });
+		harness.api.saveSession.mockResolvedValue({ success: true, data: created });
+
+		expect(await controller.saveAs('Fresh', 'save-as')).toBe(true);
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.sessions[0]).toEqual(created);
+		expect(state.selectedSessionId).toBe('session-created');
+		expect(state.hasUnsavedChanges).toBe(false);
+	});
+
+	it('leaves the baseline pointing at nothing after restoring a version', async () => {
+		await bootWithDirtySession();
+		harness.api.getSessionVersion.mockResolvedValue({
+			success: true,
+			data: { version: 2, created_at: '2026-01-01T00:00:00Z', data: { [MODE]: { prompt: 'old' } } }
+		} as never);
+
+		await controller.restoreVersion(SESSION_A, 2);
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.hasUnsavedChanges).toBe(true);
+		expect(harness.tabs.tab.savedSessionSignature).toBeNull();
+		expect(state.historySessionId).toBeNull();
+		expect(harness.toasts.info).toHaveBeenCalledTimes(1);
+	});
+});

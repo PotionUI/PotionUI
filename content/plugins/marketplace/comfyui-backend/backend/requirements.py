@@ -191,7 +191,18 @@ async def _get_object_info(base_url: str) -> Dict[str, Any]:
 
 
 async def _fetch_object_info(backend_id: str, base_url: str) -> Dict[str, Any]:
-    return await _object_info_cache.get_or_fetch(backend_id, lambda: _get_object_info(base_url))
+    # Keyed by `(backend_id, base_url)`, not `backend_id` alone: this
+    # plugin's own `_CONFIGURED_BACKEND_ID` (backend/api.py) is a FIXED
+    # string standing in for "whatever the plugin's current settings
+    # resolve to", so the same id can legitimately mean a different address
+    # from one call to the next (the admin edited host/port between them).
+    # Without the address in the key, a caller for the new address could
+    # either be served a stale listing fetched from the old one, or join an
+    # in-flight fetch that's still talking to it - `base_url` in the key
+    # means a changed address is simply a different cache entry, fetched on
+    # its own, with no global cache flush needed and no risk of an old
+    # fetch's late completion ever satisfying a caller for the new address.
+    return await _object_info_cache.get_or_fetch((backend_id, base_url), lambda: _get_object_info(base_url))
 
 
 async def _get_model_names(base_url: str, folder: str) -> List[str]:
@@ -203,20 +214,56 @@ async def _get_model_names(base_url: str, folder: str) -> List[str]:
 
 
 async def _fetch_model_names(backend_id: str, base_url: str, folder: str) -> List[str]:
+    # Same reasoning as `_fetch_object_info` - `base_url` joins the key so a
+    # changed address for the same `backend_id` is a distinct entry, never
+    # served stale data from (or joined to an in-flight fetch against) the
+    # old one.
     return await _model_list_cache.get_or_fetch(
-        (backend_id, folder), lambda: _get_model_names(base_url, folder)
+        (backend_id, base_url, folder), lambda: _get_model_names(base_url, folder)
     )
 
 
+def _normalized_path(name: str) -> str:
+    """`name` with backslash separators normalized to forward slashes -
+    separator direction only, never a case fold and never touching
+    spelling otherwise (a ComfyUI listing and a requirement's own recorded
+    selection should already agree on separator style, but a Windows-authored
+    export can still carry `\\`)."""
+    return name.replace("\\", "/")
+
+
 def _basename(name: str) -> str:
-    return name.replace("\\", "/").rsplit("/", 1)[-1]
+    return _normalized_path(name).rsplit("/", 1)[-1]
 
 
 def _model_present(name: str, names: List[str]) -> bool:
-    if name in names:
-        return True
-    wanted = _basename(name)
-    return any(_basename(candidate) == wanted for candidate in names)
+    """Whether `name` (a `comfyui_model` requirement's own recorded
+    selection - possibly `sdxl/portrait.safetensors`, a subfoldered
+    collection) is present in `names` (the server's live listing).
+
+    An exact match, after normalizing separator direction only, always
+    counts. Past that, a bare basename match is a real but limited
+    fallback: it's only trusted when at least one side - the wanted name or
+    this particular candidate - genuinely carries no subfolder evidence at
+    all (the admin's own selection omitted one ComfyUI's server layout
+    adds, or vice versa; residual, irreducible ambiguity with nothing more
+    precise to compare). When BOTH sides carry a subfolder and it already
+    didn't match exactly, they name different files under that shared
+    basename (a same-named copy in a different collection - `sdxl/` vs
+    `flux/`, say) and must never be reported as the same one."""
+    normalized_name = _normalized_path(name)
+    name_has_subfolder = "/" in normalized_name
+    wanted_basename = _basename(name)
+
+    for candidate in names:
+        normalized_candidate = _normalized_path(candidate)
+        if normalized_candidate == normalized_name:
+            return True
+        if name_has_subfolder and "/" in normalized_candidate:
+            continue  # both subfoldered and already not an exact match - different files
+        if _basename(candidate) == wanted_basename:
+            return True
+    return False
 
 
 def _gguf_fallback_folder(folder: str) -> Optional[str]:

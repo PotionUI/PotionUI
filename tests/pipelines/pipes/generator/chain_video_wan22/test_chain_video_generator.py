@@ -986,6 +986,38 @@ def test_generator_and_geometry_module_agree_when_stitch_is_disabled():
     _assert_executed_geometry_matches_the_planner(doc, 4, params)
 
 
+def test_generator_and_geometry_module_agree_on_two_successive_short_continuations():
+    # frames [17, 17, 17], sub-types [t2v, chain, chain], overlap 12, motion 4
+    # (tail_count=12): B's context is bounded by A's on-disk length (17,
+    # untrimmed) -> B trims 12 pre-decode -> on_disk_B=5. C's context must be
+    # bounded by B's ACTUAL on-disk length (5), not B's ALIGNED `frames`
+    # (17) -- a non-sequential planner would wrongly predict on_disk
+    # [17, 5, 5] instead of the generator's real [17, 5, 12].
+    doc = _document(n_segments=3, frames=17, start_on_seg0=False,
+                     continuation={"source": None, "overlap_frames": 12, "stitch": True})
+    pipe = _pipe(document=doc, motion_latent_count=4)
+    pi = _inputs(model=_bundle(in_dim=36), model_t2v=_bundle(in_dim=16, dual=False), conditioning=_cond(3))
+
+    emitted = []
+    p1, p2, p3, p4 = _patches()
+    with p1, p2, p3, p4, _no_stitch():
+        pipe.process(pi, lambda o: emitted.append(o))
+
+    params = {o.name: o.values for o in emitted if isinstance(o, ParamGenerationOutput)}
+    assert params["segment_emitted_frames"] == [17, 5, 12]      # on-disk lengths (DIR-06 counterexample)
+    assert params["segment_context_trimmed"] == [False, True, True]
+    assert params["segment_join_overlap"] == [0, 0, 0]          # both continuations trimmed pre-decode
+    _assert_executed_geometry_matches_the_planner(doc, 4, params)
+
+    # Cross-check the new sequential fields directly against the plan.
+    plan = chain_geometry.resolve_window_geometry(
+        doc["segments"], {**doc["settings"], "timing_profile": {"motion_latent_count": 4}})
+    assert [g.on_disk_frames for g in plan] == [17, 5, 12]
+    assert [g.context_trimmed for g in plan] == [False, True, True]
+    assert [g.join_frames for g in plan] == [0, 0, 0]
+    assert [g.emitted_frames for g in plan] == [17, 5, 12]
+
+
 # -- LoRA patch / unpatch ---------------------------------------------------
 
 def test_lora_reacquire_only_on_stack_change():

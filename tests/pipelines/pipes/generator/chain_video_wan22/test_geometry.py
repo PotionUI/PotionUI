@@ -203,8 +203,30 @@ def test_a_short_opener_clamps_the_next_continuations_overlap_to_its_own_frames(
     )
     assert geometry[0].frames == 1
     assert geometry[1].frames == 13
-    assert geometry[1].overlap_frames == 1  # min(tail_count=12, prev.frames=1, frames-1=12)
+    assert geometry[1].overlap_frames == 1  # min(tail_count=12, prev.on_disk_frames=1, frames-1=12)
     assert geometry[1].emitted_frames == 12
+
+
+def test_two_successive_short_continuations_clamp_sequentially_not_off_the_aligned_length():
+    # frames [17, 17, 17], sub-types [t2v, chain, chain], overlap 12, motion 4
+    # (tail_count=12): B's context is bounded by A's on-disk length (17, A is
+    # a fresh cut) -> B trims 12 pre-decode -> on_disk_B=5. C's context must
+    # be bounded by B's ACTUAL on-disk length (5), not B's aligned `frames`
+    # (17) -- a planner that used the aligned length would wrongly predict
+    # on_disk=[17, 5, 5] instead of the real [17, 5, 12].
+    geometry = resolve_window_geometry(
+        [_segment(0, frames=17, sub_type="t2v"), _segment(1, frames=17), _segment(2, frames=17)],
+        _settings(continuation={"source": "tail_frames", "overlap_frames": 12}, motion_latent_count=4),
+    )
+    assert [g.frames for g in geometry] == [17, 17, 17]
+    # Checked first (via fields that existed even before the sequential fix)
+    # so a pre-fix run fails on the actual wrong prediction [17, 5, 5], not
+    # merely an AttributeError on the newer fields checked below.
+    assert [g.emitted_frames for g in geometry] == [17, 5, 12]
+    assert [g.overlap_frames for g in geometry] == [0, 12, 5]
+    assert [g.on_disk_frames for g in geometry] == [17, 5, 12]
+    assert [g.context_trimmed for g in geometry] == [False, True, True]
+    assert [g.join_frames for g in geometry] == [0, 0, 0]
 
 
 def test_a_single_frame_window_clamps_to_zero_emitted_rather_than_going_negative():

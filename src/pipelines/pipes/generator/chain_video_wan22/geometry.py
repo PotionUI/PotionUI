@@ -34,24 +34,27 @@ calls this module when that profile is actually present on the document --
 see its own `_WAN_FAMILY` comment for what happens when it's absent (a
 preset instance that hasn't wired the capability, or a hand-built document).
 
-**The trim clamp mirrors H3's own.** A continuation segment's overlap here is
-`min(tail_count, previous segment's frames, frames - 1)` -- always leaves at
-least one real frame (the `frames - 1` term), the same clamp
-`video_minimax_h3/windows.py` uses for its own
-`overlap_latents = min(overlap_latents_default, num_latent_frames - 1)`, plus
-one Wan-specific term: it never assumes more of the PREVIOUS segment's tail
-is available than that segment actually has frames for -- a short opener
-(e.g. a 1-frame `t2v` shot) leaves less real context than `tail_count` alone
-would suggest, and `main.py`'s own generation-time clamp (`context_frames`)
-applies the identical bound so the two can never disagree.
-`main.py` splits that same net amount across two possible pipeline stages --
-a per-segment pre-decode trim when the window is long enough
-(`context_trimmed`), or a per-join stitch-time crossfade otherwise
-(`segment_overlap_dropped_at_stitch`, DIR-07) -- but the TOTAL a `"chain"`
-segment contributes to the stitched result is the same `frames - min(
-tail_count, frames - 1)` either way; `main.py` itself calls
-`resolve_continuation`/`tail_frame_count` from this module for exactly that
-reason, so the two can never drift.
+**The trim clamp mirrors H3's own, and is SEQUENTIAL.** A continuation
+segment's context is `min(tail_count, the PREVIOUS segment's own
+`on_disk_frames`)` -- never that previous segment's aligned `frames`, which
+over-estimates whenever the previous segment was itself trimmed. This is
+the same clamp `video_minimax_h3/windows.py` uses for its own
+`overlap_latents = min(overlap_latents_default, num_latent_frames - 1)`,
+generalized to chain sequentially: two short continuations in a row compound
+(segment i's context is bounded by segment i-1's OWN trimmed output, which
+was itself bounded by segment i-2's), mirroring `main.py`'s
+`prev_tail.shape[0]` -- always the previous segment's ACTUAL decoded length
+after its own pre-decode trim, never a re-derived aligned count. Each
+segment then either trims that context off pre-decode (`context_trimmed`,
+when the window is long enough: `on_disk_frames = frames - context`,
+`join_frames = 0`) or defers it to a stitch-time join otherwise
+(`on_disk_frames = frames`, `join_frames = min(context, frames - 1)`,
+leaving at least one real frame) -- exactly one of the two per continuation
+segment, mirroring `main.py`'s `segment_context_trimmed` /
+`segment_join_overlap`. The TOTAL a `"chain"` segment contributes either way
+is `on_disk_frames - join_frames` (the `emitted_frames` property); `main.py`
+itself calls `resolve_continuation`/`tail_frame_count` from this module for
+exactly that reason, so the two can never drift.
 """
 
 from __future__ import annotations
@@ -112,13 +115,32 @@ class SegmentWindowGeometry:
     # `False`: it opens on its own content, contributing every aligned frame.
     is_continuation: bool
     # Pixel frames this segment's front replays from the previous segment's
-    # tail rather than contributing new content ("overlap-in"). Always 0 for
-    # a fresh cut.
+    # tail rather than contributing new content ("overlap-in"), TOTAL across
+    # whichever of the two stages below realized it. Always 0 for a fresh cut.
     overlap_frames: int
+    # The length actually on disk BEFORE any stitch-time join -- main.py's
+    # `segment_emitted_frames` (a name this module deliberately does not
+    # reuse: here `emitted_frames`, below, means the FINAL net contribution
+    # after the join too). Equals `frames` for a fresh cut or a continuation
+    # whose context was too short to trim pre-decode; less than `frames` only
+    # when THIS segment's own leading context WAS trimmed pre-decode.
+    on_disk_frames: int
+    # Whether this segment's own pre-decode trim ran -- mirrors main.py's
+    # `segment_context_trimmed`. Mutually exclusive with `join_frames > 0`:
+    # a continuation's overlap is realized at exactly one of the two stages,
+    # never both.
+    context_trimmed: bool
+    # The overlap this segment's join is PLANNED to crossfade away at stitch
+    # time -- mirrors main.py's `segment_join_overlap`. Always 0 when
+    # `context_trimmed` is True (already handled pre-decode) or the segment
+    # isn't a continuation.
+    join_frames: int
 
     @property
     def emitted_frames(self) -> int:
-        """Pixel frames this segment CONTRIBUTES to the stitched timeline."""
+        """Pixel frames this segment CONTRIBUTES to the stitched timeline,
+        net of BOTH possible drop stages (`frames - overlap_frames`, i.e.
+        `on_disk_frames - join_frames`)."""
         return self.frames - self.overlap_frames
 
 
@@ -183,20 +205,37 @@ def resolve_window_geometry(
         frames = _snap_frame_count(requested)
         is_continuation = index > 0 and sub_type == CONTINUING_SUB_TYPE
         if is_continuation:
-            # Never assume more of the previous segment's tail is available
-            # than that segment actually has frames for -- a short opener
-            # (e.g. a 1-frame `t2v` shot) leaves less real context than
-            # tail_count alone would suggest. Mirrors main.py's own
-            # available-tail clamp (`context_frames`), so the two never
-            # disagree about how much of a segment's front is duplicate.
-            overlap_frames = min(tail_count, geometry[index - 1].frames, frames - 1)
+            # Sequential, mirroring main.py's per-segment loop exactly: the
+            # context THIS segment can replay is bounded by what the
+            # PREVIOUS segment actually put ON DISK after its OWN pre-decode
+            # trim (`on_disk_frames`) -- never that segment's aligned
+            # `frames`, which over-estimates whenever the previous segment
+            # was itself trimmed. Two short continuations in a row compound:
+            # main.py's `prev_tail.shape[0]` for segment i comes from
+            # segment i-1's OWN trimmed output, not i-1's untrimmed length.
+            context = min(tail_count, geometry[index - 1].on_disk_frames)
+            if frames > context + 1:
+                on_disk_frames = frames - context
+                context_trimmed = True
+                join_frames = 0
+            else:
+                on_disk_frames = frames
+                context_trimmed = False
+                join_frames = min(context, frames - 1)
         else:
-            overlap_frames = 0
+            on_disk_frames = frames
+            context_trimmed = False
+            join_frames = 0
+        emitted = on_disk_frames - join_frames
+        overlap_frames = frames - emitted
         geometry.append(SegmentWindowGeometry(
             frames=frames,
             requested_frames=requested,
             sub_type=sub_type,
             is_continuation=is_continuation,
             overlap_frames=overlap_frames,
+            on_disk_frames=on_disk_frames,
+            context_trimmed=context_trimmed,
+            join_frames=join_frames,
         ))
     return geometry

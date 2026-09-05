@@ -428,16 +428,37 @@ under a `requirement_checkers:` manifest root (see `src.plugin_api.presets.Requi
 
 `vram_min_gb` reads **physical device memory**, not a configured budget: it checks whichever
 backend of the preset's engine is actually being asked (see "Host-scoped vs backend-scoped
-checkers" below), against that backend's own hardware — never against the backend's driver *name*.
-A backend resolves against this host's GPU only when its implementation class has declared it
-actually runs inference there (`execution_device = "this_host_gpu"` — see
-`src.features.backends.base_backend.ExecutionDevice`); one that declares it runs remotely
-(`"remote"`, e.g. `native.remote`) or hasn't declared anything at all (`"unestablished"` — the
-default every plugin-provided backend gets unless it says otherwise, since an in-process backend
-that merely coordinates a pipeline talking to some other server, like the ComfyUI plugin's own
-backend, is not thereby running inference on this host's GPU) always resolves to `unknown` — this
-process has no local reading for hardware it cannot prove is its own, and the check never
-substitutes a guess. A passing `vram_min_gb` reading is evidence a card is physically present, not a guarantee a
+checkers" below), against that specific backend INSTANCE's own hardware — never against the
+backend's driver *name*, and never just "some GPU exists on this host". Each backend resolves its
+own `ExecutionDeviceEvidence` (`src.features.backends.base_backend.BaseBackend.
+resolve_execution_device()`): `kind="this_host_gpu"` with a specific `gpu_index` for a backend that
+actually runs inference on one of this process's own GPUs (a `native` backend, from its admin-set
+`device: cuda:N`); `kind="no_gpu"` for one explicitly configured with none at all (`device: cpu`) —
+definite evidence, not "unknown"; `kind="remote"` for one that runs elsewhere (`native.remote`); and
+`kind="unestablished"` (the default every plugin-provided backend gets unless it overrides
+`resolve_execution_device()`, since an in-process backend that merely coordinates a pipeline talking
+to some other server, like the ComfyUI plugin's own backend, is not thereby running inference on
+this host's GPU). A local reading is used only when the backend's own `gpu_index` matches the index
+this process's one `GpuMonitor` is actually bound to (`GpuMonitor.device_index`, defaulting to 0) —
+a backend resolved to a *different* GPU than the one this process monitors reads `unknown` too,
+never another device's borrowed total. Anything short of that exact match resolves to `unknown` —
+this process has no local reading for hardware it cannot prove is its own device, and the check
+never substitutes a guess.
+
+This is still a static, admin-time approximation: a preset's own `pipeline.yml` can set a pipe's
+`config.device` explicitly (`configuration: {device: ...}`, see `PresetProcessor._process_pipes` /
+`src/features/presets/processor.py`), and `NativeBackend.prepare_pipes`'s injection only
+`setdefault`s the backend's configured device onto a pipe, so an authored override wins
+(`src/features/backends/native_backend.py`'s `prepare_pipes`). `vram_min_gb` has no visibility into
+that — checking it would mean rendering the preset's pipeline against some hypothetical form data
+before a generation exists, which no requirements check does. In practice no shipped preset does
+this (a per-pipe `device:` override is vanishingly rare and generally the wrong tool - see
+"Why GPU settings live on the native backend" below), so this checker is right for the pipe-config
+shape presets actually author; treat a `vram_min_gb` "ok" as physical-device evidence for the
+backend's own configuration, not an unconditional guarantee that this particular preset can't
+override it downstream.
+
+A passing `vram_min_gb` reading is evidence a card is physically present, not a guarantee a
 given model fits: that is a function of the *loading budget* an admin configures per native backend
 (`gpu_max_vram`, composed at load time via `effective_vram_budget_gb()` — see
 [Backends](/admin?tab=docs&doc=dev/backends) "Why GPU settings live on the native backend"), which

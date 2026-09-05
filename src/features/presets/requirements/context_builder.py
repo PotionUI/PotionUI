@@ -8,10 +8,23 @@ import sys
 from typing import List, Optional
 
 from src.features.backends.backend_registry import BackendRegistry
+from src.features.backends.base_backend import ExecutionDeviceEvidence
 from src.features.models.collaborators import ModelIndexCollaborators
 from src.features.presets.requirements.contracts import RequirementBackendInfo, RequirementContext
 from src.features.presets.templates import PresetTemplate
 from src.platform.runtime.gpu import GpuMonitor
+
+_UNESTABLISHED = ExecutionDeviceEvidence(kind="unestablished")
+
+
+def _resolve_execution_device(backend) -> ExecutionDeviceEvidence:
+    """`backend.resolve_execution_device()` when the (possibly `None`, or
+    test-double) instance implements it, else the safe default. Duck-typed
+    rather than an `isinstance(backend, BaseBackend)` check, matching this
+    module's existing tolerance for backend/test-double shapes that don't
+    carry every attribute a real `BaseBackend` does."""
+    resolve = getattr(backend, "resolve_execution_device", None)
+    return resolve() if resolve is not None else _UNESTABLISHED
 
 
 def resolve_backend_id(backend_registry: Optional[BackendRegistry], engine: str) -> Optional[str]:
@@ -31,13 +44,13 @@ def _resolve_backend(backend_registry: Optional[BackendRegistry], engine: str) -
     config = backend_registry.backend_config_store.get_default_backend(engine)
     if config is None:
         return None
-    # The instantiated backend, not just its config - `execution_device` is a
-    # class attribute on the backend implementation (see
-    # `src.features.backends.base_backend.ExecutionDevice`), not something a
+    # The instantiated backend, not just its config - `resolve_execution_device()`
+    # is an instance method on the backend implementation (see
+    # `src.features.backends.base_backend.BaseBackend`), not something a
     # config ever carries. `get_backend` can still return `None` (e.g. the
     # config is enabled but the registry hasn't instantiated it yet) - the
-    # `getattr` default below then reads "unestablished", same as any other
-    # backend that hasn't declared where it executes.
+    # `_resolve_execution_device` fallback then reads "unestablished", same
+    # as any other backend that hasn't declared where it executes.
     backend = backend_registry.get_backend(config.id)
     return RequirementBackendInfo(
         id=config.id,
@@ -45,7 +58,7 @@ def _resolve_backend(backend_registry: Optional[BackendRegistry], engine: str) -
         driver=config.driver or config.engine,
         config=config,
         name=config.name,
-        execution_device=getattr(backend, "execution_device", "unestablished"),
+        execution_device=_resolve_execution_device(backend),
     )
 
 
@@ -65,7 +78,7 @@ def backend_infos_for_engine(backend_registry: Optional[BackendRegistry], engine
             driver=backend.config.driver or backend.engine,
             config=backend.config,
             name=backend.name,
-            execution_device=getattr(backend, "execution_device", "unestablished"),
+            execution_device=_resolve_execution_device(backend),
         )
         for backend in backend_registry.get_backends_for_engine(engine)
     ]
@@ -83,19 +96,28 @@ def build_requirement_context_for_backend(
     `evaluate_preset_requirements_for_backends` uses to check a preset
     against one specific backend of its engine."""
     gpu_available = bool(gpu_monitor is not None and gpu_monitor.available)
-    # A local VRAM reading applies only when the resolved backend has
-    # affirmatively declared it runs inference on this host's own GPU (see
-    # `RequirementBackendInfo.execution_device`) - never inferred from the
-    # backend's driver *name*. A plugin driver that happens to contain
-    # "remote" proves nothing on its own, and a driver name that doesn't
-    # contain it is equally not evidence this host's GPU is the one that
-    # would run the preset (an in-process backend that only coordinates a
-    # pipeline talking to some other server, e.g. the ComfyUI plugin's
-    # backend, must not read as local either) - `execution_device` defaults
-    # to "unestablished" for exactly that reason.
-    executes_on_this_host_gpu = backend is not None and backend.execution_device == "this_host_gpu"
+    # A local VRAM reading applies only when the resolved backend's OWN
+    # evidence (see `RequirementBackendInfo.execution_device`,
+    # `ExecutionDeviceEvidence`) affirmatively says so - never inferred from
+    # the backend's driver *name* (an in-process backend that only
+    # coordinates a pipeline talking to some other server, e.g. the ComfyUI
+    # plugin's backend, must not read as local; that's "unestablished").
+    # Nor is "some GPU exists on this host" enough on its own: a
+    # `NativeBackend` configured for `cuda:1` is not satisfied by a monitor
+    # bound to a DIFFERENT device - `gpu_monitor.device_index` must match
+    # the backend's own resolved index, or this stays `unknown` rather than
+    # borrowing another GPU's reading. A `NativeBackend` explicitly
+    # configured with no GPU at all (`kind="no_gpu"`, e.g. `device="cpu"`)
+    # never matches either, for the same reason.
+    evidence = backend.execution_device if backend is not None else None
+    monitor_device_index = getattr(gpu_monitor, "device_index", 0)
+    reading_applies = (
+        evidence is not None
+        and evidence.kind == "this_host_gpu"
+        and evidence.gpu_index == monitor_device_index
+    )
     gpu_total_vram_gb = None
-    if gpu_available and executes_on_this_host_gpu:
+    if gpu_available and reading_applies:
         gpu_total_vram_gb = gpu_monitor.get_total_vram() / 1024.0
 
     return RequirementContext(

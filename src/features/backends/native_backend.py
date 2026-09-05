@@ -2,7 +2,7 @@ from typing import Any, ClassVar, Dict, List
 
 from src.platform.observability.logger import logger
 
-from .base_backend import ExecutionDevice
+from .base_backend import ExecutionDevice, ExecutionDeviceEvidence
 from .in_process_backend import InProcessBackend
 from .model_listing import BackendModel, deduplicate
 from .native_model_scan import scan_native_models
@@ -27,6 +27,19 @@ class NativeBackend(InProcessBackend):
     """
 
     execution_device: ClassVar[ExecutionDevice] = "this_host_gpu"
+
+    def resolve_execution_device(self) -> ExecutionDeviceEvidence:
+        """The class tag above is necessarily coarse: THIS instance's real
+        device is admin-configured (`NativeBackendConfig.device`), and a
+        native backend can be pointed at `cpu` just as validly as any
+        `cuda:N` - a caller that wants to know whether ITS OWN GPU reading
+        (bound to one specific index, see `GpuMonitor.device_index`) applies
+        to this backend needs to know THIS device's index, not just that
+        `NativeBackend`-the-class is capable of local GPU inference."""
+        device = self.config.device
+        if device == "cpu":
+            return ExecutionDeviceEvidence(kind="no_gpu")
+        return ExecutionDeviceEvidence(kind="this_host_gpu", gpu_index=_cuda_device_index(device))
 
     def supports_model_listing(self) -> bool:
         return True

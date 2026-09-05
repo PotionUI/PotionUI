@@ -190,6 +190,41 @@ class TestRequirementsEligibilityWithRealVramMinGb:
         assert not result[0].dropped
         assert result[0].reasons[-1] == "requirements satisfied"
 
+    @pytest.mark.asyncio
+    async def test_cuda1_candidate_against_an_index0_monitor_is_kept_as_unknown_not_falsely_dropped(self):
+        """The reopened bug, at the routing layer: GPU0=24 GiB (this
+        process's one `GpuMonitor`), GPU1=8 GiB, 16 GiB requirement - a
+        REAL `NativeBackend` resolved to `cuda:1` must never be judged by
+        GPU0's reading. Before this rework it would have falsely read "ok"
+        (borrowed GPU0's 24 GiB) or, with the sizes reversed, falsely
+        "missing" (borrowed GPU0's 8 GiB) - either way wrongly settling
+        routing eligibility for hardware this process never actually read."""
+        from src.features.backends.backend_config import NativeBackendConfig
+        from src.features.backends.native_backend import NativeBackend
+
+        preset = Mock(id="dual-gpu-preset", requirements=[{"type": "vram_min_gb", "gb": 16}])
+        gpu_monitor = _FakeGpuMonitor(total_vram_mb=24 * 1024, device_index=0)
+        gpu1_backend = NativeBackend(
+            backend_config=NativeBackendConfig(id="gpu1-backend", name="GPU 1", device="cuda:1", dtype="float16", gpu_max_vram=0)
+        )
+        gpu1_info = RequirementBackendInfo(
+            id="gpu1-backend", engine="native", driver="native",
+            execution_device=gpu1_backend.resolve_execution_device(),
+        )
+        host_ctx = build_requirement_context_for_backend(preset, None, gpu_monitor, None)
+        backend_ctxs = {"gpu1-backend": build_requirement_context_for_backend(preset, None, gpu_monitor, gpu1_info)}
+        cache = RequirementsCache()
+        await cache.get_or_evaluate_for_backends(requirement_checker_registry, preset, host_ctx, backend_ctxs)
+
+        candidates = _candidates("gpu1-backend")
+        ctx = RoutingContext(backend_registry=Mock(), requirements_cache=cache)
+        request = RoutingRequest(engine="native", preset=preset, form_data={})
+
+        result = await RequirementsEligibility().apply(candidates, request, ctx)
+
+        assert not result[0].dropped
+        assert result[0].reasons[-1] == "requirements satisfied"
+
 
 class _AlwaysMissingHostChecker:
     """A "host"-scoped checker (the default) whose verdict is always

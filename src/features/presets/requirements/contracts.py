@@ -14,6 +14,7 @@ not import `src.features`.
 from dataclasses import dataclass, field
 from typing import Any, Dict, Literal, Optional, Protocol, Type, runtime_checkable
 
+from src.features.backends.base_backend import ExecutionDeviceEvidence
 from src.features.models.collaborators import ModelIndexCollaborators
 
 # "unknown" means the checker could not evaluate this entry here - a timeout,
@@ -72,16 +73,19 @@ class RequirementBackendInfo:
     # read by any core checker, only surfaced to the `requirements` API/UI
     # so a per-backend result can be labeled without a second lookup.
     name: str = ""
-    # Copied verbatim from the resolved backend instance's own
-    # `execution_device` class attribute (see
-    # `src.features.backends.base_backend.ExecutionDevice`) - "this_host_gpu",
-    # "remote", or "unestablished" (the default, e.g. no backend was
-    # resolved at all). This is the ONLY thing `vram_min_gb` trusts to
-    # decide whether this process's own GPU reading applies to a given
-    # backend - never the driver name (a plugin driver containing "remote"
-    # in its name proves nothing, and one that doesn't is not evidence of
-    # locality either).
-    execution_device: str = "unestablished"
+    # The resolved backend INSTANCE's own `resolve_execution_device()`
+    # evidence (see `src.features.backends.base_backend.
+    # ExecutionDeviceEvidence`) - `kind` one of "this_host_gpu" (with a
+    # `gpu_index`), "no_gpu", "remote", or "unestablished" (the default,
+    # e.g. no backend was resolved at all). This is the ONLY thing
+    # `vram_min_gb` trusts to decide whether this process's own GPU reading
+    # applies to a given backend, and only when the reading's own device
+    # index matches `gpu_index` - never the driver name (a plugin driver
+    # containing "remote" in its name proves nothing, and one that doesn't
+    # is not evidence of locality either), and never just "some GPU is
+    # present" (a native backend configured for `cuda:1` is not satisfied
+    # by a monitor bound to GPU 0).
+    execution_device: ExecutionDeviceEvidence = ExecutionDeviceEvidence(kind="unestablished")
 
 
 @dataclass(frozen=True)

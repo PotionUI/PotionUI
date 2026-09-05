@@ -422,14 +422,29 @@ executors** — they start and cancel work and report health. Generation state (
 listing, subscription) is owned by `GenerationStatusTracker` on the orchestrator side, never by a
 backend.
 
-`BaseBackend` also carries one class-level declaration, `execution_device` (an `ExecutionDevice` —
-`"this_host_gpu"` | `"remote"` | `"unestablished"`, the default). It exists so a preset requirement
-check (`src/features/presets/requirements/context_builder.py`'s `vram_min_gb`) can tell whether this
-process's own GPU reading applies to a given backend, without ever guessing from the backend's
-driver *name*. `NativeBackend` overrides it to `"this_host_gpu"`; the Remote Native worker backend
-overrides it to `"remote"`. Every other backend, core or plugin, is left at `"unestablished"` — an
-`InProcessBackend` that only coordinates a pipeline talking to some other server (`ComfyUIBackend`
-included) does not thereby run inference on this host's GPU, so it must not read as local.
+`BaseBackend` carries one class-level declaration, `execution_device` (an `ExecutionDevice` —
+`"this_host_gpu"` | `"remote"` | `"unestablished"`, the default), plus one instance method,
+`resolve_execution_device() -> ExecutionDeviceEvidence`. They answer two different questions:
+
+- `execution_device` (the class tag) is the coarse "does this backend CLASS ever run inference on
+  this process's own GPU at all" - `NativeBackend` overrides it to `"this_host_gpu"`; the Remote
+  Native worker backend overrides it to `"remote"`. Every other backend, core or plugin, is left at
+  `"unestablished"` - an `InProcessBackend` that only coordinates a pipeline talking to some other
+  server (`ComfyUIBackend` included) does not thereby run inference on this host's GPU, so it must
+  not read as local. Read directly by consumers that only need that coarse question (e.g.
+  `src/features/generation/memory_advisory.py`'s `resolve_device_evidence`, via
+  `getattr(backend, "execution_device", "unestablished")`).
+- `resolve_execution_device()` is the precise, INSTANCE-level answer: WHICH physical device, if any.
+  A `native` backend's actual device is admin-configured (`NativeBackendConfig.device` - `cpu`, or
+  any `cuda:N`), so the class tag alone can't say which GPU (or whether one at all) applies -
+  `NativeBackend` overrides this to read `self.config.device` and returns `kind="no_gpu"` for `cpu`
+  or `kind="this_host_gpu"` with the parsed index for `cuda:N`. The base implementation simply wraps
+  the class tag with no index, which is already correct for `RemoteNativeBackend` and every
+  `"unestablished"` backend. This is what `src/features/presets/requirements/context_builder.py`'s
+  `vram_min_gb` path reads (`RequirementBackendInfo.execution_device`) - and it only trusts a local
+  reading when the resolved `gpu_index` matches `GpuMonitor.device_index`, the specific GPU this
+  process's one monitor is actually bound to (default 0). A `native` backend configured for `cuda:1`
+  must never be judged by GPU 0's reading just because a GPU happens to be present.
 
 `InProcessBackend` factors out what every backend so far actually does: it owns the `_active` set of
 in-flight generation ids, the `_run` coroutine that drives `GenerationEngine` on a worker thread and

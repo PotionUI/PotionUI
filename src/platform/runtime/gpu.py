@@ -68,14 +68,24 @@ class GpuMonitor:
     Supports memory profiling and resource allocation decisions.
     """
 
-    def __init__(self):
+    def __init__(self, device_index: int = 0):
         """
         Initialize GPU manager.
 
-        This is a host-level service: it reports on the GPU this process can see.
-        It deliberately holds no VRAM *budget* - that is a property of the native
-        backend (NativeBackendConfig.gpu_max_vram), passed in per call, because a
-        budget is engine configuration while the hardware is not.
+        This is a host-level service: it reports on the GPU this process can see -
+        specifically `device_index` (default 0), the only one anything in this
+        process actually reads from today (there is exactly one process-wide
+        `GpuMonitor` singleton - see `src.bootstrap.container`). It deliberately
+        holds no VRAM *budget* - that is a property of the native backend
+        (NativeBackendConfig.gpu_max_vram), passed in per call, because a budget
+        is engine configuration while the hardware is not.
+
+        `device_index` is recorded as `self.device_index` so a caller with
+        per-device evidence (e.g. a preset requirement checker holding a
+        `NativeBackend`'s own configured `cuda:N`, see
+        `src.features.backends.base_backend.ExecutionDeviceEvidence`) can confirm
+        THIS monitor's reading actually corresponds to that device before
+        trusting it - a reading bound to GPU 0 must never be read as GPU 1's.
 
         No NVIDIA driver/GPU is a legitimate host state (CPU-only hosts are
         supported for claim/setup work) - construction must never raise. `nvmlInit`
@@ -84,6 +94,7 @@ class GpuMonitor:
         mirroring `SystemMonitor.__init__` (src/platform/observability/system_probe.py).
         """
         self.lock = Lock()
+        self.device_index = device_index
         # Set by whichever backend currently owns the GPU (NativeBackend, from its
         # `gpu_max_vram` config) before it runs a pipeline. None = bound only by hardware.
         self._vram_cap_gb: Optional[float] = None
@@ -92,7 +103,7 @@ class GpuMonitor:
         self.available = False
         try:
             nvmlInit()
-            self.handle = nvmlDeviceGetHandleByIndex(0)
+            self.handle = nvmlDeviceGetHandleByIndex(device_index)
             self.available = True
         except Exception as e:
             logger.warning(f"[GPU_MANAGER] No GPU/NVML available - VRAM readings will report 0: {e}")

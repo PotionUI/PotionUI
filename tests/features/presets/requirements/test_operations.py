@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.features.backends.base_backend import ExecutionDeviceEvidence
 from src.features.backends.in_process_backend import InProcessBackend
 from src.features.presets import operations
 from src.features.presets.collaborators import PresetCollaborators
@@ -247,17 +248,19 @@ class _FakeBackendConfig:
 
 
 class _FakeBackend:
-    def __init__(self, config, execution_device="unestablished"):
+    def __init__(self, config, execution_device=None):
         self.config = config
         self.backend_id = config.id
         self.name = config.name
         self.engine = config.engine
-        # Mirrors the real `BaseBackend.execution_device` class attribute
-        # (src.features.backends.base_backend.ExecutionDevice) - set
+        # Mirrors the real `BaseBackend.resolve_execution_device()` - set
         # explicitly per fixture backend, never derived from `driver`, the
-        # same way a real backend class declares it rather than the config
-        # inferring it from a name.
-        self.execution_device = execution_device
+        # same way a real backend class computes it from its own state
+        # rather than the config inferring it from a name.
+        self._execution_device = execution_device or ExecutionDeviceEvidence(kind="unestablished")
+
+    def resolve_execution_device(self) -> ExecutionDeviceEvidence:
+        return self._execution_device
 
 
 class _FakeBackendConfigStore:
@@ -362,9 +365,10 @@ class TestGetPresetRequirementsMultiBackend:
 
 
 class _FakeGpuMonitor:
-    def __init__(self, total_vram_mb: int, available: bool = True):
+    def __init__(self, total_vram_mb: int, available: bool = True, device_index: int = 0):
         self.available = available
         self._total_vram_mb = total_vram_mb
+        self.device_index = device_index
 
     def get_total_vram(self) -> int:
         return self._total_vram_mb
@@ -374,13 +378,24 @@ def _native_backends():
     return [
         _FakeBackend(
             _FakeBackendConfig("native-local", "Local GPU", "native", driver="native"),
-            execution_device="this_host_gpu",
+            ExecutionDeviceEvidence(kind="this_host_gpu", gpu_index=0),
         ),
         _FakeBackend(
             _FakeBackendConfig("native-remote-1", "Remote Worker", "native", driver="native.remote"),
-            execution_device="remote",
+            ExecutionDeviceEvidence(kind="remote"),
         ),
     ]
+
+
+def _real_native_backend(id, device):
+    """A REAL `NativeBackend` over a REAL `NativeBackendConfig` - every
+    hardware-probed field is pinned explicitly so this stays deterministic
+    and never touches torch/CUDA."""
+    from src.features.backends.backend_config import NativeBackendConfig
+    from src.features.backends.native_backend import NativeBackend
+
+    config = NativeBackendConfig(id=id, name=id, device=device, dtype="float16", gpu_max_vram=0)
+    return NativeBackend(backend_config=config)
 
 
 class TestGetPresetRequirementsVramMinGbPerBackend:
@@ -593,5 +608,78 @@ class TestVramMinGbAgainstRealComfyUIShapedBackend:
         _, collaborators = self._collaborators_for(gpu_total_gb=24)
 
         data = await operations.get_preset_requirements(collaborators, "comfy-worker-preset")
+
+        assert data["results"][0]["status"] == "unknown"
+
+
+class TestVramMinGbDeviceIdentityAcrossRealNativeBackends:
+    """The reopened bug: two REAL `NativeBackend` instances of the SAME
+    engine, pointed at different GPU indices via `NativeBackendConfig.device`
+    - this process has exactly one `GpuMonitor`, bound to one index (index 0
+    in production - see `GpuMonitor.__init__`'s default), so only the
+    candidate resolved to THAT index may ever read its total. The other
+    candidate has no telemetry this process can honestly report for its own
+    device - it must read `unknown`, never borrow the other GPU's number in
+    either direction."""
+
+    def _collaborators_for(self, gpu0_total_gb, default_id, gb=16):
+        preset = _preset(preset_id="dual-gpu-preset", requirements=[{"type": "vram_min_gb", "gb": gb}])
+        preset.engine = "native"
+        backends = [
+            _real_native_backend("gpu0-backend", "cuda:0"),
+            _real_native_backend("gpu1-backend", "cuda:1"),
+        ]
+        collaborators = _collaborators(
+            file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
+            backend_registry=_FakeBackendRegistry(backends, default_id=default_id),
+            gpu_monitor=_FakeGpuMonitor(int(gpu0_total_gb * 1024), device_index=0),
+            requirements_cache=RequirementsCache(),
+        )
+        return preset, collaborators
+
+    @pytest.mark.asyncio
+    async def test_gpu0_24gb_gpu1_8gb_cuda1_candidate_reads_unknown_not_falsely_ok(self):
+        """The exact repro: GPU0=24 GiB (this process's one monitor),
+        GPU1=8 GiB, 16 GiB requirement - before this rework the cuda:1
+        candidate falsely read "ok" by borrowing GPU0's reading."""
+        _, collaborators = self._collaborators_for(gpu0_total_gb=24, default_id="gpu0-backend")
+
+        data = await operations.get_preset_requirements(collaborators, "dual-gpu-preset", backend_id="gpu1-backend")
+
+        assert data["results"][0]["status"] == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_gpu0_8gb_cuda1_candidate_still_reads_unknown_not_falsely_excluded(self):
+        """Reversed sizes: GPU0=8 GiB - the cuda:1 candidate must not
+        falsely read "missing" either (borrowing GPU0's 8 GiB); with no
+        telemetry for its own index it stays `unknown`, never excluded for
+        a requirement this process cannot check for it."""
+        _, collaborators = self._collaborators_for(gpu0_total_gb=8, default_id="gpu0-backend")
+
+        data = await operations.get_preset_requirements(collaborators, "dual-gpu-preset", backend_id="gpu1-backend")
+
+        assert data["results"][0]["status"] == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_gpu0_candidate_is_still_judged_by_its_own_matching_reading(self):
+        _, collaborators = self._collaborators_for(gpu0_total_gb=24, default_id="gpu0-backend")
+
+        data = await operations.get_preset_requirements(collaborators, "dual-gpu-preset", backend_id="gpu0-backend")
+
+        assert data["results"][0]["status"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_cpu_configured_backend_on_a_gpu_host_reads_unknown_never_borrows(self):
+        preset = _preset(preset_id="cpu-preset", requirements=[{"type": "vram_min_gb", "gb": 16}])
+        preset.engine = "native"
+        backend = _real_native_backend("cpu-backend", "cpu")
+        collaborators = _collaborators(
+            file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
+            backend_registry=_FakeBackendRegistry([backend], default_id="cpu-backend"),
+            gpu_monitor=_FakeGpuMonitor(24 * 1024, device_index=0),  # plenty, but not applicable
+            requirements_cache=RequirementsCache(),
+        )
+
+        data = await operations.get_preset_requirements(collaborators, "cpu-preset")
 
         assert data["results"][0]["status"] == "unknown"

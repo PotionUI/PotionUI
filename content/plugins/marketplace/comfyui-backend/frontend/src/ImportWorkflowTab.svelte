@@ -753,8 +753,8 @@
 	// ---- Chat assistant bridge: "comfyui-import" mode ----
 	// `window.__potionui.chat` is absent on an older host build - every entry
 	// point here no-ops rather than throwing when it's missing. Wire contract
-	// (context payload shape, op shapes) is documented on the plugin's
-	// `backend.chat.tools` module - keep this in sync with it.
+	// (context payload shape, op shapes, draft_id/form_revision) is documented
+	// on the plugin's `backend.chat.tools` module - keep this in sync with it.
 	function serializeImportItem(it) {
 		if (it.kind === 'field') {
 			return {
@@ -769,9 +769,28 @@
 		return { kind: it.kind, label: it.title ?? null, items: (it.items || []).map(serializeImportItem) };
 	}
 
+	// Bumped whenever the serialized form changes (tab/field add-remove,
+	// mapping toggles, transform/type/label/default edits, lora conversion -
+	// anything that changes what `serializeImportItem` would emit for it),
+	// whether from a manual edit or an approved assistant proposal. Sent
+	// alongside `draft_id` (== sourceToken, stable for as long as the current
+	// source is neither replaced nor reset) so a `propose_form_changes` result
+	// approved after the form moved on can tell "nothing changed" apart from
+	// "the user kept editing while this was pending" (see
+	// applyImportFormChanges).
+	let formRevision = $state(0);
+	let _formRevisionSignature = null;
+	$effect(() => {
+		const signature = JSON.stringify(form.tabs.map((t) => ({ id: t.id, label: t.label, items: t.items.map(serializeImportItem) })));
+		if (_formRevisionSignature !== null && signature !== _formRevisionSignature) formRevision += 1;
+		_formRevisionSignature = signature;
+	});
+
 	function buildImportChatContext() {
 		if (!analysis) return null;
 		return {
+			draft_id: String(sourceToken),
+			form_revision: formRevision,
 			workflow_name: displayName || '',
 			format: analysis.format,
 			node_count: analysis.node_count,
@@ -825,35 +844,65 @@
 	function applyImportMapping(field, nodeId, inputName, transform) {
 		if (!nodeId || !inputName) {
 			console.warn('propose_form_changes: mapping missing node_id/input_name', { field: field?.field_name, nodeId, inputName });
-			return;
+			return false;
 		}
 		const candidate = (analysis?.candidates || []).find((c) => c.node_id === nodeId && c.input_name === inputName);
 		if (!candidate) {
 			console.warn(`propose_form_changes: no such candidate ${nodeId}.${inputName}`);
-			return;
+			return false;
 		}
 		if (isLockedCandidate(candidate)) {
 			console.warn(`propose_form_changes: skipping locked candidate ${nodeId}.${inputName}`);
-			return;
+			return false;
 		}
 		const owner = mappedFieldByKey.get(candidateKey(candidate));
 		if (owner && owner !== field) {
 			console.warn(`propose_form_changes: ${nodeId}.${inputName} is already mapped to '${owner.field_name}'`);
-			return;
+			return false;
 		}
 		toggleMapping(field, candidate, true);
 		if (transform && transform !== 'none') setMappingTransform(field, candidate, transform);
+		return true;
 	}
 
+	// Returns an outcome the chat host surfaces instead of a blanket success
+	// toast/narration - {status: 'applied'|'stale'|'partial'|'noop', applied,
+	// skipped, message?}. `draft_id` is a hard gate (a proposal built for a
+	// workflow that's since been replaced/reset never touches the live form,
+	// no matter how much its tab/field names happen to overlap); once that
+	// passes, every op is still checked against the CURRENT form/candidates
+	// (not just once, at proposal time) so an intervening manual edit that
+	// took over a tab/field/mapping the proposal wanted is skipped rather
+	// than silently overwritten - only ever additive against a live edit, so
+	// nothing the user already changed is replaced.
 	function applyImportFormChanges(result) {
 		const ops = result?.ops;
-		if (!Array.isArray(ops) || ops.length === 0) return;
+		if (!Array.isArray(ops) || ops.length === 0) return { status: 'noop', applied: 0, skipped: 0 };
+
+		// Stamped by the backend tool from the wizard's own context at the
+		// moment the proposal was made (see backend.chat.tools) - never
+		// model-supplied, so it can't be spoofed by a hallucinated op. A
+		// missing draft_id (an older/incompatible caller) is trusted, matching
+		// this function's pre-draft-identity behaviour.
+		const proposalDraftId = result?.draft_id != null ? String(result.draft_id) : null;
+		if (proposalDraftId !== null && proposalDraftId !== String(sourceToken)) {
+			return {
+				status: 'stale',
+				applied: 0,
+				skipped: ops.length,
+				message: "This proposal was for a workflow that's no longer loaded here, so nothing was applied. Ask again if you still want these changes."
+			};
+		}
 
 		let lastTabId = null;
 		let applied = 0;
+		let skipped = 0;
 
 		for (const op of ops) {
-			if (!op || typeof op !== 'object') continue;
+			if (!op || typeof op !== 'object') {
+				skipped += 1;
+				continue;
+			}
 
 			if (op.op === 'add_tab') {
 				const label = op.label || 'Tab';
@@ -871,6 +920,7 @@
 				const tab = findImportTab(op.tab) || activeTab || form.tabs[0];
 				if (!tab) {
 					console.warn('propose_form_changes: add_field has no target tab', op);
+					skipped += 1;
 					continue;
 				}
 				addItemToContainer(tab.items, 'field');
@@ -889,15 +939,20 @@
 				const field = findFieldByName(op.field_name);
 				if (!field) {
 					console.warn(`propose_form_changes: map references unknown field '${op.field_name}'`, op);
+					skipped += 1;
 					continue;
 				}
-				applyImportMapping(field, op.node_id, op.input_name, op.transform);
+				if (!applyImportMapping(field, op.node_id, op.input_name, op.transform)) {
+					skipped += 1;
+					continue;
+				}
 				lastTabId = tabIdForField(field) || lastTabId;
 				applied += 1;
 			} else if (op.op === 'lora_picker') {
 				const tab = findImportTab(op.tab) || activeTab || form.tabs[0];
 				if (!tab) {
 					console.warn('propose_form_changes: lora_picker has no target tab', op);
+					skipped += 1;
 					continue;
 				}
 				const keepFixed = new Set(Array.isArray(op.keep_fixed) ? op.keep_fixed : []);
@@ -906,16 +961,39 @@
 					applied += 1;
 				} else {
 					console.warn('propose_form_changes: lora_picker could not be applied (no chain, or already converted)', op);
+					skipped += 1;
 				}
 			} else {
 				console.warn('propose_form_changes: unknown op', op);
+				skipped += 1;
 			}
 		}
 
-		if (applied === 0) return;
+		if (applied === 0) {
+			return skipped > 0
+				? {
+						status: 'stale',
+						applied: 0,
+						skipped,
+						message: `The form changed since the assistant proposed this - none of the ${skipped} change${skipped === 1 ? '' : 's'} still applied.`
+					}
+				: { status: 'noop', applied: 0, skipped: 0 };
+		}
+
 		if (step < 2) step = 2;
 		if (lastTabId) activeTabId = lastTabId;
+
+		if (skipped > 0) {
+			return {
+				status: 'partial',
+				applied,
+				skipped,
+				message: `Applied ${applied} change${applied === 1 ? '' : 's'} from the assistant - ${skipped} ${skipped === 1 ? 'was' : 'were'} skipped because the form changed since the proposal was made.`
+			};
+		}
+
 		window.__potionui?.notifications?.toast?.('success', `Applied ${applied} change${applied === 1 ? '' : 's'} from the assistant`);
+		return { status: 'applied', applied, skipped: 0 };
 	}
 
 	$effect(() => {

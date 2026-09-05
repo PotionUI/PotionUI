@@ -14,7 +14,24 @@
 import { derived, writable } from 'svelte/store';
 
 export type ContextProvider = () => Record<string, unknown> | null;
-export type ToolAppliedHandler = (result: Record<string, unknown>) => void;
+
+/**
+ * A handler may report back how a confirmed tool result actually landed,
+ * instead of the host assuming "handled" means "applied as narrated" -
+ * e.g. a proposal built for a draft the page has since moved on from is
+ * reported `'stale'` rather than silently mutating the wrong thing.
+ */
+export interface ToolAppliedOutcome {
+	status: 'applied' | 'stale' | 'partial' | 'noop';
+	/** Shown in place of the backend's own narration when status isn't 'applied'. */
+	message?: string;
+}
+
+export type ToolAppliedHandler = (result: Record<string, unknown>) => void | ToolAppliedOutcome;
+
+function isToolAppliedOutcome(value: unknown): value is ToolAppliedOutcome {
+	return !!value && typeof value === 'object' && typeof (value as { status?: unknown }).status === 'string';
+}
 
 interface ModeDeclaration {
 	id: number;
@@ -91,15 +108,25 @@ export function onToolApplied(toolName: string, handler: ToolAppliedHandler): ()
 }
 
 /**
- * Run every handler registered for `toolName` with `result`. Returns true if
- * at least one handler was registered (and ran) — the caller should skip its
- * own hardcoded dispatch for that tool when this is true.
+ * Run every handler registered for `toolName` with `result`. Returns false if
+ * no handler was registered (the caller should run its own hardcoded dispatch
+ * for that tool in that case); otherwise returns the last `ToolAppliedOutcome`
+ * a handler reported, or `true` when none reported one (a handler that
+ * returns nothing, or a value that isn't a `ToolAppliedOutcome`, is still
+ * "handled" — just without an outcome for the caller to act on).
  */
-export function dispatchToolApplied(toolName: string, result: Record<string, unknown>): boolean {
+export function dispatchToolApplied(
+	toolName: string,
+	result: Record<string, unknown>
+): ToolAppliedOutcome | boolean {
 	const handlers = toolAppliedHandlers.get(toolName);
 	if (!handlers || handlers.size === 0) return false;
-	for (const handler of handlers) handler(result);
-	return true;
+	let outcome: ToolAppliedOutcome | undefined;
+	for (const handler of handlers) {
+		const handlerResult = handler(result);
+		if (isToolAppliedOutcome(handlerResult)) outcome = handlerResult;
+	}
+	return outcome ?? true;
 }
 
 /** Drop all registrations. Called on SPA user switch (see `applyIdentityGuard`). */

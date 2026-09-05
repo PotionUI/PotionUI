@@ -8,6 +8,7 @@ touches disk; the wizard already resolved candidates client-side and sends
 them fresh on every message. Wire contract (sent by the frontend wizard)::
 
     {
+      "draft_id": str, "form_revision": int,
       "workflow_name": str, "format": "api" | "ui", "node_count": int,
       "candidates": [{"node_id", "class_type", "node_title", "input_name",
                        "current_value", "value_type", "suggested_field_type",
@@ -20,6 +21,20 @@ them fresh on every message. Wire contract (sent by the frontend wizard)::
       "model_chain": {"source_node_id", "source_output_index",
                        "target_node_id", "target_input"} | None,
     }
+
+``draft_id``/``form_revision`` identify which import draft and which point in
+its editing history the wizard was at when it rendered this context - the
+wizard mints/bumps them itself (see ``ImportWorkflowTab.svelte``'s
+`sourceToken`/`formRevision`). Both tools stamp them from
+``context.session_metadata`` straight onto their result, never from the
+model's own arguments (the ops schema has no such fields, and never should) -
+`execute` at proposal time, `execute_confirmed` at approval time from the
+SAME persisted context the proposal turn saw (approval rebuilds
+``ToolContext`` from the message's stored ``context_metadata``, not a live
+resync - see ``ToolCallDispatcher.approve_tool_execution``). The wizard
+compares the stamped values against its own current draft/revision before
+applying anything (see `applyImportFormChanges`) - this module has no way to
+know whether the wizard has since moved on.
 
 ``lora_chain`` mirrors the wizard's own `suggest.LoraChainInfo.nodes` plus
 its current keep-fixed/replaced split (`schema.LoraChainSelection`) - absent
@@ -688,7 +703,12 @@ class ProposeFormChangesTool(BaseTool):
             action="Apply form changes",
             items=[op["_preview"] for op in validated],
         )
-        payload = {"status": "pending_approval", "ops": [op["_clean"] for op in validated]}
+        payload = {
+            "status": "pending_approval",
+            "ops": [op["_clean"] for op in validated],
+            "draft_id": wiz.get("draft_id"),
+            "form_revision": wiz.get("form_revision"),
+        }
         return ToolResult(success=True, data=json.dumps(payload), preview=preview)
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
@@ -704,5 +724,10 @@ class ProposeFormChangesTool(BaseTool):
                 error="Invalid ops - nothing was applied: " + "; ".join(errors),
             )
 
-        payload = {"action": "apply_import_form_changes", "ops": [op["_clean"] for op in validated]}
+        payload = {
+            "action": "apply_import_form_changes",
+            "ops": [op["_clean"] for op in validated],
+            "draft_id": wiz.get("draft_id"),
+            "form_revision": wiz.get("form_revision"),
+        }
         return ToolResult(success=True, data=json.dumps(payload))

@@ -262,4 +262,189 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 		warnSpy.mockRestore();
 		unmount(instance);
 	});
+
+	it('applies a propose_form_changes result whose draft_id/form_revision match the wizard\'s current context (control)', async () => {
+		const el = target();
+		const host = stubChatHost();
+		const instance = await mountOnFormStep(el);
+
+		const provider = host.providers.get('comfyui_import')!;
+		const ctx = provider() as any;
+		const handler = host.toolHandlers.get('propose_form_changes')![0];
+
+		const outcome = handler({
+			action: 'apply_import_form_changes',
+			draft_id: ctx.draft_id,
+			form_revision: ctx.form_revision,
+			ops: [{ op: 'add_tab', label: 'Assistant', id: 'assistant' }]
+		});
+		await settle();
+
+		expect(outcome).toEqual({ status: 'applied', applied: 1, skipped: 0 });
+		expect(el.querySelector('[data-tab-id="assistant"]')).toBeTruthy();
+		expect(host.notifications.toast).toHaveBeenCalledWith('success', expect.stringContaining('Applied 1 change'));
+
+		unmount(instance);
+	});
+
+	it('reports "stale" (and never mutates the form) for a proposal built for a workflow that was replaced with "Change workflow"', async () => {
+		const el = target();
+		const host = stubChatHost();
+		const instance = await mountOnFormStep(el);
+
+		const provider = host.providers.get('comfyui_import')!;
+		const draftIdA = (provider() as any).draft_id;
+		const handler = host.toolHandlers.get('propose_form_changes')![0];
+
+		const changeWorkflowBtn = Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.includes('Change workflow'))!;
+		changeWorkflowBtn.click();
+		await settle();
+		expect(el.querySelector('[data-wiz-step="source"]')?.className).toContain('current');
+
+		const textarea = el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
+		textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} }, marker: 'B' });
+		textarea.dispatchEvent(new Event('input', { bubbles: true }));
+		await settle();
+		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		await settle();
+		expect(el.querySelector('[data-wiz-step="form"]')?.className).toContain('current');
+
+		const draftIdB = (provider() as any).draft_id;
+		expect(draftIdB).not.toBe(draftIdA);
+
+		// A proposal the assistant built while workflow A was loaded, approved
+		// only now that B is on screen.
+		const outcome = handler({
+			action: 'apply_import_form_changes',
+			draft_id: draftIdA,
+			form_revision: 0,
+			ops: [{ op: 'add_tab', label: 'Assistant', id: 'assistant' }]
+		});
+		await settle();
+
+		expect(outcome).toMatchObject({ status: 'stale', applied: 0 });
+		expect(el.querySelector('[data-tab-id="assistant"]')).toBeNull();
+		expect(host.notifications.toast).not.toHaveBeenCalled();
+
+		unmount(instance);
+	});
+
+	it('reports "stale" for a proposal approved after "Import another" reset the wizard', async () => {
+		const el = target();
+		const host = stubChatHost();
+
+		const fetchMock = vi.fn(async (url: string) => {
+			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/import/analyze') return jsonResponse(ANALYZE_RESULT);
+			if (url === '/api/plugins/comfyui-backend/presets/import/requirements') return jsonResponse({ results: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/import') {
+				return jsonResponse({ preset_id: 'PRESET1', path: 'content/presets/local/SDXL/imported', mode: 'text2img', lint: { errors: [], warnings: [] } });
+			}
+			throw new Error(`Unexpected fetch: ${url}`);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		const instance = mount(ImportWorkflowTab, { target: el, props: { pluginId: 'comfyui-backend' } });
+		await settle();
+
+		const textarea = el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
+		textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} } });
+		textarea.dispatchEvent(new Event('input', { bubbles: true }));
+		await settle();
+		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		await settle();
+
+		const provider = host.providers.get('comfyui_import')!;
+		const draftIdBeforeReset = (provider() as any).draft_id;
+		// Captured while still registered - the stub's unregister doesn't drop
+		// it from this list, matching the real host: calling a handler after
+		// its owner un-registers is not a path either side needs to guard
+		// (dispatchToolApplied would simply find nothing registered), so this
+		// exercises the wizard's OWN post-reset state directly.
+		const handler = host.toolHandlers.get('propose_form_changes')![0];
+
+		const familyInput = el.querySelector<HTMLInputElement>('#import-model-family')!;
+		familyInput.value = 'SDXL';
+		familyInput.dispatchEvent(new Event('input', { bubbles: true }));
+		const nameInput = el.querySelector<HTMLInputElement>('#import-display-name')!;
+		nameInput.value = 'Import A';
+		nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+		await settle();
+		el.querySelector<HTMLButtonElement>('button[data-import-continue-form]')!.click();
+		await settle();
+		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
+		await settle();
+		el.querySelector<HTMLButtonElement>('button[data-import-create]')!.click();
+		await settle();
+		expect(el.querySelector('[data-wiz-step="done"]')?.className).toContain('current');
+
+		const importAnotherBtn = Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.includes('Import another'))!;
+		importAnotherBtn.click();
+		await settle();
+		expect(el.querySelector('[data-wiz-step="source"]')?.className).toContain('current');
+
+		const outcome = handler({
+			action: 'apply_import_form_changes',
+			draft_id: draftIdBeforeReset,
+			form_revision: 0,
+			ops: [{ op: 'add_tab', label: 'Assistant', id: 'assistant' }]
+		});
+		await settle();
+
+		expect(outcome).toMatchObject({ status: 'stale', applied: 0 });
+		expect(host.notifications.toast).not.toHaveBeenCalled();
+
+		unmount(instance);
+	});
+
+	it('revalidates against an intervening manual edit on the SAME draft: a still-compatible op applies, an op the edit invalidated is skipped, and the manual edit is preserved', async () => {
+		const el = target();
+		const host = stubChatHost();
+		const instance = await mountOnFormStep(el);
+
+		// Manually map the sampler_name candidate to a field before the
+		// "proposal" this test simulates was supposedly built.
+		el.querySelector<HTMLButtonElement>('[data-input-key="3:sampler_name"] [data-action="add-input"]')!.click();
+		await settle();
+		expect(el.querySelector('[data-field-name="sampler_name"]')).toBeTruthy();
+
+		const provider = host.providers.get('comfyui_import')!;
+		const ctxAtProposal = provider() as any;
+		const handler = host.toolHandlers.get('propose_form_changes')![0];
+
+		// Intervening manual edit: the user removes that same field - a newer
+		// change the proposal (built before it) knows nothing about.
+		el.querySelector<HTMLButtonElement>('[data-field-name="sampler_name"] [data-action="remove"]')!.click();
+		await settle();
+		expect(el.querySelector('[data-field-name="sampler_name"]')).toBeNull();
+
+		const ctxNow = provider() as any;
+		expect(ctxNow.draft_id).toBe(ctxAtProposal.draft_id);
+		expect(ctxNow.form_revision).toBeGreaterThan(ctxAtProposal.form_revision);
+
+		const outcome = handler({
+			action: 'apply_import_form_changes',
+			draft_id: ctxAtProposal.draft_id,
+			form_revision: ctxAtProposal.form_revision,
+			ops: [
+				{ op: 'add_tab', label: 'Assistant', id: 'assistant' },
+				{ op: 'map', field_name: 'sampler_name', node_id: '9', input_name: 'width', transform: 'none' }
+			]
+		});
+		await settle();
+
+		expect(outcome).toEqual({
+			status: 'partial',
+			applied: 1,
+			skipped: 1,
+			message: expect.stringContaining('1 change')
+		});
+		expect(el.querySelector('[data-tab-id="assistant"]')).toBeTruthy();
+		// The user's deletion is not undone by the stale op that referenced it.
+		expect(el.querySelector('[data-field-name="sampler_name"]')).toBeNull();
+		expect(host.notifications.toast).not.toHaveBeenCalled();
+
+		unmount(instance);
+	});
 });

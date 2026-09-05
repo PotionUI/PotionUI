@@ -7,7 +7,8 @@ import {
 	declaredMode,
 	onToolApplied,
 	dispatchToolApplied,
-	resetPageContext
+	resetPageContext,
+	type ToolAppliedHandler
 } from './pageContext';
 
 describe('pageContext', () => {
@@ -77,7 +78,9 @@ describe('pageContext', () => {
 	describe('onToolApplied / dispatchToolApplied', () => {
 		it('runs every handler registered for the tool name and reports it was handled', () => {
 			const seen: Record<string, unknown>[] = [];
-			onToolApplied('import_comfyui_workflow', (result) => seen.push(result));
+			onToolApplied('import_comfyui_workflow', (result) => {
+				seen.push(result);
+			});
 
 			const handled = dispatchToolApplied('import_comfyui_workflow', { workflow: 'x' });
 
@@ -92,13 +95,38 @@ describe('pageContext', () => {
 
 		it('unregister stops the handler from running and, once it is the last one, reports unhandled', () => {
 			const seen: Record<string, unknown>[] = [];
-			const unregister = onToolApplied('import_comfyui_workflow', (result) => seen.push(result));
+			const unregister = onToolApplied('import_comfyui_workflow', (result) => {
+				seen.push(result);
+			});
 			unregister();
 
 			const handled = dispatchToolApplied('import_comfyui_workflow', { workflow: 'x' });
 
 			expect(handled).toBe(false);
 			expect(seen).toEqual([]);
+		});
+
+		it('returns a handler-reported ToolAppliedOutcome instead of the bare `true` "handled" flag', () => {
+			onToolApplied('propose_form_changes', () => ({ status: 'stale', message: 'the draft moved on' }));
+
+			const result = dispatchToolApplied('propose_form_changes', {});
+
+			expect(result).toEqual({ status: 'stale', message: 'the draft moved on' });
+		});
+
+		it('falls back to `true` when a handler returns something that is not a ToolAppliedOutcome', () => {
+			// Plugins are plain compiled JS, not type-checked against
+			// ToolAppliedHandler at runtime - a handler can return a value
+			// that isn't `void` or a real outcome (here: a plain number) even
+			// though this test's own TS types wouldn't let it. The cast
+			// simulates that; the guard in dispatchToolApplied is what must
+			// not mistake it for a status-bearing outcome.
+			const returnsANumber = ((result: Record<string, unknown>) => [result].length) as unknown as ToolAppliedHandler;
+			onToolApplied('import_comfyui_workflow', returnsANumber);
+
+			const handled = dispatchToolApplied('import_comfyui_workflow', { workflow: 'x' });
+
+			expect(handled).toBe(true);
 		});
 	});
 

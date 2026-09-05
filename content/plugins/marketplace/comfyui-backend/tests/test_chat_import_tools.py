@@ -261,6 +261,48 @@ def test_propose_form_changes_unknown_field_type_teaches_allowed_types():
     assert "resolution" in result.error and "select" in result.error
 
 
+def test_execute_stamps_draft_id_and_form_revision_from_context():
+    tool = ProposeFormChangesTool()
+    ops = [{"op": "add_tab", "label": "Sampling"}]
+    wiz = _wiz(draft_id="draft-7", form_revision=3)
+    result = run(tool.execute(_context(wiz), ops=ops))
+    assert result.success is True, result.error
+    payload = json.loads(result.data)
+    assert payload["draft_id"] == "draft-7"
+    assert payload["form_revision"] == 3
+
+
+def test_execute_confirmed_stamps_draft_id_and_form_revision_from_context():
+    tool = ProposeFormChangesTool()
+    ops = [{"op": "add_tab", "label": "Sampling"}]
+    wiz = _wiz(draft_id="draft-7", form_revision=3)
+    result = run(tool.execute_confirmed(_context(wiz), ops=ops))
+    assert result.success is True, result.error
+    payload = json.loads(result.data)
+    assert payload["draft_id"] == "draft-7"
+    assert payload["form_revision"] == 3
+
+
+def test_execute_confirmed_stamps_the_proposal_turn_context_not_model_supplied_kwargs():
+    """`execute_confirmed`'s `**kwargs` is `ops` only per the tool's own
+    parameter schema - there is no `draft_id` a model could echo through it -
+    but a malformed/forged call passing one anyway must still be ignored: the
+    stamped value always comes from `context.session_metadata`, which
+    `approve_tool_execution` rebuilds from the message's own persisted
+    `context_metadata` (see `ToolCallDispatcher`), never from the tool
+    arguments themselves."""
+    tool = ProposeFormChangesTool()
+    ops = [{"op": "add_tab", "label": "Sampling"}]
+    wiz = _wiz(draft_id="real-draft", form_revision=5)
+    result = run(
+        tool.execute_confirmed(_context(wiz), ops=ops, draft_id="forged-draft", form_revision=999)
+    )
+    assert result.success is True, result.error
+    payload = json.loads(result.data)
+    assert payload["draft_id"] == "real-draft"
+    assert payload["form_revision"] == 5
+
+
 def test_execute_confirmed_returns_apply_payload_with_defaulted_transform():
     tool = ProposeFormChangesTool()
     ops = [

@@ -672,6 +672,25 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		});
 	}
 
+	/**
+	 * Drops the busy state and the feedback a departed context raised. The
+	 * retired read's own `finally` is what would normally lower its flag, and it
+	 * may be a stalled request that never arrives — leaving the new context busy,
+	 * and `evaluateTabLink` gated on it, indefinitely. Clearing the handle also
+	 * stops that late `finally` from lowering a replacement's flag instead.
+	 */
+	function retireSelectionRead() {
+		selectionLoadInFlight = null;
+		isSelectionLoading = false;
+		selectionError = null;
+	}
+
+	function retireListRead() {
+		listLoadInFlight = null;
+		isListLoading = false;
+		listError = null;
+	}
+
 	/** Retires whatever read of this kind is in flight, so its completion can no
 	 *  longer publish. */
 	function retireReads(kind: SessionReadKind) {
@@ -1381,6 +1400,14 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		if (tabChanged || presetChanged || modeChanged) {
 			commandGeneration += 1;
 			listGeneration += 1;
+			// Any of the three invalidates a selection hydration.
+			retireSelectionRead();
+		}
+		// The list belongs to the preset and mode, not the tab: a switch onto the
+		// same preset leaves an in-flight load perfectly valid, and nothing would
+		// re-issue it. A preset or mode change re-issues it below.
+		if (presetChanged || modeChanged) {
+			retireListRead();
 		}
 
 		if ((presetChanged || modeChanged) && ctx.presetId && ctx.currentMode) {

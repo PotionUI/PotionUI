@@ -1156,6 +1156,94 @@ describe('createSessionController', () => {
 		expect(state.isHistoryLoading).toBe(false);
 	});
 
+	// A read the context switch retired is not coming back to lower its own
+	// flag, and it may never arrive at all. The new context must not wait on it.
+	it('is not left busy by a selection the context switch retired', async () => {
+		await bootWithDirtySession();
+		const stalled = deferred<{ success: boolean; data: Session }>();
+		harness.api.getSessionById.mockReturnValue(stalled.promise as never);
+
+		void controller.select(SESSION_B);
+		await settle();
+		expect(get(controller.state).isSessionLoading).toBe(true);
+
+		harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [] });
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+
+		// The new preset's list has answered; the old detail never will.
+		const state = get(controller.state);
+		expect(state.isSessionLoading).toBe(false);
+		expect(state.error).toBeNull();
+	});
+
+	it('does not let a retired selection lower the flag of the one that replaced it', async () => {
+		await bootWithDirtySession();
+		const stalled = deferred<{ success: boolean; data: Session }>();
+		const replacement = deferred<{ success: boolean; data: Session }>();
+		harness.api.getSessionById.mockImplementation(
+			((id: string) => (id === SESSION_B ? stalled.promise : replacement.promise)) as never
+		);
+
+		void controller.select(SESSION_B);
+		await settle();
+
+		harness.api.getSessionsForPreset.mockResolvedValue({
+			success: true,
+			data: [makeSession('session-c', { preset_id: OTHER_PRESET_ID })]
+		});
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+
+		void controller.select('session-c');
+		await settle();
+		expect(get(controller.state).isSessionLoading).toBe(true);
+
+		stalled.resolve({ success: true, data: makeSession(SESSION_B) });
+		await settle();
+		expect(get(controller.state).isSessionLoading).toBe(true);
+
+		replacement.resolve({
+			success: true,
+			data: makeSession('session-c', { preset_id: OTHER_PRESET_ID })
+		});
+		await settle();
+		expect(get(controller.state).isSessionLoading).toBe(false);
+	});
+
+	it('drops a selection error that belonged to the context the user left', async () => {
+		await bootWithDirtySession();
+		harness.api.getSessionById.mockRejectedValue(new Error('detail failed'));
+
+		await controller.select(SESSION_B);
+		await settle();
+		expect(get(controller.state).error).toBe('detail failed');
+
+		harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [] });
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+
+		expect(get(controller.state).error).toBeNull();
+	});
+
+	it('drops a list error when the preset it belonged to is left', async () => {
+		harness = createHarness({ tab: { selectedPreset: PRESET_ID, selectedMode: MODE } });
+		harness.api.getSessionsForPreset.mockRejectedValue(new Error('backend down'));
+		controller = harness.controller;
+
+		controller.setContext(context());
+		controller.start();
+		await settle();
+		expect(get(controller.state).error).toBe('backend down');
+
+		controller.setContext(context({ presetId: null }));
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.error).toBeNull();
+		expect(state.isSessionLoading).toBe(false);
+	});
+
 	// A dialog the user cancelled and reopened is a different dialog, even
 	// though no second attempt was submitted and nothing about the context or
 	// the command handle changed.

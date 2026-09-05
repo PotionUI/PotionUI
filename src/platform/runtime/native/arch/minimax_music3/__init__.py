@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from .ar_loop import FRAME_HIDDEN_SIZE, generate, position_budget_warning
 from .config import MiniMaxMusic3TextEncoderConfig
-from .depth_decoder import DepthDecoderModule, generate_depth_codes
+from .depth_decoder import DepthDecoderModule, DepthKVCache, depth_kv_cache, generate_depth_codes
 from .flow import chunk_starts, crop_bounds, denoise_windowed
 from .lm import GlobalLMKVCache, MiniMaxMusic3AudioLM
 from .model import MINIMAX_MUSIC3_DIT, MiniMaxMusic3DitConfig, MiniMaxMusic3Model
@@ -46,6 +46,8 @@ __all__ = [
     "MiniMaxMusic3AudioLM",
     "GlobalLMKVCache",
     "DepthDecoderModule",
+    "DepthKVCache",
+    "depth_kv_cache",
     "generate_depth_codes",
     "generate",
     "position_budget_warning",

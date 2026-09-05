@@ -28,7 +28,7 @@ from ...errors import SamplingCancelled
 from ._ar_timing import ArTiming
 from ._nn import module_device
 from .cfg_sampling import full_vocab_mask, guided_top_k_sample_id
-from .depth_decoder import generate_depth_codes
+from .depth_decoder import depth_kv_cache, generate_depth_codes
 from .lm import MiniMaxMusic3AudioLM
 from .prompt import AUDIO_CODE_OFFSET, AUDIO_END_TOKEN_ID, MAX_AUDIO_FRAMES, MAX_PROMPT_TOKENS
 
@@ -141,29 +141,32 @@ def generate(
     llm_hidden = hidden_all[:, -1, :]  # [2, hidden] -- seeds frame 0
 
     frame_hiddens: list[torch.Tensor] = []
-    for frame_idx in range(max_frames + 1):  # +1: frame 0 is discarded, never counted against max_frames
-        if is_cancelled is not None and is_cancelled():
-            raise SamplingCancelled(frame_idx)
+    with depth_kv_cache() as depth_cache:
+        for frame_idx in range(max_frames + 1):  # +1: frame 0 is discarded, never counted against max_frames
+            if is_cancelled is not None and is_cancelled():
+                raise SamplingCancelled(frame_idx)
 
-        with timing.track("sampling_feedback"):
-            code0, stopped = _sample_semantic(lm, llm_hidden, cfg_scale, top_k, generator)
-        if stopped:
-            break
-        with timing.track("depth"):
-            codes, depth_hidden = generate_depth_codes(lm, llm_hidden.unsqueeze(1), code0, generator, cfg_scale, top_k)
+            with timing.track("sampling_feedback"):
+                code0, stopped = _sample_semantic(lm, llm_hidden, cfg_scale, top_k, generator)
+            if stopped:
+                break
+            with timing.track("depth"):
+                codes, depth_hidden = generate_depth_codes(
+                    lm, llm_hidden.unsqueeze(1), code0, generator, cfg_scale, top_k, cache=depth_cache,
+                )
 
-        with timing.track("sampling_feedback"):
-            if frame_idx > 0:
-                frame_hidden = torch.cat([llm_hidden[0:1], depth_hidden], dim=-1)  # [1, FRAME_HIDDEN_SIZE]
-                frame_hiddens.append(frame_hidden)
-                if on_frame is not None:
-                    on_frame(frame_idx, max_frames)
+            with timing.track("sampling_feedback"):
+                if frame_idx > 0:
+                    frame_hidden = torch.cat([llm_hidden[0:1], depth_hidden], dim=-1)  # [1, FRAME_HIDDEN_SIZE]
+                    frame_hiddens.append(frame_hidden)
+                    if on_frame is not None:
+                        on_frame(frame_idx, max_frames)
 
-            if frame_idx == max_frames:  # no further iteration will ever read llm_hidden again
-                continue
-            feedback = _feedback_embedding(lm, code0, codes).to(device)  # [1, hidden]
-        with timing.track("lm_step"):
-            llm_hidden = lm.step(feedback.unsqueeze(0).expand(2, 1, -1), cache).squeeze(1)  # [2, hidden]
+                if frame_idx == max_frames:  # no further iteration will ever read llm_hidden again
+                    continue
+                feedback = _feedback_embedding(lm, code0, codes).to(device)  # [1, hidden]
+            with timing.track("lm_step"):
+                llm_hidden = lm.step(feedback.unsqueeze(0).expand(2, 1, -1), cache).squeeze(1)  # [2, hidden]
 
     timing.emit(len(frame_hiddens))
     if not frame_hiddens:

@@ -31,7 +31,7 @@
 // that was never actually written. `waitForTerminal` is likewise called with
 // the EXACT generation id this plan itself just submitted, not "whichever
 // run currently occupies the shot".
-import { directorPredecessorShotId } from './directorInputIdentity';
+import { directorPredecessorShotId, type DirectorPredecessorRef } from './directorInputIdentity';
 import { resolvePredecessorFrame, type PredecessorRunLike, type PredecessorOutputLike } from './directorContinuation';
 import type { VideoDirectorValue, DirectorCapabilities, DirectorMediaValue } from '$lib/types/videoDirector';
 
@@ -71,8 +71,22 @@ export interface DirectorDependencyRunnerDeps {
 	 *  predecessor didn't resolve -- see `onBlocked` below). A validation or
 	 *  start failure returns `{ ok: false }` rather than throwing -- this
 	 *  runner treats that exactly like a predecessor failure for any shot
-	 *  depending on it. */
-	submit: (shotId: string, predecessorFrame: DirectorMediaValue | null) => Promise<DirectorShotSubmitOutcome>;
+	 *  depending on it.
+	 *
+	 *  `predecessorRef` is the EXACT `{generationId, outputKey}`
+	 *  `resolvePredecessorFrame` resolved `predecessorFrame` FROM (`null`
+	 *  exactly when `predecessorFrame` is `null`) -- the caller must stamp
+	 *  THIS reference on the run it records (`DirectorRunState.predecessorRef`),
+	 *  never re-derive its own from a LATER, separately-timed `runs` snapshot:
+	 *  that read happens after `submit`'s own async work (a network round
+	 *  trip), during which the predecessor's run entry could in principle
+	 *  have moved on, and the two would then disagree about which generation
+	 *  this request's media actually came from. */
+	submit: (
+		shotId: string,
+		predecessorFrame: DirectorMediaValue | null,
+		predecessorRef: DirectorPredecessorRef | null
+	) => Promise<DirectorShotSubmitOutcome>;
 	/** Resolves once the run under `generationId` (which this runner itself
 	 *  just submitted for `shotId`, in THIS SAME PLAN) reaches a terminal
 	 *  state, or is abandoned -- see `DirectorShotTerminalOutcome`. Never
@@ -155,6 +169,7 @@ export async function runDirectorDependencyPlan(
 		}
 
 		let predecessorFrame: DirectorMediaValue | null = null;
+		let predecessorRef: DirectorPredecessorRef | null = null;
 		if (predecessorId) {
 			const resolved = resolvePredecessorFrame(doc, caps, shotId, deps.getRuns(), deps.getOutputs());
 			if (!resolved.ok) {
@@ -163,9 +178,10 @@ export async function runDirectorDependencyPlan(
 				continue;
 			}
 			predecessorFrame = resolved.media;
+			predecessorRef = { generationId: resolved.predecessor.generationId, outputKey: resolved.predecessor.outputKey };
 		}
 
-		const outcome = await deps.submit(shotId, predecessorFrame);
+		const outcome = await deps.submit(shotId, predecessorFrame, predecessorRef);
 		if (!outcome.ok) {
 			// The shot's own submission (validation/start failure) already
 			// reports itself (toasted by the caller's `submit`) -- this runner

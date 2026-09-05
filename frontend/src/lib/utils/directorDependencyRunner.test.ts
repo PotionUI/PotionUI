@@ -58,7 +58,7 @@ describe('runDirectorDependencyPlan', () => {
 			onBlocked
 		});
 
-		expect(submit).toHaveBeenCalledWith('a', null);
+		expect(submit).toHaveBeenCalledWith('a', null, null);
 		expect(waitForTerminal).not.toHaveBeenCalled();
 		expect(onBlocked).not.toHaveBeenCalled();
 	});
@@ -95,7 +95,7 @@ describe('runDirectorDependencyPlan', () => {
 
 		expect(submitOrder).toEqual(['a', 'b']);
 		expect(waitForTerminal).toHaveBeenCalledWith('a', 'gen-a');
-		expect(submit).toHaveBeenLastCalledWith('b', GEN_A_FRAME);
+		expect(submit).toHaveBeenLastCalledWith('b', GEN_A_FRAME, { generationId: 'gen-a', outputKey: 'a' });
 		expect(onBlocked).not.toHaveBeenCalled();
 	});
 
@@ -114,7 +114,7 @@ describe('runDirectorDependencyPlan', () => {
 		});
 
 		expect(submit).toHaveBeenCalledTimes(1);
-		expect(submit).toHaveBeenCalledWith('a', null);
+		expect(submit).toHaveBeenCalledWith('a', null, null);
 		expect(waitForTerminal).toHaveBeenCalledWith('a', 'gen-a');
 		expect(onBlocked).toHaveBeenCalledWith('b', 'Its previous shot failed to generate');
 	});
@@ -165,7 +165,7 @@ describe('runDirectorDependencyPlan', () => {
 		});
 
 		expect(submit).toHaveBeenCalledTimes(1); // 'b' never submitted
-		expect(submit).toHaveBeenCalledWith('a', null);
+		expect(submit).toHaveBeenCalledWith('a', null, null);
 		expect(waitForTerminal).not.toHaveBeenCalled(); // 'a' never even got a generation id to wait on
 		expect(onBlocked).toHaveBeenCalledWith('b', 'Its previous shot failed to generate');
 	});
@@ -191,7 +191,7 @@ describe('runDirectorDependencyPlan', () => {
 		});
 
 		expect(waitForTerminal).not.toHaveBeenCalled();
-		expect(submit).toHaveBeenCalledWith('b', GEN_A_FRAME);
+		expect(submit).toHaveBeenCalledWith('b', GEN_A_FRAME, { generationId: 'gen-a', outputKey: 'a' });
 		expect(onBlocked).not.toHaveBeenCalled();
 	});
 
@@ -221,7 +221,7 @@ describe('runDirectorDependencyPlan', () => {
 		);
 
 		expect(submit).toHaveBeenCalledTimes(1); // 'a' never resubmitted
-		expect(submit).toHaveBeenCalledWith('b', GEN_A_FRAME);
+		expect(submit).toHaveBeenCalledWith('b', GEN_A_FRAME, { generationId: 'gen-a-primary', outputKey: 'a' });
 		expect(waitForTerminal).toHaveBeenCalledWith('a', 'gen-a-primary');
 		expect(onBlocked).not.toHaveBeenCalled();
 	});
@@ -237,10 +237,10 @@ describe('runDirectorDependencyPlan', () => {
 			'gen-a': { videos: [{ url: 'generations/gen-a/1.mp4' }] },
 			'gen-b': { videos: [{ url: 'generations/gen-b/1.mp4' }] }
 		};
-		const submitted: Array<[string, unknown]> = [];
+		const submitted: Array<[string, unknown, unknown]> = [];
 
-		const submit = vi.fn(async (shotId: string, frame: unknown) => {
-			submitted.push([shotId, frame]);
+		const submit = vi.fn(async (shotId: string, frame: unknown, predecessorRef: unknown) => {
+			submitted.push([shotId, frame, predecessorRef]);
 			runs = { ...runs, [shotId]: { status: 'generating', generationId: `gen-${shotId}` } };
 			return { ok: true as const, generationId: `gen-${shotId}` };
 		});
@@ -257,11 +257,12 @@ describe('runDirectorDependencyPlan', () => {
 			onBlocked: vi.fn()
 		});
 
-		expect(submitted[0]).toEqual(['a', null]);
-		expect(submitted[1]).toEqual(['b', GEN_A_FRAME]);
+		expect(submitted[0]).toEqual(['a', null, null]);
+		expect(submitted[1]).toEqual(['b', GEN_A_FRAME, { generationId: 'gen-a', outputKey: 'a' }]);
 		expect(submitted[2]).toEqual([
 			'c',
-			{ path: 'generations/gen-b/1.mp4', relative_path: 'generations/gen-b/1.mp4', url: 'generations/gen-b/1.mp4', type: 'video' }
+			{ path: 'generations/gen-b/1.mp4', relative_path: 'generations/gen-b/1.mp4', url: 'generations/gen-b/1.mp4', type: 'video' },
+			{ generationId: 'gen-b', outputKey: 'b' }
 		]);
 	});
 });

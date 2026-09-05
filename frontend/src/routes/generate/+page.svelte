@@ -192,6 +192,17 @@
 	 * NEVER `void` either way, so the runner can tell "queued" apart from
 	 * "never actually submitted" instead of treating a failed rerender as if
 	 * it had succeeded (Codex review, 14:56 UTC).
+	 *
+	 * `predecessorRefOverride` -- when the caller is `directorDependencyRunner.ts`
+	 * (an LTX shot submitted one at a time, `shotsForDoc` always length 1) --
+	 * is the EXACT `{generationId, outputKey}` `resolvePredecessorFrame`
+	 * already resolved to build THIS SAME `wireDoc`'s predecessor media
+	 * (`runDirectorDependencyPlan`'s own doc comment on `submit`). Stamped
+	 * onto that one entry in place of `buildDirectorRunEntries`' own `runs`
+	 * lookup so the two can never disagree about which generation this
+	 * request's media actually came from. `undefined` (the chain/H3 caller,
+	 * `submitVideoDirectorShots`) leaves `buildDirectorRunEntries`' own
+	 * derivation untouched.
 	 */
 	async function submitOneDirectorWireDoc(
 		tabId: string,
@@ -199,7 +210,8 @@
 		doc: VideoDirectorValue,
 		caps: DirectorCapabilities,
 		wireDoc: VideoDirectorWireDoc,
-		shotsForDoc: string[]
+		shotsForDoc: string[],
+		predecessorRefOverride?: DirectorRunState['predecessorRef']
 	): Promise<DirectorShotSubmitOutcome> {
 		const { doc: resolvedDoc, errors } = dereferenceFormMediaRefs(wireDoc, tab.formData);
 		if (errors.length > 0) {
@@ -240,6 +252,20 @@
 				const { generation_id, queue_position } = response.data;
 				const isQueued = queue_position !== null && queue_position !== undefined;
 				const liveTab = $tabsStore.tabs.find((t) => t.id === tabId) || tab;
+				const runEntries = buildDirectorRunEntries(
+					shotsForDoc,
+					generation_id,
+					isQueued ? 'queued' : 'generating',
+					doc,
+					caps,
+					tab.formData,
+					liveTab.directorRuns,
+					directorGenerationContextFor(tab)
+				);
+				if (predecessorRefOverride !== undefined && shotsForDoc.length === 1) {
+					const soleShotId = shotsForDoc[0];
+					runEntries[soleShotId] = { ...runEntries[soleShotId], predecessorRef: predecessorRefOverride };
+				}
 				tabsStore.updateTab(tabId, {
 					generation: {
 						...liveTab.generation,
@@ -250,16 +276,7 @@
 					},
 					directorRuns: {
 						...(liveTab.directorRuns || {}),
-						...buildDirectorRunEntries(
-							shotsForDoc,
-							generation_id,
-							isQueued ? 'queued' : 'generating',
-							doc,
-							caps,
-							tab.formData,
-							liveTab.directorRuns,
-							directorGenerationContextFor(tab)
-						)
+						...runEntries
 					},
 					directorRunLinks: {
 						...(liveTab.directorRunLinks || {}),
@@ -375,12 +392,12 @@
 			{
 				getRuns: () => $tabsStore.tabs.find((t) => t.id === tabId)?.directorRuns,
 				getOutputs: () => snapshotDirectorGenerationOutputs($tabsStore.tabs.find((t) => t.id === tabId)?.directorRuns),
-				submit: (shotId, predecessorFrame) => {
+				submit: (shotId, predecessorFrame, predecessorRef) => {
 					const liveTab = $tabsStore.tabs.find((t) => t.id === tabId) || tab;
 					const predecessorFrames = predecessorFrame ? { [shotId]: predecessorFrame } : undefined;
 					const wireDocs = buildDirectorSubmission(doc, caps, new Set([shotId]), predecessorFrames);
 					if (wireDocs.length === 0) return Promise.resolve({ ok: false, reason: 'Nothing to submit' });
-					return submitOneDirectorWireDoc(tabId, liveTab, doc, caps, wireDocs[0], [shotId]);
+					return submitOneDirectorWireDoc(tabId, liveTab, doc, caps, wireDocs[0], [shotId], predecessorRef);
 				},
 				waitForTerminal: (shotId, generationId) => waitForDirectorShotTerminal(tabId, shotId, generationId),
 				onBlocked: (shotId, reason) => {

@@ -20,6 +20,8 @@ from PIL import Image
 
 from src.pipelines.pipes._shared.generation.clip_batch import SequentialWindowClipTextEncoder
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
+from src.platform.runtime.native.text_encoders import prompt_embed_key
+from src.platform.runtime.native.text_encoders.embed_cache import get_prompt_embed_cache
 from src.platform.runtime.native.text_encoders.qwen3 import MiniMaxH3Reference, MiniMaxH3TextEncoder
 from src.platform.runtime.native.text_encoders.qwen3_vl_vision import (
     H3_VISION_MAX_PIXELS,
@@ -328,6 +330,93 @@ def test_a_conditioning_cache_hit_upstream_never_touches_the_te_factory():
     encoder = MiniMaxH3ClipTextEncoder(factory, device="cpu")
     # A "cache hit": the caller never calls encoder.encode_prompt(s) at all.
     assert calls == []
+
+
+# -- inner embed-cache key must not force the TE factory (the "hit one layer
+# further in" residual): `run_text_encode_batch`'s own `PromptEmbedCache` sits
+# INSIDE `prompt_encoder`'s conditioning cache above -- an inner HIT after an
+# outer MISS must still never resolve `te_factory`, or the lazy-acquisition
+# fix above is defeated the moment `prompt_encoder`'s own cache misses. -----
+
+def test_building_the_key_for_a_vision_request_does_not_run_the_vision_guard():
+    # The vision guard used to run INSIDE `_encode_fn_and_key` itself (ahead of
+    # building the key), forcing `self.encoder` -- and therefore `te_factory`
+    # -- merely to build a key for a request that might turn out to be an
+    # inner-cache HIT. It now lives inside the encode closure, so building the
+    # key for a vision request must not raise even when the resolved encoder
+    # would eventually fail the guard.
+    te = _real_text_encoder(has_vision=False)
+    encoder = MiniMaxH3ClipTextEncoder(lambda: te, device="cpu", model_fingerprint="fp")
+    encode_fn, cache_key = encoder._encode_fn_and_key(
+        {"prompt": "a prompt", "negative_prompt": "", "images": [_tiny_image()]}
+    )
+    assert cache_key is not None
+    with pytest.raises(NativeEngineUnsupportedError):
+        encode_fn()
+
+
+def test_an_inner_embed_cache_hit_never_touches_the_te_factory():
+    # The actual bug scenario: prime the inner PromptEmbedCache with the exact
+    # key a fresh adapter builds for this request -- built WITHOUT ever
+    # resolving a TE -- then run the real request through a brand-new adapter
+    # whose factory must not run at all.
+    get_prompt_embed_cache().clear()
+    probe = MiniMaxH3ClipTextEncoder(
+        lambda: pytest.fail("building the key must not resolve the TE factory"),
+        device="cpu", model_fingerprint="fp",
+    )
+    request = {"prompt": "a cached prompt", "negative_prompt": ""}
+    _, cache_key = probe._encode_fn_and_key(request)
+    cached_value = {"context": torch.ones(1, 3, 5120), "token_tags": torch.ones(3, dtype=torch.long)}
+    get_prompt_embed_cache().put(cache_key, cached_value)
+
+    calls = []
+
+    def factory():
+        calls.append(1)
+        return _real_text_encoder()
+
+    encoder = MiniMaxH3ClipTextEncoder(factory, device="cpu", model_fingerprint="fp")
+    result = encoder.encode_prompt("a cached prompt", "")
+
+    assert calls == [], "an inner embed-cache HIT must never resolve te_factory"
+    assert torch.equal(result.embeds["context"], cached_value["context"])
+    assert torch.equal(result.embeds["token_tags"], cached_value["token_tags"])
+
+
+def test_an_inner_embed_cache_miss_still_runs_the_factory_exactly_once():
+    get_prompt_embed_cache().clear()
+    te = _real_text_encoder()
+    calls = []
+
+    def factory():
+        calls.append(1)
+        return te
+
+    encoder = MiniMaxH3ClipTextEncoder(factory, device="cpu", model_fingerprint="fp")
+    result = encoder.encode_prompt("an uncached prompt", "")
+
+    assert calls == [1]
+    tokenizer = MiniMaxH3Tokenizer()
+    expected_len = len(tokenizer("an uncached prompt"))
+    assert result.embeds["context"].shape == (1, expected_len, _TEXT_HIDDEN)
+
+
+def test_new_key_construction_matches_the_old_getattr_encoder_role_expression():
+    # `_encode_fn_and_key` used to build its final key as
+    # `prompt_embed_key(self._model_fingerprint, getattr(self.encoder, "role",
+    # None), *key_parts)` -- the expression this residual replaces with
+    # `self._encoder_role`. Pin that the new key is byte-for-byte identical to
+    # that old expression for the same encoder and request (`key_parts` is
+    # just `[prompt]` for a plain text-only request).
+    te = _real_text_encoder()
+    request = {"prompt": "a prompt", "negative_prompt": ""}
+
+    encoder = MiniMaxH3ClipTextEncoder(lambda: te, device="cpu", model_fingerprint="fp")
+    _, new_key = encoder._encode_fn_and_key(request)
+
+    old_key = prompt_embed_key("fp", getattr(te, "role", None), request["prompt"])
+    assert new_key == old_key
 
 
 # -- prompt_encoder integration marker ---------------------------------------

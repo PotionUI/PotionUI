@@ -69,7 +69,12 @@ warm-run trace showed the ~21GB TE reloaded from disk (~21s) even when the
 SAME prompt hit `prompt_encoder`'s cache and never touched the TE at all.
 `model_fingerprint` (used for `prompt_encoder`'s OWN cache key) is set at
 construction and needs no resolved encoder, so the cache lookup itself never
-forces the load either -- the whole point.
+forces the load either -- the whole point. The SAME property holds one layer
+in: `_encode_fn_and_key`'s own key (for `run_text_encode_batch`'s inner
+`PromptEmbedCache`, checked AFTER `prompt_encoder`'s outer cache misses) is
+built from `_encoder_role` -- a constructor argument, not `self.encoder.role`
+-- so an inner-cache HIT after an outer-cache MISS still never touches
+`te_factory`.
 """
 
 from __future__ import annotations
@@ -86,7 +91,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import normaliz
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import align_num_frames
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
 from src.platform.runtime.native.text_encoders import image_content_fingerprint, prompt_embed_key
-from src.platform.runtime.native.text_encoders.qwen3 import MiniMaxH3Reference
+from src.platform.runtime.native.text_encoders.qwen3 import MiniMaxH3Reference, MiniMaxH3TextEncoder
 from src.platform.runtime.native.text_encoders.qwen3_vl_vision import H3_VISION_MIN_PIXELS
 from src.platform.runtime.primitives.clip import ConditioningModel
 
@@ -210,10 +215,22 @@ class MiniMaxH3ClipTextEncoder(SequentialWindowClipTextEncoder):
     _resolved_encoder = WeakModelRef()
 
     def __init__(self, te_factory: Callable[[], Any], *, device: str = "cuda",
-                 model_fingerprint: Optional[str] = None) -> None:
+                 model_fingerprint: Optional[str] = None,
+                 encoder_role: str = MiniMaxH3TextEncoder.role) -> None:
         self._te_factory = te_factory
         self.device = device
         self._model_fingerprint = model_fingerprint
+        # The resolved encoder is ALWAYS a `MiniMaxH3TextEncoder` (this
+        # adapter's only consumer), whose `role` is the fixed
+        # `"qwen3vl_32b"` variant tag the loader dispatches on
+        # (text_encoders/loader.py's `_make_encoder`) -- a compile-time
+        # constant, not something read off the resolved instance. Defaulted
+        # from the class attribute so this is never duplicated as a bare
+        # string; callers whose adapter wraps a DIFFERENT role may still
+        # override it. Passed in at construction so the inner embed-cache key
+        # (`_encode_fn_and_key` below) never has to force `self.encoder` --
+        # see "Lazy TE acquisition" above.
+        self._encoder_role = encoder_role
 
     @property
     def encoder(self) -> Any:
@@ -231,20 +248,6 @@ class MiniMaxH3ClipTextEncoder(SequentialWindowClipTextEncoder):
         needs_vision = bool(image_tensors) or any(
             reference.kind in ("image", "video") for reference in (references or ())
         )
-        if needs_vision and getattr(self.encoder.module, "visual", None) is None:
-            # A pipe-side guard ahead of `encode_request`'s/`encode_reference_
-            # request`'s own identical check -- gives a clear failure at this
-            # adapter's boundary rather than several calls deep into the TE.
-            # Not a "presentation builder" duplicate (nothing here could drift
-            # out of sync with the TE's own token/tag construction): both
-            # raise for the exact same condition, "images without a vision
-            # tower", nothing more.
-            raise NativeEngineUnsupportedError(
-                "minimax_h3 text encoder: fl2va keyframes or ref2va references were supplied but this "
-                "text encoder has no vision tower loaded -- request the vision-enabled variant at load "
-                "time (model_loader/minimax_h3 always requests vision=True; this means the loaded "
-                "checkpoint itself carries no vision tower)"
-            )
         # `prompt_encoder`'s pixel budget, expressed relative to the output
         # canvas there and resolved to an absolute area here. Clamped UP to
         # H3's own minimum: `preprocess_qwen3_vl_image` applies its max/min
@@ -256,6 +259,26 @@ class MiniMaxH3ClipTextEncoder(SequentialWindowClipTextEncoder):
         max_pixels = max(int(requested_max_pixels), H3_VISION_MIN_PIXELS) if requested_max_pixels else None
 
         def _encode() -> Dict[str, Tensor]:
+            if needs_vision and getattr(self.encoder.module, "visual", None) is None:
+                # A pipe-side guard ahead of `encode_request`'s/`encode_
+                # reference_request`'s own identical check -- gives a clear
+                # failure at this adapter's boundary rather than several
+                # calls deep into the TE. Not a "presentation builder"
+                # duplicate (nothing here could drift out of sync with the
+                # TE's own token/tag construction): both raise for the exact
+                # same condition, "images without a vision tower", nothing
+                # more. Lives INSIDE the encode closure, not in
+                # `_encode_fn_and_key` proper, so it only runs on an actual
+                # inner-cache MISS -- checking it while building the key would
+                # force `self.encoder` (and therefore `te_factory()`) even
+                # when the embed cache was about to serve this request for
+                # free.
+                raise NativeEngineUnsupportedError(
+                    "minimax_h3 text encoder: fl2va keyframes or ref2va references were supplied but this "
+                    "text encoder has no vision tower loaded -- request the vision-enabled variant at load "
+                    "time (model_loader/minimax_h3 always requests vision=True; this means the loaded "
+                    "checkpoint itself carries no vision tower)"
+                )
             bounds = {"max_pixels": max_pixels} if max_pixels else {}
             if references is not None:
                 return self.encoder.encode_reference_request(prompt, references, **bounds)
@@ -292,7 +315,7 @@ class MiniMaxH3ClipTextEncoder(SequentialWindowClipTextEncoder):
         if max_pixels:
             # The SAME image at two budgets is two different vision grids.
             key_parts.append(f"maxpx={max_pixels}")
-        cache_key = prompt_embed_key(self._model_fingerprint, getattr(self.encoder, "role", None), *key_parts)
+        cache_key = prompt_embed_key(self._model_fingerprint, self._encoder_role, *key_parts)
         return _encode, cache_key
 
     def _pack(self, request: Dict[str, Any], result: Dict[str, Tensor]) -> ConditioningModel:

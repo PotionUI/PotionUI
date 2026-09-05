@@ -63,6 +63,7 @@ from src.platform.runtime.native.vae.minimax_h3_audio import MiniMaxH3AudioVAE
 from src.platform.runtime.native.vae.minimax_h3_video import MiniMaxH3VideoVAE
 from src.pipelines.pipes.model_loader.minimax_h3.bundle import MiniMaxH3ModelBundle
 from src.pipelines.pipes.model_loader.minimax_h3.clip import MiniMaxH3ClipTextEncoder
+from src.platform.runtime.native.text_encoders.qwen3 import MiniMaxH3TextEncoder
 
 
 def _assert_h3_component(label: str, model: Any, expected_cls: type, path: str) -> None:
@@ -228,6 +229,12 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
         )
         clip = MiniMaxH3ClipTextEncoder(
             lifecycle.deferred_module(te), device=device, model_fingerprint=f"{te_path}|vision=True",
+            # The loader always dispatches this family to `MiniMaxH3TextEncoder`
+            # (text_encoders/loader.py's `_make_encoder`), whose `role` is the
+            # fixed "qwen3vl_32b" variant tag -- known without resolving `te`,
+            # so the inner embed-cache key never forces the deferred load (see
+            # clip.py's "Lazy TE acquisition").
+            encoder_role=MiniMaxH3TextEncoder.role,
         )
         return PipeOutput(output={"model": bundle, "text_encoder": clip})
 

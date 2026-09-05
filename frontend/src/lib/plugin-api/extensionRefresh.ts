@@ -42,6 +42,7 @@
  * two requests rather than one per toggle, and no caller is answered by a
  * snapshot older than its own request.
  */
+import { writable } from 'svelte/store';
 import { logger } from '$lib/utils/logger';
 import { api } from '$lib/services/api/index';
 import { artifactRendererRegistry } from '$lib/registries/artifactRendererRegistry';
@@ -233,6 +234,14 @@ function describeSnapshot(snapshot: ExtensionSnapshot): RegistrationDescriptor[]
 	return descriptors;
 }
 
+/**
+ * Ticks once per applied snapshot. The registries are plain maps, so a
+ * consumer that resolves a component out of one has no other way to learn
+ * that a registration appeared, changed revision or went away - the stores
+ * below only cover hooks, pages, quick actions and widgets.
+ */
+export const extensionRegistrations = writable(0);
+
 function applySnapshot(snapshot: ExtensionSnapshot): void {
 	const desired = describeSnapshot(snapshot);
 	const wanted = new Set(desired.map((descriptor) => descriptor.id));
@@ -256,6 +265,7 @@ function applySnapshot(snapshot: ExtensionSnapshot): void {
 	pluginQuickActions.set(snapshot.quickActions);
 	sidebarWidgets.set(snapshot.widgets);
 	frontendHooks.set(snapshot.hooks);
+	extensionRegistrations.update((tick) => tick + 1);
 }
 
 async function runRefresh(): Promise<void> {

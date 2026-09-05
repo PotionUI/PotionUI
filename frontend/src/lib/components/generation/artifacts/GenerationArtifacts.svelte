@@ -7,10 +7,11 @@
 	 * admin run-report page. Types with no renderer fall back to the raw
 	 * payload; artifacts the recorder dropped show why instead.
 	 */
+	import { onDestroy } from 'svelte';
 	import { api } from '$lib/services/api/index';
 	import { logger } from '$lib/utils/logger';
 	import { artifactRendererRegistry } from '$lib/registries/artifactRendererRegistry';
-	import { frontendHooks } from '$lib/stores/plugins';
+	import { extensionRegistrations } from '$lib/plugin-api/extensionRefresh';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Badge } from '$lib/components/ui';
 	import FallbackArtifact from './FallbackArtifact.svelte';
@@ -24,15 +25,24 @@
 	let renderers = $state<Record<string, any>>({});
 	let expanded = $state(false);
 
-	// The report fetch and every renderer resolve it starts are asynchronous and
-	// unordered. Without this counter a resolve for a generation the modal has
-	// already moved off arrives last and paints the previous generation's
-	// artifacts under the current one's heading.
-	let loadToken = 0;
+	// A report fetch and a batch of renderer resolves are asynchronous and
+	// unordered, and each has its own lifetime: the report belongs to one
+	// generation, a renderer batch to one generation AND one set of plugin
+	// registrations. They get a counter each, so a report arriving after the
+	// modal moved on can't paint the wrong generation and a renderer batch
+	// started before a plugin was disabled can't reinstate its component.
+	let reportToken = 0;
+	let rendererToken = 0;
+
+	onDestroy(() => {
+		reportToken++;
+		rendererToken++;
+	});
 
 	$effect(() => {
 		const id = generationId;
-		const token = ++loadToken;
+		const token = ++reportToken;
+		rendererToken++;
 
 		artifacts = [];
 		promptTemplate = null;
@@ -44,12 +54,12 @@
 	async function loadReport(id: string, token: number): Promise<void> {
 		try {
 			const response = await api.getGenerationRunReport(id);
-			if (token !== loadToken) return;
+			if (token !== reportToken) return;
 			const report = response.success ? (response.data?.run_report ?? null) : null;
 			artifacts = report?.artifacts ?? [];
 			promptTemplate = report?.prompt_template ?? null;
 		} catch (error) {
-			if (token !== loadToken) return;
+			if (token !== reportToken) return;
 			logger.error('Failed to load run report artifacts:', error);
 		}
 	}
@@ -59,19 +69,27 @@
 			...new Set(artifacts.filter((a) => !a.omitted).map((a) => a.artifact_type))
 		];
 		// The renderer registry is a plain map, so it can't be depended on
-		// directly; `frontendHooks` is set by every applied plugin-extension
-		// snapshot, which is the same moment a plugin renderer appears or goes
-		// away. Reading it here re-resolves on a plugin refresh.
-		void $frontendHooks;
-		void resolveRenderers(types, loadToken);
+		// directly; `extensionRegistrations` ticks once per applied plugin
+		// snapshot, which is the moment a renderer appears, changes revision or
+		// goes away.
+		void $extensionRegistrations;
+
+		const token = ++rendererToken;
+		// Dropped before the replacement resolves, so a renderer a refresh
+		// removed stops being mounted at the refresh rather than whenever its
+		// successor happens to arrive.
+		renderers = {};
+		void resolveRenderers(types, token);
 	});
 
 	async function resolveRenderers(types: string[], token: number): Promise<void> {
 		const resolved: Record<string, any> = {};
 		for (const type of types) {
-			resolved[type] = (await artifactRendererRegistry.resolve(type)) ?? FallbackArtifact;
+			const component = (await artifactRendererRegistry.resolve(type)) ?? FallbackArtifact;
+			if (token !== rendererToken) return;
+			resolved[type] = component;
 		}
-		if (token !== loadToken) return;
+		if (token !== rendererToken) return;
 		renderers = resolved;
 	}
 

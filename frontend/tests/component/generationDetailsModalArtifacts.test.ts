@@ -65,7 +65,14 @@ const { default: SeedArtifact } = await import(
 const { default: FallbackArtifact } = await import(
 	'$lib/components/generation/artifacts/FallbackArtifact.svelte'
 );
+const { extensionRegistrations } = await import('$lib/plugin-api/extensionRefresh');
 const { createClassComponent } = await import('svelte/legacy');
+
+/** Stands in for an applied plugin-extension snapshot: a renderer appeared,
+ *  changed revision or went away. */
+function extensionRefreshApplied() {
+	extensionRegistrations.update((tick) => tick + 1);
+}
 
 interface ReportArtifact {
 	at: string;
@@ -146,6 +153,14 @@ async function expandArtifacts() {
 
 function bodyText(): string {
 	return document.body.textContent ?? '';
+}
+
+/** True while `SeedArtifact` is the mounted renderer - it is the only artifact
+ *  component that renders the seed inside a button. */
+function seedButtonShown(): boolean {
+	return Array.from(document.body.querySelectorAll('button')).some((b) =>
+		b.textContent?.includes('424242')
+	);
 }
 
 beforeEach(() => {
@@ -230,6 +245,99 @@ describe('GenerationDetailsModal artifacts card', () => {
 		await settle();
 
 		expect(artifactsToggle()).toBeUndefined();
+	});
+
+	it('unmounts a renderer a plugin refresh removed before its replacement resolves', async () => {
+		hoisted.runReports.set(
+			'gen-refresh',
+			report([
+				{ at: '2026-01-01T00:00:00Z', pipe_id: 'generator', artifact_type: 'plugin_kind', artifact_data: { seed: 424242 } }
+			])
+		);
+		hoisted.resolve = () => Promise.resolve(SeedArtifact);
+
+		mountModal(generation('gen-refresh'));
+		await settle();
+		await expandArtifacts();
+		expect(seedButtonShown()).toBe(true);
+
+		const replacement = deferred<unknown>();
+		hoisted.resolve = () => replacement.promise as Promise<unknown>;
+		extensionRefreshApplied();
+		await settle();
+
+		expect(seedButtonShown()).toBe(false);
+		expect(document.body.querySelector('pre')).toBeNull();
+
+		replacement.resolve(FallbackArtifact);
+		await settle();
+		expect(document.body.querySelector('pre')?.textContent).toContain('424242');
+	});
+
+	it('drops a renderer batch a plugin refresh superseded, however late it arrives', async () => {
+		hoisted.runReports.set(
+			'gen-revision',
+			report([
+				{ at: '2026-01-01T00:00:00Z', pipe_id: 'generator', artifact_type: 'plugin_kind', artifact_data: { seed: 424242 } }
+			])
+		);
+
+		// One deferred per resolve call, so the batch started before the refresh
+		// can be completed after the one started by it.
+		const pending: ReturnType<typeof deferred<unknown>>[] = [];
+		hoisted.resolve = () => {
+			const entry = deferred<unknown>();
+			pending.push(entry);
+			return entry.promise as Promise<unknown>;
+		};
+
+		mountModal(generation('gen-revision'));
+		await settle();
+		await expandArtifacts();
+		expect(pending).toHaveLength(1);
+
+		extensionRefreshApplied();
+		await settle();
+		expect(pending).toHaveLength(2);
+
+		pending[1].resolve(FallbackArtifact);
+		await settle();
+		expect(document.body.querySelector('pre')?.textContent).toContain('424242');
+
+		pending[0].resolve(SeedArtifact);
+		await settle();
+
+		expect(seedButtonShown()).toBe(false);
+		expect(document.body.querySelector('pre')?.textContent).toContain('424242');
+	});
+
+	it('publishes nothing and raises nothing when destroyed with a batch pending', async () => {
+		hoisted.runReports.set(
+			'gen-destroy',
+			report([
+				{ at: '2026-01-01T00:00:00Z', pipe_id: 'generator', artifact_type: 'plugin_kind', artifact_data: { seed: 424242 } }
+			])
+		);
+		const batch = deferred<unknown>();
+		hoisted.resolve = () => batch.promise as Promise<unknown>;
+
+		const rejections: unknown[] = [];
+		const onRejection = (reason: unknown) => rejections.push(reason);
+		process.on('unhandledRejection', onRejection);
+
+		mountModal(generation('gen-destroy'));
+		await settle();
+		await expandArtifacts();
+
+		component!.$destroy();
+		component = null;
+
+		batch.resolve(SeedArtifact);
+		await settle();
+		process.off('unhandledRejection', onRejection);
+
+		expect(seedButtonShown()).toBe(false);
+		expect(rejections).toEqual([]);
 	});
 
 	it('drops a report load left in flight by a generation switch', async () => {

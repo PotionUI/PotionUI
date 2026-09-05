@@ -782,18 +782,42 @@ def _read_finite_positive_scalar(t: torch.Tensor) -> float | None:
     return value if value > 0.0 else None
 
 
+def _scale_version_marker(scale: torch.Tensor) -> "int | object":
+    """Cache-comparable stand-in for ``scale``'s in-place-mutation version
+    counter. A tensor created (or reassigned) inside ``torch.inference_mode()``
+    is an "inference tensor" that never tracks a version counter at all --
+    reading ``._version`` raises ``RuntimeError`` regardless of whether the
+    *caller* is currently inside an inference-mode region (only whether the
+    tensor itself was minted there). ``is_inference()`` is checked first
+    (the documented, cheap way to tell); the ``try/except`` is a safety net for
+    any other tensor that can't report a version for some other reason.
+
+    In that case we return a fresh ``object()`` rather than ``None`` or ``0``:
+    two sentinels are never ``==``-equal to each other, so an identity key
+    built from one never matches a previously cached key even if ``id()``,
+    device, dtype and numel all still agree -- the cache must not assume an
+    untracked tensor is unchanged, so this forces a revalidation on every call
+    instead of silently caching forever (or crashing)."""
+    if scale.is_inference():
+        return object()
+    try:
+        return int(scale._version)
+    except RuntimeError:
+        return object()
+
+
 def _scale_identity_key(scale: torch.Tensor, device: "torch.device | str") -> tuple:
     """Identity of a scale tensor as far as the ``_scaled_mm`` fast path's
-    validity check is concerned: object identity plus the in-place-mutation
-    version counter plus its own device/dtype/numel, plus the device it would
-    be cast *to*. A load-time reassignment (``self.weight_scale = new_tensor``
-    in ``_load_from_state_dict``), a streaming/prefetch ``.to()``/``_apply``
-    move (``nn.Module._apply`` replaces a buffer with a new tensor object
-    rather than mutating it in place, which alone changes ``id()``), or an
-    in-place mutation (``scale.fill_(...)`` bumps ``_version``) all change this
-    tuple -- which is exactly what should force a recheck rather than reusing
-    a stale validity/value."""
-    return (id(scale), int(scale._version), scale.device, scale.dtype, scale.numel(), device)
+    validity check is concerned: object identity plus a version marker (see
+    :func:`_scale_version_marker`) plus its own device/dtype/numel, plus the
+    device it would be cast *to*. A load-time reassignment
+    (``self.weight_scale = new_tensor`` in ``_load_from_state_dict``), a
+    streaming/prefetch ``.to()``/``_apply`` move (``nn.Module._apply`` replaces
+    a buffer with a new tensor object rather than mutating it in place, which
+    alone changes ``id()``), or an in-place mutation (``scale.fill_(...)``
+    bumps ``_version``) all change this tuple -- which is exactly what should
+    force a recheck rather than reusing a stale validity/value."""
+    return (id(scale), _scale_version_marker(scale), scale.device, scale.dtype, scale.numel(), device)
 
 
 class Fp8ScaledLinear(manual_cast.Linear):

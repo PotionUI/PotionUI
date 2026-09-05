@@ -30,12 +30,17 @@ from vendor.gpl.comfyui.ops import (
 )
 
 
-def _fp8_layer(w_scale, *, input_scale=None, bias=False, in_f=16, out_f=16):
-    lin = fp8_ops.Linear(in_f, out_f, bias=bias)
-    sd = {"weight": torch.zeros(out_f, in_f, dtype=torch.float8_e4m3fn), "weight_scale": w_scale}
+def _fp8_layer(w_scale, *, input_scale=None, bias=False, in_f=16, out_f=16, weight=None):
+    has_bias = isinstance(bias, torch.Tensor) or bool(bias)
+    lin = fp8_ops.Linear(in_f, out_f, bias=has_bias)
+    if weight is None:
+        weight = torch.zeros(out_f, in_f, dtype=torch.float8_e4m3fn)
+    sd = {"weight": weight, "weight_scale": w_scale}
     if input_scale is not None:
         sd["input_scale"] = input_scale
-    if bias:
+    if isinstance(bias, torch.Tensor):
+        sd["bias"] = bias
+    elif bias:
         sd["bias"] = torch.zeros(out_f)
     lin.load_state_dict(sd, strict=False, assign=True)
     return lin
@@ -94,7 +99,23 @@ def counting_isfinite(monkeypatch):
 
 
 def _fake_scaled_mm(a, b, *, scale_a, scale_b, out_dtype, bias=None):
+    """Cheap fake for tests that only assert on call counts / fallback
+    decisions / the exact scale tensors passed in -- never on the numeric
+    output, so returning zeros regardless of the operands is fine."""
     return torch.zeros(a.shape[0], b.shape[1], dtype=out_dtype, device=a.device)
+
+
+def _fake_scaled_mm_math(a, b, *, scale_a, scale_b, out_dtype, bias=None):
+    """CPU stand-in for ``torch._scaled_mm`` that computes the ACTUAL scaled
+    matmul (dequantize both operands, matmul in fp32, add bias, cast) instead
+    of returning zeros. A fake that ignores its operands can't tell a test
+    "the cache fed the right scale into the kernel" apart from "the cache fed
+    anything at all" -- this one can, since a wrong or stale scale changes the
+    result."""
+    out = (a.to(torch.float32) * scale_a) @ (b.to(torch.float32) * scale_b)
+    if bias is not None:
+        out = out + bias.to(torch.float32)
+    return out.to(out_dtype)
 
 
 # --- call-count: unchanged scale validated once across N forwards ----------
@@ -193,6 +214,57 @@ def test_module_moved_via_to_is_rechecked_once_then_cached_again(counting_isfini
         assert counting_isfinite["n"] == 2
 
 
+def test_scale_created_under_inference_mode_is_never_cached_across_forwards(counting_isfinite):
+    # A tensor minted inside torch.inference_mode() is an "inference tensor"
+    # that never tracks a version counter -- reading `._version` on it raises
+    # RuntimeError regardless of the CALLER's mode. The cache must fall back
+    # to "always revalidate" for it instead of crashing or (wrongly) treating
+    # it as immutable forever.
+    with torch.inference_mode():
+        w_scale = torch.tensor(0.01)
+    assert w_scale.is_inference()
+    lin = _fp8_layer(w_scale)
+    x = torch.randn(2, 16, dtype=torch.bfloat16)
+    with patch("torch._scaled_mm", _fake_scaled_mm):
+        for _ in range(3):
+            out = lin._forward_scaled_mm(x)
+    assert out is not None
+    assert counting_isfinite["n"] == 3  # revalidated every forward, no crash
+
+
+def test_scale_replaced_under_inference_mode_is_rechecked_without_crash(counting_isfinite):
+    lin = _fp8_layer(torch.tensor(0.01))
+    x = torch.randn(1, 16, dtype=torch.bfloat16)
+    with patch("torch._scaled_mm", _fake_scaled_mm):
+        lin._forward_scaled_mm(x)
+        assert counting_isfinite["n"] == 1
+
+        with torch.inference_mode():
+            lin.weight_scale = torch.tensor(0.02)
+        assert lin.weight_scale.is_inference()
+
+        out = lin._forward_scaled_mm(x)  # must not raise reading ._version
+        assert out is not None
+        assert counting_isfinite["n"] == 2
+        lin._forward_scaled_mm(x)
+        assert counting_isfinite["n"] == 3  # still uncacheable on a repeat call
+
+
+def test_forward_under_inference_mode_with_ordinary_scale_still_caches(counting_isfinite):
+    # The scale tensor was created OUTSIDE inference_mode (ordinary,
+    # version-tracked); calling _forward_scaled_mm from WITHIN an
+    # inference_mode region must not itself disable caching -- only a scale
+    # tensor that is itself an inference tensor should.
+    lin = _fp8_layer(torch.tensor(0.01))
+    assert not lin.weight_scale.is_inference()
+    x = torch.randn(2, 16, dtype=torch.bfloat16)
+    with torch.inference_mode(), patch("torch._scaled_mm", _fake_scaled_mm):
+        for _ in range(4):
+            out = lin._forward_scaled_mm(x)
+    assert out is not None
+    assert counting_isfinite["n"] == 1
+
+
 # --- fallback parity: nonfinite / zero / negative / non-scalar -------------
 
 
@@ -273,12 +345,49 @@ def test_output_matches_reference_across_repeated_forwards(with_input_scale):
     ref_lin = fp8_ops.Linear(16, 16, bias=True)
     ref_lin.load_state_dict(dict(sd), strict=False, assign=True)
 
-    with patch("torch._scaled_mm", _fake_scaled_mm):
+    with patch("torch._scaled_mm", _fake_scaled_mm_math):
         for _ in range(3):
             x = torch.randn(2, 16, dtype=torch.bfloat16)
             new_out = new_lin._forward_scaled_mm(x)
             ref_out = _reference_forward_scaled_mm(ref_lin, x)
             torch.testing.assert_close(new_out, ref_out)
+
+
+def test_changed_valid_scale_changes_output_correctly():
+    # Same fp8 weight codes, two different (both valid) weight_scale values:
+    # proves the cache doesn't keep serving the first scale into the matmul
+    # after a reassignment -- with the zero-returning fake this couldn't be
+    # told apart from a stale cache, so this uses the real-math fake.
+    torch.manual_seed(1)
+    real_w = torch.randn(16, 16) * 0.05
+    calib_scale = torch.tensor(0.01)
+    w_fp8 = (real_w / calib_scale).clamp(-_E4M3_MAX, _E4M3_MAX).to(torch.float8_e4m3fn)
+    bias = torch.randn(16)
+    x = torch.randn(2, 16, dtype=torch.bfloat16)
+    lin = _fp8_layer(torch.tensor(0.01), weight=w_fp8, bias=bias)
+
+    def _expected(w_scale_value: float) -> torch.Tensor:
+        # matches _forward_scaled_mm's own layout: torch._scaled_mm(x_fp8,
+        # weight.t(), ...) -- weight.t() is the (in, out) operand, not weight
+        # itself.
+        w_scale = torch.tensor(w_scale_value)
+        x2d = x.reshape(-1, 16)
+        x_fp8, x_scale = _quantize_fp8_dynamic(x2d)
+        out = (x_fp8.to(torch.float32) * x_scale) @ (w_fp8.t().to(torch.float32) * w_scale)
+        # _forward_scaled_mm casts bias to input.dtype (bf16) BEFORE handing it
+        # to the kernel -- match that rounding, not the original fp32 bias.
+        bias_bf16 = bias.to(x.dtype)
+        return (out + bias_bf16.to(torch.float32)).to(x.dtype)
+
+    with patch("torch._scaled_mm", _fake_scaled_mm_math):
+        out1 = lin._forward_scaled_mm(x)
+        torch.testing.assert_close(out1, _expected(0.01))
+
+        lin.weight_scale = torch.tensor(0.02)  # reassignment -> must be rechecked AND actually used
+        out2 = lin._forward_scaled_mm(x)
+
+    torch.testing.assert_close(out2, _expected(0.02))
+    assert not torch.allclose(out1.float(), out2.float())
 
 
 def test_metadata_size_per_layer_is_two_small_entries():

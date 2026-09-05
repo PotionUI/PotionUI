@@ -844,13 +844,17 @@ def test_segment_metadata_records_per_segment_executed_geometry():
 # -- parity with chain_video_wan22/geometry.py (DIR-06) ---------------------
 # `main.py` splits a "chain" segment's net contribution across TWO possible
 # stages -- a pre-decode trim (`segment_context_trimmed`) or a stitch-time
-# join drop (`segment_overlap_dropped_at_stitch`) -- while `geometry.py`'s
-# `resolve_window_geometry` (the planner `compile.py` calls without a model
-# loaded) reports a SINGLE `overlap_frames` per segment representing the net
-# of whichever stage actually drops it. These tests prove the two can never
-# drift: reconstructing the pre-trim total and the net contribution from the
-# generator's own emitted metadata must equal the geometry module's
-# `frames`/`overlap_frames`/`emitted_frames` for every segment.
+# join drop (`segment_join_overlap`, the PLANNED per-join value) -- while
+# `geometry.py`'s `resolve_window_geometry` (the planner `compile.py` calls
+# without a model loaded) reports a SINGLE `overlap_frames` per segment
+# representing the net of whichever stage actually drops it. These tests
+# prove the two can never drift: reconstructing the pre-trim total and the
+# net contribution from the generator's own emitted metadata must equal the
+# geometry module's `frames`/`overlap_frames`/`emitted_frames` for every
+# segment. Deliberately reads `segment_join_overlap` (the PLAN), not
+# `segment_overlap_dropped_at_stitch` (what a stitch call actually applied,
+# zeroed when stitching didn't run) -- this is a plan-vs-plan comparison, so
+# it holds regardless of whether the generation actually stitched anything.
 
 def _assert_executed_geometry_matches_the_planner(doc, motion_latent_count, params):
     settings = {**doc["settings"], "timing_profile": {"motion_latent_count": motion_latent_count}}
@@ -860,20 +864,30 @@ def _assert_executed_geometry_matches_the_planner(doc, motion_latent_count, para
 
     emitted = params["segment_emitted_frames"]
     trimmed = params["segment_context_trimmed"]
-    dropped_at_stitch = params["segment_overlap_dropped_at_stitch"]
-    assert len(plan) == len(emitted) == len(trimmed) == len(dropped_at_stitch)
+    planned_join = params["segment_join_overlap"]
+    assert len(plan) == len(emitted) == len(trimmed) == len(planned_join)
 
     for i, geom in enumerate(plan):
-        # The full decoded length before EITHER trim stage ran -- reconstructed
-        # by adding back the pre-decode trim only when that stage is the one
-        # that actually happened for this segment.
-        pre_trim_total = emitted[i] + (tail_count if trimmed[i] else 0)
-        # What this segment actually contributes to the stitched result, net
-        # of whichever stage dropped its overlap.
-        net_contributed = emitted[i] - dropped_at_stitch[i]
+        if trimmed[i]:
+            # The pre-decode trim dropped main.py's own available-tail-clamped
+            # context_frames -- reconstructed here the SAME way main.py derives
+            # it (min(tail_count, the previous segment's own emitted length)),
+            # since a fixed tail_count alone no longer holds once a short
+            # opener clamps it (DIR-07 rework).
+            context_frames = min(tail_count, emitted[i - 1])
+            pre_trim_total = emitted[i] + context_frames
+            net_contributed = emitted[i]
+            overlap_actual = context_frames
+        else:
+            # Untrimmed: `emitted[i]` is still the full decoded length (no
+            # pre-decode trim happened), and whatever gets dropped is the
+            # PLANNED stitch-time join instead.
+            pre_trim_total = emitted[i]
+            net_contributed = emitted[i] - planned_join[i]
+            overlap_actual = planned_join[i]
         assert pre_trim_total == geom.frames, f"segment {i}: pre-trim total frames"
         assert net_contributed == geom.emitted_frames, f"segment {i}: net emitted frames"
-        assert (pre_trim_total - net_contributed) == geom.overlap_frames, f"segment {i}: overlap frames"
+        assert overlap_actual == geom.overlap_frames, f"segment {i}: overlap frames"
 
 
 def test_generator_and_geometry_module_agree_on_80_80_80_motion_2():
@@ -927,6 +941,48 @@ def test_generator_and_geometry_module_agree_on_an_untrimmed_short_window_contin
     params = {o.name: o.values for o in emitted if isinstance(o, ParamGenerationOutput)}
     assert params["segment_context_trimmed"] == [False, False]
     assert params["segment_overlap_dropped_at_stitch"] == [0, 12]
+    _assert_executed_geometry_matches_the_planner(doc, 4, params)
+
+
+def test_generator_and_geometry_module_agree_on_a_short_opener_continuation():
+    # DIR-07 rework: a 1-frame t2v opener leaves far less real tail than
+    # tail_count (12) alone would suggest -- both main.py's available-tail
+    # clamp and geometry.py's mirrored clamp must land on the same plan.
+    doc = _document(n_segments=2, frames=13, start_on_seg0=False,
+                     continuation={"source": None, "overlap_frames": 12, "stitch": True})
+    doc["segments"][0]["frames"] = 1
+    pipe = _pipe(document=doc, motion_latent_count=4)
+    pi = _inputs(model=_bundle(in_dim=36), model_t2v=_bundle(in_dim=16, dual=False), conditioning=_cond(2))
+
+    emitted = []
+    p1, p2, p3, p4 = _patches()
+    with p1, p2, p3, p4, _no_stitch():
+        pipe.process(pi, lambda o: emitted.append(o))
+
+    params = {o.name: o.values for o in emitted if isinstance(o, ParamGenerationOutput)}
+    assert params["segment_emitted_frames"] == [1, 12]
+    assert params["segment_context_trimmed"] == [False, True]  # seg-1 trimmed by 1, not 12
+    _assert_executed_geometry_matches_the_planner(doc, 4, params)
+
+
+def test_generator_and_geometry_module_agree_when_stitch_is_disabled():
+    # stitch=False: segment_overlap_dropped_at_stitch (executed) is all
+    # zeros, but segment_join_overlap (planned) still carries the plan --
+    # parity must hold against the PLAN either way.
+    doc = _document(n_segments=2, frames=13, start_on_seg0=False,
+                     continuation={"source": None, "overlap_frames": 12, "stitch": False})
+    pipe = _pipe(document=doc, motion_latent_count=4)
+    pi = _inputs(model=_bundle(in_dim=36), model_t2v=_bundle(in_dim=16, dual=False), conditioning=_cond(2))
+
+    emitted = []
+    p1, p2, p3, p4 = _patches()
+    with p1, p2, p3, p4, patch("src.pipelines.pipes.generator.chain_video_wan22.main.stitch_segments") as mock_stitch:
+        pipe.process(pi, lambda o: emitted.append(o))
+
+    mock_stitch.assert_not_called()
+    params = {o.name: o.values for o in emitted if isinstance(o, ParamGenerationOutput)}
+    assert params["segment_join_overlap"] == [0, 12]
+    assert params["segment_overlap_dropped_at_stitch"] == [0, 0]  # nothing actually ran
     _assert_executed_geometry_matches_the_planner(doc, 4, params)
 
 

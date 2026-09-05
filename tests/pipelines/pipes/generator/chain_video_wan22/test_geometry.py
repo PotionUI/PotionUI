@@ -190,6 +190,23 @@ def test_a_short_continuation_window_clamps_its_overlap_to_leave_one_frame():
     assert geometry[1].emitted_frames == 1
 
 
+def test_a_short_opener_clamps_the_next_continuations_overlap_to_its_own_frames():
+    # A 1-frame t2v opener leaves only ONE real frame of tail, far less than
+    # tail_count (12, from overlap_frames=12 / motion_latent_count=4) or the
+    # continuation's own frames - 1 (12) would suggest on their own -- the
+    # clamp must bind on the PREVIOUS segment's frames. Same fixture as
+    # generator/chain_video_wan22 test_chain_video_short_tail.py's
+    # short-opener case, so the two stay provably in sync.
+    geometry = resolve_window_geometry(
+        [_segment(0, frames=1, sub_type="t2v"), _segment(1, frames=13)],
+        _settings(continuation={"source": "tail_frames", "overlap_frames": 12}, motion_latent_count=4),
+    )
+    assert geometry[0].frames == 1
+    assert geometry[1].frames == 13
+    assert geometry[1].overlap_frames == 1  # min(tail_count=12, prev.frames=1, frames-1=12)
+    assert geometry[1].emitted_frames == 12
+
+
 def test_a_single_frame_window_clamps_to_zero_emitted_rather_than_going_negative():
     geometry = resolve_window_geometry(
         [_segment(0, frames=1), _segment(1, frames=1)],

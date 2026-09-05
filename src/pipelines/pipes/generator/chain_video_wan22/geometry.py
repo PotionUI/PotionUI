@@ -35,9 +35,15 @@ see its own `_WAN_FAMILY` comment for what happens when it's absent (a
 preset instance that hasn't wired the capability, or a hand-built document).
 
 **The trim clamp mirrors H3's own.** A continuation segment's overlap here is
-`min(tail_count, frames - 1)` -- always leaves at least one real frame, the
-same clamp `video_minimax_h3/windows.py` uses for its own
-`overlap_latents = min(overlap_latents_default, num_latent_frames - 1)`.
+`min(tail_count, previous segment's frames, frames - 1)` -- always leaves at
+least one real frame (the `frames - 1` term), the same clamp
+`video_minimax_h3/windows.py` uses for its own
+`overlap_latents = min(overlap_latents_default, num_latent_frames - 1)`, plus
+one Wan-specific term: it never assumes more of the PREVIOUS segment's tail
+is available than that segment actually has frames for -- a short opener
+(e.g. a 1-frame `t2v` shot) leaves less real context than `tail_count` alone
+would suggest, and `main.py`'s own generation-time clamp (`context_frames`)
+applies the identical bound so the two can never disagree.
 `main.py` splits that same net amount across two possible pipeline stages --
 a per-segment pre-decode trim when the window is long enough
 (`context_trimmed`), or a per-join stitch-time crossfade otherwise
@@ -176,7 +182,16 @@ def resolve_window_geometry(
             )
         frames = _snap_frame_count(requested)
         is_continuation = index > 0 and sub_type == CONTINUING_SUB_TYPE
-        overlap_frames = min(tail_count, frames - 1) if is_continuation else 0
+        if is_continuation:
+            # Never assume more of the previous segment's tail is available
+            # than that segment actually has frames for -- a short opener
+            # (e.g. a 1-frame `t2v` shot) leaves less real context than
+            # tail_count alone would suggest. Mirrors main.py's own
+            # available-tail clamp (`context_frames`), so the two never
+            # disagree about how much of a segment's front is duplicate.
+            overlap_frames = min(tail_count, geometry[index - 1].frames, frames - 1)
+        else:
+            overlap_frames = 0
         geometry.append(SegmentWindowGeometry(
             frames=frames,
             requested_frames=requested,

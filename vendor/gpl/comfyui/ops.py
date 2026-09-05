@@ -768,6 +768,34 @@ def _convrot_unrotate_weight(weight: torch.Tensor, hadamard: torch.Tensor, group
     return torch.matmul(grouped, hadamard).reshape(out_f, in_f)
 
 
+def _read_finite_positive_scalar(t: torch.Tensor) -> float | None:
+    """One device->host sync pair (``isfinite`` then ``float()``) on an
+    already-reshaped 0-dim float32 tensor: returns the python value if finite
+    and positive, ``None`` otherwise. Extracted out of the old inline
+    ``_forward_scaled_mm`` check so it's a single seam a caller can memoise
+    (see :meth:`Fp8ScaledLinear._cached_scaled_mm_scale`) instead of re-syncing
+    device->host on every forward for a scale that never changes between
+    forwards."""
+    if not bool(torch.isfinite(t)):
+        return None
+    value = float(t)
+    return value if value > 0.0 else None
+
+
+def _scale_identity_key(scale: torch.Tensor, device: "torch.device | str") -> tuple:
+    """Identity of a scale tensor as far as the ``_scaled_mm`` fast path's
+    validity check is concerned: object identity plus the in-place-mutation
+    version counter plus its own device/dtype/numel, plus the device it would
+    be cast *to*. A load-time reassignment (``self.weight_scale = new_tensor``
+    in ``_load_from_state_dict``), a streaming/prefetch ``.to()``/``_apply``
+    move (``nn.Module._apply`` replaces a buffer with a new tensor object
+    rather than mutating it in place, which alone changes ``id()``), or an
+    in-place mutation (``scale.fill_(...)`` bumps ``_version``) all change this
+    tuple -- which is exactly what should force a recheck rather than reusing
+    a stale validity/value."""
+    return (id(scale), int(scale._version), scale.device, scale.dtype, scale.numel(), device)
+
+
 class Fp8ScaledLinear(manual_cast.Linear):
     """Linear for per-tensor scaled fp8 weights (``weight_scale``/``input_scale``),
     and for int8_tensorwise (plain or ConvRot-rotated) weights.
@@ -785,6 +813,34 @@ class Fp8ScaledLinear(manual_cast.Linear):
         self.convrot_groupsize: int | None = None
         # AWQ per-input-channel activation smoothing scale (nvfp4 only, in the wild).
         self.register_buffer("pre_quant_scale", None, persistent=False)
+        # Per-slot ("weight" / "input") memoised _scaled_mm scale validity/value,
+        # keyed by _scale_identity_key -- see _cached_scaled_mm_scale. A plain
+        # dict, not a buffer: it holds derived cache state, not model data, and
+        # must NOT participate in state_dict / .to() (its entries invalidate
+        # themselves via the identity key instead).
+        self._scale_preflight: dict[str, tuple] = {}
+
+    def _cached_scaled_mm_scale(
+        self, slot: str, scale: torch.Tensor, device: "torch.device | str",
+    ) -> torch.Tensor | None:
+        """Validated, device-cast copy of ``scale`` for the ``_scaled_mm`` fast
+        path, memoised per ``slot`` (``"weight"`` or ``"input"``) against
+        :func:`_scale_identity_key` so an unchanged scale is validated once
+        across repeated forwards instead of every forward. Returns ``None``
+        when the scale fails the fast path's scalar/finite/positive
+        requirement -- callers must treat that exactly like the old, uncached
+        per-forward check: fall back to dequant."""
+        key = _scale_identity_key(scale, device)
+        cached = self._scale_preflight.get(slot)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        if scale.numel() != 1:
+            result = None
+        else:
+            moved = scale.to(device=device, dtype=torch.float32).reshape(())
+            result = moved if _read_finite_positive_scalar(moved) is not None else None
+        self._scale_preflight[slot] = (key, result)
+        return result
 
     def _load_from_state_dict(
         self, state_dict, prefix, local_metadata, strict,
@@ -931,20 +987,20 @@ class Fp8ScaledLinear(manual_cast.Linear):
         device = input.device
         # Scalar, finite, positive scales only. The scalar-scaled fast path can't
         # express a per-output/broadcast weight_scale — that stays on dequant.
-        w_scale_t, x_scale_t = self.weight_scale, self.input_scale
-        if w_scale_t.numel() != 1 or (x_scale_t is not None and x_scale_t.numel() != 1):
-            return None
-        w_scale = w_scale_t.to(device=device, dtype=torch.float32).reshape(())
-        if not bool(torch.isfinite(w_scale)) or float(w_scale) <= 0.0:
+        # Validated + device-cast once per (tensor identity, version, device)
+        # via _cached_scaled_mm_scale rather than on every forward.
+        w_scale = self._cached_scaled_mm_scale("weight", self.weight_scale, device)
+        if w_scale is None:
             return None
 
         orig_shape = input.shape
         x2d = input.reshape(-1, orig_shape[-1]).contiguous()
+        x_scale_t = self.input_scale
         if x_scale_t is not None:
             # Checkpoint-provided static activation scale — one less reduction
             # per forward than the dynamic amax below.
-            x_scale = x_scale_t.to(device=device, dtype=torch.float32).reshape(())
-            if not bool(torch.isfinite(x_scale)) or float(x_scale) <= 0.0:
+            x_scale = self._cached_scaled_mm_scale("input", x_scale_t, device)
+            if x_scale is None:
                 return None
             x_fp8 = (x2d.to(torch.float32) / x_scale).clamp(-_E4M3_MAX, _E4M3_MAX).to(torch.float8_e4m3fn)
         else:

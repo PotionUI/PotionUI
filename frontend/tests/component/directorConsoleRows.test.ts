@@ -29,6 +29,7 @@ function shot(overrides: Partial<ConsoleShot> = {}): ConsoleShot {
 		newFrames: null,
 		fps: 24,
 		fpsLocked: false,
+		timingQualified: true,
 		thumb: { url: null, source: 'slate' },
 		badge: 'independent',
 		hasIcLora: false,
@@ -133,6 +134,19 @@ describe('ShotRow', () => {
 		expect(mounted.target.textContent).toContain('Selected');
 		const checkbox = mounted.target.querySelector('button[aria-label="Selected for generation"]') as HTMLButtonElement;
 		expect(checkbox.querySelector('svg')).toBeTruthy();
+	});
+
+	// DIR-06 rework: a Wan shot with no known timing profile shows its raw
+	// duration with a "requested" qualifier instead of a falsely-precise
+	// number; every qualified shot (every family besides Wan, and Wan once
+	// the profile is known) renders no such marker.
+	it('renders a "requested" qualifier when timingQualified is false, and none when true', () => {
+		mounted = mount(ShotRow, { shot: shot({ timingQualified: false }), checked: false, onToggleChecked: () => {}, onActivate: () => {} });
+		expect(mounted.target.textContent).toContain('requested');
+
+		mounted.destroy();
+		mounted = mount(ShotRow, { shot: shot({ timingQualified: true }), checked: false, onToggleChecked: () => {}, onActivate: () => {} });
+		expect(mounted.target.textContent).not.toContain('requested');
 	});
 });
 

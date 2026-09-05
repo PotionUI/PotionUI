@@ -24,7 +24,8 @@
 		toModelessDirectorValue,
 		deriveDirectorMode,
 		applyDirectorOperations,
-		isChainEdgeKeyframeId
+		isChainEdgeKeyframeId,
+		resolveDirectorTimingProfile
 	} from '$lib/utils/videoDirector';
 	import { resolvePromptSegments } from '$lib/utils/promptSegments';
 	import { deriveConsoleModel, type ConsoleHeader as ConsoleHeaderModel } from './consoleModel';
@@ -251,7 +252,7 @@
 
 	function handleAddKeyframe(shotId: string, atSeconds: number) {
 		if (capabilities.segmentRouting) {
-			const rail = deriveRailModel(doc, capabilities);
+			const rail = deriveRailModel(doc, capabilities, undefined, resolveDirectorTimingProfile(capabilities, formData, doc));
 			const blockIndex = rail.shots.findIndex((s) => s.id === shotId);
 			if (blockIndex === -1) return;
 			const at = chainFilmSecondsFromLocal(rail, blockIndex, atSeconds);
@@ -270,7 +271,7 @@
 	function handleMoveKeyframe(shotId: string, id: string, atSeconds: number) {
 		if (capabilities.segmentRouting) {
 			if (isChainEdgeKeyframeId(id)) return; // locked well mirrors never move via drag
-			const rail = deriveRailModel(doc, capabilities);
+			const rail = deriveRailModel(doc, capabilities, undefined, resolveDirectorTimingProfile(capabilities, formData, doc));
 			const blockIndex = rail.shots.findIndex((s) => s.id === shotId);
 			if (blockIndex === -1) return;
 			doc = withChainKeyframeAt(doc, id, chainFilmSecondsFromLocal(rail, blockIndex, atSeconds));

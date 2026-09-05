@@ -39,6 +39,12 @@
 		if (shot.fpsLocked) s += ' fixed';
 		return s;
 	});
+	// Wan only, and only when this rail had no timing profile to compute the
+	// real emitted geometry from -- `frames`/`newFrames` above are then a raw
+	// `duration * fps` approximation, not the generator's real output. Every
+	// other family is always `timingQualified: true` (see `ConsoleShot`'s
+	// own doc comment), so this never renders for them.
+	let timingUnknown = $derived(!shot.timingQualified);
 
 	let menuOpen = $state(false);
 	let menuRoot: HTMLDivElement | undefined = $state();
@@ -78,6 +84,11 @@
 		<span class="max-w-[220px] truncate text-[13px] font-semibold text-fg" title={shot.title}>{shot.title}</span>
 		<span class="font-mono text-[11px] text-fg-subtle">{shot.durationSeconds.toFixed(1)} s</span>
 		<span class="font-mono text-[11px] text-fg-subtle"><b class="font-normal text-fg-muted">{framesBold}</b>{framesRest}</span>
+		{#if timingUnknown}
+			<span class="font-mono text-[10px] uppercase tracking-[0.04em] text-fg-subtle" title="Motion latents unknown -- showing the requested length, not the generator's real output">
+				requested
+			</span>
+		{/if}
 
 		<span class="inline-flex items-center gap-[5px] font-mono text-[10px] uppercase tracking-[0.04em] {BADGE_TONE_CLASS[meta.tone]}">
 			<ConsoleIcon name={meta.icon} class="h-[11px] w-[11px]" />

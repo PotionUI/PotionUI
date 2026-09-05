@@ -477,6 +477,17 @@ export function parseDirectorCapabilities(raw: unknown): DirectorCapabilities | 
 	// itself -- see preset.yml's comment); parsed here purely so railModel.ts's
 	// H3 geometry port can select on it, same as any other capability.
 	const family = typeof raw.family === 'string' ? raw.family : null;
+	// Orchestrator-only, like `family` above -- see preset.yml's `timing`
+	// block and `resolveDirectorTimingProfile`'s own doc comment.
+	const timingR = isRecord(raw.timing) ? raw.timing : null;
+	const timing: DirectorCapabilities['timing'] =
+		timingR && typeof timingR.motion_latent_count_field === 'string'
+			? {
+					motionLatentCountField: timingR.motion_latent_count_field,
+					motionLatentCountDefault:
+						typeof timingR.motion_latent_count_default === 'number' ? timingR.motion_latent_count_default : 1
+				}
+			: null;
 
 	return {
 		presetModes,
@@ -489,8 +500,40 @@ export function parseDirectorCapabilities(raw: unknown): DirectorCapabilities | 
 		segmentRouting,
 		references,
 		referenceFields,
-		family
+		family,
+		timing
 	};
+}
+
+/**
+ * Resolves the live Wan timing profile (`motion_latent_count`) a chain
+ * document's family-aware rail geometry needs -- the frontend counterpart of
+ * `src/features/generation/orchestrator.py`'s `timing_capability` handling,
+ * using the SAME undefined-only-default semantics: a live sibling form value
+ * (`caps.timing.motionLatentCountField` read off `formData`, the generate
+ * form's own field values -- NOT part of the video_director document) wins
+ * whenever present, including the UI's own default (e.g. 2 for
+ * `svi_motion_latent_count`); when it's genuinely absent, a reopened/restored
+ * document's own persisted `chain.timingProfile` (see that field's doc
+ * comment) is preferred over the capability's static default, since it
+ * reflects a real past value rather than a guess; only when NEITHER is
+ * available does the capability's `motionLatentCountDefault` apply. `null`
+ * when the preset declares no `timing` capability at all (every family
+ * besides Wan today) -- an explicit "unknown", never a guessed number.
+ */
+export function resolveDirectorTimingProfile(
+	caps: DirectorCapabilities,
+	formData: Record<string, unknown> | null | undefined,
+	doc?: VideoDirectorValue | null
+): { motionLatentCount: number } | null {
+	const timing = caps.timing;
+	if (!timing) return null;
+	const liveValue = formData ? formData[timing.motionLatentCountField] : undefined;
+	if (typeof liveValue === 'number' && Number.isFinite(liveValue)) {
+		return { motionLatentCount: liveValue };
+	}
+	if (doc?.chain.timingProfile) return doc.chain.timingProfile;
+	return { motionLatentCount: timing.motionLatentCountDefault };
 }
 
 // ─── Edge/keyframe allowances ────────────────────────────────────────────────
@@ -809,7 +852,8 @@ export function createDefaultDirectorValue(caps: DirectorCapabilities): VideoDir
 			],
 			continuation: defaultChainContinuation(caps),
 			keyframes: [],
-			audio: []
+			audio: [],
+			timingProfile: null
 		}
 	};
 }
@@ -995,6 +1039,15 @@ export function normalizeDirectorValue(raw: unknown, caps: DirectorCapabilities)
 				}))
 		: [];
 	const contR = isRecord(chainR.continuation) ? chainR.continuation : {};
+	// Round-trip half of the timing profile (see `VideoDirectorValue.chain.
+	// timingProfile`'s own doc comment): nothing writes `chain.timingProfile`
+	// from a live form value today, so this only ever fires for a document
+	// that was itself built with one already present (a future reopen path).
+	const timingProfileR = isRecord(chainR.timingProfile) ? chainR.timingProfile : null;
+	const timingProfile =
+		timingProfileR && typeof timingProfileR.motionLatentCount === 'number'
+			? { motionLatentCount: timingProfileR.motionLatentCount }
+			: def.chain.timingProfile;
 	const chain = {
 		fps: num(chainR.fps, def.chain.fps),
 		segments: chainSegs.length > 0 ? chainSegs : def.chain.segments,
@@ -1003,7 +1056,8 @@ export function normalizeDirectorValue(raw: unknown, caps: DirectorCapabilities)
 			stitch: typeof contR.stitch === 'boolean' ? contR.stitch : def.chain.continuation.stitch
 		},
 		keyframes: chainKeyframes,
-		audio: chainAudio
+		audio: chainAudio,
+		timingProfile
 	};
 
 	const ui: VideoDirectorUiState | undefined = isRecord(r.ui) ? (r.ui as VideoDirectorUiState) : undefined;

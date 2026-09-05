@@ -223,6 +223,17 @@ export interface VideoDirectorValue {
 		continuation: ChainContinuation;
 		keyframes: ChainKeyframe[];
 		audio: DirectorAudioSegment[];
+		/** Mirrors the backend's `settings.timing_profile` (see
+		 * `src.pipelines.pipes.generator.chain_video_wan22.geometry`'s module
+		 * docstring): a generation-time pipe config value (Wan's
+		 * `motion_latent_count`) the orchestrator attaches onto a normalized
+		 * document from the bound form. Nothing in this editor currently
+		 * WRITES this field from a live `svi_motion_latent_count` value (see
+		 * `resolveDirectorTimingProfile` in `$lib/utils/videoDirector` for the
+		 * live-form half of the resolution) -- this is the round-trip half:
+		 * parsed if a reopened/restored document happens to carry it, `null`
+		 * for every fresh document. */
+		timingProfile?: { motionLatentCount: number } | null;
 	};
 	ui?: VideoDirectorUiState;
 }
@@ -305,6 +316,17 @@ export interface DirectorCapabilities {
 	 * legacy raw-frame axis is correct for them, only that no family-specific
 	 * port exists for them yet. */
 	family?: string | null;
+	/** Mirrors `video_director.timing` (preset.yml) -- names the sibling FORM
+	 * FIELD (never part of the video_director document) that carries a
+	 * generation-time pipe config value affecting this family's stitched
+	 * timeline (Wan's `motion_latent_count`), and the value to assume when
+	 * that field is genuinely absent from the bound form -- the SAME
+	 * `motion_latent_count_field`/`motion_latent_count_default` pair the
+	 * orchestrator reads (`src/features/generation/orchestrator.py`'s
+	 * `timing_capability` handling). `null`/absent for every preset that
+	 * hasn't declared one -- `resolveDirectorTimingProfile` (videoDirector.ts)
+	 * treats that as "unknown", never a guessed default. */
+	timing?: { motionLatentCountField: string; motionLatentCountDefault: number } | null;
 }
 
 // ─── Wire document (form_data.video_director sent to the backend) ─────────────

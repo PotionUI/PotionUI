@@ -70,6 +70,14 @@
 		<span class="w-full truncate text-left text-[13.5px] font-medium text-fg">{shot.title}</span>
 		<span class="flex items-center gap-1.5 font-mono text-[11px] text-fg-subtle">
 			{shot.durationSeconds.toFixed(1)} s
+			{#if !shot.timingQualified}
+				<span
+					class="inline-flex items-center rounded border border-line-strong px-[5px] py-px font-mono text-[9.5px] uppercase tracking-[0.04em] text-fg-subtle"
+					title="Motion latents unknown -- showing the requested length, not the generator's real output"
+				>
+					requested
+				</span>
+			{/if}
 			{#if shot.hasIcLora}
 				<span class="inline-flex items-center rounded border border-line-strong px-[5px] py-px font-mono text-[9.5px] uppercase tracking-[0.04em] text-fg-subtle">
 					IC-LoRA

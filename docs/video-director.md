@@ -566,17 +566,40 @@ from without the profile.
 Every other family — no `family` declared, or any value besides `minimax_h3`/`wan` — keeps
 the legacy raw-frame axis unconditionally.
 
-The Director console's stage rail (`frontend/.../stage-rail/railModel.ts`) mirrors the
-`minimax_h3` half of this: a small pure TypeScript port of `resolve_window_geometry`,
-selected by `family === "minimax_h3"` read off the parsed capabilities, so a rail block's
-width and a seam's overlap shoulder show the SAME emitted geometry the compiler and
-generator actually run, instead of a raw `Math.round(duration * fps)`. It also carries a
-pure `resolveWanSegmentGeometry` port of the Wan module above, but the live editor
-document has no channel yet to carry a real `timingProfile` value the way the backend's
-`settings.timing_profile` does (nothing in the Director editor's own state currently reads
-`svi_motion_latent_count`) — so every `family === "wan"` rail block stays on the raw axis
-today, marked `timingQualified: false` rather than showing a falsely-precise emitted
-number. Wiring a live `timingProfile` into the editor is follow-up work, not yet done.
+The Director console's stage rail (`frontend/.../stage-rail/railModel.ts`) mirrors both
+halves of this. For `minimax_h3` it's a small pure TypeScript port of
+`resolve_window_geometry`, selected by `family === "minimax_h3"` read off the parsed
+capabilities, so a rail block's width and a seam's overlap shoulder show the SAME emitted
+geometry the compiler and generator actually run, instead of a raw
+`Math.round(duration * fps)`. For `wan` it's a `resolveWanSegmentGeometry` port of the
+Python geometry module above, made genuinely SEQUENTIAL rather than a closed-form
+per-segment overlap: each continuation's available tail is `min(tailCount,
+previousOnDiskFrames)` — the PRECEDING segment's own on-disk length once its own
+handling is resolved, never that segment's raw aligned length nor its contributed length.
+A segment long enough to pre-trim has `onDiskFrames == contributed` (the two coincide), but
+a segment too short to trim without emptying it keeps its FULL aligned length on disk (its
+own overlap is dropped later, at the final stitch, not at generation time) even though it
+contributes less — so a THIRD segment's context must chain off that on-disk number, not off
+what the second segment merely contributed, or its own overlap comes out wrong (verified
+against the reported `[17,17,17]`/overlap‑12/motion‑4 case: on-disk `[17,5,12]`, matching
+contributed `[17,5,12]` there since neither continuation lands in the short branch; a
+`[81,5,81]` variant where the middle segment DOES land in the short branch instead
+produces contributed `[81,1,76]`, not the `[81,1,80]` a contributed-only chain would give).
+This is driven by a `timingProfile` resolved by `resolveDirectorTimingProfile`
+(`frontend/src/lib/utils/videoDirector.ts`) — the frontend counterpart of the
+orchestrator's own `timing_capability` handling: a live sibling form value
+(`caps.timing.motionLatentCountField`, read off the generate form's `formData`, e.g. the
+UI's own default of 2 for `svi_motion_latent_count`) wins whenever present; absent, a
+reopened/restored document's own persisted `chain.timingProfile` is preferred over the
+capability's static default; only when neither is available does the capability default
+apply. `deriveRailModel`/`deriveChainRail` accept this profile as an explicit parameter,
+threaded down from every caller that has `formData` in scope (`deriveConsoleModel`,
+`deriveStageModel`, `deriveShotRail`, and the console's own keyframe-placement handlers). A
+`family === "wan"` document with no resolvable profile (a preset instance that hasn't wired
+the `timing` capability, or truly nothing to resolve from) keeps the raw axis, and every
+block carries `timingQualified: false` — surfaced in `ShotCard`/`ShotRow` as a visible
+"requested" qualifier next to the frame/duration figures, rather than a falsely-precise
+emitted number.
 - **`settings.duration`**, **`needs_t2v_set`**/**`needs_i2v_set`**, and
   `media_images`/`media_videos`/`media_placements` are all recomputed from the compiled
   span alone, exactly as `normalize_video_director` computes them for a whole film.

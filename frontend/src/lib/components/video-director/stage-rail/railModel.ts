@@ -441,22 +441,19 @@ function resolveH3SegmentGeometry(
 
 // ─── Wan chain geometry ──────────────────────────────────────────────────────
 // Pure TS port of `resolve_window_geometry`
-// (src/pipelines/pipes/generator/chain_video_wan22/geometry.py) -- NOT yet
-// wired into `deriveChainRail`'s live computation below, unlike the H3
-// section above. Wan's real per-segment overlap depends on
-// `motion_latent_count`, a generation-time pipe config value (SVI Pro 2.0
-// continuity, `svi_pro.yml`'s `svi_motion_latent_count` slider) that the
-// backend now carries on the normalized document as
-// `settings.timing_profile` (see the Python module's docstring and
-// `src/features/generation/orchestrator.py`'s `timing_capability`
-// handling) -- but nothing in the Director editor's own state reads
-// `svi_motion_latent_count` today, so this rail has no live value to feed
-// this function. It is exported and unit-tested on its own (parity with the
-// Python module's numbers) so a future card can wire a real `timingProfile`
-// into `VideoDirectorValue`/`DirectorCapabilities` without re-deriving the
-// arithmetic; until then every `family === 'wan'` shot block stays on the
-// raw axis with `timingQualified: false` (see `RailShotBlock`'s docstring).
-const WAN_FAMILY = 'wan';
+// (src/pipelines/pipes/generator/chain_video_wan22/geometry.py), wired into
+// `deriveChainRail` below via the `timingProfile` parameter
+// (`resolveDirectorTimingProfile`, $lib/utils/videoDirector) whenever the
+// caller has a live/resolved value -- selected the same way as the H3
+// section, by `caps.family === WAN_FAMILY`. Wan's real per-segment overlap
+// depends on `motion_latent_count`, a generation-time pipe config value
+// (SVI Pro 2.0 continuity, `svi_pro.yml`'s `svi_motion_latent_count` slider)
+// that never lives on the document on its own -- when the caller has no
+// resolved profile to pass (no `timing` capability, and no live/persisted
+// value either), `deriveChainRail` keeps the legacy raw axis and marks the
+// block `timingQualified: false` (see `RailShotBlock`'s own doc comment)
+// rather than guessing.
+export const WAN_FAMILY = 'wan';
 const WAN_TEMPORAL_DOWNSCALE = 4;
 
 /** Snaps `frames` to the nearest `1 + 4k` (ties round down) -- mirrors
@@ -476,29 +473,69 @@ function wanTailFrameCount(defaultOverlap: number, motionLatentCount: number): n
 
 interface WanSegmentGeometry {
 	frames: number;
+	/** Frames this segment's front hands away rather than contributing to the
+	 * stitched timeline (`frames - overlapFrames` is what actually shows).
+	 * Whichever of the two mechanisms below removed them. */
 	overlapFrames: number;
+	/** This segment's own length ON DISK once ITS OWN handling is resolved --
+	 * `frames - overlapFrames` when this segment was pre-trimmed, or
+	 * unchanged `frames` when it wasn't (the untrimmed short-window case
+	 * below). This, NOT `frames - overlapFrames`, is what the NEXT
+	 * segment's own `resolveWanSegmentGeometry` call must receive as
+	 * `previousOnDiskFrames` -- an untrimmed segment's full `frames` are
+	 * still sitting on disk for the next segment to draw its own context
+	 * from, even though this segment's OWN overlap (dropped at the final
+	 * stitch instead) shrinks what it contributes to the stitched result. */
+	onDiskFrames: number;
 }
 
-/** One segment's frame/overlap geometry, mirroring `resolve_window_geometry`'s
- * per-segment body exactly (lattice snap, tail-frame-count derivation, the
- * `min(tailCount, frames - 1)` clamp that never empties a segment). */
+/** One segment's frame/overlap geometry, mirroring `chain_video_wan22/
+ * geometry.py`'s sequential per-segment rule EXACTLY (mirrored from
+ * `main.py`'s own two mechanisms: a pre-decode front trim when the window is
+ * long enough, or a leading overlap dropped at the final stitch when it
+ * isn't): `context = min(tailCount, previousOnDiskFrames)` -- DIR-07's
+ * available-tail clamp, since a continuation can never replay more of the
+ * previous segment's tail than that segment actually has ON DISK (its own
+ * `onDiskFrames`, NOT its raw aligned `frames` -- a segment that was itself
+ * pre-trimmed has a SHORTER real tail to hand off, which is what makes this
+ * genuinely sequential rather than a single closed-form overlap). When
+ * `frames > context + 1` the front is pre-trimmed (`overlapFrames = context`,
+ * `onDiskFrames = frames - context`); otherwise the window is too short to
+ * trim without emptying it, so it stays on disk at its full `frames` and the
+ * overlap is dropped at the final stitch instead (`overlapFrames =
+ * min(context, frames - 1)`, `onDiskFrames = frames` unchanged). Either way
+ * this segment CONTRIBUTES `frames - overlapFrames` to the stitched result. */
 export function resolveWanSegmentGeometry(
 	requestedFrames: number,
 	isContinue: boolean,
 	overlapFramesSetting: number,
 	continuationSource: 'tail_frames' | 'last_frame' | undefined,
-	motionLatentCount: number
+	motionLatentCount: number,
+	previousOnDiskFrames: number | null
 ): WanSegmentGeometry {
 	const frames = wanSnapFrameCount(requestedFrames);
-	if (!isContinue) return { frames, overlapFrames: 0 };
+	if (!isContinue) return { frames, overlapFrames: 0, onDiskFrames: frames };
 	const defaultOverlap = continuationSource === 'last_frame' ? 1 : Math.max(0, overlapFramesSetting);
 	const tailCount = wanTailFrameCount(defaultOverlap, motionLatentCount);
-	return { frames, overlapFrames: Math.min(tailCount, frames - 1) };
+	const context = previousOnDiskFrames != null ? Math.min(tailCount, previousOnDiskFrames) : tailCount;
+	if (frames > context + 1) {
+		return { frames, overlapFrames: context, onDiskFrames: frames - context };
+	}
+	return { frames, overlapFrames: Math.min(context, frames - 1), onDiskFrames: frames };
+}
+
+/** The resolved Wan timing profile a caller passes into `deriveRailModel`/
+ * `deriveChainRail` -- `{ motionLatentCount }` when known (see
+ * `resolveDirectorTimingProfile`, $lib/utils/videoDirector), `null`/absent
+ * when unknown (no `timing` capability, no live or persisted value). */
+export interface DirectorTimingProfile {
+	motionLatentCount: number;
 }
 
 function deriveChainRail(
 	doc: VideoDirectorValue,
-	caps: DirectorCapabilities
+	caps: DirectorCapabilities,
+	timingProfile?: DirectorTimingProfile | null
 ): Omit<RailModel, 'routing' | 'lanes' | 'freePlacementActive'> {
 	const chain = doc.chain;
 	const directorCap = caps.modes.director;
@@ -506,10 +543,11 @@ function deriveChainRail(
 	const capFrames = directorCap?.maxFramesPerSegment ?? null;
 	const overlapSetting = Math.max(0, chain.continuation.overlap_frames);
 	const isH3 = caps.family === H3_FAMILY;
-	// See the "Wan chain geometry" section above: no live timing profile
-	// reaches this rail yet, so a `family === 'wan'` document stays on the
-	// raw axis below, just marked unqualified rather than shown as exact.
 	const isWan = caps.family === WAN_FAMILY;
+	// `null` motionLatentCount means "unknown" (no `timing` capability
+	// declared, or the caller had no live/persisted value to resolve) --
+	// every Wan block then stays on the raw axis, marked unqualified.
+	const wanMotionLatentCount = isWan ? (timingProfile?.motionLatentCount ?? null) : null;
 	// MiniMax-H3 refs mode: continuation and the reference pool can't coexist
 	// (normalize.py's `chain_continuation_disabled`) -- every shot is an
 	// independent hard cut, so the structural derivation is overridden rather
@@ -519,6 +557,11 @@ function deriveChainRail(
 	const shots: RailShotBlock[] = [];
 	const seams: RailSeam[] = [];
 	let cumulativeFrames = 0;
+	// Tracks the PRECEDING segment's own ON-DISK length (NOT its contributed
+	// length -- see `WanSegmentGeometry.onDiskFrames`'s own doc comment) for
+	// `resolveWanSegmentGeometry`'s available-tail clamp. `null` before the
+	// first segment.
+	let previousWanOnDiskFrames: number | null = null;
 
 	chain.segments.forEach((segment, index) => {
 		const requestedFrames = Math.round(segment.duration * fps);
@@ -531,10 +574,28 @@ function deriveChainRail(
 		const h3Geometry = isH3
 			? resolveH3SegmentGeometry(requestedFrames, isContinue, overlapSetting, directorCap?.continuation?.source)
 			: null;
-		const totalFrames = h3Geometry ? h3Geometry.frames : requestedFrames;
-		const overlapInFrames = h3Geometry ? h3Geometry.overlapFrames : isContinue ? Math.min(overlapSetting, totalFrames) : 0;
+		const wanGeometry =
+			isWan && wanMotionLatentCount != null
+				? resolveWanSegmentGeometry(
+						requestedFrames,
+						isContinue,
+						overlapSetting,
+						directorCap?.continuation?.source,
+						wanMotionLatentCount,
+						previousWanOnDiskFrames
+					)
+				: null;
+		const totalFrames = h3Geometry ? h3Geometry.frames : wanGeometry ? wanGeometry.frames : requestedFrames;
+		const overlapInFrames = h3Geometry
+			? h3Geometry.overlapFrames
+			: wanGeometry
+				? wanGeometry.overlapFrames
+				: isContinue
+					? Math.min(overlapSetting, totalFrames)
+					: 0;
 		const contributedFrames = Math.max(0, totalFrames - overlapInFrames);
 		const startFrame = cumulativeFrames;
+		if (isWan) previousWanOnDiskFrames = wanGeometry ? wanGeometry.onDiskFrames : contributedFrames;
 
 		const overCapBy = capFrames != null ? Math.max(0, totalFrames - capFrames) : 0;
 		const capLocalFraction =
@@ -556,7 +617,7 @@ function deriveChainRail(
 			capFrames,
 			overCapBy,
 			capLocalFraction,
-			timingQualified: !isWan
+			timingQualified: !isWan || wanGeometry != null
 		});
 
 		if (index > 0) {
@@ -790,12 +851,19 @@ function deriveTimelineRail(
  * shot context yet (a bare `deriveDirectorMode`-style read) still gets a
  * valid model rather than an empty one.
  */
-export function deriveRailModel(doc: VideoDirectorValue, caps: DirectorCapabilities, timelineShotId?: string): RailModel {
+export function deriveRailModel(
+	doc: VideoDirectorValue,
+	caps: DirectorCapabilities,
+	timelineShotId?: string,
+	timingProfile?: DirectorTimingProfile | null
+): RailModel {
 	const directorCap = caps.modes.director;
 	const routing: RailRouting = caps.segmentRouting ? 'chain' : 'timeline';
 	const timelineShot = routing === 'timeline' ? (doc.timeline.shots.find((s) => s.id === timelineShotId) ?? doc.timeline.shots[0]) : null;
 	const body =
-		routing === 'chain' ? deriveChainRail(doc, caps) : deriveTimelineRail(doc.timeline.fps, timelineShot ?? EMPTY_TIMELINE_SHOT, caps);
+		routing === 'chain'
+			? deriveChainRail(doc, caps, timingProfile)
+			: deriveTimelineRail(doc.timeline.fps, timelineShot ?? EMPTY_TIMELINE_SHOT, caps);
 
 	// Composition-scoped, not just capability-scoped: a single-shot t2v/i2v/flf
 	// document (deriveDirectorMode reads anything but 'director') offers ONLY

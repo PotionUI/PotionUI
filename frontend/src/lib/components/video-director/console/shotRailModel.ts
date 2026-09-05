@@ -44,7 +44,13 @@
 import type { VideoDirectorValue, DirectorCapabilities, DirectorMediaValue, DirectorTimelineShot } from '$lib/types/videoDirector';
 import type { MediaRef } from '$lib/types/tabs';
 import { deriveRailModel, deriveShotLabel, type RailModel } from '../stage-rail/railModel';
-import { resolveDirectorMediaDisplay, chainEdgeKeyframeId, timelineEdgeKeyframeId, resolveDirectorEdgeAllowances } from '$lib/utils/videoDirector';
+import {
+	resolveDirectorMediaDisplay,
+	chainEdgeKeyframeId,
+	timelineEdgeKeyframeId,
+	resolveDirectorEdgeAllowances,
+	resolveDirectorTimingProfile
+} from '$lib/utils/videoDirector';
 import { clamp } from '../timelineCore';
 
 export interface RailTick {
@@ -421,7 +427,7 @@ export function deriveShotRail(
 	shotId: string,
 	formData?: Record<string, unknown> | null
 ): ShotRailModel {
-	const rail = deriveRailModel(doc, caps, shotId);
+	const rail = deriveRailModel(doc, caps, shotId, resolveDirectorTimingProfile(caps, formData, doc));
 	if (rail.routing === 'chain') return deriveChainShotRail(doc, caps, rail, shotId, formData);
 	const shot = doc.timeline.shots.find((s) => s.id === shotId) ?? doc.timeline.shots[0];
 	if (!shot) return emptyShotRail();

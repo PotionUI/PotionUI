@@ -23,7 +23,7 @@
 	import type { VideoDirectorValue, DirectorCapabilities, DirectorMediaValue } from '$lib/types/videoDirector';
 	import type { StageKeyframeModel } from './stageModel';
 	import { withChainKeyframeMedia, withTimelineKeyframeMedia, withKeyframeStrength, withChainEdgeKeyframeMedia, withChainEdgeKeyframeStrength, mediaFileLabel } from './stageModel';
-	import { isChainEdgeKeyframeId, resolveDirectorMediaDisplay } from '$lib/utils/videoDirector';
+	import { isChainEdgeKeyframeId, resolveDirectorMediaDisplay, resolveDirectorTimingProfile } from '$lib/utils/videoDirector';
 	import { withChainKeyframeAt, withTimelineKeyframeAt, isKeyframeLocked, deriveRailModel, chainFilmSecondsFromLocal } from './railModel';
 	import { clamp } from '../timelineCore';
 	import DirectorMediaSlot from '../DirectorMediaSlot.svelte';
@@ -75,7 +75,7 @@
 		// never resolve into a different shot (maintainer bug report, 09-04).
 		if (isChain) {
 			if (!model.landing) return; // locked edges never reach here (see `locked` below)
-			const rail = deriveRailModel(doc, caps);
+			const rail = deriveRailModel(doc, caps, undefined, resolveDirectorTimingProfile(caps, formData, doc));
 			const clamped = clamp(seconds, 0, rail.fps > 0 ? model.landing.localTotalFrames / rail.fps : 0);
 			onDoc(withChainKeyframeAt(doc, model.id, chainFilmSecondsFromLocal(rail, model.landing.shotIndex, clamped)));
 		} else {

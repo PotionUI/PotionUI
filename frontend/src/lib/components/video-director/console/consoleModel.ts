@@ -109,6 +109,7 @@ import {
 	DEFAULT_MAX_KEYFRAMES,
 	collectFormMediaOptions,
 	resolveDirectorMediaDisplay,
+	resolveDirectorTimingProfile,
 	validateDirector
 } from '$lib/utils/videoDirector';
 import {
@@ -143,6 +144,12 @@ export interface ConsoleShot {
 	newFrames: number | null;
 	fps: number;
 	fpsLocked: boolean;
+	/** False when `frames`/`newFrames` are a raw `duration * fps` approximation
+	 * this shot's family is known to snap/trim in reality, but the caller had
+	 * no timing profile to compute the real numbers from (Wan only -- see
+	 * `RailShotBlock.timingQualified`'s own doc comment). Always true for
+	 * every other family. */
+	timingQualified: boolean;
 	thumb: ConsoleThumb;
 	badge: ConsoleBadge;
 	hasIcLora: boolean;
@@ -497,6 +504,7 @@ function buildChainShots(
 			newFrames: block.hasOverlapIn ? block.contributedFrames : null,
 			fps: rail.fps,
 			fpsLocked: dc?.fpsLocked === true,
+			timingQualified: block.timingQualified,
 			thumb: withRunPoster(chainShotThumb(doc, rail, segment, block, formData), runs?.[segment.id]),
 			badge: chainShotBadge(doc, rail, index, runs, identityCtx),
 			hasIcLora: false,
@@ -672,6 +680,7 @@ function buildTimelineShots(
 			newFrames: null,
 			fps: rail.fps,
 			fpsLocked: dc?.fpsLocked === true,
+			timingQualified: true,
 			thumb: withRunPoster(timelineShotThumb(shot, formData), runs?.[shot.id]),
 			// A timeline shot has no native continuation (unlike a chain's
 			// `continue` seam) -- `continue_from_previous` is purely an
@@ -773,7 +782,13 @@ export function deriveConsoleModel(
 	 * `stale`/`unverified` rather than silently reproducing old behaviour). */
 	generationContext?: DirectorGenerationContext | null
 ): ConsoleModel {
-	const rail = deriveRailModel(doc, caps);
+	// Wan's family geometry needs the live/resolved timing profile
+	// (`resolveDirectorTimingProfile`) to compute real emitted durations --
+	// H3 and legacy chain families ignore it entirely (see railModel.ts's
+	// `deriveChainRail`); a `null` result (no `timing` capability, no live or
+	// persisted value) keeps the raw axis, marked unqualified.
+	const timingProfile = resolveDirectorTimingProfile(caps, formData, doc);
+	const rail = deriveRailModel(doc, caps, undefined, timingProfile);
 	const resolvedGenerationContext = generationContext ?? EMPTY_GENERATION_CONTEXT;
 
 	if (rail.routing === 'chain') {

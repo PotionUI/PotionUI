@@ -163,6 +163,7 @@ function baseShot(overrides: Partial<ConsoleShot> = {}): ConsoleShot {
 		newFrames: null,
 		fps: 24,
 		fpsLocked: false,
+		timingQualified: true,
 		thumb: { url: null, source: 'slate' },
 		badge: 'independent',
 		hasIcLora: false,

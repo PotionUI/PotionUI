@@ -224,10 +224,12 @@ function createDownloadStore() {
 		const patch = { ...(prev?.patch ?? {}), ...(opts.patch ?? {}) };
 		const deleted = opts.deleted ?? prev?.deleted ?? false;
 		perIdSeq.set(id, { seq: ++seqCounter, deleted, patch });
-		// A counts-affecting mutation arriving while a counts fetch is already
-		// in flight means that fetch's eventual result predates this change -
-		// too stale to trust even once it resolves.
-		if (opts.countsAffected && countsInFlight) countsDirty = true;
+		// Every counts-affecting mutation bumps this, whether or not a counts
+		// fetch happens to be in flight right now - loadDownloads()'s bundled
+		// counts don't register as "in flight" the way loadCounts()'s dedicated
+		// fetch does, so this has to be unconditional for either path to be
+		// able to tell it was invalidated after it was issued.
+		if (opts.countsAffected) countsMutationSeq++;
 	}
 
 	// List-request ordering: a monotonic id per loadDownloads() call. Two
@@ -239,12 +241,16 @@ function createDownloadStore() {
 
 	// Counts ordering: shared between loadDownloads()'s bundled counts and
 	// loadCounts()'s dedicated fetch, so whichever was issued most recently
-	// wins no matter which of the two it was or which arrives first.
+	// wins no matter which of the two it was or which arrives first - a
+	// response is eligible to publish only while `mySeq === countsSeq` (no
+	// counts-touching request, from either path, has been issued since) AND
+	// `countsMutationSeq` hasn't moved since it was issued (nothing
+	// counts-affecting happened while it was in flight). Global counts are
+	// never derived from the current page - only ever from a server response.
 	let countsSeq = 0;
-	let lastAppliedCountsSeq = -1;
+	let countsMutationSeq = 0;
 	let countsInFlight: Promise<void> | null = null;
 	let countsInFlightId = 0;
-	let countsDirty = false;
 
 	// Reconciles a list response issued at `seqAtIssue` against everything
 	// that has happened locally since: an id touched after issue keeps its
@@ -376,7 +382,6 @@ function createDownloadStore() {
 			// starts its own fetch instead of silently coalescing onto - and
 			// getting no publication from - a retired session's abandoned one.
 			countsInFlight = null;
-			countsDirty = false;
 		},
 
 		// Load downloads from API. The response's `downloads` array is one
@@ -392,6 +397,7 @@ function createDownloadStore() {
 			const token = sessionToken;
 			const requestSeq = ++listRequestSeq;
 			const countsRequestSeq = ++countsSeq;
+			const countsMutationSeqAtIssue = countsMutationSeq;
 			const seqAtIssue = seqCounter;
 			loading.set(true);
 			error.set(null);
@@ -411,17 +417,29 @@ function createDownloadStore() {
 				if (token !== sessionToken) return; // retired: view was torn down or replaced meanwhile
 
 				if (data.success && data.data) {
-					// Each check is its own request-issuance clock: a request
-					// issued earlier never overwrites one issued later, no
-					// matter which settles first.
+					// Own request-issuance clock: a request issued earlier never
+					// overwrites one issued later, no matter which settles first.
 					if (requestSeq > lastAppliedListSeq) {
 						const incoming: Download[] = data.data.downloads || [];
 						downloads.set(mergeListSnapshot(incoming, seqAtIssue));
 						lastAppliedListSeq = requestSeq;
 					}
-					if (countsRequestSeq > lastAppliedCountsSeq) {
-						downloadCounts.set(data.data.counts || {});
-						lastAppliedCountsSeq = countsRequestSeq;
+
+					// The bundled counts obey the same ownership rule as the
+					// dedicated fetch below. Superseded (a later counts-touching
+					// request, from either path, was already issued) means that
+					// other request owns freshness now - staying quiet here.
+					// Only the still-latest-issued request ever acts on its own
+					// invalidation (a counts-affecting mutation since it was
+					// issued): it can't publish this stale snapshot, but
+					// nothing else is positioned to notice it needs a fresh
+					// one, so it asks for it explicitly.
+					if (countsRequestSeq === countsSeq) {
+						if (countsMutationSeq === countsMutationSeqAtIssue) {
+							downloadCounts.set(data.data.counts || {});
+						} else {
+							void this.loadCounts();
+						}
 					}
 				} else {
 					throw new Error(data.message || 'Failed to load downloads');
@@ -442,40 +460,43 @@ function createDownloadStore() {
 		},
 
 		// Load counts only. Concurrent calls coalesce onto one in-flight
-		// request/publication. If a counts-affecting mutation lands while this
-		// fetch is in flight, its result is too stale to trust even once it
-		// resolves - it's dropped and exactly one fresh refresh is scheduled
-		// after it settles (not chained per-event). A response superseded by
-		// one issued later (from either this method or loadDownloads()'s own
-		// bundled counts) is dropped the same way.
+		// request/publication. Ownership is the same rule loadDownloads()'s
+		// bundled counts use: superseded by a later-issued counts-touching
+		// request (from either path) means that other request owns freshness
+		// now; only the still-latest-issued request acts on its own
+		// invalidation (a counts-affecting mutation since it was issued) by
+		// asking for a fresh reconciliation itself - exactly one follow-up,
+		// scheduled after this one settles, not chained per-event.
 		async loadCounts(): Promise<void> {
 			if (countsInFlight) return countsInFlight;
 
 			const token = sessionToken;
 			const mySeq = ++countsSeq;
 			const myFlightId = ++countsInFlightId;
-			countsDirty = false;
+			const mutationSeqAtIssue = countsMutationSeq;
 
-			// `dirtyAtCompletion` is captured in `finally` rather than read after
-			// the try/catch: an early `return` from inside `try` (any of the
-			// staleness guards below) still runs `finally` but then exits this
-			// whole IIFE, skipping code placed after the try/catch/finally -
-			// so the follow-up-scheduling check has to live where it can't be
-			// skipped by those returns.
-			let dirtyAtCompletion = false;
+			// `shouldRetry` is captured for use after the try/catch/finally
+			// rather than decided inside `try`: an early `return` from there
+			// still runs `finally` but then exits this whole IIFE, skipping
+			// code placed after it - so the follow-up check has to live where
+			// such a return can't skip it.
+			let shouldRetry = false;
 			const attempt: Promise<void> = (async () => {
 				try {
 					const response = await api.getClient().get('/api/downloads?limit=0');
 					const data = response.data;
-					const stillOwns = token === sessionToken && !countsDirty && mySeq > lastAppliedCountsSeq;
-					if (stillOwns && data.success && data.data) {
-						downloadCounts.set(data.data.counts || {});
-						lastAppliedCountsSeq = mySeq;
+					if (token === sessionToken && mySeq === countsSeq) {
+						if (countsMutationSeq === mutationSeqAtIssue) {
+							if (data.success && data.data) {
+								downloadCounts.set(data.data.counts || {});
+							}
+						} else {
+							shouldRetry = true;
+						}
 					}
 				} catch (err) {
 					logger.error('Failed to load download counts:', err);
 				} finally {
-					dirtyAtCompletion = countsDirty;
 					// Identity guard (by id, not promise reference, to avoid a
 					// TDZ self-reference on `attempt`): if a remount already
 					// dropped this slot and started its own attempt, this
@@ -483,7 +504,7 @@ function createDownloadStore() {
 					if (countsInFlightId === myFlightId) countsInFlight = null;
 				}
 
-				if (dirtyAtCompletion && token === sessionToken) {
+				if (shouldRetry) {
 					void this.loadCounts();
 				}
 			})();
@@ -817,9 +838,7 @@ function createDownloadStore() {
 			this.cleanupWebSocket();
 			perIdSeq.clear();
 			lastAppliedListSeq = -1;
-			lastAppliedCountsSeq = -1;
 			countsInFlight = null;
-			countsDirty = false;
 			downloads.set([]);
 			downloadCounts.set({});
 			downloadSettings.set(null);

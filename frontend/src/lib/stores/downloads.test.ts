@@ -535,4 +535,86 @@ describe('stores/downloads WebSocket lifecycle and reconciliation', () => {
 		await Promise.resolve();
 		expect(get(downloadCounts)).toEqual({ completed: 1 });
 	});
+
+	it('a list response resolving while the newer dedicated request its own invalidating mutation triggered is still pending never publishes its stale bundled counts', async () => {
+		downloadStore.initializeWebSocket();
+
+		const listResponse = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => listResponse.promise);
+		const loadPromise = downloadStore.loadDownloads();
+
+		// A newer completion status arrives while the list request above is
+		// still in flight - this starts the dedicated counts request, itself
+		// also still pending.
+		const countsResponse = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => countsResponse.promise);
+		for (const cb of wsMocks.statusCallbacks) {
+			cb({ download_id: 'd1', status: 'completed', filename: 'x.safetensors' });
+		}
+
+		// The OLD list resolves with its stale bundled counts WHILE the
+		// dedicated request above is still pending - must not publish, not
+		// even transiently.
+		listResponse.resolve({
+			data: {
+				success: true,
+				data: {
+					downloads: [download({ status: 'downloading' })],
+					counts: { downloading: 1, completed: 0 }
+				}
+			}
+		});
+		await loadPromise;
+		expect(get(downloadCounts)).toEqual({});
+
+		// The dedicated request finally resolves with the true, global tally.
+		countsResponse.resolve({ data: { success: true, data: { counts: { completed: 100 } } } });
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(get(downloadCounts)).toEqual({ completed: 100 });
+	});
+
+	it('a newer bundled (list) counts result wins over an older dedicated one, regardless of arrival order', async () => {
+		downloadStore.initializeWebSocket();
+
+		const dedicated = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => dedicated.promise);
+		const dedicatedCall = downloadStore.loadCounts(); // issued first (older)
+
+		const list = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => list.promise);
+		const listCall = downloadStore.loadDownloads(); // issued second (newer)
+
+		// The newer (list) response arrives first.
+		list.resolve({ data: { success: true, data: { downloads: [], counts: { completed: 1 } } } });
+		await listCall;
+		expect(get(downloadCounts)).toEqual({ completed: 1 });
+
+		// The older dedicated response arrives after - must not overwrite it.
+		dedicated.resolve({ data: { success: true, data: { counts: { downloading: 1 } } } });
+		await dedicatedCall;
+		expect(get(downloadCounts)).toEqual({ completed: 1 });
+	});
+
+	it('a newer dedicated counts result wins over an older bundled (list) one, regardless of arrival order', async () => {
+		downloadStore.initializeWebSocket();
+
+		const list = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => list.promise);
+		const listCall = downloadStore.loadDownloads(); // issued first (older)
+
+		const dedicated = deferred<{ data: unknown }>();
+		mockGet.mockImplementationOnce(() => dedicated.promise);
+		const dedicatedCall = downloadStore.loadCounts(); // issued second (newer)
+
+		// The newer (dedicated) response arrives first.
+		dedicated.resolve({ data: { success: true, data: { counts: { completed: 5 } } } });
+		await dedicatedCall;
+		expect(get(downloadCounts)).toEqual({ completed: 5 });
+
+		// The older bundled response arrives after - must not overwrite it.
+		list.resolve({ data: { success: true, data: { downloads: [], counts: { downloading: 3 } } } });
+		await listCall;
+		expect(get(downloadCounts)).toEqual({ completed: 5 });
+	});
 });

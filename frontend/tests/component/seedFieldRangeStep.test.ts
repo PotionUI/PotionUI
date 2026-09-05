@@ -158,4 +158,17 @@ describe('SeedField range/step handling', () => {
 		expect(mounted.onChange).not.toHaveBeenCalled();
 		expect(mounted.target.querySelector('[role="alert"]')?.textContent).toMatch(/no seed value/i);
 	});
+
+	it('fractional bounds are a malformed config: Randomize no-ops, Auto is hidden, the persisted value is kept', async () => {
+		mounted = mountField({ config: { minimum: 0.5, maximum: 3, step: 1 }, value: 2 });
+
+		expect(autoButton(mounted.target)).toBeUndefined();
+		expect(mounted.target.querySelector('[role="alert"]')?.textContent).toMatch(/whole numbers/i);
+
+		randomizeButton(mounted.target).click();
+		await Promise.resolve();
+
+		expect(mounted.onChange).not.toHaveBeenCalled();
+		expect(numberInput(mounted.target)!.value).toBe('2');
+	});
 });

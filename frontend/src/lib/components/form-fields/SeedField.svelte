@@ -29,6 +29,9 @@
 		if (!Number.isFinite(lo) || !Number.isFinite(hi) || !Number.isFinite(s)) {
 			return { valid: false as const, message: 'Seed range is not configured with finite bounds.' };
 		}
+		if (!Number.isInteger(lo) || !Number.isInteger(hi)) {
+			return { valid: false as const, message: 'Seed range bounds must be whole numbers.' };
+		}
 		if (!Number.isInteger(s) || s <= 0) {
 			return { valid: false as const, message: 'Seed step must be a positive whole number.' };
 		}

@@ -21,6 +21,7 @@ import contextvars
 import gc
 import hashlib
 import logging
+import math
 import os
 import sys
 import threading
@@ -52,6 +53,27 @@ _BYTES_PER_GB = 1024 ** 3
 # ModelLifecycle's module docstring / the RAM-investigation notes).
 _MIN_FREE_RAM_GB = 8.0
 _MIN_FREE_RAM_FRACTION = 0.10  # of total system RAM
+_MAX_FREE_RAM_FRACTION = 0.25  # caps the floor so it can't eat an unreasonable share of a small host
+
+
+def host_ram_reserve_gb(total_gb: Optional[float]) -> float:
+    """RAM (GiB) that ``_make_room_for_ram`` keeps free on a host with
+    ``total_gb`` of system RAM: ``min(max(8, 10% of total), 25% of total)``.
+
+    ``max(8, 10%)`` alone reserves the same 8GB floor on an 8GB box as on a
+    64GB one - 100% of RAM on the smallest supported host - which forces the
+    RAM cache to evict every entry rather than keep anything warm between
+    generations. Capping at 25% of total makes the floor scale down on small
+    hosts (2/4/8GB at 8/16/32GB total) while leaving it exactly where it
+    already was at the sizes it worked for (8GB at 64GB, 12.8GB at 128GB).
+
+    ``total_gb`` unavailable, non-positive, or non-finite (a failed read, not
+    a genuine reading of 0) falls back to the fixed 8GB floor - the
+    conservative worst case, never 0 and never a fraction of a garbage value.
+    """
+    if total_gb is None or not math.isfinite(total_gb) or total_gb <= 0:
+        return _MIN_FREE_RAM_GB
+    return min(max(_MIN_FREE_RAM_GB, _MIN_FREE_RAM_FRACTION * total_gb), _MAX_FREE_RAM_FRACTION * total_gb)
 
 # Process-wide reference to the app's ModelLifecycle singleton, set by
 # the first instance constructed (mirrors output_type_registry's module-level
@@ -556,7 +578,7 @@ class ModelLifecycle:
 
         available_gb = mem.available_gb
         total_gb = mem.total_gb
-        floor_gb = max(_MIN_FREE_RAM_GB, _MIN_FREE_RAM_FRACTION * total_gb)
+        floor_gb = host_ram_reserve_gb(total_gb)
 
         def _headroom_ok(avail_gb: float) -> bool:
             if needed_gb is None:

@@ -10,6 +10,7 @@ from src.platform.runtime.model_lifecycle.lifecycle import (
     ModelLifecycle,
     empty_pinned_host_cache,
     file_size_gb,
+    host_ram_reserve_gb,
 )
 from src.platform.runtime.system_memory import SystemMemory
 
@@ -611,6 +612,35 @@ def _fake_vmem(available_gb, total_gb):
     return SystemMemory(available=int(available_gb * gb), total=int(total_gb * gb))
 
 
+class TestHostRamReserveGb:
+    """`host_ram_reserve_gb`: `min(max(8, 10% of total), 25% of total)`.
+
+    The old fixed floor (`max(8, 10% of total)` with no cap) reserved the
+    same 8GB on an 8GB host as on a 64GB one - 100% of RAM on the smallest
+    supported host, 50% at 16GB, 25% at 32GB - forcing the RAM cache to
+    evict everything on small machines. Capping at 25% of total scales the
+    floor down proportionally below 32GB while leaving it exactly where the
+    old formula already put it at 64GB and above.
+    """
+
+    @pytest.mark.parametrize("total_gb, expected_reserve_gb", [
+        (8.0, 2.0),
+        (16.0, 4.0),
+        (32.0, 8.0),
+        (64.0, 8.0),
+        (128.0, 12.8),
+    ])
+    def test_reserve_scales_with_host_size(self, total_gb, expected_reserve_gb):
+        assert host_ram_reserve_gb(total_gb) == pytest.approx(expected_reserve_gb)
+
+    @pytest.mark.parametrize("total_gb", [None, 0.0, -1.0, float("nan")])
+    def test_falls_back_to_fixed_floor_when_total_is_unusable(self, total_gb):
+        # A failed/garbage reading must never come out as 0 or a fraction of
+        # nonsense - it falls back to the same conservative 8GB floor as an
+        # outright get_system_memory() failure.
+        assert host_ram_reserve_gb(total_gb) == 8.0
+
+
 class TestRamPressureEviction:
     """`_make_room_for_ram`: evicts LRU-first when free system RAM is under
     (or would drop under) the floor, independent of gpu_monitor/VRAM.
@@ -714,6 +744,100 @@ class TestRamPressureEviction:
         assert "a" in log    # evicted to make room
         assert "b" not in log  # NOT evicted - "a" alone was enough
         assert "b" in manager.stats()["keys"]
+
+    def test_small_host_16gb_proportional_floor_avoids_needless_eviction(self, manager, monkeypatch):
+        # 16GB host -> new floor is min(max(8,1.6),4) = 4GB. The OLD fixed
+        # floor (max(8, 1.6) = 8GB) could never be satisfied by 6GB
+        # available no matter what got evicted, so it would have evicted
+        # every cached entry here. The new floor recognizes 6-1=5GB >= 4GB
+        # is already enough headroom, so nothing is evicted.
+        monkeypatch.setattr(manager_module, "get_system_memory", lambda: _fake_vmem(6.0, 16.0))
+        log = []
+
+        manager.acquire("a", "fp", lambda: FakeModel("a", log), estimated_vram_gb=1.0)
+        manager.acquire("b", "fp", lambda: FakeModel("b", log), estimated_vram_gb=1.0)
+        manager.acquire("c", "fp", lambda: FakeModel("c", log), estimated_vram_gb=1.0)
+
+        assert log == []
+        assert set(manager.stats()["keys"]) == {"a", "b", "c"}
+
+    def test_small_host_16gb_genuine_pressure_still_evicts_lru_first(self, manager, monkeypatch):
+        # Same 16GB host/4GB floor as above, but available RAM has genuinely
+        # dropped to 3GB (3-1=2 < 4) - real pressure, so LRU eviction still
+        # fires and stops as soon as remeasured headroom clears the floor.
+        responses = iter([
+            _fake_vmem(6.0, 16.0),  # acquire("a")
+            _fake_vmem(6.0, 16.0),  # acquire("b")
+            _fake_vmem(3.0, 16.0),  # acquire("c") initial check -> 3-1=2 < 4, pressure
+            _fake_vmem(6.0, 16.0),  # re-measured after evicting "a" -> 6-1=5 >= 4, stop
+        ])
+        monkeypatch.setattr(manager_module, "get_system_memory", lambda: next(responses))
+        log = []
+
+        manager.acquire("a", "fp", lambda: FakeModel("a", log), estimated_vram_gb=1.0)
+        manager.acquire("b", "fp", lambda: FakeModel("b", log), estimated_vram_gb=1.0)
+        manager.acquire("c", "fp", lambda: FakeModel("c", log), estimated_vram_gb=1.0)
+
+        assert "a" in log       # LRU entry evicted first
+        assert "b" not in log   # eviction stopped once remeasured headroom was met
+        assert set(manager.stats()["keys"]) == {"b", "c"}
+
+    def test_8gb_host_proportional_floor_avoids_needless_eviction(self, manager, monkeypatch):
+        # 8GB host -> new floor is min(max(8,0.8),2) = 2GB. The OLD fixed
+        # floor (max(8,0.8) = 8GB) equals the ENTIRE host - on the smallest
+        # supported box it can never be cleared by anything short of a
+        # totally idle machine, so it would evict the whole cache on every
+        # single load. 8GB available satisfies both floors (no eviction
+        # while caching "a"/"b"); dropping to 3GB clears the new 2GB floor
+        # but would still violate the old 8GB one.
+        monkeypatch.setattr(manager_module, "get_system_memory", lambda: _fake_vmem(8.0, 8.0))
+        log = []
+        manager.acquire("a", "fp", lambda: FakeModel("a", log))  # no estimate
+        manager.acquire("b", "fp", lambda: FakeModel("b", log))  # no estimate
+
+        monkeypatch.setattr(manager_module, "get_system_memory", lambda: _fake_vmem(3.0, 8.0))
+        manager.acquire("c", "fp", lambda: FakeModel("c", log))  # no estimate
+
+        assert log == []
+        assert set(manager.stats()["keys"]) == {"a", "b", "c"}
+
+    def test_8gb_host_unknown_estimate_evicts_below_its_2gb_floor(self, manager, monkeypatch):
+        # 8GB host -> floor is min(max(8,0.8),2) = 2GB. No caller estimate
+        # at all (needed_gb=None, the A1 case) still enforces the live floor
+        # once availability genuinely drops under it.
+        monkeypatch.setattr(manager_module, "get_system_memory", lambda: _fake_vmem(8.0, 8.0))
+        log = []
+        manager.acquire("a", "fp", lambda: FakeModel("a", log))  # no estimate
+
+        monkeypatch.setattr(manager_module, "get_system_memory", lambda: _fake_vmem(1.5, 8.0))
+        manager.acquire("b", "fp", lambda: FakeModel("b", log))  # no estimate -> 1.5 < 2, pressure
+
+        assert "a" in log
+        assert "a" not in manager.stats()["keys"]
+        assert "b" in manager.stats()["keys"]
+
+    def test_128gb_host_floor_unchanged_from_old_formula(self, manager, monkeypatch):
+        # 128GB total -> old formula max(8, 0.10*128)=12.8; new formula
+        # min(max(8,12.8),32)=12.8 - identical, so this is the same
+        # eviction decision the pre-change floor would have produced
+        # (same numbers as test_evicts_lru_entry_to_relieve_ram_pressure_sole_owner,
+        # doubled).
+        responses = iter([
+            _fake_vmem(20.0, 128.0),  # acquire("a")
+            _fake_vmem(20.0, 128.0),  # acquire("b")
+            _fake_vmem(20.0, 128.0),  # acquire("c") initial check -> 20-13=7 < 12.8, pressure
+            _fake_vmem(35.0, 128.0),  # re-measured after evicting "a" -> 35-13=22 >= 12.8, stop
+        ])
+        monkeypatch.setattr(manager_module, "get_system_memory", lambda: next(responses))
+        log = []
+
+        manager.acquire("a", "fp", lambda: FakeModel("a", log), estimated_vram_gb=1.0)
+        manager.acquire("b", "fp", lambda: FakeModel("b", log), estimated_vram_gb=1.0)
+        manager.acquire("c", "fp", lambda: FakeModel("c", log), estimated_vram_gb=13.0)
+
+        assert "a" in log
+        assert "b" not in log
+        assert "c" in manager.stats()["keys"]
 
     def test_warns_when_ram_pressure_persists_after_evicting_everything(self, manager, monkeypatch, caplog):
         # Nothing cached yet, and even an empty cache can't make a 500GB load fit.

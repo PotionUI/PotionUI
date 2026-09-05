@@ -40,7 +40,12 @@
 	import { isMobile, viewportWidth } from '$lib/stores/viewport';
 	import { settingsPaneWidth } from '$lib/stores/generationLayout';
 	import { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission, representativeDirectorPrompt, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText } from '$lib/utils/videoDirector';
-	import { directorShotInputIdentity, directorPredecessorShotId, directorPredecessorOutputKey } from '$lib/utils/directorInputIdentity';
+	import {
+		directorShotInputIdentity,
+		directorPredecessorShotId,
+		directorPredecessorOutputKey,
+		type DirectorGenerationContext
+	} from '$lib/utils/directorInputIdentity';
 	import { planDirectorSelection } from '$lib/utils/directorPlanner';
 	import { runDirectorDependencyPlan, type DirectorShotSubmitOutcome, type DirectorShotTerminalOutcome } from '$lib/utils/directorDependencyRunner';
 	import { resolvePredecessorFrame, type PredecessorOutputLike } from '$lib/utils/directorContinuation';
@@ -94,7 +99,24 @@
 	 *  generation is in flight. `runs` is the freshest known runs map for
 	 *  looking up a dependent shot's predecessor -- callers pass whatever they
 	 *  already have in scope (a multi-shot submission's later shots must see
-	 *  the entries an earlier shot in the SAME call just recorded). */
+	 *  the entries an earlier shot in the SAME call just recorded).
+	 *
+	 * `shotIds` can itself contain BOTH a predecessor and its dependant --
+	 * `submitOneDirectorWireDoc`'s chain/H3 branch submits a whole checked
+	 * native-continuation span as ONE wire doc under ONE `generationId`
+	 * (`submitVideoDirectorShots`'s `segmentRouting` branch). When that's the
+	 * case the dependant's predecessorRef must stamp THIS SAME NEW
+	 * `generationId`, never a lookup into `runs` -- that map is either still
+	 * missing the predecessor's entry entirely (this span's first-ever
+	 * render: `runs` predates this very call) or holds an OLDER generation id
+	 * from a PRIOR render of the span (a rerender/Retry), either of which
+	 * left the dependant reading `unverified`/`stale` right after a
+	 * same-batch render that was actually fully continuous. `runs` is only
+	 * ever consulted for a predecessor OUTSIDE this batch (the LTX timeline
+	 * path submits one shot per call, so its predecessor is always outside
+	 * `shotIds`; `directorDependencyRunner.ts`'s own gating guarantees such a
+	 * predecessor already reads 'done' with a stable `generationId` by the
+	 * time this runs). */
 	function buildDirectorRunEntries(
 		shotIds: string[],
 		generationId: string,
@@ -102,26 +124,43 @@
 		doc: VideoDirectorValue,
 		caps: DirectorCapabilities,
 		formData: Record<string, unknown> | null | undefined,
-		runs: Record<string, DirectorRunState> | null | undefined
+		runs: Record<string, DirectorRunState> | null | undefined,
+		generationContext: DirectorGenerationContext
 	): Record<string, DirectorRunState> {
 		const entries: Record<string, DirectorRunState> = {};
+		const shotIdsInThisGeneration = new Set(shotIds);
 		for (const shotId of shotIds) {
 			const predecessorId = directorPredecessorShotId(doc, caps, shotId);
-			const predecessorRun = predecessorId ? runs?.[predecessorId] : null;
+			let predecessorRef: DirectorRunState['predecessorRef'] = null;
+			if (predecessorId) {
+				if (shotIdsInThisGeneration.has(predecessorId)) {
+					predecessorRef = { generationId, outputKey: directorPredecessorOutputKey(caps, predecessorId) };
+				} else {
+					const predecessorRun = runs?.[predecessorId];
+					predecessorRef = predecessorRun
+						? { generationId: predecessorRun.generationId, outputKey: directorPredecessorOutputKey(caps, predecessorId) }
+						: null;
+				}
+			}
 			entries[shotId] = {
 				generationId,
 				status,
 				progress: null,
 				finishedAt: null,
 				posterUrl: null,
-				inputsHash: directorShotInputIdentity(doc, shotId, { caps, formData }),
-				predecessorRef:
-					predecessorId && predecessorRun
-						? { generationId: predecessorRun.generationId, outputKey: directorPredecessorOutputKey(caps, predecessorId) }
-						: null
+				inputsHash: directorShotInputIdentity(doc, shotId, { caps, formData, generationContext }),
+				predecessorRef
 			};
 		}
 		return entries;
+	}
+
+	/** The generation context a tab's own request actually submits under --
+	 *  see `DirectorGenerationContext`'s own doc comment (directorInputIdentity.ts)
+	 *  on why this is required scope for the shot input identity, not an
+	 *  optional nicety. */
+	function directorGenerationContextFor(tab: Tab): DirectorGenerationContext {
+		return { presetId: tab.selectedPreset ?? null, variant: tab.selectedVariant ?? null, mode: tab.selectedMode ?? null };
 	}
 
 	/** Fresh per-generation-id output snapshot from every run `tabId` currently
@@ -218,7 +257,8 @@
 							doc,
 							caps,
 							tab.formData,
-							liveTab.directorRuns
+							liveTab.directorRuns,
+							directorGenerationContextFor(tab)
 						)
 					},
 					directorRunLinks: {
@@ -1588,7 +1628,8 @@
 										directorValueForRuns,
 										videoDirectorCaps,
 										currentTab.formData,
-										currentTab.directorRuns
+										currentTab.directorRuns,
+										directorGenerationContextFor(currentTab)
 									)
 								},
 								directorRunLinks: {

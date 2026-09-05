@@ -27,6 +27,7 @@
 	import { resolveNegativeApplicability } from '$lib/generation/negativeApplied';
 	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
 	import { ensureSubscribed, releaseSubscription, clearSubscriptionOwner } from '$lib/generation/restore/subscriptions';
+	import { retireConfirmedCancellations } from '$lib/generation/cancelRetirement';
 	import { toggleFloatingForm } from '$lib/generation/floatingForm';
 	import { toggleFloatingWorkbench } from '$lib/generation/floatingWorkbench';
 	let generationPanelRef: GenerationPanel | undefined;
@@ -1740,9 +1741,6 @@
 
 		try {
 			await api.cancelGeneration(currentGen.id);
-			if (ws && currentGen.id) {
-				ws.unsubscribe(currentGen.id);
-			}
 
 			tabsStore.updateTab(activeTabId, {
 				activeGenerationId: null,
@@ -1754,6 +1752,11 @@
 					queue: (currentTab.generation.queue || []).filter((q) => q.generation_id !== currentGen.id)
 				}
 			});
+
+			// Server-confirmed cancel -- resolve any Director run it covers and
+			// retire its cache/subscription/retired-marker, same as the live
+			// generation_cancelled event does (see cancelRetirement.ts).
+			retireConfirmedCancellations([currentGen.id], { tabsStore, unsubscribe: unsubscribeGeneration });
 		} catch (error) {
 			console.error('Failed to cancel generation:', error);
 		}
@@ -1763,12 +1766,6 @@
 		try {
 			const response = await api.clearGenerationQueue(activeTabId);
 			const cancelledIds = new Set(response.success ? response.data?.cancelled || [] : []);
-
-			if (ws) {
-				for (const id of cancelledIds) {
-					ws.unsubscribe(id);
-				}
-			}
 
 			const latestTab = $tabsStore.tabs.find((t) => t.id === activeTabId) || currentTab;
 			const remainingQueue = (latestTab.generation.queue || []).filter(
@@ -1788,6 +1785,10 @@
 						: {})
 				}
 			});
+
+			// Only the ids the backend actually confirmed cancelled -- an id it
+			// did not report back stays completely untouched.
+			retireConfirmedCancellations(cancelledIds, { tabsStore, unsubscribe: unsubscribeGeneration });
 		} catch (error) {
 			console.error('Failed to clear generation queue:', error);
 		}

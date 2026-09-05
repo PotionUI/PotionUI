@@ -20,6 +20,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     ReferenceMedia,
     normalize_reference_image,
     prepare_reference_conditioning,
+    visual_latent_cache_key,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.layout import (
     TEXT_TAG,
@@ -496,6 +497,118 @@ def _bare_ctx(**overrides) -> _MiniMaxH3Ctx:
     )
     kwargs.update(overrides)
     return _MiniMaxH3Ctx(**kwargs)
+
+
+# -- request-local reference cache: released on success, cancellation and failure --
+
+def _put_dummy_cache_entry(c: _MiniMaxH3Ctx) -> None:
+    c.reference_cache.put(
+        visual_latent_cache_key(
+            np.zeros((2, 2, 3), dtype=np.uint8), fit_role="keyframe:anchor", target_size=(2, 2),
+            frame_selection=(), vae_module=object(), weight_revision=1,
+            latents_mean=[0.0], latents_std=[1.0], device="cpu",
+        ),
+        torch.zeros(1, 4, 1, 2, 2),
+    )
+
+
+def test_release_gpu_drops_the_reference_cache():
+    c = _bare_ctx()
+    _put_dummy_cache_entry(c)
+    assert len(c.reference_cache) == 1
+
+    c.release_gpu()
+
+    assert len(c.reference_cache) == 0
+
+
+def test_a_failed_generation_releases_the_reference_cache_via_release_gpu_on_error():
+    """Mirrors `BaseGeneratorPipe.process()`'s except-block cleanup: on a
+    failed (or cancelled -- `SamplingCancelled` is an ordinary exception to
+    this handler) generation, `ctx.extra.release_gpu()` runs and must drop
+    the cache the same way the explicit success-path release does."""
+    c = _bare_ctx()
+    _put_dummy_cache_entry(c)
+    ctx = GeneratorContext(quantity=1, input_seeds=[7], extra=c)
+
+    pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
+    pipe._release_gpu_on_error(ctx)
+
+    assert len(c.reference_cache) == 0
+
+
+def test_generate_one_releases_the_reference_cache_after_the_last_quantity_output():
+    from PIL import Image
+
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=SimpleNamespace(compute_dtype=torch.float32, estimated_vram_gb=0.0,
+                            module=_fake_dit_module(video_patch_dim),
+                            move_to=lambda d: None, offload=lambda: None),
+        video_vae=SimpleNamespace(module=_FakeKeyframeVae(), compute_dtype=torch.float32,
+                                   move_to=lambda d: None, offload=lambda: None),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=lambda d: None, offload=lambda: None),
+        te=None, te_cache_key=None,
+    )
+    ctx_extra = _MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=3,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[Image.new("RGB", (32, 32), (10, 20, 30))], keyframe_anchors=(0,),
+        audio_source="generate", decode=False,
+    )
+    ctx = GeneratorContext(quantity=1, input_seeds=[7], extra=ctx_extra)
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    pipe.generate_one(ctx, 0, 7, progress)
+
+    # quantity=1: index 0 IS the last output, so the explicit success-path
+    # release (`generate_one`'s `if index == ctx.quantity - 1`) has already
+    # run by the time this call returns -- the cache must be empty, not just
+    # populated-then-forgotten.
+    assert len(ctx_extra.reference_cache) == 0
+    assert ctx_extra.reference_cache.retained_bytes == 0
+
+
+def test_the_reference_cache_stays_populated_between_quantity_outputs():
+    """Bite check for the release test above: the cache must NOT be released
+    after a non-final `quantity` output -- that would defeat the whole
+    point of sharing it across the seed loop."""
+    from PIL import Image
+
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=SimpleNamespace(compute_dtype=torch.float32, estimated_vram_gb=0.0,
+                            module=_fake_dit_module(video_patch_dim),
+                            move_to=lambda d: None, offload=lambda: None),
+        video_vae=SimpleNamespace(module=_FakeKeyframeVae(), compute_dtype=torch.float32,
+                                   move_to=lambda d: None, offload=lambda: None),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=lambda d: None, offload=lambda: None),
+        te=None, te_cache_key=None,
+    )
+    ctx_extra = _MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=3,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[Image.new("RGB", (32, 32), (10, 20, 30))], keyframe_anchors=(0,),
+        audio_source="generate", decode=False,
+    )
+    ctx = GeneratorContext(quantity=2, input_seeds=[7, 8], extra=ctx_extra)
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    pipe.generate_one(ctx, 0, 7, progress)
+    assert len(ctx_extra.reference_cache) == 1  # not the last output -- still populated
+
+    pipe.generate_one(ctx, 1, 8, progress)
+    assert len(ctx_extra.reference_cache) == 0  # now the last output -- released
 
 
 class _NormalizingVae:
@@ -1009,6 +1122,45 @@ def test_generate_one_keyframe_path_still_places_the_video_vae_once():
     assert move_to.call_count == 1
     assert offload.call_count == 1
     assert isinstance(result, torch.Tensor)
+
+
+def test_a_repeated_keyframe_across_quantity_outputs_places_the_video_vae_once():
+    """A cache hit on the SECOND `quantity` output of the SAME
+    keyframe must not move the video VAE again -- extends the placement
+    gate the test above covers for the first (necessarily-miss) output."""
+    from PIL import Image
+
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    move_to = Mock()
+    offload = Mock()
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=SimpleNamespace(compute_dtype=torch.float32, estimated_vram_gb=0.0,
+                            module=_fake_dit_module(video_patch_dim),
+                            move_to=lambda d: None, offload=lambda: None),
+        video_vae=SimpleNamespace(module=_FakeKeyframeVae(), compute_dtype=torch.float32,
+                                   move_to=move_to, offload=offload),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=lambda d: None, offload=lambda: None),
+        te=None, te_cache_key=None,
+    )
+    ctx_extra = _MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=3,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[Image.new("RGB", (32, 32), (10, 20, 30))], keyframe_anchors=(0,),
+        audio_source="generate", decode=False,
+    )
+    ctx = GeneratorContext(quantity=2, input_seeds=[7, 8], extra=ctx_extra)
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    pipe.generate_one(ctx, 0, 7, progress)
+    pipe.generate_one(ctx, 1, 8, progress)
+
+    assert move_to.call_count == 1
+    assert offload.call_count == 1
 
 
 def test_generate_one_video_vae_offload_runs_only_when_placed_on_failure():
@@ -2844,6 +2996,33 @@ def test_build_ref2va_layout_still_places_the_video_vae_for_a_visual_reference()
     assert video_offload.call_count == 1
     assert audio_move_to.call_count == 0
     assert audio_offload.call_count == 0
+
+
+def test_build_ref2va_layout_places_the_video_vae_once_across_repeated_windows():
+    """Two windows sharing the SAME already-normalized reference
+    (`main.py`'s `_window_references` narrowing a whole-film pool per
+    window) -- the second window's cache hit must not move the video VAE
+    again."""
+    video_move_to, video_offload = Mock(), Mock()
+    audio_move_to, audio_offload = Mock(), Mock()
+    bundle = SimpleNamespace(
+        video_vae=SimpleNamespace(module=_RefVideoVae(), move_to=video_move_to, offload=video_offload),
+        audio_vae=SimpleNamespace(module=_RefAudioVae(), move_to=audio_move_to, offload=audio_offload),
+    )
+    c = _bare_ctx(bundle=bundle, num_latent_frames=2, latent_height=2, latent_width=2, num_audio_latents=2)
+    references = (_ref_image_media((4, 4)),)
+
+    GeneratorMinimaxH3Pipe._build_ref2va_layout(
+        c, references, torch.full((3,), TEXT_TAG, dtype=torch.long),
+        num_latent_frames=2, num_audio_latents=2, generator=torch.Generator().manual_seed(7),
+    )
+    GeneratorMinimaxH3Pipe._build_ref2va_layout(
+        c, references, torch.full((3,), TEXT_TAG, dtype=torch.long),
+        num_latent_frames=2, num_audio_latents=2, generator=torch.Generator().manual_seed(8),
+    )
+
+    assert video_move_to.call_count == 1
+    assert video_offload.call_count == 1
 
 
 def test_build_ref2va_layout_offload_runs_only_when_placed_on_failure():

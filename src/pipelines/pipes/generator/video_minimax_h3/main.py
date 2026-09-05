@@ -129,9 +129,12 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     MAX_REFERENCES,
     MAX_VIDEO_REFERENCES,
     ReferenceMedia,
+    VisualLatentCache,
+    keyframes_need_encode,
     normalize_references,
     prepare_keyframe_condition_rows,
     prepare_reference_conditioning,
+    visual_references_need_encode,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     CANVAS_MULTIPLE,
@@ -548,6 +551,21 @@ class _MiniMaxH3Ctx:
     source_frame_count: Optional[int] = None
     denoise: float = 1.0
     video_sigma_shift: float = VIDEO_SHIFT
+    # Request-local cache of clean, VAE-encoded visual keyframe/reference
+    # latents (conditioning.py's `VisualLatentCache`) -- one instance per
+    # request, released explicitly once every seed/window is done
+    # (`_release_reference_cache`) and on failure/cancellation via
+    # `release_gpu` below. Never shared across requests.
+    reference_cache: VisualLatentCache = field(default_factory=VisualLatentCache)
+
+    def release_gpu(self) -> None:
+        """Picked up by `BaseGeneratorPipe._release_gpu_on_error` on a failed
+        or cancelled generation -- drops this request's visual latent cache
+        so nothing outlives the request that built it (`VisualLatentCache`'s
+        own docstring). The success path releases it explicitly instead (see
+        `generate_one`/`_generate_director`), since that point is never
+        reached on this path."""
+        self.reference_cache.release()
 
 
 class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
@@ -1248,17 +1266,25 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
 
         One draw off `generator` per VISUAL reference (`prepare_reference_
         conditioning`'s own "one generator, three draws, in order" contract)
-        -- the caller must not have drawn its own video/audio noise yet.
+        -- the caller must not have drawn its own video/audio noise yet, and
+        this holds regardless of whether any reference's clean latent comes
+        from `c.reference_cache` (the cache only ever memoizes the clean,
+        pre-noise latent -- the augmentation draw always happens).
         Moves and offloads each VAE only when THIS reference set actually
         needs it: the video VAE when at least one reference is an image or
-        video (`prepare_reference_conditioning` never encodes through it for
-        an audio-only set -- reachable when a Director window's `reference_
-        indices` narrows a mixed pool down to its audio reference alone), the
-        audio VAE only when the set carries a soundtrack -- same as the
+        video AND would still need an actual encode for it -- a full house of
+        cache hits moves it no more than an audio-only set does
+        (`visual_references_need_encode`, extending that same placement gate
+        with the cache) -- the audio VAE only when the set carries a
+        soundtrack (never cached, unaffected by any of this) -- same as the
         single-window path this replaces did inline.
         """
         video_vae_module = _require_h3_video_vae(c.bundle.video_vae.module)
-        needs_video_vae = any(reference.kind != "audio" for reference in references)
+        weight_revision = getattr(c.bundle.video_vae, "effective_revision", None)
+        needs_video_vae = visual_references_need_encode(
+            references, cache=c.reference_cache, vae_module=video_vae_module, weight_revision=weight_revision,
+            latents_mean=video_vae_module.latents_mean, latents_std=video_vae_module.latents_std, device=c.device,
+        )
         needs_audio_vae = any(reference.has_audio for reference in references)
         if needs_video_vae:
             c.bundle.video_vae.move_to(c.device)
@@ -1270,7 +1296,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 audio_vae_module=c.bundle.audio_vae.module if needs_audio_vae else None,
                 patch_size=PATCH_SIZE, device=c.device, dtype=c.dtype,
                 latents_mean=video_vae_module.latents_mean, latents_std=video_vae_module.latents_std,
-                generator=generator,
+                generator=generator, cache=c.reference_cache, weight_revision=weight_revision,
             )
         finally:
             if needs_video_vae:
@@ -1356,13 +1382,23 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             )
         else:
             video_vae_module = _require_h3_video_vae(c.bundle.video_vae.module)
-            # Only `c.keyframe_images` drives an actual encoder forward here.
-            # An empty `keyframe_images` makes `prepare_keyframe_condition_rows`
-            # return its zero-row tensor without touching the module, and
-            # `_normalized_initial_latent`'s refine normalize below reads
-            # `latents_mean`/`latents_std` as plain buffers with its own
-            # `.to(device=...)` -- neither needs the module itself resident.
-            needs_video_encode = bool(c.keyframe_images)
+            weight_revision = getattr(c.bundle.video_vae, "effective_revision", None)
+            # Only `c.keyframe_images` drives an actual encoder forward here,
+            # and only when at least one of them would still need one -- a
+            # repeat keyframe already sitting in `c.reference_cache` (e.g. the
+            # same seed's second `quantity` output) needs the module no more
+            # than an empty `keyframe_images` does. An empty `keyframe_images`
+            # makes `prepare_keyframe_condition_rows` return its zero-row
+            # tensor without touching the module, and `_normalized_initial_
+            # latent`'s refine normalize below reads `latents_mean`/`latents_
+            # std` as plain buffers with its own `.to(device=...)` -- neither
+            # needs the module itself resident.
+            needs_video_encode = keyframes_need_encode(
+                c.keyframe_images, cache=c.reference_cache, height=c.height, width=c.width,
+                vae_module=video_vae_module, weight_revision=weight_revision,
+                latents_mean=video_vae_module.latents_mean, latents_std=video_vae_module.latents_std,
+                device=c.device,
+            )
             if needs_video_encode:
                 c.bundle.video_vae.move_to(c.device)
             try:
@@ -1370,7 +1406,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     c.keyframe_images, c.keyframe_anchors, vae_module=video_vae_module,
                     height=c.height, width=c.width, patch_size=PATCH_SIZE, device=c.device, dtype=c.dtype,
                     latents_mean=video_vae_module.latents_mean, latents_std=video_vae_module.latents_std,
-                    generator=gen,
+                    generator=gen, cache=c.reference_cache, weight_revision=weight_revision,
                 )
                 # Refine entry path (module docstring, "Refine entry path"): the
                 # exact inverse of `_decode_video`'s `* latents_std + latents_mean`.
@@ -1410,6 +1446,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         if not c.decode:
             if index == ctx.quantity - 1:
                 restore_dit_best_effort(c.bundle.dit, c.device)
+                c.reference_cache.release()
             return video_latent
 
         frames_np = self._decode_video(c, video_latent)
@@ -1424,6 +1461,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
 
         if index == ctx.quantity - 1:
             restore_dit_best_effort(c.bundle.dit, c.device)
+            c.reference_cache.release()
         return out_path
 
     # -- the one sampling loop both paths run ------------------------------
@@ -1818,6 +1856,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             )
 
         restore_dit_best_effort(c.bundle.dit, c.device)
+        c.reference_cache.release()
 
         if not plan.stitch:
             self._audio_results.extend(tracks)
@@ -1876,16 +1915,28 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         image_anchors = tuple(kf.latent_index for kf in window.keyframes)
         if images:
             video_vae_module = _require_h3_video_vae(c.bundle.video_vae.module)
-            c.bundle.video_vae.move_to(c.device)
+            weight_revision = getattr(c.bundle.video_vae, "effective_revision", None)
+            # Same cache-hit-avoids-placement rule as the single-window fl2va
+            # path (`generate_one`): a Director keyframe reused across
+            # windows (e.g. the same establishing shot placed twice) needs
+            # the video VAE no more than a fresh empty `images` does.
+            needs_video_encode = keyframes_need_encode(
+                images, cache=c.reference_cache, height=c.height, width=c.width, vae_module=video_vae_module,
+                weight_revision=weight_revision, latents_mean=video_vae_module.latents_mean,
+                latents_std=video_vae_module.latents_std, device=c.device,
+            )
+            if needs_video_encode:
+                c.bundle.video_vae.move_to(c.device)
             try:
                 rows.append(prepare_keyframe_condition_rows(
                     images, image_anchors, vae_module=video_vae_module,
                     height=c.height, width=c.width, patch_size=PATCH_SIZE, device=c.device, dtype=c.dtype,
                     latents_mean=video_vae_module.latents_mean, latents_std=video_vae_module.latents_std,
-                    generator=generator,
+                    generator=generator, cache=c.reference_cache, weight_revision=weight_revision,
                 ))
             finally:
-                c.bundle.video_vae.offload()
+                if needs_video_encode:
+                    c.bundle.video_vae.offload()
             anchors.extend(image_anchors)
 
         if not rows:

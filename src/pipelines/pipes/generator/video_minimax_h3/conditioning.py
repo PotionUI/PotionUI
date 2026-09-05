@@ -56,9 +56,11 @@ order" contract counts only the VISUAL references.
 
 from __future__ import annotations
 
+import hashlib
 import math
+from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import torch
@@ -246,10 +248,18 @@ def snap_reference_video_frames(
     return max(1, (num_frames - latents_per_chunk) // frames_per_chunk) * frames_per_chunk + latents_per_chunk
 
 
+def _pixels_from_array(image_hw3: np.ndarray, device: Any) -> Tensor:
+    """`(H, W, 3)` uint8 array -> `(1, 3, 1, H, W)` uint8-valued tensor -- the
+    ndarray-input counterpart of :func:`_pixels_from_image`, used by a caller
+    that already materialized the fitted pixels as an array to hash for the
+    visual latent cache key and does not want to convert twice."""
+    arr = torch.from_numpy(image_hw3.copy()).to(device)
+    return arr.permute(2, 0, 1)[None, :, None].contiguous()
+
+
 def _pixels_from_image(image: Image.Image, device: Any) -> Tensor:
     """PIL RGB image -> `(1, 3, 1, H, W)` uint8-valued float32 tensor."""
-    arr = torch.from_numpy(np.array(image.convert("RGB"))).to(device)
-    return arr.permute(2, 0, 1)[None, :, None].contiguous()
+    return _pixels_from_array(np.array(image.convert("RGB")), device)
 
 
 def _pixels_from_frames(frames: np.ndarray, device: Any) -> Tensor:
@@ -268,8 +278,20 @@ def _encode_dtype(vae_module: Any) -> torch.dtype:
     the ops layer casts each weight to whatever dtype the activation
     arrives in, so the choice must come from a parameter actually stored
     in floating point.
+
+    `vae_module.parameters` missing entirely (rather than merely empty)
+    falls back to `float32` too, same as no floating-point parameter being
+    found -- a real VAE module always has it; only a test double stood in for
+    one to keep an unrelated call path from touching the module at all can
+    lack it, and `visual_references_need_encode`/`keyframes_need_encode` (the
+    cache's pre-check, run over the SAME key-building path as the real
+    encode) must be able to call this on exactly those doubles without ever
+    reaching an actual `encode()`.
     """
-    for parameter in vae_module.parameters():
+    parameters = getattr(vae_module, "parameters", None)
+    if not callable(parameters):
+        return torch.float32
+    for parameter in parameters():
         if parameter.is_floating_point():
             return parameter.dtype
     return torch.float32
@@ -307,27 +329,289 @@ def encode_keyframe_condition(
     return (latent - lmean) / lstd
 
 
+# Bytes budget for the request-local `VisualLatentCache` below. Sized to hold a
+# full `MAX_REFERENCES` (12) reference set at `REFERENCE_IMAGE_SHORT_EDGE`'s
+# worst-case 1:4 aspect ratio in float32 with headroom left over for a handful
+# of Director windows layering distinct keyframes on top of that. A
+# pathological request that would exceed it does not grow the cache past this
+# -- entries are evicted LRU, and any single entry over the WHOLE budget skips
+# caching for that one (see `VisualLatentCache.put`), falling back to the
+# ordinary uncached encode every time it recurs.
+VISUAL_LATENT_CACHE_BUDGET_BYTES = 256 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class VisualLatentCacheKey:
+    """Everything that has to match for a cached clean visual condition
+    latent to be reusable for a DIFFERENT keyframe/reference occurrence.
+
+    `content_digest`/`shape` identify the fitted (post fit/snap) pixels
+    themselves; `fit_role`/`target_size`/`frame_selection` are the ADDITIONAL
+    context a byte-identical digest could not distinguish on its own (mostly
+    theoretical -- two different fits producing identical output bytes -- but
+    cheap to include and exactly what the fit step could vary); the rest pins
+    the VAE this would be re-encoded through: its identity and live weight
+    revision, the normalization buffers' identity, the dtype the encode ran
+    in and the device the result lives on.
+    """
+
+    content_digest: str
+    shape: tuple[int, ...]
+    fit_role: str
+    target_size: tuple[int, int]
+    frame_selection: tuple[int, ...]
+    vae_id: int
+    weight_revision: Any
+    latents_mean_id: int
+    latents_std_id: int
+    encode_dtype: str
+    device: str
+
+
+def _fitted_content_digest(pixels: np.ndarray) -> str:
+    """sha256 of `pixels`' raw bytes plus its shape/dtype header.
+
+    `pixels` must already be through the fit/snap step (`fit_keyframe_to_
+    canvas`/`normalize_reference_image`/`snap_reference_video_frames`) -- this
+    hashes whatever it is given, so handing it raw, un-fit media would key the
+    cache on content two different requests could share by coincidence while
+    still meaning two different fits.
+    """
+    contiguous = np.ascontiguousarray(pixels)
+    header = f"{contiguous.dtype}:{contiguous.shape}".encode("utf-8")
+    return hashlib.sha256(header + contiguous.tobytes()).hexdigest()
+
+
+def visual_latent_cache_key(
+    fitted_pixels: np.ndarray, *, fit_role: str, target_size: tuple[int, int], frame_selection: tuple[int, ...],
+    vae_module: Any, weight_revision: Any, latents_mean: Any, latents_std: Any, device: Any,
+) -> VisualLatentCacheKey:
+    """Build the :class:`VisualLatentCacheKey` for one already-fitted
+    keyframe/reference occurrence. See that class for what each field guards
+    against a false hit."""
+    return VisualLatentCacheKey(
+        content_digest=_fitted_content_digest(fitted_pixels),
+        shape=tuple(fitted_pixels.shape),
+        fit_role=fit_role,
+        target_size=tuple(target_size),
+        frame_selection=tuple(frame_selection),
+        vae_id=id(vae_module),
+        weight_revision=weight_revision,
+        latents_mean_id=id(latents_mean),
+        latents_std_id=id(latents_std),
+        encode_dtype=str(_encode_dtype(vae_module)),
+        device=str(device),
+    )
+
+
+class VisualLatentCache:
+    """Request-local LRU cache of clean, posterior-sampled, rounded and
+    normalized visual condition latents -- `encode_keyframe_condition`'s
+    output, memoized so repeating the SAME keyframe/reference within one
+    request (across `quantity` outputs, or across Director windows that share
+    a reference pool) does not re-run the VAE encoder for it.
+
+    Owned by one request (`_MiniMaxH3Ctx.reference_cache` in main.py), never
+    process-wide, and released with it (`release()`) on success, cancellation
+    or failure -- an instance that outlived its request would let one run's
+    fitted media alias a later, unrelated request's cache key collision odds
+    down to nothing, but the byte cost of holding it has no reason to survive
+    past the request that built it.
+
+    Entries are CPU clones, mirroring `PromptEmbedCache`/`embed_cache.py`: a
+    hit never pins GPU memory (the byte budget below is host RAM, not VRAM),
+    and a caller mutating its own copy cannot corrupt the entry. Only the
+    CLEAN latent is ever stored here -- the per-use noise augmentation
+    (`schedule.scale_noise`) and patchify run on EVERY use, hit or miss, off
+    the request's own generator, so a hit changes nothing about the
+    generator's draw count, order or resulting state.
+
+    Sized by RETAINED BYTES (`budget_bytes`), not entry count -- a keyframe at
+    the target canvas and a `ref2va` video reference's frame-stack latent
+    differ by two orders of magnitude, so a fixed entry cap would either waste
+    the budget on tiny keyframes or let a few large references exhaust it.
+    Eviction is deterministic LRU; a single entry whose own cost exceeds the
+    WHOLE budget is never stored at all (`oversize_skips`) -- it falls back to
+    the ordinary uncached path every time it recurs rather than evicting
+    everything else to make room for one entry that would immediately be the
+    next eviction target anyway.
+    """
+
+    def __init__(self, budget_bytes: int = VISUAL_LATENT_CACHE_BUDGET_BYTES) -> None:
+        self._budget = max(0, int(budget_bytes))
+        self._store: "OrderedDict[VisualLatentCacheKey, Tensor]" = OrderedDict()
+        self._bytes = 0
+        self.hits = 0
+        self.misses = 0
+        self.evictions = 0
+        self.oversize_skips = 0
+
+    @staticmethod
+    def _cost(tensor: Tensor) -> int:
+        return tensor.numel() * tensor.element_size()
+
+    def contains(self, key: VisualLatentCacheKey) -> bool:
+        """Membership check with no side effect -- no LRU touch, no hit/miss
+        counter movement. Used to decide whether a VAE still needs to be
+        placed on device BEFORE actually reading the cache for real (main.py's
+        `visual_references_need_encode`/`keyframes_need_encode`); counting
+        that peek as a hit would double-count against the real read that
+        follows it on the same key.
+        """
+        return key in self._store
+
+    def get_on_device(self, key: VisualLatentCacheKey, *, device: Any, dtype: torch.dtype) -> Optional[Tensor]:
+        """The cached latent for `key`, materialized fresh on `device`/`dtype`,
+        or `None` on a miss. Always a tensor the caller owns outright (mirrors
+        `embed_cache._to_device_tree`): `Tensor.to()` returns the SAME object
+        when no conversion is needed, so this clones in that case rather than
+        handing out a reference into the cache's own storage.
+        """
+        entry = self._store.get(key)
+        if entry is None:
+            self.misses += 1
+            return None
+        self._store.move_to_end(key)
+        self.hits += 1
+        moved = entry.to(device=device, dtype=dtype)
+        return moved.clone() if moved is entry else moved
+
+    def put(self, key: VisualLatentCacheKey, latent: Tensor) -> None:
+        """Store a CPU clone of `latent` under `key`, evicting LRU entries
+        until the budget is met. A `latent` whose own cost exceeds the whole
+        budget is skipped rather than stored (`oversize_skips`)."""
+        cpu_latent = latent.detach().to("cpu").clone()
+        cost = self._cost(cpu_latent)
+        if cost > self._budget:
+            self.oversize_skips += 1
+            return
+        if key in self._store:
+            self._bytes -= self._cost(self._store[key])
+        self._store[key] = cpu_latent
+        self._store.move_to_end(key)
+        self._bytes += cost
+        while self._bytes > self._budget and self._store:
+            _, evicted = self._store.popitem(last=False)
+            self._bytes -= self._cost(evicted)
+            self.evictions += 1
+
+    def release(self) -> None:
+        """Drop every entry. Called by the request that owns this cache on
+        success, cancellation and failure alike -- see this class's own
+        docstring for why an instance must never outlive its request."""
+        self._store.clear()
+        self._bytes = 0
+
+    @property
+    def retained_bytes(self) -> int:
+        return self._bytes
+
+    def __len__(self) -> int:
+        return len(self._store)
+
+
+def _encode_visual_latent(
+    cache: Optional[VisualLatentCache], cache_key: Optional[VisualLatentCacheKey],
+    vae_module: Any, pixels_uint8: Tensor, *, latents_mean: Any, latents_std: Any,
+) -> Tensor:
+    """`encode_keyframe_condition`, memoized in `cache` under `cache_key` when
+    both are given (`cache=None` -- no caller-supplied cache -- and
+    `cache_key=None` -- an audio reference, which never reaches here -- both
+    fall straight through to a plain encode).
+
+    A HIT never touches `vae_module` at all, which is what lets a caller
+    decide whether the video VAE needs to be resident BEFORE calling this
+    (`visual_references_need_encode`/`keyframes_need_encode` run this same
+    membership check up front, off the identical key-building path, so the
+    two can never disagree about which references are misses).
+    """
+    if cache is not None and cache_key is not None:
+        hit = cache.get_on_device(cache_key, device=pixels_uint8.device, dtype=torch.float32)
+        if hit is not None:
+            return hit
+    latent = encode_keyframe_condition(vae_module, pixels_uint8, latents_mean=latents_mean, latents_std=latents_std)
+    if cache is not None and cache_key is not None:
+        cache.put(cache_key, latent)
+    return latent
+
+
+def _keyframe_fit_role(index: int) -> str:
+    return "keyframe:anchor" if index == 0 else "keyframe:follower"
+
+
+def keyframe_visual_cache_key(
+    image: Image.Image, index: int, *, height: int, width: int, vae_module: Any, weight_revision: Any,
+    latents_mean: Any, latents_std: Any, device: Any,
+) -> VisualLatentCacheKey:
+    """The :class:`VisualLatentCacheKey` `prepare_keyframe_condition_rows`
+    would build for `keyframes[index]` -- shared with `keyframes_need_encode`
+    so the two can never disagree about which keyframes are misses."""
+    fitted = fit_keyframe_to_canvas(image, height, width, is_geometry_anchor=index == 0)
+    fitted_array = np.array(fitted.convert("RGB"))
+    return visual_latent_cache_key(
+        fitted_array, fit_role=_keyframe_fit_role(index), target_size=(height, width), frame_selection=(),
+        vae_module=vae_module, weight_revision=weight_revision,
+        latents_mean=latents_mean, latents_std=latents_std, device=device,
+    )
+
+
+def keyframes_need_encode(
+    keyframes: list, *, cache: Optional[VisualLatentCache], height: int, width: int, vae_module: Any,
+    weight_revision: Any, latents_mean: Any, latents_std: Any, device: Any,
+) -> bool:
+    """Whether at least one of `keyframes` would still need an actual VAE
+    encode -- a cache miss, or no cache at all. `keyframes=[]` needs none.
+    Mirrors `visual_references_need_encode`'s role for `ref2va` references:
+    a caller decides whether the video VAE has to be placed on device from
+    this, BEFORE `prepare_keyframe_condition_rows` runs."""
+    if not keyframes:
+        return False
+    if cache is None:
+        return True
+    for index, image in enumerate(keyframes):
+        key = keyframe_visual_cache_key(
+            image, index, height=height, width=width, vae_module=vae_module, weight_revision=weight_revision,
+            latents_mean=latents_mean, latents_std=latents_std, device=device,
+        )
+        if not cache.contains(key):
+            return True
+    return False
+
+
 def prepare_keyframe_condition_rows(
     keyframes: list, anchors: tuple, *, vae_module: Any, height: int, width: int,
     patch_size: tuple[int, int, int], device: Any, dtype: torch.dtype,
     latents_mean: Any, latents_std: Any, generator: torch.Generator,
+    cache: Optional[VisualLatentCache] = None, weight_revision: Any = None,
 ) -> Tensor:
-    """`fl2va` keyframes -> canvas-fit -> VAE-encode -> noise to `t =
-    KEYFRAME_NOISE_AUG` -> patchify -> concatenate, in packed (`keyframe_
-    anchors`) order.
+    """`fl2va` keyframes -> canvas-fit -> VAE-encode (memoized in `cache`,
+    when given) -> noise to `t = KEYFRAME_NOISE_AUG` -> patchify ->
+    concatenate, in packed (`keyframe_anchors`) order.
 
     One noise draw per condition from `generator`, in order -- callers MUST
     draw this BEFORE the request's own video/audio noise (dossier "One
     generator, three draws, in order: conditioning noise -> video noise ->
-    audio noise").  Returns an empty `(0, video_patch_dim)` tensor for
+    audio noise") -- drawn on EVERY keyframe regardless of a cache hit or
+    miss, so caching never changes the generator's draw count, order or
+    resulting state. Returns an empty `(0, video_patch_dim)` tensor for
     `keyframes=[]` (`t2va`, or an `fl2va` mode with no anchors resolved).
     """
     video_patch_dim = None
     rows: list[Tensor] = []
     for index, (image, _anchor) in enumerate(zip(keyframes, anchors)):
         fitted = fit_keyframe_to_canvas(image, height, width, is_geometry_anchor=index == 0)
-        pixels = _pixels_from_image(fitted, device)
-        latent = encode_keyframe_condition(vae_module, pixels, latents_mean=latents_mean, latents_std=latents_std)
+        fitted_array = np.array(fitted.convert("RGB"))
+        pixels = _pixels_from_array(fitted_array, device)
+        cache_key = None
+        if cache is not None:
+            cache_key = visual_latent_cache_key(
+                fitted_array, fit_role=_keyframe_fit_role(index), target_size=(height, width), frame_selection=(),
+                vae_module=vae_module, weight_revision=weight_revision,
+                latents_mean=latents_mean, latents_std=latents_std, device=device,
+            )
+        latent = _encode_visual_latent(
+            cache, cache_key, vae_module, pixels, latents_mean=latents_mean, latents_std=latents_std,
+        )
         noise = torch.randn(latent.shape, generator=generator, device=device, dtype=torch.float32)
         noised = scale_noise(latent, KEYFRAME_NOISE_AUG, noise)
         packed = patchify_video_latents(noised.to(dtype), patch_size)
@@ -391,15 +675,21 @@ def _empty_condition_rows(patch_size: tuple[int, int, int], device: Any, dtype: 
 def _encode_and_pack_visual_reference(
     vae_module: Any, pixels: Tensor, *, patch_size: tuple[int, int, int], device: Any, dtype: torch.dtype,
     latents_mean: Any, latents_std: Any, generator: torch.Generator,
+    cache: Optional[VisualLatentCache] = None, cache_key: Optional[VisualLatentCacheKey] = None,
 ) -> tuple[Tensor, Tensor]:
     """One visual reference (image OR video frame stack) -> its CLEAN
-    condition latent and its noised, patchified rows.
+    condition latent (memoized in `cache` under `cache_key`, when given) and
+    its noised, patchified rows.
 
     ONE draw off `generator`, whatever the reference's frame count -- the
     noise is drawn `latent.shape`-wide in a single call, so a video reference
-    consumes exactly as much generator state as an image one does.
+    consumes exactly as much generator state as an image one does. Drawn on
+    EVERY call regardless of a cache hit or miss, so caching never changes the
+    generator's draw count, order or resulting state.
     """
-    latent = encode_keyframe_condition(vae_module, pixels, latents_mean=latents_mean, latents_std=latents_std)
+    latent = _encode_visual_latent(
+        cache, cache_key, vae_module, pixels, latents_mean=latents_mean, latents_std=latents_std,
+    )
     noise = torch.randn(latent.shape, generator=generator, device=device, dtype=torch.float32)
     noised = scale_noise(latent, KEYFRAME_NOISE_AUG, noise)
     return latent, patchify_video_latents(noised.to(dtype), patch_size)
@@ -549,10 +839,77 @@ def normalize_references(
     return normalized
 
 
+def _reference_fit_signature(reference: ReferenceMedia) -> Optional[tuple[str, np.ndarray, tuple[int, int], tuple]]:
+    """`(fit_role, fitted_pixel_array, target_size, frame_selection)` for one
+    ALREADY-NORMALIZED visual reference -- the exact content `prepare_
+    reference_conditioning` would VAE-encode for it, computed WITHOUT
+    touching the VAE. `None` for an audio reference (nothing visual to
+    encode or cache).
+
+    Shared by the actual encode path and by `visual_references_need_encode`'s
+    pre-check so the two can never disagree about which references are
+    misses -- `prepare_reference_conditioning`'s own loop calls this too
+    rather than re-deriving the same fields inline.
+    """
+    if reference.kind == "image":
+        pixels = np.array(reference.image.convert("RGB"))
+        return "reference:image", pixels, (reference.image.height, reference.image.width), ()
+    if reference.kind == "video":
+        frames = np.asarray(reference.frames)
+        frames = frames[: snap_reference_video_frames(frames.shape[0])]
+        return "reference:video", frames, (frames.shape[1], frames.shape[2]), (frames.shape[0],)
+    return None
+
+
+def reference_visual_cache_key(
+    reference: ReferenceMedia, *, vae_module: Any, weight_revision: Any, latents_mean: Any, latents_std: Any,
+    device: Any,
+) -> Optional[VisualLatentCacheKey]:
+    """The :class:`VisualLatentCacheKey` `prepare_reference_conditioning`
+    would build for `reference`, or `None` for an audio reference."""
+    signature = _reference_fit_signature(reference)
+    if signature is None:
+        return None
+    fit_role, fitted_pixels, target_size, frame_selection = signature
+    return visual_latent_cache_key(
+        fitted_pixels, fit_role=fit_role, target_size=target_size, frame_selection=frame_selection,
+        vae_module=vae_module, weight_revision=weight_revision,
+        latents_mean=latents_mean, latents_std=latents_std, device=device,
+    )
+
+
+def visual_references_need_encode(
+    references: list[ReferenceMedia] | tuple[ReferenceMedia, ...], *, cache: Optional[VisualLatentCache],
+    vae_module: Any, weight_revision: Any, latents_mean: Any, latents_std: Any, device: Any,
+) -> bool:
+    """Whether at least one VISUAL (image/video) reference in `references`
+    would still need an actual VAE encode -- a cache miss, or no cache at
+    all. An audio-only (or empty) `references` needs none, same as today.
+
+    Used by main.py's `_build_ref2va_layout` to decide whether the video VAE
+    has to be placed on device before `prepare_reference_conditioning` runs
+    -- extends that placement gate: a reference set that hits in full needs
+    the video VAE no more than an audio-only one does.
+    """
+    for reference in references:
+        if reference.kind == "audio":
+            continue
+        if cache is None:
+            return True
+        key = reference_visual_cache_key(
+            reference, vae_module=vae_module, weight_revision=weight_revision,
+            latents_mean=latents_mean, latents_std=latents_std, device=device,
+        )
+        if key is None or not cache.contains(key):
+            return True
+    return False
+
+
 def prepare_reference_conditioning(
     references: list[ReferenceMedia] | tuple[ReferenceMedia, ...], *, vae_module: Any, audio_vae_module: Any = None,
     patch_size: tuple[int, int, int], device: Any, dtype: torch.dtype, latents_mean: Any, latents_std: Any,
     generator: torch.Generator, audio_channels: int = AUDIO_CHANNELS,
+    cache: Optional[VisualLatentCache] = None, weight_revision: Any = None,
 ) -> ReferenceConditioning:
     """Encode ALREADY-NORMALIZED `ref2va` references into everything the
     layout and the sampler need (`MiniMaxH3Ref2VAReferenceEncoderStep`).
@@ -561,19 +918,23 @@ def prepare_reference_conditioning(
     function does no fitting or resampling, it only encodes, so handing it
     raw media silently conditions on the wrong resolution and rate.
 
-    Visual references (image and video) are VAE-encoded, noise-augmented to
-    `t = KEYFRAME_NOISE_AUG` and patchified; a video's frame count is first
-    snapped down to `17 * n + 5` (:func:`snap_reference_video_frames`).
-    Soundtracks go through the AUDIO VAE clean, at `t = 1.0`, and are packed
-    channel-major -- `audio_vae_module` is required as soon as any reference
-    carries one.
+    Visual references (image and video) are VAE-encoded (memoized in `cache`,
+    when given), noise-augmented to `t = KEYFRAME_NOISE_AUG` and patchified;
+    a video's frame count is first snapped down to `17 * n + 5`
+    (:func:`snap_reference_video_frames`). Soundtracks go through the AUDIO
+    VAE clean, at `t = 1.0`, and are packed channel-major -- `audio_vae_
+    module` is required as soon as any reference carries one; a soundtrack is
+    never cached (out of this cache's scope -- see `VisualLatentCache`'s own
+    docstring).
 
     One noise draw per VISUAL reference off `generator`, in packed order --
     the same "one generator, three draws, in order: conditioning noise ->
     video noise -> audio noise" contract `prepare_keyframe_condition_rows`
     documents, and callers MUST draw this BEFORE the request's own video and
-    audio noise. A soundtrack draws nothing at all (the audio VAE returns the
-    posterior mean), so adding one to a request does not shift the video
+    audio noise -- on EVERY visual reference regardless of a cache hit or
+    miss, so caching never changes the generator's draw count, order or
+    resulting state. A soundtrack draws nothing at all (the audio VAE returns
+    the posterior mean), so adding one to a request does not shift the video
     noise that follows.
     """
     blocks: list[ReferenceBlock] = []
@@ -582,19 +943,24 @@ def prepare_reference_conditioning(
     packed_rows: list[Tensor] = []
 
     for reference in references:
-        if reference.kind == "image":
-            latent, packed = _encode_and_pack_visual_reference(
-                vae_module, _pixels_from_image(reference.image, device), patch_size=patch_size, device=device,
-                dtype=dtype, latents_mean=latents_mean, latents_std=latents_std, generator=generator,
+        signature = _reference_fit_signature(reference)
+        if signature is not None:
+            fit_role, fitted_pixels, target_size, frame_selection = signature
+            pixels_tensor = (
+                _pixels_from_array(fitted_pixels, device) if reference.kind == "image"
+                else _pixels_from_frames(fitted_pixels, device)
             )
-            condition_latents.append(latent)
-            packed_rows.append(packed)
-        elif reference.kind == "video":
-            frames = np.asarray(reference.frames)
-            frames = frames[: snap_reference_video_frames(frames.shape[0])]
+            cache_key = None
+            if cache is not None:
+                cache_key = visual_latent_cache_key(
+                    fitted_pixels, fit_role=fit_role, target_size=target_size, frame_selection=frame_selection,
+                    vae_module=vae_module, weight_revision=weight_revision,
+                    latents_mean=latents_mean, latents_std=latents_std, device=device,
+                )
             latent, packed = _encode_and_pack_visual_reference(
-                vae_module, _pixels_from_frames(frames, device), patch_size=patch_size, device=device,
+                vae_module, pixels_tensor, patch_size=patch_size, device=device,
                 dtype=dtype, latents_mean=latents_mean, latents_std=latents_std, generator=generator,
+                cache=cache, cache_key=cache_key,
             )
             condition_latents.append(latent)
             packed_rows.append(packed)

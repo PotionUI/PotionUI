@@ -678,3 +678,435 @@ def test_a_soundtrack_does_not_shift_the_generator_state_the_video_noise_reads()
     assert torch.equal(
         torch.randn(4, generator=without), torch.randn(4, generator=with_audio),
     )
+
+
+# -- VisualLatentCache: request-local memoization of the clean encode -------
+
+from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (  # noqa: E402
+    VisualLatentCache,
+    keyframes_need_encode,
+    prepare_keyframe_condition_rows,
+    visual_latent_cache_key,
+    visual_references_need_encode,
+)
+
+
+class _CountingVideoVae(_ChunkingFakeVideoVae):
+    """`_ChunkingFakeVideoVae` plus an `encode()` call counter."""
+
+    def __init__(self):
+        super().__init__()
+        self.encode_calls = 0
+
+    def encode(self, *args, **kwargs):
+        self.encode_calls += 1
+        return super().encode(*args, **kwargs)
+
+
+# The cache key's `latents_mean_id`/`latents_std_id` fields are OBJECT
+# identity (see `VisualLatentCacheKey`'s docstring) -- a real VAE module's
+# `latents_mean`/`latents_std` are stable attributes, the same object on
+# every access, but a test building `[0.0] * N` fresh per call would get a
+# NEW id() each time and defeat every cache hit below by construction. These
+# two are shared across a whole test the way a real module's buffers are.
+_SHARED_LATENTS_MEAN = [0.0] * LATENT_CHANNELS
+_SHARED_LATENTS_STD = [1.0] * LATENT_CHANNELS
+
+
+def _keyframe_kwargs(vae, *, cache=None, weight_revision=1, height=32, width=32, **overrides):
+    kwargs = dict(
+        vae_module=vae, height=height, width=width, patch_size=(1, 2, 2), device="cpu", dtype=torch.float32,
+        latents_mean=_SHARED_LATENTS_MEAN, latents_std=_SHARED_LATENTS_STD,
+        cache=cache, weight_revision=weight_revision,
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+def test_repeated_keyframe_encodes_once_across_two_calls_sharing_a_cache():
+    """Reproduces two `quantity` outputs of the same request: the SAME
+    keyframe, two DIFFERENT per-output generators."""
+    image = Image.new("RGB", (48, 32), (10, 20, 30))
+    vae = _CountingVideoVae()
+    cache = VisualLatentCache()
+
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(11), **_keyframe_kwargs(vae, cache=cache),
+    )
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(12), **_keyframe_kwargs(vae, cache=cache),
+    )
+
+    assert vae.encode_calls == 1
+
+
+def test_bite_check_without_a_cache_the_same_keyframe_encodes_every_time():
+    image = Image.new("RGB", (48, 32), (10, 20, 30))
+    vae = _CountingVideoVae()
+
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(11), **_keyframe_kwargs(vae, cache=None),
+    )
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(12), **_keyframe_kwargs(vae, cache=None),
+    )
+
+    assert vae.encode_calls == 2
+
+
+def test_a_shared_cache_never_changes_the_rows_either_output_would_get():
+    """The load-bearing correctness property: caching the clean latent must
+    not change what EITHER output renders, only how many times the encoder
+    runs to produce them."""
+    image = Image.new("RGB", (48, 32), (10, 20, 30))
+    seeds = [11, 12]
+
+    expected = [
+        prepare_keyframe_condition_rows(
+            [image], (0,), generator=torch.Generator().manual_seed(seed),
+            **_keyframe_kwargs(_ChunkingFakeVideoVae(), cache=None),
+        )
+        for seed in seeds
+    ]
+
+    cache = VisualLatentCache()
+    got = [
+        prepare_keyframe_condition_rows(
+            [image], (0,), generator=torch.Generator().manual_seed(seed),
+            **_keyframe_kwargs(_ChunkingFakeVideoVae(), cache=cache),
+        )
+        for seed in seeds
+    ]
+
+    for got_rows, expected_rows in zip(got, expected):
+        torch.testing.assert_close(got_rows, expected_rows, rtol=0, atol=0)
+
+
+def test_a_cache_hit_leaves_the_generators_later_draws_untouched():
+    """A HIT still has to draw the noise augmentation off the request
+    generator -- only `vae_module.encode` is skipped -- so the generator's
+    state right after conditioning must match the uncached path bit for
+    bit, and everything drawn after it (the video/audio noise) with it."""
+    image = Image.new("RGB", (48, 32), (10, 20, 30))
+
+    uncached_generator = torch.Generator().manual_seed(21)
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=uncached_generator, **_keyframe_kwargs(_ChunkingFakeVideoVae(), cache=None),
+    )
+    expected_tail = torch.randn(5, generator=uncached_generator)
+
+    cache = VisualLatentCache()
+    counting_vae = _CountingVideoVae()
+    # Prime the cache under a throwaway generator but through the SAME vae
+    # module OBJECT the "hit" call below reuses -- `vae_id` in the cache key
+    # is object identity (matching production: one `bundle.video_vae.module`
+    # object serves every call within a request), so priming through a
+    # DIFFERENT instance would never hit no matter how identical its class.
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(999),
+        **_keyframe_kwargs(counting_vae, cache=cache),
+    )
+    assert counting_vae.encode_calls == 1  # the priming call actually encoded
+
+    cached_generator = torch.Generator().manual_seed(21)
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=cached_generator, **_keyframe_kwargs(counting_vae, cache=cache),
+    )
+    got_tail = torch.randn(5, generator=cached_generator)
+
+    assert counting_vae.encode_calls == 1  # the second call was a pure hit
+    torch.testing.assert_close(got_tail, expected_tail, rtol=0, atol=0)
+
+
+def test_a_different_image_misses_the_cache():
+    vae = _CountingVideoVae()
+    cache = VisualLatentCache()
+    kwargs = _keyframe_kwargs(vae, cache=cache)
+
+    prepare_keyframe_condition_rows(
+        [Image.new("RGB", (48, 32), (1, 2, 3))], (0,), generator=torch.Generator().manual_seed(1), **kwargs,
+    )
+    prepare_keyframe_condition_rows(
+        [Image.new("RGB", (48, 32), (4, 5, 6))], (0,), generator=torch.Generator().manual_seed(1), **kwargs,
+    )
+
+    assert vae.encode_calls == 2
+
+
+def test_a_different_target_size_misses_the_cache():
+    image = Image.new("RGB", (48, 32), (1, 2, 3))
+    vae = _CountingVideoVae()
+    cache = VisualLatentCache()
+
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(1),
+        **_keyframe_kwargs(vae, cache=cache, height=32, width=32),
+    )
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(1),
+        **_keyframe_kwargs(vae, cache=cache, height=64, width=64),
+    )
+
+    assert vae.encode_calls == 2
+
+
+def test_a_different_weight_revision_misses_the_cache():
+    image = Image.new("RGB", (48, 32), (1, 2, 3))
+    vae = _CountingVideoVae()
+    cache = VisualLatentCache()
+
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(1),
+        **_keyframe_kwargs(vae, cache=cache, weight_revision=1),
+    )
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(1),
+        **_keyframe_kwargs(vae, cache=cache, weight_revision=2),
+    )
+
+    assert vae.encode_calls == 2
+
+
+def test_the_fit_role_distinguishes_an_anchor_from_a_follower_with_identical_pixels():
+    """A square image fit onto a square canvas: `fit_keyframe_to_canvas`'s
+    stretch (anchor) and cover-crop (follower) branches produce IDENTICAL
+    bytes here (nothing to crop), so only `fit_role` in the key -- not the
+    content digest -- can tell an anchor's encode apart from a follower's."""
+    image = Image.new("RGB", (32, 32), (1, 2, 3))
+    vae = _CountingVideoVae()
+    cache = VisualLatentCache()
+
+    prepare_keyframe_condition_rows(
+        [image, image], ("first", "last"), generator=torch.Generator().manual_seed(1),
+        **_keyframe_kwargs(vae, cache=cache, height=32, width=32),
+    )
+
+    assert vae.encode_calls == 2  # anchor and follower each miss independently
+
+
+def test_keyframes_need_encode_reports_a_miss_then_a_hit():
+    image = Image.new("RGB", (48, 32), (10, 20, 30))
+    vae = _ChunkingFakeVideoVae()
+    cache = VisualLatentCache()
+    gate_kwargs = dict(
+        cache=cache, height=32, width=32, vae_module=vae, weight_revision=1,
+        latents_mean=_SHARED_LATENTS_MEAN, latents_std=_SHARED_LATENTS_STD, device="cpu",
+    )
+
+    assert keyframes_need_encode([image], **gate_kwargs) is True
+    assert keyframes_need_encode([], **gate_kwargs) is False  # no keyframes -> nothing to encode
+
+    prepare_keyframe_condition_rows(
+        [image], (0,), generator=torch.Generator().manual_seed(1), **_keyframe_kwargs(vae, cache=cache),
+    )
+
+    assert keyframes_need_encode([image], **gate_kwargs) is False  # now cached
+    assert keyframes_need_encode([image], cache=None, **{k: v for k, v in gate_kwargs.items() if k != "cache"}) is True
+
+
+# -- VisualLatentCache used through prepare_reference_conditioning ----------
+
+
+def _ref_encode_kwargs(**overrides):
+    """`_encode_kwargs`, pinned to the SAME shared `latents_mean`/
+    `latents_std` objects `_keyframe_kwargs` uses -- see
+    `_SHARED_LATENTS_MEAN`'s docstring for why the object identity has to be
+    stable across the calls a cache-hit test makes."""
+    kwargs = dict(latents_mean=_SHARED_LATENTS_MEAN, latents_std=_SHARED_LATENTS_STD)
+    kwargs.update(overrides)
+    return _encode_kwargs(**kwargs)
+
+
+def test_repeated_image_reference_encodes_once_across_two_calls_sharing_a_cache():
+    reference = ReferenceMedia(kind="image", image=Image.new("RGB", (32, 32), (7, 8, 9)))
+    vae = _CountingVideoVae()
+    cache = VisualLatentCache()
+
+    prepare_reference_conditioning(
+        [reference], vae_module=vae, cache=cache, weight_revision=1,
+        **_ref_encode_kwargs(generator=torch.Generator().manual_seed(1)),
+    )
+    prepare_reference_conditioning(
+        [reference], vae_module=vae, cache=cache, weight_revision=1,
+        **_ref_encode_kwargs(generator=torch.Generator().manual_seed(2)),
+    )
+
+    assert vae.encode_calls == 1
+
+
+def test_repeated_video_reference_encodes_once_across_director_style_windows():
+    """Mirrors two Director windows sharing the same reference pool
+    (`main.py`'s `_window_references`/`_build_ref2va_layout`): the SAME
+    already-normalized video reference, encoded through two independent
+    `prepare_reference_conditioning` calls."""
+    reference = ReferenceMedia(kind="video", frames=_frames(22, height=8, width=8), fps=24.0)
+    vae = _CountingVideoVae()
+    cache = VisualLatentCache()
+
+    prepare_reference_conditioning(
+        [reference], vae_module=vae, cache=cache, weight_revision=1,
+        **_ref_encode_kwargs(generator=torch.Generator().manual_seed(1)),
+    )
+    prepare_reference_conditioning(
+        [reference], vae_module=vae, cache=cache, weight_revision=1,
+        **_ref_encode_kwargs(generator=torch.Generator().manual_seed(2)),
+    )
+
+    assert vae.encode_calls == 1
+
+
+def test_a_reference_cache_hit_reproduces_the_uncached_condition_rows():
+    reference = ReferenceMedia(kind="image", image=Image.new("RGB", (32, 32), (7, 8, 9)))
+
+    expected = prepare_reference_conditioning(
+        [reference], vae_module=_FakeVideoVae(), **_ref_encode_kwargs(generator=torch.Generator().manual_seed(3)),
+    )
+
+    cache = VisualLatentCache()
+    counting_vae = _CountingVideoVae()
+    # Priming and the "hit" call below share the SAME vae module object --
+    # `vae_id` in the cache key is object identity (matching production: one
+    # `bundle.video_vae.module` object serves every call within a request).
+    prepare_reference_conditioning(
+        [reference], vae_module=counting_vae, cache=cache, weight_revision=1,
+        **_ref_encode_kwargs(generator=torch.Generator().manual_seed(999)),
+    )
+    assert counting_vae.encode_calls == 1  # the priming call actually encoded
+
+    got = prepare_reference_conditioning(
+        [reference], vae_module=counting_vae, cache=cache, weight_revision=1,
+        **_ref_encode_kwargs(generator=torch.Generator().manual_seed(3)),
+    )
+
+    assert counting_vae.encode_calls == 1  # the second call was a pure hit
+    torch.testing.assert_close(got.condition_rows, expected.condition_rows, rtol=0, atol=0)
+
+
+def test_a_different_reference_content_misses_the_cache():
+    vae = _CountingVideoVae()
+    cache = VisualLatentCache()
+    kwargs = dict(vae_module=vae, cache=cache, weight_revision=1, **_ref_encode_kwargs())
+
+    prepare_reference_conditioning([ReferenceMedia(kind="image", image=Image.new("RGB", (32, 32), (1, 1, 1)))], **kwargs)
+    prepare_reference_conditioning([ReferenceMedia(kind="image", image=Image.new("RGB", (32, 32), (2, 2, 2)))], **kwargs)
+
+    assert vae.encode_calls == 2
+
+
+def test_a_different_frame_selection_misses_the_cache():
+    """The same first 22 frames of one clip, snapped to two DIFFERENT
+    reference-video frame counts, must not alias -- even though they share a
+    common prefix of pixel bytes."""
+    base_frames = _frames(39, height=8, width=8)
+    vae = _CountingVideoVae()
+    cache = VisualLatentCache()
+    kwargs = dict(vae_module=vae, cache=cache, weight_revision=1, **_ref_encode_kwargs())
+
+    prepare_reference_conditioning(
+        [ReferenceMedia(kind="video", frames=base_frames[:22], fps=24.0)], **kwargs,
+    )
+    prepare_reference_conditioning(
+        [ReferenceMedia(kind="video", frames=base_frames[:39], fps=24.0)], **kwargs,
+    )
+
+    assert vae.encode_calls == 2
+
+
+def test_visual_references_need_encode_reports_a_miss_then_a_hit():
+    reference = ReferenceMedia(kind="image", image=Image.new("RGB", (32, 32), (7, 8, 9)))
+    vae = _ChunkingFakeVideoVae()
+    cache = VisualLatentCache()
+    gate_kwargs = dict(
+        cache=cache, vae_module=vae, weight_revision=1,
+        latents_mean=_SHARED_LATENTS_MEAN, latents_std=_SHARED_LATENTS_STD, device="cpu",
+    )
+
+    assert visual_references_need_encode([reference], **gate_kwargs) is True
+    assert visual_references_need_encode(
+        [ReferenceMedia(kind="audio", audio=_waveform(0.1))], **gate_kwargs,
+    ) is False  # audio-only: nothing visual to encode, cache or no cache
+
+    prepare_reference_conditioning(
+        [reference], vae_module=vae, cache=cache, weight_revision=1,
+        **_ref_encode_kwargs(generator=torch.Generator().manual_seed(1)),
+    )
+
+    assert visual_references_need_encode([reference], **gate_kwargs) is False  # now cached
+
+
+# -- VisualLatentCache: budget, eviction, oversize skip, release ------------
+
+
+def test_a_cache_hit_returns_a_tensor_the_caller_owns_outright():
+    """`get_on_device` must never hand back a live reference into the
+    cache's own storage -- mutating the caller's copy in place must not
+    corrupt the entry a later hit reads."""
+    key = visual_latent_cache_key(
+        _frames(1, height=2, width=2)[0], fit_role="keyframe:anchor", target_size=(2, 2), frame_selection=(),
+        vae_module=object(), weight_revision=1, latents_mean=[0.0], latents_std=[1.0], device="cpu",
+    )
+    cache = VisualLatentCache()
+    cache.put(key, torch.ones(1, 4, 1, 2, 2))
+
+    got = cache.get_on_device(key, device="cpu", dtype=torch.float32)
+    got.add_(1.0)
+
+    got_again = cache.get_on_device(key, device="cpu", dtype=torch.float32)
+    assert torch.equal(got_again, torch.ones(1, 4, 1, 2, 2))
+
+
+def test_budget_eviction_is_lru_and_deterministic():
+    entry = torch.zeros(1, 4, 1, 2, 2)  # 4*1*2*2*4 bytes = 128 bytes
+    cost = entry.numel() * entry.element_size()
+    cache = VisualLatentCache(budget_bytes=cost * 2)  # room for exactly two entries
+
+    def _key(tag):
+        return visual_latent_cache_key(
+            np.array([[tag]], dtype=np.uint8), fit_role="keyframe:anchor", target_size=(2, 2), frame_selection=(),
+            vae_module=object(), weight_revision=1, latents_mean=[0.0], latents_std=[1.0], device="cpu",
+        )
+
+    key_a, key_b, key_c = _key(1), _key(2), _key(3)
+    cache.put(key_a, entry)
+    cache.put(key_b, entry)
+    cache.get_on_device(key_a, device="cpu", dtype=torch.float32)  # touch A -> B is now the LRU one
+    cache.put(key_c, entry)  # over budget -> evicts the LRU entry (B), not A
+
+    assert cache.contains(key_a) is True
+    assert cache.contains(key_b) is False
+    assert cache.contains(key_c) is True
+    assert cache.evictions == 1
+    assert cache.retained_bytes == cost * 2
+
+
+def test_an_oversize_entry_is_skipped_not_evicted_around():
+    entry = torch.zeros(1, 4, 1, 2, 2)
+    cost = entry.numel() * entry.element_size()
+    cache = VisualLatentCache(budget_bytes=cost - 1)  # smaller than a single entry
+    key = visual_latent_cache_key(
+        np.zeros((2, 2), dtype=np.uint8), fit_role="keyframe:anchor", target_size=(2, 2), frame_selection=(),
+        vae_module=object(), weight_revision=1, latents_mean=[0.0], latents_std=[1.0], device="cpu",
+    )
+
+    cache.put(key, entry)
+
+    assert cache.contains(key) is False
+    assert cache.oversize_skips == 1
+    assert cache.retained_bytes == 0
+
+
+def test_release_drops_every_entry():
+    entry = torch.zeros(1, 4, 1, 2, 2)
+    cache = VisualLatentCache()
+    key = visual_latent_cache_key(
+        np.zeros((2, 2), dtype=np.uint8), fit_role="keyframe:anchor", target_size=(2, 2), frame_selection=(),
+        vae_module=object(), weight_revision=1, latents_mean=[0.0], latents_std=[1.0], device="cpu",
+    )
+    cache.put(key, entry)
+    assert cache.contains(key) is True
+
+    cache.release()
+
+    assert cache.contains(key) is False
+    assert cache.retained_bytes == 0
+    assert len(cache) == 0

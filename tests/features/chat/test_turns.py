@@ -459,6 +459,41 @@ class TestSubscriberPreloadAndEssentialBounding:
         assert len(json.dumps(live_tool_end)) < len(json.dumps({"event": "tool_end", "data": {"tool_name": "search", "success": True, "preview": big_preview}}))
 
     @pytest.mark.asyncio
+    async def test_oversized_single_token_event_is_bounded_like_an_essential_one(self):
+        """The buffered prompt-tools path (execute_with_tools_stream in
+        src/features/llm/tools/executor.py) emits an entire completion as ONE
+        `token` event, not many small deltas — "compactable" must not be
+        confused with "individually small". A single such event over the
+        byte budget must be bounded exactly like an oversized essential
+        event, for both live delivery and replay retention, never left to
+        blow a slow subscriber's queue on its own."""
+        registry = ChatTurnRegistry(max_essential_event_bytes=100)
+        huge_reply = "The full answer. " * 500  # far past the 100-byte budget
+
+        async def factory_gen():
+            yield {"event": "token", "data": {"content": huge_reply}}  # the exact executor.py shape
+            await asyncio.sleep(0)  # deterministic handoff, see other tests' pattern
+            yield {"event": "done", "data": {"full_content": huge_reply}}
+
+        turn = registry.start("s1", "u1", factory_gen)
+
+        stream = turn.stream()
+        live_first = await stream.__anext__()
+        assert live_first["event"] == "token"
+        assert live_first["data"]["truncated"] is True
+        assert live_first["data"]["content"] != huge_reply  # bounded, not the full reply
+        assert huge_reply not in live_first["data"]["preview"]
+        assert live_first["data"]["content_bytes"] > 100
+
+        remaining = [ev async for ev in stream]
+        await asyncio.wait_for(turn.done.wait(), timeout=2)
+        assert remaining[-1]["event"] == "done"
+
+        retained_token = next(e for e in turn.events if e["event"] == "token")
+        assert retained_token["data"]["truncated"] is True
+        assert len(json.dumps(retained_token)) < len(json.dumps({"event": "token", "data": {"content": huge_reply}}))
+
+    @pytest.mark.asyncio
     async def test_essential_only_backlog_folds_oldest_keeps_newest(self):
         """With no compactable events at all, an essential-only backlog past
         the count cap folds its oldest entries into the snapshot marker

@@ -9,14 +9,18 @@ import {
 	applyTitle,
 	applyReplaySnapshot,
 	applyDurableRecovery,
+	settleUnrecoverable,
 	needsDurableRecovery,
 	findTurnAssistantMessage,
 	isRecoveryStillCurrent,
+	finishTurnIfCurrent,
 	mergeTraceTimeline,
 	hydrateTraceSteps,
 	formatContextLedgerSummary,
 	sumMemoryDropped
 } from './chatStream';
+import { chatSession } from '$lib/stores/chatSession';
+import { get } from 'svelte/store';
 import type { UnifiedChatMessageData, BehaviorTraceManifest, ContextLedger } from '$lib/types/chat';
 
 function fixture(): UnifiedChatMessageData[] {
@@ -595,6 +599,110 @@ describe('applyDurableRecovery', () => {
 	});
 });
 
+describe('settleUnrecoverable', () => {
+	it('retains existing content, clears isStreaming, and sets isPartial', () => {
+		const msgs: UnifiedChatMessageData[] = [
+			{ id: 'u1', role: 'user', content: 'q', timestamp: 1 },
+			{ role: 'assistant', content: 'a truncated preview...', timestamp: 2, isStreaming: true }
+		];
+		const out = settleUnrecoverable(msgs);
+		expect(out[1].content).toBe('a truncated preview...');
+		expect(out[1].isStreaming).toBe(false);
+		expect(out[1].isPartial).toBe(true);
+	});
+
+	it('never deletes the message, even with no content at all', () => {
+		const msgs: UnifiedChatMessageData[] = [
+			{ id: 'u1', role: 'user', content: 'q', timestamp: 1 },
+			{ role: 'assistant', content: '', timestamp: 2, isStreaming: true }
+		];
+		const out = settleUnrecoverable(msgs);
+		expect(out).toHaveLength(2);
+		expect(out[1].content).toBe('');
+		expect(out[1].isPartial).toBe(true);
+	});
+
+	it('is a no-op when the last message is not an assistant message', () => {
+		const msgs: UnifiedChatMessageData[] = [{ role: 'user', content: 'a', timestamp: 1 }];
+		expect(settleUnrecoverable(msgs)).toBe(msgs);
+	});
+});
+
+describe('finishTurnIfCurrent (against the real chatSession store)', () => {
+	// Drives the ACTUAL chatSession singleton through beginTurn/patch/
+	// addMessage the way the two real controllers (reattachToTurn, the
+	// live-send path) do, then calls finishTurnIfCurrent exactly as they do
+	// in their finally blocks — this is the real store, not a fake.
+	beforeEach(() => {
+		chatSession.reset();
+	});
+
+	it('applies the cleanup when the session/turn captured at start is still current', () => {
+		const turnSeq = chatSession.beginTurn();
+		chatSession.patch({ sessionId: 'sA', isGenerating: true });
+		chatSession.addMessage({ role: 'assistant', content: '', timestamp: 1, isStreaming: true });
+
+		const applied = finishTurnIfCurrent(chatSession, { sessionId: 'sA', turnSeq }, (msgs) =>
+			msgs.filter((m) => !(m.role === 'assistant' && m.isStreaming && !m.content))
+		);
+
+		expect(applied).toBe(true);
+		const state = get(chatSession);
+		expect(state.isGenerating).toBe(false);
+		expect(state.messages).toHaveLength(0); // the empty placeholder was dropped
+	});
+
+	it('drops the cleanup untouched once a DIFFERENT session has since started its own turn', () => {
+		// Controller A starts, captures its identity...
+		const turnSeqA = chatSession.beginTurn();
+		const capturedA = { sessionId: 'sA', turnSeq: turnSeqA };
+		chatSession.patch({ sessionId: 'sA', isGenerating: true });
+		chatSession.addMessage({ role: 'assistant', content: '', timestamp: 1, isStreaming: true });
+
+		// ...then, while A's request is still in flight, the user switches to
+		// session B and B starts its own turn with its own placeholder.
+		chatSession.beginTurn();
+		chatSession.patch({ sessionId: 'sB', isGenerating: true, error: '' });
+		chatSession.addMessage({ role: 'assistant', content: '', timestamp: 2, isStreaming: true });
+
+		// A's delayed controller now resolves and runs its finally block.
+		const applied = finishTurnIfCurrent(chatSession, capturedA, (msgs) =>
+			msgs.filter((m) => !(m.role === 'assistant' && m.isStreaming && !m.content))
+		);
+
+		expect(applied).toBe(false);
+		const state = get(chatSession);
+		// B's session, generating flag, and placeholder are all untouched.
+		expect(state.sessionId).toBe('sB');
+		expect(state.isGenerating).toBe(true);
+		// Both placeholders survive: A's dropped cleanup never ran, so it
+		// never removed A's own placeholder, let alone B's.
+		expect(state.messages).toHaveLength(2);
+	});
+
+	it('drops the cleanup once a NEWER turn has started in the SAME session', () => {
+		const turnSeqA = chatSession.beginTurn();
+		const capturedA = { sessionId: 'sA', turnSeq: turnSeqA };
+		chatSession.patch({ sessionId: 'sA', isGenerating: true });
+		chatSession.addMessage({ role: 'assistant', content: '', timestamp: 1, isStreaming: true });
+
+		// A user resent (or reattached again) in the SAME session before A's
+		// original controller resolved.
+		chatSession.beginTurn();
+		chatSession.patch({ isGenerating: true });
+		chatSession.addMessage({ role: 'assistant', content: '', timestamp: 2, isStreaming: true });
+
+		const applied = finishTurnIfCurrent(chatSession, capturedA, (msgs) =>
+			msgs.filter((m) => !(m.role === 'assistant' && m.isStreaming && !m.content))
+		);
+
+		expect(applied).toBe(false);
+		const state = get(chatSession);
+		expect(state.isGenerating).toBe(true);
+		expect(state.messages).toHaveLength(2); // neither placeholder was dropped
+	});
+});
+
 describe('formatContextLedgerSummary', () => {
 	it('renders the compact per-component breakdown with a total', () => {
 		const ledger: ContextLedger = {
@@ -932,9 +1040,12 @@ describe('recoverDurableMessage orchestration: identity matching, truncation, an
 			};
 		}
 
+		// No durable answer for THIS turn: settle it as a stopped, visibly
+		// incomplete response (content retained, isStreaming cleared,
+		// isPartial set) rather than leaving it looking live forever.
 		return {
-			messages,
-			error: opts.currentError || 'Could not confirm the full reply — it may be incomplete.',
+			messages: settleUnrecoverable(messages),
+			error: opts.currentError || 'The full reply could not be recovered.',
 			published: false
 		};
 	}
@@ -963,10 +1074,14 @@ describe('recoverDurableMessage orchestration: identity matching, truncation, an
 		});
 
 		expect(result.published).toBe(false);
-		// Untouched — specifically NOT replaced with the old, unrelated answer.
+		// Settled, not substituted: content retained (specifically NOT the
+		// old, unrelated answer), no longer looking live, still flagged
+		// incomplete.
 		expect(result.messages[1].content).toBe('partial snapshot text');
 		expect(result.messages[1].id).toBeUndefined();
-		expect(result.error).toBe('Could not confirm the full reply — it may be incomplete.');
+		expect(result.messages[1].isStreaming).toBe(false);
+		expect(result.messages[1].isPartial).toBe(true);
+		expect(result.error).toBe('The full reply could not be recovered.');
 	});
 
 	it('preserves a more specific error already shown instead of overwriting it with the generic one', () => {
@@ -1017,6 +1132,39 @@ describe('recoverDurableMessage orchestration: identity matching, truncation, an
 		// the message — tool_executions come from the durable record.
 		expect(result.messages[1].tool_executions).toEqual(persistedToolExecutions);
 		expect(result.messages[1].isPartial).toBe(false);
+	});
+
+	it('marks partial and recovers when the buffered-tools single huge `token` event arrives truncated', () => {
+		// The exact shape execute_with_tools_stream emits for a Completed
+		// reply (src/features/llm/tools/executor.py): one `token` event
+		// carrying the WHOLE completion. turns.py bounds it past the byte cap
+		// exactly like an oversized essential event — the client must react
+		// to it the same way too, regardless of event type.
+		let partial = false;
+		const hugeTokenEvent = {
+			type: 'token',
+			data: { truncated: true, content: 'The full answer. The full …', content_bytes: 9001 }
+		};
+		if (hugeTokenEvent.data.truncated) partial = true;
+		// A token event is never itself a recovery trigger (only done/error/
+		// no_active_turn are) — but it must leave `partial` set so the
+		// terminal event that follows recovers.
+		expect(needsDurableRecovery('token', partial)).toBe(false);
+		expect(needsDurableRecovery('done', partial)).toBe(true);
+
+		const sessionMessages = [
+			{ id: 'u1', role: 'user', content: 'current question' },
+			{ id: 'a1', role: 'assistant', content: 'The full answer, restored in full from the database.' }
+		];
+		const result = simulateRecovery(streamingPlaceholder(), {
+			sessionMessages,
+			userMessageId: 'u1',
+			current: { sessionId: 's1', turnSeq: 1 },
+			expected: { sessionId: 's1', turnSeq: 1 },
+			currentError: ''
+		});
+		expect(result.published).toBe(true);
+		expect(result.messages[1].content).toBe('The full answer, restored in full from the database.');
 	});
 
 	it('drops a delayed recovery once a different session now owns the UI', () => {

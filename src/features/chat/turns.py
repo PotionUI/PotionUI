@@ -27,15 +27,22 @@ re-derivable ones) are dropped and replaced by a single ``replay_snapshot``
 marker carrying the concatenated text of the dropped token deltas (itself
 capped at ``_MAX_SNAPSHOT_TEXT_CHARS``) and a sequence cursor. Essential events
 — tool calls/results, terminal outcomes, message/title events — are never
-compacted away *by choice*, but they are still bounded two ways so the cap
-holds for every event class, not just the compactable ones: a single essential
-event whose own payload exceeds ``max_essential_event_bytes`` is bounded once
-into a small truncated reference (same type/seq, a short preview, ``truncated:
-True``) and that same bounded copy goes to every live subscriber as well as
-the replay buffer — a live subscriber's queue is only byte-bounded if what's
-pushed into it is bounded, so this can't be "replay-only"; a live subscriber
-that gets the truncated stand-in recovers the full payload the same way a
-reconnecting one does, through the durable persistence path. And if essential
+compacted away *by choice*, but every event, compactable or not, is still
+bounded by a per-event byte budget (``max_essential_event_bytes``) so the cap
+holds for every event class: a "compactable" type is only exempt from the
+*aggregate* buffer cap by being droppable in bulk once the buffer is over
+budget, which says nothing about any ONE event's own size — the buffered
+prompt-tools path can hand back an entire reply as a single ``token`` event
+(see ``execute_with_tools_stream`` in ``src/features/llm/tools/executor.py``),
+so a long ordinary answer must be bounded the same way an oversized tool
+result is. A single event over that budget is bounded once into a small
+truncated reference (same type/seq, a short preview, a ``content_bytes``
+hint, ``truncated: True``) and that same bounded copy goes to every live
+subscriber as well as the replay buffer — a live subscriber's queue is only
+byte-bounded if what's pushed into it is bounded, so this can't be
+"replay-only"; a live subscriber that gets the truncated stand-in recovers
+the full payload the same way a reconnecting one does, through the durable
+persistence path. And if essential
 events alone still exceed the caps (no compactable event left to drop), the
 oldest ones are folded into the same ``replay_snapshot`` marker as a
 ``dropped_essential_count``/``dropped_essential_seq_range`` pair instead of
@@ -195,37 +202,58 @@ class ChatTurn:
         except (TypeError, ValueError):
             return 0
 
-    def _truncate_essential_event(self, event: dict) -> dict:
-        """The bounded stand-in for an oversized essential event.
+    def _truncate_event(self, event: dict) -> dict:
+        """The bounded stand-in for an event whose payload exceeds the
+        per-event byte budget — essential or compactable, same treatment.
 
         Used for BOTH the replay buffer and live delivery (see ``_emit``) — a
         per-event byte cap only bounds a subscriber's queue if the same
-        bounded copy is what actually gets pushed into it.
+        bounded copy is what actually gets pushed into it. Carries a
+        ``content_bytes`` hint (the original payload's serialized size) so a
+        client can tell how much was cut, on top of ``truncated: True`` and a
+        short ``preview``.
+
+        A truncated ``token`` event's preview is also mirrored into
+        ``content`` — the only field ``_fold_event`` reads for a token when
+        later folding it into a ``replay_snapshot`` marker's ``text_so_far``;
+        without it, a truncated token surviving into that fold would
+        contribute nothing instead of a redacted preview.
         """
+        event_type = event.get("event")
         data = event.get("data") or {}
+        if event_type == "token" and isinstance(data.get("content"), str):
+            raw = data["content"]
+        else:
+            try:
+                raw = json.dumps(data)
+            except (TypeError, ValueError):
+                raw = str(data)
         preview = {k: data[k] for k in _ESSENTIAL_PREVIEW_KEYS if k in data}
-        try:
-            raw = json.dumps(data)
-        except (TypeError, ValueError):
-            raw = str(data)
         preview["preview"] = raw[:_ESSENTIAL_PREVIEW_CHARS]
         preview["truncated"] = True
-        return {"event": event.get("event"), "seq": event.get("seq"), "data": preview}
+        preview["content_bytes"] = self._event_size(event)
+        if event_type == "token":
+            preview["content"] = preview["preview"]
+        return {"event": event_type, "seq": event.get("seq"), "data": preview}
 
     def _prepare_for_retention(self, event: dict) -> dict:
         """The bounded version of `event` — used for both replay storage and
         live delivery (see ``_emit``).
 
-        Compactable events pass through as-is (compaction may drop them
-        later, but they're never individually oversized in practice); an
-        oversized essential event becomes a truncated reference so one huge
-        tool result/done payload can't blow the byte cap on the shared buffer
-        OR on a single subscriber's queue.
+        The per-event byte budget (``max_essential_event_bytes``) applies to
+        EVERY event type, not just essential ones: the buffered prompt-tools
+        path can emit an entire completion as a single ``token`` event (see
+        ``execute_with_tools_stream`` in
+        ``src/features/llm/tools/executor.py``), so "compactable" and
+        "individually small" are not the same guarantee — a long ordinary
+        reply must not bypass the slow-subscriber byte bound just because
+        it's one big token instead of a big tool result. Compaction's OWN
+        aggregate handling of small tokens (dropping the oldest ones once the
+        buffer is over cap) is unaffected — this only catches a single event
+        too large to ever retain in full, before compaction even runs.
         """
-        if event.get("event") in _COMPACTABLE_EVENT_TYPES:
-            return event
         if self._event_size(event) > self._max_essential_event_bytes:
-            return self._truncate_essential_event(event)
+            return self._truncate_event(event)
         return event
 
     def _emit(self, event: dict) -> None:

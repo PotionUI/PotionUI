@@ -6,6 +6,7 @@
  * Every reducer takes the current message list and returns a NEW list
  * (never mutates), matching Svelte's reassignment-based reactivity.
  */
+import { get, type Readable } from 'svelte/store';
 import type {
 	UnifiedChatMessageData,
 	ToolExecution,
@@ -417,6 +418,42 @@ export function isRecoveryStillCurrent(
 	return current.sessionId === expected.sessionId && current.turnSeq === expected.turnSeq;
 }
 
+/** The subset of the chatSession store's own interface a controller's
+ * terminal cleanup needs — kept minimal so this is testable against a fake
+ * store as well as the real `chatSession` singleton. */
+export interface TurnFinishableStore extends Readable<{ sessionId: string | null; turnSeq: number }> {
+	updateMessages(fn: (messages: UnifiedChatMessageData[]) => UnifiedChatMessageData[]): void;
+	patch(partial: { isGenerating?: boolean }): void;
+}
+
+/**
+ * A controller's (live-send or reattach) terminal cleanup — but only if the
+ * turn it was controlling is still the one the store is showing.
+ *
+ * Every controller runs at least one `await` (the whole streamed request);
+ * by the time it settles, the user can have switched sessions or started a
+ * newer turn in the SAME session (reattachToTurn's own placeholder cleanup
+ * racing a fresh send is the concrete case this closes). Running the cleanup
+ * unconditionally would then retire state that belongs to whatever now owns
+ * the UI — clearing `isGenerating` for a turn that isn't running anymore, or
+ * dropping a message that isn't the stale controller's placeholder at all.
+ *
+ * `cleanupMessages`, when given, runs via `updateMessages` (e.g. dropping a
+ * still-empty reattach placeholder) before `isGenerating` is cleared. Returns
+ * whether the cleanup actually ran, so a caller can skip its own trailing
+ * effects (scroll, focus) too when it didn't.
+ */
+export function finishTurnIfCurrent(
+	store: TurnFinishableStore,
+	captured: { sessionId: string; turnSeq: number },
+	cleanupMessages?: (messages: Messages) => Messages
+): boolean {
+	if (!isRecoveryStillCurrent(get(store), captured)) return false;
+	if (cleanupMessages) store.updateMessages(cleanupMessages);
+	store.patch({ isGenerating: false });
+	return true;
+}
+
 /**
  * Replace the trailing assistant message with the durable persisted one —
  * used after an error that followed a partial replay, after a `done` whose
@@ -444,6 +481,25 @@ export function applyDurableRecovery(
 	if (!persisted) return messages;
 	const msgs = [...messages];
 	msgs[lastIdx] = { ...persisted, isStreaming: false, isPartial: false };
+	return msgs;
+}
+
+/**
+ * Settle the trailing assistant message as a stopped, visibly incomplete
+ * response — used when a recovery attempt found no durable match for this
+ * turn (a genuinely unrecoverable gap, not a "nothing was ever wrong" case):
+ * whatever content is already showing (partial snapshot text, or a truncated
+ * reference's preview, or nothing at all) is RETAINED, never deleted;
+ * `isStreaming` is cleared so it stops reading as still live, and `isPartial`
+ * is set so the UI's incomplete-reply affordance stays visible instead of
+ * silently vanishing. Pair with a `chatSession.patch({ error })` call — this
+ * only touches the message, not the session-level error string.
+ */
+export function settleUnrecoverable(messages: Messages): Messages {
+	const lastIdx = messages.length - 1;
+	if (lastIdx < 0 || messages[lastIdx].role !== 'assistant') return messages;
+	const msgs = [...messages];
+	msgs[lastIdx] = { ...msgs[lastIdx], isStreaming: false, isPartial: true };
 	return msgs;
 }
 

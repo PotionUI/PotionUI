@@ -43,10 +43,11 @@
 	import {
 		applyTitle,
 		applyDurableRecovery,
-		applyError,
 		needsDurableRecovery,
 		findTurnAssistantMessage,
-		isRecoveryStillCurrent
+		isRecoveryStillCurrent,
+		finishTurnIfCurrent,
+		settleUnrecoverable
 	} from '$lib/utils/chatStream';
 	import {
 		resolveDirectorCapabilities,
@@ -869,12 +870,16 @@
 
 			// No durable answer exists for THIS turn (a genuinely failed turn,
 			// or the fetch itself failed) — never substitute an unrelated
-			// message. Keep whatever (partial/incomplete) content is already
-			// showing and make sure the user sees an accurate error instead of
-			// silence; preserve a more specific error already set by the
-			// triggering event over this generic one.
+			// message. Settle it as a STOPPED, visibly incomplete response:
+			// whatever content is already showing (a partial snapshot, a
+			// truncated preview, or nothing) is retained, never deleted; it
+			// stops reading as still live (isStreaming: false) and stays
+			// flagged partial so the incomplete-reply affordance doesn't
+			// silently vanish. Preserve a more specific error already set by
+			// the triggering event over this generic one.
+			chatSession.updateMessages((msgs) => settleUnrecoverable(msgs));
 			chatSession.patch({
-				error: current.error || 'Could not confirm the full reply — it may be incomplete.'
+				error: current.error || 'The full reply could not be recovered.'
 			});
 		}
 
@@ -959,6 +964,7 @@
 	// assistant placeholder and replay the turn's events into it.
 	async function reattachToTurn(sessionId: string, afterSeq?: number, initialUserMessageId?: string) {
 		const turnSeq = chatSession.beginTurn();
+		const captured = { sessionId, turnSeq };
 		chatSession.patch({ isGenerating: true, error: '' });
 		chatSession.addMessage({
 			role: 'assistant',
@@ -975,9 +981,13 @@
 		} catch (err) {
 			logger.error('Failed to reattach to in-flight turn:', err);
 		} finally {
-			// Drop a still-empty placeholder (e.g. the turn had already finished
-			// and was evicted, so nothing was replayed).
-			chatSession.updateMessages((msgs) =>
+			// Only if THIS reattach's session/turn is still what the store is
+			// showing — a delayed recovery elsewhere, or a fresh send that
+			// started meanwhile, must not have this stale controller drop its
+			// (unrelated) streaming placeholder or clear its isGenerating.
+			const applied = finishTurnIfCurrent(chatSession, captured, (msgs) =>
+				// Drop a still-empty placeholder (e.g. the turn had already
+				// finished and was evicted, so nothing was replayed).
 				msgs.filter(
 					(m, idx) =>
 						!(
@@ -990,9 +1000,10 @@
 						)
 				)
 			);
-			chatSession.patch({ isGenerating: false });
-			await tick();
-			scrollToBottom();
+			if (applied) {
+				await tick();
+				scrollToBottom();
+			}
 		}
 	}
 
@@ -1047,6 +1058,11 @@
 		const attachedResources = options.attachedResources || [];
 
 		chatSession.patch({ error: '', isGenerating: true });
+		// Set once the turn's placeholder/identity exist (below); every effect
+		// after that point is guarded through it — see finishTurnIfCurrent.
+		// Null while nothing has been claimed yet (e.g. session creation still
+		// failed), when there's nothing turn-specific to protect.
+		let captured: { sessionId: string; turnSeq: number } | null = null;
 
 		try {
 			// Create session if not exists
@@ -1157,6 +1173,7 @@
 
 			// Add streaming assistant placeholder
 			const turnSeq = chatSession.beginTurn();
+			captured = { sessionId: $chatSession.sessionId!, turnSeq };
 			chatSession.addMessage({
 				role: 'assistant' as const,
 				content: '',
@@ -1248,12 +1265,29 @@
 			}
 		} catch (err: any) {
 			logger.error('Error sending message:', err);
-			chatSession.patch({ error: err.message || 'Failed to send message' });
+			// Guarded like the finally below: a stale controller (this send's
+			// session/turn is no longer current) must not publish its own
+			// error over whatever now owns the UI.
+			if (!captured || isRecoveryStillCurrent(get(chatSession), captured)) {
+				chatSession.patch({ error: err.message || 'Failed to send message' });
+			}
 		} finally {
-			chatSession.patch({ isGenerating: false });
-			await tick();
-			scrollToBottom();
-			inputRef?.focus();
+			// Only if THIS send's session/turn is still current. When it never
+			// got far enough to claim one (e.g. session creation itself
+			// failed), there's nothing turn-specific to protect — just clear
+			// isGenerating directly.
+			let applied: boolean;
+			if (captured) {
+				applied = finishTurnIfCurrent(chatSession, captured);
+			} else {
+				chatSession.patch({ isGenerating: false });
+				applied = true;
+			}
+			if (applied) {
+				await tick();
+				scrollToBottom();
+				inputRef?.focus();
+			}
 		}
 	}
 

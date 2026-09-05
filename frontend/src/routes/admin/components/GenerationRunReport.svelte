@@ -46,6 +46,23 @@
 	let pluginOutputEntries = $derived(report ? Object.entries(report.plugin_outputs ?? {}) : []);
 	let hasArtifacts = $derived((report?.artifacts?.length ?? 0) > 0);
 
+	// What the recorder refused to keep. Reports written before these counters
+	// existed simply have none, and the summary stays hidden.
+	let notRecorded = $derived(
+		(
+			[
+				['artifacts', (report as Record<string, number> | null)?.artifacts_dropped],
+				['artifact payloads', (report as Record<string, number> | null)?.artifacts_omitted],
+				['plugin output types', (report as Record<string, number> | null)?.plugin_output_types_dropped],
+				['plugin output payloads', (report as Record<string, number> | null)?.plugin_outputs_omitted],
+				['status entries', (report as Record<string, number> | null)?.status_history_dropped],
+				['pipe timers', (report as Record<string, number> | null)?.pipe_timers_dropped]
+			] as [string, number | undefined][]
+		)
+			.filter(([, count]) => typeof count === 'number' && count > 0)
+			.map(([label, count]) => `${count} ${label}`)
+	);
+
 	function pretty(value: unknown): string {
 		if (value === null || value === undefined) return '';
 		if (typeof value === 'string') return value;
@@ -72,6 +89,12 @@
 	<GenerationOutputsGrid generationId={generation.id} files={generation.files ?? []} />
 
 	{#if report}
+		{#if notRecorded.length > 0}
+			<p class="text-xs text-fg-subtle px-1">
+				Not recorded, over the report's size limits: {notRecorded.join(', ')}.
+			</p>
+		{/if}
+
 		{#if hasArtifacts}
 			<GenerationArtifactsGrid {byPipe} artifacts={report.artifacts} promptTemplate={report.prompt_template} />
 		{/if}

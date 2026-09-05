@@ -31,8 +31,10 @@ from src.features.generation.run_report_recorder import (
     _ARTIFACT_STORAGE_BYTES_CAP,
     _ARTIFACTS_BYTES_CAP,
     _PLUGIN_OUTPUT_ITEM_BYTES_CAP,
+    _IDENTIFIER_CHARS,
     _PLUGIN_OUTPUT_TYPES_CAP,
     _REPORT_BYTES_CAP,
+    _TEXT_CHARS,
     RunReportRecorder,
 )
 from src.features.generation.run_report_repository import GenerationRunReportRepository
@@ -391,7 +393,7 @@ class TestEnvelopeBound(RunReportOffloadCase):
             )
         for i in range(400):
             self.recorder.record_output("gen-1", _artifact_message(
-                {"note": "v" * 500}, artifact_type=f"{i}-{long_name}", pipe_id=f"{i}-{long_name}"
+                {"note": "v" * 500}, artifact_type=f"type-{i}", pipe_id=f"{i}-{long_name}"
             ))
         return self.recorder.flush("gen-1", terminal_status="completed")
 
@@ -417,14 +419,14 @@ class TestEnvelopeBound(RunReportOffloadCase):
         self.assertGreater(saved["plugin_output_types_dropped"], 0)
         self.assertGreater(saved["pipe_timers_dropped"], 0)
 
-    def test_long_identifiers_are_truncated_before_they_are_stored(self):
+    def test_long_identifiers_are_bounded_before_they_are_stored(self):
         saved = self._adversarial_run()
 
         for key, entry in saved["plugin_outputs"].items():
-            self.assertLessEqual(len(key), 120)
-            self.assertLessEqual(len(entry["plugin_id"]), 120)
-        for artifact in saved["artifacts"]:
-            self.assertLessEqual(len(artifact["artifact_type"]), 120)
+            self.assertLessEqual(len(key), _IDENTIFIER_CHARS)
+            self.assertLessEqual(len(entry["plugin_id"]), _IDENTIFIER_CHARS)
+        for pipe_key in saved["pipe_timers"]:
+            self.assertLessEqual(len(pipe_key), _IDENTIFIER_CHARS)
 
     def test_evicting_an_omitted_artifact_gives_back_only_what_it_took(self):
         oversized = "n" * (_ARTIFACT_ITEM_BYTES_CAP + 1024)
@@ -497,3 +499,51 @@ class TestFlushReadOwnership(RunReportOffloadCase):
 
         self.assertEqual(self._stored_files(), [])
         self.assertIsNone(self._saved_report())
+
+
+class TestIdentityIsPreserved(RunReportOffloadCase):
+
+    def test_two_message_types_sharing_a_long_prefix_stay_two_entries(self):
+        prefix = "P" * (_IDENTIFIER_CHARS + 200)
+
+        self.recorder.record_output("gen-1", {"type": f"{prefix}-alpha", "pipe_name": "p", "n": 1})
+        self.recorder.record_output("gen-1", {"type": f"{prefix}-beta", "pipe_name": "p", "n": 2})
+        saved = self.recorder.flush("gen-1", terminal_status="completed")
+
+        self.assertEqual(len(saved["plugin_outputs"]), 2)
+        self.assertEqual(saved["plugin_output_types_dropped"], 0)
+        recorded = sorted(entry["message"]["n"] for entry in saved["plugin_outputs"].values())
+        self.assertEqual(recorded, [1, 2])
+
+    def test_two_pipe_ids_sharing_a_long_prefix_stay_two_timers(self):
+        prefix = "Q" * (_IDENTIFIER_CHARS + 200)
+
+        self.recorder.record_output("gen-1", _status_message(f"{prefix}-one", "loading"))
+        self.recorder.record_output("gen-1", _status_message(f"{prefix}-two", "loading"))
+        saved = self.recorder.flush("gen-1", terminal_status="completed")
+
+        self.assertEqual(len(saved["pipe_timers"]), 2)
+        self.assertEqual(saved["pipe_timers_dropped"], 0)
+        pipe_ids = {entry["pipe_id"] for entry in saved["status_history"] if entry["pipe_id"]}
+        self.assertEqual(len(pipe_ids), 2)
+        self.assertEqual(pipe_ids, set(saved["pipe_timers"]))
+
+    def test_an_artifact_type_a_renderer_looks_up_is_never_rewritten(self):
+        self.recorder.record_output("gen-1", _artifact_message({"seed": 1}, "compare_images"))
+        self.recorder.record_output(
+            "gen-1", _artifact_message({"seed": 2}, "R" * (_IDENTIFIER_CHARS + 1))
+        )
+        saved = self.recorder.flush("gen-1", terminal_status="completed")
+
+        self.assertEqual([a["artifact_type"] for a in saved["artifacts"]], ["compare_images"])
+        self.assertEqual(saved["artifacts_dropped"], 1)
+
+    def test_truncated_status_text_is_flagged_and_complete_text_is_not(self):
+        self.recorder.record_output("gen-1", _status_message(0, "L" * (_TEXT_CHARS + 10)))
+        self.recorder.record_output("gen-1", _status_message(0, "sampling", message="short"))
+        saved = self.recorder.flush("gen-1", terminal_status="completed")
+
+        cut, whole = saved["status_history"][0], saved["status_history"][1]
+        self.assertEqual(cut["truncated"], ["step"])
+        self.assertEqual(len(cut["step"]), _TEXT_CHARS)
+        self.assertNotIn("truncated", whole)

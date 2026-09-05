@@ -196,6 +196,37 @@ describe('GenerationRunReport', () => {
 		expect(text).toContain('item bytes');
 	});
 
+	it('summarises what the recorder refused to keep, even with nothing left in those sections', async () => {
+		mounted = mount(
+			baseGeneration(),
+			baseReport({
+				schema_version: 2,
+				artifacts: [],
+				plugin_outputs: {},
+				status_history: [],
+				artifacts_dropped: 400,
+				plugin_output_types_dropped: 2950,
+				status_history_dropped: 2830,
+				pipe_timers_dropped: 3056
+			} as never)
+		);
+		await settle();
+
+		const text = mounted.text();
+		expect(text).toContain('Not recorded');
+		expect(text).toContain('400 artifacts');
+		expect(text).toContain('2950 plugin output types');
+		expect(text).toContain('2830 status entries');
+		expect(text).toContain('3056 pipe timers');
+	});
+
+	it('shows no omission summary for a report written before the counters existed', async () => {
+		mounted = mount(baseGeneration(), baseReport());
+		await settle();
+
+		expect(mounted.text()).not.toContain('Not recorded');
+	});
+
 	it('shows an honest empty message when the report has no recorded entries', async () => {
 		mounted = mount(baseGeneration(), baseReport());
 		await settle();

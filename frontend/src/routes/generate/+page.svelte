@@ -25,7 +25,7 @@
 	import PresetControls from './components/PresetControls.svelte';
 	import StudioView from './components/studio/StudioView.svelte';
 	import { resolveNegativeApplicability } from '$lib/generation/negativeApplied';
-	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
+	import { reconcileTabGenerations, clearSubscriptionOwner } from '$lib/generation/restore/reconcile';
 	import { toggleFloatingForm } from '$lib/generation/floatingForm';
 	import { toggleFloatingWorkbench } from '$lib/generation/floatingWorkbench';
 	let generationPanelRef: GenerationPanel | undefined;
@@ -882,6 +882,13 @@
 				return reconcileTabGenerations(tab.id, api, tabsStore, {
 					extraCandidateIds,
 					signal: restoreController.signal,
+					// Dedup scoped to THIS socket instance, not to the tab's
+					// routing entries -- an SPA navigate away and back builds a
+					// brand new WebSocketService (`ws` below) while the tabs
+					// store survives, so a fresh `ws` must still get its own
+					// listener for a generation the OLD socket already had one
+					// for. See reconcile.ts's header.
+					subscriptionOwner: ws,
 					onSubscribe: (generationId) => {
 						ws?.subscribe(generationId, (message: WebSocketMessage) => {
 							handleGenerationMessage(message);
@@ -897,6 +904,7 @@
 		restoreController.abort();
 		setGenerationUnsubscribeHandler(null);
 		if (ws) {
+			clearSubscriptionOwner(ws);
 			ws.disconnect();
 		}
 		// Settle every outstanding Video Director dependency wait as

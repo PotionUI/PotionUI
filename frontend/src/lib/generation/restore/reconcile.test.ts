@@ -13,6 +13,7 @@ import {
 	collectInFlightGenerationIds,
 	isConfirmedMissing,
 	resetPendingPosterRecoveriesForTests,
+	clearSubscriptionOwner,
 	type ReconcileApi
 } from './reconcile';
 import type { DirectorRunState } from '$lib/types/tabs';
@@ -572,7 +573,7 @@ describe('reconcileTabGenerations', () => {
 		expect(onSubscribe).not.toHaveBeenCalled();
 	});
 
-	it('subscribes a still-running id at most once across two reconcile passes, through the real WebSocketService', async () => {
+	it('subscribes a still-running id at most once across two reconcile passes against the SAME socket, through the real WebSocketService', async () => {
 		const tabId = defaultTabId();
 		tabsStore.updateTab(tabId, { activeGenerationId: 'gen-1' });
 		const ws = new WebSocketService('ws://test.invalid/ws/generation', null);
@@ -589,9 +590,10 @@ describe('reconcileTabGenerations', () => {
 			{ ok: statusResponse({ status: 'running', progress: 0.6 }) }
 		);
 
-		await reconcileTabGenerations(tabId, fake.api, tabsStore, { onSubscribe });
-		// A later reconnect re-runs reconciliation for the same still-running id.
-		await reconcileTabGenerations(tabId, fake.api, tabsStore, { onSubscribe });
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { onSubscribe, subscriptionOwner: ws });
+		// A later reconnect against the SAME socket re-runs reconciliation for
+		// the same still-running id.
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { onSubscribe, subscriptionOwner: ws });
 
 		// One live event arrives on the (never actually connected, but
 		// otherwise real) socket.
@@ -601,6 +603,100 @@ describe('reconcileTabGenerations', () => {
 		});
 
 		expect(received).toHaveLength(1);
+	});
+
+	it('subscribes on a NEW socket after an SPA navigate-away-and-back, even though the tab still has the old routing entry', async () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, { activeGenerationId: 'gen-1' });
+		const oldSocket = new WebSocketService('ws://test.invalid/ws/generation', null);
+
+		const fake = createFakeApi();
+		fake.scriptStatus(
+			'gen-1',
+			{ ok: statusResponse({ status: 'running', progress: 0.1 }) },
+			{ ok: statusResponse({ status: 'running', progress: 0.6 }) }
+		);
+
+		// Pass 1, on the page's first mount.
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, {
+			subscriptionOwner: oldSocket,
+			onSubscribe: (id) => oldSocket.subscribe(id, () => {})
+		});
+		expect((oldSocket as unknown as { subscriptions: Map<string, Set<unknown>> }).subscriptions.get('gen-1')?.size).toBe(1);
+
+		// SPA navigate away and back: onMount runs again and constructs a
+		// BRAND NEW WebSocketService (createGenerationSocket()) while the
+		// module-scope tabs store -- and 'gen-1's routing entry in it --
+		// survives untouched.
+		const newSocket = new WebSocketService('ws://test.invalid/ws/generation', null);
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, {
+			subscriptionOwner: newSocket,
+			onSubscribe: (id) => newSocket.subscribe(id, () => {})
+		});
+
+		// The routing entry from pass 1 is still there (routing/dispatch is
+		// unaffected by this fix)...
+		expect(currentTab(tabId).generation.queue.some((q) => q.generation_id === 'gen-1')).toBe(true);
+		// ...but the NEW socket -- which starts with zero listeners of its
+		// own -- still gets its own subscription for the still-live
+		// generation, rather than being skipped because the OLD socket
+		// already had one.
+		expect((newSocket as unknown as { subscriptions: Map<string, Set<unknown>> }).subscriptions.get('gen-1')?.size).toBe(1);
+	});
+
+	it('clearSubscriptionOwner drops an owner\'s memory so a later pass against the same owner value resubscribes', async () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, { activeGenerationId: 'gen-1' });
+		const owner = {};
+		const subscribeCalls: string[] = [];
+		const fake = createFakeApi();
+		fake.scriptStatus(
+			'gen-1',
+			{ ok: statusResponse({ status: 'running' }) },
+			{ ok: statusResponse({ status: 'running' }) }
+		);
+
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, {
+			subscriptionOwner: owner,
+			onSubscribe: (id) => subscribeCalls.push(id)
+		});
+		expect(subscribeCalls).toEqual(['gen-1']);
+
+		clearSubscriptionOwner(owner);
+
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, {
+			subscriptionOwner: owner,
+			onSubscribe: (id) => subscribeCalls.push(id)
+		});
+		expect(subscribeCalls).toEqual(['gen-1', 'gen-1']);
+	});
+
+	it('a retired signal applies nothing further and never subscribes on a late response', async () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, { activeGenerationId: 'gen-1' });
+		const controller = new AbortController();
+		let resolveStatus!: (value: APIResponse<GenerationStatus>) => void;
+		const pending = new Promise<APIResponse<GenerationStatus>>((resolve) => {
+			resolveStatus = resolve;
+		});
+		const api: ReconcileApi = {
+			getGenerationStatus: vi.fn().mockReturnValue(pending),
+			getGenerationById: vi.fn().mockResolvedValue({ success: true, data: { files: [] } })
+		};
+		const onSubscribe = vi.fn();
+
+		const reconcilePromise = reconcileTabGenerations(tabId, api, tabsStore, {
+			signal: controller.signal,
+			subscriptionOwner: {},
+			onSubscribe
+		});
+
+		controller.abort();
+		resolveStatus(statusResponse({ status: 'running' }));
+		await reconcilePromise;
+
+		expect(onSubscribe).not.toHaveBeenCalled();
+		expect(currentTab(tabId).generation.queue.some((q) => q.generation_id === 'gen-1')).toBe(false);
 	});
 
 	it('remembers a pending poster after two transient history failures and recovers it, without a full re-scan, on the next pass', async () => {

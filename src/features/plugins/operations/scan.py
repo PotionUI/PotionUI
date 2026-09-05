@@ -8,7 +8,7 @@ from src.features.plugins.dto import PluginScanResult
 from src.features.plugins.mappers import plugin_to_response
 from src.features.plugins.repository import PluginRepository
 from src.features.plugins.records import Plugin, PluginHook, PluginPage
-from src.platform.plugins.registry import PluginRegistry
+from src.platform.plugins.registry import PluginDiscoveryChanges, PluginRegistry, PluginState
 
 logger = logging.getLogger(__name__)
 
@@ -147,15 +147,54 @@ def refresh_known_plugin_hooks(repo: PluginRepository, registry: PluginRegistry)
     return refreshed
 
 
+def _apply_reconciled_state(
+    repo: PluginRepository,
+    registry: PluginRegistry,
+    changes: PluginDiscoveryChanges,
+    db_plugins: dict,
+) -> None:
+    """
+    Bring the database in line with what the rescan did to the running registry.
+
+    A plugin whose directory is gone keeps its row (uninstalling is a separate,
+    explicit action) but loses the hooks and pages the frontend would otherwise
+    keep mounting for it. A plugin whose manifest changed came back up through
+    the registry's enable transaction, so it needs the per-process boot hook an
+    admin enable would have fired; one that could not come back up is no longer
+    enabled and its row must say so.
+    """
+    for plugin_id in changes.removed:
+        repo.clear_plugin_hooks(plugin_id)
+        repo.delete_plugin_pages(plugin_id)
+        if plugin_id in db_plugins and db_plugins[plugin_id].enabled:
+            repo.disable_plugin(plugin_id)
+            logger.info(f"Plugin {plugin_id} disappeared from disk; marked disabled")
+
+    for plugin_id in changes.changed:
+        if registry.get_plugin_state(plugin_id) == PluginState.ENABLED:
+            registry.run_boot_hook(plugin_id)
+        elif plugin_id in db_plugins and db_plugins[plugin_id].enabled:
+            repo.disable_plugin(plugin_id)
+            logger.warning(
+                f"Plugin {plugin_id} could not be re-enabled after its manifest "
+                f"changed: {registry.get_plugin_error(plugin_id)}"
+            )
+
+
 def scan_plugins(repo: PluginRepository, registry: PluginRegistry) -> PluginScanResult:
     """
     Rescan plugin directories to discover new plugins.
+
+    Discovery reconciles rather than resets (see
+    `PluginRegistry._do_discover_plugins`), so scanning while plugins are
+    enabled leaves the untouched ones running. What actually moved comes back
+    as plugin ids on the result.
 
     Returns:
         PluginScanResult with new and updated plugins
     """
     # Force plugin discovery in registry
-    registry.discover_plugins()
+    changes = registry.discover_plugins()
 
     # Get all discovered plugins from registry
     registry_plugins = registry.get_all_plugins()
@@ -208,8 +247,14 @@ def scan_plugins(repo: PluginRepository, registry: PluginRegistry) -> PluginScan
 
             logger.info(f"Refreshed hooks for plugin: {manifest.name} ({manifest.id})")
 
+    _apply_reconciled_state(repo, registry, changes, db_plugins)
+
     return PluginScanResult(
         new_plugins=new_plugins,
         updated_plugins=updated_plugins,
-        total_discovered=len(registry_plugins)
+        total_discovered=len(registry_plugins),
+        added_plugin_ids=list(changes.added),
+        changed_plugin_ids=list(changes.changed),
+        removed_plugin_ids=list(changes.removed),
+        errored_plugin_ids=list(changes.errored),
     )

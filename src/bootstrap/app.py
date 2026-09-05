@@ -24,6 +24,7 @@ from src.bootstrap.errors import register_error_handlers
 from src.bootstrap.middleware import register_middleware
 from src.bootstrap.routers import register_routers
 from src.bootstrap.static_frontend import mount_frontend
+from src.platform.plugins.router_mounter import MOUNT_FAILURE_MESSAGE, MountResult
 
 from src.platform.security.current_user import set_auth
 from src.platform.version import POTIONUI_VERSION
@@ -308,6 +309,34 @@ def _seed_runtime_from_container(container: AppContainer) -> None:
         logging.warning(f"Could not initialize the setup claim token: {e}")
 
 
+def mount_plugin_routers(app: FastAPI, container: AppContainer) -> None:
+    """Mount every enabled plugin's API router, once the app exists.
+
+    Startup enables plugins from the database before this app is built, so
+    their mounts were deferred and only happen here. A plugin whose router
+    fails now is already ENABLED with live hooks: leaving it there would give
+    it handlers but no routes, and the database would call it enabled again on
+    the next boot. It is failed in the registry (which rolls back everything it
+    contributed) and its enabled flag is cleared, the same way a failed enable
+    from the admin panel rolls the row back.
+    """
+    plugin_registry = container.plugin_registry
+    plugin_router_mounter = container.plugin_router_mounter
+    plugin_router_mounter.attach(app)
+    results = plugin_router_mounter.mount_all_enabled(
+        plugin_registry.get_enabled_plugins(), loader=plugin_registry.loader
+    )
+
+    for plugin_id, result in results.items():
+        if result is not MountResult.FAILED:
+            continue
+        logging.error(
+            f"Disabling plugin {plugin_id}: its API router failed to mount at startup"
+        )
+        plugin_registry.fail_enabled_plugin(plugin_id, MOUNT_FAILURE_MESSAGE)
+        container.plugin_repository.disable_plugin(plugin_id)
+
+
 def create_app(container: Optional[AppContainer] = None) -> FastAPI:
     """Build and return the fully-assembled FastAPI application."""
     # Run database migrations BEFORE building the container (it needs DB access).
@@ -424,12 +453,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
     # routes belong to which plugin so operations.enable_plugin/disable_plugin
     # can mount/unmount them again at runtime without restarting the process)
     try:
-        plugin_registry = container.plugin_registry
-        plugin_router_mounter = container.plugin_router_mounter
-        plugin_router_mounter.attach(app)
-        plugin_router_mounter.mount_all_enabled(
-            plugin_registry.get_enabled_plugins(), loader=plugin_registry.loader
-        )
+        mount_plugin_routers(app, container)
     except Exception as e:
         logging.error(f"Failed to mount plugin routers: {e}")
 

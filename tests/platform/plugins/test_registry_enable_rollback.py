@@ -346,6 +346,19 @@ class EnableRollbackTests(unittest.TestCase):
         self.assertTrue(self.registry.disable_plugin("retried"))
         self.assertNoResidue("retried")
 
+    def test_fail_enabled_plugin_tears_down_a_live_plugin(self):
+        good = self._healthy_plugin("live-plugin")
+
+        self.assertTrue(
+            self.registry.fail_enabled_plugin(good, "Failed to mount plugin API router")
+        )
+
+        self.assertFailedWith(good, "Failed to mount plugin API router")
+        self.assertNoResidue(good)
+
+    def test_fail_enabled_plugin_is_false_for_an_unknown_plugin(self):
+        self.assertFalse(self.registry.fail_enabled_plugin("no-such-plugin", "boom"))
+
     def test_disable_after_failed_enable_is_a_noop(self):
         self._write_plugin("half-hooked", hooks=self._two_hooks("handlers.nonexistent"))
         self.assertFalse(self.registry.enable_plugin("half-hooked"))

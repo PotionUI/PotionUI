@@ -5,7 +5,9 @@ This module provides the central registry for managing plugins, their state,
 and their integration with the hook system.
 """
 
+import hashlib
 import threading
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 from enum import Enum
 import logging
@@ -13,7 +15,11 @@ import logging
 from src.platform.plugins.loader import PluginLoader, PluginManifest
 from src.platform.plugins.hooks import HookChain, HookContext, hooks_registry
 from src.platform.plugins.lifecycle_hooks import PLUGIN_LIFECYCLE_HOOKS
-from src.platform.plugins.router_mounter import PluginRouterMounter
+from src.platform.plugins.router_mounter import (
+    MOUNT_FAILURE_MESSAGE,
+    MountResult,
+    PluginRouterMounter,
+)
 from src.platform.plugins.field_types import FieldTypeDefinition, FieldTypeRegistry, DuplicateFieldTypeError
 from src.platform.plugins.prompt_importers import PromptImporterRegistry
 from src.platform.plugins.phrasebook_ops import PhrasebookOperationRegistry
@@ -36,6 +42,20 @@ logger = logging.getLogger(__name__)
 # fails a hook on every call (e.g. every generation, every request) would
 # otherwise re-log the same warning constantly instead of once per process.
 _warned_hook_failures: Set[str] = set()
+
+
+@dataclass
+class PluginDiscoveryChanges:
+    """What one discovery pass did to the registry, as plugin ids.
+
+    `errored` lists the ids the pass left in `PluginState.ERROR` - an invalid
+    manifest, or a manifest change whose re-enable failed - and therefore
+    overlaps `added` and `changed`.
+    """
+    added: List[str] = field(default_factory=list)
+    changed: List[str] = field(default_factory=list)
+    removed: List[str] = field(default_factory=list)
+    errored: List[str] = field(default_factory=list)
 
 
 class PluginState(Enum):
@@ -130,6 +150,10 @@ class PluginRegistry:
         # Track which plugins have registered which hooks
         self._plugin_hooks: Dict[str, Set[str]] = {}  # plugin_id -> set of hook names
 
+        # plugin_id -> fingerprint of the manifest the registrations came from,
+        # so a rescan can tell an untouched plugin from a changed one.
+        self._plugin_fingerprints: Dict[str, str] = {}
+
     def _ensure_discovered(self):
         """Ensure plugins are discovered (lazy loading with thread safety)"""
         if not self._discovered:
@@ -139,33 +163,136 @@ class PluginRegistry:
                     self._do_discover_plugins()
                     self._discovered = True
 
-    def _do_discover_plugins(self):
-        """Internal method to actually discover plugins"""
+    def _do_discover_plugins(self) -> PluginDiscoveryChanges:
+        """Discover plugins on disk and reconcile the result against the registry.
+
+        A rescan is not a reset. A plugin whose manifest is unchanged keeps its
+        state and every registration it owns, so scanning while plugins are
+        enabled cannot silently strip live handlers, routes or extension-point
+        entries. Only a manifest that changed, turned invalid or vanished moves,
+        and an enabled one is torn down through the same teardown
+        `disable_plugin` uses before its replacement is enabled again.
+
+        Runs with `self._lock` held: it calls the lock-free enable/disable
+        internals directly, never the public methods.
+        """
         logger.info("Starting plugin discovery...")
 
         try:
             manifests = self.loader.discover_plugins()
-
-            for manifest in manifests:
-                self._plugins[manifest.id] = manifest
-                self._plugin_hooks[manifest.id] = set()
-
-                if manifest.validation_error:
-                    self._plugin_states[manifest.id] = PluginState.ERROR
-                    self._plugin_errors[manifest.id] = manifest.validation_error
-                else:
-                    self._plugin_states[manifest.id] = PluginState.DISCOVERED
-
-            logger.info(f"Discovered {len(self._plugins)} plugins")
-
         except Exception as e:
+            # Leave the registry exactly as it was - a discovery that blew up
+            # says nothing about the plugins currently running.
             logger.error(f"Error during plugin discovery: {e}", exc_info=True)
+            return PluginDiscoveryChanges()
 
-    def discover_plugins(self):
-        """Force plugin discovery"""
+        changes = PluginDiscoveryChanges()
+        incoming = {manifest.id: manifest for manifest in manifests}
+
+        for plugin_id in [pid for pid in self._plugins if pid not in incoming]:
+            self._drop_plugin(plugin_id)
+            changes.removed.append(plugin_id)
+
+        for plugin_id, manifest in incoming.items():
+            fingerprint = self._manifest_fingerprint(manifest)
+
+            if plugin_id not in self._plugins:
+                self._admit_plugin(manifest, fingerprint)
+                changes.added.append(plugin_id)
+            elif fingerprint != self._plugin_fingerprints.get(plugin_id):
+                self._replace_plugin(manifest, fingerprint)
+                changes.changed.append(plugin_id)
+            else:
+                # Same manifest, same place: refresh the parsed object (its
+                # `shadows` tag can move without the file changing) and leave
+                # everything this plugin registered alone.
+                self._plugins[plugin_id] = manifest
+                continue
+
+            if self._plugin_states.get(plugin_id) == PluginState.ERROR:
+                changes.errored.append(plugin_id)
+
+        logger.info(
+            f"Discovered {len(self._plugins)} plugins "
+            f"({len(changes.added)} new, {len(changes.changed)} changed, "
+            f"{len(changes.removed)} gone)"
+        )
+        return changes
+
+    def _manifest_fingerprint(self, manifest: PluginManifest) -> str:
+        """Identity of a discovered manifest: where it was found, plus the bytes
+        of the manifest file.
+
+        A plugin's Python sources are deliberately not hashed - a code-only edit
+        is picked up by `reload_plugin`, not by a rescan, so editing a handler
+        never tears down a running plugin behind the admin's back.
+        """
+        try:
+            payload = manifest.manifest_path.read_bytes()
+        except OSError:
+            payload = b""
+
+        digest = hashlib.sha256()
+        digest.update(str(manifest.plugin_dir).encode("utf-8", "replace"))
+        digest.update(b"\0")
+        digest.update(payload)
+        return digest.hexdigest()
+
+    def _admit_plugin(self, manifest: PluginManifest, fingerprint: str) -> None:
+        """Record a manifest as the registry's current one for its id, owning
+        nothing yet."""
+        plugin_id = manifest.id
+        self._plugins[plugin_id] = manifest
+        self._plugin_fingerprints[plugin_id] = fingerprint
+        self._plugin_hooks[plugin_id] = set()
+
+        if manifest.validation_error:
+            self._plugin_states[plugin_id] = PluginState.ERROR
+            self._plugin_errors[plugin_id] = manifest.validation_error
+        else:
+            self._plugin_states[plugin_id] = PluginState.DISCOVERED
+            self._plugin_errors.pop(plugin_id, None)
+
+    def _drop_plugin(self, plugin_id: str) -> None:
+        """Forget a plugin whose directory is gone, tearing down anything it
+        still owns."""
+        self._rollback_partial_enable(plugin_id)
+        self._plugins.pop(plugin_id, None)
+        self._plugin_states.pop(plugin_id, None)
+        self._plugin_errors.pop(plugin_id, None)
+        self._plugin_fingerprints.pop(plugin_id, None)
+        self._plugin_hooks.pop(plugin_id, None)
+        logger.info(f"Plugin {plugin_id} is no longer on disk; dropped from the registry")
+
+    def _replace_plugin(self, manifest: PluginManifest, fingerprint: str) -> None:
+        """Swap in a changed manifest, carrying the plugin's enablement over."""
+        plugin_id = manifest.id
+        previous_state = self._plugin_states.get(plugin_id)
+        was_enabled = previous_state == PluginState.ENABLED
+
+        if was_enabled:
+            self._rollback_partial_enable(plugin_id)
+
+        self._admit_plugin(manifest, fingerprint)
+
+        if manifest.validation_error:
+            if was_enabled:
+                # Same transition `fail_enabled_plugin` performs, reached through
+                # its lock-free core: discovery already holds the lock.
+                self._fail_enable(plugin_id, manifest.validation_error)
+            return
+
+        if was_enabled:
+            self._enable_locked(plugin_id)
+        elif previous_state == PluginState.DISABLED:
+            self._plugin_states[plugin_id] = PluginState.DISABLED
+
+    def discover_plugins(self) -> PluginDiscoveryChanges:
+        """Force plugin discovery, reconciling against what is already registered."""
         with self._lock:
-            self._do_discover_plugins()
+            changes = self._do_discover_plugins()
             self._discovered = True
+            return changes
 
     def get_all_plugins(self) -> List[PluginManifest]:
         """Get all discovered plugins"""
@@ -213,43 +340,47 @@ class PluginRegistry:
         self._ensure_discovered()
 
         with self._lock:
-            if plugin_id not in self._plugins:
-                logger.error(f"Plugin not found: {plugin_id}")
-                return False
+            return self._enable_locked(plugin_id)
 
-            manifest = self._plugins[plugin_id]
-            current_state = self._plugin_states.get(plugin_id)
+    def _enable_locked(self, plugin_id: str) -> bool:
+        """`enable_plugin`'s body, for callers that already hold `self._lock`."""
+        if plugin_id not in self._plugins:
+            logger.error(f"Plugin not found: {plugin_id}")
+            return False
 
-            # Check if already enabled
-            if current_state == PluginState.ENABLED:
-                logger.debug(f"Plugin {plugin_id} is already enabled")
-                return True
+        manifest = self._plugins[plugin_id]
+        current_state = self._plugin_states.get(plugin_id)
 
-            # A plugin with an invalid manifest can never be enabled
-            if manifest.validation_error:
-                return self._fail_enable(plugin_id, manifest.validation_error)
-
-            try:
-                error_msg = self._run_enable_stages(manifest)
-            except BaseException as e:
-                failed = self._fail_enable(plugin_id, f"Error enabling plugin: {e}", exc_info=True)
-                # An interrupt gets the same teardown as a failure, but is
-                # never swallowed into a False return.
-                if not isinstance(e, Exception):
-                    raise
-                return failed
-
-            if error_msg:
-                return self._fail_enable(plugin_id, error_msg)
-
-            self._plugin_states[plugin_id] = PluginState.ENABLED
-            self._plugin_errors.pop(plugin_id, None)
-
-            logger.info(
-                f"Enabled plugin {manifest.name} ({plugin_id}) with "
-                f"{len(manifest.hooks)} hooks"
-            )
+        # Check if already enabled
+        if current_state == PluginState.ENABLED:
+            logger.debug(f"Plugin {plugin_id} is already enabled")
             return True
+
+        # A plugin with an invalid manifest can never be enabled
+        if manifest.validation_error:
+            return self._fail_enable(plugin_id, manifest.validation_error)
+
+        try:
+            error_msg = self._run_enable_stages(manifest)
+        except BaseException as e:
+            failed = self._fail_enable(plugin_id, f"Error enabling plugin: {e}", exc_info=True)
+            # An interrupt gets the same teardown as a failure, but is
+            # never swallowed into a False return.
+            if not isinstance(e, Exception):
+                raise
+            return failed
+
+        if error_msg:
+            return self._fail_enable(plugin_id, error_msg)
+
+        self._plugin_states[plugin_id] = PluginState.ENABLED
+        self._plugin_errors.pop(plugin_id, None)
+
+        logger.info(
+            f"Enabled plugin {manifest.name} ({plugin_id}) with "
+            f"{len(manifest.hooks)} hooks"
+        )
+        return True
 
     def _run_enable_stages(self, manifest: PluginManifest) -> Optional[str]:
         """Register everything `manifest` contributes, in dependency order.
@@ -279,12 +410,37 @@ class PluginRegistry:
             if error_msg:
                 return error_msg
 
-        # Mount the plugin's API router(s), if it declares any
+        # Mount the plugin's API router(s), if it declares any. A DEFERRED
+        # result (no app attached yet) enables the plugin without routes -
+        # `mount_all_enabled` mounts them at attach and pushes any failure back
+        # through `fail_enabled_plugin`.
         if self.router_mounter is not None:
-            if not self.router_mounter.mount(manifest, loader=self.loader):
-                return "Failed to mount plugin API router"
+            if self.router_mounter.mount(manifest, loader=self.loader) is MountResult.FAILED:
+                return MOUNT_FAILURE_MESSAGE
 
         return None
+
+    def fail_enabled_plugin(self, plugin_id: str, error_msg: str) -> bool:
+        """Take an already-enabled plugin back down into ERROR.
+
+        For failures that can only surface after `enable_plugin` returned - the
+        deferred mount being the one that exists: startup enables plugins from
+        the database before the FastAPI app is built, so a router that won't
+        mount is discovered when the app attaches. Such a plugin must not stay
+        ENABLED with live hooks and no routes, so it gets the same teardown a
+        failed enable does.
+
+        Returns True if the plugin was known and torn down.
+        """
+        self._ensure_discovered()
+
+        with self._lock:
+            if plugin_id not in self._plugins:
+                logger.error(f"Plugin not found: {plugin_id}")
+                return False
+
+            self._fail_enable(plugin_id, error_msg)
+            return True
 
     def _fail_enable(self, plugin_id: str, error_msg: str, exc_info: bool = False) -> bool:
         """The single exit for a failed enable: roll back, record, return False."""
@@ -874,31 +1030,35 @@ class PluginRegistry:
         self._ensure_discovered()
 
         with self._lock:
-            if plugin_id not in self._plugins:
-                logger.error(f"Plugin not found: {plugin_id}")
-                return False
+            return self._disable_locked(plugin_id)
 
-            current_state = self._plugin_states.get(plugin_id)
+    def _disable_locked(self, plugin_id: str) -> bool:
+        """`disable_plugin`'s body, for callers that already hold `self._lock`."""
+        if plugin_id not in self._plugins:
+            logger.error(f"Plugin not found: {plugin_id}")
+            return False
 
-            # Check if already disabled
-            if current_state == PluginState.DISABLED:
-                logger.debug(f"Plugin {plugin_id} is already disabled")
-                return True
+        current_state = self._plugin_states.get(plugin_id)
 
-            try:
-                # Unregister everything this plugin registered - the same
-                # teardown a partial enable rolls back.
-                self._rollback_partial_enable(plugin_id)
+        # Check if already disabled
+        if current_state == PluginState.DISABLED:
+            logger.debug(f"Plugin {plugin_id} is already disabled")
+            return True
 
-                # Update state
-                self._plugin_states[plugin_id] = PluginState.DISABLED
+        try:
+            # Unregister everything this plugin registered - the same
+            # teardown a partial enable rolls back.
+            self._rollback_partial_enable(plugin_id)
 
-                logger.info(f"Disabled plugin {plugin_id}")
-                return True
+            # Update state
+            self._plugin_states[plugin_id] = PluginState.DISABLED
 
-            except Exception as e:
-                logger.error(f"Error disabling plugin {plugin_id}: {e}", exc_info=True)
-                return False
+            logger.info(f"Disabled plugin {plugin_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error disabling plugin {plugin_id}: {e}", exc_info=True)
+            return False
 
     def run_boot_hook(self, plugin_id: str) -> None:
         """

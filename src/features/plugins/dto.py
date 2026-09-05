@@ -90,3 +90,9 @@ class PluginScanResult(BaseModel):
     new_plugins: List[PluginResponse] = Field(default_factory=list)
     updated_plugins: List[PluginResponse] = Field(default_factory=list)
     total_discovered: int = 0
+    # What the rescan did to the running registry, as plugin ids. `errored`
+    # overlaps the other three - it lists the ids left in the error state.
+    added_plugin_ids: List[str] = Field(default_factory=list)
+    changed_plugin_ids: List[str] = Field(default_factory=list)
+    removed_plugin_ids: List[str] = Field(default_factory=list)
+    errored_plugin_ids: List[str] = Field(default_factory=list)

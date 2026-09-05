@@ -12,7 +12,7 @@ from src.features.plugins.dto import (
 )
 from src.features.plugins.mappers import plugin_to_response
 from src.features.plugins.records import Plugin, PluginSetting, PluginHook
-from src.platform.plugins.registry import PluginState
+from src.platform.plugins.registry import PluginDiscoveryChanges, PluginState
 from src.platform.plugins.loader import PluginManifest
 from src.platform.plugins.hooks import hooks_registry
 from pathlib import Path
@@ -33,6 +33,9 @@ def mock_plugin_registry():
     # override this with a concrete PluginManifest/MagicMock when they need
     # manifest-derived enrichment (category, tags, hook_count, settings_count, ...).
     registry.get_plugin.return_value = None
+    # discover_plugins() reports what the rescan reconciled; nothing moved
+    # unless a test says otherwise.
+    registry.discover_plugins.return_value = PluginDiscoveryChanges()
     return registry
 
 

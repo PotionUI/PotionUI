@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from src.platform.plugins.loader import PluginLoader
 from src.platform.plugins.registry import PluginRegistry
-from src.platform.plugins.router_mounter import PluginRouterMounter
+from src.platform.plugins.router_mounter import MountResult, PluginRouterMounter
 from src.platform.plugins.field_types import FieldTypeRegistry
 
 
@@ -240,6 +240,44 @@ class TestPluginRouterMounter(unittest.TestCase):
         self.assertTrue(ok)
         self.assertFalse(deferred_manager.is_mounted("plugin-a"))
 
+    def test_mount_before_attach_reports_deferred_rather_than_mounted(self):
+        deferred_manager = PluginRouterMounter(loader=self.loader)
+        self._create_plugin("plugin-a", API_MODULE_SOURCE.format(plugin_id="plugin-a"))
+        manifest = self._manifest_for("plugin-a")
+
+        result = deferred_manager.mount(manifest, loader=self.loader)
+
+        # Deferred is not failure, but it is not "the routes are live" either -
+        # the caller owes this plugin a real mount once an app is attached.
+        self.assertIs(result, MountResult.DEFERRED)
+        self.assertTrue(result)
+        self.assertFalse(deferred_manager.is_mounted("plugin-a"))
+
+    def test_mount_result_of_a_failed_mount_is_falsy(self):
+        self._create_plugin(
+            "plugin-partial", PARTIAL_MOUNT_API_MODULE_SOURCE.format(plugin_id="plugin-partial")
+        )
+        result = self.router_mounter.mount(self._manifest_for("plugin-partial"), loader=self.loader)
+
+        self.assertIs(result, MountResult.FAILED)
+        self.assertFalse(result)
+
+    def test_mount_all_enabled_reports_the_failures(self):
+        self._create_plugin("plugin-a", API_MODULE_SOURCE.format(plugin_id="plugin-a"))
+        self._create_plugin(
+            "plugin-partial", PARTIAL_MOUNT_API_MODULE_SOURCE.format(plugin_id="plugin-partial")
+        )
+
+        results = self.router_mounter.mount_all_enabled(
+            [self._manifest_for("plugin-a"), self._manifest_for("plugin-partial")],
+            loader=self.loader,
+        )
+
+        self.assertEqual(
+            results,
+            {"plugin-a": MountResult.MOUNTED, "plugin-partial": MountResult.FAILED},
+        )
+
     def test_mount_all_enabled_only_mounts_plugins_with_api_section(self):
         self._create_plugin("plugin-a", API_MODULE_SOURCE.format(plugin_id="plugin-a"))
         manifest = self._manifest_for("plugin-a")
@@ -261,7 +299,7 @@ class TestPluginRouterMounter(unittest.TestCase):
         results = self.router_mounter.mount_all_enabled(
             [manifest, no_api_manifest], loader=self.loader
         )
-        self.assertEqual(results, {"plugin-a": True})
+        self.assertEqual(results, {"plugin-a": MountResult.MOUNTED})
         self.assertTrue(self.router_mounter.is_mounted("plugin-a"))
 
 

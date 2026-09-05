@@ -14,6 +14,7 @@ only that plugin's routes (not a blanket clear).
 """
 
 import logging
+from enum import Enum
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI
@@ -24,6 +25,28 @@ logger = logging.getLogger(__name__)
 #: violate this get a warning (not a hard failure - existing plugins may not
 #: comply yet).
 PLUGIN_ROUTE_PREFIX_TEMPLATE = "/api/plugins/{plugin_id}"
+
+#: What an enable records as its error when the plugin's router won't mount.
+MOUNT_FAILURE_MESSAGE = "Failed to mount plugin API router"
+
+
+class MountResult(Enum):
+    """Outcome of `PluginRouterMounter.mount`.
+
+    DEFERRED is not success: the plugin's routes do not exist yet, because no
+    app was attached when the mount was attempted. Whoever holds the plugin's
+    lifecycle owes it a second mount once `attach()` has happened
+    (`mount_all_enabled`), and must treat a failure there as a failed enable -
+    otherwise a plugin sits ENABLED with live hooks and no routes.
+    """
+
+    MOUNTED = "mounted"
+    DEFERRED = "deferred"
+    FAILED = "failed"
+
+    def __bool__(self) -> bool:
+        """`if not mounter.mount(...)` still reads as "did it fail?"."""
+        return self is not MountResult.FAILED
 
 
 class PluginRouterMounter:
@@ -53,44 +76,43 @@ class PluginRouterMounter:
     def is_mounted(self, plugin_id: str) -> bool:
         return plugin_id in self._plugin_routes
 
-    def mount(self, manifest, loader=None) -> bool:
+    def mount(self, manifest, loader=None) -> MountResult:
         """
         Mount a plugin's `api.module` router(s) (`router` / `ws_router`) onto
         the attached app.
 
-        Idempotent: mounting an already-mounted plugin is a no-op that
-        returns True (matches the plugin registry's enable-is-idempotent
+        Idempotent: mounting an already-mounted plugin is a no-op that reports
+        MOUNTED (matching the plugin registry's enable-is-idempotent
         semantics) rather than double-registering routes.
 
-        Returns True if the plugin had no `api` section, or mounted (or was
-        already mounted) successfully. Returns False on a load/mount error.
-
-        If `attach(app)` hasn't been called yet, this is a deferred no-op
-        (returns True without recording anything mounted) - startup enables
-        plugins from the database before the FastAPI app exists yet;
-        `mount_all_enabled()` mounts everything once the app is attached.
+        Returns MOUNTED when the routes are live or the plugin declares none,
+        FAILED on a load/mount error, and DEFERRED when `attach(app)` hasn't
+        happened yet - startup enables plugins from the database before the
+        FastAPI app exists, and `mount_all_enabled()` mounts them for real once
+        the app is attached. DEFERRED is falsy-safe (it is not FAILED) but it
+        is not "mounted": see MountResult.
         """
         if self._app is None:
             logger.debug(
                 f"PluginRouterMounter not attached to an app yet; deferring mount for {manifest.id}"
             )
-            return True
+            return MountResult.DEFERRED
 
         plugin_id = manifest.id
 
         if self.is_mounted(plugin_id):
             logger.debug(f"Plugin router for {plugin_id} already mounted; skipping")
-            return True
+            return MountResult.MOUNTED
 
         if not manifest.api_routes or not manifest.api_routes.get("module"):
             # No API router declared - nothing to do, not an error.
             self._plugin_routes[plugin_id] = []
-            return True
+            return MountResult.MOUNTED
 
         loader = loader or self.loader
         if loader is None:
             logger.error(f"Cannot mount plugin router for {plugin_id}: no PluginLoader available")
-            return False
+            return MountResult.FAILED
 
         module_ref = manifest.api_routes["module"].replace(".py", "").replace("/", ".")
 
@@ -98,11 +120,11 @@ class PluginRouterMounter:
             module = loader.load_plugin_module(manifest, module_ref)
         except Exception as e:
             logger.error(f"Failed to load API module for plugin {plugin_id}: {e}", exc_info=True)
-            return False
+            return MountResult.FAILED
 
         if module is None:
             logger.error(f"Failed to load API module for plugin {plugin_id}: module not found")
-            return False
+            return MountResult.FAILED
 
         self._validate_route_prefix(plugin_id, module)
 
@@ -125,12 +147,12 @@ class PluginRouterMounter:
             removed = self._discard_routes_added_since(before_ids)
             if removed:
                 logger.info(f"Removed {removed} partially mounted route(s) for plugin: {plugin_id}")
-            return False
+            return MountResult.FAILED
 
         self._plugin_routes[plugin_id] = [
             r for r in self._app.router.routes if id(r) not in before_ids
         ]
-        return True
+        return MountResult.MOUNTED
 
     def _discard_routes_added_since(self, before_ids: set) -> int:
         """Drop every route not present when `before_ids` was taken."""
@@ -162,7 +184,7 @@ class PluginRouterMounter:
         logger.info(f"Unmounted {len(routes)} route(s) for plugin: {plugin_id}")
         return True
 
-    def mount_all_enabled(self, manifests, loader=None) -> Dict[str, bool]:
+    def mount_all_enabled(self, manifests, loader=None) -> Dict[str, MountResult]:
         """
         Mount every already-enabled plugin's API router. Used at startup once
         the app + all controllers are wired up.
@@ -172,7 +194,10 @@ class PluginRouterMounter:
             loader: PluginLoader to use (defaults to self.loader)
 
         Returns:
-            {plugin_id: mounted_ok} for every manifest with an `api` section.
+            {plugin_id: MountResult} for every manifest with an `api` section.
+            The caller owns what a FAILED entry means for that plugin's
+            lifecycle - these plugins are already ENABLED, so a failure here
+            has to be pushed back into the registry.
         """
         results = {}
         for manifest in manifests:

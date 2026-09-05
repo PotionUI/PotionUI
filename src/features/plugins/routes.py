@@ -314,7 +314,11 @@ class PluginController(BaseController):
                 data={
                     "new_plugins": [p.model_dump() for p in result.new_plugins],
                     "updated_plugins": [p.model_dump() for p in result.updated_plugins],
-                    "total_discovered": result.total_discovered
+                    "total_discovered": result.total_discovered,
+                    "added_plugin_ids": result.added_plugin_ids,
+                    "changed_plugin_ids": result.changed_plugin_ids,
+                    "removed_plugin_ids": result.removed_plugin_ids,
+                    "errored_plugin_ids": result.errored_plugin_ids,
                 },
                 message=f"Scan complete: {len(result.new_plugins)} new, {len(result.updated_plugins)} updated"
             )

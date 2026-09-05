@@ -34,6 +34,14 @@
 // selection changes) rather than to the selection: a save-as that completes
 // after a preset switch must not insert its record into the new preset's list,
 // nor answer for a dialog the user has since opened under it.
+//
+// READS (hydrating a session, the preset's session list, a session's version
+// list) need the same treatment for the opposite reason: they do not write the
+// server, but they DO replace the selection, the rows, the error and the
+// loading flags, and the list read reschedules itself after an outage. Each
+// read captures a `SessionReadToken` and may publish only while it is the
+// newest request of its kind and the context it was issued under is still on
+// screen; see `sessionReadOwnsState` for which counters each kind is scoped to.
 
 import { writable, type Readable } from 'svelte/store';
 import type {
@@ -100,6 +108,53 @@ export function sessionCommandOwnsActiveState(
 	// snapshot is stale and its outcome (success or failure) is not the answer.
 	if (token.seq !== current.newestIssuedSeq) return false;
 	return token.seq > current.lastAppliedSeq;
+}
+
+/** Asynchronous reads that publish into the controller's state, each ordered
+ *  against its own kind. */
+export type SessionReadKind = 'session' | 'list' | 'history';
+
+/** Captured when an async session read starts. */
+export interface SessionReadToken {
+	kind: SessionReadKind;
+	/** Monotonic per kind: only the newest request of a kind may publish. */
+	seq: number;
+	/** The tab whose store this read's writes belong to. */
+	tabId: string;
+	presetId: string | null;
+	mode: string | null;
+	/**
+	 * The selection generation, for a read that owns the selection (`select`
+	 * and the programmatic sync — both replace `currentSession` and write the
+	 * tab). Null for the list and the version list, which belong to the preset
+	 * rather than to whichever session is picked inside it: a mere selection
+	 * change, or a tab switch that lands on the same preset, leaves their
+	 * result perfectly valid and re-issues nothing.
+	 */
+	generation: number | null;
+	/** The session the read is about; '' for the preset's session list. */
+	targetId: string;
+}
+
+/** The controller's live counters at the moment a read completes. */
+export interface SessionReadOwnership {
+	destroyed: boolean;
+	presetId: string | null;
+	mode: string | null;
+	generation: number;
+	/** Newest seq issued for the completing read's kind. */
+	newestIssuedSeq: number;
+}
+
+export function sessionReadOwnsState(
+	token: SessionReadToken,
+	current: SessionReadOwnership
+): boolean {
+	if (current.destroyed) return false;
+	if (token.presetId !== current.presetId) return false;
+	if (token.mode !== current.mode) return false;
+	if (token.generation !== null && token.generation !== current.generation) return false;
+	return token.seq === current.newestIssuedSeq;
 }
 
 interface ApiResult<T> {
@@ -298,6 +353,11 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	// change: the sessions list and the view's save dialog belong to the
 	// context, not to whichever session is picked inside it.
 	let listGeneration = 0;
+
+	// Read ordering, kept apart from the command counters above: a read is
+	// superseded by the next read of ITS kind, not by a save.
+	let readSeq = 0;
+	const newestIssuedReadSeq = new Map<SessionReadKind, number>();
 
 	// The views keep ONE instance alive across tab switches and only swap
 	// `tabId`, so a switch is not a remount. Without tracking which tab the
@@ -499,6 +559,41 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		return command.listGeneration === listGeneration;
 	}
 
+	function beginSessionRead(
+		kind: SessionReadKind,
+		targetId: string,
+		options: { ownsSelection: boolean }
+	): SessionReadToken {
+		readSeq += 1;
+		newestIssuedReadSeq.set(kind, readSeq);
+		return {
+			kind,
+			seq: readSeq,
+			tabId: ctx.tabId,
+			presetId: ctx.presetId,
+			mode: ctx.currentMode,
+			generation: options.ownsSelection ? commandGeneration : null,
+			targetId
+		};
+	}
+
+	function ownsRead(read: SessionReadToken): boolean {
+		return sessionReadOwnsState(read, {
+			destroyed,
+			presetId: ctx.presetId,
+			mode: ctx.currentMode,
+			generation: commandGeneration,
+			newestIssuedSeq: newestIssuedReadSeq.get(read.kind) ?? 0
+		});
+	}
+
+	/** Retires whatever read of this kind is in flight, so its completion can no
+	 *  longer publish. */
+	function retireReads(kind: SessionReadKind) {
+		readSeq += 1;
+		newestIssuedReadSeq.set(kind, readSeq);
+	}
+
 	/** Records that the active state now reflects this command, so anything
 	 *  issued earlier can no longer overwrite it. */
 	function markApplied(command: SessionCommandToken) {
@@ -580,46 +675,54 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	async function syncSessionFromTab(sessionId: string) {
 		if (!sessionId || selectedSessionId === sessionId) return;
 
+		setSelectedSessionId(sessionId);
+		const read = beginSessionRead('session', sessionId, { ownsSelection: true });
+
 		try {
-			setSelectedSessionId(sessionId);
-			const response = await deps.api.getSessionById(sessionId);
+			const response = await deps.api.getSessionById(read.targetId);
+			// A hydration that outlived its selection or its preset answers for
+			// nothing: neither its payload nor its "this session is gone" verdict
+			// describes what is on screen now.
+			if (!ownsRead(read)) return;
+
 			if (response.success && response.data) {
 				// Verify this session belongs to the current preset.
-				if (response.data.preset_id !== ctx.presetId) {
+				if (response.data.preset_id !== read.presetId) {
 					deps.logger.warn('[Session] Session belongs to different preset, clearing it');
 					clearActiveSession();
-					deps.tabs.updateTab(ctx.tabId, {
+					deps.tabs.updateTab(read.tabId, {
 						selectedSessionId: null,
 						savedSessionSignature: null
 					});
-					publish();
-					return;
+				} else {
+					// A change after mount is an explicit programmatic selection, unlike
+					// a remount. Apply the full server payload through the same path as
+					// the picker so prompt/form/layout state and the saved baseline agree.
+					await applySessionModeData(read.targetId, response.data.data, response.data, {
+						markSaved: true
+					});
 				}
-
-				// A change after mount is an explicit programmatic selection, unlike
-				// a remount. Apply the full server payload through the same path as
-				// the picker so prompt/form/layout state and the saved baseline agree.
-				await applySessionModeData(sessionId, response.data.data, response.data, {
-					markSaved: true
-				});
 			} else if (isSessionMissingResponse(response)) {
 				deps.logger.warn('[Session] Session no longer exists, clearing it');
 				clearActiveSession();
-				deps.tabs.updateTab(ctx.tabId, { selectedSessionId: null, savedSessionSignature: null });
+				deps.tabs.updateTab(read.tabId, { selectedSessionId: null, savedSessionSignature: null });
 			}
 		} catch (err) {
 			// A thrown HTTP 404 proves the session is gone; anything else (backend
 			// unreachable/restarting) must leave the tab's link intact so the list
 			// load's retry can still bind currentSession once the backend answers.
+			const owned = ownsRead(read);
 			if (isSessionGoneError(err)) {
 				deps.logger.error('Failed to sync session from tab:', err);
+				if (!owned) return;
 				clearActiveSession();
-				deps.tabs.updateTab(ctx.tabId, { selectedSessionId: null, savedSessionSignature: null });
+				deps.tabs.updateTab(read.tabId, { selectedSessionId: null, savedSessionSignature: null });
 			} else {
 				deps.logger.warn(
 					'[Session] Backend unreachable while syncing session, keeping the saved link:',
 					err
 				);
+				if (!owned) return;
 			}
 		}
 		publish();
@@ -726,11 +829,14 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			loadSessionsRetryTimer = null;
 		}
 
+		const read = beginSessionRead('list', '', { ownsSelection: false });
+
 		try {
 			isSessionLoading = true;
 			error = null;
 			publish();
-			const response = await deps.api.getSessionsForPreset(ctx.presetId);
+			const response = await deps.api.getSessionsForPreset(read.presetId!);
+			if (!ownsRead(read)) return;
 			if (response.success && response.data) {
 				sessions = response.data;
 				const sessionForTab =
@@ -743,40 +849,54 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			}
 			loadSessionsRetryDelay = RETRY_BASE_DELAY;
 		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load sessions';
 			deps.logger.error('Failed to load sessions:', err);
+			// The retry belongs to the preset the failed load was for, and to a
+			// live controller: an obsolete or post-teardown rejection must not
+			// raise an error the user can no longer act on, nor install a timer
+			// that outlives the view.
+			if (!ownsRead(read)) return;
+			error = err instanceof Error ? err.message : 'Failed to load sessions';
 			loadSessionsRetryTimer = timers.setTimeout(() => {
 				loadSessionsRetryTimer = null;
 				void loadSessions();
 			}, loadSessionsRetryDelay);
 			loadSessionsRetryDelay = Math.min(loadSessionsRetryDelay * 2, RETRY_MAX_DELAY);
 		} finally {
-			isSessionLoading = false;
-			publish();
+			if (ownsRead(read)) {
+				isSessionLoading = false;
+				publish();
+			}
 		}
 	}
 
 	async function select(sessionId: string) {
 		if (!sessionId) return;
 
-		try {
-			isSessionLoading = true;
-			error = null;
-			setSelectedSessionId(sessionId);
-			publish();
+		isSessionLoading = true;
+		error = null;
+		setSelectedSessionId(sessionId);
+		const read = beginSessionRead('session', sessionId, { ownsSelection: true });
+		publish();
 
-			const response = await deps.api.getSessionById(sessionId);
+		try {
+			const response = await deps.api.getSessionById(read.targetId);
+			// Two picks in a row resolve in whatever order the backend answers:
+			// the older one must not hydrate its session back over the newer pick.
+			if (!ownsRead(read)) return;
 			if (response.success && response.data) {
-				await applySessionModeData(sessionId, response.data.data, response.data, {
+				await applySessionModeData(read.targetId, response.data.data, response.data, {
 					markSaved: true
 				});
 			}
 		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load session';
 			deps.logger.error('Failed to load session:', err);
+			if (!ownsRead(read)) return;
+			error = err instanceof Error ? err.message : 'Failed to load session';
 		} finally {
-			isSessionLoading = false;
-			publish();
+			if (ownsRead(read)) {
+				isSessionLoading = false;
+				publish();
+			}
 		}
 	}
 
@@ -1043,6 +1163,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 
 	// Session history: list this session's past saves.
 	async function openHistory(sessionId: string) {
+		const read = beginSessionRead('history', sessionId, { ownsSelection: false });
 		historySessionId = sessionId;
 		historyVersions = [];
 		historyError = null;
@@ -1050,23 +1171,31 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		publish();
 
 		try {
-			const response = await deps.api.getSessionVersions(sessionId);
+			const response = await deps.api.getSessionVersions(read.targetId);
+			if (!ownsRead(read)) return;
 			if (response.success && response.data) {
 				historyVersions = response.data;
 			}
 		} catch (err) {
-			historyError = 'Could not load history for this session.';
 			deps.logger.error('Failed to load session history:', err);
+			if (!ownsRead(read)) return;
+			historyError = 'Could not load history for this session.';
 		} finally {
-			isHistoryLoading = false;
-			publish();
+			if (ownsRead(read)) {
+				isHistoryLoading = false;
+				publish();
+			}
 		}
 	}
 
 	function closeHistory() {
+		// Closing retires the load: its rows and its error belong to a panel that
+		// is no longer open, and its spinner would otherwise be left raised.
+		retireReads('history');
 		historySessionId = null;
 		historyVersions = [];
 		historyError = null;
+		isHistoryLoading = false;
 		publish();
 	}
 
@@ -1125,6 +1254,10 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		if (tabChanged || presetChanged || modeChanged) {
 			commandGeneration += 1;
 			listGeneration += 1;
+			// The hydration this retires can no longer clear its own flag, and
+			// `evaluateTabLink` is gated on it — leaving it raised would freeze
+			// the new context's link evaluation for good.
+			isSessionLoading = false;
 		}
 
 		if ((presetChanged || modeChanged) && ctx.presetId && ctx.currentMode) {

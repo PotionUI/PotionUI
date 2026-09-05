@@ -213,6 +213,31 @@ async function bootWithDirtySession(options: { storage?: Record<string, string> 
 	return harness;
 }
 
+/** Boots a controller bound to a tab with no session picked yet, so the reads
+ *  under test are the only thing touching the selection. */
+async function bootWithoutSession() {
+	harness = createHarness({
+		tab: { selectedPreset: PRESET_ID, selectedMode: MODE } as Partial<Tab>
+	});
+	harness.api.getSessionsForPreset.mockResolvedValue({
+		success: true,
+		data: [makeSession(SESSION_A), makeSession(SESSION_B)]
+	});
+	controller = harness.controller;
+	controller.setContext(context());
+	controller.start();
+	await settle();
+	return harness;
+}
+
+function version(versionNumber: number) {
+	return {
+		version_number: versionNumber,
+		created_at: '2026-01-01T00:00:00Z',
+		summary: `Save ${versionNumber}`
+	};
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 });
@@ -663,5 +688,254 @@ describe('createSessionController', () => {
 		expect(harness.tabs.tab.savedSessionSignature).toBeNull();
 		expect(state.historySessionId).toBeNull();
 		expect(harness.toasts.info).toHaveBeenCalledTimes(1);
+	});
+
+	// Reads replace the selection, the rows and the loading flags without ever
+	// touching the server, so an out-of-order or obsolete completion is just as
+	// destructive as a stale save landing on the active state.
+	it('ignores a session load that lands after the user picked another session', async () => {
+		await bootWithoutSession();
+		const first = deferred<{ success: boolean; data: Session }>();
+		const second = deferred<{ success: boolean; data: Session }>();
+		harness.api.getSessionById.mockImplementation(
+			((id: string) => (id === SESSION_A ? first.promise : second.promise)) as never
+		);
+
+		void controller.select(SESSION_A);
+		await settle();
+		void controller.select(SESSION_B);
+		await settle();
+
+		second.resolve({ success: true, data: makeSession(SESSION_B) });
+		await settle();
+		expect(get(controller.state).currentSession?.id).toBe(SESSION_B);
+
+		first.resolve({ success: true, data: makeSession(SESSION_A) });
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.selectedSessionId).toBe(SESSION_B);
+		expect(state.currentSession?.id).toBe(SESSION_B);
+		expect(harness.tabs.tab.selectedSessionId).toBe(SESSION_B);
+	});
+
+	it('reports no error for a session load that fails after another session was picked', async () => {
+		await bootWithoutSession();
+		const first = deferred<{ success: boolean; data: Session }>();
+		const second = deferred<{ success: boolean; data: Session }>();
+		harness.api.getSessionById.mockImplementation(
+			((id: string) => (id === SESSION_A ? first.promise : second.promise)) as never
+		);
+
+		void controller.select(SESSION_A);
+		await settle();
+		void controller.select(SESSION_B);
+		await settle();
+
+		second.resolve({ success: true, data: makeSession(SESSION_B) });
+		await settle();
+
+		first.reject(new Error('network down'));
+		await settle();
+		// Any later edit republishes; a stale field written now would surface then.
+		harness.tabs.edit(draft('typing on'));
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.error).toBeNull();
+		expect(state.currentSession?.id).toBe(SESSION_B);
+		expect(state.isSessionLoading).toBe(false);
+	});
+
+	// The programmatic sync's "this session belongs to another preset" verdict
+	// is only true of the preset the read was issued under: applied afterwards
+	// it unlinks a session the user never touched.
+	it('drops a programmatic session sync that lands after the preset was switched', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: Session }>();
+		harness.api.getSessionById.mockReturnValue(pending.promise as never);
+
+		harness.tabs.edit({ selectedSessionId: SESSION_B } as Partial<Tab>);
+		await settle();
+		expect(harness.api.getSessionById).toHaveBeenCalledWith(SESSION_B);
+
+		harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [] });
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+
+		const writesBefore = harness.tabs.writes.length;
+		pending.resolve({ success: true, data: makeSession(SESSION_B) });
+		await settle();
+
+		expect(harness.tabs.writes.length).toBe(writesBefore);
+		expect(harness.tabs.tab.selectedSessionId).toBe(SESSION_B);
+	});
+
+	it('leaves the tab linked when a stale session sync fails with a gone error', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: Session }>();
+		harness.api.getSessionById.mockReturnValue(pending.promise as never);
+
+		harness.tabs.edit({ selectedSessionId: SESSION_B } as Partial<Tab>);
+		await settle();
+
+		harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [] });
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+
+		const writesBefore = harness.tabs.writes.length;
+		// A 404 proves the session is gone — under the preset it was asked for,
+		// which is no longer the one on screen.
+		pending.reject({ response: { status: 404 } });
+		await settle();
+
+		expect(harness.tabs.writes.length).toBe(writesBefore);
+		expect(harness.tabs.tab.selectedSessionId).toBe(SESSION_B);
+	});
+
+	it('ignores a session list that resolves after the preset was switched under it', async () => {
+		const presetASessions = [makeSession(SESSION_A)];
+		const presetBSessions = [makeSession(SESSION_B, { preset_id: OTHER_PRESET_ID })];
+		harness = createHarness({ tab: { selectedPreset: PRESET_ID, selectedMode: MODE } });
+		const pendingA = deferred<{ success: boolean; data: Session[] }>();
+		harness.api.getSessionsForPreset.mockImplementation(
+			((presetId: string) =>
+				presetId === PRESET_ID
+					? pendingA.promise
+					: Promise.resolve({ success: true, data: presetBSessions })) as never
+		);
+		controller = harness.controller;
+
+		controller.setContext(context());
+		controller.start();
+		await settle();
+
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+		expect(get(controller.state).sessions).toEqual(presetBSessions);
+
+		pendingA.resolve({ success: true, data: presetASessions });
+		await settle();
+		harness.tabs.edit(draft('typing on'));
+		await settle();
+
+		expect(get(controller.state).sessions).toEqual(presetBSessions);
+	});
+
+	it('raises no error and schedules no retry when a list load fails under an obsolete preset', async () => {
+		const presetBSessions = [makeSession(SESSION_B, { preset_id: OTHER_PRESET_ID })];
+		harness = createHarness({ tab: { selectedPreset: PRESET_ID, selectedMode: MODE } });
+		const pendingA = deferred<{ success: boolean; data: Session[] }>();
+		harness.api.getSessionsForPreset.mockImplementation(
+			((presetId: string) =>
+				presetId === PRESET_ID
+					? pendingA.promise
+					: Promise.resolve({ success: true, data: presetBSessions })) as never
+		);
+		controller = harness.controller;
+
+		controller.setContext(context());
+		controller.start();
+		await settle();
+
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+
+		pendingA.reject(new Error('backend down'));
+		await settle();
+		harness.tabs.edit(draft('typing on'));
+		await settle();
+
+		expect(get(controller.state).error).toBeNull();
+		expect(harness.timers.pending()).toBe(0);
+	});
+
+	it('installs no list-load retry for a rejection that lands after destroy', async () => {
+		harness = createHarness({ tab: { selectedPreset: PRESET_ID, selectedMode: MODE } });
+		const pending = deferred<{ success: boolean; data: Session[] }>();
+		harness.api.getSessionsForPreset.mockReturnValue(pending.promise as never);
+		controller = harness.controller;
+
+		controller.setContext(context());
+		controller.start();
+		await settle();
+		expect(harness.timers.pending()).toBe(0);
+
+		controller.destroy();
+		pending.reject(new Error('backend down'));
+		await settle();
+
+		expect(harness.timers.pending()).toBe(0);
+	});
+
+	it('ignores a version list that lands after another session history was opened', async () => {
+		await bootWithDirtySession();
+		const first = deferred<{ success: boolean; data: ReturnType<typeof version>[] }>();
+		const second = deferred<{ success: boolean; data: ReturnType<typeof version>[] }>();
+		harness.api.getSessionVersions.mockImplementation(
+			((id: string) => (id === SESSION_A ? first.promise : second.promise)) as never
+		);
+
+		void controller.openHistory(SESSION_A);
+		await settle();
+		void controller.openHistory(SESSION_B);
+		await settle();
+
+		second.resolve({ success: true, data: [version(2)] });
+		await settle();
+		first.resolve({ success: true, data: [version(1)] });
+		await settle();
+		harness.tabs.edit(draft('typing on'));
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.historySessionId).toBe(SESSION_B);
+		expect(state.historyVersions.map((entry) => entry.version_number)).toEqual([2]);
+		expect(state.isHistoryLoading).toBe(false);
+	});
+
+	it('shows no history error for a version list that fails after the panel moved on', async () => {
+		await bootWithDirtySession();
+		const first = deferred<{ success: boolean; data: ReturnType<typeof version>[] }>();
+		const second = deferred<{ success: boolean; data: ReturnType<typeof version>[] }>();
+		harness.api.getSessionVersions.mockImplementation(
+			((id: string) => (id === SESSION_A ? first.promise : second.promise)) as never
+		);
+
+		void controller.openHistory(SESSION_A);
+		await settle();
+		void controller.openHistory(SESSION_B);
+		await settle();
+
+		second.resolve({ success: true, data: [version(2)] });
+		await settle();
+		first.reject(new Error('history unavailable'));
+		await settle();
+		harness.tabs.edit(draft('typing on'));
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.historyError).toBeNull();
+		expect(state.historyVersions.map((entry) => entry.version_number)).toEqual([2]);
+	});
+
+	it('does not repopulate a history panel the user has closed', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: ReturnType<typeof version>[] }>();
+		harness.api.getSessionVersions.mockReturnValue(pending.promise as never);
+
+		void controller.openHistory(SESSION_A);
+		await settle();
+		controller.closeHistory();
+
+		pending.resolve({ success: true, data: [version(1)] });
+		await settle();
+		harness.tabs.edit(draft('typing on'));
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.historySessionId).toBeNull();
+		expect(state.historyVersions).toEqual([]);
+		expect(state.isHistoryLoading).toBe(false);
 	});
 });

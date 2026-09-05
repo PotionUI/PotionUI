@@ -40,10 +40,21 @@ from src.platform.util.ids import generate_ulid
 logger = logging.getLogger(__name__)
 
 # Bumped only on a breaking change to the exported envelope. `import_bundle`
-# refuses anything it doesn't recognise rather than guessing (mirrors the
-# automation module's export/import envelope contract).
+# refuses anything outside `GENERATION_BUNDLE_SUPPORTED_VERSIONS` rather than
+# guessing (mirrors the automation module's export/import envelope contract).
+#
+# v1 -> v2: `generation.model_refs` was added - a list of
+# {path, model_type, filename, sha256} entries, one per `model:<id>` occurrence
+# in `generation.form_data` at export time, naming that occurrence's exact
+# location (a list of dict keys / list indices) and cross-instance identity.
+# `form_data` itself still carries the filename at that path either way (v1
+# behaviour, kept for readability without resolving anything) - `model_refs` is
+# what lets import rewrite each occurrence by its own path instead of matching
+# by filename value across the whole form, which conflated distinct fields that
+# happened to share a filename (see docs/models.md#portable-generation-bundles).
 GENERATION_BUNDLE_SCHEMA = "potionui.generation"
-GENERATION_BUNDLE_SCHEMA_VERSION = 1
+GENERATION_BUNDLE_SCHEMA_VERSION = 2
+GENERATION_BUNDLE_SUPPORTED_VERSIONS = {1, GENERATION_BUNDLE_SCHEMA_VERSION}
 
 # Bounds on an untrusted uploaded bundle. Only `generation.json` is ever
 # read - every other zip entry (the reference output files) is ignored, so
@@ -544,32 +555,47 @@ class GenerationHistoryArchive:
         return zip_buffer, "potionui-export.zip"
 
     @staticmethod
-    def _portable_form_data(form_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _portable_form_data(form_data: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         """Model ulids are instance-local: a bundled `form_data` carrying a
         `model:<id>` ref (see src.features.models.form_refs) would mean nothing on
-        another instance. Rewrite each ref to that model's filename instead, which
-        the bundle's own `models` list already ships for exactly this purpose. An
-        id that no longer resolves locally is left as-is."""
-        from src.features.models.form_refs import collect_model_ids, make_model_ref, substitute_strings
+        another instance. Rewrite each ref to that model's filename (still readable
+        without resolving anything), and separately record each occurrence's exact
+        path plus its `(model_type, filename)` identity as a `model_refs` entry, so
+        import can restore each field independently instead of matching by filename
+        across the whole form - two fields legitimately holding the same filename
+        (a checkpoint and a vae sharing a name, or an ordinary text field that just
+        says the filename) must not collide. An id that no longer resolves locally
+        is left as a bare `model:<id>` and gets no `model_refs` entry.
 
-        model_ids = collect_model_ids(form_data)
-        if not model_ids:
-            return form_data
+        Returns (form_data, model_refs).
+        """
+        from src.features.models.form_refs import collect_model_refs, set_at_path
+
+        occurrences = collect_model_refs(form_data)
+        if not occurrences:
+            return form_data, []
 
         from src.features.models.repository import model_repo
 
-        filename_by_ref: Dict[str, str] = {}
-        for model_id in model_ids:
+        model_refs: List[Dict[str, Any]] = []
+        for occurrence in occurrences:
             try:
-                model = model_repo.get_by_id(model_id, include_providers=False, include_tags=False)
+                model = model_repo.get_by_id(
+                    occurrence["model_id"], include_providers=False, include_tags=False
+                )
             except Exception:
                 model = None
-            if model and model.filename:
-                filename_by_ref[make_model_ref(model_id)] = model.filename
+            if not model or not model.filename:
+                continue
+            form_data = set_at_path(form_data, occurrence["path"], model.filename)
+            model_refs.append({
+                "path": occurrence["path"],
+                "model_type": model.model_type,
+                "filename": model.filename,
+                "sha256": model.sha256,
+            })
 
-        if not filename_by_ref:
-            return form_data
-        return substitute_strings(form_data, filename_by_ref)
+        return form_data, model_refs
 
     def _build_bundle_envelope(self, generation: Generation, user_id: str) -> Dict[str, Any]:
         """Portable envelope for one generation - schema/kind/schema_version, a
@@ -607,7 +633,7 @@ class GenerationHistoryArchive:
         form_data = deepcopy(generation.form_data) if isinstance(generation.form_data, dict) else {}
         if parameters and 'seed' in parameters[0]:
             form_data['seed'] = parameters[0]['seed']
-        form_data = self._portable_form_data(form_data)
+        form_data, model_refs = self._portable_form_data(form_data)
 
         models = generation_model_repo.get_by_generation(generation.id)
         models_payload = [
@@ -652,6 +678,7 @@ class GenerationHistoryArchive:
                 "mode": generation.mode,
                 "form_name": generation.form_name,
                 "form_data": form_data,
+                "model_refs": model_refs,
                 "prompt_state": generation.prompt_state,
                 "parameters": parameters,
                 "segments": segments_payload,
@@ -749,10 +776,10 @@ class GenerationHistoryArchive:
             raise GenerationBundleImportError("Bundle document must be a JSON object")
         if document.get("schema") != GENERATION_BUNDLE_SCHEMA or document.get("kind") != "generation":
             raise GenerationBundleImportError("Not a PotionUI generation export")
-        if document.get("schema_version") != GENERATION_BUNDLE_SCHEMA_VERSION:
+        if document.get("schema_version") not in GENERATION_BUNDLE_SUPPORTED_VERSIONS:
             raise GenerationBundleImportError(
                 f"Unsupported export schema_version: {document.get('schema_version')!r} "
-                f"(this build reads version {GENERATION_BUNDLE_SCHEMA_VERSION})"
+                f"(this build reads versions {sorted(GENERATION_BUNDLE_SUPPORTED_VERSIONS)})"
             )
 
         generation = document.get("generation")
@@ -765,25 +792,32 @@ class GenerationHistoryArchive:
         if models is not None and not isinstance(models, list):
             raise GenerationBundleImportError("Bundle 'models' must be a list")
 
+        model_refs = generation.get("model_refs")
+        if model_refs is not None and not isinstance(model_refs, list):
+            raise GenerationBundleImportError("Bundle 'generation.model_refs' must be a list")
+
         return generation
 
     def _check_bundle_environment(
         self, generation: Dict[str, Any], models: List[Dict[str, Any]]
-    ) -> Tuple[bool, List[str], Dict[str, str]]:
+    ) -> Tuple[bool, List[str], Dict[Tuple[Optional[str], str], str]]:
         """Environment checks -> warnings, never a hard failure: a preset not
         installed here, or a model missing / digest-mismatched locally. Matched
         by (model_type, filename) - the same cross-instance model identity used
         everywhere else (see docs/models.md). `backend_id` is deliberately not
         part of the bundle at all - it is instance-specific and never checked.
 
-        Also returns `local_id_by_filename`: the bundle-listed filenames found
-        locally, mapped to that model's id, so `import_bundle` can turn them back
-        into `model:<id>` refs without a second `get_by_filename` pass. The
-        `models` table is unique on (model_type, filename), so a match is never
-        ambiguous.
+        Also returns `local_id_by_key`: the bundle-listed `(model_type, filename)`
+        pairs found locally, mapped to that model's id, so `import_bundle` can
+        turn them back into `model:<id>` refs without a second `get_by_filename`
+        pass. Keyed on the pair, not the filename alone - two bundle-listed models
+        of different types sharing a filename (a checkpoint and a vae both named
+        `weights.safetensors`, say) are two distinct entries here, not one
+        overwriting the other. The `models` table is unique on
+        (model_type, filename), so each pair matches at most one local model.
         """
         warnings: List[str] = []
-        local_id_by_filename: Dict[str, str] = {}
+        local_id_by_key: Dict[Tuple[Optional[str], str], str] = {}
 
         preset_id = generation.get("preset_id")
         preset_available = False
@@ -817,7 +851,7 @@ class GenerationHistoryArchive:
                 warnings.append(f"Model '{label}' ({model_type}) was not found locally")
                 continue
 
-            local_id_by_filename[filename] = candidates[0].id
+            local_id_by_key[(model_type, filename)] = candidates[0].id
 
             expected_sha256 = model.get("sha256")
             local_sha256 = candidates[0].sha256
@@ -826,7 +860,76 @@ class GenerationHistoryArchive:
                     f"Model '{label}' is present locally but its digest does not match the exported copy"
                 )
 
-        return preset_available, warnings, local_id_by_filename
+        return preset_available, warnings, local_id_by_key
+
+    @staticmethod
+    def _resolve_model_refs_by_path(
+        form_data: Dict[str, Any],
+        model_refs: List[Dict[str, Any]],
+        local_id_by_key: Dict[Tuple[Optional[str], str], str],
+    ) -> Tuple[Dict[str, Any], List[str]]:
+        """v2 bundles: rewrite exactly the recorded occurrences, each identified
+        by its own path and `(model_type, filename)`. Never touches any other
+        string in `form_data`, so a field that legitimately holds the same
+        filename as a model reference (a caption, another model of a different
+        type) is untouched regardless of what this ref resolves to."""
+        from src.features.models.form_refs import get_at_path, make_model_ref, set_at_path
+
+        warnings: List[str] = []
+        for ref in model_refs:
+            if not isinstance(ref, dict):
+                continue
+            path = ref.get("path")
+            filename = ref.get("filename")
+            if not isinstance(path, list) or not filename:
+                continue
+            model_id = local_id_by_key.get((ref.get("model_type"), filename))
+            if model_id is None:
+                continue  # already warned about by _check_bundle_environment
+            if get_at_path(form_data, path) != filename:
+                # The manifest's path no longer matches the exported filename -
+                # form_data was edited by something else since export. Leaving it
+                # alone beats overwriting a value the manifest no longer describes.
+                continue
+            form_data = set_at_path(form_data, path, make_model_ref(model_id))
+        return form_data, warnings
+
+    @staticmethod
+    def _resolve_model_refs_legacy(
+        form_data: Dict[str, Any],
+        models: List[Dict[str, Any]],
+        local_id_by_key: Dict[Tuple[Optional[str], str], str],
+    ) -> Tuple[Dict[str, Any], List[str]]:
+        """v1 bundles carry no `model_refs`, so a resolved filename can only be
+        substituted by value across the whole of `form_data` - there is no path to
+        target. That is safe exactly when the bundle's own `models` list names
+        that filename under a single model_type; when it names the same filename
+        under more than one type (a checkpoint and a vae sharing a name), a global
+        substitution cannot tell which field is which, so those occurrences are
+        left unresolved with a warning rather than guessed.
+        """
+        from src.features.models.form_refs import make_model_ref, substitute_strings
+
+        filename_types: Dict[str, set] = {}
+        for model in models:
+            if isinstance(model, dict) and model.get("filename"):
+                filename_types.setdefault(model["filename"], set()).add(model.get("model_type"))
+
+        ambiguous = {filename for filename, types in filename_types.items() if len(types) > 1}
+        warnings = [
+            f"'{filename}' is used by more than one model type in this legacy bundle "
+            "(no per-field reference info to disambiguate), so it was left unresolved"
+            for filename in sorted(ambiguous)
+        ]
+
+        ref_by_filename = {
+            filename: make_model_ref(model_id)
+            for (model_type, filename), model_id in local_id_by_key.items()
+            if filename not in ambiguous
+        }
+        if not ref_by_filename:
+            return form_data, warnings
+        return substitute_strings(form_data, ref_by_filename), warnings
 
     def import_bundle(self, content: bytes) -> Dict[str, Any]:
         """Parse an uploaded generation bundle into a reuse payload.
@@ -855,17 +958,16 @@ class GenerationHistoryArchive:
         generation = self._validate_bundle_envelope(document)
         models = document.get("models") or []
 
-        preset_available, warnings, local_id_by_filename = self._check_bundle_environment(generation, models)
+        preset_available, warnings, local_id_by_key = self._check_bundle_environment(generation, models)
 
         form_data = generation.get("form_data")
-        if local_id_by_filename:
-            from src.features.models.form_refs import make_model_ref, substitute_strings
-
-            ref_by_filename = {
-                filename: make_model_ref(model_id)
-                for filename, model_id in local_id_by_filename.items()
-            }
-            form_data = substitute_strings(form_data, ref_by_filename)
+        model_refs = generation.get("model_refs")
+        if isinstance(model_refs, list) and model_refs:
+            form_data, ref_warnings = self._resolve_model_refs_by_path(form_data, model_refs, local_id_by_key)
+            warnings.extend(ref_warnings)
+        elif local_id_by_key:
+            form_data, ref_warnings = self._resolve_model_refs_legacy(form_data, models, local_id_by_key)
+            warnings.extend(ref_warnings)
 
         reuse = {
             "preset_id": generation.get("preset_id"),

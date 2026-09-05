@@ -106,6 +106,76 @@ def substitute_strings(form_data: Any, mapping: Dict[str, str]) -> Any:
     return walk(form_data)
 
 
+def collect_model_refs(form_data: Any) -> List[Dict[str, Any]]:
+    """Every `model:<id>` occurrence in `form_data`, with its exact location.
+
+    Unlike `collect_model_ids`, this does not dedupe by model id - a ref repeated
+    at two paths (the same LoRA picked twice, say) yields two entries - and it
+    keeps enough position information (`path`, a list of dict keys / list
+    indices in walk order) for a caller to rewrite one occurrence without
+    touching any other string that happens to hold the same value. Used by the
+    generation bundle export to record each reference's exact field, so import
+    can restore it independently of any other field carrying the same filename.
+    """
+    refs: List[Dict[str, Any]] = []
+
+    def walk(node: Any, path: List[Any]) -> None:
+        if is_model_ref(node):
+            refs.append({"path": list(path), "model_id": model_id_of(node)})
+        elif isinstance(node, dict):
+            for key, value in node.items():
+                walk(value, path + [key])
+        elif isinstance(node, (list, tuple)):
+            for index, item in enumerate(node):
+                walk(item, path + [index])
+
+    walk(form_data, [])
+    return refs
+
+
+_MISSING = object()
+
+
+def get_at_path(form_data: Any, path: List[Any]) -> Any:
+    """The value at `path` (as produced by `collect_model_refs`), or a sentinel
+    distinct from every possible form value if the path no longer matches."""
+    node = form_data
+    for key in path:
+        if isinstance(key, int):
+            if not isinstance(node, (list, tuple)) or key < 0 or key >= len(node):
+                return _MISSING
+            node = node[key]
+        else:
+            if not isinstance(node, dict) or key not in node:
+                return _MISSING
+            node = node[key]
+    return node
+
+
+def set_at_path(form_data: Any, path: List[Any], value: Any) -> Any:
+    """Return a copy of `form_data` with the leaf at `path` replaced by `value`.
+
+    Only the containers on the path are copied - the rest of the structure is
+    shared with the input. A path that no longer matches the structure (a stale
+    manifest against hand-edited form data) is a no-op rather than an error,
+    since a bundle's `model_refs` is best-effort provenance, not a schema.
+    """
+    if not path:
+        return value
+    key, rest = path[0], path[1:]
+    if isinstance(key, int):
+        if not isinstance(form_data, (list, tuple)) or key < 0 or key >= len(form_data):
+            return form_data
+        new_list = list(form_data)
+        new_list[key] = set_at_path(new_list[key], rest, value)
+        return tuple(new_list) if isinstance(form_data, tuple) else new_list
+    if not isinstance(form_data, dict) or key not in form_data:
+        return form_data
+    new_dict = dict(form_data)
+    new_dict[key] = set_at_path(new_dict[key], rest, value)
+    return new_dict
+
+
 def resolve_form_model_refs(form_data: Any, backend_id: str) -> Any:
     """Rewrite every `model:<id>` into the ref this backend needs.
 

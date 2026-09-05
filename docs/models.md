@@ -315,6 +315,30 @@ The same asymmetry governs selection: availability narrows the candidate backend
 least one backend of the engine has been indexed. Enforcing it against an empty index would fail
 every generation on that engine instead of degrading to the previous behaviour.
 
+## Portable generation bundles
+
+`GenerationHistoryArchive.export_bundle` / `import_bundle`
+(`src/features/generation/history_archive.py`) package one generation as a `generation.json`
+envelope another instance can reuse. Model ulids are as instance-local as everywhere else in this
+document, so `form_data`'s `model:<id>` refs are rewritten to filenames on export and back to
+`model:<id>` on import (`GENERATION_BUNDLE_SCHEMA_VERSION = 2`).
+
+A plain filename-for-filename substitution across the whole of `form_data` cannot tell two fields
+apart when they happen to hold the same string — a checkpoint and a vae sharing a filename, or an
+ordinary text field that just says the filename — and would resolve one of them to the wrong local
+model or corrupt the text field outright. The export therefore also walks `form_data` and records
+each `model:<id>` occurrence's exact location alongside its `(model_type, filename)` identity, as
+`generation.model_refs: [{path, model_type, filename, sha256}, ...]` (`path` is a list of dict keys
+/ list indices, so a repeated or nested reference gets its own entry). Import resolves each entry
+by `(model_type, filename)` and rewrites only that recorded path — every other string in
+`form_data`, model-filename-shaped or not, passes through untouched.
+
+A v1 bundle (`schema_version: 1`, no `model_refs`) predates this and is still accepted: import
+falls back to the old global substitution, keyed by `(model_type, filename)` from the bundle's own
+`models` list rather than filename alone. When that list names the same filename under more than
+one model type, which field is which can no longer be told apart without path data, so those
+occurrences are left as the bare filename with a warning instead of guessed.
+
 ## Consequences for history
 
 `param_handler` no longer relies on an exact `file_path` match. It falls back to the identity

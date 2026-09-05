@@ -96,7 +96,7 @@ class TestImportBundleValidation:
 
     def test_rejects_wrong_schema_version(self):
         doc = _valid_document()
-        doc["schema_version"] = 2
+        doc["schema_version"] = 999
 
         with pytest.raises(GenerationBundleImportError, match="schema_version"):
             self.archive.import_bundle(json.dumps(doc).encode("utf-8"))
@@ -444,6 +444,147 @@ class TestExportImportRoundTrip:
         result = import_archive.import_bundle(zip_file.read())
 
         assert result["reuse"]["form_data"]["diffusion_model"] == "checkpoint.safetensors"
+
+    def test_export_import_round_trip_preserves_per_field_model_identity(self):
+        """The core regression: two model types share one filename, a literal
+        caption happens to equal that filename, LoRAs are nested in a list, one
+        model is referenced twice, and models are associated with the generation
+        in an order unrelated to how they appear in form_data. Importing into an
+        instance whose local ids for the same (model_type, filename) pairs are
+        entirely different must restore each field to its own correct local
+        model, and must never touch the literal caption or the unrelated
+        control - a global filename substitution would corrupt both.
+        """
+        from src.features.models.form_refs import make_model_ref
+        from src.platform.util.ids import generate_ulid
+
+        def _insert_model(filename, model_type, sha256):
+            model_id = generate_ulid()
+            with self.db.get_cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO models (id, filename, file_path, file_size, model_type, sha256)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (model_id, filename, f"/models/{filename}", 1024, model_type, sha256))
+            return model_id
+
+        src_ckpt = _insert_model("weights.safetensors", "checkpoint", "digest-ckpt")
+        src_vae = _insert_model("weights.safetensors", "vae", "digest-vae")
+        src_lora_a = _insert_model("lora_a.safetensors", "lora", "digest-la")
+        src_lora_b = _insert_model("lora_b.safetensors", "lora", "digest-lb")
+
+        form_data = {
+            "prompt": "a cat",
+            "seed": 1,
+            "diffusion_model": make_model_ref(src_ckpt),
+            "vae": make_model_ref(src_vae),
+            "caption": "weights.safetensors",
+            "loras": [
+                {"model": make_model_ref(src_lora_a), "strength": 0.5},
+                {"model": make_model_ref(src_lora_b), "strength": 0.7},
+            ],
+            "refiner": make_model_ref(src_ckpt),
+            "style": "portrait",
+        }
+        gen_id = self._create_generation_with_form_data(form_data)
+        # Reversed / interleaved relative to first appearance in form_data.
+        self.gen_model_repo.create_batch(gen_id, [src_vae, src_lora_b, src_ckpt, src_lora_a])
+
+        export_archive = self._make_archive()
+        zip_file, _ = export_archive.export_bundle(gen_id, self.user_id)
+        envelope = self._extract_envelope(zip_file)
+
+        exported_form = envelope["generation"]["form_data"]
+        assert exported_form["diffusion_model"] == "weights.safetensors"
+        assert exported_form["vae"] == "weights.safetensors"
+        assert exported_form["caption"] == "weights.safetensors"
+        assert exported_form["refiner"] == "weights.safetensors"
+        assert exported_form["loras"] == [
+            {"model": "lora_a.safetensors", "strength": 0.5},
+            {"model": "lora_b.safetensors", "strength": 0.7},
+        ]
+        model_refs = envelope["generation"]["model_refs"]
+        assert {tuple(r["path"]) for r in model_refs} == {
+            ("diffusion_model",), ("vae",), ("refiner",),
+            ("loras", 0, "model"), ("loras", 1, "model"),
+        }
+
+        # A different instance: none of the exporting instance's model ids exist
+        # here, but the same (model_type, filename) pairs do, under fresh ids.
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM models WHERE id IN (?, ?, ?, ?)",
+                (src_ckpt, src_vae, src_lora_a, src_lora_b),
+            )
+        dst_ckpt = _insert_model("weights.safetensors", "checkpoint", "digest-ckpt")
+        dst_vae = _insert_model("weights.safetensors", "vae", "digest-vae")
+        dst_lora_a = _insert_model("lora_a.safetensors", "lora", "digest-la")
+        dst_lora_b = _insert_model("lora_b.safetensors", "lora", "digest-lb")
+
+        import_archive = self._make_archive(preset_names={"preset-1": "My Preset"})
+        zip_file.seek(0)
+        result = import_archive.import_bundle(zip_file.read())
+
+        imported_form = result["reuse"]["form_data"]
+        assert imported_form["diffusion_model"] == make_model_ref(dst_ckpt)
+        assert imported_form["vae"] == make_model_ref(dst_vae)
+        assert imported_form["refiner"] == make_model_ref(dst_ckpt)
+        assert imported_form["caption"] == "weights.safetensors"
+        assert imported_form["style"] == "portrait"
+        assert imported_form["loras"] == [
+            {"model": make_model_ref(dst_lora_a), "strength": 0.5},
+            {"model": make_model_ref(dst_lora_b), "strength": 0.7},
+        ]
+        assert result["warnings"] == []
+
+    def test_import_of_v1_bundle_resolves_unambiguous_filenames_and_flags_type_collisions(self):
+        """A v1 bundle (no `model_refs`) has no path information, so a filename
+        shared by two model types in the bundle's own `models` list can't be
+        resolved by value alone without risking exactly the corruption the v2
+        format exists to prevent - it must be left unresolved with a warning,
+        while a filename that is unambiguous in that list still resolves the
+        way v1 bundles always have.
+        """
+        from src.features.models.form_refs import make_model_ref
+
+        doc = _valid_document(
+            form_data={
+                "prompt": "a cat",
+                "diffusion_model": "shared.safetensors",
+                "vae": "shared.safetensors",
+                "caption": "shared.safetensors",
+                "upscaler": "unique.safetensors",
+            }
+        )
+        doc["models"] = [
+            {"model_type": "checkpoint", "filename": "shared.safetensors"},
+            {"model_type": "vae", "filename": "shared.safetensors"},
+            {"model_type": "upscaler", "filename": "unique.safetensors"},
+        ]
+
+        checkpoint_id = self._add_model_row("shared.safetensors", "checkpoint")
+        self._add_model_row("shared.safetensors", "vae")
+        upscaler_id = self._add_model_row("unique.safetensors", "upscaler")
+
+        archive = self._make_archive()
+        result = archive.import_bundle(json.dumps(doc).encode("utf-8"))
+
+        form_data = result["reuse"]["form_data"]
+        assert form_data["diffusion_model"] == "shared.safetensors"
+        assert form_data["vae"] == "shared.safetensors"
+        assert form_data["caption"] == "shared.safetensors"
+        assert form_data["upscaler"] == make_model_ref(upscaler_id)
+        assert any("shared.safetensors" in w and "more than one model type" in w for w in result["warnings"])
+
+    def _add_model_row(self, filename, model_type, sha256=None):
+        from src.platform.util.ids import generate_ulid
+
+        model_id = generate_ulid()
+        with self.db.get_cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO models (id, filename, file_path, file_size, model_type, sha256)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (model_id, filename, f"/models/{filename}", 1024, model_type, sha256))
+        return model_id
 
     def test_export_raises_not_found_for_generation_owned_by_another_user(self):
         gen_id = self._create_generation_with_seed_batch([1])

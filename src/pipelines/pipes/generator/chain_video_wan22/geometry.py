@@ -51,10 +51,25 @@ when the window is long enough: `on_disk_frames = frames - context`,
 (`on_disk_frames = frames`, `join_frames = min(context, frames - 1)`,
 leaving at least one real frame) -- exactly one of the two per continuation
 segment, mirroring `main.py`'s `segment_context_trimmed` /
-`segment_join_overlap`. The TOTAL a `"chain"` segment contributes either way
-is `on_disk_frames - join_frames` (the `emitted_frames` property); `main.py`
-itself calls `resolve_continuation`/`tail_frame_count` from this module for
-exactly that reason, so the two can never drift.
+`segment_join_overlap`. `main.py` itself calls
+`resolve_continuation`/`tail_frame_count` from this module for exactly that
+reason, so the two can never drift.
+
+**`emitted_frames` depends on whether stitching actually runs.** The
+pre-decode trim above runs UNCONDITIONALLY -- it happens per segment at
+generation time, before `main.py` ever decides whether to stitch anything --
+but a `join_frames` join only ever happens AS PART OF stitching. So with
+`settings.continuation.stitch` true, a `"chain"` segment's contribution to
+the ONE stitched timeline is `on_disk_frames - join_frames`; with it false,
+`main.py` applies no join to anything and every segment is emitted as its
+own separate final clip at its full `on_disk_frames` length, so
+`emitted_frames` is just `on_disk_frames`. `overlap_frames` is always
+`frames - emitted_frames`, so it likewise drops to 0 for an UNTRIMMED
+continuation once `stitch` is false (a pre-decode-trimmed one is unaffected
+either way, since that trim never depended on `stitch`).
+`resolve_window_geometry` exposes the resolved `stitch` flag on every
+`SegmentWindowGeometry` it returns so a caller reading `emitted_frames` in
+isolation still knows which semantics apply.
 """
 
 from __future__ import annotations
@@ -114,16 +129,13 @@ class SegmentWindowGeometry:
     # kind. A fresh t2v/i2v/flf segment (including segment 0) is always
     # `False`: it opens on its own content, contributing every aligned frame.
     is_continuation: bool
-    # Pixel frames this segment's front replays from the previous segment's
-    # tail rather than contributing new content ("overlap-in"), TOTAL across
-    # whichever of the two stages below realized it. Always 0 for a fresh cut.
-    overlap_frames: int
     # The length actually on disk BEFORE any stitch-time join -- main.py's
     # `segment_emitted_frames` (a name this module deliberately does not
-    # reuse: here `emitted_frames`, below, means the FINAL net contribution
-    # after the join too). Equals `frames` for a fresh cut or a continuation
-    # whose context was too short to trim pre-decode; less than `frames` only
-    # when THIS segment's own leading context WAS trimmed pre-decode.
+    # reuse: here `emitted_frames`, below, means the segment's contribution to
+    # whatever timeline actually results, which depends on `stitch` too).
+    # Equals `frames` for a fresh cut or a continuation whose context was too
+    # short to trim pre-decode; less than `frames` only when THIS segment's
+    # own leading context WAS trimmed pre-decode.
     on_disk_frames: int
     # Whether this segment's own pre-decode trim ran -- mirrors main.py's
     # `segment_context_trimmed`. Mutually exclusive with `join_frames > 0`:
@@ -133,15 +145,37 @@ class SegmentWindowGeometry:
     # The overlap this segment's join is PLANNED to crossfade away at stitch
     # time -- mirrors main.py's `segment_join_overlap`. Always 0 when
     # `context_trimmed` is True (already handled pre-decode) or the segment
-    # isn't a continuation.
+    # isn't a continuation. Meaningful only when `stitch` is True below --
+    # main.py never runs a join at all when stitching is disabled, so this
+    # value describes a join that WOULD apply if it were, not one that does.
     join_frames: int
+    # The resolved `settings.continuation.stitch` flag (`resolve_continuation`),
+    # carried per segment so a consumer reading one `SegmentWindowGeometry` in
+    # isolation can still tell which of the two `emitted_frames` semantics
+    # below applies, without re-reading `settings` itself.
+    stitch: bool
 
     @property
     def emitted_frames(self) -> int:
-        """Pixel frames this segment CONTRIBUTES to the stitched timeline,
-        net of BOTH possible drop stages (`frames - overlap_frames`, i.e.
-        `on_disk_frames - join_frames`)."""
-        return self.frames - self.overlap_frames
+        """Pixel frames this segment CONTRIBUTES to whatever the generator
+        actually produces. When `stitch` is True, that's its net contribution
+        to the ONE stitched timeline (`on_disk_frames - join_frames`) -- a
+        join only ever runs as part of stitching, so with stitching disabled
+        main.py applies no join to anything and every segment is emitted as
+        its own separate final clip at its full `on_disk_frames` length."""
+        return self.on_disk_frames - self.join_frames if self.stitch else self.on_disk_frames
+
+    @property
+    def overlap_frames(self) -> int:
+        """Pixel frames this segment's front replays from the previous
+        segment's tail rather than contributing new content ("overlap-in"),
+        net of whichever semantics `emitted_frames` above applies. Always 0
+        for a fresh cut. For a continuation that was pre-decode trimmed
+        (`context_trimmed`), this is unaffected by `stitch` -- that trim runs
+        unconditionally at generation time, before stitching is ever decided.
+        For an UNTRIMMED continuation, this drops to 0 when `stitch` is False
+        (its planned `join_frames` never actually runs)."""
+        return self.frames - self.emitted_frames
 
 
 def resolve_continuation(settings: Dict[str, Any]) -> Tuple[int, bool]:
@@ -190,7 +224,7 @@ def resolve_window_geometry(
 
     Raises `WanDirectorPlanError` when a segment has no explicit frame count.
     """
-    default_overlap, _stitch = resolve_continuation(settings)
+    default_overlap, stitch = resolve_continuation(settings)
     motion_latent_count = resolve_motion_latent_count(settings)
     tail_count = tail_frame_count(default_overlap, motion_latent_count)
 
@@ -226,16 +260,14 @@ def resolve_window_geometry(
             on_disk_frames = frames
             context_trimmed = False
             join_frames = 0
-        emitted = on_disk_frames - join_frames
-        overlap_frames = frames - emitted
         geometry.append(SegmentWindowGeometry(
             frames=frames,
             requested_frames=requested,
             sub_type=sub_type,
             is_continuation=is_continuation,
-            overlap_frames=overlap_frames,
             on_disk_frames=on_disk_frames,
             context_trimmed=context_trimmed,
             join_frames=join_frames,
+            stitch=stitch,
         ))
     return geometry

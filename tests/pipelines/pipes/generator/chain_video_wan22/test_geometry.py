@@ -229,6 +229,53 @@ def test_two_successive_short_continuations_clamp_sequentially_not_off_the_align
     assert [g.join_frames for g in geometry] == [0, 0, 0]
 
 
+# -- stitch=false: a join only ever runs as part of stitching ----------------
+
+
+def test_stitch_disabled_contributes_the_full_on_disk_clip_not_the_joined_amount():
+    # frames [81, 5], sub-types [t2v, chain], overlap 4, motion 2 (tail_count
+    # =4): the continuation's window (5) isn't long enough to trim pre-decode
+    # (5 > context+1=5 is False), so its overlap is a PLANNED stitch-time join
+    # (join_frames=4) -- but with stitch=false that join never runs, and
+    # main.py writes each segment out as its own final clip. The planner must
+    # report emitted [81, 5] (the on-disk lengths), not [81, 1].
+    segments = [_segment(0, frames=81, sub_type="t2v"), _segment(1, frames=5)]
+    common = {"overlap_frames": 4}
+
+    off = resolve_window_geometry(
+        segments, _settings(continuation={**common, "stitch": False}, motion_latent_count=2))
+    # Checked first (via fields that existed even before the stitch-aware
+    # fix) so a pre-fix run fails on the actual wrong prediction [81, 1],
+    # not merely an AttributeError on the newer `stitch` field.
+    assert [g.emitted_frames for g in off] == [81, 5]    # on-disk, join never applied
+    assert [g.overlap_frames for g in off] == [0, 0]
+    assert [g.on_disk_frames for g in off] == [81, 5]
+    assert [g.join_frames for g in off] == [0, 4]        # still the PLANNED join...
+    assert [g.stitch for g in off] == [False, False]
+
+    # The SAME film with stitch=true actually applies that join.
+    on = resolve_window_geometry(
+        segments, _settings(continuation={**common, "stitch": True}, motion_latent_count=2))
+    assert [g.on_disk_frames for g in on] == [81, 5]     # on-disk lengths unchanged by stitch
+    assert [g.join_frames for g in on] == [0, 4]
+    assert [g.stitch for g in on] == [True, True]
+    assert [g.emitted_frames for g in on] == [81, 1]
+    assert [g.overlap_frames for g in on] == [0, 4]
+
+
+def test_stitch_disabled_leaves_a_pre_decode_trim_unaffected():
+    # A continuation long enough to trim pre-decode is unaffected by
+    # stitch=false -- that trim is unconditional, independent of stitching.
+    segments = [_segment(0, frames=81, sub_type="t2v"), _segment(1, frames=81)]
+    geometry = resolve_window_geometry(
+        segments, _settings(continuation={"overlap_frames": 4, "stitch": False}, motion_latent_count=2))
+    assert geometry[1].context_trimmed is True
+    assert geometry[1].join_frames == 0
+    assert geometry[1].on_disk_frames == 77
+    assert geometry[1].emitted_frames == 77   # same as stitch=true would give here
+    assert geometry[1].overlap_frames == 4
+
+
 def test_a_single_frame_window_clamps_to_zero_emitted_rather_than_going_negative():
     geometry = resolve_window_geometry(
         [_segment(0, frames=1), _segment(1, frames=1)],

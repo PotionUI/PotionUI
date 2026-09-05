@@ -180,11 +180,18 @@ class TestOverlapVariants:
         assert compiled["settings"]["duration"] != pytest.approx(130 / FPS)
 
     def test_stitch_off_does_not_change_the_effective_duration_math(self, storage_dir):
-        """`stitch` only governs whether the generator additionally muxes the
-        segments into one continuous file at generation time -- the per-shot
-        editor timeline (what compile_shot_plan reports) is the same either
-        way, mirroring how the MiniMax-H3 planner also ignores its own
-        `DirectorPlan.stitch` for this purpose."""
+        """For a continuation LONG enough to trim its context pre-decode
+        (this fixture's case: overlap 4 << either segment's 81 frames), that
+        trim runs unconditionally regardless of `stitch` -- the generator
+        writes the same on-disk clip either way, so the per-shot editor
+        timeline (what compile_shot_plan reports) doesn't change. This does
+        NOT generalize to every continuation: one too short to trim
+        pre-decode instead plans a stitch-time join that `stitch: false`
+        never actually applies, so ITS contribution is longer with stitching
+        off (see chain_video_wan22/geometry.py's own stitch-conditional
+        `emitted_frames` and its test_geometry.py coverage) -- unlike
+        MiniMax-H3, whose `DirectorPlan.stitch` genuinely never affects this
+        planner's math at all."""
         raw_on = _doc(segments=[
             _segment("seg-a", 80, sub_type="t2v"), _segment("seg-b", 80),
         ], continuation={"source": "tail_frames", "overlap_frames": 4, "stitch": True})

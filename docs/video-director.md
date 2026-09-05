@@ -546,7 +546,12 @@ emitted total in the first place: its own upper bound is the raw, un-snapped dur
 For `family: "wan"`, the compiler derives the same values from
 `chain_video_wan22/geometry.py`'s own `resolve_window_geometry`: the causal VAE's `1 + 4k`
 frame lattice, and a `"chain"` segment's leading overlap frames (the previous segment's
-replayed tail). Wan's real per-segment overlap ALSO depends on `motion_latent_count` — a
+replayed tail). That overlap is only ever REALIZED as part of stitching — a segment whose
+window is long enough gets it trimmed off unconditionally at generation time regardless of
+`settings.continuation.stitch`, but a segment too short to trim instead plans a stitch-time
+join that never actually runs with `stitch: false`, so its planned contribution to the
+timeline is shorter than what the generator's separate, un-joined clip for it actually is
+in that case. Wan's real per-segment overlap ALSO depends on `motion_latent_count` — a
 generation-time pipe config value (SVI Pro 2.0 continuity, `svi_pro.yml`'s
 `svi_motion_latent_count` slider) that never lives on the Video Director document on its
 own — so the compiler only takes this path when the document already carries an explicit

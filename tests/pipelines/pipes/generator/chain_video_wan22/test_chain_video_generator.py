@@ -855,11 +855,19 @@ def test_segment_metadata_records_per_segment_executed_geometry():
 # `segment_overlap_dropped_at_stitch` (what a stitch call actually applied,
 # zeroed when stitching didn't run) -- this is a plan-vs-plan comparison, so
 # it holds regardless of whether the generation actually stitched anything.
+#
+# A join is only ever APPLIED as part of stitching -- a pre-decode trim runs
+# unconditionally, but with `continuation.stitch: false` main.py never runs a
+# join at all, and every segment is its own separate final clip at its full
+# on-disk length. The helper below mirrors that in the untrimmed branch:
+# net_contributed is the planned join only when `geom.stitch` is True, else
+# the untouched on-disk length -- exactly `geometry.py`'s own
+# stitch-conditional `emitted_frames`.
 
 def _assert_executed_geometry_matches_the_planner(doc, motion_latent_count, params):
     settings = {**doc["settings"], "timing_profile": {"motion_latent_count": motion_latent_count}}
     plan = chain_geometry.resolve_window_geometry(doc["segments"], settings)
-    default_overlap, _stitch = chain_geometry.resolve_continuation(doc["settings"])
+    default_overlap, stitch = chain_geometry.resolve_continuation(doc["settings"])
     tail_count = chain_geometry.tail_frame_count(default_overlap, motion_latent_count)
 
     emitted = params["segment_emitted_frames"]
@@ -868,23 +876,27 @@ def _assert_executed_geometry_matches_the_planner(doc, motion_latent_count, para
     assert len(plan) == len(emitted) == len(trimmed) == len(planned_join)
 
     for i, geom in enumerate(plan):
+        assert geom.stitch == stitch, f"segment {i}: resolved stitch flag"
+        assert geom.on_disk_frames == emitted[i], f"segment {i}: on-disk frames"
         if trimmed[i]:
             # The pre-decode trim dropped main.py's own available-tail-clamped
             # context_frames -- reconstructed here the SAME way main.py derives
             # it (min(tail_count, the previous segment's own emitted length)),
             # since a fixed tail_count alone no longer holds once a short
-            # opener clamps it (DIR-07 rework).
+            # opener clamps it (DIR-07 rework). Runs unconditionally, so
+            # unaffected by `stitch`.
             context_frames = min(tail_count, emitted[i - 1])
             pre_trim_total = emitted[i] + context_frames
             net_contributed = emitted[i]
             overlap_actual = context_frames
         else:
-            # Untrimmed: `emitted[i]` is still the full decoded length (no
-            # pre-decode trim happened), and whatever gets dropped is the
-            # PLANNED stitch-time join instead.
+            # Untrimmed: `emitted[i]` is still the full decoded (on-disk)
+            # length. What gets dropped is the PLANNED stitch-time join --
+            # but only when stitching actually runs; with stitch=false that
+            # join never applies, and this segment is its own final clip.
             pre_trim_total = emitted[i]
-            net_contributed = emitted[i] - planned_join[i]
-            overlap_actual = planned_join[i]
+            net_contributed = emitted[i] - planned_join[i] if stitch else emitted[i]
+            overlap_actual = planned_join[i] if stitch else 0
         assert pre_trim_total == geom.frames, f"segment {i}: pre-trim total frames"
         assert net_contributed == geom.emitted_frames, f"segment {i}: net emitted frames"
         assert overlap_actual == geom.overlap_frames, f"segment {i}: overlap frames"
@@ -984,6 +996,13 @@ def test_generator_and_geometry_module_agree_when_stitch_is_disabled():
     assert params["segment_join_overlap"] == [0, 12]
     assert params["segment_overlap_dropped_at_stitch"] == [0, 0]  # nothing actually ran
     _assert_executed_geometry_matches_the_planner(doc, 4, params)
+
+    # The planner's contribution must equal the on-disk clip lengths
+    # directly -- with stitching disabled, that IS what main.py emits.
+    plan = chain_geometry.resolve_window_geometry(
+        doc["segments"], {**doc["settings"], "timing_profile": {"motion_latent_count": 4}})
+    assert [g.stitch for g in plan] == [False, False]
+    assert [g.emitted_frames for g in plan] == params["segment_emitted_frames"] == [13, 13]
 
 
 def test_generator_and_geometry_module_agree_on_two_successive_short_continuations():

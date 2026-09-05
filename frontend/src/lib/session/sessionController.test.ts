@@ -1155,4 +1155,105 @@ describe('createSessionController', () => {
 		expect(state.historyVersions).toEqual([]);
 		expect(state.isHistoryLoading).toBe(false);
 	});
+
+	// The list read and the selection read are ordered against their own kind
+	// only, yet both publish the busy flag and the error, and the list also
+	// binds currentSession from a row. A list refresh that overlaps a selection
+	// therefore has to keep its hands off what the selection owns.
+	it('keeps the busy state with a selection when an older list refresh finishes under it', async () => {
+		await bootWithDirtySession();
+		const listPending = deferred<{ success: boolean; data: Session[] }>();
+		harness.api.getSessionsForPreset.mockReturnValue(listPending.promise as never);
+		void controller.loadSessions();
+		await settle();
+		expect(get(controller.state).isSessionLoading).toBe(true);
+
+		const detailPending = deferred<{ success: boolean; data: Session }>();
+		harness.api.getSessionById.mockReturnValue(detailPending.promise as never);
+		void controller.select(SESSION_B);
+		await settle();
+
+		listPending.resolve({ success: true, data: [makeSession(SESSION_A), makeSession(SESSION_B)] });
+		await settle();
+		expect(get(controller.state).isSessionLoading).toBe(true);
+
+		detailPending.resolve({ success: true, data: makeSession(SESSION_B) });
+		await settle();
+		expect(get(controller.state).isSessionLoading).toBe(false);
+	});
+
+	it('leaves a selection error standing when an older list load fails under it', async () => {
+		await bootWithDirtySession();
+		const listPending = deferred<{ success: boolean; data: Session[] }>();
+		harness.api.getSessionsForPreset.mockReturnValue(listPending.promise as never);
+		void controller.loadSessions();
+		await settle();
+
+		const detailPending = deferred<{ success: boolean; data: Session }>();
+		harness.api.getSessionById.mockReturnValue(detailPending.promise as never);
+		void controller.select(SESSION_B);
+		await settle();
+
+		detailPending.reject(new Error('session fetch failed'));
+		await settle();
+		expect(get(controller.state).error).toBe('session fetch failed');
+
+		listPending.reject(new Error('list fetch failed'));
+		await settle();
+		expect(get(controller.state).error).toBe('session fetch failed');
+	});
+
+	it('does not replace a freshly hydrated session with an older list summary', async () => {
+		await bootWithDirtySession();
+		const listPending = deferred<{ success: boolean; data: Session[] }>();
+		harness.api.getSessionsForPreset.mockReturnValue(listPending.promise as never);
+		void controller.loadSessions();
+		await settle();
+
+		const detailPending = deferred<{ success: boolean; data: Session }>();
+		harness.api.getSessionById.mockReturnValue(detailPending.promise as never);
+		void controller.select(SESSION_B);
+		await settle();
+
+		detailPending.resolve({ success: true, data: makeSession(SESSION_B, { name: 'B detail' }) });
+		await settle();
+		expect(get(controller.state).currentSession?.name).toBe('B detail');
+
+		listPending.resolve({
+			success: true,
+			data: [makeSession(SESSION_A), makeSession(SESSION_B, { name: 'B summary' })]
+		});
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.currentSession?.name).toBe('B detail');
+		// The rows themselves are still the list's to publish.
+		expect(state.sessions.find((entry) => entry.id === SESSION_B)?.name).toBe('B summary');
+	});
+
+	it('does not replace a freshly saved session with an older list summary', async () => {
+		await bootWithDirtySession();
+		const listPending = deferred<{ success: boolean; data: Session[] }>();
+		harness.api.getSessionsForPreset.mockReturnValue(listPending.promise as never);
+		void controller.loadSessions();
+		await settle();
+
+		harness.api.updateSession.mockResolvedValue({
+			success: true,
+			data: makeSession(SESSION_A, { name: 'Saved just now' })
+		});
+		await controller.quickSave();
+		await settle();
+		expect(get(controller.state).currentSession?.name).toBe('Saved just now');
+
+		listPending.resolve({
+			success: true,
+			data: [makeSession(SESSION_A, { name: 'Stale summary' })]
+		});
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.currentSession?.name).toBe('Saved just now');
+		expect(state.sessions.find((entry) => entry.id === SESSION_A)?.name).toBe('Stale summary');
+	});
 });

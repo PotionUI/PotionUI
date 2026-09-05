@@ -331,7 +331,19 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	let savedSessionSignature: string | null = null;
 	let currentSessionSignature: string | null = null;
 	let lastSavedTime: Date | null = null;
-	let isSessionLoading = false;
+	// `isSessionLoading` and `error` are published as one field each but are
+	// raised by three unrelated operations (the preset list, a selection
+	// hydration, a delete). Kept apart here and combined only at publication:
+	// a list refresh finishing must not tell the view the selection it is still
+	// hydrating has arrived, and an older list failure must not stand in front
+	// of the error a newer selection or save raised.
+	let isListLoading = false;
+	let listLoadInFlight: SessionReadToken | null = null;
+	let isSelectionLoading = false;
+	let selectionLoadInFlight: SessionReadToken | null = null;
+	let isDeleteLoading = false;
+	let listError: string | null = null;
+	let selectionError: string | null = null;
 	let isSaving = false;
 	let isQuickSaving = false;
 	let error: string | null = null;
@@ -389,6 +401,12 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	let flushScheduled = false;
 	let flushing = false;
 
+	/** Any of the three operations that put the session controls in a busy
+	 *  state; the tab-link gate below reads the same combination the view does. */
+	function sessionBusy(): boolean {
+		return isListLoading || isSelectionLoading || isDeleteLoading;
+	}
+
 	function snapshot(): SessionControllerState {
 		return {
 			sessions,
@@ -396,10 +414,10 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			currentSession,
 			hasUnsavedChanges,
 			lastSavedTime,
-			isSessionLoading,
+			isSessionLoading: sessionBusy(),
 			isSaving,
 			isQuickSaving,
-			error,
+			error: error ?? selectionError ?? listError,
 			nameError,
 			historySessionId,
 			historyVersions,
@@ -485,13 +503,13 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	// Same-tab session change only (picker/history/programmatic load). A switch
 	// to a different tab is handled by adoptTab and must not reach this fetch.
 	//
-	// `!isSessionLoading` is load-bearing: `select` assigns `selectedSessionId`
+	// The busy gate is load-bearing: `select` assigns `selectedSessionId`
 	// optimistically BEFORE awaiting its fetch, so mid-flight the local id is the
 	// new session while the store still holds the old one. Without this gate
 	// `shouldHydrateSessionSelection` reads that mismatch as a store-side change
 	// and re-fetches the OLD session over the user's pick.
 	function evaluateTabLink() {
-		if (isSessionLoading || ctx.tabId !== adoptedTabId || !currentTabData) return;
+		if (sessionBusy() || ctx.tabId !== adoptedTabId || !currentTabData) return;
 
 		if (currentTabData.selectedSessionId) {
 			if (
@@ -858,10 +876,15 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		}
 
 		const read = beginSessionRead('list', '', { ownsSelection: false });
+		listLoadInFlight = read;
+		// The active-state slot as it stood when this load was issued. A list row
+		// is only a summary of the session; a selection hydration or a save that
+		// lands first knows more about it, and claims the slot by advancing this.
+		const appliedSeqAtIssue = lastAppliedSeq;
 
 		try {
-			isSessionLoading = true;
-			error = null;
+			isListLoading = true;
+			listError = null;
 			publish();
 			const response = await deps.api.getSessionsForPreset(read.presetId!);
 			if (!ownsRead(read)) return;
@@ -869,7 +892,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 				sessions = response.data;
 				const sessionForTab =
 					response.data.find((session) => session.id === selectedSessionId) ?? null;
-				if (sessionForTab) {
+				if (sessionForTab && lastAppliedSeq === appliedSeqAtIssue) {
 					currentSession = sessionForTab;
 					lastSavedTime = new Date(sessionForTab.updated_at);
 					hasUnsavedChanges = sessionIsDirty(true, savedSessionSignature, currentSessionSignature);
@@ -883,27 +906,31 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			// raise an error the user can no longer act on, nor install a timer
 			// that outlives the view.
 			if (!ownsRead(read)) return;
-			error = err instanceof Error ? err.message : 'Failed to load sessions';
+			listError = err instanceof Error ? err.message : 'Failed to load sessions';
 			loadSessionsRetryTimer = timers.setTimeout(() => {
 				loadSessionsRetryTimer = null;
 				void loadSessions();
 			}, loadSessionsRetryDelay);
 			loadSessionsRetryDelay = Math.min(loadSessionsRetryDelay * 2, RETRY_MAX_DELAY);
 		} finally {
-			if (ownsRead(read)) {
-				isSessionLoading = false;
-				publish();
+			// Identity, not ownership: a load retired by a context switch still has
+			// to put down the flag it raised, and it owns no other operation's.
+			if (listLoadInFlight === read) {
+				listLoadInFlight = null;
+				isListLoading = false;
 			}
+			publish();
 		}
 	}
 
 	async function select(sessionId: string) {
 		if (!sessionId) return;
 
-		isSessionLoading = true;
-		error = null;
+		isSelectionLoading = true;
+		selectionError = null;
 		setSelectedSessionId(sessionId);
 		const read = beginSessionRead('session', sessionId, { ownsSelection: true });
+		selectionLoadInFlight = read;
 		publish();
 
 		try {
@@ -919,12 +946,13 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		} catch (err) {
 			deps.logger.error('Failed to load session:', err);
 			if (!ownsRead(read)) return;
-			error = err instanceof Error ? err.message : 'Failed to load session';
+			selectionError = err instanceof Error ? err.message : 'Failed to load session';
 		} finally {
-			if (ownsRead(read)) {
-				isSessionLoading = false;
-				publish();
+			if (selectionLoadInFlight === read) {
+				selectionLoadInFlight = null;
+				isSelectionLoading = false;
 			}
+			publish();
 		}
 	}
 
@@ -1173,7 +1201,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		let deleted = false;
 
 		try {
-			isSessionLoading = true;
+			isDeleteLoading = true;
 			publish();
 
 			await deps.api.deleteSession(command.sessionId);
@@ -1196,7 +1224,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		} finally {
 			if (deleteInFlight === command) {
 				deleteInFlight = null;
-				isSessionLoading = false;
+				isDeleteLoading = false;
 			}
 			publish();
 		}
@@ -1290,6 +1318,8 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	function clearFeedback() {
 		nameError = '';
 		error = null;
+		selectionError = null;
+		listError = null;
 		publish();
 	}
 
@@ -1303,10 +1333,6 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		if (tabChanged || presetChanged || modeChanged) {
 			commandGeneration += 1;
 			listGeneration += 1;
-			// The hydration this retires can no longer clear its own flag, and
-			// `evaluateTabLink` is gated on it — leaving it raised would freeze
-			// the new context's link evaluation for good.
-			isSessionLoading = false;
 		}
 
 		if ((presetChanged || modeChanged) && ctx.presetId && ctx.currentMode) {

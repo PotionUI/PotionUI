@@ -19,15 +19,18 @@ import numpy as np
 import pytest
 import torch
 
+from src.pipelines.pipes.generator.seedvr2 import batching as B
 from src.pipelines.pipes.generator.seedvr2 import main as m
 from src.pipelines.pipes.generator.seedvr2.main import (
     GeneratorSeedVR2Pipe,
     _auto_batch_size,
+    _count_windows,
     _spatial_tokens_per_latent_frame,
     _window_count,
     _SEEDVR2_MAX_BATCH,
 )
 from src.pipelines.contracts import PipeInput
+from src.platform.runtime.native.errors import SamplingCancelled
 
 
 # Latent spatial-token counts for the two calibration anchors.
@@ -99,6 +102,48 @@ def test_window_count_positive_for_a_real_latent_shape():
 def test_window_count_zero_on_malformed_shape():
     # Best-effort: a shape it can't unpack must return 0, never raise.
     assert _window_count((1, 2, 3)) == 0
+
+
+# -- _count_windows (progress-bar estimate, constant space) ------------------
+
+def test_count_windows_matches_plan_batches_for_a_grid_of_small_hints():
+    for total in range(0, 60):
+        for batch_size in (1, 2, 3, 5, 9, 13):
+            for overlap in (0, 1, 2, 4, 6, 8, 12, 20):
+                windows, _ = B.plan_batches(total, batch_size, overlap)
+                assert _count_windows(total, batch_size, overlap) == len(windows), (
+                    f"total={total} batch_size={batch_size} overlap={overlap}"
+                )
+
+
+def test_count_windows_never_materialises_the_window_list(monkeypatch):
+    def _must_not_be_called(*a, **kw):
+        raise AssertionError("_estimate_batches must not call plan_batches")
+
+    monkeypatch.setattr(B, "plan_batches", _must_not_be_called)
+
+    # A container frame count in the millions is exactly the case that made
+    # materialising `plan_batches`' full window list expensive; the estimate
+    # must come back cheaply and without ever touching `plan_batches`.
+    n = GeneratorSeedVR2Pipe._estimate_batches(10_000_000, 9, 4, 0)
+    assert n == 2_000_000
+
+
+def test_count_windows_constant_space_for_a_huge_hint():
+    import tracemalloc
+
+    tracemalloc.start()
+    try:
+        n = _count_windows(10_000_000, 9, 4)
+    finally:
+        _current, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+    # 10M frames at batch 9 (step 5 with overlap 4) is 2,000,000 windows --
+    # a materialised list of that many (start, end) tuples is tens of
+    # megabytes; a closed-form count stays in the tens/hundreds of bytes.
+    assert n == 2_000_000
+    assert peak < 4096
 
 
 # -- video OOM ladder --------------------------------------------------------
@@ -592,3 +637,122 @@ def test_video_encoder_failure_leaves_no_temp_files(monkeypatch):
 
     final_path = created[0]  # the first NamedTemporaryFile _process_video creates
     assert glob.glob(f"{final_path}*") == []
+
+
+# -- video path: cancellation and publish-step cleanup ownership -------------
+#
+# `_clips` (stream.py) used to end its generator normally on cancellation, which
+# `stream_output_frames` cannot tell apart from a genuinely finished clip: the
+# held-back overlap tail gets flushed, the encoder sees a clean EOF, and
+# `_process_video` publishes the truncated clip as if it were complete. These
+# fixtures drive the real `process()` (fake generator/source/encoder, no ffmpeg)
+# and assert the fix end to end: cancellation propagates as `SamplingCancelled`,
+# nothing reaches the gallery, and no attempt/placeholder file survives.
+
+def _track_tempfiles(monkeypatch):
+    """Record every path `tempfile.NamedTemporaryFile` hands out during the
+    test, so the assertions below can name the exact `final_path` the pipe
+    picked without reaching into its internals."""
+    import tempfile
+
+    created: list[str] = []
+    orig_ntf = tempfile.NamedTemporaryFile
+
+    def _tracking_ntf(*args, **kwargs):
+        f = orig_ntf(*args, **kwargs)
+        created.append(f.name)
+        return f
+
+    monkeypatch.setattr(tempfile, "NamedTemporaryFile", _tracking_ntf)
+    return created
+
+
+def _no_gallery_video(outputs) -> bool:
+    from src.pipelines.outputs import GalleryGenerationOutput
+
+    return not any(
+        isinstance(o, GalleryGenerationOutput) and o.videos for o in outputs
+    )
+
+
+def test_video_cancellation_after_a_batch_raises_and_publishes_nothing(monkeypatch):
+    # batch_size=5 over 20 frames -> 4 windows (0:5, 5:10, 10:15, 15:20), so a
+    # cancellation flipped after the first is a genuine mid-stream cancel, not
+    # the last-batch edge case covered separately below.
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen, n_frames=20)
+    created = _track_tempfiles(monkeypatch)
+
+    calls = {"n": 0}
+
+    def _is_cancelled():
+        # A ONE-SHOT signal (true on exactly the second per-batch check, false
+        # everywhere else) isolates `_clips`' own check: a monotone "stays
+        # cancelled forever" flag would also be caught by the separate
+        # pre-publish check below, whichever one has the bug.
+        calls["n"] += 1
+        return calls["n"] == 2
+
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=5, keep_audio=False))
+    outputs = []
+
+    with pytest.raises(SamplingCancelled):
+        pipe.process(_video_input(), outputs.append, is_cancelled=_is_cancelled)
+
+    assert _no_gallery_video(outputs)
+    assert gen.released >= 1
+    final_path = created[0]
+    assert glob.glob(f"{final_path}*") == []
+
+
+def test_video_cancellation_during_final_batch_raises_and_publishes_nothing(monkeypatch):
+    # 10 frames at batch_size=5 -> exactly 2 windows, so both of `_clips`' own
+    # per-batch checks pass (calls 1-2 return False) and the whole clip finishes
+    # encoding; cancellation is only ever observed at the NEW check right before
+    # publication (call 3) -- proving that checkpoint, not `_clips`', is what
+    # catches a cancellation raised during the final batch's own decode/encode.
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen, n_frames=10)
+    created = _track_tempfiles(monkeypatch)
+
+    calls = {"n": 0}
+
+    def _is_cancelled():
+        calls["n"] += 1
+        return calls["n"] > 2
+
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=5, keep_audio=False))
+    outputs = []
+
+    with pytest.raises(SamplingCancelled):
+        pipe.process(_video_input(), outputs.append, is_cancelled=_is_cancelled)
+
+    assert calls["n"] == 3, "the pre-publish check must be the one that caught this"
+    assert _no_gallery_video(outputs)
+    assert gen.released >= 1
+    final_path = created[0]
+    assert glob.glob(f"{final_path}*") == []
+
+
+def test_video_publish_failure_leaves_no_temp_survivors(monkeypatch):
+    import os as os_mod
+
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+    created = _track_tempfiles(monkeypatch)
+
+    def _failing_replace(src, dst):
+        raise OSError("synthetic replace failure")
+
+    monkeypatch.setattr(os_mod, "replace", _failing_replace)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=5, keep_audio=False))
+
+    with pytest.raises(OSError, match="synthetic replace failure"):
+        pipe.process(_video_input(), lambda o: None)
+
+    # A publish failure (os.replace itself raising, here simulating a
+    # cross-device rename or a disk error) must leave neither the attempt file
+    # nor the empty final placeholder behind.
+    final_path = created[0]
+    assert glob.glob(f"{final_path}*") == []
+    assert gen.released >= 1

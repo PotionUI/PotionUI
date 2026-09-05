@@ -37,6 +37,7 @@ from src.pipelines.outputs import (
 from src.platform.observability.logger import logger
 from src.platform.observability.profiling import get_profiler, profiling_enabled
 from src.platform.runtime.native.engine import NativeGenerator
+from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
     free_vram_gb,
@@ -206,6 +207,38 @@ def _auto_batch_size(
         latent_frames = 1
     frames = 1 + 4 * (latent_frames - 1)   # T' latent frames <- 1+4k input frames
     return max(5, min(_SEEDVR2_MAX_BATCH, frames))
+
+
+def _count_windows(total_frames: int, batch_size: int, temporal_overlap: int) -> int:
+    """Closed-form equivalent of ``len(batching.plan_batches(total_frames, ...)[0])``
+    that never materialises the window list -- for the progress-bar estimate a
+    real container's frame-count hint can be in the millions, and building every
+    ``(start, end)`` tuple just to take ``len()`` is O(frame count) memory for a
+    number nothing else needs.
+
+    Mirrors ``plan_batches``' loop exactly: every window before the tail is a
+    full ``batch_size``-wide step (never dropped, since ``overlap < batch_size``
+    always holds once ``plan_batches``' own overlap>=batch_size reset applies),
+    so only the final, ``total``-reaching window can ever be the one dropped for
+    re-covering nothing but the overlap region.
+    """
+    batch_size = max(1, int(batch_size))
+    overlap = max(0, int(temporal_overlap))
+    if overlap >= batch_size:
+        overlap = 0
+    total = int(total_frames)
+    if total <= 0:
+        return 0
+    if total <= batch_size:
+        return 1
+
+    step = batch_size - overlap if overlap > 0 else batch_size
+    # Smallest k such that window k's end (`k*step + batch_size`, capped at
+    # `total`) reaches `total` -- every window before it is `end < total` and
+    # therefore always counted (see the docstring above).
+    k_last = -(-(total - batch_size) // step)  # ceil((total - batch_size) / step)
+    tail = total - k_last * step
+    return k_last if tail <= overlap else k_last + 1
 
 
 def _discard_output(path: str) -> None:
@@ -951,9 +984,25 @@ class GeneratorSeedVR2Pipe(BasePipe):
 
         # 3. Publish only once the attempt is complete: move the finished file
         #    onto the path handed downstream and drop whatever the mux step left
-        #    behind (the video-only file when a muxed sibling won).
-        os.replace(encode_result.video_path, final_path)
-        _discard_output(attempt_path)
+        #    behind (the video-only file when a muxed sibling won). Nothing from
+        #    here to the gallery output below is interruptible, so cancellation
+        #    is checked one last time before anything is moved into place --
+        #    without it, cancellation raised during the encode/mux inside
+        #    `_run_video_attempt` (after its own last per-batch check passed)
+        #    would still complete and publish. This step owns its own cleanup:
+        #    a publish failure (or this last-moment cancellation) must leave
+        #    neither the attempt/muxed sibling nor the empty final placeholder
+        #    behind, the same as the attempt loop above.
+        try:
+            if is_cancelled is not None and is_cancelled():
+                raise SamplingCancelled()
+            os.replace(encode_result.video_path, final_path)
+            _discard_output(attempt_path)
+        except BaseException:
+            _discard_output(attempt_path)
+            _discard_output(final_path)
+            self._release_gpu_quietly(generator)
+            raise
 
         if encode_result.audio_outcome == AUDIO_MUX_FAILED:
             logger.warning(
@@ -1098,15 +1147,15 @@ class GeneratorSeedVR2Pipe(BasePipe):
         """Batch count for the progress bar, derived from the container's
         frame-count hint. The hint is metadata and can be absent or wrong, so it
         only ever bounds the progress denominator (``0`` = unknown) and never
-        feeds geometry or batching."""
-        from src.pipelines.pipes.generator.seedvr2 import batching as B
-
+        feeds geometry or batching. Computed via :func:`_count_windows` in
+        constant space -- ``plan_batches`` would materialise every window just
+        to report ``len()``, which a multi-million-frame hint makes wasteful for
+        a number only ever used as a progress denominator."""
         if frame_hint <= 0:
             return 0
-        windows, _ = B.plan_batches(
+        return _count_windows(
             int(frame_hint) + max(0, int(prepend_frames)), batch_size, temporal_overlap,
         )
-        return len(windows)
 
     @staticmethod
     def _release_gpu_quietly(generator) -> None:

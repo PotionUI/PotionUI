@@ -246,7 +246,15 @@ def test_streamed_color_correction_pairs_each_output_with_its_own_source():
         assert np.array_equal(source, frames[j]), f"output {j} was paired with the wrong source"
 
 
-def test_streamed_cancellation_stops_at_a_batch_boundary():
+def test_streamed_cancellation_raises_instead_of_ending_the_stream():
+    """A `return` from `_clips` on cancellation would end the generator
+    normally -- indistinguishable from a genuinely finished clip -- so the
+    caller's `stitcher.flush()` would release the held-back overlap tail and
+    publish a cancelled run as if it were complete. Cancellation must instead
+    propagate as `SamplingCancelled`, the same exception every other sampling
+    loop raises, so a caller can never mistake it for a clean end."""
+    from src.platform.runtime.native.errors import SamplingCancelled
+
     frames = _frames(20)
     state = {"batches": 0}
 
@@ -256,16 +264,24 @@ def test_streamed_cancellation_stops_at_a_batch_boundary():
     def _on_batch(done):
         state["batches"] = done
 
-    out = list(S.stream_output_frames(
+    stream = S.stream_output_frames(
         iter(frames), batch_size=9, temporal_overlap=0, prepend_frames=0, uniform=True,
         upscale_clips=_upscale_stream, on_batch=_on_batch, is_cancelled=_cancelled,
-    ))
+    )
 
-    assert 0 < len(out) < len(frames)
+    collected = []
+    with pytest.raises(SamplingCancelled):
+        for frame in stream:
+            collected.append(frame)
+
+    # The frames already handed out before cancellation was noticed (streamed
+    # straight into ffmpeg in production) are real -- but nothing past them,
+    # in particular no flushed overlap tail, is ever yielded.
+    assert 0 < len(collected) < len(frames)
     eager_prefix = _eager_reference(
         frames, 9, temporal_overlap=0, prepend_frames=0, uniform=True,
-    )[:len(out)]
-    _assert_same(out, eager_prefix)
+    )[:len(collected)]
+    _assert_same(collected, eager_prefix)
 
 
 def test_streamed_upscaler_is_closed_when_the_consumer_stops_early():

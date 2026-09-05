@@ -44,6 +44,7 @@ from src.pipelines.pipes.generator.seedvr2.batching import (
     blend_overlap,
     pad_batch,
 )
+from src.platform.runtime.native.errors import SamplingCancelled
 
 Frame = np.ndarray  # (H, W, 3) uint8
 
@@ -240,7 +241,15 @@ def stream_output_frames(
     def _clips() -> Iterator[np.ndarray]:
         for _start, window in iter_windows(seq, batch_size, overlap):
             if is_cancelled is not None and is_cancelled():
-                return
+                # A plain `return` here would end this generator normally, which
+                # `upscale_clips` and the `for decoded in upscaled` loop below
+                # cannot tell apart from a genuinely finished clip -- the
+                # overlap tail would then get flushed and the caller would
+                # publish a cancelled run as a complete one. Cancellation must
+                # unwind as the same exception every other sampling loop raises
+                # (see `src.platform.runtime.native.errors.SamplingCancelled`),
+                # so it can only ever be told apart from success.
+                raise SamplingCancelled()
             padded, true_len = pad_batch(window, batch_size, uniform=uniform)
             if prepare_clip is not None:
                 padded = prepare_clip(padded)

@@ -9,6 +9,13 @@
 # package must not depend on src. The fallback path calls a module-level
 # backend hook instead; src wires it via set_attention_backend() (see
 # arch/seedvr2/model.py, the one importer that constructs SeedVR2/SeedVR27B).
+# Local modification (PotionUI): the packed-block boundaries (``cu_seqlens``)
+# are read once into a ``VarlenGeometry`` instead of being re-derived per
+# attention block. The NaDiT builds its shape tensors on the compute device, so
+# the reference's per-block ``(cu[1:] - cu[:-1]).max().item()`` and the
+# fallback's per-block copy of the split points to the host are device→host
+# syncs on every block of every step; the geometry pays them once, when the
+# per-forward cache builds it (see layers.py's ``cache_win("varlen_geometry")``).
 
 """Variable-length attention for NaDiT windows, on the native attention seam.
 
@@ -25,6 +32,12 @@ every token in a block attends every other, exactly what the joined window+text
 sequence wants). Both paths are numerically equivalent; the fallback's seam
 lets sage2 accelerate the per-block SDPA when flash-varlen itself isn't
 available.
+
+Both paths take their block boundaries from a :class:`VarlenGeometry`, which
+resolves the ``cu_seqlens`` tensor to Python-side offsets/maxima once and keeps
+the int32 device copy every block reuses. Callers may still pass a raw
+``cu_seqlens`` tensor — it is resolved per call, which is what the geometry
+exists to avoid.
 """
 
 from __future__ import annotations
@@ -102,37 +115,66 @@ def _flash_varlen_available(q: torch.Tensor) -> bool:
     )
 
 
-def _run_flash_varlen(q, k, v, cu_seqlens_q, cu_seqlens_k):
+class VarlenGeometry:
+    """Block layout of one packed varlen sequence: offsets, maxima, device ``cu``.
+
+    Built from a ``cu_seqlens`` tensor — one device→host read — and then read
+    without touching the device again: ``max_seqlen`` and ``split_bounds`` are
+    Python ints, and ``cu_on()`` hands back a cached int32 tensor per device.
+    Holds nothing per block or per step, so a geometry stored in the
+    per-forward ``Cache`` dies with that forward.
+    """
+
+    __slots__ = ("offsets", "lengths", "max_seqlen", "split_bounds", "_by_device")
+
+    def __init__(self, cu_seqlens: torch.Tensor) -> None:
+        self.offsets = [int(v) for v in cu_seqlens.tolist()]
+        self.lengths = [hi - lo for lo, hi in zip(self.offsets[:-1], self.offsets[1:])]
+        self.max_seqlen = max(self.lengths) if self.lengths else 0
+        # Interior boundaries only — what tensor_split wants.
+        self.split_bounds = self.offsets[1:-1]
+        self._by_device = {cu_seqlens.device: cu_seqlens.to(torch.int32)}
+
+    @property
+    def blocks(self) -> int:
+        return len(self.lengths)
+
+    def cu_on(self, device: torch.device) -> torch.Tensor:
+        cu = self._by_device.get(device)
+        if cu is None:
+            cu = torch.tensor(self.offsets, dtype=torch.int32, device=device)
+            self._by_device[device] = cu
+        return cu
+
+
+def _as_geometry(cu: "torch.Tensor | VarlenGeometry") -> VarlenGeometry:
+    return cu if isinstance(cu, VarlenGeometry) else VarlenGeometry(cu)
+
+
+def _run_flash_varlen(q, k, v, geo_q: VarlenGeometry, geo_k: VarlenGeometry):
     flash_attn_varlen_func = _flash_varlen_func
-    cu_q = cu_seqlens_q.to(device=q.device, dtype=torch.int32)
-    cu_k = cu_seqlens_k.to(device=q.device, dtype=torch.int32)
-    max_seqlen_q = int((cu_q[1:] - cu_q[:-1]).max().item())
-    max_seqlen_k = int((cu_k[1:] - cu_k[:-1]).max().item())
     logger.debug(
         "seedvr2 varlen_attention: flash_attn_varlen_func kernel in use (blocks=%d)",
-        cu_q.numel() - 1,
+        geo_q.blocks,
     )
     return flash_attn_varlen_func(
         q, k, v,
-        cu_seqlens_q=cu_q,
-        cu_seqlens_k=cu_k,
-        max_seqlen_q=max_seqlen_q,
-        max_seqlen_k=max_seqlen_k,
+        cu_seqlens_q=geo_q.cu_on(q.device),
+        cu_seqlens_k=geo_k.cu_on(q.device),
+        max_seqlen_q=geo_q.max_seqlen,
+        max_seqlen_k=geo_k.max_seqlen,
         causal=False,
     )
 
 
-def _varlen_attention_fallback(q, k, v, cu_seqlens_q, cu_seqlens_k):
+def _varlen_attention_fallback(q, k, v, geo_q: VarlenGeometry, geo_k: VarlenGeometry):
     if _attention_backend is None:
         raise RuntimeError(
             "seedvr2 varlen_attention: no attention backend wired — call set_attention_backend() first"
         )
-    # Interior boundaries drive the split; keep them on CPU for tensor_split.
-    q_bounds = cu_seqlens_q[1:-1].to(dtype=torch.long, device="cpu")
-    k_bounds = cu_seqlens_k[1:-1].to(dtype=torch.long, device="cpu")
-    q_blocks = torch.tensor_split(q, q_bounds, dim=0)
-    k_blocks = torch.tensor_split(k, k_bounds, dim=0)
-    v_blocks = torch.tensor_split(v, k_bounds, dim=0)
+    q_blocks = torch.tensor_split(q, geo_q.split_bounds, dim=0)
+    k_blocks = torch.tensor_split(k, geo_k.split_bounds, dim=0)
+    v_blocks = torch.tensor_split(v, geo_k.split_bounds, dim=0)
 
     outs = []
     for qi, ki, vi in zip(q_blocks, k_blocks, v_blocks):
@@ -149,12 +191,14 @@ def varlen_attention(
     q: torch.Tensor,  # (L, H, D)
     k: torch.Tensor,
     v: torch.Tensor,
-    cu_seqlens_q: torch.Tensor,  # (nblocks + 1,) int, cumulative q lengths
-    cu_seqlens_k: torch.Tensor,
+    cu_seqlens_q: "torch.Tensor | VarlenGeometry",  # (nblocks + 1,) cumulative q lengths
+    cu_seqlens_k: "torch.Tensor | VarlenGeometry",
 ) -> torch.Tensor:
+    geo_q = _as_geometry(cu_seqlens_q)
+    geo_k = _as_geometry(cu_seqlens_k)
     if _flash_varlen_available(q):
         try:
-            return _run_flash_varlen(q, k, v, cu_seqlens_q, cu_seqlens_k)
+            return _run_flash_varlen(q, k, v, geo_q, geo_k)
         except Exception as e:  # noqa: BLE001 — any kernel failure (unsupported
             # capability, head_dim past this build's limit, etc.) must fall back
             # to the per-block dispatcher path below rather than crash the
@@ -170,4 +214,4 @@ def varlen_attention(
                     e,
                 )
 
-    return _varlen_attention_fallback(q, k, v, cu_seqlens_q, cu_seqlens_k)
+    return _varlen_attention_fallback(q, k, v, geo_q, geo_k)

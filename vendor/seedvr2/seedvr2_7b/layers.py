@@ -27,7 +27,7 @@ import torch.nn as nn
 from einops import rearrange
 
 from .. import na
-from ..attention import varlen_attention
+from ..attention import VarlenGeometry, varlen_attention
 from ..cache import Cache
 from ..layers import AdaSingle, MMArg, MMModule, NaPatchIn, NaPatchOut, _cu_seqlens  # noqa: F401 — re-exported for arch/model.py
 from ..window import get_window_op
@@ -110,13 +110,15 @@ class NaSwinAttention(nn.Module):
             "mm_pnp", lambda: na.repeat_concat_idx(vid_len_win, txt_len, window_count)
         )
 
-        cu = cache_win("cu_seqlens", lambda: _cu_seqlens(all_len_win))
+        geometry = cache_win(
+            "varlen_geometry", lambda: VarlenGeometry(_cu_seqlens(all_len_win))
+        )
         out = varlen_attention(
             concat_win(vid_q, txt_q),
             concat_win(vid_k, txt_k),
             concat_win(vid_v, txt_v),
-            cu_seqlens_q=cu,
-            cu_seqlens_k=cu,
+            cu_seqlens_q=geometry,
+            cu_seqlens_k=geometry,
         ).type_as(vid_q)
 
         vid_out, txt_out = unconcat_win(out)

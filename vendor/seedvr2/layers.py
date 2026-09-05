@@ -27,7 +27,7 @@ from einops import rearrange
 from torch.nn.modules.utils import _triple
 
 from . import na
-from .attention import varlen_attention
+from .attention import VarlenGeometry, varlen_attention
 from .cache import Cache
 from .rope import get_na_rope
 from .window import get_window_op
@@ -322,13 +322,15 @@ class NaSwinAttention(nn.Module):
                 vid_q, vid_k, window_shape, txt_q_rep, txt_k_rep, txt_shape_rep, cache_win
             )
 
-        cu = cache_win("cu_seqlens", lambda: _cu_seqlens(all_len_win))
+        geometry = cache_win(
+            "varlen_geometry", lambda: VarlenGeometry(_cu_seqlens(all_len_win))
+        )
         out = varlen_attention(
             concat_win(vid_q, txt_q),
             concat_win(vid_k, txt_k),
             concat_win(vid_v, txt_v),
-            cu_seqlens_q=cu,
-            cu_seqlens_k=cu,
+            cu_seqlens_q=geometry,
+            cu_seqlens_k=geometry,
         ).type_as(vid_q)
 
         vid_out, txt_out = unconcat_win(out)

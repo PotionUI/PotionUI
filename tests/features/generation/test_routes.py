@@ -435,7 +435,7 @@ class TestGenerationController:
     async def test_get_generation_history_success(self, controller, mock_current_user):
         """Test successful history retrieval"""
         # Arrange - now delegate to history_facade
-        controller.history_facade.get_history.return_value = {
+        controller.history_facade.get_history_async.return_value = {
             'generations': [{"id": "gen-1"}, {"id": "gen-2"}],
             'total': 2,
             'limit': 50,
@@ -456,7 +456,7 @@ class TestGenerationController:
     @pytest.mark.asyncio
     async def test_get_generation_history_threads_semantic_query(self, controller, mock_current_user):
         """The semantic_query param reaches the history manager unchanged."""
-        controller.history_facade.get_history.return_value = {
+        controller.history_facade.get_history_async.return_value = {
             'generations': [], 'total': 0, 'limit': 50, 'offset': 0, 'filters': {}
         }
 
@@ -465,14 +465,14 @@ class TestGenerationController:
         )
 
         assert result.success is True
-        kwargs = controller.history_facade.get_history.call_args.kwargs
+        kwargs = controller.history_facade.get_history_async.call_args.kwargs
         assert kwargs["semantic_query"] == "red fox in snow"
 
     @pytest.mark.asyncio
     async def test_get_generation_history_with_date_filters(self, controller, mock_current_user):
         """Test history retrieval with date filters"""
         # Arrange - delegate to history_facade
-        controller.history_facade.get_history.return_value = {
+        controller.history_facade.get_history_async.return_value = {
             'generations': [{"id": "gen-1"}],
             'total': 1,
             'limit': 50,
@@ -509,7 +509,7 @@ class TestGenerationController:
         assert result.data['filters']['completed_to'] == "2024-01-31 23:59:59"
 
         # Verify history_facade was called with correct parameters
-        controller.history_facade.get_history.assert_called_once_with(
+        controller.history_facade.get_history_async.assert_called_once_with(
             user_id=mock_current_user.id,
             limit=50,
             offset=0,
@@ -540,7 +540,7 @@ class TestGenerationController:
         """Test history retrieval with invalid date format"""
         # Arrange - history_facade raises exception for invalid date
         from src.features.generation.exceptions import InvalidDateFilterException
-        controller.history_facade.get_history.side_effect = InvalidDateFilterException(
+        controller.history_facade.get_history_async.side_effect = InvalidDateFilterException(
             "Invalid date format for created_from. Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"
         )
 
@@ -560,7 +560,7 @@ class TestGenerationController:
         """Test history retrieval with invalid date range"""
         # Arrange - history_facade raises exception for invalid date range
         from src.features.generation.exceptions import InvalidDateFilterException
-        controller.history_facade.get_history.side_effect = InvalidDateFilterException(
+        controller.history_facade.get_history_async.side_effect = InvalidDateFilterException(
             "created_from date must be before created_to date"
         )
 
@@ -580,7 +580,7 @@ class TestGenerationController:
     async def test_get_generation_by_id_success(self, controller, mock_current_user):
         """Test successful generation retrieval by ID"""
         # Arrange - delegate to history_facade
-        controller.history_facade.get_by_id.return_value = {
+        controller.history_facade.get_by_id_async.return_value = {
             "id": "test-gen-123",
             "status": "completed",
             "parameters": {},
@@ -600,7 +600,7 @@ class TestGenerationController:
         """Test generation retrieval for non-existent ID"""
         # Arrange - history_facade raises exception
         from src.features.generation.exceptions import GenerationNotFoundException
-        controller.history_facade.get_by_id.side_effect = GenerationNotFoundException("Generation 'nonexistent' not found")
+        controller.history_facade.get_by_id_async.side_effect = GenerationNotFoundException("Generation 'nonexistent' not found")
 
         # Act & Assert - controller raises HTTPException via error_response
         with pytest.raises(HTTPException) as exc_info:

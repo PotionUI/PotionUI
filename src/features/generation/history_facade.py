@@ -15,6 +15,7 @@ from src.platform.plugins import PluginRegistry
 from src.features.generation.repository import GenerationRepository
 from src.features.generation.history_query import GenerationHistoryQuery
 from src.features.generation.history_archive import GenerationHistoryArchive
+from src.features.generation.history_executor import HistoryExecutor
 
 if TYPE_CHECKING:
     from src.platform.filesystem import FileStore
@@ -70,6 +71,11 @@ class GenerationHistoryFacade:
         self._archive = GenerationHistoryArchive(
             generation_repo, file_service, plugin_registry, self._query
         )
+        self.executor = HistoryExecutor()
+
+    def shutdown(self) -> None:
+        """Release the off-loop worker pool. Called from the app lifespan."""
+        self.executor.shutdown()
 
     @property
     def query(self) -> GenerationHistoryQuery:
@@ -124,6 +130,17 @@ class GenerationHistoryFacade:
             system_tag=system_tag, semantic_query=semantic_query
         )
 
+    async def get_history_async(self, **filters: Any) -> Dict[str, Any]:
+        """`get_history()` off the event loop, for async call sites.
+
+        Keyword-only on purpose: `get_history` owns the filter signature and
+        this must not become a third copy of it that drifts.
+
+        Raises:
+            HistoryExecutorSaturated: no capacity - nothing was queried.
+        """
+        return await self.executor.run(self.get_history, **filters)
+
     def get_by_id(
         self,
         generation_id: str,
@@ -131,6 +148,17 @@ class GenerationHistoryFacade:
         include_files: bool = True
     ) -> Dict[str, Any]:
         return self._query.get_by_id(generation_id, user_id, include_files)
+
+    async def get_by_id_async(
+        self,
+        generation_id: str,
+        user_id: str,
+        include_files: bool = True
+    ) -> Dict[str, Any]:
+        """`get_by_id()` off the event loop, for async call sites."""
+        return await self.executor.run(
+            self.get_by_id, generation_id, user_id, include_files
+        )
 
     def get_tags(self, generation_id: str, user_id: str) -> List[Dict[str, Any]]:
         return self._query.get_tags(generation_id, user_id)
@@ -160,6 +188,17 @@ class GenerationHistoryFacade:
     ) -> Tuple[bytes, str]:
         return self._archive.export_zip(generation_ids, user_id, strip_metadata)
 
+    async def export_zip_async(
+        self,
+        generation_ids: List[str],
+        user_id: str,
+        strip_metadata: bool = False
+    ) -> Tuple[bytes, str]:
+        """`export_zip()` off the event loop, for async call sites."""
+        return await self.executor.run(
+            self.export_zip, generation_ids, user_id, strip_metadata
+        )
+
     async def upload_generations(
         self,
         files: List,
@@ -170,6 +209,12 @@ class GenerationHistoryFacade:
 
     def export_bundle(self, generation_id: str, user_id: str) -> Tuple[bytes, str]:
         return self._archive.export_bundle(generation_id, user_id)
+
+    async def export_bundle_async(
+        self, generation_id: str, user_id: str
+    ) -> Tuple[bytes, str]:
+        """`export_bundle()` off the event loop, for async call sites."""
+        return await self.executor.run(self.export_bundle, generation_id, user_id)
 
     def import_bundle(self, content: bytes) -> Dict[str, Any]:
         return self._archive.import_bundle(content)

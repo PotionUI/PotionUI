@@ -43,6 +43,7 @@ from src.features.generation import (
     GenerationBundleImportError,
     GenerationPolicy,
 )
+from src.features.generation.history_executor import HistoryExecutorSaturated
 from src.features.generation.repository import generation_repo
 from src.features.generation.file_repository import file_repo
 
@@ -429,6 +430,19 @@ class GenerationController(BaseController):
         ]
         return self.success_response(data=visible)
 
+    def _history_busy_response(self):
+        """Admission to the off-loop history boundary was refused.
+
+        503 with a stable message so a client can retry: the request was never
+        run, nothing is wrong with it, and the server is momentarily out of
+        history workers.
+        """
+        return self.error_response(
+            error="history_busy",
+            message="Generation history is busy. Please retry.",
+            status_code=503
+        )
+
     async def get_generation_history(
         self,
         current_user,
@@ -462,7 +476,7 @@ class GenerationController(BaseController):
             if tag_ids:
                 parsed_tag_ids = [tid.strip() for tid in tag_ids.split(',') if tid.strip()]
 
-            result = self.history_facade.get_history(
+            result = await self.history_facade.get_history_async(
                 user_id=current_user.id,
                 limit=limit,
                 offset=offset,
@@ -496,6 +510,8 @@ class GenerationController(BaseController):
                 message=str(e),
                 status_code=400
             )
+        except HistoryExecutorSaturated:
+            return self._history_busy_response()
         except Exception as e:
             logging.error(f"Failed to get generation history: {str(e)}")
             return self.error_response(
@@ -511,7 +527,7 @@ class GenerationController(BaseController):
     ) -> APIResponse:
         """Get specific generation by ID from database"""
         try:
-            result = self.history_facade.get_by_id(
+            result = await self.history_facade.get_by_id_async(
                 generation_id=generation_id,
                 user_id=current_user.id,
                 include_files=include_files
@@ -524,6 +540,8 @@ class GenerationController(BaseController):
                 message=f"Generation '{generation_id}' not found",
                 status_code=404
             )
+        except HistoryExecutorSaturated:
+            return self._history_busy_response()
         except Exception as e:
             logging.error(f"Failed to get generation {generation_id}: {str(e)}")
             return self.error_response(
@@ -719,7 +737,7 @@ class GenerationController(BaseController):
             )
 
         try:
-            zip_bytes, filename = self.history_facade.export_zip(
+            zip_bytes, filename = await self.history_facade.export_zip_async(
                 generation_ids=generation_ids,
                 user_id=current_user.id,
                 strip_metadata=strip_metadata
@@ -740,6 +758,8 @@ class GenerationController(BaseController):
                 message=str(e),
                 status_code=404
             )
+        except HistoryExecutorSaturated:
+            return self._history_busy_response()
         except Exception as e:
             logging.error(f"Failed to export generations: {str(e)}")
             logging.error(traceback.format_exc())
@@ -756,7 +776,7 @@ class GenerationController(BaseController):
         StreamingResponse) instead of an APIResponse JSON envelope.
         """
         try:
-            zip_bytes, filename = self.history_facade.export_bundle(
+            zip_bytes, filename = await self.history_facade.export_bundle_async(
                 generation_id=generation_id,
                 user_id=current_user.id
             )
@@ -776,6 +796,8 @@ class GenerationController(BaseController):
                 message=str(e),
                 status_code=404
             )
+        except HistoryExecutorSaturated:
+            return self._history_busy_response()
         except Exception as e:
             logging.error(f"Failed to export generation bundle: {str(e)}")
             logging.error(traceback.format_exc())
@@ -1057,7 +1079,7 @@ class GenerationController(BaseController):
         None (every user).
         """
         try:
-            result = self.history_facade.get_history(
+            result = await self.history_facade.get_history_async(
                 user_id=user_id,
                 limit=limit,
                 offset=offset,
@@ -1089,6 +1111,8 @@ class GenerationController(BaseController):
                 message=str(e),
                 status_code=400
             )
+        except HistoryExecutorSaturated:
+            return self._history_busy_response()
         except Exception as e:
             logging.error(f"Failed to get admin generation history: {str(e)}")
             return self.error_response(

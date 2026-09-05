@@ -5,7 +5,9 @@
 // The token is the server's per-user history revision, bumped by the mutation
 // paths it knows about, so it is a signal and not a proof of completeness. The
 // recovery refresh below is the convergence guarantee: a mutation nobody bumped
-// still lands within one recovery interval.
+// is picked up by the refresh that the next recovery timer starts. The interval
+// is the cadence of that timer, not a bound on how long restored rows take to
+// appear - the refresh awaits a version request and then a page fetch.
 
 export const HISTORY_VERSION_INTERVAL_MS = 8000;
 export const HISTORY_VERSION_JITTER = 0.25;
@@ -27,7 +29,9 @@ export interface HistoryVersionWatcherOptions {
 	changeDebounceMs?: number;
 	// The convergence guarantee, not a trigger: the token is bumped explicitly
 	// by the mutation paths the server knows about, so anything it cannot see
-	// still lands within one of these.
+	// still lands within one of these. This is the timer cadence, not a bound on
+	// time-to-restored-rows: the refresh it starts awaits a version request and
+	// then a page fetch, each of which can sit out the HTTP client's timeout.
 	recoveryIntervalMs?: number;
 	random?: () => number;
 }
@@ -65,6 +69,7 @@ export function createHistoryVersionWatcher(
 	let inFlight: Promise<string | null> | null = null;
 	let lastSeen: string | null = null;
 	let everConnected = false;
+	let pendingChange = false;
 	let stopped = true;
 
 	// Overlapping callers (a tick, a focus, a reconnect) share one request.
@@ -130,6 +135,16 @@ export function createHistoryVersionWatcher(
 		void refresh();
 	}
 
+	// Discovery asks whether anything changed and is page-1 only: a generation
+	// started elsewhere lands at the top of the created_at-desc list and is
+	// invisible from any other page. An explicit refresh is the opposite case -
+	// a terminal event for a generation already on screen - so it reloads on
+	// whatever page the viewer is on, exactly as the poll it replaced did.
+	//
+	// Eligibility is re-read after every await. The token request is in flight
+	// for a whole round trip, and the viewer can hide the tab or page away
+	// inside it; a decision taken before the await is stale by the time it
+	// would be applied.
 	async function check(): Promise<void> {
 		if (stopped || !isVisible()) return;
 		if (!canDiscover()) {
@@ -141,7 +156,15 @@ export function createHistoryVersionWatcher(
 		}
 
 		const token = await pull();
-		if (stopped || token === null) return;
+		if (token === null) return;
+
+		// Hidden now: keep the baseline untouched so the difference is still
+		// there to be found when the tab comes back.
+		if (stopped || !isVisible()) return;
+		if (!canDiscover()) {
+			lastSeen = null;
+			return;
+		}
 
 		const changed = lastSeen !== null && token !== lastSeen;
 		lastSeen = token;
@@ -149,17 +172,34 @@ export function createHistoryVersionWatcher(
 	}
 
 	async function refresh(): Promise<void> {
+		if (stopped) return;
+		if (!isVisible()) {
+			pendingChange = true;
+			return;
+		}
+
 		// Baseline before refetching, never after: the token is then no newer
 		// than the rows that arrive, so a write landing in between still reads
 		// as a difference on the next check.
 		const token = await pull();
 		if (stopped) return;
+		if (!isVisible()) {
+			// Neither the baseline nor the reload is applied, so the completion
+			// is carried to the next visible moment rather than dropped.
+			pendingChange = true;
+			return;
+		}
+
 		if (token !== null) lastSeen = token;
 		reload();
 	}
 
 	function notifyChanged(): void {
 		if (stopped) return;
+		if (!isVisible()) {
+			pendingChange = true;
+			return;
+		}
 		clearChange();
 		changeTimer = setTimeout(() => {
 			changeTimer = undefined;
@@ -172,10 +212,21 @@ export function createHistoryVersionWatcher(
 		if (!visible) {
 			clear();
 			clearRecovery();
+			// A debounce still counting down would fire against a hidden tab.
+			if (changeTimer !== undefined) {
+				clearChange();
+				pendingChange = true;
+			}
 			return;
 		}
+
 		schedule();
 		scheduleRecovery();
+		if (pendingChange) {
+			pendingChange = false;
+			void refresh();
+			return;
+		}
 		void check();
 	}
 
@@ -190,6 +241,7 @@ export function createHistoryVersionWatcher(
 
 		stop(): void {
 			stopped = true;
+			pendingChange = false;
 			clear();
 			clearRecovery();
 			clearChange();

@@ -288,6 +288,168 @@ describe('stores/historyVersionWatcher', () => {
 		}
 	});
 
+	describe('eligibility changing during an outstanding request', () => {
+		let settle: (value: string) => void;
+
+		function blockedFetch() {
+			fetchVersion.mockImplementation(
+				() => new Promise<string>((resolve) => (settle = resolve))
+			);
+		}
+
+		it('does not reload when the tab hides while a check is in flight', async () => {
+			watcher = build();
+			watcher.start();
+			await advance(1);
+
+			blockedFetch();
+			void watcher.check();
+			visible = false;
+			watcher.setVisible(false);
+			settle('token-2');
+			await advance(1);
+
+			expect(reload).not.toHaveBeenCalled();
+		});
+
+		it('finds the change it withheld once the tab comes back', async () => {
+			watcher = build();
+			watcher.start();
+			await advance(1);
+
+			blockedFetch();
+			void watcher.check();
+			visible = false;
+			watcher.setVisible(false);
+			settle('token-2');
+			await advance(1);
+			expect(reload).not.toHaveBeenCalled();
+
+			// The baseline was left alone, so the same token now reads as a change.
+			fetchVersion.mockResolvedValue('token-2');
+			visible = true;
+			watcher.setVisible(true);
+			await advance(1);
+
+			expect(reload).toHaveBeenCalledTimes(1);
+		});
+
+		it('does not reload when the viewer pages away while a check is in flight', async () => {
+			watcher = build();
+			watcher.start();
+			await advance(1);
+
+			blockedFetch();
+			void watcher.check();
+			page = 2;
+			settle('token-2');
+			await advance(1);
+
+			expect(reload).not.toHaveBeenCalled();
+		});
+
+		it('does not reload when the tab hides while a refresh is in flight', async () => {
+			watcher = build();
+			watcher.start();
+			await advance(1);
+
+			blockedFetch();
+			watcher.notifyChanged();
+			await advance(HISTORY_CHANGE_DEBOUNCE_MS);
+			visible = false;
+			watcher.setVisible(false);
+			settle('token-2');
+			await advance(1);
+
+			expect(reload).not.toHaveBeenCalled();
+		});
+
+		it('flushes the withheld completion on return to visible', async () => {
+			watcher = build();
+			watcher.start();
+			await advance(1);
+
+			blockedFetch();
+			watcher.notifyChanged();
+			await advance(HISTORY_CHANGE_DEBOUNCE_MS);
+			visible = false;
+			watcher.setVisible(false);
+			settle('token-2');
+			await advance(1);
+			expect(reload).not.toHaveBeenCalled();
+
+			fetchVersion.mockResolvedValue('token-2');
+			visible = true;
+			watcher.setVisible(true);
+			await advance(1);
+
+			expect(reload).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	it('issues nothing when a change is notified while hidden, and flushes it on return', async () => {
+		watcher = build();
+		watcher.start();
+		await advance(1);
+
+		visible = false;
+		watcher.setVisible(false);
+		fetchVersion.mockClear();
+		watcher.notifyChanged();
+		await advance(HISTORY_CHANGE_DEBOUNCE_MS * 4);
+
+		expect(fetchVersion).not.toHaveBeenCalled();
+		expect(reload).not.toHaveBeenCalled();
+
+		visible = true;
+		watcher.setVisible(true);
+		await advance(1);
+
+		expect(reload).toHaveBeenCalledTimes(1);
+	});
+
+	// Hiding mid-debounce and returning before it would have fired: the timer
+	// has to be taken over by the pending-change flag, or the flush and the
+	// surviving timer both reload.
+	it('reloads once when the tab hides and returns mid-debounce', async () => {
+		watcher = build();
+		watcher.start();
+		await advance(1);
+
+		fetchVersion.mockResolvedValue('token-2');
+		watcher.notifyChanged();
+		await advance(HISTORY_CHANGE_DEBOUNCE_MS / 4);
+
+		visible = false;
+		watcher.setVisible(false);
+		await advance(HISTORY_CHANGE_DEBOUNCE_MS / 4);
+		expect(reload).not.toHaveBeenCalled();
+
+		visible = true;
+		watcher.setVisible(true);
+		await advance(HISTORY_CHANGE_DEBOUNCE_MS * 4);
+
+		expect(reload).toHaveBeenCalledTimes(1);
+	});
+
+	// Discovery is page-1 only; a terminal event for a generation already on
+	// screen is not, matching the reload this watcher replaced.
+	it('refreshes a terminal event on a later page but never discovers there', async () => {
+		page = 2;
+		watcher = build();
+		watcher.start();
+
+		fetchVersion.mockResolvedValue('token-2');
+		await advance(HISTORY_VERSION_INTERVAL_MS * 3);
+		expect(fetchVersion).not.toHaveBeenCalled();
+		expect(reload).not.toHaveBeenCalled();
+
+		watcher.notifyChanged();
+		await advance(HISTORY_CHANGE_DEBOUNCE_MS);
+
+		expect(reload).toHaveBeenCalledTimes(1);
+	});
+
 	it('stops every timer on stop', async () => {
 		watcher = build();
 		watcher.start();

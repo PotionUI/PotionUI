@@ -30,17 +30,22 @@
 // fresh one on every mount). A queue-membership check wrongly reads "already
 // routed on some past socket" as "already subscribed on THIS one", so a
 // generation that outlives a remount would never get a listener on the new
-// socket at all. `options.subscriptionOwner` -- a stable value identifying
-// the CURRENT live listener target, in practice the page's own
-// `WebSocketService` instance -- is what `subscribedIdsByOwner` dedupes
-// against instead: the SAME owner asked again for an id it already
-// subscribed is a no-op (repeated reconnect passes against one socket never
-// accumulate handlers), while a DIFFERENT owner (a fresh socket after
-// remount) starts with no memory of its own and subscribes every routed
-// live generation, exactly mirroring the socket's own fresh, empty
-// `subscriptions` Map. `clearSubscriptionOwner` is exported so the page can
-// drop an owner's memory from `onDestroy`, alongside retiring its
-// AbortController and `setGenerationUnsubscribeHandler(null)`.
+// socket at all.
+//
+// Nor is reconcile.ts's own subscribe request the only one that can happen
+// for a given id: the page also subscribes directly at fresh submission
+// (startGeneration and the Video Director shot submission). A generation
+// that completes its FIRST reconnect reconciliation pass while still
+// running would otherwise be asked to subscribe a second time even though
+// submission already did. `./subscriptions.ts`'s `ensureSubscribed` is the
+// ONE gate both call sites go through, keyed on `options.subscriptionOwner`
+// -- a stable value identifying the CURRENT live listener target, in
+// practice the page's own `WebSocketService` instance -- so whichever call
+// site asks FIRST for a given (owner, generationId) pair is the only one
+// that ever triggers a real `ws.subscribe`. See that file for the full
+// contract, including `clearSubscriptionOwner` (an `onDestroy` backstop) and
+// `releaseSubscription` (per-id bookkeeping released on terminal
+// unsubscribe, wired through the page's unified `unsubscribeGeneration`).
 //
 // No-resurrection: a "keep" outcome (server says pending/running) is only
 // ever applied if the id is STILL claimed by the tab at apply time --
@@ -90,6 +95,7 @@ import {
 } from '$lib/generation/messages/directorRuns';
 import { withoutQueueEntry } from '$lib/generation/messages/ownership';
 import { retireGeneration } from '$lib/generation/messages/generationOutputs';
+import { ensureSubscribed } from './subscriptions';
 
 /** Minimal surface `reconcileTabGenerations` needs from `tabsStore` -- the
  *  real store (`$lib/stores/tabs`) satisfies this as-is. */
@@ -443,34 +449,6 @@ export function resetPendingPosterRecoveriesForTests(): void {
 	pendingPosterRecoveries.clear();
 }
 
-/** Per-owner memory of which generation ids reconcile has already told that
- *  owner to subscribe to -- see the file header for why the owner (the live
- *  socket), not tab/routing state, is what dedup must be scoped to. */
-const subscribedIdsByOwner = new Map<unknown, Set<string>>();
-
-function hasSubscribedFor(owner: unknown, generationId: string): boolean {
-	return subscribedIdsByOwner.get(owner)?.has(generationId) ?? false;
-}
-
-function rememberSubscribedFor(owner: unknown, generationId: string): void {
-	let ids = subscribedIdsByOwner.get(owner);
-	if (!ids) {
-		ids = new Set();
-		subscribedIdsByOwner.set(owner, ids);
-	}
-	ids.add(generationId);
-}
-
-/** Drops one owner's subscription memory entirely -- call this once the
- *  owner (the page's `WebSocketService` instance) is retired, from
- *  `onDestroy` alongside the AbortController and
- *  `setGenerationUnsubscribeHandler(null)`, so an owner's entry never
- *  outlives it and the registry stays bounded to only the owners actually
- *  in play. */
-export function clearSubscriptionOwner(owner: unknown): void {
-	subscribedIdsByOwner.delete(owner);
-}
-
 /**
  * Reconciles every generation id `tabId` has in flight -- persisted
  * (`activeGenerationId`, non-terminal `directorRuns`, `directorRunLinks`
@@ -671,14 +649,12 @@ export async function reconcileTabGenerations(
 			const tab = readTab();
 			if (!tab || isRetiredKeep(tab, generationId, seed)) return;
 			applyKeep(generationId, status);
-			// Dedup against the LIVE LISTENER OWNER, never `generation.queue`
-			// membership -- see the file header. `subscriptionOwner === undefined`
-			// means the caller opted out of dedup entirely (always subscribe).
-			const alreadySubscribed =
-				subscriptionOwner !== undefined && hasSubscribedFor(subscriptionOwner, generationId);
-			if (!alreadySubscribed && !signal?.aborted) {
-				if (subscriptionOwner !== undefined) rememberSubscribedFor(subscriptionOwner, generationId);
-				onSubscribe?.(generationId);
+			// Shared with fresh submission (see subscriptions.ts): the FIRST
+			// caller for this (subscriptionOwner, generationId) pair -- whether
+			// that was this pass or the page's own submit-time subscribe -- is
+			// the only one that actually triggers `onSubscribe`.
+			if (!signal?.aborted) {
+				ensureSubscribed(subscriptionOwner, generationId, () => onSubscribe?.(generationId));
 			}
 			return;
 		}

@@ -13,9 +13,9 @@ import {
 	collectInFlightGenerationIds,
 	isConfirmedMissing,
 	resetPendingPosterRecoveriesForTests,
-	clearSubscriptionOwner,
 	type ReconcileApi
 } from './reconcile';
+import { ensureSubscribed, clearSubscriptionOwner } from './subscriptions';
 import type { DirectorRunState } from '$lib/types/tabs';
 import type { APIResponse, GenerationStatus } from '$lib/types/api';
 import {
@@ -642,6 +642,43 @@ describe('reconcileTabGenerations', () => {
 		// generation, rather than being skipped because the OLD socket
 		// already had one.
 		expect((newSocket as unknown as { subscriptions: Map<string, Set<unknown>> }).subscriptions.get('gen-1')?.size).toBe(1);
+	});
+
+	it('a generation subscribed at fresh submission is not re-subscribed by the first reconcile pass that finds it still running (no duplicate delivery)', async () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, { activeGenerationId: 'gen-1' });
+		const ws = new WebSocketService('ws://test.invalid/ws/generation', null);
+		const received: unknown[] = [];
+		const handleGenerationMessage = (message: unknown) => received.push(message);
+
+		// Simulates the page's OWN submission-time subscribe call
+		// (routes/generate/+page.svelte's startGeneration), which goes
+		// through the SAME shared registry reconcile.ts consults.
+		ensureSubscribed(ws, 'gen-1', () => {
+			ws.subscribe('gen-1', (message) => handleGenerationMessage(message));
+		});
+		expect((ws as unknown as { subscriptions: Map<string, Set<unknown>> }).subscriptions.get('gen-1')?.size).toBe(1);
+
+		// The first reconnect reconciliation pass, against the SAME socket,
+		// finds 'gen-1' still running.
+		const fake = createFakeApi();
+		fake.scriptStatus('gen-1', { ok: statusResponse({ status: 'running', progress: 0.4 }) });
+		const onSubscribe = vi.fn((generationId: string) => {
+			ws.subscribe(generationId, (message) => handleGenerationMessage(message));
+		});
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { onSubscribe, subscriptionOwner: ws });
+
+		// Submission already covers 'gen-1' for this owner -- reconcile must
+		// not ask to subscribe again.
+		expect(onSubscribe).not.toHaveBeenCalled();
+		expect((ws as unknown as { subscriptions: Map<string, Set<unknown>> }).subscriptions.get('gen-1')?.size).toBe(1);
+
+		// One live event arrives on the socket.
+		(ws as unknown as { onMessage(message: { type: string; generation_id: string }): void }).onMessage({
+			type: 'generation_status',
+			generation_id: 'gen-1'
+		});
+		expect(received).toHaveLength(1);
 	});
 
 	it('clearSubscriptionOwner drops an owner\'s memory so a later pass against the same owner value resubscribes', async () => {

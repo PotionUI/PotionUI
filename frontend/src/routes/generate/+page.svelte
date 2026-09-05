@@ -25,7 +25,8 @@
 	import PresetControls from './components/PresetControls.svelte';
 	import StudioView from './components/studio/StudioView.svelte';
 	import { resolveNegativeApplicability } from '$lib/generation/negativeApplied';
-	import { reconcileTabGenerations, clearSubscriptionOwner } from '$lib/generation/restore/reconcile';
+	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
+	import { ensureSubscribed, releaseSubscription, clearSubscriptionOwner } from '$lib/generation/restore/subscriptions';
 	import { toggleFloatingForm } from '$lib/generation/floatingForm';
 	import { toggleFloatingWorkbench } from '$lib/generation/floatingWorkbench';
 	let generationPanelRef: GenerationPanel | undefined;
@@ -284,7 +285,9 @@
 					}
 				});
 				if (ws) {
-					ws.subscribe(generation_id, (message: WebSocketMessage) => handleGenerationMessage(message));
+					ensureSubscribed(ws, generation_id, () => {
+						ws?.subscribe(generation_id, (message: WebSocketMessage) => handleGenerationMessage(message));
+					});
 				}
 				return { ok: true, generationId: generation_id };
 			}
@@ -697,7 +700,7 @@
 		// from the tab bar's close button and this page's close-tab
 		// keybinding, sharing no caller-supplied `deps`) -- registered once
 		// here instead, cleared in onDestroy below.
-		setGenerationUnsubscribeHandler((generationId) => ws?.unsubscribe(generationId));
+		setGenerationUnsubscribeHandler(unsubscribeGeneration);
 		ws.onConnectionChange((connected) => {
 			isConnected = connected;
 			if (connected && !restoreInFlight) {
@@ -894,7 +897,7 @@
 							handleGenerationMessage(message);
 						});
 					},
-					unsubscribe: (generationId) => ws?.unsubscribe(generationId)
+					unsubscribe: unsubscribeGeneration
 				});
 			})
 		);
@@ -1676,9 +1679,14 @@
 				// Subscribe to WebSocket updates — a queued generation gets
 				// `queue_update` messages the same way a running one gets
 				// `generation_status`/etc, so subscribe unconditionally.
+				// Routed through ensureSubscribed (shared with reconciliation)
+				// so the first reconnect pass to see this id still pending/
+				// running never registers a second listener for it.
 				if (ws) {
-					ws.subscribe(generation_id, (message: WebSocketMessage) => {
-						handleGenerationMessage(message);
+					ensureSubscribed(ws, generation_id, () => {
+						ws?.subscribe(generation_id, (message: WebSocketMessage) => {
+							handleGenerationMessage(message);
+						});
 					});
 				}
 
@@ -1785,9 +1793,21 @@
 		}
 	}
 
+	// The ONE unsubscribe path every terminal/retirement route shares
+	// (dispatchGenerationMessage's own terminal handling below,
+	// setGenerationUnsubscribeHandler's tab-close seam, and
+	// reconcileTabGenerations' `unsubscribe` option) -- releases this
+	// generation's subscription bookkeeping (see subscriptions.ts) alongside
+	// the actual socket unsubscribe, so a page session doesn't hold every
+	// restored/submitted id in memory until teardown.
+	function unsubscribeGeneration(generationId: string): void {
+		releaseSubscription(ws, generationId);
+		ws?.unsubscribe(generationId);
+	}
+
 	function handleGenerationMessage(message: WebSocketMessage) {
 		dispatchGenerationMessage(message, {
-			unsubscribe: (generationId: string) => ws?.unsubscribe(generationId)
+			unsubscribe: unsubscribeGeneration
 		});
 	}
 

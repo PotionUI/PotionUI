@@ -61,9 +61,9 @@ _DOC_T2V = {
 def ltx_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if str(p.path).endswith("native/LTX-2")), None)
+    template = next((p for p in loader.presets if str(p.path).rstrip("/").endswith("/LTX-2")), None)
     if template is None:
-        pytest.skip("native/LTX-2 preset not present")
+        pytest.skip("LTX-2 preset not present")
     return template
 
 

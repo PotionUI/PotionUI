@@ -45,9 +45,9 @@ _GENERATOR_FOR_MODE = {
 def wan_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if "native/Wan" in str(p.path)), None)
+    template = next((p for p in loader.presets if str(p.path).rstrip("/").endswith("/Wan")), None)
     if template is None:
-        pytest.skip("native/Wan preset not present")
+        pytest.skip("Wan preset not present")
     return template
 
 

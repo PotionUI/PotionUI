@@ -80,6 +80,7 @@ from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
 
 from src.features.llm.clients.base import LLMResponse
+from src.features.llm.clients import completion as completion_outcome
 from src.features.llm.context_budget import MessagesCounter, TokenCounter
 from src.features.llm.native_library import (
     NATIVE_LLM_QUANT_MODES,
@@ -1037,6 +1038,47 @@ class NativeLLMClient:
         return kwargs
 
     @staticmethod
+    def _eos_token_ids(checkpoint: "_LoadedCheckpoint") -> List[int]:
+        """The loaded model's own EOS id(s) — ``generation_config.eos_token_id``
+        is an int for most checkpoints but a list for some chat models with
+        multiple valid turn-end tokens; both shapes are normalized to a list
+        so a boundary check never has to know which one it got. A model
+        double with no ``generation_config`` attribute at all (some
+        lightweight test fakes) degrades to "no EOS known" rather than
+        raising — a real loaded ``PreTrainedModel`` always has one."""
+        generation_config = getattr(checkpoint.model, "generation_config", None)
+        eos = getattr(generation_config, "eos_token_id", None) if generation_config is not None else None
+        if eos is None:
+            return []
+        if isinstance(eos, int):
+            return [eos]
+        return list(eos)
+
+    @staticmethod
+    def _completion_outcome(
+        last_token_id: Optional[int],
+        completion_tokens: int,
+        max_new_tokens: int,
+        eos_ids: List[int],
+    ) -> Dict[str, Any]:
+        """Distinguish a generated-token boundary from a real EOS using the
+        effective generation config, per LLM-08's normalized completion
+        contract (``clients.completion``): the last generated token being one
+        of the model's own EOS ids is `stop` EVEN when it also lands exactly
+        at `max_new_tokens` — checked first, so hitting the limit never
+        shadows a real end-of-turn token that happened to land on it.
+        `max_new_tokens` reached with no EOS in that last position is
+        `length`. Anything else (a turn ended by the cooperative
+        `stopping_criteria` cancellation path, or by a stop string) is
+        `unknown` rather than guessed at — this client has no raw provider
+        string to carry, so `raw` stays `None` throughout."""
+        if last_token_id is not None and last_token_id in eos_ids:
+            return completion_outcome.stop(None)
+        if completion_tokens >= max_new_tokens:
+            return completion_outcome.length(None)
+        return completion_outcome.unknown(None)
+
+    @staticmethod
     def _inject_tools_into_system_message(system_message: Optional[str], tools: Optional[List[Dict]]) -> str:
         if not tools:
             return system_message or ""
@@ -1088,6 +1130,7 @@ class NativeLLMClient:
             chat, image = self._build_chat(messages, system_message, image_data)
             gen_kwargs = self._generation_kwargs(config, options_override)
             template_kwargs, thinking_mode = self._chat_template_kwargs(checkpoint, config)
+            eos_ids = self._eos_token_ids(checkpoint)
 
             # `asyncio.to_thread(_run)` being cancelled only stops US from
             # awaiting it — the executor thread keeps running `generate()`
@@ -1106,12 +1149,23 @@ class NativeLLMClient:
                     prompt_len = inputs["input_ids"].shape[-1]
                     completion_ids = output_ids[:, prompt_len:]
                     text = checkpoint.tokenizer.decode(completion_ids[0], skip_special_tokens=True)
-                    return text, prompt_len, int(completion_ids.shape[-1])
+                    last_token_id = None
+                    if completion_ids.shape[-1] > 0:
+                        try:
+                            last_token_id = int(completion_ids[0, -1].item())
+                        except (AttributeError, TypeError, IndexError):
+                            # A test double's tensor stand-in supports the
+                            # shape/slicing bookkeeping this method needs but
+                            # not real value extraction — degrade to "unknown
+                            # last token" rather than let a diagnostic-only
+                            # computation break generation itself.
+                            last_token_id = None
+                    return text, prompt_len, int(completion_ids.shape[-1]), last_token_id
                 finally:
                     worker_done.set()
 
             try:
-                content, prompt_tokens, completion_tokens = await asyncio.to_thread(_run)
+                content, prompt_tokens, completion_tokens, last_token_id = await asyncio.to_thread(_run)
             except RuntimeError as e:
                 if _is_oom(e):
                     torch.cuda.empty_cache()
@@ -1138,6 +1192,9 @@ class NativeLLMClient:
                     )
                     handoff.defer(worker_done, config.model, key)
 
+        completion = self._completion_outcome(
+            last_token_id, completion_tokens, gen_kwargs["max_new_tokens"], eos_ids
+        )
         return LLMResponse(
             content=content,
             model=config.model,
@@ -1145,7 +1202,8 @@ class NativeLLMClient:
             tokens_used=prompt_tokens + completion_tokens,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
-            finish_reason="stop",
+            finish_reason=completion["raw"],
+            completion=completion,
             thinking_mode=thinking_mode,
         )
 
@@ -1179,6 +1237,8 @@ class NativeLLMClient:
             streamer = TextIteratorStreamer(checkpoint.tokenizer, skip_prompt=True, skip_special_tokens=True)
             errors: List[BaseException] = []
             completion_tokens_box = [0]
+            last_token_box: List[Optional[int]] = [None]
+            eos_ids = self._eos_token_ids(checkpoint)
             worker_done = threading.Event()
             stop_requested = threading.Event()
 
@@ -1198,6 +1258,14 @@ class NativeLLMClient:
                             **inputs, streamer=streamer, stopping_criteria=stopping_criteria, **gen_kwargs
                         )
                     completion_tokens_box[0] = int(output_ids.shape[-1]) - prompt_tokens
+                    if output_ids.shape[-1] > prompt_tokens:
+                        try:
+                            last_token_box[0] = int(output_ids[0, -1].item())
+                        except (AttributeError, TypeError, IndexError):
+                            # See the matching guard in generate_with_history:
+                            # a test double's tensor stand-in need not support
+                            # real value extraction.
+                            last_token_box[0] = None
                 except BaseException as e:  # noqa: BLE001 - relayed to the caller below
                     errors.append(e)
                 finally:
@@ -1269,12 +1337,16 @@ class NativeLLMClient:
                 raise error
 
             completion_tokens = completion_tokens_box[0]
+            completion = self._completion_outcome(
+                last_token_box[0], completion_tokens, gen_kwargs["max_new_tokens"], eos_ids
+            )
             yield {
                 "type": "usage",
                 "thinking_mode": thinking_mode,
                 "tokens_used": prompt_tokens + completion_tokens,
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
+                "completion": completion,
             }
 
     async def generate_with_tools(

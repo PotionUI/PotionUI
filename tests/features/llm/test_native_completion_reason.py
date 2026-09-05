@@ -2,16 +2,12 @@
 provider — see LLM-08.
 
 The native engine has no wire-level `finish_reason` to read: it has to infer
-the boundary itself from the effective generation config. These tests are
-SKIPPED until the locked patch at
-`scratchpad/llm08-locked/native.patch` (see the LLM-08 report) lands on
-`src/features/llm/clients/native.py` — that patch adds
-`NativeLLMClient._eos_token_ids`/`_completion_outcome` and wires them into
-both `generate_with_history` and `stream_with_history`. This file is
-independent of `test_native_client.py` (owned by another lane) by design —
-it duplicates the small checkpoint-building fixtures it needs rather than
-importing that file's private helpers, so it never conflicts with concurrent
-edits there.
+the boundary itself from the effective generation config
+(`NativeLLMClient._eos_token_ids`/`_completion_outcome`, wired into both
+`generate_with_history` and `stream_with_history`). This file is independent
+of `test_native_client.py` (owned by another lane) by design — it duplicates
+the small checkpoint-building fixtures it needs rather than importing that
+file's private helpers, so it never conflicts with concurrent edits there.
 
 CPU-only, no downloads — same tiny real Qwen3 checkpoint approach as
 test_native_client.py.
@@ -35,9 +31,6 @@ try:
     from src.features.llm.clients.native import NativeLLMClient
 except ImportError:
     NativeLLMClient = None  # patch not applied yet
-
-
-pytestmark = pytest.mark.skip(reason="LLM-08 native patch pending (scratchpad/llm08-locked/native.patch)")
 
 
 @pytest.fixture(autouse=True)
@@ -201,6 +194,25 @@ class TestCompletionOutcome:
         )
         assert outcome == {"reason": "length", "raw": None}
 
+    def test_no_eos_ids_configured_below_the_limit_is_unknown(self):
+        """No EOS id known at all (e.g. a checkpoint whose `generation_config`
+        the client couldn't read) AND the limit wasn't reached either —
+        nothing to infer a reason from, so it stays unknown rather than
+        defaulting either way."""
+        outcome = NativeLLMClient._completion_outcome(
+            last_token_id=5, completion_tokens=3, max_new_tokens=10, eos_ids=[],
+        )
+        assert outcome == {"reason": "unknown", "raw": None}
+
+    def test_multiple_eos_ids_any_of_them_as_last_token_is_stop(self):
+        """`generation_config.eos_token_id` as a list (some chat models have
+        more than one valid turn-end token) — any member landing as the
+        last generated token is `stop`, not just the first in the list."""
+        outcome = NativeLLMClient._completion_outcome(
+            last_token_id=7, completion_tokens=4, max_new_tokens=10, eos_ids=[3, 7, 99],
+        )
+        assert outcome == {"reason": "stop", "raw": None}
+
 
 # ---------------------------------------------------------------------------
 # End to end through the real generate_with_history entry point
@@ -245,6 +257,25 @@ class TestGenerateWithHistoryCompletionReason:
         eos_id = 3
         monkeypatch.setattr(checkpoint.model, "generate", _fixed_generate([5, 5, 5, eos_id]))
         monkeypatch.setattr(checkpoint.model, "generation_config", SimpleNamespace(eos_token_id=eos_id))
+
+        response = await client.generate_with_history(
+            [{"role": "user", "content": "hi"}], config, config.system_message,
+        )
+
+        assert response.completion == {"reason": "stop", "raw": None}
+
+    @pytest.mark.asyncio
+    async def test_generation_config_with_multiple_eos_ids_is_honored(self, client, native_checkpoint, monkeypatch):
+        """`generation_config.eos_token_id` as a LIST (some chat models
+        declare more than one valid turn-end token) reaches the real
+        generate_with_history path, not just the pure `_completion_outcome`
+        helper — the second listed id landing as the last token is still a
+        `stop`, not a `length`."""
+        name, path = native_checkpoint
+        config = _config(name, max_tokens=10)
+        checkpoint = client._acquire(path, config)
+        monkeypatch.setattr(checkpoint.model, "generate", _fixed_generate([5, 5, 7]))
+        monkeypatch.setattr(checkpoint.model, "generation_config", SimpleNamespace(eos_token_id=[3, 7]))
 
         response = await client.generate_with_history(
             [{"role": "user", "content": "hi"}], config, config.system_message,

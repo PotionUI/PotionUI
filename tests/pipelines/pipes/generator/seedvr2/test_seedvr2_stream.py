@@ -725,4 +725,107 @@ def test_stream_encoder_closes_stderr_handle_on_a_popen_spawn_failure(monkeypatc
 
     assert len(created_handles) == 1
     assert created_handles[0].closed, "the stderr handle must be closed even when Popen itself raises"
+
+
+class _RaisingCloseFFmpeg(_FakeFFmpeg):
+    """A fake ffmpeg whose ``stdin.close()`` always raises -- simulating a
+    buffered-write flush failing against an already-broken/dead child.
+    Cleanup must swallow this, never let it replace whatever exception is
+    actually propagating."""
+
+    def close(self):
+        raise OSError("synthetic stdin close failure after kill")
+
+
+def test_stream_encoder_stdin_close_failure_does_not_mask_the_producer_error(monkeypatch, tmp_path):
+    monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(enc.subprocess, "Popen", lambda cmd, **kw: _RaisingCloseFFmpeg(cmd[-1]))
+    out_path = tmp_path / "out.mp4"
+
+    def _failing():
+        yield _frame(0, 4)
+        raise RuntimeError("synthetic producer failure")
+
+    # Without independent, swallowed cleanup steps, the OSError raised by the
+    # `finally` block's stdin.close() would replace this RuntimeError.
+    with pytest.raises(RuntimeError, match="synthetic producer failure"):
+        enc.encode_frames_stream_to_mp4(_failing(), out_path, 24.0)
+
     assert not out_path.exists()
+
+
+def test_stream_encoder_stdin_close_failure_does_not_mask_sampling_cancelled(monkeypatch, tmp_path):
+    from src.platform.runtime.native.errors import SamplingCancelled
+
+    monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(enc.subprocess, "Popen", lambda cmd, **kw: _RaisingCloseFFmpeg(cmd[-1]))
+    out_path = tmp_path / "out.mp4"
+
+    def _cancelled():
+        yield _frame(0, 4)
+        raise SamplingCancelled()
+
+    # Same as above, but for the cancellation contract specifically: a
+    # cleanup-step OSError must not surface in place of SamplingCancelled.
+    with pytest.raises(SamplingCancelled):
+        enc.encode_frames_stream_to_mp4(_cancelled(), out_path, 24.0)
+
+    assert not out_path.exists()
+
+
+class _EarlyClosingFFmpeg(_FakeFFmpeg):
+    """Simulates a child that closes its stdin (raising ``BrokenPipeError`` on
+    write) after ``breaks_after`` frames, then would exit cleanly (returncode
+    0) if ever waited on -- the scenario item 3 guards against: an encode the
+    child cut short must never be accepted just because it happens to exit
+    0."""
+
+    def __init__(self, out_path, breaks_after, **kw):
+        super().__init__(out_path, returncode=0, **kw)
+        self._breaks_after = breaks_after
+        self._writes = 0
+
+    def write(self, data):
+        self._writes += 1
+        if self._writes > self._breaks_after:
+            raise BrokenPipeError("synthetic early pipe close")
+        super().write(data)
+
+
+def test_stream_encoder_raises_when_the_pipe_breaks_before_the_producer_is_exhausted(monkeypatch, tmp_path):
+    monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    created = []
+
+    def _popen(cmd, stdin=None, stdout=None, stderr=None):
+        proc = _EarlyClosingFFmpeg(cmd[-1], breaks_after=1)
+        created.append(proc)
+        return proc
+
+    monkeypatch.setattr(enc.subprocess, "Popen", _popen)
+    out_path = tmp_path / "out.mp4"
+
+    with pytest.raises(RuntimeError, match="closed its input before"):
+        enc.encode_frames_stream_to_mp4(iter(_frames(4, size=4)), out_path, 24.0)
+
+    assert not out_path.exists(), "an incomplete encode must never publish a file, even at exit 0"
+
+
+def test_stream_encoder_succeeds_when_the_pipe_never_breaks(monkeypatch, tmp_path):
+    """Control for the fixture above: given the exact frame count the fake
+    child accepts without ever breaking the pipe, the encode completes and
+    publishes normally."""
+    created = []
+
+    def _popen(cmd, stdin=None, stdout=None, stderr=None):
+        proc = _EarlyClosingFFmpeg(cmd[-1], breaks_after=999)
+        created.append(proc)
+        return proc
+
+    monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(enc.subprocess, "Popen", _popen)
+    out_path = tmp_path / "out.mp4"
+
+    result = enc.encode_frames_stream_to_mp4(iter(_frames(4, size=4)), out_path, 24.0)
+
+    assert result == out_path
+    assert out_path.exists()

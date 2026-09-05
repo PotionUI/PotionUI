@@ -35,6 +35,7 @@ from src.pipelines.pipes._shared.media.video_encode import (
     _build_ffmpeg_args,
     _pad_to_even,
 )
+from src.platform.observability.logger import logger
 
 # The argv builder and the even-dimension pad are shared with the eager
 # `encode_frames_to_mp4` rather than restated here: a streamed encode that
@@ -235,10 +236,23 @@ def _even_frame(frame) -> "np.ndarray":
     return _pad_to_even(arr[np.newaxis])[0]
 
 
+#: How much of ffmpeg's stderr chatter to retain for an error message --
+#: mirrors `interpolator/rife/encode.py`'s `_StderrTail` bound.
+_STDERR_TAIL_BYTES = 8192
+
+
 def _stderr_tail(handle) -> str:
+    """The tail of ffmpeg's diagnostic file, bounded to `_STDERR_TAIL_BYTES`.
+
+    Seeks to the last `_STDERR_TAIL_BYTES` and reads only that window, rather
+    than reading the whole file and slicing the decoded string afterward --
+    retention must stay bounded by the tail size, not by how long (and how
+    chatty) the encode ran before it failed."""
     try:
-        handle.seek(0)
-        return handle.read().decode("utf-8", errors="replace")[-2000:]
+        handle.seek(0, 2)  # SEEK_END
+        size = handle.tell()
+        handle.seek(max(0, size - _STDERR_TAIL_BYTES))
+        return handle.read(_STDERR_TAIL_BYTES).decode("utf-8", errors="replace")
     except OSError:  # pragma: no cover - a diagnostic read must never mask the failure
         return ""
 
@@ -251,6 +265,42 @@ def _terminate(proc: "subprocess.Popen") -> None:
         proc.wait(timeout=30)
     except subprocess.TimeoutExpired:  # pragma: no cover - the kill above already fired
         pass
+
+
+def _safe_terminate(proc: "subprocess.Popen") -> None:
+    """Best-effort process teardown for the failure path: a teardown-step
+    exception (the process already reaped, a kill()/wait() edge case) must
+    never replace whatever exception is actually propagating out of the
+    caller's `except` block -- log it and move on."""
+    try:
+        _terminate(proc)
+    except Exception as exc:  # pragma: no cover - defensive, teardown must not mask
+        logger.warning("[GENERATOR SEEDVR2] ffmpeg teardown failed: %s", exc)
+
+
+def _safe_unlink(path: "Path") -> None:
+    """Best-effort removal of a partial/failed output -- deleting it must
+    never itself become the exception a caller sees in place of the real
+    failure."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:  # pragma: no cover - defensive, cleanup must not mask
+        logger.warning("[GENERATOR SEEDVR2] could not remove partial output %s: %s", path, exc)
+
+
+def _safe_close_stdin(proc: "subprocess.Popen") -> None:
+    """Best-effort stdin close for the failure path: closing against an
+    already-broken pipe (the child was just killed, or had already exited on
+    its own) can itself raise -- that must never replace whatever exception
+    (a `SamplingCancelled`, the original producer error, a genuine encode
+    failure, ...) is already unwinding through this stack."""
+    stdin = proc.stdin
+    if stdin is None or stdin.closed:
+        return
+    try:
+        stdin.close()
+    except (OSError, ValueError) as exc:  # pragma: no cover - defensive
+        logger.warning("[GENERATOR SEEDVR2] could not close ffmpeg stdin: %s", exc)
 
 
 def encode_frames_stream_to_mp4(
@@ -322,7 +372,17 @@ def encode_frames_stream_to_mp4(
                 try:
                     proc.stdin.write(memoryview(frame.reshape(-1)))
                 except BrokenPipeError:
-                    break
+                    # The child closed its read end (or died) before every
+                    # frame the producer had was delivered -- an INCOMPLETE
+                    # encode, not a clean EOF. Raising here (rather than
+                    # `break`ing into the same completion path StopIteration
+                    # takes) is what stops a child that happens to exit 0
+                    # anyway from having its truncated output accepted.
+                    raise RuntimeError(
+                        f"ffmpeg closed its input before the encode finished -- the "
+                        f"producer still had frames to deliver -- encoding {out_path}: "
+                        f"{_stderr_tail(stderr_file)}"
+                    ) from None
                 try:
                     frame = _even_frame(next(frames_iter))
                 except StopIteration:
@@ -344,11 +404,15 @@ def encode_frames_stream_to_mp4(
                 raise RuntimeError(f"ffmpeg reported success but produced no output at {out_path}")
             return out_path
         except BaseException:
-            _terminate(proc)
-            out_path.unlink(missing_ok=True)
+            # Every step here is independent and best-effort: a teardown
+            # failure (proc already reaped, stdin already broken) must never
+            # replace the exception actually propagating -- whether that is
+            # this function's own RuntimeError/ValueError, a cancellation, or
+            # an error raised by the frame producer itself.
+            _safe_terminate(proc)
+            _safe_unlink(out_path)
             raise
         finally:
-            if proc.stdin is not None and not proc.stdin.closed:
-                proc.stdin.close()
+            _safe_close_stdin(proc)
     finally:
         stderr_file.close()

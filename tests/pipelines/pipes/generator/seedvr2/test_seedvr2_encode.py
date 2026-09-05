@@ -21,6 +21,8 @@ from src.pipelines.pipes.generator.seedvr2.encode import (
     AudioProbeResult,
     AUDIO_PROBE_PRESENT,
     AUDIO_PROBE_SILENT,
+    _stderr_tail,
+    _STDERR_TAIL_BYTES,
     encode_video_with_audio,
 )
 
@@ -372,3 +374,61 @@ def test_files_after_genuine_encode_failure_no_leftovers(tmp_path):
         )
 
     assert _listing(tmp_path) == []
+
+
+# -- _stderr_tail: bounded diagnostic read ------------------------------------
+
+class _FakeDiagFile:
+    """An in-memory stand-in for the stderr `tempfile.TemporaryFile` handle,
+    tracking every `read()` size so a test can prove `_stderr_tail` never
+    reads more than its bound -- a real file object gives no such hook."""
+
+    def __init__(self, data: bytes):
+        self._data = data
+        self._pos = 0
+        self.read_sizes: list = []
+
+    def seek(self, offset, whence=0):
+        if whence == 0:
+            self._pos = offset
+        elif whence == 1:
+            self._pos += offset
+        elif whence == 2:
+            self._pos = len(self._data) + offset
+        else:
+            raise ValueError(f"unsupported whence {whence}")
+        return self._pos
+
+    def tell(self):
+        return self._pos
+
+    def read(self, size=-1):
+        self.read_sizes.append(size)
+        if size is None or size < 0:
+            chunk = self._data[self._pos:]
+        else:
+            chunk = self._data[self._pos:self._pos + size]
+        self._pos += len(chunk)
+        return chunk
+
+
+def test_stderr_tail_reads_at_most_the_bounded_window_from_a_large_file():
+    # A diagnostic file far larger than the bound, with distinct markers at
+    # the start and the end.
+    payload = b"START-OF-LOG\n" + b"x" * (2 * 1024 * 1024) + b"\nEND-OF-LOG\n"
+    handle = _FakeDiagFile(payload)
+
+    tail = _stderr_tail(handle)
+
+    assert "END-OF-LOG" in tail
+    assert "START-OF-LOG" not in tail
+    assert len(tail.encode("utf-8", errors="replace")) <= _STDERR_TAIL_BYTES
+    # Every read() call asked for a bounded size -- never the whole 2MB+ file.
+    assert handle.read_sizes
+    assert all(0 <= size <= _STDERR_TAIL_BYTES for size in handle.read_sizes)
+
+
+def test_stderr_tail_returns_the_whole_file_when_it_is_smaller_than_the_bound():
+    handle = _FakeDiagFile(b"short diagnostic output\n")
+
+    assert _stderr_tail(handle) == "short diagnostic output\n"

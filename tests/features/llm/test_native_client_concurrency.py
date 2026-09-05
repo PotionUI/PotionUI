@@ -818,3 +818,132 @@ class TestSupervisedTeardownOnStopTimeout:
         assert not models_manager._entries[key].leased_by
         assert key in models_manager._evictable_keys()
         assert len(client._supervised_teardowns) == 0
+
+    @pytest.mark.asyncio
+    async def test_cancelling_aclose_during_the_stop_wait_still_hands_off_to_the_supervisor(
+        self, client, models_manager, native_checkpoint, monkeypatch
+    ):
+        """A FURTHER cancellation landing while `aclose()` is itself still
+        inside the bounded stop-wait (e.g. `aclose()` wrapped in a tighter
+        timeout of its own) must not strand the gate — ownership transfers
+        to the supervisor exactly as it would on a plain bound timeout."""
+        name, path = native_checkpoint
+        key = f"native/llm/{path}"
+        config = _config(name)
+        checkpoint = client._acquire(path, config)
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+        # Long enough that cancelling shortly after starting `aclose()`
+        # reliably lands INSIDE the bounded wait, not after it resolves.
+        monkeypatch.setattr(native_module, "_STOP_WAIT_TIMEOUT_SECONDS", 2.0)
+        events = _install_supervised_teardown_fixture(checkpoint, monkeypatch, delay_after_stop=0.3)
+
+        agen = client.stream_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
+        aclose_task = None
+        try:
+            first = await asyncio.wait_for(agen.__anext__(), timeout=_BOUND)
+            assert first["type"] == "token"
+
+            aclose_task = asyncio.create_task(agen.aclose())
+            # Give the bounded wait a moment to actually start before
+            # cancelling it — this is the window a further cancellation must
+            # not strand.
+            await asyncio.sleep(0.05)
+            aclose_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await aclose_task
+            aclose_task = None
+
+            # Even though `aclose()` itself was cancelled mid-wait,
+            # ownership must still have transferred to a supervisor — never
+            # left for `_leased`'s own finally to race the still-running
+            # worker.
+            assert len(client._supervised_teardowns) == 1
+            assert models_manager._entries[key].leased_by
+            assert "to:cpu" not in events
+
+            deadline = time.monotonic() + _BOUND
+            while "worker_returning_after_stop" not in events and time.monotonic() < deadline:
+                await asyncio.sleep(0.02)
+            deadline = time.monotonic() + _BOUND
+            while models_manager._entries[key].leased_by and time.monotonic() < deadline:
+                await asyncio.sleep(0.02)
+        finally:
+            if aclose_task is not None and not aclose_task.done():
+                aclose_task.cancel()
+            await agen.aclose()  # no-op if already closed
+
+        assert not models_manager._entries[key].leased_by
+        assert key in models_manager._evictable_keys()
+        assert len(client._supervised_teardowns) == 0
+
+
+class TestBufferedCancellationRetainsOwnership:
+    """A cancelled `generate_with_history` call must not let `_leased`
+    offload, `end_lease`, or release the execution gate while the executor
+    thread might still be running `model.generate()` — the same
+    retained-ownership rule as the streaming stop-timeout path, triggered
+    here by cancellation of the awaited `to_thread` itself (the buffered
+    path has no cooperative stop signal to request first, so there is no
+    bounded grace period — any cancellation hands off immediately)."""
+
+    @pytest.mark.asyncio
+    async def test_cancelling_generate_with_history_while_the_worker_holds_the_barrier_retains_ownership(
+        self, client, models_manager, native_checkpoint, monkeypatch
+    ):
+        name, path = native_checkpoint
+        key = f"native/llm/{path}"
+        identity = (id(models_manager), key)
+        config = _config(name)
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+
+        events: list = []
+        checkpoint = _gated_checkpoint("A", events)
+        # Patches the LOADER, not `_acquire` itself, so this turn's cache
+        # entry is real and `models_manager._entries[key]` below exists.
+        monkeypatch.setattr(NativeLLMClient, "_build", lambda self, p, load_kwargs: checkpoint)
+
+        task = asyncio.create_task(client.generate_with_history(
+            [{"role": "user", "content": "hi"}], config, config.system_message,
+        ))
+        second_task = None
+        try:
+            await _await_started(checkpoint.model)
+
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+            # Cancelling must NOT mean the checkpoint was torn down — the
+            # fake worker is still (deliberately) blocked on the barrier.
+            assert "A:to:cpu" not in events
+            assert models_manager._entries[key].leased_by
+            assert identity in native_module._EXECUTION_GATES
+
+            # A second call on the SAME checkpoint must queue behind the
+            # gate rather than run concurrently with the abandoned worker.
+            async def _second_call():
+                return await client.generate_with_history(
+                    [{"role": "user", "content": "second"}], config, config.system_message,
+                )
+
+            second_task = asyncio.create_task(_second_call())
+            await asyncio.sleep(0.2)
+            assert not second_task.done(), (
+                "a second caller must wait for the supervised cleanup, not run "
+                "concurrently with the abandoned worker"
+            )
+
+            # Release the barrier: the abandoned worker finishes, the
+            # supervised cleanup runs, and the queued second call proceeds.
+            checkpoint.model.release.set()
+            response = await asyncio.wait_for(second_task, timeout=_BOUND)
+            assert response.provider_id == "native"
+        finally:
+            checkpoint.model.release.set()
+            if second_task is not None and not second_task.done():
+                second_task.cancel()
+
+        assert "A:to:cpu" in events
+        assert not models_manager._entries[key].leased_by
+        assert key in models_manager._evictable_keys()
+        assert len(client._supervised_teardowns) == 0

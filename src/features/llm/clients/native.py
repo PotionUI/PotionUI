@@ -1078,10 +1078,8 @@ class NativeLLMClient:
         import torch
 
         path, is_te = self._resolve_model(config.model)
-        # The buffered path has no long-lived background worker to outlive a
-        # stop bound, so it never hands teardown off — `_leased`'s third
-        # yielded value is unused here.
-        async with self._leased(path, config, is_te) as (checkpoint, device, _handoff):
+        key = self._cache_key(path, is_te)
+        async with self._leased(path, config, is_te) as (checkpoint, device, handoff):
             if image_data and not checkpoint.vision:
                 raise ValueError(
                     f"Native LLM provider: '{config.model}' ({checkpoint.model_type}) has no "
@@ -1091,15 +1089,26 @@ class NativeLLMClient:
             gen_kwargs = self._generation_kwargs(config, options_override)
             template_kwargs, thinking_mode = self._chat_template_kwargs(checkpoint, config)
 
+            # `asyncio.to_thread(_run)` being cancelled only stops US from
+            # awaiting it — the executor thread keeps running `generate()`
+            # unobserved. `worker_done` is how the `finally` below tells a
+            # genuine cancellation (thread still running) apart from a
+            # completed call (success or a raised RuntimeError, either of
+            # which already ran `_run()` to completion before we get here).
+            worker_done = threading.Event()
+
             def _run():
-                inputs = self._apply_template(checkpoint, chat, image, template_kwargs)
-                inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, "to")}
-                with torch.no_grad():
-                    output_ids = checkpoint.model.generate(**inputs, **gen_kwargs)
-                prompt_len = inputs["input_ids"].shape[-1]
-                completion_ids = output_ids[:, prompt_len:]
-                text = checkpoint.tokenizer.decode(completion_ids[0], skip_special_tokens=True)
-                return text, prompt_len, int(completion_ids.shape[-1])
+                try:
+                    inputs = self._apply_template(checkpoint, chat, image, template_kwargs)
+                    inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, "to")}
+                    with torch.no_grad():
+                        output_ids = checkpoint.model.generate(**inputs, **gen_kwargs)
+                    prompt_len = inputs["input_ids"].shape[-1]
+                    completion_ids = output_ids[:, prompt_len:]
+                    text = checkpoint.tokenizer.decode(completion_ids[0], skip_special_tokens=True)
+                    return text, prompt_len, int(completion_ids.shape[-1])
+                finally:
+                    worker_done.set()
 
             try:
                 content, prompt_tokens, completion_tokens = await asyncio.to_thread(_run)
@@ -1110,6 +1119,24 @@ class NativeLLMClient:
                         f"Native LLM provider: ran out of GPU memory generating with '{config.model}'"
                     ) from e
                 raise
+            finally:
+                # Reached with `worker_done` still unset ONLY on a genuine
+                # cancellation of the awaited `to_thread` — success and the
+                # RuntimeError branch above both already ran `_run()` to
+                # completion, so `worker_done` is already set by the time
+                # either is reached. Hand this turn's teardown to a
+                # supervised cleanup instead of letting `_leased` offload the
+                # checkpoint and end the lease while `generate()` may still
+                # be running in the executor thread.
+                if not worker_done.is_set():
+                    logger.warning(
+                        "[NativeLLM] generation for '%s' (%s) was cancelled while the "
+                        "background worker was still running; handing this turn's "
+                        "teardown to a supervised cleanup instead of releasing the "
+                        "checkpoint out from under it",
+                        config.model, key,
+                    )
+                    handoff.defer(worker_done, config.model, key)
 
         return LLMResponse(
             content=content,
@@ -1201,7 +1228,20 @@ class NativeLLMClient:
                 # generator has already moved on.
                 if not worker_done.is_set():
                     stop_requested.set()
-                    finished = await asyncio.to_thread(worker_done.wait, _STOP_WAIT_TIMEOUT_SECONDS)
+                    try:
+                        finished = await asyncio.to_thread(worker_done.wait, _STOP_WAIT_TIMEOUT_SECONDS)
+                    except BaseException:
+                        # A FURTHER cancellation arriving while we wait for
+                        # the worker to honour the stop request (e.g. the
+                        # caller's own `aclose()` was itself wrapped in a
+                        # tighter timeout) must not strand the gate either —
+                        # ownership transfers to the supervisor exactly as it
+                        # would on a plain timeout. `handoff.defer` is safe to
+                        # call even if `worker_done` happens to have JUST been
+                        # set: the supervisor's own wait then simply returns
+                        # immediately.
+                        handoff.defer(worker_done, config.model, key)
+                        raise
                     if not finished:
                         # The worker is STILL running past the bound — this
                         # generator returning now must never mean `_leased`

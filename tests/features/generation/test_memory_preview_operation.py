@@ -281,6 +281,23 @@ async def test_backend_identity_unavailable_reports_unknown_end_to_end(monkeypat
     assert 'backend\'s GPU identity could not be established' in result['device']['provenance']
 
 
+@pytest.mark.asyncio
+async def test_bare_cuda_device_reports_unknown_with_the_backends_own_reason_end_to_end():
+    """A bare `"cuda"` (no explicit `:N` ordinal) must never be attributed
+    this host's GPU numbers - not even the monitor's real, matching ones -
+    and the advisory must surface REQ-01's specific reason, not its own
+    generic wording."""
+    backend = _local_backend(device='cuda')
+    orchestrator = _orchestrator(backend, gpu_monitor=_gpu_monitor(free_mb=8192, total_mb=24576, device_identity=GPU_0))
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
+        result = await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    assert result['device']['kind'] == 'unknown'
+    assert result['device']['free_gb'] is None and result['device']['total_gb'] is None
+    assert result['device']['provenance'] == "configured device 'cuda' has no explicit ordinal; the worker's device cannot be established"
+
+
 def _pipes_with_active_device(device):
     return [
         {"name": "model_loader/krea2", "id": "loader", "enabled": True, "config": {"checkpoint": "model:ckpt1"}},

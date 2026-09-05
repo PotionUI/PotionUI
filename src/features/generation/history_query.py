@@ -318,14 +318,28 @@ class GenerationHistoryQuery:
         self._attach_system_tags(history_data)
         return history_data
 
+    def _semantic_query_embedding(
+        self, user_id: str, semantic_query: str
+    ) -> Optional[List[float]]:
+        """Embed the query text once, for every pass of the widening loop."""
+        if self.media_indexer is None:
+            return None
+        try:
+            return self.media_indexer.embed_gallery_query(user_id, semantic_query)
+        except Exception:
+            logger.exception("semantic query embedding failed")
+            return None
+
     def _semantic_generation_ids(
-        self, user_id: str, semantic_query: str, limit: int
+        self, user_id: str, embedding: List[float], limit: int
     ) -> List[str]:
         """Visually rank the user's gallery; unique generation ids, best-first."""
         if self.media_indexer is None:
             return []
         try:
-            hits = self.media_indexer.search_gallery(user_id, semantic_query, limit=limit)
+            hits = self.media_indexer.search_gallery_embedding(
+                user_id, embedding, limit=limit
+            )
         except Exception:
             logger.exception("semantic gallery search failed")
             return []
@@ -337,17 +351,6 @@ class GenerationHistoryQuery:
                 seen.add(generation_id)
                 ordered.append(generation_id)
         return ordered
-
-    def _filter_ranked_generations(
-        self, ranked_ids: List[str], filter_kwargs: Dict[str, Any]
-    ) -> List[Generation]:
-        """Intersect ranked ids with the SQL filters, kept in vector order."""
-        if not ranked_ids:
-            return []
-        matched = self.generation_repo.get_all(generation_ids=ranked_ids, **filter_kwargs)
-        rank = {gen_id: index for index, gen_id in enumerate(ranked_ids)}
-        matched.sort(key=lambda g: rank.get(g.id, len(rank)))
-        return matched
 
     def _get_semantic_history(
         self,
@@ -381,46 +384,67 @@ class GenerationHistoryQuery:
           to rank would under-report ``total`` (and break "how many pages
           are there" on the frontend) whenever a filter has more matches
           than one page's worth.
+
+        Both stay off the expensive paths. The query text is embedded once
+        and every widening pass reuses that vector; each pass only filters
+        the ids the previous pass had not seen; and both the widening and
+        the total intersect ids against ``matching_generation_ids``, which
+        answers in ids rather than building a ``Generation`` per candidate -
+        only the page itself is ever materialized.
         """
         from src.features.media_index.indexer import SEMANTIC_TOP_K
 
         user_id = filter_kwargs.get('user_id')
         needed = (offset + limit) if limit else None
 
-        query_limit = SEMANTIC_TOP_K
-        ranked_ids = self._semantic_generation_ids(user_id, semantic_query, limit=query_limit)
-        ranked_matched = self._filter_ranked_generations(ranked_ids, filter_kwargs)
+        embedding = self._semantic_query_embedding(user_id, semantic_query)
 
+        # Matching ids in rank order. A widened query returns the previous
+        # window's ids as its prefix (the relative cutoff keys off the best
+        # hit, which widening cannot change), so each pass contributes only
+        # the ids it added and the accumulated order stays the ranked one.
+        matched_ids: List[str] = []
+        scanned: set = set()
+        query_limit = SEMANTIC_TOP_K
         # `ranked_ids` is deduped down from file-level hits (several files can
         # share a generation), so its length can't tell "more to find" from
         # "collection exhausted" - `collection_size` (raw vector count) is the
         # only reliable ceiling for the widening loop.
         collection_size: Optional[int] = None
-        while ranked_ids and (needed is None or len(ranked_matched) < needed):
-            if self.media_indexer is None:
+        while embedding is not None:
+            ranked_ids = self._semantic_generation_ids(user_id, embedding, limit=query_limit)
+            fresh_ids = [gen_id for gen_id in ranked_ids if gen_id not in scanned]
+            scanned.update(fresh_ids)
+            if fresh_ids:
+                matched_ids.extend(
+                    self.generation_repo.matching_generation_ids(fresh_ids, **filter_kwargs)
+                )
+            if not ranked_ids:
+                break
+            if needed is not None and len(matched_ids) >= needed:
                 break
             if collection_size is None:
                 collection_size = self.media_indexer.gallery_collection_size(user_id)
             if query_limit >= collection_size:
                 break
             query_limit = min(query_limit * 2, collection_size)
-            ranked_ids = self._semantic_generation_ids(user_id, semantic_query, limit=query_limit)
-            ranked_matched = self._filter_ranked_generations(ranked_ids, filter_kwargs)
 
         total_count = 0
         if self.media_indexer is not None:
             all_ids = self.media_indexer.all_gallery_generation_ids(user_id)
             if all_ids:
-                total_count = len(self._filter_ranked_generations(all_ids, filter_kwargs))
+                total_count = len(
+                    self.generation_repo.matching_generation_ids(all_ids, **filter_kwargs)
+                )
 
-        page = ranked_matched[offset:offset + limit] if limit else ranked_matched[offset:]
+        page_ids = matched_ids[offset:offset + limit] if limit else matched_ids[offset:]
 
         history_data: List[Dict[str, Any]] = []
-        if page:
-            page_order = {gen.id: index for index, gen in enumerate(page)}
+        if page_ids:
+            page_order = {gen_id: index for index, gen_id in enumerate(page_ids)}
             page_generations = self.generation_repo.get_all(
                 user_id=user_id,
-                generation_ids=list(page_order),
+                generation_ids=page_ids,
                 include_files=True,
                 include_tags=include_tags,
             )

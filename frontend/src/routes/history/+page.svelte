@@ -3,6 +3,11 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { historyStore } from '$lib/stores/history';
+	import {
+		createHistoryVersionWatcher,
+		type HistoryVersionWatcher
+	} from '$lib/stores/historyVersionWatcher';
+	import { api } from '$lib/services/api/index';
 	import { historyCollectionsStore as collectionsStore } from '$lib/stores/collections';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { WebSocketService, createGenerationSocket, type WebSocketMessage } from '$lib/services/websocket';
@@ -66,8 +71,8 @@
 	// Subscribe to the generation WebSocket for any in-progress generations
 	// currently shown, so their status/progress update without a manual refresh.
 	let ws: WebSocketService | null = null;
+	let unsubscribeConnection: (() => void) | null = null;
 	const subscribedIds = new Set<string>();
-	let reloadTimer: ReturnType<typeof setTimeout> | undefined;
 
 	$: activeIds = currentState.generations
 		.filter((g) => g.status === 'pending' || g.status === 'running')
@@ -76,30 +81,23 @@
 	// Re-sync subscriptions whenever the socket is ready or the active set changes.
 	$: if (ws) syncSubscriptions(activeIds);
 
-	function scheduleReload() {
-		if (reloadTimer) clearTimeout(reloadTimer);
-		// Coalesce bursts of completions into one silent refetch that pulls final files.
-		reloadTimer = setTimeout(() => historyStore.loadGenerations({ silent: true, merge: true }), 400);
-	}
-
 	// ── Discover new generations (e.g. started in another tab/device) ──────────
-	// The WebSocket only streams ids we already know about, so we also poll the
-	// first page in the background to pick up generations we haven't loaded yet.
-	let pollTimer: ReturnType<typeof setInterval> | undefined;
-	const POLL_MS = 6000;
+	// The WebSocket only streams ids this tab already knows about, so a watcher
+	// polls a cheap change-detection token and refetches the page only when it
+	// moves. Pages past the first never auto-reload, as before: new work lands
+	// at the top of page 1 (created_at desc) and nowhere else.
+	let versionWatcher: HistoryVersionWatcher | null = null;
 
-	function pollTick() {
-		if (typeof document !== 'undefined' && document.hidden) return;
-		// New generations land at the top of page 1 (created_at desc); only that
-		// view can surface them, so skip the poll elsewhere.
-		if (currentState.currentPage !== 1) return;
+	function reloadHistory() {
 		historyStore.loadGenerations({ silent: true, merge: true });
 	}
 
 	function handleVisibility() {
-		if (typeof document !== 'undefined' && document.hidden) return;
-		// Refresh immediately when the tab regains focus.
-		if (currentState.currentPage === 1) historyStore.loadGenerations({ silent: true, merge: true });
+		versionWatcher?.setVisible(document.visibilityState === 'visible');
+	}
+
+	function handleFocus() {
+		void versionWatcher?.check();
 	}
 
 	function handleWsMessage(message: WebSocketMessage) {
@@ -127,9 +125,11 @@
 		if (!generationId || !status) return;
 		historyStore.applyLiveStatus(generationId, status, progress);
 
-		// On a terminal state, refetch so the finished thumbnail/files appear.
+		// On a terminal state, refetch so the finished thumbnail/files appear. The
+		// event already proves the list changed, so this refetches rather than
+		// asking the version token whether it should.
 		if (status === 'completed' || status === 'failed' || status === 'cancelled') {
-			scheduleReload();
+			versionWatcher?.notifyChanged();
 		}
 	}
 
@@ -156,18 +156,36 @@
 		historyStore.loadFacets();
 		collectionsStore.load();
 
+		versionWatcher = createHistoryVersionWatcher({
+			fetchVersion: async () => {
+				const response = await api.getHistoryVersion();
+				return response.success && response.data ? response.data.version : null;
+			},
+			reload: reloadHistory,
+			canDiscover: () => currentState.currentPage === 1,
+			isVisible: () => document.visibilityState === 'visible'
+		});
+		versionWatcher.start();
+
 		ws = createGenerationSocket();
+		// A socket that dropped may have swallowed events; reconcile on reconnect.
+		unsubscribeConnection = ws.onConnectionChange((connected) =>
+			versionWatcher?.connectionChanged(connected)
+		);
 		ws.connect();
 
-		pollTimer = setInterval(pollTick, POLL_MS);
 		document.addEventListener('visibilitychange', handleVisibility);
+		window.addEventListener('focus', handleFocus);
 	});
 
 	onDestroy(() => {
-		if (reloadTimer) clearTimeout(reloadTimer);
-		if (pollTimer) clearInterval(pollTimer);
+		versionWatcher?.stop();
+		versionWatcher = null;
+		unsubscribeConnection?.();
+		unsubscribeConnection = null;
 		if (typeof document !== 'undefined') {
 			document.removeEventListener('visibilitychange', handleVisibility);
+			window.removeEventListener('focus', handleFocus);
 		}
 		if (ws) {
 			for (const id of subscribedIds) ws.unsubscribe(id, handleWsMessage);

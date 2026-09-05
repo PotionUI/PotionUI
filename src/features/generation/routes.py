@@ -628,6 +628,21 @@ class GenerationController(BaseController):
             logging.error(f"Failed to get history facets: {str(e)}")
             return self.error_response(error="facets_fetch_failed", message=str(e))
 
+    async def get_history_version(self, current_user) -> APIResponse:
+        """A token for the state of the caller's history.
+
+        Clients compare it for equality to decide whether a full history page is
+        worth fetching; it carries no meaning beyond "same" or "different".
+        """
+        try:
+            version = await self.history_facade.get_history_version_async(current_user.id)
+            return self.success_response(data={'version': version})
+        except HistoryExecutorSaturated:
+            return self._history_busy_response()
+        except Exception as e:
+            logging.error(f"Failed to get history version: {str(e)}")
+            return self.error_response(error="history_version_failed", message=str(e))
+
     async def delete_generation_history(
         self,
         generation_id: str,
@@ -1271,6 +1286,13 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_history_facets(current_user = Depends(get_current_active_user)):
         """Get distinct modes, presets and models (with counts) for history filter controls."""
         return await controller.get_history_facets(current_user)
+
+    # Registered before "/history/{generation_id}" so "version" is not read as an id.
+    @router.get("/history/version", response_model=APIResponse, summary="Get History Version Token")
+    async def get_history_version(current_user = Depends(get_current_active_user)):
+        """A change-detection token for the caller's history. Clients poll this
+        and refetch the list only when the token differs from the last one seen."""
+        return await controller.get_history_version(current_user)
 
     @router.get("/history/{generation_id}", response_model=APIResponse, summary="Get Generation by ID")
     async def get_generation_by_id(generation_id: str, include_files: bool = True, current_user = Depends(get_current_active_user)):

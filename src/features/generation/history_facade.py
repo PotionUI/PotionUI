@@ -160,6 +160,17 @@ class GenerationHistoryFacade:
             self.get_by_id, generation_id, user_id, include_files
         )
 
+    def get_history_version(self, user_id: str) -> str:
+        return self.generation_repo.history_version(user_id)
+
+    async def get_history_version_async(self, user_id: str) -> str:
+        """`get_history_version()` off the event loop, for async call sites.
+
+        Raises:
+            HistoryExecutorSaturated: no capacity - nothing was queried.
+        """
+        return await self.executor.run(self.get_history_version, user_id)
+
     def get_tags(self, generation_id: str, user_id: str) -> List[Dict[str, Any]]:
         return self._query.get_tags(generation_id, user_id)
 

@@ -181,6 +181,9 @@ class CollectionRepository:
 
         added = 0
         from src.platform.database.database import db
+        from src.features.generation.history_revision_repository import (
+            bump_history_revision_for_generations,
+        )
         with db.get_cursor() as cursor:
             if not self._owns(cursor, collection_id, user_id, scope):
                 return 0
@@ -192,6 +195,9 @@ class CollectionRepository:
                 """, (collection_id, generation_id))
                 added += cursor.rowcount
 
+            if added:
+                bump_history_revision_for_generations(cursor, generation_ids)
+
         return added
 
     def remove_members(self, collection_id: str, generation_ids: List[str]) -> int:
@@ -200,13 +206,19 @@ class CollectionRepository:
             return 0
 
         from src.platform.database.database import db
+        from src.features.generation.history_revision_repository import (
+            bump_history_revision_for_generations,
+        )
         with db.get_cursor() as cursor:
             placeholders = ','.join('?' * len(generation_ids))
             cursor.execute(f"""
                 DELETE FROM collection_generations
                 WHERE collection_id = ? AND generation_id IN ({placeholders})
             """, (collection_id, *generation_ids))
-            return cursor.rowcount
+            removed = cursor.rowcount
+            if removed:
+                bump_history_revision_for_generations(cursor, generation_ids)
+            return removed
 
     def add_upload_members(self, collection_id: str, upload_ids: List[str], user_id: str, scope: str) -> int:
         """

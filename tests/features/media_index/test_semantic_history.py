@@ -7,22 +7,44 @@ from src.features.generation.history_query import GenerationHistoryQuery
 
 class FakeIndexer:
     """Stands in for ``MediaIndexer``; caps hits by ``limit`` like the
-    real Chroma-backed ``search_gallery`` does, so tests can exercise the
-    widening loop the same way the real vector store would force it."""
+    real Chroma-backed vector store does, so tests can exercise the
+    widening loop the same way the real one would force it.
 
-    def __init__(self, hits=None, error=None, collection_size=None):
+    Embedding and searching are separate, as on the real indexer, and each
+    is counted: a widening request must embed once and search per pass.
+    """
+
+    def __init__(self, hits=None, error=None, collection_size=None, embed_error=None):
         self.hits = hits or []
         self.error = error
+        self.embed_error = embed_error
         self.collection_size_value = (
             collection_size if collection_size is not None else len(self.hits)
         )
         self.calls = []
+        self.embed_calls = []
+        self.all_ids_calls = 0
 
-    def search_gallery(self, user_id, query, limit=100):
-        self.calls.append({"user_id": user_id, "query": query, "limit": limit})
+    def embed_gallery_query(self, user_id, query):
+        query = (query or "").strip()
+        if not query:
+            return None
+        self.embed_calls.append(query)
+        if self.embed_error:
+            raise self.embed_error
+        return [float(len(query))]
+
+    def search_gallery_embedding(self, user_id, embedding, limit=100):
+        self.calls.append({"user_id": user_id, "embedding": embedding, "limit": limit})
         if self.error:
             raise self.error
         return list(self.hits[:limit])
+
+    def search_gallery(self, user_id, query, limit=100):
+        embedding = self.embed_gallery_query(user_id, query)
+        if embedding is None:
+            return []
+        return self.search_gallery_embedding(user_id, embedding, limit=limit)
 
     def gallery_collection_size(self, user_id):
         return self.collection_size_value
@@ -31,6 +53,7 @@ class FakeIndexer:
         """Models the real ranking-free id fetch: every distinct generation
         id in the collection, unbounded by any ``limit`` - so total counts
         can never trail behind however far the ranked-page query widened."""
+        self.all_ids_calls += 1
         if self.error:
             return []
         seen = set()
@@ -82,9 +105,8 @@ class TestSemanticOrdering(SemanticHistoryTestBase):
 
         assert [g["id"] for g in result["generations"]] == ["gen3", "gen1"]
         assert result["total"] == 2
-        assert self.search_manager.calls == [
-            {"user_id": self.user_id, "query": "castle", "limit": 100}
-        ]
+        assert self.search_manager.embed_calls == ["castle"]
+        assert [call["limit"] for call in self.search_manager.calls] == [100]
 
     def test_duplicate_generation_hits_collapse_to_best_rank(self):
         gen = self._generation_with_file("gen1", "f1")

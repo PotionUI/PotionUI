@@ -464,6 +464,33 @@ class MediaIndexer:
         top = max(hit["similarity"] for hit in hits)
         return [hit for hit in hits if hit["similarity"] >= top - cutoff]
 
+    def embed_gallery_query(self, user_id: str, query: str) -> Optional[List[float]]:
+        """Embed a free-text gallery query once, for reuse across searches.
+
+        Text encoding is the expensive half of a gallery search, and the
+        embedder-switch heal is a DB round trip; a caller that widens its
+        search over several ``search_gallery_embedding`` calls pays for both
+        exactly once instead of once per pass. ``None`` for a blank query.
+        """
+        query = (query or "").strip()
+        if not query:
+            return None
+        self._heal_stale_gallery_collection(user_id)
+        return self.vision_embedder.embed_texts([query])[0]
+
+    def search_gallery_embedding(
+        self, user_id: str, query_embedding: List[float], limit: int = SEMANTIC_TOP_K
+    ) -> List[Dict[str, Any]]:
+        """Rank a user's gallery files against an already-embedded query.
+
+        Returns ``[{file_id, generation_id, similarity}]`` best-first, top-K
+        with the relative cutoff applied. The cutoff is relative to the best
+        hit, which a larger ``limit`` cannot change, so widening a search
+        yields the same prefix with more results appended.
+        """
+        hits = self.gallery_vector_store.search(user_id, query_embedding, limit=limit)
+        return self.apply_relative_cutoff(hits)
+
     def search_gallery(
         self, user_id: str, query: str, limit: int = SEMANTIC_TOP_K
     ) -> List[Dict[str, Any]]:
@@ -473,13 +500,10 @@ class MediaIndexer:
         with the relative cutoff applied. Synchronous and CPU-bound (first
         call may load the model); async callers should wrap in a thread.
         """
-        query = (query or "").strip()
-        if not query:
+        embedding = self.embed_gallery_query(user_id, query)
+        if embedding is None:
             return []
-        self._heal_stale_gallery_collection(user_id)
-        embedding = self.vision_embedder.embed_texts([query])[0]
-        hits = self.gallery_vector_store.search(user_id, embedding, limit=limit)
-        return self.apply_relative_cutoff(hits)
+        return self.search_gallery_embedding(user_id, embedding, limit=limit)
 
     def gallery_collection_size(self, user_id: str) -> int:
         """Vector count in the user's active gallery collection.

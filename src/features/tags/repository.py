@@ -317,12 +317,16 @@ class TagRepository:
     def add_tag_to_generation(self, generation_id: str, tag_id: str) -> bool:
         """Add a tag to a generation"""
         from src.platform.database.database import db
+        from src.features.generation.history_revision_repository import (
+            bump_history_revision_for_generation,
+        )
         with db.get_cursor() as cursor:
             try:
                 cursor.execute("""
                     INSERT INTO generation_tags (generation_id, tag_id, created_at)
                     VALUES (?, ?, CURRENT_TIMESTAMP)
                 """, (generation_id, tag_id))
+                bump_history_revision_for_generation(cursor, generation_id)
                 return True
             except Exception as e:
                 if "UNIQUE constraint failed" in str(e):
@@ -333,12 +337,18 @@ class TagRepository:
     def remove_tag_from_generation(self, generation_id: str, tag_id: str) -> bool:
         """Remove a tag from a generation"""
         from src.platform.database.database import db
+        from src.features.generation.history_revision_repository import (
+            bump_history_revision_for_generation,
+        )
         with db.get_cursor() as cursor:
             cursor.execute("""
                 DELETE FROM generation_tags
                 WHERE generation_id = ? AND tag_id = ?
             """, (generation_id, tag_id))
-            return cursor.rowcount > 0
+            removed = cursor.rowcount > 0
+            if removed:
+                bump_history_revision_for_generation(cursor, generation_id)
+            return removed
 
     def get_generation_tags(self, generation_id: str) -> List[Tag]:
         """Get all tags for a generation"""
@@ -419,6 +429,9 @@ class TagRepository:
     def set_generation_tags(self, generation_id: str, tag_ids: List[str]) -> bool:
         """Replace all tags for a generation"""
         from src.platform.database.database import db
+        from src.features.generation.history_revision_repository import (
+            bump_history_revision_for_generation,
+        )
         with db.get_cursor() as cursor:
             try:
                 cursor.execute("DELETE FROM generation_tags WHERE generation_id = ?", (generation_id,))
@@ -429,6 +442,7 @@ class TagRepository:
                         VALUES (?, ?, CURRENT_TIMESTAMP)
                     """, (generation_id, tag_id))
 
+                bump_history_revision_for_generation(cursor, generation_id)
                 return True
             except Exception as e:
                 logger.error(f"Error setting generation tags: {e}")

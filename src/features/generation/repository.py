@@ -1,8 +1,14 @@
+import hashlib
 import json
 import re
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone
 from src.features.generation.records import Generation, File, GenerationFile
+from src.features.generation.history_revision_repository import (
+    bump_history_revision,
+    bump_history_revision_for_generation,
+    read_history_revision,
+)
 from .file_repository import file_repo
 from src.platform.util.ids import generate_ulid
 
@@ -23,6 +29,11 @@ _SORT_COLUMNS = {
         'JOIN files f ON gf.file_id = f.id WHERE gf.generation_id = g.id)'
     ),
 }
+
+# How many generation ids `matching_generation_ids` binds into one statement.
+# SQLITE_MAX_VARIABLE_NUMBER is 32766 on modern builds and 999 on older ones;
+# this stays under both, with room for the other filters' parameters.
+_ID_FILTER_BATCH = 900
 
 
 class GenerationRepository:
@@ -50,6 +61,7 @@ class GenerationRepository:
                 generation.form_name,
                 generation.source_prompt_id
             ))
+            bump_history_revision(cursor, generation.user_id)
 
         return self.get_by_id(generation.id)
 
@@ -351,6 +363,87 @@ class GenerationRepository:
             cursor.execute(query, params)
             return cursor.fetchone()[0]
 
+    def matching_generation_ids(self, generation_ids: List[str], **filters: Any) -> List[str]:
+        """Which of `generation_ids` pass the same filters as `count_by_status`.
+
+        Projected to ids, not rows, so a caller holding a candidate set (a
+        vector-search ranking, say) can both page it and count it without
+        building a `Generation` per candidate. The result keeps the caller's
+        order and is deduplicated, so `len()` on it is an exact total.
+
+        The ids ride in as bound parameters, which SQLite caps per statement
+        (`SQLITE_MAX_VARIABLE_NUMBER`), so the candidate list is queried in
+        batches well under that cap and the matches unioned.
+        """
+        if not generation_ids:
+            return []
+
+        ordered: List[str] = []
+        seen = set()
+        for generation_id in generation_ids:
+            if generation_id not in seen:
+                seen.add(generation_id)
+                ordered.append(generation_id)
+
+        matched = set()
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            for start in range(0, len(ordered), _ID_FILTER_BATCH):
+                batch = ordered[start:start + _ID_FILTER_BATCH]
+                conditions, params = self._build_filters('g', generation_ids=batch, **filters)
+                query = "SELECT g.id FROM generations g"
+                if conditions:
+                    query += " WHERE " + " AND ".join(conditions)
+                cursor.execute(query, params)
+                matched.update(row[0] for row in cursor.fetchall())
+
+        return [generation_id for generation_id in ordered if generation_id in matched]
+
+    def history_version(self, user_id: Optional[str] = None) -> str:
+        """An opaque token for the state of this user's history, for change detection.
+
+        Normally this is the `history_revisions` counter, a primary-key lookup
+        that every history-affecting mutation bumps (see
+        `src.features.generation.history_revision_repository`). That counter - not an
+        aggregate - is the signal, because tags, collection membership and
+        attached files never touch a `generations` row.
+
+        Users with no counter row yet (an install upgraded past migration 015
+        that has not mutated anything since) fall back to an aggregate over
+        their generations, so change detection still works before the first
+        bump. The aggregate cannot see junction-table edits, which is why the
+        client also runs a bounded recovery refresh.
+        """
+        revision = read_history_revision(user_id)
+        if revision is not None:
+            return f"r{revision}"
+
+        conditions = []
+        params: List[Any] = []
+        if user_id:
+            conditions.append("user_id = ?")
+            params.append(user_id)
+
+        query = """
+            SELECT COUNT(*),
+                   COALESCE(MAX(created_at), ''),
+                   COALESCE(MAX(updated_at), ''),
+                   COALESCE(MAX(completed_at), ''),
+                   COALESCE(SUM(CASE WHEN status IN ('completed', 'failed', 'cancelled')
+                                     THEN 1 ELSE 0 END), 0)
+            FROM generations
+        """
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(query, params)
+            row = cursor.fetchone()
+
+        raw = "|".join(str(value) for value in row)
+        return hashlib.blake2s(raw.encode("utf-8"), digest_size=16).hexdigest()
+
     # --- Prompt Library provenance -----------------------------------------------
 
     def get_by_source_prompt(
@@ -433,7 +526,10 @@ class GenerationRepository:
                     "UPDATE generations SET rating = ? WHERE id = ?",
                     (rating, generation_id)
                 )
-            return cursor.rowcount > 0
+            changed = cursor.rowcount > 0
+            if changed:
+                bump_history_revision_for_generation(cursor, generation_id)
+            return changed
 
     def set_favorite(self, generation_id: str, is_favorite: bool, user_id: Optional[str] = None) -> bool:
         """Toggle the favorite flag for a generation."""
@@ -450,7 +546,10 @@ class GenerationRepository:
                     "UPDATE generations SET is_favorite = ? WHERE id = ?",
                     (value, generation_id)
                 )
-            return cursor.rowcount > 0
+            changed = cursor.rowcount > 0
+            if changed:
+                bump_history_revision_for_generation(cursor, generation_id)
+            return changed
 
     # --- Facets -----------------------------------------------------------------
 
@@ -551,7 +650,10 @@ class GenerationRepository:
                     (status, generation_id)
                 )
 
-            return cursor.rowcount > 0
+            changed = cursor.rowcount > 0
+            if changed:
+                bump_history_revision_for_generation(cursor, generation_id)
+            return changed
 
     def update_routing_decision(self, generation_id: str, routing_decision: Dict[str, Any]) -> bool:
         """Record the router's decision trace for this generation. Best-effort,
@@ -591,8 +693,16 @@ class GenerationRepository:
         """Delete generation and its files"""
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
+            # Read the owner first: after the DELETE there is no row to resolve.
+            cursor.execute("SELECT user_id FROM generations WHERE id = ?", (generation_id,))
+            row = cursor.fetchone()
+            owner = row[0] if row else None
+
             cursor.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
-            return cursor.rowcount > 0
+            deleted = cursor.rowcount > 0
+            if deleted:
+                bump_history_revision(cursor, owner)
+            return deleted
 
     def add_file(self, generation_id: str, file: File) -> File:
         """Add a file to a generation (creates file and associates it)"""
@@ -601,6 +711,11 @@ class GenerationRepository:
 
         # Associate it with the generation
         file_repo.associate_with_generation(generation_id, created_file.id)
+
+        # A new file changes the card the history renders (thumbnail, media type).
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            bump_history_revision_for_generation(cursor, generation_id)
 
         return created_file
 
@@ -629,6 +744,15 @@ class GenerationRepository:
 
         with db.get_cursor() as cursor:
             now = datetime.now(timezone.utc).strftime(_TIMESTAMP_FMT)
+            # The owners have to be read before the UPDATE: afterwards no row
+            # still matches the pending/running predicate that identifies them.
+            cursor.execute(
+                "SELECT DISTINCT user_id FROM generations "
+                "WHERE status IN (?, ?) AND user_id IS NOT NULL",
+                (GenerationState.PENDING.value, GenerationState.RUNNING.value),
+            )
+            owners = [row[0] for row in cursor.fetchall()]
+
             cursor.execute(
                 "UPDATE generations SET status = ?, completed_at = ? WHERE status IN (?, ?)",
                 (
@@ -638,7 +762,11 @@ class GenerationRepository:
                     GenerationState.RUNNING.value,
                 ),
             )
-            return cursor.rowcount
+            reconciled = cursor.rowcount
+
+            for owner in owners:
+                bump_history_revision(cursor, owner)
+            return reconciled
 
 
 # Global repository instance

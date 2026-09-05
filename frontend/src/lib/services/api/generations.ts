@@ -114,6 +114,13 @@ export function createGenerationsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
+		// An opaque token for the state of the caller's history. Compare it for
+		// equality only; a difference means the list is worth refetching.
+		async getHistoryVersion(): Promise<APIResponse<{ version: string }>> {
+			const response = await client.get('/api/generations/history/version');
+			return response.data;
+		},
+
 		async getHistoryFacets(): Promise<APIResponse<HistoryFacets>> {
 			const response = await client.get('/api/generations/history/facets');
 			return response.data;

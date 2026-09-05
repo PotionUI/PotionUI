@@ -76,3 +76,36 @@ class TestSanitizeValidationErrors:
         assert "input" not in cleaned[0]
         assert "ctx" not in cleaned[0]
         assert cleaned[0]["msg"] == "bad"
+
+
+class TestLoggableValidationErrors:
+    """What reaches the log is narrower than what reaches the client.
+
+    The client already knows the value it sent, so the 422 body keeps the
+    validator's message; the log must not learn it.
+    """
+
+    def test_a_credential_fields_message_is_withheld(self):
+        raw = [
+            {
+                "loc": ("body", "api_key"),
+                "msg": "Value error, rejected key sk-live-do-not-log",
+                "type": "value_error",
+                "input": "sk-live-do-not-log",
+                "ctx": {"error": "rejected key sk-live-do-not-log"},
+            },
+        ]
+
+        loggable = errors._loggable_validation_errors(raw)
+
+        assert "sk-live-do-not-log" not in repr(loggable)
+        assert loggable[0]["loc"] == ("body", "api_key")
+        assert loggable[0]["type"] == "value_error"
+
+    def test_an_ordinary_fields_message_survives(self):
+        raw = [{"loc": ("body", "count"), "msg": "bad", "type": "int_parsing", "input": "x"}]
+
+        loggable = errors._loggable_validation_errors(raw)
+
+        assert loggable[0]["msg"] == "bad"
+        assert "input" not in loggable[0]

@@ -45,6 +45,10 @@ _SECRET_SUFFIXES = (
     "credential",
     "credentials",
     "client_secret",
+    # Header names, but they also arrive as body keys on proxy and webhook
+    # payloads, where the value is the credential itself.
+    "authorization",
+    "cookie",
 )
 
 # Keys that are exactly this are credentials even though no suffix rule fires.

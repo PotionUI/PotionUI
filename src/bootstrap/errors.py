@@ -13,6 +13,8 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from src.platform.security.redaction import is_secret_key
+
 
 async def global_exception_handler(request: Request, exc: Exception):
     """Handle all unhandled exceptions without leaking internals to the client.
@@ -56,6 +58,29 @@ def _sanitize_validation_errors(errors):
     return sanitized
 
 
+# Stands in for a validator message that named a credential field. The client
+# already knows the value it sent; the log must not learn it.
+_WITHHELD_MESSAGE = "value rejected (message withheld: credential field)"
+
+
+def _loggable_validation_errors(errors):
+    """The sanitized errors, with messages about credential fields withheld.
+
+    Dropping `input`/`ctx` is not enough for the log: a field validator writes
+    its own message and may interpolate the offending value into it
+    (`ValueError(f"weak password: {value}")`), so for a field whose name looks
+    like a credential the message itself is not safe to write down either.
+    """
+    loggable = []
+    for err in _sanitize_validation_errors(errors):
+        if isinstance(err, dict) and any(
+            is_secret_key(part) for part in err.get("loc", ()) if isinstance(part, str)
+        ):
+            err = {**err, "msg": _WITHHELD_MESSAGE}
+        loggable.append(err)
+    return loggable
+
+
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle validation errors without echoing the request body back."""
 
@@ -66,8 +91,12 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         "detail": _sanitize_validation_errors(exc.errors()),
     }
 
-    # Log validation errors (server-side only).
-    logging.warning(f"Validation error in {request.method} {request.url.path}: {exc.errors()}")
+    # Log validation errors (server-side only). The raw errors carry the
+    # offending `input` value, so the log gets the sanitized list as well.
+    logging.warning(
+        f"Validation error in {request.method} {request.url.path}: "
+        f"{_loggable_validation_errors(exc.errors())}"
+    )
 
     return JSONResponse(
         status_code=422,

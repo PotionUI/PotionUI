@@ -34,6 +34,11 @@ from src.platform.security.redaction import (
     "  api_key  ",
     "token",
     "secret",
+    # Header names that also arrive as body keys on proxy/webhook payloads.
+    "authorization",
+    "Authorization",
+    "proxy_authorization",
+    "cookie",
 ])
 def test_credential_shaped_keys_are_recognized(key):
     assert is_secret_key(key) is True

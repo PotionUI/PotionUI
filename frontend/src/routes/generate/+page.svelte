@@ -38,7 +38,8 @@
 	import { keybindingsStore } from '$lib/stores/keybindings';
 	import { isMobile, viewportWidth } from '$lib/stores/viewport';
 	import { settingsPaneWidth } from '$lib/stores/generationLayout';
-	import { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission, representativeDirectorPrompt, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText, directorShotFingerprint } from '$lib/utils/videoDirector';
+	import { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission, representativeDirectorPrompt, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText } from '$lib/utils/videoDirector';
+	import { planDirectorSelection } from '$lib/utils/directorPlanner';
 	import type { VideoDirectorWireDoc, VideoDirectorValue } from '$lib/types/videoDirector';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import { resolveMusicDirectorCapabilities, normalizeMusicDirectorValue, validateMusicDirector, buildMusicDirectorSubmission } from '$lib/utils/musicDirector';
@@ -115,9 +116,12 @@
 		if (!caps) return;
 
 		const doc = normalizeDirectorValue(tab.videoDirector, caps);
-		const validation = validateDirector(doc, caps, tab.directorRuns);
-		if (!validation.ok) {
-			toasts.error(validation.reasons[0] || 'Video Director is not ready to generate.');
+		// Gated to exactly the requested shots (Retry's one id, or a broken
+		// join's contiguous span) -- an unrelated shot's own problems must
+		// never block this targeted resubmission (directorPlanner.ts).
+		const plan = planDirectorSelection(doc, caps, tab.directorRuns, shotIds);
+		if (plan.blockingReasons.length > 0) {
+			toasts.error(plan.blockingReasons[0] || 'Video Director is not ready to generate.');
 			return;
 		}
 
@@ -125,8 +129,7 @@
 		const wireDocs = buildDirectorSubmission(doc, caps, checked);
 		if (wireDocs.length === 0) return;
 		const isChainDoc = caps.segmentRouting;
-		const allShotIds = isChainDoc ? doc.chain.segments.map((s) => s.id) : doc.timeline.shots.map((s) => s.id);
-		const targetShotIds = allShotIds.filter((id) => checked.has(id));
+		const targetShotIds = plan.shotsToSubmit;
 		// A chain doc is ONE generation covering every targeted shot at once;
 		// a timeline doc is one generation PER shot, same order the docs came
 		// back in.
@@ -1226,12 +1229,19 @@
 			// mirrored up via onCheckedChange) -- empty means "the whole film",
 			// same as before the console had checkboxes at all.
 			const directorChecked = directorCheckedByTab[activeTabId] ?? new Set<string>();
+			// Same scoped gate as the Generate button's own readiness check
+			// above (directorPlanner.ts) -- defends against a stale `canGenerate`
+			// (e.g. a selection change that hasn't re-run the reactive block yet).
+			const plan = planDirectorSelection(doc, videoDirectorCaps, currentTab.directorRuns, directorChecked);
+			if (plan.blockingReasons.length > 0) {
+				toasts.error(plan.blockingReasons[0] || 'Video Director is not ready to generate.');
+				return;
+			}
 			const wireDocs = buildDirectorSubmission(doc, videoDirectorCaps, directorChecked);
 			const [wireDoc, ...restDocs] = wireDocs;
 			remainingDirectorDocs = restDocs;
 			const isChainDoc = videoDirectorCaps.segmentRouting;
-			const allShotIds = isChainDoc ? doc.chain.segments.map((s) => s.id) : doc.timeline.shots.map((s) => s.id);
-			const targetShotIds = directorChecked.size > 0 ? allShotIds.filter((id) => directorChecked.has(id)) : allShotIds;
+			const targetShotIds = plan.shotsToSubmit;
 			// A chain doc is ONE generation covering every targeted shot at
 			// once; a timeline doc is one generation PER shot, in the same
 			// order `buildDirectorSubmission` filtered them in.
@@ -1734,9 +1744,13 @@
 			hasPrompt = true;
 		} else if (videoDirectorActive && videoDirectorCaps) {
 			const doc = normalizeDirectorValue(currentTab.videoDirector, videoDirectorCaps);
-			const result = validateDirector(doc, videoDirectorCaps, currentTab.directorRuns);
-			hasPrompt = result.ok;
-			noPromptReason = result.reasons[0] || noPromptReason;
+			// Scoped to the console's own checked-row selection (empty = the
+			// whole film) -- an unselected shot's own problems must never block
+			// a valid selected one (directorPlanner.ts).
+			const directorChecked = directorCheckedByTab[currentTab.id] ?? new Set<string>();
+			const plan = planDirectorSelection(doc, videoDirectorCaps, currentTab.directorRuns, directorChecked);
+			hasPrompt = plan.blockingReasons.length === 0;
+			noPromptReason = plan.blockingReasons[0] || noPromptReason;
 		} else if (musicDirectorActive && musicDirectorCaps) {
 			const doc = normalizeMusicDirectorValue(currentTab.musicDirector, musicDirectorCaps);
 			const result = validateMusicDirector(doc, musicDirectorCaps);

@@ -21,16 +21,11 @@
 	let localValue: number;
 
 	$: localValue = typeof value === 'number' ? value : defaultValue;
-	// -1 is the "random every run" sentinel; it is only a legal value when the
-	// configured range permits negative seeds.
+	// -1 is the "random every run" sentinel; it is never checked against the
+	// seed grid below, only against whether it falls inside [min, max].
 	$: isAuto = localValue === -1;
-	$: autoAllowed = min <= -1;
 
-	// The randomizable domain is every non-negative multiple of `step`
-	// (0, step, 2*step, ...) that also falls within [min, max] - not every
-	// integer starting at min. A misaligned min/max (e.g. min=101, max=149,
-	// step=50) legitimately has zero eligible values.
-	function computeRandomDomain(lo: number, hi: number, s: number) {
+	function computeConfigValidity(lo: number, hi: number, s: number) {
 		if (!Number.isFinite(lo) || !Number.isFinite(hi) || !Number.isFinite(s)) {
 			return { valid: false as const, message: 'Seed range is not configured with finite bounds.' };
 		}
@@ -40,23 +35,35 @@
 		if (lo > hi) {
 			return { valid: false as const, message: 'Seed minimum cannot be greater than its maximum.' };
 		}
-		const nonNegativeLo = Math.max(lo, 0);
-		const firstK = Math.ceil(nonNegativeLo / s);
-		const lastK = Math.floor(hi / s);
-		if (lastK < firstK) {
+		return { valid: true as const };
+	}
+
+	// The grid is anchored at `min` - the same anchor the rendered
+	// `<input min max step>` uses for its own native step validation - not at
+	// zero, so Randomize and validity.stepMismatch never disagree. A negative
+	// min is walked forward to its first non-negative point (real seeds are
+	// never negative; -1 is the sentinel, handled separately) before laying
+	// out `step`-spaced candidates up to `max`.
+	function computeSeedGrid(lo: number, hi: number, s: number, configValid: boolean) {
+		if (!configValid) return { valid: false as const };
+		const firstNonNegativeK = lo >= 0 ? 0 : Math.ceil((0 - lo) / s);
+		const base = lo + firstNonNegativeK * s;
+		if (base > hi) {
 			return {
 				valid: false as const,
 				message: 'No seed value on the configured step fits within the allowed range.'
 			};
 		}
-		return { valid: true as const, firstK, count: lastK - firstK + 1, step: s };
+		return { valid: true as const, base, count: Math.floor((hi - base) / s) + 1, step: s };
 	}
+
+	type SeedGrid = ReturnType<typeof computeSeedGrid>;
 
 	function computeCurrentValueError(
 		val: number,
 		lo: number,
 		hi: number,
-		s: number,
+		grid: SeedGrid,
 		auto: boolean,
 		autoOk: boolean
 	): string | null {
@@ -69,20 +76,29 @@
 		if (val < lo || val > hi) {
 			return `Seed must be between ${lo} and ${hi}.`;
 		}
-		if (Number.isInteger(s) && s > 0 && val % s !== 0) {
-			return `Seed must be a multiple of ${s}.`;
+		if (grid.valid && (val - grid.base) % grid.step !== 0) {
+			return `Seed must be a multiple of ${grid.step} starting from ${grid.base}.`;
 		}
 		return null;
 	}
 
-	$: domain = computeRandomDomain(min, max, step);
-	$: currentValueError = computeCurrentValueError(localValue, min, max, step, isAuto, autoAllowed);
-	$: validationMessage = domain.valid ? currentValueError : domain.message;
+	$: configValidity = computeConfigValidity(min, max, step);
+	$: grid = computeSeedGrid(min, max, step, configValidity.valid);
+	// -1 is only ever legal when it sits inside the configured range on top
+	// of a sane configuration - a malformed or empty range never offers it.
+	$: autoAllowed = configValidity.valid && min <= -1 && max >= -1;
+	$: currentValueError = computeCurrentValueError(localValue, min, max, grid, isAuto, autoAllowed);
+	$: validationMessage = !configValidity.valid
+		? configValidity.message
+		: !grid.valid
+			? grid.message
+			: currentValueError;
+	$: inputMin = grid.valid ? grid.base : min;
 
 	function handleRandomize() {
-		if (!domain.valid) return;
-		const offset = Math.min(domain.count - 1, Math.max(0, Math.floor(random() * domain.count)));
-		const randomSeed = (domain.firstK + offset) * domain.step;
+		if (!grid.valid) return;
+		const offset = Math.min(grid.count - 1, Math.max(0, Math.floor(random() * grid.count)));
+		const randomSeed = grid.base + offset * grid.step;
 		localValue = randomSeed;
 		if (name) {
 			onChange(name, randomSeed);
@@ -120,7 +136,7 @@
 				id={name || undefined}
 				value={localValue}
 				on:input={handleInput}
-				{min}
+				min={inputMin}
 				{max}
 				{step}
 				class="flex-1 min-w-0 h-9 px-3 bg-transparent border-0 font-mono text-sm tabular-nums text-fg outline-none focus:ring-0"

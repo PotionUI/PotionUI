@@ -14,6 +14,7 @@ from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.model_loader.ltx.main import ModelLoaderLtxPipe
 from src.pipelines.pipes.model_loader.ltx.bundle import LTXModelBundle
 from src.pipelines.pipes.model_loader.ltx.ltx_clip import LTXClipTextEncoder
+from src.pipelines.pipes.generator.txt2vid_ltx.main import release_idle_te
 
 
 class _FakeModels:
@@ -46,6 +47,15 @@ def _run(cfg=None):
     return models, out
 
 
+def _resolve_te(out):
+    """Force the TE acquisition the loader defers into the clip adapter's own
+    `te_factory` (see ltx_clip.py's "Deferred TE acquisition") -- with a MODELS
+    service present the loader never acquires the TE itself, so a test about
+    the TE's key/fingerprint/estimate has to ask the clip for it first, exactly
+    as `prompt_encoder` does on a projected-conditioning cache miss."""
+    return out.output["text_encoder"].te_encoder
+
+
 def test_name_and_outputs():
     assert ModelLoaderLtxPipe.name == "model_loader"
     out = {o.name: o.io_type for o in ModelLoaderLtxPipe.outputs()}
@@ -54,13 +64,14 @@ def test_name_and_outputs():
 
 def test_three_component_acquires_plus_projection():
     models, out = _run()
-    keys = [k for k, _ in models.calls]
-    assert keys == [
+    assert [k for k, _ in models.calls] == [
         "native/dit//m/ltx_dit.safetensors",
-        "native/te//m/gemma3.safetensors",
         "native/vae//m/ltx_vae.safetensors",
         "native/ltx_proj//m/ltx_dit.safetensors",
     ]
+    # The TE is the one component the loader does NOT acquire up front.
+    _resolve_te(out)
+    assert [k for k, _ in models.calls][-1] == "native/te//m/gemma3.safetensors"
     bundle = out.output["model"]
     assert isinstance(bundle, LTXModelBundle)
     assert isinstance(out.output["text_encoder"], LTXClipTextEncoder)
@@ -193,7 +204,8 @@ def test_lora_changes_dit_fingerprint_only():
     def fps(loras):
         cfg = _config()
         cfg["loras"] = loras
-        models, _ = _run(cfg)
+        models, out = _run(cfg)
+        _resolve_te(out)
         return dict(models.calls)
 
     dit = "native/dit//m/ltx_dit.safetensors"
@@ -231,6 +243,7 @@ def test_vae_audio_vocoder_from_same_file_as_dit_pass_no_estimate():
     })
     with patch("src.pipelines.pipes.model_loader.ltx.main.file_size_gb", return_value=40.0):
         models, out = _run(cfg)
+        _resolve_te(out)
 
     assert models.estimates["native/dit//m/ltx_dit.safetensors"] == 40.0  # dominant component keeps its estimate
     assert models.estimates["native/vae//m/ltx_dit.safetensors"] is None
@@ -261,6 +274,102 @@ def test_no_models_service_loads_directly():
         instance.load.return_value = SimpleNamespace(module=object(), spec=None, compute_dtype=torch.bfloat16)
         out = ModelLoaderLtxPipe(config=cfg).process(PipeInput(input={}), lambda o: None)
     assert isinstance(out.output["model"], LTXModelBundle)
+
+
+# --- deferred TE acquisition -------------------------------------------------
+
+
+def test_te_is_not_acquired_while_building_the_pipeline():
+    """The TE is the LTX pipeline's single biggest component and the only one
+    a projected-conditioning cache hit makes unnecessary -- the loader must
+    hand the clip a factory instead of acquiring it here."""
+    models, out = _run()
+    assert not any(k.startswith("native/te/") for k, _ in models.calls)
+    bundle = out.output["model"]
+    assert bundle.te is None
+    # ...but the key a later pipe needs to release it is still recorded, so an
+    # eviction attempt against a never-acquired TE stays a well-formed no-op.
+    assert bundle.te_cache_key == "native/te//m/gemma3.safetensors"
+
+
+def test_deferred_te_resolves_exactly_once_across_repeated_reads():
+    models, out = _run()
+    clip = out.output["text_encoder"]
+    first = clip.te_encoder
+    second = clip.te_encoder
+    assert first is not None and first is second
+    assert [k for k, _ in models.calls].count("native/te//m/gemma3.safetensors") == 1
+
+
+def test_deferred_te_acquire_keeps_the_key_fingerprint_and_estimate_it_had_when_eager():
+    def fake_size(path):
+        return 40.0 if path == "/m/ltx_dit.safetensors" else 21.0
+
+    with patch("src.pipelines.pipes.model_loader.ltx.main.file_size_gb", side_effect=fake_size):
+        models, out = _run()
+        _resolve_te(out)
+
+    key = "native/te//m/gemma3.safetensors"
+    assert dict(models.calls)[key] == "/m/gemma3.safetensors|bfloat16"
+    assert models.estimates[key] == 21.0
+
+
+def test_te_acquire_failure_propagates_and_leaves_nothing_half_acquired():
+    """A factory that raises must surface the error to the encode caller and
+    leave the adapter resolvable again -- not cache a half-built encoder."""
+    models, out = _run()
+    clip = out.output["text_encoder"]
+
+    boom = RuntimeError("checkpoint not found")
+    attempts = []
+
+    def failing_acquire(key, fingerprint, loader, estimated_vram_gb=None):
+        attempts.append(key)
+        raise boom
+
+    models.acquire = failing_acquire
+    with pytest.raises(RuntimeError, match="checkpoint not found"):
+        clip.te_encoder
+    assert clip._resolved_te is None
+    with pytest.raises(RuntimeError):
+        clip.te_encoder
+    assert attempts == ["native/te//m/gemma3.safetensors"] * 2
+
+
+def test_no_models_service_keeps_the_eager_te_load():
+    """Without a lifecycle service there is no cache entry to hold the encoder
+    between a factory call and the first encode -- the loader must acquire it
+    up front, as it always did."""
+    cfg = _config()
+    with patch("src.pipelines.pipes.model_loader.ltx.main.NativeEngineLoader") as MockLoader, \
+         patch("src.pipelines.pipes.model_loader.ltx.main.load_projection", return_value={"video_projection_weight": torch.zeros(1)}):
+        instance = MockLoader.return_value
+        instance.load.return_value = SimpleNamespace(module=object(), spec=None, compute_dtype=torch.bfloat16)
+        out = ModelLoaderLtxPipe(config=cfg).process(PipeInput(input={}), lambda o: None)
+
+    kinds = [call.args[1] for call in instance.load.call_args_list]
+    assert "text_encoder" in kinds
+    clip = out.output["text_encoder"]
+    assert clip._te_factory is None
+    assert clip._resolved_te is not None
+
+
+def test_release_idle_te_is_a_no_op_for_a_never_acquired_te():
+    """`generator/txt2vid_ltx`'s `release_idle_te` reads `bundle.te` for its
+    RAM-freed log field and evicts `te_cache_key` -- both must tolerate a TE
+    that no encode ever needed."""
+    models, out = _run()
+    bundle = out.output["model"]
+    assert bundle.te is None, "nothing acquired the TE, so the bundle has no component to report"
+    evictions = []
+
+    class _Evicting:
+        def evict_dead_weight(self, key):
+            evictions.append(key)
+            return False  # absent key -- ModelLifecycle's own contract
+
+    assert release_idle_te(bundle, _Evicting(), "LTX_TEST") == 0.0
+    assert evictions == ["native/te//m/gemma3.safetensors"]
 
 
 # --- LTX-2.5 split-checkpoint layout ------------------------------------

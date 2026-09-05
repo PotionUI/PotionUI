@@ -427,3 +427,143 @@ def test_te_eviction_actually_frees_the_module_after_prompt_encoder_caches_condi
     )
     assert clip.te_encoder is None, "the weak view must report the evicted TE as gone"
     assert clip.dit_module is dit_module, "the DiT was never evicted -- must still be reachable"
+
+
+# --- deferred TE acquisition ------------------------------------------------
+#
+# The loader hands this adapter a `te_factory` instead of an acquired encoder
+# (see ltx_clip.py's "Deferred TE acquisition"). Every test below drives the
+# real `encode_prompt`/`encode_prompts` entry point `prompt_encoder` calls, so
+# a factory that is reached at all fails the test by raising.
+
+
+def _deferred(factory, fingerprint="te|dit", *, clear=True):
+    if clear:
+        get_prompt_embed_cache().clear()
+    dit = _FakeDitModule()
+    adapter = LTXClipTextEncoder(
+        None, dit, {"video_projection_weight": torch.zeros(2, 2)},
+        device="cpu", model_fingerprint=fingerprint, te_factory=factory,
+    )
+    return adapter, dit
+
+
+def _explode():
+    raise AssertionError("the text encoder must not be acquired on a cache hit")
+
+
+def test_cache_hit_serves_a_fresh_adapter_without_ever_acquiring_the_te():
+    """The whole point of the deferral: an adapter built for a generation whose
+    prompts are already in the projected-conditioning cache never resolves its
+    factory, so the ~22GB encoder is never acquired, loaded or placed."""
+    warm, te, _ = _adapter()
+    warm.encode_prompt("a cat", "blurry")
+    assert te.calls, "the first adapter must have populated the cache"
+
+    cold, dit = _deferred(_explode, clear=False)
+    result = cold.encode_prompt("a cat", "blurry")
+
+    assert "context" in result.embeds and "context" in result.n_embeds
+    assert dit.calls == [], "a hit must skip the projection chain too, not just the encode"
+
+
+def test_batch_of_cache_hits_never_acquires_the_te():
+    warm, te, _ = _adapter()
+    warm.encode_prompts([
+        {"prompt": "a cat", "negative_prompt": "blurry", "do_classifier_free_guidance": True},
+        {"prompt": "a dog", "negative_prompt": "blurry", "do_classifier_free_guidance": True},
+    ])
+    assert len(te.calls) == 1
+
+    cold, _ = _deferred(_explode, clear=False)
+    results = cold.encode_prompts([
+        {"prompt": "a cat", "negative_prompt": "blurry", "do_classifier_free_guidance": True},
+        {"prompt": "a dog", "negative_prompt": "blurry", "do_classifier_free_guidance": True},
+    ])
+    assert [r.p_prompt for r in results] == ["a cat", "a dog"]
+
+
+def test_genuine_miss_resolves_the_factory_exactly_once_for_the_whole_batch():
+    te = _FakeTE()
+    resolves = []
+
+    def factory():
+        resolves.append(1)
+        return te
+
+    adapter, _ = _deferred(factory)
+    adapter.encode_prompts([
+        {"prompt": "a cat", "negative_prompt": "blurry", "do_classifier_free_guidance": True},
+        {"prompt": "a dog", "negative_prompt": "blurry", "do_classifier_free_guidance": True},
+    ])
+
+    assert resolves == [1]
+    assert te.calls == [["a cat", "blurry", "a dog", "blurry"]]
+
+
+def test_mixed_batch_resolves_once_and_encodes_only_the_missing_pair():
+    # `warm_te` must stay bound for the whole test: the adapter holds its
+    # encoder through a WeakModelRef, so dropping the name here collects the
+    # encoder and the warm-up encode below fails on a dead view.
+    warm, warm_te, _ = _adapter()
+    warm.encode_prompt("a cat", "blurry")
+    assert warm_te.calls == [["a cat", "blurry"]]
+
+    te = _FakeTE()
+    resolves = []
+
+    def factory():
+        resolves.append(1)
+        return te
+
+    adapter, _ = _deferred(factory, clear=False)
+    adapter.encode_prompts([
+        {"prompt": "a cat", "negative_prompt": "blurry", "do_classifier_free_guidance": True},
+        {"prompt": "a fox", "negative_prompt": "blurry", "do_classifier_free_guidance": True},
+    ])
+
+    assert resolves == [1]
+    assert te.calls == [["a fox", "blurry"]]
+
+
+def test_a_different_model_identity_misses_and_does_acquire():
+    """A swapped DiT/TE checkpoint (or a relocated 2.5 projection file) changes
+    the fingerprint -- the cached conditioning must NOT be reused for it."""
+    warm, warm_te, _ = _adapter(fingerprint="te|dit-a")  # keep `warm_te` bound, see above
+    warm.encode_prompt("a cat", "blurry")
+    assert warm_te.calls == [["a cat", "blurry"]]
+
+    te = _FakeTE()
+    adapter, _ = _deferred(lambda: te, fingerprint="te|dit-b", clear=False)
+    adapter.encode_prompt("a cat", "blurry")
+
+    assert te.calls == [["a cat", "blurry"]]
+
+
+def test_factory_failure_propagates_and_leaves_the_adapter_unresolved():
+    attempts = []
+
+    def factory():
+        attempts.append(1)
+        raise RuntimeError("gemma3 checkpoint not found")
+
+    adapter, _ = _deferred(factory)
+    for _ in range(2):
+        try:
+            adapter.encode_prompt("a cat", "blurry")
+        except RuntimeError as exc:
+            assert "gemma3 checkpoint not found" in str(exc)
+        else:
+            raise AssertionError("the factory's error must reach the caller")
+        assert adapter._resolved_te is None
+
+    assert attempts == [1, 1], "a failed acquire must be retried, never remembered as done"
+
+
+def test_an_eagerly_supplied_encoder_needs_no_factory():
+    """The no-lifecycle-service path (isolated pipe use) still hands the
+    adapter a live encoder -- it must be used as-is."""
+    adapter, te, _ = _adapter()
+    assert adapter._te_factory is None
+    adapter.encode_prompt("a cat", "blurry")
+    assert te.calls == [["a cat", "blurry"]]

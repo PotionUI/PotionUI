@@ -65,12 +65,26 @@ used; once eviction genuinely drops the cache's own strong reference, this
 adapter degrades to returning ``None`` for the evicted component instead of
 being the one thing standing between "unloaded" and an actual freed
 allocation.
+
+Deferred TE acquisition: ``model_loader/ltx/main.py`` hands this adapter a
+``te_factory`` thunk instead of an already-acquired module (the same idiom
+Qwen/Flux/Wan/Z-Image/Anima/Krea-2/MiniMax-H3 use). The projected-conditioning
+cache below is keyed on METADATA ONLY -- the model fingerprint plus a static
+role tag -- so a request that hits it is served without the ~22GB Gemma3/Gemma4
+encoder ever being acquired, loaded or placed. A generation whose prompts all
+hit (an iterate-on-seed loop, a same-prompt re-run) therefore never calls
+``MODELS.acquire()`` for the TE at all, instead of acquiring it in the loader
+and having ``release_idle_te`` evict it a few pipes later, unused. Reading the
+live encoder's own ``.role`` for that key -- as an earlier cut did -- would
+resolve the thunk on EVERY request, hit or miss, defeating the deferral;
+``_model_fingerprint`` already carries the TE checkpoint path, which is the
+identity that ``.role`` was standing in for.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import torch
 
@@ -95,25 +109,47 @@ class LTXClipTextEncoder(ClipTextEncoder):
     ``ClipTextEncoder`` ABC."""
 
     # Weak views over the raw modules to avoid retaining them. Class-level
-    # descriptors (not instance attributes) so `self.te_encoder = ...` routes
-    # through `WeakModelRef.__set__`.
-    te_encoder = WeakModelRef()
+    # descriptors (not instance attributes) so `self._resolved_te = ...` routes
+    # through `WeakModelRef.__set__`. `_resolved_te` holds the encoder only
+    # once it has actually been acquired -- `te_encoder` is the property below,
+    # which triggers the deferred `te_factory` on first read.
+    _resolved_te = WeakModelRef()
     dit_module = WeakModelRef()
 
     def __init__(
         self,
-        te_encoder: Any,
+        te_encoder: Optional[Any],
         dit_module: Any,
         projections: Dict[str, torch.Tensor],
         *,
         device: str = "cuda",
         model_fingerprint: Optional[str] = None,
+        te_factory: Optional[Callable[[], Any]] = None,
     ) -> None:
-        self.te_encoder = te_encoder
+        self._resolved_te = te_encoder
+        self._te_factory = te_factory
         self.dit_module = dit_module
         self.projections = projections
         self.device = device
         self._model_fingerprint = model_fingerprint
+
+    @property
+    def te_encoder(self) -> Any:
+        """The Gemma3/Gemma4 encoder module, acquiring it on first read when
+        the loader deferred it (see the module docstring).
+
+        The factory is deliberately NOT cleared after a successful call: a
+        weak view can legitimately go dead mid-generation (the cache entry
+        this mirrors was evicted), and re-resolving is what every other read
+        of this property already expects. A raising factory leaves
+        ``_resolved_te`` unset, so the next read retries from scratch rather
+        than handing back a half-acquired encoder.
+        """
+        resolved = self._resolved_te
+        if resolved is None and self._te_factory is not None:
+            resolved = self._te_factory()
+            self._resolved_te = resolved
+        return resolved
 
     @torch.inference_mode()
     def encode_prompt(
@@ -150,10 +186,12 @@ class LTXClipTextEncoder(ClipTextEncoder):
             if request.get("embedding_files"):
                 logger.debug("LTXClipTextEncoder: textual-inversion embeddings ignored (Gemma3)")
 
-        role = getattr(self.te_encoder, "role", None)
+        # A static tag, not `self.te_encoder.role`: reading the live encoder
+        # here would resolve the deferred `te_factory` on every request, hit
+        # or miss (see the module docstring's "Deferred TE acquisition").
         keys = [
             prompt_embed_key(
-                self._model_fingerprint, role,
+                self._model_fingerprint, "ltx_te",
                 request["prompt"], request["negative_prompt"],
                 bool(request.get("do_classifier_free_guidance", True)),
             )
@@ -332,8 +370,13 @@ class LTXClipTextEncoder(ClipTextEncoder):
                 texts.append(negative)
             spans.append((pos_idx, neg_idx))
 
+        # One property read (one deferred acquisition at most) held as a local
+        # for the length of the encode window: `self.te_encoder` is a weak
+        # view, and the placement call below must not be able to see it go
+        # dead between the two arguments.
+        te_encoder = self.te_encoder
         raw = run_text_encode(
-            self.te_encoder, self.device, lambda: self.te_encoder.encode(texts),
+            te_encoder, self.device, lambda: te_encoder.encode(texts),
             reserve_gb=minimum_inference_memory_gb(),
         )
         get_profiler().mark("ltx.raw_encode", device=str(raw["context"].device), batch=len(texts))

@@ -263,8 +263,26 @@ class ModelLoaderLtxPipe(BaseModelLoaderPipe):
 
         progress.advance("DiT", f"native/dit/{model_path}")
         dit_model = acquire_dit()
-        progress.advance("text encoder", f"native/te/{te_path}")
-        te_model = acquire(f"native/te/{te_path}", f"{te_path}|{dtype}", "text_encoder", te_path)
+
+        # The TE is NOT acquired here when a lifecycle service is available:
+        # it is deferred into `clip`'s own `te_factory`, run at most once and
+        # only when `prompt_encoder` actually misses the projected-conditioning
+        # cache (see ltx_clip.py's "Deferred TE acquisition"). Acquiring the
+        # ~22GB Gemma3/Gemma4 encoder up front means a cache-hit generation
+        # pays a full from-disk load for a component `release_idle_te` then
+        # evicts, a few pipes later, without a single encode having run.
+        te_key = f"native/te/{te_path}"
+
+        def acquire_te() -> NativeModel:
+            progress.advance("text encoder", te_key)
+            return acquire(te_key, f"{te_path}|{dtype}", "text_encoder", te_path)
+
+        # No lifecycle service to defer through (isolated pipe use, e.g.
+        # tests): nothing would hold the acquired encoder between the factory
+        # returning and the first encode, so load it up front exactly as
+        # before.
+        te_model: Optional[NativeModel] = acquire_te() if models is None else None
+
         progress.advance("VAE", f"native/vae/{vae_path}")
         vae_model = acquire(f"native/vae/{vae_path}", f"{vae_path}|{dtype}", "vae", vae_path)
 
@@ -335,11 +353,13 @@ class ModelLoaderLtxPipe(BaseModelLoaderPipe):
             dit=dit_model, te=te_model, vae=vae_model, projections=projections,
             audio_vae=audio_vae_model, vocoder=vocoder_model, upsampler=upsampler_model,
             temporal_upsampler=temporal_upsampler_model, duration_head=duration_head_model,
-            te_cache_key=f"native/te/{te_path}",
+            te_cache_key=te_key,
         )
         clip = LTXClipTextEncoder(
-            te_model.module, dit_model.module, projections, device=device,
+            te_model.module if te_model is not None else None,
+            dit_model.module, projections, device=device,
             model_fingerprint=f"{te_path}|{model_path}",
+            te_factory=(None if te_model is not None else lambda: acquire_te().module),
         )
         return PipeOutput(output={"model": bundle, "text_encoder": clip})
 

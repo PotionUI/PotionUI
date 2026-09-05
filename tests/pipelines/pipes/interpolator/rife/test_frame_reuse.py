@@ -29,6 +29,7 @@ needs_cv2 = pytest.mark.skipif(cv2 is None, reason="cv2 (or its native deps) not
 from src.pipelines.contracts import PipeInput
 from src.pipelines.pipes.interpolator.rife import main as rife_main
 from src.pipelines.pipes.interpolator.rife.main import RifeInterpolatorPipe
+from src.platform.runtime.native.errors import SamplingCancelled
 from tests.vendor.rife.layouts import NARROW_ENCODER_BLOCKS, NARROW_NO_ENCODER_BLOCKS
 from vendor.rife.ifnet import IFNet
 from vendor.rife.inference import prepare_frame
@@ -77,6 +78,7 @@ class _FakeWriter:
     def __init__(self, out_path, width, height, fps, **kwargs):
         self.fps = fps
         self.frames = []
+        self.aborted = False
         _FakeWriter.last = self
 
     def write(self, frame):
@@ -84,6 +86,9 @@ class _FakeWriter:
 
     def close(self):
         pass
+
+    def abort(self):
+        self.aborted = True
 
 
 def _write_input_video(path, n_frames, fps=10.0, size=(64, 64)):
@@ -117,7 +122,7 @@ def _run_pipe(tmp_path, monkeypatch, model, video, factor=FACTOR):
     _force_cpu(monkeypatch)
     monkeypatch.setattr(rife_main, "StreamingMp4Writer", _FakeWriter)
     monkeypatch.setattr(rife_main, "mux_audio_from_source", lambda *a, **k: False)
-    monkeypatch.setattr(rife_main, "_load_model", lambda _path, _device: model)
+    monkeypatch.setattr(rife_main, "_load_model", lambda _path, _device, _models=None: model)
     pipe = RifeInterpolatorPipe({"model": {"file_path": "x"}, "factor": factor,
                                  "keep_audio": False})
     pipe.process(PipeInput(input={"video": [str(video)]}), lambda o: None)
@@ -272,7 +277,7 @@ def test_pipe_releases_prepared_frames_on_cancellation(tmp_path, monkeypatch):
     monkeypatch.setattr(RifeInterpolatorPipe, "_prepare_pair", staticmethod(spy))
     monkeypatch.setattr(rife_main, "StreamingMp4Writer", _FakeWriter)
     monkeypatch.setattr(rife_main, "mux_audio_from_source", lambda *a, **k: False)
-    monkeypatch.setattr(rife_main, "_load_model", lambda _p, _d: model)
+    monkeypatch.setattr(rife_main, "_load_model", lambda _p, _d, _m=None: model)
 
     calls = {"n": 0}
 
@@ -280,11 +285,13 @@ def test_pipe_releases_prepared_frames_on_cancellation(tmp_path, monkeypatch):
         calls["n"] += 1
         return calls["n"] > 3
 
-    RifeInterpolatorPipe({"model": {"file_path": "x"}, "factor": 2}).process(
-        PipeInput(input={"video": [str(video)]}), lambda o: None, is_cancelled=cancel
-    )
+    with pytest.raises(SamplingCancelled):
+        RifeInterpolatorPipe({"model": {"file_path": "x"}, "factor": 2}).process(
+            PipeInput(input={"video": [str(video)]}), lambda o: None, is_cancelled=cancel
+        )
 
     assert seen, "the cancelled run never prepared a pair"
+    assert _FakeWriter.last.aborted
     gc.collect()
     assert all(ref() is None for ref in seen)
 

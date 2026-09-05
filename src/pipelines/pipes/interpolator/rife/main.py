@@ -16,6 +16,7 @@ lands ``(factor - 1) / (fps * factor)`` short and drags the audio with it.
 
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -40,6 +41,7 @@ from src.pipelines.outputs import (
     VideoGenerationOutput,
 )
 from src.platform.observability.logger import logger
+from src.platform.runtime.native.errors import SamplingCancelled
 from src.pipelines.pipes.interpolator.rife.encode import (
     StreamingMp4Writer,
     mux_audio_from_source,
@@ -47,20 +49,69 @@ from src.pipelines.pipes.interpolator.rife.encode import (
 from vendor.rife import load_ifnet
 from vendor.rife.inference import PreparedFrame, interpolate_prepared, prepare_frame
 
-_MODEL_CACHE: Dict[Tuple[str, float], "torch.nn.Module"] = {}
 _PROGRESS_EVERY = 8
 
+#: Fallback cache for isolated pipe use (no ``MODELS`` service injected, e.g.
+#: tests): at most ONE entry, keyed the same way as the ``MODELS`` path below.
+#: Never a second unbounded global -- a real pipeline always wires ``MODELS``.
+_FALLBACK_MODEL: Dict[str, Any] = {}
 
-def _load_model(model_path: str, device: str) -> "torch.nn.Module":
-    key = (str(model_path), Path(model_path).stat().st_mtime)
-    model = _MODEL_CACHE.get(key)
-    if model is None:
-        model = load_ifnet(model_path, device="cpu")
-        _MODEL_CACHE[key] = model
-    model = model.to(device)
-    # fp16 on CUDA (upstream inference_video.py runs the flownet + inputs half),
-    # fp32 on CPU (half convs are unsupported / slow there).
-    return model.half() if device == "cuda" else model.float()
+
+def _model_fingerprint(model_path: str) -> str:
+    """Fingerprint on the checkpoint's on-disk revision (mtime + size), not
+    just its path, so a checkpoint overwritten in place (re-downloaded,
+    swapped) replaces the cached module instead of being served stale."""
+    stat = Path(model_path).stat()
+    return f"{stat.st_mtime}|{stat.st_size}"
+
+
+def _acquire_base_model(models: Optional[Any], model_path: str) -> "torch.nn.Module":
+    """Load-or-reuse the CPU-resident RIFE checkpoint.
+
+    Goes through the injected ``MODELS`` lifecycle service when the pipeline
+    wires one in -- keyed on the resolved path, fingerprinted on the
+    checkpoint's revision (see :func:`_model_fingerprint`) so a same-path
+    revision replaces the obsolete cached module via the lifecycle's own
+    fingerprint-bust path, and bounded for every other distinct selection by
+    the lifecycle's own eviction policy, same as any other native component.
+
+    Falls back to :data:`_FALLBACK_MODEL` -- a single-entry cache, not a
+    per-frame reload -- when no service is injected."""
+    def load() -> "torch.nn.Module":
+        return load_ifnet(model_path, device="cpu")
+
+    key = f"native/rife/{model_path}"
+    fingerprint = _model_fingerprint(model_path)
+    if models is not None:
+        return models.acquire(key=key, fingerprint=fingerprint, loader=load)
+
+    if _FALLBACK_MODEL.get("key") == key and _FALLBACK_MODEL.get("fingerprint") == fingerprint:
+        return _FALLBACK_MODEL["module"]
+    module = load()
+    _FALLBACK_MODEL.clear()
+    _FALLBACK_MODEL.update(key=key, fingerprint=fingerprint, module=module)
+    return module
+
+
+def _load_model(model_path: str, device: str, models: Optional[Any] = None) -> "torch.nn.Module":
+    """Acquire the checkpoint (see :func:`_acquire_base_model`) and place it on
+    ``device`` for use. ``nn.Module.to()``/``.half()``/``.float()`` mutate the
+    module in place and return it, so this moves the SAME cached object, not a
+    copy -- fp16 on CUDA (upstream inference_video.py runs the flownet +
+    inputs half), fp32 on CPU (half convs are unsupported / slow there).
+    :func:`_idle_model` undoes exactly this once the clip is done, so the
+    entry goes back to idle CPU/fp32 rather than pinning VRAM between clips."""
+    module = _acquire_base_model(models, model_path)
+    module = module.to(device)
+    return module.half() if device == "cuda" else module.float()
+
+
+def _idle_model(model: "torch.nn.Module") -> None:
+    """Return ``model`` to its idle placement -- CPU, fp32, matching load
+    time -- on success, failure or cancellation alike, so a cached RIFE
+    checkpoint never sits GPU-resident between generations."""
+    model.to("cpu")
+    model.float()
 
 
 class RifeInterpolatorPipe(BasePipe):
@@ -96,6 +147,9 @@ class RifeInterpolatorPipe(BasePipe):
     def inputs(cls) -> List[PipeInputSpec]:
         return [
             PipeInputSpec("video", IOType.VIDEO, True, "Source video to interpolate", is_array=True),
+            PipeInputSpec("MODELS", IOType.SERVICE, False,
+                          "Model lifecycle service for RIFE checkpoint reuse across clips",
+                          is_array=False),
         ]
 
     @classmethod
@@ -126,6 +180,8 @@ class RifeInterpolatorPipe(BasePipe):
     ) -> PipeOutput:
         import cv2
 
+        is_cancelled = is_cancelled or (lambda: False)
+
         videos = pipe_input.input.get("video")
         if not videos:
             raise ValueError("interpolator/rife requires a 'video' input")
@@ -143,115 +199,171 @@ class RifeInterpolatorPipe(BasePipe):
 
         model_path = self._resolve_model_path()
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        model = _load_model(model_path, device)
+        models = pipe_input.input.get("MODELS", None)
+        model = _load_model(model_path, device, models)
         model_dtype = next(model.parameters()).dtype
 
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise ValueError(f"interpolator/rife: could not open video: {video_path}")
+        # The model stays resident on `device` for the whole clip once
+        # acquired; `_idle_model` returns it to CPU/fp32 here regardless of
+        # how this method exits -- success, a cap-open failure before the
+        # frame loop even starts, a mid-clip failure, or cancellation --  so
+        # a cached checkpoint never sits GPU-resident between generations.
         try:
-            src_fps = cap.get(cv2.CAP_PROP_FPS)
-            src_fps = float(src_fps) if src_fps and src_fps > 0 else 24.0
-            src_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-            out_fps = src_fps * factor
-            out_total = self.output_frame_count(src_count, factor) if src_count > 0 else 0
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                raise ValueError(f"interpolator/rife: could not open video: {video_path}")
 
-            generation_outputs(ProgressGenerationOutput(
-                state=(f"Interpolating <<NUMBER:{src_count} frames>> at <<NUMBER:{factor}x>> "
-                       f"-> <<NUMBER:{out_fps:.2f} fps>>"),
-                icon=Icon(name="film", effect="pulse"),
-            ))
-
+            # Every path this pipe creates from here on is owned by it until
+            # ownership explicitly transfers to the gallery output at the very
+            # end (`owned.clear()`). Any exception -- cancellation included --
+            # falls through to the `except` below, which aborts a still-running
+            # writer and deletes whatever `owned` still lists, so a cancelled or
+            # failed clip never leaves an attempt file (or a live ffmpeg child)
+            # behind.
             out_tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+            owned: List[str] = [out_tmp]
             writer: Optional[StreamingMp4Writer] = None
-            timesteps = [f / factor for f in range(1, factor)]
-            written = 0
 
-            prev_rgb: Optional[np.ndarray] = None
-            prev_tensor: Optional[torch.Tensor] = None
-            prev_prepared: Optional[PreparedFrame] = None
-            f0 = f1 = None
-            read_idx = 0
-            while True:
-                if is_cancelled and is_cancelled():
-                    break
-                ret, frame_bgr = cap.read()
-                if not ret or frame_bgr is None:
-                    break
-                rgb = self._to_even_rgb(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
-                read_idx += 1
+            try:
+                try:
+                    src_fps = cap.get(cv2.CAP_PROP_FPS)
+                    src_fps = float(src_fps) if src_fps and src_fps > 0 else 24.0
+                    src_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+                    out_fps = src_fps * factor
+                    out_total = self.output_frame_count(src_count, factor) if src_count > 0 else 0
+
+                    generation_outputs(ProgressGenerationOutput(
+                        state=(f"Interpolating <<NUMBER:{src_count} frames>> at <<NUMBER:{factor}x>> "
+                               f"-> <<NUMBER:{out_fps:.2f} fps>>"),
+                        icon=Icon(name="film", effect="pulse"),
+                    ))
+
+                    timesteps = [f / factor for f in range(1, factor)]
+                    written = 0
+
+                    prev_rgb: Optional[np.ndarray] = None
+                    prev_tensor: Optional[torch.Tensor] = None
+                    prev_prepared: Optional[PreparedFrame] = None
+                    f0 = f1 = None
+                    read_idx = 0
+                    while True:
+                        if is_cancelled():
+                            raise SamplingCancelled()
+                        ret, frame_bgr = cap.read()
+                        if not ret or frame_bgr is None:
+                            break
+                        rgb = self._to_even_rgb(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+                        read_idx += 1
+
+                        if writer is None:
+                            h, w = rgb.shape[0], rgb.shape[1]
+                            writer = StreamingMp4Writer(out_tmp, w, h, out_fps)
+
+                        cur_tensor = self._to_tensor(rgb, device, model_dtype)
+                        if prev_rgb is None:
+                            writer.write(prev_rgb := rgb)
+                            prev_tensor = cur_tensor
+                            written += 1
+                            continue
+
+                        # Drop the previous pair's frames BEFORE the next right frame is
+                        # allocated: `prev_prepared` already holds the only one still
+                        # needed (it is this pair's left frame), and releasing here is
+                        # what bounds the clip at two live prepared frames instead of
+                        # three. Assigning through the same locals would free the old
+                        # left frame only after the new right one exists.
+                        f0 = f1 = None
+                        f0, f1 = self._prepare_pair(model, prev_tensor, cur_tensor,
+                                                    flow_scale, prev_prepared)
+                        for t in timesteps:
+                            mid = self._run(model, f0, f1, t, flow_scale)
+                            writer.write(mid)
+                            written += 1
+                        writer.write(rgb)
+                        written += 1
+
+                        prev_rgb = rgb
+                        prev_tensor = cur_tensor
+                        prev_prepared = f1
+
+                        if out_total and read_idx % _PROGRESS_EVERY == 0:
+                            generation_outputs(ProgressGenerationOutput(
+                                state=f"Interpolated <<NUMBER:{written}>> / <<NUMBER:{out_total}>> frames",
+                                icon=Icon(name="film", effect="pulse"),
+                                progress=Progress(current=written, max=out_total),
+                            ))
+                finally:
+                    cap.release()
+                    # Padded frames and encoder features are the largest tensors the loop
+                    # holds; drop them on the normal exit, on cancellation and on an
+                    # exception alike. `prev_rgb` outlives this block -- the tail hold and
+                    # the output resolution read it.
+                    prev_tensor = prev_prepared = f0 = f1 = None
 
                 if writer is None:
-                    h, w = rgb.shape[0], rgb.shape[1]
-                    writer = StreamingMp4Writer(out_tmp, w, h, out_fps)
+                    raise ValueError(f"interpolator/rife: no frames decoded from {video_path}")
 
-                cur_tensor = self._to_tensor(rgb, device, model_dtype)
-                if prev_rgb is None:
-                    writer.write(prev_rgb := rgb)
-                    prev_tensor = cur_tensor
+                # Cooperative boundary before paying for the tail hold, the encode
+                # close and the audio mux -- none of which are themselves
+                # interruptible.
+                if is_cancelled():
+                    raise SamplingCancelled()
+
+                # The last decoded frame owns `factor` slots at the output rate but has no
+                # successor to interpolate toward, so it is held for the remaining ones.
+                for _ in range(factor - 1):
+                    writer.write(prev_rgb)
                     written += 1
-                    continue
+                writer.close()
 
-                # Drop the previous pair's frames BEFORE the next right frame is
-                # allocated: `prev_prepared` already holds the only one still
-                # needed (it is this pair's left frame), and releasing here is
-                # what bounds the clip at two live prepared frames instead of
-                # three. Assigning through the same locals would free the old
-                # left frame only after the new right one exists.
-                f0 = f1 = None
-                f0, f1 = self._prepare_pair(model, prev_tensor, cur_tensor,
-                                            flow_scale, prev_prepared)
-                for t in timesteps:
-                    mid = self._run(model, f0, f1, t, flow_scale)
-                    writer.write(mid)
-                    written += 1
-                writer.write(rgb)
-                written += 1
+                final_path = out_tmp
+                if keep_audio:
+                    muxed = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+                    owned.append(muxed)
+                    if mux_audio_from_source(out_tmp, video_path, muxed):
+                        final_path = muxed
+                        self._discard(out_tmp)
+                        owned.remove(out_tmp)
+                    else:
+                        self._discard(muxed)
+                        owned.remove(muxed)
 
-                prev_rgb = rgb
-                prev_tensor = cur_tensor
-                prev_prepared = f1
+                # Cooperative boundary again, right before publication -- a
+                # cancellation observed during the encode/mux above must still
+                # keep the finished clip out of the gallery.
+                if is_cancelled():
+                    raise SamplingCancelled()
 
-                if out_total and read_idx % _PROGRESS_EVERY == 0:
-                    generation_outputs(ProgressGenerationOutput(
-                        state=f"Interpolated <<NUMBER:{written}>> / <<NUMBER:{out_total}>> frames",
-                        icon=Icon(name="film", effect="pulse"),
-                        progress=Progress(current=written, max=out_total),
-                    ))
+                h, w = prev_rgb.shape[0], prev_rgb.shape[1]
+                generation_outputs(ProgressGenerationOutput(
+                    state=f"Wrote <<NUMBER:{written} frames>> at <<RESOLUTION:{w}x{h}>>",
+                    icon=Icon(name="check-circle"),
+                ))
+                generation_outputs(GalleryGenerationOutput(images=[], videos=[
+                    VideoGenerationOutput(video_path=final_path, temporary=True,
+                                          resolution=(w, h), fps=out_fps),
+                ]))
+                owned.clear()  # ownership of `final_path` transfers to the gallery output
+                return PipeOutput(output={"video": [final_path]})
+            except Exception:
+                if writer is not None:
+                    writer.abort()
+                self._discard(*owned)
+                raise
         finally:
-            cap.release()
-            # Padded frames and encoder features are the largest tensors the loop
-            # holds; drop them on the normal exit, on cancellation and on an
-            # exception alike. `prev_rgb` outlives this block -- the tail hold and
-            # the output resolution read it.
-            prev_tensor = prev_prepared = f0 = f1 = None
+            _idle_model(model)
 
-        if writer is None:
-            raise ValueError(f"interpolator/rife: no frames decoded from {video_path}")
-
-        # The last decoded frame owns `factor` slots at the output rate but has no
-        # successor to interpolate toward, so it is held for the remaining ones.
-        for _ in range(factor - 1):
-            writer.write(prev_rgb)
-            written += 1
-        writer.close()
-
-        final_path = out_tmp
-        if keep_audio:
-            muxed = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
-            if mux_audio_from_source(out_tmp, video_path, muxed):
-                final_path = muxed
-
-        h, w = prev_rgb.shape[0], prev_rgb.shape[1]
-        generation_outputs(ProgressGenerationOutput(
-            state=f"Wrote <<NUMBER:{written} frames>> at <<RESOLUTION:{w}x{h}>>",
-            icon=Icon(name="check-circle"),
-        ))
-        generation_outputs(GalleryGenerationOutput(images=[], videos=[
-            VideoGenerationOutput(video_path=final_path, temporary=True,
-                                  resolution=(w, h), fps=out_fps),
-        ]))
-        return PipeOutput(output={"video": [final_path]})
+    @staticmethod
+    def _discard(*paths: str) -> None:
+        """Best-effort delete of attempt files this pipe still owns -- called
+        once, from the single ``except`` around the whole clip, so it runs the
+        same way whether the failure was cancellation, a model error, or a
+        write/encode/mux failure."""
+        for path in paths:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
     # -- helpers -----------------------------------------------------------
 

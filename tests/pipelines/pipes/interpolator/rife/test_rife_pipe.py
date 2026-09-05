@@ -11,6 +11,7 @@ containers; without it collection aborts instead of skipping)."""
 import json
 import shutil
 import subprocess
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -23,8 +24,10 @@ cv2 = pytest.importorskip(
 )
 
 from src.pipelines.contracts import IOType, PipeInput
+from src.pipelines.outputs import GalleryGenerationOutput
 from src.pipelines.pipes.interpolator.rife import main as rife_main
 from src.pipelines.pipes.interpolator.rife.main import RifeInterpolatorPipe
+from src.platform.runtime.native.errors import SamplingCancelled
 from tests.vendor.rife.layouts import NARROW_NO_ENCODER_BLOCKS
 from vendor.rife.ifnet import IFNet
 
@@ -34,7 +37,7 @@ needs_ffmpeg = pytest.mark.skipif(
 )
 
 
-def _stub_load_model(_path, device):
+def _stub_load_model(_path, device, _models=None):
     """Stand in for `_load_model`, honouring its device/dtype contract -- the
     pipe moves input tensors to `device` and to the model's own dtype, so a stub
     that ignored the argument would only ever work on a CPU-only box."""
@@ -105,15 +108,21 @@ class _FakeWriter:
     last = None
 
     def __init__(self, out_path, width, height, fps, **kwargs):
+        self.out_path = out_path
         self.width, self.height, self.fps = width, height, fps
         self.frames = []
+        self.closed = False
+        self.aborted = False
         _FakeWriter.last = self
 
     def write(self, frame):
         self.frames.append(np.asarray(frame))
 
     def close(self):
-        pass
+        self.closed = True
+
+    def abort(self):
+        self.aborted = True
 
 
 # -- config / contract --------------------------------------------------------
@@ -130,7 +139,9 @@ def test_config_spec_matches_contract():
 def test_io_specs():
     ins = RifeInterpolatorPipe.inputs()
     outs = RifeInterpolatorPipe.outputs()
-    assert [(s.name, s.io_type) for s in ins] == [("video", IOType.VIDEO)]
+    assert [(s.name, s.io_type) for s in ins] == [
+        ("video", IOType.VIDEO), ("MODELS", IOType.SERVICE),
+    ]
     assert [(s.name, s.io_type) for s in outs] == [("video", IOType.VIDEO)]
     assert RifeInterpolatorPipe.name == "interpolator/rife"
 
@@ -211,21 +222,68 @@ def test_cancellation_stops_early(tmp_path, monkeypatch, stub_model):
 
     pipe = RifeInterpolatorPipe({"model": {"file_path": "x"}, "factor": 2})
 
-    # Cancel after a few source frames have been read: the loop breaks and the
-    # partial clip is finalised rather than the full n*factor output.
+    # Cancel after a few source frames have been read.
     calls = {"n": 0}
 
     def cancel():
         calls["n"] += 1
         return calls["n"] > 3
 
-    result = pipe.process(
-        PipeInput(input={"video": [str(video)]}),
-        lambda o: None,
-        is_cancelled=cancel,
-    )
-    assert 0 < len(_FakeWriter.last.frames) < RifeInterpolatorPipe.output_frame_count(8, 2)
-    assert "video" in result.output
+    outputs = []
+    with pytest.raises(SamplingCancelled):
+        pipe.process(
+            PipeInput(input={"video": [str(video)]}),
+            outputs.append,
+            is_cancelled=cancel,
+        )
+
+    # A partial clip was encoded (the loop ran a few pairs) but never
+    # published: a cancelled clip must not reach the gallery, and the writer
+    # is aborted rather than finalised.
+    assert 0 < len(_FakeWriter.last.frames)
+    assert not any(isinstance(o, GalleryGenerationOutput) for o in outputs)
+    assert _FakeWriter.last.aborted
+    assert not _FakeWriter.last.closed
+    assert not Path(_FakeWriter.last.out_path).exists()
+
+
+def test_cancellation_at_final_boundary_after_encode_discards_the_clip(
+    tmp_path, monkeypatch, stub_model,
+):
+    # Cancellation observed only once the frame loop is done (e.g. right
+    # after a successful mux, "probe flips right before publication") must
+    # still keep the finished clip out of the gallery and off disk.
+    video = tmp_path / "in.mp4"
+    _write_input_video(video, n_frames=6)
+    monkeypatch.setattr(rife_main, "StreamingMp4Writer", _FakeWriter)
+
+    cancel_flag = {"v": False}
+    muxed_paths = []
+
+    def fake_mux(video_only, source, out_path):
+        Path(out_path).write_bytes(b"muxed")
+        muxed_paths.append(out_path)
+        cancel_flag["v"] = True  # flips exactly as the encode/mux phase completes
+        return True
+
+    monkeypatch.setattr(rife_main, "mux_audio_from_source", fake_mux)
+
+    pipe = RifeInterpolatorPipe({"model": {"file_path": "x"}, "factor": 2, "keep_audio": True})
+    outputs = []
+
+    with pytest.raises(SamplingCancelled):
+        pipe.process(
+            PipeInput(input={"video": [str(video)]}),
+            outputs.append,
+            is_cancelled=lambda: cancel_flag["v"],
+        )
+
+    assert not any(isinstance(o, GalleryGenerationOutput) for o in outputs)
+    assert _FakeWriter.last.closed  # the encode itself completed normally
+    # Both the pre-mux intermediate and the muxed output are discarded --
+    # neither survives a cancellation observed after they were produced.
+    assert not Path(_FakeWriter.last.out_path).exists()
+    assert muxed_paths and not Path(muxed_paths[0]).exists()
 
 
 # -- end-to-end through real ffmpeg ------------------------------------------

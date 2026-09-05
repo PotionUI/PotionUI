@@ -76,10 +76,14 @@ def build_prompt_tools_text(tools: List[Dict]) -> str:
     already knows how to parse.
 
     Cached (see ``_prompt_tools_text_cache``) since the same tool set is
-    re-rendered on every tool-loop iteration in force_prompt_tools mode.
+    re-rendered on every tool-loop iteration in force_prompt_tools mode. The
+    key canonicalizes each tool's whole ``function`` object (name,
+    description, parameter schema) so a change to a parameter's type,
+    description or requiredness busts the cache even when the tool's name and
+    top-level description are unchanged.
     """
     cache_key = tuple(
-        (t.get("function", {}).get("name", ""), t.get("function", {}).get("description", ""))
+        json.dumps(t.get("function", {}), sort_keys=True, separators=(",", ":"))
         for t in tools
     )
     cached = _prompt_tools_text_cache.get(cache_key)

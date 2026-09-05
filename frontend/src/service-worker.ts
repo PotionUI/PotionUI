@@ -3,20 +3,20 @@
 /// <reference lib="esnext" />
 /// <reference lib="webworker" />
 
-import { build, files, version } from '$service-worker';
+import { files, version } from '$service-worker';
+import { isPrecacheEligibleStaticPath } from './lib/service-worker/shell';
+import { cacheFirst, navigateOffline, precacheShell } from './lib/service-worker/runtime';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
 const CACHE_NAME = `potionui-cache-${version}`;
-
-// Assets to pre-cache (build output + static files)
-const PRECACHE_ASSETS = [...build, ...files];
+const SHELL_URL = '/';
 
 sw.addEventListener('install', (event) => {
 	event.waitUntil(
 		caches
 			.open(CACHE_NAME)
-			.then((cache) => cache.addAll(PRECACHE_ASSETS))
+			.then((cache) => precacheShell(cache, files, SHELL_URL, fetch))
 			.then(() => sw.skipWaiting())
 	);
 });
@@ -46,18 +46,18 @@ sw.addEventListener('fetch', (event) => {
 		return;
 	}
 
-	// Cache-first for static assets (build output)
-	if (url.pathname.startsWith('/_app/') || PRECACHE_ASSETS.includes(url.pathname)) {
-		event.respondWith(
-			caches.match(request).then((cached) => cached || fetch(request))
-		);
+	// Cache-first, filling the cache on first request: content-hashed build
+	// output and the small set of static assets the shell policy also covers.
+	if (url.pathname.startsWith('/_app/immutable/') || isPrecacheEligibleStaticPath(url.pathname)) {
+		event.respondWith(caches.open(CACHE_NAME).then((cache) => cacheFirst(request, cache, fetch)));
 		return;
 	}
 
-	// Network-first for navigation requests (HTML pages)
+	// Network-first for navigation requests (HTML pages); offline falls back
+	// to the cached SPA shell, which client-side routing then renders from.
 	if (request.mode === 'navigate') {
 		event.respondWith(
-			fetch(request).catch(() => caches.match(request).then((cached) => cached || caches.match('/generate')))
+			fetch(request).catch(() => caches.open(CACHE_NAME).then((cache) => navigateOffline(cache, SHELL_URL)))
 		);
 		return;
 	}
@@ -66,7 +66,6 @@ sw.addEventListener('fetch', (event) => {
 	event.respondWith(
 		fetch(request)
 			.then((response) => {
-				// Optionally cache successful responses
 				if (response.ok) {
 					const responseClone = response.clone();
 					caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));

@@ -750,6 +750,140 @@ def test_sol_attn_composes_with_the_step_cache(monkeypatch):
     assert len([c for c in seen if c is ctx]) == first_pass + 1
 
 
+# --- the dense refinement tail vs. FBCache -----------------------------------
+
+def _dense_tail_run(m, layout, inputs, ts, cache, ctx, dense_flags):
+    """Drive a tiny run, flipping the context's ``dense`` flag per step the way
+    the generator's sampling loop does, and return how many times the LAST
+    block ran on each step: ``1`` for a full compute, ``0`` for a cached skip
+    (a skip returns after block 0). Counting the block is the evidence — the
+    ``dense`` flag alone says only what was asked for, not what ran."""
+    block_calls = _count_calls(m.blocks[-1])
+    per_step = []
+    for dense in dense_flags:
+        if ctx is not None:
+            ctx.dense = dense
+        before = block_calls["n"]
+        _fbcache_forward(m, layout, inputs, ts, step_cache=cache, sparse_attn_ctx=ctx)
+        per_step.append(block_calls["n"] - before)
+    return per_step
+
+
+def _count_skip_gate(cache):
+    """Count how often the cache's skip gate is consulted at all — a dense-tail
+    step must not even ask."""
+    calls = {"n": 0}
+    original = cache.should_skip
+
+    def counting(probe):
+        calls["n"] += 1
+        return original(probe)
+
+    cache.should_skip = counting
+    return calls
+
+
+def _primed_cache():
+    """Threshold and ceiling set so a repeated identical input skips every step
+    the gate is offered — the worst case for the dense tail."""
+    return FirstBlockCache(rel_threshold=0.5, warmup_steps=0, max_consecutive_skips=9)
+
+
+def test_dense_tail_step_runs_the_full_stack_against_a_primed_cache(monkeypatch):
+    """The point of the dense tail is that those steps run the real model. A
+    cache primed to skip must not answer them from its cache, and must not even
+    be asked. The non-tail steps still skip, so the tail costs exactly the
+    forwards it is supposed to cost."""
+    _sparse_attn_recorder(monkeypatch)
+    m = _build_ready(TINY_FULL)
+    layout = _tiny_layout()
+    torch.manual_seed(37)
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    ts = torch.tensor([0.2, 0.9])
+    cache = _primed_cache()
+    gate = _count_skip_gate(cache)
+    ctx = SolAttnContext()
+
+    computed = _dense_tail_run(m, layout, inputs, ts, cache, ctx, [False, False, True, True])
+
+    assert computed == [1, 0, 1, 1]
+    # Consulted on the two non-tail steps only.
+    assert gate["n"] == 2
+    # A dense-tail step records, so the next non-tail step's probe compares
+    # against fresh state rather than a stale anchor.
+    assert cache.stats() == {"computed": 3, "skipped": 1}
+
+
+def test_sla_dense_tail_step_runs_the_full_stack_against_a_primed_cache(monkeypatch):
+    """The same rule under the other sparse-attention context type — the gate
+    reads the context's ``dense`` flag, not which backend built it."""
+    _sparse_attn_recorder(monkeypatch)
+    m = _build_ready(TINY_FULL)
+    layout = _tiny_layout()
+    torch.manual_seed(39)
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    ts = torch.tensor([0.2, 0.9])
+    cache = _primed_cache()
+    ctx = SlaAttnContext(sparsity=0.9, block_size=64, prefix_tokens=4)
+
+    computed = _dense_tail_run(m, layout, inputs, ts, cache, ctx, [False, False, True])
+
+    assert computed == [1, 0, 1]
+    assert cache.stats() == {"computed": 2, "skipped": 1}
+
+
+def test_zero_dense_tail_leaves_cache_skipping_untouched(monkeypatch):
+    """`sparse_attn_dense_last_steps: 0` never flips the flag, so the cache
+    behaves exactly as it did before the tail was taken into account."""
+    _sparse_attn_recorder(monkeypatch)
+    m = _build_ready(TINY_FULL)
+    layout = _tiny_layout()
+    torch.manual_seed(41)
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    ts = torch.tensor([0.2, 0.9])
+    cache = _primed_cache()
+
+    computed = _dense_tail_run(m, layout, inputs, ts, cache, SolAttnContext(), [False] * 4)
+
+    assert computed == [1, 0, 0, 0]
+    assert cache.stats() == {"computed": 1, "skipped": 3}
+
+
+def test_dense_tail_spanning_the_whole_run_never_skips(monkeypatch):
+    """A tail at least as long as the run is the sparse feature turning itself
+    off; the cache must then skip nothing at all."""
+    _sparse_attn_recorder(monkeypatch)
+    m = _build_ready(TINY_FULL)
+    layout = _tiny_layout()
+    torch.manual_seed(42)
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    ts = torch.tensor([0.2, 0.9])
+    cache = _primed_cache()
+    gate = _count_skip_gate(cache)
+
+    computed = _dense_tail_run(m, layout, inputs, ts, cache, SolAttnContext(), [True] * 4)
+
+    assert computed == [1, 1, 1, 1]
+    assert gate["n"] == 0
+    assert cache.stats() == {"computed": 4, "skipped": 0}
+
+
+def test_no_sparse_context_leaves_cache_skipping_untouched():
+    """With sparse attention off there is no dense tail to honour, so the cache
+    keeps skipping exactly as it always has."""
+    m = _build_ready(TINY_FULL)
+    layout = _tiny_layout()
+    torch.manual_seed(43)
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    ts = torch.tensor([0.2, 0.9])
+    cache = _primed_cache()
+
+    computed = _dense_tail_run(m, layout, inputs, ts, cache, None, [False] * 4)
+
+    assert computed == [1, 0, 0, 0]
+    assert cache.stats() == {"computed": 1, "skipped": 3}
+
+
 # --- seq_chunk_rows (low-VRAM sequence chunking) -----------------------------
 
 def test_seq_chunk_rows_default_off_is_byte_identical():

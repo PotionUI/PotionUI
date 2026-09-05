@@ -605,12 +605,19 @@ class MiniMaxH3Model(NativeArchModule):
         prefix to keep exact — nothing either sparse-attention method's
         routing has anything to route over.
         """
+        # A dense-forced step exists precisely to run the real model, so the
+        # cache is offered no say in it: decided here, before block 0, so the
+        # gate is never even consulted. It still RECORDS (see the loop below),
+        # which keeps warmup accumulation honest and leaves the following
+        # non-dense step comparing against a fresh anchor rather than one from
+        # before the tail.
+        may_skip = step_cache is not None and not (sparse_attn is not None and sparse_attn.dense)
         probe = None
         for i, block in enumerate(self.blocks):
             hidden_states = block(hidden_states, temb, adaln_indices, rotary_emb, sparse_attn, seq_chunk_rows)
             if i == 0 and step_cache is not None:
                 probe = hidden_states
-                if step_cache.should_skip(probe):
+                if may_skip and step_cache.should_skip(probe):
                     return hidden_states, probe, True
         return hidden_states, probe, False
 
@@ -665,9 +672,10 @@ class MiniMaxH3Model(NativeArchModule):
         :func:`~src.platform.runtime.native.sparse_attn.sparse_attention`,
         which reads the context's own type. Absent (the default) the forward
         is bit-identical to one without the feature. The two are independent
-        of FBCache: a step the cache skips never reaches attention at all, and
-        a dense-forced sparse-attention step is an ordinary cached-or-computed
-        step.
+        of FBCache in one direction only: a step the cache skips never reaches
+        attention at all, while a dense-forced step is never offered to the
+        cache — it runs the full stack and records its result, so the tail
+        buys the refinement it was configured for.
 
         ``seq_chunk_rows`` (keyword, optional): low-VRAM sequence chunking.
         ``0`` (default) is off and byte-identical to a build without the

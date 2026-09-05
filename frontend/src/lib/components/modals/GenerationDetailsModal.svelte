@@ -24,6 +24,7 @@
 	import { pickActiveGeneration, needsDetailFetch } from '$lib/utils/generationDetail';
 	import { Badge, Spinner, CopyButton } from '$lib/components/ui';
 	import PublishToInspirationsModal from './PublishToInspirationsModal.svelte';
+	import GenerationArtifacts from '$lib/components/generation/artifacts/GenerationArtifacts.svelte';
 	import { filesWithPreview, mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
 
 	// Support both ways of passing generation data
@@ -974,6 +975,9 @@
 							</div>
 						</div>
 					{/if}
+
+					<!-- Artifacts Section -->
+					<GenerationArtifacts generationId={activeGenerationId} />
 
 					<!-- Parameters Section -->
 					<div class="bg-surface-2 rounded-lg overflow-hidden">

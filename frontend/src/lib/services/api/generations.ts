@@ -15,6 +15,7 @@ import type {
 	SortDir
 } from '$lib/types/history';
 import type { Workspace, GenerationParamModel } from '$lib/types/generation';
+import type { RunReport } from '$lib/services/admin-api';
 
 interface UploadedGenerationFile {
 	id: number;
@@ -158,6 +159,13 @@ export function createGenerationsApi(client: AxiosInstance) {
 			const response = await client.get(
 				`/api/generations/history/${generationId}${queryString ? `?${queryString}` : ''}`
 			);
+			return response.data;
+		},
+
+		async getGenerationRunReport(
+			generationId: string
+		): Promise<APIResponse<{ run_report: RunReport | null }>> {
+			const response = await client.get(`/api/generations/${generationId}/run-report`);
 			return response.data;
 		},
 

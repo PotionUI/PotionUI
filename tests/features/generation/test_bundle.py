@@ -279,18 +279,18 @@ class TestExportImportRoundTrip:
         self.gen_model_repo.create_batch(gen_id, [model_id])
         return model_id
 
-    def _extract_envelope(self, zip_bytes) -> dict:
-        zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
+    def _extract_envelope(self, zip_file) -> dict:
+        zf = zipfile.ZipFile(zip_file)
         return json.loads(zf.read("generation.json"))
 
     def test_export_pins_form_data_seed_to_first_output(self):
         gen_id = self._create_generation_with_seed_batch([42, 43])
         archive = self._make_archive(preset_names={"preset-1": "My Preset"})
 
-        zip_bytes, filename = archive.export_bundle(gen_id, self.user_id)
+        zip_file, filename = archive.export_bundle(gen_id, self.user_id)
 
         assert filename == f"potionui-generation-{gen_id}.zip"
-        envelope = self._extract_envelope(zip_bytes)
+        envelope = self._extract_envelope(zip_file)
         assert envelope["schema"] == "potionui.generation"
         assert envelope["generation"]["form_data"]["seed"] == 42
         assert envelope["generation"]["parameters"] == [{"seed": 42}, {"seed": 43}]
@@ -302,9 +302,9 @@ class TestExportImportRoundTrip:
         self._add_model(gen_id, filename="checkpoint.safetensors", sha256="digest-1")
         archive = self._make_archive()
 
-        zip_bytes, _ = archive.export_bundle(gen_id, self.user_id)
+        zip_file, _ = archive.export_bundle(gen_id, self.user_id)
 
-        envelope = self._extract_envelope(zip_bytes)
+        envelope = self._extract_envelope(zip_file)
         assert len(envelope["models"]) == 1
         assert envelope["models"][0]["filename"] == "checkpoint.safetensors"
         assert envelope["models"][0]["sha256"] == "digest-1"
@@ -317,10 +317,10 @@ class TestExportImportRoundTrip:
         gen_id = self._create_generation_with_seed_batch([99])
         self._add_model(gen_id, filename="checkpoint.safetensors", sha256="digest-1")
         export_archive = self._make_archive(preset_names={"preset-1": "My Preset"})
-        zip_bytes, _ = export_archive.export_bundle(gen_id, self.user_id)
+        zip_file, _ = export_archive.export_bundle(gen_id, self.user_id)
 
         import_archive = self._make_archive(preset_names={"preset-1": "My Preset"})
-        result = import_archive.import_bundle(zip_bytes)
+        result = import_archive.import_bundle(zip_file.read())
 
         assert result["reuse"]["preset_id"] == "preset-1"
         assert result["reuse"]["form_data"]["seed"] == 99
@@ -330,10 +330,10 @@ class TestExportImportRoundTrip:
     def test_import_warns_when_preset_not_installed(self):
         gen_id = self._create_generation_with_seed_batch([1])
         export_archive = self._make_archive(preset_names={"preset-1": "My Preset"})
-        zip_bytes, _ = export_archive.export_bundle(gen_id, self.user_id)
+        zip_file, _ = export_archive.export_bundle(gen_id, self.user_id)
 
         import_archive = self._make_archive(preset_names={})  # importer never installed it
-        result = import_archive.import_bundle(zip_bytes)
+        result = import_archive.import_bundle(zip_file.read())
 
         assert result["preset_available"] is False
         assert any("My Preset" in w for w in result["warnings"])
@@ -342,7 +342,7 @@ class TestExportImportRoundTrip:
         gen_id = self._create_generation_with_seed_batch([1])
         self._add_model(gen_id, filename="missing.safetensors", sha256="digest-1")
         export_archive = self._make_archive()
-        zip_bytes, _ = export_archive.export_bundle(gen_id, self.user_id)
+        zip_file, _ = export_archive.export_bundle(gen_id, self.user_id)
 
         # Simulate a bare importing instance: the model the export names isn't
         # present there (can't use a second database in this harness, so drop
@@ -351,7 +351,7 @@ class TestExportImportRoundTrip:
             cursor.execute("DELETE FROM models WHERE filename = ?", ("missing.safetensors",))
 
         import_archive = self._make_archive()
-        result = import_archive.import_bundle(zip_bytes)
+        result = import_archive.import_bundle(zip_file.read())
 
         assert any("missing.safetensors" in w and "not found locally" in w for w in result["warnings"])
 
@@ -359,7 +359,7 @@ class TestExportImportRoundTrip:
         gen_id = self._create_generation_with_seed_batch([1])
         self._add_model(gen_id, filename="checkpoint.safetensors", sha256="exported-digest")
         export_archive = self._make_archive()
-        zip_bytes, _ = export_archive.export_bundle(gen_id, self.user_id)
+        zip_file, _ = export_archive.export_bundle(gen_id, self.user_id)
 
         # Simulate a locally-present copy of the model that was re-downloaded
         # (or re-packed) and now hashes differently than the exported one.
@@ -370,7 +370,7 @@ class TestExportImportRoundTrip:
             )
 
         import_archive = self._make_archive()
-        result = import_archive.import_bundle(zip_bytes)
+        result = import_archive.import_bundle(zip_file.read())
 
         assert any("digest does not match" in w for w in result["warnings"])
 
@@ -399,9 +399,9 @@ class TestExportImportRoundTrip:
         })
 
         archive = self._make_archive()
-        zip_bytes, _ = archive.export_bundle(gen_id, self.user_id)
+        zip_file, _ = archive.export_bundle(gen_id, self.user_id)
 
-        envelope = self._extract_envelope(zip_bytes)
+        envelope = self._extract_envelope(zip_file)
         form_data = envelope["generation"]["form_data"]
         assert form_data["diffusion_model"] == "checkpoint.safetensors"
         assert form_data["loras"] == [{"model": "lora.safetensors", "strength": 0.8}]
@@ -417,11 +417,11 @@ class TestExportImportRoundTrip:
         })
         self._add_model(export_gen_id, filename="checkpoint.safetensors", sha256="digest-1")
         export_archive = self._make_archive()
-        zip_bytes, _ = export_archive.export_bundle(export_gen_id, self.user_id)
+        zip_file, _ = export_archive.export_bundle(export_gen_id, self.user_id)
 
         # Importing instance: exactly one local model with the same filename.
         import_archive = self._make_archive()
-        result = import_archive.import_bundle(zip_bytes)
+        result = import_archive.import_bundle(zip_file.read())
 
         candidates = self.model_repo.get_by_filename("checkpoint.safetensors")
         assert len(candidates) == 1
@@ -435,13 +435,13 @@ class TestExportImportRoundTrip:
         })
         self._add_model(export_gen_id, filename="checkpoint.safetensors", sha256="digest-1")
         export_archive = self._make_archive()
-        zip_bytes, _ = export_archive.export_bundle(export_gen_id, self.user_id)
+        zip_file, _ = export_archive.export_bundle(export_gen_id, self.user_id)
 
         with self.db.get_cursor() as cursor:
             cursor.execute("DELETE FROM models WHERE filename = ?", ("checkpoint.safetensors",))
 
         import_archive = self._make_archive()
-        result = import_archive.import_bundle(zip_bytes)
+        result = import_archive.import_bundle(zip_file.read())
 
         assert result["reuse"]["form_data"]["diffusion_model"] == "checkpoint.safetensors"
 

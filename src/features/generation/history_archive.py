@@ -10,6 +10,7 @@ import io
 import json
 import logging
 import os
+import tempfile
 import zipfile
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -32,6 +33,8 @@ from src.features.generation.hooks import GENERATION_HOOKS
 from src.features.generation.records import Generation, File
 from src.features.generation.repository import GenerationRepository
 from src.features.generation.history_query import GenerationHistoryQuery
+from src.features.generation.run_report_artifacts import iter_ref_paths
+from src.features.generation.run_report_repository import GenerationRunReportRepository
 from src.platform.util.ids import generate_ulid
 
 logger = logging.getLogger(__name__)
@@ -48,6 +51,14 @@ GENERATION_BUNDLE_SCHEMA_VERSION = 1
 _MAX_BUNDLE_UPLOAD_BYTES = 200 * 1024 * 1024
 _MAX_BUNDLE_ZIP_ENTRIES = 2000
 _MAX_BUNDLE_MANIFEST_BYTES = 5 * 1024 * 1024
+
+# Export archives are built into a SpooledTemporaryFile instead of a BytesIO,
+# so a bulk export doesn't hold the whole zip resident in RAM: below this size
+# it's still an in-memory buffer (fastest, no disk I/O), above it the same
+# object transparently rolls over to a real temp file. Callers get back the
+# spooled file itself (seeked to 0), never `.getvalue()` bytes, so the bound
+# holds all the way out to the HTTP response.
+_EXPORT_SPOOL_MAX_MEMORY_BYTES = 10 * 1024 * 1024
 
 
 class GenerationHistoryArchive:
@@ -78,7 +89,10 @@ class GenerationHistoryArchive:
 
         `delete_generation_outputs` has no directory to scan - it deletes
         exactly the keys it's given, so every file plus its thumbnails (not
-        tracked as their own `files` rows) has to be enumerated here.
+        tracked as their own `files` rows) has to be enumerated here. The
+        run report's own artifact copies are enumerated from the report
+        itself: its row goes with the generation by foreign-key cascade, its
+        bytes do not.
 
         Args:
             generation_id: The generation ID
@@ -96,6 +110,10 @@ class GenerationHistoryArchive:
             for thumbnail in (file_record.thumbnail_small, file_record.thumbnail_medium, file_record.thumbnail_large):
                 if thumbnail:
                     relative_paths.append((base_key / thumbnail).as_posix())
+
+        relative_paths.extend(
+            iter_ref_paths(GenerationRunReportRepository().get(generation_id))
+        )
 
         return self.file_service.delete_generation_outputs(relative_paths)
 
@@ -459,7 +477,7 @@ class GenerationHistoryArchive:
         generation_ids: List[str],
         user_id: str,
         strip_metadata: bool = False
-    ) -> Tuple[bytes, str]:
+    ) -> Tuple[tempfile.SpooledTemporaryFile, str]:
         """Export the final image/video files of multiple generations as a zip.
 
         For each generation the ownership is verified and its final files are
@@ -475,47 +493,55 @@ class GenerationHistoryArchive:
             strip_metadata: Whether to strip metadata from images
 
         Returns:
-            Tuple of (zip_bytes, suggested_filename)
+            Tuple of (zip_file, suggested_filename). `zip_file` is a
+            `SpooledTemporaryFile` seeked to 0 - the caller reads it and is
+            responsible for closing it (which also removes its backing temp
+            file, if it rolled over to disk).
 
         Raises:
             GenerationNotFoundException: If any generation is not found / not owned
         """
-        zip_buffer = io.BytesIO()
+        zip_buffer = tempfile.SpooledTemporaryFile(max_size=_EXPORT_SPOOL_MAX_MEMORY_BYTES)
 
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for generation_id in generation_ids:
-                # Verify ownership (raises GenerationNotFoundException if missing)
-                self._query._get_generation_or_raise(generation_id, user_id)
+        try:
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for generation_id in generation_ids:
+                    # Verify ownership (raises GenerationNotFoundException if missing)
+                    self._query._get_generation_or_raise(generation_id, user_id)
 
-                files = self.generation_repo.get_files(
-                    generation_id, user_id=user_id, is_final=True
-                )
+                    files = self.generation_repo.get_files(
+                        generation_id, user_id=user_id, is_final=True
+                    )
 
-                for file_record in files:
-                    if not self.file_service.generation_exists(file_record.file_path):
-                        logger.warning(
-                            f"Skipping missing file for export: {file_record.file_path} "
-                            f"(generation {generation_id})"
-                        )
-                        continue
+                    for file_record in files:
+                        if not self.file_service.generation_exists(file_record.file_path):
+                            logger.warning(
+                                f"Skipping missing file for export: {file_record.file_path} "
+                                f"(generation {generation_id})"
+                            )
+                            continue
 
-                    filename = os.path.basename(file_record.file_path)
-                    arcname = f"{generation_id}/{filename}"
-                    suffix = os.path.splitext(file_record.file_path)[1]
+                        filename = os.path.basename(file_record.file_path)
+                        arcname = f"{generation_id}/{filename}"
+                        suffix = os.path.splitext(file_record.file_path)[1]
 
-                    with self.file_service.local_copy_of(file_record.file_path, suffix) as local_path:
-                        if strip_metadata and file_record.file_type == 'IMAGE':
-                            clean_bytes = self._strip_image_metadata(str(local_path))
-                            if clean_bytes is not None:
-                                zf.writestr(arcname, clean_bytes)
+                        with self.file_service.local_copy_of(file_record.file_path, suffix) as local_path:
+                            if strip_metadata and file_record.file_type == 'IMAGE':
+                                clean_bytes = self._strip_image_metadata(str(local_path))
+                                if clean_bytes is not None:
+                                    zf.writestr(arcname, clean_bytes)
+                                else:
+                                    # Fall back to raw bytes if re-encoding failed
+                                    zf.write(local_path, arcname)
                             else:
-                                # Fall back to raw bytes if re-encoding failed
+                                # Videos and non-stripped images: copy bytes as-is
                                 zf.write(local_path, arcname)
-                        else:
-                            # Videos and non-stripped images: copy bytes as-is
-                            zf.write(local_path, arcname)
+        except Exception:
+            zip_buffer.close()
+            raise
 
-        return zip_buffer.getvalue(), "potionui-export.zip"
+        zip_buffer.seek(0)
+        return zip_buffer, "potionui-export.zip"
 
     @staticmethod
     def _portable_form_data(form_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -634,7 +660,7 @@ class GenerationHistoryArchive:
             "outputs": outputs_payload,
         }
 
-    def export_bundle(self, generation_id: str, user_id: str) -> Tuple[bytes, str]:
+    def export_bundle(self, generation_id: str, user_id: str) -> Tuple[tempfile.SpooledTemporaryFile, str]:
         """Export one generation as a portable bundle: `generation.json` (the
         envelope another PotionUI instance imports to reproduce the output) plus
         the generation's final output files under `outputs/`, for reference.
@@ -644,7 +670,10 @@ class GenerationHistoryArchive:
             user_id: The user ID for ownership verification
 
         Returns:
-            Tuple of (zip_bytes, suggested_filename)
+            Tuple of (zip_file, suggested_filename). `zip_file` is a
+            `SpooledTemporaryFile` seeked to 0 - the caller reads it and is
+            responsible for closing it (which also removes its backing temp
+            file, if it rolled over to disk).
 
         Raises:
             GenerationNotFoundException: If the generation is not found / not owned
@@ -652,24 +681,29 @@ class GenerationHistoryArchive:
         generation = self._query._get_generation_or_raise(generation_id, user_id, include_files=True)
         envelope = self._build_bundle_envelope(generation, user_id)
 
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("generation.json", json.dumps(envelope, indent=2))
+        zip_buffer = tempfile.SpooledTemporaryFile(max_size=_EXPORT_SPOOL_MAX_MEMORY_BYTES)
+        try:
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("generation.json", json.dumps(envelope, indent=2))
 
-            final_files = self.generation_repo.get_files(generation_id, user_id=user_id, is_final=True)
-            for file_record in final_files:
-                if not self.file_service.generation_exists(file_record.file_path):
-                    logger.warning(
-                        f"Skipping missing file for bundle export: {file_record.file_path} "
-                        f"(generation {generation_id})"
-                    )
-                    continue
-                filename = os.path.basename(file_record.file_path)
-                suffix = os.path.splitext(file_record.file_path)[1]
-                with self.file_service.local_copy_of(file_record.file_path, suffix) as local_path:
-                    zf.write(local_path, f"outputs/{filename}")
+                final_files = self.generation_repo.get_files(generation_id, user_id=user_id, is_final=True)
+                for file_record in final_files:
+                    if not self.file_service.generation_exists(file_record.file_path):
+                        logger.warning(
+                            f"Skipping missing file for bundle export: {file_record.file_path} "
+                            f"(generation {generation_id})"
+                        )
+                        continue
+                    filename = os.path.basename(file_record.file_path)
+                    suffix = os.path.splitext(file_record.file_path)[1]
+                    with self.file_service.local_copy_of(file_record.file_path, suffix) as local_path:
+                        zf.write(local_path, f"outputs/{filename}")
+        except Exception:
+            zip_buffer.close()
+            raise
 
-        return zip_buffer.getvalue(), f"potionui-generation-{generation_id}.zip"
+        zip_buffer.seek(0)
+        return zip_buffer, f"potionui-generation-{generation_id}.zip"
 
     def _parse_bundle_document(self, content: bytes) -> Any:
         """Decode an uploaded bundle into its JSON document.

@@ -4,6 +4,7 @@ import traceback
 from typing import List, Optional, TYPE_CHECKING
 from fastapi import APIRouter, WebSocket, Depends, Query, UploadFile, File as FastAPIFile, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse, PlainTextResponse
+from starlette.background import BackgroundTask
 
 # Import services - needed for injector
 from src.platform.filesystem import FileStore
@@ -49,6 +50,18 @@ from src.features.generation.file_repository import file_repo
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
+
+# Chunk size for streaming an already-built export zip out of its spooled
+# temp file - keeps a single read() from pulling the whole archive back into
+# memory at once even though the file itself is already bounded.
+_EXPORT_STREAM_CHUNK_BYTES = 1024 * 1024
+
+
+def _close_spooled_file(spooled_file) -> None:
+    """BackgroundTask target: idempotent so it's safe alongside the
+    generator's own `finally` close (whichever path runs first wins)."""
+    if not spooled_file.closed:
+        spooled_file.close()
 
 
 class GenerationController(BaseController):
@@ -443,6 +456,38 @@ class GenerationController(BaseController):
             status_code=503
         )
 
+    @staticmethod
+    def _stream_zip_response(zip_file, filename: str) -> StreamingResponse:
+        """Stream an already-built export zip out of `zip_file` - a
+        `SpooledTemporaryFile` seeked to 0 - without ever holding the archive
+        fully in memory as bytes. `zip_file` is closed once the response
+        finishes, fails or the client disconnects (closing it also removes
+        its backing temp file, if the export rolled over to disk).
+        """
+        zip_file.seek(0, io.SEEK_END)
+        content_length = zip_file.tell()
+        zip_file.seek(0)
+
+        def iter_chunks():
+            try:
+                while True:
+                    chunk = zip_file.read(_EXPORT_STREAM_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                _close_spooled_file(zip_file)
+
+        return StreamingResponse(
+            iter_chunks(),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(content_length),
+            },
+            background=BackgroundTask(_close_spooled_file, zip_file),
+        )
+
     async def get_generation_history(
         self,
         current_user,
@@ -752,20 +797,13 @@ class GenerationController(BaseController):
             )
 
         try:
-            zip_bytes, filename = await self.history_facade.export_zip_async(
+            zip_file, filename = await self.history_facade.export_zip_async(
                 generation_ids=generation_ids,
                 user_id=current_user.id,
                 strip_metadata=strip_metadata
             )
 
-            return StreamingResponse(
-                io.BytesIO(zip_bytes),
-                media_type="application/zip",
-                headers={
-                    "Content-Disposition": f'attachment; filename="{filename}"',
-                    "Content-Length": str(len(zip_bytes)),
-                }
-            )
+            return self._stream_zip_response(zip_file, filename)
 
         except GenerationNotFoundException as e:
             return self.error_response(
@@ -791,19 +829,12 @@ class GenerationController(BaseController):
         StreamingResponse) instead of an APIResponse JSON envelope.
         """
         try:
-            zip_bytes, filename = await self.history_facade.export_bundle_async(
+            zip_file, filename = await self.history_facade.export_bundle_async(
                 generation_id=generation_id,
                 user_id=current_user.id
             )
 
-            return StreamingResponse(
-                io.BytesIO(zip_bytes),
-                media_type="application/zip",
-                headers={
-                    "Content-Disposition": f'attachment; filename="{filename}"',
-                    "Content-Length": str(len(zip_bytes)),
-                }
-            )
+            return self._stream_zip_response(zip_file, filename)
 
         except GenerationNotFoundException as e:
             return self.error_response(

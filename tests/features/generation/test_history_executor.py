@@ -82,11 +82,17 @@ class TestLoopIsNotBlocked:
         )
 
     async def test_export_zip_does_not_block_the_loop(self):
+        import tempfile
+
         facade = make_facade()
+        zip_content = b"zip-bytes"
 
         def slow_export(*args, **kwargs):
             time.sleep(SLOW_CALL_SECONDS)
-            return b"zip-bytes", "export.zip"
+            spooled = tempfile.SpooledTemporaryFile()
+            spooled.write(zip_content)
+            spooled.seek(0)
+            return spooled, "export.zip"
 
         facade._archive.export_zip = slow_export
         controller = make_controller(facade)
@@ -103,7 +109,7 @@ class TestLoopIsNotBlocked:
         max_gap = await ticker
         facade.shutdown()
 
-        assert response.headers["content-length"] == str(len(b"zip-bytes"))
+        assert response.headers["content-length"] == str(len(zip_content))
         assert max_gap < MAX_ACCEPTABLE_GAP_SECONDS
 
 

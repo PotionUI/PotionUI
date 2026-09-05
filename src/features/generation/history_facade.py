@@ -9,6 +9,7 @@ unrelated read and write methods.
 """
 
 import logging
+import tempfile
 from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 
 from src.platform.plugins import PluginRegistry
@@ -196,7 +197,7 @@ class GenerationHistoryFacade:
         generation_ids: List[str],
         user_id: str,
         strip_metadata: bool = False
-    ) -> Tuple[bytes, str]:
+    ) -> Tuple[tempfile.SpooledTemporaryFile, str]:
         return self._archive.export_zip(generation_ids, user_id, strip_metadata)
 
     async def export_zip_async(
@@ -204,7 +205,7 @@ class GenerationHistoryFacade:
         generation_ids: List[str],
         user_id: str,
         strip_metadata: bool = False
-    ) -> Tuple[bytes, str]:
+    ) -> Tuple[tempfile.SpooledTemporaryFile, str]:
         """`export_zip()` off the event loop, for async call sites."""
         return await self.executor.run(
             self.export_zip, generation_ids, user_id, strip_metadata
@@ -218,12 +219,12 @@ class GenerationHistoryFacade:
     ) -> Dict[str, Any]:
         return await self._archive.upload_generations(files, tag_ids, user_id)
 
-    def export_bundle(self, generation_id: str, user_id: str) -> Tuple[bytes, str]:
+    def export_bundle(self, generation_id: str, user_id: str) -> Tuple[tempfile.SpooledTemporaryFile, str]:
         return self._archive.export_bundle(generation_id, user_id)
 
     async def export_bundle_async(
         self, generation_id: str, user_id: str
-    ) -> Tuple[bytes, str]:
+    ) -> Tuple[tempfile.SpooledTemporaryFile, str]:
         """`export_bundle()` off the event loop, for async call sites."""
         return await self.executor.run(self.export_bundle, generation_id, user_id)
 

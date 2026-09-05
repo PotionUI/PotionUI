@@ -67,10 +67,10 @@ class TestExportZip:
         )
 
         manager = self._manager(tmp_path)
-        data, filename = manager.export_zip(["gen1", "gen2"], "user-1")
+        zip_file, filename = manager.export_zip(["gen1", "gen2"], "user-1")
 
         assert filename == "potionui-export.zip"
-        zf = zipfile.ZipFile(io.BytesIO(data))
+        zf = zipfile.ZipFile(zip_file)
         names = set(zf.namelist())
         assert names == {"gen1/0.png", "gen2/0.png"}
         # Files are non-empty and openable as images
@@ -94,9 +94,9 @@ class TestExportZip:
         )
 
         manager = self._manager(tmp_path)
-        data, _ = manager.export_zip(["gen1"], "user-1")
+        zip_file, _ = manager.export_zip(["gen1"], "user-1")
 
-        zf = zipfile.ZipFile(io.BytesIO(data))
+        zf = zipfile.ZipFile(zip_file)
         assert zf.namelist() == ["gen1/0.png"]
 
     def test_export_zip_strip_metadata_removes_text_chunks(self, tmp_path):
@@ -113,11 +113,11 @@ class TestExportZip:
         ]
 
         manager = self._manager(tmp_path)
-        data, _ = manager.export_zip(
+        zip_file, _ = manager.export_zip(
             ["gen1"], "user-1", strip_metadata=True
         )
 
-        zf = zipfile.ZipFile(io.BytesIO(data))
+        zf = zipfile.ZipFile(zip_file)
         assert zf.namelist() == ["gen1/0.png"]
 
         exported = Image.open(io.BytesIO(zf.read("gen1/0.png")))
@@ -143,11 +143,11 @@ class TestExportZip:
         ]
 
         manager = self._manager(tmp_path)
-        data, _ = manager.export_zip(
+        zip_file, _ = manager.export_zip(
             ["gen1"], "user-1", strip_metadata=True
         )
 
-        zf = zipfile.ZipFile(io.BytesIO(data))
+        zf = zipfile.ZipFile(zip_file)
         assert zf.namelist() == ["gen1/0.mp4"]
         assert zf.read("gen1/0.mp4") == raw
 
@@ -157,3 +157,26 @@ class TestExportZip:
         manager = self._manager(tmp_path)
         with pytest.raises(GenerationNotFoundException):
             manager.export_zip(["gen-missing"], "user-1")
+
+    def test_export_zip_returns_seeked_closable_spooled_file(self, tmp_path):
+        import tempfile
+
+        img1 = tmp_path / "generations/2025-01-01/gen1/0.png"
+        self._write_image_with_metadata(img1)
+
+        self.mock_repo.get_by_id.return_value = Mock()
+        self.mock_repo.get_files.return_value = [
+            _make_file("generations/2025-01-01/gen1/0.png")
+        ]
+
+        manager = self._manager(tmp_path)
+        zip_file, _ = manager.export_zip(["gen1"], "user-1")
+
+        # The caller (the route) gets a seekable file, not the whole archive
+        # already materialized as bytes.
+        assert isinstance(zip_file, tempfile.SpooledTemporaryFile)
+        assert zip_file.tell() == 0
+        assert not zip_file.closed
+
+        zip_file.close()
+        assert zip_file.closed

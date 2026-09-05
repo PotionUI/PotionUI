@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "scenario": "tool_error_recovery",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Find me my last 3 forest generations."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "search_gallery",
+          "arguments": {
+            "queries": [
+              "forest"
+            ],
+            "limit": 3
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "search_gallery",
+      "content": "{\"results\": [{\"path\": \"generations/2026-08-30/01ABC/1.png\"}]}",
+      "outcome": "ok"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "search_gallery",
+          "arguments": {
+            "queries": [
+              "forest"
+            ],
+            "limit": 3
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "search_gallery",
+      "content": "{\"error\": \"gallery_index_rebuilding\"}",
+      "outcome": "error"
+    },
+    {
+      "role": "assistant",
+      "content": "Here's what I found earlier: generations/2026-08-30/01ABC/1.png (forest)."
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "comfyui_propose_form_changes_applied",
   "title": "ComfyUI import mapping via propose_form_changes, applied outcome",
   "mode": "comfyui-import",
@@ -48,5 +48,7 @@
       "type": "max_tool_rounds",
       "max": 1
     }
-  ]
+  ],
+  "live_supported": false,
+  "live_unsupported_reason": "reaching an 'applied' or 'stale' outcome requires the tool-approval/confirm endpoint, which chat_eval.py run never calls by design (every mutating tool stays a dry pending_approval preview) - so this scenario's own scripted outcome is unreachable live."
 }

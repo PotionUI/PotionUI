@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "scenario": "read_form_state",
+  "messages": [
+    {
+      "role": "user",
+      "content": "What steps and seed am I currently using?"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "get_active_models",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "get_active_models",
+      "content": "{\"models\": [{\"model_id\": \"sdxl/juggernautXL_v9\", \"name\": \"JuggernautXL v9\"}]}",
+      "outcome": "ok"
+    },
+    {
+      "role": "assistant",
+      "content": "You're currently at 28 steps with seed 12345."
+    }
+  ]
+}

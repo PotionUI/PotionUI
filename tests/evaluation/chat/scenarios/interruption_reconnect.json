@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "interruption_reconnect",
   "title": "A reconnect mid-turn must resume, not duplicate, tool work already done",
   "mode": "generation",
@@ -26,5 +26,7 @@
         "JuggernautXL"
       ]
     }
-  ]
+  ],
+  "live_supported": false,
+  "live_unsupported_reason": "the replay/reconnect mechanic is proven against the real ChatTurnRegistry in test_turn_replay_contract.py; driving an actual SSE disconnect/reconnect against a live HTTP server is out of scope for chat_eval.py run."
 }

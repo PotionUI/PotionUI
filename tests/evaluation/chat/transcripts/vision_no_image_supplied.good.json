@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "scenario": "vision_no_image_supplied",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Here's a screenshot of my error, [image attached] - can you tell me what's wrong?"
+    },
+    {
+      "role": "assistant",
+      "content": "It looks like the screenshot didn't come through - I don't see an attached image on this message. Could you try attaching it again, or paste the error text instead?"
+    }
+  ]
+}

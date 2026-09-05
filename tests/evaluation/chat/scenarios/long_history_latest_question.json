@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "long_history_latest_question",
   "title": "Long history plus a new current question - the latest question must be answered, not an earlier one",
   "mode": "generation",
@@ -19,5 +19,7 @@
         "2x"
       ]
     }
-  ]
+  ],
+  "live_supported": true,
+  "live_context_metadata": null
 }

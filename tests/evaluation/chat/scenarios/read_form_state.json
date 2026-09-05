@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "read_form_state",
   "title": "Reading current form/model facts via get_form_state",
   "mode": "generation",
@@ -51,5 +51,18 @@
       "type": "max_tool_rounds",
       "max": 1
     }
-  ]
+  ],
+  "live_supported": true,
+  "live_context_metadata": {
+    "form_state": {
+      "preset": "sdxl/base",
+      "mode": "txt2img",
+      "form_data": {
+        "steps": 28,
+        "seed": 12345,
+        "width": 832,
+        "height": 1216
+      }
+    }
+  }
 }

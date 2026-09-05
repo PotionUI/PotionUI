@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "tool_error_recovery",
   "title": "A tool error followed by a justified recovery",
   "mode": "generation",
@@ -32,5 +32,7 @@
       "type": "max_tool_rounds",
       "max": 2
     }
-  ]
+  ],
+  "live_supported": false,
+  "live_unsupported_reason": "a real gallery-index error cannot be induced deterministically against a live backend."
 }

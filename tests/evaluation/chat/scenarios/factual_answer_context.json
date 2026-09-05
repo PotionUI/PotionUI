@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "factual_answer_context",
   "title": "Factual answer from context already supplied, no tool call needed",
   "mode": "generation",
@@ -34,5 +34,7 @@
       "type": "max_tool_rounds",
       "max": 0
     }
-  ]
+  ],
+  "live_supported": true,
+  "live_context_metadata": null
 }

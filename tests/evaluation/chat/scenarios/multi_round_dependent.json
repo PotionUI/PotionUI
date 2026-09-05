@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "multi_round_dependent",
   "title": "Multi-round dependent tool task: resolve the active model, then search prompts for it",
   "mode": "generation",
@@ -40,5 +40,7 @@
       "type": "max_tool_rounds",
       "max": 2
     }
-  ]
+  ],
+  "live_supported": false,
+  "live_unsupported_reason": "get_active_models looks the model up in the REAL model index; a fictional model_id won't resolve to real metadata on any given install, and search_model_prompts is likewise unpredictable (see search_model_prompts)."
 }

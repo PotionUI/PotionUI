@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "enhancement_request",
   "title": "Prompt enhancement request via enhance_prompt",
   "mode": "generation",
@@ -30,5 +30,7 @@
       "type": "max_tool_rounds",
       "max": 1
     }
-  ]
+  ],
+  "live_supported": false,
+  "live_unsupported_reason": "enhance_prompt is itself a multi-step pipeline that fans out into further model grounding/search calls with non-deterministic creative output - too heavy and unpredictable to score automatically in a live comparison run."
 }

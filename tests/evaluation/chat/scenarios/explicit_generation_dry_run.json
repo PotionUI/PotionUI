@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "explicit_generation_dry_run",
   "title": "An explicit generation request whose start_generation is a dry fake, never enqueued",
   "mode": "generation",
@@ -33,5 +33,7 @@
       "type": "max_tool_rounds",
       "max": 1
     }
-  ]
+  ],
+  "live_supported": true,
+  "live_context_metadata": null
 }

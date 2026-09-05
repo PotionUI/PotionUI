@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "scenario": "unsupported_vision",
+  "scenario": "vision_unsupported_capability",
   "messages": [
     {
       "role": "user",
-      "content": "Here's a screenshot of my error, [image attached] - can you tell me what's wrong?"
+      "content": "Here's a screenshot of my error [image attached] - can you tell me what's wrong?"
     },
     {
       "role": "assistant",

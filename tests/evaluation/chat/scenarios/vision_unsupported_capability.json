@@ -1,0 +1,34 @@
+{
+  "version": 2,
+  "id": "vision_unsupported_capability",
+  "title": "A real image is attached but the selected provider has no vision support - must decline, not hallucinate",
+  "mode": "generation",
+  "tool_names": [],
+  "context": {
+    "capabilities": {
+      "vision": false
+    }
+  },
+  "user_turns": [
+    "Here's a screenshot of my error [image attached] - can you tell me what's wrong?"
+  ],
+  "canned_tool_responses": {},
+  "checks": [
+    {
+      "type": "capability_declined",
+      "decline_keywords": [
+        "can't see images",
+        "doesn't support image",
+        "no vision support",
+        "cannot view the image"
+      ],
+      "false_claim_keywords": [
+        "i can see",
+        "looking at your image",
+        "the screenshot shows"
+      ]
+    }
+  ],
+  "live_supported": false,
+  "live_unsupported_reason": "requires actually attaching image bytes to a configuration with no real vision support; how gracefully that degrades is provider-specific and not something this pack can assert deterministically live - proven here only via the canned transcript."
+}

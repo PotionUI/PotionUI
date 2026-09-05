@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "search_model_prompts",
   "title": "Model-specific prompt research via search_model_prompts",
   "mode": "generation",
@@ -36,5 +36,7 @@
       "type": "max_tool_rounds",
       "max": 1
     }
-  ]
+  ],
+  "live_supported": false,
+  "live_unsupported_reason": "search_model_prompts hits the real community-prompt search backend; results for a fictional model_id are unpredictable and cannot be asserted deterministically."
 }

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "propose_form_settings",
   "title": "Proposing seed/step edits via update_form_settings, approval-gated",
   "mode": "generation",
@@ -42,5 +42,16 @@
       "type": "max_tool_rounds",
       "max": 1
     }
-  ]
+  ],
+  "live_supported": true,
+  "live_context_metadata": {
+    "form_state": {
+      "preset": "sdxl/base",
+      "mode": "txt2img",
+      "form_data": {
+        "steps": 20,
+        "seed": 111
+      }
+    }
+  }
 }

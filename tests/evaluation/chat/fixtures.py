@@ -36,10 +36,17 @@ FIXTURES_DIR = Path(__file__).resolve().parent
 SCENARIOS_DIR = FIXTURES_DIR / "scenarios"
 TRANSCRIPTS_DIR = FIXTURES_DIR / "transcripts"
 
-SUPPORTED_SCENARIO_VERSION = 1
+SUPPORTED_SCENARIO_VERSION = 2
 SUPPORTED_TRANSCRIPT_VERSION = 1
 
-_REQUIRED_SCENARIO_KEYS = {"version", "id", "title", "mode", "tool_names", "context", "user_turns", "checks"}
+# version 2 adds the live-run contract: `live_supported` is required on every
+# scenario; `live_context_metadata` (the EXACT `SendMessageRequest.context_metadata`
+# payload to send on each turn) and `live_unsupported_reason` are conditionally
+# required by `_check_live_run_fields` below rather than always-present keys,
+# since exactly one of them applies depending on `live_supported`.
+_REQUIRED_SCENARIO_KEYS = {
+    "version", "id", "title", "mode", "tool_names", "context", "user_turns", "checks", "live_supported",
+}
 _REQUIRED_TRANSCRIPT_KEYS = {"version", "scenario", "messages"}
 
 
@@ -56,6 +63,11 @@ def load_scenario(path: Path) -> Dict[str, Any]:
         raise FixtureError(f"{path}: unsupported scenario version {data['version']}")
     if data["id"] != path.stem:
         raise FixtureError(f"{path}: scenario id {data['id']!r} does not match filename")
+    if data["live_supported"]:
+        if "live_context_metadata" not in data:
+            raise FixtureError(f"{path}: live_supported scenarios require 'live_context_metadata' (null is a valid value)")
+    elif not data.get("live_unsupported_reason"):
+        raise FixtureError(f"{path}: live_supported=false requires a non-empty 'live_unsupported_reason'")
     return data
 
 

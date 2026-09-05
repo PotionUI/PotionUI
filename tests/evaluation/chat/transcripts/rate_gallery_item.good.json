@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "scenario": "rate_gallery_item",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Rate my last fox generation 4 out of 5."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "organize_gallery",
+          "arguments": {
+            "operation": "rate",
+            "generation_id": "01ABC123",
+            "rating": 4
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "organize_gallery",
+      "content": "{\"status\": \"pending_approval\", \"rating\": 4}",
+      "outcome": "pending_approval"
+    },
+    {
+      "role": "assistant",
+      "content": "I've proposed rating your last fox generation 4/5 - approve to save it."
+    }
+  ]
+}

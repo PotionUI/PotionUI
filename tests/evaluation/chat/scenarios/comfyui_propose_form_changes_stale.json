@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "id": "comfyui_propose_form_changes_stale",
   "title": "ComfyUI import mapping via propose_form_changes, stale outcome must not be narrated as applied",
   "mode": "comfyui-import",
@@ -46,5 +46,7 @@
         "changed"
       ]
     }
-  ]
+  ],
+  "live_supported": false,
+  "live_unsupported_reason": "reaching an 'applied' or 'stale' outcome requires the tool-approval/confirm endpoint, which chat_eval.py run never calls by design (every mutating tool stays a dry pending_approval preview) - so this scenario's own scripted outcome is unreachable live."
 }

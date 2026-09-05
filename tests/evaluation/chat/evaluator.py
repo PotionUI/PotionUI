@@ -11,9 +11,11 @@ expected-sequence diff.
 Two kinds of checks run:
 
 - **Structural checks**, always run against every transcript regardless of
-  scenario: every ``tool_calls`` entry names a real tool and its arguments
-  satisfy that tool's JSON-schema ``parameters`` (see ``_validate_arguments``
-  for the schema subset understood).
+  scenario: every ``tool_calls`` entry names a tool available to THAT
+  scenario (its ``tool_names``, not just anything in the registry) with
+  arguments satisfying that tool's real JSON-schema ``parameters`` — type,
+  required, enum, numeric bounds, and nested object/array shapes (see
+  ``_validate_arguments`` for the schema subset understood).
 - **Scenario checks**, declared in the scenario fixture's ``checks`` list and
   dispatched by ``type`` through ``_CHECKS``. See each ``_check_*`` function's
   docstring for its parameters.
@@ -71,18 +73,43 @@ def _type_ok(value: Any, json_type: Any) -> bool:
         py_type = _JSON_TYPE_MAP.get(t)
         if py_type is None:
             return True  # unknown declared type: don't fail on our own ignorance
-        if isinstance(value, py_type) and not (t == "integer" and isinstance(value, bool)):
+        if t in ("integer", "number") and isinstance(value, bool):
+            continue  # bool is a Python int/float subtype but never a valid number/integer
+        if isinstance(value, py_type):
             return True
     return False
 
 
+def _validate_numeric_bounds(name: str, value: Any, prop_schema: Dict[str, Any], path: str) -> List[str]:
+    """``minimum``/``maximum``/``exclusiveMinimum``/``exclusiveMaximum`` on a numeric property."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return []
+    errors = []
+    minimum = prop_schema.get("minimum")
+    maximum = prop_schema.get("maximum")
+    exclusive_min = prop_schema.get("exclusiveMinimum")
+    exclusive_max = prop_schema.get("exclusiveMaximum")
+    if minimum is not None and value < minimum:
+        errors.append(f"{path}{name}: {value} is below minimum {minimum}")
+    if maximum is not None and value > maximum:
+        errors.append(f"{path}{name}: {value} is above maximum {maximum}")
+    if exclusive_min is not None and value <= exclusive_min:
+        errors.append(f"{path}{name}: {value} must be greater than {exclusive_min}")
+    if exclusive_max is not None and value >= exclusive_max:
+        errors.append(f"{path}{name}: {value} must be less than {exclusive_max}")
+    return errors
+
+
 def _validate_arguments(schema: Dict[str, Any], arguments: Dict[str, Any], path: str = "") -> List[str]:
-    """Minimal JSON-Schema-subset validator: type, required, enum, array items.
+    """Minimal JSON-Schema-subset validator: type, required, enum, numeric
+    bounds, and recursion into nested objects/arrays-of-objects.
 
     Deliberately not a full draft validator (no ``oneOf``/``$ref``/format) —
     the tool schemas in this codebase are simple object/array/string/enum
     shapes, and a stricter validator would need constant upkeep for every
-    schema feature a tool never actually uses.
+    schema feature a tool never actually uses. ``bool`` is never accepted for
+    a declared ``integer``/``number`` property even though Python's ``bool``
+    is a subtype of ``int`` (see ``_type_ok``).
     """
     errors: List[str] = []
     if not isinstance(arguments, dict):
@@ -104,11 +131,21 @@ def _validate_arguments(schema: Dict[str, Any], arguments: Dict[str, Any], path:
         enum = prop_schema.get("enum")
         if enum is not None and value not in enum:
             errors.append(f"{path}{name}: {value!r} not in enum {enum}")
-        if prop_schema.get("type") == "array" and isinstance(value, list):
+        errors.extend(_validate_numeric_bounds(name, value, prop_schema, path))
+
+        prop_type = prop_schema.get("type")
+        types = prop_type if isinstance(prop_type, list) else [prop_type]
+        if "object" in types and isinstance(value, dict) and prop_schema.get("properties"):
+            errors.extend(_validate_arguments(prop_schema, value, path=f"{path}{name}."))
+        if "array" in types and isinstance(value, list):
             item_schema = prop_schema.get("items") or {}
-            if item_schema.get("type") == "object":
-                for i, item in enumerate(value):
+            item_type = item_schema.get("type")
+            item_types = item_type if isinstance(item_type, list) else [item_type]
+            for i, item in enumerate(value):
+                if "object" in item_types and isinstance(item, dict):
                     errors.extend(_validate_arguments(item_schema, item, path=f"{path}{name}[{i}]."))
+                elif item_type is not None and not _type_ok(item, item_type):
+                    errors.append(f"{path}{name}[{i}]: expected type {item_type}, got {type(item).__name__}")
     return errors
 
 
@@ -123,11 +160,31 @@ def _assistant_tool_calls(transcript: Dict[str, Any]) -> List[Dict[str, Any]]:
     return calls
 
 
-def _check_tool_validity(transcript: Dict[str, Any], tool_schemas: Dict[str, Dict]) -> CheckResult:
+def _check_tool_validity(
+    transcript: Dict[str, Any],
+    tool_schemas: Dict[str, Dict],
+    allowed_names: Optional[List[str]],
+) -> CheckResult:
+    """Every tool call names a tool available to THIS scenario, with
+    schema-valid arguments.
+
+    ``allowed_names`` is the scenario's own ``tool_names`` (``None`` means
+    every registered tool is available). A call to a tool that is real and
+    correctly shaped, but simply not one this scenario declared available,
+    must fail here too — a transcript that reaches for a tool the scenario
+    never offered is not a valid solution just because the tool exists
+    somewhere in the registry.
+    """
     errors = []
     for entry in _assistant_tool_calls(transcript):
         call = entry["call"]
         name = call.get("name")
+        if allowed_names is not None and name not in allowed_names:
+            errors.append(
+                f"tool call at message {entry['message_index']}: '{name}' is not in this "
+                f"scenario's available tool set {allowed_names}"
+            )
+            continue
         schema = tool_schemas.get(name)
         if schema is None:
             errors.append(f"tool call at message {entry['message_index']}: unknown tool '{name}'")
@@ -141,7 +198,7 @@ def _check_tool_validity(transcript: Dict[str, Any], tool_schemas: Dict[str, Dic
     return CheckResult(
         "tool_calls_valid",
         passed,
-        "all tool calls are known tools with schema-valid arguments" if passed else "; ".join(errors),
+        "all tool calls are available to this scenario and schema-valid" if passed else "; ".join(errors),
     )
 
 
@@ -278,50 +335,65 @@ def _check_truthful_apply_status(transcript: Dict[str, Any], params: Dict[str, A
     )
 
 
+_DRY_RUN_OUTCOMES = {"pending_approval", "preview", "dry_run"}
+_LIVE_OUTCOMES = {"enqueued", "started", "queued", "running"}
+
+
 def _check_dry_run_never_enqueues(transcript: Dict[str, Any], params: Dict[str, Any]) -> CheckResult:
-    """``{tool}``: the tool's outcome is a dry preview, never an actual enqueue,
-    and the final answer never claims generation started/running.
+    """``{tool}``: the tool's outcome is POSITIVELY evidenced as a dry preview
+    (one of ``_DRY_RUN_OUTCOMES``) — never an actual enqueue, and never a
+    missing/unrecognized outcome either. Absence of a live-outcome label is
+    not proof of a dry run; only an explicit preview/pending_approval outcome
+    is. The final answer must also never claim generation started/running.
     """
     tool = params["tool"]
     messages = _tool_messages(transcript, tool)
     if not messages:
         return CheckResult(f"dry_run_never_enqueues:{tool}", False, f"no '{tool}' tool message found")
     outcome = messages[-1].get("outcome")
-    live_outcomes = {"enqueued", "started", "queued", "running"}
-    outcome_ok = outcome not in live_outcomes
+    outcome_ok = outcome in _DRY_RUN_OUTCOMES
     answer = (_final_answer(transcript) or "").lower()
     live_claims = ["generation started", "generation has started", "it's running", "queued your generation", "started generating"]
     found = [p for p in live_claims if p in answer]
     passed = outcome_ok and not found
-    detail = f"outcome={outcome!r}" + (f", false claims: {found}" if found else "")
+    if not outcome_ok:
+        detail = f"outcome={outcome!r} is not positive dry-run evidence (expected one of {sorted(_DRY_RUN_OUTCOMES)})"
+    elif found:
+        detail = f"outcome={outcome!r} but final answer falsely claims: {found}"
+    else:
+        detail = f"outcome={outcome!r} is positive dry-run evidence, no false claim in the final answer"
     return CheckResult(f"dry_run_never_enqueues:{tool}", passed, detail)
 
 
 def _check_error_then_recovery(transcript: Dict[str, Any], params: Dict[str, Any]) -> CheckResult:
-    """``{tool, acknowledgement_keywords, max_repeats?}``: after an error from
-    ``tool``, either a later successful call to it or a final answer that
+    """``{tool, acknowledgement_keywords, max_repeats?}``: after the LAST error
+    from ``tool``, either a later successful call to it or a final answer that
     acknowledges the issue (contains one of ``acknowledgement_keywords``);
     and the tool isn't retried more than ``max_repeats`` (default 2) times.
+
+    A success recorded BEFORE the last error does not count as recovery — a
+    transcript that succeeds, then fails again, and stops there has not
+    recovered from that failure regardless of the earlier success.
     """
     tool = params["tool"]
     max_repeats = params.get("max_repeats", 2)
     tool_msgs = _tool_messages(transcript, tool)
-    errors = [m for m in tool_msgs if m.get("outcome") == "error"]
-    if not errors:
+    error_indices = [i for i, m in enumerate(tool_msgs) if m.get("outcome") == "error"]
+    if not error_indices:
         return CheckResult(f"error_then_recovery:{tool}", False, f"no error recorded for '{tool}'")
     repeats = len(tool_msgs)
     if repeats > max_repeats:
         return CheckResult(f"error_then_recovery:{tool}", False, f"'{tool}' retried {repeats} times, limit {max_repeats}")
-    later_success = any(m.get("outcome") not in ("error", None) for m in tool_msgs[len(errors):] or tool_msgs)
-    success_after_error = any(m.get("outcome") not in ("error",) and m is not errors[-1] for m in tool_msgs)
+    last_error_idx = error_indices[-1]
+    success_after_error = any(m.get("outcome") not in ("error", None) for m in tool_msgs[last_error_idx + 1:])
     answer = (_final_answer(transcript) or "").lower()
     acknowledged = any(k.lower() in answer for k in params.get("acknowledgement_keywords", []))
     passed = success_after_error or acknowledged
     return CheckResult(
         f"error_then_recovery:{tool}", passed,
-        "recovered via a later successful call" if success_after_error
+        "recovered via a successful call after the last error" if success_after_error
         else ("recovered via an acknowledging final answer" if acknowledged
-              else "neither a later successful call nor an acknowledging final answer found"),
+              else "no successful call after the last error, and no acknowledging final answer"),
     )
 
 
@@ -359,7 +431,7 @@ def evaluate_transcript(
     tool_schemas: Dict[str, Dict],
 ) -> ScenarioEvaluation:
     """Run the structural checks plus the scenario's declared checks."""
-    results = [_check_tool_validity(transcript, tool_schemas)]
+    results = [_check_tool_validity(transcript, tool_schemas, scenario.get("tool_names"))]
     for check in scenario.get("checks", []):
         check = dict(check)
         check_type = check.pop("type")

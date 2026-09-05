@@ -1,0 +1,36 @@
+{
+  "version": 2,
+  "id": "rate_gallery_item",
+  "title": "Rating a generation via organize_gallery, exercising a real numeric-bound schema",
+  "mode": "generation",
+  "tool_names": [
+    "organize_gallery"
+  ],
+  "context": {},
+  "user_turns": [
+    "Rate my last fox generation 4 out of 5."
+  ],
+  "canned_tool_responses": {},
+  "checks": [
+    {
+      "type": "tool_call_present",
+      "tool": "organize_gallery",
+      "args_contains": {
+        "operation": "rate",
+        "rating": 4
+      }
+    },
+    {
+      "type": "final_answer_contains_all",
+      "keywords": [
+        "4"
+      ]
+    },
+    {
+      "type": "max_tool_rounds",
+      "max": 1
+    }
+  ],
+  "live_supported": false,
+  "live_unsupported_reason": "rate/tag/untag act on a real generation_id in the user's own history; no fixture generation exists to rate live."
+}

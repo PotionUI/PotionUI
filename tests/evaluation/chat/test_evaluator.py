@@ -1,4 +1,4 @@
-"""Evaluator fixtures: a good transcript passes, three broken ones each fail
+"""Evaluator fixtures: a good transcript passes, seven broken ones each fail
 exactly the check they were built to demonstrate, and every scenario file's
 declared tools resolve against the real tool registry.
 """
@@ -44,6 +44,13 @@ class TestFixtureSchemas:
             transcript = fixtures.load_transcript(path)
             assert transcript["scenario"] in scenarios, f"{path.name} references unknown scenario '{transcript['scenario']}'"
 
+    def test_live_supported_scenarios_declare_context_metadata(self, scenarios):
+        for scenario_id, scenario in scenarios.items():
+            if scenario["live_supported"]:
+                assert "live_context_metadata" in scenario, f"'{scenario_id}' is live_supported but has no live_context_metadata"
+            else:
+                assert scenario.get("live_unsupported_reason"), f"'{scenario_id}' is not live_supported but has no live_unsupported_reason"
+
 
 class TestGoodTranscriptsPass:
     """Every '<scenario>.good' transcript satisfies its own scenario's checks."""
@@ -77,3 +84,34 @@ class TestNegativeFixturesFailTheirIntendedCheck:
         truthfulness = next(r for r in result.results if r.check.startswith("truthful_apply_status"))
         assert not truthfulness.passed, "expected the truthfulness check to fail when a stale outcome is narrated as applied"
         assert "stale" in truthfulness.detail
+
+    def test_unavailable_tool_fails_tool_validity(self, scenarios, tool_schemas):
+        """get_active_models is a real, correctly-called tool - just not one
+        'read_form_state' declared available, so it must still fail here."""
+        result, _ = _evaluate("bad_unavailable_tool", scenarios, tool_schemas)
+        assert not result.passed
+        validity = next(r for r in result.results if r.check == "tool_calls_valid")
+        assert not validity.passed, "expected tool validity to fail on a real tool outside the scenario's own tool set"
+        assert "get_active_models" in validity.detail
+
+    def test_success_before_error_fails_recovery_check(self, scenarios, tool_schemas):
+        """A success recorded BEFORE the last error is not recovery from that error."""
+        result, _ = _evaluate("bad_success_before_error", scenarios, tool_schemas)
+        assert not result.passed
+        recovery = next(r for r in result.results if r.check.startswith("error_then_recovery"))
+        assert not recovery.passed, "expected recovery check to fail when the only success predates the last error"
+
+    def test_missing_dry_run_evidence_fails_dry_run_check(self, scenarios, tool_schemas):
+        """A missing/unknown outcome is not positive evidence of a dry run."""
+        result, _ = _evaluate("bad_missing_dry_run_evidence", scenarios, tool_schemas)
+        assert not result.passed
+        dry_run = next(r for r in result.results if r.check.startswith("dry_run_never_enqueues"))
+        assert not dry_run.passed, "expected dry-run check to fail when the tool outcome carries no dry-run evidence at all"
+
+    def test_numeric_bound_violation_fails_tool_validity(self, scenarios, tool_schemas):
+        """organize_gallery.rating has a real schema maximum of 5; 7 must fail."""
+        result, _ = _evaluate("bad_numeric_bound_violation", scenarios, tool_schemas)
+        assert not result.passed
+        validity = next(r for r in result.results if r.check == "tool_calls_valid")
+        assert not validity.passed, "expected tool validity to fail a rating above the schema's maximum"
+        assert "maximum" in validity.detail

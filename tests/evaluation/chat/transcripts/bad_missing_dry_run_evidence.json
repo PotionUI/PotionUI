@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "scenario": "explicit_generation_dry_run",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Generate a photo of a red fox in the snow using the SDXL base preset, 1024x1024."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "start_generation",
+          "arguments": {
+            "preset_id": "sdxl/base",
+            "mode": "txt2img",
+            "prompt": "a red fox in the snow",
+            "form_overrides": {
+              "width": 1024,
+              "height": 1024
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "start_generation",
+      "content": "{\"preset_id\": \"sdxl/base\", \"prompt\": \"a red fox in the snow\"}",
+      "outcome": null
+    },
+    {
+      "role": "assistant",
+      "content": "I've set up a red fox in the snow at 1024x1024 on the SDXL base preset - approve to start it running."
+    }
+  ]
+}

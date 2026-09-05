@@ -1699,7 +1699,13 @@
 					display_name: displayName.trim(),
 					overwrite_preset_id: editPresetId || undefined,
 					form: dehydrateForm(),
-					history: historyPayload()
+					history: historyPayload(),
+					// Echoed from analyze/source's own response so the server can
+					// refuse (400) rather than silently re-save under a different
+					// classification if the workflow's node schema drifted since -
+					// see backend/preset_import/emit._check_schema_drift.
+					schema_fingerprint: analysis.schema_fingerprint,
+					schema_object_info_used: analysis.object_info_used
 				})
 			});
 			const payload = await res.json().catch(() => null);

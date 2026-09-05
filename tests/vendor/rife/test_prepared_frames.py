@@ -245,3 +245,17 @@ def test_interpolate_prepared_refuses_mismatched_frames():
 
     with pytest.raises(ValueError, match="flow_scale"):
         interpolate_prepared(model, small, small, 0.5, 0.5)
+
+
+def test_matches_is_a_compatibility_check_not_an_identity_one():
+    # Two different frames of one clip match each other: `matches` proves the
+    # padding lattice and encoder weights are the ones this image would get, not
+    # that the features describe its pixels. Keeping the prepared frame and the
+    # image in step is the caller's job, and the pipe gets it from streaming
+    # pairs. Pinning this stops the docstring drifting into a promise of identity.
+    model = _model(with_encoder=True)
+    first, second = _clip(n=2)
+    prepared = prepare_frame(model, first)
+
+    assert not torch.equal(first, second)
+    assert prepared.matches(model, second, 1.0)

@@ -10,6 +10,8 @@ decode a video through `process` are gated on cv2, which imports but fails to
 load its shared objects in some containers.
 """
 
+import weakref
+
 import numpy as np
 import pytest
 
@@ -285,3 +287,71 @@ def test_pipe_releases_prepared_frames_on_cancellation(tmp_path, monkeypatch):
     assert seen, "the cancelled run never prepared a pair"
     gc.collect()
     assert all(ref() is None for ref in seen)
+
+
+# -- how many prepared frames the clip keeps alive ----------------------------
+
+class _PreparedProbe:
+    """Counts the live `PreparedFrame` objects and their tensor bytes at every
+    preparation, so the maximum over a clip is the loop's real high-water mark.
+    Weakrefs, so a frame the loop released stops counting immediately -- the
+    dataclass is acyclic and refcounting frees it without a gc pass."""
+
+    def __init__(self):
+        self.refs = []
+        self.peak_live = 0
+        self.peak_bytes = 0
+
+    def install(self, monkeypatch):
+        original = rife_main.prepare_frame
+
+        def prepare(model, img, flow_scale=1.0):
+            frame = original(model, img, flow_scale)
+            self.refs.append(weakref.ref(frame))
+            live = [f for f in (ref() for ref in self.refs) if f is not None]
+            self.peak_live = max(self.peak_live, len(live))
+            self.peak_bytes = max(self.peak_bytes, sum(_frame_bytes(f) for f in live))
+            return frame
+
+        monkeypatch.setattr(rife_main, "prepare_frame", prepare)
+        return self
+
+
+def _frame_bytes(frame):
+    return sum(
+        t.numel() * t.element_size()
+        for t in (frame.padded, frame.features)
+        if t is not None
+    )
+
+
+@needs_cv2
+@pytest.mark.parametrize("with_encoder", [True, False])
+def test_pipe_keeps_at_most_two_prepared_frames_alive(tmp_path, monkeypatch, with_encoder):
+    # The reuse is only worth having if it bounds memory as well as work: the
+    # previous pair's left frame must be released before the next right frame is
+    # allocated, or the clip briefly holds three.
+    video = tmp_path / "in.mp4"
+    decoded = _write_input_video(video, n_frames=6)
+    model = _model(with_encoder=with_encoder)
+    probe = _PreparedProbe().install(monkeypatch)
+
+    frames = _run_pipe(tmp_path, monkeypatch, model, video)
+
+    one = _frame_bytes(prepare_frame(model, torch.zeros(1, 3, 64, 64), 1.0))
+    assert len(frames) == RifeInterpolatorPipe.output_frame_count(decoded, FACTOR)
+    assert len(probe.refs) == decoded
+    assert probe.peak_live == 2
+    assert probe.peak_bytes == 2 * one
+
+
+@needs_cv2
+def test_pipe_holds_no_prepared_frames_after_the_clip(tmp_path, monkeypatch):
+    video = tmp_path / "in.mp4"
+    _write_input_video(video, n_frames=6)
+    probe = _PreparedProbe().install(monkeypatch)
+
+    _run_pipe(tmp_path, monkeypatch, _model(), video)
+
+    assert probe.refs
+    assert all(ref() is None for ref in probe.refs)

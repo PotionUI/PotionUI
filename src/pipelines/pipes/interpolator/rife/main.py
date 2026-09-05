@@ -192,6 +192,13 @@ class RifeInterpolatorPipe(BasePipe):
                     written += 1
                     continue
 
+                # Drop the previous pair's frames BEFORE the next right frame is
+                # allocated: `prev_prepared` already holds the only one still
+                # needed (it is this pair's left frame), and releasing here is
+                # what bounds the clip at two live prepared frames instead of
+                # three. Assigning through the same locals would free the old
+                # left frame only after the new right one exists.
+                f0 = f1 = None
                 f0, f1 = self._prepare_pair(model, prev_tensor, cur_tensor,
                                             flow_scale, prev_prepared)
                 for t in timesteps:
@@ -265,10 +272,21 @@ class RifeInterpolatorPipe(BasePipe):
     def _prepare_pair(model, img0: torch.Tensor, img1: torch.Tensor, flow_scale: float,
                       carried: Optional[PreparedFrame] = None,
                       ) -> Tuple[PreparedFrame, PreparedFrame]:
-        """Pad and feature-encode the pair's two frames once, reusing ``carried``
-        (the previous pair's right frame, which is this pair's left one) when it
-        was prepared from ``img0`` under the same model, geometry, device, dtype
-        and flow scale. Every timestep in the pair then shares this work."""
+        """Pad and feature-encode the pair's two frames once so every timestep in
+        the pair shares that work, reusing ``carried`` as the left frame.
+
+        ``PreparedFrame.matches`` only establishes compatibility (same model,
+        geometry, device, dtype, flow scale) -- it cannot tell whether ``carried``
+        holds ``img0``'s pixels, and two frames of one clip always match each
+        other. The same-frame invariant comes from the caller: ``process`` streams
+        pairs, so the tensor it passes as ``carried`` is the one it prepared as the
+        previous pair's ``img1``, which is this pair's ``img0``. Pass ``None``
+        rather than a prepared frame from anywhere else.
+
+        Model identity is checked by object, not by weights. That is sound here
+        because `_load_model` hands out an `eval()` model whose parameters nothing
+        mutates for the life of the clip; a caller that reloads or requantises
+        mid-clip would have to drop its prepared frames itself."""
         if carried is not None and carried.matches(model, img0, flow_scale):
             f0 = carried
         else:

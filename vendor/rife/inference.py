@@ -60,9 +60,19 @@ class PreparedFrame:
         return self.padded.dtype
 
     def matches(self, model: IFNet, img: torch.Tensor, flow_scale: float) -> bool:
-        """Whether this was prepared from a frame of ``img``'s geometry, device and
-        dtype, under the same model object and flow scale -- i.e. whether reusing
-        it in place of ``prepare_frame(model, img, flow_scale)`` is exact."""
+        """A COMPATIBILITY check, not an identity one: whether this was prepared
+        under ``model``, ``flow_scale`` and ``img``'s geometry, device and dtype,
+        so the padding lattice and the encoder weights behind ``features`` are the
+        ones ``img`` would get. It cannot establish that ``features`` describe
+        ``img``'s pixels -- two different frames of one clip match each other.
+
+        Reuse is therefore exact only when the caller separately guarantees the
+        same-frame invariant: that the prepared frame was built from this very
+        ``img``. A streaming caller gets that from its own structure (the pair's
+        right frame is literally the next pair's left frame); a caller keyed on
+        anything looser must not use this to decide reuse. ``model_id`` likewise
+        pins the object, not its weights, so a caller mutating a model's
+        parameters in place must invalidate its own prepared frames."""
         return (
             self.model_id == id(model)
             and self.flow_scale == float(flow_scale)

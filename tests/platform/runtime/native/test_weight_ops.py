@@ -379,6 +379,32 @@ def test_scaled_mm_fast_path_reject_reason_distinguishes_weight_device_dtype_and
     assert len({weight_not_cuda, wrong_weight_dtype, no_scale, wrong_input_dtype}) == 4
 
 
+def test_scaled_mm_fast_path_reject_reason_allow_weight_staging_admits_cpu_weight():
+    # allow_weight_staging=True is the production call site's opt-in (a streamed
+    # leaf's weight may still be on pinned CPU RAM): with it set, a non-cuda
+    # weight is no longer disqualifying on its own -- _forward_scaled_mm stages
+    # it for the call instead. Every OTHER reason must still fire exactly as
+    # before, staging flag or not.
+    base = dict(
+        weight_dtype=torch.float8_e4m3fn, has_weight_scale=True, lora_deltas=None,
+        input_dtype=torch.bfloat16, input_is_cuda=True, weight_is_cuda=False,
+        in_features=32, out_features=32,
+    )
+    assert _scaled_mm_fast_path_reject_reason(**base) == "weight_not_cuda"
+    assert _scaled_mm_fast_path_reject_reason(**base, allow_weight_staging=True) is None
+    assert _scaled_mm_fast_path_ok(**base) is False
+    assert _scaled_mm_fast_path_ok(**base, allow_weight_staging=True) is True
+
+    # Unaffected: a non-cuda ACTIVATION still rejects regardless of the flag --
+    # staging only ever moves the weight, never substitutes for a CPU input.
+    cpu_input = dict(base, input_is_cuda=False)
+    assert _scaled_mm_fast_path_reject_reason(**cpu_input, allow_weight_staging=True) == "input_not_cuda"
+
+    # Unaffected: a genuinely wrong weight dtype still rejects with the flag on.
+    wrong_dtype = dict(base, weight_dtype=torch.float16, weight_is_cuda=True)
+    assert _scaled_mm_fast_path_reject_reason(**wrong_dtype, allow_weight_staging=True) == "weight_dtype=torch.float16"
+
+
 def test_quantize_fp8_dynamic_round_trips_within_e4m3_precision():
     x = torch.randn(4, 16) * 0.3
     x_fp8, scale = _quantize_fp8_dynamic(x)
@@ -606,6 +632,198 @@ def test_forward_falls_back_to_dequant_when_fast_path_bails():
         out = lin.forward_comfy_cast_weights(x)
     attempted.assert_called_once()
     ref = F.linear(x, w_fp8.to(torch.bfloat16) * w_scale.to(torch.bfloat16))
+    assert torch.allclose(out, ref)
+
+
+# --- on-demand fp8 weight staging (a streamed leaf's weight stays on pinned CPU
+# RAM at forward entry; production dispatch through the real Fp8ScaledLinear
+# .forward() -> forward_comfy_cast_weights -> _forward_scaled_mm, never a
+# directly-invoked private helper) --------------------------------------------
+#
+# There is no usable GPU in the dev env, so "resident on the activation's
+# device" is faked the same way test_attention.py fakes multi-device dispatch:
+# real CPU tensors, with `torch.Tensor.is_cuda` monkeypatched to a predicate
+# over an explicit id() set instead of the real (always-False-on-CPU)
+# property. `cast_to` is spied (not replaced with a no-op): the fake still
+# clones on "device" moves, matching the real function's semantics, and the
+# clone's id is added to the "resident" set exactly as a real H2D copy would
+# land the result on the target device.
+
+
+def _streamed_fp8_layer(in_f: int = 16, out_f: int = 16) -> "fp8_ops.Linear":
+    """A streamed leaf as ModuleStreamer.apply leaves it: weight on (fake) CPU,
+    comfy_cast_weights forced True (fp8_ops.Linear's namespace default already),
+    stream_non_blocking set."""
+    lin = fp8_ops.Linear(in_f, out_f, bias=False)
+    real_w = torch.randn(out_f, in_f) * 0.05
+    w_scale = torch.tensor(0.01)
+    w_fp8 = (real_w / w_scale).clamp(-448, 448).to(torch.float8_e4m3fn)
+    lin.load_state_dict({"weight": w_fp8, "weight_scale": w_scale}, strict=False, assign=True)
+    lin.stream_non_blocking = True
+    return lin
+
+
+def _install_fake_cuda_residency(monkeypatch):
+    """Mark specific tensors ``.is_cuda`` via an explicit id() set (real CPU
+    tensors otherwise, so ordinary arithmetic/kernel-mock plumbing still
+    works) and fake ``cast_to`` to always clone-and-mark-resident, mirroring
+    the ``_stage_copy`` fake in ``test_partial_prefetch.py``: on this CPU-only
+    box a real device move can't be observed via object identity unless the
+    fake makes one, since the real ``cast_to`` short-circuits (returns the
+    SAME tensor) whenever source and target device+dtype already coincide --
+    which they always do here. Returns ``(resident_ids, stage_calls_for)``:
+    ``stage_calls_for(tensor)`` returns the (dtype, device, non_blocking) log
+    for casts of that tensor."""
+    import vendor.gpl.comfyui.ops as wo
+
+    resident_ids: set[int] = set()
+    calls: list[tuple[int, torch.dtype, torch.device, bool]] = []
+
+    def _fake_cast_to(tensor, dtype, device, *, non_blocking=False):
+        if tensor is None:
+            return None
+        calls.append((id(tensor), dtype, device, non_blocking))
+        clone = tensor.detach().to(dtype=dtype).clone()
+        resident_ids.add(id(clone))
+        return clone
+
+    monkeypatch.setattr(torch.Tensor, "is_cuda", property(lambda self: id(self) in resident_ids))
+    monkeypatch.setattr(wo, "cast_to", _fake_cast_to)
+
+    def stage_calls_for(tensor):
+        return [c for c in calls if c[0] == id(tensor)]
+
+    return resident_ids, stage_calls_for
+
+
+def test_forward_stages_streamed_cpu_weight_on_demand_and_reaches_kernel(monkeypatch):
+    # Real dispatch, gate on, nothing patched about the reject-reason predicate
+    # itself: proves the production allow_weight_staging=True call site + the
+    # new _forward_scaled_mm staging actually get an unstaged streamed leaf to
+    # the fake kernel, rather than silently falling back to dequant.
+    import vendor.gpl.comfyui.ops as wo
+
+    lin = _streamed_fp8_layer()
+    resident_ids, stage_calls_for = _install_fake_cuda_residency(monkeypatch)
+    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+
+    x = torch.randn(1, 16, dtype=torch.bfloat16)
+    resident_ids.add(id(x))  # the activation is on the (fake) GPU
+    fake_out = torch.zeros(1, 16, dtype=torch.bfloat16)
+
+    assert lin.weight.is_cuda is False  # streamed leaf: still off-device before the call
+
+    with patch.object(wo, "_scaled_mm_supported", return_value=True), \
+         patch("torch._scaled_mm", return_value=fake_out) as mock_scaled_mm:
+        out = lin(x)
+
+    mock_scaled_mm.assert_called_once()
+    staged = stage_calls_for(lin.weight)
+    assert len(staged) == 1
+    _, dtype, device, non_blocking = staged[0]
+    assert dtype == lin.weight.dtype and device == x.device and non_blocking is True
+    assert torch.equal(out, fake_out)
+    # The leaf's OWN weight storage never moved -- only a transient per-call copy did.
+    assert lin.weight.is_cuda is False
+
+
+def test_forward_reuses_already_resident_weight_without_extra_copy(monkeypatch):
+    # Mirrors a prefetch hit / a resident (non-streamed) leaf: the weight is
+    # already on the activation's device when forward runs, so no staging call
+    # should happen at all -- the existing tensor is used as-is.
+    import vendor.gpl.comfyui.ops as wo
+
+    lin = _streamed_fp8_layer()
+    resident_ids, stage_calls_for = _install_fake_cuda_residency(monkeypatch)
+    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+    resident_ids.add(id(lin.weight))  # already staged (e.g. LayerPrefetcher._consume)
+
+    x = torch.randn(1, 16, dtype=torch.bfloat16)
+    resident_ids.add(id(x))
+    fake_out = torch.zeros(1, 16, dtype=torch.bfloat16)
+
+    with patch.object(wo, "_scaled_mm_supported", return_value=True), \
+         patch("torch._scaled_mm", return_value=fake_out) as mock_scaled_mm:
+        out = lin(x)
+
+    mock_scaled_mm.assert_called_once()
+    assert stage_calls_for(lin.weight) == []
+    assert torch.equal(out, fake_out)
+
+
+def test_forward_restages_every_call_with_no_cross_call_retention(monkeypatch):
+    # Repeated forwards on an unstaged streamed leaf: each call stages its own
+    # temporary operand (no cache reused across calls, no growth) and the
+    # leaf's own weight identity/residency never changes.
+    import vendor.gpl.comfyui.ops as wo
+
+    lin = _streamed_fp8_layer()
+    resident_ids, stage_calls_for = _install_fake_cuda_residency(monkeypatch)
+    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+
+    x = torch.randn(1, 16, dtype=torch.bfloat16)
+    resident_ids.add(id(x))
+    fake_out = torch.zeros(1, 16, dtype=torch.bfloat16)
+    weight_id_before = id(lin.weight)
+
+    with patch.object(wo, "_scaled_mm_supported", return_value=True), \
+         patch("torch._scaled_mm", return_value=fake_out) as mock_scaled_mm:
+        for _ in range(3):
+            lin(x)
+
+    assert mock_scaled_mm.call_count == 3
+    assert len(stage_calls_for(lin.weight)) == 3  # re-staged every forward, never cached
+    assert id(lin.weight) == weight_id_before
+    assert lin.weight.is_cuda is False
+
+
+def test_forward_falls_back_to_dequant_when_on_demand_staging_oom(monkeypatch):
+    # Staging OOM (or any exception) releases the failed attempt and degrades
+    # to the existing dequant path -- never propagates, never leaves a
+    # half-staged operand behind.
+    import vendor.gpl.comfyui.ops as wo
+
+    lin = _streamed_fp8_layer()
+    real_cast_to = wo.cast_to  # the true function, captured before any fake replaces it
+    resident_ids, _ = _install_fake_cuda_residency(monkeypatch)
+    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+
+    x = torch.randn(1, 16, dtype=torch.bfloat16)
+    resident_ids.add(id(x))
+
+    oom_raised = {"done": False}
+
+    def _oom_once_for_weight(tensor, dtype, device, *, non_blocking=False):
+        if tensor is lin.weight and not oom_raised["done"]:
+            oom_raised["done"] = True
+            raise torch.cuda.OutOfMemoryError("simulated staging OOM")
+        return real_cast_to(tensor, dtype, device, non_blocking=non_blocking)
+
+    monkeypatch.setattr(wo, "cast_to", _oom_once_for_weight)
+
+    with patch.object(wo, "_scaled_mm_supported", return_value=True), \
+         patch("torch._scaled_mm", side_effect=AssertionError("must not run after staging OOM")):
+        out = lin(x)
+
+    assert oom_raised["done"] is True
+    ref = F.linear(x, lin.weight.to(torch.bfloat16) * lin.weight_scale.to(torch.bfloat16))
+    assert torch.allclose(out, ref)
+
+
+def test_forward_on_cpu_gate_off_is_byte_identical_to_dequant(monkeypatch):
+    # Default-off control: with the env gate off, on-demand staging is never
+    # attempted and _forward_scaled_mm is never reached -- exact dequant output.
+    import vendor.gpl.comfyui.ops as wo
+
+    lin = _streamed_fp8_layer()
+    _install_fake_cuda_residency(monkeypatch)
+    monkeypatch.delenv(NATIVE_FP8_MATMUL_ENV, raising=False)
+
+    x = torch.randn(1, 16, dtype=torch.bfloat16)
+    with patch("torch._scaled_mm", side_effect=AssertionError("must not run when gate is off")):
+        out = lin(x)
+
+    ref = F.linear(x, lin.weight.to(torch.bfloat16) * lin.weight_scale.to(torch.bfloat16))
     assert torch.allclose(out, ref)
 
 

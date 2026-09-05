@@ -17,7 +17,11 @@
 # ``_scaled_mm_fast_path_reject_reason`` / ``_log_scaled_mm_fast_path_rejection``)
 # distinguishing "took the native GEMM" from "fell through to dequant" and why --
 # upstream ComfyUI has no such observability, and its absence here previously let a
-# real fast-path-eligibility bug hide silently.
+# real fast-path-eligibility bug hide silently. The fp8 fast path also stages a
+# streamed leaf's still-CPU weight to the activation's device on demand for the
+# current call (Fp8ScaledLinear._forward_scaled_mm), instead of requiring the
+# weight already resident/prefetched -- upstream has no partial-residency
+# streaming concept at all, so this seam is PotionUI-original.
 #
 # AWQ ``pre_quant_scale`` activation smoothing (Fp8ScaledLinear/Nvfp4Linear) ported from
 # comfy/ops.py @ 7d11ec31cb700d881fdf2d73731ecde0093b9540 (comfy-org/ComfyUI, fetched
@@ -151,6 +155,7 @@ def _scaled_mm_fast_path_reject_reason(
     weight_is_cuda: bool,
     in_features: int,
     out_features: int,
+    allow_weight_staging: bool = False,
 ) -> str | None:
     """Which ``_scaled_mm`` fp8 fast-path precondition failed, or ``None`` if
     they all hold. Single source of truth for :func:`_scaled_mm_fast_path_ok`
@@ -169,6 +174,18 @@ def _scaled_mm_fast_path_reject_reason(
     :func:`_deltas_output_branch_ok` can't prove expressible as an output-side
     low-rank branch do (LoKr, anything unrecognised, or an out-of-bounds
     ``target_slice``). Mirrors :func:`_nvfp4_fast_path_reject_reason`.
+
+    ``allow_weight_staging``: a streamed leaf's weight can sit on pinned CPU
+    RAM at forward entry with every other precondition satisfied (partial
+    residency, prefetch off or missed). Default ``False`` keeps
+    ``weight_is_cuda`` a hard precondition — the shape the pure predicate has
+    always had, and what the fast-path-eligibility tests assert. The
+    production call site in ``Fp8ScaledLinear.forward_comfy_cast_weights``
+    passes ``True``: it no longer treats a CPU weight as disqualifying,
+    because ``_forward_scaled_mm`` now stages that weight to the input's
+    device for the call (see its docstring) instead of requiring it
+    pre-staged. Every other reason (dtype, no scale, non-cuda input,
+    unaligned shape, an inexpressible LoRA delta) is unaffected either way.
     """
     if lora_deltas and not _deltas_output_branch_ok(lora_deltas, out_features):
         return "lora_deltas"
@@ -180,7 +197,7 @@ def _scaled_mm_fast_path_reject_reason(
         return f"input_dtype={input_dtype}"
     if not input_is_cuda:
         return "input_not_cuda"
-    if not weight_is_cuda:
+    if not weight_is_cuda and not allow_weight_staging:
         return "weight_not_cuda"
     if in_features % 16:
         return "in_features_not_multiple_of_16"
@@ -199,13 +216,15 @@ def _scaled_mm_fast_path_ok(
     weight_is_cuda: bool,
     in_features: int,
     out_features: int,
+    allow_weight_staging: bool = False,
 ) -> bool:
     """Pure predicate for the ``_scaled_mm`` fast-path preconditions (dtype,
     device, ``_scaled_mm``'s 16-element alignment, no active LoRA delta).
 
     Kept separate from the ``$NATIVE_FP8_MATMUL`` gate + hardware probe
     (:func:`_fp8_matmul_enabled`) so it's testable with plain values instead of
-    real CUDA tensors.
+    real CUDA tensors. See :func:`_scaled_mm_fast_path_reject_reason` for
+    ``allow_weight_staging``.
     """
     return _scaled_mm_fast_path_reject_reason(
         weight_dtype=weight_dtype,
@@ -216,6 +235,7 @@ def _scaled_mm_fast_path_ok(
         weight_is_cuda=weight_is_cuda,
         in_features=in_features,
         out_features=out_features,
+        allow_weight_staging=allow_weight_staging,
     ) is None
 
 
@@ -945,14 +965,20 @@ class Fp8ScaledLinear(manual_cast.Linear):
                     weight_is_cuda=self.weight.is_cuda,
                     in_features=self.in_features,
                     out_features=self.out_features,
+                    # A streamed leaf's weight may still be on pinned CPU RAM here
+                    # (partial residency, prefetch off or missed) -- _forward_scaled_mm
+                    # stages it to the input's device for this call rather than
+                    # requiring it pre-staged.
+                    allow_weight_staging=True,
                 )
                 if reject_reason is None:
                     fast = self._forward_scaled_mm(input)
                     if fast is not None:
                         return fast
                     # else: an operand didn't meet _scaled_mm's requirements (non-scalar
-                    # or non-finite/zero scale, unsupported layout, mixed device, or a
-                    # runtime kernel rejection) -> fall through to the dequant path.
+                    # or non-finite/zero scale, unsupported layout, mixed device, an
+                    # on-demand weight staging failure, or a runtime kernel rejection)
+                    # -> fall through to the dequant path.
                 else:
                     # The gate is on but a precondition never got the request
                     # anywhere near the kernel -- this is the case that used to
@@ -997,15 +1023,29 @@ class Fp8ScaledLinear(manual_cast.Linear):
 
         Returns ``None`` (signalling the caller to take the dequant fallback)
         rather than crashing whenever an operand doesn't satisfy ``_scaled_mm``:
-        a non-scalar or non-finite/zero scale, an unsupported layout, operands on
-        mixed devices (a streamed layer's weight may be prefetched onto the GPU
-        while its scales/bias still sit on pinned CPU RAM), or a runtime kernel
-        rejection (e.g. a stale process-wide capability probe on a second GPU).
+        a non-scalar or non-finite/zero scale, an unsupported layout, an
+        on-demand weight-staging failure (below), or a runtime kernel rejection
+        (e.g. a stale process-wide capability probe on a second GPU).
+
+        **On-demand weight staging.** A streamed leaf (``ModuleStreamer.apply``,
+        ``memory/partial.py``) keeps its weight on pinned CPU RAM and only
+        copies it to the activation's device inside the ordinary per-forward
+        cast — which the fp8 fast path used to require done *before* it ran,
+        silently falling back to dequant on every unstaged call otherwise. If
+        ``self.weight`` isn't already on ``input``'s device (not resident, and
+        no prefetch hit staged it there first — see ``LayerPrefetcher``), it is
+        copied there here via the same ``cast_to``/``stream_non_blocking``
+        seam the dequant path already uses, for THIS call only: the local
+        reference is dropped when the function returns (normally or via the
+        ``except`` below), so no whole-model or cross-call GPU copy is
+        retained and the leaf's own storage/pinning is untouched. An
+        already-resident or already-prefetched weight (``self.weight.is_cuda``
+        True) is used as-is, no extra copy.
 
         Layout invariant: the first operand must be row-major ``(M, K)`` and the
-        second **column-major** ``(K, N)``. ``self.weight`` is stored
+        second **column-major** ``(K, N)``. The weight is stored
         ``(out_features, in_features)`` = ``(N, K)`` row-major, so ``weight.t()`` is
-        ``(K, N)`` column-major with zero copy — but only when the stored weight is
+        ``(K, N)`` column-major with zero copy — but only when the weight tensor is
         contiguous, which we enforce; the activation is made contiguous too.
         """
         device = input.device
@@ -1016,6 +1056,20 @@ class Fp8ScaledLinear(manual_cast.Linear):
         w_scale = self._cached_scaled_mm_scale("weight", self.weight_scale, device)
         if w_scale is None:
             return None
+
+        weight = self.weight
+        if not weight.is_cuda:
+            # Not resident and no prefetch hit -> stage this call's operand.
+            # Bound to the call: `weight` is a local reference, never written
+            # back to `self.weight`, so the streamed leaf's own storage stays
+            # exactly where ModuleStreamer.apply put it.
+            try:
+                weight = cast_to(weight, weight.dtype, device, non_blocking=self.stream_non_blocking)
+            except (RuntimeError, torch.cuda.OutOfMemoryError):
+                logger.debug(
+                    "fp8 matmul: on-demand weight staging failed; using dequant path", exc_info=True,
+                )
+                return None
 
         orig_shape = input.shape
         x2d = input.reshape(-1, orig_shape[-1]).contiguous()
@@ -1029,8 +1083,8 @@ class Fp8ScaledLinear(manual_cast.Linear):
             x_fp8 = (x2d.to(torch.float32) / x_scale).clamp(-_E4M3_MAX, _E4M3_MAX).to(torch.float8_e4m3fn)
         else:
             x_fp8, x_scale = _quantize_fp8_dynamic(x2d)
-        # weight.t() is column-major only if the stored weight is contiguous row-major.
-        weight = self.weight if self.weight.is_contiguous() else self.weight.contiguous()
+        # weight.t() is column-major only if the weight tensor is contiguous row-major.
+        weight = weight if weight.is_contiguous() else weight.contiguous()
         bias = self.bias.to(device=device, dtype=input.dtype) if self.bias is not None else None
         try:
             out = torch._scaled_mm(

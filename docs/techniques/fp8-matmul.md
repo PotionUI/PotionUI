@@ -24,11 +24,21 @@ This technique adds a real fp8 GEMM fast path using PyTorch's `torch._scaled_mm`
 hardware the matmul itself runs in fp8 instead of being upcast first.
 
 The fast path only activates on a given linear layer when a specific set of conditions hold: the
-layer's weight is stored as `float8_e4m3fn`, no active LoRA delta is patched into it, both tensors
-are on CUDA with a matching float16/bfloat16 activation dtype, and the layer's dimensions are
-16-aligned (a hardware requirement of `_scaled_mm`). Any layer that doesn't meet these conditions
-transparently falls back to the existing dequantize-and-multiply path — nothing breaks, it's just
-not accelerated for that layer.
+layer's weight is stored as `float8_e4m3fn`, no active LoRA delta is patched into it (or the delta
+is expressible as an output-side low-rank branch), the activation is on CUDA with a matching
+float16/bfloat16 dtype, and the layer's dimensions are 16-aligned (a hardware requirement of
+`_scaled_mm`). Any layer that doesn't meet these conditions transparently falls back to the
+existing dequantize-and-multiply path — nothing breaks, it's just not accelerated for that layer.
+
+**Streamed (partial-residency) weights.** A weight that isn't already CUDA-resident — a leaf
+streamed from pinned CPU RAM under partial residency (see the native low-VRAM docs), not yet
+staged by a prefetch hit — is no longer disqualifying on its own. The fast path stages that
+weight to the activation's device for the current call only, reusing an already-resident or
+already-prefetched weight as-is with no extra copy. The staged copy is a plain local reference:
+it is never written back onto the layer, so the streamed leaf's own CPU/pinned storage and
+residency plan are untouched, and nothing is retained across calls. A staging failure (e.g. an
+out-of-memory error) releases the temporary immediately and falls back to the dequantize path for
+that call, exactly like any other fast-path rejection.
 
 ## When to use it
 
@@ -55,8 +65,13 @@ to pass; there is no separate VRAM-based heuristic for this knob). Any other val
   dequantize path is used regardless of the setting.
 - Only matters for fp8-quantized checkpoints — on any other checkpoint this knob is a no-op since no
   layer is stored as `float8_e4m3fn`.
-- No fast path when a runtime LoRA delta is patched onto the layer; those layers always use the
-  dequantize path.
+- No fast path when a runtime LoRA delta is patched onto the layer that can't be expressed as an
+  output-side low-rank branch (e.g. LoKr); those layers always use the dequantize path.
+- On-demand weight staging adds one extra host-to-device copy per forward for a streamed leaf that
+  isn't already resident/prefetched — the same copy the dequantize path would otherwise pay to
+  bring the weight to the activation's device, just handed to the fp8 kernel instead of a dense
+  multiply. It does not change what fits in VRAM: no additional weight is kept resident, and the
+  temporary is released at the end of the call.
 - Activation quantization uses the checkpoint's static `input_scale` when the checkpoint provides
   one (e.g. Klein-fp8), otherwise falls back to a dynamic per-tensor scale computed each forward —
   the latter costs an extra reduction per forward pass.

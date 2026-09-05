@@ -173,6 +173,42 @@ class GenerationController(BaseController):
                 message=f"Failed to start generation: {str(e)}"
             )
 
+    async def preview_memory(self, request: GenerationRequest, current_user) -> APIResponse:
+        """Estimate the GPU memory a request would need, without starting it."""
+        try:
+            result = await self.generation_orchestrator.preview_memory(request, current_user.id)
+            return self.success_response(data=result)
+        except FormNotFoundException as e:
+            return self.error_response(
+                error="form_not_found",
+                message=str(e),
+                status_code=404
+            )
+        except FormBindingError as e:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "form_validation_failed",
+                    "field_errors": e.field_errors,
+                    "coercions": e.coercions,
+                    "stripped": e.stripped,
+                    "message": str(e),
+                },
+            )
+        except ValueError as e:
+            return self.error_response(
+                error="validation_error",
+                message=str(e),
+                status_code=400
+            )
+        except Exception as e:
+            error_details = traceback.format_exc()
+            logging.error(error_details)
+            return self.error_response(
+                error="memory_preview_failed",
+                message=f"Failed to preview memory: {str(e)}"
+            )
+
     async def _handle_generation_output(self, generation_id: str, output: GenerationOutput):
         """Handle generation output and broadcast to WebSocket clients"""
         # Get generation status from orchestrator
@@ -1309,6 +1345,11 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def start_generation(request: GenerationRequest, current_user = Depends(get_current_active_user)):
         """Start a new image generation job with the specified parameters and preset."""
         return await controller.start_generation(request, current_user)
+
+    @router.post("/memory-preview", response_model=APIResponse, summary="Preview Generation Memory Advisory")
+    async def preview_generation_memory(request: GenerationRequest, current_user = Depends(get_current_active_user)):
+        """Estimate the GPU memory a request would need, without starting it."""
+        return await controller.preview_memory(request, current_user)
 
     @router.get("/{generation_id}/status", response_model=APIResponse, summary="Get Generation Status")
     async def get_generation_status(generation_id: str, current_user = Depends(get_current_active_user)):

@@ -83,25 +83,18 @@ from src.features.music_director import (
     normalize_music_director,
 )
 from src.features.forms.binding import bind_form, FormBindingError
+from src.features.generation.memory_advisory import (
+    _WEIGHT_LOAD_MARGIN,
+    _activation_headroom_gb,
+    _frame_count,
+    _parse_resolution,
+    active_pipe_vram_hint_gb,
+    estimate_request_memory,
+    resolve_budget_evidence,
+    resolve_device_evidence,
+)
 
 logger = logging.getLogger(__name__)
-
-# Loaded weights run a little over their on-disk size (allocator slack, dtype
-# staging). The resolution-scaled activation spike is priced separately below,
-# so this stays a small weight-only overhead rather than the old flat 1.3.
-_WEIGHT_LOAD_MARGIN = 1.1
-
-# Sampling-phase activation spike over resident weights, per VAE-latent pixel.
-# Mirrors `_SAMPLING_MB_PER_LATENT_PX` in
-# src/platform/runtime/native/memory/tiering.py (0.1 MB/latent-px, calibrated
-# as the total peak-over-weights). Reproduced here rather than imported: that
-# module pulls in vendor.gpl/torch, too heavy for the submission path. At 1024²
-# this is ~1.6 GB, the right order of magnitude for the DiT forward spike.
-_SAMPLING_ACT_MB_PER_LATENT_PX = 0.1
-_VAE_SPATIAL_DOWNSCALE = 8
-# Video latents compress in time too (Wan 4x, LTX 8x); 4 is a nominal middle so
-# the term is monotone in frame count without pretending to per-model accuracy.
-_NOMINAL_TEMPORAL_DOWNSCALE = 4
 
 # `form.upscale`'s two "on" values (see content/presets/marketplace/LTX-2/modes/video/
 # pipeline.yml) to the rational scale `latent_upscaler/ltx`'s resampler
@@ -161,45 +154,6 @@ def _check_ltx_two_stage_geometry(preset_template, mode: str, form_data: Dict[st
         f"Nearest achievable resolution: {suggested_w}x{suggested_h}. You can also switch Upscale to 2.0x, "
         f"which is always achievable at any resolution."
     )
-
-
-def _parse_resolution(form_data: Dict[str, Any]) -> Optional[tuple]:
-    """(width, height) from the form's `resolution` "WxH" string or explicit
-    width/height ints, or None when neither is present."""
-    res = form_data.get("resolution")
-    if isinstance(res, str) and "x" in res.lower():
-        try:
-            w_str, h_str = res.lower().split("x")
-            return int(w_str.strip()), int(h_str.strip())
-        except (ValueError, TypeError):
-            pass
-    w, h = form_data.get("width"), form_data.get("height")
-    if isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0:
-        return w, h
-    return None
-
-
-def _frame_count(form_data: Dict[str, Any]) -> int:
-    """Requested frame count from whichever key a preset uses, or 1 (still image).
-    Video presets that don't expose a frame field fall through to 1 - their
-    (large) model weights dominate the estimate regardless."""
-    for key in ("num_frames", "frames", "video_length", "length", "frame_count"):
-        value = form_data.get(key)
-        if isinstance(value, int) and value > 0:
-            return value
-    return 1
-
-
-def _activation_headroom_gb(form_data: Dict[str, Any]) -> float:
-    """Resolution/frames-scaled sampling activation spike, in GB. 0 when the form
-    carries no resolution."""
-    wh = _parse_resolution(form_data)
-    if wh is None:
-        return 0.0
-    width, height = wh
-    latent_px = (width / _VAE_SPATIAL_DOWNSCALE) * (height / _VAE_SPATIAL_DOWNSCALE)
-    latent_frames = max(1, round(_frame_count(form_data) / _NOMINAL_TEMPORAL_DOWNSCALE))
-    return latent_px * latent_frames * _SAMPLING_ACT_MB_PER_LATENT_PX / 1024.0
 
 
 def _estimate_generation_vram_gb(form_data: Any) -> Optional[float]:
@@ -561,6 +515,107 @@ class GenerationOrchestrator:
 
         for model_id in model_ids:
             self.model_access_policy.verify_model_access(model_id, user)
+
+    async def preview_memory(self, request, user_id: str) -> Dict[str, Any]:
+        """A non-blocking request memory advisory for a request that has NOT
+        started: binds the form and resolves the backend exactly as
+        `start_generation` does, then reports a lower-bound VRAM estimate
+        plus device/budget evidence - never a fit verdict.
+
+        This method never enqueues, never runs `generation.before_start` or
+        any other hook, never loads a model, never allocates GPU memory,
+        never mutates a backend or persists a generation record. It reuses
+        only three of `start_generation`'s seams: preset load, `bind_form`,
+        and backend selection (the router when wired, else
+        `backend_registry.select_backend_for_generation`) - none of
+        `start_generation`'s other side-effecting steps (model-access
+        enforcement, Director normalization, origin validation, ...) run
+        here, since a preview reports on a form, not on a submission about to
+        be committed.
+
+        Raises:
+            ValueError: unknown preset (mirrors `start_generation`).
+            FormNotFoundException / FormBindingError: from `bind_form`.
+            NoBackendForEngineError / NoEligibleBackendError: no backend
+                available for this preset's engine / request.
+        """
+        preset_template = self.preset_template_loader.load_preset_by_id(request.preset_id)
+        if not preset_template:
+            raise ValueError(f"Preset '{request.preset_id}' not found")
+
+        engine = preset_template.engine
+        mode = getattr(request, 'mode', 'txt2img')
+        storage_dir = self.settings.get_file_storage_directory(user_id)
+        field_overrides = None
+        if self.database_preset_repository is not None:
+            field_overrides = self.database_preset_repository.get_preset_form_overrides(
+                request.preset_id
+            ).get(mode, {})
+        bound = bind_form(
+            preset_template,
+            mode,
+            getattr(request, 'form_name', None),
+            request.form_data,
+            user_id,
+            storage_dir=storage_dir,
+            field_overrides=field_overrides,
+        )
+
+        backend_id = getattr(request, 'backend_id', None)
+        router = getattr(self, "router", None)
+        if router is not None:
+            decision = await router.route(RoutingRequest(
+                engine=engine,
+                preset=preset_template,
+                form_data=bound.values,
+                requested_backend_id=backend_id,
+                user_id=user_id,
+            ))
+            backend = decision.chosen
+        else:
+            backend = self.backend_registry.select_backend_for_generation(
+                engine=engine, backend_id=backend_id,
+            )
+
+        try:
+            built = self.pipeline_builder.build_pipeline(
+                preset_id=preset_template,
+                form_data=bound.values,
+                mode=mode,
+                form_name=bound.form_name,
+                user_id=user_id,
+            )
+            pipes = built.pipes
+        except Exception:
+            logger.debug("preview_memory: pipeline build failed; active model set unresolved", exc_info=True)
+            pipes = None
+
+        from src.features.models.repository import model_repo
+
+        result = estimate_request_memory(
+            pipes,
+            lambda model_id: model_repo.get_by_id(model_id, include_providers=False, include_tags=False),
+            bound.values,
+        )
+
+        execution_device = getattr(backend, "execution_device", "unestablished")
+        device = resolve_device_evidence(execution_device, self.gpu_monitor)
+        backend_cap_gb = getattr(backend.config, "gpu_max_vram", None)
+        pipe_hint_gb = active_pipe_vram_hint_gb(pipes) if pipes is not None else None
+        budget = resolve_budget_evidence(backend_cap_gb, pipe_hint_gb, device)
+
+        return {
+            'estimate': result.estimate.to_dict(),
+            'coverage': result.coverage.to_dict(),
+            'device': device.to_dict(),
+            'budget': budget.to_dict(),
+            'backend': {
+                'id': backend.backend_id,
+                'name': backend.name,
+                'engine': backend.engine,
+                'driver': backend.config.driver,
+            },
+        }
 
     async def start_generation(
         self,

@@ -2138,6 +2138,9 @@
 			presetVersion={currentTabPresetVersion}
 			availableModes={activeTabModes}
 			multiBackend={currentTabHasMultipleBackends}
+			formData={currentTab.formData}
+			formVariant={currentTab.selectedVariant ?? undefined}
+			backendId={currentTab.selectedBackendId ?? null}
 			on:generationcomplete={() => lastGenerationsRefreshSignal++}
 		>
 			<GenerationSettingsPanel

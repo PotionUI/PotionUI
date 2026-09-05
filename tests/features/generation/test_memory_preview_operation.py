@@ -1,0 +1,286 @@
+"""Tests for `GenerationOrchestrator.preview_memory`.
+
+Reuses the same fixture shape as test_orchestrator_routing_decision.py: a
+`GenerationOrchestrator` built with fakes standing in for its collaborators.
+Asserts the preview reports device/budget/estimate evidence for local,
+remote and no-GPU backends, and that it never enqueues, hooks, persists, or
+starts a real generation.
+"""
+
+import pytest
+from unittest.mock import AsyncMock, Mock, patch
+
+from src.features.backends.backend_config import NativeBackendConfig, NativeRemoteBackendConfig
+from src.features.generation.pipeline_builder import BuiltPipeline
+from src.features.generation.queue_dispatcher import QueueDispatcher
+
+
+@pytest.fixture(autouse=True)
+def _bind_form_passthrough():
+    """See test_orchestrator.py::_bind_form_passthrough."""
+    from src.features.forms.binding import BoundForm
+
+    def _passthrough(preset_template, mode, form_name, raw_form_data, user_id, storage_dir=None, field_overrides=None):
+        return BoundForm(values=dict(raw_form_data or {}), form_name=form_name or 'txt2img', coercions=[], stripped=[])
+
+    with patch('src.features.generation.orchestrator.bind_form', side_effect=_passthrough):
+        yield
+
+
+_KNOWN_PIPES = [
+    {
+        "name": "model_loader/krea2",
+        "id": "loader",
+        "enabled": True,
+        "config": {"checkpoint": "model:ckpt1"},
+    }
+]
+
+
+def _pipeline_builder(pipes=_KNOWN_PIPES, build_error=False):
+    builder = Mock()
+    if build_error:
+        builder.build_pipeline = Mock(side_effect=RuntimeError("template error"))
+    else:
+        builder.build_pipeline = Mock(return_value=BuiltPipeline(
+            generation_id='preview', preset_id='preset_1', preset_template=Mock(version='1.0.0'), pipes=pipes,
+        ))
+    return builder
+
+
+def _preset_template_loader(engine='native'):
+    loader = Mock()
+    preset = Mock()
+    preset.engine = engine
+    preset.id = 'preset_1'
+    loader.load_preset_by_id = Mock(return_value=preset)
+    return loader
+
+
+def _local_backend(gpu_max_vram=10):
+    backend = Mock()
+    backend.backend_id = 'native_1'
+    backend.name = 'Local'
+    backend.engine = 'native'
+    backend.execution_device = 'this_host_gpu'  # NativeBackend's REQ-01 declaration
+    backend.config = NativeBackendConfig(id='native_1', name='Local', device='cpu', dtype='float32', gpu_max_vram=gpu_max_vram)
+    backend.start_generation = AsyncMock()
+    return backend
+
+
+def _remote_backend():
+    backend = Mock()
+    backend.backend_id = 'remote_1'
+    backend.name = 'Remote'
+    backend.engine = 'native'
+    backend.execution_device = 'remote'  # RemoteNativeBackend's REQ-01 declaration
+    backend.config = NativeRemoteBackendConfig(id='remote_1', name='Remote')
+    backend.start_generation = AsyncMock()
+    return backend
+
+
+def _comfyui_shaped_backend_with_remote_host():
+    """A comfyui-driver in-process plugin backend pointed at a non-local
+    host - `driver` alone must never be read as evidence of locality
+    (REQ-01); it hasn't declared `execution_device` at all."""
+    backend = Mock(spec=['backend_id', 'name', 'engine', 'config', 'start_generation'])
+    backend.backend_id = 'comfy_1'
+    backend.name = 'ComfyUI'
+    backend.engine = 'comfyui'
+    backend.config = Mock(spec=['driver', 'host'], driver='comfyui', host='192.0.2.10')
+    backend.start_generation = AsyncMock()
+    return backend
+
+
+def _settings():
+    settings = Mock()
+    settings.get_file_storage_directory = Mock(return_value='/tmp/storage')
+    return settings
+
+
+def _gpu_monitor(free_mb=8192, total_mb=24576, available=True):
+    monitor = Mock()
+    monitor.available = available
+    monitor.get_free_vram = Mock(return_value=free_mb)
+    monitor.get_total_vram = Mock(return_value=total_mb)
+    return monitor
+
+
+def _model_repo_with(sizes):
+    """Patch `src.features.models.repository.model_repo.get_by_id`."""
+    import types
+    def get_by_id(model_id, include_providers=True, include_tags=True):
+        if model_id not in sizes:
+            return None
+        return types.SimpleNamespace(file_size=sizes[model_id])
+    repo = Mock()
+    repo.get_by_id = Mock(side_effect=get_by_id)
+    return repo
+
+
+def _orchestrator(backend, gpu_monitor=None, pipes=_KNOWN_PIPES, build_error=False, router=None, plugin_registry=None):
+    from src.features.generation.orchestrator import GenerationOrchestrator
+
+    backend_registry = Mock()
+    backend_registry.select_backend_for_generation = Mock(return_value=backend)
+
+    return GenerationOrchestrator(
+        pipeline_builder=_pipeline_builder(pipes=pipes, build_error=build_error),
+        backend_registry=backend_registry,
+        connection_hub=Mock(),
+        settings=_settings(),
+        output_processor=Mock(),
+        preset_template_loader=_preset_template_loader(),
+        gpu_monitor=gpu_monitor,
+        router=router,
+        plugin_registry=plugin_registry,
+    )
+
+
+def _make_request(backend_id=None):
+    request = Mock()
+    request.preset_id = 'preset_1'
+    request.form_data = {'steps': 20}
+    request.mode = 'txt2img'
+    request.form_name = None
+    request.backend_id = backend_id
+    return request
+
+
+@pytest.mark.asyncio
+async def test_local_backend_reports_gpu_monitor_device_and_bounded_budget():
+    backend = _local_backend(gpu_max_vram=10)
+    orchestrator = _orchestrator(backend, gpu_monitor=_gpu_monitor(free_mb=8192, total_mb=24576))
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({"ckpt1": 4 * 1024 ** 3})):
+        result = await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    assert result['device']['kind'] == 'local'
+    assert result['device']['free_gb'] == 8.0
+    assert result['device']['total_gb'] == 24.0
+    assert result['estimate']['lower_bound_gb'] == pytest.approx(round(4.0 * 1.1, 2))
+    assert result['coverage']['known'] == [{'ref': 'ckpt1', 'size_gb': 4.0}]
+    # backend cap (10) is stricter than device free (8)? no: min(10, 8) = 8
+    assert result['budget']['configured_gb'] == 8.0
+    assert result['backend']['driver'] == 'native.local'
+
+
+@pytest.mark.asyncio
+async def test_remote_backend_device_unknown_never_uses_this_hosts_gpu():
+    backend = _remote_backend()
+    # A GpuMonitor IS wired (this host has one), but the chosen backend's
+    # driver is native.remote - its numbers must never be read.
+    orchestrator = _orchestrator(backend, gpu_monitor=_gpu_monitor())
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
+        result = await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    assert result['device'] == {
+        'kind': 'remote', 'free_gb': None, 'total_gb': None,
+        'provenance': 'not reported by the remote worker',
+    }
+
+
+@pytest.mark.asyncio
+async def test_comfyui_shaped_backend_with_remote_host_is_unknown_not_local():
+    """A plugin backend that hasn't declared `execution_device` must never be
+    read as local off its driver string - even with a GpuMonitor wired for
+    this host, and even though it runs in-process like NativeBackend does."""
+    backend = _comfyui_shaped_backend_with_remote_host()
+    # Real numbers, not an exception: a broad `except Exception` around a
+    # driver-substring check could otherwise mask a real regression here.
+    monitor = _gpu_monitor(free_mb=8192, total_mb=24576)
+    orchestrator = _orchestrator(backend, gpu_monitor=monitor)
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
+        result = await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    assert result['device'] == {
+        'kind': 'unknown', 'free_gb': None, 'total_gb': None,
+        'provenance': 'execution device not declared by this backend',
+    }
+
+
+@pytest.mark.asyncio
+async def test_no_gpu_monitor_device_is_none():
+    backend = _local_backend()
+    orchestrator = _orchestrator(backend, gpu_monitor=None)
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
+        result = await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    assert result['device']['kind'] == 'none'
+
+
+@pytest.mark.asyncio
+async def test_budget_reflects_backend_cap_change():
+    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
+        low = await _orchestrator(_local_backend(gpu_max_vram=4), gpu_monitor=_gpu_monitor(free_mb=8192 * 1024)).preview_memory(
+            _make_request(), 'user_1'
+        )
+        high = await _orchestrator(_local_backend(gpu_max_vram=16), gpu_monitor=_gpu_monitor(free_mb=8192 * 1024)).preview_memory(
+            _make_request(), 'user_1'
+        )
+
+    assert low['budget']['configured_gb'] == 4.0
+    assert high['budget']['configured_gb'] == 16.0
+
+
+@pytest.mark.asyncio
+async def test_explicit_backend_id_is_honored_without_a_router():
+    backend = _local_backend()
+    orchestrator = _orchestrator(backend)
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
+        await orchestrator.preview_memory(_make_request(backend_id='native_1'), 'user_1')
+
+    orchestrator.backend_registry.select_backend_for_generation.assert_called_once_with(
+        engine='native', backend_id='native_1',
+    )
+
+
+@pytest.mark.asyncio
+async def test_explicit_backend_id_passed_through_router():
+    from src.features.generation.routing.contracts import Candidate, RoutingDecision
+
+    backend = _local_backend()
+    router = Mock()
+    router.route = AsyncMock(return_value=RoutingDecision(
+        chosen=backend, candidates=[Candidate(backend=backend)], rule_trace=[],
+    ))
+    orchestrator = _orchestrator(backend, router=router)
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
+        await orchestrator.preview_memory(_make_request(backend_id='native_1'), 'user_1')
+
+    assert router.route.call_args[0][0].requested_backend_id == 'native_1'
+
+
+@pytest.mark.asyncio
+async def test_build_failure_leaves_active_set_unresolved():
+    backend = _local_backend()
+    orchestrator = _orchestrator(backend, build_error=True)
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
+        result = await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    assert result['coverage']['active_set_resolved'] is False
+    assert result['estimate']['lower_bound_gb'] is None
+
+
+@pytest.mark.asyncio
+async def test_never_enqueues_hooks_or_persists():
+    backend = _local_backend()
+    plugin_registry = Mock()
+    plugin_registry.execute_hook = Mock()
+    orchestrator = _orchestrator(backend, plugin_registry=plugin_registry)
+
+    with patch('src.features.generation.orchestrator.generation_repo') as mock_generation_repo, \
+         patch('src.features.models.repository.model_repo', _model_repo_with({})), \
+         patch.object(QueueDispatcher, 'enqueue', new=AsyncMock()) as mock_enqueue:
+        await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    mock_generation_repo.create.assert_not_called()
+    plugin_registry.execute_hook.assert_not_called()
+    mock_enqueue.assert_not_called()
+    backend.start_generation.assert_not_called()

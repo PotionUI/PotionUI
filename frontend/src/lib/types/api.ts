@@ -146,6 +146,44 @@ export interface GenerationQueueSnapshot {
 	running: RunningGenerationSummary[];
 }
 
+/** `POST /api/generations/memory-preview` response - a non-blocking, best-effort
+ *  lower-bound estimate for a request that has NOT started. Never a fit verdict:
+ *  read `coverage`/`uncertainty` alongside `device`/`budget` rather than the
+ *  number alone. See docs/user/hardware-requirements.md. */
+export interface MemoryPreviewResult {
+	estimate: {
+		/** GB, or `null` when no active model reference has a known size. */
+		lower_bound_gb: number | null;
+		weights_gb: number;
+		activation_gb: number;
+		margin: number;
+		basis: string;
+	};
+	coverage: {
+		known: Array<{ ref: string; size_gb: number }>;
+		unknown: string[];
+		active_set_resolved: boolean;
+		pinned_components_uncounted: boolean;
+		uncertainty: string[];
+	};
+	device: {
+		kind: 'local' | 'remote' | 'none' | 'unknown';
+		free_gb: number | null;
+		total_gb: number | null;
+		provenance: string;
+	};
+	budget: {
+		configured_gb: number | null;
+		source: string;
+	};
+	backend: {
+		id: string;
+		name: string;
+		engine: string;
+		driver: string;
+	};
+}
+
 export interface GenerationStatus {
 	id: string;
 	generation_id?: string;

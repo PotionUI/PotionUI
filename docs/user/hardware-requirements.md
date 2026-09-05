@@ -66,6 +66,23 @@ Budget for the checkpoint files themselves plus their text encoders and VAEs —
 
 None of these are downloaded by PotionUI itself unless you ask — see [Models](models.md) for how installation works.
 
+## Three different numbers, three different sources
+
+The per-family table above, a backend's configured VRAM cap, and a per-request memory estimate answer three different questions, and PotionUI never blends them into one verdict:
+
+- **A preset's `requires:` badge** (in the picker, sourced from this page's per-family table) is static, author-supplied guidance about the *model family* — it says nothing about the specific request you're about to submit (resolution, frame count, which optional components — LoRAs, a second text encoder — you've added).
+- **A backend's configured VRAM budget** (its `gpu_max_vram` setting, Admin → Backends) is the ceiling the native engine plans model placement against. It's physical device evidence bounded by an admin-set cap, not a prediction for any one request.
+- **A request's memory estimate** (`POST /api/generations/memory-preview`, same payload as `/start` plus an optional `backend_id`) is a non-blocking, best-effort **lower bound** for the specific form you're about to submit: it sums the on-disk size of every model reference on an active loader (checkpoint, LoRA, VAE, text encoder alike — never a component a preset pins in its own config outside a form picker), applies a small weight-load margin, and adds a resolution/frame-count-scaled activation term. It never allocates GPU memory, never loads a model, and never enqueues anything — it only inspects the form and the model index.
+
+The estimate is deliberately never a fit guarantee. Its response carries the evidence behind the number rather than a verdict:
+
+- `coverage.known` / `coverage.unknown` — which referenced models had an indexed on-disk size and which didn't; an unresolvable size is skipped, so the lower bound only gets tighter, never looser, as more models get indexed.
+- `coverage.uncertainty` — plain-language caveats: the activation term is a heuristic, not a measurement; quantization/dtype settings on an active loader may lower real residency below the summed weight sizes; a component a preset pins outside a form picker is never counted.
+- `device` — what the routed backend's hardware actually reports: a local native backend's free/total VRAM from this host's own GPU monitor, `null` numbers for a remote worker (its hardware isn't this process's to read), or `none` when there's nothing to report (including a `comfyui` backend, whose server has its own hardware this host doesn't see).
+- `budget` — the configured loading budget for that backend (its `gpu_max_vram`, composed with any explicit per-pipe VRAM hint the preset declares, bounded by the device's reported free VRAM when there is one) — configuration, not a promise about this request.
+
+Reading the estimate against the device/budget evidence is a judgment call for whoever is looking at it — PotionUI reports the numbers, not a pass/fail.
+
 ## See also
 
 - [Models](models.md) — the installed-models inventory and how models connect to presets.

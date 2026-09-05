@@ -12,6 +12,7 @@
 	import GenerateMark from './generation-panel/GenerateMark.svelte';
 	import PanelReadoutCell from './generation-panel/PanelReadoutCell.svelte';
 	import SessionCluster from './generation-panel/SessionCluster.svelte';
+	import MemoryAdvisoryLine from './generation-panel/MemoryAdvisoryLine.svelte';
 	import { deriveMarkState, deriveModeChromeGlyph, formatDurationMs, formatDurationSeconds } from './generation-panel/barState';
 	import { shortcutLabels } from '$lib/stores/keybindings';
 	import { createGenerationModeController } from './generationModeController';
@@ -55,6 +56,12 @@
 	// the page from the settings drawer's BackendPicker. A single-backend
 	// engine has no real routing decision to explain.
 	export let multiBackend: boolean = false;
+	// Inputs to the memory advisory line (below) - the page owns the actual
+	// form state, this panel only forwards it. `formVariant` mirrors the
+	// submitted request's `form_name` (the tab's selected preset-mode variant).
+	export let formData: Record<string, unknown> = {};
+	export let formVariant: string | undefined = undefined;
+	export let backendId: string | null | undefined = undefined;
 
 	// Backend generation queue: everything this tab has enqueued (pending or running).
 	$: queueEntries = generation.queue || [];
@@ -501,6 +508,15 @@
 								: 'Configure the prompt and settings'}
 					{/if}
 				</span>
+				{#if !isGenerating}
+					<MemoryAdvisoryLine
+						{presetId}
+						mode={currentMode ?? undefined}
+						formName={formVariant}
+						{formData}
+						{backendId}
+					/>
+				{/if}
 			</div>
 		</section>
 

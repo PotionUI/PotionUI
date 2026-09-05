@@ -4,7 +4,8 @@ import type {
 	GenerationRequest,
 	GenerationStatus,
 	StartGenerationResponseData,
-	GenerationQueueSnapshot
+	GenerationQueueSnapshot,
+	MemoryPreviewResult
 } from '$lib/types/api';
 import type {
 	GenerationHistoryItem,
@@ -30,6 +31,17 @@ export function createGenerationsApi(client: AxiosInstance) {
 			request: GenerationRequest
 		): Promise<APIResponse<StartGenerationResponseData>> {
 			const response = await client.post('/api/generations/start', request);
+			return response.data;
+		},
+
+		/** Non-blocking GPU memory advisory for a request that has NOT started -
+		 *  never enqueues, never runs a hook, never loads a model. Same payload
+		 *  shape as `startGeneration`, minus everything that only matters once a
+		 *  generation actually commits (prompts/segments/tags/...). */
+		async previewGenerationMemory(
+			request: Pick<GenerationRequest, 'preset_id' | 'mode' | 'form_name' | 'form_data' | 'backend_id'>
+		): Promise<APIResponse<MemoryPreviewResult>> {
+			const response = await client.post('/api/generations/memory-preview', request);
 			return response.data;
 		},
 

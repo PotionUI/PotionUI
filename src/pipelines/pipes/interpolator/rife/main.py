@@ -248,148 +248,176 @@ class RifeInterpolatorPipe(BasePipe):
         # a cached checkpoint never sits GPU-resident between generations.
         try:
             cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                raise ValueError(f"interpolator/rife: could not open video: {video_path}")
-
-            # Every path this pipe creates from here on is owned by it until
-            # ownership explicitly transfers to the gallery output at the very
-            # end (`owned.clear()`). Any exception -- cancellation included --
-            # falls through to the `except` below, which aborts a still-running
-            # writer and deletes whatever `owned` still lists, so a cancelled or
-            # failed clip never leaves an attempt file (or a live ffmpeg child)
-            # behind.
-            out_tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
-            owned: List[str] = [out_tmp]
-            writer: Optional[StreamingMp4Writer] = None
-
+            # Owned from the moment it is acquired, not from the moment it
+            # first proves useful: a `finally` starting here releases it even
+            # when `isOpened()` comes back False or the temp-file create just
+            # below raises, both of which used to bypass release entirely by
+            # sitting outside the try that used to own it.
             try:
+                if not cap.isOpened():
+                    raise ValueError(f"interpolator/rife: could not open video: {video_path}")
+
+                # Every path this pipe creates from here on is owned by it until
+                # ownership explicitly transfers to the gallery output at the very
+                # end (`owned.clear()`). Any exception -- cancellation included --
+                # falls through to the `except` below, which releases a still-running
+                # writer and deletes whatever `owned` still lists, so a cancelled or
+                # failed clip never leaves an attempt file (or a live ffmpeg child)
+                # behind.
+                out_tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+                owned: List[str] = [out_tmp]
+                writer: Optional[StreamingMp4Writer] = None
+
                 try:
-                    src_fps = cap.get(cv2.CAP_PROP_FPS)
-                    src_fps = float(src_fps) if src_fps and src_fps > 0 else 24.0
-                    src_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-                    out_fps = src_fps * factor
-                    out_total = self.output_frame_count(src_count, factor) if src_count > 0 else 0
+                    try:
+                        src_fps = cap.get(cv2.CAP_PROP_FPS)
+                        src_fps = float(src_fps) if src_fps and src_fps > 0 else 24.0
+                        src_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+                        out_fps = src_fps * factor
+                        out_total = self.output_frame_count(src_count, factor) if src_count > 0 else 0
 
-                    generation_outputs(ProgressGenerationOutput(
-                        state=(f"Interpolating <<NUMBER:{src_count} frames>> at <<NUMBER:{factor}x>> "
-                               f"-> <<NUMBER:{out_fps:.2f} fps>>"),
-                        icon=Icon(name="film", effect="pulse"),
-                    ))
+                        generation_outputs(ProgressGenerationOutput(
+                            state=(f"Interpolating <<NUMBER:{src_count} frames>> at <<NUMBER:{factor}x>> "
+                                   f"-> <<NUMBER:{out_fps:.2f} fps>>"),
+                            icon=Icon(name="film", effect="pulse"),
+                        ))
 
-                    timesteps = [f / factor for f in range(1, factor)]
-                    written = 0
+                        timesteps = [f / factor for f in range(1, factor)]
+                        written = 0
 
-                    prev_rgb: Optional[np.ndarray] = None
-                    prev_tensor: Optional[torch.Tensor] = None
-                    prev_prepared: Optional[PreparedFrame] = None
-                    f0 = f1 = None
-                    read_idx = 0
-                    while True:
-                        if is_cancelled():
-                            raise SamplingCancelled()
-                        ret, frame_bgr = cap.read()
-                        if not ret or frame_bgr is None:
-                            break
-                        rgb = self._to_even_rgb(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
-                        read_idx += 1
-
-                        if writer is None:
-                            h, w = rgb.shape[0], rgb.shape[1]
-                            writer = StreamingMp4Writer(out_tmp, w, h, out_fps)
-
-                        cur_tensor = self._to_tensor(rgb, device, model_dtype)
-                        if prev_rgb is None:
-                            writer.write(prev_rgb := rgb)
-                            prev_tensor = cur_tensor
-                            written += 1
-                            continue
-
-                        # Drop the previous pair's frames BEFORE the next right frame is
-                        # allocated: `prev_prepared` already holds the only one still
-                        # needed (it is this pair's left frame), and releasing here is
-                        # what bounds the clip at two live prepared frames instead of
-                        # three. Assigning through the same locals would free the old
-                        # left frame only after the new right one exists.
+                        prev_rgb: Optional[np.ndarray] = None
+                        prev_tensor: Optional[torch.Tensor] = None
+                        prev_prepared: Optional[PreparedFrame] = None
                         f0 = f1 = None
-                        f0, f1 = self._prepare_pair(model, prev_tensor, cur_tensor,
-                                                    flow_scale, prev_prepared)
-                        for t in timesteps:
-                            mid = self._run(model, f0, f1, t, flow_scale)
-                            writer.write(mid)
+                        read_idx = 0
+                        while True:
+                            if is_cancelled():
+                                raise SamplingCancelled()
+                            ret, frame_bgr = cap.read()
+                            if not ret or frame_bgr is None:
+                                break
+                            rgb = self._to_even_rgb(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+                            read_idx += 1
+
+                            if writer is None:
+                                h, w = rgb.shape[0], rgb.shape[1]
+                                writer = StreamingMp4Writer(out_tmp, w, h, out_fps)
+
+                            cur_tensor = self._to_tensor(rgb, device, model_dtype)
+                            if prev_rgb is None:
+                                writer.write(prev_rgb := rgb)
+                                prev_tensor = cur_tensor
+                                written += 1
+                                continue
+
+                            # Drop the previous pair's frames BEFORE the next right frame is
+                            # allocated: `prev_prepared` already holds the only one still
+                            # needed (it is this pair's left frame), and releasing here is
+                            # what bounds the clip at two live prepared frames instead of
+                            # three. Assigning through the same locals would free the old
+                            # left frame only after the new right one exists.
+                            f0 = f1 = None
+                            f0, f1 = self._prepare_pair(model, prev_tensor, cur_tensor,
+                                                        flow_scale, prev_prepared)
+                            for t in timesteps:
+                                mid = self._run(model, f0, f1, t, flow_scale)
+                                writer.write(mid)
+                                written += 1
+                            writer.write(rgb)
                             written += 1
-                        writer.write(rgb)
+
+                            prev_rgb = rgb
+                            prev_tensor = cur_tensor
+                            prev_prepared = f1
+
+                            if out_total and read_idx % _PROGRESS_EVERY == 0:
+                                generation_outputs(ProgressGenerationOutput(
+                                    state=f"Interpolated <<NUMBER:{written}>> / <<NUMBER:{out_total}>> frames",
+                                    icon=Icon(name="film", effect="pulse"),
+                                    progress=Progress(current=written, max=out_total),
+                                ))
+                    finally:
+                        # Padded frames and encoder features are the largest tensors the loop
+                        # holds; drop them on the normal exit, on cancellation and on an
+                        # exception alike. `prev_rgb` outlives this block -- the tail hold and
+                        # the output resolution read it.
+                        prev_tensor = prev_prepared = f0 = f1 = None
+
+                    if writer is None:
+                        raise ValueError(f"interpolator/rife: no frames decoded from {video_path}")
+
+                    # Cooperative boundary before paying for the tail hold, the encode
+                    # close and the audio mux -- none of which are themselves
+                    # interruptible.
+                    if is_cancelled():
+                        raise SamplingCancelled()
+
+                    # The last decoded frame owns `factor` slots at the output rate but has no
+                    # successor to interpolate toward, so it is held for the remaining ones.
+                    for _ in range(factor - 1):
+                        writer.write(prev_rgb)
                         written += 1
+                    writer.close()
 
-                        prev_rgb = rgb
-                        prev_tensor = cur_tensor
-                        prev_prepared = f1
+                    final_path = out_tmp
+                    if keep_audio:
+                        muxed = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+                        owned.append(muxed)
+                        if mux_audio_from_source(out_tmp, video_path, muxed):
+                            final_path = muxed
+                            self._discard(out_tmp)
+                            owned.remove(out_tmp)
+                        else:
+                            self._discard(muxed)
+                            owned.remove(muxed)
 
-                        if out_total and read_idx % _PROGRESS_EVERY == 0:
-                            generation_outputs(ProgressGenerationOutput(
-                                state=f"Interpolated <<NUMBER:{written}>> / <<NUMBER:{out_total}>> frames",
-                                icon=Icon(name="film", effect="pulse"),
-                                progress=Progress(current=written, max=out_total),
-                            ))
-                finally:
-                    cap.release()
-                    # Padded frames and encoder features are the largest tensors the loop
-                    # holds; drop them on the normal exit, on cancellation and on an
-                    # exception alike. `prev_rgb` outlives this block -- the tail hold and
-                    # the output resolution read it.
-                    prev_tensor = prev_prepared = f0 = f1 = None
+                    # Cooperative boundary again, right before publication -- a
+                    # cancellation observed during the encode/mux above must still
+                    # keep the finished clip out of the gallery.
+                    if is_cancelled():
+                        raise SamplingCancelled()
 
-                if writer is None:
-                    raise ValueError(f"interpolator/rife: no frames decoded from {video_path}")
-
-                # Cooperative boundary before paying for the tail hold, the encode
-                # close and the audio mux -- none of which are themselves
-                # interruptible.
-                if is_cancelled():
-                    raise SamplingCancelled()
-
-                # The last decoded frame owns `factor` slots at the output rate but has no
-                # successor to interpolate toward, so it is held for the remaining ones.
-                for _ in range(factor - 1):
-                    writer.write(prev_rgb)
-                    written += 1
-                writer.close()
-
-                final_path = out_tmp
-                if keep_audio:
-                    muxed = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
-                    owned.append(muxed)
-                    if mux_audio_from_source(out_tmp, video_path, muxed):
-                        final_path = muxed
-                        self._discard(out_tmp)
-                        owned.remove(out_tmp)
-                    else:
-                        self._discard(muxed)
-                        owned.remove(muxed)
-
-                # Cooperative boundary again, right before publication -- a
-                # cancellation observed during the encode/mux above must still
-                # keep the finished clip out of the gallery.
-                if is_cancelled():
-                    raise SamplingCancelled()
-
-                h, w = prev_rgb.shape[0], prev_rgb.shape[1]
-                generation_outputs(ProgressGenerationOutput(
-                    state=f"Wrote <<NUMBER:{written} frames>> at <<RESOLUTION:{w}x{h}>>",
-                    icon=Icon(name="check-circle"),
-                ))
-                generation_outputs(GalleryGenerationOutput(images=[], videos=[
-                    VideoGenerationOutput(video_path=final_path, temporary=True,
-                                          resolution=(w, h), fps=out_fps),
-                ]))
-                owned.clear()  # ownership of `final_path` transfers to the gallery output
-                return PipeOutput(output={"video": [final_path]})
-            except Exception:
-                if writer is not None:
-                    writer.abort()
-                self._discard(*owned)
-                raise
+                    h, w = prev_rgb.shape[0], prev_rgb.shape[1]
+                    generation_outputs(ProgressGenerationOutput(
+                        state=f"Wrote <<NUMBER:{written} frames>> at <<RESOLUTION:{w}x{h}>>",
+                        icon=Icon(name="check-circle"),
+                    ))
+                    generation_outputs(GalleryGenerationOutput(images=[], videos=[
+                        VideoGenerationOutput(video_path=final_path, temporary=True,
+                                              resolution=(w, h), fps=out_fps),
+                    ]))
+                    owned.clear()  # ownership of `final_path` transfers to the gallery output
+                    return PipeOutput(output={"video": [final_path]})
+                except Exception:
+                    self._cleanup_on_failure(writer, owned)
+                    raise
+            finally:
+                cap.release()
         finally:
             _idle_model(model)
+
+    def _cleanup_on_failure(self, writer: Optional[StreamingMp4Writer], owned: List[str]) -> None:
+        """Best-effort release of everything this attempt owns, run once from
+        the single ``except`` around the whole clip.
+
+        Each release step runs in its OWN try/except so one failing (e.g.
+        ``writer.abort()`` itself raising) can never skip the other, and
+        neither can replace the exception this is handling -- the caller's
+        bare ``raise`` re-raises exactly what was already being handled,
+        never one of these cleanup failures."""
+        if writer is not None:
+            try:
+                writer.abort()
+            except Exception:
+                logger.warning(
+                    "[INTERPOLATOR RIFE] writer.abort() failed during cleanup", exc_info=True,
+                )
+        try:
+            self._discard(*owned)
+        except Exception:
+            logger.warning(
+                "[INTERPOLATOR RIFE] cleanup of owned temp files failed", exc_info=True,
+            )
 
     @staticmethod
     def _discard(*paths: str) -> None:

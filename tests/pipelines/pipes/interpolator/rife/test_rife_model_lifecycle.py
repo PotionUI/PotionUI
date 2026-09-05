@@ -321,13 +321,19 @@ def test_process_idles_the_model_when_the_video_cannot_be_opened(tmp_path, monke
     model = _TrackingIFNet(NARROW_NO_ENCODER_BLOCKS, None).eval()
     models = _FakeModels(model)
     checkpoint = _checkpoint(tmp_path)
-    monkeypatch.setattr(cv2, "VideoCapture", lambda _p: type("C", (), {"isOpened": lambda self: False})())
+    released = []
+    fake_cap = type("C", (), {
+        "isOpened": lambda self: False,
+        "release": lambda self: released.append(True),
+    })()
+    monkeypatch.setattr(cv2, "VideoCapture", lambda _p: fake_cap)
     pipe = RifeInterpolatorPipe({"model": {"file_path": checkpoint}, "factor": 2, "keep_audio": False})
 
     with pytest.raises(ValueError, match="could not open video"):
         pipe.process(PipeInput(input={"video": ["missing.mp4"], "MODELS": models}), lambda o: None)
 
     assert model.device_calls[-2:] == [("to", "cpu"), ("float",)]
+    assert released == [True]  # the capture is released even though isOpened() never succeeded
 
 
 # -- failed placement/cast: invalidate the cache entry, never mask the error -

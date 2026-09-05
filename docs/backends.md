@@ -122,7 +122,7 @@ generation will fit. `effective_vram_budget_gb()` (`src/platform/runtime/gpu.py`
 preset's pipe-level hint), then bounds that by available hardware: a pipe hint can lower the budget
 below the backend's configured maximum, but can never raise it above that maximum, regardless of
 which of the two is supplied first. `None` on either source means "no cap from that source"; a cap
-`<= 0` is invalid configuration and is ignored (logged once), never read as "unlimited" or as a
+`<= 0` is invalid configuration and is ignored (logged), never read as "unlimited" or as a
 larger budget. With both absent, only available hardware bounds the budget.
 
 Current native-v2 boundary: the cap reaches model loaders and can influence FP8/load decisions,

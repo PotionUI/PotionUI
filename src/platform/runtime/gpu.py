@@ -19,7 +19,7 @@ def effective_vram_budget_gb(
     Semantics:
         - ``None`` means "no cap from that source" - it never affects the result.
         - A cap `<= 0` is invalid configuration, not "unlimited" or "raise the
-          budget": it is ignored and logged once, exactly like ``None``.
+          budget": it is ignored with a warning, exactly like ``None``.
         - The two caps compose as the stricter (lesser) of the two valid ones,
           so a pipe hint can only ever lower the budget below the backend's
           configured maximum, never raise it - the result does not depend on

@@ -91,7 +91,14 @@
 							<Badge variant="neutral" size="sm" class="font-mono">{output.plugin_id}</Badge>
 							<span class="text-xs font-mono text-fg-muted truncate">{messageType}</span>
 						</div>
-						<pre class="text-xs font-mono whitespace-pre-wrap overflow-x-auto overflow-y-auto max-h-48 bg-surface-2/40 border-t border-line p-2.5 text-fg-muted">{pretty(output.message)}</pre>
+						{#if output.omitted}
+							<p class="text-xs bg-surface-2/40 border-t border-line p-2.5 text-fg-subtle">
+								Payload not recorded (<span class="font-mono tabular-nums">{output.omitted.bytes}</span> bytes,
+								{output.omitted.reason.replace(/_/g, ' ')})
+							</p>
+						{:else}
+							<pre class="text-xs font-mono whitespace-pre-wrap overflow-x-auto overflow-y-auto max-h-48 bg-surface-2/40 border-t border-line p-2.5 text-fg-muted">{pretty(output.message)}</pre>
+						{/if}
 					</div>
 				{/each}
 			</div>

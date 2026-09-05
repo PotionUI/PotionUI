@@ -1053,12 +1053,23 @@ export interface RunReportPipeTimer {
 	ended_at: string | null;
 }
 
-/** One artifact emitted during the run (`run_report.artifacts[]`). */
+/** Why a recorded entry carries no payload (`omitted` on an artifact or a
+ *  plugin output). `bytes` is the size the payload would have taken. */
+export interface RunReportOmission {
+	reason: 'item_bytes' | 'report_bytes' | 'unstorable_payload';
+	bytes: number;
+}
+
+/** One artifact emitted during the run (`run_report.artifacts[]`).
+ *  From schema 2 on, a binary value inside `artifact_data` is a reference
+ *  (`RunReportMediaRef`) rather than inline base64; schema-1 reports still
+ *  carry the payload and render unchanged. */
 export interface RunReportArtifact {
 	at: string;
 	pipe_id: string | number | null;
 	artifact_type: string;
-	artifact_data: Record<string, unknown>;
+	artifact_data: Record<string, unknown> | null;
+	omitted?: RunReportOmission;
 }
 
 /** Latest message recorded for a plugin `generation.output` message type
@@ -1070,6 +1081,7 @@ export interface RunReportPluginOutput {
 	plugin_id: string;
 	message: unknown;
 	at: string;
+	omitted?: RunReportOmission;
 }
 
 /** The persisted run report for one generation (`run_report_repository`),
@@ -1081,6 +1093,13 @@ export interface RunReport {
 	artifacts: RunReportArtifact[];
 	plugin_outputs: Record<string, RunReportPluginOutput>;
 	prompt_template: { positive: string; negative: string } | null;
+	/** How many entries were recorded without their payload because it
+	 *  exceeded the recorder's byte budget. */
+	artifacts_omitted: number;
+	plugin_outputs_omitted: number;
+	/** Bytes the report itself holds, and bytes it holds by reference. */
+	artifacts_bytes: number;
+	stored_bytes: number;
 }
 
 export interface AdminGenerationDetailResult {

@@ -50,10 +50,17 @@
 								</span>
 							</div>
 							<div class="text-xs text-fg-muted">
-								{#await artifactRendererRegistry.resolve(artifact.artifact_type) then resolvedComponent}
-									{@const ArtifactComponent = resolvedComponent ?? FallbackArtifact}
-									<ArtifactComponent artifact={artifact as never} totalImages={totalRenderedPrompts} {promptTemplate} />
-								{/await}
+								{#if artifact.omitted}
+									<p class="text-fg-subtle">
+										Payload not recorded (<span class="font-mono tabular-nums">{artifact.omitted.bytes}</span> bytes,
+										{artifact.omitted.reason.replace(/_/g, ' ')})
+									</p>
+								{:else}
+									{#await artifactRendererRegistry.resolve(artifact.artifact_type) then resolvedComponent}
+										{@const ArtifactComponent = resolvedComponent ?? FallbackArtifact}
+										<ArtifactComponent artifact={artifact as never} totalImages={totalRenderedPrompts} {promptTemplate} />
+									{/await}
+								{/if}
 							</div>
 						</div>
 					{/each}

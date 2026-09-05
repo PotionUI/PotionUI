@@ -3,7 +3,7 @@ import logging
 import traceback
 from typing import List, Optional, TYPE_CHECKING
 from fastapi import APIRouter, WebSocket, Depends, Query, UploadFile, File as FastAPIFile, HTTPException
-from fastapi.responses import StreamingResponse, FileResponse, PlainTextResponse
+from fastapi.responses import StreamingResponse, FileResponse, PlainTextResponse, Response
 from starlette.background import BackgroundTask
 
 # Import services - needed for injector
@@ -1192,6 +1192,26 @@ class GenerationController(BaseController):
             'run_report': report,
         })
 
+    async def get_run_report_artifact(self, generation_id: str, name: str):
+        """One binary payload a persisted run report references.
+
+        Only names the report itself recorded resolve to anything, so the
+        caller's string never reaches the filesystem as a path.
+        """
+        found = self.run_report_recorder.artifact_bytes(generation_id, name)
+        if found is None:
+            return self.error_response(
+                error="not_found",
+                message="Run report artifact not found",
+                status_code=404,
+            )
+        content, media_type = found
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
+
     async def handle_websocket(self, websocket, client_id: str, user=None):
         """Handle WebSocket connection for real-time updates"""
         await self.websocket_handler.handle_websocket(
@@ -1237,6 +1257,16 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_generation_status(generation_id: str, current_user = Depends(get_current_active_user)):
         """Get the current status and progress of a specific generation job."""
         return await controller.get_generation_status(generation_id, current_user)
+
+    @router.get("/{generation_id}/run-report/artifacts/{name}", summary="Serve Run Report Artifact")
+    async def get_run_report_artifact(generation_id: str, name: str):
+        """Serve one binary payload a persisted run report references.
+
+        Auth-exempt for the same reason the media routes are: a browser
+        rendering `<img src="...">` cannot attach the bearer token, and a
+        dependency here 401s every comparison image in the report.
+        """
+        return await controller.get_run_report_artifact(generation_id, name)
 
     @router.post("/{generation_id}/cancel", response_model=APIResponse, summary="Cancel Generation")
     async def cancel_generation(generation_id: str, current_user = Depends(get_current_active_user)):

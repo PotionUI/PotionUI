@@ -1,11 +1,8 @@
 <script lang="ts">
-	export let artifact: { artifact_data: { label?: string; image?: string } };
+	import { api } from '$lib/services/api';
+	import { resolveArtifactImageSrc, type ArtifactImageValue } from '$lib/generation/artifacts/mediaRef';
 
-	function resolveImageSrc(src: string): string {
-		if (src.startsWith('/api/')) return `http://localhost:8000${src}`;
-		if (src.startsWith('http') || src.startsWith('data:')) return src;
-		return `data:image/png;base64,${src}`;
-	}
+	export let artifact: { artifact_data: { label?: string; image?: ArtifactImageValue } };
 </script>
 
 <div class="space-y-3">
@@ -25,7 +22,7 @@
 	<div class="relative overflow-hidden border border-line shadow-md hover:shadow-lg transition-shadow duration-200 bg-surface-2 flex items-center justify-center">
 		{#if artifact.artifact_data.image}
 			<img
-				src={resolveImageSrc(artifact.artifact_data.image)}
+				src={resolveArtifactImageSrc(artifact.artifact_data.image, api.getBaseURL())}
 				alt={artifact.artifact_data.label || 'Artifact Image'}
 				class="max-w-full max-h-[400px] object-contain"
 			/>

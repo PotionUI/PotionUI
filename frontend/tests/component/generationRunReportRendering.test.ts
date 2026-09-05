@@ -70,6 +70,10 @@ function baseReport(overrides: Partial<RunReport> = {}): RunReport {
 		artifacts: [],
 		plugin_outputs: {},
 		prompt_template: null,
+		artifacts_omitted: 0,
+		plugin_outputs_omitted: 0,
+		artifacts_bytes: 0,
+		stored_bytes: 0,
 		...overrides
 	};
 }
@@ -123,6 +127,73 @@ describe('GenerationRunReport', () => {
 		expect(text).toContain('my-plugin');
 		expect(text).toContain('my_plugin.summary');
 		expect(text).toContain('hello');
+	});
+
+	it('renders a saved comparison artifact from its stored reference, not a payload', async () => {
+		mounted = mount(
+			baseGeneration(),
+			baseReport({
+				schema_version: 2,
+				pipe_timers: { '7': { started_at: '2026-08-14T00:00:00Z', ended_at: '2026-08-14T00:00:05Z' } },
+				status_history: [
+					{ at: '2026-08-14T00:00:00Z', pipe_id: 7, step: 'Sampling', message: null, progress: 0.1 }
+				],
+				artifacts: [
+					{
+						at: '2026-08-14T00:00:05Z',
+						pipe_id: 7,
+						artifact_type: 'compare_images',
+						artifact_data: {
+							compare_label: 'Before',
+							to_label: 'After',
+							to_image: {
+								$media: 'run_report_artifact',
+								name: 'runreport_01H.jpg',
+								url: '/api/generations/gen-1/run-report/artifacts/runreport_01H.jpg',
+								path: 'generations/2026-08-14/gen-1/runreport_01H.jpg',
+								bytes: 4096,
+								mime: 'image/jpeg'
+							}
+						}
+					}
+				]
+			})
+		);
+		await settle();
+
+		const image = mounted.target.querySelector('img[alt="After"]') as HTMLImageElement | null;
+		expect(image?.getAttribute('src')).toContain(
+			'/api/generations/gen-1/run-report/artifacts/runreport_01H.jpg'
+		);
+	});
+
+	it('says a payload was not recorded instead of rendering an empty artifact', async () => {
+		mounted = mount(
+			baseGeneration(),
+			baseReport({
+				schema_version: 2,
+				pipe_timers: { '7': { started_at: '2026-08-14T00:00:00Z', ended_at: '2026-08-14T00:00:05Z' } },
+				status_history: [
+					{ at: '2026-08-14T00:00:00Z', pipe_id: 7, step: 'Sampling', message: null, progress: 0.1 }
+				],
+				artifacts: [
+					{
+						at: '2026-08-14T00:00:05Z',
+						pipe_id: 7,
+						artifact_type: 'workflow',
+						artifact_data: null,
+						omitted: { reason: 'item_bytes', bytes: 132000 }
+					}
+				],
+				artifacts_omitted: 1
+			})
+		);
+		await settle();
+
+		const text = mounted.text();
+		expect(text).toContain('Payload not recorded');
+		expect(text).toContain('132000');
+		expect(text).toContain('item bytes');
 	});
 
 	it('shows an honest empty message when the report has no recorded entries', async () => {

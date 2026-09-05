@@ -1,9 +1,12 @@
 <script lang="ts">
+	import { api } from '$lib/services/api';
+	import { resolveArtifactImageSrc, type ArtifactImageValue } from '$lib/generation/artifacts/mediaRef';
+
 	export let artifact: {
 		artifact_data: {
-			compare_image?: string;
+			compare_image?: ArtifactImageValue;
 			compare_label?: string;
-			to_image?: string;
+			to_image?: ArtifactImageValue;
 			to_label?: string;
 		};
 	};
@@ -43,15 +46,8 @@
 		}
 	}
 
-	function resolveImageSrc(src: string | undefined): string {
-		if (!src) return '';
-		if (src.startsWith('/api/')) return `http://localhost:8000${src}`;
-		if (src.startsWith('http') || src.startsWith('data:')) return src;
-		return `data:image/png;base64,${src}`;
-	}
-
-	$: beforeImageSrc = resolveImageSrc(artifact.artifact_data.compare_image);
-	$: afterImageSrc = resolveImageSrc(artifact.artifact_data.to_image);
+	$: beforeImageSrc = resolveArtifactImageSrc(artifact.artifact_data.compare_image, api.getBaseURL());
+	$: afterImageSrc = resolveArtifactImageSrc(artifact.artifact_data.to_image, api.getBaseURL());
 </script>
 
 <svelte:window on:mousemove={onMouseMove} on:mouseup={stopDragging} />

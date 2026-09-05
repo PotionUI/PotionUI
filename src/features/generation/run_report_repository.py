@@ -33,6 +33,17 @@ class GenerationRunReportRepository:
             row = cursor.fetchone()
             return json.loads(row["report"]) if row else None
 
+    def delete(self, generation_id: str) -> bool:
+        """Drop one report row. The files it references are owned by
+        `RunReportRecorder`, which removes them alongside this call."""
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM generation_run_reports WHERE generation_id = ?",
+                (generation_id,),
+            )
+            return cursor.rowcount > 0
+
     def exists_bulk(self, generation_ids: Iterable[str]) -> Set[str]:
         """Which of `generation_ids` have a persisted run report.
 

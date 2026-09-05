@@ -1036,7 +1036,7 @@ def build_container() -> AppContainer:
     # Initialize generation history manager
     generation_repository = GenerationRepository()
     run_report_repository = GenerationRunReportRepository()
-    run_report_recorder = RunReportRecorder(run_report_repository)
+    run_report_recorder = RunReportRecorder(run_report_repository, file_service)
     generation_history_facade = GenerationHistoryFacade(
         generation_repo=generation_repository,
         file_service=file_service,

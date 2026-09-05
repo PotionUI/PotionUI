@@ -4,7 +4,6 @@ import traceback
 from typing import List, Optional, TYPE_CHECKING
 from fastapi import APIRouter, WebSocket, Depends, Query, UploadFile, File as FastAPIFile, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse, PlainTextResponse, Response
-from starlette.background import BackgroundTask
 
 # Import services - needed for injector
 from src.platform.filesystem import FileStore
@@ -58,10 +57,36 @@ _EXPORT_STREAM_CHUNK_BYTES = 1024 * 1024
 
 
 def _close_spooled_file(spooled_file) -> None:
-    """BackgroundTask target: idempotent so it's safe alongside the
-    generator's own `finally` close (whichever path runs first wins)."""
+    """Idempotent close, safe to call from more than one exit path."""
     if not spooled_file.closed:
         spooled_file.close()
+
+
+class _SpooledZipResponse(StreamingResponse):
+    """A `StreamingResponse` that is the sole, explicit owner of closing its
+    backing spooled temp file - on normal completion, a client disconnect, or
+    an exception raised from the ASGI `send()` itself (e.g. a broken pipe).
+
+    Starlette's `StreamingResponse.__call__` only awaits `background` after
+    its internal task group exits *without* an exception - a disconnect is a
+    self-cancellation the task group swallows, so `background` still runs,
+    but a real exception from `send()` propagates straight out of `__call__`
+    past that line, and `background` never runs at all. A sync generator body
+    left mid-iteration when that happens is never closed either (nothing
+    calls `aclose()` on it), so its own `finally` can't be relied on. Wrapping
+    `__call__` itself in `finally` closes the file on every exit path, with
+    exactly one place responsible for it.
+    """
+
+    def __init__(self, zip_file, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._zip_file = zip_file
+
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            _close_spooled_file(self._zip_file)
 
 
 class GenerationController(BaseController):
@@ -460,32 +485,29 @@ class GenerationController(BaseController):
     def _stream_zip_response(zip_file, filename: str) -> StreamingResponse:
         """Stream an already-built export zip out of `zip_file` - a
         `SpooledTemporaryFile` seeked to 0 - without ever holding the archive
-        fully in memory as bytes. `zip_file` is closed once the response
-        finishes, fails or the client disconnects (closing it also removes
-        its backing temp file, if the export rolled over to disk).
+        fully in memory as bytes. The returned `_SpooledZipResponse` is the
+        sole owner of closing `zip_file` from here on (which also removes its
+        backing temp file, if the export rolled over to disk).
         """
         zip_file.seek(0, io.SEEK_END)
         content_length = zip_file.tell()
         zip_file.seek(0)
 
         def iter_chunks():
-            try:
-                while True:
-                    chunk = zip_file.read(_EXPORT_STREAM_CHUNK_BYTES)
-                    if not chunk:
-                        break
-                    yield chunk
-            finally:
-                _close_spooled_file(zip_file)
+            while True:
+                chunk = zip_file.read(_EXPORT_STREAM_CHUNK_BYTES)
+                if not chunk:
+                    break
+                yield chunk
 
-        return StreamingResponse(
+        return _SpooledZipResponse(
+            zip_file,
             iter_chunks(),
             media_type="application/zip",
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
                 "Content-Length": str(content_length),
             },
-            background=BackgroundTask(_close_spooled_file, zip_file),
         )
 
     async def get_generation_history(

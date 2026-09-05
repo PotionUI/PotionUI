@@ -28,6 +28,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _dispose_export_result(result: Tuple[tempfile.SpooledTemporaryFile, str]) -> None:
+    """`HistoryExecutor.run`'s `on_cancelled_result` for `export_zip_async` /
+    `export_bundle_async`: the awaiting request was cancelled (e.g. the client
+    disconnected) before the worker finished, so no response will ever read
+    or close this spooled file - close it here instead so it (and its
+    backing temp file, if it rolled over to disk) doesn't linger."""
+    zip_file, _filename = result
+    if not zip_file.closed:
+        zip_file.close()
+
+
 class GenerationHistoryFacade:
     """
     Orchestrates generation history operations.
@@ -206,9 +217,15 @@ class GenerationHistoryFacade:
         user_id: str,
         strip_metadata: bool = False
     ) -> Tuple[tempfile.SpooledTemporaryFile, str]:
-        """`export_zip()` off the event loop, for async call sites."""
+        """`export_zip()` off the event loop, for async call sites.
+
+        If this await is cancelled before the worker finishes, the spooled
+        file it eventually produces is closed instead of leaked - see
+        `_dispose_export_result`.
+        """
         return await self.executor.run(
-            self.export_zip, generation_ids, user_id, strip_metadata
+            self.export_zip, generation_ids, user_id, strip_metadata,
+            on_cancelled_result=_dispose_export_result,
         )
 
     async def upload_generations(
@@ -225,8 +242,16 @@ class GenerationHistoryFacade:
     async def export_bundle_async(
         self, generation_id: str, user_id: str
     ) -> Tuple[tempfile.SpooledTemporaryFile, str]:
-        """`export_bundle()` off the event loop, for async call sites."""
-        return await self.executor.run(self.export_bundle, generation_id, user_id)
+        """`export_bundle()` off the event loop, for async call sites.
+
+        If this await is cancelled before the worker finishes, the spooled
+        file it eventually produces is closed instead of leaked - see
+        `_dispose_export_result`.
+        """
+        return await self.executor.run(
+            self.export_bundle, generation_id, user_id,
+            on_cancelled_result=_dispose_export_result,
+        )
 
     def import_bundle(self, content: bytes) -> Dict[str, Any]:
         return self._archive.import_bundle(content)

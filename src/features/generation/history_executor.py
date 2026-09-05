@@ -27,9 +27,12 @@ same `with` block - no connection is shared across the boundary.
 """
 
 import asyncio
+import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable, Optional, TypeVar
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -62,8 +65,24 @@ class HistoryExecutor:
         self._closed = False
         self._executor: Optional[ThreadPoolExecutor] = None
 
-    async def run(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    async def run(
+        self,
+        fn: Callable[..., T],
+        *args: Any,
+        on_cancelled_result: Optional[Callable[[T], None]] = None,
+        **kwargs: Any,
+    ) -> T:
         """Await `fn(*args, **kwargs)` on a worker thread.
+
+        The worker is uninterruptible (see the module docstring): if the
+        awaiting caller is cancelled before it finishes, `fn`'s eventual
+        return value is never read by anyone. For a result that just holds a
+        Python reference that's harmless, but a result holding a real
+        resource (a spooled export's backing temp file) would otherwise leak
+        until garbage collection gets around to it. Pass `on_cancelled_result`
+        to receive that value instead and dispose of it explicitly - it never
+        runs on the normal (not-cancelled) path, where the caller itself owns
+        the result.
 
         Raises:
             HistoryExecutorSaturated: capacity is exhausted, or the boundary
@@ -88,7 +107,33 @@ class HistoryExecutor:
             raise
 
         work.add_done_callback(self._on_work_done)
-        return await asyncio.wrap_future(work, loop=loop)
+
+        try:
+            return await asyncio.wrap_future(work, loop=loop)
+        except asyncio.CancelledError:
+            if on_cancelled_result is not None:
+                work.add_done_callback(
+                    lambda future: self._dispose_cancelled_result(on_cancelled_result, future)
+                )
+            raise
+
+    @staticmethod
+    def _dispose_cancelled_result(disposer: Callable[[T], None], work: "Future[T]") -> None:
+        """`work` finished after its awaiting caller was already cancelled -
+        no response or caller took ownership of the result, so hand it to
+        `disposer` to release whatever it holds."""
+        if work.cancelled():
+            return
+        try:
+            result = work.result()
+        except BaseException:
+            # fn raised - whatever it built internally, it's responsible for
+            # cleaning up itself before raising; nothing to dispose of here.
+            return
+        try:
+            disposer(result)
+        except Exception:
+            logger.exception("on_cancelled_result disposer failed")
 
     def shutdown(self) -> None:
         """Drop the pool without waiting on running work.

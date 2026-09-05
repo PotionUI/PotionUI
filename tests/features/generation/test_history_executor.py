@@ -289,3 +289,148 @@ class TestShutdown:
 
         with pytest.raises(HistoryExecutorSaturated):
             await executor.run(lambda: "never")
+
+
+class TestCancelledResultDisposal:
+    """The worker is uninterruptible: cancelling the awaiting caller doesn't
+    stop it, it just abandons the eventual result. `on_cancelled_result` is
+    the only thing that ever reads that result in that case."""
+
+    async def test_disposer_runs_on_the_result_once_the_worker_finishes(self):
+        executor = HistoryExecutor(max_workers=1, max_pending=0)
+        started = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        tracked = Mock(closed=False)
+        tracked.close.side_effect = lambda: setattr(tracked, "closed", True)
+
+        def slow_producer(**_kwargs):
+            loop.call_soon_threadsafe(started.set)
+            time.sleep(SLOW_CALL_SECONDS)
+            return tracked
+
+        pending = asyncio.create_task(
+            executor.run(slow_producer, on_cancelled_result=lambda result: result.close())
+        )
+        await started.wait()
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+
+        # Nothing awaits `slow_producer`'s eventual return value directly -
+        # the disposer is the only thing that will ever close it.
+        deadline = time.perf_counter() + 2.0
+        while not tracked.closed and time.perf_counter() < deadline:
+            await asyncio.sleep(0.01)
+
+        assert tracked.closed is True
+        executor.shutdown()
+
+    async def test_disposer_is_not_called_when_the_await_completes_normally(self):
+        executor = HistoryExecutor()
+        disposer = Mock()
+
+        result = await executor.run(lambda: "ok", on_cancelled_result=disposer)
+
+        assert result == "ok"
+        disposer.assert_not_called()
+        executor.shutdown()
+
+    async def test_disposer_is_not_called_when_the_worker_raises(self):
+        executor = HistoryExecutor(max_workers=1, max_pending=0)
+        started = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def slow_failure(**_kwargs):
+            loop.call_soon_threadsafe(started.set)
+            time.sleep(SLOW_CALL_SECONDS)
+            raise RuntimeError("boom")
+
+        disposer = Mock()
+        pending = asyncio.create_task(
+            executor.run(slow_failure, on_cancelled_result=disposer)
+        )
+        await started.wait()
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+
+        deadline = time.perf_counter() + 2.0
+        while executor.inflight and time.perf_counter() < deadline:
+            await asyncio.sleep(0.01)
+
+        disposer.assert_not_called()
+        executor.shutdown()
+
+
+class TestExportCancellationDisposesOfSpooledFile:
+    """End-to-end proof for the facade's export methods: a real
+    SpooledTemporaryFile the worker produces after its awaiting caller was
+    cancelled gets closed rather than leaked."""
+
+    async def test_export_zip_async_closes_spooled_file_when_cancelled(self):
+        import tempfile
+
+        facade = make_facade()
+        loop = asyncio.get_running_loop()
+        started = asyncio.Event()
+        produced = {}
+
+        def slow_export(*args, **kwargs):
+            loop.call_soon_threadsafe(started.set)
+            time.sleep(SLOW_CALL_SECONDS)
+            spooled = tempfile.SpooledTemporaryFile()
+            spooled.write(b"zip-bytes")
+            spooled.seek(0)
+            produced["file"] = spooled
+            return spooled, "export.zip"
+
+        facade._archive.export_zip = slow_export
+
+        pending = asyncio.create_task(
+            facade.export_zip_async(generation_ids=["gen-1"], user_id="u1")
+        )
+        await started.wait()
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+
+        deadline = time.perf_counter() + 2.0
+        while "file" not in produced and time.perf_counter() < deadline:
+            await asyncio.sleep(0.01)
+
+        assert produced["file"].closed is True
+        facade.shutdown()
+
+    async def test_export_bundle_async_closes_spooled_file_when_cancelled(self):
+        import tempfile
+
+        facade = make_facade()
+        loop = asyncio.get_running_loop()
+        started = asyncio.Event()
+        produced = {}
+
+        def slow_export(*args, **kwargs):
+            loop.call_soon_threadsafe(started.set)
+            time.sleep(SLOW_CALL_SECONDS)
+            spooled = tempfile.SpooledTemporaryFile()
+            spooled.write(b"zip-bytes")
+            spooled.seek(0)
+            produced["file"] = spooled
+            return spooled, "export.zip"
+
+        facade._archive.export_bundle = slow_export
+
+        pending = asyncio.create_task(
+            facade.export_bundle_async("gen-1", "u1")
+        )
+        await started.wait()
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+
+        deadline = time.perf_counter() + 2.0
+        while "file" not in produced and time.perf_counter() < deadline:
+            await asyncio.sleep(0.01)
+
+        assert produced["file"].closed is True
+        facade.shutdown()

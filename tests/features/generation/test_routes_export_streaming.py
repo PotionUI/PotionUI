@@ -1,15 +1,27 @@
-"""Tests for GenerationController._stream_zip_response - the shared helper
-that streams an already-built export zip (a SpooledTemporaryFile) as the HTTP
-response body without materializing it as bytes, and closes it afterward.
+"""Tests for GenerationController._stream_zip_response / _SpooledZipResponse -
+the shared machinery that streams an already-built export zip (a
+SpooledTemporaryFile) as the HTTP response body without materializing it as
+bytes, and closes it on every exit path: normal completion, an exception
+raised from the ASGI `send()` itself, or a client disconnect.
+
+These drive the real ASGI `__call__(scope, receive, send)` contract (a fake
+send/receive, no live server) rather than draining `body_iterator` directly -
+`_SpooledZipResponse` only guarantees the close from inside `__call__`.
 """
 
+import asyncio
 import io
 import tempfile
 import zipfile
 from unittest.mock import AsyncMock, Mock
 
+import pytest
+
+import src.features.generation.routes as routes_module
 from src.features.generation.history_facade import GenerationHistoryFacade
 from src.features.generation.routes import GenerationController
+
+_CALL_TIMEOUT = 5.0
 
 
 def make_controller() -> GenerationController:
@@ -35,17 +47,49 @@ def _spooled_zip(entries: dict) -> tempfile.SpooledTemporaryFile:
     return spooled
 
 
-async def _drain(body_iterator) -> bytes:
-    chunks = []
-    async for chunk in body_iterator:
-        chunks.append(chunk)
-    return b"".join(chunks)
+async def _never_disconnect():
+    """A `receive` that never returns - the response's own task group
+    cancels this side once the send loop finishes, same as a real client
+    that stays connected for the whole response."""
+    await asyncio.Event().wait()
 
 
-class TestStreamZipResponse:
+class _RecordingSend:
+    """A `send` that records every ASGI message it's given."""
+
+    def __init__(self):
+        self.messages = []
+
+    async def __call__(self, message) -> None:
+        self.messages.append(message)
+
+    @property
+    def body(self) -> bytes:
+        return b"".join(
+            m["body"] for m in self.messages if m["type"] == "http.response.body"
+        )
+
+
+async def _call(response, receive=None, send=None):
+    send = send or _RecordingSend()
+    await asyncio.wait_for(response({}, receive or _never_disconnect, send), timeout=_CALL_TIMEOUT)
+    return send
+
+
+def _contains_connection_reset(exc: BaseException) -> bool:
+    """anyio's task group wraps a `send()` failure in a `BaseExceptionGroup`
+    (Python 3.11+) rather than letting it propagate bare."""
+    if isinstance(exc, ConnectionResetError):
+        return True
+    if isinstance(exc, BaseExceptionGroup):
+        return any(_contains_connection_reset(sub) for sub in exc.exceptions)
+    return False
+
+
+class TestStreamZipResponseHeaders:
     def test_sets_content_length_and_disposition_headers(self):
         zip_file = _spooled_zip({"a.txt": b"hello world"})
-        zip_file.seek(0, 2)
+        zip_file.seek(0, io.SEEK_END)
         expected_length = zip_file.tell()
         zip_file.seek(0)
 
@@ -54,51 +98,80 @@ class TestStreamZipResponse:
         assert response.headers["content-length"] == str(expected_length)
         assert response.headers["content-disposition"] == 'attachment; filename="export.zip"'
         assert response.media_type == "application/zip"
+        zip_file.close()
 
-    async def test_streamed_bytes_reproduce_the_original_archive(self):
+
+class TestSpooledZipResponseAsgiCleanup:
+    """Drives `_SpooledZipResponse` through the real ASGI `__call__`
+    contract, proving `zip_file` is closed on every exit path."""
+
+    async def test_streamed_bytes_reproduce_the_original_archive_and_file_is_closed(self):
         zip_file = _spooled_zip({"gen1/0.png": b"fake-image-bytes" * 100})
 
         response = GenerationController._stream_zip_response(zip_file, "export.zip")
-        streamed = await _drain(response.body_iterator)
+        send = await _call(response)
 
-        zf = zipfile.ZipFile(io.BytesIO(streamed))
+        zf = zipfile.ZipFile(io.BytesIO(send.body))
         assert zf.namelist() == ["gen1/0.png"]
         assert zf.read("gen1/0.png") == b"fake-image-bytes" * 100
+        assert zip_file.closed
 
-    async def test_spooled_file_is_closed_after_full_consumption(self):
-        """Without the generator's `finally` close, the spooled file (and its
-        backing temp file, once rolled over) would leak past the response."""
-        zip_file = _spooled_zip({"a.txt": b"content"})
-
+    async def test_closes_file_when_send_raises_before_first_chunk(self):
+        """Without __call__'s own `finally`, an exception from `send()` skips
+        straight past Starlette's `background` line - nothing would close
+        the file."""
+        zip_file = _spooled_zip({"a.txt": b"hello"})
         response = GenerationController._stream_zip_response(zip_file, "export.zip")
-        assert not zip_file.closed
 
-        await _drain(response.body_iterator)
+        async def failing_send(message):
+            raise ConnectionResetError("simulated broken pipe")
+
+        with pytest.raises(BaseException) as exc_info:
+            await asyncio.wait_for(
+                response({}, _never_disconnect, failing_send), timeout=_CALL_TIMEOUT
+            )
+        assert _contains_connection_reset(exc_info.value)
 
         assert zip_file.closed
 
-    async def test_background_task_close_is_idempotent_after_generator_already_closed(self):
-        zip_file = _spooled_zip({"a.txt": b"content"})
+    async def test_closes_file_when_send_raises_after_one_chunk(self, monkeypatch):
+        monkeypatch.setattr(routes_module, "_EXPORT_STREAM_CHUNK_BYTES", 4)
 
+        zip_file = _spooled_zip({"a.txt": b"a body longer than one small chunk"})
         response = GenerationController._stream_zip_response(zip_file, "export.zip")
-        await _drain(response.body_iterator)
+
+        calls = []
+
+        async def flaky_send(message):
+            calls.append(message)
+            # 1st call = http.response.start, 2nd call = first body chunk.
+            if len(calls) == 2:
+                raise ConnectionResetError("simulated broken pipe")
+
+        with pytest.raises(BaseException) as exc_info:
+            await asyncio.wait_for(
+                response({}, _never_disconnect, flaky_send), timeout=_CALL_TIMEOUT
+            )
+        assert _contains_connection_reset(exc_info.value)
+
+        assert len(calls) == 2
         assert zip_file.closed
 
-        # Starlette always runs `background` after the response completes -
-        # closing an already-closed file must not raise.
-        await response.background()
-        assert zip_file.closed
-
-    async def test_background_task_closes_file_if_generator_never_ran(self):
-        """Covers the client-disconnect path: the streaming generator may
-        never be driven to completion, so the background task is the only
-        thing that reliably closes the file."""
-        zip_file = _spooled_zip({"a.txt": b"content"})
-
+    async def test_closes_file_on_client_disconnect_mid_stream(self):
+        zip_file = _spooled_zip({"a.txt": b"hello"})
         response = GenerationController._stream_zip_response(zip_file, "export.zip")
-        assert not zip_file.closed
 
-        await response.background()
+        async def disconnect_immediately():
+            return {"type": "http.disconnect"}
+
+        async def hanging_send(message):
+            # Never resolves on its own - only the disconnect's cancellation
+            # of the sibling send-loop task gets this to return at all.
+            await asyncio.Event().wait()
+
+        await asyncio.wait_for(
+            response({}, disconnect_immediately, hanging_send), timeout=_CALL_TIMEOUT
+        )
 
         assert zip_file.closed
 
@@ -116,8 +189,8 @@ class TestExportEndpointsUseStreaming:
         )
 
         assert response.headers["content-disposition"] == 'attachment; filename="potionui-export.zip"'
-        streamed = await _drain(response.body_iterator)
-        assert len(streamed) > 0
+        send = await _call(response)
+        assert len(send.body) > 0
         assert zip_file.closed
 
     async def test_export_generation_bundle_returns_streamed_response_backed_by_facade_file(self):
@@ -130,6 +203,6 @@ class TestExportEndpointsUseStreaming:
         response = await controller.export_generation_bundle("gen1", current_user=Mock(id="u1"))
 
         assert response.headers["content-disposition"] == 'attachment; filename="potionui-generation-gen1.zip"'
-        streamed = await _drain(response.body_iterator)
-        assert len(streamed) > 0
+        send = await _call(response)
+        assert len(send.body) > 0
         assert zip_file.closed

@@ -80,6 +80,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from contextlib import contextmanager
 
 import torch
 import torch.nn.functional as F
@@ -314,6 +315,22 @@ def cast_bias_weight(
     return weight, bias
 
 
+class _PreparedLinearOperand:
+    """A ``Linear.prepared_linear`` context's per-chunk runner: callers treat
+    every projection loop uniformly (``with layer.prepared_linear(sample) as
+    proj: ... proj(x_chunk) ...``) whether or not the layer had anything
+    worth preparing. Carries only the closure built by the context that
+    yielded it -- never a reference held past that context's own scope."""
+
+    __slots__ = ("_run",)
+
+    def __init__(self, run) -> None:
+        self._run = run
+
+    def __call__(self, x_chunk: torch.Tensor) -> torch.Tensor:
+        return self._run(x_chunk)
+
+
 class CastWeightBiasOp:
     """Marker mixin carrying the cast-on-forward flags."""
 
@@ -329,6 +346,41 @@ class CastWeightBiasOp:
     # cast-mode Linears; standard-mode Linears patch their weight in place
     # instead. See ``apply_lora_deltas``.
     lora_deltas: list | None = None
+
+    @contextmanager
+    def prepared_linear(self, sample: torch.Tensor):
+        """Prepare this layer's effective weight/bias ONCE for ``sample``'s
+        dtype/device/cuda-ness, for reuse across a caller-driven loop of
+        several forward calls against inputs that share those (e.g. a
+        row-chunked projection: ``MiniMaxH3Attention._chunked_qkv``'s
+        ``qkv_proj`` loop, ``forward``'s ``out_proj`` loop — ``sample`` is the
+        loop's full-length, not-yet-chunked tensor, since every chunk of it
+        shares its dtype/device/cuda-ness by construction). Yields a callable
+        (:class:`_PreparedLinearOperand`) that runs one chunk; only
+        ``sample.dtype``/``.device``/``.is_cuda`` are read here (mirroring
+        ``forward_comfy_cast_weights``'s own ``input.is_cuda`` check) — the
+        tensor itself is never retained. Nothing prepared here is cached
+        beyond the ``with`` block, so a changed weight/LoRA-delta/dtype/device
+        on the NEXT call always re-prepares from current state instead of
+        reusing a stale operand -- there is no cross-context cache or key to
+        invalidate.
+
+        Default (this base + every ``CastWeightBiasOp`` layer that doesn't
+        override it, including a resident OR streamed plain ``Linear``):
+        there is no expensive per-forward preparation to amortize -- a
+        resident weight's per-forward cast is already a no-op
+        (:func:`cast_to` short-circuits on a device+dtype match), and a
+        streamed plain layer's cast is the one real cost, deliberately left
+        as ordinary per-call dispatch here (see the card this landed with:
+        reusing it would raise the streamed working set for a case with no
+        dequant/GEMM work to amortize). ``proj`` is simply ``self`` — calling
+        it runs the layer's normal ``forward`` unchanged, byte-identical to
+        not using this context at all. :class:`Fp8ScaledLinear` overrides
+        this with the one case that IS expensive: dequant (cast + scale +
+        ConvRot + LoRA) or, when the opt-in fp8 GEMM gate is on and eligible,
+        the staged fp8 weight.
+        """
+        yield self
 
 
 def apply_lora_deltas(weight: torch.Tensor, deltas: "list | None") -> torch.Tensor:
@@ -984,32 +1036,153 @@ class Fp8ScaledLinear(manual_cast.Linear):
                     # anywhere near the kernel -- this is the case that used to
                     # be completely silent (see _log_scaled_mm_fast_path_rejection).
                     _log_scaled_mm_fast_path_rejection(reject_reason)
-            # A quantised layer must dequant + matmul in a REAL float dtype. Some
-            # archs derive their activation dtype from a weight's storage dtype
-            # (Krea-2's timestep embed uses ``tmlp[0].weight.dtype``), which is fp8
-            # after on-the-fly quantisation — so the incoming activation can itself
-            # arrive as fp8. Upcast it to the compute dtype, exactly as a natively
-            # fp8 checkpoint would run. Move to the activation device+dtype (not
-            # just dtype): under partial residency a streamed fp8 layer's weight
-            # lives on pinned CPU RAM, so the dequant copies it to input.device
-            # (non_blocking when streamed).
-            nb = self.stream_non_blocking
-            dt = input.dtype if input.dtype not in _FP8_DTYPES else torch.bfloat16
+            weight, bias, dt = self._prepare_dequant_operand(input.dtype, input.device)
             if input.dtype is not dt:
                 input = input.to(dt)
-            weight = cast_to(self.weight, dt, input.device, non_blocking=nb)
-            weight = weight * cast_to(self.weight_scale, dt, input.device, non_blocking=nb)
-            if self.convrot_hadamard is not None:
-                hadamard = cast_to(self.convrot_hadamard, dt, input.device, non_blocking=nb)
-                weight = _convrot_unrotate_weight(weight, hadamard, self.convrot_groupsize)
-            bias = cast_to(self.bias, dt, input.device, non_blocking=nb) if self.bias is not None else None
-        else:
-            # non-quantised layer inside a mixed fp8 checkpoint.
-            weight, bias = cast_bias_weight(self, input)
+            return F.linear(input, weight, bias)
+        # non-quantised layer inside a mixed fp8 checkpoint.
+        weight, bias = cast_bias_weight(self, input)
         weight = apply_lora_deltas(weight, self.lora_deltas)
         return F.linear(input, weight, bias)
 
-    def _forward_scaled_mm(self, input: torch.Tensor) -> torch.Tensor | None:
+    def _prepare_dequant_operand(
+        self, dtype: torch.dtype, device: "torch.device | str",
+    ) -> tuple[torch.Tensor, "torch.Tensor | None", torch.dtype]:
+        """The effective dequantised weight/bias for a quantised layer
+        (``self.weight_scale is not None``), for ``dtype``/``device``: cast +
+        scale-multiply, optional ConvRot un-rotation, LoRA delta application —
+        every step of ``forward_comfy_cast_weights``'s dequant branch that
+        depends only on this layer's own state and the caller's requested
+        dtype/device, never on a specific input tensor's values. Extracted so
+        :meth:`prepared_linear` can compute it ONCE for a caller-driven loop
+        of several forwards (e.g. a row-chunked projection) instead of once
+        per call; the single-call path above still calls this every time,
+        unchanged behaviour.
+
+        Some archs derive their activation dtype from a weight's storage dtype
+        (Krea-2's timestep embed uses ``tmlp[0].weight.dtype``), which is fp8
+        after on-the-fly quantisation — so ``dtype`` can itself be an fp8
+        dtype. Upcast to bf16 exactly as a natively fp8 checkpoint would run;
+        the resolved compute dtype is returned so the caller casts its own
+        input tensor(s) to the SAME dtype instead of re-deriving it.
+        """
+        nb = self.stream_non_blocking
+        dt = dtype if dtype not in _FP8_DTYPES else torch.bfloat16
+        weight = cast_to(self.weight, dt, device, non_blocking=nb)
+        weight = weight * cast_to(self.weight_scale, dt, device, non_blocking=nb)
+        if self.convrot_hadamard is not None:
+            hadamard = cast_to(self.convrot_hadamard, dt, device, non_blocking=nb)
+            weight = _convrot_unrotate_weight(weight, hadamard, self.convrot_groupsize)
+        bias = cast_to(self.bias, dt, device, non_blocking=nb) if self.bias is not None else None
+        weight = apply_lora_deltas(weight, self.lora_deltas)
+        return weight, bias, dt
+
+    @contextmanager
+    def prepared_linear(self, sample: torch.Tensor):
+        """Override of :meth:`CastWeightBiasOp.prepared_linear`: the ONE case
+        where per-forward preparation is genuinely expensive and worth
+        amortising across a caller-driven chunk loop that shares one
+        dtype/device/cuda-ness throughout (``sample``'s).
+
+        A non-quantised layer inside a mixed fp8 checkpoint (``weight_scale``
+        is ``None``), or an actual nvfp4 layer (out of scope here — untouched,
+        see :class:`Nvfp4Linear`), takes the base no-op passthrough.
+        Otherwise: when the opt-in fp8 GEMM gate is on AND every fast-path
+        precondition holds for ``sample`` (mirroring
+        ``forward_comfy_cast_weights``'s own check, reading ``sample.is_cuda``
+        exactly like it reads ``input.is_cuda``, with the same
+        ``allow_weight_staging=True`` a streamed leaf needs) AND staging that
+        weight and validating its scale both succeed, the prepared operand is
+        that ONE staged fp8 weight + its validated scale, reused by every
+        chunk's ``_forward_scaled_mm`` call — each chunk still does its own
+        input quantisation and (for a branchable LoRA delta) output-side add,
+        since both are chunk-content-dependent; nothing whole-sequence is
+        quantised. A kernel-level rejection on a specific chunk (rare — the
+        gate/precondition/staging checks already passed) falls back to the
+        ordinary single-call dispatch for JUST that chunk, never retried or
+        cached for the rest of this context.
+
+        Otherwise (gate off, ineligible, or staging/scale failed) the prepared
+        operand is :meth:`_prepare_dequant_operand`'s effective weight/bias,
+        computed once and reused via a plain ``F.linear`` per chunk.
+
+        Either way, nothing is cached beyond this ``with`` block — the staged
+        weight or dequantised weight/bias lives only in this generator's own
+        locals and the small closure handed to the caller, both released when
+        the block exits (normally, or via an exception unwinding through it);
+        the layer's own storage/pinning/prefetch state is never touched.
+        """
+        if self.weight_scale is None or getattr(self, "_is_nvfp4", False):
+            yield self
+            return
+        dtype, device = sample.dtype, sample.device
+        fast_weight = None
+        w_scale = None
+        if _fp8_matmul_enabled():
+            reject_reason = _scaled_mm_fast_path_reject_reason(
+                weight_dtype=self.weight.dtype,
+                has_weight_scale=True,
+                lora_deltas=self.lora_deltas,
+                input_dtype=dtype,
+                input_is_cuda=sample.is_cuda,
+                weight_is_cuda=self.weight.is_cuda,
+                in_features=self.in_features,
+                out_features=self.out_features,
+                allow_weight_staging=True,
+            )
+            if reject_reason is None:
+                fast_weight = self._stage_scaled_mm_weight(device)
+                if fast_weight is not None:
+                    w_scale = self._cached_scaled_mm_scale("weight", self.weight_scale, device)
+                    if w_scale is None:
+                        fast_weight = None
+        try:
+            if fast_weight is not None:
+                def _run_fast(x_chunk: torch.Tensor, w=fast_weight) -> torch.Tensor:
+                    out = self._forward_scaled_mm(x_chunk, weight=w)
+                    if out is not None:
+                        return out
+                    # Kernel-level rejection for this one chunk (mixed-device
+                    # operand, capability probe rollback, ...) -- the ordinary
+                    # per-call path re-decides and re-stages/dequants for just
+                    # this chunk; the rest of the loop still uses `w`.
+                    return self.forward_comfy_cast_weights(x_chunk)
+                yield _PreparedLinearOperand(_run_fast)
+            else:
+                weight, bias, dt = self._prepare_dequant_operand(dtype, device)
+
+                def _run_dequant(x_chunk: torch.Tensor, w=weight, b=bias, dt=dt) -> torch.Tensor:
+                    if x_chunk.dtype is not dt:
+                        x_chunk = x_chunk.to(dt)
+                    return F.linear(x_chunk, w, b)
+                yield _PreparedLinearOperand(_run_dequant)
+        finally:
+            fast_weight = None
+            w_scale = None
+
+    def _stage_scaled_mm_weight(self, device: "torch.device | str") -> "torch.Tensor | None":
+        """Resident/prefetched weight as-is (no copy); otherwise an on-demand
+        per-call stage to ``device`` for a streamed leaf still on pinned CPU
+        RAM. ``None`` on staging failure (OOM or any exception) -- caller
+        falls back to the dequant path. Extracted out of
+        :meth:`_forward_scaled_mm` so :meth:`prepared_linear` can stage ONCE
+        and hand the same operand to every chunk in its loop; the single-call
+        path (``weight=None``) still calls this every time, unchanged
+        behaviour."""
+        weight = self.weight
+        if weight.is_cuda:
+            return weight
+        try:
+            return cast_to(weight, weight.dtype, device, non_blocking=self.stream_non_blocking)
+        except (RuntimeError, torch.cuda.OutOfMemoryError):
+            logger.debug(
+                "fp8 matmul: on-demand weight staging failed; using dequant path", exc_info=True,
+            )
+            return None
+
+    def _forward_scaled_mm(
+        self, input: torch.Tensor, *, weight: "torch.Tensor | None" = None,
+    ) -> torch.Tensor | None:
         """Native fp8 GEMM via ``torch._scaled_mm`` — runs the matmul *in* fp8
         instead of dequantising to bf16/fp16 first, cashing in the fp8 storage for
         real compute (~1.3-1.6x on linear-dominated DiTs on sm89+ per the roadmap).
@@ -1042,6 +1215,13 @@ class Fp8ScaledLinear(manual_cast.Linear):
         already-resident or already-prefetched weight (``self.weight.is_cuda``
         True) is used as-is, no extra copy.
 
+        **Pre-staged operand.** ``weight``, when given (by
+        :meth:`prepared_linear`, reusing one staged operand across a chunk
+        loop), is used exactly as passed — no staging, no residency check.
+        Left ``None`` (the single-call path, and every existing caller before
+        this parameter existed) this stages from ``self.weight`` itself via
+        :meth:`_stage_scaled_mm_weight`, identical to the old inline logic.
+
         Layout invariant: the first operand must be row-major ``(M, K)`` and the
         second **column-major** ``(K, N)``. The weight is stored
         ``(out_features, in_features)`` = ``(N, K)`` row-major, so ``weight.t()`` is
@@ -1057,18 +1237,9 @@ class Fp8ScaledLinear(manual_cast.Linear):
         if w_scale is None:
             return None
 
-        weight = self.weight
-        if not weight.is_cuda:
-            # Not resident and no prefetch hit -> stage this call's operand.
-            # Bound to the call: `weight` is a local reference, never written
-            # back to `self.weight`, so the streamed leaf's own storage stays
-            # exactly where ModuleStreamer.apply put it.
-            try:
-                weight = cast_to(weight, weight.dtype, device, non_blocking=self.stream_non_blocking)
-            except (RuntimeError, torch.cuda.OutOfMemoryError):
-                logger.debug(
-                    "fp8 matmul: on-demand weight staging failed; using dequant path", exc_info=True,
-                )
+        if weight is None:
+            weight = self._stage_scaled_mm_weight(device)
+            if weight is None:
                 return None
 
         orig_shape = input.shape

@@ -272,7 +272,15 @@ class MiniMaxH3Attention(nn.Module):
                 )
             out = out.transpose(1, 2).reshape(b, s, -1)
         if seq_chunk_rows and seq_chunk_rows < s:
-            return torch.cat([self.out_proj(c) for c in out.split(seq_chunk_rows, dim=1)], dim=1)
+            # One prepared operand for the whole loop (see prepared_linear):
+            # a quantised out_proj otherwise re-dequantises (or, with the fp8
+            # GEMM gate on, re-stages) the SAME weight on every chunk, even
+            # though nothing about it changes between chunks -- only the
+            # chunk-dependent input quantisation/output branch repeats.
+            # Released the moment the `with` block exits, before the caller's
+            # next op runs.
+            with self.out_proj.prepared_linear(out) as proj:
+                return torch.cat([proj(c) for c in out.split(seq_chunk_rows, dim=1)], dim=1)
         return self.out_proj(out)
 
     def _chunked_qkv(self, x: Tensor, rotary_emb: tuple[Tensor, Tensor] | None,
@@ -287,6 +295,13 @@ class MiniMaxH3Attention(nn.Module):
         (linear projection, per-row RMSNorm, per-row RoPE) is row-independent,
         so this is exact under chunking regardless of chunk size or a ragged
         final chunk — see ``test_seq_chunk_rows_matches_unchunked_output``.
+
+        ``qkv_proj`` is prepared ONCE for the whole loop (see
+        ``prepared_linear``): a quantised projection's weight preparation
+        (dequant, or the fp8 GEMM gate's on-demand staging) does not depend on
+        chunk content, only on this layer's own state and ``x``'s dtype/device
+        — both fixed for every chunk here — so repeating it per chunk was
+        pure waste. Released the moment the loop finishes.
         """
         b, s, _ = x.shape
         cos, sin = rotary_emb if rotary_emb is not None else (None, None)
@@ -294,19 +309,20 @@ class MiniMaxH3Attention(nn.Module):
         k_full = x.new_empty(b, s, self.heads, self.head_dim)
         v_full = x.new_empty(b, s, self.heads, self.head_dim)
         start = 0
-        for x_chunk in x.split(chunk_rows, dim=1):
-            n = x_chunk.shape[1]
-            q_c, k_c, v_c = self.qkv_proj(x_chunk).chunk(3, dim=-1)
-            q_c = self.q_norm(q_c.view(b, n, self.heads, self.head_dim))
-            k_c = self.k_norm(k_c.view(b, n, self.heads, self.head_dim))
-            v_c = v_c.view(b, n, self.heads, self.head_dim)
-            if cos is not None:
-                q_c = _apply_rotary_emb(q_c, cos[start:start + n], sin[start:start + n])
-                k_c = _apply_rotary_emb(k_c, cos[start:start + n], sin[start:start + n])
-            q_full[:, start:start + n] = q_c
-            k_full[:, start:start + n] = k_c
-            v_full[:, start:start + n] = v_c
-            start += n
+        with self.qkv_proj.prepared_linear(x) as proj:
+            for x_chunk in x.split(chunk_rows, dim=1):
+                n = x_chunk.shape[1]
+                q_c, k_c, v_c = proj(x_chunk).chunk(3, dim=-1)
+                q_c = self.q_norm(q_c.view(b, n, self.heads, self.head_dim))
+                k_c = self.k_norm(k_c.view(b, n, self.heads, self.head_dim))
+                v_c = v_c.view(b, n, self.heads, self.head_dim)
+                if cos is not None:
+                    q_c = _apply_rotary_emb(q_c, cos[start:start + n], sin[start:start + n])
+                    k_c = _apply_rotary_emb(k_c, cos[start:start + n], sin[start:start + n])
+                q_full[:, start:start + n] = q_c
+                k_full[:, start:start + n] = k_c
+                v_full[:, start:start + n] = v_c
+                start += n
         return q_full, k_full, v_full
 
 
@@ -785,14 +801,24 @@ class MiniMaxH3Model(NativeArchModule):
         ``seq_chunk_rows`` (keyword, optional): low-VRAM sequence chunking.
         ``0`` (default) is off and byte-identical to a build without the
         feature. Above ``0``, every block's qkv projection + RMSNorm(q,k) +
-        RoPE, and its SwiGLU MLP, run row-chunked over the packed sequence
-        instead of materializing their full-length intermediate transients at
-        once (the ``2*ffn_dim`` SwiGLU output and the fused ``3*inner_dim``
-        qkv projection are the two that OOM first on a long refine sequence).
-        The attention core itself is never chunked. A quantized DiT
-        (fp8/int8) dequantizes its weight on every ``Linear.forward`` call, so
-        this trades a smaller peak transient for one extra dequant per chunk
-        per chunked Linear — pick the chunk size accordingly.
+        RoPE, its ``out_proj``, and its SwiGLU MLP, run row-chunked over the
+        packed sequence instead of materializing their full-length
+        intermediate transients at once (the ``2*ffn_dim`` SwiGLU output and
+        the fused ``3*inner_dim`` qkv projection are the two that OOM first on
+        a long refine sequence). The attention core itself is never chunked.
+
+        A quantized ``qkv_proj``/``out_proj`` (fp8/int8) no longer pays a
+        redundant per-chunk weight preparation: ``Fp8ScaledLinear.
+        prepared_linear`` computes the effective weight ONCE per projection
+        call (the dequantized weight, or — with the opt-in fp8 GEMM gate on
+        and eligible — the on-demand-staged fp8 weight) and every chunk of
+        that SAME call reuses it, released when the chunk loop finishes; only
+        the chunk-dependent input quantization/GEMM still runs per chunk. The
+        interleaved SwiGLU ``fc1``/``fc2`` loop does NOT get this treatment —
+        retaining both projections' prepared operands at once for the whole
+        loop would raise the streamed working set the chunking is meant to
+        bound — so a quantized MLP still dequantizes/stages ``fc1`` and
+        ``fc2`` on every chunk; pick the chunk size with that cost in mind.
 
         ``prepared_context`` (keyword, optional): a
         :class:`PreparedTextContext` from :meth:`prepare_text_context`,

@@ -1826,6 +1826,19 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    `lora_picker` field. This is the wizard's starting point, not a requirement: submit it back
    verbatim for the importer's best guess, or design a different `form`/`history` entirely.
 
+   **Combo (dropdown) inputs.** With a reachable backend's `object_info` available (see "Schema
+   consistency" below), a node input backed by a fixed choice list — ComfyUI's own combo widget —
+   is recognized under either of its two equivalent `/object_info` spellings: the inline
+   `[[opt1, opt2, ...], {...}]` form, and the named `["COMBO", {"options": [...]}]` form used by,
+   among others, an API-node's model picker. Either spelling suggests a `select` field carrying
+   the live option list (or, when the input is a recognized model-file name or its options mostly
+   look like model filenames, a `model` field instead — never both). The workflow's own current
+   value is always kept verbatim, even when it doesn't case-match any option. A combo this can't
+   safely resolve to a complete, static option list — `options` missing, not a list, empty, or
+   containing anything but a plain string/number/boolean, or a `remote`-marked (dynamically
+   populated) combo — is left as its plain literal-field guess instead of guessing at values or
+   fetching them live; a connected input never becomes a field candidate at all, combo or not.
+
    ```bash
    curl -s -X POST http://localhost:7680/api/plugins/comfyui-backend/presets/import/analyze \
      -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \

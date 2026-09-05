@@ -76,6 +76,10 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
 from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_wan_vae_encode
+from src.pipelines.pipes.generator.chain_video_wan22.geometry import (
+    resolve_continuation as _resolve_continuation,
+    tail_frame_count as _tail_frame_count,
+)
 from src.pipelines.pipes.generator.chain_video_wan22.stitch import stitch_segments
 from src.pipelines.pipes.generator.img2vid_wan22.concat import build_i2v_concat
 from src.pipelines.pipes.generator.img2vid_wan22.main import _prep_start_frame
@@ -376,12 +380,11 @@ class GeneratorWanChainVideoPipe(BasePipe):
             raise ValueError("generator/chain_video_wan22 requires document.segments (at least one)")
 
         settings = document.get("settings") or {}
-        continuation = settings.get("continuation")
-        default_overlap = 4 if continuation is None else int(continuation.get("overlap_frames", 4))
-        continuation_source = None if continuation is None else continuation.get("source")
-        stitch_enabled = True if continuation is None else bool(continuation.get("stitch", True))
-        if continuation_source == "last_frame":
-            default_overlap = 1
+        # Shared with src.features.video_director.compile's Wan geometry path
+        # (chain_video_wan22/geometry.py) -- the SAME read of this document
+        # field, so a per-shot render's planned duration and this pipe's
+        # actual output never disagree.
+        default_overlap, stitch_enabled = _resolve_continuation(settings)
 
         # Map each segment id to its start (role=first) / end (role=last) image
         # in the loaded arrays -- media_loader loads them in document order, so
@@ -424,10 +427,10 @@ class GeneratorWanChainVideoPipe(BasePipe):
         seam_handoff = str(self.config.get("seam_handoff", "latent"))
         # Rolling hand-off: lock this many pixel frames of the previous segment's
         # tail at the front of the next segment's window, bounded by both the
-        # configured overlap and motion_latent_count's latent-slot budget.
-        base_tail = default_overlap if default_overlap > 0 else 1
-        motion_frames = (motion_latent_count - 1) * _TEMPORAL_DOWNSCALE + 1
-        tail_count = max(1, min(base_tail, motion_frames))
+        # configured overlap and motion_latent_count's latent-slot budget --
+        # the SAME arithmetic geometry.py's `resolve_window_geometry` runs
+        # (without a model loaded) for `compile.py`'s Wan planning path.
+        tail_count = _tail_frame_count(default_overlap, motion_latent_count)
         # Same tail, in LATENT frames -- the same (n-1)//4+1 conversion used for
         # any pixel-frame count in this pipe (see `t_lat` below). seam_handoff
         # "latent" splices exactly this many of the previous segment's own

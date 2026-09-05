@@ -34,19 +34,18 @@ calls this module when that profile is actually present on the document --
 see its own `_WAN_FAMILY` comment for what happens when it's absent (a
 preset instance that hasn't wired the capability, or a hand-built document).
 
-**The trim clamp mirrors H3's own, not `main.py`'s current edge case.** A
-continuation segment's overlap here is `min(tail_count, frames - 1)` --
-always leaves at least one real frame, the same clamp
-`video_minimax_h3/windows.py` uses for its own
+**The trim clamp mirrors H3's own.** A continuation segment's overlap here is
+`min(tail_count, frames - 1)` -- always leaves at least one real frame, the
+same clamp `video_minimax_h3/windows.py` uses for its own
 `overlap_latents = min(overlap_latents_default, num_latent_frames - 1)`.
-`main.py`'s own pre-decode trim currently guards with a slightly different
-`frames_px.shape[0] > context_prefix + 1` condition, falling back to a
-document-wide stitch-overlap for an untrimmed short window; DIR-07 is
-reworking that mux-time edge case into a per-join guarantee ("one segment's
-trim state never changes another segment's join"), which nets out to the
-SAME per-segment overlap this module already computes. Adopting this module
-from `main.py` (pending DIR-07 landing) is the point where the two converge
-exactly -- see the DIR-06 report for the exact diff.
+`main.py` splits that same net amount across two possible pipeline stages --
+a per-segment pre-decode trim when the window is long enough
+(`context_trimmed`), or a per-join stitch-time crossfade otherwise
+(`segment_overlap_dropped_at_stitch`, DIR-07) -- but the TOTAL a `"chain"`
+segment contributes to the stitched result is the same `frames - min(
+tail_count, frames - 1)` either way; `main.py` itself calls
+`resolve_continuation`/`tail_frame_count` from this module for exactly that
+reason, so the two can never drift.
 """
 
 from __future__ import annotations

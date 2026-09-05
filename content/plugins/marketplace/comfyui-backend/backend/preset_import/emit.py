@@ -21,9 +21,11 @@ Wiring is split into two tiers:
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -199,6 +201,72 @@ def _tab_children_path(mode: str, *parts: str) -> _DoubleQuoted:
 
 def _dump_yaml(data: Dict[str, Any]) -> str:
     return yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True)
+
+
+def _dump_json(data: Any) -> str:
+    return json.dumps(data, indent=2) + "\n"
+
+
+def _write_file(path: Path, content: str) -> None:
+    """One staged file write - a module-level seam so a failure-injection
+    test can monkeypatch this exact call instead of `emit_preset`'s own
+    write loop."""
+    path.write_text(content, encoding="utf-8")
+
+
+def _replace_dir(src: Path, dst: Path) -> None:
+    """Rename `src` to `dst`. Every caller in this module only ever targets
+    a `dst` that was just removed or never existed, so this stays the single
+    directory-rename syscall `os.replace` performs - atomic on the
+    filesystems content/presets/local is expected to live on, but that is a
+    filesystem property this function relies on, not one it can guarantee;
+    see `_publish_preset_dir` for what a failure here does and does not
+    protect against."""
+    os.replace(src, dst)
+
+
+def _publish_preset_dir(target_dir: Path, staging_dir: Path) -> None:
+    """Swap a fully-written `staging_dir` into `target_dir`'s place.
+
+    Sequence: rename `target_dir` aside to a backup (only if it currently
+    exists), rename `staging_dir` into `target_dir`, then drop the backup.
+    On any failure in either rename, `target_dir` is put back exactly as it
+    was - the backup (if one was made) is renamed back into place - and
+    `staging_dir` is discarded; a `PresetEmitError` is raised naming the
+    original failure. If restoring the backup itself also fails, the backup
+    directory is deliberately NOT deleted - it holds the only intact copy of
+    the previous preset - and the error names its path so it can be moved
+    back by hand.
+
+    This is a two-rename swap, not a single power-loss-atomic transaction:
+    on any filesystem, a crash between the two renames could leave
+    `target_dir` briefly absent with only the backup present, needing manual
+    reconciliation on restart. What this guards against is an ordinary
+    Python exception during staging, renaming, or cleanup - a full disk, a
+    permission error, a serialization bug - not a mid-swap power loss.
+    """
+    backup_dir: Optional[Path] = None
+    try:
+        if target_dir.exists():
+            backup_dir = target_dir.parent / f".backup-{target_dir.name}-{uuid.uuid4().hex}"
+            _replace_dir(target_dir, backup_dir)
+        _replace_dir(staging_dir, target_dir)
+    except Exception as publish_error:
+        if backup_dir is not None and backup_dir.exists() and not target_dir.exists():
+            try:
+                _replace_dir(backup_dir, target_dir)
+            except Exception as restore_error:
+                raise PresetEmitError(
+                    "Failed to publish the updated preset, and failed to restore the previous "
+                    f"version from its backup - the previous complete preset directory is preserved "
+                    f"at {backup_dir}; move it back to {target_dir} by hand. "
+                    f"Publish error: {publish_error}. Restore error: {restore_error}"
+                ) from restore_error
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise PresetEmitError(f"Failed to publish the updated preset: {publish_error}") from publish_error
+    else:
+        if backup_dir is not None:
+            shutil.rmtree(backup_dir, ignore_errors=True)
 
 
 def _pipe(
@@ -947,38 +1015,52 @@ def emit_preset(
     }
 
     # ------------------------------------------------------------------
-    # Write everything - overwrite drops the whole directory first (after
-    # every validation above has already passed) so a reload/modify never
-    # leaves a stale tab/file behind from a previous shape (e.g. the mode
-    # name, or which tabs exist, changed between the original import and now).
+    # Write everything into a staging directory first, then publish it into
+    # `preset_dir`'s place (`_publish_preset_dir`). A serialization, mkdir,
+    # or write failure here must never destroy a previously-working preset
+    # (an overwrite) or leave a partial directory a later catalogue scan
+    # (`rglob("preset.yml")`, see `src/features/presets/loader.py`) could
+    # discover (a first import). `staging_dir` is a hidden sibling of
+    # `preset_dir`, not `preset_dir` itself: it carries no preset.yml of its
+    # own until the final rename swaps it into place, so an in-progress
+    # write is invisible to the scanner regardless of when it runs.
     # ------------------------------------------------------------------
-    if overwrite:
-        shutil.rmtree(preset_dir)
+    preset_dir.parent.mkdir(parents=True, exist_ok=True)
+    staging_dir = preset_dir.parent / f".staging-{preset_dir.name}-{uuid.uuid4().hex}"
 
-    mode_dir = preset_dir / "modes" / mode
+    mode_dir = staging_dir / "modes" / mode
     tabs_dir = mode_dir / "tabs"
     workflows_dir = mode_dir / "files" / "workflows"
-    for d in (tabs_dir, workflows_dir):
-        d.mkdir(parents=True, exist_ok=True)
 
-    written: List[Path] = []
+    try:
+        for d in (tabs_dir, workflows_dir):
+            d.mkdir(parents=True, exist_ok=True)
 
-    def write(path: Path, content: str) -> None:
-        path.write_text(content, encoding="utf-8")
-        written.append(path)
+        staged: List[Path] = []
 
-    write(preset_dir / "preset.yml", _dump_yaml(preset_yml))
-    write(preset_dir / "description.md", description_md)
-    write(preset_dir / IMPORT_SIDECAR_FILENAME, json.dumps(sidecar, indent=2) + "\n")
-    write(mode_dir / "form.yml", _dump_yaml(form_yml))
-    write(mode_dir / "pipeline.yml", _dump_yaml(pipeline_yml))
-    for filename, data in form_files.items():
-        write(tabs_dir / filename, _dump_yaml(data))
-    write(workflows_dir / workflow_filename, json.dumps(workflow_out, indent=2) + "\n")
+        def write(path: Path, content: str) -> None:
+            _write_file(path, content)
+            staged.append(path)
+
+        write(staging_dir / "preset.yml", _dump_yaml(preset_yml))
+        write(staging_dir / "description.md", description_md)
+        write(staging_dir / IMPORT_SIDECAR_FILENAME, _dump_json(sidecar))
+        write(mode_dir / "form.yml", _dump_yaml(form_yml))
+        write(mode_dir / "pipeline.yml", _dump_yaml(pipeline_yml))
+        for filename, data in form_files.items():
+            write(tabs_dir / filename, _dump_yaml(data))
+        write(workflows_dir / workflow_filename, _dump_json(workflow_out))
+    except Exception as staging_error:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise PresetEmitError(
+            f"Failed to stage the imported preset for writing: {staging_error}"
+        ) from staging_error
+
+    _publish_preset_dir(preset_dir, staging_dir)
 
     return EmittedPreset(
         preset_id=preset_id,
         preset_dir=preset_dir,
         mode=mode,
-        paths=[str(p) for p in written],
+        paths=[str(preset_dir / p.relative_to(staging_dir)) for p in staged],
     )

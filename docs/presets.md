@@ -1939,6 +1939,23 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    preset's `import.json` sidecar, or `default_form`/`default_history` for a preset imported before
    the sidecar carried them) so the wizard can reopen an imported preset exactly as it was built.
 
+   **Failure-safe publication.** `import`/reload never write into the live preset directory
+   directly: the replacement preset is fully rendered and written into a hidden staging directory
+   first (a sibling of the target with no `preset.yml` of its own, so the catalogue's `preset.yml`
+   scan never sees it mid-write), then published with a rename-based swap - the existing directory
+   (if any) is renamed aside to a backup, the staging directory is renamed into place, and the
+   backup is dropped. A serialization, write, or rename failure at any point before the swap
+   completes leaves the existing preset exactly as it was and discards the staging directory; on a
+   brand-new import (nothing existing to preserve) the same failure leaves no preset directory
+   behind at all, rather than a partial one a later scan could pick up. This is a two-rename swap,
+   not a single power-loss-atomic transaction - a crash between the two renames could still leave
+   the target briefly absent with only the backup present, needing manual reconciliation on
+   restart; what it guards against is an ordinary exception during staging, writing, or renaming
+   (a full disk, a permission error, a bug), not a mid-swap power loss. In the (pathological)
+   case where even restoring the backup fails, the backup directory is never deleted - the error
+   names its path so the previous preset's content can be moved back to the target directory by
+   hand.
+
    **Schema consistency.** `analyze`/`source` resolve a reachable ComfyUI backend's `object_info`
    once and classify every candidate from it (which inputs are prompts, which are model files and
    under which `models/` folder); the response carries that classification's own

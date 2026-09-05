@@ -20,7 +20,24 @@
 // its own or every subsequent WebSocket message for it dispatches nowhere
 // ("Tab not found"), and the shot's progress/poster never updates again.
 // `withRoutingEntry` below is what gives a confirmed pending/running id that
-// entry regardless of whether it also owns the shared display.
+// entry regardless of whether it also owns the shared display. That same
+// queue membership doubles as this module's subscription memory (see
+// `alreadyRouted` in the main loop): the underlying `WebSocketService`
+// instance survives a reconnect (its `onOpen` just re-sends
+// `subscribe_generation` for ids it already holds locally), so calling the
+// caller's `onSubscribe` a second time for an id already routed from an
+// earlier pass would register a second, distinct handler closure on the
+// socket and double up every future message for it.
+//
+// No-resurrection: a "keep" outcome (server says pending/running) is only
+// ever applied if the id is STILL claimed by the tab at apply time --
+// `isRetiredKeep` compares what was true when THIS pass started against
+// what is true right now, re-read from the store. A generation this pass
+// captured as "in flight" can legitimately finish via its own live
+// `generation_complete`/`generation_error` WHILE this pass's HTTP lookup is
+// still in flight; when the belated "still running" response lands, nothing
+// on the tab claims that id any more and re-adding its routing entry would
+// resurrect a run that is, in fact, done.
 //
 // This module never adopts an orphaned tab's queued/running generation as
 // its live display itself -- that is `$lib/generation/messages/ownership.ts`
@@ -31,13 +48,21 @@
 //
 // Every director-run mutation goes through the SAME identity-guarded
 // reducers `$lib/generation/messages/directorRuns.ts` uses for live
-// WebSocket messages (`withDirectorRunTerminal` requires
-// `existing.generationId === generationId`), so a belated restore response
-// for a shot that has since been resubmitted under a new generation id is a
-// silent no-op here exactly as it is there. The shared-display patch
-// (`activeGenerationId`) gets the same treatment by hand: every apply
-// re-reads the tab from the store and writes only if it still points at the
-// id this lookup was for.
+// WebSocket messages (`withDirectorRunTerminal`/`withDirectorRunPoster`
+// require `existing.generationId === generationId`), so a belated restore
+// response for a shot that has since been resubmitted under a new
+// generation id is a silent no-op here exactly as it is there. The
+// shared-display patch (`activeGenerationId`) gets the same treatment by
+// hand: every apply re-reads the tab from the store and writes only if it
+// still points at the id this lookup was for.
+//
+// A component teardown (SPA navigation away from /generate, or a fast
+// reconnect flap) can leave a lookup or its retry awaiting a response after
+// the page that started it is gone. `options.signal` (an `AbortSignal` the
+// caller retires on `onDestroy`, before disconnecting its WebSocket) is
+// checked after every `await` in this module, including immediately before
+// `onSubscribe` -- a late response must never subscribe on, or write into,
+// a tab/store that has already been torn down.
 import { get } from 'svelte/store';
 import type { Readable } from 'svelte/store';
 import type { Tab, GenerationState, QueuedGeneration } from '$lib/types/tabs';
@@ -47,6 +72,7 @@ import { leadIndex } from '$lib/generation/leadFile';
 import {
 	directorShotIdsFor,
 	withDirectorRunTerminal,
+	withDirectorRunPoster,
 	withoutDirectorRunLink
 } from '$lib/generation/messages/directorRuns';
 import { withoutQueueEntry } from '$lib/generation/messages/ownership';
@@ -73,9 +99,10 @@ export interface ReconcileOptions {
 	retryDelayMs?: number;
 	/** Called once per generation id this reload should keep listening to
 	 *  (still pending/running) -- the caller re-subscribes on its live
-	 *  WebSocket connection. Never called twice for the same id in one
-	 *  `reconcileTabGenerations` invocation, and never called for an id this
-	 *  tab has since retired (see the file header). */
+	 *  WebSocket connection. Never called twice for the same id across ANY
+	 *  number of `reconcileTabGenerations` passes for this tab (see the file
+	 *  header on why queue membership is what tracks this), and never called
+	 *  for an id this tab has since retired. */
 	onSubscribe?: (generationId: string) => void;
 	/** Ids the caller already knows are this tab's from a source OUTSIDE
 	 *  persisted tab state (e.g. the live `/api/generations/queue` snapshot,
@@ -85,6 +112,11 @@ export interface ReconcileOptions {
 	 *  racing it) has already resolved as terminal: every id, wherever it
 	 *  came from, is re-confirmed against `getGenerationStatus` here. */
 	extraCandidateIds?: string[];
+	/** Retired (aborted) by the caller on component teardown, before it
+	 *  disconnects its WebSocket -- see the file header. Checked after every
+	 *  await; a pass already retired applies nothing further and subscribes
+	 *  nothing further. */
+	signal?: AbortSignal;
 	now?: () => number;
 }
 
@@ -141,13 +173,13 @@ export function collectInFlightGenerationIds(
 	return [...ids];
 }
 
-/** A confirmed 404 (`generation_not_found`, raised by
- *  `GenerationController.get_generation_status`) proves the generation is
- *  gone. Everything else -- no response at all (network down/timeout), a
- *  5xx, or an unexpected response shape -- is a transient failure that must
- *  never be read as "missing": doing so on a disconnect/restart during
- *  reload would silently destroy the only reference back to a generation
- *  that is, in fact, still running. */
+/** A confirmed 404 (`generation_not_found`, raised by both
+ *  `GenerationController.get_generation_status` and `get_generation_by_id`)
+ *  proves the generation is gone. Everything else -- no response at all
+ *  (network down/timeout), a 5xx, or an unexpected response shape -- is a
+ *  transient failure that must never be read as "missing": doing so on a
+ *  disconnect/restart during reload would silently destroy the only
+ *  reference back to a generation that is, in fact, still running. */
 export function isConfirmedMissing(err: unknown, response?: APIResponse<unknown> | null): boolean {
 	const status = (err as { response?: { status?: number } } | null | undefined)?.response?.status;
 	if (status === 404) return true;
@@ -172,29 +204,57 @@ function leadOutputInfo(outputs: RestoredGenerationData | null): {
 	return { url: item?.originalUrl ?? item?.url ?? null, fileType };
 }
 
+interface OutputsFetchAttempt {
+	/** `null` ONLY when the fetch itself failed (thrown, or an
+	 *  unsuccessful/malformed envelope) -- a genuinely empty file list is a
+	 *  successful, conclusive answer (`RestoredGenerationData` with empty
+	 *  arrays), never `null`. Callers rely on that distinction to tell
+	 *  "still don't know" from "confirmed nothing". */
+	outputs: RestoredGenerationData | null;
+	/** Set when `outputs` is `null` -- lets a caller classify the failure
+	 *  (confirmed-missing vs. transient) without a second network call. */
+	thrown: unknown;
+	response: APIResponse<{ files?: unknown[] }> | null;
+}
+
+/** One attempt at a generation's history/output -- see `OutputsFetchAttempt`. */
+async function fetchOutputsOnce(api: ReconcileApi, generationId: string): Promise<OutputsFetchAttempt> {
+	let response: APIResponse<{ files?: unknown[] }> | null = null;
+	let thrown: unknown = null;
+	try {
+		response = await api.getGenerationById(generationId, false, true);
+	} catch (err) {
+		thrown = err;
+	}
+	if (thrown === null && response?.success && response.data) {
+		return {
+			outputs: mapGenerationFiles((response.data.files as unknown[]) || [], generationId),
+			thrown: null,
+			response
+		};
+	}
+	return { outputs: null, thrown, response };
+}
+
 /** The status lookup already confirmed 'completed' -- a history-fetch
  *  failure here is never read as "maybe not done after all", only as
  *  "no poster yet". One retry (same transient-failure assumption as the
- *  status lookup) before giving up and resolving 'done' with no poster. */
+ *  status lookup) before giving up FOR THIS PASS -- `applyTerminal` still
+ *  resolves the run as done; see `pendingPosterRecoveries` for what happens
+ *  to the poster after both attempts fail. */
 async function fetchOutputs(
 	api: ReconcileApi,
 	generationId: string,
 	retryDelayMs: number,
+	signal: AbortSignal | undefined,
 	isRetry = false
 ): Promise<RestoredGenerationData | null> {
-	try {
-		const historyResponse = await api.getGenerationById(generationId, false, true);
-		if (historyResponse.success && historyResponse.data) {
-			return mapGenerationFiles((historyResponse.data.files as unknown[]) || [], generationId);
-		}
-	} catch {
-		// fall through to retry/give-up below
-	}
-	if (!isRetry) {
-		await delay(retryDelayMs);
-		return fetchOutputs(api, generationId, retryDelayMs, true);
-	}
-	return null;
+	const attempt = await fetchOutputsOnce(api, generationId);
+	if (attempt.outputs || signal?.aborted) return attempt.outputs;
+	if (isRetry) return null;
+	await delay(retryDelayMs);
+	if (signal?.aborted) return null;
+	return fetchOutputs(api, generationId, retryDelayMs, signal, true);
 }
 
 /** Mirrors the shared-display patch `restoreActiveGenerations` used to build
@@ -277,17 +337,82 @@ function withRoutingEntry(
 	return [...existing, { generation_id: generationId, queue_position: null, status: backendStatus }];
 }
 
-/** True once an id that started this pass as a Director link has, by apply
- *  time, lost that link (its own terminal WebSocket event resolved and
- *  cleared it while this pass was in flight) without becoming this tab's
- *  active generation either -- nothing on the tab claims it any more, so
- *  routing/subscribing it back in would only resurrect a dead run. Never
- *  applies to an id that came from the live queue snapshot or was never
- *  Director-linked in the first place; those have no "link" to retire. */
-function isRetiredDirectorLink(tab: Tab, generationId: string, directorLinkIds: ReadonlySet<string>): boolean {
-	if (!directorLinkIds.has(generationId)) return false;
-	if (tab.activeGenerationId === generationId) return false;
-	return directorShotIdsFor(tab, generationId) === null;
+/** Snapshot of what this pass considered "claimed" for `generationId` when
+ *  it started -- the baseline `isRetiredKeep` compares the CURRENT tab
+ *  against, to tell "legitimately new" (an extraCandidateId this tab never
+ *  knew about) from "was claimed, and something has since let go of it". */
+interface SeedTracking {
+	activeGenerationId: string | null;
+	directorLinkIds: ReadonlySet<string>;
+	queueIds: ReadonlySet<string>;
+}
+
+function wasTrackedAtStart(seed: SeedTracking, generationId: string): boolean {
+	return (
+		seed.activeGenerationId === generationId ||
+		seed.directorLinkIds.has(generationId) ||
+		seed.queueIds.has(generationId)
+	);
+}
+
+/** True when NOTHING on the tab currently claims `generationId` any more --
+ *  not the active display, not a Director link, not a queue entry. */
+function hasLiveClaim(tab: Tab, generationId: string): boolean {
+	if (tab.activeGenerationId === generationId) return true;
+	if (directorShotIdsFor(tab, generationId) !== null) return true;
+	if ((tab.generation.queue || []).some((q) => q.generation_id === generationId)) return true;
+	return false;
+}
+
+/** No-resurrection guard for a "keep" (pending/running) outcome: an id this
+ *  pass never considered tracked (a brand-new extraCandidateId) is never
+ *  "retired" -- there is nothing to resurrect. An id that WAS tracked at the
+ *  start of this pass but, by apply time, nothing on the tab claims any
+ *  more has been resolved by something else (typically its own live
+ *  `generation_complete`/`generation_error` arriving while this pass's HTTP
+ *  lookup was still in flight) -- re-adding its routing/display here would
+ *  resurrect a run that is, in fact, done. */
+function isRetiredKeep(tab: Tab, generationId: string, seed: SeedTracking): boolean {
+	if (!wasTrackedAtStart(seed, generationId)) return false;
+	return !hasLiveClaim(tab, generationId);
+}
+
+interface PendingPosterRecovery {
+	tabId: string;
+	shotIds: string[];
+	attempts: number;
+}
+
+/** A Director run that reached 'done' but whose history/poster fetch
+ *  exhausted `fetchOutputs`'s in-pass retry -- not forgotten outright. The
+ *  NEXT `reconcileTabGenerations` pass for the same tab retries just this
+ *  one history fetch (never a full status re-poll: the generation's
+ *  completion is already conclusively known) and patches the poster in
+ *  through the same identity-guarded `withDirectorRunPoster` reducer live
+ *  `gallery_update`s use, so a shot resubmitted in the meantime is
+ *  untouched. Module-level (survives across passes/reconnects the way
+ *  `generationOutputs.ts`'s cache does), bounded on both axes: at most
+ *  `MAX_PENDING_POSTER_RECOVERIES` entries (oldest evicted first) and at
+ *  most `MAX_POSTER_RECOVERY_ATTEMPTS` retries per id before giving up for
+ *  good -- a generation whose files are gone must not be retried forever. */
+const pendingPosterRecoveries = new Map<string, PendingPosterRecovery>();
+const MAX_PENDING_POSTER_RECOVERIES = 20;
+const MAX_POSTER_RECOVERY_ATTEMPTS = 5;
+
+function rememberPendingPosterRecovery(tabId: string, generationId: string, shotIds: string[]): void {
+	if (!pendingPosterRecoveries.has(generationId) && pendingPosterRecoveries.size >= MAX_PENDING_POSTER_RECOVERIES) {
+		const oldestKey = pendingPosterRecoveries.keys().next().value;
+		if (oldestKey !== undefined) pendingPosterRecoveries.delete(oldestKey);
+	}
+	pendingPosterRecoveries.set(generationId, { tabId, shotIds, attempts: 0 });
+}
+
+/** Test-only: production never needs this (a real page load resets the
+ *  module fresh, and every entry self-prunes on success or confirmed-404),
+ *  but a test suite reusing generation ids across unrelated cases needs a
+ *  clean slate. */
+export function resetPendingPosterRecoveriesForTests(): void {
+	pendingPosterRecoveries.clear();
 }
 
 /**
@@ -295,11 +420,14 @@ function isRetiredDirectorLink(tab: Tab, generationId: string, directorLinkIds: 
  * (`activeGenerationId`, non-terminal `directorRuns`, `directorRunLinks`
  * keys, already-known `generation.queue` entries) plus any
  * `options.extraCandidateIds` the caller discovered from the live backend
- * queue snapshot -- against the server's authoritative status. Applies
- * terminal results, restores routing + re-subscribes to ones still running,
- * and drops routing for a link this tab has since retired. Safe to call on
- * every reconnect (not just once per mount): a no-op tab (nothing tracked,
- * no candidates) resolves immediately without any network calls.
+ * queue snapshot -- against the server's authoritative status, PLUS
+ * retrying any Director run still owed a poster from a previous pass (see
+ * `pendingPosterRecoveries`). Applies terminal results, restores routing +
+ * re-subscribes (at most once ever per id) to ones still running, and drops
+ * a "keep" outcome for an id nothing on the tab claims any more. Safe to
+ * call on every reconnect (not just once per mount): a no-op tab (nothing
+ * tracked, no candidates, no pending poster) resolves immediately without
+ * any network calls.
  */
 export async function reconcileTabGenerations(
 	tabId: string,
@@ -311,21 +439,59 @@ export async function reconcileTabGenerations(
 	const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
 	const now = options.now ?? Date.now;
 	const onSubscribe = options.onSubscribe;
+	const signal = options.signal;
 
 	const readTab = (): Tab | undefined => get(tabsStore).tabs.find((t) => t.id === tabId);
 
+	if (signal?.aborted) return;
 	const seedTab = readTab();
 	if (!seedTab) return;
 
-	const directorLinkIds = new Set(Object.keys(seedTab.directorRunLinks || {}));
+	async function recoverPendingPosters(): Promise<void> {
+		const entries = [...pendingPosterRecoveries.entries()].filter(([, v]) => v.tabId === tabId);
+		for (const [generationId, entry] of entries) {
+			if (signal?.aborted) return;
+			entry.attempts += 1;
+			const attempt = await fetchOutputsOnce(api, generationId);
+			if (signal?.aborted) return;
+			if (attempt.outputs) {
+				const posterUrl = leadOutputInfo(attempt.outputs).url;
+				if (posterUrl) {
+					const tab = readTab();
+					if (tab) {
+						tabsStore.updateTab(tabId, {
+							directorRuns: withDirectorRunPoster(tab, entry.shotIds, posterUrl, generationId)
+						});
+					}
+				}
+				pendingPosterRecoveries.delete(generationId);
+				continue;
+			}
+			// The fetch itself failed again. A confirmed-404 (the generation's
+			// history record is genuinely gone) or an exhausted attempt budget
+			// both mean giving up for good; anything else waits for the pass
+			// after this one.
+			const confirmedMissing = isConfirmedMissing(attempt.thrown, attempt.response);
+			if (confirmedMissing || entry.attempts >= MAX_POSTER_RECOVERY_ATTEMPTS) {
+				pendingPosterRecoveries.delete(generationId);
+			}
+		}
+	}
+
+	await recoverPendingPosters();
+	if (signal?.aborted) return;
+
+	const seed: SeedTracking = {
+		activeGenerationId: seedTab.activeGenerationId ?? null,
+		directorLinkIds: new Set(Object.keys(seedTab.directorRunLinks || {})),
+		queueIds: new Set((seedTab.generation.queue || []).map((q) => q.generation_id))
+	};
 	const ids = collectInFlightGenerationIds({
 		...seedTab,
 		queue: seedTab.generation.queue,
 		extraCandidateIds: options.extraCandidateIds
 	});
 	if (ids.length === 0) return;
-
-	const subscribed = new Set<string>();
 
 	function applyMissing(generationId: string): void {
 		const tab = readTab();
@@ -402,6 +568,9 @@ export async function reconcileTabGenerations(
 				generationId
 			);
 			patch.directorRunLinks = withoutDirectorRunLink(tab, generationId);
+			if (backendStatus === 'completed' && outputs === null) {
+				rememberPendingPosterRecovery(tabId, generationId, shotIds);
+			}
 		}
 		tabsStore.updateTab(tabId, patch);
 	}
@@ -414,6 +583,7 @@ export async function reconcileTabGenerations(
 		} catch (err) {
 			thrown = err;
 		}
+		if (signal?.aborted) return;
 
 		const status = statusResponse?.data;
 		const malformed =
@@ -430,6 +600,7 @@ export async function reconcileTabGenerations(
 			// more after a delay.
 			if (!isRetry) {
 				await delay(retryDelayMs);
+				if (signal?.aborted) return;
 				await reconcileOne(generationId, true);
 			}
 			return;
@@ -437,21 +608,23 @@ export async function reconcileTabGenerations(
 
 		if (status.status === 'pending' || status.status === 'running') {
 			const tab = readTab();
-			if (!tab || isRetiredDirectorLink(tab, generationId, directorLinkIds)) return;
+			if (!tab || isRetiredKeep(tab, generationId, seed)) return;
+			const alreadyRouted = (tab.generation.queue || []).some((q) => q.generation_id === generationId);
 			applyKeep(generationId, status);
-			if (!subscribed.has(generationId)) {
-				subscribed.add(generationId);
+			if (!alreadyRouted && !signal?.aborted) {
 				onSubscribe?.(generationId);
 			}
 			return;
 		}
 
 		const outputs =
-			status.status === 'completed' ? await fetchOutputs(api, generationId, retryDelayMs) : null;
+			status.status === 'completed' ? await fetchOutputs(api, generationId, retryDelayMs, signal) : null;
+		if (signal?.aborted) return;
 		applyTerminal(generationId, status.status, outputs, status.message ?? null);
 	}
 
 	for (const group of chunk(ids, chunkSize)) {
 		await Promise.all(group.map((id) => reconcileOne(id, false)));
+		if (signal?.aborted) return;
 	}
 }

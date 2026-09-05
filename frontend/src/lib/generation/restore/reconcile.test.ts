@@ -1,11 +1,18 @@
+// @vitest-environment jsdom
+// jsdom (rather than the suite's default 'node') is needed only for the
+// stable-subscription fixture below, which drives a REAL WebSocketService
+// (its comparisons against `WebSocket.OPEN` etc. need the global jsdom
+// provides) rather than a hand-rolled stand-in.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
-import { findTabByGenerationId } from '$lib/stores/generation';
+import { findTabByGenerationId, dispatchGenerationMessage } from '$lib/stores/generation';
+import { WebSocketService } from '$lib/services/websocket';
 import {
 	reconcileTabGenerations,
 	collectInFlightGenerationIds,
 	isConfirmedMissing,
+	resetPendingPosterRecoveriesForTests,
 	type ReconcileApi
 } from './reconcile';
 import type { DirectorRunState } from '$lib/types/tabs';
@@ -160,7 +167,10 @@ describe('isConfirmedMissing', () => {
 });
 
 describe('reconcileTabGenerations', () => {
-	beforeEach(() => tabsStore.reset());
+	beforeEach(() => {
+		tabsStore.reset();
+		resetPendingPosterRecoveriesForTests();
+	});
 
 	it('resolves a completed director run while offline, poster from its own output', async () => {
 		const tabId = defaultTabId();
@@ -504,5 +514,137 @@ describe('reconcileTabGenerations', () => {
 		await reconcileTabGenerations(tabId, fake.api, tabsStore, { extraCandidateIds: ['gen-b'] });
 
 		expect(fake.statusCalls).toEqual(['gen-b']);
+	});
+
+	it('never resurrects an ordinary generation whose real generation_complete lands while its status lookup is still in flight', async () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: 'gen-a',
+			generation: {
+				...currentTab(tabId).generation,
+				isGenerating: true,
+				currentGeneration: { id: 'gen-a', generation_id: 'gen-a', status: 'running' }
+			}
+		});
+
+		let resolveStatus!: (value: APIResponse<GenerationStatus>) => void;
+		const pending = new Promise<APIResponse<GenerationStatus>>((resolve) => {
+			resolveStatus = resolve;
+		});
+		const api: ReconcileApi = {
+			getGenerationStatus: vi.fn().mockReturnValue(pending),
+			getGenerationById: vi.fn().mockResolvedValue({ success: true, data: { files: [] } })
+		};
+		const onSubscribe = vi.fn();
+
+		const reconcilePromise = reconcileTabGenerations(tabId, api, tabsStore, { onSubscribe });
+
+		// The REAL generation_complete handler (dispatched exactly as the
+		// WebSocket boundary would) finishes 'gen-a' -- clearing its active id
+		// and queue entry -- WHILE the stale status lookup above is still
+		// pending.
+		dispatchGenerationMessage(
+			{ type: 'generation_complete', data: { id: 'gen-a' } } as any,
+			{ unsubscribe: vi.fn() }
+		);
+		expect(currentTab(tabId).activeGenerationId).toBeNull();
+		expect(currentTab(tabId).generation.currentGeneration?.status).toBe('completed');
+
+		// The belated lookup finally answers "still running".
+		resolveStatus(statusResponse({ status: 'running', progress: 0.9, id: 'gen-a' }));
+		await reconcilePromise;
+
+		const tab = currentTab(tabId);
+		expect(tab.activeGenerationId).toBeNull();
+		expect(tab.generation.currentGeneration?.status).toBe('completed');
+		// The stale "still running" response neither re-added a queue/routing
+		// entry for 'gen-a' nor re-subscribed to it -- resurrection is exactly
+		// what this guards against. (`currentGeneration` legitimately still
+		// carries 'gen-a's own id after completion -- that's unrelated to
+		// resurrection and not what this test is checking.)
+		expect(tab.generation.queue.some((q) => q.generation_id === 'gen-a')).toBe(false);
+		expect(onSubscribe).not.toHaveBeenCalled();
+	});
+
+	it('subscribes a still-running id at most once across two reconcile passes, through the real WebSocketService', async () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, { activeGenerationId: 'gen-1' });
+		const ws = new WebSocketService('ws://test.invalid/ws/generation', null);
+		const received: unknown[] = [];
+		const handleGenerationMessage = (message: unknown) => received.push(message);
+		const onSubscribe = (generationId: string) => {
+			ws.subscribe(generationId, (message) => handleGenerationMessage(message));
+		};
+
+		const fake = createFakeApi();
+		fake.scriptStatus(
+			'gen-1',
+			{ ok: statusResponse({ status: 'running', progress: 0.1 }) },
+			{ ok: statusResponse({ status: 'running', progress: 0.6 }) }
+		);
+
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { onSubscribe });
+		// A later reconnect re-runs reconciliation for the same still-running id.
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { onSubscribe });
+
+		// One live event arrives on the (never actually connected, but
+		// otherwise real) socket.
+		(ws as unknown as { onMessage(message: { type: string; generation_id: string }): void }).onMessage({
+			type: 'generation_status',
+			generation_id: 'gen-1'
+		});
+
+		expect(received).toHaveLength(1);
+	});
+
+	it('remembers a pending poster after two transient history failures and recovers it, without a full re-scan, on the next pass', async () => {
+		const tabId = defaultTabId();
+		seedDirectorRun(tabId, 'shot-1', baseRun({ generationId: 'gen-1', status: 'generating' }), {
+			'gen-1': ['shot-1']
+		});
+		const fake = createFakeApi();
+		fake.scriptStatus('gen-1', { ok: statusResponse({ status: 'completed', id: 'gen-1' }) });
+		fake.scriptHistory('gen-1', { err: networkError() }, { err: networkError() });
+
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { retryDelayMs: 0 });
+
+		let tab = currentTab(tabId);
+		expect(tab.directorRuns!['shot-1'].status).toBe('done');
+		expect(tab.directorRuns!['shot-1'].posterUrl).toBeNull();
+		expect(fake.statusCalls).toEqual(['gen-1']);
+		expect(fake.historyCalls).toEqual(['gen-1', 'gen-1']);
+
+		// A later pass -- 'gen-1' is no longer tracked anywhere
+		// (collectInFlightGenerationIds finds nothing), so recovery must not
+		// re-poll status; it retries only the remembered history fetch.
+		fake.scriptHistory('gen-1', { ok: { success: true, data: { files: [videoFile('gen-1/0.mp4')] } } });
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { retryDelayMs: 0 });
+
+		tab = currentTab(tabId);
+		expect(tab.directorRuns!['shot-1'].posterUrl).toBe('/api/media/generations/gen-1/0.mp4');
+		expect(fake.statusCalls).toEqual(['gen-1']);
+		expect(fake.historyCalls).toEqual(['gen-1', 'gen-1', 'gen-1']);
+	});
+
+	it('gives up recovering a poster once the history fetch is confirmed 404', async () => {
+		const tabId = defaultTabId();
+		seedDirectorRun(tabId, 'shot-1', baseRun({ generationId: 'gen-1', status: 'generating' }), {
+			'gen-1': ['shot-1']
+		});
+		const fake = createFakeApi();
+		fake.scriptStatus('gen-1', { ok: statusResponse({ status: 'completed', id: 'gen-1' }) });
+		fake.scriptHistory('gen-1', { err: networkError() }, { err: networkError() });
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { retryDelayMs: 0 });
+
+		fake.scriptHistory('gen-1', { err: notFoundError() });
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { retryDelayMs: 0 });
+		expect(fake.historyCalls).toEqual(['gen-1', 'gen-1', 'gen-1']);
+
+		// A THIRD pass must not try again -- the entry was dropped for good on
+		// the confirmed-404 above, so this makes no additional history call.
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { retryDelayMs: 0 });
+
+		expect(fake.historyCalls).toEqual(['gen-1', 'gen-1', 'gen-1']);
+		expect(currentTab(tabId).directorRuns!['shot-1'].posterUrl).toBeNull();
 	});
 });

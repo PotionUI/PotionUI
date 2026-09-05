@@ -58,9 +58,9 @@ ledger:
   chat-template count can't tell you what ONE candidate message costs). Also
   the tier a whole-request counter falls back to if it raises partway
   through the recount loop (``"chat_template_fallback"``, in the ledger's
-  ``accounting`` — the fit decision it fell back to is genuinely the plain
-  fragment one, so the reported number is that one, not a half-shrunk
-  chat-template attempt).
+  ``accounting``) — continuing whole-unit trimming from wherever the exact
+  recount had already shrunk to, never resurrecting a larger candidate an
+  earlier exact recount already proved over capacity.
 - ``"estimate"`` — no tokenizer at all (Ollama/OpenAI never have one
   in-process): the labelled chars-per-token heuristic throughout.
 
@@ -502,10 +502,14 @@ def enforce_budget(
     used as the WHOLE total for that tier — the separate ``tools_count``
     estimate (JSON-size based) is reported in the ledger for visibility but
     never added a second time on top. A *messages_counter* that raises
-    mid-recount abandons the exact path entirely and falls back to the plain
-    fragment-based decision (``"chat_template_fallback"``, which DOES add the
-    separate tool-schema estimate, same as ``"fragments+framing"``/
-    ``"estimate"``) rather than reporting a half-shrunk result. Raises
+    mid-recount abandons the exact path entirely for whatever candidate
+    triggered the failure, but NEVER un-drops units the loop already
+    shrank past: it continues whole-unit trimming from exactly that reduced
+    candidate under the fragment/framing estimate instead
+    (``"chat_template_fallback"``, which DOES add the separate tool-schema
+    estimate, same as ``"fragments+framing"``/``"estimate"``) — this can only
+    shrink the candidate further, never grow it back toward one an earlier
+    exact recount already proved exceeds capacity. Raises
     ``ContextBudgetExceededError`` when even the protected tail alone doesn't
     fit, by whichever accounting produced the final decision — the caller
     must not submit that request.
@@ -557,10 +561,27 @@ def enforce_budget(
             final_fits = exact_combined + image_count <= available_total
             exact_includes_tools = True
         else:
+            # The counter failed while measuring `kept_units` — whichever
+            # units the exact-recount loop had already dropped before the
+            # failure are real progress and must never be un-dropped: falling
+            # back to the ORIGINAL (pre-loop) candidate here would silently
+            # resubmit a set the loop may have already proved exceeds
+            # capacity by an exact count. Continue whole-unit trimming from
+            # exactly where the loop left off, using the fragment/framing
+            # estimate — `fit_messages` can only shrink `kept_units` further
+            # (never grow it back), so the result is always a subset of the
+            # last exact-measured candidate, never a superset of one already
+            # proved over.
             accounting = "chat_template_fallback"
             chat_template_extra_dropped = 0
-            # final_units/final_fits/final_history_and_system_tokens stay at
-            # the fragment-based values already set above.
+            fallback_trim = fit_messages(
+                [m for unit in kept_units for m in unit],
+                available_tokens=max(0, available_for_messages),
+                counter=counter,
+            )
+            final_units = fallback_trim.kept_units
+            final_history_and_system_tokens = system_count.tokens + fallback_trim.used_tokens
+            final_fits = fallback_trim.fits
 
     final_messages = [m for unit in final_units for m in unit]
     all_units = _atomic_units(messages)

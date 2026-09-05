@@ -380,18 +380,21 @@ class TestEnforceBudget:
         assert err.breakdown["accounting"] == "chat_template_shrunk"
         assert err.breakdown["chat_template_extra_dropped"] == 2
 
-    def test_a_counter_that_raises_mid_shrink_falls_back_to_the_original_fragment_selection(self):
-        """The recount loop drops one unit, then the counter starts failing —
-        the whole exact-recount attempt is abandoned, reverting to whatever
-        the fragment-based trim originally decided (all three messages, in
-        this fixture), not the partially-shrunk candidate."""
+    def test_a_counter_that_raises_mid_shrink_never_resubmits_a_candidate_already_proved_over(self):
+        """The recount loop exactly proves the full 3-message candidate is
+        over capacity, drops the oldest unit, then the counter starts
+        failing on the reduced 2-message candidate — that candidate was
+        NEVER itself proved over, so it's fine to decide it with the
+        fragment/framing estimate (which fits here), but the original
+        3-message candidate the loop already proved over must never be
+        resurrected/returned just because the counter later broke."""
         messages = [
             _msg("user", "oldest"), _msg("assistant", "older"), _msg("user", "current"),
         ]
 
         def flaky(system_message, kept_messages, tools):
             if len(kept_messages) == 3:
-                return 300  # over budget -> triggers one drop
+                return 300  # over budget at capacity 250 -> triggers one drop
             raise RuntimeError("template blew up on the shrunk candidate")
 
         outcome = enforce_budget(
@@ -399,10 +402,39 @@ class TestEnforceBudget:
             system_message=None, messages=messages, counter=len,
             messages_counter=flaky,
         )
-        assert [m["content"] for m in outcome.messages] == ["oldest", "older", "current"]
+        # The proved-over 3-message set must never come back...
+        assert not any(m["content"] == "oldest" for m in outcome.messages)
+        # ...the reduced 2-message set the loop had already shrunk to is
+        # what gets decided (by the fragment estimate, which fits it).
+        assert [m["content"] for m in outcome.messages] == ["older", "current"]
         assert outcome.ledger["accounting"] == "chat_template_fallback"
         assert outcome.ledger["chat_template_extra_dropped"] == 0
         assert outcome.ledger["measured"] is False
+
+    def test_a_counter_that_always_raises_on_an_irreducible_protected_floor_still_raises(self):
+        """Whole-unit fragment cost is monotonic in message count, so a
+        counter failure can never make the fallback ACCEPT less than the
+        fragment estimate already would have (shrinking only ever removes
+        tokens) — the only way the fallback itself ends up over capacity is
+        when the protected floor ALONE already exceeds it by the fragment
+        estimate, exactly as it would with no counter at all. Confirms the
+        corrected fallback path still raises in that case instead of
+        reporting a false "fits"."""
+        messages = [
+            _msg("user", "oldest"), _msg("assistant", "older"), _msg("user", "current"),
+        ]
+
+        def always_raises(system_message, kept_messages, tools):
+            raise RuntimeError("template unavailable")
+
+        with pytest.raises(ContextBudgetExceededError):
+            enforce_budget(
+                # Capacity too small even for "current" alone by the
+                # fragment/framing estimate (len("current") + framing = 11).
+                capacity_tokens=5, capacity_source="config", reserve_tokens=0,
+                system_message=None, messages=messages, counter=len,
+                messages_counter=always_raises,
+            )
 
     def test_image_attached_adds_the_multimodal_allowance(self):
         without_image = enforce_budget(

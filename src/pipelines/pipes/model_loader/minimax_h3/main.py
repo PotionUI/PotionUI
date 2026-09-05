@@ -51,6 +51,7 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     active_loras as _active_loras,
     apply_loras_to as _apply_loras_to,
     path_of as _path_of,
+    reemit_lora_application_diagnostics as _emit_lora_diagnostics,
     vram_budget as _vram_budget_fn,
 )
 from src.pipelines.pipes._shared.generation.loader_lifecycle import (
@@ -189,13 +190,14 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
 
         def load_dit() -> NativeModel:
             model = loader.load(model_path, "diffusion_model")
-            self._apply_loras(model, loras)
+            model._active_lora_application = self._apply_loras(model, loras)  # noqa: SLF001
             return model
 
         dit_model = lifecycle.acquire(Component(
             "DiT", f"native/dit/{model_path}", f"{model_path}|{dtype}|{lora_fp}",
             load_dit, file_size_gb(model_path),
         ))
+        _emit_lora_diagnostics(dit_model, generation_outputs, "MODEL LOADER MINIMAX-H3")
         video_vae_model = lifecycle.acquire(
             _component("video VAE", f"native/vae/{video_vae_path}", "vae", video_vae_path)
         )
@@ -242,5 +244,5 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
         return _vram_budget_fn(pipe_input, self.config.get("vram_limit_gb", None), "MODEL LOADER MINIMAX-H3")
 
     @staticmethod
-    def _apply_loras(dit_model: NativeModel, loras: List[Dict[str, Any]]) -> None:
-        _apply_loras_to(dit_model, loras, "MODEL LOADER MINIMAX-H3")
+    def _apply_loras(dit_model: NativeModel, loras: List[Dict[str, Any]]):
+        return _apply_loras_to(dit_model, loras, "MODEL LOADER MINIMAX-H3")

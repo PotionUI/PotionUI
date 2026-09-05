@@ -244,10 +244,26 @@ class DiffTextGenerationOutput(GenerationOutput):
 
 @dataclass
 class ModelGenerationOutput(GenerationOutput):
+    """One entry in a :class:`ModelsGenerationOutput` list.
+
+    The diagnostic fields below (``matched_params`` onward) are ``None`` for
+    the stack-identity list a model loader emits up front (what was
+    *requested*) and set only on a second, later ``ModelsGenerationOutput`` a
+    loader emits once the LoRA stack has actually been applied — the
+    per-adapter *application evidence* (see
+    ``src.platform.runtime.native.lora.AdapterApplication``), which can
+    diverge from the request when a file's keys don't match this
+    architecture or carry contributions (e.g. a DoRA magnitude) the delta
+    math does not apply.
+    """
     type = "artifact_output"
     name: str
     type: Literal["checkpoint", "upscaler", "lora", "text_encoder", "vae", "other", "embedding"]
     weight: float = None
+    matched_params: int = None
+    unmatched_keys: int = None
+    zero_effect: bool = None
+    ignored: List[str] = None
 
 @dataclass
 class ModelsGenerationOutput(GenerationOutput):

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from .apply import (
+    AdapterApplication,
+    IgnoredContribution,
     LoraStateSnapshot,
     apply_loras,
+    apply_loras_with_report,
     remove_loras,
     restore_lora_state,
     snapshot_lora_state,
@@ -26,12 +29,15 @@ from .step_window import (
 )
 
 __all__ = [
+    "AdapterApplication",
+    "IgnoredContribution",
     "LoraDelta",
     "LoraStateSnapshot",
     "LoraStepWindow",
     "LoraStepWindowHook",
     "WINDOW_KEYS",
     "apply_loras",
+    "apply_loras_with_report",
     "build_flux_lora_key_map",
     "build_krea2_lora_key_map",
     "build_minimax_h3_lora_key_map",

@@ -30,7 +30,8 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from typing import Dict, Iterator, List, Tuple
+from dataclasses import dataclass
+from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
 import torch
 import torch.nn as nn
@@ -39,6 +40,72 @@ from vendor.gpl.comfyui.ops import apply_lora_deltas
 from .key_mapping import LoraDelta, map_lora_keys
 
 logger = logging.getLogger(__name__)
+
+# Cap on how many unmatched key stems a single AdapterApplication keeps as a
+# sample — enough to identify a trainer's key dialect (matches the `[:5]`/
+# `[:6]` bounds loader_helpers.py already logs at) without an unbounded file
+# turning into an unbounded diagnostics payload.
+_UNMATCHED_SAMPLE_CAP = 8
+
+
+@dataclass(frozen=True)
+class IgnoredContribution:
+    """One class of sidecar tensor present in a LoRA file but never applied.
+
+    ``.dora_scale`` (a DoRA magnitude vector) is consumed out of a LoRA state
+    dict without error by ``map_lora_keys`` — the file's up/down direction
+    still maps and applies as a plain LoRA — but the DoRA renormalization it
+    encodes is never computed; the delta math has no DoRA path. That
+    divergence used to be invisible: a consumed sidecar looks identical to a
+    fully-supported one from ``map_lora_keys``'s ``(mapped, unmatched)``
+    contract alone. Counted independently of ``map_lora_keys`` (see
+    :func:`_dora_scale_contributions`) precisely so this stays true even when
+    a caller substitutes its own key-mapping stub (e.g. the model-lifecycle
+    RSS regression fixture) — it should never need to know about DoRA to test
+    unrelated memory behaviour. ``kind`` names what was ignored (today only
+    ``"dora_scale"``); ``count`` is how many such keys were seen.
+    """
+
+    kind: str
+    count: int
+
+
+def _dora_scale_contributions(lora_sd: dict) -> Tuple[IgnoredContribution, ...]:
+    """The ``.dora_scale`` sidecars present in ``lora_sd``, regardless of
+    whether their paired up/down weights matched a native target — the
+    magnitude is ignored either way. Independent of ``map_lora_keys`` (a raw
+    key scan) so it keeps working under any caller's mapping stub."""
+    count = sum(1 for key in lora_sd if key.endswith(".dora_scale"))
+    return (IgnoredContribution(kind="dora_scale", count=count),) if count else ()
+
+
+@dataclass(frozen=True)
+class AdapterApplication:
+    """Per-file application evidence for one LoRA in an :func:`apply_loras`
+    stack.
+
+    ``apply_loras``'s own return is the aggregate ``(num_params_patched,
+    unmatched_keys)`` across the WHOLE stack — enough to tell "did the stack
+    do anything at all" but not "which file did it". A stack of one adapter
+    that matched every key and one that matched none aggregates to "some
+    params patched", reading as full success; this is what tells the two
+    apart, one instance per file in the same order as the caller's ``loras``.
+
+    ``ignored`` never implies the ignored math (DoRA magnitude, at present)
+    WAS applied — only that the file carried it and it was dropped; the
+    weights this reports on are patched with the plain-LoRA delta only.
+    """
+
+    source: str
+    matched_params: int
+    unmatched_keys: int
+    unmatched_sample: Tuple[str, ...]
+    ignored: Tuple[IgnoredContribution, ...]
+
+    @property
+    def zero_effect(self) -> bool:
+        """True iff this file patched no native parameter at all."""
+        return self.matched_params == 0
 
 # Attribute stashing the applied LoraDelta specs (tiny) per-Linear, for exact
 # removal — NOT a full weight-shaped copy (see module docstring point 3: that
@@ -153,21 +220,48 @@ def apply_loras(
     ``loras`` is a list of ``(lora_state_dict, strength)``. Each is mapped to
     native params and applied additively (multiple LoRAs stack). Returns
     ``(num_params_patched, unmatched_keys)`` aggregated across the stack.
+
+    Thin wrapper over :func:`apply_loras_with_report`, dropping its per-file
+    evidence, so every existing caller (and the many tests unpacking a
+    2-tuple) keeps this exact contract; a caller that needs to tell a dead
+    adapter apart from a working one in the same stack calls
+    :func:`apply_loras_with_report` instead.
+    """
+    patched, unmatched, _reports = apply_loras_with_report(module, loras)
+    return patched, unmatched
+
+
+def apply_loras_with_report(
+    module: nn.Module,
+    loras: list[tuple[dict[str, torch.Tensor], float]],
+    names: "Optional[Sequence[str]]" = None,
+) -> tuple[int, list[str], list[AdapterApplication]]:
+    """Apply a stack of LoRAs to ``module``, like :func:`apply_loras`, plus a
+    per-file :class:`AdapterApplication` report in the same order as ``loras``.
+
+    ``names`` labels each file in the returned report (typically its path);
+    a caller with no better label (e.g. the step-window hook's positional
+    slots) may omit it and gets ``"adapter[i]"`` placeholders instead — the
+    report stays bounded and useful either way.
     """
     all_unmatched: list[str] = []
     patched_params: set[str] = set()
+    reports: list[AdapterApplication] = []
     # One scratch pool for the whole call (every Linear this stack touches) -
     # see _ScratchPool's docstring for why this, not per-Linear allocation,
     # is what actually fixes the host-RAM fragmentation.
     pool = _ScratchPool()
 
-    for lora_sd, strength in loras:
+    for index, (lora_sd, strength) in enumerate(loras):
+        source = names[index] if names is not None and index < len(names) else f"adapter[{index}]"
         mapped, unmatched = map_lora_keys(lora_sd, module)
-        all_unmatched.extend(unmatched)
+        ignored = _dora_scale_contributions(lora_sd)
+        file_unmatched = list(unmatched)
+        file_matched: set[str] = set()
         for param_name, deltas in mapped.items():
             resolved = _resolve_linear(module, param_name)
             if resolved is None:
-                all_unmatched.append(param_name)
+                file_unmatched.append(param_name)
                 continue
             linear, _ = resolved
             scaled = [
@@ -182,9 +276,19 @@ def apply_loras(
                 linear.lora_deltas.extend(scaled)
             else:
                 _apply_inplace(linear, scaled, pool)
+            file_matched.add(param_name)
             patched_params.add(param_name)
 
-    return len(patched_params), all_unmatched
+        all_unmatched.extend(file_unmatched)
+        reports.append(AdapterApplication(
+            source=source,
+            matched_params=len(file_matched),
+            unmatched_keys=len(file_unmatched),
+            unmatched_sample=tuple(file_unmatched[:_UNMATCHED_SAMPLE_CAP]),
+            ignored=ignored,
+        ))
+
+    return len(patched_params), all_unmatched, reports
 
 
 def _slice_of(target_slice: tuple) -> tuple:

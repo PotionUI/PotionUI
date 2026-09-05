@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Sequence, Tuple
 import torch
 
 from ..sampling.hooks import BaseStepHook
-from .apply import apply_loras, restore_lora_state, snapshot_lora_state
+from .apply import AdapterApplication, apply_loras_with_report, restore_lora_state, snapshot_lora_state
 
 if TYPE_CHECKING:  # a runtime import would close the engine -> lora -> engine loop
     from ..engine import NativeModel
@@ -173,6 +173,13 @@ class LoraStepWindowHook(BaseStepHook):
         #: i.e. the windows were silently ignored — see
         #: ``FlowMatchGeneratorPipe.generation_scope``.
         self.started = False
+        #: Per-adapter application evidence (see ``AdapterApplication``) for
+        #: whichever window is CURRENTLY applied — refreshed only on an actual
+        #: transition (``_sync`` already no-ops when ``wanted`` is unchanged),
+        #: so a run sitting inside one window for many steps computes this
+        #: once, not per step. Cleared to ``()`` on a failed apply — a
+        #: half-patched module has no evidence describing it as applied.
+        self.last_application: Tuple[AdapterApplication, ...] = ()
 
     def on_start(self, total_steps: int) -> None:
         self.started = True
@@ -247,6 +254,11 @@ class LoraStepWindowHook(BaseStepHook):
         survives a failure so the next attempt retries the whole restore.
         """
         self._dit.bump_effective_revision(reason)
+        # Cleared BEFORE the attempt, same as the apply path: whether the
+        # restore lands cleanly (nothing is applied any more) or dies partway
+        # (the module is now ambiguous, not describable by the OLD evidence
+        # either), the evidence for what used to be applied is stale either way.
+        self.last_application = ()
         try:
             restore_lora_state(self._base)
         except Exception:
@@ -275,10 +287,12 @@ class LoraStepWindowHook(BaseStepHook):
         if self._dirty:
             self._restore(f"windowed LoRA cleared entering step {step_index}")
         if not wanted:
+            self.last_application = ()
             return
         stack: List[Tuple[Dict[str, torch.Tensor], float]] = [
             (self._loras[i][0], self._loras[i][1]) for i in wanted
         ]
+        names = [f"window-lora[{i}]" for i in wanted]
         # Marked dirty BEFORE the patch: a mid-apply failure still needs
         # close() to run the restore that undoes the partial work.
         self._dirty = True
@@ -287,10 +301,12 @@ class LoraStepWindowHook(BaseStepHook):
         # additionally forces the CROSS-run identity forward, since a half-patched
         # module is no longer the base stack the loader stamped.
         self._dit.bump_effective_revision(f"windowed LoRA set {list(wanted)} entering step {step_index}")
+        self.last_application = ()
         try:
-            apply_loras(self._module, stack)
+            _patched, _unmatched, report = apply_loras_with_report(self._module, stack, names=names)
         except Exception:
             self._dit.bump_weight_revision("windowed LoRA apply failed, module half-patched")
             raise
         self._applied = wanted
+        self.last_application = tuple(report)
         logger.debug("step %d: windowed LoRA set -> %s", step_index, list(wanted))

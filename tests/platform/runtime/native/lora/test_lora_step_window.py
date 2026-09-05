@@ -344,14 +344,15 @@ def test_a_failed_apply_forces_the_cross_run_identity_forward(monkeypatch):
     hook = LoraStepWindowHook(dit, [(_kohya_lora(), 1.0, LoraStepWindow(1, 2))])
     weights = dit.weight_revision
 
-    def _boom(module, stack):
+    def _boom(module, stack, **kwargs):
         raise RuntimeError("half-patched")
 
-    monkeypatch.setattr(step_window, "apply_loras", _boom)
+    monkeypatch.setattr(step_window, "apply_loras_with_report", _boom)
     with pytest.raises(RuntimeError, match="half-patched"):
         hook.on_start(4)
 
     assert dit.weight_revision > weights
+    assert hook.last_application == ()
 
 
 def test_the_success_path_never_moves_the_cross_run_identity():
@@ -604,3 +605,87 @@ def test_a_retried_close_that_succeeds_leaves_the_wrapper_usable(monkeypatch):
     hook.close()
     assert dit.unusable_reason is None
     assert not _is_patched(module, baseline)
+
+
+# --- per-adapter application evidence ---------------------------------------
+
+def test_step_window_records_evidence_once_per_window_not_per_step(monkeypatch):
+    """The hook's per-adapter evidence is computed on the transition INTO a
+    window, not recomputed on every step the sampler spends inside it."""
+    import src.platform.runtime.native.lora.apply as apply_mod
+
+    module = _build()
+    dit = _dit(module)
+    hook = LoraStepWindowHook(dit, [(_kohya_lora(), 1.0, LoraStepWindow(1, 4))])
+
+    calls = []
+    real = apply_mod.map_lora_keys
+
+    def _spy(lora_sd, mod):
+        calls.append(1)
+        return real(lora_sd, mod)
+
+    monkeypatch.setattr(apply_mod, "map_lora_keys", _spy)
+
+    hook.on_start(4)
+    assert len(calls) == 1
+    assert len(hook.last_application) == 1
+    report = hook.last_application[0]
+    assert report.matched_params > 0
+    assert not report.zero_effect
+    assert report.source == "window-lora[0]"
+
+    for step in range(3):
+        hook.on_step(step, 4, None, 0.0, None)
+    assert len(calls) == 1, "steps inside the SAME window must not recompute evidence"
+    hook.close()
+
+
+def test_step_window_evidence_refreshes_on_a_real_transition():
+    """Crossing into a different active set gets its own evidence, one entry
+    per adapter active at that edge."""
+    module = _build()
+    dit = _dit(module)
+    a = _kohya_lora(seed=11)
+    b = _kohya_lora(seed=12)
+    hook = LoraStepWindowHook(dit, [
+        (a, 1.0, LoraStepWindow(1, 2)),
+        (b, 1.0, LoraStepWindow(3, 4)),
+    ])
+
+    hook.on_start(4)
+    assert [r.source for r in hook.last_application] == ["window-lora[0]"]
+
+    hook.on_step(1, 4, None, 0.0, None)  # entering step 3: only b
+    assert [r.source for r in hook.last_application] == ["window-lora[1]"]
+
+    hook.on_step(2, 4, None, 0.0, None)  # entering step 4: b is still active, no-op
+    assert [r.source for r in hook.last_application] == ["window-lora[1]"]
+
+    hook.close()
+    assert hook.last_application == (), "close() restores to base -> no evidence describes it"
+
+
+def test_a_failed_window_apply_clears_last_application(monkeypatch):
+    """A half-patched module has no evidence describing it as applied."""
+    import src.platform.runtime.native.lora.step_window as step_window
+
+    module = _build()
+    dit = _dit(module)
+    a = _kohya_lora(seed=21)
+    b = _kohya_lora(seed=22)
+    hook = LoraStepWindowHook(dit, [
+        (a, 1.0, LoraStepWindow(1, 2)),
+        (b, 1.0, LoraStepWindow(3, 4)),
+    ])
+    hook.on_start(4)
+    assert hook.last_application != ()
+
+    def _boom(module, stack, **kwargs):
+        raise RuntimeError("half-patched")
+
+    monkeypatch.setattr(step_window, "apply_loras_with_report", _boom)
+    with pytest.raises(RuntimeError, match="half-patched"):
+        hook.on_step(1, 4, None, 0.0, None)  # entering step 3: switches from a to b, re-applies
+
+    assert hook.last_application == ()

@@ -516,7 +516,8 @@ class GeneratorWanChainVideoPipe(BasePipe):
             if want_high != mset.high_fp:
                 router.high = (
                     mset.base_high if seg_loras is None
-                    else acquire_wan_dit(models, loader, mset.high_path, dtype_name, composed_high, log_tag=_LOG_TAG)
+                    else acquire_wan_dit(models, loader, mset.high_path, dtype_name, composed_high,
+                                          log_tag=_LOG_TAG, generation_outputs=generation_outputs)
                 )
                 mset.high_fp = want_high
             if mset.base_low is not None and mset.low_path:
@@ -525,7 +526,8 @@ class GeneratorWanChainVideoPipe(BasePipe):
                 if want_low != mset.low_fp:
                     router.low = (
                         mset.base_low if seg_loras is None
-                        else acquire_wan_dit(models, loader, mset.low_path, dtype_name, composed_low, log_tag=_LOG_TAG)
+                        else acquire_wan_dit(models, loader, mset.low_path, dtype_name, composed_low,
+                                              log_tag=_LOG_TAG, generation_outputs=generation_outputs)
                     )
                     mset.low_fp = want_low
 

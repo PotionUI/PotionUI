@@ -45,6 +45,7 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     active_loras as _active_loras,
     apply_loras_to as _apply_loras_to,
     path_of as _path_of,
+    reemit_lora_application_diagnostics as _emit_lora_diagnostics,
     vram_budget as _vram_budget_fn,
 )
 from src.pipelines.pipes._shared.generation.loader_lifecycle import (
@@ -168,7 +169,7 @@ class ModelLoaderFluxPipe(BaseModelLoaderPipe):
 
         def load_dit() -> NativeModel:
             model = loader.load(dit_path, "diffusion_model")
-            self._apply_loras(model, loras)
+            model._active_lora_application = self._apply_loras(model, loras)  # noqa: SLF001
             model._active_lora_fp = lora_fp  # noqa: SLF001 - our own stamp, not the wrapper's private state
             return model
 
@@ -192,6 +193,7 @@ class ModelLoaderFluxPipe(BaseModelLoaderPipe):
             te_model = lifecycle.acquire(te)
             vae_model = lifecycle.acquire(vae)
             dit_model = lifecycle.acquire(dit)
+            _emit_lora_diagnostics(dit_model, generation_outputs, "MODEL LOADER FLUX")
             return PipeOutput(output={
                 "model": FluxModelBundle(dit=dit_model, te=te_model, vae=vae_model, te_cache_key=te_key),
                 "text_encoder": FluxClipTextEncoder(
@@ -204,7 +206,7 @@ class ModelLoaderFluxPipe(BaseModelLoaderPipe):
         # cache. See model_loader/krea2 for the full rationale.
         vae_model = lifecycle.acquire(vae)
         dit_model = lifecycle.acquire(dit)
-        self._sync_loras(dit_model, loras, lora_fp, lifecycle, dit)
+        self._sync_loras(dit_model, loras, lora_fp, lifecycle, dit, generation_outputs)
         bundle = FluxModelBundle(dit=dit_model, te=None, vae=vae_model, te_cache_key=te_key)
         clip = FluxClipTextEncoder(
             device=device, model_fingerprint=f"{te_fp}|{dit_fp}",
@@ -218,8 +220,8 @@ class ModelLoaderFluxPipe(BaseModelLoaderPipe):
         return _vram_budget_fn(pipe_input, self.config.get("vram_limit_gb", None), "MODEL LOADER FLUX")
 
     @staticmethod
-    def _apply_loras(dit_model: NativeModel, loras: List[Dict[str, Any]]) -> None:
-        _apply_loras_to(dit_model, loras, "MODEL LOADER FLUX")
+    def _apply_loras(dit_model: NativeModel, loras: List[Dict[str, Any]]):
+        return _apply_loras_to(dit_model, loras, "MODEL LOADER FLUX")
 
     @staticmethod
     def _sync_loras(
@@ -228,6 +230,8 @@ class ModelLoaderFluxPipe(BaseModelLoaderPipe):
         lora_fp: str,
         lifecycle: Optional[ComponentLifecycle] = None,
         component: Optional[Component] = None,
+        generation_outputs: Optional[callable] = None,
     ) -> None:
         _sync_loras(dit_model, loras, lora_fp, ModelLoaderFluxPipe._apply_loras,
-                    lifecycle=lifecycle, component=component)
+                    lifecycle=lifecycle, component=component,
+                    generation_outputs=generation_outputs, log_tag="MODEL LOADER FLUX")

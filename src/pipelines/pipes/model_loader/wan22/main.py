@@ -136,11 +136,13 @@ class ModelLoaderWan22Pipe(BaseModelLoaderPipe):
         # LoRA fingerprint the chain generator re-acquires against mid-chain;
         # progress is announced here to keep the loader's component order.
         progress.advance("high-noise DiT" if low_path else "DiT", f"native/dit/{high_path}")
-        high_dit = acquire_wan_dit(models, loader, high_path, dtype, loras_high, log_tag="MODEL LOADER WAN")
+        high_dit = acquire_wan_dit(models, loader, high_path, dtype, loras_high,
+                                    log_tag="MODEL LOADER WAN", generation_outputs=generation_outputs)
         low_dit = None
         if low_path:
             progress.advance("low-noise DiT", f"native/dit/{low_path}")
-            low_dit = acquire_wan_dit(models, loader, low_path, dtype, loras_low, log_tag="MODEL LOADER WAN")
+            low_dit = acquire_wan_dit(models, loader, low_path, dtype, loras_low,
+                                       log_tag="MODEL LOADER WAN", generation_outputs=generation_outputs)
 
         vae_model = lifecycle.acquire(Component(
             "VAE", f"native/vae/{vae_path}", f"{vae_path}|{dtype}", lambda: loader.load(vae_path, "vae"),

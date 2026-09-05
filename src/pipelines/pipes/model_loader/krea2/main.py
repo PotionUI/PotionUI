@@ -64,6 +64,7 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     apply_loras_to as _apply_loras_to,
     partition_step_windows as _partition_step_windows,
     path_of as _path_of,
+    reemit_lora_application_diagnostics as _emit_lora_diagnostics,
     vram_budget as _vram_budget_fn,
 )
 from src.pipelines.pipes._shared.generation.loader_lifecycle import (
@@ -216,7 +217,7 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
 
         def load_dit() -> NativeModel:
             model = loader.load(dit_path, "diffusion_model")
-            self._apply_loras(model, loras)
+            model._active_lora_application = self._apply_loras(model, loras)  # noqa: SLF001
             model._active_lora_fp = lora_fp  # noqa: SLF001 - our own stamp, not the wrapper's private state
             model._active_lora_window_fp = window_fp  # noqa: SLF001 - see _sync_lora_windows
             return model
@@ -236,6 +237,7 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
             te_model = lifecycle.acquire(te)
             vae_model = lifecycle.acquire(vae)
             dit_model = lifecycle.acquire(dit)
+            _emit_lora_diagnostics(dit_model, generation_outputs, _LOG_TAG)
             return PipeOutput(output={
                 "model": Krea2ModelBundle(
                     dit=dit_model, te=te_model, vae=vae_model, te_cache_key=te_key,
@@ -248,7 +250,7 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
 
         vae_model = lifecycle.acquire(vae)
         dit_model = lifecycle.acquire(dit)
-        self._sync_loras(dit_model, loras, lora_fp, lifecycle, dit)
+        self._sync_loras(dit_model, loras, lora_fp, lifecycle, dit, generation_outputs)
         self._sync_lora_windows(dit_model, window_fp)
         bundle = Krea2ModelBundle(
             # `te` stays unset (never acquired) unless/until the deferred
@@ -279,8 +281,8 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
         return _vram_budget_fn(pipe_input, self.config.get("vram_limit_gb", None), _LOG_TAG)
 
     @staticmethod
-    def _apply_loras(dit_model: NativeModel, loras: List[Dict[str, Any]]) -> None:
-        _apply_loras_to(dit_model, loras, _LOG_TAG)
+    def _apply_loras(dit_model: NativeModel, loras: List[Dict[str, Any]]):
+        return _apply_loras_to(dit_model, loras, _LOG_TAG)
 
     @staticmethod
     def _sync_loras(
@@ -289,9 +291,11 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
         lora_fp: str,
         lifecycle: Optional[ComponentLifecycle] = None,
         component: Optional[Component] = None,
+        generation_outputs: Optional[callable] = None,
     ) -> None:
         _sync_loras(dit_model, loras, lora_fp, ModelLoaderKrea2Pipe._apply_loras,
-                    lifecycle=lifecycle, component=component)
+                    lifecycle=lifecycle, component=component,
+                    generation_outputs=generation_outputs, log_tag=_LOG_TAG)
 
     @staticmethod
     def _sync_lora_windows(dit_model: NativeModel, window_fp: str) -> None:

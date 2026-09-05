@@ -35,6 +35,7 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     active_loras as _active_loras,
     apply_loras_to as _apply_loras_to,
     path_of as _path_of,
+    reemit_lora_application_diagnostics as _emit_lora_diagnostics,
     vram_budget as _vram_budget_fn,
 )
 from src.pipelines.pipes._shared.generation.loader_lifecycle import (
@@ -155,7 +156,7 @@ class ModelLoaderQwenPipe(BaseModelLoaderPipe):
 
         def load_dit() -> NativeModel:
             model = loader.load(dit_path, "diffusion_model")
-            self._apply_loras(model, loras)
+            model._active_lora_application = self._apply_loras(model, loras)  # noqa: SLF001
             return model
 
         models = pipe_input.input.get("MODELS", None)
@@ -173,6 +174,7 @@ class ModelLoaderQwenPipe(BaseModelLoaderPipe):
             te_model = lifecycle.acquire(te)
             vae_model = lifecycle.acquire(vae)
             dit_model = lifecycle.acquire(dit)
+            _emit_lora_diagnostics(dit_model, generation_outputs, "MODEL LOADER QWEN")
             return PipeOutput(output={
                 "model": QwenModelBundle(dit=dit_model, te=te_model, vae=vae_model, te_cache_key=te_key),
                 "text_encoder": QwenClipTextEncoder(
@@ -185,6 +187,7 @@ class ModelLoaderQwenPipe(BaseModelLoaderPipe):
         # cache. See model_loader/krea2 for the full rationale.
         vae_model = lifecycle.acquire(vae)
         dit_model = lifecycle.acquire(dit)
+        _emit_lora_diagnostics(dit_model, generation_outputs, "MODEL LOADER QWEN")
         bundle = QwenModelBundle(dit=dit_model, te=None, vae=vae_model, te_cache_key=te_key)
         clip = QwenClipTextEncoder(
             device=device, model_fingerprint=f"{te_fp}|{dit_fp}",
@@ -198,5 +201,5 @@ class ModelLoaderQwenPipe(BaseModelLoaderPipe):
         return _vram_budget_fn(pipe_input, self.config.get("vram_limit_gb", None), "MODEL LOADER QWEN")
 
     @staticmethod
-    def _apply_loras(dit_model: NativeModel, loras: List[Dict[str, Any]]) -> None:
-        _apply_loras_to(dit_model, loras, "MODEL LOADER QWEN")
+    def _apply_loras(dit_model: NativeModel, loras: List[Dict[str, Any]]):
+        return _apply_loras_to(dit_model, loras, "MODEL LOADER QWEN")

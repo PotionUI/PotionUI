@@ -21,6 +21,7 @@ from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
 from src.pipelines.pipes._shared.generation.loader_helpers import (
     active_loras as _active_loras,
     apply_loras_to as _apply_loras_to,
+    reemit_lora_application_diagnostics as _emit_lora_diagnostics,
 )
 
 
@@ -32,6 +33,7 @@ def acquire_wan_dit(
     loras: List[Dict[str, Any]],
     *,
     log_tag: str = "MODEL LOADER WAN",
+    generation_outputs: Optional[Any] = None,
 ) -> NativeModel:
     """Acquire (load-or-reuse) a Wan DiT at ``path`` with ``loras`` applied.
 
@@ -42,20 +44,30 @@ def acquire_wan_dit(
     expert) and applied only on a cache miss. ``models`` is the
     ``ModelLifecycle``-shaped service (``.acquire(key, fingerprint,
     loader)``); pass ``None`` to always load fresh (no caching).
+
+    ``generation_outputs``, when given, gets the per-adapter application
+    evidence re-surfaced once per call (see
+    ``reemit_lora_application_diagnostics``) — on a fresh load AND on a cache
+    hit reusing an expert already patched with this exact stack, since this
+    fingerprint folds the LoRA stack in and a cache hit never re-runs
+    ``load()`` at all.
     """
     active = _active_loras(loras)
     lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in active) or "none"
 
     def load() -> NativeModel:
         model = loader.load(path, "diffusion_model")
-        _apply_loras_to(model, active, log_tag)
+        model._active_lora_application = _apply_loras_to(model, active, log_tag)  # noqa: SLF001
         return model
 
     if models is not None:
-        return models.acquire(
+        dit_model = models.acquire(
             key=f"native/dit/{path}",
             fingerprint=f"{path}|{dtype}|{lora_fp}",
             loader=load,
             estimated_vram_gb=file_size_gb(path),
         )
-    return load()
+    else:
+        dit_model = load()
+    _emit_lora_diagnostics(dit_model, generation_outputs, log_tag)
+    return dit_model

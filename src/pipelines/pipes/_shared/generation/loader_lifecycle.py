@@ -43,11 +43,14 @@ implementation, so hoisting it would add indirection without removing a copy.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from src.platform.runtime.native.engine import NativeModel
-from src.platform.runtime.native.lora import remove_loras
-from src.pipelines.pipes._shared.generation.loader_helpers import ComponentProgress
+from src.platform.runtime.native.lora import AdapterApplication, remove_loras
+from src.pipelines.pipes._shared.generation.loader_helpers import (
+    ComponentProgress,
+    emit_lora_application_diagnostics,
+)
 
 
 @dataclass(frozen=True)
@@ -116,11 +119,13 @@ def sync_loras(
     dit_model: NativeModel,
     loras: List[Dict[str, Any]],
     lora_fp: str,
-    apply: Callable[[NativeModel, List[Dict[str, Any]]], None],
+    apply: Callable[[NativeModel, List[Dict[str, Any]]], Optional[Sequence[AdapterApplication]]],
     *,
     lifecycle: Optional[ComponentLifecycle] = None,
     component: Optional[Component] = None,
-) -> None:
+    generation_outputs: Optional[Callable] = None,
+    log_tag: str = "MODEL LOADER",
+) -> Tuple[AdapterApplication, ...]:
     """Reconcile a (possibly cache-HIT, already-patched) DiT's applied LoRA
     stack with the requested one, in place — never re-reads the checkpoint.
 
@@ -154,23 +159,38 @@ def sync_loras(
     Every path that changes the weights bumps the revision first, so a cache
     keyed on the pre-mutation weights is invalidated even when the mutation
     raises (see :meth:`NativeModel.bump_weight_revision`).
+
+    ``apply``'s per-file :class:`AdapterApplication` evidence (its return —
+    ``None``/empty tolerated, since not every caller returns it yet) is
+    stashed on ``dit_model`` next to the stamp and returned. The no-op branch
+    (unchanged ``lora_fp``) re-emits that STORED evidence through
+    ``generation_outputs`` rather than recomputing it — the whole point of the
+    cache-HIT path is to skip re-running ``map_lora_keys``/``apply_loras`` on
+    an unchanged stack, so the diagnostics for it must not force that work
+    back on. A failed reconciliation leaves no evidence behind (cleared before
+    the mutation, alongside the stamp, and never re-set on the raising path).
     """
     if dit_model.unusable_reason is not None:
         raise RuntimeError(
             f"native DiT is unusable and must be reloaded: {dit_model.unusable_reason}"
         )
     if getattr(dit_model, "_active_lora_fp", None) == lora_fp:
-        return
+        cached = getattr(dit_model, "_active_lora_application", ())
+        emit_lora_application_diagnostics(generation_outputs, cached, log_tag)
+        return cached
     dit_model.bump_weight_revision(f"lora stack -> {lora_fp}")
     dit_model._active_lora_fp = None  # noqa: SLF001 - the loader's stamp, not the wrapper's private state
+    dit_model._active_lora_application = ()  # noqa: SLF001 - cleared before the mutation, same as the stamp
     try:
         remove_loras(dit_model.module)
-        if loras:
-            apply(dit_model, loras)
+        report = apply(dit_model, loras) if loras else ()
     except Exception:
         _roll_back_to_base_weights(dit_model, lifecycle, component)
         raise
     dit_model._active_lora_fp = lora_fp  # noqa: SLF001 - the loader's stamp, not the wrapper's private state
+    dit_model._active_lora_application = tuple(report) if report else ()  # noqa: SLF001
+    emit_lora_application_diagnostics(generation_outputs, dit_model._active_lora_application, log_tag)
+    return dit_model._active_lora_application
 
 
 def _roll_back_to_base_weights(

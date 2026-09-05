@@ -10,14 +10,20 @@ existing per-preset log lines.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.io.safetensors_loader import load_torch_file
-from src.platform.runtime.native.lora import apply_loras, parse_lora_window
+from src.platform.runtime.native.lora import AdapterApplication, apply_loras_with_report, parse_lora_window
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import PipeInput
-from src.pipelines.outputs import Progress, ProgressGenerationOutput
+from src.pipelines.outputs import (
+    Icon,
+    ModelGenerationOutput,
+    ModelsGenerationOutput,
+    Progress,
+    ProgressGenerationOutput,
+)
 
 COLD_LOAD_NOTE = (
     ". Loading this model for the first time — this can take a few minutes. "
@@ -153,23 +159,40 @@ def load_lora_stack(loras: List[Dict[str, Any]]) -> List[Any]:
     return [(load_torch_file(lora["file_path"], device="cpu")[0], lora["weight"]) for lora in loras]
 
 
-def apply_loras_to(dit_model: NativeModel, loras: List[Dict[str, Any]], log_tag: str) -> None:
-    """Load and apply a LoRA stack onto ``dit_model``, logging under ``log_tag``."""
+def apply_loras_to(
+    dit_model: NativeModel,
+    loras: List[Dict[str, Any]],
+    log_tag: str,
+    generation_outputs: Optional[Callable] = None,
+) -> List[AdapterApplication]:
+    """Load and apply a LoRA stack onto ``dit_model``, logging under ``log_tag``.
+
+    Returns the per-file application evidence (see ``AdapterApplication``) in
+    ``loras`` order — ``[]`` for an empty stack. When ``generation_outputs``
+    is given, a stack carrying any zero-effect or partially-ignored adapter
+    also gets surfaced through it (see ``emit_lora_application_diagnostics``).
+    Most callers pass ``None`` here and instead stash the returned evidence
+    on ``dit_model`` and surface it once, after the acquire, via
+    ``reemit_lora_application_diagnostics`` — that path also covers a
+    ``MODELS`` cache HIT, which never calls this function at all.
+    """
     if not loras:
-        return
+        return []
     stack = load_lora_stack(loras)
-    patched, unmatched = apply_loras(dit_model.module, stack)
+    file_paths = [lora["file_path"] for lora in loras]
+    patched, unmatched, reports = apply_loras_with_report(dit_model.module, stack, names=file_paths)
     if patched == 0:
         # A fully-unmatched stack means the LoRA had NO effect on the output —
         # silent-looking from the UI, so surface it loudly with enough detail
         # (the first unmatched stems) to identify the trainer's key dialect.
-        names = ", ".join(Path(lora["file_path"]).name for lora in loras)
+        names = ", ".join(Path(path).name for path in file_paths)
         logger.warning(
             "[%s] LoRA(s) had NO effect (%s): 0 params patched, %d unmatched keys. "
             "This architecture did not recognise the LoRA's key naming; first unmatched: %s",
             log_tag, names, len(unmatched), unmatched[:5],
         )
-        return
+        emit_lora_application_diagnostics(generation_outputs, reports, log_tag)
+        return reports
     logger.info("[%s] applied %d LoRA(s): %d params patched, %d unmatched keys",
                 log_tag, len(loras), patched, len(unmatched))
     if unmatched:
@@ -177,3 +200,75 @@ def apply_loras_to(dit_model: NativeModel, loras: List[Dict[str, Any]], log_tag:
         # usually a whole sub-model (e.g. a text-encoder LoRA half we don't
         # apply) or an unknown dialect, and the stems identify which.
         logger.info("[%s] first unmatched LoRA keys: %s", log_tag, unmatched[:6])
+    emit_lora_application_diagnostics(generation_outputs, reports, log_tag)
+    return reports
+
+
+def emit_lora_application_diagnostics(
+    generation_outputs: Optional[Callable],
+    reports: Sequence[AdapterApplication],
+    log_tag: str,
+) -> None:
+    """Surface per-adapter LoRA application evidence to the generation stream.
+
+    A no-op when ``generation_outputs`` is ``None`` (a caller that has none
+    to thread through, e.g. a direct/unit-test call) or when every adapter
+    fully matched with nothing ignored — the common case stays exactly as
+    quiet as before this existed. Otherwise
+    emits ONE ``ProgressGenerationOutput`` warning, the same
+    ``icon=Icon(name="alert-triangle")`` idiom generator pipes already use
+    for a generation-visible caveat, plus one ``ModelsGenerationOutput``
+    carrying the per-adapter evidence — captured durably into the
+    generation's run report by the existing pipe_artifact recording, and
+    distinct from the *requested* stack identity a loader's
+    ``describe_models()`` emits up front.
+    """
+    if generation_outputs is None or not reports:
+        return
+    flagged = [r for r in reports if r.zero_effect or r.unmatched_keys or r.ignored]
+    if not flagged:
+        return
+    message = (
+        f"[{log_tag}] one or more LoRAs had no effect on the output"
+        if any(r.zero_effect for r in flagged)
+        else f"[{log_tag}] one or more LoRAs applied only partially"
+    )
+    generation_outputs(ProgressGenerationOutput(state=message, icon=Icon(name="alert-triangle")))
+    generation_outputs(ModelsGenerationOutput(models=[
+        ModelGenerationOutput(
+            name=Path(r.source).stem,
+            type="lora",
+            matched_params=r.matched_params,
+            unmatched_keys=r.unmatched_keys,
+            zero_effect=r.zero_effect,
+            ignored=[f"{ic.kind}×{ic.count}" for ic in r.ignored] or None,
+        )
+        for r in reports
+    ]))
+
+
+def reemit_lora_application_diagnostics(
+    dit_model: NativeModel,
+    generation_outputs: Optional[Callable],
+    log_tag: str,
+) -> None:
+    """Re-surface whatever LoRA application evidence is stashed on
+    ``dit_model`` (``_active_lora_application`` — set by ``apply_loras_to``/
+    ``sync_loras`` the last time this DiT's stack was actually applied),
+    once per generation, regardless of whether THIS acquire was a fresh load
+    or a cache hit reusing already-patched weights.
+
+    For the families whose ``MODELS`` fingerprint folds in the LoRA stack
+    (Anima/Qwen/Z-Image/LTX/MiniMax-H3/Wan22 — a stack change busts the cache
+    and reloads), a cache HIT never re-runs ``load_dit``/``apply_loras_to``
+    at all, so nothing about that stack would otherwise be re-announced on a
+    later generation reusing it; this call, right after acquiring the DiT
+    component, is the loader's one fixed point for surfacing it regardless
+    of hit or miss. Flux/Krea-2 get the same guarantee from ``sync_loras``
+    itself (its own cache-HIT no-op branch) and must NOT also call this on
+    the path ``sync_loras`` already ran on — only on the uncached direct-load
+    branch neither of them ever reaches.
+    """
+    emit_lora_application_diagnostics(
+        generation_outputs, getattr(dit_model, "_active_lora_application", ()), log_tag,
+    )

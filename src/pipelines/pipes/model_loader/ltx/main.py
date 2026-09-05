@@ -74,6 +74,7 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     active_loras as _active_loras,
     apply_loras_to as _apply_loras_to,
     path_of as _path_of,
+    reemit_lora_application_diagnostics as _emit_lora_diagnostics,
     vram_budget as _vram_budget_fn,
 )
 from src.pipelines.pipes._shared.generation.loader_lifecycle import (
@@ -254,13 +255,14 @@ class ModelLoaderLtxPipe(BaseModelLoaderPipe):
 
         def load_dit() -> NativeModel:
             model = loader.load(model_path, "diffusion_model")
-            self._apply_loras(model, loras)
+            model._active_lora_application = self._apply_loras(model, loras)  # noqa: SLF001
             return model
 
         dit_model = lifecycle.acquire(Component(
             "DiT", f"native/dit/{model_path}", f"{model_path}|{dtype}|{lora_fp}",
             load_dit, file_size_gb(model_path),
         ))
+        _emit_lora_diagnostics(dit_model, generation_outputs, "MODEL LOADER LTX")
 
         # The TE is NOT acquired here when a lifecycle service is available:
         # it is deferred into `clip`'s own `te_factory`, run at most once and
@@ -355,5 +357,5 @@ class ModelLoaderLtxPipe(BaseModelLoaderPipe):
         return _vram_budget_fn(pipe_input, self.config.get("vram_limit_gb", None), "MODEL LOADER LTX")
 
     @staticmethod
-    def _apply_loras(dit_model: NativeModel, loras: List[Dict[str, Any]]) -> None:
-        _apply_loras_to(dit_model, loras, "MODEL LOADER LTX")
+    def _apply_loras(dit_model: NativeModel, loras: List[Dict[str, Any]]):
+        return _apply_loras_to(dit_model, loras, "MODEL LOADER LTX")

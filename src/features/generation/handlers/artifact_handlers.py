@@ -437,6 +437,14 @@ def serialize_models_output(output: ModelsGenerationOutput, ctx: SerializeContex
             }
             if hasattr(model, 'weight') and model.weight is not None:
                 model_data['weight'] = float(model.weight)
+            if getattr(model, 'matched_params', None) is not None:
+                model_data['matched_params'] = int(model.matched_params)
+            if getattr(model, 'unmatched_keys', None) is not None:
+                model_data['unmatched_keys'] = int(model.unmatched_keys)
+            if getattr(model, 'zero_effect', None) is not None:
+                model_data['zero_effect'] = bool(model.zero_effect)
+            if getattr(model, 'ignored', None):
+                model_data['ignored'] = [str(item) for item in model.ignored]
             models_data.append(model_data)
 
         result['artifact_data']['models'] = models_data

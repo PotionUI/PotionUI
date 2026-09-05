@@ -109,7 +109,7 @@ class _FakeSpec:
     latent_format: dict = field(default_factory=lambda: {"latent_channels": 16, "format": "wan21"})
 
 
-def _bundle(in_dim=36, img_emb=None):
+def _bundle(in_dim=36, img_emb=None, low_img_emb=None, low_dit=True):
     vae = SimpleNamespace(
         compute_dtype=torch.float32, move_to=lambda d: None, offload=lambda: None,
         module=SimpleNamespace(
@@ -117,10 +117,18 @@ def _bundle(in_dim=36, img_emb=None):
             decode=lambda z: torch.zeros(1, 3, z.shape[2], z.shape[3] * 8, z.shape[4] * 8),
         ),
     )
+    # low_dit=True (default) builds a compatible low-noise expert mirroring
+    # the real Bundle's dual-expert shape (see model_loader/wan22/bundle.py);
+    # low_dit=False mirrors a single-DiT bundle (Wan 2.1 / 5B, low_dit=None).
+    low = (
+        SimpleNamespace(compute_dtype=torch.float32, spec=_FakeSpec(),
+                        module=SimpleNamespace(patch_size=(1, 2, 2), in_dim=in_dim, img_emb=low_img_emb))
+        if low_dit else None
+    )
     return SimpleNamespace(
         high_dit=SimpleNamespace(compute_dtype=torch.float32, spec=_FakeSpec(),
                                  module=SimpleNamespace(patch_size=(1, 2, 2), in_dim=in_dim, img_emb=img_emb)),
-        low_dit=SimpleNamespace(), vae=vae, spec=_FakeSpec(), is_dual_expert=True,
+        low_dit=low, vae=vae, spec=_FakeSpec(), is_dual_expert=low_dit,
     )
 
 
@@ -322,6 +330,48 @@ def test_classic_clip_vision_i2v_raises_before_any_vae_or_concat_work(mode_end_i
         mock_concat.assert_not_called()
         mock_denoise.assert_not_called()
     assert calls == {"vae_move_to": 0, "vae_encode": 0, "vae_offload": 0}
+
+
+@pytest.mark.parametrize("end_image,mode_match", [(False, "i2v"), (True, "flf")])
+def test_compatible_high_with_classic_low_expert_still_raises(end_image, mode_match):
+    """A compatible modern concat-i2v high-noise expert paired with an
+    incompatible classic CLIP-vision low-noise expert must still reject --
+    the low-noise expert executes for the back half of sampling, so a check
+    on the high-noise expert alone would silently let it run."""
+    bundle = _bundle(in_dim=36, img_emb=None, low_img_emb=_fake_img_emb(flf=False))
+    calls = {"vae_move_to": 0, "vae_encode": 0, "vae_offload": 0}
+    bundle.vae.move_to = lambda d: calls.__setitem__("vae_move_to", calls["vae_move_to"] + 1)
+    bundle.vae.offload = lambda: calls.__setitem__("vae_offload", calls["vae_offload"] + 1)
+    bundle.vae.module.encode = lambda px: (calls.__setitem__("vae_encode", calls["vae_encode"] + 1) or None)
+    inp = {
+        "model": bundle,
+        "conditioning": [SimpleNamespace(embeds={"context": torch.ones(1, 4, 8)}, n_embeds=None)],
+        "image": [torch.rand(64, 64, 3)],
+        "seed": [1],
+    }
+    if end_image:
+        inp["end_image"] = [torch.rand(64, 64, 3)]
+    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.build_i2v_concat") as mock_concat, \
+         patch("src.pipelines.pipes.generator.img2vid_wan22.main.denoise") as mock_denoise:
+        with pytest.raises(ValueError, match=mode_match):
+            _pipe(device="cpu").build_context(PipeInput(input=inp))
+        mock_concat.assert_not_called()
+        mock_denoise.assert_not_called()
+    assert calls == {"vae_move_to": 0, "vae_encode": 0, "vae_offload": 0}
+
+
+def test_single_expert_bundle_has_no_low_dit_to_check():
+    """Control: a single-DiT bundle (low_dit=None, mirroring Wan 2.1 / the
+    5B) is unaffected by the low-expert check -- it's simply skipped."""
+    bundle = _bundle(in_dim=36, low_dit=False)
+    pipe_input = PipeInput(input={
+        "model": bundle,
+        "conditioning": [SimpleNamespace(embeds={"context": torch.ones(1, 4, 8)}, n_embeds=None)],
+        "image": [torch.rand(64, 64, 3)],
+        "seed": [1],
+    })
+    ctx = _pipe(device="cpu").build_context(pipe_input)
+    assert ctx.extra.forward.router.low is None
 
 
 def test_ti2v_5b_model_in_flf_mode_also_raises_before_any_vae_or_concat_work():

@@ -588,6 +588,26 @@ class GeneratorWanChainVideoPipe(BasePipe):
         cancelled = False
         i, sub_type, set_name = -1, None, None
 
+        # Preflight (before ANY segment work runs): resolve every segment's
+        # sub-type up front -- segment_sub_type is a pure function of the
+        # document, no model touched -- and prepare exactly the checkpoint
+        # set(s) the resolved plan will actually use. Without this, a set
+        # only a LATER segment needs (e.g. a t2v opener that continues into
+        # an incompatible i2v set) is validated lazily inside the loop below,
+        # after every earlier segment has already denoised and encoded. A
+        # set that is loaded but that no segment needs is never touched here,
+        # so it stays harmless. prepare_set is idempotent, so the loop's own
+        # per-segment prepare_set call below is then a no-op for whichever
+        # set(s) already got built here -- this is the SAME per-expert
+        # conditioning-contract guard, just run earlier, not a second one.
+        required_sets = {
+            "i2v" if segment_sub_type(seg, j, seg.get("id") in first_index, seg.get("id") in last_index)
+            in _I2V_SUB_TYPES else "t2v"
+            for j, seg in enumerate(segments)
+        }
+        for required in required_sets:
+            prepare_set(sets[required], required)
+
         try:
             for i, seg in enumerate(segments):
                 if is_cancelled and is_cancelled():

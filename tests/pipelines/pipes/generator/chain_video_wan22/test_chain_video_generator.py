@@ -298,10 +298,14 @@ def test_i2v_set_incompatible_low_expert_raises_even_with_compatible_high():
         mock_denoise.assert_not_called()
 
 
-def test_chain_continuation_needing_incompatible_i2v_set_raises_before_that_segments_concat():
+def test_chain_continuation_needing_incompatible_i2v_set_raises_before_any_segment_work():
     """A chain that opens on a compatible t2v shot and continues into an
-    incompatible classic-i2v set must still reject before the continuation
-    segment's own concat/denoise work, even though segment 0 already ran."""
+    incompatible classic-i2v set must reject in the PREFLIGHT, before segment
+    0 (t2v) ever denoises -- not just before segment 1's own concat/denoise.
+    The preflight resolves every segment's sub-type up front (a pure function
+    of the document) and prepares exactly the checkpoint set(s) the resolved
+    plan will use, so a set only a LATER segment needs is still validated
+    before ANY segment runs."""
     doc = _document(n_segments=2, start_on_seg0=False)
     pipe = _pipe(document=doc)
     t2v_bundle = _bundle(in_dim=16, dual=False, variant="wan22_t2v")
@@ -309,16 +313,36 @@ def test_chain_continuation_needing_incompatible_i2v_set_raises_before_that_segm
     i2v_bundle.high_dit.module.img_emb = _fake_img_emb(flf=True)
     pi = _inputs(model=i2v_bundle, model_t2v=t2v_bundle, conditioning=_cond(2))
 
-    build, captured = _fake_build_i2v_concat_factory()
-    p1, p2, p3, p4 = _patches(fake_build=build)
-    with p1, p2 as mock_denoise, p3, p4, _no_stitch():
+    with patch("src.pipelines.pipes.generator.chain_video_wan22.main.build_i2v_concat") as mock_build, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.denoise") as mock_denoise, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main._decode_video") as mock_decode, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.encode_frames_to_mp4") as mock_encode_mp4, \
+         _no_stitch():
         with pytest.raises(ValueError, match="i2v"):
             pipe.process(pi, lambda o: None)
+        mock_build.assert_not_called()
+        mock_denoise.assert_not_called()
+        mock_decode.assert_not_called()
+        mock_encode_mp4.assert_not_called()
 
-    # Segment 0 (t2v) ran its own denoise/no-concat pass; the guard fired
-    # before segment 1 (chain, needs the i2v set) reached any concat work.
-    assert mock_denoise.call_count == 1
-    assert captured == []
+
+def test_loaded_but_unused_incompatible_set_stays_harmless():
+    """Control: an incompatible classic-i2v checkpoint sitting in the i2v
+    picker is never validated (and never blocks generation) when no segment
+    in the resolved plan actually needs the i2v set."""
+    doc = _document(n_segments=1, start_on_seg0=False)  # pure t2v, no image
+    pipe = _pipe(document=doc)
+    t2v_bundle = _bundle(in_dim=16, dual=False, variant="wan22_t2v")
+    unused_i2v_bundle = _bundle(in_dim=36, variant="wan_i2v_14b")
+    unused_i2v_bundle.high_dit.module.img_emb = _fake_img_emb(flf=True)
+    pi = _inputs(model=unused_i2v_bundle, model_t2v=t2v_bundle, conditioning=_cond(1))
+
+    build, captured = _fake_build_i2v_concat_factory()
+    p1, p2, p3, p4 = _patches(fake_build=build)
+    with p1, p2, p3, p4, _no_stitch():
+        pipe.process(pi, lambda o: None)  # must not raise
+
+    assert captured == []  # the t2v-only segment never conditions
 
 
 # -- per-segment sub-type routing -------------------------------------------

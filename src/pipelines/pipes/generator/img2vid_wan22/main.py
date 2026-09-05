@@ -39,7 +39,7 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
     slg_settings_overrides,
 )
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
-from src.pipelines.pipes._shared.generation.wan_i2v_contract import require_concat_i2v_contract
+from src.pipelines.pipes._shared.generation.wan_i2v_contract import require_concat_i2v_contract_for_experts
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
 from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_wan_vae_encode
 from src.pipelines.pipes.generator.img2vid_wan22.concat import build_i2v_concat
@@ -262,9 +262,12 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
         # this generator's concat-only construction -- using one here would
         # silently drop the image conditioning the checkpoint actually expects.
         # Also has in_dim=36 (same as the concat-i2v contract above), so only
-        # `img_emb`'s presence tells the two apart.
-        require_concat_i2v_contract(
-            bundle.high_dit.module, generator="generator/img2vid_wan22",
+        # `img_emb`'s presence tells the two apart. Check EVERY expert that can
+        # execute (high AND low, when a low-noise expert is loaded) -- a
+        # compatible high-noise expert paired with an incompatible classic
+        # low-noise one must still reject, not just a mismatched high expert.
+        require_concat_i2v_contract_for_experts(
+            (bundle.high_dit, bundle.low_dit), generator="generator/img2vid_wan22",
             variant=bundle.spec.variant, mode_label=mode_label,
         )
 

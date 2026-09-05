@@ -19,7 +19,23 @@ CLIP-vision variant, `None` on the concat-only one) distinguishes them.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable, Optional
+
+
+def require_concat_i2v_contract_for_experts(
+        experts: Iterable[Optional[Any]], *, generator: str, variant: str, mode_label: str,
+) -> None:
+    """Apply :func:`require_concat_i2v_contract` to every DiT wrapper in
+    ``experts`` that isn't ``None`` (a single-expert bundle's absent
+    low-noise slot). Call for every expert that can actually EXECUTE in a
+    run, not just the high-noise expert routing decisions are made from --
+    a compatible high-noise expert paired with an incompatible classic
+    low-noise one must still reject, and which expert runs at a given sigma
+    is a sampling-time decision this validation must not have to predict."""
+    for dit in experts:
+        if dit is None:
+            continue
+        require_concat_i2v_contract(dit.module, generator=generator, variant=variant, mode_label=mode_label)
 
 
 def require_concat_i2v_contract(module: Any, *, generator: str, variant: str, mode_label: str) -> None:

@@ -477,6 +477,8 @@ class _MiniMaxH3Forward:
             video_indices=self.layout.video_indices,
             audio_indices=self.layout.audio_indices,
             text_indices=self.layout.text_indices,
+            num_condition_video_rows=self.layout.num_condition_video_rows,
+            num_condition_audio_rows=self.layout.num_condition_audio_rows,
             step_cache=step_cache,
             sparse_attn_ctx=sparse_attn_ctx,
             seq_chunk_rows=seq_chunk_rows,

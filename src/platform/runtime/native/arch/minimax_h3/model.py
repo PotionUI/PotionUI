@@ -587,7 +587,7 @@ class MiniMaxH3Model(NativeArchModule):
 
     def _process_transformer_blocks(self, hidden_states: Tensor, temb: Tensor, adaln_indices: Tensor,
                                      rotary_emb: tuple[Tensor, Tensor],
-                                     video_indices: Tensor, audio_indices: Tensor,
+                                     generated_video_indices: Tensor, generated_audio_indices: Tensor,
                                      step_cache=None,
                                      sparse_attn: SolAttnContext | SlaAttnContext | None = None,
                                      seq_chunk_rows: int = 0,
@@ -596,16 +596,17 @@ class MiniMaxH3Model(NativeArchModule):
         ``sampling/step_cache.py``).
 
         H3 runs video, audio and text as ONE packed sequence, so block-0's
-        output covers all three at once — but only the two generated
-        modalities are what the cache is predicting, and they are wildly
-        different sizes. The probe therefore gathers the video and audio rows
-        into their own :class:`GroupedProbe` groups, each gated on its own
-        threshold, and leaves the text rows out entirely: text is pinned for
-        the whole trajectory, so folding those rows into a pooled mean would
-        damp every step's drift toward zero and skip on the strength of rows
-        that could not have moved. A skip returns straight after block 0, so
-        blocks 1..N *and* the final layer are bypassed; ``forward`` replays
-        the cached ``(video, audio)`` pair instead.
+        output covers all three at once — but the cache is only predicting the
+        two GENERATED spans, and they are wildly different sizes. The probe
+        therefore gathers ``generated_video_indices`` and
+        ``generated_audio_indices`` into their own :class:`GroupedProbe`
+        groups, each gated on its own threshold. Every other row is left out:
+        text rows and each modality's clean condition prefix are pinned for
+        the whole trajectory, so folding them into a pooled mean would damp
+        every step's drift toward zero and skip on the strength of rows that
+        could not have moved. A skip returns straight after block 0, so blocks
+        1..N *and* the final layer are bypassed; ``forward`` replays the
+        cached ``(video, audio)`` pair instead.
 
         ``sparse_attn`` reaches only this stack. The token refiner's blocks run
         a short text-only sequence with no rotary embedding and no packed
@@ -624,8 +625,8 @@ class MiniMaxH3Model(NativeArchModule):
             hidden_states = block(hidden_states, temb, adaln_indices, rotary_emb, sparse_attn, seq_chunk_rows)
             if i == 0 and step_cache is not None:
                 probe = GroupedProbe(
-                    video=hidden_states.index_select(1, video_indices),
-                    audio=hidden_states.index_select(1, audio_indices),
+                    video=hidden_states.index_select(1, generated_video_indices),
+                    audio=hidden_states.index_select(1, generated_audio_indices),
                 )
                 if may_skip and step_cache.should_skip(probe):
                     return hidden_states, probe, True
@@ -673,6 +674,14 @@ class MiniMaxH3Model(NativeArchModule):
         that may replay the previous step's ``(video, audio)`` pair instead of
         running blocks 1..N. H3 is guidance-distilled (one branch), so the
         caller passes a single cache rather than a ``StepCacheSet``.
+
+        ``num_condition_video_rows`` / ``num_condition_audio_rows`` (keyword,
+        optional, default ``0``): how many rows at the FRONT of each
+        modality's own index tensor are the clean conditioning prefix, exactly
+        as ``PackedLayout`` reports them and the stepper slices them. They
+        narrow the FBCache probe to the generated span and nothing else; the
+        packed sequence the blocks run over, and both output heads, still
+        cover every row.
 
         ``sparse_attn_ctx`` (keyword, optional): a
         :class:`~src.platform.runtime.native.sol_attn.SolAttnContext` or
@@ -728,8 +737,11 @@ class MiniMaxH3Model(NativeArchModule):
         step_cache = kwargs.pop("step_cache", None)
         sparse_attn_ctx = kwargs.pop("sparse_attn_ctx", None)
         seq_chunk_rows = kwargs.pop("seq_chunk_rows", 0)
+        num_condition_video_rows = int(kwargs.pop("num_condition_video_rows", 0))
+        num_condition_audio_rows = int(kwargs.pop("num_condition_audio_rows", 0))
         packed, probe, skipped = self._process_transformer_blocks(
-            packed, temb, adaln_indices, rotary_emb, video_indices, audio_indices,
+            packed, temb, adaln_indices, rotary_emb,
+            video_indices[num_condition_video_rows:], audio_indices[num_condition_audio_rows:],
             step_cache=step_cache, sparse_attn=sparse_attn_ctx,
             seq_chunk_rows=seq_chunk_rows,
         )

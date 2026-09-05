@@ -20,11 +20,14 @@
 // queued/running (an older run a newer one's cancellation left behind, or
 // simply next in line), or when a queued generation's own event proves it is
 // now running while nobody owns the display, that generation is adopted as
-// the new owner -- COLD: a fresh `currentGeneration`, no inherited progress,
-// media or timers from either the outgoing owner or its own time spent
-// backgrounded, indices at 0. The events that follow for it (progress,
-// gallery output, ...) fill it in exactly as they would for any other owner.
+// the new owner. It never inherits the OUTGOING owner's progress/media/
+// timers -- those reset -- but it DOES immediately show whatever it already
+// produced while backgrounded (its own `generationOutputs` cache), since
+// that media is real and already known; a generation with nothing cached yet
+// starts genuinely blank. The events that follow it (progress, gallery
+// output, ...) fill it in exactly as they would for any other owner.
 import type { Tab, GenerationState, QueuedGeneration } from '$lib/types/tabs';
+import { peekGenerationOutputs, leadOutputPatch } from './generationOutputs';
 
 export function isTabsCurrentGeneration(
 	tab: Pick<Tab, 'activeGenerationId' | 'generation'>,
@@ -74,29 +77,46 @@ export function nextQueueCandidate(queue: QueuedGeneration[] | undefined): Queue
 	return entries[0];
 }
 
-/** The patch that makes `generationId` the tab's new owner from a cold
- *  start. Never carries over the outgoing owner's (or this generation's own
- *  prior background) progress, media or timers -- the events that follow
- *  fill those in exactly as for any other owner. */
+/** The patch that makes `generationId` the tab's new owner. Never carries
+ *  over the OUTGOING owner's progress, media or timers -- those always
+ *  reset -- but immediately restores whatever `generationId` itself already
+ *  produced while backgrounded, from its own `generationOutputs` cache
+ *  (never another run's, and never blanked back to nothing just because the
+ *  outgoing owner's display was). A generation with nothing cached yet
+ *  starts genuinely blank, exactly as before. */
 export function beginGenerationOwnership(
 	generationId: string,
 	now: () => number = Date.now
 ): { activeGenerationId: string; generation: Partial<GenerationState> } {
+	const output = leadOutputPatch(peekGenerationOutputs(generationId));
+	const currentGeneration = output.file_type
+		? {
+				id: generationId,
+				generation_id: generationId,
+				status: 'running',
+				current_image: output.current_image,
+				current_video: output.current_video,
+				current_audio: output.current_audio,
+				current_mesh: output.current_mesh,
+				file_type: output.file_type
+			}
+		: { id: generationId, generation_id: generationId, status: 'running' };
+
 	return {
 		activeGenerationId: generationId,
 		generation: {
 			isGenerating: true,
-			currentGeneration: { id: generationId, generation_id: generationId, status: 'running' },
+			currentGeneration,
 			currentProgress: null,
 			routingBackend: null,
 			startedAt: now(),
 			totalTime: null,
-			batchImages: [],
-			batchVideos: [],
-			batchAudios: [],
-			batchMeshes: [],
-			workbenchIndex: 0,
-			workbenchTotal: 0,
+			batchImages: output.batchImages,
+			batchVideos: output.batchVideos,
+			batchAudios: output.batchAudios,
+			batchMeshes: output.batchMeshes,
+			workbenchIndex: output.workbenchIndex,
+			workbenchTotal: output.workbenchTotal,
 			pipeTimers: {}
 		}
 	};

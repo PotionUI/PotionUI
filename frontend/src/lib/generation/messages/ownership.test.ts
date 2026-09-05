@@ -237,4 +237,84 @@ describe('generation message ownership — A running, B queued in the same tab',
 		expect(tab.generation.currentGeneration).toBeNull();
 		expect(tab.generation.queue).toEqual([]);
 	});
+
+	it('A (adopted after B is cancelled) restores its own cached video without a fresh gallery_update', () => {
+		const tabId = defaultTabId();
+		seedNewestSubmissionOverOlderRunning(tabId);
+
+		// A produces output while merely backgrounded (not owner yet) -- cached,
+		// not written to the tab's shared display.
+		dispatchGenerationMessage(
+			{
+				type: 'gallery_update',
+				generation_id: 'gen-a',
+				videos: [{ path: '/api/media/generations/gen-a/0.mp4' }],
+				video_urls_list: [{ path: '/api/media/generations/gen-a/0.mp4' }]
+			} as any,
+			{ unsubscribe: vi.fn() }
+		);
+		let tab = currentTab(tabId);
+		expect(tab.generation.batchVideos).toEqual([]);
+
+		// B is cancelled -- A (still running) is adopted and immediately shows
+		// what it already produced, not a blank slate.
+		dispatchGenerationMessage({ type: 'generation_cancelled', generation_id: 'gen-b' } as any, { unsubscribe: vi.fn() });
+		tab = currentTab(tabId);
+		expect(tab.activeGenerationId).toBe('gen-a');
+		expect(tab.generation.batchVideos).toHaveLength(1);
+		expect(tab.generation.batchVideos[0].originalUrl).toBe('/api/media/generations/gen-a/0.mp4');
+		expect(tab.generation.currentGeneration).toMatchObject({
+			status: 'running',
+			file_type: 'video',
+			current_video: '/api/media/generations/gen-a/0.mp4'
+		});
+
+		// A completes without ever sending another gallery_update -- its batch
+		// arrays must still reflect its own (already-known) output, not [].
+		dispatchGenerationMessage({ type: 'generation_complete', data: { id: 'gen-a' } } as any, { unsubscribe: vi.fn() });
+		tab = currentTab(tabId);
+		expect(tab.generation.currentGeneration).toMatchObject({
+			status: 'completed',
+			file_type: 'video',
+			current_video: '/api/media/generations/gen-a/0.mp4'
+		});
+		expect(tab.generation.batchVideos).toHaveLength(1);
+		expect(tab.generation.batchVideos[0].originalUrl).toBe('/api/media/generations/gen-a/0.mp4');
+		expect(tab.generation.workbenchTotal).toBe(1);
+	});
+
+	it('adoption and completion also restore a cached image (non-video control)', () => {
+		const tabId = defaultTabId();
+		seedNewestSubmissionOverOlderRunning(tabId);
+
+		dispatchGenerationMessage(
+			{
+				type: 'gallery_update',
+				generation_id: 'gen-a',
+				images: ['base64-a'],
+				image_urls_list: [{ original: '/api/media/generations/gen-a/0.png' }]
+			} as any,
+			{ unsubscribe: vi.fn() }
+		);
+		dispatchGenerationMessage({ type: 'generation_cancelled', generation_id: 'gen-b' } as any, { unsubscribe: vi.fn() });
+
+		let tab = currentTab(tabId);
+		expect(tab.activeGenerationId).toBe('gen-a');
+		expect(tab.generation.batchImages).toHaveLength(1);
+		expect(tab.generation.batchImages[0].originalUrl).toBe('/api/media/generations/gen-a/0.png');
+		expect(tab.generation.currentGeneration).toMatchObject({
+			status: 'running',
+			file_type: 'image',
+			current_image: 'data:image/png;base64,base64-a'
+		});
+
+		dispatchGenerationMessage({ type: 'generation_complete', data: { id: 'gen-a' } } as any, { unsubscribe: vi.fn() });
+		tab = currentTab(tabId);
+		expect(tab.generation.batchImages).toHaveLength(1);
+		expect(tab.generation.currentGeneration).toMatchObject({
+			status: 'completed',
+			file_type: 'image',
+			current_image: 'data:image/png;base64,base64-a'
+		});
+	});
 });

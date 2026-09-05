@@ -22,6 +22,7 @@ import numpy as np
 import torch
 
 from src.pipelines.contracts import PipeInput
+from src.pipelines.outputs import ParamGenerationOutput
 from src.pipelines.pipes.generator.chain_video_wan22.main import GeneratorWanChainVideoPipe
 
 
@@ -238,3 +239,62 @@ def test_short_opener_before_a_fresh_cut_is_unaffected_control():
     assert stitched.shape[0] == 14  # 1 + 13, nothing dropped
     assert stitched[0, 0, 0, 0] == 10   # seg-0's only frame
     assert stitched[1, 0, 0, 0] == 20   # seg-1's first frame, untouched -- no crossfade
+
+
+# -- planned vs executed overlap: controls where stitching never runs -------
+#
+# segment_join_overlap is the PLANNED per-join overlap, computed unconditionally
+# in the segment loop; segment_overlap_dropped_at_stitch is what a stitch call
+# ACTUALLY applied. The two must read out identically only when stitching
+# actually ran -- these two controls prove they diverge correctly (plan
+# populated, executed all zero, no stitched output) when it didn't.
+
+def test_stitch_disabled_reports_the_plan_but_no_executed_drop_control():
+    doc = _document(n_segments=2, frames=13,
+                     continuation={"source": None, "overlap_frames": 12, "stitch": False})
+    pipe = _pipe(document=doc, motion_latent_count=4)
+    pi = _inputs(model=_bundle(in_dim=36), model_t2v=_bundle(in_dim=16, dual=False), conditioning=_cond(2))
+
+    emitted = []
+    p2, p3, p4 = _patches()
+    with patch("src.pipelines.pipes.generator.chain_video_wan22.main.encode_frames_to_mp4",
+               lambda frames, path, fps: Path(path).write_bytes(b"fake")), \
+         p2, p3, p4, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.stitch_segments") as mock_stitch:
+        result = pipe.process(pi, lambda o: emitted.append(o))
+
+    mock_stitch.assert_not_called()
+    assert len(result.output["video"]) == 2  # the 2 segments only, no stitched entry appended
+    params = {o.name: o.values for o in emitted if isinstance(o, ParamGenerationOutput)}
+    assert params["segment_join_overlap"] == [0, 12]           # planned, regardless of stitch=false
+    assert params["segment_overlap_dropped_at_stitch"] == [0, 0]  # nothing actually ran
+
+
+def test_cancellation_before_stitch_reports_the_plan_but_no_executed_drop_control():
+    # Cancelled after 2 of 3 segments -- before the stitch decision is even
+    # reached. The 2 segments that ran still have a planned join overlap;
+    # nothing was ever stitched.
+    doc = _document(n_segments=3, frames=13,
+                     continuation={"source": None, "overlap_frames": 12, "stitch": True})
+    pipe = _pipe(document=doc, motion_latent_count=4)
+    pi = _inputs(model=_bundle(in_dim=36), model_t2v=_bundle(in_dim=16, dual=False), conditioning=_cond(3))
+
+    calls = {"n": 0}
+
+    def is_cancelled():
+        calls["n"] += 1
+        return calls["n"] > 2  # allow 2 segments through, cancel before the 3rd
+
+    emitted = []
+    p2, p3, p4 = _patches()
+    with patch("src.pipelines.pipes.generator.chain_video_wan22.main.encode_frames_to_mp4",
+               lambda frames, path, fps: Path(path).write_bytes(b"fake")), \
+         p2, p3, p4, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.stitch_segments") as mock_stitch:
+        result = pipe.process(pi, lambda o: emitted.append(o), is_cancelled=is_cancelled)
+
+    mock_stitch.assert_not_called()
+    assert len(result.output["video"]) == 2  # only the 2 segments that ran, no stitched entry
+    params = {o.name: o.values for o in emitted if isinstance(o, ParamGenerationOutput)}
+    assert params["segment_join_overlap"] == [0, 12]           # planned for the 2 segments that ran
+    assert params["segment_overlap_dropped_at_stitch"] == [0, 0]  # cancelled before stitching ran

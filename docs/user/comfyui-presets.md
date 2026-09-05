@@ -39,31 +39,35 @@ Export (API) file, and PotionUI handles them automatically.
 
 ## Importing it as a preset
 
-An **Import workflow** button in **Administration → Presets** (icon-only header action) opens a
-wizard that walks through five steps:
+Open **Administration → Plugins → ComfyUI Backend**, then switch to its **Import workflow** tab.
+It walks through five steps:
 
-1. **Paste or drop your exported ComfyUI JSON.** The wizard detects the workflow's mode, node
-   count, and any LoRA chain, and reads it into the steps that follow.
+1. **Choose a workflow.** Paste or drop your exported ComfyUI JSON. The wizard detects the
+   workflow's format, node count, and any LoRA chain, and reads it into the steps that follow.
 2. **Design the form.** A starting layout is pre-built for you — the obvious inputs (checkpoint,
    steps, resolution, a detected LoRA chain, and more) already turned into fields and arranged into
    tabs, grouped where that makes sense (all the model pickers together, for instance). Add, remove,
    rename, or rearrange fields — into rows, groups, or collapsible sections — and add tabs of your
-   own; anything you leave out keeps the value it had in the original workflow.
-3. **Choose what shows up in generation history.** Pick which of your fields (steps, cfg, the
-   model, ...) get recorded against each generation, so you can see what settings produced a given
-   image later. An image field is never offered here — there's nothing meaningful to log for it.
-4. **Review requirements.** A checklist of the custom node packs and model files this workflow
-   needs, checked live against your configured ComfyUI backend, so a missing install surfaces now
-   instead of mid-generation.
-5. **Name it and create.** Set the model family, variant, and display name, then create the
-   preset. Lint results appear inline; "Open in Presets" opens the generated preset for tweaking.
+   own; anything you leave out keeps the value it had in the original workflow. This step also asks
+   for the preset's model family, variant, and display name.
+3. **What shows in history.** Pick which of your fields (steps, cfg, the model, ...) get recorded
+   against each generation, so you can see what settings produced a given image later. An image
+   field is never offered here — there's nothing meaningful to log for it.
+4. **Requirements.** A checklist of the custom node packs and model files this workflow needs,
+   checked live against your configured ComfyUI backend. A missing one only warns — you can still
+   create the preset, it just won't run until that piece is installed. Continuing from here creates
+   the preset.
+5. **Preset created.** Lint results appear inline; "Open in Presets" opens the generated preset for
+   tweaking.
 
 If your workflow uses a custom node your backend doesn't have installed yet, the import still goes through — you'll see a warning naming it, and its fields are still available to pick (best-effort, since PotionUI can't ask that node what its inputs are called). Install the node pack and re-import once you can, but you don't have to stop and do that first.
 
 For scripting, the raw endpoints remain available — see "The two-minute path: import a workflow" in the developer [Preset Authoring Guide](../presets.md#comfyui-presets) for the exact calls.
 
 Imported presets are saved as **your own**, separate from anything your administrator ships or
-manages centrally, so importing one never changes what other people on the instance see.
+manages centrally, so importing one never changes what other people on the instance see. To come
+back later and re-run, edit, or delete an import, use the plugin's **Imported presets** tab next to
+Import workflow — editing reopens the wizard prefilled with what you imported.
 
 ## Where it goes, and what you get
 

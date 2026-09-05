@@ -1750,7 +1750,7 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    subgraph node ids (`<instance_id>:<inner_id>`) come through as-is in the API export.
 
 2. **Analyze it.** The `comfyui-backend` plugin exposes two admin-only import endpoints (also
-   accessible via the **Import workflow** button in Administration → Presets — see
+   accessible via the **Import workflow** tab in Administration → Plugins → ComfyUI Backend — see
    "Importing it as a preset" in the user-facing [Bringing Your Own ComfyUI Workflows](user/comfyui-presets.md) page).
    `POST /api/plugins/comfyui-backend/presets/import/analyze` takes the exported (API-format) JSON
    and returns a list of `candidates` — one per detected input, each with its `node_id`,

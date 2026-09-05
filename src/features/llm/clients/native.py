@@ -1233,6 +1233,8 @@ class NativeLLMClient:
         max_new_tokens = overrides.get("max_tokens", config.max_tokens)
         top_p = overrides.get("top_p", provider_opts.get("top_p"))
         top_k = overrides.get("top_k", provider_opts.get("top_k"))
+        min_p = overrides.get("min_p", provider_opts.get("min_p"))
+        repetition_penalty = overrides.get("repetition_penalty", provider_opts.get("repetition_penalty"))
 
         kwargs: Dict[str, Any] = {"max_new_tokens": int(max_new_tokens)}
         do_sample = temperature is not None and float(temperature) > 0.0
@@ -1243,6 +1245,13 @@ class NativeLLMClient:
                 kwargs["top_p"] = float(top_p)
             if top_k is not None:
                 kwargs["top_k"] = int(top_k)
+            if min_p is not None:
+                kwargs["min_p"] = float(min_p)
+        # Repetition penalty reshapes logits before sampling/argmax alike, so
+        # (unlike top_p/top_k/min_p) it stays effective in the greedy
+        # (do_sample=False) path whenever explicitly requested.
+        if repetition_penalty is not None:
+            kwargs["repetition_penalty"] = float(repetition_penalty)
         return kwargs
 
     @staticmethod

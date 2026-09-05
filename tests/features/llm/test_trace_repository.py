@@ -12,6 +12,7 @@ Covers:
 """
 import sys
 import os
+import time
 import unittest
 from datetime import datetime, timedelta
 from unittest.mock import Mock
@@ -188,6 +189,7 @@ class TestChatCallTraceRecorderSettingGate(PersistenceTestBase):
         # recorder's default (True) must still let it through.
         recorder = ChatCallTraceRecorder(self.repository, self.settings)
         self._record(recorder)
+        recorder.shutdown()
         assert len(self.repository.list_for_session(self.session.id)) == 1
 
     def test_does_not_record_when_setting_disabled(self):
@@ -201,11 +203,12 @@ class TestChatCallTraceRecorderSettingGate(PersistenceTestBase):
                 ON CONFLICT(key) DO UPDATE SET value = 'false'
             """)
         self._record(recorder)
+        recorder.shutdown()
         assert self.repository.list_for_session(self.session.id) == []
 
 
 class TestChatCallTraceRecorderPruneThrottle(unittest.TestCase):
-    """Recorder triggers prune_older_than() off its write path, throttled by clock."""
+    """Prune runs on the writer thread, never inline, and stays clock-throttled."""
 
     def setUp(self):
         self.repository = Mock()
@@ -215,6 +218,16 @@ class TestChatCallTraceRecorderPruneThrottle(unittest.TestCase):
         self.recorder = ChatCallTraceRecorder(
             self.repository, self.settings, clock=lambda: self.now,
         )
+
+    def tearDown(self):
+        self.recorder.shutdown()
+
+    def _wait_for_prunes(self, count, timeout=5.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.repository.prune_older_than.call_count >= count:
+                return
+            time.sleep(0.005)
 
     def _record(self):
         self.recorder.record(
@@ -227,23 +240,29 @@ class TestChatCallTraceRecorderPruneThrottle(unittest.TestCase):
 
     def test_prunes_on_first_record(self):
         self._record()
+        self.recorder.shutdown()
         self.repository.prune_older_than.assert_called_once_with()
 
     def test_does_not_prune_again_within_throttle_window(self):
         self._record()
+        self._wait_for_prunes(1)
         self.now += PRUNE_THROTTLE_SECONDS - 1
         self._record()
         self._record()
+        self.recorder.shutdown()
         assert self.repository.prune_older_than.call_count == 1
 
     def test_prunes_again_once_throttle_window_elapses(self):
         self._record()
+        self._wait_for_prunes(1)
         self.now += PRUNE_THROTTLE_SECONDS
         self._record()
+        self.recorder.shutdown()
         assert self.repository.prune_older_than.call_count == 2
 
     def test_does_not_prune_when_tracing_disabled(self):
         self.settings.get_setting.return_value = False
         self._record()
+        self.recorder.shutdown()
         self.repository.create.assert_not_called()
         self.repository.prune_older_than.assert_not_called()

@@ -420,6 +420,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         await container.download_queue.stop()
         await automation_runtime.stop_all()
         container.generation_history_facade.shutdown()
+        container.chat_call_trace_recorder.shutdown(drain=True)
 
     # Create FastAPI app
     app = FastAPI(

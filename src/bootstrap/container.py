@@ -115,6 +115,7 @@ if TYPE_CHECKING:
     from src.platform.resources import ResourceRegistry
     from src.features.notifications.repository import NotificationRepository
     from src.features.llm_memory.repository import LLMMemoryRepository
+    from src.features.llm.trace_recorder import ChatCallTraceRecorder
     from src.platform.websocket.connection_hub import ConnectionHub
     from src.platform.websocket.download_connection_hub import DownloadConnectionHub
     from src.features.models.repository import ModelRepository
@@ -233,6 +234,7 @@ class AppContainer:
     llm_repository: LLMRepository
     llm_service: LLMGateway
     llm_memory_repository: "LLMMemoryRepository"
+    chat_call_trace_recorder: "ChatCallTraceRecorder"
 
     # Plugins
     plugin_repository: PluginRepository
@@ -455,9 +457,8 @@ def build_container() -> AppContainer:
     from src.features.llm import trace_collector as _chat_trace_collector
     from src.features.llm.trace_recorder import ChatCallTraceRecorder
     from src.features.llm.trace_repository import chat_call_trace_repository
-    _chat_trace_collector.set_recorder(
-        ChatCallTraceRecorder(chat_call_trace_repository, settings)
-    )
+    chat_call_trace_recorder = ChatCallTraceRecorder(chat_call_trace_repository, settings)
+    _chat_trace_collector.set_recorder(chat_call_trace_recorder)
 
     # Field-type registry (src/platform/plugins/field_types.py) - the single
     # source of truth for form field dispatch, shared by FieldFactory,
@@ -980,6 +981,7 @@ def build_container() -> AppContainer:
     from src.features.media_index.gallery_vector_store import GalleryVectorStore
     from src.features.media_index.gallery_prompt_vector_store import GalleryPromptVectorStore
     from src.features.media_index.routes import MediaIndexController
+    from src.platform.vector.chroma_client import ChromaClientProvider
     # Reuses the prompt-database text embedder (see the "Prompt database
     # components" block below) rather than standing up a second one - built
     # here, ahead of that block, since the media index is wired first.
@@ -989,14 +991,21 @@ def build_container() -> AppContainer:
     vision_embedder = build_vision_embedder(
         settings, download_queue=download_queue, model_lifecycle=model_lifecycle,
     )
+    # Shared across the gallery, gallery-prompt and prompt-library vector
+    # stores below - they all persist to this same directory, so one
+    # ChromaClientProvider gives them one underlying client instead of three.
+    chroma_persist_dir = str(Path(settings.get_setting("file_storage_directory", "storage")) / "chromadb")
+    chroma_client_provider = ChromaClientProvider(chroma_persist_dir)
     gallery_vector_store = GalleryVectorStore(
-        persist_dir=str(Path(settings.get_setting("file_storage_directory", "storage")) / "chromadb"),
+        persist_dir=chroma_persist_dir,
         embedder_slug=vision_embedder.embedder_slug,
+        client_provider=chroma_client_provider,
     )
     text_embedding_provider = build_embedding_provider(settings, download_queue=download_queue)
     gallery_prompt_vector_store = GalleryPromptVectorStore(
-        persist_dir=str(Path(settings.get_setting("file_storage_directory", "storage")) / "chromadb"),
+        persist_dir=chroma_persist_dir,
         embedder_slug=text_embedding_provider.embedder_slug,
+        client_provider=chroma_client_provider,
     )
     media_indexer = MediaIndexer(
         repository=media_index_repository,
@@ -1326,8 +1335,9 @@ def build_container() -> AppContainer:
     # name rather than constructing a second instance.
     embedding_provider = text_embedding_provider
     prompt_vector_store = PromptVectorStore(
-        persist_dir=str(Path(settings.get_setting("file_storage_directory", "storage")) / "chromadb"),
+        persist_dir=chroma_persist_dir,
         embedder_slug=embedding_provider.embedder_slug,
+        client_provider=chroma_client_provider,
     )
     prompt_database = PromptDatabaseCollaborators(
         repository=prompt_repository,

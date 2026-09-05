@@ -491,10 +491,10 @@ describe('deriveConsoleModel — W3 dependency badges (chain: continue join betw
 		expect(model.shots[1].badge).toBe('needs-previous');
 	});
 
-	it('input-ready when the predecessor is done and this shot has never itself rendered', () => {
+	it('still needs-previous (not input-ready) when the predecessor is done but this shot has never itself rendered -- native chain has no reusable handoff (today), so generating this shot alone would resubmit it as a rejected span start', () => {
 		const runs: Record<string, DirectorRunState> = { s1: run({ status: 'done', finishedAt: 1000 }) };
 		const model = deriveConsoleModel(wanDoc(), wanCaps(), { activeShotId: null }, null, runs);
-		expect(model.shots[1].badge).toBe('input-ready');
+		expect(model.shots[1].badge).toBe('needs-previous');
 	});
 
 	it('continuous when both are done with a complete identity and the predecessor has not changed since', () => {
@@ -578,9 +578,15 @@ describe('deriveConsoleModel — W3 missing-predecessor join (chain)', () => {
 		expect(model.joins[0].control).toEqual({ kind: 'missing', spanShotIds: ['s1', 's2'] });
 	});
 
-	it('checked + predecessor IS done: no warning, normal toggle instead', () => {
+	it('checked + predecessor IS done but not itself checked: still "missing" -- a done run is not a reusable native handoff, so submitting s2 alone would resubmit it as a rejected span start', () => {
 		const runs: Record<string, DirectorRunState> = { s1: run({ status: 'done', finishedAt: 1000 }) };
 		const model = deriveConsoleModel(wanDoc(), wanCaps(), { activeShotId: null }, null, runs, new Set(['s2']));
+		expect(model.joins[0]).toMatchObject({ kind: 'missing' });
+		expect(model.joins[0].control).toEqual({ kind: 'missing', spanShotIds: ['s1', 's2'] });
+	});
+
+	it('checked covers the whole span itself (s1 and s2 both checked): no warning, normal toggle, regardless of run state', () => {
+		const model = deriveConsoleModel(wanDoc(), wanCaps(), { activeShotId: null }, null, {}, new Set(['s1', 's2']));
 		expect(model.joins[0].kind).toBe('native');
 	});
 
@@ -597,6 +603,22 @@ describe('deriveConsoleModel — W3 missing-predecessor join (chain)', () => {
 		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, {}, new Set(['s3']));
 		expect(model.joins[1]).toMatchObject({ kind: 'missing' });
 		expect(model.joins[1].control).toEqual({ kind: 'missing', spanShotIds: ['s1', 's2', 's3'] });
+	});
+
+	it('multi-hop: checking s2 and s3 but not s1 still leaves BOTH joins "missing" -- s2 itself still needs s1 behind it', () => {
+		const doc = wanDoc();
+		doc.chain.segments[2].sub_type_override = null; // s3 continues s2, same fixture as above
+		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, {}, new Set(['s2', 's3']));
+		expect(model.joins[0]).toMatchObject({ kind: 'missing' });
+		expect(model.joins[1]).toMatchObject({ kind: 'missing' });
+	});
+
+	it('multi-hop: checking s1, s2 and s3 together covers the whole span -- neither join is "missing"', () => {
+		const doc = wanDoc();
+		doc.chain.segments[2].sub_type_override = null;
+		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, {}, new Set(['s1', 's2', 's3']));
+		expect(model.joins[0].kind).not.toBe('missing');
+		expect(model.joins[1].kind).not.toBe('missing');
 	});
 });
 

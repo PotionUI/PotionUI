@@ -218,6 +218,82 @@ describe('planDirectorSelection: chain (segment_routing) keeps whole-document va
 	});
 });
 
+describe('planDirectorSelection: chain (segment_routing) validates the checked span itself', () => {
+	// c1 has no keyframe -> t2v (fresh, index 0). c2/c3 have no keyframe and no
+	// override -> both derive 'chain' (continue their predecessor) --
+	// deriveChainSegmentSubType mirrors normalize.py's derive_segment_sub_type
+	// exactly, same as compile_shot_plan sees post-normalize.
+	function threeSegmentChain(): VideoDirectorValue {
+		return normalizeDirectorValue(
+			{
+				mode: 'director',
+				chain: {
+					segments: [
+						{ id: 'c1', prompt: 'fresh cut' },
+						{ id: 'c2', prompt: 'continues c1' },
+						{ id: 'c3', prompt: 'continues c2' }
+					]
+				}
+			},
+			wanCaps
+		);
+	}
+
+	it('a fully valid contiguous span starting on the fresh cut submits as-is', () => {
+		const doc = threeSegmentChain();
+		const plan = planDirectorSelection(doc, wanCaps, null, ['c1', 'c2', 'c3']);
+		expect(plan.blockingReasons).toEqual([]);
+		expect(plan.shotsToSubmit).toEqual(['c1', 'c2', 'c3']);
+	});
+
+	it('a selection starting on a continuation shot ("c2" alone) is blocked, naming the span action, without being silently widened', () => {
+		const doc = threeSegmentChain();
+		const plan = planDirectorSelection(doc, wanCaps, null, ['c2']);
+		expect(plan.blockingReasons).toEqual([
+			'Shot 2 continues the previous shot -- use "Generate previous + this shot", or check its previous shot too'
+		]);
+		expect(plan.shotsToSubmit).toEqual([]);
+		expect(plan.perShotReadiness).toEqual([
+			{ id: 'c1', ready: false, reasons: plan.blockingReasons },
+			{ id: 'c2', ready: false, reasons: plan.blockingReasons },
+			{ id: 'c3', ready: false, reasons: plan.blockingReasons }
+		]);
+	});
+
+	it('multi-hop: checking c2 and c3 without c1 is still blocked -- c2 itself still starts on a continuation', () => {
+		const doc = threeSegmentChain();
+		const plan = planDirectorSelection(doc, wanCaps, null, ['c2', 'c3']);
+		expect(plan.blockingReasons).toEqual([
+			'Shot 2 continues the previous shot -- use "Generate previous + this shot", or check its previous shot too'
+		]);
+		expect(plan.shotsToSubmit).toEqual([]);
+	});
+
+	it('a noncontiguous selection (c1 and c3, skipping c2) is blocked, naming the gap', () => {
+		const doc = threeSegmentChain();
+		const plan = planDirectorSelection(doc, wanCaps, null, ['c1', 'c3']);
+		expect(plan.blockingReasons).toEqual(['Selection has a gap -- shot 2 must be checked too']);
+		expect(plan.shotsToSubmit).toEqual([]);
+	});
+
+	it('a document that already fails whole-document validation reports that failure, never the selection-span reasons', () => {
+		const doc = normalizeDirectorValue(
+			{
+				mode: 'director',
+				chain: { segments: [{ id: 'c1', prompt: 'ok' }, { id: 'c2', prompt: '' }] }
+			},
+			wanCaps
+		);
+		const wholeDoc = validateDirector(doc, wanCaps, null);
+		expect(wholeDoc.ok).toBe(false);
+
+		// c2 alone would ALSO fail the span check (it continues c1), but the
+		// whole-document reason must be reported instead, not both/either.
+		const plan = planDirectorSelection(doc, wanCaps, null, ['c2']);
+		expect(plan.blockingReasons).toEqual(wholeDoc.reasons);
+	});
+});
+
 describe('planDirectorSelection: single-shot (t2v/i2v/flf) documents', () => {
 	it('delegates to whole-document validateDirector under a stable synthetic id', () => {
 		const v = normalizeDirectorValue({ mode: 't2v' }, caps);

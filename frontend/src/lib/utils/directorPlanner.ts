@@ -17,6 +17,7 @@
 import {
 	toModelessDirectorValue,
 	deriveDirectorMode,
+	deriveChainSegmentSubType,
 	resolveDirectorEdgeAllowances,
 	evaluateDirectorTiming,
 	validateDirector,
@@ -127,18 +128,111 @@ function wholeDocumentPlan(
 }
 
 /**
+ * A checked chain (Wan/H3 routed) selection's own reasons, beyond whole-
+ * document validity -- mirrors the two structural checks
+ * `compile_shot_plan` (`src/features/video_director/compile.py`) makes on
+ * `render.shot_ids` once `orderedChecked` is non-empty: the selection must be
+ * a single contiguous run of the film's segments (in film order, same as
+ * `buildDirectorSubmission`'s own `orderedChecked`), and its first segment
+ * must not resolve to `sub_type: "chain"` -- a continuation segment has
+ * nothing to inherit a leading frame from once its predecessor sits outside
+ * the span. Neither check widens or reorders the selection itself (that
+ * stays the user's call, via the join's "Generate previous + this shot"
+ * action, or by checking the gap/predecessor themselves) -- this only reports
+ * why the CURRENT selection would be rejected.
+ */
+function chainSelectionSpanReasons(value: VideoDirectorValue, allIds: string[], orderedChecked: string[]): string[] {
+	const reasons: string[] = [];
+	const indices = orderedChecked.map((id) => allIds.indexOf(id));
+	for (let i = 1; i < indices.length; i++) {
+		if (indices[i] === indices[i - 1] + 1) continue;
+		const missing: number[] = [];
+		for (let gap = indices[i - 1] + 1; gap < indices[i]; gap++) missing.push(gap + 1);
+		reasons.push(
+			missing.length === 1
+				? `Selection has a gap -- shot ${missing[0]} must be checked too`
+				: `Selection has a gap -- shots ${missing[0]}-${missing[missing.length - 1]} must be checked too`
+		);
+	}
+	if (reasons.length === 0 && indices.length > 0) {
+		const startIndex = indices[0];
+		const startSegment = value.chain.segments[startIndex];
+		if (deriveChainSegmentSubType(startSegment, startIndex) === 'chain') {
+			reasons.push(
+				`Shot ${startIndex + 1} continues the previous shot -- use "Generate previous + this shot", or check its previous shot too`
+			);
+		}
+	}
+	return reasons;
+}
+
+/** A Wan/H3 routed chain document's selection plan. An empty `checked` keeps
+ * exactly today's whole-document behaviour (`wholeDocumentPlan`, "the whole
+ * film"). Once shots are checked, `compile_shot_plan` will run against
+ * exactly `orderedChecked` (`buildDirectorSubmission`'s own selection, in
+ * film order) -- so an otherwise-valid document additionally needs its
+ * checked selection to be a contiguous span that doesn't start mid-
+ * continuation (`chainSelectionSpanReasons`); a document that already fails
+ * whole-document validation keeps reporting THAT failure unchanged (checked
+ * against `render.shot_ids` never runs -- `normalize_video_director` would
+ * reject the document before `compile_shot_plan` ever sees it). */
+function chainSelectionPlan(
+	rawValue: VideoDirectorValue,
+	value: VideoDirectorValue,
+	caps: DirectorCapabilities,
+	runs: Record<string, { status: string }> | null | undefined,
+	checked: Set<string>
+): DirectorSelectionPlan {
+	const allIds = value.chain.segments.map((s) => s.id);
+	if (checked.size === 0) {
+		return wholeDocumentPlan(rawValue, caps, runs, allIds, checked);
+	}
+
+	const validation = validateDirector(rawValue, caps, runs);
+	if (!validation.ok) {
+		return {
+			shotsToSubmit: [],
+			perShotReadiness: allIds.map((id) => ({ id, ready: false, reasons: validation.reasons })),
+			blockingReasons: validation.reasons
+		};
+	}
+
+	const orderedChecked = allIds.filter((id) => checked.has(id));
+	const selectionReasons = chainSelectionSpanReasons(value, allIds, orderedChecked);
+	if (selectionReasons.length > 0) {
+		return {
+			shotsToSubmit: [],
+			perShotReadiness: allIds.map((id) => ({ id, ready: false, reasons: selectionReasons })),
+			blockingReasons: selectionReasons
+		};
+	}
+
+	return {
+		shotsToSubmit: orderedChecked,
+		perShotReadiness: allIds.map((id) => ({ id, ready: true, reasons: [] })),
+		blockingReasons: []
+	};
+}
+
+/**
  * Plans a scoped Video Director submission: which shots actually go out (in
  * dependency order), and per-shot/aggregate readiness for exactly the shots
  * under consideration. `checkedShotIds` empty means "the whole film" (same
  * convention as `buildDirectorSubmission`'s `checkedShotIds` and
  * `directorCheckedByTab`'s "no rows checked" default).
  *
- * A chain (`segmentRouting`) document, and a single-shot t2v/i2v/flf
- * document, keep exactly today's whole-document `validateDirector` gating --
- * only the LTX (non-routed, potentially multi-shot) `director` timeline gets
- * independent per-shot readiness, since it is the only shape where an
- * unselected sibling shot's own problems have no business blocking a
- * selected one.
+ * A single-shot t2v/i2v/flf document keeps exactly today's whole-document
+ * `validateDirector` gating. A chain (`segmentRouting`) document also keeps
+ * that whole-document gate (an unselected sibling segment's own problems
+ * still block a selected one -- `compile_shot_plan` runs against the WHOLE,
+ * already-normalized film, so one invalid segment fails normalization before
+ * any selection is ever considered), but ALSO validates the checked selection
+ * itself once the document is otherwise valid: a noncontiguous selection, or
+ * one starting mid-continuation, is exactly what `compile_shot_plan` rejects
+ * (`chainSelectionPlan`/`chainSelectionSpanReasons`). Only the LTX (non-
+ * routed, potentially multi-shot) `director` timeline gets fully independent
+ * per-shot readiness, since it is the only shape where an unselected sibling
+ * shot's own problems have no business blocking a selected one.
  */
 export function planDirectorSelection(
 	rawValue: VideoDirectorValue,
@@ -157,11 +251,7 @@ export function planDirectorSelection(
 	}
 
 	if (caps.segmentRouting) {
-		// Wan/H3 routed chain -- keeps whole-document validation exactly as
-		// today (compile_shot_plan re-derives every position-dependent value
-		// server-side against the FULL film; the client never filters segments).
-		const allIds = value.chain.segments.map((s) => s.id);
-		return wholeDocumentPlan(rawValue, caps, runs, allIds, checked);
+		return chainSelectionPlan(rawValue, value, caps, runs, checked);
 	}
 
 	// LTX timeline: independent per-shot readiness.

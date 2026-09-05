@@ -37,21 +37,31 @@
 //   'continue'/'native' seam, or a timeline shot's `continue_from_previous`)
 //   is derived from `runs` via `dependentBadge` below: no predecessor run (or
 //   not 'done') is 'needs-previous'; predecessor done and this shot never
-//   itself rendered is 'input-ready'; predecessor done and this shot's OWN
-//   last render is stale relative to it (the predecessor's live document
-//   changed since ITS OWN run, or the predecessor was regenerated under a
-//   different generation since this run's `predecessorRef` was stamped --
-//   see utils/directorInputIdentity.ts) is 'stale'; either run missing a
-//   complete identity (an old stored run, or `predecessorRef` absent) is
-//   'unverified' rather than a guessed 'continuous'; otherwise 'continuous'
-//   (W1/W2's steady state). A shot with no such dependency keeps its plain
-//   'independent'/'continuous' read, unchanged.
+//   itself rendered is 'input-ready' ONLY when a reusable handoff exists for
+//   this join (`hasReusableNativeHandoff` -- LTX's `continue_from_previous`
+//   always counts, a native chain 'continue' seam never does today, since
+//   `compile_shot_plan` rejects a span starting on a `sub_type: "chain"`
+//   segment and there is no persisted native handoff yet -- see that
+//   function's doc comment), 'needs-previous' otherwise; predecessor done and
+//   this shot's OWN last render is stale relative to it (the predecessor's
+//   live document changed since ITS OWN run, or the predecessor was
+//   regenerated under a different generation since this run's
+//   `predecessorRef` was stamped -- see utils/directorInputIdentity.ts) is
+//   'stale'; either run missing a complete identity (an old stored run, or
+//   `predecessorRef` absent) is 'unverified' rather than a guessed
+//   'continuous'; otherwise 'continuous' (W1/W2's steady state). A shot with
+//   no such dependency keeps its plain 'independent'/'continuous' read,
+//   unchanged.
 // - A join whose kind would be 'native'/'continue' (i.e. NOT a hard cut)
 //   becomes `kind: 'missing'` -- rendering the warning block instead of the
-//   normal chip/toggle -- only when its downstream shot is CHECKED and the
-//   predecessor has no 'done' run (PLAN.md: the console has no ambient
-//   Generate control, so this warning is only shown once the user has
-//   actually scoped a generation that would hit it). `control.spanShotIds`
+//   normal chip/toggle -- only when its downstream shot is CHECKED and (for a
+//   native chain join) the checked set does not already cover the span
+//   `compile_shot_plan` needs behind it, back to the nearest fresh cut
+//   (`chainSpanCoveredByChecked` -- NOT simply "the predecessor has no 'done'
+//   run": a 'done' predecessor is not itself a submittable handoff for native
+//   chain routing, see `hasReusableNativeHandoff`) (PLAN.md: the console has
+//   no ambient Generate control, so this warning is only shown once the user
+//   has actually scoped a generation that would hit it). `control.spanShotIds`
 //   carries the contiguous run back to the nearest fresh cut, inclusive of
 //   the checked shot, for the block's "Generate previous + this shot" action.
 //
@@ -309,10 +319,36 @@ function formatRunFinishedAt(finishedAt: number | null): string {
 	return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+/** Whether `predecessorRun`'s finished output can be handed to its dependant
+ * WITHOUT resubmitting the predecessor's own shot alongside it. Native chain
+ * routing (Wan/MiniMax-H3) has no such mechanism today: every render replays
+ * the FULL segment list through `compile_shot_plan`
+ * (`src/features/video_director/compile.py`), which rejects a selected span
+ * that starts on a `sub_type: "chain"` segment -- a 'done' predecessor run is
+ * only UI state, never a persisted native handoff the backend can resume
+ * from. Always false until such a handoff exists; flipping it alone (no
+ * caller redesign) is the intended seam for that future work. LTX's own
+ * `continue_from_previous` join is NOT this case -- it hands the
+ * predecessor's actual rendered frame to `buildDirectorSubmission` via
+ * `predecessorFrames` at submission time, a real (if not yet persisted)
+ * handoff -- so its call site below passes `true`, unchanged from pre-fix
+ * behaviour. */
+function hasReusableNativeHandoff(_predecessorRun: DirectorRunState | null | undefined): boolean {
+	return false;
+}
+
 /** Dependency badge for a shot that DEPENDS on `predecessorId`'s output (a
  * continue-style seam/join) -- see this file's W3 header note for the state
  * machine. `runs` absent/empty degrades to 'needs-previous' throughout,
  * matching W1/W2 (no runs map existed yet).
+ *
+ * `reusableHandoff` is `hasReusableNativeHandoff(predecessorRun)` for a chain
+ * join, `true` for an LTX `continue_from_previous` join (see that function's
+ * doc comment) -- when false, a predecessor that is 'done' but never itself
+ * folded into a successful span submission still reads 'needs-previous'
+ * rather than 'input-ready': generating this shot alone would resubmit it as
+ * the (rejected) start of a `sub_type: "chain"` span, so it isn't actually
+ * ready on its own.
  *
  * Once both rows are 'done', freshness needs BOTH runs to carry a complete
  * identity (a versioned `inputsHash` on the predecessor, a `predecessorRef`
@@ -331,12 +367,13 @@ function dependentBadge(
 	predecessorId: string,
 	shotId: string,
 	runs: Record<string, DirectorRunState> | null | undefined,
-	identityCtx: DirectorShotIdentityContext
+	identityCtx: DirectorShotIdentityContext,
+	reusableHandoff: boolean
 ): ConsoleBadge {
 	const predecessorRun = runs?.[predecessorId];
 	if (!predecessorRun || predecessorRun.status !== 'done') return 'needs-previous';
 	const ownRun = runs?.[shotId];
-	if (!ownRun || ownRun.status !== 'done') return 'input-ready';
+	if (!ownRun || ownRun.status !== 'done') return reusableHandoff ? 'input-ready' : 'needs-previous';
 	if (!hasVersionedShotIdentity(predecessorRun.inputsHash) || !ownRun.predecessorRef) return 'unverified';
 	const predecessorLiveIdentity = directorShotInputIdentity(doc, predecessorId, identityCtx);
 	const predecessorEditedSinceItsRun = predecessorLiveIdentity != null && predecessorLiveIdentity !== predecessorRun.inputsHash;
@@ -357,7 +394,9 @@ function chainShotBadge(
 	const incoming = index > 0 ? rail.seams[index - 1] : null;
 	const outgoing = index < rail.shots.length - 1 ? rail.seams[index] : null;
 	if (incoming && incoming.kind === 'continue') {
-		return dependentBadge(doc, doc.chain.segments[index - 1].id, doc.chain.segments[index].id, runs, identityCtx);
+		const predecessorId = doc.chain.segments[index - 1].id;
+		const shotId = doc.chain.segments[index].id;
+		return dependentBadge(doc, predecessorId, shotId, runs, identityCtx, hasReusableNativeHandoff(runs?.[predecessorId]));
 	}
 	const continuous = outgoing && outgoing.kind === 'continue';
 	return continuous ? 'continuous' : 'independent';
@@ -457,6 +496,33 @@ function buildChainShots(
 	});
 }
 
+/** Whether checking exactly `checked` already covers everything the seam
+ * ending at `predecessorIndex` needs behind it -- i.e. whether every hop back
+ * to the nearest fresh cut is either checked itself (so it gets
+ * (re)generated in the same submission `compile_shot_plan` will accept) or
+ * already has a reusable native handoff (`hasReusableNativeHandoff`, always
+ * false today). A checked predecessor that ITSELF continues a further-back
+ * shot only counts once its OWN predecessor hop is satisfied too -- this
+ * walks one hop at a time rather than assuming a single checked predecessor
+ * is enough, matching `compile_shot_plan`'s "span must start on a non-'chain'
+ * segment" rule for an arbitrarily long broken continuation. */
+function chainSpanCoveredByChecked(
+	doc: VideoDirectorValue,
+	rail: RailModel,
+	predecessorIndex: number,
+	runs: Record<string, DirectorRunState> | null | undefined,
+	checked: Set<string>
+): boolean {
+	let index = predecessorIndex;
+	for (;;) {
+		const segmentId = doc.chain.segments[index].id;
+		if (hasReusableNativeHandoff(runs?.[segmentId])) return true;
+		if (!checked.has(segmentId)) return false;
+		if (index === 0 || rail.seams[index - 1].kind !== 'continue') return true;
+		index -= 1;
+	}
+}
+
 function buildChainJoins(
 	doc: VideoDirectorValue,
 	rail: RailModel,
@@ -472,7 +538,13 @@ function buildChainJoins(
 		// Only checking the downstream shot can surface the warning -- the
 		// console has no ambient Generate control, so this is only ever shown
 		// once the user has scoped a generation that would actually hit it.
-		const missing = !isCut && checked?.has(toShot.id) && runs?.[fromShot.id]?.status !== 'done';
+		// Native chain routing has no reusable handoff (today), so this is no
+		// longer about the predecessor's RUN status -- it's about whether the
+		// checked set itself already covers the span `compile_shot_plan` needs
+		// (chainSpanCoveredByChecked), all the way back to the nearest fresh
+		// cut for a multi-hop broken continuation.
+		const missing =
+			!isCut && checked != null && checked.has(toShot.id) && !chainSpanCoveredByChecked(doc, rail, seam.beforeShotIndex, runs, checked);
 		if (missing) {
 			return {
 				afterShotId: fromShot.id,
@@ -576,9 +648,15 @@ function buildTimelineShots(
 			// editor/compile-time join, so its badge reads the SAME
 			// runs-dependent state a chain 'continue' shot does (W3) even
 			// though the join control below renders a toggle, not a chip.
+			// `reusableHandoff: true` -- unlike a native chain join, LTX already
+			// hands the predecessor's actual rendered frame to
+			// `buildDirectorSubmission` via `predecessorFrames` at submission
+			// time, so a 'done' predecessor genuinely does make this shot
+			// input-ready on its own (see `hasReusableNativeHandoff`'s doc
+			// comment; unchanged from pre-fix behaviour).
 			badge:
 				shot.continue_from_previous && index > 0
-					? dependentBadge(doc, shots[index - 1].id, shot.id, runs, identityCtx)
+					? dependentBadge(doc, shots[index - 1].id, shot.id, runs, identityCtx, true)
 					: 'independent',
 			hasIcLora,
 			icLoraCount: icLoraEntries.length,

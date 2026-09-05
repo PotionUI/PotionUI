@@ -1549,7 +1549,10 @@
 										primaryDirectorShotIds,
 										generation_id,
 										isQueued ? 'queued' : 'generating',
-										directorValueForRuns
+										directorValueForRuns,
+										videoDirectorCaps,
+										currentTab.formData,
+										currentTab.directorRuns
 									)
 								},
 								directorRunLinks: {
@@ -1617,7 +1620,10 @@
 													shotIdsForThisDoc,
 													shotGenerationId,
 													shotIsQueued ? 'queued' : 'generating',
-													directorValueForRuns
+													directorValueForRuns,
+													videoDirectorCaps,
+													currentTab.formData,
+													liveTab.directorRuns
 												)
 											},
 											directorRunLinks: {

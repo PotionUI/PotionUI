@@ -1,5 +1,7 @@
+import hashlib
 import logging
 import os
+import re
 from pathlib import Path
 
 import torch
@@ -41,6 +43,40 @@ except ImportError:
 SDXL_BASE_PIPELINE_CONFIG = str(Path(__file__).resolve().parent / "assets" / "sdxl_base_pipeline_config")
 
 
+class SDXLLoraStackError(RuntimeError):
+    """The requested LoRA stack could not be loaded or activated in full."""
+
+
+# PEFT adapter names become PyTorch module keys, which may not contain dots.
+_ADAPTER_NAME_UNSAFE = re.compile(r"[^0-9A-Za-z]+")
+
+
+def _resolve_lora_source(file_path) -> tuple:
+    """Split a configured LoRA path into the (directory, weight file) pair
+    ``load_lora_weights`` wants, resolved to an absolute directory.
+
+    A directory-shaped LoRA carries its weights in ``lora.safetensors``.
+    """
+    path = str(file_path)
+    if os.path.isfile(path):
+        return os.path.dirname(os.path.abspath(path)), os.path.basename(path)
+    return os.path.abspath(path), "lora.safetensors"
+
+
+def _lora_adapter_identity(lora_dir: str, weight_name: str) -> str:
+    """Adapter name for the LoRA at ``lora_dir/weight_name``.
+
+    Two LoRAs sharing a basename in different directories, or whose names
+    collide once stripped to module-safe characters (``a-b`` vs ``a_b``), get
+    distinct identities because the digest covers the resolved directory and
+    the weight file name. The same LoRA gets the same identity on every load,
+    so a reused pipeline's adapter names still match its stack.
+    """
+    digest = hashlib.sha1(f"{lora_dir}\0{weight_name}".encode("utf-8")).hexdigest()[:10]
+    readable = _ADAPTER_NAME_UNSAFE.sub("_", os.path.splitext(weight_name)[0]).strip("_")
+    return f"lora_{readable}_{digest}" if readable else f"lora_{digest}"
+
+
 class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
     """SDXL-specific model implementation"""
 
@@ -53,6 +89,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
         self._inference_device = None  # Track actual inference device (cuda/cpu) for Generator creation
         self.model_type_info = None  # Will be set after model load
         self.denoising_hooks = {}  # name -> DenoisingHook
+        self.applied_lora_stack = None  # ((adapter_name, weight), ...) once fully applied
 
     def register_hook(self, name: str, hook):
         """Register a named denoising hook. Overwrites existing hook with same name."""
@@ -213,75 +250,119 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
             logger.debug("[MODEL][SDXL] Enabling FreeU")
             pipe.enable_freeu(s1=0.9, s2=0.2, b1=1.3, b2=1.4)
 
-    def _load_loras(self, pipe):
-        # Filter out zero-weight LoRAs upfront
-        active_loras = [
-            lora for lora in self.config.get("loras", [])
-            if lora["weight"] != "" and lora["weight"] is not None and float(lora["weight"]) != 0
-        ]
+    def _resolve_lora_stack(self) -> list:
+        """The LoRA stack to apply, in activation order.
 
-        if not active_loras:
+        Zero, empty and ``None`` weights drop out. A LoRA referenced more than
+        once collapses to a single adapter: the last reference's weight wins and
+        the adapter keeps the first reference's position, which is how
+        ``CheckpointLoaderSDXLPipe.fingerprint()`` de-duplicates the same list.
+        """
+        stack = []
+        by_identity = {}
+        for lora in self.config.get("loras", []):
+            weight = lora.get("weight")
+            if weight == "" or weight is None or float(weight) == 0:
+                continue
+
+            lora_dir, weight_name = _resolve_lora_source(lora["file_path"])
+            adapter_name = _lora_adapter_identity(lora_dir, weight_name)
+
+            existing = by_identity.get(adapter_name)
+            if existing is not None:
+                logger.debug(
+                    f"[MODEL][SDXL] LoRA {lora['file_path']} already in the stack as "
+                    f"{adapter_name}; weight {existing['weight']} -> {float(weight)}"
+                )
+                existing["weight"] = float(weight)
+                continue
+
+            entry = {
+                "adapter_name": adapter_name,
+                "dir": lora_dir,
+                "weight_name": weight_name,
+                "weight": float(weight),
+                "source": str(lora["file_path"]),
+            }
+            by_identity[adapter_name] = entry
+            stack.append(entry)
+        return stack
+
+    @staticmethod
+    def _discard_loaded_adapters(pipe, adapter_names: list) -> None:
+        """Return ``pipe`` to no-adapters, the state it was in before loading.
+
+        ``_load_loras`` only ever runs against a freshly built pipeline, so
+        dropping every adapter is a full restore, and ``unload_lora_weights()``
+        is a safe fallback when per-adapter deletion is unavailable.
+        """
+        if not adapter_names:
+            return
+        try:
+            pipe.delete_adapters(adapter_names)
+            return
+        except Exception:
+            logger.warning(
+                f"[MODEL][SDXL] delete_adapters({adapter_names}) failed while unwinding a "
+                f"partial LoRA stack; falling back to unload_lora_weights()",
+                exc_info=True,
+            )
+        try:
+            pipe.unload_lora_weights()
+        except Exception:
+            logger.error(
+                "[MODEL][SDXL] Could not unwind a partial LoRA stack; the pipeline is discarded",
+                exc_info=True,
+            )
+
+    def _load_loras(self, pipe):
+        """Load and activate the configured LoRA stack on ``pipe``, all or nothing.
+
+        Either every requested adapter is loaded and activated, or ``pipe`` is
+        left with no adapters and ``SDXLLoraStackError`` is raised. A partially
+        applied stack would otherwise generate silently with the wrong LoRAs.
+        ``applied_lora_stack`` is cleared before the pipeline is touched and
+        stamped only once the whole stack is live.
+        """
+        self.applied_lora_stack = None
+
+        stack = self._resolve_lora_stack()
+        if not stack:
             logger.debug("[MODEL][SDXL] No active LoRAs to load")
             return pipe
-
-        loaded_loras = []
 
         # Suppress PEFT warning about multiple adapters - we know what we're doing
         import warnings
         warnings.filterwarnings('ignore', message='.*Already found a `peft_config` attribute.*')
 
-        # Load each LoRA
-        for lora in active_loras:
-            try:
-                lora_path = str(lora["file_path"])
-
-                # Handle both directory paths and direct file paths
-                if os.path.isfile(lora_path):
-                    # Direct file path: split into directory and filename
-                    lora_dir = os.path.dirname(lora_path)
-                    weight_name = os.path.basename(lora_path)
-                    adapter_name = os.path.splitext(weight_name)[0]
-                else:
-                    # Directory path: use as-is
-                    lora_dir = lora_path
-                    weight_name = "lora.safetensors"
-                    adapter_name = os.path.basename(lora_dir)
-
-                # Sanitize adapter name: PyTorch modules can't contain dots or other special chars
-                # Replace dots, spaces, and other problematic characters with underscores
-                adapter_name = adapter_name.replace(".", "_").replace(" ", "_").replace("-", "_")
-
-                logger.debug(f"[MODEL][SDXL] Loading LoRA: {lora_path} (adapter: {adapter_name}, weight_name: {weight_name}) with strength {lora['weight']}")
-
-                # Load LoRA weights (for inference only)
+        loaded = []
+        try:
+            for entry in stack:
+                logger.debug(
+                    f"[MODEL][SDXL] Loading LoRA: {entry['source']} (adapter: {entry['adapter_name']}, "
+                    f"weight_name: {entry['weight_name']}) with strength {entry['weight']}"
+                )
                 pipe.load_lora_weights(
-                    lora_dir,
-                    adapter_name=adapter_name,
-                    weight_name=weight_name,
-                    local_files_only=True
+                    entry["dir"],
+                    adapter_name=entry["adapter_name"],
+                    weight_name=entry["weight_name"],
+                    local_files_only=True,
                 )
-                loaded_loras.append({
-                    "name": adapter_name,
-                    "weight": float(lora["weight"])
-                })
+                loaded.append(entry["adapter_name"])
 
-            except Exception as e:
-                logger.error(
-                    f"[MODEL][SDXL] Failed to load LoRA {lora['file_path']}: {str(e)}",
-                    exc_info=True
-                )
-                continue
+            pipe.set_adapters(
+                adapter_names=[entry["adapter_name"] for entry in stack],
+                adapter_weights=[entry["weight"] for entry in stack],
+            )
+        except Exception as e:
+            self._discard_loaded_adapters(pipe, loaded)
+            sources = ", ".join(entry["source"] for entry in stack)
+            raise SDXLLoraStackError(
+                f"[MODEL][SDXL] Could not apply the requested LoRA stack ({sources}): {e}"
+            ) from e
 
-        if loaded_loras:
-            try:
-                logger.debug(f"[MODEL][SDXL] Loaded LoRAs: {[l['name'] for l in loaded_loras]}")
-                pipe.set_adapters(
-                    adapter_names=[l["name"] for l in loaded_loras],
-                    adapter_weights=[l["weight"] for l in loaded_loras]
-                )
-                logger.debug(f"[MODEL][SDXL] Successfully activated {len(loaded_loras)} LoRAs")
-            except Exception as e:
-                logger.error(f"[MODEL][SDXL] Failed to set adapter weights: {str(e)}", exc_info=True)
+        self.applied_lora_stack = tuple((entry["adapter_name"], entry["weight"]) for entry in stack)
+        logger.debug(f"[MODEL][SDXL] Successfully activated {len(stack)} LoRAs")
 
         return pipe
 

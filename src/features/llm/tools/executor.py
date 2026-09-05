@@ -1,9 +1,15 @@
-"""Tool executor - manages the tool calling loop with LLMs."""
+"""Tool executor - the three entry points onto the tool loop.
+
+The loop itself lives in `workflow.ToolWorkflow`; this module owns the tool
+execution primitives it drives (registry lookup, approval gating, the
+tool_start/tool_end payloads) and the three adapters that render the
+workflow's events: a buffered non-streaming turn returning an `LLMResponse`,
+the legacy buffered-per-iteration stream, and the live per-token stream.
+"""
 
 import inspect
 import json
 import logging
-import re
 import time
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple
 
@@ -17,59 +23,22 @@ from src.features.llm.tools.base import (
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.llm.tools import tool_call_rescue
 from src.features.llm.tools.errors import unexpected
-
-logger = logging.getLogger(__name__)
-
-# Regex to match <tool_call>...</tool_call> blocks (some models emit XML instead of structured calls)
-_TOOL_CALL_XML_RE = re.compile(
-    r'<tool_call>\s*(.*?)\s*</tool_call>', re.DOTALL
+from src.features.llm.tools.workflow import (
+    AssistantDelta,
+    Completed,
+    IterationLimitReached,
+    PendingDecision,
+    ProviderTurn,
+    ToolCallGuard as _ToolCallGuard,
+    ToolFinished,
+    ToolStarted,
+    ToolWorkflow,
+    TurnRequest,
+    parse_xml_tool_calls as _parse_xml_tool_calls,
+    strip_tool_call_xml,
 )
 
-
-def _parse_xml_tool_calls(content: str) -> List[Dict[str, Any]]:
-    """Parse <tool_call> XML blocks from content into structured tool call dicts.
-
-    Some LLMs (especially via Ollama) output tool calls as XML in the content
-    field instead of using the structured tool_calls API field. This function
-    detects and parses those into the same format as native tool calls.
-
-    Returns a list of tool call dicts with {"function": {"name": ..., "arguments": ...}}.
-    """
-    tool_calls = []
-    for match in _TOOL_CALL_XML_RE.finditer(content):
-        raw = match.group(1).strip()
-        try:
-            call_data = json.loads(raw)
-        except json.JSONDecodeError:
-            # The same tokenizer artifact tool_call_rescue works around for
-            # <tool_action> tags (quote characters round-tripped as
-            # <|"|>) shows up inside a well-formed <tool_call> block too — the
-            # call is complete, not a near-miss, so it's demangled and retried
-            # here rather than being dropped into the rescue path.
-            try:
-                call_data = json.loads(tool_call_rescue.demangle_quote_tokens(raw))
-            except json.JSONDecodeError:
-                logger.warning(f"[ToolExecutor] Failed to parse XML tool_call JSON: {raw[:200]}")
-                continue
-
-        # Normalise to {"function": {"name": ..., "arguments": ...}}
-        if "function" in call_data:
-            tool_calls.append(call_data)
-        elif "name" in call_data:
-            tool_calls.append({
-                "function": {
-                    "name": call_data["name"],
-                    "arguments": call_data.get("arguments") or call_data.get("parameters") or {},
-                }
-            })
-        else:
-            logger.warning(f"[ToolExecutor] XML tool_call missing 'name'/'function': {call_data}")
-    return tool_calls
-
-
-def strip_tool_call_xml(content: str) -> str:
-    """Remove any <tool_call>...</tool_call> blocks from content."""
-    return _TOOL_CALL_XML_RE.sub('', content).strip()
+logger = logging.getLogger(__name__)
 
 
 # A tool result feeds into the working message list on every remaining
@@ -227,47 +196,182 @@ class _StreamToolCallFilter:
         return text
 
 
-class _ToolCallGuard:
-    """Per-turn tracker for calls that already failed, and a running per-tool
-    failure count.
+def _usage_fields(usage: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The three token-count keys a `done` event carries, from either a
+    provider response or a stream's usage event."""
+    usage = usage or {}
+    return {
+        "tokens_used": usage.get("tokens_used"),
+        "prompt_tokens": usage.get("prompt_tokens"),
+        "completion_tokens": usage.get("completion_tokens"),
+    }
 
-    A model that retries the exact same failing call burns loop iterations
-    without learning anything new; once (tool_name, canonical arguments) has
-    failed once this turn, the identical call is refused without re-executing
-    the tool. A call whose arguments differ, or that previously succeeded, is
-    never blocked.
+
+
+class _BufferedTurnSource:
+    """Fetches each turn with one non-streaming `generate_with_tools` call.
+
+    Shared by `execute_with_tools` and `_execute_with_tools_stream_legacy`:
+    both need the whole response before they can tell a tool call apart from
+    an answer, and differ only in how they render it.
     """
 
-    def __init__(self) -> None:
-        self._failed_calls: Dict[str, str] = {}
-        self.tool_failures: Dict[str, int] = {}
+    def __init__(self, executor, llm_id, system_message, tool_schemas, mode, llm_options):
+        self._executor = executor
+        self._llm_id = llm_id
+        self._system_message = system_message
+        self._tool_schemas = tool_schemas
+        self._mode = mode
+        self._llm_options = llm_options
 
-    @staticmethod
-    def _call_key(tool_name: str, arguments: Dict[str, Any]) -> str:
-        try:
-            args_json = json.dumps(arguments, sort_keys=True, default=str)
-        except TypeError:
-            args_json = str(arguments)
-        return f"{tool_name}:{args_json}"
-
-    def blocked_repeat_error(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[str]:
-        """The teaching error to return without re-executing, or None to proceed."""
-        original_error = self._failed_calls.get(self._call_key(tool_name, arguments))
-        if original_error is None:
-            return None
-        return (
-            f"You already called {tool_name} with these exact arguments and it "
-            f"failed: {original_error}. Change the arguments or take a different approach."
+    async def acquire(self, request: TurnRequest) -> AsyncGenerator[Any, None]:
+        kwargs: Dict[str, Any] = {
+            "messages": request.messages,
+            "llm_id": self._llm_id,
+            "tools": [] if request.final else self._tool_schemas,
+            "custom_system_message": self._system_message,
+            "mode": self._mode,
+            "options_override": self._llm_options,
+        }
+        if not request.final:
+            kwargs["image_data"] = request.image_data
+        response = await self._executor.llm_service.generate_with_tools(**kwargs)
+        yield ProviderTurn(
+            content=response.content or "",
+            tool_calls=response.tool_calls,
+            usage={
+                "tokens_used": response.tokens_used,
+                "prompt_tokens": response.prompt_tokens,
+                "completion_tokens": response.completion_tokens,
+            },
+            response=response,
         )
 
-    def record(self, tool_name: str, arguments: Dict[str, Any], result: ToolResult) -> None:
-        """Track *result* for repeat-detection and failure accounting."""
-        if result.success:
+
+class _LiveTurnSource:
+    """Streams each turn token by token, dispatching a `<tool_call>` block the
+    moment it closes.
+
+    Nothing inside a tool call reaches the caller: `_StreamToolCallFilter`
+    withholds a `<tool_call>` span and a registered-tool `<tool_action>` span
+    at the source. A closed `<tool_call>` is parsed and dispatched immediately
+    through the workflow, without waiting for the rest of the turn; a
+    `<tool_action>` stays hidden and is picked up by the workflow's near-miss
+    handling from the turn's accumulated content. A span that never closes was
+    never shown either way, so the workflow's bounded retry applies.
+    """
+
+    def __init__(self, executor, workflow, llm_id, system_message, tool_schemas,
+                 registered, mode, llm_options):
+        self._executor = executor
+        self._workflow = workflow
+        self._llm_id = llm_id
+        self._system_message = system_message
+        self._tool_schemas = tool_schemas
+        self._registered = registered
+        self._mode = mode
+        self._llm_options = llm_options
+
+    def _stream(self, messages, tools, image_data):
+        return self._executor.llm_service.stream_with_tools(
+            messages=messages,
+            llm_id=self._llm_id,
+            tools=tools,
+            image_data=image_data,
+            custom_system_message=self._system_message,
+            mode=self._mode,
+            options_override=self._llm_options,
+        )
+
+    async def acquire(self, request: TurnRequest) -> AsyncGenerator[Any, None]:
+        if request.final:
+            async for item in self._acquire_final(request):
+                yield item
             return
-        self.tool_failures[tool_name] = self.tool_failures.get(tool_name, 0) + 1
-        key = self._call_key(tool_name, arguments)
-        if key not in self._failed_calls:
-            self._failed_calls[key] = result.error or "unknown error"
+
+        workflow = self._workflow
+        content_parts: List[str] = []
+        tool_calls: Optional[List[Dict[str, Any]]] = None
+        usage: Dict[str, Any] = {}
+        draining = False
+
+        for attempt in range(self._executor._EMPTY_RESPONSE_MAX_RETRIES):
+            workflow.reset_inline()
+            content_parts = []
+            tool_calls = None
+            usage = {}
+            pending = False
+            # A pending approval fired inline; keep consuming the generator,
+            # forward nothing more.
+            draining = False
+            stream_filter = _StreamToolCallFilter(self._registered)
+
+            async for event in self._stream(request.messages, self._tool_schemas, request.image_data):
+                event_type = event.get("type")
+                if event_type == "token":
+                    content_parts.append(event["content"])
+                    if draining:
+                        continue
+                    for kind, value in stream_filter.feed(event["content"]):
+                        if draining:
+                            # A call earlier in this SAME feed() result already
+                            # turned out to need approval — nothing after it,
+                            # text or another call, is forwarded or dispatched.
+                            break
+                        if kind == "text":
+                            if value:
+                                yield AssistantDelta(value)
+                            continue
+                        for call in _parse_xml_tool_calls(value):
+                            async for item in workflow.dispatch_inline(call):
+                                if isinstance(item, bool):
+                                    pending = item
+                                    continue
+                                yield item
+                            if pending:
+                                draining = True
+                                break
+                elif event_type == "tool_calls":
+                    tool_calls = event["tool_calls"]
+                elif event_type == "usage":
+                    usage = event
+
+            if not draining:
+                trailing = stream_filter.flush()
+                if trailing:
+                    yield AssistantDelta(trailing)
+
+            if content_parts or tool_calls or workflow.dispatched_inline:
+                break
+            if attempt < self._executor._EMPTY_RESPONSE_MAX_RETRIES - 1:
+                logger.warning(
+                    f"[ToolExecutor] Empty streamed response "
+                    f"(attempt {attempt + 1}/{self._executor._EMPTY_RESPONSE_MAX_RETRIES}), retrying"
+                )
+
+        full_iter_content = "".join(content_parts)
+
+        if draining:
+            yield ProviderTurn(pending=True)
+            return
+        if workflow.dispatched_inline:
+            workflow.finish_inline(full_iter_content)
+            yield ProviderTurn(dispatched_inline=True)
+            return
+        yield ProviderTurn(content=full_iter_content, tool_calls=tool_calls, usage=usage)
+
+    async def _acquire_final(self, request: TurnRequest) -> AsyncGenerator[Any, None]:
+        content_parts: List[str] = []
+        usage: Dict[str, Any] = {}
+        async for event in self._stream(request.messages, None, None):
+            event_type = event.get("type")
+            if event_type == "token":
+                content_parts.append(event["content"])
+                yield AssistantDelta(event["content"])
+            elif event_type == "usage":
+                usage = event
+        yield ProviderTurn(content="".join(content_parts), usage=usage)
+
 
 
 class ToolExecutor:
@@ -287,20 +391,6 @@ class ToolExecutor:
     # Some models non-deterministically stream an empty completion (no tokens,
     # no tool_calls); retry before accepting emptiness as the turn's answer.
     _EMPTY_RESPONSE_MAX_RETRIES = 3
-
-    # A model that wrote a tool call in the wrong format gets this many corrective
-    # re-prompts before the turn surfaces an honest "couldn't format the call"
-    # message instead of the raw markup (see tool_call_rescue).
-    _MAX_RESCUE_RETRIES = 2
-
-    # Appended as a trailing system message on the forced final call once
-    # max_iterations is hit — without it the model, cut off with tools=[],
-    # tends to either retry describing the tool call it can no longer make or
-    # go silent instead of answering with what it already has.
-    _TOOL_BUDGET_EXHAUSTED_MESSAGE = (
-        "Tool budget for this turn is exhausted — answer now with what you "
-        "have; say plainly what remains undone."
-    )
 
     def __init__(self, tool_registry: ToolRegistry, llm_service: Any):
         self.tool_registry = tool_registry
@@ -451,22 +541,6 @@ class ToolExecutor:
             ]
         return data
 
-    def _resolve_tool_calls(self, response) -> List[Dict[str, Any]]:
-        """Get tool calls from response, falling back to XML parsing if needed."""
-        if response.tool_calls:
-            return response.tool_calls
-
-        # Fallback: some models emit <tool_call> XML in the content
-        if response.content:
-            xml_calls = _parse_xml_tool_calls(response.content)
-            if xml_calls:
-                logger.debug(
-                    f"[ToolExecutor] Parsed {len(xml_calls)} tool call(s) from XML in content"
-                )
-                return xml_calls
-
-        return []
-
     async def execute_with_tools(
         self,
         messages: List[Dict],
@@ -482,7 +556,7 @@ class ToolExecutor:
         forced_tool_call: Optional[Dict[str, Any]] = None,
         iteration_nudge: Optional[str] = None,
     ) -> Tuple[Any, List[ToolExecution]]:
-        """Run the tool loop. Returns final LLM response + execution records.
+        """Run the tool loop buffered. Returns final LLM response + execution records.
 
         Args:
             messages: Conversation history
@@ -496,253 +570,47 @@ class ToolExecutor:
             allowed_tools: Pre-resolved tool names for this session (None = all)
             llm_options: Optional per-mode sampling/thinking overrides
             forced_tool_call: Optional ``{"name", "arguments"}`` run before the
-                loop's first LLM turn (see `_execute_forced_tool`), so a slash
-                command reaches the model as an ordinary already-executed tool
-                call it must present.
+                loop's first LLM turn, so a slash command reaches the model as
+                an ordinary already-executed tool call it must present.
             iteration_nudge: Optional reminder text appended as a trailing
                 system message on every LLM call once at least one tool round
-                has completed this turn (see the class docstring note on
-                recency). Synthesized fresh per call rather than stored in
-                `working_messages`, so it is always the most recent message
-                without ever needing to be removed or deduplicated.
+                has completed this turn.
+
+        Unlike the two streaming entry points, this one makes its post-budget
+        wrap-up call without the exhausted-budget instruction and emits no
+        budget signal — `IterationLimitReached` has nowhere to go on a path
+        whose only output is the returned response.
 
         Returns:
             Tuple of (final LLMResponse, list of ToolExecution records)
         """
-        tool_schemas = self.tool_registry.get_schemas(allowed_tools)
-        tool_executions: List[ToolExecution] = []
-        working_messages = list(messages)  # Don't mutate original
-
-        rescue_records: List[Dict[str, Any]] = []
-        rescue_retries = 0
-        pending_approval = False
-        guard = _ToolCallGuard()
-        # The user's original attachment stays available for EVERY iteration of
-        # the turn, not just the first. Tool-enabled modes instruct the model to
-        # call tools before answering (see modes/builtin.py's generation-mode
-        # prompt: "call get_form_state and get_active_models before answering —
-        # don't wait to be asked"), so iteration 1 is almost never the model's
-        # real answer — it's a tool call. Resetting the image to None right after
-        # the first call silently blinds the model on the answer it actually
-        # gives the user. A tool-returned image (e.g. a
-        # render preview) takes precedence over the user's image for exactly the
-        # next call, then reverts to the user's image afterward — a one-shot
-        # "look at this" signal, not something worth resending on every
-        # remaining iteration of a loop capped at max_iterations.
-        user_image_data = image_data
-        tool_image_data: Optional[str] = None
-
-        if forced_tool_call:
-            if on_tool_event:
-                on_tool_event("tool_start", {
-                    "tool_name": forced_tool_call["name"],
-                    "arguments": forced_tool_call.get("arguments", {}),
-                })
-            forced_execution = await self._execute_forced_tool(
-                forced_tool_call, tool_context, working_messages, tool_executions, allowed_tools
-            )
-            if on_tool_event:
-                on_tool_event("tool_end", self._tool_end_event_data(forced_execution))
-            if forced_execution.result.image_data:
-                tool_image_data = forced_execution.result.image_data
-
-        # See `iteration_nudge`'s docstring note above: True once this turn has
-        # completed at least one tool round (a forced call counts as one).
-        any_tool_round_completed = bool(forced_tool_call)
-
-        for iteration in range(max_iterations):
-            logger.debug(f"[ToolExecutor] Iteration {iteration + 1}/{max_iterations}")
-
-            effective_image_data = tool_image_data if tool_image_data is not None else user_image_data
-            call_messages = working_messages
-            if iteration_nudge and any_tool_round_completed:
-                call_messages = working_messages + [{"role": "system", "content": iteration_nudge}]
-
-            # Call LLM with tools
-            response = await self.llm_service.generate_with_tools(
-                messages=call_messages,
-                llm_id=llm_id,
-                tools=tool_schemas,
-                image_data=effective_image_data,
-                custom_system_message=system_message,
-                mode=mode,
-                options_override=llm_options,
-            )
-            tool_image_data = None  # one-shot consumed; a tool below may set it again
-
-            # Check if LLM wants to call tools (structured or XML fallback)
-            tool_calls = self._resolve_tool_calls(response)
-            if not tool_calls:
-                # An opened `<tool_call>` that never closed is a truncated
-                # generation, not a wrong-format near-miss — nothing to repair,
-                # only the same bounded retry, so it's checked first.
-                truncated = tool_call_rescue.find_truncated_tool_call(response.content or "")
-                if truncated:
-                    cleaned = tool_call_rescue.strip_spans(response.content or "", [truncated.span])
-                    if rescue_retries < self._MAX_RESCUE_RETRIES:
-                        rescue_retries += 1
-                        working_messages.append({"role": "assistant", "content": cleaned})
-                        working_messages.append({
-                            "role": "system",
-                            "content": tool_call_rescue.truncated_retry_nudge(truncated.tool_name),
-                        })
-                        continue
-                    response.content = tool_call_rescue.truncated_fallback_message(truncated.tool_name)
-                    response.rescues = rescue_records or None
-                    response.tool_failures = dict(guard.tool_failures) if guard.tool_failures else None
-                    return response, tool_executions
-
-                # No parsed call — the content may still be a near-miss invocation
-                # (wrong tag / fence / bare JSON) that must not reach the user raw.
-                repaired, ambiguous, problems, records, cleaned = self._rescue_final_content(
-                    response.content or "", allowed_tools
-                )
-                if repaired:
-                    rescue_records.extend(records)
-                    response.content = cleaned
-                    tool_calls = repaired
-                elif ambiguous and rescue_retries < self._MAX_RESCUE_RETRIES:
-                    rescue_retries += 1
-                    working_messages.append({"role": "assistant", "content": cleaned})
-                    working_messages.append(
-                        {"role": "system", "content": tool_call_rescue.retry_nudge(ambiguous, problems)}
-                    )
-                    continue
-                elif ambiguous:
-                    response.content = tool_call_rescue.fallback_message(ambiguous)
-                    response.rescues = rescue_records or None
-                    response.tool_failures = dict(guard.tool_failures) if guard.tool_failures else None
-                    return response, tool_executions
-                else:
-                    # Final response — strip any leftover XML
-                    response.content = strip_tool_call_xml(response.content or "")
-                    response.rescues = rescue_records or None
-                    response.tool_failures = dict(guard.tool_failures) if guard.tool_failures else None
-                    logger.debug(f"[ToolExecutor] LLM returned final response after {iteration + 1} iteration(s)")
-                    return response, tool_executions
-
-            # Process tool calls
-            # Append assistant message with tool_calls to working messages
-            assistant_msg: Dict[str, Any] = {
-                "role": "assistant",
-                "content": strip_tool_call_xml(response.content or ""),
-                "tool_calls": tool_calls,
-            }
-            working_messages.append(assistant_msg)
-
-            for tool_call in tool_calls:
-                tool_name = tool_call.get("function", {}).get("name", "")
-                tool_call_id = tool_call.get("id", "")
-                raw_args = tool_call.get("function", {}).get("arguments", "{}")
-
-                # Parse arguments
-                try:
-                    if isinstance(raw_args, str):
-                        arguments = json.loads(raw_args)
-                    else:
-                        arguments = raw_args
-                except json.JSONDecodeError:
-                    arguments = {}
-                    logger.warning(f"[ToolExecutor] Failed to parse arguments for {tool_name}: {raw_args}")
-
-                # Notify caller that tool is starting
-                if on_tool_event:
-                    on_tool_event("tool_start", {"tool_name": tool_name, "arguments": arguments})
-
-                # Execute tool
-                start_time = time.monotonic()
-                result, is_pending = await self._execute_tool_guarded(
-                    tool_name, tool_context, arguments, allowed_tools, guard
-                )
-                duration_ms = int((time.monotonic() - start_time) * 1000)
-
-                # Record execution
-                execution = ToolExecution(
-                    tool_name=tool_name,
-                    arguments=arguments,
-                    result=result,
-                    duration_ms=duration_ms,
-                    pending_approval=is_pending,
-                )
-                tool_executions.append(execution)
-
-                # Notify caller that tool finished
-                if on_tool_event:
-                    event_data: Dict[str, Any] = {
-                        "tool_name": tool_name,
-                        "success": result.success,
-                        "duration_ms": duration_ms,
-                        "pending_approval": is_pending,
-                    }
-                    if is_pending:
-                        event_data["arguments"] = arguments
-                        preview = serialize_approval_preview(result.preview)
-                        if preview:
-                            event_data["preview"] = preview
-                    if result.sources:
-                        event_data["sources"] = [
-                            {
-                                "source_type": s.source_type,
-                                "title": s.title,
-                                "subtitle": s.subtitle,
-                                "description": s.description,
-                                "url": s.url,
-                                "icon": s.icon,
-                            }
-                            for s in result.sources
-                        ]
-                    on_tool_event("tool_end", event_data)
-
-                if is_pending:
-                    # Tool requires approval — stop the loop immediately.
-                    # Do NOT feed the result back to the LLM yet.
-                    logger.info(
-                        f"[ToolExecutor] Tool '{tool_name}' requires approval — pausing loop"
-                    )
-                    pending_approval = True
-                    break
-
-                # Append tool result message for non-pending tools
-                tool_result_msg: Dict[str, Any] = {
-                    "role": "tool",
-                    "content": _bound_tool_result_content(result.data if result.success else f"Error: {result.error}"),
-                    "tool_call_id": tool_call_id,
-                    "name": tool_name,
-                }
-                working_messages.append(tool_result_msg)
-
-                # If the tool returned an image, it takes precedence over the
-                # user's image for exactly the next iteration (see the
-                # precedence note above this loop).
-                if result.image_data:
-                    tool_image_data = result.image_data
-
-            if pending_approval:
-                break
-
-            any_tool_round_completed = True
-
-        if pending_approval:
-            # Return a synthetic response indicating the loop is paused
-            response.content = ""
-            response.rescues = rescue_records or None
-            response.tool_failures = dict(guard.tool_failures) if guard.tool_failures else None
-            return response, tool_executions
-
-        # Max iterations reached - do one final call without tools
-        logger.warning(f"[ToolExecutor] Max iterations ({max_iterations}) reached, making final call without tools")
-        response = await self.llm_service.generate_with_tools(
-            messages=working_messages,
-            llm_id=llm_id,
-            tools=[],  # No tools - force text response
-            custom_system_message=system_message,
-            mode=mode,
-            options_override=llm_options,
+        workflow = ToolWorkflow(
+            self, messages, tool_context, allowed_tools, max_iterations,
+            image_data=image_data, forced_tool_call=forced_tool_call,
+            iteration_nudge=iteration_nudge, wrap_up_on_limit=False,
         )
-        response.content = strip_tool_call_xml(response.content or "")
-        response.rescues = rescue_records or None
-        response.tool_failures = dict(guard.tool_failures) if guard.tool_failures else None
-        return response, tool_executions
+        source = _BufferedTurnSource(
+            self, llm_id, system_message, self.tool_registry.get_schemas(allowed_tools),
+            mode, llm_options,
+        )
+
+        terminal: Any = None
+        async for event in workflow.run(source):
+            if isinstance(event, ToolStarted):
+                if on_tool_event:
+                    on_tool_event("tool_start", event.data)
+            elif isinstance(event, ToolFinished):
+                if on_tool_event:
+                    on_tool_event("tool_end", event.data)
+            elif isinstance(event, (PendingDecision, Completed)):
+                terminal = event
+
+        response = terminal.response
+        response.content = "" if isinstance(terminal, PendingDecision) else terminal.content
+        response.rescues = workflow.rescues
+        response.tool_failures = workflow.tool_failures
+        return response, workflow.tool_executions
+
 
     async def _force_prompt_tools_for(self, llm_id: str) -> bool:
         """Whether this config renders tools into the system prompt as XML instead of native tool calling.
@@ -891,6 +759,7 @@ class ToolExecutor:
         - {"type": "tool_start", "data": {"tool_name": ..., "arguments": ...}}
         - {"type": "tool_end", "data": {"tool_name": ..., "success": ..., "duration_ms": ..., "pending_approval": ...}}
         - {"type": "token", "data": {"content": ...}}
+        - {"type": "status", "data": {"step": "tool_budget_exhausted", ...}}
         - {"type": "done", "data": {"tool_executions": [...], "full_content": ..., "pending_tool_approval": ...}}
 
         When a tool with requires_approval=True is executed, the generator emits a
@@ -901,24 +770,6 @@ class ToolExecutor:
         delegated to `_execute_with_tools_stream_legacy`, which buffers each
         iteration's full response before deciding whether it was a tool call —
         the same behavior this method used before it streamed natively.
-
-        Every other config still streams tokens live, but a `<tool_call>` a
-        client embeds in content (see `_parse_xml_tool_calls`'s docstring), or
-        a `<tool_action ...>` naming a registered tool (a near-miss format —
-        see `tool_call_rescue`'s module docstring), is suppressed at the
-        source rather than forwarded and cleaned up after the fact:
-        `_StreamToolCallFilter` withholds everything from the open tag through
-        the close tag. A closed `<tool_call>` block is parsed and dispatched
-        immediately — through the SAME `_run_tool_calls_stream` event surface
-        a structured `tool_calls` response uses — without waiting for the
-        rest of that iteration's generation to finish. A `<tool_action>`
-        block is not dispatched inline; it stays hidden from the live stream
-        and is picked up, along with any other near-miss format, by the
-        near-miss handling below once the iteration's `full_iter_content` is
-        complete. A block that never closes falls through to the
-        truncation/near-miss handling below exactly as before, since the
-        accumulated `full_iter_content` still contains everything regardless
-        of what was or wasn't forwarded live.
         """
         if await self._force_prompt_tools_for(llm_id):
             async for event in self._execute_with_tools_stream_legacy(
@@ -937,305 +788,40 @@ class ToolExecutor:
                 yield event
             return
 
-        tool_schemas = self.tool_registry.get_schemas(allowed_tools)
-        registered = self._registered_allowed(allowed_tools)
-        tool_executions: List[ToolExecution] = []
-        working_messages = list(messages)
-        rescue_records: List[Dict[str, Any]] = []
-        guard = _ToolCallGuard()
-        # See `execute_with_tools`'s `iteration_nudge` docstring: True once
-        # this turn has completed at least one tool round.
-        any_tool_round_completed = False
-        # Now that a <tool_call> or registered-tool <tool_action> span is
-        # suppressed at the source (see _StreamToolCallFilter) instead of
-        # already having reached the user live, a truncated or malformed one
-        # is exactly as safe to retry here as it is on the buffered paths —
-        # same counter, same bound.
-        rescue_retries = 0
-        # See the precedence note in execute_with_tools: the user's image
-        # persists across the whole turn; a tool-returned image is a one-shot
-        # override for exactly the next call.
-        user_image_data = image_data
-        tool_image_data: Optional[str] = None
+        workflow = ToolWorkflow(
+            self, messages, tool_context, allowed_tools, max_iterations,
+            image_data=image_data, forced_tool_call=forced_tool_call,
+            iteration_nudge=iteration_nudge,
+        )
+        source = _LiveTurnSource(
+            self, workflow, llm_id, system_message,
+            self.tool_registry.get_schemas(allowed_tools),
+            self._registered_allowed(allowed_tools), mode, llm_options,
+        )
 
-        if forced_tool_call:
-            yield {"type": "tool_start", "data": {
-                "tool_name": forced_tool_call["name"],
-                "arguments": forced_tool_call.get("arguments", {}),
-            }}
-            forced_execution = await self._execute_forced_tool(
-                forced_tool_call, tool_context, working_messages, tool_executions, allowed_tools
-            )
-            yield {"type": "tool_end", "data": self._tool_end_event_data(forced_execution)}
-            if forced_execution.result.image_data:
-                tool_image_data = forced_execution.result.image_data
-            any_tool_round_completed = True
-
-        for iteration in range(max_iterations):
-            logger.debug(f"[ToolExecutor] Native stream iteration {iteration + 1}/{max_iterations}")
-
-            effective_image_data = tool_image_data if tool_image_data is not None else user_image_data
-            tool_image_data = None  # one-shot consumed now, before an inline dispatch below may set it again
-            call_messages = working_messages
-            if iteration_nudge and any_tool_round_completed:
-                call_messages = working_messages + [{"role": "system", "content": iteration_nudge}]
-
-            content_parts: List[str] = []
-            tool_calls: Optional[List[Dict[str, Any]]] = None
-            usage: Dict[str, Any] = {}
-            # Set the moment a <tool_call> block closes mid-stream and is
-            # dispatched inline (see _StreamToolCallFilter) — a real,
-            # in-process tool execution, so once any attempt sets this the
-            # empty-response retry below must never fire again for this
-            # iteration even if the surrounding text happens to be empty.
-            assistant_msg: Optional[Dict[str, Any]] = None
-            control: Dict[str, Any] = {"pending": False, "tool_image_data": None}
-            draining = False  # a pending-approval fired inline; keep consuming the generator, forward nothing more
-
-            for attempt in range(self._EMPTY_RESPONSE_MAX_RETRIES):
-                content_parts = []
-                tool_calls = None
-                usage = {}
-                assistant_msg = None
-                control = {"pending": False, "tool_image_data": None}
-                draining = False
-                stream_filter = _StreamToolCallFilter(registered)
-
-                async for event in self.llm_service.stream_with_tools(
-                    messages=call_messages,
-                    llm_id=llm_id,
-                    tools=tool_schemas,
-                    image_data=effective_image_data,
-                    custom_system_message=system_message,
-                    mode=mode,
-                    options_override=llm_options,
-                ):
-                    event_type = event.get("type")
-                    if event_type == "token":
-                        content_parts.append(event["content"])
-                        if draining:
-                            continue
-                        for kind, value in stream_filter.feed(event["content"]):
-                            if draining:
-                                # A call earlier in this SAME feed() result
-                                # already turned out to need approval —
-                                # nothing after it, text or another call, is
-                                # forwarded or dispatched.
-                                break
-                            if kind == "text":
-                                if value:
-                                    yield {"type": "token", "data": {"content": value}}
-                                continue
-                            for call in _parse_xml_tool_calls(value):
-                                if assistant_msg is None:
-                                    assistant_msg = {"role": "assistant", "content": "", "tool_calls": []}
-                                    working_messages.append(assistant_msg)
-                                assistant_msg["tool_calls"].append(call)
-                                async for tev in self._run_tool_calls_stream(
-                                    [call], tool_context, working_messages, tool_executions, allowed_tools, guard
-                                ):
-                                    if tev["type"] == "_control":
-                                        control = tev
-                                        continue
-                                    yield tev
-                                if control["tool_image_data"]:
-                                    tool_image_data = control["tool_image_data"]
-                                if control["pending"]:
-                                    draining = True
-                                    break
-                    elif event_type == "tool_calls":
-                        tool_calls = event["tool_calls"]
-                    elif event_type == "usage":
-                        usage = event
-
-                if not draining:
-                    trailing = stream_filter.flush()
-                    if trailing:
-                        yield {"type": "token", "data": {"content": trailing}}
-
-                if content_parts or tool_calls or assistant_msg is not None:
-                    break
-                if attempt < self._EMPTY_RESPONSE_MAX_RETRIES - 1:
-                    logger.warning(
-                        f"[ToolExecutor] Empty streamed response on iteration {iteration + 1} "
-                        f"(attempt {attempt + 1}/{self._EMPTY_RESPONSE_MAX_RETRIES}), retrying"
-                    )
-
-            full_iter_content = "".join(content_parts)
-
-            if draining:
-                # A tool dispatched inline (above) needs approval — the loop
-                # stops immediately, same as the structured-tool_calls path
-                # below, without feeding a result back to the LLM yet.
-                yield {"type": "done", "data": {
-                    "tool_executions": tool_executions,
-                    "full_content": "",
-                    "pending_tool_approval": True,
-                    "rescues": rescue_records or None,
-                    "tool_failures": dict(guard.tool_failures) if guard.tool_failures else None,
+        async for event in workflow.run(source):
+            if isinstance(event, AssistantDelta):
+                yield {"type": "token", "data": {"content": event.content}}
+            elif isinstance(event, ToolStarted):
+                yield {"type": "tool_start", "data": event.data}
+            elif isinstance(event, ToolFinished):
+                yield {"type": "tool_end", "data": event.data}
+            elif isinstance(event, IterationLimitReached):
+                yield {"type": "status", "data": {
+                    "step": "tool_budget_exhausted", "state": "completed",
+                    "detail": {"max_iterations": event.max_iterations},
                 }}
-                return
+            elif isinstance(event, PendingDecision):
+                yield {"type": "done", "data": self._done_data(workflow, "", True)}
+            elif isinstance(event, Completed):
+                data = self._done_data(workflow, event.content, False)
+                # The text already reached the caller as tokens, so only a
+                # terminal the model actually generated carries usage; a
+                # rescue's fallback message was never a completion.
+                if event.reason in ("answer", "budget"):
+                    data.update(_usage_fields(event.usage))
+                yield {"type": "done", "data": data}
 
-            if assistant_msg is not None:
-                # One or more <tool_call> blocks already closed and dispatched
-                # inline as the stream produced them (see the token branch
-                # above) — nothing pending, so patch in the surrounding text
-                # and move straight to the next iteration; detection and
-                # dispatch already happened, live.
-                assistant_msg["content"] = strip_tool_call_xml(full_iter_content)
-                any_tool_round_completed = True
-                continue
-
-            if not tool_calls and full_iter_content:
-                # An opened `<tool_call>` cut off mid-payload never closed, so
-                # the filter withheld it from the live stream entirely (see
-                # _StreamToolCallFilter.flush) — it was never shown, so a
-                # corrective retry is exactly as safe here as on the buffered
-                # paths, bounded by the same counter.
-                truncated = tool_call_rescue.find_truncated_tool_call(full_iter_content)
-                if truncated:
-                    cleaned = tool_call_rescue.strip_spans(full_iter_content, [truncated.span])
-                    if rescue_retries < self._MAX_RESCUE_RETRIES:
-                        rescue_retries += 1
-                        working_messages.append({"role": "assistant", "content": cleaned})
-                        working_messages.append({
-                            "role": "system",
-                            "content": tool_call_rescue.truncated_retry_nudge(truncated.tool_name),
-                        })
-                        continue
-                    full_content = tool_call_rescue.truncated_fallback_message(truncated.tool_name)
-                    yield {"type": "done", "data": {
-                        "tool_executions": tool_executions,
-                        "full_content": full_content,
-                        "pending_tool_approval": False,
-                        "rescues": rescue_records or None,
-                        "tool_failures": dict(guard.tool_failures) if guard.tool_failures else None,
-                    }}
-                    return
-
-            if not tool_calls and full_iter_content:
-                # Fallback: a structured tool_calls event never arrived and
-                # nothing closed inline either — try the accumulated text as a
-                # whole (covers a <tool_call> the filter somehow never saw
-                # closed live, e.g. the entire response arriving as one token).
-                tool_calls = _parse_xml_tool_calls(full_iter_content) or None
-
-            if not tool_calls and full_iter_content:
-                # A near-miss format (<tool_action>, a fence, bare JSON) or a
-                # closed-but-malformed <tool_call> the inline dispatch above
-                # found nothing to run for. The <tool_call> case was never
-                # shown live (suppressed at the source), so — unlike the other
-                # near-miss formats, which a model may still see mid-stream —
-                # it is always safe to retry rather than just strip and answer.
-                repaired, ambiguous, problems, records, cleaned = self._rescue_final_content(
-                    full_iter_content, allowed_tools
-                )
-                if repaired:
-                    rescue_records.extend(records)
-                    full_iter_content = cleaned
-                    tool_calls = repaired
-                elif ambiguous and rescue_retries < self._MAX_RESCUE_RETRIES:
-                    rescue_retries += 1
-                    working_messages.append({"role": "assistant", "content": cleaned})
-                    working_messages.append(
-                        {"role": "system", "content": tool_call_rescue.retry_nudge(ambiguous, problems)}
-                    )
-                    continue
-                elif ambiguous:
-                    yield {"type": "done", "data": {
-                        "tool_executions": tool_executions,
-                        "full_content": tool_call_rescue.fallback_message(ambiguous),
-                        "pending_tool_approval": False,
-                        "rescues": rescue_records or None,
-                        "tool_failures": dict(guard.tool_failures) if guard.tool_failures else None,
-                    }}
-                    return
-
-            if not tool_calls:
-                full_content = strip_tool_call_xml(full_iter_content)
-                logger.debug(f"[ToolExecutor] LLM returned final streamed response after {iteration + 1} iteration(s)")
-                yield {"type": "done", "data": {
-                    "tool_executions": tool_executions,
-                    "full_content": full_content,
-                    "pending_tool_approval": False,
-                    "rescues": rescue_records or None,
-                    "tool_failures": dict(guard.tool_failures) if guard.tool_failures else None,
-                    "tokens_used": usage.get("tokens_used"),
-                    "prompt_tokens": usage.get("prompt_tokens"),
-                    "completion_tokens": usage.get("completion_tokens"),
-                }}
-                return
-
-            # A genuinely structured tool_calls event (or the whole-text
-            # fallback above) — dispatch the traditional way, all at once.
-            assistant_msg = {
-                "role": "assistant",
-                "content": strip_tool_call_xml(full_iter_content),
-                "tool_calls": tool_calls,
-            }
-            working_messages.append(assistant_msg)
-
-            control = {"pending": False, "tool_image_data": None}
-            async for event in self._run_tool_calls_stream(
-                tool_calls, tool_context, working_messages, tool_executions, allowed_tools, guard
-            ):
-                if event["type"] == "_control":
-                    control = event
-                    continue
-                yield event
-
-            if control["tool_image_data"]:
-                tool_image_data = control["tool_image_data"]
-
-            if control["pending"]:
-                yield {"type": "done", "data": {
-                    "tool_executions": tool_executions,
-                    "full_content": "",
-                    "pending_tool_approval": True,
-                    "rescues": rescue_records or None,
-                    "tool_failures": dict(guard.tool_failures) if guard.tool_failures else None,
-                }}
-                return
-
-            any_tool_round_completed = True
-
-        # Max iterations reached — one final call without tools, streamed. A
-        # visible signal accompanies the log line (never a silent forced
-        # finish) and the final call carries an explicit wrap-up instruction
-        # so the model doesn't just retry the tool it was cut off from.
-        logger.warning(f"[ToolExecutor] Max iterations ({max_iterations}) reached, making final streamed call without tools")
-        yield {"type": "status", "data": {
-            "step": "tool_budget_exhausted", "state": "completed", "detail": {"max_iterations": max_iterations},
-        }}
-        final_content_parts: List[str] = []
-        final_usage: Dict[str, Any] = {}
-        async for event in self.llm_service.stream_with_tools(
-            messages=working_messages + [{"role": "system", "content": self._TOOL_BUDGET_EXHAUSTED_MESSAGE}],
-            llm_id=llm_id,
-            tools=None,
-            image_data=None,
-            custom_system_message=system_message,
-            mode=mode,
-            options_override=llm_options,
-        ):
-            event_type = event.get("type")
-            if event_type == "token":
-                final_content_parts.append(event["content"])
-                yield {"type": "token", "data": {"content": event["content"]}}
-            elif event_type == "usage":
-                final_usage = event
-
-        final_content = strip_tool_call_xml("".join(final_content_parts))
-        yield {"type": "done", "data": {
-            "tool_executions": tool_executions,
-            "full_content": final_content,
-            "pending_tool_approval": False,
-            "rescues": rescue_records or None,
-            "tool_failures": dict(guard.tool_failures) if guard.tool_failures else None,
-            "tokens_used": final_usage.get("tokens_used"),
-            "prompt_tokens": final_usage.get("prompt_tokens"),
-            "completion_tokens": final_usage.get("completion_tokens"),
-        }}
 
     async def _execute_with_tools_stream_legacy(
         self,
@@ -1254,266 +840,53 @@ class ToolExecutor:
         """Run the tool loop with a non-streaming decision call per iteration.
 
         Used for force_prompt_tools configurations, where tool calls are XML
-        embedded in ordinary content and can't be safely told apart from a
-        real answer until the whole response is in. Kept byte-for-byte
-        equivalent to what `execute_with_tools_stream` did before it grew a
-        native-streaming path for everything else.
+        embedded in ordinary content and can't be safely told apart from a real
+        answer until the whole response is in. Because nothing is shown until
+        the turn is decided, the visible text arrives as a single token event
+        just before `done`.
 
         Yields the same event shapes as `execute_with_tools_stream`.
         """
-        tool_schemas = self.tool_registry.get_schemas(allowed_tools)
-        tool_executions: List[ToolExecution] = []
-        working_messages = list(messages)
-        rescue_records: List[Dict[str, Any]] = []
-        rescue_retries = 0
-        guard = _ToolCallGuard()
-        # See the precedence note in execute_with_tools: the user's image
-        # persists across the whole turn; a tool-returned image is a one-shot
-        # override for exactly the next call.
-        user_image_data = image_data
-        tool_image_data: Optional[str] = None
-        # See `execute_with_tools`'s `iteration_nudge` docstring: True once
-        # this turn has completed at least one tool round.
-        any_tool_round_completed = False
-
-        if forced_tool_call:
-            yield {"type": "tool_start", "data": {
-                "tool_name": forced_tool_call["name"],
-                "arguments": forced_tool_call.get("arguments", {}),
-            }}
-            forced_execution = await self._execute_forced_tool(
-                forced_tool_call, tool_context, working_messages, tool_executions, allowed_tools
-            )
-            yield {"type": "tool_end", "data": self._tool_end_event_data(forced_execution)}
-            if forced_execution.result.image_data:
-                tool_image_data = forced_execution.result.image_data
-            any_tool_round_completed = True
-
-        for iteration in range(max_iterations):
-            logger.debug(f"[ToolExecutor] Stream iteration {iteration + 1}/{max_iterations}")
-
-            effective_image_data = tool_image_data if tool_image_data is not None else user_image_data
-            call_messages = working_messages
-            if iteration_nudge and any_tool_round_completed:
-                call_messages = working_messages + [{"role": "system", "content": iteration_nudge}]
-
-            # Non-streaming call with tools (need full response for tool_call detection)
-            response = await self.llm_service.generate_with_tools(
-                messages=call_messages,
-                llm_id=llm_id,
-                tools=tool_schemas,
-                image_data=effective_image_data,
-                custom_system_message=system_message,
-                mode=mode,
-                options_override=llm_options,
-            )
-            tool_image_data = None  # one-shot consumed; a tool below may set it again
-
-            # Check for tool calls (structured or XML fallback)
-            tool_calls = self._resolve_tool_calls(response)
-
-            if not tool_calls:
-                # This buffered path holds the whole response before emitting a
-                # token, so a truncated or near-miss invocation is caught here —
-                # no raw markup is ever streamed to the user. A truncated
-                # `<tool_call>` is checked first: it's a cut-off generation, not
-                # a wrong-format near-miss, so it's steered with the same
-                # bounded retry rather than passed to the near-miss repair.
-                truncated = tool_call_rescue.find_truncated_tool_call(response.content or "")
-                if truncated:
-                    cleaned = tool_call_rescue.strip_spans(response.content or "", [truncated.span])
-                    if rescue_retries < self._MAX_RESCUE_RETRIES:
-                        rescue_retries += 1
-                        working_messages.append({"role": "assistant", "content": cleaned})
-                        working_messages.append({
-                            "role": "system",
-                            "content": tool_call_rescue.truncated_retry_nudge(truncated.tool_name),
-                        })
-                        continue
-                    full_content = tool_call_rescue.truncated_fallback_message(truncated.tool_name)
-                    if full_content:
-                        yield {"type": "token", "data": {"content": full_content}}
-                    yield {"type": "done", "data": {
-                        "tool_executions": tool_executions,
-                        "full_content": full_content,
-                        "pending_tool_approval": False,
-                        "rescues": rescue_records or None,
-                        "tool_failures": dict(guard.tool_failures) if guard.tool_failures else None,
-                        "tokens_used": response.tokens_used,
-                        "prompt_tokens": response.prompt_tokens,
-                        "completion_tokens": response.completion_tokens,
-                    }}
-                    return
-
-                repaired, ambiguous, problems, records, cleaned = self._rescue_final_content(
-                    response.content or "", allowed_tools
-                )
-                if repaired:
-                    rescue_records.extend(records)
-                    response.content = cleaned
-                    tool_calls = repaired
-                elif ambiguous and rescue_retries < self._MAX_RESCUE_RETRIES:
-                    rescue_retries += 1
-                    working_messages.append({"role": "assistant", "content": cleaned})
-                    working_messages.append(
-                        {"role": "system", "content": tool_call_rescue.retry_nudge(ambiguous, problems)}
-                    )
-                    continue
-                else:
-                    # No tool calls — use the response we already have instead of
-                    # making a redundant second LLM call. Emit the content as a
-                    # single token event so the frontend receives it immediately.
-                    full_content = (
-                        tool_call_rescue.fallback_message(ambiguous)
-                        if ambiguous else strip_tool_call_xml(response.content or "")
-                    )
-                    if full_content:
-                        yield {"type": "token", "data": {"content": full_content}}
-                    yield {"type": "done", "data": {
-                        "tool_executions": tool_executions,
-                        "full_content": full_content,
-                        "pending_tool_approval": False,
-                        "rescues": rescue_records or None,
-                        "tool_failures": dict(guard.tool_failures) if guard.tool_failures else None,
-                        "tokens_used": response.tokens_used,
-                        "prompt_tokens": response.prompt_tokens,
-                        "completion_tokens": response.completion_tokens,
-                    }}
-                    return
-
-            # Process tool calls
-            assistant_msg: Dict[str, Any] = {
-                "role": "assistant",
-                "content": strip_tool_call_xml(response.content or ""),
-                "tool_calls": tool_calls,
-            }
-            working_messages.append(assistant_msg)
-
-            pending_this_iteration = False
-
-            for tool_call in tool_calls:
-                tool_name = tool_call.get("function", {}).get("name", "")
-                tool_call_id = tool_call.get("id", "")
-                raw_args = tool_call.get("function", {}).get("arguments", "{}")
-
-                try:
-                    if isinstance(raw_args, str):
-                        arguments = json.loads(raw_args)
-                    else:
-                        arguments = raw_args
-                except json.JSONDecodeError:
-                    arguments = {}
-
-                # Yield tool_start event immediately
-                yield {"type": "tool_start", "data": {"tool_name": tool_name, "arguments": arguments}}
-
-                # Execute tool
-                start_time = time.monotonic()
-                result, is_pending = await self._execute_tool_guarded(
-                    tool_name, tool_context, arguments, allowed_tools, guard
-                )
-                duration_ms = int((time.monotonic() - start_time) * 1000)
-
-                execution = ToolExecution(
-                    tool_name=tool_name,
-                    arguments=arguments,
-                    result=result,
-                    duration_ms=duration_ms,
-                    pending_approval=is_pending,
-                )
-                tool_executions.append(execution)
-
-                # Build tool_end event data
-                tool_end_data: Dict[str, Any] = {
-                    "tool_name": tool_name,
-                    "success": result.success,
-                    "duration_ms": duration_ms,
-                    "pending_approval": is_pending,
-                }
-                if is_pending:
-                    tool_end_data["arguments"] = arguments
-                    preview = serialize_approval_preview(result.preview)
-                    if preview:
-                        tool_end_data["preview"] = preview
-                if result.sources:
-                    tool_end_data["sources"] = [
-                        {
-                            "source_type": s.source_type,
-                            "title": s.title,
-                            "subtitle": s.subtitle,
-                            "description": s.description,
-                            "url": s.url,
-                            "icon": s.icon,
-                        }
-                        for s in result.sources
-                    ]
-                yield {"type": "tool_end", "data": tool_end_data}
-
-                if is_pending:
-                    # Pause the tool loop — emit done with pending flag and return.
-                    logger.info(
-                        f"[ToolExecutor] Tool '{tool_name}' requires approval — pausing stream loop"
-                    )
-                    pending_this_iteration = True
-                    yield {"type": "done", "data": {
-                        "tool_executions": tool_executions,
-                        "full_content": "",
-                        "pending_tool_approval": True,
-                        "rescues": rescue_records or None,
-                        "tool_failures": dict(guard.tool_failures) if guard.tool_failures else None,
-                    }}
-                    return
-
-                # Only append tool result to working messages for non-pending tools
-                tool_result_msg: Dict[str, Any] = {
-                    "role": "tool",
-                    "content": _bound_tool_result_content(result.data if result.success else f"Error: {result.error}"),
-                    "tool_call_id": tool_call_id,
-                    "name": tool_name,
-                }
-                working_messages.append(tool_result_msg)
-
-                if result.image_data:
-                    tool_image_data = result.image_data
-
-            if pending_this_iteration:
-                return
-
-            any_tool_round_completed = True
-
-        # Max iterations reached — one final call without tools, strip XML,
-        # emit at once. A visible signal accompanies the log line (never a
-        # silent forced finish) and the final call carries an explicit
-        # wrap-up instruction.
-        logger.warning(f"[ToolExecutor] Max iterations ({max_iterations}) reached, making final call without tools")
-        yield {"type": "status", "data": {
-            "step": "tool_budget_exhausted", "state": "completed", "detail": {"max_iterations": max_iterations},
-        }}
-        response = await self.llm_service.generate_with_tools(
-            messages=working_messages + [{"role": "system", "content": self._TOOL_BUDGET_EXHAUSTED_MESSAGE}],
-            llm_id=llm_id,
-            tools=[],
-            custom_system_message=system_message,
-            mode=mode,
-            options_override=llm_options,
+        workflow = ToolWorkflow(
+            self, messages, tool_context, allowed_tools, max_iterations,
+            image_data=image_data, forced_tool_call=forced_tool_call,
+            iteration_nudge=iteration_nudge,
         )
-        full_content = strip_tool_call_xml(response.content or "")
-        if full_content:
-            yield {"type": "token", "data": {"content": full_content}}
-        yield {"type": "done", "data": {
-            "tool_executions": tool_executions,
-            "full_content": full_content,
-            "pending_tool_approval": False,
-            "rescues": rescue_records or None,
-            "tool_failures": dict(guard.tool_failures) if guard.tool_failures else None,
-            "tokens_used": response.tokens_used,
-            "prompt_tokens": response.prompt_tokens,
-            "completion_tokens": response.completion_tokens,
-        }}
+        source = _BufferedTurnSource(
+            self, llm_id, system_message, self.tool_registry.get_schemas(allowed_tools),
+            mode, llm_options,
+        )
 
-    # Appended to `system_message` on retries after an empty presentation
-    # completion, to steer a model that emitted a bare/empty <tool_call> block
-    # away from repeating it now that no tools are offered.
+        async for event in workflow.run(source):
+            if isinstance(event, ToolStarted):
+                yield {"type": "tool_start", "data": event.data}
+            elif isinstance(event, ToolFinished):
+                yield {"type": "tool_end", "data": event.data}
+            elif isinstance(event, IterationLimitReached):
+                yield {"type": "status", "data": {
+                    "step": "tool_budget_exhausted", "state": "completed",
+                    "detail": {"max_iterations": event.max_iterations},
+                }}
+            elif isinstance(event, PendingDecision):
+                yield {"type": "done", "data": self._done_data(workflow, "", True)}
+            elif isinstance(event, Completed):
+                if event.content:
+                    yield {"type": "token", "data": {"content": event.content}}
+                data = self._done_data(workflow, event.content, False)
+                data.update(_usage_fields(event.usage))
+                yield {"type": "done", "data": data}
+
+    @staticmethod
+    def _done_data(workflow: ToolWorkflow, full_content: str, pending: bool) -> Dict[str, Any]:
+        return {
+            "tool_executions": workflow.tool_executions,
+            "full_content": full_content,
+            "pending_tool_approval": pending,
+            "rescues": workflow.rescues,
+            "tool_failures": workflow.tool_failures,
+        }
+
+
     _PRESENTATION_RETRY_NUDGE = (
         "\n\n---\nReminder: no tools are available this turn. Reply in plain "
         "text only — do not emit a <tool_call> block or any tool-call syntax."

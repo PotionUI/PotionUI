@@ -11,6 +11,7 @@ from src.features.llm.tools.base import (
 )
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.llm.tools.executor import ToolExecutor
+from src.features.llm.tools.workflow import ToolWorkflow, resolve_tool_calls
 
 
 # ---------------------------------------------------------------------------
@@ -692,7 +693,7 @@ class TestXmlToolCallParsing:
 
 
 class TestResolveToolCalls:
-    """Tests for _resolve_tool_calls which falls back to XML parsing."""
+    """Tests for resolve_tool_calls which falls back to XML parsing."""
 
     def _make_executor(self):
         registry = ToolRegistry()
@@ -701,26 +702,19 @@ class TestResolveToolCalls:
         return ToolExecutor(tool_registry=registry, llm_service=llm_service)
 
     def test_returns_structured_tool_calls_when_present(self):
-        executor = self._make_executor()
-        response = make_llm_response("", tool_calls=[{"function": {"name": "echo"}}])
-        calls = executor._resolve_tool_calls(response)
+        calls = resolve_tool_calls("", [{"function": {"name": "echo"}}])
         assert len(calls) == 1
         assert calls[0]["function"]["name"] == "echo"
 
     def test_falls_back_to_xml_when_no_structured_calls(self):
-        executor = self._make_executor()
-        response = make_llm_response(
-            '<tool_call>{"name": "echo", "arguments": {"message": "hi"}}</tool_call>',
-            tool_calls=[]
+        calls = resolve_tool_calls(
+            '<tool_call>{"name": "echo", "arguments": {"message": "hi"}}</tool_call>', []
         )
-        calls = executor._resolve_tool_calls(response)
         assert len(calls) == 1
         assert calls[0]["function"]["name"] == "echo"
 
     def test_returns_empty_when_no_calls_of_any_kind(self):
-        executor = self._make_executor()
-        response = make_llm_response("just text", tool_calls=[])
-        calls = executor._resolve_tool_calls(response)
+        calls = resolve_tool_calls("just text", [])
         assert len(calls) == 0
 
     @pytest.mark.asyncio
@@ -2195,7 +2189,7 @@ class TestToolExecutorCapExhaustionSignal:
         final_call_messages = captured[-1]
         assert final_call_messages[-1] == {
             "role": "system",
-            "content": ToolExecutor._TOOL_BUDGET_EXHAUSTED_MESSAGE,
+            "content": ToolWorkflow.TOOL_BUDGET_EXHAUSTED_MESSAGE,
         }
 
     @pytest.mark.asyncio
@@ -2227,7 +2221,7 @@ class TestToolExecutorCapExhaustionSignal:
         last_call_messages = llm_service.generate_with_tools.call_args_list[-1].kwargs["messages"]
         assert last_call_messages[-1] == {
             "role": "system",
-            "content": ToolExecutor._TOOL_BUDGET_EXHAUSTED_MESSAGE,
+            "content": ToolWorkflow.TOOL_BUDGET_EXHAUSTED_MESSAGE,
         }
 
 

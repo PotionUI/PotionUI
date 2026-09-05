@@ -26,7 +26,13 @@ it is visible rather than a silent zero-length surprise.
 
 Reads/writes go through `soundfile` (seek + partial `read`), never a full
 file decode: a 380s/44.1kHz stereo clip is ~67MB, and copying a 3s window out
-of it should cost a few hundred KB of I/O, not a full-file load.
+of it should cost a few hundred KB of I/O, not a full-file load. The window
+itself is also never materialized as one in-memory array - a long window
+(minutes of stereo `DOUBLE` audio) would otherwise hold hundreds of MB live
+for the whole trim. Instead the copy streams in `_TRIM_BLOCK_FRAMES`-frame
+blocks: seek once, then alternate bounded `read()`/`write()` calls until the
+window is exhausted, so the live buffer is capped at one block regardless of
+how long the requested window is.
 `torchaudio.save` is unusable on this box (torchaudio 2.11 routes `save`
 through TorchCodec, which isn't installed - see media_loader/audio_handler
 notes), which is the other reason this pipe is soundfile-only, read and
@@ -66,6 +72,7 @@ before use (a source subtype the installed libsndfile can decode but not
 re-encode into a `.wav` container) and falls back to `FLOAT` if unsupported.
 """
 
+import os
 import tempfile
 from typing import Any, Dict, List, Tuple
 
@@ -97,6 +104,15 @@ _SUBTYPE_IO_POLICY: Dict[str, Tuple[str, str]] = {
     "PCM_S8": ("int16", "PCM_16"),
 }
 _FALLBACK_IO_POLICY: Tuple[str, str] = ("float32", "FLOAT")
+
+# Frames copied per read/write block while streaming the trim window. Bounds
+# the live payload to `_TRIM_BLOCK_FRAMES x channels x bytes-per-sample`
+# regardless of the requested window's length; at this policy's widest
+# combination (stereo `DOUBLE`, 8 bytes/sample) that's
+# 65536 x 2 x 8 = 2**20 bytes (1 MiB) held at once, versus an unbounded
+# single-read buffer that grows with the requested duration (a 50M-frame
+# stereo `DOUBLE` window is ~800 MB read in one call).
+_TRIM_BLOCK_FRAMES = 65536
 
 
 def resolve_trim_io_policy(subtype: str) -> Tuple[str, str]:
@@ -169,37 +185,47 @@ class AudioTrimPipe(BasePipe):
 
     def _trim_one(self, audio_path: str, start_seconds: float, duration_seconds: float,
                  generation_outputs: callable, index: int, total: int) -> str:
-        with sf.SoundFile(str(audio_path)) as source:
-            sample_rate = source.samplerate
-            channels = source.channels
-            total_frames = len(source)
-            source_duration = total_frames / sample_rate if sample_rate else 0.0
-            read_dtype, write_subtype = resolve_trim_io_policy(source.subtype)
-
-            start_frame, end_frame = compute_trim_window(
-                start_seconds, duration_seconds, sample_rate, total_frames
-            )
-            frame_count = end_frame - start_frame
-
-            requested_end_frame = start_frame + max(0, round(max(0.0, duration_seconds) * sample_rate))
-            if frame_count <= 0:
-                generation_outputs(ProgressGenerationOutput(
-                    state=f"Trim window is empty: source is <<NUMBER:{source_duration:.2f}s:clock>> long, "
-                          f"requested start <<NUMBER:{start_seconds:.2f}s>> leaves nothing to keep",
-                    icon=Icon("alert-triangle"),
-                ))
-            elif requested_end_frame > total_frames:
-                generation_outputs(ProgressGenerationOutput(
-                    state=f"Trim window clamped to source length: kept <<NUMBER:{frame_count / sample_rate:.2f}s:scissors>> "
-                          f"of the requested <<NUMBER:{duration_seconds:.2f}s>>",
-                    icon=Icon("scissors"),
-                ))
-
-            source.seek(start_frame)
-            data = source.read(frames=frame_count, dtype=read_dtype, always_2d=False)
-
         out_path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
-        sf.write(out_path, data, samplerate=sample_rate, subtype=write_subtype)
+        try:
+            with sf.SoundFile(str(audio_path)) as source:
+                sample_rate = source.samplerate
+                channels = source.channels
+                total_frames = len(source)
+                source_duration = total_frames / sample_rate if sample_rate else 0.0
+                read_dtype, write_subtype = resolve_trim_io_policy(source.subtype)
+
+                start_frame, end_frame = compute_trim_window(
+                    start_seconds, duration_seconds, sample_rate, total_frames
+                )
+                frame_count = end_frame - start_frame
+
+                requested_end_frame = start_frame + max(0, round(max(0.0, duration_seconds) * sample_rate))
+                if frame_count <= 0:
+                    generation_outputs(ProgressGenerationOutput(
+                        state=f"Trim window is empty: source is <<NUMBER:{source_duration:.2f}s:clock>> long, "
+                              f"requested start <<NUMBER:{start_seconds:.2f}s>> leaves nothing to keep",
+                        icon=Icon("alert-triangle"),
+                    ))
+                elif requested_end_frame > total_frames:
+                    generation_outputs(ProgressGenerationOutput(
+                        state=f"Trim window clamped to source length: kept <<NUMBER:{frame_count / sample_rate:.2f}s:scissors>> "
+                              f"of the requested <<NUMBER:{duration_seconds:.2f}s>>",
+                        icon=Icon("scissors"),
+                    ))
+
+                source.seek(start_frame)
+                with sf.SoundFile(out_path, mode="w", samplerate=sample_rate, channels=channels,
+                                  subtype=write_subtype) as dest:
+                    remaining = frame_count
+                    while remaining > 0:
+                        block_frames = min(_TRIM_BLOCK_FRAMES, remaining)
+                        data = source.read(frames=block_frames, dtype=read_dtype, always_2d=False)
+                        dest.write(data)
+                        remaining -= block_frames
+        except Exception:
+            if os.path.exists(out_path):
+                os.remove(out_path)
+            raise
 
         kept_duration = frame_count / sample_rate if sample_rate else 0.0
         generation_outputs(ProgressGenerationOutput(

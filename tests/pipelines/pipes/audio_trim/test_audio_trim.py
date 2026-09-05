@@ -8,13 +8,20 @@ source survives the trim (`resolve_trim_io_policy`'s read-dtype/write-subtype
 table), not just the frame count.
 """
 
+import os
+
 import numpy as np
 import soundfile as sf
 
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.outputs import AudioGenerationOutput
 from src.pipelines.pipes.audio_trim import main as audio_trim_main
-from src.pipelines.pipes.audio_trim.main import AudioTrimPipe, compute_trim_window, resolve_trim_io_policy
+from src.pipelines.pipes.audio_trim.main import (
+    AudioTrimPipe,
+    _TRIM_BLOCK_FRAMES,
+    compute_trim_window,
+    resolve_trim_io_policy,
+)
 from tests.fixtures.audio_fixtures import build_minimal_wav
 
 
@@ -534,3 +541,167 @@ def test_unsupported_wav_subtype_source_falls_back_to_float_end_to_end(tmp_path,
     monkeypatch.undo()  # inspect the real output file, not through the fake
 
     assert sf.info(out_path).subtype == "FLOAT"
+
+
+# -- streaming copy: bounded block size, chunk-boundary parity, failure cleanup -
+
+class _RecordingFakeSource:
+    """Declares a huge (default 50M-frame) window without ever holding that
+    much data: each `read()` synthesizes only the requested block's worth of
+    zero samples on demand and records the size actually requested, so a
+    test can pin the max read size against `_TRIM_BLOCK_FRAMES` without a
+    huge file or a long benchmark."""
+
+    def __init__(self, samplerate=8000, channels=2, subtype="PCM_16", total_frames=50_000_000):
+        self.samplerate = samplerate
+        self.channels = channels
+        self.subtype = subtype
+        self._total_frames = total_frames
+        self._pos = 0
+        self.read_sizes: list = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def __len__(self):
+        return self._total_frames
+
+    def seek(self, frame):
+        self._pos = frame
+
+    def read(self, frames, dtype, always_2d=False):
+        n = min(frames, self._total_frames - self._pos)
+        self.read_sizes.append(n)
+        self._pos += n
+        shape = (n, self.channels) if (always_2d or self.channels > 1) else (n,)
+        return np.zeros(shape, dtype=dtype)
+
+
+class _RecordingFakeDest:
+    """Records each `write()` call's frame count instead of touching disk,
+    so the block-bound test stays fast and small even for a 50M-frame
+    window."""
+
+    def __init__(self):
+        self.write_sizes: list = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def write(self, data):
+        self.write_sizes.append(len(data))
+
+
+def test_max_read_size_is_bounded_by_the_block_constant_on_a_huge_window(monkeypatch):
+    """Bite-check: a single unbounded `read(frames=frame_count, ...)` (the
+    old implementation) would request all 50,000,000 frames in one call.
+    This asserts every read the pipe issues is capped at `_TRIM_BLOCK_FRAMES`,
+    and that the destination never receives more than one block's worth of
+    data at a time - the live payload never exceeds one block regardless of
+    how long the requested window is."""
+    total_frames = 50_000_000
+    source = _RecordingFakeSource(samplerate=8000, channels=2, subtype="PCM_16", total_frames=total_frames)
+    dest = _RecordingFakeDest()
+
+    def fake_sound_file(path, *args, **kwargs):
+        if kwargs.get("mode") == "w":
+            return dest
+        return source
+
+    monkeypatch.setattr(audio_trim_main.sf, "SoundFile", fake_sound_file)
+
+    pipe = _pipe(start_seconds=0.0, duration_seconds=total_frames / source.samplerate)
+    pipe.process(PipeInput(input={"audio": ["fake-source.wav"]}), lambda o: None)
+
+    assert source.read_sizes, "expected at least one chunked read"
+    assert max(source.read_sizes) == _TRIM_BLOCK_FRAMES
+    assert all(n <= _TRIM_BLOCK_FRAMES for n in source.read_sizes)
+    assert sum(source.read_sizes) == total_frames
+    # The destination is fed exactly what was read, one block at a time -
+    # never the whole window buffered and written in a single call.
+    assert dest.write_sizes == source.read_sizes
+    assert max(dest.write_sizes) == _TRIM_BLOCK_FRAMES
+
+
+def test_chunked_copy_matches_single_read_across_block_boundaries_mono(tmp_path, monkeypatch):
+    """With an artificially tiny block size, the window is copied across many
+    block boundaries - the chunked read/write must still reassemble
+    byte-for-byte the same window a single `read()` would produce."""
+    monkeypatch.setattr(audio_trim_main, "_TRIM_BLOCK_FRAMES", 3)
+    sample_rate = 1000
+    full = np.linspace(-0.5, 0.5, num=500, dtype=np.float32)
+    source = _write_precise_wav(tmp_path, full, sample_rate, subtype="FLOAT", name="mono.wav")
+
+    pipe = _pipe(start_seconds=0.037, duration_seconds=0.281)  # window not a multiple of the block size
+    result = pipe.process(PipeInput(input={"audio": [source]}), lambda o: None)
+    out_path = result.output["audio"][0]
+
+    start_frame, end_frame = compute_trim_window(0.037, 0.281, sample_rate, len(full))
+    expected = full[start_frame:end_frame]
+    with sf.SoundFile(out_path) as out:
+        actual = out.read(dtype="float32", always_2d=False)
+
+    assert len(actual) == len(expected) == (end_frame - start_frame)
+    assert np.array_equal(actual, expected)
+
+
+def test_chunked_copy_matches_single_read_across_block_boundaries_stereo(tmp_path, monkeypatch):
+    monkeypatch.setattr(audio_trim_main, "_TRIM_BLOCK_FRAMES", 4)
+    sample_rate = 1000
+    left = np.linspace(-0.5, 0.5, num=500, dtype=np.float32)
+    right = np.linspace(0.5, -0.5, num=500, dtype=np.float32)
+    full = np.stack([left, right], axis=1)
+    source = _write_precise_wav(tmp_path, full, sample_rate, subtype="FLOAT", name="stereo.wav")
+
+    pipe = _pipe(start_seconds=0.043, duration_seconds=0.297)  # window not a multiple of the block size
+    result = pipe.process(PipeInput(input={"audio": [source]}), lambda o: None)
+    out_path = result.output["audio"][0]
+
+    start_frame, end_frame = compute_trim_window(0.043, 0.297, sample_rate, len(full))
+    expected = full[start_frame:end_frame]
+    with sf.SoundFile(out_path) as out:
+        actual = out.read(dtype="float32", always_2d=True)
+
+    assert actual.shape == expected.shape
+    assert np.array_equal(actual, expected)
+
+
+def test_incomplete_output_removed_on_write_failure(tmp_path, monkeypatch):
+    """A failure partway through the streamed copy must not leave a partial
+    `.wav` on disk - only a fully-copied output is ever published, matching
+    the pipeline's existing ownership contract for a trim's temp file."""
+    source = _write_wav(tmp_path, duration_seconds=5.0, sample_rate=8000, channels=1)
+    pipe = _pipe(start_seconds=0.0, duration_seconds=2.0)
+
+    real_sound_file = audio_trim_main.sf.SoundFile
+    captured: dict = {}
+
+    class FailingWriteSoundFile:
+        def __new__(cls, path, *args, **kwargs):
+            inner = real_sound_file(path, *args, **kwargs)
+            if kwargs.get("mode") == "w":
+                captured["out_path"] = path
+
+                def failing_write(data, *a, **kw):
+                    raise IOError("simulated write failure")
+
+                inner.write = failing_write
+            return inner
+
+    monkeypatch.setattr(audio_trim_main.sf, "SoundFile", FailingWriteSoundFile)
+
+    raised = False
+    try:
+        pipe.process(PipeInput(input={"audio": [source]}), lambda o: None)
+    except IOError:
+        raised = True
+    assert raised, "expected the simulated write failure to propagate"
+
+    assert "out_path" in captured
+    assert not os.path.exists(captured["out_path"])

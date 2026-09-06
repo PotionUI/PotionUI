@@ -210,3 +210,30 @@ async def test_buffered_and_streamed_calls_receive_identical_sampling_kwargs(
     stream_kwargs = stream_checkpoint.model.calls[0]
     assert stream_kwargs.get("min_p") == buffered_kwargs.get("min_p") == 0.1
     assert stream_kwargs.get("repetition_penalty") == buffered_kwargs.get("repetition_penalty") == 1.1
+
+
+@pytest.mark.asyncio
+async def test_tool_entry_points_honour_the_per_call_override_over_saved_options(client, fake_model_name, monkeypatch):
+    """The executor and chat modes hand their per-call options to the TOOL
+    entry points (`generate_with_tools` / `stream_with_tools`), not only to
+    the plain history ones; a saved sampling option must lose to that override
+    on both, exactly as on the history path."""
+    checkpoint = _wire_fake_checkpoint(client, fake_model_name)
+    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    config = _config(fake_model_name, provider_options={"min_p": 0.05, "repetition_penalty": 1.15, "top_k": 40})
+    tools = [{"type": "function", "function": {"name": "do_thing", "description": "d", "parameters": {"type": "object", "properties": {}}}}]
+    override = {"min_p": 0.2, "repetition_penalty": 1.3}
+
+    await client.generate_with_tools(
+        [{"role": "user", "content": "hi"}], config, config.system_message, tools=tools, options_override=override,
+    )
+    async for _event in client.stream_with_tools(
+        [{"role": "user", "content": "hi"}], config, config.system_message, tools=tools, options_override=override,
+    ):
+        pass
+
+    assert len(checkpoint.model.calls) == 2
+    for call in checkpoint.model.calls:
+        assert call["min_p"] == 0.2
+        assert call["repetition_penalty"] == 1.3
+        assert call["top_k"] == 40

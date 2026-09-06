@@ -119,6 +119,19 @@ async def test_generate_text_only_uses_the_generate_endpoint(monkeypatch, client
     }
 
 
+async def test_generate_carries_a_saved_named_thinking_level_on_the_generate_endpoint(monkeypatch, client):
+    """The bare generate endpoint has no per-call override, so the saved
+    explicit level is the only choice it can honour; it must reach the root
+    `think` field verbatim rather than the legacy automatic default."""
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_GENERATE_REPLY)])
+
+    await client.generate("say hi", make_config("ollama", provider_options={"think": "high"}), "SYS")
+
+    assert capture.url == "http://peer.invalid:1234/api/generate"
+    assert capture.body["think"] == "high"
+    assert "think" not in capture.body["options"]
+
+
 async def test_generate_with_an_image_switches_to_the_chat_endpoint(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
 

@@ -1,0 +1,43 @@
+# LoRAs applied to the DiT at load time. A LoRA change busts the DiT's
+# fingerprint in the model cache, so switching one forces a reload of the
+# checkpoint — not of the text encoder or the VAEs.
+#
+# On this preset the picker is not an optional extra: OpenVDN ships part of the
+# variant AS a LoRA, so the list below is how the model is completed rather than
+# how it is flavoured.
+fields:
+  - name: "loras"
+    type: "lora_picker"
+    label: "LoRAs"
+    default: []
+    ai_hint: >-
+      This preset needs OpenVDN's own adapters here, from the Hugging Face repo
+      OpenVDN/vdn-minimax-h3, folder `stage-dmd-step-250/`. Both are published as
+      `adapter_model.safetensors`, so rename each one on download or you cannot
+      tell them apart. FIRST `adapters/default/adapter_model.safetensors`
+      (334 MB) — required for every render on this preset, at strength 1.0.
+      SECOND, and only for the 8-step Turbo tier,
+      `adapters/turbo/adapter_model.safetensors` (851 MB), also at strength 1.0.
+      Order matters: default before turbo, because they are merged in list order
+      and turbo is trained on top of default. Strength is 1.0 for both and should
+      not be touched — these carry their own scale, unlike the base preset's
+      turbo LoRA. Turbo on a pruned checkpoint additionally needs the AdaLN
+      sidecar on the Generation tab. Ordinary MiniMax-H3 LoRAs, including the
+      base preset's 4-step turbo LoRA, do not belong here — they were trained
+      against the original attention and this model no longer runs it alone.
+    configuration:
+      model_type: "lora"
+      placeholder: "Select an OpenVDN adapter..."
+      filter_tags: "@config:lora_tags"
+      allow_info_modal: true
+      show_triggers: true
+      strength_min: -2.0
+      strength_max: 2.0
+      strength_step: 0.05
+      strength_default: 1.0
+      max_items: 6
+      # No `recommendations:` here: `lora_picker.output()`
+      # (src/features/fields/lora_picker.py) builds an allowlisted configuration
+      # dict that drops the key, so the block would lint as an unknown key and
+      # never reach the frontend. The download paths live in the ai_hint above
+      # and in docs/models/minimax_h3.md.

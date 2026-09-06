@@ -89,6 +89,37 @@ Geometry is constrained on both axes. The canvas must be a multiple of 32 with a
 
 Sampling draws three noise tensors from one generator per seed, in a fixed order — conditioning, then video, then audio. Reproducing a seed elsewhere requires that same order.
 
+## VDN (experimental)
+
+Video DeltaNet ([OpenVDN/vdn-minimax-h3](https://huggingface.co/OpenVDN/vdn-minimax-h3), code Apache-2.0) adds a **second attention branch** to every one of the 50 blocks. The original attention is narrowed to a local window of frames — chunk 5, radius 1, plus the first and last frame dense in both directions, plus every text, audio and condition row as a dense global — and a bidirectional gated-delta-rule recurrence over frames supplies exactly what that window cannot see. The two sum. The block's fused `qkv_proj` is **shared** between them, so the branch adds no projection cost, only its own post-processing, scan and output projection. The window and the recurrence are trained-in: `radius`/`chunk` are ablation knobs upstream, not inference settings, and a port should treat 5/1 as fixed. It ships as `content/presets/marketplace/MiniMax-H3-VDN`, alongside the unmodified base preset.
+
+Three files, all under `stage-dmd-step-250/` in that repo, all published under generic names that need renaming on download:
+
+| File | Bytes | What it is |
+|---|---:|---|
+| `linear_branch/model.safetensors` | 4,279,428,112 | The branch itself: 50 blocks × 16 tensors, 2.14B parameters. 90% of it is one `[5376, 7168]` output projection per block, which the ordinary quantized-Linear and streaming-prefetch machinery handles like any other projection. Byte-identical to the copy under `stage-b-step-2000/`. |
+| `adapters/default/adapter_model.safetensors` | 334,026,912 | Rank-64 LoRA on the attention projections and the token refiner. Required on every render. |
+| `adapters/turbo/adapter_model.safetensors` | 851,452,696 | The 8-step DMD distillation, 363 explicit targets. Only for the 8-step tier. |
+
+Both adapters are PEFT diffusers-dialect with **alpha equal to rank**, so the merge scale is exactly 1.0 and the preset's LoRA field takes them at strength 1.0 — unlike the base family's turbo LoRA, which needs a hand-set 0.125. They merge additively in `sorted()` order, `default` then `turbo`, which is the order the preset's LoRA list has to carry. The 8-step tier is **not** self-contained: `stage-dmd-step-250`'s branch and default adapter are byte-identical to `stage-b-step-2000`'s, so the DMD stage is stage-b plus one further adapter and there is no shortcut past porting the whole branch.
+
+Two tiers, and only two: **8 steps** with both adapters, **50 steps** with the default adapter alone. Shifts are unchanged (12.0 video, 3.0 audio) and a distilled adapter is only valid at the shifts and step count it was trained for, so the base preset's 24/4 profiles do not carry over. There is no guidance here either — one forward per step, no negative branch, no per-step LoRA scaling and no special first/last-step handling.
+
+**The AdaLN sidecar.** The turbo adapter targets `transformer_blocks.N.adaln_proj.linear` with `lora_A` of shape `[16, 2688]`. That `2688` is the **full** checkpoint's `time_embed_dim`. The pruned repacks — every Comfy-Org H3 file — replaced the timestep-embedder MLP with a 1025-row lookup table and a rank-8 factorization whose input axis is 8, and there is no linear map between the two bases: the two checkpoints compute AdaLN differently on purpose, down to `apply_silu`. Applying the adapter over a pruned checkpoint is therefore impossible as published, and dropping those rows silently would change the distillation the adapter encodes. The preset's answer is a **sidecar**: a ~63 MB safetensors carrying the full checkpoint's four `time_embedder.*` tensors, produced by `python scripts/h3_extract_time_embedder.py` and selected in the preset's *AdaLN sidecar* picker. It is required only when the DiT is a pruned repack **and** the turbo adapter is loaded; the 50-step tier and full 33B checkpoints need nothing.
+
+**Memory has an unusual shape.** The branch's transient working set scales as `F·H·d²` — frames, heads and head dimension — and is **independent of spatial resolution**. At the released 768p/102-latent-frame geometry it peaks around 4.3 GB while a block runs (the scan's transition, injection, prefix, suffix and state banks, plus the readout), released before the next block, on top of the 4.28 GB the branch weights hold for the whole render. Halving the canvas does not reduce it; halving the clip length does. That is the opposite of the advisory's usual assumption and worth modelling explicitly rather than by analogy to dense attention.
+
+Limitations, all of them structural rather than provisional:
+
+- **Sparse attention is mutually exclusive with the branch.** Sol-Attn and SLA sparsify the *same* dense attention the VDN window already restricts; both decide which key blocks a query sees. The VDN preset offers neither.
+- **Low-VRAM sequence chunking (`seq_chunk_rows`) is out.** The branch needs all `F·S` video rows at once for the frame statistics and the scan.
+- **Keyframes are untrained.** OpenVDN's render path builds its packed sequence with `keyframe_anchors=()` — t2va only — so no published VDN checkpoint has seen a keyframe-conditioning row. The rows map correctly (target video rows are the contiguous t-major block at the end of the sequence, and condition rows fall into the window's dense globals), but the base family's primary mode is fl2va, which makes this a first-class question rather than an edge case. The preset declares `i2v`/`flf`/`director` anyway and says so at every point a user meets one.
+- **One geometry has evidence.** `LATENT_H`/`LATENT_W` are module constants upstream, pinned at 768p; the arithmetic is geometry-agnostic but the weights were neither trained nor evaluated anywhere else.
+- **A naive masked attention call is slower than dense.** The window has to be expressed as gathered dense calls or a block-sparse kernel; an `attn_mask=` SDPA call materialises a `56 × 105k²` mask. OpenVDN's own 2.9× headline is an H200 with FlashAttention-4, fp8 and every fused kernel, so the honest local framing is long-clip feasibility, not a speedup.
+- **GPU validation is pending**, as for the rest of this family. Nothing above has been run.
+
+Licensing is unchanged and covers the variant: OpenVDN's code is Apache-2.0, but the weights it redistributes and the branch and adapters trained on top of them are under the MiniMax H3 Community License, with the same territorial exclusion (EU, UK, US, South Korea) reaching the outputs as well as the weights.
+
 ## Limitations
 
 - **The weights are territorially restricted.** MiniMax-H3's weights are published under the MiniMax H3 Community License, not an open-source license. Its Applicable Territory excludes the European Union, the United Kingdom, the United States and the Republic of Korea, and the exclusion extends to the model's outputs; use in those territories requires an individual authorization from MiniMax (https://platform.minimax.io/h3-license). The license additionally requires separate written authorization above US$20M annual revenue, and requires a commercial product's interface to display "MiniMax H3" prominently. PotionUI ships no H3 weights. The architecture implementation is ported from the Apache-2.0 diffusers source, which carries none of these terms.

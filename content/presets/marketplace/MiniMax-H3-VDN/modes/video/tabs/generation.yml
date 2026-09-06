@@ -1,0 +1,182 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    label: "Speed"
+    default: "turbo"
+    ai_hint: >-
+      OpenVDN's own two tiers, and the only two its weights were trained for.
+      Turbo is 8 steps and REQUIRES both adapters on the LoRA tab — the 8-step
+      recipe lives in the turbo adapter, so 8 steps without it is just an
+      under-stepped render, not a fast one. Quality is 50 steps with the default
+      adapter alone. The base preset's 24-step and 4-step recipes do not carry
+      over; do not suggest them here. Custom pins nothing and hands the Steps
+      slider to the user — suggest it only when they ask for a specific step
+      count and understand it is off the trained tiers.
+    configuration:
+      options:
+        - { label: "Turbo (8 steps, needs both adapters)", value: "turbo" }
+        - { label: "Quality (50 steps)", value: "quality" }
+        - { label: "Custom (set Steps yourself)", value: "custom" }
+
+  - type: "section"
+    label: "Video"
+    children:
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+            width: "2/5"
+            full_width: true
+
+      - name: "resolution"
+        type: "resolution"
+        label: "Resolution"
+        ai_hint: >-
+          Both axes must be multiples of 32, aspect ratio between 1:4 and 4:1 —
+          the offered sizes are what MiniMax-H3's own canvas math produces.
+          1344x768 is the only canvas OpenVDN itself renders, so it is the one
+          this variant has evidence for; the smaller sizes are inherited from the
+          base preset and are untested here. Area is still what a step costs, but
+          it is NOT what the extra VDN memory costs — that scales with the clip's
+          length instead, so a smaller canvas does not buy room for a longer clip.
+        configuration:
+          files:
+            - { path: "{{ paths.preset }}/files/form/resolutions_canvas.yml", group: "Native canvas (768 short edge)" }
+            - { path: "{{ paths.preset }}/files/form/resolutions_fast.yml", group: "Faster (below native canvas)" }
+        default: "1344x768"
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "model"
+        type: "model"
+        label: "MiniMax-H3 DiT"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "minimax_h3_fl2va_pruned_fp8_scaled..."
+          filter_tags: "@config:checkpoint_tags"
+          recommendations:
+            - name: "minimax_h3_fl2va_pruned_fp8_scaled.safetensors"
+              link: "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_fp8_scaled.safetensors"
+              size: "19.52 GB"
+              sha256: "12944c1f7791637e7de12208aef04da82bd26b95271b1b47d817364315ade993"
+              description: "MiniMax-H3 first/last-frame to video+audio, pruned + fp8-scaled - the practical local checkpoint. Pruned: the 8-step tier also needs the AdaLN sidecar below."
+            - name: "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+              link: "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+              size: "19.53 GB"
+              sha256: "e889202c41dafb67b10d67b97f0d8541508036a6090af23425a5c2615d03c47a"
+              description: "MiniMax-H3 first/last-frame to video+audio, pruned + int8 ConvRot - same size class as fp8, no fp8 hardware needed."
+            - name: "minimax_h3_fl2va_pruned_bf16.safetensors"
+              link: "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_bf16.safetensors"
+              size: "37.46 GB"
+              sha256: "a32572fb90b5508b201ec7c2eddcc184b13ddfd3c6f6d2cf06a0b46535d541b4"
+              description: "MiniMax-H3 first/last-frame to video+audio, pruned bf16 reference."
+
+      # No `recommendations:` on this picker or the sidecar below, deliberately:
+      # OpenVDN publishes the branch as `model.safetensors` and both adapters as
+      # `adapter_model.safetensors`, and a recommendation matches an installed
+      # model BY THAT NAME (frontend/src/lib/utils/modelRecommendations.ts).
+      # Three entries under two names that generic would badge unrelated files as
+      # already installed. The repo path is in the hint instead; rename on
+      # download.
+      - name: "vdn_module"
+        type: "model"
+        label: "VDN branch"
+        required: true
+        ai_hint: >-
+          The extra attention branch, and the file that makes this preset
+          different from MiniMax-H3. Download `stage-dmd-step-250/linear_branch/
+          model.safetensors` (4.28 GB) from the Hugging Face repo
+          OpenVDN/vdn-minimax-h3 and rename it on the way in — upstream calls it
+          `model.safetensors`, which is unusable as a name in a shared folder;
+          `minimax_h3_vdn_linear_branch.safetensors` is a good one. Put it with
+          the other diffusion models and tag it `vdn`. The same file also ships
+          under `stage-b-step-2000/`; the two are byte-identical, so either copy
+          works.
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "minimax_h3_vdn_linear_branch..."
+          filter_tags: "@config:vdn_tags"
+
+      - name: "dense_time_embedder"
+        type: "model"
+        label: "AdaLN sidecar (pruned checkpoints, Turbo only)"
+        required: false
+        ai_hint: >-
+          Needed in exactly one case: the DiT above is a PRUNED repack (every
+          Comfy-Org H3 file is) AND the turbo adapter is loaded for the 8-step
+          tier. The turbo adapter retrains a part of the model the pruned repack
+          replaced with a lookup table, and this ~63 MB file supplies the piece it
+          expects. Leave it empty for the 50-step Quality tier, and empty if you
+          are running a full 33B checkpoint, which already carries it. Produce it
+          with `python scripts/h3_extract_time_embedder.py` against a full
+          checkpoint; there is no separate download. Tag it `vdn`.
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "minimax_h3_time_embedder... (leave empty for 50 steps)"
+          filter_tags: "@config:vdn_tags"
+
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (Qwen3-VL-32B)"
+        required: true
+        configuration:
+          model_type: "text_encoder"
+          placeholder: "Select the Qwen3-VL-32B encoder..."
+          filter_tags: "@config:text_encoder_tags"
+          recommendations:
+            - name: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+              link: "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+              size: "14.61 GB"
+              sha256: "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6"
+              description: "Qwen3-VL-32B encoder, nvfp4 AWQ - a third of bf16; the only tier that fits most cards."
+            - name: "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+              link: "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+              size: "25.28 GB"
+              sha256: "bc2ced0fbea64757fa9acddccfc0b3f4819d1dcf1da6c124d690d368be283923"
+              description: "Qwen3-VL-32B encoder, int8 ConvRot - middle tier, no Blackwell requirement."
+            - name: "qwen3vl_32b_minimax_h3_bf16.safetensors"
+              link: "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_bf16.safetensors"
+              size: "47.97 GB"
+              sha256: "600d567f6a9629c8574e8e7041b199bdd9c59a986afa7906910a81919610607d"
+              description: "Qwen3-VL-32B encoder, full bf16 reference."
+
+      - name: "video_vae"
+        type: "model"
+        label: "Video VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "minimax_h3_video_vae..."
+          filter_tags: "@config:vae_tags"
+          recommendations:
+            - name: "minimax_h3_video_vae_fp16.safetensors"
+              link: "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors"
+              size: "4.85 GB"
+              sha256: "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522"
+              description: "MiniMax-H3 video VAE, fp16."
+
+      - name: "audio_vae"
+        type: "model"
+        label: "Audio VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "minimax_h3_audio_vae..."
+          filter_tags: "@config:vae_tags"
+          recommendations:
+            - name: "minimax_h3_audio_vae_fp32.safetensors"
+              link: "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors"
+              size: "577.2 MB"
+              sha256: "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48"
+              description: "MiniMax-H3 audio VAE, fp32 - required for the audio track."

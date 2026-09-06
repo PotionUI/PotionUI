@@ -1,0 +1,200 @@
+########
+## MiniMax-H3 VDN -- experimental hybrid-attention variant (native engine)
+##
+## Same model, same four component files, same packed video+text+audio sequence
+## as content/presets/marketplace/MiniMax-H3. What VDN adds is a SECOND
+## attention branch per block: the original attention is restricted to a local
+## window of frames, and a linear recurrence over frames supplies what the
+## window cannot see. The two sum.
+##
+## That branch is a separate 4.28 GB file (`vdn_module`), and it only behaves
+## as trained with the two OpenVDN adapters loaded through the LoRA tab.
+##
+## EXPERIMENTAL. Nothing here has been run on a GPU. The step tiers, the file
+## list and the memory shape come from OpenVDN's own release; the speed does
+## not -- OpenVDN's published numbers are H200 with FlashAttention-4 and fp8,
+## which is not what this engine runs.
+##
+## Two things this preset deliberately does NOT expose, both mutually exclusive
+## with the linear branch by construction (they decide the same thing the VDN
+## window decides, or need row chunks the recurrence cannot be split into):
+## sparse attention (Sol-Attn / SLA) and low-VRAM sequence chunking.
+##
+## WEIGHTS LICENSE: unchanged from the base model. The MiniMax H3 Community
+## License's Applicable Territory EXCLUDES the European Union, the United
+## Kingdom, the United States and the Republic of Korea, and the exclusion
+## covers the model's outputs as well as the weights. OpenVDN redistributes
+## the base under that same license; only its code is Apache-2.0. Read
+## description.md before enabling this preset.
+##
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01KX47H3VDNMINIMAX000000VA"
+name: "MiniMax-H3 VDN (experimental)"
+category: "video"
+version: "1.0.0"
+engine: "native"
+tags: ["minimax", "minimax-h3", "vdn", "video", "audio", "t2va", "fl2va", "flow-matching", "local", "experimental"]
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the MiniMax-H3 DiT picker."
+  text_encoder_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the video VAE and audio VAE pickers."
+  vdn_tags:
+    type: "model_tags"
+    label: "VDN tags"
+    description: "Only models with any of these tags appear in the VDN branch and AdaLN sidecar pickers. Tag both files 'vdn' and set it here to keep two 20 GB DiT lists out of those two pickers."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+
+# OpenVDN's own two tiers, and they are the only two the released weights were
+# trained for: 8 steps with the turbo adapter loaded, 50 steps without it.
+# The base preset's 24/4 profiles do NOT carry over -- those are the plain H3
+# schedules, and a distilled adapter is only valid at the step count and the
+# shifts it was distilled against.
+#
+# `steps` is the only knob here, as in the base preset: MiniMax-H3 is
+# guidance-distilled, so there is no guidance, sampler or schedule for a
+# profile to carry.
+speed_profiles:
+  turbo:
+    # 8 steps, and unlike the base preset's turbo this one is NOT optional-LoRA:
+    # the 8-step tier is a DMD distillation that lives entirely in the turbo
+    # adapter. Without it, 8 steps is an undistilled few-step run.
+    steps: 8
+  quality:
+    steps: 50
+  # Frees the Steps slider: the named profiles' reactions re-pin their step
+  # count on every form change (the reaction engine is level-triggered), so a
+  # hand-set count only survives under a profile that pins nothing. The steps
+  # here are only the pipeline's fallback if the form ever omits the field.
+  custom:
+    steps: 50
+
+vars:
+  # Fixed by the model, not chosen per request: the audio stream's latent count
+  # is derived from it (40 latents per second of video).
+  fps: 24
+  default_frames: 124
+
+  # Video Director capabilities. Read by normalize_video_director()
+  # (src/features/video_director/normalize.py) via
+  # `preset_template.vars.video_director` in
+  # src/features/generation/orchestrator.py -- the ONLY source of truth for
+  # what a submitted document may contain.
+  #
+  # KEYFRAMES ARE DECLARED BUT UNTRAINED HERE. OpenVDN's released render path
+  # builds its packed sequence with `keyframe_anchors=()` -- t2va only -- so no
+  # published VDN checkpoint has ever seen a keyframe-conditioning row. The
+  # rows are structurally fine (they land among the window's dense global rows,
+  # which is the semantically right place for them), and `i2v`/`flf`/`director`
+  # stay declared so the capability is reachable, but a first/last frame here is
+  # an experiment inside an experiment. Every place a user meets it says so:
+  # description.md, and the Keyframe encoding section's own hint.
+  video_director:
+    family: "minimax_h3"
+    preset_modes: ["video"]
+    segment_routing: true
+    modes:
+      t2v: {}
+      i2v: {}
+      flf: {}
+      director:
+        keyframes: "anywhere"
+        audio: true
+        max_keyframes: 8
+        fps_locked: true
+        max_segments: 6
+        # 345 frames is 17*20+5 -- on the VAE's lattice, so it snaps to itself,
+        # and 14.375s at 24 fps. It is also the length OpenVDN itself renders,
+        # which is why it is the one long-clip number this preset has any
+        # evidence for.
+        max_frames_per_segment: 345
+        continuation:
+          # 17 pixel frames is exactly one VAE chunk = 5 latent frames. Carries
+          # the same untrained caveat as a keyframe: a continuation's overlap
+          # reaches the model as condition rows.
+          source: "tail_frames"
+          overlap_frames: 17
+          stitch: true
+        max_overlap_frames: 34
+    limits:
+      default_duration: 5
+      default_fps: 24
+      # The per-SHOT ceiling. A Director run's total is the sum of its shots.
+      # Read the memory note in description.md before reaching for it: the
+      # linear branch's transient cost scales with the frame count and NOT with
+      # the canvas, so a long shot is the expensive direction here, not a big
+      # one.
+      max_duration: 15
+
+llm:
+  guide: |
+    The prompt IS a structured document the model was trained on - write it in
+    exactly this shape, three labeled fields in this order:
+
+    integrated_multimodal_description: [Shot 1] <style>, <initial composition>...
+    (the whole timeline: visuals, actions, cuts, camera, speakers, dialogue,
+    in-scene sound)
+
+    overall_soundscape: 1-4 sentences of ambient sound, physical action sounds and
+    non-verbal human sounds across the whole video (no dialogue or music here);
+    "N/A" only if the user wants total silence.
+
+    non_diegetic_music: 1-3 sentences of background score by instrumentation,
+    tempo, rhythm and dynamics - never abstract mood words; "N/A" when no score.
+
+    Rules for the multimodal description:
+    - Open [Shot 1] with the overall style (Cinematic, live-action, 2D-animated,
+      3D CG, claymation, watercolor, vintage film) and initial composition; no
+      timestamp on Shot 1.
+    - Later shots: "[Shot 2] At 00:03.500, the camera cuts to..." with strictly
+      increasing times inside the duration. Cut only to introduce new subject,
+      space, state, viewpoint or time; for smaller changes prefer camera motion.
+    - Camera motion as natural English inside the shot: zoom in/out, push in /
+      pull out, pan left/right, truck left/right, tilt up/down, pedestal up/down,
+      arc shot, tracking shot, static shot, POV, roll clockwise/counterclockwise,
+      shake slightly/strongly - optionally "with small/large amplitude" and
+      "at slow/fast speed" (omit medium amplitude / normal speed).
+    - Speakers get stable IDs (S1), (S2) ((S1,S2) when together); establish the
+      voice at first appearance (age, gender, pitch, timbre, pace). Identifying
+      phrase, ID and action go outside the tag; exact words inside:
+      (S1) says: <d>[English] I get off at the next station.</d> Preserve the
+      user's words and punctuation verbatim, never translate. Voiceover uses
+      exactly "says in an off-screen voiceover" and states the on-screen lips
+      stay closed. <scenetrans> marks a line crossing a cut; <cutoff> marks
+      speech truncated by the video's end.
+    - On-screen text (signs, labels) goes verbatim in double quotes.
+    - Reference-image modes: the first line, followed by a blank line, is the
+      alignment instruction. First frame: "For the target video, at 0.00 seconds
+      into the target video, <Picture 1> (from [Shot 1]) is fully referenced."
+      First+last: "How the reference pictures align with the target video -
+      Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target
+      video; Picture 2 (from Shot N) aligns with the S.SS-second mark of the
+      target video." Then describe the motion path between anchors - never
+      re-describe the static image content.
+    Natural prose throughout, no tag lists. In Video Director mode, put one shot
+    per segment through the director tool instead of [Shot] markers in one prompt.
+
+    This preset is the experimental VDN variant. It renders longer clips at the
+    same canvas rather than better ones; the picture quality is the base model's.
+    Prompt it exactly as you would MiniMax-H3, and prefer a longer single shot
+    over more shots when the user wants length - the long clip is the whole
+    point of the variant.
+
+modes:
+  - video

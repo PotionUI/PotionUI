@@ -248,8 +248,11 @@ class TestFetchOutlivesEveryDepartedWaiter:
         gc.collect()
         await asyncio.sleep(0)
         assert not any("never retrieved" in r.message.lower() for r in caplog.records)
-        # A failed fetch must never be cached as if it succeeded.
-        assert req_mod._object_info_cache._get_ready("comfy-1") is None
+        # A failed fetch must never be cached as if it succeeded: the checker
+        # keys the cache by (backend id, address), and nothing may be published
+        # under that key or any other.
+        assert req_mod._object_info_cache._get_ready(("comfy-1", BASE)) is None
+        assert req_mod._object_info_cache._ready == {}
 
     @pytest.mark.asyncio
     async def test_a_retry_after_a_failed_departed_fetch_starts_a_fresh_one(self):

@@ -1,8 +1,8 @@
 <script lang="ts">
 	// Legacy-mode (`export let`, `$:`) stand-in for src/routes/generate/+page.svelte:
 	// the page keeps a per-tab checked map, writes it from the editor's
-	// `onCheckedChange` callback, and reads it back in a reactive statement
-	// (the memory-advisory preview does exactly this). Two legacy passthrough
+	// `onCheckedChange` callback, and reads it back in a reactive statement.
+	// Two legacy passthrough
 	// layers below mirror GenerationPanels.svelte -> PromptSection.svelte.
 	import type { VideoDirectorValue, DirectorCapabilities } from '$lib/types/videoDirector';
 	import Passthrough from './DirectorCheckedLoopPassthrough.svelte';

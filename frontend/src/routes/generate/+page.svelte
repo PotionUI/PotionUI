@@ -627,36 +627,6 @@
 		!!currentTab.selectedMode &&
 		(musicDirectorCaps.presetModes === null || musicDirectorCaps.presetModes.includes(currentTab.selectedMode));
 
-	// The memory advisory preview's form_data snapshot - assembled through the
-	// SAME pure helper (requestAssembly.ts) `startGeneration()` calls below, so
-	// the estimate's active loader set reflects whichever Director sub-type/
-	// shots are actually selected right now, not the tab's raw form_data alone
-	// (which never carries a resolved video_director/music_director document -
-	// that only ever gets built at submission time). A request that isn't
-	// ready to submit yet (predecessor output not available, invalid document)
-	// reports `previewUnresolvedReason` instead of a form_data guess -
-	// MemoryAdvisoryLine renders that directly and never calls the network.
-	$: previewDirectorChecked = directorCheckedByTab[currentTab.id] ?? new Set<string>();
-	$: previewAssembly = assembleDirectorRequest({
-		formData: currentTab.formData,
-		videoDirectorActive,
-		videoDirectorCaps,
-		videoDirectorValue: currentTab.videoDirector,
-		directorRuns: currentTab.directorRuns,
-		directorChecked: previewDirectorChecked,
-		predecessorOutputs: videoDirectorActive ? snapshotDirectorGenerationOutputs(currentTab.directorRuns) : null,
-		musicDirectorActive,
-		musicDirectorCaps,
-		musicDirectorValue: currentTab.musicDirector
-	});
-	$: previewFormData =
-		previewAssembly.kind === 'video' && previewAssembly.ok
-			? previewAssembly.formData
-			: previewAssembly.kind === 'music'
-				? previewAssembly.formData
-				: currentTab.formData;
-	$: previewUnresolvedReason = previewAssembly.kind === 'video' && !previewAssembly.ok ? previewAssembly.reason : null;
-
 	// `Tab.videoDirector` is a field of its own — modeState.ts never routes it
 	// through the per-mode prompt cache — so a mode that only just gained
 	// Director (H3's `refs` did, alongside `video`) leaves whatever text a tab
@@ -2120,10 +2090,6 @@
 			presetVersion={currentTabPresetVersion}
 			availableModes={activeTabModes}
 			multiBackend={currentTabHasMultipleBackends}
-			formData={previewFormData}
-			formVariant={currentTab.selectedVariant ?? undefined}
-			backendId={currentTab.selectedBackendId ?? null}
-			formDataUnresolvedReason={previewUnresolvedReason}
 			on:generationcomplete={() => lastGenerationsRefreshSignal++}
 		>
 			<GenerationSettingsPanel

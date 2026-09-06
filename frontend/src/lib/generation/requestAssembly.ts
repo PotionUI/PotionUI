@@ -3,20 +3,14 @@
  * Director editor value into the `form_data` payload (and, for Video
  * Director, the representative prompt array and shot bookkeeping) a real
  * generation submits - the SAME assembly `routes/generate/+page.svelte`'s
- * `startGeneration()` used to do inline. Extracted so the memory advisory
- * preview can build the identical `video_director`/`music_director` wire
- * document the real submission would, rather than the tab's raw
- * `formData` alone (which never carries the resolved Director document at
- * all - it's assembled fresh per submission). See docs/user/hardware-requirements.md
- * "Three different numbers, three different sources" for why the estimate's
- * active loader set has to match a real generation's.
+ * `startGeneration()` calls, extracted so it isn't inlined there.
  *
  * Deliberately pure: no toasts, no store writes, no network calls. A
  * validation/availability failure (a Video Director document not ready to
  * submit, or a continuation shot whose predecessor output isn't available
  * yet) comes back as `{ kind: 'video', ok: false, reason }` rather than a
  * side effect - the caller decides what to do with it (Generate shows a
- * toast and aborts; the preview reports the active model set unresolved).
+ * toast and aborts).
  */
 import type { PromptPair } from '$lib/types/api';
 import type { DirectorRunState } from '$lib/types/tabs';

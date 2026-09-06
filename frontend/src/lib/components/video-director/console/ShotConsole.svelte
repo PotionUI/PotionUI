@@ -128,7 +128,7 @@
 		}
 		if (JSON.stringify(doc) === JSON.stringify(lastEmitted)) return;
 		lastEmitted = doc;
-		onChange(doc);
+		untrack(() => onChange(doc));
 	});
 
 	function updateDoc(next: VideoDirectorValue) {
@@ -169,15 +169,26 @@
 		if (selection && selection.shotId === effectiveActiveShotId) return;
 		if (capabilities.segmentRouting) selection = { shotId: effectiveActiveShotId, kind: 'beat', id: effectiveActiveShotId };
 	});
+	// The three mirror effects here (`onChange` above, header and checked
+	// below) call their callback under `untrack`: the callbacks arrive through
+	// legacy-mode parents (+page.svelte -> GenerationPanels -> PromptSection,
+	// `export let` props), and a legacy prop is a `derived_safe_equal` wrapper
+	// that reports a function value as changed on EVERY re-evaluation, so an
+	// effect that tracks the callback itself re-runs on unrelated page state
+	// churn. For `onCheckedChange`, whose handler writes page state, that was a
+	// genuine loop (effect_update_depth_exceeded, maintainer report 09-06);
+	// keyed on the mirrored value alone, each effect fires once per change.
 	// Mirrors the derived header up to VideoDirectorEditor.svelte's own
 	// `<header>` -- see this prop's own doc comment above.
 	$effect(() => {
-		onHeaderChange?.(model.header);
+		const header = model.header;
+		untrack(() => onHeaderChange?.(header));
 	});
 	// Mirrors the checked set up to +page.svelte -- see this prop's own doc
 	// comment above.
 	$effect(() => {
-		onCheckedChange?.(checked);
+		const snapshot = checked;
+		untrack(() => onCheckedChange?.(snapshot));
 	});
 
 	function activateShot(shotId: string) {

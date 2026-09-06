@@ -19,7 +19,7 @@ from src.platform.runtime.native.arch.minimax_h3.config import MiniMaxH3Config
 from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Model, MiniMaxH3MLP
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
-from src.platform.runtime.native.lora.apply import apply_loras, remove_loras
+from src.platform.runtime.native.lora.apply import apply_loras, apply_loras_with_report, remove_loras
 from src.platform.runtime.native.lora.key_mapping import (
     LoraDelta,
     build_minimax_h3_lora_key_map,
@@ -37,8 +37,14 @@ TINY = {
     "audio_in_channels": 6, "patch_size": (1, 2, 2), "text_dim": 10, "rope_freq_dim": 3,
     "pruned": False, "time_embed_dim": 12, "freq_dim": 8, "time_embed_hidden_dim": 16,
 }
+# Same architecture, pruned AdaLN: no time_embedder, a narrow adaln_t_table
+# feeding adaln_proj instead (see MiniMaxH3Config).
+TINY_PRUNED = dict(TINY, pruned=True, time_embed_dim=6, adaln_curve_grid=5)
 HIDDEN = 64
 INNER = 2 * 40  # heads * head_dim
+FFN = TINY["ffn_dim"]
+ADALN_OUT = 6 * HIDDEN * 3          # expand 6 x hidden x MINIMAX_H3_MODALITY_NUM
+NORM_OUT = 2 * HIDDEN * 1           # final layer: expand 2, one modality
 
 
 def _fp32_ops():
@@ -156,22 +162,34 @@ def test_key_map_covers_comfy_kohya_and_peft_wrapper_for_free():
     assert km["base_model.model.blocks.0.attn.qkv_proj"] == (qkv, None)
 
 
-def test_no_adaln_or_time_embedder_targets_registered():
-    # The real turbo LoRA carries no AdaLN/time_embedder keys at all -- confirm
-    # the DIFFUSERS-dialect entries (what the real LoRA file would look up)
-    # don't invent targets for them either. The comfy/kohya-generic spellings
-    # DO cover every native Linear including adaln_proj (same as Flux/Krea-2's
-    # own maps) -- that's a separate, correct feature for a hypothetical
-    # comfy-dialect adaln LoRA, not something the real turbo file ever uses.
-    km = build_minimax_h3_lora_key_map(_build())
-    diffusers_keys = [
-        k for k in km
-        if k.startswith("transformer.transformer_blocks.") or k.startswith("transformer_blocks.")
-        or k.startswith("transformer.token_refiner.refiner_blocks.") or k.startswith("token_refiner.refiner_blocks.")
-    ]
-    assert diffusers_keys  # sanity: the diffusers dialect IS registered
-    assert not any("adaln" in k for k in diffusers_keys)
-    assert not any("time_embedder" in k for k in diffusers_keys)
+def test_adaln_targets_registered_for_full_and_withheld_for_pruned():
+    """The lightx2v turbo LoRA carries no AdaLN keys; OpenVDN's turbo adapter
+    does, and they only fit a FULL checkpoint (see the VDN section below). So
+    the DIFFUSERS-dialect entries -- what such a file actually looks up --
+    register AdaLN targets in full mode and none in pruned mode, and invent a
+    time_embedder target in neither. The comfy/kohya-generic spellings DO cover
+    every native Linear including adaln_proj in BOTH modes (same as
+    Flux/Krea-2's own maps); only the diffusers entries are conditional."""
+    def diffusers_keys(module):
+        return [
+            k for k in build_minimax_h3_lora_key_map(module)
+            if k.startswith(("transformer.transformer_blocks.", "transformer_blocks.",
+                             "transformer.token_refiner.refiner_blocks.", "token_refiner.refiner_blocks.",
+                             "transformer.norm_out.", "norm_out."))
+        ]
+
+    full_keys = diffusers_keys(_build())
+    assert full_keys  # sanity: the diffusers dialect IS registered
+    assert "transformer.transformer_blocks.0.adaln_proj.linear" in full_keys
+    assert "transformer_blocks.1.adaln_proj.linear" in full_keys
+    assert "transformer.norm_out.linear" in full_keys
+    assert not any("time_embedder" in k for k in full_keys)
+
+    pruned_keys = diffusers_keys(_build(TINY_PRUNED))
+    assert pruned_keys
+    assert not any("adaln" in k or "norm_out" in k for k in pruned_keys)
+    assert not any("time_embedder" in k for k in pruned_keys)
+    assert "blocks.0.adaln_proj.linear" in build_minimax_h3_lora_key_map(_build(TINY_PRUNED))
 
 
 def test_select_key_map_dispatches_to_minimax_h3():
@@ -608,3 +626,212 @@ def test_slice_offsets_match_unfused_reference_and_swap_bite_check():
     assert km["transformer.transformer_blocks.0.attn.to_q"][1] == (0, 0, INNER)
     assert km["transformer.transformer_blocks.0.attn.to_k"][1] == (0, INNER, INNER)
     assert km["transformer.transformer_blocks.0.attn.to_v"][1] == (0, 2 * INNER, INNER)
+
+
+# --- OpenVDN (Video DeltaNet) adapters -----------------------------------------
+#
+# `OpenVDN/vdn-minimax-h3` ships two PEFT adapter files over the same H3 base.
+# Real safetensors headers, key spellings and shapes are recorded in
+# `reports/vdn-phase0.md` §2.2/§2.3. Three things distinguish them from the
+# lightx2v turbo LoRA the mapper was written against:
+#   * the DiT attention keys carry VDN's hybrid wrapper segment, `attn.orig.`
+#     (the token refiner is unwrapped and keeps the plain `attn.` spelling);
+#   * the PEFT adapter-name infix is the adapter's own name (`default` /
+#     `turbo`), not literally `default`;
+#   * the turbo file DOES carry AdaLN keys — rank 16, `[r, time_embed_dim]`
+#     against the FULL checkpoint's 2688-wide time embedding, plus the final
+#     layer under diffusers' `norm_out.linear` spelling.
+# Neither file carries `.alpha` tensors; `adapter_config.json` sets alpha ==
+# rank for every tier, which is exactly `map_lora_keys`'s own default for a
+# missing alpha, so both apply at scale 1.0.
+
+def _peft_named(stem: str, out: int, inf: int, adapter: str, rank: int = 4,
+                seed: int = 1) -> dict[str, torch.Tensor]:
+    """PEFT spelling with an arbitrary adapter name in the infix position."""
+    g = torch.Generator().manual_seed(seed)
+    return {
+        f"{stem}.lora_A.{adapter}.weight": torch.randn(rank, inf, generator=g) * 0.1,
+        f"{stem}.lora_B.{adapter}.weight": torch.randn(out, rank, generator=g) * 0.1,
+    }
+
+
+def _vdn_attention(prefix: str, adapter: str, seed: int, rank: int = 4) -> dict[str, torch.Tensor]:
+    sd: dict[str, torch.Tensor] = {}
+    for i, proj in enumerate(("to_q", "to_k", "to_v")):
+        sd.update(_peft_named(f"{prefix}.{proj}", INNER, HIDDEN, adapter, rank=rank, seed=seed + i))
+    sd.update(_peft_named(f"{prefix}.to_out.0", HIDDEN, INNER, adapter, rank=rank, seed=seed + 3))
+    return sd
+
+
+def _vdn_ff(prefix: str, adapter: str, seed: int, rank: int = 4) -> dict[str, torch.Tensor]:
+    sd = _peft_named(f"{prefix}.ff.net.0.proj", 2 * FFN, HIDDEN, adapter, rank=rank, seed=seed)
+    sd.update(_peft_named(f"{prefix}.ff.net.2", HIDDEN, FFN, adapter, rank=rank, seed=seed + 1))
+    return sd
+
+
+def _vdn_default_adapter(rank: int = 4) -> dict[str, torch.Tensor]:
+    """`adapters/default`: the four attention projections only, on every DiT
+    block (wrapped, `attn.orig.`) and every refiner block (bare `attn.`)."""
+    sd: dict[str, torch.Tensor] = {}
+    for i in range(TINY["num_layers"]):
+        sd.update(_vdn_attention(f"transformer_blocks.{i}.attn.orig", "default", 200 + 10 * i, rank))
+    for r in range(TINY["num_refiner_layers"]):
+        sd.update(_vdn_attention(f"token_refiner.refiner_blocks.{r}.attn", "default", 300 + 10 * r, rank))
+    return sd
+
+
+def _vdn_turbo_adapter(rank: int = 4, adaln_rank: int = 2) -> dict[str, torch.Tensor]:
+    """`adapters/turbo`: the default adapter's attention targets plus FF, plus
+    the rank-16 AdaLN tier (per-block `adaln_proj.linear` and `norm_out.linear`)
+    the default adapter does not touch."""
+    sd: dict[str, torch.Tensor] = {}
+    for i in range(TINY["num_layers"]):
+        sd.update(_vdn_attention(f"transformer_blocks.{i}.attn.orig", "turbo", 400 + 10 * i, rank))
+        sd.update(_vdn_ff(f"transformer_blocks.{i}", "turbo", 500 + 10 * i, rank))
+        sd.update(_peft_named(f"transformer_blocks.{i}.adaln_proj.linear", ADALN_OUT,
+                              TINY["time_embed_dim"], "turbo", rank=adaln_rank, seed=600 + 10 * i))
+    for r in range(TINY["num_refiner_layers"]):
+        sd.update(_vdn_attention(f"token_refiner.refiner_blocks.{r}.attn", "turbo", 700 + 10 * r, rank))
+        sd.update(_vdn_ff(f"token_refiner.refiner_blocks.{r}", "turbo", 800 + 10 * r, rank))
+    sd.update(_peft_named("norm_out.linear", NORM_OUT, TINY["time_embed_dim"], "turbo",
+                          rank=adaln_rank, seed=900))
+    return sd
+
+
+def test_key_map_drops_the_vdn_attention_wrapper_segment():
+    km = build_minimax_h3_lora_key_map(_build())
+    qkv = "blocks.0.attn.qkv_proj.weight"
+    # `attn.orig.` resolves to exactly the same targets/slices as `attn.`,
+    # prefixed and bare.
+    assert km["transformer.transformer_blocks.0.attn.orig.to_q"] == (qkv, (0, 0, INNER))
+    assert km["transformer_blocks.0.attn.orig.to_k"] == (qkv, (0, INNER, INNER))
+    assert km["transformer.transformer_blocks.1.attn.orig.to_v"] == (
+        "blocks.1.attn.qkv_proj.weight", (0, 2 * INNER, INNER))
+    assert km["transformer.transformer_blocks.0.attn.orig.to_out.0"] == (
+        "blocks.0.attn.out_proj.weight", None)
+    # VDN wraps the DiT blocks only -- the refiner keeps the plain spelling and
+    # gains no phantom `orig` alias.
+    assert "transformer.token_refiner.refiner_blocks.0.attn.orig.to_q" not in km
+    assert "transformer.token_refiner.refiner_blocks.0.attn.to_q" in km
+
+
+def test_peft_adapter_name_infix_is_generic_not_literally_default():
+    lora = _peft_named("transformer_blocks.0.attn.orig.to_out.0", HIDDEN, INNER, "turbo")
+    lora.update(_peft_named("transformer_blocks.1.attn.orig.to_out.0", HIDDEN, INNER,
+                            "vdn_stage_b_step2000", seed=2))
+    mapped, unmatched = map_lora_keys(lora, _build())
+    assert unmatched == []
+    assert len(mapped["blocks.0.attn.out_proj.weight"]) == 1
+    assert len(mapped["blocks.1.attn.out_proj.weight"]) == 1
+
+
+def test_vdn_default_adapter_maps_with_zero_unmatched():
+    mapped, unmatched = map_lora_keys(_vdn_default_adapter(), _build())
+    assert unmatched == []
+    for i in range(TINY["num_layers"]):
+        deltas = mapped[f"blocks.{i}.attn.qkv_proj.weight"]
+        assert {d.target_slice for d in deltas} == {
+            (0, 0, INNER), (0, INNER, INNER), (0, 2 * INNER, INNER)}
+        assert len(mapped[f"blocks.{i}.attn.out_proj.weight"]) == 1
+    for r in range(TINY["num_refiner_layers"]):
+        assert len(mapped[f"token_refiner.blocks.{r}.attn.qkv_proj.weight"]) == 3
+        assert len(mapped[f"token_refiner.blocks.{r}.attn.out_proj.weight"]) == 1
+    # attention only -- the default adapter touches no FF and no AdaLN.
+    assert not any("mlp" in p or "adaln" in p for p in mapped)
+
+
+def test_vdn_turbo_adapter_maps_adaln_one_to_one_on_a_full_model():
+    lora = _vdn_turbo_adapter()
+    mapped, unmatched = map_lora_keys(lora, _build())
+    assert unmatched == []
+    for i in range(TINY["num_layers"]):
+        assert len(mapped[f"blocks.{i}.attn.qkv_proj.weight"]) == 3
+        assert len(mapped[f"blocks.{i}.mlp.fc2.weight"]) == 1
+        (adaln,) = mapped[f"blocks.{i}.adaln_proj.linear.weight"]
+        assert adaln.target_slice is None
+        assert adaln.up.shape == (ADALN_OUT, 2) and adaln.down.shape == (2, TINY["time_embed_dim"])
+        # rank-16 tier in the real file: alpha == rank, so scale is exactly 1.
+        assert adaln.alpha == 2.0
+        # FF keeps the SwiGLU half-swap the diffusers dialect needs.
+        (fc1,) = mapped[f"blocks.{i}.mlp.fc1.weight"]
+        raw = lora[f"transformer_blocks.{i}.ff.net.0.proj.lora_B.turbo.weight"]
+        torch.testing.assert_close(fc1.up, _swap_swiglu_halves(raw))
+        assert not torch.allclose(fc1.up, raw)
+    # diffusers spells the final layer's modulation `norm_out.linear`.
+    (final,) = mapped["final_layer.adaln_proj.linear.weight"]
+    assert final.up.shape == (NORM_OUT, 2)
+    for r in range(TINY["num_refiner_layers"]):
+        assert len(mapped[f"token_refiner.blocks.{r}.attn.qkv_proj.weight"]) == 3
+        assert len(mapped[f"token_refiner.blocks.{r}.mlp.fc1.weight"]) == 1
+
+
+def test_vdn_turbo_adaln_keys_are_unmatched_on_a_pruned_model():
+    """A pruned repack has no `time_embedder`: its `adaln_proj.linear` consumes
+    an interpolated `adaln_t_table` row whose basis is unrelated to the dense
+    2688-wide embedding the adapter was trained against. Those keys must come
+    back unmatched (a caller routes them through `adaln_translate` instead) --
+    never silently dropped, and never mapped onto a Linear they don't fit.
+    Everything else in the same file still maps."""
+    mapped, unmatched = map_lora_keys(_vdn_turbo_adapter(), _build(TINY_PRUNED))
+    adaln_unmatched = [u for u in unmatched if "adaln_proj" in u or "norm_out" in u]
+    assert len(adaln_unmatched) == TINY["num_layers"] + 1
+    assert unmatched == adaln_unmatched
+    assert not any("adaln" in p for p in mapped)
+    for i in range(TINY["num_layers"]):
+        assert len(mapped[f"blocks.{i}.attn.qkv_proj.weight"]) == 3
+        assert len(mapped[f"blocks.{i}.mlp.fc1.weight"]) == 1
+
+
+def test_in_features_guard_reports_a_mismatched_native_key_as_unmatched():
+    """The comfy-generic spellings are registered for EVERY native Linear, so a
+    dense-base AdaLN LoRA under the bare NATIVE spelling resolves by name on a
+    pruned module and then blows up inside the delta matmul. The guard turns
+    that into a named `unmatched` entry instead."""
+    m = _build(TINY_PRUNED)
+    lora = _peft_named("blocks.0.adaln_proj.linear", ADALN_OUT, TINY["time_embed_dim"], "turbo", rank=2)
+    mapped, unmatched = map_lora_keys(lora, m)
+    assert mapped == {}
+    (reported,) = unmatched
+    assert reported.startswith("blocks.0.adaln_proj.linear")
+    assert f"in_features {TINY['time_embed_dim']} != {TINY_PRUNED['time_embed_dim']}" in reported
+    assert "blocks.0.adaln_proj.linear.weight" in reported
+    # and the same file goes through apply_loras without raising, patching nothing.
+    before = m.blocks[0].adaln_proj.linear.weight.detach().clone()
+    patched, apply_unmatched = apply_loras(m, [(lora, 1.0)])
+    assert patched == 0 and len(apply_unmatched) == 1
+    assert torch.equal(m.blocks[0].adaln_proj.linear.weight, before)
+
+
+def test_vdn_scale_one_application_equals_hand_computed_delta():
+    """End-to-end through the real entry point: with no `.alpha` tensor in the
+    file, `map_lora_keys` defaults alpha to the rank, so `apply.py`'s
+    `scale * alpha / rank` coefficient is exactly 1.0 -- matching the adapters'
+    `adapter_config.json`, where alpha equals rank in every tier. Checked on one
+    whole-weight AdaLN target and one sliced attention target."""
+    m = _build()
+    adaln = m.blocks[0].adaln_proj.linear
+    qkv = m.blocks[0].attn.qkv_proj
+    adaln_before = adaln.weight.detach().clone()
+    qkv_before = qkv.weight.detach().clone()
+
+    lora = _peft_named("transformer_blocks.0.adaln_proj.linear", ADALN_OUT,
+                       TINY["time_embed_dim"], "turbo", rank=2, seed=41)
+    lora.update(_peft_named("transformer_blocks.0.attn.orig.to_k", INNER, HIDDEN, "turbo", seed=42))
+    assert not any(k.endswith(".alpha") for k in lora)
+
+    patched, unmatched, reports = apply_loras_with_report(m, [(lora, 1.0)], names=["vdn/turbo"])
+    assert unmatched == [] and patched == 2
+    assert reports[0].source == "vdn/turbo" and reports[0].matched_params == 2
+
+    adaln_expected = adaln_before + (
+        lora["transformer_blocks.0.adaln_proj.linear.lora_B.turbo.weight"]
+        @ lora["transformer_blocks.0.adaln_proj.linear.lora_A.turbo.weight"]
+    )
+    torch.testing.assert_close(adaln.weight, adaln_expected, atol=1e-5, rtol=1e-4)
+
+    qkv_expected = qkv_before.clone()
+    qkv_expected[INNER:2 * INNER] += (
+        lora["transformer_blocks.0.attn.orig.to_k.lora_B.turbo.weight"]
+        @ lora["transformer_blocks.0.attn.orig.to_k.lora_A.turbo.weight"]
+    )
+    torch.testing.assert_close(qkv.weight, qkv_expected, atol=1e-5, rtol=1e-4)

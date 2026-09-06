@@ -233,7 +233,7 @@ def test_map_peft_dialect():
     m = _build()
     lora = {}
     lora.update(_peft("blocks.0.attn.wq", 32, 32))
-    lora.update(_peft("blocks.0.mlp.down", 32, 32))          # tiny cfg: mult=1
+    lora.update(_peft("blocks.0.mlp.down", 32, 128))          # tiny cfg: mult=1
     lora.update(_peft("txtfusion.layerwise_blocks.0.attn.wk", 16, 16))
     lora.update(_peft("first", 32, 16))
     mapped, unmatched = map_lora_keys(lora, m)

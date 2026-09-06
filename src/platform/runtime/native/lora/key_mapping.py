@@ -15,7 +15,10 @@ spellings):
   * **comfy generic** — stem ``double_blocks.0.img_attn.qkv`` or
     ``diffusion_model.double_blocks.0.img_attn.qkv`` (dotted, no mangling).
   * **diffusers / PEFT** — stem ``transformer.transformer_blocks.0.attn.to_q``
-    with ``.lora_A.weight`` / ``.lora_B.weight``. Diffusers keeps attention
+    with ``.lora_A.weight`` / ``.lora_B.weight``, or PEFT's adapter-named
+    ``.lora_A.<adapter>.weight`` / ``.lora_B.<adapter>.weight`` (the infix is
+    the adapter's own name — ``default``, ``turbo``, anything the trainer
+    chose — and is stripped generically). Diffusers keeps attention
     projections *split* (``to_q``/``to_k``/``to_v``) while the native module
     fuses them into one ``qkv`` weight, so these map to a **row-slice** of the
     fused target (``target_slice``). Also handles the ``lora_transformer_*`` /
@@ -32,6 +35,7 @@ single delta) because a fused ``qkv`` weight legitimately receives three deltas
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 import torch
@@ -297,21 +301,35 @@ def _minimax_h3_diffusers_map(
     ``arch/minimax_h3/model.py``'s ``MiniMaxH3MLP``) lays out ``[gate |
     value]`` instead. Applying a diffusers LoRA's ``up`` rows to ``fc1``
     unswapped would patch gate deltas onto value rows and vice versa.
+
+    ``attn.orig.`` is a second attention spelling registered on DiT blocks
+    only. Video-DeltaNet (``OpenVDN/vdn-minimax-h3``) wraps each DiT block's
+    attention in a hybrid module that keeps the original softmax branch under
+    ``.orig`` and adds a linear one beside it, so its adapters are keyed
+    ``transformer_blocks.N.attn.orig.to_q`` while targeting the very same
+    projection; this module has no such wrapper, so the segment is dropped.
+    VDN leaves the token refiner unwrapped, hence DiT-only here.
     """
     if refiner:
         pf = f"token_refiner.refiner_blocks.{index}"
         to = f"token_refiner.blocks.{index}"
+        attn_spellings = ("attn",)
     else:
         pf = f"transformer_blocks.{index}"
         to = f"blocks.{index}"
-    return {
-        f"{pf}.attn.to_q": (f"{to}.attn.qkv_proj", (0, 0, inner)),
-        f"{pf}.attn.to_k": (f"{to}.attn.qkv_proj", (0, inner, inner)),
-        f"{pf}.attn.to_v": (f"{to}.attn.qkv_proj", (0, 2 * inner, inner)),
-        f"{pf}.attn.to_out.0": (f"{to}.attn.out_proj", None),
+        attn_spellings = ("attn", "attn.orig")
+    m: dict[str, tuple[str, tuple | str | None]] = {
         f"{pf}.ff.net.0.proj": (f"{to}.mlp.fc1", _SWIGLU_HALF_SWAP),
         f"{pf}.ff.net.2": (f"{to}.mlp.fc2", None),
     }
+    for attn in attn_spellings:
+        m.update({
+            f"{pf}.{attn}.to_q": (f"{to}.attn.qkv_proj", (0, 0, inner)),
+            f"{pf}.{attn}.to_k": (f"{to}.attn.qkv_proj", (0, inner, inner)),
+            f"{pf}.{attn}.to_v": (f"{to}.attn.qkv_proj", (0, 2 * inner, inner)),
+            f"{pf}.{attn}.to_out.0": (f"{to}.attn.out_proj", None),
+        })
+    return m
 
 
 def _swap_swiglu_halves(up: torch.Tensor) -> torch.Tensor:
@@ -325,20 +343,53 @@ def _swap_swiglu_halves(up: torch.Tensor) -> torch.Tensor:
     return torch.cat([up[half:], up[:half]], dim=0)
 
 
+def _minimax_h3_dense_adaln_map(
+    module: nn.Module, config,
+) -> dict[str, tuple[str, tuple | str | None]]:
+    """Dense-dialect AdaLN targets, registered for a FULL checkpoint only.
+
+    A dense adapter's ``adaln_proj`` matrices are ``[r, time_embed_dim]`` with
+    ``time_embed_dim = 2688``, the width of the full checkpoint's
+    ``time_embedder`` output. A pruned repack has no ``time_embedder``: its
+    ``adaln_proj.linear`` consumes an interpolated ``adaln_t_table`` row (8
+    wide in the released repack) whose basis is unrelated, so there is no
+    name-level mapping at all and the keys must come back unmatched — a caller
+    that wants them anyway routes them through :mod:`adaln_translate`, which
+    refits the dense curve against the table.
+    """
+    if config.pruned:
+        return {}
+    shapes = _module_param_shapes(module)
+    pairs = [
+        (f"transformer_blocks.{i}.adaln_proj.linear", f"blocks.{i}.adaln_proj.linear")
+        for i in range(config.num_layers)
+    ]
+    pairs.append(("norm_out.linear", "final_layer.adaln_proj.linear"))
+    targets: dict[str, tuple[str, tuple | str | None]] = {}
+    for diff_stem, native_stem in pairs:
+        shape = shapes.get(f"{native_stem}.weight")
+        if shape is not None and len(shape) == 2 and shape[1] == config.time_embed_dim:
+            targets[diff_stem] = (native_stem, None)
+    return targets
+
+
 def build_minimax_h3_lora_key_map(module: nn.Module) -> dict[str, tuple[str, tuple | None]]:
     """Reverse LoRA key map for the MiniMax-H3 arch.
 
     Every native Linear gets the comfy/kohya/PEFT-wrapper spellings for free
     (no config needed, same as the other dialects); the diffusers/PEFT dialect
-    (the only published H3 LoRA) additionally needs the block/refiner-block
-    counts and the attention inner dim (``heads * head_dim`` — NOT
-    ``hidden_size``, H3's attention inner is wider than the residual stream)
-    to build the fused-qkv slice table. No AdaLN/time_embedder targets are
-    registered — the real turbo LoRA carries no such keys (guidance-distilled,
-    the modulation tables are frozen), and an absent target is simply never
-    looked up by :func:`map_lora_keys` (which is driven by the LoRA file's own
-    keys, not by any required set on the module side) — nothing to ignore
-    explicitly.
+    additionally needs the block/refiner-block counts and the attention inner
+    dim (``heads * head_dim`` — NOT ``hidden_size``, H3's attention inner is
+    wider than the residual stream) to build the fused-qkv slice table.
+
+    Diffusers-dialect AdaLN targets (``transformer_blocks.N.adaln_proj.linear``
+    and ``norm_out.linear``, which the VDN turbo adapter carries and the
+    lightx2v turbo LoRA does not) are registered only when this module is a
+    FULL checkpoint — see :func:`_minimax_h3_dense_adaln_map`. No
+    ``time_embedder`` target is registered in any mode: the published adapters
+    carry no such keys, and an absent target is simply never looked up by
+    :func:`map_lora_keys` (which is driven by the LoRA file's own keys, not by
+    any required set on the module side).
     """
     key_map: dict[str, tuple[str, tuple | None]] = {}
     for stem in _linear_param_stems(module):
@@ -357,6 +408,7 @@ def build_minimax_h3_lora_key_map(module: nn.Module) -> dict[str, tuple[str, tup
             diff_map.update(_minimax_h3_diffusers_map(i, inner, refiner=False))
         for i in range(config.num_refiner_layers):
             diff_map.update(_minimax_h3_diffusers_map(i, inner, refiner=True))
+        diff_map.update(_minimax_h3_dense_adaln_map(module, config))
 
         native_params = _module_param_names(module)
         for diff_stem, (native_stem, sl) in diff_map.items():
@@ -387,9 +439,15 @@ def _select_key_map(module: nn.Module) -> dict[str, tuple[str, tuple | None]]:
     return build_krea2_lora_key_map(module)
 
 
+def _module_param_shapes(module: nn.Module) -> dict[str, torch.Size]:
+    if not hasattr(module, "_lora_param_shape_cache"):
+        module._lora_param_shape_cache = {n: p.shape for n, p in module.named_parameters()}
+    return module._lora_param_shape_cache
+
+
 def _module_param_names(module: nn.Module) -> set[str]:
     if not hasattr(module, "_lora_param_name_cache"):
-        module._lora_param_name_cache = set(dict(module.named_parameters()).keys())
+        module._lora_param_name_cache = set(_module_param_shapes(module))
     return module._lora_param_name_cache
 
 
@@ -398,8 +456,14 @@ _LORA_PAIRS = [
     (".lora_up.weight", ".lora_down.weight"),   # kohya / comfy
     (".lora_B.weight", ".lora_A.weight"),       # diffusers / PEFT
     (".lora.up.weight", ".lora.down.weight"),   # some diffusers exports
-    (".lora_B.default.weight", ".lora_A.default.weight"),  # qwen/peft default
 ]
+
+# PEFT writes the ADAPTER'S OWN NAME between the matrix and `.weight`
+# (`default` for an unnamed adapter, but a trainer may pick anything —
+# OpenVDN's two files are `.default.` and `.turbo.`). The name is matched as
+# one dotless segment and only accepted when the twin `lora_A` key spelled the
+# same way is present, so a real key part can never be mistaken for one.
+_PEFT_ADAPTER_UP = re.compile(r"^(?P<stem>.+)\.lora_B\.(?P<adapter>[^.]+)\.weight$")
 
 
 def _iter_stems(lora_sd: dict[str, torch.Tensor]):
@@ -411,6 +475,14 @@ def _iter_stems(lora_sd: dict[str, torch.Tensor]):
                 down_key = stem + down_suf
                 if down_key in lora_sd:
                     yield stem, key, down_key
+    for key in lora_sd:
+        match = _PEFT_ADAPTER_UP.match(key)
+        if match is None:
+            continue
+        stem = match.group("stem")
+        down_key = f"{stem}.lora_A.{match.group('adapter')}.weight"
+        if down_key in lora_sd:
+            yield stem, key, down_key
 
 
 # LoKr (LyCORIS Kronecker) tensor names per stem. Either side may ship direct
@@ -458,8 +530,16 @@ def map_lora_keys(
     ``{native_param_name: [LoraDelta, ...]}`` and ``unmatched`` lists LoRA key
     stems whose target could not be resolved (the caller decides warn vs error).
     ``.alpha`` / ``.dora_scale`` sidecar keys are consumed silently.
+
+    A resolved target whose input width disagrees with the LoRA's ``down`` is
+    reported unmatched too, annotated with both widths. Resolving a name is
+    not the same as the shapes meeting: the comfy-generic spellings are
+    registered for EVERY native Linear, so a dense-base adapter aimed at a
+    pruned checkpoint's ``adaln_proj.linear`` resolves by name and would then
+    blow up inside the delta matmul with nothing naming the culprit.
     """
     key_map = _select_key_map(module)
+    param_shapes = _module_param_shapes(module)
     mapped: dict[str, list[LoraDelta]] = {}
     consumed: set[str] = set()
     unmatched: list[str] = []
@@ -474,6 +554,13 @@ def map_lora_keys(
         param_name, target_slice = target
         up = lora_sd[up_key]
         down = lora_sd[down_key]
+        param_shape = param_shapes.get(param_name)
+        if (param_shape is not None and len(param_shape) == 2
+                and down.ndim == 2 and down.shape[1] != param_shape[1]):
+            unmatched.append(
+                f"{stem} (in_features {down.shape[1]} != {param_shape[1]} on {param_name})"
+            )
+            continue
         if target_slice == _SWIGLU_HALF_SWAP:
             up = _swap_swiglu_halves(up)
             target_slice = None

@@ -108,6 +108,12 @@ from src.platform.runtime.native.sla_attn import SlaAttnContext, build_sla_attn_
 from src.platform.runtime.native.sla_attn import estimate_transient_gb as sla_estimate_transient_gb
 from src.platform.runtime.native.sol_attn import SolAttnContext, build_sol_attn_context
 from src.platform.runtime.native.sol_attn import estimate_transient_gb as sol_estimate_transient_gb
+from src.platform.runtime.native.arch.minimax_h3.vdn import (
+    VdnLayout,
+    estimate_vdn_transient_gb,
+    vdn_attached,
+    window_bounds,
+)
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext, emit_gallery
 from src.pipelines.pipes._shared.generation.dit_placement import place_dit_for_sequence
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
@@ -196,6 +202,11 @@ H3_INNER_DIM = max(H3_ATTN_INNER_DIM, H3_HIDDEN_SIZE)
 # residency) was instead placed fully resident, and died mid-sampling on
 # exactly this allocation (`_ffn_transient_bytes_per_token`'s docstring).
 H3_FFN_DIM = 14336
+
+# The only anchor mode the released VDN checkpoint was trained under, and the
+# only one under which the softmax window and the linear branch partition the
+# frame axis exactly (VdnLayout.skip_ends is its partner).
+VDN_ANCHOR_FRAMES = "both"
 
 _VALID_ANCHORS = ("first", "last")
 _VALID_AUDIO_SOURCES = ("generate", "file", "passthrough")
@@ -412,6 +423,58 @@ def is_dense_step(step_index: int, num_steps: int, dense_last_steps: int) -> boo
     return step_index >= num_steps - dense_last_steps
 
 
+def build_vdn_layout(
+    layout: PackedLayout, *, num_latent_frames: int, latent_height: int, latent_width: int,
+) -> VdnLayout:
+    """The VDN branch's view of one window's packed sequence.
+
+    ``video_start`` is the TARGET video block only. ``layout.video_indices``
+    also carries the keyframe-condition rows, which sit ahead of the target
+    audio and are therefore not contiguous with the target -- and the wrong
+    choice is still a valid rectangle, so nothing downstream would catch it.
+    The condition rows are dense globals to the window mask, exactly like text
+    and audio.
+
+    ``text_start``/``text_len`` are the PROMPT rows alone: the branch seeds both
+    directional scans from them, and the soundtrack must not seed either.
+    """
+    video_start = video_target_start(layout)
+    _, patch_h, patch_w = PATCH_SIZE
+    frame_height = latent_height // patch_h
+    frame_width = latent_width // patch_w
+    tokens_per_frame = frame_height * frame_width
+    video_rows = int(layout.video_indices[layout.num_condition_video_rows:].numel())
+    if video_rows != num_latent_frames * tokens_per_frame:
+        raise ValueError(
+            f"generator/video_minimax_h3: {video_rows} target video row(s) do not factor into "
+            f"{num_latent_frames} frame(s) x {tokens_per_frame} token(s) "
+            f"({frame_height}x{frame_width} patched grid)"
+        )
+    text_indices = layout.text_indices
+    return VdnLayout(
+        seq_len=int(layout.position_ids.shape[0]),
+        video_start=video_start,
+        num_frames=num_latent_frames,
+        tokens_per_frame=tokens_per_frame,
+        frame_height=frame_height,
+        frame_width=frame_width,
+        window_bounds=tuple(window_bounds(num_latent_frames)),
+        text_start=int(text_indices[0]) if text_indices.numel() else 0,
+        text_len=int(text_indices.numel()),
+    ).with_anchor_mode(VDN_ANCHOR_FRAMES)
+
+
+def vdn_reserve_gb(vdn_layout: Optional[VdnLayout]) -> float:
+    """Peak extra VRAM one VDN block holds while it runs, for the placement's
+    reserve. Per block and not cumulative -- the transients are freed before
+    the next block allocates its own."""
+    if vdn_layout is None:
+        return 0.0
+    return estimate_vdn_transient_gb(
+        vdn_layout, H3_NUM_HEADS, H3_HEAD_DIM, H3_HIDDEN_SIZE, anchor_frames=VDN_ANCHOR_FRAMES,
+    )
+
+
 def _require_h3_video_vae(module):
     """The video VAE picker shows every VAE file the depot knows, and a wrong
     pick loads cleanly under its OWN architecture (e.g. an LTX-2.5
@@ -488,6 +551,10 @@ class _MiniMaxH3Forward:
     weight_revision: Optional[Callable[[], Any]] = None
     compute_dtype: Any = None
     compute_device: Any = None
+    # Window state, not step state: the geometry is fixed for the window, so
+    # every step -- preview and step-cache paths included -- gets the same
+    # layout from here rather than one call site remembering to pass it.
+    vdn_layout: Optional[VdnLayout] = None
     _prepared_context: Any = field(default=None, init=False, repr=False)
 
     def __call__(
@@ -521,6 +588,9 @@ class _MiniMaxH3Forward:
             step_cache=step_cache,
             sparse_attn_ctx=sparse_attn_ctx,
             seq_chunk_rows=seq_chunk_rows,
+            # Spread, not a plain `vdn_layout=None`: a DiT with no branch must
+            # be called exactly as it was before VDN existed.
+            **({"vdn_layout": self.vdn_layout} if self.vdn_layout is not None else {}),
         )
         return video_pred[0], audio_pred[0]
 
@@ -1605,6 +1675,27 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         dense_last_steps = sparse_attn_dense_last_steps(self.config)
         sparse_attn_reserve = sparse_attn_reserve_gb(sparse_attn_ctx, layout)
         seq_chunk_rows = int(self.config.get("seq_chunk_rows", 0) or 0)
+
+        vdn_layout = None
+        if vdn_attached(getattr(c.bundle.dit, "module", None)):
+            if sparse_attn_ctx is not None or seq_chunk_rows:
+                raise ValueError(
+                    "[GENERATOR MINIMAX-H3] this DiT carries a Video-DeltaNet branch, which "
+                    "re-decides which keys every query sees and needs all video rows in one "
+                    f"forward -- so it cannot run with sparse_attn={self.config.get('sparse_attn')!r} "
+                    f"or seq_chunk_rows={seq_chunk_rows}. Set both back to off/0 in the VDN preset, "
+                    "or load the DiT without its vdn_module."
+                )
+            vdn_layout = build_vdn_layout(
+                layout, num_latent_frames=num_latent_frames,
+                latent_height=c.latent_height, latent_width=c.latent_width,
+            )
+            logger.info(
+                "[GENERATOR MINIMAX-H3] VDN: %d frame(s) x %d token(s) from row %d, reserving "
+                "%.2f GB for one block's transients",
+                vdn_layout.num_frames, vdn_layout.tokens_per_frame, vdn_layout.video_start,
+                vdn_reserve_gb(vdn_layout),
+            )
         if isinstance(sparse_attn_ctx, SolAttnContext):
             logger.info(
                 "[GENERATOR MINIMAX-H3] Sol-Attn requested: tau=%.2f, %d exact prefix row(s) of %d, "
@@ -1636,7 +1727,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             # 0.0 unless a sparse-attention method is on: its routing and QKV
             # copies are the one piece of this generation's GPU work the
             # token-derived reserve cannot see.
-            reserve_gb=sparse_attn_reserve,
+            reserve_gb=max(sparse_attn_reserve, vdn_reserve_gb(vdn_layout)),
         )
         # `c.bundle.dit.device` is the wrapper's OWN placement contract (set by
         # `move_to`/the streamer's `apply` even under partial residency --
@@ -1651,6 +1742,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             weight_revision=lambda: getattr(c.bundle.dit, "effective_revision", None),
             compute_dtype=getattr(c.bundle.dit, "compute_dtype", None),
             compute_device=torch.device(dit_device) if dit_device is not None else None,
+            vdn_layout=vdn_layout,
         )
 
         reported_total = progress_total if progress_total is not None else num_steps

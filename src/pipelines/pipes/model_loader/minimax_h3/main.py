@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Optional
 from src.pipelines.outputs import (
     ModelGenerationOutput,
     ModelsGenerationOutput,
+    ProgressGenerationOutput,
 )
 from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
 from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
@@ -49,7 +50,6 @@ from src.pipelines.pipes._shared.generation.loader_base import BaseModelLoaderPi
 from src.pipelines.pipes._shared.generation.loader_helpers import (
     ComponentProgress,
     active_loras as _active_loras,
-    apply_loras_to as _apply_loras_to,
     path_of as _path_of,
     reemit_lora_application_diagnostics as _emit_lora_diagnostics,
     vram_budget as _vram_budget_fn,
@@ -62,6 +62,7 @@ from src.platform.runtime.native.base import NativeArchModule
 from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Model
 from src.platform.runtime.native.vae.minimax_h3_audio import MiniMaxH3AudioVAE
 from src.platform.runtime.native.vae.minimax_h3_video import MiniMaxH3VideoVAE
+from src.pipelines.pipes.model_loader.minimax_h3 import vdn as _vdn
 from src.pipelines.pipes.model_loader.minimax_h3.bundle import MiniMaxH3ModelBundle
 from src.pipelines.pipes.model_loader.minimax_h3.clip import MiniMaxH3ClipTextEncoder
 from src.platform.runtime.native.text_encoders.qwen3 import MiniMaxH3TextEncoder
@@ -100,6 +101,8 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             "video_vae": None,
             "audio_vae": None,
             "loras": [],
+            "vdn_module": None,
+            "dense_time_embedder": None,
             "device": "cuda",
             "dtype": "bfloat16",
         }
@@ -112,6 +115,13 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             PipeConfigSpec("video_vae", dict, None, "MiniMax-H3 video VAE", required=True),
             PipeConfigSpec("audio_vae", dict, None, "MiniMax-H3 audio VAE (always loaded -- audio is inherent)", required=True),
             PipeConfigSpec("loras", list, [], "DiT LoRAs", required=False),
+            PipeConfigSpec("vdn_module", dict, None,
+                           "Video-DeltaNet linear branch to attach to the DiT (turbo hybrid attention)",
+                           required=False),
+            PipeConfigSpec("dense_time_embedder", dict, None,
+                           "Full-checkpoint time_embedder tensors, needed only to translate an "
+                           "adapter's AdaLN rows onto a pruned DiT",
+                           required=False),
             PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
             PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
                            choices=["bfloat16", "float16", "float32"]),
@@ -143,6 +153,8 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             ("text_encoder", "minimax_h3_qwen3vl_32b"),
             ("video_vae", "minimax_h3_video_vae"),
             ("audio_vae", "minimax_h3_audio_vae"),
+            ("vdn_module", "minimax_h3_vdn_branch"),
+            ("dense_time_embedder", "minimax_h3_time_embedder"),
         ):
             cfg = self.config.get(key)
             if _path_of(cfg):
@@ -187,17 +199,44 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             )
 
         lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in loras) or "none"
+        vdn_path = _path_of(self.config.get("vdn_module"))
+        sidecar_path = _path_of(self.config.get("dense_time_embedder"))
 
         def load_dit() -> NativeModel:
             model = loader.load(model_path, "diffusion_model")
-            model._active_lora_application = self._apply_loras(model, loras)  # noqa: SLF001
+            # Attached before the adapters so an adapter that targets the
+            # branch's own Linears resolves against the final module tree.
+            report = _vdn.attach_branch(model, vdn_path) if vdn_path else None
+            applications, residual = _vdn.apply_loras_with_adaln_translation(
+                model, loras, "MODEL LOADER MINIMAX-H3", dense_time_embedder_path=sidecar_path,
+            )
+            model._active_lora_application = applications  # noqa: SLF001
+            model._vdn_attachment = (  # noqa: SLF001
+                _vdn.VdnAttachment(report, residual)
+                if report is not None or residual is not None else None
+            )
             return model
 
+        # None stays None (an unstattable path has no estimate to give); the
+        # branch's own bytes are resident alongside the DiT's, so they belong in
+        # the same admission number when both are known.
+        dit_gb = file_size_gb(model_path)
+        if vdn_path and dit_gb is not None:
+            dit_gb += file_size_gb(vdn_path) or 0.0
         dit_model = lifecycle.acquire(Component(
-            "DiT", f"native/dit/{model_path}", f"{model_path}|{dtype}|{lora_fp}",
-            load_dit, file_size_gb(model_path),
+            "DiT",
+            _vdn.dit_component_key(model_path, vdn_path),
+            _vdn.dit_fingerprint(model_path, dtype, lora_fp, vdn_path, sidecar_path),
+            load_dit,
+            dit_gb,
         ))
         _emit_lora_diagnostics(dit_model, generation_outputs, "MODEL LOADER MINIMAX-H3")
+        # Re-emitted on a cache HIT too (the acquire above never re-runs
+        # `load_dit` then), same fixed point as the LoRA diagnostics.
+        attachment = getattr(dit_model, "_vdn_attachment", None)
+        if attachment is not None:
+            generation_outputs(ProgressGenerationOutput(
+                state=f"[MODEL LOADER MINIMAX-H3] {attachment.describe()}"))
         video_vae_model = lifecycle.acquire(
             _component("video VAE", f"native/vae/{video_vae_path}", "vae", video_vae_path)
         )
@@ -242,7 +281,3 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
 
     def _vram_budget(self, pipe_input: PipeInput) -> Optional[float]:
         return _vram_budget_fn(pipe_input, self.config.get("vram_limit_gb", None), "MODEL LOADER MINIMAX-H3")
-
-    @staticmethod
-    def _apply_loras(dit_model: NativeModel, loras: List[Dict[str, Any]]):
-        return _apply_loras_to(dit_model, loras, "MODEL LOADER MINIMAX-H3")

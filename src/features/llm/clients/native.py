@@ -1314,10 +1314,22 @@ class NativeLLMClient:
 
     @staticmethod
     def _placeholder_value(schema: Any) -> Any:
-        """A type-appropriate stand-in for a required argument's value,
-        read from its own JSON-schema fragment — never an empty object,
-        which would misrepresent a parameter the tool actually requires."""
-        schema_type = schema.get("type") if isinstance(schema, dict) else None
+        """A stand-in for a required argument's value that satisfies its own
+        JSON-schema fragment: an enum's first member, a union's first branch,
+        a nested object's own required keys — never an empty object or a
+        free-form string where the schema names the allowed values."""
+        if not isinstance(schema, dict):
+            return "..."
+        enum = schema.get("enum")
+        if isinstance(enum, list) and enum:
+            return enum[0]
+        for union_key in ("anyOf", "oneOf"):
+            branches = schema.get(union_key)
+            if isinstance(branches, list) and branches:
+                return NativeLLMClient._placeholder_value(branches[0])
+        schema_type = schema.get("type")
+        if isinstance(schema_type, list):
+            schema_type = next((t for t in schema_type if t != "null"), None)
         if schema_type in ("number", "integer"):
             return 0
         if schema_type == "boolean":
@@ -1325,7 +1337,12 @@ class NativeLLMClient:
         if schema_type == "array":
             return []
         if schema_type == "object":
-            return {}
+            properties = schema.get("properties") or {}
+            return {
+                key: NativeLLMClient._placeholder_value(properties[key])
+                for key in (schema.get("required") or [])
+                if key in properties
+            }
         return "..."
 
     @staticmethod

@@ -16,6 +16,7 @@ count and the real send can never disagree about what was offered.
 
 from __future__ import annotations
 
+import json
 import re
 import weakref
 
@@ -90,6 +91,27 @@ SET_VALUE_REQUIRED = {
             "type": "object",
             "properties": {"key": {"type": "string"}, "amount": {"type": "integer"}},
             "required": ["key", "amount"],
+        },
+    },
+}
+
+MANAGE_SCOPED_REQUIRED = {
+    "function": {
+        "name": "manage_scoped",
+        "description": "manages scoped entries",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string", "enum": ["list", "add", "remove"]},
+                "scope": {"type": "string", "enum": ["session", "global"]},
+                "limit": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+                "target": {
+                    "type": "object",
+                    "properties": {"kind": {"type": "string", "enum": ["prompt", "image"]}, "id": {"type": "string"}},
+                    "required": ["kind", "id"],
+                },
+            },
+            "required": ["operation", "scope", "limit", "target"],
         },
     },
 }
@@ -243,6 +265,54 @@ class TestPromptCoherenceWithRequiredArguments:
         example = _example_block(text)
         assert '"name": "set_value"' in example
         assert '"arguments": {}' not in example
+
+
+def _example_arguments(text: str) -> dict:
+    example = _example_block(text)
+    call = example[example.index("<tool_call>") + len("<tool_call>"):example.index("</tool_call>")]
+    return json.loads(call)["arguments"]
+
+
+def _assert_scoped_arguments_satisfy_their_schema(arguments: dict) -> None:
+    schema = MANAGE_SCOPED_REQUIRED["function"]["parameters"]["properties"]
+    assert arguments["operation"] in schema["operation"]["enum"]
+    assert arguments["scope"] in schema["scope"]["enum"]
+    assert arguments["limit"] is None or isinstance(arguments["limit"], int)
+    assert arguments["target"]["kind"] in schema["target"]["properties"]["kind"]["enum"]
+    assert isinstance(arguments["target"]["id"], str)
+
+
+class TestPromptCoherenceWithEnumAndUnionArguments:
+    """Required arguments whose schema names the allowed values (enum), a
+    union of types, or a nested object with its own required keys get an
+    example that satisfies that schema — a model shown `"operation": "..."`
+    for an enum learns an argument the tool will reject."""
+
+    TOOLS = [MANAGE_SCOPED_REQUIRED]
+
+    @pytest.mark.asyncio
+    async def test_generate_with_tools(self, client, fake_native_model, wired_checkpoint):
+        config = _config(fake_native_model)
+        await client.generate_with_tools(
+            [{"role": "user", "content": "hi"}], config, config.system_message, tools=self.TOOLS,
+        )
+        text = _system_text(wired_checkpoint.tokenizer.calls[-1])
+        _assert_example_names_are_offered_or_generic(text, self.TOOLS)
+        _assert_scoped_arguments_satisfy_their_schema(_example_arguments(text))
+
+    @pytest.mark.asyncio
+    async def test_stream_with_tools(self, client, fake_native_model, wired_checkpoint):
+        config = _config(fake_native_model)
+        await _drain_stream_with_tools(client, [{"role": "user", "content": "hi"}], config, self.TOOLS)
+        text = _system_text(wired_checkpoint.tokenizer.calls[-1])
+        _assert_scoped_arguments_satisfy_their_schema(_example_arguments(text))
+
+    def test_prepared_request_accounting(self, client, fake_native_model, wired_checkpoint):
+        config = _config(fake_native_model)
+        counter = client.messages_token_counter(config)
+        counter(config.system_message, [{"role": "user", "content": "hi"}], self.TOOLS)
+        text = _system_text(wired_checkpoint.tokenizer.calls[-1])
+        _assert_scoped_arguments_satisfy_their_schema(_example_arguments(text))
 
 
 class TestPromptCoherenceWithNoTools:

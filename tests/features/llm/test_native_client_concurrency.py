@@ -1195,12 +1195,14 @@ class TestLifecycleCancellationBoundaries:
         def _patched_build_chat(self, messages, system_message, image_data):
             result = real_build_chat(self, messages, system_message, image_data)
             # `_leased`'s own acquire/placement (no CUDA here, so no
-            # placement submission at all) have already gone through the
-            # ORIGINAL default executor by this point — occupying the
-            # (one-worker) executor only NOW means `_run`'s later
-            # submission, not the acquire, is what ends up genuinely
+            # placement submission at all) have already gone through this
+            # loop's ORIGINAL executor by this point — installing the
+            # one-worker executor for the loop only NOW means `_run`'s
+            # later submission, not the acquire, is what ends up genuinely
             # pending.
-            asyncio.get_running_loop().set_default_executor(one_worker)
+            monkeypatch.setitem(
+                native_module._EXECUTORS_BY_LOOP, asyncio.get_running_loop(), one_worker,
+            )
             one_worker.submit(_occupy)
             assert occupy_started.wait(timeout=_BOUND), "the occupying task never started"
             return result
@@ -1237,12 +1239,38 @@ class TestLifecycleCancellationBoundaries:
         # `monkeypatch` fixture) — `monkeypatch.undo()` would revert all of
         # them at once.
         monkeypatch.setattr(NativeLLMClient, "_build_chat", real_build_chat)
-        asyncio.get_running_loop().set_default_executor(
-            concurrent.futures.ThreadPoolExecutor(thread_name_prefix="asyncio")
-        )
+        # Dropping the loop's registry entry restores the default: the next
+        # submission lazily creates a fresh, normally-sized executor.
+        native_module._EXECUTORS_BY_LOOP.pop(asyncio.get_running_loop(), None)
         response = await client.generate_with_history(
             [{"role": "user", "content": "second"}], config, config.system_message,
         )
+        assert response.provider_id == "native"
+
+
+class TestUvloopSubmission:
+    """Both launch paths run this app on uvloop (`api.py` passes
+    `loop="uvloop"`; `run.sh`'s uvicorn auto-loop prefers it), and a uvloop
+    `Loop` has NO `_default_executor` attribute at all — reading one raises
+    `AttributeError`, and assigning one is worse still because uvloop accepts
+    the attribute and never consults it. So every `_submit_cancellable`
+    boundary must go through an executor this module owns, proven here by
+    driving a real entry point on a real uvloop loop rather than by poking at
+    the helper directly."""
+
+    def test_generate_with_history_runs_on_a_uvloop_loop(self, client, native_checkpoint):
+        uvloop = pytest.importorskip("uvloop")
+        name, _path = native_checkpoint
+        config = _config(name)
+
+        loop = uvloop.new_event_loop()
+        try:
+            response = loop.run_until_complete(client.generate_with_history(
+                [{"role": "user", "content": "hello"}], config, config.system_message,
+            ))
+        finally:
+            loop.close()
+
         assert response.provider_id == "native"
 
 

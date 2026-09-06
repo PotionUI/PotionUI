@@ -74,6 +74,7 @@ import contextvars
 import io
 import json
 import logging
+import os
 import threading
 import uuid
 import weakref
@@ -240,11 +241,30 @@ async def _supervised_teardown(
     )
 
 
+# uvloop — the loop BOTH launch paths run on — has no `_default_executor`
+# attribute at all, and assigning one is worse than reading it: uvloop accepts
+# the attribute and its own `run_in_executor` never consults it. So these
+# submissions own a dedicated executor per running loop instead of borrowing
+# the loop's private default, sized the way asyncio sizes its own.
+_EXECUTORS_BY_LOOP: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, concurrent.futures.ThreadPoolExecutor]" = weakref.WeakKeyDictionary()
+
+
+def _executor_for_loop(loop: asyncio.AbstractEventLoop) -> concurrent.futures.ThreadPoolExecutor:
+    executor = _EXECUTORS_BY_LOOP.get(loop)
+    if executor is None:
+        executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(32, (os.cpu_count() or 1) + 4),
+            thread_name_prefix="native-llm",
+        )
+        _EXECUTORS_BY_LOOP[loop] = executor
+        weakref.finalize(loop, executor.shutdown, wait=False)
+    return executor
+
+
 def _submit_cancellable(fn: Callable[[], Any]) -> "tuple[asyncio.Future, Any, threading.Event, list]":
-    """Submits `fn` to the CURRENT event loop's default executor — the same
-    executor `asyncio.to_thread(fn)` would use, resolved and lazily created
-    exactly the way `loop.run_in_executor(None, ...)` does, so a test can
-    still control it via `loop.set_default_executor` — and returns
+    """Submits `fn` to this client's own executor for the CURRENT event loop
+    (`_executor_for_loop`, registered in `_EXECUTORS_BY_LOOP` — a test can
+    install its own there for a loop), and returns
     `(async_future, raw_future, done, outcome)`:
 
     * `async_future` — await this for the normal result, identical to
@@ -276,10 +296,7 @@ def _submit_cancellable(fn: Callable[[], Any]) -> "tuple[asyncio.Future, Any, th
     stopped.
     """
     loop = asyncio.get_running_loop()
-    executor = loop._default_executor  # noqa: SLF001 - mirrors BaseEventLoop.run_in_executor exactly
-    if executor is None:
-        executor = concurrent.futures.ThreadPoolExecutor(thread_name_prefix="asyncio")
-        loop._default_executor = executor
+    executor = _executor_for_loop(loop)
 
     done = threading.Event()
     outcome: list = []

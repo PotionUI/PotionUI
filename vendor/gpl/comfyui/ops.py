@@ -1201,6 +1201,12 @@ class Fp8ScaledLinear(manual_cast.Linear):
                     # path where the name was never assigned.
                     ws = None
                 fw = None
+            else:
+                # Same one-shot rejection log the single-call site emits (and
+                # the same per-reason dedup set): without it, an ineligible
+                # projection under a chunked caller falls back to dequant for
+                # every chunk of this loop with nothing said.
+                _log_scaled_mm_fast_path_rejection(reject_reason)
 
         def _apply_pre_quant_scale(x_chunk: torch.Tensor) -> torch.Tensor:
             pqs = state["pre_quant_scale"]

@@ -13,6 +13,7 @@ raise the streamed working set) and is neither touched nor tested here.
 from __future__ import annotations
 
 import gc
+import logging
 import weakref
 from unittest.mock import patch
 
@@ -23,7 +24,12 @@ import torch.nn.functional as F
 import src.platform.runtime.native.arch.minimax_h3.model as model_module
 import vendor.gpl.comfyui.ops as wo
 from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Attention
+from src.platform.runtime.native.lora.key_mapping import LoraDelta
+from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
 from vendor.gpl.comfyui.ops import NATIVE_FP8_MATMUL_ENV, disable_weight_init, fp8_ops
+
+from .._quant_layouts import int8_state_dict
+from ..memory.test_partial_prefetch import _install_fake_cuda
 
 
 def _stub_attention_core(monkeypatch) -> None:
@@ -548,3 +554,221 @@ def test_staged_operand_weakref_dies_before_dense_fallback_on_kernel_rejection(m
 
     assert refs                                # a genuine stage did happen (then got rejected)
     assert dead_before_dequant == [True]       # dead by the time the dense fallback ran
+
+
+# --- fast-path rejection is never silent under a chunked caller ------------
+
+def test_prepared_linear_logs_why_the_fast_path_was_skipped(monkeypatch, caplog):
+    """With the gate on, an ineligible projection falls back to dequant for
+    every chunk of the loop -- exactly the blind spot the module header says
+    upstream has and this file's single-call site closes with a one-shot,
+    per-reason log. prepared_linear decides eligibility ONCE per loop, so a
+    silent decision here hides a whole projection, not one call."""
+    wo.reset_scaled_mm_fast_path_rejection_log()
+    attn = _fp8_attn()
+    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    # float32 activation: the fast path takes float16/bfloat16 only.
+    x = torch.randn(1, 9, 16)
+
+    with caplog.at_level(logging.WARNING, logger=wo.logger.name):
+        with torch.no_grad(), attn.qkv_proj.prepared_linear(x) as proj:
+            for c in x.split(4, dim=1):
+                proj(c)
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any(
+        "fast path unavailable" in m and "input_dtype=torch.float32" in m for m in messages
+    ), messages
+    wo.reset_scaled_mm_fast_path_rejection_log()
+
+
+# --- ground-truth parity: bias, ConvRot rotation, adapter deltas ------------
+#
+# Every leaf in this file's other tests is bias-free, un-rotated and
+# adapter-free, so none of them can tell whether prepared_linear's operand
+# carries those three. The references below are built from the ground truth
+# each fixture was quantised FROM (the pre-quantisation float weight, the
+# bias tensor, the delta's own up @ down), never from the layer's own dequant
+# -- so dropping any of the three inside prepared_linear moves the compared
+# output far outside the quantisation tolerance instead of moving both sides
+# together.
+
+_INNER = 16  # heads * head_dim for the default _fp8_attn geometry
+
+
+def _rel_error(got: torch.Tensor, ref: torch.Tensor) -> float:
+    return float((got.float() - ref.float()).abs().mean() / ref.float().abs().mean())
+
+
+def _fp8_leaf(out_f: int, in_f: int, *, seed: int, bias: bool = False):
+    """A bare fp8-scaled leaf at the qkv_proj shape, plus the dense weight and
+    bias a correct dequant must reproduce.
+
+    Bias lives on a bare ``fp8_ops.Linear`` rather than a real
+    MiniMaxH3Attention because that module constructs BOTH its projections
+    ``bias=False`` -- the class carrying the override under test
+    (``Fp8ScaledLinear.prepared_linear``) is the same either way."""
+    g = torch.Generator().manual_seed(seed)
+    w_scale = torch.tensor(0.01)
+    w_fp8 = ((torch.randn(out_f, in_f, generator=g) * 0.05) / w_scale).clamp(-448, 448).to(torch.float8_e4m3fn)
+    sd = {"weight": w_fp8, "weight_scale": w_scale}
+    bias_t = torch.randn(out_f, generator=g) * 0.3 if bias else None
+    if bias_t is not None:
+        sd["bias"] = bias_t
+    lin = fp8_ops.Linear(in_f, out_f, bias=bias)
+    lin.comfy_cast_weights = True
+    lin.load_state_dict(sd, strict=False, assign=True)
+    return lin, w_fp8.float() * w_scale, bias_t
+
+
+def _convrot_qkv_leaf(out_f: int, in_f: int, *, groupsize: int = 16):
+    """A real MiniMaxH3Attention's qkv_proj carrying an int8_tensorwise
+    ConvRot checkpoint: a per-output-channel scale plus the offline Hadamard
+    rotation the loader reads out of the layer's ``comfy_quant`` descriptor
+    and un-rotates at dequant. ``_load_from_state_dict`` (not
+    ``load_state_dict(assign=True)``) because an int8 tensor cannot be
+    assigned to an ``nn.Parameter`` at all -- the same idiom
+    test_int8_convrot.py builds its layers with, and the dequant math is
+    identical on int8-valued float storage.
+
+    ``groupsize`` must divide ``in_f`` and be a power of four; 16 is the only
+    value that satisfies both at this geometry, so it is stated in the
+    descriptor rather than left to the format default."""
+    attn = _fp8_attn()
+    sd, original_w, _codes, _scale = int8_state_dict(
+        out_f, in_f, prefix="qkv_proj.", convrot=True, groupsize=groupsize,
+    )
+    attn.qkv_proj._load_from_state_dict(dict(sd), "qkv_proj.", {}, True, [], [], [])
+    assert attn.qkv_proj.convrot_hadamard is not None
+    return attn.qkv_proj, original_w, None
+
+
+def _qkv_sliced_deltas(in_f: int, inner: int, *, seed: int, rank: int = 4):
+    """Three plain LoRA deltas into the q/k/v thirds of a fused qkv weight --
+    the shape a diffusers-dialect H3 LoRA lands in (see
+    tests/platform/runtime/native/lora/test_minimax_h3_lora.py) and one
+    ``_deltas_output_branch_ok`` accepts, so the fp8 fast path stays eligible
+    too. ``alpha``/``scale`` are deliberately not each other's inverse: the
+    effective factor is ``scale * alpha / rank`` == 1.5, so dropping either
+    term is visible."""
+    g = torch.Generator().manual_seed(seed)
+    alpha, scale = 8.0, 0.75
+    deltas: list[LoraDelta] = []
+    dense_delta = torch.zeros(3 * inner, in_f)
+    for i in range(3):
+        down = torch.randn(rank, in_f, generator=g) * 0.2
+        up = torch.randn(inner, rank, generator=g) * 0.2
+        deltas.append(LoraDelta(
+            down=down, up=up, alpha=alpha, scale=scale, target_slice=(0, i * inner, inner),
+        ))
+        dense_delta[i * inner:(i + 1) * inner] = (up @ down) * (scale * alpha / rank)
+    return deltas, dense_delta
+
+
+def _lora_qkv_leaf(out_f: int, in_f: int, *, seed: int):
+    lin, dense, bias_t = _fp8_leaf(out_f, in_f, seed=seed)
+    deltas, dense_delta = _qkv_sliced_deltas(in_f, _INNER, seed=seed + 40)
+    lin.lora_deltas = deltas
+    return lin, dense + dense_delta, bias_t
+
+
+# leaf kind -> (builder, mean-relative-error budget). The budget is the
+# FIXTURE's own quantisation error against its pre-quantisation ground truth,
+# measured, not guessed: fp8 e4m3 at these magnitudes lands under 1%, while
+# per-output-channel int8 over a 16-wide row is coarser. Every budget is two
+# orders of magnitude below what dropping the thing under test costs --
+# un-rotating nothing, or losing the bias or the deltas, moves the output by
+# more than 100%.
+_PARITY_LEAVES = {
+    "bias": (lambda: _fp8_leaf(3 * _INNER, 16, seed=31, bias=True), 0.01),
+    "convrot": (lambda: _convrot_qkv_leaf(3 * _INNER, 16), 0.05),
+    "lora_sliced_deltas": (lambda: _lora_qkv_leaf(3 * _INNER, 16, seed=33), 0.01),
+}
+
+
+@pytest.mark.parametrize("leaf_kind", sorted(_PARITY_LEAVES))
+def test_prepared_chunked_projection_matches_the_ground_truth_dense_reference(leaf_kind):
+    build, budget = _PARITY_LEAVES[leaf_kind]
+    leaf, dense_weight, bias = build()
+    # Fixed generator, not global RNG: the budget below is a measured
+    # quantisation-error figure, and a per-run activation would let it drift.
+    x = torch.randn(1, 9, 16, generator=torch.Generator().manual_seed(5))
+
+    with torch.no_grad(), leaf.prepared_linear(x) as proj:
+        got = torch.cat([proj(c) for c in x.split(4, dim=1)], dim=1)
+
+    reference = F.linear(x, dense_weight, bias)
+    assert _rel_error(got, reference) < budget
+
+
+@pytest.mark.parametrize("leaf_kind", ["bias", "lora_sliced_deltas"])
+def test_fp8_fast_path_prepared_chunked_matches_the_ground_truth_dense_reference(
+    leaf_kind, monkeypatch,
+):
+    """The same three-way coverage on the OTHER branch. The bias is not part
+    of the amortised operand there (``_forward_scaled_mm`` reads ``self.bias``
+    per call and hands it to the kernel) and the deltas are added as a
+    post-GEMM output branch, so neither is exercised by the dequant test
+    above. ConvRot has no fast-path variant to cover -- its per-output-channel
+    scale is non-scalar, which the fast path rejects by construction."""
+    leaf, dense_weight, bias = _PARITY_LEAVES[leaf_kind][0]()
+    _install_fake_cuda_residency(monkeypatch, streamed=[leaf.weight])
+    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    kernel_calls: list = []
+    monkeypatch.setattr(torch, "_scaled_mm", _computing_scaled_mm(kernel_calls))
+    x = torch.randn(1, 9, 16, generator=torch.Generator().manual_seed(5)).to(torch.bfloat16)
+
+    with torch.no_grad(), leaf.prepared_linear(x) as proj:
+        got = torch.cat([proj(c) for c in x.split(4, dim=1)], dim=1)
+
+    assert len(kernel_calls) == 3  # the fast branch really ran, once per chunk
+    reference = F.linear(x.float(), dense_weight, None if bias is None else bias.float())
+    # Looser than the dequant test: the fast branch additionally quantises
+    # each chunk's activation to fp8 with a dynamic per-chunk scale.
+    assert _rel_error(got, reference) < 0.05
+
+
+# --- prefetch ownership: the REAL LayerPrefetcher, not a synthetic hook -----
+
+def test_real_layer_prefetcher_sends_every_chunk_through_ordinary_dispatch(monkeypatch):
+    """The hook guard's whole point is LayerPrefetcher (memory/partial.py),
+    which registers a forward PRE and a forward POST hook on every streamed
+    leaf. A synthetic pre-hook stands in for it elsewhere in this file; this
+    test installs the real thing over a real MiniMaxH3Attention through the
+    real ``ModuleStreamer.apply`` and proves the guard fires for it: the
+    prepared operand is never reused (one preparation per chunk, exactly as
+    if prepared_linear did not exist), while the chunked output is unchanged.
+
+    CPU-only: only partial.py's CUDA stream/event/copy primitives are faked
+    (``_install_fake_cuda``, the same seam test_partial_prefetch.py uses) --
+    the streamer, the plan, the prefetcher and its hooks are all real."""
+    attn = _fp8_attn()
+    _stub_attention_core(monkeypatch)
+    x = torch.randn(1, 9, 16)
+    with torch.no_grad():
+        reference = attn(x, None, None, seq_chunk_rows=4)
+
+    _install_fake_cuda(monkeypatch)
+    plan = plan_residency_split(attn, resident_budget_gb=0.0)
+    streamer = ModuleStreamer(attn, prefetch=True)
+    streamer.apply("cuda:0", plan, pin=False, non_blocking=True)
+    try:
+        assert streamer.prefetcher is not None
+        assert attn.qkv_proj._forward_pre_hooks and attn.qkv_proj._forward_hooks
+
+        with torch.no_grad():
+            attn(x, None, None, seq_chunk_rows=4)  # forward #1: records execution order
+
+        prep_calls = _spy(monkeypatch, attn.qkv_proj, "_prepare_dequant_operand")
+        with torch.no_grad():
+            out = attn(x, None, None, seq_chunk_rows=4)  # forward #2: genuine prefetch hits
+
+        # Once per chunk, NOT once for the loop: the prefetcher owns this leaf
+        # and its hooks must keep firing per chunk.
+        assert len(prep_calls) == 3
+        assert streamer.prefetcher.max_staged > 0  # the prefetcher really staged something
+        torch.testing.assert_close(out, reference, rtol=1e-5, atol=1e-6)
+    finally:
+        streamer.teardown()

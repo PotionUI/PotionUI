@@ -1,9 +1,11 @@
 <script lang="ts">
 	// Collapsed-by-default: the gantt's bars and ticks already carry the
 	// overview, so the raw grouped status entries are detail worth a click,
-	// not the first thing on the page.
+	// not the first thing on the page. Boxed like a DetailSection, with the
+	// whole header as the toggle.
 	import { processTemplateString, removePipeFromMessage } from '$lib/utils/templateProcessor';
 	import { Badge } from '$lib/components/ui';
+	import { sectionBoxClass } from '$lib/components/detail/detailSection';
 	import Icon from '$lib/components/Icon.svelte';
 	import type { RunReportPipeTimer } from '$lib/services/admin-api';
 	import { formatPipeTiming, type GroupedStatusEntry } from './runReport';
@@ -20,23 +22,24 @@
 	let entryCount = $derived([...byPipe.values()].reduce((sum, items) => sum + items.length, 0));
 </script>
 
-<div class="bg-surface-1 border border-line rounded-lg overflow-hidden">
+<section class={sectionBoxClass(false)}>
 	<button
 		type="button"
-		class="w-full flex items-center justify-between gap-3 px-4 sm:px-5 py-3 text-left hover:bg-surface-2/40 transition-colors duration-100"
+		class="w-full flex items-center justify-between gap-3 px-4 sm:px-5 py-3 text-left hover:bg-surface-2/40 transition-colors duration-100 {expanded ? 'border-b border-line' : ''}"
 		onclick={() => (expanded = !expanded)}
+		aria-expanded={expanded}
 	>
-		<div class="flex items-center gap-2">
-			<h3 class="text-sm font-medium text-fg">Status log</h3>
+		<span class="flex items-center gap-2 min-w-0">
+			<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted truncate">Status log</h3>
 			<span class="font-mono text-2xs tabular-nums text-fg-subtle">
 				{entryCount === 0 ? 'no entries' : `${entryCount} ${entryCount === 1 ? 'entry' : 'entries'}`}
 			</span>
-		</div>
-		<Icon name="chevron-right" className="w-3.5 h-3.5 text-fg-subtle transition-transform duration-150 {expanded ? 'rotate-90' : ''}" />
+		</span>
+		<Icon name="chevron-down" className="w-3.5 h-3.5 text-fg-muted transition-transform {expanded ? '' : '-rotate-90'}" />
 	</button>
 
 	{#if expanded}
-		<div class="px-4 sm:px-5 pb-4 space-y-2 border-t border-line pt-3">
+		<div class="px-4 sm:px-5 py-4 space-y-2">
 			{#if entryCount === 0}
 				<p class="text-xs text-fg-subtle">No status entries were recorded for this run.</p>
 			{:else}
@@ -45,7 +48,7 @@
 					{@const executionTime = formatPipeTiming(pipeTimers[pipeKey])}
 
 					{#each items as item, i (i)}
-						<div class="grid grid-cols-12 gap-3 items-center bg-surface-2/40 border border-line rounded p-2">
+						<div class="grid grid-cols-12 gap-3 items-center bg-surface-2/40 border border-line rounded p-2.5">
 							<div class="col-span-3 sm:col-span-2 flex items-center gap-1.5 min-w-0">
 								<Icon name="generation" className="w-3 h-3 text-fg-subtle flex-shrink-0" />
 								<span class="text-xs font-mono text-fg-muted truncate">{pipeLabel}</span>
@@ -77,4 +80,4 @@
 			{/if}
 		</div>
 	{/if}
-</div>
+</section>

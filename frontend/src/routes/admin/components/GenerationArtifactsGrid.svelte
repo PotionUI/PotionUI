@@ -5,6 +5,7 @@
 	import type { RunReportArtifact } from '$lib/services/admin-api';
 	import { artifactRendererRegistry } from '$lib/registries/artifactRendererRegistry';
 	import FallbackArtifact from '$lib/components/generation/artifacts/FallbackArtifact.svelte';
+	import { DetailSection } from '$lib/components/detail';
 	import '$lib/generation/artifacts/builtin';
 	import { artifactsForPipe, type GroupedStatusEntry } from './runReport';
 
@@ -30,42 +31,42 @@
 </script>
 
 {#if pipeSections.length > 0}
-	<div class="bg-surface-1 border border-line rounded-lg p-4 sm:p-5 space-y-5">
-		<h3 class="text-sm font-medium text-fg">Artifacts</h3>
-
-		{#each pipeSections as section (section.pipeKey)}
-			{@const totalRenderedPrompts = section.artifacts.filter((a) => a.artifact_type === 'rendered_prompt').length}
-			<div>
-				<p class="text-2xs font-mono uppercase tracking-[0.07em] text-fg-subtle mb-2">{section.pipeLabel}</p>
-				<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-					{#each section.artifacts as artifact, i (i)}
-						<div
-							class="bg-surface-2/60 border border-line rounded-lg p-3 {artifact.artifact_type === 'compare_images'
-								? 'sm:col-span-2'
-								: ''}"
-						>
-							<div class="mb-2">
-								<span class="text-2xs font-mono uppercase tracking-[0.07em] text-fg-subtle">
-									{artifact.artifact_type.replace(/_/g, ' ')}
-								</span>
+	<DetailSection label="Artifacts">
+		<div class="space-y-5">
+			{#each pipeSections as section (section.pipeKey)}
+				{@const totalRenderedPrompts = section.artifacts.filter((a) => a.artifact_type === 'rendered_prompt').length}
+				<div>
+					<p class="text-2xs font-mono uppercase tracking-[0.07em] text-fg-subtle mb-2">{section.pipeLabel}</p>
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+						{#each section.artifacts as artifact, i (i)}
+							<div
+								class="bg-surface-2/60 border border-line rounded-lg p-3 {artifact.artifact_type === 'compare_images'
+									? 'sm:col-span-2'
+									: ''}"
+							>
+								<div class="mb-2">
+									<span class="text-2xs font-mono uppercase tracking-[0.07em] text-fg-subtle">
+										{artifact.artifact_type.replace(/_/g, ' ')}
+									</span>
+								</div>
+								<div class="text-xs text-fg-muted">
+									{#if artifact.omitted}
+										<p class="text-fg-subtle">
+											Payload not recorded (<span class="font-mono tabular-nums">{artifact.omitted.bytes}</span> bytes,
+											{artifact.omitted.reason.replace(/_/g, ' ')})
+										</p>
+									{:else}
+										{#await artifactRendererRegistry.resolve(artifact.artifact_type) then resolvedComponent}
+											{@const ArtifactComponent = resolvedComponent ?? FallbackArtifact}
+											<ArtifactComponent artifact={artifact as never} totalImages={totalRenderedPrompts} {promptTemplate} />
+										{/await}
+									{/if}
+								</div>
 							</div>
-							<div class="text-xs text-fg-muted">
-								{#if artifact.omitted}
-									<p class="text-fg-subtle">
-										Payload not recorded (<span class="font-mono tabular-nums">{artifact.omitted.bytes}</span> bytes,
-										{artifact.omitted.reason.replace(/_/g, ' ')})
-									</p>
-								{:else}
-									{#await artifactRendererRegistry.resolve(artifact.artifact_type) then resolvedComponent}
-										{@const ArtifactComponent = resolvedComponent ?? FallbackArtifact}
-										<ArtifactComponent artifact={artifact as never} totalImages={totalRenderedPrompts} {promptTemplate} />
-									{/await}
-								{/if}
-							</div>
-						</div>
-					{/each}
+						{/each}
+					</div>
 				</div>
-			</div>
-		{/each}
-	</div>
+			{/each}
+		</div>
+	</DetailSection>
 {/if}

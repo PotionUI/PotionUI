@@ -260,6 +260,40 @@ describe('GenerationRunReport', () => {
 		expect(mounted.text()).toContain('no recorded status, artifact, or plugin output entries');
 	});
 
+	it('serves output thumbnails through the media route with a size query, never the stored path', async () => {
+		mounted = mount(
+			baseGeneration({
+				files: [
+					{
+						id: 'f1',
+						generation_id: 'gen-1',
+						file_path: 'generations/2026-08-14/gen-1/out.png',
+						file_type: 'image',
+						is_final: true,
+						thumbnail_medium: 'generations/2026-08-14/gen-1/thumbs/out_medium.jpg'
+					},
+					{
+						id: 'f2',
+						generation_id: 'gen-1',
+						file_path: 'generations/2026-08-14/gen-1/clip.mp4',
+						file_type: 'video',
+						is_final: false
+					}
+				] as never
+			}),
+			null
+		);
+		await settle();
+
+		const images = Array.from(mounted.target.querySelectorAll('img')).map((img) => img.getAttribute('src'));
+		expect(images).toEqual(['/api/media/generations/gen-1/out.png?size=medium']);
+		const links = Array.from(mounted.target.querySelectorAll('a[href^="/api/media/generations/"]')).map((a) =>
+			a.getAttribute('href')
+		);
+		expect(links).toEqual(['/api/media/generations/gen-1/out.png', '/api/media/generations/gen-1/clip.mp4']);
+		expect(mounted.text()).toContain('2 files');
+	});
+
 	it('shows the predates-persistence empty state when there is no run report at all', async () => {
 		mounted = mount(baseGeneration({ has_run_report: false }), null);
 		await settle();

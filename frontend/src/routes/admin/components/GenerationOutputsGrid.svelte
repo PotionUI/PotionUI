@@ -2,9 +2,11 @@
 	// Servable URLs for generation files aren't carried on the `GenerationFile`
 	// type (no persisted `url` column) - every history viewer derives them the
 	// same way from the generation id + the file_path's basename
-	// (GenerationDetailsModal.getImageUrl), reused here rather than duplicated.
+	// (GenerationDetailsModal.getImageUrl). The thumbnail columns hold storage
+	// paths, not URLs: a thumbnail is served by the same route with `?size=`.
 	import type { GenerationFile } from '$lib/types/history';
 	import { Badge, EmptyState } from '$lib/components/ui';
+	import { DetailSection } from '$lib/components/detail';
 	import Icon from '$lib/components/Icon.svelte';
 
 	let { generationId, files }: { generationId: string; files: GenerationFile[] } = $props();
@@ -15,8 +17,8 @@
 	}
 
 	function thumbnail(file: GenerationFile): string | null {
-		if (file.file_type === 'video') return file.thumbnail_medium ?? null;
-		if (file.file_type === 'image') return file.thumbnail_medium ?? fileUrl(file);
+		if (file.thumbnail_medium) return `${fileUrl(file)}?size=medium`;
+		if (file.file_type === 'image') return fileUrl(file);
 		return null;
 	}
 
@@ -29,18 +31,17 @@
 	let sorted = $derived([...files].sort((a, b) => Number(b.is_final) - Number(a.is_final)));
 </script>
 
-<div class="bg-surface-1 border border-line rounded-lg p-4 sm:p-5">
-	<div class="flex items-center justify-between mb-3">
-		<h3 class="text-sm font-medium text-fg">Outputs</h3>
-		<span class="font-mono text-2xs tabular-nums text-fg-subtle uppercase tracking-[0.07em]">
+<DetailSection label="Outputs">
+	{#snippet headerExtra()}
+		<span class="font-mono text-2xs tabular-nums text-fg-subtle">
 			{files.length} file{files.length === 1 ? '' : 's'}
 		</span>
-	</div>
+	{/snippet}
 
 	{#if sorted.length === 0}
 		<EmptyState icon="image" title="No output files" description="This generation produced no files." compact />
 	{:else}
-		<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+		<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
 			{#each sorted as file (file.id)}
 				<a
 					href={fileUrl(file)}
@@ -68,4 +69,4 @@
 			{/each}
 		</div>
 	{/if}
-</div>
+</DetailSection>

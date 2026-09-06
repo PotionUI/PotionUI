@@ -6,6 +6,7 @@
 	import type { RunReport } from '$lib/services/admin-api';
 	import { buildPipeTimeline, type GroupedStatusEntry } from './runReport';
 	import { formatDurationMs } from '$lib/components/generation-panel/barState';
+	import { DetailSection } from '$lib/components/detail';
 
 	let {
 		report,
@@ -31,13 +32,10 @@
 	}
 </script>
 
-<div class="bg-surface-1 border border-line rounded-lg p-4 sm:p-5">
-	<div class="flex items-center justify-between mb-4">
-		<h3 class="text-sm font-medium text-fg">Pipe timeline</h3>
-		<span class="font-mono text-2xs tabular-nums text-fg-subtle uppercase tracking-[0.07em]">
-			{formatDurationMs(timeline.spanMs)} total
-		</span>
-	</div>
+<DetailSection label="Pipe timeline">
+	{#snippet headerExtra()}
+		<span class="font-mono text-2xs tabular-nums text-fg-subtle">{formatDurationMs(timeline.spanMs)} total</span>
+	{/snippet}
 
 	<div class="grid" style="grid-template-columns: minmax(96px, 12ch) 1fr;">
 		{#each timeline.bars as bar (bar.pipeKey)}
@@ -104,7 +102,7 @@
 			{/each}
 		</div>
 	</div>
-</div>
+</DetailSection>
 
 <style>
 	@media (prefers-reduced-motion: no-preference) {

@@ -266,9 +266,9 @@
 				</Pane>
 			</div>
 
-			<div slot="detail" class="h-full min-h-0 flex flex-col overflow-y-auto">
+			<div slot="detail" class="h-full min-h-0 flex flex-col">
 				{#if !selectedGenerationId}
-					<div class="flex-1 p-5 flex items-center justify-center">
+					<div class="flex-1 p-5 flex items-center justify-center bg-surface-2">
 						<EmptyState
 							icon="generation"
 							title="Select a generation"
@@ -277,21 +277,19 @@
 						/>
 					</div>
 				{:else if detailLoading}
-					<div class="flex-1 flex items-center justify-center">
+					<div class="flex-1 flex items-center justify-center bg-surface-2">
 						<Spinner size="lg" />
 					</div>
 				{:else if detailError}
-					<div class="flex-1 p-5 flex items-center justify-center">
+					<div class="flex-1 p-5 flex items-center justify-center bg-surface-2">
 						<EmptyState title="Could not load generation" description={detailError} icon="warning" compact />
 					</div>
 				{:else if detail}
-					<div class="p-4 sm:p-5">
-						<GenerationRunReport
-							generation={detail.generation}
-							report={detail.run_report}
-							username={usernameFor(detail.generation.user_id)}
-						/>
-					</div>
+					<GenerationRunReport
+						generation={detail.generation}
+						report={detail.run_report}
+						username={usernameFor(detail.generation.user_id)}
+					/>
 				{/if}
 			</div>
 		</MasterDetailLayout>

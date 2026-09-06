@@ -1,0 +1,34 @@
+{
+  "source": "https://github.com/OpenVDN/vdn-minimax-h3",
+  "tree": "b8cb28fbfca0266d1c7742a9f25ab8b58191de97",
+  "licence": "Apache-2.0",
+  "generator": "generate_linear_branch_golden.py (run from an OpenVDN checkout, see its docstring)",
+  "seed": 20260906,
+  "torch": "2.12.1+cu130",
+  "config": {
+    "hidden": 16,
+    "heads": 2,
+    "head_dim": 8,
+    "num_frames": 9,
+    "frame_height": 2,
+    "frame_width": 3,
+    "tokens_per_frame": 6,
+    "text_len": 3,
+    "global_len": 2,
+    "video_start": 5,
+    "seq_len": 59,
+    "chunk": 2,
+    "radius": 1,
+    "delta_rule": "vdn_solve",
+    "bridge": "alpha",
+    "short_conv": [
+      "k",
+      "v"
+    ]
+  },
+  "cases": {
+    "anchors": "skip_ends=True, text state on (the released anchor_frames='both')",
+    "no_anchors": "skip_ends=False, text state on",
+    "no_text": "skip_ends=True, both scans start from zero"
+  }
+}

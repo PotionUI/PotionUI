@@ -1296,14 +1296,63 @@ class NativeLLMClient:
         return completion_outcome.unknown(None)
 
     @staticmethod
+    def _placeholder_value(schema: Any) -> Any:
+        """A type-appropriate stand-in for a required argument's value,
+        read from its own JSON-schema fragment — never an empty object,
+        which would misrepresent a parameter the tool actually requires."""
+        schema_type = schema.get("type") if isinstance(schema, dict) else None
+        if schema_type in ("number", "integer"):
+            return 0
+        if schema_type == "boolean":
+            return False
+        if schema_type == "array":
+            return []
+        if schema_type == "object":
+            return {}
+        return "..."
+
+    @staticmethod
+    def _example_tool_call(tools: List[Dict[str, Any]]) -> str:
+        """A concrete `<tool_call>` example built ONLY from the tools
+        actually supplied for THIS request — the example must never name a
+        tool the caller didn't offer, and never claim empty arguments for a
+        tool that requires some. Prefers the first tool with no required
+        properties (a genuinely empty `{}` call is honest there); falls
+        back to the first tool whose required properties can each be
+        filled with a type-appropriate placeholder drawn from its own
+        schema; if neither is possible (e.g. every tool needs arguments
+        this schema can't confidently synthesize), falls back to
+        schema-free generic guidance with a clearly non-callable name
+        placeholder instead of inventing one.
+        """
+        named = [
+            (fn.get("name"), fn.get("parameters") or {})
+            for fn in (t.get("function", t) for t in tools)
+            if fn.get("name")
+        ]
+
+        for name, params in named:
+            if not (params.get("required") or []):
+                return f"<tool_call>{json.dumps({'name': name, 'arguments': {}})}</tool_call>"
+
+        for name, params in named:
+            required = params.get("required") or []
+            properties = params.get("properties") or {}
+            if required and all(key in properties for key in required):
+                arguments = {key: NativeLLMClient._placeholder_value(properties[key]) for key in required}
+                return f"<tool_call>{json.dumps({'name': name, 'arguments': arguments})}</tool_call>"
+
+        return '<tool_call>{"name": "<tool name>", "arguments": {...}}</tool_call>'
+
+    @staticmethod
     def _inject_tools_into_system_message(system_message: Optional[str], tools: Optional[List[Dict]]) -> str:
         if not tools:
             return system_message or ""
+        example = NativeLLMClient._example_tool_call(tools)
         lines = [
             "\n\nYou have access to the following tools. To call one, respond with "
             "EXACTLY one <tool_call>{\"name\": \"...\", \"arguments\": {...}}</tool_call> "
-            "block and nothing else — for example "
-            "<tool_call>{\"name\": \"get_form_state\", \"arguments\": {}}</tool_call>. "
+            f"block and nothing else — for example {example}. "
             "Do not wrap a call in a <tool_action> tag or a code fence; only a "
             "<tool_call> block runs.",
         ]

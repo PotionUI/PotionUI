@@ -499,6 +499,56 @@ def test_inject_tools_into_system_message_names_the_tool():
     assert "base prompt" in text
     assert "do_thing" in text
     assert "<tool_call>" in text
+    # The concrete example must never name a tool that wasn't actually
+    # offered — "get_form_state" is not among the supplied tools here.
+    assert "get_form_state" not in text
+
+
+def test_inject_tools_into_system_message_example_uses_a_supplied_tool_with_required_args():
+    """A tool that HAS required parameters must still get a concrete
+    example, with a placeholder value per required key — never an empty
+    argument object misrepresenting the tool as parameter-free."""
+    text = NativeLLMClient._inject_tools_into_system_message(
+        "base prompt",
+        [{
+            "function": {
+                "name": "set_value",
+                "description": "sets a value",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"key": {"type": "string"}, "amount": {"type": "integer"}},
+                    "required": ["key", "amount"],
+                },
+            },
+        }],
+    )
+    assert "set_value" in text
+    assert "get_form_state" not in text
+    example_start = text.index("for example ")
+    example = text[example_start:text.index("</tool_call>", example_start) + len("</tool_call>")]
+    assert '"name": "set_value"' in example
+    assert '"arguments": {}' not in example
+    assert '"key"' in example and '"amount"' in example
+
+
+def test_inject_tools_into_system_message_falls_back_to_generic_guidance_when_no_safe_example_exists():
+    """Every supplied tool requires arguments this schema can't confidently
+    fill (a required key absent from `properties`) — the example must
+    degrade to generic, non-callable guidance rather than invent a name or
+    claim empty arguments for a tool that needs some."""
+    text = NativeLLMClient._inject_tools_into_system_message(
+        "base prompt",
+        [{
+            "function": {
+                "name": "risky_tool",
+                "description": "needs an arg this schema can't describe",
+                "parameters": {"type": "object", "required": ["undocumented_arg"]},
+            },
+        }],
+    )
+    assert "get_form_state" not in text
+    assert '"name": "risky_tool"' not in text
+    assert "<tool name>" in text
 
 
 def test_inject_tools_into_system_message_noop_without_tools():

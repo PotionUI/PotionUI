@@ -76,6 +76,7 @@ installed_presets.json
 
 # User-owned content roots - yours, never committed
 content/presets/local/
+content/presets/.import-*
 content/automation/local/
 content/recipes/local/
 content/plugins/local/

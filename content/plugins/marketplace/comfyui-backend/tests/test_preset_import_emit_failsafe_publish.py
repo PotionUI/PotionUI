@@ -162,7 +162,7 @@ class TestFailedOverwritePreservesThePreviousPreset:
             )
 
         assert not first.preset_dir.exists()
-        backups = list(first.preset_dir.parent.glob(".backup-*"))
+        backups = list(dest_root.resolve().parent.glob(".import-backup-*"))
         assert len(backups) == 1
         assert _snapshot(backups[0]) == before
 
@@ -278,3 +278,150 @@ class TestApiSurfacesPublicationFailuresCleanly:
         assert exc_info.value.status_code == 400
         assert reload_calls == []
         assert _snapshot(result.preset_dir) == before
+
+
+def _discoverable(dest_root: Path) -> dict:
+    """What the two scanners would find under `dest_root` at this instant:
+    every `preset.yml` the core catalogue's `rglob` would reach
+    (`src/features/presets/loader.py`), and every directory under the root -
+    `rglob` descends into dot-prefixed directories and the plugin's own
+    `_scan_imported_presets` filters none out, so a hidden name is not a
+    hiding place."""
+    if not dest_root.exists():
+        return {"presets": [], "dirs": []}
+    return {
+        "presets": sorted(str(p.relative_to(dest_root)) for p in dest_root.rglob("preset.yml")),
+        "dirs": sorted(str(p.relative_to(dest_root)) for p in dest_root.rglob("*") if p.is_dir()),
+    }
+
+
+def _scanned_dirs(dest_root, monkeypatch) -> list:
+    """The plugin's own importer listing, run against `dest_root`."""
+    monkeypatch.setattr(api, "_IMPORTED_PRESETS_ROOT", dest_root)
+    return [entry.dir for entry in api._scan_imported_presets()]
+
+
+class TestNothingIsDiscoverableWhileAnImportIsInFlight:
+    """The staging and backup directories must be unreachable by both
+    scanners for the whole window they exist - observed DURING the write and
+    DURING the swap, not after cleanup has already tidied them away."""
+
+    @pytest.fixture()
+    def dest_root(self, tmp_path):
+        return tmp_path / "presets"
+
+    def test_a_partially_staged_first_import_is_invisible_mid_write(self, dest_root, monkeypatch):
+        observed = {}
+        original = emit._write_file
+        calls = {"n": 0}
+
+        def probe_then_fail(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 3:  # preset.yml and description.md are already staged
+                observed.update(_discoverable(dest_root))
+                raise RuntimeError("injected failure")
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(emit, "_write_file", probe_then_fail)
+
+        workflow, form = _checkpoint_form()
+        with pytest.raises(PresetEmitError):
+            emit_preset(
+                workflow, form, [], model_family="MidWriteFresh", variant="v1",
+                display_name="X", dest_root=dest_root,
+            )
+
+        assert observed["presets"] == []
+        assert observed["dirs"] == ["MidWriteFresh"]
+
+    def test_a_partially_staged_overwrite_shows_only_the_published_preset_mid_write(self, dest_root, monkeypatch):
+        first = _emit(dest_root, model_family="MidWriteOverwrite")
+        observed = {}
+        original = emit._write_file
+        calls = {"n": 0}
+
+        def probe_then_fail(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 3:
+                observed.update(_discoverable(dest_root))
+                raise RuntimeError("injected failure")
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(emit, "_write_file", probe_then_fail)
+
+        workflow, form = _checkpoint_form()
+        with pytest.raises(PresetEmitError):
+            emit_preset(
+                workflow, form, [], model_family="MidWriteOverwrite", variant="v1",
+                display_name="X renamed", dest_root=dest_root,
+                overwrite=True, preset_id=first.preset_id,
+            )
+
+        assert observed["presets"] == ["MidWriteOverwrite/v1/preset.yml"]
+        assert not [d for d in observed["dirs"] if Path(d).name.startswith(".")]
+
+    def test_the_preset_is_never_listed_twice_across_the_publication_swap(self, dest_root, monkeypatch):
+        """Between the two renames the target is briefly absent - the
+        documented limit of a two-rename swap. What must never happen is the
+        same preset being listed twice, which is what a staging or backup
+        directory inside the scanned root would cause."""
+        first = _emit(dest_root, model_family="SwapVisible")
+        monkeypatch.setattr(api, "_IMPORTED_PRESETS_ROOT", dest_root)
+
+        observations = []
+        original = emit._replace_dir
+
+        def observe_then_replace(src, dst):
+            observations.append({
+                **_discoverable(dest_root),
+                "scanned": [str(e.dir.relative_to(dest_root)) for e in api._scan_imported_presets()],
+            })
+            return original(src, dst)
+
+        monkeypatch.setattr(emit, "_replace_dir", observe_then_replace)
+
+        workflow, form = _checkpoint_form()
+        emit_preset(
+            workflow, form, [], model_family="SwapVisible", variant="v1",
+            display_name="X renamed", dest_root=dest_root,
+            overwrite=True, preset_id=first.preset_id,
+        )
+
+        # Before the swap starts: the staging directory is fully written and
+        # only the published preset is listed.
+        assert observations[0]["presets"] == ["SwapVisible/v1/preset.yml"]
+        assert observations[0]["scanned"] == ["SwapVisible/v1"]
+        # Between the two renames: the backup holds the previous preset and
+        # must not surface as a second copy of it.
+        assert observations[1]["presets"] == []
+        assert observations[1]["scanned"] == []
+
+    def test_a_preserved_backup_is_not_discoverable_as_a_preset(self, dest_root, monkeypatch):
+        first = _emit(dest_root, model_family="PreservedBackup")
+        before = _snapshot(first.preset_dir)
+
+        calls = {"n": 0}
+
+        def failing_replace(src, dst):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                os.replace(src, dst)
+                return
+            raise RuntimeError(f"injected failure #{calls['n']}")
+
+        monkeypatch.setattr(emit, "_replace_dir", failing_replace)
+
+        workflow, form = _checkpoint_form()
+        with pytest.raises(PresetEmitError, match="restore"):
+            emit_preset(
+                workflow, form, [], model_family="PreservedBackup", variant="v1",
+                display_name="X renamed", dest_root=dest_root,
+                overwrite=True, preset_id=first.preset_id,
+            )
+
+        backups = list(dest_root.resolve().parent.glob(".import-backup-*"))
+        assert len(backups) == 1
+        assert _snapshot(backups[0]) == before
+        assert dest_root.resolve() not in backups[0].parents
+        assert _discoverable(dest_root)["presets"] == []
+        assert _scanned_dirs(dest_root, monkeypatch) == []

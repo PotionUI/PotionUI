@@ -225,11 +225,13 @@ def _replace_dir(src: Path, dst: Path) -> None:
     os.replace(src, dst)
 
 
-def _publish_preset_dir(target_dir: Path, staging_dir: Path) -> None:
+def _publish_preset_dir(target_dir: Path, staging_dir: Path, *, temp_root: Path) -> None:
     """Swap a fully-written `staging_dir` into `target_dir`'s place.
 
-    Sequence: rename `target_dir` aside to a backup (only if it currently
-    exists), rename `staging_dir` into `target_dir`, then drop the backup.
+    Sequence: rename `target_dir` aside to a backup under `temp_root` (only
+    if it currently exists), rename `staging_dir` into `target_dir`, then
+    drop the backup. `temp_root` is outside every scanned preset root, so a
+    backup that outlives the swap is never discoverable as a preset.
     On any failure in either rename, `target_dir` is put back exactly as it
     was - the backup (if one was made) is renamed back into place - and
     `staging_dir` is discarded; a `PresetEmitError` is raised naming the
@@ -248,7 +250,7 @@ def _publish_preset_dir(target_dir: Path, staging_dir: Path) -> None:
     backup_dir: Optional[Path] = None
     try:
         if target_dir.exists():
-            backup_dir = target_dir.parent / f".backup-{target_dir.name}-{uuid.uuid4().hex}"
+            backup_dir = temp_root / f".import-backup-{uuid.uuid4().hex}"
             _replace_dir(target_dir, backup_dir)
         _replace_dir(staging_dir, target_dir)
     except Exception as publish_error:
@@ -1020,13 +1022,19 @@ def emit_preset(
     # or write failure here must never destroy a previously-working preset
     # (an overwrite) or leave a partial directory a later catalogue scan
     # (`rglob("preset.yml")`, see `src/features/presets/loader.py`) could
-    # discover (a first import). `staging_dir` is a hidden sibling of
-    # `preset_dir`, not `preset_dir` itself: it carries no preset.yml of its
-    # own until the final rename swaps it into place, so an in-progress
-    # write is invisible to the scanner regardless of when it runs.
+    # discover (a first import). `staging_dir` and the publication backup
+    # therefore live OUTSIDE `dest_root` entirely, one level above it. A
+    # dot-prefixed name inside the root would not hide them: the catalogue's
+    # `rglob` descends into dot directories, and this plugin's own
+    # `_scan_imported_presets` iterates every directory under
+    # content/presets/local unfiltered. `dest_root`'s parent is the nearest
+    # place no scanned root contains that is still on the same filesystem,
+    # which is what keeps publication a single rename.
     # ------------------------------------------------------------------
+    temp_root = dest_root_resolved.parent
+    temp_root.mkdir(parents=True, exist_ok=True)
     preset_dir.parent.mkdir(parents=True, exist_ok=True)
-    staging_dir = preset_dir.parent / f".staging-{preset_dir.name}-{uuid.uuid4().hex}"
+    staging_dir = temp_root / f".import-staging-{uuid.uuid4().hex}"
 
     mode_dir = staging_dir / "modes" / mode
     tabs_dir = mode_dir / "tabs"
@@ -1056,7 +1064,7 @@ def emit_preset(
             f"Failed to stage the imported preset for writing: {staging_error}"
         ) from staging_error
 
-    _publish_preset_dir(preset_dir, staging_dir)
+    _publish_preset_dir(preset_dir, staging_dir, temp_root=temp_root)
 
     return EmittedPreset(
         preset_id=preset_id,

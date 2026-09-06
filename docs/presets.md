@@ -1940,11 +1940,13 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    the sidecar carried them) so the wizard can reopen an imported preset exactly as it was built.
 
    **Failure-safe publication.** `import`/reload never write into the live preset directory
-   directly: the replacement preset is fully rendered and written into a hidden staging directory
-   first (a sibling of the target with no `preset.yml` of its own, so the catalogue's `preset.yml`
-   scan never sees it mid-write), then published with a rename-based swap - the existing directory
-   (if any) is renamed aside to a backup, the staging directory is renamed into place, and the
-   backup is dropped. A serialization, write, or rename failure at any point before the swap
+   directly: the replacement preset is fully rendered and written into a staging directory first,
+   then published with a rename-based swap - the existing directory (if any) is renamed aside to a
+   backup, the staging directory is renamed into place, and the backup is dropped. Both the staging
+   directory and the backup live outside every scanned preset root (one level above
+   `content/presets/local`, so the swap is still a same-filesystem rename), which is what makes
+   them undiscoverable: a hidden name inside the root would not do it, because the catalogue's
+   `preset.yml` scan descends into dot directories. A serialization, write, or rename failure at any point before the swap
    completes leaves the existing preset exactly as it was and discards the staging directory; on a
    brand-new import (nothing existing to preserve) the same failure leaves no preset directory
    behind at all, rather than a partial one a later scan could pick up. This is a two-rename swap,
@@ -1954,7 +1956,8 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    (a full disk, a permission error, a bug), not a mid-swap power loss. In the (pathological)
    case where even restoring the backup fails, the backup directory is never deleted - the error
    names its path so the previous preset's content can be moved back to the target directory by
-   hand.
+   hand. A backup preserved that way sits outside the preset roots too, so it is never listed as a
+   preset in the meantime.
 
    **Exact large integers.** A browser's own `JSON.parse`/`JSON.stringify` silently rounds an
    integer literal outside JavaScript's safe range (`Number.MAX_SAFE_INTEGER`, `+/-(2**53-1)`) to

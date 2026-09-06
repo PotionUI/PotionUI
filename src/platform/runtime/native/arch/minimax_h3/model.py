@@ -411,7 +411,7 @@ class MiniMaxH3Block(nn.Module):
 
     def forward(self, x: Tensor, temb: Tensor, adaln_indices: Tensor, rotary_emb: tuple[Tensor, Tensor],
                 sparse_attn: SolAttnContext | SlaAttnContext | None = None,
-                seq_chunk_rows: int = 0) -> Tensor:
+                seq_chunk_rows: int = 0, vdn_layout=None) -> Tensor:
         # The AdaLN table inherits temb's fp32 (the time embedder is an fp32
         # island); applying it as-is would promote the whole packed stream to
         # fp32 for every block downstream — fp32 attention loses the flash
@@ -429,7 +429,11 @@ class MiniMaxH3Block(nn.Module):
         residual = x
         h = self.norm1(x)
         h = h * (1.0 + scale_msa.index_select(0, adaln_indices)) + shift_msa.index_select(0, adaln_indices)
-        h = self.attn(h, rotary_emb, sparse_attn, seq_chunk_rows)
+        # Only the VDN wrapper takes a layout; the dense attention has no such
+        # parameter, so a layout is passed rather than defaulted through.
+        h = (self.attn(h, rotary_emb, sparse_attn, seq_chunk_rows, vdn_layout)
+             if vdn_layout is not None
+             else self.attn(h, rotary_emb, sparse_attn, seq_chunk_rows))
         x = residual + gate_msa.index_select(0, adaln_indices) * h
 
         residual = x
@@ -692,7 +696,7 @@ class MiniMaxH3Model(NativeArchModule):
                                      generated_video_indices: Tensor, generated_audio_indices: Tensor,
                                      step_cache=None,
                                      sparse_attn: SolAttnContext | SlaAttnContext | None = None,
-                                     seq_chunk_rows: int = 0,
+                                     seq_chunk_rows: int = 0, vdn_layout=None,
                                      ) -> tuple[Tensor, Tensor | None, bool]:
         """Run the block stack, optionally gated by FBCache (see
         ``sampling/step_cache.py``).
@@ -714,6 +718,11 @@ class MiniMaxH3Model(NativeArchModule):
         a short text-only sequence with no rotary embedding and no packed
         prefix to keep exact — nothing either sparse-attention method's
         routing has anything to route over.
+
+        ``vdn_layout`` reaches only this stack for the same reason: the refiner
+        has no frame axis to window and no video rows for the linear branch to
+        run on. It changes nothing about the FBCache probe — the cache reads
+        block 0's output, whichever attention produced it.
         """
         # A dense-forced step exists precisely to run the real model, so the
         # cache is offered no say in it: decided here, before block 0, so the
@@ -724,7 +733,8 @@ class MiniMaxH3Model(NativeArchModule):
         may_skip = step_cache is not None and not (sparse_attn is not None and sparse_attn.dense)
         probe = None
         for i, block in enumerate(self.blocks):
-            hidden_states = block(hidden_states, temb, adaln_indices, rotary_emb, sparse_attn, seq_chunk_rows)
+            hidden_states = block(hidden_states, temb, adaln_indices, rotary_emb, sparse_attn,
+                                  seq_chunk_rows, vdn_layout)
             if i == 0 and step_cache is not None:
                 probe = GroupedProbe(
                     video=hidden_states.index_select(1, generated_video_indices),
@@ -820,6 +830,17 @@ class MiniMaxH3Model(NativeArchModule):
         bound — so a quantized MLP still dequantizes/stages ``fc1`` and
         ``fc2`` on every chunk; pick the chunk size with that cost in mind.
 
+        ``vdn_layout`` (keyword, optional): a
+        :class:`~src.platform.runtime.native.arch.minimax_h3.vdn.layout.VdnLayout`
+        describing the packed sequence's video block and the softmax window,
+        which puts every main block's attention on the VDN hybrid path. It
+        requires a model that :func:`~src.platform.runtime.native.arch.minimax_h3.vdn.attach.attach_vdn_branch`
+        has already run over, and is mutually exclusive with both
+        ``sparse_attn_ctx`` and ``seq_chunk_rows`` — all three re-decide which
+        keys a query sees, or which rows exist at once, so they are refused
+        together rather than interleaved. Absent (the default) an attached
+        model's forward is byte-identical to the dense one's.
+
         ``prepared_context`` (keyword, optional): a
         :class:`PreparedTextContext` from :meth:`prepare_text_context`,
         replayed in place of a fresh ``_prepare_context`` call when it is
@@ -895,13 +916,28 @@ class MiniMaxH3Model(NativeArchModule):
         step_cache = kwargs.pop("step_cache", None)
         sparse_attn_ctx = kwargs.pop("sparse_attn_ctx", None)
         seq_chunk_rows = kwargs.pop("seq_chunk_rows", 0)
+        vdn_layout = kwargs.pop("vdn_layout", None)
+        if vdn_layout is not None:
+            if not getattr(self.blocks[0].attn, "vdn_branch_attached", False):
+                raise ValueError(
+                    "vdn_layout was passed but this model carries no VDN branch; run "
+                    "attach_vdn_branch(model, branch_state_dict) first"
+                )
+            if sparse_attn_ctx is not None or seq_chunk_rows:
+                raise ValueError(
+                    "VDN re-decides which keys every query sees and its linear branch "
+                    "needs all video rows at once, so it is mutually exclusive with "
+                    f"sparse attention (sparse_attn_ctx="
+                    f"{type(sparse_attn_ctx).__name__ if sparse_attn_ctx is not None else None}) "
+                    f"and sequence chunking (seq_chunk_rows={seq_chunk_rows}); drop one of them"
+                )
         num_condition_video_rows = int(kwargs.pop("num_condition_video_rows", 0))
         num_condition_audio_rows = int(kwargs.pop("num_condition_audio_rows", 0))
         packed, probe, skipped = self._process_transformer_blocks(
             packed, temb, adaln_indices, rotary_emb,
             video_indices[num_condition_video_rows:], audio_indices[num_condition_audio_rows:],
             step_cache=step_cache, sparse_attn=sparse_attn_ctx,
-            seq_chunk_rows=seq_chunk_rows,
+            seq_chunk_rows=seq_chunk_rows, vdn_layout=vdn_layout,
         )
         if skipped:
             return step_cache.record_skip()

@@ -313,14 +313,22 @@ class TestJoinedAnalyzePreviewImportReloadThenChecker:
         self, monkeypatch, _imported_root
     ):
         _mock_object_info(monkeypatch)
+        monkeypatch.setattr(api, "_get_comfyui_base_url", lambda: BASE)
 
         analyze_result = await api.analyze_workflow(api.AnalyzeWorkflowRequest(workflow=_WORKFLOW), current_user=None)
         candidate = next(c for c in analyze_result["candidates"] if c["input_name"] == "unet_name")
         assert candidate["suggested_folder"] == "unet_gguf"
 
-        preview_result = await api.preview_workflow_requirements(
-            api.AnalyzeWorkflowRequest(workflow=_WORKFLOW), current_user=None
-        )
+        # The preview runs the real checker: serve its listings from the same
+        # fake server as the final checker step, never the network.
+        preview_patcher, _preview_session = patch_session({
+            f"{BASE}/models/unet_gguf": _http_404,
+            f"{BASE}/models/diffusion_models": FakeResponse(["flux1-dev-Q4_K_S.gguf"]),
+        })
+        with preview_patcher:
+            preview_result = await api.preview_workflow_requirements(
+                api.AnalyzeWorkflowRequest(workflow=_WORKFLOW), current_user=None
+            )
         model_results = [r for r in preview_result["results"] if r["type"] == "comfyui_model"]
         assert [r["name"] for r in model_results] == ["flux1-dev-Q4_K_S.gguf"]
 

@@ -326,9 +326,10 @@ class TestJoinedThroughRequirementsPreview:
     folder's listing exactly once between them."""
 
     @pytest.mark.asyncio
-    async def test_two_requirement_entries_sharing_a_folder_fetch_it_once(self):
+    async def test_two_requirement_entries_sharing_a_folder_fetch_it_once(self, monkeypatch):
         from backend import api
 
+        monkeypatch.setattr(api, "_get_comfyui_base_url", lambda: BASE)
         gate = asyncio.Event()
         gate.set()
         routes = {f"{BASE}/models/loras": GatedResponse(["a.safetensors", "b.safetensors"], gate)}

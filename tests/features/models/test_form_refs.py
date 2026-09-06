@@ -210,3 +210,46 @@ def test_digest_conflict_is_reported_even_when_other_models_resolve_cleanly(repo
                 {"checkpoint": fr.make_model_ref("good"), "lora": fr.make_model_ref("conflicted")},
                 "comfy",
             )
+
+
+def test_collect_model_refs_records_every_occurrence_with_its_path():
+    """Unlike `collect_model_ids`, a reference picked twice is two entries, each
+    with the exact dict-key / list-index route the bundle importer rewrites."""
+    form = {
+        "checkpoint": fr.make_model_ref("m1"),
+        "refiner": fr.make_model_ref("m1"),
+        "loras": [{"model": fr.make_model_ref("m2"), "strength": 0.8}],
+        "caption": "m1",
+    }
+    assert fr.collect_model_refs(form) == [
+        {"path": ["checkpoint"], "model_id": "m1"},
+        {"path": ["refiner"], "model_id": "m1"},
+        {"path": ["loras", 0, "model"], "model_id": "m2"},
+    ]
+
+
+def test_get_at_path_returns_the_sentinel_for_any_stale_path():
+    form = {"loras": [{"model": "a"}], "checkpoint": "c"}
+    assert fr.get_at_path(form, ["loras", 0, "model"]) == "a"
+    assert fr.get_at_path(form, ["loras", 1, "model"]) is fr._MISSING
+    assert fr.get_at_path(form, ["missing"]) is fr._MISSING
+    assert fr.get_at_path(form, ["checkpoint", "deeper"]) is fr._MISSING
+    assert fr.get_at_path(form, ["loras", "model"]) is fr._MISSING
+
+
+def test_set_at_path_copies_only_the_containers_on_the_path():
+    form = {"loras": [{"model": "a", "strength": 0.5}, {"model": "b"}], "checkpoint": "c"}
+    out = fr.set_at_path(form, ["loras", 0, "model"], "X")
+    assert out["loras"][0] == {"model": "X", "strength": 0.5}
+    assert out["loras"][1] is form["loras"][1]
+    assert form["loras"][0]["model"] == "a"
+    assert out["checkpoint"] == "c"
+
+
+def test_set_at_path_is_a_no_op_for_a_stale_path_and_keeps_tuples_as_tuples():
+    form = {"loras": ({"model": "a"},), "checkpoint": "c"}
+    assert fr.set_at_path(form, ["loras", 3, "model"], "X") == form
+    assert fr.set_at_path(form, ["missing"], "X") is form
+    out = fr.set_at_path(form, ["loras", 0, "model"], "X")
+    assert isinstance(out["loras"], tuple)
+    assert out["loras"][0]["model"] == "X"

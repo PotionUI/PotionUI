@@ -536,6 +536,45 @@ class TestExportImportRoundTrip:
         ]
         assert result["warnings"] == []
 
+    def test_import_of_v2_bundle_warns_when_a_recorded_path_no_longer_holds_its_filename(self):
+        """A v2 manifest records where each model reference sat at export time.
+        If that field has since been edited to something else, the importer must
+        neither overwrite the edited value nor stay silent about the reference it
+        could not restore - the same explain-don't-guess rule the v1 branch
+        applies to ambiguous filenames.
+        """
+        from src.features.models.form_refs import make_model_ref
+
+        doc = _valid_document(
+            form_data={
+                "prompt": "a cat",
+                "diffusion_model": "edited-by-hand.safetensors",
+                "vae": "weights.safetensors",
+            },
+            model_refs=[
+                {"path": ["diffusion_model"], "model_type": "checkpoint", "filename": "weights.safetensors", "sha256": None},
+                {"path": ["vae"], "model_type": "vae", "filename": "weights.safetensors", "sha256": None},
+            ],
+        )
+        doc["schema_version"] = 2
+        doc["models"] = [
+            {"model_type": "checkpoint", "filename": "weights.safetensors"},
+            {"model_type": "vae", "filename": "weights.safetensors"},
+        ]
+
+        self._add_model_row("weights.safetensors", "checkpoint")
+        vae_id = self._add_model_row("weights.safetensors", "vae")
+
+        archive = self._make_archive()
+        result = archive.import_bundle(json.dumps(doc).encode("utf-8"))
+
+        imported_form = result["reuse"]["form_data"]
+        assert imported_form["diffusion_model"] == "edited-by-hand.safetensors"
+        assert imported_form["vae"] == make_model_ref(vae_id)
+        stale = [w for w in result["warnings"] if "diffusion_model" in w and "weights.safetensors" in w]
+        assert len(stale) == 1, result["warnings"]
+        assert "no longer holds" in stale[0]
+
     def test_import_of_v1_bundle_resolves_unambiguous_filenames_and_flags_type_collisions(self):
         """A v1 bundle (no `model_refs`) has no path information, so a filename
         shared by two model types in the bundle's own `models` list can't be

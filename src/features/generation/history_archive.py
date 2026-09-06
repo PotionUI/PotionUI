@@ -889,7 +889,13 @@ class GenerationHistoryArchive:
             if get_at_path(form_data, path) != filename:
                 # The manifest's path no longer matches the exported filename -
                 # form_data was edited by something else since export. Leaving it
-                # alone beats overwriting a value the manifest no longer describes.
+                # alone beats overwriting a value the manifest no longer describes,
+                # and the importer hears why that field stayed a bare value.
+                location = "/".join(str(step) for step in path)
+                warnings.append(
+                    f"Model reference at '{location}' no longer holds '{filename}' "
+                    "(the form data changed since export), so it was left unresolved"
+                )
                 continue
             form_data = set_at_path(form_data, path, make_model_ref(model_id))
         return form_data, warnings

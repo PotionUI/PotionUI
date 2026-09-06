@@ -361,13 +361,35 @@
 		return `${wh.width ?? 0}x${wh.height ?? 0}`;
 	}
 
+	// `hydrateItem` returns null for an item that must not exist in `form`
+	// at all (see its tagged-default branch); every container hydrates its
+	// children through here so such an item is dropped once, at the single
+	// point where the wire shape becomes the edited shape.
+	function hydrateItems(items) {
+		return (items || []).map(hydrateItem).filter((it) => it !== null);
+	}
+
 	function hydrateItem(it) {
 		const _id = uid('item');
-		if (it.kind === 'row') return { _id, kind: 'row', columns: it.columns || 2, items: (it.items || []).map(hydrateItem) };
-		if (it.kind === 'group') return { _id, kind: 'group', title: it.title || 'Group', items: (it.items || []).map(hydrateItem) };
+		if (it.kind === 'row') return { _id, kind: 'row', columns: it.columns || 2, items: hydrateItems(it.items) };
+		if (it.kind === 'group') return { _id, kind: 'group', title: it.title || 'Group', items: hydrateItems(it.items) };
 		if (it.kind === 'section')
-			return { _id, kind: 'section', title: it.title || 'Section', collapsed: !!it.collapsed, items: (it.items || []).map(hydrateItem) };
+			return { _id, kind: 'section', title: it.title || 'Section', collapsed: !!it.collapsed, items: hydrateItems(it.items) };
 		if (it.kind === 'header') return { _id, kind: 'header', text: it.text || '' };
+		if (isExactIntTag(it.default)) {
+			// A mapped field's default the server had to tag (see
+			// `isExactIntTag`) - this happens for an "obvious" field the
+			// backend maps automatically (default_form) or a field an
+			// existing preset's stored sidecar already mapped, when its
+			// literal is too large for this editor to hold as a Number.
+			// Editing it would round it, and posting it unmapped is refused
+			// outright (schema.validate_against_workflow: "has no
+			// mappings"), so there is no such field: the workflow's own
+			// baked-in literal, untouched by field_mappings, stays
+			// authoritative - see emit.py's module docstring. The left
+			// panel still lists the input with its exact digits, locked.
+			return null;
+		}
 		const field = {
 			_id,
 			kind: 'field',
@@ -378,22 +400,6 @@
 			config: it.config ?? null,
 			mappings: (it.mappings || []).map((m) => ({ ...m }))
 		};
-		if (isExactIntTag(field.default)) {
-			// A mapped field's default the server had to tag (see
-			// `isExactIntTag`) - this happens for an "obvious" field the
-			// backend maps automatically (default_form) or a field an
-			// existing preset's stored sidecar already mapped, when its
-			// literal is too large for this editor to hold as a Number.
-			// Keeping it mapped would either display "[object Object]" or,
-			// on save, bake the tag object itself into the preset. Drop the
-			// mapping instead: the workflow's own baked-in literal (never
-			// touched by an unmapped field) stays authoritative - see
-			// emit.py's module docstring. `_exactLiteralDigits` drives the
-			// read-only "kept as imported" note in fieldCard below.
-			field._exactLiteralDigits = exactIntDigits(field.default);
-			field.default = null;
-			field.mappings = [];
-		}
 		if (field.field_type === 'resolution') {
 			const wh = parseWh(field.default);
 			if (wh) field._wh = wh;
@@ -408,7 +414,7 @@
 		// FormTab validator applies server-side, so an old sidecar still
 		// loads with a sane display mode.
 		const icon_display = t.icon_display ?? (icon ? 'icon_only' : 'label');
-		return { id: t.id || uid('tab'), label: t.label || 'Tab', icon, icon_display, items: (t.items || []).map(hydrateItem) };
+		return { id: t.id || uid('tab'), label: t.label || 'Tab', icon, icon_display, items: hydrateItems(t.items) };
 	}
 
 	function hydrateForm(raw) {
@@ -1415,7 +1421,6 @@
 	}
 
 	function displayDefault(item) {
-		if (item._exactLiteralDigits) return item._exactLiteralDigits;
 		if (item._wh) return `${item._wh.width ?? ''} × ${item._wh.height ?? ''}`;
 		const d = item.default;
 		if (Array.isArray(d)) return `${d.length} item${d.length === 1 ? '' : 's'}`;
@@ -2008,8 +2013,6 @@
 				inputmode={INT_FIELD_TYPES.has(item.field_type) || NUMERIC_FIELD_TYPES.has(item.field_type) ? 'decimal' : undefined}
 				value={displayDefault(item)}
 				oninput={(e) => setDefaultFromText(item, e.currentTarget.value)}
-				readonly={!!item._exactLiteralDigits}
-				title={item._exactLiteralDigits ? `Original value ${item._exactLiteralDigits} is larger than this editor can represent exactly - kept as imported, unmapped.` : undefined}
 				aria-label="Default value"
 			/>
 			<div class="di-field-actions">
@@ -2030,11 +2033,7 @@
 				<button type="button" class="iconbtn" title="Remove" onclick={() => removeItemAt(parentItems, index)} data-action="remove">{@render icon('x')}</button>
 			</div>
 		</div>
-		{#if item._exactLiteralDigits}
-			<div class="di-mapping" title={`This value (${item._exactLiteralDigits}) is larger than the editor can represent exactly, so it was left unmapped - the workflow's own original value is used as-is.`}>
-				<span class="line mono">{@render icon('lock', 10)}kept as imported: {item._exactLiteralDigits}</span>
-			</div>
-		{:else if item.mappings.length > 0}
+		{#if item.mappings.length > 0}
 			<div class="di-mapping"><span class="line mono"><span class="arrow">→</span>{item.mappings.map((m) => `${m.node_id}.inputs.${m.input_name}`).join(' · ')}</span></div>
 		{:else if !dismissedSuggestionIds[item._id]}
 			{@const suggestions = nameMatchSuggestionsFor(item)}

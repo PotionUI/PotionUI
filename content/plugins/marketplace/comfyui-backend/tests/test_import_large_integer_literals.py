@@ -335,3 +335,118 @@ class TestSchemaDriftUnaffectedByWorkflowText:
             )
         except PresetEmitError as e:
             pytest.fail(f"unexpected schema-drift refusal: {e}")
+
+
+def _wizard_form_from_default(default_form: dict) -> dict:
+    """The `form` the wizard actually posts for `default_form`: its
+    `hydrateItem` drops any item whose `default` arrived tagged, because
+    such a field can neither be edited without rounding nor posted unmapped
+    (`validate_against_workflow` refuses a field with no mappings). Mirrors
+    ImportWorkflowTab.svelte's own hydration, so this test posts the shape
+    the shipped dist produces."""
+
+    def prune(items: list) -> list:
+        kept = []
+        for item in items:
+            default = item.get("default")
+            if item.get("kind") == "field" and isinstance(default, dict) and "__exact_int__" in default:
+                continue
+            if "items" in item:
+                item["items"] = prune(item["items"])
+            kept.append(item)
+        return kept
+
+    form = copy.deepcopy(default_form)
+    for tab in form["tabs"]:
+        tab["items"] = prune(tab["items"])
+    return form
+
+
+class TestImportingAnAutoMappedOversizedLiteral:
+    """The end-to-end shape the wizard posts when the backend's own
+    `default_form` auto-mapped an "obvious" input whose literal had to be
+    tagged: the field is not in the form at all, and the import succeeds
+    with the workflow's baked-in literal left exactly as authored."""
+
+    @pytest.fixture()
+    def dest_root(self, tmp_path, monkeypatch):
+        root = tmp_path / "presets"
+        monkeypatch.setattr(api, "_IMPORTED_PRESETS_ROOT", root)
+        return root
+
+    async def _analyze(self, workflow: dict):
+        return await api.analyze_workflow(
+            api.AnalyzeWorkflowRequest(workflow=workflow, workflow_text=_exact_text(workflow)),
+            current_user=None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_wizards_payload_imports_and_keeps_the_literal_byte_exact(self, dest_root):
+        exact = _with_literal("3", "steps", JUST_OVER_SAFE)
+        analysis = await self._analyze(exact)
+        assert _find_field(analysis["default_form"]["tabs"][0]["items"], "steps")["default"] == {
+            "__exact_int__": str(JUST_OVER_SAFE)
+        }, "precondition: the backend auto-maps steps with a tagged default"
+
+        form = _wizard_form_from_default(analysis["default_form"])
+        assert _find_field_or_none(form["tabs"][0]["items"], "steps") is None
+
+        body = api.ImportWorkflowRequest(
+            workflow=exact,
+            workflow_text=_exact_text(exact),
+            form=form,
+            history=[],
+            model_family="AutoMappedExact",
+            variant="imported",
+            display_name="Auto-mapped Exact",
+            schema_fingerprint=analysis["schema_fingerprint"],
+            schema_object_info_used=analysis["object_info_used"],
+        )
+
+        response = await api.import_workflow(body, current_user=None)
+
+        preset_dir = Path(response["path"])
+        workflow_text = (
+            preset_dir / "modes" / response["mode"] / "files" / "workflows" / f"{response['mode']}.json"
+        ).read_text()
+        assert f'"steps": {JUST_OVER_SAFE}' in workflow_text
+        assert json.loads(workflow_text)["3"]["inputs"]["steps"] == JUST_OVER_SAFE
+
+        sidecar = json.loads((preset_dir / "import.json").read_text())
+        assert _find_field_or_none(sidecar["form"]["tabs"][0]["items"], "steps") is None
+        assert (preset_dir / "modes" / response["mode"] / "tabs" / "generation.yml").read_text().count("steps") == 0
+
+        # Reload re-reads the preset's own stored files - the literal must
+        # survive that round trip too.
+        await api.reload_imported_preset(response["preset_id"], current_user=None)
+        assert json.loads(workflow_text)["3"]["inputs"]["steps"] == JUST_OVER_SAFE
+
+    @pytest.mark.asyncio
+    async def test_keeping_the_field_with_no_mappings_is_refused_by_name(self, dest_root):
+        """The contract the payload above is shaped around: a form entry
+        with an empty `mappings` is a 400, naming the field."""
+        exact = _with_literal("3", "steps", JUST_OVER_SAFE)
+        analysis = await self._analyze(exact)
+
+        form = copy.deepcopy(analysis["default_form"])
+        steps = _find_field(form["tabs"][0]["items"], "steps")
+        steps["default"] = None
+        steps["mappings"] = []
+
+        body = api.ImportWorkflowRequest(
+            workflow=exact,
+            workflow_text=_exact_text(exact),
+            form=form,
+            history=[],
+            model_family="UnmappedExact",
+            variant="imported",
+            display_name="Unmapped Exact",
+            schema_fingerprint=analysis["schema_fingerprint"],
+            schema_object_info_used=analysis["object_info_used"],
+        )
+
+        with pytest.raises(Exception) as exc_info:
+            await api.import_workflow(body, current_user=None)
+
+        assert exc_info.value.status_code == 400
+        assert "field 'steps': has no mappings" in exc_info.value.detail

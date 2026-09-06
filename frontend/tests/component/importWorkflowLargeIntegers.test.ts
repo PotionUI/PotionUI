@@ -7,7 +7,8 @@
 // as `workflow_text`, untouched by this app's own JSON.parse/JSON.stringify,
 // and a response value the backend had to tag (`{__exact_int__: "..."}`)
 // because it can't survive a browser's JSON.parse as a Number must render
-// correctly and never be offered as an editable mapped field.
+// correctly, never be offered as an editable mapped field, and never reach
+// the posted form at all (the server refuses a field with no mappings).
 import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
 import { mkdirSync, copyFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -139,6 +140,51 @@ function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 400) {
 	return { ok, status, json: async () => body } as Response;
 }
 
+// The real POST /presets/import refuses a form entry with no mappings:
+// `parse_form` -> `validate_against_workflow` raises "field '<name>': has no
+// mappings" (backend/preset_import/schema.py), which api.py turns into a
+// 400. Only a `lora_picker` is exempt (GRAPH_WIRED_FIELD_TYPES - the emitter
+// wires that one into the graph itself). The mock below applies the same
+// rule, so this fixture can no longer accept a payload the server rejects.
+const GRAPH_WIRED_FIELD_TYPES = new Set(['lora_picker']);
+
+function fieldsWithoutMappings(items: any[], acc: string[] = []): string[] {
+	for (const it of items || []) {
+		if (it.kind === 'field') {
+			if ((it.mappings || []).length === 0 && !GRAPH_WIRED_FIELD_TYPES.has(it.field_type)) acc.push(it.field_name);
+		} else if (it.items) {
+			fieldsWithoutMappings(it.items, acc);
+		}
+	}
+	return acc;
+}
+
+function importResponse(body: any) {
+	const offenders = (body.form?.tabs || []).flatMap((t: any) => fieldsWithoutMappings(t.items));
+	if (offenders.length > 0) {
+		return jsonResponse({ detail: `Invalid form/history payload: field '${offenders[0]}': has no mappings` }, false);
+	}
+	return jsonResponse(IMPORT_RESULT);
+}
+
+function findPostedField(form: any, fieldName: string): any {
+	const walk = (items: any[]): any => {
+		for (const it of items || []) {
+			if (it.kind === 'field' && it.field_name === fieldName) return it;
+			if (it.items) {
+				const found = walk(it.items);
+				if (found) return found;
+			}
+		}
+		return null;
+	};
+	for (const tab of form?.tabs || []) {
+		const found = walk(tab.items);
+		if (found) return found;
+	}
+	return null;
+}
+
 // Same controllable FileReader stand-in as importWorkflowSourceLifetime.test.ts -
 // readAsText does nothing on its own, letting the test control exactly what
 // text the reader "read" (here, the raw workflow text, so this test proves
@@ -185,7 +231,7 @@ afterEach(() => {
 });
 
 describe('ImportWorkflowTab large integer literals (real compiled dist)', () => {
-	it('sends the exact pasted text as workflow_text to analyze/requirements/import, and never offers a tagged literal as an editable field', async () => {
+	it('sends the exact pasted text as workflow_text to analyze/requirements/import, and imports with the tagged literal left out of the form entirely', async () => {
 		const requests: Record<string, any> = {};
 		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
 			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
@@ -200,7 +246,7 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 			}
 			if (url === '/api/plugins/comfyui-backend/presets/import') {
 				requests.import = JSON.parse(String(init?.body));
-				return jsonResponse(IMPORT_RESULT);
+				return importResponse(requests.import);
 			}
 			throw new Error(`Unexpected fetch: ${url}`);
 		});
@@ -232,13 +278,10 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 		expect(stepsRow.querySelector('[data-action="add-input"]')).toBeNull();
 
 		// "steps" arrived already mapped via default_form (an "obvious"
-		// role) - hydration must have dropped that mapping and shown the
-		// "kept as imported" note instead of a garbled numeric default.
-		const stepsCard = el.querySelector('[data-field-name="steps"]')!;
-		expect(stepsCard.querySelector('.di-mapping')?.textContent).toContain('kept as imported');
-		expect(stepsCard.querySelector('.di-mapping')?.textContent).toContain(JUST_OVER_SAFE);
-		expect(stepsCard.querySelector<HTMLInputElement>('.di-field-default')!.value).toBe(JUST_OVER_SAFE);
-		expect(stepsCard.querySelector<HTMLInputElement>('.di-field-default')!.readOnly).toBe(true);
+		// role): hydration drops it from the form outright, so there is no
+		// card for it to garble and nothing to post. The locked left-panel
+		// row above is the whole explanation the admin gets.
+		expect(el.querySelector('[data-field-name="steps"]')).toBeNull();
 
 		// The cfg candidate is ordinary and still addable normally.
 		el.querySelector<HTMLButtonElement>('[data-input-key="3:cfg"] [data-action="add-input"]')!.click();
@@ -264,15 +307,17 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 		el.querySelector<HTMLButtonElement>('button[data-import-create]')!.click();
 		await settle();
 
-		// Import carries the exact text too, and the resubmitted form for
-		// "steps" is unmapped with a null default - never the tag object
-		// itself serialized into the saved preset.
+		// Import carries the exact text too, and the posted form carries no
+		// "steps" entry at all - a mapping-less entry is what the server
+		// refuses, so the import has to succeed without one.
+		expect(el.querySelector('[data-import-create-error]')?.textContent ?? null).toBeNull();
+		expect(el.querySelector('[data-import-open-preset]')).toBeTruthy();
 		expect(requests.import.workflow_text).toBe(RAW_WORKFLOW_TEXT);
-		const stepsField = requests.import.form.tabs[0].items.find((it: any) => it.field_name === 'steps');
-		expect(stepsField.default).toBeNull();
-		expect(stepsField.mappings).toEqual([]);
-		const cfgField = requests.import.form.tabs[0].items.find((it: any) => it.field_name === 'cfg');
-		expect(cfgField.mappings).toEqual([{ node_id: '3', input_name: 'cfg', transform: 'none' }]);
+		expect(findPostedField(requests.import.form, 'steps')).toBeNull();
+		expect(requests.import.form.tabs.flatMap((t: any) => fieldsWithoutMappings(t.items))).toEqual([]);
+		expect(findPostedField(requests.import.form, 'cfg').mappings).toEqual([
+			{ node_id: '3', input_name: 'cfg', transform: 'none' }
+		]);
 
 		unmount(instance);
 	});
@@ -306,7 +351,7 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 			if (url === '/api/plugins/comfyui-backend/presets/import/requirements') return jsonResponse({ results: [] });
 			if (url === '/api/plugins/comfyui-backend/presets/import') {
 				requests.import = JSON.parse(String(init?.body));
-				return jsonResponse(IMPORT_RESULT);
+				return importResponse(requests.import);
 			}
 			throw new Error(`Unexpected fetch: ${url}`);
 		});
@@ -321,11 +366,10 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 
 		// The stored "steps" field default is tagged too (a pre-existing
 		// preset's own sidecar can carry one just as readily as a fresh
-		// default_form) - must hydrate to the same unmapped, exact-noted
-		// shape, not "[object Object]" or a rounded number typed into place.
-		const stepsCard = el.querySelector('[data-field-name="steps"]')!;
-		expect(stepsCard.querySelector('.di-mapping')?.textContent).toContain('kept as imported');
-		expect(stepsCard.querySelector<HTMLInputElement>('.di-field-default')!.value).toBe(JUST_OVER_SAFE);
+		// default_form) - hydration on the reload path drops it the same
+		// way, never showing "[object Object]" or a rounded number.
+		expect(el.querySelector('[data-field-name="steps"]')).toBeNull();
+		expect(el.querySelector('[data-input-key="3:steps"]')!.textContent).toContain(JUST_OVER_SAFE);
 
 		el.querySelector<HTMLButtonElement>('button[data-import-continue-form]')!.click();
 		await settle();
@@ -340,6 +384,9 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 		expect(requests.import.workflow_text).toBe(RAW_WORKFLOW_TEXT);
 		expect(requests.import.workflow_text).not.toContain('__exact_int__');
 		expect(requests.import.overwrite_preset_id).toBe('EXISTING-ID');
+		expect(el.querySelector('[data-import-create-error]')?.textContent ?? null).toBeNull();
+		expect(el.querySelector('[data-import-open-preset]')).toBeTruthy();
+		expect(requests.import.form.tabs.flatMap((t: any) => fieldsWithoutMappings(t.items))).toEqual([]);
 
 		unmount(instance);
 	});
@@ -377,14 +424,13 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 		expect(requests.analyze.workflow_text).toBe(RAW_WORKFLOW_TEXT);
 
 		// Same tagged-literal handling as the paste path: "steps" (mapped
-		// automatically via default_form, per ANALYZE_RESULT) is unmapped
-		// and noted, never garbled.
+		// automatically via default_form, per ANALYZE_RESULT) is left out
+		// of the form and shown only as a locked left-panel row.
 		const stepsRow = el.querySelector('[data-input-key="3:steps"]')!;
 		expect(stepsRow.textContent).toContain('exact literal');
 		expect(stepsRow.textContent).toContain(JUST_OVER_SAFE);
 		expect(stepsRow.querySelector('[data-action="add-input"]')).toBeNull();
-		const stepsCard = el.querySelector('[data-field-name="steps"]')!;
-		expect(stepsCard.querySelector('.di-mapping')?.textContent).toContain('kept as imported');
+		expect(el.querySelector('[data-field-name="steps"]')).toBeNull();
 
 		unmount(instance);
 	});
@@ -401,7 +447,7 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 			if (url === '/api/plugins/comfyui-backend/presets/import/requirements') return jsonResponse({ results: [] });
 			if (url === '/api/plugins/comfyui-backend/presets/import') {
 				requests.import = JSON.parse(String(init?.body));
-				return jsonResponse(IMPORT_RESULT);
+				return importResponse(requests.import);
 			}
 			throw new Error(`Unexpected fetch: ${url}`);
 		});

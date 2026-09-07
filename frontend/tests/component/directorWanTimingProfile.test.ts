@@ -294,7 +294,11 @@ describe('Video Director editor renders the live Wan timing profile end to end',
 		// untrimmed; stitch=false means no join drop -> full 5 frames, no
 		// "new" overlap-in figure at all (hasOverlapIn still true, but
 		// newFrames === contributedFrames === totalFrames here).
-		expect(target.textContent).toContain('5 / 81 frames');
+		// The frame count is an editable input in the shot header; only the
+		// cap and the overlap readout are text.
+		const framesInput = Array.from(target.querySelectorAll<HTMLInputElement>('input')).find((i) => i.value === '5');
+		expect(framesInput).toBeTruthy();
+		expect(target.textContent).toContain('/ 81 frames');
 		expect(target.textContent).toContain('5 new');
 		expect(target.textContent).not.toContain('1 new');
 	});

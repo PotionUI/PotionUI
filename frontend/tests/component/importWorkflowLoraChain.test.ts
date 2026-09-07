@@ -138,7 +138,7 @@ describe('ImportWorkflowTab LoRA chain card (real compiled dist)', () => {
 		unmount(instance);
 	});
 
-	it('Convert to LoRA picker adds the field seeded with both LoRAs in chain order', async () => {
+	it('Convert to LoRA picker adds the field starting empty, never seeded with the chain\'s files', async () => {
 		const el = target();
 		const instance = await mountOnFormStep(el);
 
@@ -148,7 +148,7 @@ describe('ImportWorkflowTab LoRA chain card (real compiled dist)', () => {
 		const card = el.querySelector('[data-field-name="loras"]')!;
 		expect(card).toBeTruthy();
 		expect((card.querySelector('.di-field-type') as HTMLSelectElement).value).toBe('lora_picker');
-		expect((card.querySelector('.di-field-default') as HTMLInputElement).value).toContain('2 item');
+		expect((card.querySelector('.di-field-default') as HTMLInputElement).value).toContain('0 items');
 
 		// Both rows are now marked replaced, and the action button is disabled.
 		expect(el.querySelectorAll('[data-import-lora-chain] .chip-info').length).toBe(2);

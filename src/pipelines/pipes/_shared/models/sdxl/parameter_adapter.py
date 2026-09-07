@@ -24,7 +24,7 @@ class SDXLParameterAdapter:
     - Torch generator creation with proper device and seed
 
     Example:
-        >>> adapter = SDXLParameterAdapter(generation_input)
+        >>> adapter = SDXLParameterAdapter(generation_input, "cuda")
         >>> params = adapter.build_pipeline_params(conditioning, mode="txt2img")
         >>> images = pipeline(**params)
     """

@@ -52,6 +52,7 @@ class TestExtensionlessUploadTyping:
             generation_repo=self.mock_repo,
             file_service=mock_file_service,
             plugin_registry=self.mock_plugins,
+            run_report_repository=Mock(),
         )
 
     async def _upload(self, tmp_path, filename, content, content_type):

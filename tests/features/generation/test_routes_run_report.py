@@ -52,6 +52,7 @@ class TestUserRunReportRead(PersistenceTestBase):
                 generation_repo=self.generation_repo,
                 file_service=Mock(),
                 plugin_registry=Mock(),
+                run_report_repository=Mock(),
             ),
             Mock(),
             self.run_report_recorder,

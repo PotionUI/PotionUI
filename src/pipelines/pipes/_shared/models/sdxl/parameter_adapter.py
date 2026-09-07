@@ -45,15 +45,17 @@ class SDXLParameterAdapter:
         "LCM": "lcm"
     }
 
-    def __init__(self, generation_input: GenerationInput):
+    def __init__(self, generation_input: GenerationInput, device: str):
         """
         Initialize the parameter adapter.
 
         Args:
             generation_input: The high-level generation input containing all
                             parameters from preset forms and pipe configurations
+            device: The pipeline's execution device, where the generator lives
         """
         self.input = generation_input
+        self.device = device
 
     @property
     def sampler(self) -> str:
@@ -188,5 +190,4 @@ class SDXLParameterAdapter:
         if seed is None:
             return None
 
-        device = self.input.get_by_name("device", "cuda")
-        return torch.Generator(device=device).manual_seed(int(seed))
+        return torch.Generator(device=self.device).manual_seed(int(seed))

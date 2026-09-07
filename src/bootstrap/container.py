@@ -1032,6 +1032,7 @@ def build_container() -> AppContainer:
         generation_repo=generation_repository,
         file_service=file_service,
         plugin_registry=plugin_registry,
+        run_report_repository=run_report_repository,
         media_index_repository=media_index_repository,
         settings=settings,
         media_indexer=media_indexer,

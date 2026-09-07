@@ -59,6 +59,7 @@ class TestAdminGenerationsController(PersistenceTestBase):
             generation_repo=self.generation_repo,
             file_service=Mock(),
             plugin_registry=Mock(),
+            run_report_repository=Mock(),
         )
         self.run_report_repository = GenerationRunReportRepository()
         self.run_report_recorder = RunReportRecorder(self.run_report_repository)

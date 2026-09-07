@@ -33,6 +33,7 @@ def _make_manager():
         generation_repo=mock_repo,
         file_service=mock_file_service,
         plugin_registry=mock_plugins,
+        run_report_repository=Mock(),
     )
     return manager, mock_repo, mock_file_service, mock_plugins
 

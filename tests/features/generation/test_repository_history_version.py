@@ -192,6 +192,7 @@ class TestHistoryVersionToken(PersistenceTestBase):
             generation_repo=self.repo,
             file_service=Mock(),
             plugin_registry=Mock(),
+            run_report_repository=Mock(),
         )
         self._create()
 

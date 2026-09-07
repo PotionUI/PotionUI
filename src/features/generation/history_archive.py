@@ -81,6 +81,7 @@ class GenerationHistoryArchive:
         file_service,
         plugin_registry: PluginRegistry,
         query: GenerationHistoryQuery,
+        run_report_repository: GenerationRunReportRepository,
     ):
         """Initialize GenerationHistoryArchive.
 
@@ -89,11 +90,13 @@ class GenerationHistoryArchive:
             file_service: Service for file operations (FileStore)
             plugin_registry: Plugin registry for hook execution
             query: Read-side, reused for ownership checks and tag validation
+            run_report_repository: Run reports own storage keys deleted with the generation
         """
         self.generation_repo = generation_repo
         self.file_service = file_service
         self.plugins = plugin_registry
         self._query = query
+        self.run_report_repository = run_report_repository
 
     def _delete_generation_files(self, generation_id: str, user_id: str) -> Tuple[int, int]:
         """Delete generation files through `self.file_service`.
@@ -123,7 +126,7 @@ class GenerationHistoryArchive:
                     relative_paths.append((base_key / thumbnail).as_posix())
 
         relative_paths.extend(
-            iter_ref_paths(GenerationRunReportRepository().get(generation_id))
+            iter_ref_paths(self.run_report_repository.get(generation_id))
         )
 
         return self.file_service.delete_generation_outputs(relative_paths)

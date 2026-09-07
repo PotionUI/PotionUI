@@ -136,6 +136,11 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
         self.denoising_hooks = {}  # name -> DenoisingHook
         self.applied_lora_stack = None  # ((adapter_name, weight), ...) once fully applied
 
+
+    def _generator_device(self) -> str:
+        if self._inference_device:
+            return self._inference_device
+        return "cuda" if self.config.get("device") == "cuda" and torch.cuda.is_available() else "cpu"
     def register_hook(self, name: str, hook):
         """Register a named denoising hook. Overwrites existing hook with same name."""
         self.denoising_hooks[name] = hook
@@ -880,7 +885,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
         log_memory_usage("BEFORE_TXT2IMG", prefix="[MODEL][SDXL]")
 
         # Use parameter adapter to build pipeline parameters
-        adapter = SDXLParameterAdapter(generation_input)
+        adapter = SDXLParameterAdapter(generation_input, self._generator_device())
         params = adapter.build_pipeline_params(conditioning, mode="txt2img")
 
         # Add callback and guidance_rescale (adapter doesn't handle these yet)
@@ -948,7 +953,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
         self._seed_sampler_noise_stream(seed)
 
         # Use parameter adapter to build pipeline parameters
-        adapter = SDXLParameterAdapter(generation_input)
+        adapter = SDXLParameterAdapter(generation_input, self._generator_device())
         params = adapter.build_pipeline_params(conditioning, mode="img2img")
 
         # Add callback, guidance_rescale, and output_type (adapter doesn't handle these yet)

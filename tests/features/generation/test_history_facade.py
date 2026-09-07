@@ -30,7 +30,8 @@ class TestGenerationHistoryFacadeInit:
         manager = GenerationHistoryFacade(
             generation_repo=mock_repo,
             file_service=mock_file_service,
-            plugin_registry=mock_plugins
+            plugin_registry=mock_plugins,
+            run_report_repository=Mock(),
         )
 
         assert manager.generation_repo is mock_repo
@@ -50,7 +51,8 @@ class TestValidationHelpers:
         self.manager = GenerationHistoryFacade(
             generation_repo=self.mock_repo,
             file_service=self.mock_file_service,
-            plugin_registry=self.mock_plugins
+            plugin_registry=self.mock_plugins,
+            run_report_repository=Mock(),
         )
 
     def test_get_generation_or_raise_found(self):
@@ -141,7 +143,8 @@ class TestValidateDateFilters:
         self.manager = GenerationHistoryFacade(
             generation_repo=self.mock_repo,
             file_service=self.mock_file_service,
-            plugin_registry=self.mock_plugins
+            plugin_registry=self.mock_plugins,
+            run_report_repository=Mock(),
         )
 
     def test_validate_date_filters_valid_date_only(self):
@@ -194,7 +197,8 @@ class TestGetHistory:
         self.manager = GenerationHistoryFacade(
             generation_repo=self.mock_repo,
             file_service=self.mock_file_service,
-            plugin_registry=self.mock_plugins
+            plugin_registry=self.mock_plugins,
+            run_report_repository=Mock(),
         )
 
     def test_get_history_success(self):
@@ -255,7 +259,8 @@ class TestGetById:
         self.manager = GenerationHistoryFacade(
             generation_repo=self.mock_repo,
             file_service=self.mock_file_service,
-            plugin_registry=self.mock_plugins
+            plugin_registry=self.mock_plugins,
+            run_report_repository=Mock(),
         )
 
     @patch('src.features.tags.repository.tag_repo')
@@ -368,7 +373,8 @@ class TestDelete:
         self.manager = GenerationHistoryFacade(
             generation_repo=self.mock_repo,
             file_service=self.mock_file_service,
-            plugin_registry=self.mock_plugins
+            plugin_registry=self.mock_plugins,
+            run_report_repository=Mock(),
         )
 
     def test_delete_success(self):
@@ -454,7 +460,8 @@ class TestBulkDelete:
         self.manager = GenerationHistoryFacade(
             generation_repo=self.mock_repo,
             file_service=self.mock_file_service,
-            plugin_registry=self.mock_plugins
+            plugin_registry=self.mock_plugins,
+            run_report_repository=Mock(),
         )
 
     def test_bulk_delete_empty_list(self):
@@ -519,7 +526,8 @@ class TestUploadGenerations:
         self.manager = GenerationHistoryFacade(
             generation_repo=self.mock_repo,
             file_service=self.mock_file_service,
-            plugin_registry=self.mock_plugins
+            plugin_registry=self.mock_plugins,
+            run_report_repository=Mock(),
         )
 
     @pytest.mark.asyncio
@@ -591,7 +599,8 @@ class TestUploadGenerationsFileTypes:
         return GenerationHistoryFacade(
             generation_repo=self.mock_repo,
             file_service=mock_file_service,
-            plugin_registry=self.mock_plugins
+            plugin_registry=self.mock_plugins,
+            run_report_repository=Mock(),
         )
 
     @pytest.mark.asyncio
@@ -699,6 +708,7 @@ class TestUploadGenerationsRealPersistence:
             generation_repo=GenerationRepository(),
             file_service=FileStore(str(test_storage)),
             plugin_registry=_NoopUploadPluginRegistry(),
+            run_report_repository=Mock(),
         )
 
     @pytest.mark.asyncio
@@ -752,7 +762,8 @@ class TestTagOperations:
         self.manager = GenerationHistoryFacade(
             generation_repo=self.mock_repo,
             file_service=self.mock_file_service,
-            plugin_registry=self.mock_plugins
+            plugin_registry=self.mock_plugins,
+            run_report_repository=Mock(),
         )
 
     @patch('src.features.tags.repository.tag_repo')
@@ -856,7 +867,8 @@ class TestHookExecution:
         self.manager = GenerationHistoryFacade(
             generation_repo=self.mock_repo,
             file_service=self.mock_file_service,
-            plugin_registry=self.mock_plugins
+            plugin_registry=self.mock_plugins,
+            run_report_repository=Mock(),
         )
 
     def test_execute_hook_returns_context_data(self):
@@ -914,7 +926,8 @@ class TestGenerationModelsAreUserFacing:
         out explicitly — otherwise sha256, file_path and file_size ride along into the
         user-facing generation details modal."""
         manager = GenerationHistoryFacade(
-            generation_repo=Mock(), file_service=Mock(), plugin_registry=Mock()
+            generation_repo=Mock(), file_service=Mock(), plugin_registry=Mock(),
+            run_report_repository=Mock(),
         )
         generation = Mock()
         generation.user_id = 'u1'
@@ -978,7 +991,8 @@ class TestHasProfileFlag:
         (pdir / 'profile.jsonl').write_text('{}\n')
 
         manager = GenerationHistoryFacade(
-            generation_repo=Mock(), file_service=Mock(), plugin_registry=Mock()
+            generation_repo=Mock(), file_service=Mock(), plugin_registry=Mock(),
+            run_report_repository=Mock(),
         )
         manager.file_service.base_storage_dir = tmp_path
         manager._query.file_service = manager.file_service

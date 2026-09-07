@@ -29,6 +29,7 @@ def make_controller() -> GenerationController:
         generation_repo=Mock(),
         file_service=Mock(),
         plugin_registry=Mock(),
+        run_report_repository=Mock(),
     )
     return GenerationController(
         generation_orchestrator=Mock(),

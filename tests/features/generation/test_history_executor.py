@@ -37,6 +37,7 @@ def make_facade() -> GenerationHistoryFacade:
         generation_repo=Mock(),
         file_service=Mock(),
         plugin_registry=Mock(),
+        run_report_repository=Mock(),
     )
 
 

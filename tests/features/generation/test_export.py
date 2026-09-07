@@ -35,6 +35,7 @@ class TestExportZip:
             generation_repo=self.mock_repo,
             file_service=FileStore(str(storage_root)),
             plugin_registry=self.mock_plugins,
+            run_report_repository=Mock(),
         )
 
     def _write_image_with_metadata(self, path, size=(16, 16), color=(255, 0, 0)):

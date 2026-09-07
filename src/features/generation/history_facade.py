@@ -52,6 +52,7 @@ class GenerationHistoryFacade:
         generation_repo: GenerationRepository,
         file_service: 'FileStore',
         plugin_registry: PluginRegistry,
+        run_report_repository,
         media_index_repository: Optional['MediaIndexRepository'] = None,
         settings: Optional['Settings'] = None,
         media_indexer: Optional['MediaIndexer'] = None,
@@ -63,6 +64,7 @@ class GenerationHistoryFacade:
             generation_repo: Repository for generation data access
             file_service: Service for file operations
             plugin_registry: Plugin registry for hook execution
+            run_report_repository: Run reports own storage keys deleted with a generation
             media_index_repository: Attaches system tags/rating scores to
                 history payloads (optional; payloads omit them when absent)
             settings: Resolves the NSFW blur threshold for the per-file
@@ -81,7 +83,7 @@ class GenerationHistoryFacade:
             media_indexer, preset_name_resolver
         )
         self._archive = GenerationHistoryArchive(
-            generation_repo, file_service, plugin_registry, self._query
+            generation_repo, file_service, plugin_registry, self._query, run_report_repository
         )
         self.executor = HistoryExecutor()
 

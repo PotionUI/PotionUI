@@ -30,6 +30,7 @@ from src.features.generation.repository import GenerationRepository
 from src.platform.plugins import runtime_registries
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
+from src.features.generation.run_report_repository import GenerationRunReportRepository
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 _PLUGIN_DIR = os.path.join(REPO_ROOT, "content", "plugins", "marketplace", "civitai-provider")
@@ -92,6 +93,7 @@ class TestExportPngAgainstRealHistoryFacade(PersistenceTestBase):
             generation_repo=GenerationRepository(),
             file_service=None,
             plugin_registry=None,
+            run_report_repository=GenerationRunReportRepository(),
         )
 
         self.user_id = self.create_test_user(user_id="u-owner")

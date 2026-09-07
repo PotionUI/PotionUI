@@ -149,3 +149,16 @@ def test_attached_branch_parameters_are_frozen():
 
     grads = [name for name, p in model.named_parameters() if p.requires_grad]
     assert grads == []
+
+
+def test_attach_does_not_read_the_base_projection_weight():
+    # A quantized DiT (nvfp4/fp8) keeps its packed weight under another
+    # attribute and leaves ``qkv_proj.weight`` None (maintainer's nvfp4 run).
+    model = _model()
+    for block in model.blocks:
+        block.attn.qkv_proj.weight = None
+
+    report = attach_vdn_branch(model, _state())
+
+    assert report.blocks == TINY_FULL["num_layers"]
+    assert all(p.dtype == torch.float32 for p in model.blocks[0].attn.linear.parameters())

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import torch
 from torch import Tensor, nn
 
 from .hybrid_attention import MiniMaxH3VdnAttention
@@ -93,12 +94,17 @@ def attach_vdn_branch(
     tensors = 0
     total_bytes = 0
     for index, block in enumerate(blocks):
+        provided = by_block.get(index, {})
+        # The meta placeholders are replaced wholesale by the assign-load below,
+        # so their dtype only has to be a real one. The base attention's
+        # ``qkv_proj.weight`` is not a safe source: a quantized checkpoint (nvfp4,
+        # fp8) keeps its weight packed under another attribute and leaves it None.
+        placeholder_dtype = next((t.dtype for t in provided.values()), torch.bfloat16)
         wrapper = MiniMaxH3VdnAttention(
             block.attn, config.hidden_size, operations,
             anchor_frames=anchor_frames, backend=backend,
-            dtype=block.attn.qkv_proj.weight.dtype, device="meta",
+            dtype=placeholder_dtype, device="meta",
         )
-        provided = by_block.get(index, {})
         expected = set(wrapper.linear.state_dict())
         missing = sorted(expected - set(provided))
         if missing:

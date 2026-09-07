@@ -236,6 +236,21 @@ class TestEnforceBudget:
         assert outcome.ledger["reserve_tokens"] == 100
         assert outcome.ledger["measured"] is False
 
+    def test_unknown_capacity_never_refuses_the_turn(self):
+        """The default capacity is a labelled guess; a system prompt bigger
+        than it (a tool-rich mode) must still send, with the ledger saying so."""
+        outcome = enforce_budget(
+            capacity_tokens=10,
+            capacity_source="unknown",
+            reserve_tokens=5,
+            system_message="s" * 500,
+            messages=[_msg("user", "a" * 200)],
+            counter=len,
+        )
+        assert outcome.messages == [_msg("user", "a" * 200)]
+        assert outcome.ledger["over_budget"] is True
+        assert outcome.ledger["capacity_source"] == "unknown"
+
     def test_raises_when_irreducibly_over_budget(self):
         with pytest.raises(ContextBudgetExceededError) as exc_info:
             enforce_budget(

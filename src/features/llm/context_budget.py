@@ -620,7 +620,12 @@ def enforce_budget(
         "groups_dropped": total_groups - len(final_units),
     }
 
-    if not final_fits:
+    # An unknown capacity is a labelled guess, never a fact: trimming history
+    # to it is prudent, refusing the turn on it is not - a tool-rich system
+    # prompt alone exceeds the default and would lock the assistant out of
+    # every unconfigured deployment. Send, and let the ledger say it overran.
+    ledger["over_budget"] = not final_fits
+    if not final_fits and capacity_source != "unknown":
         raise ContextBudgetExceededError(
             capacity_tokens=capacity_tokens,
             capacity_source=capacity_source,

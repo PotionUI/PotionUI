@@ -48,6 +48,15 @@ logger = logging.getLogger(__name__)
 # that teaches the model to narrow its own next call instead.
 _MAX_TOOL_RESULT_CHARS = 8000
 
+# Appended to a tool result's message content (never silently dropped) when
+# the result carried an image the active LLM configuration can't see, so the
+# model relays the limitation instead of hallucinating a description of an
+# image it was never actually shown.
+_VISION_UNSUPPORTED_NOTE = (
+    "This model cannot see images — switch the chat to a vision-capable LLM "
+    "(one with vision support enabled) to describe them."
+)
+
 
 def _bound_tool_result_content(content: str) -> str:
     """Cap a tool result string at `_MAX_TOOL_RESULT_CHARS`, appending a
@@ -423,6 +432,32 @@ class ToolExecutor:
             names &= set(allowed_tools)
         return names
 
+    async def _gate_tool_image(self, tool_context: ToolContext, result: ToolResult) -> Optional[str]:
+        """Strip a tool result's image when the session's LLM config can't see
+        it, returning a note to append to that tool's message content instead
+        (or ``None`` when the image should be attached normally).
+
+        Vision support can't be determined without both ``llm_repository``
+        and ``llm_id`` on the context — that's treated as "attach it", the
+        prior behavior, rather than a reason to block.
+        """
+        if not result.image_data:
+            return None
+        repo = tool_context.llm_repository
+        llm_id = tool_context.llm_id
+        if not repo or not llm_id:
+            return None
+        try:
+            config = repo.get_configuration(llm_id)
+            if inspect.isawaitable(config):
+                config = await config
+        except Exception:
+            return None
+        if not config or getattr(config, "supports_vision", True):
+            return None
+        result.image_data = None
+        return _VISION_UNSUPPORTED_NOTE
+
     def _rescue_final_content(
         self, content: str, allowed_tools: Optional[List[str]]
     ) -> Tuple[List[Dict[str, Any]], List[str], List[str], List[Dict[str, Any]], str]:
@@ -520,6 +555,7 @@ class ToolExecutor:
         start_time = time.monotonic()
         result, _is_pending = await self._execute_tool(name, tool_context, arguments, allowed_tools=allowed_tools)
         duration_ms = int((time.monotonic() - start_time) * 1000)
+        vision_note = await self._gate_tool_image(tool_context, result)
 
         execution = ToolExecution(
             tool_name=name,
@@ -530,9 +566,12 @@ class ToolExecutor:
         )
         tool_executions.append(execution)
 
+        content = _bound_tool_result_content(result.data if result.success else f"Error: {result.error}")
+        if vision_note:
+            content = f"{content}\n\n{vision_note}"
         working_messages.append({
             "role": "tool",
-            "content": _bound_tool_result_content(result.data if result.success else f"Error: {result.error}"),
+            "content": content,
             "tool_call_id": call_id,
             "name": name,
         })
@@ -760,9 +799,13 @@ class ToolExecutor:
                 pending = True
                 break
 
+            vision_note = await self._gate_tool_image(tool_context, result)
+            content = _bound_tool_result_content(result.data if result.success else f"Error: {result.error}")
+            if vision_note:
+                content = f"{content}\n\n{vision_note}"
             working_messages.append({
                 "role": "tool",
-                "content": _bound_tool_result_content(result.data if result.success else f"Error: {result.error}"),
+                "content": content,
                 "tool_call_id": tool_call_id,
                 "name": tool_name,
             })

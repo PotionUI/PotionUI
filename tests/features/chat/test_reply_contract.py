@@ -4,6 +4,7 @@ import pytest
 
 from src.features.chat.reply_contract import (
     REPLY_CONTRACT_PROMPT_BLOCK,
+    REPLY_CONTRACT_REMINDER,
     TOOL_LOOP_CONTINUATION_NUDGE,
     parse_reply_contract,
 )
@@ -20,6 +21,31 @@ class TestToolLoopContinuationNudge:
     def test_nudge_constant_is_non_empty_imperative_text(self):
         assert TOOL_LOOP_CONTINUATION_NUDGE
         assert "call the next tool" in TOOL_LOOP_CONTINUATION_NUDGE.lower()
+
+
+class TestTagInventionForbidden:
+    """A mode whose tools never taught it a `<tool_action>` tag must not
+    over-generalize rule 2 into inventing one — see the lora-dataset chat
+    tools, whose only mutating tool delivers changes by being called, not by
+    any tag."""
+
+    def test_prompt_block_forbids_inventing_a_tag(self):
+        assert "do NOT invent a tag" in REPLY_CONTRACT_PROMPT_BLOCK
+
+    def test_prompt_block_states_the_tool_call_is_the_delivery_mechanism_absent_a_taught_tag(self):
+        assert (
+            "a change is delivered exclusively by calling the tool for it"
+            in REPLY_CONTRACT_PROMPT_BLOCK
+        )
+
+    def test_prompt_block_scopes_the_no_tag_no_delivery_rule_to_taught_tags(self):
+        assert (
+            "This only applies when a tool taught you a tag" in REPLY_CONTRACT_PROMPT_BLOCK
+        )
+
+    def test_reminder_forbids_inventing_a_tag(self):
+        assert "never invent one" in REPLY_CONTRACT_REMINDER
+        assert "call the tool itself to deliver the change" in REPLY_CONTRACT_REMINDER
 
 
 class TestParseReplyContract:

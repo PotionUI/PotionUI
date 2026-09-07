@@ -988,6 +988,96 @@ class TestToolExecutor:
         assert original == original_copy
 
 
+class TestToolExecutorVisionGate:
+    """A tool result's image must not be forwarded to a config that can't see
+    it — see ToolExecutor._gate_tool_image."""
+
+    def _make_context_with_config(self, supports_vision: bool) -> ToolContext:
+        repo = MagicMock()
+        cfg = MagicMock()
+        cfg.supports_vision = supports_vision
+        repo.get_configuration = MagicMock(return_value=cfg)
+        return ToolContext(user_id="user-1", llm_repository=repo, llm_id="model-1")
+
+    @pytest.mark.asyncio
+    async def test_image_stripped_and_note_appended_when_vision_unsupported(self):
+        registry = ToolRegistry()
+        registry.register(ImageResultTool())
+        llm_service = AsyncMock()
+        executor = ToolExecutor(tool_registry=registry, llm_service=llm_service)
+
+        image_tool_call = {"id": "c1", "function": {"name": "image_tool", "arguments": "{}"}}
+        llm_service.generate_with_tools.side_effect = [
+            make_llm_response("", tool_calls=[image_tool_call]),
+            make_llm_response("done"),
+        ]
+
+        await executor.execute_with_tools(
+            messages=[],
+            llm_id="model-1",
+            system_message="sys",
+            tool_context=self._make_context_with_config(supports_vision=False),
+        )
+
+        calls = llm_service.generate_with_tools.call_args_list
+        # The image must never reach the next call...
+        assert calls[1][1]["image_data"] is None
+        # ...and the tool's message must carry the note the model relays.
+        tool_message = next(m for m in calls[1][1]["messages"] if m.get("role") == "tool")
+        assert "cannot see images" in tool_message["content"]
+
+    @pytest.mark.asyncio
+    async def test_image_forwarded_when_vision_supported(self):
+        registry = ToolRegistry()
+        registry.register(ImageResultTool())
+        llm_service = AsyncMock()
+        executor = ToolExecutor(tool_registry=registry, llm_service=llm_service)
+
+        image_tool_call = {"id": "c1", "function": {"name": "image_tool", "arguments": "{}"}}
+        llm_service.generate_with_tools.side_effect = [
+            make_llm_response("", tool_calls=[image_tool_call]),
+            make_llm_response("done"),
+        ]
+
+        await executor.execute_with_tools(
+            messages=[],
+            llm_id="model-1",
+            system_message="sys",
+            tool_context=self._make_context_with_config(supports_vision=True),
+        )
+
+        calls = llm_service.generate_with_tools.call_args_list
+        assert calls[1][1]["image_data"] == "tool_img"
+        tool_message = next(m for m in calls[1][1]["messages"] if m.get("role") == "tool")
+        assert "cannot see images" not in tool_message["content"]
+
+    @pytest.mark.asyncio
+    async def test_image_forwarded_when_vision_support_undeterminable(self):
+        """No llm_repository/llm_id on the context (the prior behavior,
+        exercised elsewhere by make_context()) must not start blocking images
+        just because vision support can't be checked."""
+        registry = ToolRegistry()
+        registry.register(ImageResultTool())
+        llm_service = AsyncMock()
+        executor = ToolExecutor(tool_registry=registry, llm_service=llm_service)
+
+        image_tool_call = {"id": "c1", "function": {"name": "image_tool", "arguments": "{}"}}
+        llm_service.generate_with_tools.side_effect = [
+            make_llm_response("", tool_calls=[image_tool_call]),
+            make_llm_response("done"),
+        ]
+
+        await executor.execute_with_tools(
+            messages=[],
+            llm_id="model-1",
+            system_message="sys",
+            tool_context=make_context(),
+        )
+
+        calls = llm_service.generate_with_tools.call_args_list
+        assert calls[1][1]["image_data"] == "tool_img"
+
+
 # ---------------------------------------------------------------------------
 # ToolExecutor.execute_with_tools_stream tests
 # ---------------------------------------------------------------------------

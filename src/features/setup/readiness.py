@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from src.features.presets.collaborators import PresetCollaborators
     from src.features.setup.repository import InstanceClaimRepository
     from src.platform.security.user import User
+    from src.platform.database.migration_runner import MigrationRunner
 
 
 # --- Wire contract ----------------------------------------------------------
@@ -126,21 +127,13 @@ class ReadinessAggregator:
         preset_manager: "PresetCollaborators",
         model_repository: "ModelRepository",
         generation_repository: "GenerationRepository",
-        migration_runner=None,
-        instance_claim_repository: "Optional[InstanceClaimRepository]" = None,
+        migration_runner: "MigrationRunner",
+        instance_claim_repository: "InstanceClaimRepository",
     ):
         self.backend_registry = backend_registry
         self.preset_manager = preset_manager
         self.model_repository = model_repository
         self.generation_repository = generation_repository
-        # Migration sanity is a process-global concern; injectable so tests need
-        # no real database.
-        if migration_runner is None:
-            from src.platform.database.migration_runner import MigrationRunner
-            migration_runner = MigrationRunner()
-        if instance_claim_repository is None:
-            from src.features.setup.repository import InstanceClaimRepository
-            instance_claim_repository = InstanceClaimRepository()
         self.migration_runner = migration_runner
         self.instance_claim_repository = instance_claim_repository
 

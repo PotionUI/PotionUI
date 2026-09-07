@@ -43,6 +43,7 @@ def _client(current_user=None) -> TestClient:
         model_repository=model_repository,
         generation_repository=generation_repository,
         instance_claim_repository=instance_claim_repository,
+        migration_runner=Mock(has_pending_migrations=Mock(return_value=False)),
         claim_token_store=Mock(),
         settings=Mock(),
     )

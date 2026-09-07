@@ -107,6 +107,7 @@ from src.features.generation.repository import GenerationRepository
 from src.features.generation.model_repository import GenerationModelRepository
 from src.features.generation.parameter_repository import GenerationParameterRepository
 from src.features.generation.run_report_repository import GenerationRunReportRepository
+from src.platform.database.migration_runner import MigrationRunner
 from src.features.generation.run_report_recorder import RunReportRecorder
 from src.features.segments.repository import (
     SavedSegmentRepository,
@@ -260,6 +261,7 @@ class AppContainer:
     # Auth
     user_repository: UserRepository
     instance_claim_repository: InstanceClaimRepository
+    migration_runner: MigrationRunner
     claim_token_store: ClaimTokenStore
     auth_config: AuthConfig
     password_hasher: PasswordHasher
@@ -655,6 +657,7 @@ def build_container() -> AppContainer:
     # Initialize auth components
     user_repository = UserRepository()
     instance_claim_repository = InstanceClaimRepository()
+    migration_runner = MigrationRunner()
     claim_token_store = ClaimTokenStore(settings)
     auth_config = AuthConfig(settings)
     password_hasher = PasswordHasher()

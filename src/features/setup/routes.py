@@ -111,6 +111,7 @@ def build_router(container: "AppContainer") -> APIRouter:
                 model_repository=container.model_repository,
                 generation_repository=container.generation_repository,
                 instance_claim_repository=container.instance_claim_repository,
+                migration_runner=container.migration_runner,
             )
         return _readiness["mgr"]
 

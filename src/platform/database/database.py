@@ -9,6 +9,24 @@ import os
 
 logger = logging.getLogger(__name__)
 
+LIVE_DATABASE_PATH = Path("storage/db.sqlite")
+
+
+def refuse_live_database_under_pytest(db_path: Path) -> None:
+    """A test may only use the database the test harness brought up. The
+    live file passing silently is worse than a failure: the run then depends
+    on the machine's own data and configuration."""
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    if Path(db_path).resolve() != LIVE_DATABASE_PATH.resolve():
+        return
+    raise RuntimeError(
+        f"Tests must not open the live database ({LIVE_DATABASE_PATH}). Use "
+        "tests/fixtures/persistence_base.py's PersistenceTestBase, stub the repository "
+        "call, or point POTIONUI_DB_PATH at a scratch file."
+    )
+
+
 class Database:
     _instance = None
     _lock = threading.Lock()
@@ -35,6 +53,7 @@ class Database:
     @contextmanager
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
         """Get a database connection with automatic cleanup"""
+        refuse_live_database_under_pytest(self.db_path)
         conn = sqlite3.connect(
             self.db_path, 
             check_same_thread=False,

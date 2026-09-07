@@ -5,7 +5,7 @@
  * what drives per-group dirty tracking off one snapshot diff.
  */
 
-export type SettingsGroupId = 'access' | 'content_safety' | 'storage' | 'search_tagging';
+export type SettingsGroupId = 'access' | 'content_safety' | 'storage' | 'search_tagging' | 'generation';
 
 export interface SettingsGroupDescriptor {
 	id: SettingsGroupId;
@@ -17,7 +17,8 @@ export const SETTINGS_GROUPS: SettingsGroupDescriptor[] = [
 	{ id: 'access', label: 'Access', icon: 'group' },
 	{ id: 'content_safety', label: 'Content Safety', icon: 'shield' },
 	{ id: 'storage', label: 'Storage', icon: 'folder' },
-	{ id: 'search_tagging', label: 'Search & Tagging', icon: 'search' }
+	{ id: 'search_tagging', label: 'Search & Tagging', icon: 'search' },
+	{ id: 'generation', label: 'Generation', icon: 'image' }
 ];
 
 /** Storage's S3 fields and Models Location manage their own apply flow (see
@@ -42,5 +43,6 @@ export const SETTINGS_KEY_GROUP: Record<string, SettingsGroupId> = {
 	media_vision_model: 'search_tagging',
 	media_vision_device: 'search_tagging',
 	media_vision_auto_download: 'search_tagging',
-	mcp_enabled: 'access'
+	mcp_enabled: 'access',
+	workbench_single_result_gallery: 'generation'
 };

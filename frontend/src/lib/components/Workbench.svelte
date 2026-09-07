@@ -16,6 +16,7 @@
 	import WorkbenchParametersModal from '$lib/components/workbench/WorkbenchParametersModal.svelte';
 	import WorkbenchProfileModal from '$lib/components/workbench/WorkbenchProfileModal.svelte';
 	import { authStore } from '$lib/stores/auth';
+	import { workbenchGallerySettingsStore } from '$lib/stores/workbenchGallerySettings';
 	import { resolveWorkbenchFileRenderer } from '$lib/registries/workbenchFileRendererRegistry';
 	import ImagePreview from '$lib/components/workbench/renderers/ImagePreview.svelte';
 	import VideoPreview from '$lib/components/workbench/renderers/VideoPreview.svelte';
@@ -36,9 +37,12 @@
 		galleryItemAt,
 		galleryItemUrl,
 		galleryTotal,
+		shouldShowGalleryStrip,
 		workbenchActionsFor,
 		type GalleryEntry
 	} from '$lib/components/workbench/workbenchGallery';
+
+	workbenchGallerySettingsStore.init();
 
 	// Local-only widening of ImageData/VideoData: batchVideos items carry `file_type:
 	// 'video'` at runtime (galleryUpdate.ts) though the shared type doesn't declare it.
@@ -159,8 +163,14 @@
 	$: currentGenerationTotal = galleryTotal(batches);
 	$: effectiveTotal = currentGenerationTotal > 0 ? currentGenerationTotal : workbenchTotal;
 	$: hasGalleryItems = currentGenerationTotal > 0;
-	// Show gallery strip when: not generating AND generation is completed AND has gallery items
-	$: showGalleryStrip = !isGenerating && currentGeneration?.status === 'completed' && hasGalleryItems;
+	// Hidden for a completed single-output run unless an admin opted back in
+	// via workbench_single_result_gallery - see shouldShowGalleryStrip.
+	$: showGalleryStrip = shouldShowGalleryStrip({
+		isGenerating,
+		status: currentGeneration?.status,
+		total: currentGenerationTotal,
+		singleResultGallery: $workbenchGallerySettingsStore.singleResultGallery
+	});
 	$: maxHeight = parseInt(workbenchMaxHeight, 10) || 600;
 
 	// In gallery mode (generation completed and has gallery items), get the current item to display

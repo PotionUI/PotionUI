@@ -28,6 +28,14 @@ if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
 
 
+# SYSTEM settings are admin-only to READ everywhere else in this file - that
+# is what keeps credentials/paths/policy off a regular user's response. This
+# is the one deliberate exception: a curated set of SYSTEM (admin-edited)
+# settings that a non-admin's own UI needs the value of to render correctly.
+# Never add a secret or anything sensitive here - only display/behavior toggles.
+PUBLIC_SYSTEM_SETTING_KEYS = frozenset({"workbench_single_result_gallery"})
+
+
 def _is_stored_secret_mask(key: str, value: Any) -> bool:
     """Whether this write is the mask a read handed out, meaning "unchanged".
 
@@ -69,8 +77,13 @@ class SettingsController(BaseController):
 
             result = {}
             for setting in all_settings:
-                # Skip SYSTEM settings for non-admin users
-                if setting.type == SettingType.SYSTEM and user.account_type != AccountType.ADMIN:
+                # Skip SYSTEM settings for non-admin users, except the curated
+                # public set (see PUBLIC_SYSTEM_SETTING_KEYS above).
+                if (
+                    setting.type == SettingType.SYSTEM
+                    and user.account_type != AccountType.ADMIN
+                    and setting.key not in PUBLIC_SYSTEM_SETTING_KEYS
+                ):
                     continue
 
                 # Get the appropriate value

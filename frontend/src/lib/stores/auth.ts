@@ -11,6 +11,7 @@ import { historyStore } from '$lib/stores/history';
 import { libraryStore } from '$lib/stores/library';
 import { phrasebookStore } from '$lib/stores/phrasebook';
 import { nsfwFilterStore } from '$lib/stores/nsfwFilter';
+import { workbenchGallerySettingsStore } from '$lib/stores/workbenchGallerySettings';
 import { previewGenerationStore } from '$lib/stores/previewGeneration';
 import { resetPageContext } from '$lib/chat/pageContext';
 import { LAST_USER_ID_KEY, isDifferentIdentity, keysToPurge } from '$lib/stores/identityScopedStorage';
@@ -75,6 +76,7 @@ export function applyIdentityGuard(userId: string): void {
 		libraryStore.reset();
 		phrasebookStore.reset();
 		nsfwFilterStore.reset();
+		workbenchGallerySettingsStore.reset();
 		previewGenerationStore.reset();
 		resetPageContext();
 	}

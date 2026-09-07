@@ -48,6 +48,32 @@ export function galleryTotal(batches: WorkbenchBatches): number {
 	return BUCKETS.reduce((sum, b) => sum + bucket(batches, b.key).length, 0);
 }
 
+export interface GalleryStripVisibilityInput {
+	isGenerating: boolean;
+	status: string | null | undefined;
+	total: number;
+	/** `workbench_single_result_gallery` SYSTEM setting - admin opt-in to keep
+	 * showing the strip for a single-output run. */
+	singleResultGallery: boolean;
+}
+
+/**
+ * Whether the gallery strip renders below the workbench media. A completed
+ * run with exactly one output hides the strip unless an admin has opted back
+ * in via `workbench_single_result_gallery` - the maintainer's default is a
+ * single image/video filling the workbench, no strip lowering its height.
+ */
+export function shouldShowGalleryStrip({
+	isGenerating,
+	status,
+	total,
+	singleResultGallery
+}: GalleryStripVisibilityInput): boolean {
+	if (isGenerating || status !== 'completed' || total <= 0) return false;
+	if (total === 1 && !singleResultGallery) return false;
+	return true;
+}
+
 /** The entry at an absolute gallery index, or null when out of range. */
 export function galleryItemAt(batches: WorkbenchBatches, index: number): GalleryEntry | null {
 	if (!Number.isInteger(index) || index < 0) return null;

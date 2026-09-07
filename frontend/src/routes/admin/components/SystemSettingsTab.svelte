@@ -16,6 +16,7 @@
 	import MediaTaggingPanel from './settings/MediaTaggingPanel.svelte';
 	import VisualSearchPanel from './settings/VisualSearchPanel.svelte';
 	import AiPanelFrame from './settings/AiPanelFrame.svelte';
+	import GenerationPanel from './settings/GenerationPanel.svelte';
 	import { SETTINGS_GROUPS, SETTINGS_KEY_GROUP, type SettingsGroupId } from './settings/settingsGroups';
 
 	// The PUT body System Settings sends - unchanged from the pre-rebuild
@@ -95,6 +96,8 @@
 				return settings.storage_backend === 's3' ? 's3' : 'local';
 			case 'search_tagging':
 				return '3 models';
+			case 'generation':
+				return `single-result gallery ${settings.workbench_single_result_gallery ? 'on' : 'off'}`;
 		}
 	}
 </script>
@@ -154,6 +157,8 @@
 								<MediaTaggingPanel {settings} onSettingChange={handleSettingChange} />
 								<VisualSearchPanel {settings} onSettingChange={handleSettingChange} />
 							</AiPanelFrame>
+						{:else if activeGroup === 'generation'}
+							<GenerationPanel {settings} onSettingChange={handleSettingChange} />
 						{/if}
 					</DetailBody>
 

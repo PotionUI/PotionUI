@@ -7,6 +7,7 @@ import {
 	entryFileType,
 	workbenchActionsFor,
 	downloadExtensionFor,
+	shouldShowGalleryStrip,
 	type WorkbenchBatches
 } from './workbenchGallery';
 
@@ -127,5 +128,62 @@ describe('downloadExtensionFor a mesh', () => {
 
 	it('falls back to the default mesh extension when neither is present', () => {
 		expect(downloadExtensionFor('mesh', { url: '/api/media/gen-1/mesh' })).toBe('glb');
+	});
+});
+
+describe('shouldShowGalleryStrip', () => {
+	it('hides while generating, regardless of total or the setting', () => {
+		expect(
+			shouldShowGalleryStrip({
+				isGenerating: true,
+				status: 'completed',
+				total: 3,
+				singleResultGallery: true
+			})
+		).toBe(false);
+	});
+
+	it('hides when the generation has not completed', () => {
+		expect(
+			shouldShowGalleryStrip({
+				isGenerating: false,
+				status: 'running',
+				total: 3,
+				singleResultGallery: true
+			})
+		).toBe(false);
+	});
+
+	it('hides a single-output completed run when the setting is off', () => {
+		expect(
+			shouldShowGalleryStrip({
+				isGenerating: false,
+				status: 'completed',
+				total: 1,
+				singleResultGallery: false
+			})
+		).toBe(false);
+	});
+
+	it('shows a single-output completed run when the setting is on', () => {
+		expect(
+			shouldShowGalleryStrip({
+				isGenerating: false,
+				status: 'completed',
+				total: 1,
+				singleResultGallery: true
+			})
+		).toBe(true);
+	});
+
+	it('shows a multi-output completed run regardless of the setting', () => {
+		expect(
+			shouldShowGalleryStrip({
+				isGenerating: false,
+				status: 'completed',
+				total: 2,
+				singleResultGallery: false
+			})
+		).toBe(true);
 	});
 });

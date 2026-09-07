@@ -42,6 +42,21 @@ def pytest_configure(config):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_base_url_from_the_database(monkeypatch):
+    """`backend.api._get_comfyui_base_url` reads the plugin's settings rows
+    from the live database; no test here may touch one (an unmigrated
+    scratch database has no `plugin_settings` table, a real one leaks the
+    machine's configuration into the test). Every test gets the plugin's
+    default URL; a test that needs another still monkeypatches it itself.
+    """
+    try:
+        import backend.api as api_module
+    except Exception:
+        return
+    monkeypatch.setattr(api_module, "_get_comfyui_base_url", lambda: "http://127.0.0.1:8188", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_object_info_from_the_network(request, monkeypatch):
     """No test in this suite may depend on a real ComfyUI server answering
     `/object_info` - `backend.api.analyze_workflow`/`.get_imported_preset_source`

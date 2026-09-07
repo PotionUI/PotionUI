@@ -35,12 +35,21 @@ def _load_plugin_router(module_alias: str, plugin_id: str):
     plugin_dir = os.path.join(REPO_ROOT, "content", "plugins", "marketplace", plugin_id)
     if plugin_dir not in sys.path:
         sys.path.insert(0, plugin_dir)
-    for key in list(sys.modules):
-        if key == "backend" or key.startswith("backend."):
-            del sys.modules[key]
+    # Import a fresh copy, then put the session's own `backend.*` module
+    # objects back: every other test module (and conftest's autouse stubs)
+    # is bound to those, and leaving the fresh copies behind would split
+    # them apart for the rest of the run.
+    original = {k: m for k, m in sys.modules.items() if k == "backend" or k.startswith("backend.")}
+    for key in original:
+        del sys.modules[key]
     importlib.invalidate_caches()
-    module = importlib.import_module("backend.api")
-    return module.router
+    try:
+        module = importlib.import_module("backend.api")
+        return module.router
+    finally:
+        for key in [k for k in sys.modules if k == "backend" or k.startswith("backend.")]:
+            del sys.modules[key]
+        sys.modules.update(original)
 
 
 def _user(account_type: AccountType) -> User:

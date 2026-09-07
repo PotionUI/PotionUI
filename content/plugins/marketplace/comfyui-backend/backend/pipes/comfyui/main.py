@@ -595,17 +595,27 @@ class ComfyUIPipe(BasePipe):
                     continue
 
             try:
-                # Handle image type specially - upload to ComfyUI first
-                if type_cast == "image" and value is not None:
+                # Handle image type specially - upload to ComfyUI first. "image_required"
+                # is the same upload path as "image" - the only difference is what happens
+                # when the value doesn't resolve to a real file (see below): a required
+                # image (the importer's own primary LoadImage field) must never let the
+                # workflow's baked-in placeholder filename reach ComfyUI unnoticed.
+                if type_cast in ("image", "image_required") and value is not None:
                     if isinstance(value, str):
-                        # Handle file path string
-                        try:
-                            # Load image from path
-                            image_path = Path(value)
-                            if not image_path.exists():
-                                logger.error(f"Image file not found: {value}")
-                                continue
+                        # Handle file path string - checked before the upload's own
+                        # try/except so a required image's failure raises past it
+                        # instead of being logged and swallowed as a generic upload error.
+                        image_path = Path(value)
+                        if not image_path.exists():
+                            logger.error(f"Image file not found: {value}")
+                            if type_cast == "image_required":
+                                raise GenerationExecutionError(
+                                    f"{target_path.split('.')[0]}: a required image is missing - "
+                                    f"no file was uploaded for this input"
+                                )
+                            continue
 
+                        try:
                             # Open as PIL Image
                             pil_image = Image.open(image_path)
 
@@ -834,6 +844,8 @@ class ComfyUIPipe(BasePipe):
                 self.set_nested_value(workflow_copy, target_path, value, name_to_id, duplicates)
                 logger.debug(f"Applied mapping: {value} -> {target_path}")
 
+            except GenerationExecutionError:
+                raise
             except Exception as e:
                 logger.error(f"Failed to apply mapping {mapping}: {e}")
 

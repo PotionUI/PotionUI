@@ -164,6 +164,39 @@ class TestComfyUIPipe:
         assert result == workflow
 
     @pytest.mark.asyncio
+    async def test_apply_field_mappings_image_required_raises_when_the_file_is_missing(self):
+        """A "image_required" mapping (the importer's own primary source-image
+        field - see backend/preset_import/emit.py's `_field_mapping_entry`)
+        must never let the workflow's own baked-in placeholder filename reach
+        ComfyUI unnoticed: with no real file at the mapped value, this must
+        raise instead of silently leaving the node's original input alone."""
+        workflow = {"78": {"inputs": {"image": "workflow_placeholder.png"}}}
+        self.pipe.config["field_mappings"] = [
+            ["not_a_real_uploaded_file.png", "78.inputs.image", "image_required"],
+        ]
+        generation_outputs = Mock()
+
+        with pytest.raises(GenerationExecutionError):
+            await self.pipe.apply_field_mappings(workflow, self.pipe_input, generation_outputs)
+
+    @pytest.mark.asyncio
+    async def test_apply_field_mappings_image_optional_missing_file_is_skipped_not_raised(self):
+        """Confirms the raise above is specific to "image_required": an
+        ordinary optional "image" mapping (a reference image the admin
+        didn't provide) keeps its pre-existing behavior - the node is left
+        as-is and the mapping is silently skipped, since `node_manipulations`
+        removes that node from the submitted workflow anyway."""
+        workflow = {"42": {"inputs": {"image": "workflow_placeholder.png"}}}
+        self.pipe.config["field_mappings"] = [
+            ["", "42.inputs.image", "image"],
+        ]
+        generation_outputs = Mock()
+
+        result = await self.pipe.apply_field_mappings(workflow, self.pipe_input, generation_outputs)
+
+        assert result["42"]["inputs"]["image"] == "workflow_placeholder.png"
+
+    @pytest.mark.asyncio
     @patch('websockets.connect', new_callable=AsyncMock)
     async def test_connect_websocket(self, mock_connect):
         """Test WebSocket connection.

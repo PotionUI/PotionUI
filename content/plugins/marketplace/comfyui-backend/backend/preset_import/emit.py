@@ -74,6 +74,11 @@ MODEL_TYPE_STRIP_PREFIXES = {
     "checkpoint": ("models/checkpoints/",),
     "diffusion_model": ("models/diffusion_models/", "models/checkpoints/"),
     "clip": ("models/clip/",),
+    # The catalog's CLIP/text-encoder loaders (CLIPLoader, DualCLIPLoader, ...)
+    # all set `config.model_type: "text_encoder"`, never "clip" - the depot
+    # symlinks `models/text_encoders -> .../models/clip`, so a picker value
+    # can carry either spelling and both must be stripped.
+    "text_encoder": ("models/text_encoders/", "models/clip/"),
     "vae": ("models/vae/",),
     "lora": ("models/loras/",),
 }
@@ -376,6 +381,8 @@ def _item_to_field_yaml(item: Item) -> Dict[str, Any]:
     `schema.iter_field_items`'s docstring for why."""
     if item.kind == "field":
         field: Dict[str, Any] = {"name": item.field_name, "type": item.field_type, "label": item.label}
+        if item.required:
+            field["required"] = True
         default = _typed_default(item.field_type, item.field_name, item.default)
         if default is not None:
             field["default"] = _yaml_value(default)
@@ -481,8 +488,25 @@ def _field_mapping_entry(field: FieldItem, mapping) -> List[Any]:
         value += " }}"
         return [value, f"{mapping.node_id}.inputs.{mapping.input_name}", "str"]
 
+    if field.field_type == "image":
+        # An image field never carries a literal `default` (see
+        # `defaults._image_item`) - a required image (the workflow's primary
+        # LoadImage) has no fallback at all, exactly like a hand-authored
+        # preset's own `source_image` mapping, so a missing upload surfaces
+        # as an error rather than submitting whatever the workflow's own
+        # placeholder filename was. An optional one falls back to "" so its
+        # `remove_node` manipulation (see the wizard's ref-image handling)
+        # can detect "not provided" and drop the node instead.
+        if field.required:
+            value = "{{ form." + field.field_name + " }}"
+            cast = "image_required"
+        else:
+            value = "{{ form." + field.field_name + " | default('') }}"
+            cast = "image"
+        return [value, f"{mapping.node_id}.inputs.{mapping.input_name}", cast]
+
     # "none" - a plain literal value, cast from the field's own shape.
-    cast = "image" if field.field_type == "image" else _cast_name(_infer_value_type(field.default))
+    cast = _cast_name(_infer_value_type(field.default))
     value = "{{ form." + field.field_name + " | default(" + json.dumps(_yaml_value(field.default)) + ") }}"
     return [value, f"{mapping.node_id}.inputs.{mapping.input_name}", cast]
 

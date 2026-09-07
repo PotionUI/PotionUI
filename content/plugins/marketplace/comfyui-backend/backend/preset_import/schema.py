@@ -136,6 +136,7 @@ class FieldItem(BaseModel):
     field_name: str
     field_type: str
     label: str
+    required: bool = False
     default: Any = None
     config: Optional[Dict[str, Any]] = None
     mappings: List[FieldMapping] = Field(default_factory=list)

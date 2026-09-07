@@ -654,6 +654,58 @@ class TestPromptsAreNeverFormFields:
         assert by_input["text"] == "literal"
 
 
+class TestImageCandidatesNeverBecomeSelectFields:
+    """A live backend's `/object_info` for `LoadImage` reports its `image`
+    input as a COMBO of every file already uploaded to ComfyUI - hundreds of
+    entries on a real install. `_enrich_with_object_info` must never treat
+    that the way it treats an ordinary combo (baking the whole listing into
+    `suggested_config["options"]`): `_image_item` copies `suggested_config`
+    verbatim onto the emitted `image` field, so that listing would otherwise
+    reach `config.options` on a plain file-upload field."""
+
+    def test_load_image_combo_options_never_populate_the_image_fields_config(self):
+        workflow = parse_api_workflow({
+            "10": {"class_type": "LoadImage", "inputs": {"image": "input.png"}},
+        })
+        object_info = {
+            "LoadImage": {
+                "input": {
+                    "required": {
+                        "image": [["a.png", "b.png", "c.png"], {"image_upload": True}],
+                    }
+                },
+                "output": ["IMAGE", "MASK"],
+            }
+        }
+
+        analysis = suggest_fields(workflow, object_info=object_info)
+
+        image_candidate = next(c for c in analysis.candidates if c.node_id == "10" and c.input_name == "image")
+        assert image_candidate.suggested_field_type == "image"
+        assert "options" not in image_candidate.suggested_config
+
+    def test_bite_check_an_ordinary_combo_still_gets_its_options_captured(self):
+        """Confirms the assertion above is really reading the role-based
+        guard, not a coincidence of `_combo_options` refusing this shape:
+        the identical combo shape on a non-image input IS captured as
+        `select` options, exactly as before."""
+        workflow = parse_api_workflow({
+            "1": {"class_type": "SomeAllInOneNode", "inputs": {"mode": "fast", "seed": 1, "text": "a prompt"}},
+        })
+        object_info = {
+            "SomeAllInOneNode": {
+                "input": {"required": {"mode": [["fast", "quality"], {}]}},
+                "output": ["IMAGE"],
+            }
+        }
+
+        analysis = suggest_fields(workflow, object_info=object_info)
+
+        mode_candidate = next(c for c in analysis.candidates if c.node_id == "1" and c.input_name == "mode")
+        assert mode_candidate.suggested_field_type == "select"
+        assert mode_candidate.suggested_config["options"] == ["fast", "quality"]
+
+
 # ----------------------------------------------------------------------
 # Container round-trips
 # ----------------------------------------------------------------------
@@ -833,6 +885,50 @@ class TestTransforms:
         result = emit_preset(workflow, form, [], model_family="ImageCast", variant="v1", display_name="X", dest_root=dest_root)
         entry = next(m for m in self._field_mappings(result) if m[1] == "10.inputs.image")
         assert entry[2] == "image"
+
+    def test_required_image_mapping_has_no_default_fallback(self, dest_root):
+        """A required image (the wizard's primary LoadImage field) must
+        never fall back to a literal when unset - unlike an optional one, a
+        missing required image should surface as an error rather than
+        submit whatever value `default(...)` would otherwise supply (see
+        the comfyui pipe's own "image_required" handling)."""
+        workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
+        field = FieldItem(
+            field_name="source_image", field_type="image", label="Source Image", required=True,
+            mappings=[FieldMapping(node_id="10", input_name="image")],
+        )
+        form = ImportForm(tabs=[FormTab(id="generation", label="Generation", items=[field])])
+        result = emit_preset(workflow, form, [], model_family="ImageRequired", variant="v1", display_name="X", dest_root=dest_root)
+        entry = next(m for m in self._field_mappings(result) if m[1] == "10.inputs.image")
+        assert entry == ["{{ form.source_image }}", "10.inputs.image", "image_required"]
+
+    def test_optional_image_mapping_falls_back_to_empty_string(self, dest_root):
+        workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
+        field = FieldItem(
+            field_name="ref_image_2", field_type="image", label="Reference Image 2",
+            mappings=[FieldMapping(node_id="10", input_name="image")],
+        )
+        form = ImportForm(tabs=[FormTab(id="generation", label="Generation", items=[field])])
+        result = emit_preset(workflow, form, [], model_family="ImageOptional", variant="v1", display_name="X", dest_root=dest_root)
+        entry = next(m for m in self._field_mappings(result) if m[1] == "10.inputs.image")
+        assert entry == ["{{ form.ref_image_2 | default('') }}", "10.inputs.image", "image"]
+
+    def test_text_encoder_strip_model_prefix_strips_the_text_encoders_prefix(self, dest_root):
+        """The catalog's CLIP loaders set `config.model_type: "text_encoder"`
+        (never "clip"), and the depot's own folder for these files is
+        `text_encoders` - MODEL_TYPE_STRIP_PREFIXES must resolve that key,
+        or a real picker value's `models/text_encoders/` prefix reaches
+        ComfyUI's `clip_name` unstripped."""
+        workflow = _sdxl_workflow()
+        field = FieldItem(
+            field_name="clip", field_type="model", label="CLIP Model", config={"model_type": "text_encoder"},
+            mappings=[FieldMapping(node_id="4", input_name="ckpt_name", transform="strip_model_prefix")],
+        )
+        form = ImportForm(tabs=[FormTab(id="generation", label="Generation", items=[field])])
+        result = emit_preset(workflow, form, [], model_family="TextEncoderStrip", variant="v1", display_name="X", dest_root=dest_root)
+        template = next(m for m in self._field_mappings(result) if m[1] == "4.inputs.ckpt_name")[0]
+        rendered = _render(template, {"form": {"clip": "models/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"}})
+        assert rendered == "qwen_2.5_vl_7b_fp8_scaled.safetensors"
 
 
 # ----------------------------------------------------------------------

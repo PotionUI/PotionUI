@@ -759,8 +759,13 @@ def _enrich_with_object_info(
 
         combo_options = _combo_options(type_spec, config)
         if combo_options is not None:
-            if candidate.suggested_field_type in ("model", "lora_picker"):
-                pass  # already a catalog/chain-driven model field - leave it alone
+            if candidate.suggested_field_type in ("model", "lora_picker", "image"):
+                # Already a catalog/chain-driven model field, or an upload
+                # field (LoadImage's own `image` combo is ComfyUI's list of
+                # previously uploaded files, not a static option set an
+                # admin picks from) - leave it alone rather than baking that
+                # listing into `suggested_config["options"]`.
+                pass
             else:
                 model_file = _model_file_type_for_combo(node.class_type, candidate.input_name)
                 if model_file is None and _looks_like_model_file_combo(combo_options):

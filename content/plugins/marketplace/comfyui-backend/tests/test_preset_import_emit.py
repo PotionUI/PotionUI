@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from backend.preset_import.defaults import _lora_item, _model_item
+from backend.preset_import.defaults import _image_item, _lora_item, _model_item
 from backend.preset_import.emit import EmittedPreset, PresetEmitError, emit_preset
 from backend.preset_import.parser import parse_api_workflow
 from backend.preset_import.schema import FormTab, ImportForm, LoraChainSelection, parse_form
@@ -882,3 +882,75 @@ class TestEndToEndRenderAndLint:
                 form_file.unlink(missing_ok=True)
         finally:
             shutil.rmtree(preset_family_dir, ignore_errors=True)
+
+
+class TestModelAndImageFieldsNeverSeedAnUnresolvedDefault:
+    """A workflow's own literal (the UNET/CLIP/VAE filename baked into a
+    loader node, or a LoadImage node's placeholder filename) is never a
+    valid `default` for the field the wizard builds for it: a bare model
+    filename isn't a valid picker value, and a LoadImage placeholder isn't a
+    real uploaded file - handing either straight to ComfyUI as a literal
+    when the file isn't actually installed/uploaded is what produced the
+    "not in list of length N" / "Invalid image file" server errors an
+    imported preset could otherwise submit. `_model_item`/`_image_item`
+    (defaults.py) must never carry the workflow's own literal forward as a
+    `default`, and the field a required value is missing from must be
+    `required=True` so an admin can't save/submit without it."""
+
+    def test_model_item_is_required_with_no_default(self):
+        workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
+        analysis = suggest_fields(workflow)
+        checkpoint = next(c for c in analysis.candidates if c.role == "checkpoint")
+        assert checkpoint.current_value  # the fixture's own baked filename - never used
+
+        item = _model_item(checkpoint)
+
+        assert item.required is True
+        assert item.default is None
+
+    def test_image_item_primary_source_image_is_required_with_no_default(self):
+        workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
+        analysis = suggest_fields(workflow)
+        source = next(c for c in analysis.candidates if c.role == "image")
+        assert source.suggested_field_name == "source_image"
+        assert source.current_value  # the workflow's own placeholder filename - never used
+
+        item = _image_item(source)
+
+        assert item.required is True
+        assert item.default is None
+
+    def test_image_item_reference_image_is_optional_with_no_default(self):
+        workflow = parse_api_workflow({
+            "10": {"class_type": "LoadImage", "inputs": {"image": "input.png"}},
+            "11": {"class_type": "LoadImage", "inputs": {"image": "ref.png"}},
+        })
+        analysis = suggest_fields(workflow)
+        ref = next(c for c in analysis.candidates if c.suggested_field_name == "ref_image_2")
+
+        item = _image_item(ref)
+
+        assert item.required is False
+        assert item.default is None
+
+    def test_bite_check_required_and_default_are_written_to_the_emitted_tab_yaml(self, dest_root):
+        """Confirms the pydantic-level `required`/`default` above actually
+        reach preset.yml's own field YAML through `emit._item_to_field_yaml`
+        - not just present on the in-memory `FieldItem`."""
+        workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
+        analysis = suggest_fields(workflow)
+        checkpoint = next(c for c in analysis.candidates if c.role == "checkpoint")
+        tab = FormTab(id="generation", label="Generation", items=[_model_item(checkpoint)])
+        form = ImportForm(tabs=[tab])
+
+        result = emit_preset(
+            workflow, form, [], model_family="RequiredYamlTest", variant="v1",
+            display_name="Required Yaml Test", dest_root=dest_root,
+        )
+
+        tab_yaml = yaml.safe_load(
+            (result.preset_dir / "modes" / result.mode / "tabs" / "generation.yml").read_text()
+        )
+        field = next(f for f in tab_yaml["fields"] if f.get("name") == checkpoint.suggested_field_name)
+        assert field["required"] is True
+        assert "default" not in field

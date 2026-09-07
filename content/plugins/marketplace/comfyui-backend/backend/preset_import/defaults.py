@@ -54,13 +54,23 @@ def _resolution_item(width: InputCandidate, height: InputCandidate) -> FieldItem
 
 
 def _model_item(candidate: InputCandidate) -> FieldItem:
+    # A workflow's own literal (`candidate.current_value`) is a bare ComfyUI
+    # filename, never a valid picker value (the picker stores
+    # `models/<depot folder>/<relative path>`) - and this importer has no
+    # live installed-file listing to check it against (see the module
+    # docstring's note on `node_catalog.resolve_model_folder`). Handing that
+    # literal to ComfyUI as a default when the file isn't actually installed
+    # is exactly what produced the "not in list of length N" server errors
+    # this guards against - so a model field never seeds a default, and is
+    # always required (an admin must pick one explicitly).
     config = dict(candidate.suggested_config)
     config.setdefault("placeholder", f"Select {candidate.suggested_label}...")
     return FieldItem(
         field_name=candidate.suggested_field_name,
         field_type="model",
         label=candidate.suggested_label,
-        default=candidate.current_value,
+        required=True,
+        default=None,
         config=config,
         mappings=[FieldMapping(node_id=candidate.node_id, input_name=candidate.input_name, transform="strip_model_prefix")],
     )
@@ -78,11 +88,19 @@ def _lora_item() -> FieldItem:
 
 
 def _image_item(candidate: InputCandidate) -> FieldItem:
+    # An `image` field is an upload, never a literal - `candidate.current_value`
+    # is the workflow's own LoadImage filename (a placeholder from whoever
+    # exported it, not something this importer ever has a real file for), so
+    # it must never become a `default` an admin never touches. The first
+    # image candidate (named "source_image" - see suggest.suggest_fields) is
+    # the workflow's primary input and can't run without one; every further
+    # one is an optional reference image.
     return FieldItem(
         field_name=candidate.suggested_field_name,
         field_type="image",
         label=candidate.suggested_label,
-        default=candidate.current_value,
+        required=candidate.suggested_field_name == "source_image",
+        default=None,
         config=dict(candidate.suggested_config) or None,
         mappings=[FieldMapping(node_id=candidate.node_id, input_name=candidate.input_name, transform=candidate.suggested_transform)],
     )

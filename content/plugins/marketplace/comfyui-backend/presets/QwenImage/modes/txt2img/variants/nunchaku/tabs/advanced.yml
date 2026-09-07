@@ -1,5 +1,6 @@
 fields:
-  - type: "row"
+  - type: "section"
+    label: "Sampling"
     children:
       - name: "steps"
         type: "slider"
@@ -10,17 +11,6 @@ fields:
           step: 1
         default: 4
 
-      - name: "cfg"
-        type: "slider"
-        label: "CFG Scale"
-        configuration:
-          min: 1.0
-          max: 20.0
-          step: 0.1
-        default: 1
-
-  - type: "row"
-    children:
       - name: "sampler_name"
         type: "select"
         label: "Sampler"
@@ -35,18 +25,24 @@ fields:
           file: { path: "{{ paths._shared }}/comfyui/form/schedulers/all.yml" }
         default: "simple"
 
-  - name: "denoise"
-    type: "slider"
-    label: "Denoise"
-    configuration:
-      min: 0.0
-      max: 1.0
-      step: 0.05
-    default: 1.0
+      - name: "cfg"
+        type: "slider"
+        label: "CFG Scale"
+        configuration:
+          min: 1.0
+          max: 20.0
+          step: 0.1
+        default: 1
 
-  - type: "group"
-    label: "Model Sampling"
-    children:
+      - name: "denoise"
+        type: "slider"
+        label: "Denoise"
+        configuration:
+          min: 0.0
+          max: 1.0
+          step: 0.05
+        default: 1.0
+
       - name: "shift"
         type: "slider"
         label: "AuraFlow Shift"
@@ -56,8 +52,8 @@ fields:
           step: 0.01
         default: 1.23
 
-  - type: "group"
-    label: "VRAM Optimization"
+  - type: "section"
+    label: "Model"
     children:
       - name: "cpu_offload"
         type: "select"

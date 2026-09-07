@@ -5,7 +5,7 @@ fields:
       - type: "tab"
         label: "Generation"
         configuration:
-          icon: "model"
+          icon: "generation"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/txt2img/tabs/generation.yml"
 
@@ -17,15 +17,16 @@ fields:
         children: "{{ paths.preset }}/modes/txt2img/tabs/lora.yml"
 
       - type: "tab"
-        label: "Advanced"
-        configuration:
-          icon: "settings"
-          icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/txt2img/tabs/advanced.yml"
-
-      - type: "tab"
         label: "Post Processing"
         configuration:
           icon: "image"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/txt2img/tabs/post_processing.yml"
+
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/advanced.yml"

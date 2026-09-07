@@ -9,21 +9,38 @@ fields:
         - { label: "Balanced (20 steps, base checkpoint)", value: "balanced" }
         - { label: "Fast (4 steps, distilled checkpoint)", value: "fast" }
 
-  - name: "seed"
-    type: "seed"
-    label: "Seed"
-    default: -1
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
 
-  - name: "quantity"
-    type: "slider"
-    label: "Batch Size"
-    configuration:
-      min: 1
-      max: 4
-      step: 1
-    default: 1
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            width: "2/5"
+            full_width: true
+            configuration:
+              min: 1
+              max: 4
+              step: 1
+            default: 1
 
-  - type: "group"
+      - name: "megapixels"
+        type: "slider"
+        label: "Megapixels"
+        configuration:
+          min: 0.5
+          max: 2.0
+          step: 0.1
+        default: 1.0
+
+  - type: "section"
     label: "Models"
     children:
       - name: "diffusion_model"
@@ -61,12 +78,3 @@ fields:
           allow_info_modal: true
           placeholder: "Select VAE model..."
           filter_tags: "@config:vae_tags"
-
-  - name: "megapixels"
-    type: "slider"
-    label: "Megapixels"
-    configuration:
-      min: 0.5
-      max: 2.0
-      step: 0.1
-    default: 1.0

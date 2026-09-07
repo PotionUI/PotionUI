@@ -1,5 +1,6 @@
 fields:
-  - type: "row"
+  - type: "section"
+    label: "Sampling"
     children:
       - name: "steps"
         type: "slider"
@@ -15,22 +16,6 @@ fields:
           - when: { field: "speed_profile", equals: "fast" }
             then: { set_value: 4, set_disabled: false }
 
-      - name: "cfg"
-        type: "slider"
-        label: "CFG Scale"
-        default: 5.0
-        configuration:
-          min: 1.0
-          max: 20.0
-          step: 0.1
-        reactions:
-          - when: { field: "speed_profile", equals: "balanced" }
-            then: { set_value: 5.0, set_disabled: false }
-          - when: { field: "speed_profile", equals: "fast" }
-            then: { set_value: 1.0, set_disabled: false }
-
-  - type: "row"
-    children:
       - name: "sampler_name"
         type: "select"
         label: "Sampler"
@@ -49,3 +34,17 @@ fields:
         configuration:
           file: { path: "{{ paths._shared }}/comfyui/form/schedulers/all.yml" }
         default: "normal"
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG Scale"
+        default: 5.0
+        configuration:
+          min: 1.0
+          max: 20.0
+          step: 0.1
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: 5.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "fast" }
+            then: { set_value: 1.0, set_disabled: false }

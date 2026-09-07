@@ -1,56 +1,65 @@
 fields:
-  - type: "row"
+  - type: "section"
+    label: "Image"
     children:
-      - name: "seed"
-        type: "seed"
-        label: "Seed"
-        default: -1
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
 
-      - name: "quantity"
-        type: "slider"
-        label: "Batch Size"
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            width: "2/5"
+            full_width: true
+            configuration:
+              min: 1
+              max: 4
+              step: 1
+            default: 1
+
+      - name: "resolution"
+        type: "resolution"
+        label: "Resolution"
         configuration:
-          min: 1
-          max: 4
-          step: 1
-        default: 1
+          files:
+            - { path: "{{ paths._shared }}/resolutions/flux.yml", group: "FLUX" }
+            - { path: "{{ paths._shared }}/resolutions/social_media.yml", group: "Social Media" }
+          options: ["1600x400"]
+        default: "1140x1472"
 
-  - name: "resolution"
-    type: "resolution"
-    label: "Resolution"
-    configuration:
-      files:
-        - { path: "{{ paths._shared }}/resolutions/flux.yml", group: "FLUX" }
-        - { path: "{{ paths._shared }}/resolutions/social_media.yml", group: "Social Media" }
-      options: ["1600x400"]
-    default: "1140x1472"
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "dit_model"
+        type: "model"
+        label: "DiT Model (Nunchaku FP4)"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          allow_info_modal: true
+          placeholder: "Select Nunchaku DiT model..."
+          filter_tags: "@config:checkpoint_tags"
 
-  - name: "dit_model"
-    type: "model"
-    label: "DiT Model (Nunchaku FP4)"
-    required: true
-    configuration:
-      model_type: "diffusion_model"
-      allow_info_modal: true
-      placeholder: "Select Nunchaku DiT model..."
-      filter_tags: "@config:checkpoint_tags"
+      - name: "clip"
+        type: "model"
+        label: "CLIP Model"
+        required: true
+        configuration:
+          model_type: "text_encoder"
+          allow_info_modal: true
+          placeholder: "Select CLIP model..."
+          filter_tags: "@config:clip_tags"
 
-  - name: "clip"
-    type: "model"
-    label: "CLIP Model"
-    required: true
-    configuration:
-      model_type: "text_encoder"
-      allow_info_modal: true
-      placeholder: "Select CLIP model..."
-      filter_tags: "@config:clip_tags"
-
-  - name: "vae"
-    type: "model"
-    label: "VAE Model"
-    required: true
-    configuration:
-      model_type: "vae"
-      allow_info_modal: true
-      placeholder: "Select VAE model..."
-      filter_tags: "@config:vae_tags"
+      - name: "vae"
+        type: "model"
+        label: "VAE Model"
+        required: true
+        configuration:
+          model_type: "vae"
+          allow_info_modal: true
+          placeholder: "Select VAE model..."
+          filter_tags: "@config:vae_tags"

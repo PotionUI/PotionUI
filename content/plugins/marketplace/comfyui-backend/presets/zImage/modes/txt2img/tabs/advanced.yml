@@ -1,59 +1,53 @@
 fields:
-  - type: "group"
-    label: "Sampler Settings"
+  - type: "section"
+    label: "Sampling"
     children:
-      - type: "row"
-        children:
-          - name: "steps"
-            type: "slider"
-            label: "Steps"
-            configuration:
-              min: 1
-              max: 50
-              step: 1
-            default: 10
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        configuration:
+          min: 1
+          max: 50
+          step: 1
+        default: 10
 
-          - name: "cfg"
-            type: "slider"
-            label: "CFG Scale"
-            configuration:
-              min: 1.0
-              max: 10.0
-              step: 0.1
-            default: 1.0
+      - name: "sampler_name"
+        type: "select"
+        label: "Sampler"
+        configuration:
+          file: { path: "{{ paths._shared }}/comfyui/form/samplers/all.yml" }
+        default: "euler"
 
-      - type: "row"
-        children:
-          - name: "sampler_name"
-            type: "select"
-            label: "Sampler"
-            configuration:
-              file: { path: "{{ paths._shared }}/comfyui/form/samplers/all.yml" }
-            default: "euler"
+      - name: "scheduler"
+        type: "select"
+        label: "Scheduler"
+        configuration:
+          file: { path: "{{ paths._shared }}/comfyui/form/schedulers/all.yml" }
+        default: "simple"
 
-          - name: "scheduler"
-            type: "select"
-            label: "Scheduler"
-            configuration:
-              file: { path: "{{ paths._shared }}/comfyui/form/schedulers/all.yml" }
-            default: "simple"
+      - name: "cfg"
+        type: "slider"
+        label: "CFG Scale"
+        configuration:
+          min: 1.0
+          max: 10.0
+          step: 0.1
+        default: 1.0
 
-      - type: "row"
-        children:
-          - name: "denoise"
-            type: "slider"
-            label: "Denoise"
-            configuration:
-              min: 0.0
-              max: 1.0
-              step: 0.05
-            default: 1.0
+      - name: "denoise"
+        type: "slider"
+        label: "Denoise"
+        configuration:
+          min: 0.0
+          max: 1.0
+          step: 0.05
+        default: 1.0
 
-          - name: "shift"
-            type: "slider"
-            label: "Shift (AuraFlow)"
-            configuration:
-              min: 0.0
-              max: 10.0
-              step: 0.01
-            default: 1.73
+      - name: "shift"
+        type: "slider"
+        label: "Shift (AuraFlow)"
+        configuration:
+          min: 0.0
+          max: 10.0
+          step: 0.01
+        default: 1.73

@@ -8,7 +8,7 @@ fields:
       - type: "tab"
         label: "Generation"
         configuration:
-          icon: "model"
+          icon: "generation"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/txt2img/tabs/generation.yml"
 
@@ -21,6 +21,7 @@ fields:
 
       - type: "tab"
         label: "Advanced"
+        audience: "advanced"
         configuration:
           icon: "settings"
           icon_display: "icon_only"

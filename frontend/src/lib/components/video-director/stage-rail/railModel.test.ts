@@ -185,8 +185,13 @@ function ltxDoc(): VideoDirectorValue {
 		fps: 25,
 		shots: [
 			{
+				// Well under the content end (11.88) on purpose -- these fixtures
+				// exist to test content-driven geometry, and the rail total is now
+				// max(shot.duration, contentEnd) (see the dedicated test below), so
+				// a duration this small keeps every other test in this describe
+				// block asserting the SAME content-derived numbers it always has.
 				...doc.timeline.shots[0],
-				duration: 40.04,
+				duration: 1,
 				segments: [
 					{ id: 'b1', start: 0, end: 4.2, text: 'Rain on the neon sign', prompt_segments: [] },
 					{ id: 'b2', start: 4.2, end: 8.6, text: 'Past the noodle window', prompt_segments: [] },
@@ -523,9 +528,17 @@ describe('deriveRailModel — LTX timeline', () => {
 		expect(model.icLora).toEqual({ id: 'ic-lora-head', hasLora: false, hasReference: false });
 	});
 
-	it('the rail content extent is the last block end, not the preset max duration', () => {
+	it('the rail total is the GREATER of the shot duration and its content extent', () => {
+		// duration (1s) is well under the content -- content wins.
 		const model = deriveRailModel(ltxDoc(), ltxCaps());
 		expect(model.totalSeconds).toBeCloseTo(11.88, 2);
+
+		// a typed duration past the content grows the ruler instead of staying
+		// pinned to content the user hasn't placed yet.
+		const doc = ltxDoc();
+		doc.timeline = { ...doc.timeline, shots: [{ ...doc.timeline.shots[0], duration: 20 }] };
+		const grown = deriveRailModel(doc, ltxCaps());
+		expect(grown.totalSeconds).toBe(20);
 	});
 
 	it('clamps a block-edge drag against its neighbour rather than crossing it', () => {

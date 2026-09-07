@@ -40,7 +40,19 @@
 		isKeyframeLocked,
 		chainFilmSecondsFromLocal
 	} from '../stage-rail/railModel';
-	import { withAddedShot, withDuplicatedShot, withRemovedShot, withAddedAudio, withSeamKind, withRemoveKeyframe } from '../stage-rail/stageModel';
+	import {
+		withAddedShot,
+		withDuplicatedShot,
+		withRemovedShot,
+		withAddedAudio,
+		withSeamKind,
+		withRemoveKeyframe,
+		withShotDuration,
+		withShotFrames,
+		withFilmFps,
+		withShotDurationToMax,
+		resolveShotDurationMax
+	} from '../stage-rail/stageModel';
 	import { mintId, clamp } from '../timelineCore';
 	import FilmPromptRow from './FilmPromptRow.svelte';
 	import ShotRow from './ShotRow.svelte';
@@ -142,6 +154,10 @@
 
 	let generationContext = $derived({ presetId: presetId || null, variant: selectedVariant, mode: selectedMode });
 	let model = $derived(deriveConsoleModel(doc, capabilities, { activeShotId }, formData, runs, checked, generationContext));
+	// The MAX affordance's target -- null hides it entirely (no cap of either
+	// kind); shared by every shot card since it depends only on the doc/caps,
+	// not on which shot is active.
+	let maxDurationSeconds = $derived(resolveShotDurationMax(doc, capabilities));
 	// The default active shot is the first one; a stale id (its shot got
 	// removed) resolves back to the first shot too -- never a dangling
 	// expansion. Reading this everywhere instead of the raw `activeShotId`
@@ -343,6 +359,22 @@
 		doc = withDuplicatedShot(doc, capabilities, shotId);
 	}
 
+	function handleDuration(shotId: string, seconds: number) {
+		doc = withShotDuration(doc, capabilities, shotId, seconds);
+	}
+
+	function handleFrames(shotId: string, frames: number) {
+		doc = withShotFrames(doc, capabilities, shotId, frames);
+	}
+
+	function handleFps(shotId: string, fps: number) {
+		doc = withFilmFps(doc, capabilities, fps);
+	}
+
+	function handleSetMax(shotId: string) {
+		doc = withShotDurationToMax(doc, capabilities, shotId);
+	}
+
 	function handleRemove(shotId: string) {
 		doc = withRemovedShot(doc, capabilities, shotId);
 		if (selection?.shotId === shotId) selection = null;
@@ -405,10 +437,15 @@
 				<ShotCard
 					{shot}
 					checked={checked.has(shot.id)}
+					{maxDurationSeconds}
 					onToggleChecked={toggleChecked}
 					onDuplicate={handleDuplicate}
 					onRemove={handleRemove}
 					onRetry={handleRetry}
+					onDuration={handleDuration}
+					onFrames={handleFrames}
+					onFps={handleFps}
+					onSetMax={handleSetMax}
 				>
 					<ShotRail
 						shotId={shot.id}

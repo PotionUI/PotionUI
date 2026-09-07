@@ -150,8 +150,11 @@ function ltxDoc(): VideoDirectorValue {
 		fps: 25,
 		shots: [
 			{
+				// Below the content end (8.6) on purpose -- the rail total is
+				// max(shot.duration, contentEnd); see railModel.test.ts's own
+				// dedicated test for that relationship.
 				...doc.timeline.shots[0],
-				duration: 40.04,
+				duration: 1,
 				segments: [
 					{ id: 'b1', start: 0, end: 4.2, text: 'Rain on the neon sign', prompt_segments: [] },
 					{ id: 'b2', start: 5.5, end: 8.6, text: 'Past the noodle window', prompt_segments: [] } // gap 4.2-5.5 -> global fill

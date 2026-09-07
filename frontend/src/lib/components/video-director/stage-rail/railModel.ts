@@ -750,6 +750,14 @@ function deriveChainRail(
 	};
 }
 
+/** The latest point any of a timeline shot's beats/keyframes/audio reaches --
+ * shared between `deriveTimelineRail`'s displayed total (below) and
+ * `withShotDuration`'s floor (stageModel.ts): a shot can never be usefully
+ * shorter than its own placed content. */
+export function timelineShotContentEnd(shot: DirectorTimelineShot): number {
+	return Math.max(0, ...shot.segments.map((s) => s.end), ...shot.keyframes.map((k) => k.start), ...shot.audio.map((a) => a.start + a.length));
+}
+
 function deriveTimelineRail(
 	fps: number,
 	shot: DirectorTimelineShot,
@@ -758,13 +766,15 @@ function deriveTimelineRail(
 	const directorCap = caps.modes.director;
 	const sorted = sortByStart(shot.segments);
 
-	const contentEnd = Math.max(
-		0,
-		...sorted.map((s) => s.end),
-		...shot.keyframes.map((k) => k.start),
-		...shot.audio.map((a) => a.start + a.length)
-	);
-	const totalSeconds = contentEnd > 0 ? contentEnd : Math.max(shot.duration, 1);
+	// The shot's own `duration` (the console's editable Duration/Frames/FPS
+	// field, and the field the backend actually renders -- see
+	// buildTimelineShotWireDoc) can run past its placed content (the user
+	// grew it to leave room for more beats); the rail must honour whichever
+	// is longer so the ruler grows with a typed duration instead of staying
+	// pinned to content the user hasn't placed yet.
+	const contentEnd = timelineShotContentEnd(shot);
+	const rawTotal = Math.max(shot.duration, contentEnd);
+	const totalSeconds = rawTotal > 0 ? rawTotal : 1;
 	const totalFrames = Math.round(totalSeconds * fps);
 
 	const shots: RailShotBlock[] = sorted.map((segment, index) => {

@@ -9,10 +9,16 @@ import {
 	withTimelineKeyframeMedia,
 	withIcLoraPatch,
 	withShotReferences,
+	withShotDuration,
+	withShotFrames,
+	withFilmFps,
+	resolveShotDurationMax,
+	withShotDurationToMax,
 	type StageShotModel,
 	type StageJoinModel,
 	type StageKeyframeModel
 } from './stageModel';
+import { deriveRailModel } from './railModel';
 import { chainEdgeKeyframeId, resolveDirectorCapabilities, resolveDirectorEdgeAllowances } from '$lib/utils/videoDirector';
 import type { VideoDirectorValue, DirectorCapabilities, DirectorModeCapability, ChainSegment, DirectorPromptSegment, ChainKeyframe, DirectorKeyframe } from '$lib/types/videoDirector';
 
@@ -814,5 +820,161 @@ describe('deriveStageModel — H3 refs merged profile', () => {
 		const join = deriveStageModel(doc, refsCaps, { kind: 'seam', id: 'seam-chain-1-chain-2' }, formData).selected as StageJoinModel;
 		expect(join.isCut).toBe(true);
 		expect(join.continuationAvailable).toBe(false);
+	});
+});
+
+describe('withShotDuration', () => {
+	it('chain routing: writes the segment duration directly, rounded to 0.1s, leaving siblings untouched', () => {
+		const doc = wanDoc();
+		const next = withShotDuration(doc, wanCaps(), 'chain-2', 6.28);
+		expect(next.chain.segments.find((s) => s.id === 'chain-2')?.duration).toBeCloseTo(6.3, 6);
+		expect(next.chain.segments.find((s) => s.id === 'chain-1')?.duration).toBeCloseTo(49 / 16, 6);
+	});
+
+	it('chain routing: clamps to caps.maxDuration', () => {
+		const caps: DirectorCapabilities = { ...wanCaps(), maxDuration: 4 };
+		const next = withShotDuration(wanDoc(), caps, 'chain-2', 10);
+		expect(next.chain.segments.find((s) => s.id === 'chain-2')?.duration).toBe(4);
+	});
+
+	it('chain routing: clamps to the frames cap via evaluateDirectorTiming (fps 16, maxFrames 32 -> 2s)', () => {
+		const caps: DirectorCapabilities = { ...wanCaps(), maxFrames: 32 };
+		const next = withShotDuration(wanDoc(), caps, 'chain-2', 10);
+		expect(next.chain.segments.find((s) => s.id === 'chain-2')?.duration).toBe(2);
+	});
+
+	it('timeline routing: writes the shot duration via set_settings\' per-shot destination', () => {
+		const doc = baseDoc();
+		const next = withShotDuration(doc, ltxCaps(), 'shot-1', 12.34);
+		expect(next.timeline.shots[0].duration).toBeCloseTo(12.3, 6);
+	});
+
+	it('timeline routing: clamps to caps.maxDuration', () => {
+		const caps: DirectorCapabilities = { ...ltxCaps(), maxDuration: 6 };
+		const next = withShotDuration(baseDoc(), caps, 'shot-1', 20);
+		expect(next.timeline.shots[0].duration).toBe(6);
+	});
+
+	it('timeline routing: clamps to the LTX caps fixture\'s frames cap (fps 24, maxFrames 1001 -> 41.7s)', () => {
+		const next = withShotDuration(baseDoc(), ltxCaps(), 'shot-1', 100);
+		expect(next.timeline.shots[0].duration).toBe(41.7);
+	});
+
+	it('rounds to one decimal second', () => {
+		const next = withShotDuration(wanDoc(), wanCaps(), 'chain-2', 3.14159);
+		expect(next.chain.segments.find((s) => s.id === 'chain-2')?.duration).toBe(3.1);
+	});
+
+	it('non-finite or non-positive input is a no-op', () => {
+		const doc = wanDoc();
+		expect(withShotDuration(doc, wanCaps(), 'chain-2', NaN)).toBe(doc);
+		expect(withShotDuration(doc, wanCaps(), 'chain-2', 0)).toBe(doc);
+		expect(withShotDuration(doc, wanCaps(), 'chain-2', -3)).toBe(doc);
+	});
+
+	it('timeline routing: floors at the content end -- typing below existing beat content clamps UP to it, not down', () => {
+		const doc = baseDoc();
+		doc.timeline = { fps: 24, shots: [{ ...doc.timeline.shots[0], segments: [tlSegment('b1', 'x', 0, 4)] }] };
+		const caps = ltxCaps();
+
+		const shrunk = withShotDuration(doc, caps, 'shot-1', 2.0);
+		expect(shrunk.timeline.shots[0].duration).toBe(4);
+	});
+
+	it('timeline routing: a value past the content end grows the shot, and the rail total follows it', () => {
+		const doc = baseDoc();
+		doc.timeline = { fps: 24, shots: [{ ...doc.timeline.shots[0], segments: [tlSegment('b1', 'x', 0, 4)] }] };
+		const caps = ltxCaps();
+
+		const grown = withShotDuration(doc, caps, 'shot-1', 8.0);
+		expect(grown.timeline.shots[0].duration).toBe(8);
+		const rail = deriveRailModel(grown, caps, 'shot-1');
+		expect(rail.totalSeconds).toBe(8);
+	});
+
+	it('chain routing has no content-end floor -- a chain shot may shrink freely', () => {
+		const next = withShotDuration(wanDoc(), wanCaps(), 'chain-2', 0.5);
+		expect(next.chain.segments.find((s) => s.id === 'chain-2')?.duration).toBe(0.5);
+	});
+});
+
+describe('withShotFrames', () => {
+	it('chain routing: writes duration = frames / fps through withShotDuration (same clamps, same rounding)', () => {
+		// wanDoc() chain fps is 16 -> 96 frames = 6.0s
+		const next = withShotFrames(wanDoc(), wanCaps(), 'chain-2', 96);
+		expect(next.chain.segments.find((s) => s.id === 'chain-2')?.duration).toBe(6);
+	});
+
+	it('chain routing: clamps to the frames cap the same way withShotDuration does', () => {
+		const caps: DirectorCapabilities = { ...wanCaps(), maxFrames: 32 };
+		const next = withShotFrames(wanDoc(), caps, 'chain-2', 999);
+		expect(next.chain.segments.find((s) => s.id === 'chain-2')?.duration).toBe(2);
+	});
+
+	it('timeline routing: writes duration = frames / fps via set_settings', () => {
+		// baseDoc() timeline fps is 24 -> 120 frames = 5.0s
+		const next = withShotFrames(baseDoc(), ltxCaps(), 'shot-1', 120);
+		expect(next.timeline.shots[0].duration).toBe(5);
+	});
+
+	it('non-finite or non-positive frames is a no-op', () => {
+		const doc = wanDoc();
+		expect(withShotFrames(doc, wanCaps(), 'chain-2', NaN)).toBe(doc);
+		expect(withShotFrames(doc, wanCaps(), 'chain-2', 0)).toBe(doc);
+		expect(withShotFrames(doc, wanCaps(), 'chain-2', -5)).toBe(doc);
+	});
+});
+
+describe('withFilmFps', () => {
+	it('writes chain.fps/timeline.fps/simple.fps together, rounded to a whole number', () => {
+		const next = withFilmFps(wanDoc(), wanCaps(), 30.6);
+		expect(next.chain.fps).toBe(31);
+		expect(next.timeline.fps).toBe(31);
+		expect(next.simple.fps).toBe(31);
+	});
+
+	it('a locked mode refuses the write', () => {
+		const caps: DirectorCapabilities = { ...wanCaps(), modes: { director: baseModeCap({ fpsLocked: true }) } };
+		const doc = wanDoc();
+		expect(withFilmFps(doc, caps, 30)).toBe(doc);
+	});
+
+	it('out-of-range or non-finite fps is a no-op', () => {
+		const doc = wanDoc();
+		expect(withFilmFps(doc, wanCaps(), 0)).toBe(doc);
+		expect(withFilmFps(doc, wanCaps(), 61)).toBe(doc);
+		expect(withFilmFps(doc, wanCaps(), NaN)).toBe(doc);
+	});
+});
+
+describe('resolveShotDurationMax / withShotDurationToMax', () => {
+	it('chain routing: the per-segment frames cap (H3), converted to seconds at full precision', () => {
+		// h3Doc() chain fps is 25, h3Caps() maxFramesPerSegment is 345 (17*20+5, already lattice-aligned)
+		expect(resolveShotDurationMax(h3Doc(), h3Caps())).toBeCloseTo(345 / 25, 10);
+		const next = withShotDurationToMax(h3Doc(), h3Caps(), 'h3-1');
+		expect(next.chain.segments.find((s) => s.id === 'h3-1')?.duration).toBe(345 / 25);
+	});
+
+	it('timeline routing: the document-wide frames cap (LTX), converted to seconds at full precision', () => {
+		// baseDoc() timeline fps is 24, ltxCaps() maxFrames is 1001
+		expect(resolveShotDurationMax(baseDoc(), ltxCaps())).toBeCloseTo(1001 / 24, 10);
+		const next = withShotDurationToMax(baseDoc(), ltxCaps(), 'shot-1');
+		expect(next.timeline.shots[0].duration).toBeCloseTo(1001 / 24, 10);
+	});
+
+	it('falls back to caps.maxDuration when only a duration cap exists (no frames cap)', () => {
+		// wanCaps()'s own director mode carries maxFramesPerSegment -- drop it
+		// so this exercises the fallback branch specifically.
+		const caps: DirectorCapabilities = { ...wanCaps(), modes: { director: baseModeCap() }, maxDuration: 9 };
+		expect(resolveShotDurationMax(wanDoc(), caps)).toBe(9);
+		const next = withShotDurationToMax(wanDoc(), caps, 'chain-2');
+		expect(next.chain.segments.find((s) => s.id === 'chain-2')?.duration).toBe(9);
+	});
+
+	it('no cap at all: resolves to null and the setter is a no-op', () => {
+		const caps: DirectorCapabilities = { ...wanCaps(), modes: { director: baseModeCap() } };
+		expect(resolveShotDurationMax(wanDoc(), caps)).toBeNull();
+		const doc = wanDoc();
+		expect(withShotDurationToMax(doc, caps, 'chain-2')).toBe(doc);
 	});
 });

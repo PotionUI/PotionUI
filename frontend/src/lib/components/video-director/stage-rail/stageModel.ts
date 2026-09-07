@@ -56,6 +56,7 @@ import type { Segment } from '$lib/types/segments';
 import {
 	deriveRailModel,
 	deriveShotLabel,
+	timelineShotContentEnd,
 	SNAP_EPSILON_SECONDS,
 	type RailModel,
 	type RailRouting,
@@ -77,6 +78,7 @@ import {
 	parseTimelineEdgeKeyframeId,
 	resolveDirectorEdgeAllowances,
 	resolveDirectorTimingProfile,
+	evaluateDirectorTiming,
 	type DirectorEdgeAllowances
 } from '$lib/utils/videoDirector';
 import { resolvePromptSegments } from '$lib/utils/promptSegments';
@@ -1304,6 +1306,109 @@ export function withSeamKind(doc: VideoDirectorValue, caps: DirectorCapabilities
 
 export function withTrimShotToCap(doc: VideoDirectorValue, caps: DirectorCapabilities, shotId: string, trimToSeconds: number): VideoDirectorValue {
 	return applyDirectorOperations(doc, [{ op: 'upsert_segment', segment: { id: shotId, duration: trimToSeconds } }], caps);
+}
+
+/** Writes a shot's own duration from the console's inline duration field.
+ * Rounds to 0.1s and clamps to `(0, caps.maxDuration]`, then re-clamps to
+ * the frames cap (`caps.maxFrames`, via `evaluateDirectorTiming`) when the
+ * mode has one -- same two limits `validateDirector` already enforces per
+ * shot. NaN/non-finite/`<= 0` is a no-op (the field simply won't commit a
+ * bad value).
+ *
+ * Unlike `withTrimShotToCap` above, this does NOT route both modes through
+ * `upsert_segment`: that op's `duration` field only has a destination on a
+ * CHAIN segment (`applyUpsertSegmentChain`) -- for timeline routing a beat's
+ * `upsert_segment` has no `duration` destination at all (a beat is
+ * start/end, not a shot length; see `applyUpsertSegmentTimeline`'s own
+ * comment), so writing timeline duration goes through `set_settings` with
+ * `shot_id`, `applySetSettings`'s actual per-shot destination
+ * (`timeline.shots[i].duration`).
+ *
+ * Timeline routing also floors the result at `timelineShotContentEnd` (the
+ * shot's placed beats/keyframes/audio): a typed value that would shrink the
+ * shot below its own content is clamped UP to the content end rather than
+ * silently truncating it (or, worse, being accepted but invisible -- see
+ * `deriveTimelineRail`'s matching `max(shot.duration, contentEnd)` display
+ * total in railModel.ts). Chain routing has no such floor -- a chain shot's
+ * prompt IS its one full-span segment, so there is no "content" shorter than
+ * the shot to clash with. */
+export function withShotDuration(doc: VideoDirectorValue, caps: DirectorCapabilities, shotId: string, seconds: number): VideoDirectorValue {
+	if (!Number.isFinite(seconds) || seconds <= 0) return doc;
+	let clamped = Math.round(seconds * 10) / 10;
+	if (caps.maxDuration != null) clamped = Math.min(clamped, caps.maxDuration);
+	if (caps.maxFrames != null) {
+		const fps = (caps.segmentRouting ? doc.chain.fps : doc.timeline.fps) || 1;
+		const timing = evaluateDirectorTiming(clamped, fps, { maxDuration: null, maxFrames: caps.maxFrames });
+		if (timing.fieldErrors.duration) clamped = Math.floor((caps.maxFrames / fps) * 10) / 10;
+	}
+	if (!caps.segmentRouting) {
+		const shot = doc.timeline.shots.find((s) => s.id === shotId);
+		if (shot) clamped = Math.max(clamped, timelineShotContentEnd(shot));
+	}
+	if (clamped <= 0) return doc;
+	return caps.segmentRouting
+		? applyDirectorOperations(doc, [{ op: 'upsert_segment', segment: { id: shotId, duration: clamped } }], caps)
+		: applyDirectorOperations(doc, [{ op: 'set_settings', settings: { duration: clamped }, shot_id: shotId }], caps);
+}
+
+/** Frames ↔ duration are two views of one value -- writes `duration =
+ * frames / fps` through `withShotDuration` so both the value AND its clamps
+ * (maxDuration/frames-cap/content-end floor) stay in exactly one place; the
+ * family lattice snap (H3's 17n+5, Wan's 1+4k) then applies the same way it
+ * already does for any other duration write, re-deriving the rail's real
+ * emitted frame count from the stored (possibly non-lattice) duration --
+ * this never re-implements that math. */
+export function withShotFrames(doc: VideoDirectorValue, caps: DirectorCapabilities, shotId: string, frames: number): VideoDirectorValue {
+	if (!Number.isFinite(frames) || frames <= 0) return doc;
+	const fps = (caps.segmentRouting ? doc.chain.fps : doc.timeline.fps) || 1;
+	return withShotDuration(doc, caps, shotId, frames / fps);
+}
+
+/** Writes the film-level frame rate (`chain.fps`/`timeline.fps`, and legacy
+ * `simple.fps` alongside for free -- `applySetSettings`'s own contract, see
+ * `set_settings`'s doc comment on `DirectorOpSetSettings`) from the
+ * console's inline FPS field. Rounds to a whole number and clamps to [1, 60]
+ * (`evaluateDirectorTiming`'s own fps bounds). A locked mode
+ * (`caps.modes.director?.fpsLocked`) renders this control disabled -- this
+ * refuses the write too, rather than trusting the UI alone. */
+export function withFilmFps(doc: VideoDirectorValue, caps: DirectorCapabilities, fps: number): VideoDirectorValue {
+	if (caps.modes.director?.fpsLocked) return doc;
+	if (!Number.isFinite(fps)) return doc;
+	const rounded = Math.round(fps);
+	if (rounded < 1 || rounded > 60) return doc;
+	return applyDirectorOperations(doc, [{ op: 'set_settings', settings: { fps: rounded } }], caps);
+}
+
+/** The exact "as long as this generator allows" duration (seconds, full
+ * precision -- NOT rounded to 0.1s) for the console's MAX affordance: the
+ * per-shot frames cap converted to seconds when one exists (chain:
+ * `caps.modes.director.maxFramesPerSegment`, mirroring `RailShotBlock.capFrames`;
+ * timeline: `caps.maxFrames`, mirroring `RailModel.maxFrames`), else
+ * `caps.maxDuration` when only a duration cap exists. Null when the mode has
+ * no cap of either kind -- callers hide the MAX affordance entirely then.
+ * Full precision matters: a cap frame count is already lattice-aligned (it
+ * came from the same preset config the family snap targets), so dividing it
+ * by fps and writing that back reproduces exactly that many frames once
+ * re-derived -- rounding to 0.1s here could round PAST the lattice point and
+ * push the re-derived frame count over the cap. */
+export function resolveShotDurationMax(doc: VideoDirectorValue, caps: DirectorCapabilities): number | null {
+	const fps = (caps.segmentRouting ? doc.chain.fps : doc.timeline.fps) || 1;
+	const capFrames = caps.segmentRouting ? (caps.modes.director?.maxFramesPerSegment ?? null) : caps.maxFrames;
+	if (capFrames != null) return capFrames / fps;
+	return caps.maxDuration;
+}
+
+/** Sets a shot to `resolveShotDurationMax` -- a no-op when the mode has no
+ * cap at all. Bypasses `withShotDuration`'s 0.1s rounding (see
+ * `resolveShotDurationMax`'s own doc comment on why exact precision
+ * matters here) but still goes through the same per-routing write
+ * destination (`upsert_segment` for chain, `set_settings` for timeline). */
+export function withShotDurationToMax(doc: VideoDirectorValue, caps: DirectorCapabilities, shotId: string): VideoDirectorValue {
+	const target = resolveShotDurationMax(doc, caps);
+	if (target == null || !Number.isFinite(target) || target <= 0) return doc;
+	return caps.segmentRouting
+		? applyDirectorOperations(doc, [{ op: 'upsert_segment', segment: { id: shotId, duration: target } }], caps)
+		: applyDirectorOperations(doc, [{ op: 'set_settings', settings: { duration: target }, shot_id: shotId }], caps);
 }
 
 // ─── Add affordances ─────────────────────────────────────────────────────────

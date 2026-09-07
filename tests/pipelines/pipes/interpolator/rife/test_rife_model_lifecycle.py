@@ -69,6 +69,7 @@ def test_unchanged_reuse_loads_once(tmp_path, monkeypatch):
     assert first is second
 
 
+@pytest.mark.gc_sensitive
 def test_a_b_a_switch_keeps_a_bounded_retained_count(tmp_path, monkeypatch):
     path_a = _checkpoint(tmp_path, "a.pth")
     path_b = _checkpoint(tmp_path, "b.pth")

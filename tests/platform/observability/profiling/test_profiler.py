@@ -539,6 +539,7 @@ def test_census_group_separates_pinned_from_unpinned(tmp_path, monkeypatch):
     del holder, plain, pinned
 
 
+@pytest.mark.gc_sensitive
 def test_census_group_row_carries_device_field(tmp_path, monkeypatch):
     _enable(monkeypatch)
     small = torch.zeros(1024, dtype=torch.float32)
@@ -588,6 +589,7 @@ def test_census_group_rows_bounded_by_max_group_rows(tmp_path, monkeypatch):
 # coarse point mid-generation -- see profiler.py's docstring on the method.
 
 
+@pytest.mark.gc_sensitive
 def test_census_now_writes_tagged_rows_distinct_from_stop(tmp_path, monkeypatch):
     """census_now() must use its OWN row kind (`census_group_now`/
     `census_now`), never the `census_group`/`census` kinds stop() writes --

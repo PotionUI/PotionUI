@@ -49,6 +49,7 @@ import {
 	chainEdgeKeyframeId,
 	timelineEdgeKeyframeId,
 	resolveDirectorEdgeAllowances,
+	chainSegmentEdgeAllowances,
 	resolveDirectorTimingProfile
 } from '$lib/utils/videoDirector';
 import { clamp } from '../timelineCore';
@@ -232,30 +233,48 @@ function deriveChainShotRail(
 	let keyframesLane: ShotRailModel['lanes']['keyframes'] = null;
 	if (rail.lanes.keyframes) {
 		const marks: RailKeyframeMark[] = [];
+		// Which edge this SPECIFIC segment may anchor is join-aware, not just
+		// capability-aware -- the same `chainSegmentEdgeAllowances` the stage
+		// wells (`chainLeadingGate`/`chainTrailingGate` in stageModel.ts) defer
+		// to. A mid-chain shot that continues in from its predecessor gets no
+		// START anchor even when the mode admits leading edges elsewhere
+		// (bug: maintainer report 09-07, a Wan `first_only` doc showing an END
+		// anchor no segment of that family may ever carry). Existing media is
+		// the one exception, mirroring railModel.ts's own film-level edge
+		// mirrors (`deriveChainRail`'s `edgeKeyframes`, which push purely off
+		// `segment.keyframe`/`last_keyframe` with no capability check at all):
+		// a segment that somehow already carries edge media -- imported data,
+		// or caps that changed after it was set -- must never have that anchor
+		// hidden out from under it.
+		const segmentEdges = chainSegmentEdgeAllowances(doc.chain.segments, dc?.continuationDisabled === true, resolveDirectorEdgeAllowances(caps));
 		// MUST be `chainEdgeKeyframeId` -- the same id `deriveStageModel`'s
 		// `buildKeyframeModel` (via `parseChainEdgeKeyframeId`) and railModel.ts's
 		// own film-level edge mirrors use. A synthesized `${id}-leading` id here
 		// (the earlier W1 shape) parses as neither a chain-edge id nor a placed
 		// `chain.keyframes` entry, so clicking the anchor selected nothing and
 		// the stage never showed the keyframe panel (bug: 09-04 maintainer report).
-		const startUrl = thumbUrlFor(segment.keyframe, formData);
-		marks.push({
-			id: chainEdgeKeyframeId('first', segment.id),
-			kind: 'start',
-			atPercent: 0,
-			thumbUrl: startUrl,
-			label: 'START',
-			empty: startUrl == null
-		});
-		const endUrl = thumbUrlFor(segment.last_keyframe, formData);
-		marks.push({
-			id: chainEdgeKeyframeId('last', segment.id),
-			kind: 'end',
-			atPercent: 100,
-			thumbUrl: endUrl,
-			label: 'END',
-			empty: endUrl == null
-		});
+		if (segmentEdges.leading[index] || segment.keyframe != null) {
+			const startUrl = thumbUrlFor(segment.keyframe, formData);
+			marks.push({
+				id: chainEdgeKeyframeId('first', segment.id),
+				kind: 'start',
+				atPercent: 0,
+				thumbUrl: startUrl,
+				label: 'START',
+				empty: startUrl == null
+			});
+		}
+		if (segmentEdges.trailing[index] || segment.last_keyframe != null) {
+			const endUrl = thumbUrlFor(segment.last_keyframe, formData);
+			marks.push({
+				id: chainEdgeKeyframeId('last', segment.id),
+				kind: 'end',
+				atPercent: 100,
+				thumbUrl: endUrl,
+				label: 'END',
+				empty: endUrl == null
+			});
+		}
 
 		const fps = rail.fps;
 		for (const kf of doc.chain.keyframes) {

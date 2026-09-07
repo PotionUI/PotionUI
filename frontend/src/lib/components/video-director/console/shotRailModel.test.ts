@@ -229,20 +229,52 @@ describe('deriveShotRail — chain routing (Wan, first_only: no free keyframes/a
 		expect(rail.lanes.audio).toBeNull();
 	});
 
-	it('START/END anchor marks render empty once the lane opens; canAdd stays locked -- first_only never enables free placement', () => {
-		// railModel.ts's `chainEdgeAllowed` opens the lane off
+	it('shot 1 gets a START anchor only (it opens fresh); no END -- first_only never allows a trailing well, and shot 1 continues into shot 2; canAdd stays locked', () => {
+		// railModel.ts's `chainEdgeAllowed` opens the LANE off
 		// `resolveDirectorEdgeAllowances(caps).leadingEdgeAllowed` alone (true
-		// for first_only), not on media/free-placement -- the locked START/END
-		// wells this file draws whenever the lane exists are exactly the
-		// affordance a first_only shot is entitled to before anything is
-		// placed. `canAdd` (the free "+" add) stays false regardless: it reads
-		// `rail.freePlacementActive`, which first_only (keyframes !== 'anywhere')
-		// never sets.
+		// for first_only) -- but WHICH anchor each shot draws is the join-aware
+		// `chainSegmentEdgeAllowances` question: shot 1 opens fresh (it's
+		// index 0) so it gets a START well, but it continues INTO shot 2
+		// (wanDoc's first join is a `continue`), so `closesFresh[0]` is false
+		// and it gets no END well -- and Wan's own caps never declare `flf` or
+		// `keyframes: 'anywhere'`, so no shot of this family could ever draw
+		// one regardless of join topology. `canAdd` (the free "+" add) stays
+		// false regardless: it reads `rail.freePlacementActive`, which
+		// first_only (keyframes !== 'anywhere') never sets.
 		const rail = deriveShotRail(wanDoc(), wanCaps(), 's1');
 		const marks = rail.lanes.keyframes!.marks;
-		expect(marks.find((m) => m.kind === 'start')).toMatchObject({ empty: true, label: 'START' });
-		expect(marks.find((m) => m.kind === 'end')).toMatchObject({ empty: true, label: 'END' });
+		expect(marks.map((m) => m.kind)).toEqual(['start']);
+		expect(marks[0]).toMatchObject({ empty: true, label: 'START' });
 		expect(rail.lanes.keyframes!.canAdd).toBe(false);
+	});
+
+	it('a mid-chain continuation shot (does not open fresh) draws no anchor at all', () => {
+		// shot 2 (s2) continues in from shot 1, and its own outgoing join to
+		// shot 3 is a hard cut -- `chainSegmentEdgeAllowances.leading[1]` is
+		// false (doesn't open fresh) and `.trailing[1]` is false too (trailing
+		// requires opensFresh AND closesFresh AND leadingEdgeAllowed AND
+		// trailingEdgeAllowed -- opensFresh alone already kills it). No media
+		// is set on it, so neither anchor renders.
+		const rail = deriveShotRail(wanDoc(), wanCaps(), 's2');
+		expect(rail.lanes.keyframes).not.toBeNull();
+		const marks = rail.lanes.keyframes!.marks.filter((m) => m.kind === 'start' || m.kind === 'end');
+		expect(marks).toEqual([]);
+	});
+
+	it('existing edge media on a shot the capability would otherwise deny an anchor to is never hidden', () => {
+		// Mirrors railModel.ts's own film-level edge mirrors (`deriveChainRail`'s
+		// `edgeKeyframes`), which push purely off `segment.keyframe`/
+		// `last_keyframe` with no capability check at all -- a segment that
+		// somehow already carries edge media (legacy/imported data, or caps
+		// that changed after it was set) must keep its anchor.
+		const doc = wanDoc();
+		doc.chain.segments = doc.chain.segments.map((s) =>
+			s.id === 's2' ? { ...s, keyframe: { path: 'legacy-start.png' }, last_keyframe: { path: 'legacy-end.png' } } : s
+		);
+		const rail = deriveShotRail(doc, wanCaps(), 's2');
+		const marks = rail.lanes.keyframes!.marks;
+		expect(marks.find((m) => m.kind === 'start')).toBeDefined();
+		expect(marks.find((m) => m.kind === 'end')).toBeDefined();
 	});
 });
 

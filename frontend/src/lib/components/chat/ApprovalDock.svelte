@@ -334,7 +334,7 @@
 
 	{#snippet actionsRow()}
 		{#if working}
-			<span class="text-xs text-fg-subtle flex items-center gap-1.5 ml-auto">
+			<span class="question-queued flex items-center gap-1.5">
 				<span
 					class="w-3 h-3 rounded-full border-2 border-line-strong animate-spin inline-block"
 					style="border-top-color: rgb(var(--accent));"
@@ -342,84 +342,57 @@
 				Working…
 			</span>
 		{:else}
-			<span class="font-mono text-2xs text-fg-subtle truncate">
+			<span class="question-queued">
 				{#if nextEntry}next: {labelFor(nextEntry.execution.tool_name)}{/if}
 			</span>
-			<div class="flex items-center gap-2 flex-shrink-0">
-				{#if queue.length > 1}
-					<button
-						type="button"
-						class="px-3 py-1.5 text-xs font-medium text-fg-muted border border-line-strong rounded hover:bg-surface-2 transition-colors"
-						on:click={approveAll}
-					>
-						Approve all
-					</button>
-				{/if}
-				<button
-					type="button"
-					class="px-3 py-1.5 text-xs font-medium text-danger border border-danger/45 bg-transparent rounded hover:bg-danger/10 transition-colors"
-					on:click={reject}
-				>
-					Reject
-				</button>
-				<button
-					type="button"
-					class="px-3.5 py-1.5 text-xs font-medium text-accent-contrast bg-accent rounded hover:bg-accent-hover transition-colors"
-					on:click={approve}
-				>
-					Approve
-				</button>
-			</div>
+			{#if queue.length > 1}
+				<button type="button" class="question-secondary" on:click={approveAll}>Approve all</button>
+			{/if}
+			<button type="button" class="question-secondary is-danger" on:click={reject}>Reject</button>
+			<button type="button" class="question-answer" on:click={approve}>Approve</button>
 		{/if}
 	{/snippet}
 
-	<div class="flex-shrink-0 border-t border-line-strong bg-surface-1 shadow-raised" transition:slide={{ duration: 150 }}>
-		<div class="p-2.5 pb-0">
-			<div class="flex items-center gap-2">
-				<span
-					class="flex items-center justify-center w-[18px] h-[18px] rounded bg-warning/10 border border-warning/40 flex-shrink-0 {working ? 'opacity-50' : ''}"
-					aria-hidden="true"
+	<div class="question-dock flex-shrink-0" transition:slide={{ duration: 150 }}>
+		<header class="question-head">
+			<span class="question-indicator is-warning {working ? 'opacity-50' : ''}" aria-hidden="true">
+				<span class="w-1.5 h-1.5 rounded-full bg-warning {working ? '' : 'motion-safe:animate-pulse'}"></span>
+			</span>
+			<strong class="truncate {working ? 'text-fg-muted' : ''}">{toolLabel}</strong>
+			{#if detailExpanded}
+				<button
+					type="button"
+					class="w-6 h-6 rounded border border-line-strong flex items-center justify-center text-fg-subtle hover:text-fg-muted hover:border-line-hover transition-colors flex-shrink-0"
+					title="Expand to full view"
+					aria-label="Expand to full view"
+					on:click={() => (sheetOpen = true)}
 				>
-					<span class="w-1.5 h-1.5 rounded-full bg-warning {working ? '' : 'motion-safe:animate-pulse'}"></span>
-				</span>
-				<span class="text-sm font-semibold {working ? 'text-fg-muted' : 'text-fg'} truncate">{toolLabel}</span>
-				{#if detailExpanded}
-					<button
-						type="button"
-						class="w-6 h-6 rounded border border-line-strong flex items-center justify-center text-fg-subtle hover:text-fg-muted hover:border-line-hover transition-colors flex-shrink-0"
-						title="Expand to full view"
-						aria-label="Expand to full view"
-						on:click={() => (sheetOpen = true)}
-					>
-						<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H3v6M15 21h6v-6M21 3l-7 7M3 21l7-7" />
-						</svg>
-					</button>
-				{/if}
-				<div class="ml-auto flex items-center gap-2 flex-shrink-0">
-					{#if queue.length > 1}
-						{#if queue.length <= MAX_PIPS}
-							<div class="flex items-center gap-1" aria-hidden="true">
-								{#each queue as _, i (i)}
-									<span class="w-[5px] h-[5px] rounded-full {i === 0 ? 'bg-fg' : 'bg-line-strong'}"></span>
-								{/each}
-							</div>
-						{/if}
-						<span class="font-mono text-2xs uppercase tracking-[0.05em] text-fg-subtle tabular-nums">
-							1 of {queue.length}
+					<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H3v6M15 21h6v-6M21 3l-7 7M3 21l7-7" />
+					</svg>
+				</button>
+			{/if}
+			{#if queue.length > 1}
+				<span class="approval-progress">
+					{#if queue.length <= MAX_PIPS}
+						<span class="approval-pips" aria-hidden="true">
+							{#each queue as _, i (i)}
+								<span class="w-[5px] h-[5px] rounded-full {i === 0 ? 'bg-fg' : 'bg-line-strong'}"></span>
+							{/each}
 						</span>
 					{/if}
-				</div>
-			</div>
-			<div class="mt-0.5 font-mono text-2xs text-fg-subtle">
+					<span class="approval-count tabular-nums">1 of {queue.length}</span>
+				</span>
+			{/if}
+		</header>
+
+		<div class="question-body {working ? 'opacity-45 pointer-events-none' : ''}">
+			<div class="font-mono text-2xs text-fg-subtle mb-2">
 				from reply{#if current.messageTimestamp} · {formatTime(current.messageTimestamp)}{/if}{#if isFallback} · no typed preview — showing raw arguments{/if}
 			</div>
-			<div class="mt-2.5 border-t border-line"></div>
-		</div>
 
-		<div class="px-2.5 pb-2.5 {working ? 'opacity-45 pointer-events-none' : ''}">
 			{#if !detailExpanded}
-				<div class="pt-2.5">
+				<div>
 					<div class="text-sm text-fg leading-snug line-clamp-2">{compactSummary}</div>
 					{#if previewData?.fields?.length}
 						<div class="mt-2 flex flex-wrap gap-1.5">
@@ -443,7 +416,7 @@
 					</button>
 				</div>
 			{:else}
-				<div class="pt-2.5">
+				<div>
 					<button
 						type="button"
 						class="mb-1.5 text-xs font-semibold text-fg-subtle hover:text-fg-muted transition-colors"
@@ -463,11 +436,11 @@
 			{#if error}
 				<div class="mt-1.5 text-xs text-danger">{error}</div>
 			{/if}
-
-			<div class="mt-2.5 flex items-center justify-between gap-2">
-				{@render actionsRow()}
-			</div>
 		</div>
+
+		<footer class="question-footer">
+			{@render actionsRow()}
+		</footer>
 	</div>
 
 	<BaseModal

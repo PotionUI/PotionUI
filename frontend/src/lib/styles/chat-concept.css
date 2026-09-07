@@ -1260,6 +1260,45 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
 
 .question-answer:disabled { background: rgb(var(--surface-3)); color: rgb(var(--fg-subtle)); cursor: default; }
 
+/* ApprovalDock: the .question-dock card anatomy (they share a mount slot,
+   never shown together) with a warning-tinted indicator and a queue readout
+   that needs pips alongside the count, which .question-progress alone can't
+   hold. */
+.question-indicator.is-warning {
+      border-color: color-mix(in srgb, rgb(var(--warning)) 35%, transparent);
+      background: rgb(var(--warning) / .1);
+    }
+
+.approval-progress {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+.approval-pips {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+.approval-count {
+      color: rgb(var(--fg-subtle));
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 8px;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+
+.question-secondary.is-danger { color: rgb(var(--danger)); }
+
+.question-secondary.is-danger:hover {
+      border-color: color-mix(in srgb, rgb(var(--danger)) 45%, transparent);
+      background: rgb(var(--danger) / .1);
+      color: rgb(var(--danger));
+    }
+
 .composer-wrap {
       position: relative;
       flex: 0 0 auto;

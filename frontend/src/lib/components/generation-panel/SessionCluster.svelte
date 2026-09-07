@@ -9,9 +9,10 @@
 	import { storage } from '$lib/utils/storage';
 	import { api } from '$lib/services/api/index';
 	import { tabsStore } from '$lib/stores/tabs';
+	import { keybindingsStore } from '$lib/stores/keybindings';
 	import type { PresetModeVariant } from '$lib/types/api';
 	import { sortVariants } from '$lib/utils/variants';
-	import { createSessionController } from '$lib/session/sessionController';
+	import { createSessionController, saveOrPrompt } from '$lib/session/sessionController';
 	import { activeWorkspaceSaveRequest, settleWorkspaceSaveRequest } from '$lib/stores/workspaceSaveRequest';
 	import { activeWorkspaceDirtyQuery, answerWorkspaceDirtyQuery } from '$lib/stores/workspaceDirtyQuery';
 	import { toasts } from '$lib/stores/toast';
@@ -162,6 +163,11 @@
 
 		document.addEventListener('mousedown', handleWindowClick);
 		window.addEventListener('resize', handleWindowResize);
+		// "S" (seeded in keybinding_defaults) reuses the same save-or-prompt
+		// flow as the save cell's own click handler. SessionPill registers the
+		// same action for its mobile counterpart - the two are mutually
+		// exclusive by $isMobile, so only one is ever mounted at a time.
+		keybindingsStore.registerHandler('save_session', handleQuickSave);
 		return () => {
 			document.removeEventListener('mousedown', handleWindowClick);
 			window.removeEventListener('resize', handleWindowResize);
@@ -170,6 +176,7 @@
 
 	onDestroy(() => {
 		controller.destroy();
+		keybindingsStore.unregisterHandler('save_session');
 	});
 
 	async function handleSessionSelect(sessionId: string) {
@@ -178,7 +185,7 @@
 	}
 
 	async function handleQuickSave() {
-		if (!(await controller.quickSave())) handleOpenSaveAsModal();
+		await saveOrPrompt(controller, handleOpenSaveAsModal);
 	}
 
 	function handleOpenSaveModal() {

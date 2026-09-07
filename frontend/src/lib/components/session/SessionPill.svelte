@@ -4,9 +4,10 @@
 	import { storage } from '$lib/utils/storage';
 	import { api } from '$lib/services/api/index';
 	import { tabsStore } from '$lib/stores/tabs';
+	import { keybindingsStore } from '$lib/stores/keybindings';
 	import type { PresetModeVariant } from '$lib/types/api';
 	import { sortVariants } from '$lib/utils/variants';
-	import { createSessionController } from '$lib/session/sessionController';
+	import { createSessionController, saveOrPrompt } from '$lib/session/sessionController';
 	import { toasts } from '$lib/stores/toast';
 	import SessionControl from '$lib/components/session/SessionControl.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
@@ -56,14 +57,20 @@
 	onMount(() => {
 		isClient = true;
 		controller.start();
+		// "S" (seeded in keybinding_defaults) reuses the same save-or-prompt
+		// flow as the pill's own Save control. SessionCluster registers the
+		// same action for its desktop counterpart - the two are mutually
+		// exclusive by $isMobile, so only one is ever mounted at a time.
+		keybindingsStore.registerHandler('save_session', handleQuickSave);
 	});
 
 	onDestroy(() => {
 		controller.destroy();
+		keybindingsStore.unregisterHandler('save_session');
 	});
 
 	async function handleQuickSave() {
-		if (!(await controller.quickSave())) handleOpenSaveAsModal();
+		await saveOrPrompt(controller, handleOpenSaveAsModal);
 	}
 
 	function handleOpenSaveModal() {

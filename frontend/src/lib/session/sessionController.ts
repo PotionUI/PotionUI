@@ -308,6 +308,14 @@ export interface SessionController {
 	clearFeedback(): void;
 }
 
+/** The Save control's fallback flow, shared by SessionPill and SessionCluster
+ *  (their Save button and their `save_session` keybinding handler alike):
+ *  quick-save the selected session, or hand off to the view's save-as modal
+ *  when there is nothing to quick-save yet. */
+export async function saveOrPrompt(controller: SessionController, openSaveAsModal: () => void): Promise<void> {
+	if (!(await controller.quickSave())) openSaveAsModal();
+}
+
 const DEFAULT_AUTOSAVE_INTERVAL = 10000;
 const RETRY_BASE_DELAY = 2000;
 const RETRY_MAX_DELAY = 30000;

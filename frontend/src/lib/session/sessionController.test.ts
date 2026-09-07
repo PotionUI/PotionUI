@@ -4,6 +4,7 @@ import type { Tab } from '$lib/types/tabs';
 import type { Session } from '$lib/types/api';
 import {
 	createSessionController,
+	saveOrPrompt,
 	type SessionController,
 	type SessionControllerState,
 	type SessionControllerTimers
@@ -1659,5 +1660,31 @@ describe('createSessionController', () => {
 		const state = get(controller.state);
 		expect(state.currentSession?.name).toBe('Saved just now');
 		expect(state.sessions.find((entry) => entry.id === SESSION_A)?.name).toBe('Stale summary');
+	});
+});
+
+// The `save_session` keybinding (and both SessionPill's and SessionCluster's
+// own Save control) drive this one shared flow instead of each duplicating
+// the quickSave-or-prompt fallback.
+describe('saveOrPrompt', () => {
+	it('quick-saves the selected session and never opens the save-as prompt', async () => {
+		await bootWithDirtySession();
+		const openSaveAsModal = vi.fn();
+
+		await saveOrPrompt(controller, openSaveAsModal);
+
+		expect(harness.api.updateSession).toHaveBeenCalledTimes(1);
+		expect(openSaveAsModal).not.toHaveBeenCalled();
+	});
+
+	it('opens the save-as prompt instead when there is no session to quick-save', async () => {
+		await bootWithoutSession();
+		const openSaveAsModal = vi.fn();
+
+		await saveOrPrompt(controller, openSaveAsModal);
+
+		expect(harness.api.updateSession).not.toHaveBeenCalled();
+		expect(harness.api.saveSession).not.toHaveBeenCalled();
+		expect(openSaveAsModal).toHaveBeenCalledTimes(1);
 	});
 });

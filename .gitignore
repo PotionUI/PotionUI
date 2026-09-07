@@ -149,3 +149,6 @@ CLAUDE.local.md
 .mockups/
 docs/audits/
 frontend/src/lib/storage/
+
+# Design proposals stay local
+design-proposals/

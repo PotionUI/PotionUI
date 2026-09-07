@@ -59,6 +59,26 @@ _PROMPT_STATE_HEADER = (
     "get_current_segments returns full text):"
 )
 
+# Why a mode tool that isn't in the resolved allowed set was withheld, and the
+# actionable hint for each (what a user/admin does to change it). "unavailable"
+# has no hint: is_available() is about missing form context (e.g. no document
+# loaded), not a setting to flip.
+TOOL_WITHHELD_HINTS = {
+    "off_by_toggle": "turn on Tools in the chat header",
+    "disabled_in_mode": "enable it in this mode's Tools panel",
+    "disabled_by_admin": "ask an admin to enable it in Admin → LLM configurations → toolset",
+    "opted_out": "re-enable it in this mode's Tools panel",
+    "unavailable": None,
+}
+
+_TOOL_UNAVAILABLE_LABELS = {
+    "off_by_toggle": "Tools are off",
+    "disabled_in_mode": "disabled for this mode",
+    "disabled_by_admin": "disabled by an admin",
+    "opted_out": "off in your tool preferences",
+    "unavailable": "not available right now",
+}
+
 
 def _cap_text(text: str, limit: int, suffix: str = "…") -> str:
     text = (text or "").strip()
@@ -113,6 +133,47 @@ def _format_triggers(triggers: Any) -> str:
     if isinstance(triggers, (list, tuple)):
         return ", ".join(str(t) for t in triggers)
     return str(triggers)
+
+
+def _classify_withheld_tools(
+    mode_tools: List[Any],
+    allowed_names: List[str],
+    unavailable: Tuple[str, ...],
+    enabled: Optional[List[str]],
+    governance_snapshot: Dict[str, Any],
+) -> Dict[str, str]:
+    """Reason each of ``mode_tools`` missing from ``allowed_names`` was withheld.
+
+    Mirrors the AND of filters ``resolve_session_prompt_and_tools`` applies
+    (governance, ``is_available``, the session's ``enabled_tools``) but picks one
+    reason per tool for a human/model-facing message, in the same precedence
+    those filters are ANDed in: unavailable (missing form context) beats the
+    toggle beats governance, since fixing the toggle wouldn't unblock a tool
+    that's unavailable anyway. The frontend's global Tools toggle and per-mode
+    Tools panel both narrow the same ``enabled_tools`` list (see
+    ``UnifiedAIChat.svelte``'s ``enabledToolsPayload``); an empty list reads as
+    the toggle (nothing offered at all), a non-empty list missing this tool
+    reads as the mode panel (this tool specifically unticked).
+    """
+    allowed_set = set(allowed_names)
+    reasons: Dict[str, str] = {}
+    for tool in mode_tools:
+        name = tool.name
+        if name in allowed_set:
+            continue
+        if name in unavailable:
+            reasons[name] = "unavailable"
+        elif enabled is not None and name not in enabled:
+            reasons[name] = "off_by_toggle" if len(enabled) == 0 else "disabled_in_mode"
+        else:
+            row = governance_snapshot.get(name)
+            admin_enabled = True
+            if isinstance(row, dict):
+                admin_enabled = row.get("enabled", True)
+            elif row is not None:
+                admin_enabled = row[0]
+            reasons[name] = "disabled_by_admin" if not admin_enabled else "opted_out"
+    return reasons
 
 
 class ChatContextBuilder:
@@ -227,6 +288,52 @@ class ChatContextBuilder:
 
         self._prompt_tools_cache.set(cache_key, (prompt, allowed_names))
         return prompt, allowed_names, mode
+
+    def withheld_tools_for_session(
+        self,
+        session,
+        form_state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, str]:
+        """Reasons the session's mode declares tools that ``allowed_names`` omits.
+
+        A same-shaped live read as ``resolve_session_prompt_and_tools`` (mode
+        tools, ``is_available``, ``enabled_tools``, governance) — not itself
+        memoized, same as the governance snapshot that method already re-reads
+        every call regardless of its own prompt/allowed-names cache hit. Empty
+        when the mode declares no tools or every declared tool is allowed.
+        """
+        mode = self._m.chat_mode_registry.require(session.mode)
+        session_metadata = getattr(session, 'metadata', None) or {}
+        enabled = session_metadata.get('enabled_tools')
+
+        registry = self._m.tool_executor.tool_registry if self._m.tool_executor else None
+        mode_tools = registry.get_for_mode(mode) if registry else []
+        if not mode_tools:
+            return {}
+        mode_tool_names = [t.name for t in mode_tools]
+
+        unavailable = tuple(sorted(t.name for t in mode_tools if not t.is_available(form_state)))
+
+        governance_repo = getattr(self._m, "tool_governance_repository", None)
+        if not isinstance(governance_repo, ToolGovernanceRepository):
+            governance_repo = None
+        user_id = getattr(session, "user_id", None)
+        llm_config_id = getattr(session, "llm_config_id", None)
+        if governance_repo is not None:
+            governance_snapshot = (
+                governance_repo.get_config_snapshot(llm_config_id, mode_tool_names) if llm_config_id else {}
+            )
+            user_disabled = governance_repo.get_user_disabled(user_id) if user_id else set()
+        else:
+            governance_snapshot = {}
+            user_disabled = set()
+        governed = set(compute_allowed_tool_names(mode_tool_names, governance_snapshot, user_disabled))
+
+        allowed_names = [
+            t.name for t in mode_tools
+            if t.name in governed and t.name not in unavailable and (enabled is None or t.name in enabled)
+        ]
+        return _classify_withheld_tools(mode_tools, allowed_names, unavailable, enabled, governance_snapshot)
 
     # --- @Resource helpers ---
 
@@ -351,6 +458,47 @@ class ChatContextBuilder:
             return
         insert_at = max(len(conversation_history) - 1, 0)
         conversation_history.insert(insert_at, {"role": "system", "content": REPLY_CONTRACT_REMINDER})
+
+    @staticmethod
+    def inject_tool_availability_block(
+        conversation_history: List[Dict[str, Any]],
+        offered: Optional[List[str]],
+        withheld: Dict[str, str],
+    ) -> None:
+        """Insert a system block, immediately before the last user message, warning
+        the model about tools it cannot call this turn.
+
+        Without this the mode's own prompt (written for the tool-driven case) is
+        the model's only guidance, and a model told nothing about a missing tool
+        narrates calling it anyway — the reported failure mode: "Firing all 5
+        caption updates now… All five are proposed" with no tool step in the
+        trace and nothing in the approval dock. No-op when nothing is withheld
+        (``withheld`` empty).
+        """
+        if not withheld:
+            return
+        insert_at = max(len(conversation_history) - 1, 0)
+        if not offered:
+            reasons = sorted({_TOOL_UNAVAILABLE_LABELS.get(r, r) for r in withheld.values()})
+            hints = sorted({h for r in withheld.values() if (h := TOOL_WITHHELD_HINTS.get(r))})
+            text = (
+                f"Tools are unavailable in this conversation ({'; '.join(reasons)}). "
+                "You cannot call any tool, propose changes, or fetch anything: say so "
+                "in one sentence and tell the user how to enable them"
+                + (f" ({'; '.join(hints)})" if hints else "")
+                + ". Never announce an action you cannot perform."
+            )
+        else:
+            lines = []
+            for name, reason in sorted(withheld.items()):
+                label = _TOOL_UNAVAILABLE_LABELS.get(reason, reason)
+                hint = TOOL_WITHHELD_HINTS.get(reason)
+                lines.append(f"- {name}: {label}" + (f" ({hint})" if hint else ""))
+            text = (
+                "Some tools your instructions describe are unavailable this turn — "
+                "do not call them or tell the user you did:\n" + "\n".join(lines)
+            )
+        conversation_history.insert(insert_at, {"role": "system", "content": text})
 
     def inject_memory_block(
         self,

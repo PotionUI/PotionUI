@@ -29,10 +29,21 @@
 
 	const STEP_ICON: Record<TraceStepName, string> = {
 		resolving_resources: 'book-open',
+		tools: 'warning',
 		loading_memory: 'brain',
 		running_pre_chat: 'zap',
 		thinking: 'lightbulb',
 		answering: 'pencil'
+	};
+
+	// Copy for a withheld tool's reason — mirrors
+	// context_builder.py's _TOOL_UNAVAILABLE_LABELS.
+	const TOOL_WITHHELD_LABEL: Record<string, string> = {
+		off_by_toggle: 'Tools off',
+		disabled_in_mode: 'off for this mode',
+		disabled_by_admin: 'disabled by admin',
+		opted_out: 'off in your preferences',
+		unavailable: 'not available now'
 	};
 	// Fallback for step names outside the current TraceStepName union — e.g. a
 	// persisted manifest from before a step was retired (older behavior traces
@@ -66,6 +77,10 @@
 				return step.state === 'completed'
 					? `Preparing (${(detail.actions || []).join(', ')})`
 					: 'Preparing…';
+			case 'tools': {
+				const withheldCount = Object.keys(detail.withheld || {}).length;
+				return (detail.offered || []).length === 0 ? 'Tools off' : `Tools: ${withheldCount} unavailable`;
+			}
 			case 'thinking':
 				return 'Thinking…';
 			case 'answering':
@@ -81,6 +96,9 @@
 		}
 		if (step.step === 'running_pre_chat' && step.detail?.actions?.length) {
 			return step.detail.actions.join(', ');
+		}
+		if (step.step === 'tools' && step.detail?.withheld) {
+			return Object.keys(step.detail.withheld).join(', ');
 		}
 		return '';
 	}
@@ -162,6 +180,10 @@
 								{:else if step.step === 'running_pre_chat' && step.detail?.actions}
 									{#each step.detail.actions as action}
 										<div>{action}</div>
+									{/each}
+								{:else if step.step === 'tools' && step.detail?.withheld}
+									{#each Object.entries(step.detail.withheld as Record<string, string>) as [name, reason]}
+										<div>{name} — {TOOL_WITHHELD_LABEL[reason] ?? reason}</div>
 									{/each}
 								{/if}
 							</div>

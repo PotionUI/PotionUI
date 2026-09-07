@@ -150,12 +150,15 @@ export function applyToolEnd(
 
 /**
  * `status` event: append or resolve a context step (resolving_resources,
- * loading_memory, running_pre_chat, thinking, answering) on the streaming
- * assistant message's `trace_steps`. `thinking`/`answering` only ever arrive
- * as `started` (no matching `completed`); the rest arrive as a `started`/
- * `completed` pair — `completed` resolves the most recent unresolved
- * `started` entry for that step name in place, so it keeps its original
- * position (and `seq`) in the interleaved timeline.
+ * tools, loading_memory, running_pre_chat, thinking, answering) on the
+ * streaming assistant message's `trace_steps`. `thinking`/`answering` only
+ * ever arrive as `started` (no matching `completed`); `tools` only ever
+ * arrives as `completed` (its resolution is synchronous, nothing to show
+ * "in progress" for — the defensive branch below records it with no prior
+ * `started`); the rest arrive as a `started`/`completed` pair — `completed`
+ * resolves the most recent unresolved `started` entry for that step name in
+ * place, so it keeps its original position (and `seq`) in the interleaved
+ * timeline.
  */
 export function applyStatus(
 	messages: Messages,
@@ -238,6 +241,8 @@ function manifestStepDetail(
 			};
 		case 'running_pre_chat':
 			return manifest.pre_chat_actions?.length ? { actions: manifest.pre_chat_actions } : undefined;
+		case 'tools':
+			return { offered: manifest.tools_offered ?? [], withheld: manifest.tools_withheld ?? {} };
 		default:
 			return undefined;
 	}

@@ -109,6 +109,7 @@ export interface ToolExecution {
 /** Behavior-trace step names emitted by the "status" SSE event, in pipeline order. */
 export type TraceStepName =
 	| 'resolving_resources'
+	| 'tools'
 	| 'loading_memory'
 	| 'running_pre_chat'
 	| 'thinking'
@@ -163,6 +164,14 @@ export interface BehaviorTraceManifest {
 	};
 	pre_chat_actions: string[];
 	tools_used: string[];
+	/** The mode's tool set this session was allowed to call this turn. Absent on
+	 * manifests persisted before this field existed. */
+	tools_offered?: string[];
+	/** Mode tools NOT in `tools_offered`, tool name -> why (`off_by_toggle`,
+	 * `disabled_in_mode`, `disabled_by_admin`, `opted_out`, `unavailable`) — see
+	 * `ChatContextBuilder.withheld_tools_for_session`. Absent on manifests
+	 * persisted before this field existed. */
+	tools_withheld?: Record<string, string>;
 	token_counts: { prompt: number | null; completion: number | null };
 	steps: Array<{ step: TraceStepName; duration_ms: number }>;
 	/** Absent on manifests persisted before the ledger existed. */

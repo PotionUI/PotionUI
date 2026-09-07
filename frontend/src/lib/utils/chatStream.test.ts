@@ -258,6 +258,25 @@ describe('hydrateTraceSteps', () => {
 		const answeringSeq = bySeq.find((s) => s.step === 'answering')!.seq!;
 		expect(answeringSeq).toBe(thinkingSeq + 1 + 2); // 2 tool slots reserved in between
 	});
+
+	it('reconstructs a tools step from the manifest\'s tools_offered/tools_withheld', () => {
+		const m = manifest();
+		m.tools_offered = ['get_form_state'];
+		m.tools_withheld = { get_active_models: 'off_by_toggle' };
+		m.steps = [...m.steps, { step: 'tools', duration_ms: 0 }];
+		const tools = hydrateTraceSteps(m, 0).find((s) => s.step === 'tools')!;
+		expect(tools.detail).toEqual({
+			offered: ['get_form_state'],
+			withheld: { get_active_models: 'off_by_toggle' }
+		});
+	});
+
+	it('defaults tools detail to empty when the manifest omits tools_offered/tools_withheld', () => {
+		const m = manifest();
+		m.steps = [...m.steps, { step: 'tools', duration_ms: 0 }];
+		const tools = hydrateTraceSteps(m, 0).find((s) => s.step === 'tools')!;
+		expect(tools.detail).toEqual({ offered: [], withheld: {} });
+	});
 });
 
 describe('a tool round never blanks already-streamed content', () => {

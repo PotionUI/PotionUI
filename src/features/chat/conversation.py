@@ -187,6 +187,16 @@ class ConversationRunner:
         )
         tools_enabled = self._m.tool_executor is not None and bool(allowed_tools)
 
+        # Tools the mode's prompt describes but this session can't actually call
+        # right now (toggled off, governed off, or unavailable) - without this
+        # the model narrates using a tool it was never given. Computed even when
+        # some tools ARE allowed so a partial set doesn't get promised either.
+        withheld_tools = self._m._context.withheld_tools_for_session(
+            session, form_state=(context_metadata or {}).get("form_state"),
+        )
+        if withheld_tools:
+            step_records.append({"step": "tools", "duration_ms": 0})
+
         # Recalled memory is injected before the history budget runs so it is
         # counted against the budget instead of escaping it unbounded; the
         # budget call below protects it explicitly (min_protected=2) rather
@@ -216,6 +226,7 @@ class ConversationRunner:
         workspace_result = self._m._context.inject_workspace_block(conversation_history, context_metadata)
         self._m._context.inject_prompt_state_block(conversation_history, context_metadata)
         self._m._context.inject_reply_contract_reminder_block(conversation_history, mode)
+        self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
 
         tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools)
         budget_accounting = self._resolve_budget_inputs(session, mode)
@@ -324,6 +335,8 @@ class ConversationRunner:
                 prompt_tokens=llm_response.prompt_tokens,
                 completion_tokens=llm_response.completion_tokens,
                 steps=step_records,
+                tools_offered=allowed_tools,
+                tools_withheld=withheld_tools,
                 history_info=history_info,
                 image_base64=image_base64,
                 context_ledger=context_ledger,
@@ -533,6 +546,24 @@ class ConversationRunner:
         )
         tools_enabled = self._m.tool_executor is not None and bool(allowed_tools)
 
+        # Tools the mode's prompt describes but this session can't actually call
+        # right now (toggled off, governed off, or unavailable) - without this
+        # the model narrates using a tool it was never given. Computed even when
+        # some tools ARE allowed so a partial set doesn't get promised either.
+        withheld_tools = self._m._context.withheld_tools_for_session(
+            session, form_state=(context_metadata or {}).get("form_state"),
+        )
+        if withheld_tools:
+            step_records.append({"step": "tools", "duration_ms": 0})
+            yield {
+                "event": "status",
+                "data": {
+                    "step": "tools",
+                    "state": "completed",
+                    "detail": {"offered": list(allowed_tools or []), "withheld": withheld_tools},
+                },
+            }
+
         # Recalled memory is injected before the history budget runs so it is
         # counted against the budget instead of escaping it unbounded; the
         # budget call below protects it explicitly (min_protected=2) rather
@@ -579,6 +610,7 @@ class ConversationRunner:
         workspace_result = self._m._context.inject_workspace_block(conversation_history, context_metadata)
         self._m._context.inject_prompt_state_block(conversation_history, context_metadata)
         self._m._context.inject_reply_contract_reminder_block(conversation_history, mode)
+        self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
 
         tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools)
         budget_accounting = self._resolve_budget_inputs(session, mode)
@@ -778,6 +810,8 @@ class ConversationRunner:
                     prompt_tokens=usage_data.get('prompt_tokens'),
                     completion_tokens=usage_data.get('completion_tokens'),
                     steps=step_records,
+                    tools_offered=allowed_tools,
+                    tools_withheld=withheld_tools,
                     history_info=history_info,
                     image_base64=image_base64,
                     context_ledger=context_ledger,
@@ -1169,6 +1203,8 @@ class ConversationRunner:
         prompt_tokens: Optional[int],
         completion_tokens: Optional[int],
         steps: List[Dict[str, Any]],
+        tools_offered: Optional[List[str]] = None,
+        tools_withheld: Optional[Dict[str, str]] = None,
         history_info: Optional[Dict[str, Any]] = None,
         image_base64: Optional[str] = None,
         context_ledger: Optional[Dict[str, Any]] = None,
@@ -1201,6 +1237,12 @@ class ConversationRunner:
         when the terminal round was a rescue's fallback message rather than a
         genuine model completion (see ``ToolExecutor``'s "answer"/"budget"
         guards) or when a provider reported nothing.
+
+        ``tools_withheld`` is the reason each of the mode's tools missing from
+        ``tools_offered`` was withheld (see
+        ``ChatContextBuilder.withheld_tools_for_session``) — the frontend's
+        "tools" step reads both off this trace, not off ``steps``, the same way
+        it already reads ``memory``/``pre_chat_actions`` for those steps.
         """
         session_metadata = getattr(session, 'metadata', None) or {}
         system_prompt_source = (
@@ -1215,6 +1257,8 @@ class ConversationRunner:
             "workspace": workspace_result,
             "pre_chat_actions": [r.action_id for r in pre_chat_results],
             "tools_used": [te.tool_name for te in tool_executions],
+            "tools_offered": list(tools_offered or []),
+            "tools_withheld": tools_withheld or {},
             "rescues": rescues,
             "tool_failures": tool_failures,
             "thinking_mode": thinking_mode,

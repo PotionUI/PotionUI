@@ -31,7 +31,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 - **Video and Music Directors** — compose shots and songs in sections instead
   of one giant prompt.
 
-*Alpha 0.0.3 · Linux x86_64 + NVIDIA · Windows via WSL2 or Docker ·
+*Alpha 0.0.4 · Linux x86_64 + NVIDIA · Windows via WSL2 or Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Ko-fi](https://ko-fi.com/A3B325D031)*
 
 ## 60 seconds to first image
@@ -217,7 +217,7 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Runs on Linux x86_64 with an NVIDIA GPU** — that's the tested 0.0.3
+> **Runs on Linux x86_64 with an NVIDIA GPU** — that's the tested 0.0.4
 > matrix. On Windows, use WSL2 or Docker Desktop (native Windows won't even
 > install yet). Details in [Supported platforms](#supported-platforms).
 
@@ -255,7 +255,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 | Platform                    | Status                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.3                                                              |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.4                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
 | Windows native              | No — the install pulls Linux-only packages (e.g. `uvloop`); use WSL2 or Docker Desktop      |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
@@ -315,6 +315,59 @@ Start with the in-app documentation browser, or read the Markdown directly:
 The two most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
 
+### 0.0.4 — 2026-09-07
+
+- ComfyUI: the `comfyui-backend` plugin ships in the marketplace with five image
+  presets (Qwen-Image, SDXL, Z-Image, Krea-2, Flux.2 Klein 9B) built on official
+  ComfyUI templates with built-in nodes only, and Admin → Presets gains a workflow
+  import wizard: paste an Export (API) workflow, design its form (tabs, rows,
+  sections; a LoRA chain becomes a LoRA picker), check node and model
+  requirements against your server, create the preset, and reopen, edit, reload
+  or delete it later. An admin-only chat mode proposes form changes for approval.
+- Chat becomes PotionAI: a floating shell with a history rail, mode, context and
+  model header, tool-run transcript and memory inspector; approval and question
+  docks share one anatomy; the Steps panel says why a tool was withheld; the
+  assistant creates and changes prompt variables with your approval; cancelling
+  a turn, closing the tab mid-stream or reloading never leaves a reply stuck; a
+  model-aware context budget and a bounded memory reflection keep long
+  conversations working, and a model without a declared context window is
+  never refused a turn; native LLM thinking mode is detected and reported.
+- Video Director shot console: a film runs as shots with per-shot prompt,
+  keyframes, audio, LoRAs and references; a shot knows when it depends on its
+  predecessor and can continue from that shot's last rendered frame; Wan, LTX
+  and MiniMax-H3 timelines compile to the exact frame geometry the engine
+  renders.
+- Generate: a docked generation panel with status, context rail and session
+  cluster; `Q` floats the form, `W` floats the workbench, `H` opens a Last
+  generations drawer, `S` saves the session; the prompt segments editor gets the
+  composer card with icon actions and a resolved-prompt panel; a backend picker
+  appears when several backends can run the preset.
+- Native engine: a run-scoped cache stops Flux, Krea-2, Qwen-Image, Z-Image and
+  Wan 2.2 recomputing unchanged work every step; text encoders load only on a
+  cache miss; fp8 weights take the fast scaled-matmul path even while streamed;
+  cancelling is safe mid-run for SDXL, TRELLIS.2, SeedVR2 and RIFE; a LoRA with
+  no effect is diagnosed instead of silently ignored; the host RAM reserve
+  scales with the machine; an experimental MiniMax-H3 VDN preset adds hybrid
+  attention.
+- Admin: presets declare requirements (nodes, model files, VRAM) that are
+  checked per backend; generation routing is traceable, with a Routing panel on
+  each generation; per-backend queue scheduling can be fair across users; a
+  backend's execution device comes from real hardware evidence; enabling a
+  plugin rolls back cleanly on failure and a local plugin shadowing a
+  marketplace one is flagged; plugin frontends ship minified.
+- History: faster listing and counting, streamed zip and bundle exports, bounded
+  run reports, and semantic search that shares one embedding client; bundle v2
+  records each model's type, filename, hash and path.
+- Reliability: session save and load, downloads, collections, WebSocket
+  reconnects and generation ownership all reject stale responses; request logs
+  redact secrets; the service worker precaches only the shell.
+- Logins ignore letter case for username and email.
+- Upgrading: default ports are now 7680 (backend), 7681 (frontend) and 7690
+  (worker); the ComfyUI import accepts Export (API) JSON only; the Qwen-Image
+  nunchaku variant, the Krea-2 enhancer and the Z-Image post-processing chain
+  were removed; migration 018 refuses to apply while two accounts differ only by
+  letter case.
+
 ### 0.0.3 — 2026-09-02
 
 - Remote native workers: Add Backend creates a remote worker, connects one you
@@ -358,20 +411,6 @@ The two most recent releases; older history lives in the
   clipped by the segment card.
 - Inspirations use justified rows with native aspect ratios; login no longer
   flashes the form mid-redirect.
-
-### 0.0.2 — 2026-08-30
-
-- History and prompts filter by audio, alongside image and video.
-- Chat shows the active tab's context on a strip above the composer; tool
-  approvals summarize what they'll change, with full details on demand.
-- Composer drafts survive closing the drawer and page navigation; picker
-  menus close properly on selection.
-- A tab's session link survives transient backend errors instead of
-  detaching, and a dirty draft is never clobbered by server session data.
-- Admin System Settings rebuilt as a sectioned master-detail layout; the
-  form-overrides table now follows the preset's own tabs.
-- Every copy button confirms the copy; in-app docs moved fully into the
-  admin panel.
 
 ## Contributing
 

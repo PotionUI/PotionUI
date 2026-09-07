@@ -139,21 +139,21 @@ def _classify_withheld_tools(
     mode_tools: List[Any],
     allowed_names: List[str],
     unavailable: Tuple[str, ...],
-    enabled: Optional[List[str]],
+    tools_enabled: bool,
+    disabled_tools: List[str],
     governance_snapshot: Dict[str, Any],
 ) -> Dict[str, str]:
     """Reason each of ``mode_tools`` missing from ``allowed_names`` was withheld.
 
     Mirrors the AND of filters ``resolve_session_prompt_and_tools`` applies
-    (governance, ``is_available``, the session's ``enabled_tools``) but picks one
-    reason per tool for a human/model-facing message, in the same precedence
-    those filters are ANDed in: unavailable (missing form context) beats the
-    toggle beats governance, since fixing the toggle wouldn't unblock a tool
-    that's unavailable anyway. The frontend's global Tools toggle and per-mode
-    Tools panel both narrow the same ``enabled_tools`` list (see
-    ``UnifiedAIChat.svelte``'s ``enabledToolsPayload``); an empty list reads as
-    the toggle (nothing offered at all), a non-empty list missing this tool
-    reads as the mode panel (this tool specifically unticked).
+    (governance, ``is_available``, the session's ``tools_enabled``/
+    ``disabled_tools``) but picks one reason per tool for a human/model-facing
+    message, in the same precedence those filters are ANDed in: unavailable
+    (missing form context) beats the toggle beats governance, since fixing the
+    toggle wouldn't unblock a tool that's unavailable anyway. The frontend's
+    global Tools toggle sets ``tools_enabled`` False (nothing offered at all);
+    its per-mode Tools panel adds names to ``disabled_tools`` (this tool
+    specifically unticked) — see ``UnifiedAIChat.svelte``'s tools payload.
     """
     allowed_set = set(allowed_names)
     reasons: Dict[str, str] = {}
@@ -163,8 +163,10 @@ def _classify_withheld_tools(
             continue
         if name in unavailable:
             reasons[name] = "unavailable"
-        elif enabled is not None and name not in enabled:
-            reasons[name] = "off_by_toggle" if len(enabled) == 0 else "disabled_in_mode"
+        elif not tools_enabled:
+            reasons[name] = "off_by_toggle"
+        elif name in disabled_tools:
+            reasons[name] = "disabled_in_mode"
         else:
             row = governance_snapshot.get(name)
             admin_enabled = True
@@ -195,12 +197,12 @@ class ChatContextBuilder:
         The mode determines the tool set (mode tools + global tools); each tool
         is then filtered through its ``is_available(form_state)`` predicate
         (declarative, e.g. a tool that only applies when a particular document
-        is loaded on the form); the session's ``enabled_tools`` metadata acts as
-        a further subtractive filter. The system prompt is the session's
-        explicit custom message when stored, otherwise the mode prompt with the
-        allowed tools' hints substituted.
+        is loaded on the form); the session's ``tools_enabled``/``disabled_tools``
+        metadata acts as a further subtractive filter. The system prompt is the
+        session's explicit custom message when stored, otherwise the mode
+        prompt with the allowed tools' hints substituted.
 
-        The (prompt, allowed_names) result is memoized per (mode, enabled-tools
+        The (prompt, allowed_names) result is memoized per (mode, tools-filter
         signature, custom system message, unavailable-tools signature, the
         session's ``llm_config_id``, governance snapshot) for a short TTL —
         see ``_PROMPT_TOOLS_CACHE_TTL_SECONDS`` — since this is otherwise
@@ -223,7 +225,8 @@ class ChatContextBuilder:
         mode = self._m.chat_mode_registry.require(session.mode)
 
         session_metadata = getattr(session, 'metadata', None) or {}
-        enabled = session_metadata.get('enabled_tools')  # None = all mode tools
+        tools_enabled = session_metadata.get('tools_enabled', True)
+        disabled_tools = session_metadata.get('disabled_tools') or []
         custom_system_message = session_metadata.get('system_message')
 
         registry = self._m.tool_executor.tool_registry if self._m.tool_executor else None
@@ -258,7 +261,8 @@ class ChatContextBuilder:
 
         cache_key = (
             mode.id,
-            tuple(sorted(enabled)) if enabled is not None else None,
+            tools_enabled,
+            tuple(sorted(disabled_tools)),
             custom_system_message or "",
             unavailable,
             llm_config_id,
@@ -272,7 +276,7 @@ class ChatContextBuilder:
 
         allowed_names = [
             t.name for t in mode_tools
-            if t.name in governed and t.name not in unavailable and (enabled is None or t.name in enabled)
+            if t.name in governed and t.name not in unavailable and tools_enabled and t.name not in disabled_tools
         ]
 
         if custom_system_message:
@@ -297,14 +301,16 @@ class ChatContextBuilder:
         """Reasons the session's mode declares tools that ``allowed_names`` omits.
 
         A same-shaped live read as ``resolve_session_prompt_and_tools`` (mode
-        tools, ``is_available``, ``enabled_tools``, governance) — not itself
-        memoized, same as the governance snapshot that method already re-reads
-        every call regardless of its own prompt/allowed-names cache hit. Empty
-        when the mode declares no tools or every declared tool is allowed.
+        tools, ``is_available``, ``tools_enabled``/``disabled_tools``,
+        governance) — not itself memoized, same as the governance snapshot
+        that method already re-reads every call regardless of its own
+        prompt/allowed-names cache hit. Empty when the mode declares no tools
+        or every declared tool is allowed.
         """
         mode = self._m.chat_mode_registry.require(session.mode)
         session_metadata = getattr(session, 'metadata', None) or {}
-        enabled = session_metadata.get('enabled_tools')
+        tools_enabled = session_metadata.get('tools_enabled', True)
+        disabled_tools = session_metadata.get('disabled_tools') or []
 
         registry = self._m.tool_executor.tool_registry if self._m.tool_executor else None
         mode_tools = registry.get_for_mode(mode) if registry else []
@@ -331,9 +337,11 @@ class ChatContextBuilder:
 
         allowed_names = [
             t.name for t in mode_tools
-            if t.name in governed and t.name not in unavailable and (enabled is None or t.name in enabled)
+            if t.name in governed and t.name not in unavailable and tools_enabled and t.name not in disabled_tools
         ]
-        return _classify_withheld_tools(mode_tools, allowed_names, unavailable, enabled, governance_snapshot)
+        return _classify_withheld_tools(
+            mode_tools, allowed_names, unavailable, tools_enabled, disabled_tools, governance_snapshot
+        )
 
     # --- @Resource helpers ---
 

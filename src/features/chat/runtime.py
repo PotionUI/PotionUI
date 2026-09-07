@@ -208,7 +208,8 @@ class ChatRuntime:
         mode: str = 'generation',
         name: Optional[str] = None,
         system_message: Optional[str] = None,
-        enabled_tools: Optional[List[str]] = None,
+        tools_enabled: bool = True,
+        disabled_tools: Optional[List[str]] = None,
     ) -> SessionResponse:
         return self._sessions.create_session(
             user_id=user_id,
@@ -217,7 +218,8 @@ class ChatRuntime:
             mode=mode,
             name=name,
             system_message=system_message,
-            enabled_tools=enabled_tools,
+            tools_enabled=tools_enabled,
+            disabled_tools=disabled_tools,
         )
 
     def list_sessions(

@@ -11,7 +11,8 @@ class CreateSessionRequest(BaseModel):
     mode: str = 'generation'  # Chat mode id; immutable once the session exists
     name: Optional[str] = None
     system_message: Optional[str] = None  # Custom system message for chat
-    enabled_tools: Optional[List[str]] = None  # Subtractive filter within the mode's tools (None = all)
+    tools_enabled: bool = True  # Global tools toggle; False withholds every mode tool
+    disabled_tools: Optional[List[str]] = None  # Names unticked within the mode's tools (None/[] = none)
 
 
 class MessageResponse(BaseModel):

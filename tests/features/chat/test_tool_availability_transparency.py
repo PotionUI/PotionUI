@@ -93,9 +93,9 @@ class TestWithheldToolsForSession:
         builder = ChatContextBuilder(manager)
         assert builder.withheld_tools_for_session(_session()) == {}
 
-    def test_off_by_toggle_when_enabled_tools_empty(self, governance_db):
+    def test_off_by_toggle_when_tools_enabled_false(self, governance_db):
         builder = _make_builder(ToolGovernanceRepository())
-        withheld = builder.withheld_tools_for_session(_session(metadata={"enabled_tools": []}))
+        withheld = builder.withheld_tools_for_session(_session(metadata={"tools_enabled": False}))
         assert withheld == {
             "get_form_state": "off_by_toggle",
             "get_active_models": "off_by_toggle",
@@ -104,9 +104,36 @@ class TestWithheldToolsForSession:
 
     def test_disabled_in_mode_for_the_specific_excluded_tool(self, governance_db):
         builder = _make_builder(ToolGovernanceRepository())
-        session = _session(metadata={"enabled_tools": ["get_form_state", "get_current_segments"]})
+        session = _session(metadata={"disabled_tools": ["get_active_models"]})
         withheld = builder.withheld_tools_for_session(session)
         assert withheld == {"get_active_models": "disabled_in_mode"}
+
+    def test_new_mode_tool_not_in_disabled_tools_is_offered(self, governance_db):
+        """A tool registered into the mode after the session's disabled_tools
+        was chosen (a restart with a new builtin, a plugin enabled) is offered
+        by default: the subtractive metadata only names what was explicitly
+        unticked, so it never goes stale against tools added later."""
+        from src.features.llm.tools.registry import ToolRegistry
+        from src.features.llm.tools.builtin.form_context_tool import GetFormStateTool
+        from src.features.llm.tools.builtin.active_models_tool import GetActiveModelsTool
+
+        tool_registry = ToolRegistry()
+        tool_registry.register(GetFormStateTool())
+
+        manager = Mock()
+        manager.chat_mode_registry = _mode_registry()
+        tool_executor = Mock()
+        tool_executor.tool_registry = tool_registry
+        manager.tool_executor = tool_executor
+        manager.tool_governance_repository = ToolGovernanceRepository()
+        builder = ChatContextBuilder(manager)
+
+        session = _session(metadata={"disabled_tools": ["get_form_state"]})
+        assert builder.withheld_tools_for_session(session) == {"get_form_state": "disabled_in_mode"}
+
+        # A new tool joins the mode later; the session never unticked it.
+        tool_registry.register(GetActiveModelsTool())
+        assert builder.withheld_tools_for_session(session) == {"get_form_state": "disabled_in_mode"}
 
     def test_unavailable_when_is_available_false(self, governance_db):
         builder = _make_builder(ToolGovernanceRepository())
@@ -182,13 +209,18 @@ class TestInjectToolAvailabilityBlock:
         assert history[2]["role"] == "system"
 
 
-def _tool_session(enabled_tools=None):
+def _tool_session(tools_enabled=True, disabled_tools=None):
     session = Mock()
     session.user_id = "user-123"
     session.status = "active"
     session.llm_config_id = "llm-123"
     session.mode = "generation"
-    session.metadata = {"enabled_tools": enabled_tools} if enabled_tools is not None else None
+    metadata = {}
+    if not tools_enabled:
+        metadata["tools_enabled"] = False
+    if disabled_tools:
+        metadata["disabled_tools"] = disabled_tools
+    session.metadata = metadata or None
     return session
 
 
@@ -197,7 +229,7 @@ class TestSendMessageToolAvailabilityTransparency:
     paths share the same ChatContextBuilder calls, so this covers the shared
     logic; the streaming path only adds an SSE status event around it."""
 
-    def _setup(self, enabled_tools):
+    def _setup(self, tools_enabled=True, disabled_tools=None):
         mock_repo = Mock()
         mock_llm = AsyncMock()
         mock_processor = Mock()
@@ -241,7 +273,7 @@ class TestSendMessageToolAvailabilityTransparency:
             tool_executor=mock_tool_executor,
         )
 
-        session = _tool_session(enabled_tools)
+        session = _tool_session(tools_enabled=tools_enabled, disabled_tools=disabled_tools)
         mock_repo.get_session.return_value = session
         mock_repo.get_conversation_history.return_value = []
 
@@ -254,7 +286,7 @@ class TestSendMessageToolAvailabilityTransparency:
 
     @pytest.mark.asyncio
     async def test_all_tools_off_injects_block_and_records_trace(self):
-        manager, mock_repo, mock_llm = self._setup(enabled_tools=[])
+        manager, mock_repo, mock_llm = self._setup(tools_enabled=False)
 
         await manager.send_message(session_id="session-123", user_id="user-123", content="Hello")
 
@@ -270,7 +302,7 @@ class TestSendMessageToolAvailabilityTransparency:
 
     @pytest.mark.asyncio
     async def test_all_tools_allowed_injects_nothing(self):
-        manager, mock_repo, mock_llm = self._setup(enabled_tools=None)
+        manager, mock_repo, mock_llm = self._setup()
 
         await manager.send_message(session_id="session-123", user_id="user-123", content="Hello")
 

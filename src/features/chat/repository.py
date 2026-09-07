@@ -527,7 +527,8 @@ class ChatRepository:
         text to pick up).
 
         Read-modify-write so this never clobbers the other keys already living
-        in session metadata (``system_message``, ``enabled_tools``).
+        in session metadata (``system_message``, ``tools_enabled``,
+        ``disabled_tools``).
         """
         session = self.get_session(session_id)
         if not session:

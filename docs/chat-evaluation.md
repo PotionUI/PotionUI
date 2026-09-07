@@ -195,8 +195,8 @@ approval-gated in the real tool loop — its `execute()` only returns a
 `pending_approval` preview, and `run` never calls the tool-approval endpoint,
 so those calls always stay a dry preview. The one builtin tool that mutates
 state *without* an approval gate is `write_memory` (see `docs/chat-memory.md`)
-— it is excluded from every session's `enabled_tools` for that reason. This
-covers the TOOL loop, not every way a turn can write durable state — see
+— it is excluded from every session's tools (via `disabled_tools`) for that
+reason. This covers the TOOL loop, not every way a turn can write durable state — see
 "Evaluation memory policy" immediately below for the other one. `run` never
 calls this repository's own inference code directly, but an explicitly
 selected `native` configuration's checkpoint IS loaded lazily by the backend
@@ -206,7 +206,7 @@ inference the backend would run anyway for the configuration the caller named.
 
 ### Evaluation memory policy
 
-Excluding `write_memory` from `enabled_tools` does not close every path a
+Excluding `write_memory` via `disabled_tools` does not close every path a
 live turn can persist state through: `ChatReflectionGenerator`
 (`src/features/chat/reflection.py`) fires a BACKGROUND pass — a mechanism
 entirely separate from the tool loop, unaffected by which tools are enabled —

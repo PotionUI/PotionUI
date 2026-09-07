@@ -60,7 +60,8 @@ class ChatSessionStore:
         mode: str = 'generation',
         name: Optional[str] = None,
         system_message: Optional[str] = None,
-        enabled_tools: Optional[List[str]] = None,
+        tools_enabled: bool = True,
+        disabled_tools: Optional[List[str]] = None,
     ) -> SessionResponse:
         """Create a new chat session.
 
@@ -75,7 +76,8 @@ class ChatSessionStore:
             mode: Chat mode id (immutable for the session's lifetime)
             name: Optional session name
             system_message: Optional custom system message
-            enabled_tools: Subtractive tool filter within the mode's tools (None = all)
+            tools_enabled: Global tools toggle; False withholds every mode tool
+            disabled_tools: Names unticked within the mode's tools (None/[] = none)
 
         Returns:
             Created SessionResponse
@@ -114,12 +116,14 @@ class ChatSessionStore:
         name = hook_data.get("name", name)
         system_message = hook_data.get("system_message", system_message)
 
-        # Store system_message and enabled_tools in metadata
+        # Store system_message and the tools filter in metadata
         metadata = {}
         if system_message:
             metadata['system_message'] = system_message
-        if enabled_tools is not None:
-            metadata['enabled_tools'] = enabled_tools
+        if not tools_enabled:
+            metadata['tools_enabled'] = False
+        if disabled_tools:
+            metadata['disabled_tools'] = disabled_tools
 
         # Create session via repository
         session = self._m.chat_repository.create_session(

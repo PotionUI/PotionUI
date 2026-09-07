@@ -39,7 +39,8 @@ export interface ChatApiLike {
 	createChatSession(request: {
 		llm_config_id?: string;
 		mode?: string;
-		enabled_tools?: string[];
+		tools_enabled?: boolean;
+		disabled_tools?: string[];
 	}): Promise<APIResponse<ChatSessionResponse>>;
 	sendChatMessageStream(
 		sessionId: string,
@@ -126,7 +127,7 @@ export type StartNewSessionResult =
 export async function startNewSession(
 	deps: TurnControllerDeps,
 	pending: { sessionId: string | null; turnSeq: number },
-	payload: { llm_config_id?: string; mode?: string; enabled_tools?: string[] }
+	payload: { llm_config_id?: string; mode?: string; tools_enabled?: boolean; disabled_tools?: string[] }
 ): Promise<StartNewSessionResult> {
 	let response: APIResponse<ChatSessionResponse>;
 	try {
@@ -412,7 +413,7 @@ export interface SendMessageParams {
 	 * returns, before it's used for anything. */
 	buildPayload: () => SendMessagePayload;
 	/** Only used when no session exists yet. */
-	createSessionPayload: { llm_config_id?: string; mode?: string; enabled_tools?: string[] };
+	createSessionPayload: { llm_config_id?: string; mode?: string; tools_enabled?: boolean; disabled_tools?: string[] };
 	/** Fired once a session was actually created and adopted (never on a
 	 * discarded/stale creation) — e.g. updating recentSessions. */
 	onSessionCreated?: (sessionData: ChatSessionResponse) => void;

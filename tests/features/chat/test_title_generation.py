@@ -167,7 +167,7 @@ class TestStreamTitleEvent:
         session.user_id = "user-123"
         session.status = "active"
         session.mode = "generation"
-        session.metadata = {"enabled_tools": []}
+        session.metadata = {"tools_enabled": False}
 
         saved_message = Mock()
         saved_message.id = "msg-1"

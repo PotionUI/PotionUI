@@ -115,7 +115,8 @@ export function createChatApi(client: AxiosInstance, getToken: () => string | nu
 			mode?: string;
 			name?: string;
 			system_message?: string;
-			enabled_tools?: string[];
+			tools_enabled?: boolean;
+			disabled_tools?: string[];
 		}): Promise<APIResponse<ChatSessionResponse>> {
 			const response = await client.post('/api/chat/sessions', request);
 			return response.data;

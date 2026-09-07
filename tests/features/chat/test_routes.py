@@ -134,7 +134,8 @@ class TestChatController:
             mode="generation",
             name="New Session",
             system_message=None,
-            enabled_tools=None,
+            tools_enabled=True,
+            disabled_tools=None,
         )
 
     def test_create_session_with_system_message(

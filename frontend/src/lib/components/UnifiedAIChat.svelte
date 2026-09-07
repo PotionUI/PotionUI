@@ -863,15 +863,11 @@
 				: undefined
 		};
 
-		// Subtractive tool filter: omit enabled_tools when everything is on;
-		// send the reduced list when the user unticked tools; [] disables all.
-		const disabledTools = $chatSession.disabledTools;
-		let enabledToolsPayload: string[] | undefined;
-		if (!enableTools) {
-			enabledToolsPayload = [];
-		} else if (disabledTools.length > 0) {
-			enabledToolsPayload = visibleTools.map((t) => t.name).filter((name) => !disabledTools.includes(name));
-		}
+		// Subtractive tool filter sent as-is: the global toggle and the
+		// per-mode unticked names, never a materialized allowlist — a tool the
+		// backend adds after this page's catalog was fetched still reaches the
+		// session as long as the user never unticked it.
+		const disabledToolsPayload = $chatSession.disabledTools;
 
 		function buildPayload(): SendMessagePayload {
 			// Build context_metadata so LLM tools have access to form state.
@@ -947,7 +943,8 @@
 			createSessionPayload: {
 				llm_config_id: selectedConfigId || undefined,
 				mode: $chatSession.mode,
-				enabled_tools: enabledToolsPayload
+				tools_enabled: enableTools,
+				disabled_tools: disabledToolsPayload.length > 0 ? disabledToolsPayload : undefined
 			},
 			onSessionCreated: (sessionData) => {
 				saveCurrentSessionId();

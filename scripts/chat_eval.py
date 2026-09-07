@@ -41,8 +41,8 @@ already approval-gated in the real tool loop — its ``execute()`` only
 returns a ``pending_approval`` preview. ``run`` never calls the
 tool-approval endpoint, so those calls always stay a dry preview. The one
 builtin tool that mutates state WITHOUT an approval gate is ``write_memory``
-(see ``docs/chat-memory.md``); it is excluded from every session's
-``enabled_tools`` for that reason (``_DRY_RUN_EXCLUDED_TOOLS``). ``run``
+(see ``docs/chat-memory.md``); it is excluded from every session's tools
+for that reason (``_DRY_RUN_EXCLUDED_TOOLS``). ``run``
 never calls this repository's own inference code directly, but an
 explicitly selected ``native`` configuration's checkpoint IS loaded lazily
 by the backend itself on first use, in-process, exactly as it would for any
@@ -562,8 +562,8 @@ def clone_config_request_body(config: Dict[str, Any], context_window: int) -> Di
 # (src/features/chat/reflection.py) fires a background pass after every 4th
 # user message in a session whose config has memory_reflection on, extracting
 # and PERSISTING durable-memory facts from the conversation regardless of
-# which tools ran or were excluded - write_memory being excluded from
-# enabled_tools (see _DRY_RUN_EXCLUDED_TOOLS) does not stop it, because
+# which tools ran or were excluded - write_memory being excluded from the
+# session's tools (see _DRY_RUN_EXCLUDED_TOOLS) does not stop it, because
 # reflection is a separate mechanism from the tool loop entirely. This
 # pack's own long_history_latest_question scenario sends 26 turns, well past
 # that threshold, so a config with reflection on would risk writing benchmark
@@ -683,12 +683,16 @@ def _run_scenario_live(
         }
         return result
 
-    enabled_tools = None
+    # tool_names is an exact allowlist for the scenario; the session's
+    # metadata is subtractive, so the allowlist is expressed as everything
+    # ELSE (across the full tool universe, not just this mode's) disabled.
+    disabled_tools = None
     if scenario["tool_names"] is not None:
-        enabled_tools = [t for t in scenario["tool_names"] if t not in _DRY_RUN_EXCLUDED_TOOLS]
+        allowed = set(scenario["tool_names"]) - _DRY_RUN_EXCLUDED_TOOLS
+        disabled_tools = [name for name in tool_schemas if name not in allowed]
 
     session = _http_json("POST", f"{base_url}/api/chat/sessions", token, {
-        "llm_config_id": config["id"], "mode": scenario["mode"], "enabled_tools": enabled_tools,
+        "llm_config_id": config["id"], "mode": scenario["mode"], "disabled_tools": disabled_tools,
         "name": f"chat-eval:{scenario_id}",
     })
     _check_success(session, "POST /api/chat/sessions")

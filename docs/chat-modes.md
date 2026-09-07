@@ -41,9 +41,11 @@ Relevant endpoints:
 
 A tool belongs to one or more modes (`BaseTool.modes`) or is global (`modes = None`).
 A session sees its mode's tools plus the global ones, all enabled by default. The
-session's `enabled_tools` list is a **subtractive filter**: the user can untick individual
-tools in the header dropdown; `null`/omitted means "all mode tools", `[]` means none.
-Tools from other modes are never visible.
+session stores two **subtractive** fields: `tools_enabled` (the header's global toggle;
+`false` withholds every tool) and `disabled_tools` (the names unticked in the mode's
+Tools panel). A tool the mode gains later — a restart with a new builtin, a plugin
+enabled — is offered automatically unless its name is in `disabled_tools`. Tools from
+other modes are never visible.
 
 ## Conversation titles
 

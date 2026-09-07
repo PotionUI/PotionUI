@@ -70,7 +70,7 @@ class TestReflectionFiresOnSend:
         session.status = "active"
         session.mode = "generation"
         session.llm_config_id = "llm-1"
-        session.metadata = {"enabled_tools": []}
+        session.metadata = {"tools_enabled": False}
 
         self.mock_repo.get_session.return_value = session
         self.mock_repo.add_message.side_effect = lambda **kwargs: MessageResponse(
@@ -177,7 +177,7 @@ class TestReflectionFiresOnSend:
         the same span until enough NEW user messages arrive."""
         messages = _transcript(MIN_UNREFLECTED_USER_MESSAGES)
         self.mock_repo.get_session.return_value.metadata = {
-            "enabled_tools": [],
+            "tools_enabled": False,
             "memory_reflection": {"reflected_up_to_message_id": messages[-2].id},
         }
         self.mock_repo.get_messages.return_value = messages

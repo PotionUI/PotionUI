@@ -69,10 +69,10 @@ class TestResolveSessionPromptAndToolsCache:
         assert tools1 == tools2
         assert mode1.id == mode2.id
 
-    def test_different_enabled_tools_signature_is_a_separate_cache_entry(self):
+    def test_different_disabled_tools_signature_is_a_separate_cache_entry(self):
         builder, registry = self._make_builder()
-        session_a = _session(metadata={"enabled_tools": ["echo"]})
-        session_b = _session(metadata={"enabled_tools": ["other"]})
+        session_a = _session(metadata={"disabled_tools": ["echo"]})
+        session_b = _session(metadata={"disabled_tools": ["other"]})
 
         builder.resolve_session_prompt_and_tools(session_a)
         builder.resolve_session_prompt_and_tools(session_b)
@@ -110,7 +110,7 @@ class TestResolveSessionPromptAndToolsCache:
 
 
 class TestResolvedPromptIsSessionAccurate:
-    """The cache keys on the enabled-tools signature, so differing enabled sets
+    """The cache keys on the tools-filter signature, so differing disabled sets
     resolve to differing (session-accurate) prompts — no stale cross-session bleed."""
 
     def _make_builder(self):
@@ -138,7 +138,7 @@ class TestResolvedPromptIsSessionAccurate:
 
     def test_disabling_a_tool_drops_it_from_the_prompt(self):
         builder = self._make_builder()
-        session = _session(metadata={"enabled_tools": ["get_active_models"]})
+        session = _session(metadata={"disabled_tools": ["get_form_state"]})
         prompt, allowed, _ = builder.resolve_session_prompt_and_tools(session)
         assert allowed == ["get_active_models"]
         assert "get_form_state" not in prompt
@@ -148,7 +148,7 @@ class TestResolvedPromptIsSessionAccurate:
         builder = self._make_builder()
         full, _, _ = builder.resolve_session_prompt_and_tools(_session())
         reduced, _, _ = builder.resolve_session_prompt_and_tools(
-            _session(metadata={"enabled_tools": ["get_active_models"]})
+            _session(metadata={"disabled_tools": ["get_form_state"]})
         )
         assert full != reduced
         assert "get_form_state" in full

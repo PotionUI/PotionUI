@@ -90,7 +90,8 @@ class ChatController(BaseController):
                 mode=request.mode,
                 name=request.name,
                 system_message=request.system_message,
-                enabled_tools=request.enabled_tools,
+                tools_enabled=request.tools_enabled,
+                disabled_tools=request.disabled_tools,
             )
             return self.success_response(
                 data=session.model_dump(),

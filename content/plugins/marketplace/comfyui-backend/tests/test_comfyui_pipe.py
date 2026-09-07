@@ -1901,3 +1901,76 @@ class TestComfyUIPipeBackendConfig(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class TestMediaPathResolution:
+    """A form media value reaches the pipe in one of two relative conventions
+    (CWD-relative with the storage prefix, or storage-root-relative as the
+    history picker stores it); the second must resolve through the SETTINGS
+    service exactly like core's media_loader, never leave the workflow's own
+    placeholder filename in the node."""
+
+    def _pipe(self):
+        return ComfyUIPipe({"host": "127.0.0.1", "port": 8188, "workflow_file": "w.json", "field_mappings": []})
+
+    @staticmethod
+    def _settings(storage_root):
+        settings = Mock()
+        settings.get_file_storage_directory.return_value = str(storage_root)
+        return settings
+
+    @pytest.mark.asyncio
+    async def test_storage_root_relative_image_is_resolved_and_uploaded(self, tmp_path):
+        storage = tmp_path / "storage"
+        image_dir = storage / "generations" / "2026-09-05" / "gen"
+        image_dir.mkdir(parents=True)
+        Image.new("RGB", (4, 4)).save(image_dir / "0.png")
+
+        pipe = self._pipe()
+        pipe.config["field_mappings"] = [["generations/2026-09-05/gen/0.png", "78.inputs.image", "image"]]
+        pipe.upload_image_to_comfyui = AsyncMock(return_value="uploaded.png")
+        workflow = {"78": {"inputs": {"image": "workflow_placeholder.png"}}}
+
+        result = await pipe.apply_field_mappings(workflow, PipeInput(input={"SETTINGS": self._settings(storage)}), Mock())
+
+        assert result["78"]["inputs"]["image"] == "uploaded.png"
+        pipe.upload_image_to_comfyui.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_storage_root_relative_video_is_resolved_and_uploaded(self, tmp_path):
+        storage = tmp_path / "storage"
+        (storage / "uploads").mkdir(parents=True)
+        (storage / "uploads" / "clip.mp4").write_bytes(b"x")
+
+        pipe = self._pipe()
+        pipe.config["field_mappings"] = [["uploads/clip.mp4", "10.inputs.file", "video_required"]]
+        pipe.upload_video_to_comfyui = AsyncMock(return_value="clip.mp4")
+        workflow = {"10": {"inputs": {"file": "workflow_placeholder.mp4"}}}
+
+        result = await pipe.apply_field_mappings(workflow, PipeInput(input={"SETTINGS": self._settings(storage)}), Mock())
+
+        assert result["10"]["inputs"]["file"] == "clip.mp4"
+        assert pipe.upload_video_to_comfyui.await_args.args[0] == storage / "uploads" / "clip.mp4"
+
+    @pytest.mark.asyncio
+    async def test_required_image_that_resolves_nowhere_still_raises(self, tmp_path):
+        pipe = self._pipe()
+        pipe.config["field_mappings"] = [["generations/missing/0.png", "78.inputs.image", "image_required"]]
+        workflow = {"78": {"inputs": {"image": "workflow_placeholder.png"}}}
+
+        with pytest.raises(GenerationExecutionError):
+            await pipe.apply_field_mappings(workflow, PipeInput(input={"SETTINGS": self._settings(tmp_path)}), Mock())
+
+    @pytest.mark.asyncio
+    async def test_without_the_settings_service_a_cwd_relative_path_still_works(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "storage" / "uploads").mkdir(parents=True)
+        Image.new("RGB", (4, 4)).save(tmp_path / "storage" / "uploads" / "a.png")
+
+        pipe = self._pipe()
+        pipe.config["field_mappings"] = [["storage/uploads/a.png", "78.inputs.image", "image"]]
+        pipe.upload_image_to_comfyui = AsyncMock(return_value="a.png")
+        workflow = {"78": {"inputs": {"image": "workflow_placeholder.png"}}}
+
+        result = await pipe.apply_field_mappings(workflow, PipeInput(input={}), Mock())
+
+        assert result["78"]["inputs"]["image"] == "a.png"

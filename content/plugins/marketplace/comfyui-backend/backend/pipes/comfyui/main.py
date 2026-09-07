@@ -127,6 +127,8 @@ class ComfyUIPipe(BasePipe):
             PipeInputSpec("conditioning", IOType.CONDITIONING, False, "Prompt conditioning", is_array=True),
             PipeInputSpec("seed", IOType.SEED, False, "Random seeds", is_array=True),
             PipeInputSpec("image", IOType.IMAGE, False, "Input images for img2img", is_array=True),
+            PipeInputSpec("SETTINGS", IOType.SERVICE, False,
+                          "Settings manager, to resolve storage-root-relative media paths", is_array=False),
         ]
 
     @classmethod
@@ -404,6 +406,21 @@ class ComfyUIPipe(BasePipe):
             return None
         return value
 
+    def _resolve_media_file(self, value: str, pipe_input: PipeInput) -> Optional[Path]:
+        """A form media value is either CWD-relative with the storage prefix
+        ('storage/uploads/...') or storage-root-relative ('generations/...',
+        what the history picker stores); as-given first, then joined onto the
+        storage root. `None` when neither exists."""
+        path = Path(value)
+        if path.is_absolute() or path.exists():
+            return path if path.exists() else None
+        settings = pipe_input.input.get("SETTINGS") if pipe_input is not None and pipe_input.input else None
+        if settings is not None:
+            candidate = Path(settings.get_file_storage_directory()) / value
+            if candidate.exists():
+                return candidate
+        return None
+
     async def upload_image_to_comfyui(self, image: Image.Image, generation_outputs: callable) -> Optional[str]:
         """Upload image to ComfyUI and return the filename"""
         try:
@@ -605,8 +622,8 @@ class ComfyUIPipe(BasePipe):
                         # Handle file path string - checked before the upload's own
                         # try/except so a required image's failure raises past it
                         # instead of being logged and swallowed as a generic upload error.
-                        image_path = Path(value)
-                        if not image_path.exists():
+                        image_path = self._resolve_media_file(value, pipe_input)
+                        if image_path is None:
                             logger.error(f"Image file not found: {value}")
                             if type_cast == "image_required":
                                 raise GenerationExecutionError(
@@ -662,8 +679,8 @@ class ComfyUIPipe(BasePipe):
                         continue
                 elif type_cast in ("video", "video_required") and value is not None:
                     if isinstance(value, str):
-                        video_path = Path(value)
-                        if not video_path.exists():
+                        video_path = self._resolve_media_file(value, pipe_input)
+                        if video_path is None:
                             logger.error(f"Video file not found: {value}")
                             if type_cast == "video_required":
                                 raise GenerationExecutionError(
@@ -687,8 +704,8 @@ class ComfyUIPipe(BasePipe):
                         continue
                 elif type_cast in ("audio", "audio_required") and value is not None:
                     if isinstance(value, str):
-                        audio_path = Path(value)
-                        if not audio_path.exists():
+                        audio_path = self._resolve_media_file(value, pipe_input)
+                        if audio_path is None:
                             logger.error(f"Audio file not found: {value}")
                             if type_cast == "audio_required":
                                 raise GenerationExecutionError(

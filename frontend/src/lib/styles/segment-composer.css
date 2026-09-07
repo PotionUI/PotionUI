@@ -42,11 +42,25 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .more-button { width: 30px; padding: 0; justify-content: center; }
 
-.segment-list { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+/* The lane (list + add row) is the canvas tone, so the gap between segments
+   and around the add row reads as one dark channel. */
+.segment-lane { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: rgb(var(--canvas)); }
 
+.composer > .segment-lane:last-child { border-radius: 0 0 9px 9px; }
+
+.segment-list { display: flex; flex-direction: column; gap: 8px; }
+
+.segment-list:empty { display: none; }
+
+/* Boundaries come from contrast, not edges: the list behind the cards is
+   the canvas tone, so the gap between segments reads as a dark channel, and
+   the rail's colored spine (below) runs the card's full height. The card
+   itself keeps the hairline. */
 .segment { position: relative; display: grid; grid-template-columns: 42px minmax(0, 1fr); background: rgb(var(--surface-1)); border: 1px solid rgb(var(--line)); border-radius: 8px; overflow: visible; transition: border-color .15s, background .15s, opacity .15s; }
 
 .segment:hover { border-color: rgb(var(--line-strong)); }
+
+.segment:focus-within { border-color: rgb(var(--line-hover)); }
 
 .segment.dragging { opacity: .45; }
 
@@ -62,7 +76,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .segment-rail { position: relative; display: flex; flex-direction: column; align-items: center; padding: 9px 0; background: color-mix(in srgb, rgb(var(--surface-2)) 56%, transparent); border-right: 1px solid rgb(var(--line)); border-radius: 8px 0 0 8px; }
 
-.segment-rail::after { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 2px 2px 0; background: var(--segment-color, rgb(var(--line-strong))); }
+.segment-rail::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 7px 2px 2px 7px; background: var(--segment-color, rgb(var(--line-hover))); }
 
 .grip { width: 25px; height: 24px; display: grid; place-items: center; color: rgb(var(--fg-muted)); background: rgb(var(--surface-2)); border: 1px solid rgb(var(--line)); border-radius: 4px; cursor: grab; }
 
@@ -111,18 +125,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 /* No horizontal/vertical padding here (the mock assumed the contenteditable
    sat directly in this box) — InlineChipEditor's own `borderless` mode already
-   applies its own px-3/py-2, so this box only sets the min-height/typography
-   the mock asks for; doubling the padding on top of the editor's own would
-   diverge from the mock's actual spacing, not match it. The font-size/
+   applies its own px-3/py-2 and a one-line min-height, so this box only
+   sets typography: no min-height either, a segment is as tall as its text
+   (the mock's fixed 74px floor wasted most of the box on one-liners). The
+   font-size/
    line-height still have to be repeated onto `.inline-chip-editor` below,
-   since that's the element that actually renders the text. `:focus` becomes
-   `:focus-within` for the same reason: this box is never the focus target,
-   the nested contenteditable is. */
-.segment-content { min-height: 74px; font-size: 13px; line-height: 1.85; color: rgb(var(--fg)); text-wrap: pretty; }
+   since that's the element that actually renders the text. */
+.segment-content { font-size: 13px; line-height: 1.85; color: rgb(var(--fg)); text-wrap: pretty; }
 
 .segment-content .inline-chip-editor { font-size: 13px; line-height: 1.85; }
 
-.segment-content:focus-within { background: color-mix(in srgb, rgb(var(--surface-2)) 35%, transparent); }
 
 .segment.off .segment-content { color: rgb(var(--fg-disabled)); opacity: .48; text-decoration-color: rgb(var(--fg-disabled)); }
 
@@ -150,7 +162,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .segment:hover .insert-label, .segment:hover .insert-button { opacity: 1; }
 
-.composer.compact .segment-content { min-height: 54px; font-size: 12px; line-height: 1.65; }
+.composer.compact .segment-content { font-size: 12px; line-height: 1.65; }
 
 .composer.compact .segment-content .inline-chip-editor { font-size: 12px; line-height: 1.65; }
 
@@ -245,7 +257,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .break-actions { display: flex; gap: 2px; }
 
-.add-segment { width: calc(100% - 24px); height: 40px; margin: 0 12px 12px; display: flex; align-items: center; justify-content: center; gap: 6px; color: rgb(var(--fg-muted)); background: transparent; border: 1px dashed rgb(var(--line-strong)); border-radius: 6px; font-size: 8px; }
+.add-segment { width: 100%; height: 40px; margin: 0; display: flex; align-items: center; justify-content: center; gap: 6px; color: rgb(var(--fg-muted)); background: transparent; border: 1px dashed rgb(var(--line-strong)); border-radius: 6px; font-size: 8px; }
 
 .add-segment:hover { color: rgb(var(--fg)); background: rgb(var(--surface-1)); border-color: rgb(var(--line-strong)); }
 

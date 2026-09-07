@@ -412,6 +412,7 @@
 	<SegmentComposerIconSprite />
 
 	{#snippet mainRail()}
+		<div class="segment-lane">
 		<div role="list" aria-label={mainLabel} class="segment-list">
 			{#each segments as segment, index (segment.id)}
 				<PromptSegment
@@ -448,6 +449,7 @@
 			<svg class="icon"><use href="#i-plus" /></svg>
 			<span>Add segment</span>
 		</button>
+		</div>
 	{/snippet}
 
 	{#if embedded}
@@ -581,6 +583,7 @@
 
 	{#if paired}
 		{#snippet negativeRail()}
+			<div class="segment-lane">
 			<div role="list" aria-label="Negative segments" class="segment-list negative-list">
 				{#each negativeSegments || [] as segment, index (segment.id)}
 					<PromptSegment
@@ -617,6 +620,7 @@
 				<svg class="icon"><use href="#i-plus" /></svg>
 				<span>Add segment</span>
 			</button>
+			</div>
 		{/snippet}
 
 		{#if embedded}

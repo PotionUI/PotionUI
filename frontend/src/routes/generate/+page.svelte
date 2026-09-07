@@ -1533,6 +1533,7 @@
 					negativePrompt: currentTab.negativePrompt,
 					promptSegments: currentTab.promptSegments,
 					negativePromptSegments: currentTab.negativePromptSegments,
+					variables: currentTab.variables,
 					promptTabs: currentTab.promptTabs,
 					activePromptTab: currentTab.activePromptTab,
 					promptRelay: currentTab.promptRelay,

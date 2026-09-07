@@ -23,7 +23,7 @@ class UserRepository:
         """Get user by username"""
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
-            cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+            cursor.execute("SELECT * FROM users WHERE username = ? COLLATE NOCASE", (username,))
             row = cursor.fetchone()
             return User.from_row(row) if row else None
     
@@ -180,18 +180,21 @@ class UserRepository:
             cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
             return cursor.rowcount > 0
     
-    def exists_by_username(self, username: str) -> bool:
-        """Check if username exists"""
+    def exists_by_username(self, username: str, exclude_user_id: Optional[str] = None) -> bool:
+        """Whether another user holds this username, case-insensitively."""
+        return self._exists("username", username, exclude_user_id)
+
+    def exists_by_email(self, email: str, exclude_user_id: Optional[str] = None) -> bool:
+        """Whether another user holds this email, case-insensitively."""
+        return self._exists("email", email, exclude_user_id)
+
+    def _exists(self, column: str, value: str, exclude_user_id: Optional[str]) -> bool:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
-            cursor.execute("SELECT 1 FROM users WHERE username = ? LIMIT 1", (username,))
-            return cursor.fetchone() is not None
-    
-    def exists_by_email(self, email: str) -> bool:
-        """Check if email exists"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("SELECT 1 FROM users WHERE email = ? LIMIT 1", (email,))
+            cursor.execute(
+                f"SELECT 1 FROM users WHERE {column} = ? COLLATE NOCASE AND id IS NOT ? LIMIT 1",
+                (value, exclude_user_id),
+            )
             return cursor.fetchone() is not None
 
 # Global repository instance

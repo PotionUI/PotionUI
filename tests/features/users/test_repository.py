@@ -94,3 +94,49 @@ class TestUserRepositoryBuiltinGroupMembership(PersistenceTestBase):
         )  # must not raise
 
         self.assertEqual(self._member_group_ids(user.id), set())
+
+
+class TestUserRepositoryCaseInsensitiveIdentity(PersistenceTestBase):
+    """Usernames and emails identify an account regardless of letter case:
+    `Anonymous` logs in as `anonymous`, and no second account can take
+    either spelling."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = UserRepository()
+        self.user = self.repo.create(
+            username="Anonymous", email="Anon@Example.com",
+            password_hash="hash", account_type=AccountType.USER,
+        )
+
+    def tearDown(self):
+        try:
+            if hasattr(self, 'db'):
+                with self.db.get_cursor() as cursor:
+                    cursor.execute("DELETE FROM user_group_members")
+                    cursor.execute("DELETE FROM users")
+        except Exception:
+            pass
+        super().tearDown()
+
+    def test_get_by_username_ignores_case(self):
+        for spelling in ("anonymous", "ANONYMOUS", "Anonymous"):
+            found = self.repo.get_by_username(spelling)
+            self.assertIsNotNone(found, spelling)
+            self.assertEqual(found.id, self.user.id)
+        self.assertEqual(found.username, "Anonymous")
+
+    def test_exists_checks_ignore_case(self):
+        self.assertTrue(self.repo.exists_by_username("anonymous"))
+        self.assertTrue(self.repo.exists_by_email("anon@example.com"))
+        self.assertFalse(self.repo.exists_by_username("anonymous", exclude_user_id=self.user.id))
+        self.assertFalse(self.repo.exists_by_email("anon@example.com", exclude_user_id=self.user.id))
+
+    def test_database_refuses_a_case_variant_of_an_existing_username_or_email(self):
+        import sqlite3
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.repo.create(username="anonymous", email="other@example.com",
+                             password_hash="hash", account_type=AccountType.USER)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.repo.create(username="someone", email="ANON@example.com",
+                             password_hash="hash", account_type=AccountType.USER)

@@ -115,13 +115,13 @@ def update(
 
     # Validate and prepare username update
     if username is not None:
-        if repository.exists_by_username(username) and user.username != username:
+        if repository.exists_by_username(username, exclude_user_id=user_id):
             raise ValueError("Username already exists")
         update_data["username"] = username
 
     # Validate and prepare email update
     if email is not None:
-        if repository.exists_by_email(email) and user.email != email:
+        if repository.exists_by_email(email, exclude_user_id=user_id):
             raise ValueError("Email already exists")
         update_data["email"] = email
 

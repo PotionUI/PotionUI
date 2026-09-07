@@ -331,14 +331,16 @@ class TestUpdate:
             operations.update(mock_user_repository, mock_password_hasher, mock_plugin_registry, "user-123", username="taken")
 
     def test_update_allows_keeping_same_username(self, mock_user_repository, mock_password_hasher, mock_plugin_registry, sample_user):
-        """Should allow updating with same username (no conflict)."""
+        """Re-casing your own name is not a conflict: the uniqueness check
+        excludes the user being updated (the repository compares
+        case-insensitively, so a Python-side name comparison can't do it)."""
         mock_user_repository.get_by_id.return_value = sample_user
-        mock_user_repository.exists_by_username.return_value = True  # Exists but is the same user
+        mock_user_repository.exists_by_username.return_value = False
         mock_user_repository.update.return_value = sample_user
 
-        # Should not raise error since it's the same username
-        operations.update(mock_user_repository, mock_password_hasher, mock_plugin_registry, "user-123", username=sample_user.username)
+        operations.update(mock_user_repository, mock_password_hasher, mock_plugin_registry, "user-123", username=sample_user.username.upper())
 
+        mock_user_repository.exists_by_username.assert_called_once_with(sample_user.username.upper(), exclude_user_id="user-123")
         mock_user_repository.update.assert_called_once()
 
     def test_update_fails_when_no_fields_provided(self, mock_user_repository, mock_password_hasher, mock_plugin_registry, sample_user):

@@ -223,21 +223,26 @@ describe('deriveShotRail — chain routing (Wan, first_only: no free keyframes/a
 		expect(rail.lanes.prompt!.addDisabledReason).toBeTruthy();
 	});
 
-	it('no keyframes/audio lane at all under first_only + no audio capability', () => {
+	it('the keyframes lane opens on shot 1 under first_only, even with no media placed yet; audio stays gated on capability', () => {
 		const rail = deriveShotRail(wanDoc(), wanCaps(), 's1');
-		expect(rail.lanes.keyframes).toBeNull();
+		expect(rail.lanes.keyframes).not.toBeNull();
 		expect(rail.lanes.audio).toBeNull();
 	});
 
-	it('START/END marks still render even with no capability well (locked edge mirrors)', () => {
-		// first_only DOES gate rail.lanes.keyframes false when there is no media
-		// at all (railModel's own gating) -- confirm shot 1 (which HAS caps for
-		// a leading well) still gets nothing until keyframes lane opens via caps.
-		const caps = { ...wanCaps(), modes: { director: { ...wanCaps().modes.director!, keyframes: 'first_only' as const } } };
-		const rail = deriveShotRail(wanDoc(), caps, 's1');
-		// first_only never opens the keyframes LANE unless media already exists
-		// (railModel.ts: lanes.keyframes = body.keyframes.length>0 || freePlacementActive)
-		expect(rail.lanes.keyframes).toBeNull();
+	it('START/END anchor marks render empty once the lane opens; canAdd stays locked -- first_only never enables free placement', () => {
+		// railModel.ts's `chainEdgeAllowed` opens the lane off
+		// `resolveDirectorEdgeAllowances(caps).leadingEdgeAllowed` alone (true
+		// for first_only), not on media/free-placement -- the locked START/END
+		// wells this file draws whenever the lane exists are exactly the
+		// affordance a first_only shot is entitled to before anything is
+		// placed. `canAdd` (the free "+" add) stays false regardless: it reads
+		// `rail.freePlacementActive`, which first_only (keyframes !== 'anywhere')
+		// never sets.
+		const rail = deriveShotRail(wanDoc(), wanCaps(), 's1');
+		const marks = rail.lanes.keyframes!.marks;
+		expect(marks.find((m) => m.kind === 'start')).toMatchObject({ empty: true, label: 'START' });
+		expect(marks.find((m) => m.kind === 'end')).toMatchObject({ empty: true, label: 'END' });
+		expect(rail.lanes.keyframes!.canAdd).toBe(false);
 	});
 });
 
@@ -312,6 +317,24 @@ describe('deriveShotRail — chain routing (H3, anywhere: free keyframes + audio
 		expect(end.id).toBe(chainEdgeKeyframeId('last', 'h1'));
 		expect(parseChainEdgeKeyframeId(start.id)).toEqual({ edge: 'first', segmentId: 'h1' });
 		expect(parseChainEdgeKeyframeId(end.id)).toEqual({ edge: 'last', segmentId: 'h1' });
+	});
+
+	// Exact maintainer scenario (09-07): a fresh single-shot MiniMax-H3 `video`
+	// document with no media and no audio must still offer locked, empty
+	// START/END wells -- otherwise i2v/flf are unreachable.
+	it('a fresh single-shot document (no media, no audio) still shows locked, empty START/END wells; canAdd unlocks once the doc grows a second shot', () => {
+		const doc = h3Doc();
+		doc.chain.segments = [doc.chain.segments[0]]; // just 'h1', no media, no audio
+		const rail = deriveShotRail(doc, h3Caps(), 'h1');
+		expect(rail.lanes.keyframes).not.toBeNull();
+		const marks = rail.lanes.keyframes!.marks;
+		expect(marks.map((m) => m.kind)).toEqual(['start', 'end']);
+		expect(marks.every((m) => m.empty)).toBe(true);
+		expect(rail.lanes.keyframes!.canAdd).toBe(false);
+
+		const shaped = h3Doc(); // back to 3 segments -- director-shaped
+		const shapedRail = deriveShotRail(shaped, h3Caps(), 'h1');
+		expect(shapedRail.lanes.keyframes!.canAdd).toBe(true);
 	});
 });
 

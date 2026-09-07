@@ -220,9 +220,9 @@ describe('deriveRailModel — Wan chain', () => {
 		expect(model.seams[1].shoulderStartFrame).toBeNull();
 	});
 
-	it('gates lanes on capability: first_only draws no keyframes/audio lane', () => {
+	it('first_only opens the keyframes lane (a leading well) even with no media placed yet, but audio/icLora stay gated', () => {
 		const model = deriveRailModel(wanDoc(), wanCaps());
-		expect(model.lanes).toEqual({ shots: true, keyframes: false, audio: false, icLora: false, references: false });
+		expect(model.lanes).toEqual({ shots: true, keyframes: true, audio: false, icLora: false, references: false });
 		expect(model.keyframes).toEqual([]);
 		expect(model.audio).toEqual([]);
 		expect(model.icLora).toBeNull();
@@ -426,6 +426,30 @@ describe('deriveRailModel — H3 refs merged profile (references per_shot + keyf
 	it('every seam is cut-only', () => {
 		const model = deriveRailModel(h3Doc(), refsCaps);
 		expect(model.seams.every((s) => s.kind === 'cut')).toBe(true);
+	});
+});
+
+// Maintainer bug report 09-07: a fresh single-shot MiniMax-H3 `video` document
+// (keyframes: 'anywhere', chain routing) with no media placed showed NO
+// keyframes lane at all -- i2v/flf were unreachable until the doc happened to
+// grow a second shot or an audio row. `video` resolves through the SAME raw
+// preset fixture as `refs` above (no override applies to it), proving the fix
+// distinguishes the two using the real merge path, not a hand-built fixture.
+describe('deriveRailModel — H3 video: single-shot, media-less document still offers the keyframes lane', () => {
+	const videoCaps = resolveDirectorCapabilities(H3_REFS_PRESET_RAW, 'video')!;
+
+	it('opens the keyframes lane on a bare single shot, but keeps free placement locked (not yet director-shaped)', () => {
+		const doc = { ...h3Doc(), chain: { ...h3Doc().chain, segments: [chainSegment('h1', 'Stall row', 145 / 25)] } };
+		const model = deriveRailModel(doc, videoCaps);
+		expect(model.lanes.keyframes).toBe(true);
+		expect(model.freePlacementActive).toBe(false);
+	});
+
+	it('adding a second shot makes the document director-shaped and unlocks free placement', () => {
+		const doc = h3Doc(); // h3Doc() already has 3 segments
+		const model = deriveRailModel(doc, videoCaps);
+		expect(model.lanes.keyframes).toBe(true);
+		expect(model.freePlacementActive).toBe(true);
 	});
 });
 

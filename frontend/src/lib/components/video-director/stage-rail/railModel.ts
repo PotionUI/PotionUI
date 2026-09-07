@@ -890,7 +890,8 @@ export function deriveRailModel(
 	// videoDirector.ts, so "never hide existing content" falls out of this for
 	// free rather than needing its own check).
 	const isDirectorShaped = deriveDirectorMode(doc, caps) === 'director';
-	const freePlacementAllowed = resolveDirectorEdgeAllowances(caps).freePlacementAllowed;
+	const edgeAllowances = resolveDirectorEdgeAllowances(caps);
+	const freePlacementAllowed = edgeAllowances.freePlacementAllowed;
 	// Free placement follows the same composition gate for chain routing --
 	// its only escalation path is "+ Add shot". Timeline routing (LTX) has no
 	// such path: a bare/t2v-shaped document is exactly the state a user is in
@@ -900,6 +901,30 @@ export function deriveRailModel(
 	// freePlacementAllowed already IS "director declared at all" for timeline
 	// routing -- see resolveDirectorEdgeAllowances's doc comment.
 	const freePlacementActive = routing === 'timeline' ? freePlacementAllowed : freePlacementAllowed && isDirectorShaped;
+	// Chain routing's locked-edge wells (the START/END anchors deriveShotRail
+	// draws whenever this lane is visible, per-shot-gated separately by
+	// chainSegmentEdgeAllowances) must NOT wait on isDirectorShaped the way
+	// audio/ic-lora/free-placement do: a fresh single-shot MiniMax-H3 `video`
+	// (keyframes: 'anywhere') or Wan (`first_only`) document has i2v/flf as
+	// its ONLY way to escalate, and both live behind those wells -- gating
+	// them on "already director-shaped" is a lockout with no way out (bug,
+	// maintainer report 09-07). `edgeAllowances.leadingEdgeAllowed` is exactly
+	// the right test: for chain routing it reduces to
+	// `directorCap.keyframes ∈ {'first_only','anywhere'}` and, unlike
+	// `edgeAllowances.trailingEdgeAllowed`, never ORs in
+	// `enabledModes.includes('flf')` -- so a mode that only INHERITS flf/i2v
+	// from the preset's top-level `modes` without itself declaring
+	// `keyframes` (MiniMax-H3's `refs` override: `keyframes: null` ->
+	// 'none') still resolves false and stays laneless, exactly matching
+	// chainSegmentEdgeAllowances's own rule that a trailing well additionally
+	// requires `leadingEdgeAllowed` before `trailingEdgeAllowed` can open
+	// anything. Timeline routing keeps its existing rule below (the free-
+	// placement fix above already covers LTX's single-shot case; extending
+	// this same edge-only trigger to timeline would light the lane for a
+	// bare i2v-only preset with no `director` mode declared at all, which is
+	// deliberately laneless -- see railModel.test.ts's "no director declared"
+	// case).
+	const chainEdgeAllowed = routing === 'chain' && edgeAllowances.leadingEdgeAllowed;
 
 	const lanes: RailLanes = {
 		shots: true,
@@ -907,7 +932,7 @@ export function deriveRailModel(
 		// (chain's chainEdgeKeyframeId entries, timeline's role first/last) even
 		// when free placement isn't active -- only the ADD affordance is
 		// composition-gated (freePlacementActive, consumed by Rail.svelte).
-		keyframes: body.keyframes.length > 0 || freePlacementActive,
+		keyframes: body.keyframes.length > 0 || freePlacementActive || chainEdgeAllowed,
 		audio: directorCap?.audio === true && isDirectorShaped,
 		icLora: directorCap?.icLora === true && isDirectorShaped,
 		references: caps.references != null

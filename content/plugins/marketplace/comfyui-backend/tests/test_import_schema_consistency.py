@@ -121,7 +121,8 @@ class TestNoncatalogHelperFieldNotMisclassifiedAsPrompt:
     async def test_bite_check_without_object_info_the_helper_is_misclassified_as_a_second_prompt(self, monkeypatch):
         """Confirms the assertion above is really about object_info narrowing
         the fallback's scope - with none available, both nodes qualify."""
-        body = api.AnalyzeWorkflowRequest(workflow=_HELPER_WORKFLOW)  # no object_info mock call at all
+        _mock_object_info_unreachable(monkeypatch)
+        body = api.AnalyzeWorkflowRequest(workflow=_HELPER_WORKFLOW)
 
         result = await api.analyze_workflow(body, current_user=None)
 
@@ -347,7 +348,8 @@ class TestSchemaDriftRefusal:
     @pytest.mark.uses_object_info_mock
     @pytest.mark.asyncio
     async def test_object_info_becoming_available_at_save_proceeds_when_classification_is_unchanged(self, monkeypatch):
-        # Analyze runs offline (no object_info mock installed yet).
+        # Analyze runs offline: the backend is unreachable at this point.
+        _mock_object_info_unreachable(monkeypatch)
         analyze_result = await api.analyze_workflow(
             api.AnalyzeWorkflowRequest(workflow=_VAE_WORKFLOW), current_user=None
         )

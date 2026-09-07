@@ -1778,7 +1778,7 @@
 				method: 'POST',
 				credentials: 'include',
 				headers: { 'Content-Type': 'application/json', ...authHeaders() },
-				body: JSON.stringify({ workflow: workflowJson, workflow_text: workflowText })
+				body: JSON.stringify({ workflow: workflowJson, workflow_text: workflowText, form: dehydrateForm() })
 			});
 			const payload = await res.json().catch(() => null);
 			if (token !== sourceToken) return;

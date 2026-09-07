@@ -26,7 +26,7 @@ def _fixture_with_custom_node_and_model():
 class TestPreviewRequirementsInference:
     @pytest.mark.asyncio
     async def test_no_inferred_requirements_returns_empty_results(self):
-        body = api.AnalyzeWorkflowRequest(workflow={"1": {"class_type": "SaveImage", "inputs": {}}})
+        body = api.RequirementsPreviewRequest(workflow={"1": {"class_type": "SaveImage", "inputs": {}}})
         result = await api.preview_workflow_requirements(body, current_user=None)
         assert result["results"] == []
 
@@ -41,7 +41,7 @@ class TestPreviewRequirementsInference:
         monkeypatch.setattr(ComfyUINodeChecker, "check", fake_node_check)
         monkeypatch.setattr(ComfyUIModelChecker, "check", fake_model_check)
 
-        body = api.AnalyzeWorkflowRequest(workflow=_fixture_with_custom_node_and_model())
+        body = api.RequirementsPreviewRequest(workflow=_fixture_with_custom_node_and_model())
         result = await api.preview_workflow_requirements(body, current_user=None)
 
         by_type = {r["type"]: r for r in result["results"]}
@@ -55,13 +55,29 @@ class TestPreviewRequirementsInference:
         assert by_type["comfyui_model"]["hint"] is None
 
     @pytest.mark.asyncio
+    async def test_a_model_input_driven_by_a_form_picker_is_not_previewed(self, monkeypatch):
+        async def fake_model_check(self, spec, ctx):
+            return RequirementResult(status="missing", detail="not on the server")
+
+        monkeypatch.setattr(ComfyUIModelChecker, "check", fake_model_check)
+        form = {"tabs": [{"id": "g", "label": "G", "items": [{
+            "kind": "field", "field_name": "checkpoint", "field_type": "model", "label": "Checkpoint",
+            "mappings": [{"node_id": "1", "input_name": "ckpt_name", "transform": "strip_model_prefix"}],
+        }]}]}
+
+        body = api.RequirementsPreviewRequest(workflow=_fixture_with_custom_node_and_model(), form=form)
+        result = await api.preview_workflow_requirements(body, current_user=None)
+
+        assert [r["type"] for r in result["results"]] == ["comfyui_node"]
+
+    @pytest.mark.asyncio
     async def test_a_checker_that_raises_resolves_to_unknown_not_a_500(self, monkeypatch):
         async def boom(self, spec, ctx):
             raise RuntimeError("kaboom")
 
         monkeypatch.setattr(ComfyUINodeChecker, "check", boom)
 
-        body = api.AnalyzeWorkflowRequest(workflow=_fixture_with_custom_node_and_model())
+        body = api.RequirementsPreviewRequest(workflow=_fixture_with_custom_node_and_model())
         result = await api.preview_workflow_requirements(body, current_user=None)
 
         node_result = next(r for r in result["results"] if r["type"] == "comfyui_node")
@@ -77,7 +93,7 @@ class TestPreviewRequirementsInference:
         monkeypatch.setattr(ComfyUINodeChecker, "check", slow_check)
         monkeypatch.setattr(api, "_REQUIREMENTS_PREVIEW_BUDGET_SECONDS", 0.05)
 
-        body = api.AnalyzeWorkflowRequest(workflow=_fixture_with_custom_node_and_model())
+        body = api.RequirementsPreviewRequest(workflow=_fixture_with_custom_node_and_model())
         result = await api.preview_workflow_requirements(body, current_user=None)
 
         node_result = next(r for r in result["results"] if r["type"] == "comfyui_node")
@@ -99,7 +115,7 @@ class TestPreviewRequirementsInference:
         monkeypatch.setattr(ComfyUINodeChecker, "check", capture)
         monkeypatch.setattr(api, "_get_comfyui_base_url", lambda: "http://example-comfyui:9999")
 
-        body = api.AnalyzeWorkflowRequest(workflow=_fixture_with_custom_node_and_model())
+        body = api.RequirementsPreviewRequest(workflow=_fixture_with_custom_node_and_model())
         await api.preview_workflow_requirements(body, current_user=None)
 
         assert seen == {"engine": "comfyui", "base_url": "http://example-comfyui:9999"}

@@ -170,7 +170,7 @@ class TestNoncatalogModelFileRequirementInference:
     @pytest.mark.asyncio
     async def test_requirements_preview_includes_the_enriched_model_file(self, monkeypatch):
         _mock_object_info(monkeypatch, _VAE_OBJECT_INFO)
-        body = api.AnalyzeWorkflowRequest(workflow=_VAE_WORKFLOW)
+        body = api.RequirementsPreviewRequest(workflow=_VAE_WORKFLOW)
 
         result = await api.preview_workflow_requirements(body, current_user=None)
 
@@ -180,7 +180,7 @@ class TestNoncatalogModelFileRequirementInference:
     @pytest.mark.uses_object_info_mock
     @pytest.mark.asyncio
     async def test_bite_check_without_object_info_the_preview_misses_the_model_file(self, monkeypatch):
-        body = api.AnalyzeWorkflowRequest(workflow=_VAE_WORKFLOW)  # no object_info mock
+        body = api.RequirementsPreviewRequest(workflow=_VAE_WORKFLOW)  # no object_info mock
 
         result = await api.preview_workflow_requirements(body, current_user=None)
 

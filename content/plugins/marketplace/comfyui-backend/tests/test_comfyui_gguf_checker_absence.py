@@ -327,29 +327,13 @@ class TestJoinedAnalyzePreviewImportReloadThenChecker:
         })
         with preview_patcher:
             preview_result = await api.preview_workflow_requirements(
-                api.AnalyzeWorkflowRequest(workflow=_WORKFLOW), current_user=None
+                api.RequirementsPreviewRequest(workflow=_WORKFLOW), current_user=None
             )
         model_results = [r for r in preview_result["results"] if r["type"] == "comfyui_model"]
         assert [r["name"] for r in model_results] == ["flux1-dev-Q4_K_S.gguf"]
 
-        form = {
-            "tabs": [
-                {
-                    "id": "generation",
-                    "label": "Generation",
-                    "items": [
-                        {
-                            "kind": "field",
-                            "field_name": "unet",
-                            "field_type": "model",
-                            "label": "UNET",
-                            "config": {"model_type": "diffusion_model"},
-                            "mappings": [{"node_id": "1", "input_name": "unet_name", "transform": "strip_model_prefix"}],
-                        }
-                    ],
-                }
-            ]
-        }
+        # No model field on the loader: a picker-driven input is not a requirement.
+        form = {"tabs": [{"id": "generation", "label": "Generation", "items": []}]}
         create_response = await api.import_workflow(
             api.ImportWorkflowRequest(
                 workflow=_WORKFLOW, form=form, history=[], model_family="JoinedGGUFTest",

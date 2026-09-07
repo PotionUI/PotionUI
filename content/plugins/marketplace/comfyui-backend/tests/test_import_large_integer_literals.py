@@ -178,7 +178,7 @@ class TestAnalyzeResponseNeverEchoesAnUnsafeRawInt:
     @pytest.mark.asyncio
     async def test_requirements_preview_accepts_workflow_text(self):
         exact = _with_literal("3", "seed", UINT64_MAX)
-        body = api.AnalyzeWorkflowRequest(workflow=exact, workflow_text=_exact_text(exact))
+        body = api.RequirementsPreviewRequest(workflow=exact, workflow_text=_exact_text(exact))
 
         response = await api.preview_workflow_requirements(body, current_user=None)
 

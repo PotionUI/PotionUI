@@ -1910,10 +1910,12 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    assuming the import is clean.
 
    The written `preset.yml` also gets a `requirements:` block (see "Requirements" above),
-   inferred from the whole workflow graph regardless of which inputs you mapped into fields: one
-   `comfyui_node` entry for every node class outside a small built-in allowlist (a custom node pack
-   the target server may not have installed), and one `comfyui_model` entry for every checkpoint/
-   UNET/CLIP/VAE/LoRA file a loader node references. Both types are registered by this plugin
+   inferred from the whole workflow graph: one `comfyui_node` entry for every node class outside a
+   small built-in allowlist (a custom node pack the target server may not have installed), and one
+   `comfyui_model` entry for every checkpoint/UNET/CLIP/VAE/LoRA file a loader node references -
+   except a loader input a `model` field's picker drives, whose file is chosen per generation and
+   whose workflow literal is therefore not required (the wizard's Requirements step previews the
+   same set, from the form as designed so far). Both types are registered by this plugin
    (`backend/requirements.py`) — they check the resolved backend's `GET /object_info` and
    `GET /models/{folder}` live, so a missing custom node or model file surfaces on the preset's
    Requirements panel instead of as a mid-generation pipeline error.

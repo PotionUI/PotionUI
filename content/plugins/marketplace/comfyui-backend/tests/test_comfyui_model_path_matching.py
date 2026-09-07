@@ -192,7 +192,8 @@ class TestJoinedImportedNestedFilename:
             }
         )
         analysis = suggest_fields(workflow)
-        form = form_from_roles(analysis, {"checkpoint"})
+        # No model field: a picker-driven loader input is not a requirement.
+        form = form_from_roles(analysis, set())
         result = emit_preset(
             workflow, form, [], model_family="NestedPathTest", variant="imported",
             display_name="Nested Path Test", dest_root=tmp_path,
@@ -210,7 +211,8 @@ class TestJoinedImportedNestedFilename:
             }
         )
         analysis = suggest_fields(workflow)
-        form = form_from_roles(analysis, {"checkpoint"})
+        # No model field: a picker-driven loader input is not a requirement.
+        form = form_from_roles(analysis, set())
         result = emit_preset(
             workflow, form, [], model_family="NestedPathTest2", variant="imported",
             display_name="Nested Path Test 2", dest_root=tmp_path,

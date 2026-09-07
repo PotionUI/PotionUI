@@ -304,13 +304,17 @@ def _infer_requirements(
     *,
     replaced_lora_node_ids: Optional[Set[str]] = None,
     candidates: Optional[List[InputCandidate]] = None,
+    form_driven_inputs: Optional[Set[Tuple[str, str]]] = None,
 ) -> List[Dict[str, Any]]:
-    """`requirements:` entries for this workflow, independent of `form`: one
-    `comfyui_node` per non-core node class (see `_is_core_node_class`), and
-    one `comfyui_model` per checkpoint/UNET/CLIP/VAE/LoRA file it
-    references. A loader the admin didn't turn into a field still needs its
-    file present to run, so this reads the whole graph rather than
-    `form`'s field list.
+    """`requirements:` entries for this workflow: one `comfyui_node` per
+    non-core node class (see `_is_core_node_class`), and one `comfyui_model`
+    per checkpoint/UNET/CLIP/VAE/LoRA file it references. A loader the admin
+    didn't turn into a field still needs its file present to run, so this
+    reads the whole graph rather than `form`'s field list - except the
+    `(node_id, input_name)` pairs in `form_driven_inputs`
+    (`form_driven_model_inputs`): a model picker starts empty and selects
+    the file per generation, so the workflow's own literal there is not
+    something the preset can't run without.
 
     `replaced_lora_node_ids` marks the LoRA nodes a `lora_picker` field's
     graph rewrite excludes from the baked workflow (see
@@ -351,6 +355,7 @@ def _infer_requirements(
             entry["optional"] = True
         requirements.append(entry)
 
+    driven = form_driven_inputs or set()
     catalog = get_catalog()
     for node in workflow.nodes.values():
         entry = catalog.get(node.class_type)
@@ -358,7 +363,7 @@ def _infer_requirements(
             continue
         literals = node.literals()
         for input_name, spec in entry.inputs.items():
-            if not spec.folder or input_name not in literals:
+            if not spec.folder or input_name not in literals or (node.id, input_name) in driven:
                 continue
             is_replaced = (
                 spec.role == "lora_slot"
@@ -368,10 +373,20 @@ def _infer_requirements(
             _add_model(spec.folder, literals[input_name], optional=is_replaced)
 
     for candidate in candidates or []:
-        if candidate.suggested_folder:
+        if candidate.suggested_folder and (candidate.node_id, candidate.input_name) not in driven:
             _add_model(candidate.suggested_folder, candidate.current_value)
 
     return requirements
+
+
+def form_driven_model_inputs(form: ImportForm) -> Set[Tuple[str, str]]:
+    """`(node_id, input_name)` of every workflow input a `model` field maps."""
+    return {
+        (mapping.node_id, mapping.input_name)
+        for field in all_field_items(form)
+        if field.field_type == "model"
+        for mapping in field.mappings
+    }
 
 
 # ----------------------------------------------------------------------
@@ -1021,7 +1036,11 @@ def emit_preset(
         "modes": [mode],
     }
     requirements_block = _infer_requirements(
-        workflow, object_info=object_info, replaced_lora_node_ids=replaced_lora_node_ids, candidates=analysis.candidates
+        workflow,
+        object_info=object_info,
+        replaced_lora_node_ids=replaced_lora_node_ids,
+        candidates=analysis.candidates,
+        form_driven_inputs=form_driven_model_inputs(form),
     )
     if requirements_block:
         preset_yml["requirements"] = requirements_block

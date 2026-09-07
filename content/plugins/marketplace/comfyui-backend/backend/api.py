@@ -30,6 +30,7 @@ from .preset_import.emit import (
     PresetEmitError,
     _infer_requirements,
     emit_preset,
+    form_driven_model_inputs,
 )
 from .preset_import.parser import Workflow, WorkflowFormatError, parse_api_workflow
 from .preset_import.schema import ImportForm, parse_form, parse_history
@@ -299,6 +300,13 @@ class AnalyzeWorkflowRequest(BaseModel):
     workflow_text: Optional[str] = None
 
 
+class RequirementsPreviewRequest(AnalyzeWorkflowRequest):
+    # The wizard's current form, so the preview omits the model inputs a
+    # picker drives exactly as the emitted preset will - see
+    # `emit.form_driven_model_inputs`.
+    form: Optional[Dict[str, Any]] = None
+
+
 class ImportWorkflowRequest(BaseModel):
     workflow: Dict[str, Any]
     # See `AnalyzeWorkflowRequest.workflow_text` - same authoritative-when-
@@ -366,7 +374,7 @@ async def analyze_workflow(
 
 @router.post("/presets/import/requirements")
 async def preview_workflow_requirements(
-    body: AnalyzeWorkflowRequest, current_user=Depends(get_current_admin_user)
+    body: RequirementsPreviewRequest, current_user=Depends(get_current_admin_user)
 ):
     """Preview the `requirements:` entries this workflow would get on import
     (see `preset_import.emit._infer_requirements`) and check each against
@@ -377,8 +385,15 @@ async def preview_workflow_requirements(
     workflow = _parse_workflow(_resolve_workflow_json(body.workflow, body.workflow_text))
 
     resolved = await _resolve_analysis(workflow)
+    try:
+        form = parse_form(body.form) if body.form else None
+    except PresetEmitError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     entries = _infer_requirements(
-        workflow, object_info=resolved.object_info, candidates=resolved.analysis.candidates
+        workflow,
+        object_info=resolved.object_info,
+        candidates=resolved.analysis.candidates,
+        form_driven_inputs=form_driven_model_inputs(form) if form else None,
     )
     ctx = RequirementContext(
         models=None,

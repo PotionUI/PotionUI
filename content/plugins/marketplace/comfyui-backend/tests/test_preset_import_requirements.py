@@ -1,7 +1,7 @@
 """The workflow importer (backend/preset_import/emit.py) infers a preset's
-`requirements:` block straight from the parsed workflow graph - independent
-of which inputs the admin chose as form fields, since an unchosen model
-loader still needs its file present to run.
+`requirements:` block straight from the parsed workflow graph, since an
+unchosen model loader still needs its file present to run; only the inputs a
+`model` field's picker drives are left out (see the last class below).
 
 Every workflow fixture under tests/fixtures/ is built entirely from
 ComfyUI's own built-in node classes, so the `comfyui_node` (custom node)
@@ -16,9 +16,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from backend.preset_import.emit import _infer_requirements, emit_preset
+from backend.preset_import.emit import _infer_requirements, emit_preset, form_driven_model_inputs
 from backend.preset_import.parser import WorkflowNode, parse_api_workflow
 from backend.preset_import.schema import ImportForm
+from backend.preset_import.suggest import suggest_fields
+
+from ._form_helpers import form_from_roles
 from backend.requirements import ComfyUIModelRequirementSchema, ComfyUINodeRequirementSchema
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -220,3 +223,39 @@ class TestEmittedRequirementsAreSchemaValid:
         schemas = {"comfyui_node": ComfyUINodeRequirementSchema, "comfyui_model": ComfyUIModelRequirementSchema}
         for entry in requirements:
             schemas[entry["type"]].model_validate(entry)
+
+
+class TestFormDrivenModelInputsAreNotRequirements:
+    """A `model` field's picker starts empty and selects the file per
+    generation, so the workflow's own literal on that input is not a file the
+    preset can't run without - a stale `comfyui_model` entry there makes
+    every backend ineligible for a file the admin never intended to keep."""
+
+    def test_a_form_driven_input_is_skipped_others_remain(self):
+        workflow = parse_api_workflow(_load("flux_custom_sampling_api.json"))
+        requirements = _infer_requirements(workflow, form_driven_inputs={("1", "unet_name")})
+
+        assert {(r["folder"], r["name"]) for r in _by_type(requirements, "comfyui_model")} == {
+            ("text_encoders", "clip_l.safetensors"),
+            ("text_encoders", "t5xxl_fp16.safetensors"),
+            ("vae", "ae.safetensors"),
+            ("loras", "flux_style.safetensors"),
+        }
+
+    def test_form_driven_model_inputs_collects_every_model_field_mapping(self):
+        workflow = parse_api_workflow(_load("flux_custom_sampling_api.json"))
+        form = form_from_roles(suggest_fields(workflow), {"diffusion_model", "vae"})
+
+        assert form_driven_model_inputs(form) == {("1", "unet_name"), ("3", "vae_name")}
+
+    def test_emitted_preset_omits_the_picked_loaders_files(self, tmp_path):
+        workflow = parse_api_workflow(_load("flux_custom_sampling_api.json"))
+        form = form_from_roles(suggest_fields(workflow), {"diffusion_model", "clip", "vae"})
+        result = emit_preset(
+            workflow, form, [], model_family="Driven", variant="v1", display_name="X", dest_root=tmp_path,
+        )
+        preset_yml = yaml.safe_load((result.preset_dir / "preset.yml").read_text())
+
+        assert {(r["folder"], r["name"]) for r in _by_type(preset_yml["requirements"], "comfyui_model")} == {
+            ("loras", "flux_style.safetensors"),
+        }

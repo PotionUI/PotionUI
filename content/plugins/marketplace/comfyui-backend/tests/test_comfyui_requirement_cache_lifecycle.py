@@ -354,7 +354,7 @@ class TestJoinedThroughRequirementsPreview:
             },
             "3": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "sdxl.safetensors"}},
         }
-        body = api.AnalyzeWorkflowRequest(workflow=workflow)
+        body = api.RequirementsPreviewRequest(workflow=workflow)
 
         with patcher:
             result = await api.preview_workflow_requirements(body, current_user=None)

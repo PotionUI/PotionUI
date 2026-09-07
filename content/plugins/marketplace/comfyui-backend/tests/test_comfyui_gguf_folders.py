@@ -272,7 +272,8 @@ class TestCatalogedUnetLoaderGGUF:
     def test_emit_and_reload_both_keep_the_gguf_alias_folder(self, tmp_path):
         workflow = parse_api_workflow(self._WORKFLOW)
         analysis = suggest_fields(workflow)
-        form = form_from_roles(analysis, {"diffusion_model"})
+        # No model field: a picker-driven loader input is not a requirement.
+        form = form_from_roles(analysis, set())
         result = emit_preset(
             workflow, form, [], model_family="GGUFUnetTest", variant="imported",
             display_name="GGUF Unet Test", dest_root=tmp_path,

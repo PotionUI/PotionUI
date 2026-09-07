@@ -306,7 +306,7 @@ class TestOwnershipAndCleanup(RunReportOffloadCase):
 
         generation_repo = Mock()
         generation_repo.get_files.return_value = []
-        archive = GenerationHistoryArchive(generation_repo, self.file_service, Mock(), Mock())
+        archive = GenerationHistoryArchive(generation_repo, self.file_service, Mock(), Mock(), self.repository)
 
         deleted, failed = archive._delete_generation_files("gen-1", "user-1")
 

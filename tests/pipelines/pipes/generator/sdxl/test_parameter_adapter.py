@@ -59,7 +59,7 @@ class TestSDXLParameterAdapter:
 
     def test_sampler_mapping_dpmpp_2m(self, basic_generation_input):
         """Test DPMPP_2M sampler mapping"""
-        adapter = SDXLParameterAdapter(basic_generation_input)
+        adapter = SDXLParameterAdapter(basic_generation_input, "cpu")
         assert adapter.sampler == "dpmpp_2m"
 
     def test_sampler_mapping_euler(self):
@@ -67,7 +67,7 @@ class TestSDXLParameterAdapter:
         gen_input = GenerationInput(input=[
             GenerationInputItem(name="sampler", value="EULER", io_type=IOType.SAMPLER),
         ])
-        adapter = SDXLParameterAdapter(gen_input)
+        adapter = SDXLParameterAdapter(gen_input, "cpu")
         assert adapter.sampler == "euler"
 
     def test_sampler_mapping_euler_ancestral(self):
@@ -75,7 +75,7 @@ class TestSDXLParameterAdapter:
         gen_input = GenerationInput(input=[
             GenerationInputItem(name="sampler", value="EULER_A", io_type=IOType.SAMPLER),
         ])
-        adapter = SDXLParameterAdapter(gen_input)
+        adapter = SDXLParameterAdapter(gen_input, "cpu")
         assert adapter.sampler == "euler_ancestral"
 
     def test_sampler_mapping_heun(self):
@@ -83,7 +83,7 @@ class TestSDXLParameterAdapter:
         gen_input = GenerationInput(input=[
             GenerationInputItem(name="sampler", value="HEUN", io_type=IOType.SAMPLER),
         ])
-        adapter = SDXLParameterAdapter(gen_input)
+        adapter = SDXLParameterAdapter(gen_input, "cpu")
         assert adapter.sampler == "heun"
 
     def test_sampler_mapping_dpmpp_2m_sde(self):
@@ -91,7 +91,7 @@ class TestSDXLParameterAdapter:
         gen_input = GenerationInput(input=[
             GenerationInputItem(name="sampler", value="DPMPP_2M_SDE", io_type=IOType.SAMPLER),
         ])
-        adapter = SDXLParameterAdapter(gen_input)
+        adapter = SDXLParameterAdapter(gen_input, "cpu")
         assert adapter.sampler == "dpmpp_2m_sde"
 
     def test_sampler_mapping_unknown_defaults_to_dpmpp_2m(self):
@@ -99,33 +99,33 @@ class TestSDXLParameterAdapter:
         gen_input = GenerationInput(input=[
             GenerationInputItem(name="sampler", value="UNKNOWN_SAMPLER", io_type=IOType.SAMPLER),
         ])
-        adapter = SDXLParameterAdapter(gen_input)
+        adapter = SDXLParameterAdapter(gen_input, "cpu")
         assert adapter.sampler == "dpmpp_2m"
 
     def test_sampler_default_when_not_provided(self):
         """Test sampler defaults to DPMPP_2M when not provided"""
         gen_input = GenerationInput(input=[])
-        adapter = SDXLParameterAdapter(gen_input)
+        adapter = SDXLParameterAdapter(gen_input, "cpu")
         assert adapter.sampler == "dpmpp_2m"
 
     # Scheduler Tests
 
     def test_scheduler_property(self, basic_generation_input):
         """Test scheduler property returns correct value"""
-        adapter = SDXLParameterAdapter(basic_generation_input)
+        adapter = SDXLParameterAdapter(basic_generation_input, "cpu")
         assert adapter.scheduler == "karras"
 
     def test_scheduler_default_when_not_provided(self):
         """Test scheduler defaults to karras when not provided"""
         gen_input = GenerationInput(input=[])
-        adapter = SDXLParameterAdapter(gen_input)
+        adapter = SDXLParameterAdapter(gen_input, "cpu")
         assert adapter.scheduler == "karras"
 
     # txt2img Pipeline Parameters Tests
 
     def test_build_pipeline_params_txt2img_basic(self, basic_generation_input, mock_conditioning):
         """Test basic txt2img pipeline parameter building"""
-        adapter = SDXLParameterAdapter(basic_generation_input)
+        adapter = SDXLParameterAdapter(basic_generation_input, "cpu")
         params = adapter.build_pipeline_params(mock_conditioning, mode="txt2img")
 
         # Core conditioning parameters
@@ -178,7 +178,7 @@ class TestSDXLParameterAdapter:
                 GenerationInputItem(name="sampler", value=sampler, io_type=IOType.SAMPLER),
                 GenerationInputItem(name="device", value="cpu", io_type=IOType.TEXT),  # Use CPU for testing
             ])
-            adapter = SDXLParameterAdapter(gen_input)
+            adapter = SDXLParameterAdapter(gen_input, "cpu")
             params = adapter.build_pipeline_params(mock_conditioning, mode="txt2img")
             assert params["sampler"] == expected_mappings[sampler], f"Failed for {sampler}"
 
@@ -186,7 +186,7 @@ class TestSDXLParameterAdapter:
 
     def test_build_pipeline_params_img2img(self, img2img_generation_input, mock_conditioning):
         """Test img2img pipeline parameter building"""
-        adapter = SDXLParameterAdapter(img2img_generation_input)
+        adapter = SDXLParameterAdapter(img2img_generation_input, "cpu")
         params = adapter.build_pipeline_params(mock_conditioning, mode="img2img")
 
         # Should have img2img-specific parameters
@@ -214,7 +214,7 @@ class TestSDXLParameterAdapter:
             GenerationInputItem(name="device", value="cpu", io_type=IOType.TEXT),  # Use CPU for testing
         ])
 
-        adapter = SDXLParameterAdapter(gen_input)
+        adapter = SDXLParameterAdapter(gen_input, "cpu")
         params = adapter.build_pipeline_params(mock_conditioning, mode="img2img")
 
         assert "image" in params
@@ -233,7 +233,7 @@ class TestSDXLParameterAdapter:
             GenerationInputItem(name="device", value="cpu", io_type=IOType.TEXT),  # Use CPU for testing
         ])
 
-        adapter = SDXLParameterAdapter(gen_input)
+        adapter = SDXLParameterAdapter(gen_input, "cpu")
         params = adapter.build_pipeline_params(mock_conditioning, mode="img2img")
 
         assert params["strength"] == 0.8  # Default value
@@ -246,20 +246,19 @@ class TestSDXLParameterAdapter:
             GenerationInputItem(name="seed", value=42, io_type=IOType.SEED),
             GenerationInputItem(name="device", value="cpu", io_type=IOType.TEXT),
         ])
-        adapter = SDXLParameterAdapter(gen_input)
+        adapter = SDXLParameterAdapter(gen_input, "cpu")
         generator = adapter._create_generator()
 
         assert type(generator).__name__ == "Generator"
         assert generator.initial_seed() == 42
 
-    def test_create_generator_with_cpu_device(self):
-        """Test generator creation with CPU device"""
+    def test_create_generator_on_the_given_device(self):
+        """The generator lives on the device the model passes in."""
         gen_input = GenerationInput(input=[
             GenerationInputItem(name="seed", value=123, io_type=IOType.SEED),
-            GenerationInputItem(name="device", value="cpu", io_type=IOType.TEXT),
         ])
 
-        adapter = SDXLParameterAdapter(gen_input)
+        adapter = SDXLParameterAdapter(gen_input, "cpu")
         generator = adapter._create_generator()
 
         assert generator.device.type == "cpu"
@@ -267,22 +266,10 @@ class TestSDXLParameterAdapter:
     def test_create_generator_without_seed(self):
         """Test generator returns None when seed not provided"""
         gen_input = GenerationInput(input=[])
-        adapter = SDXLParameterAdapter(gen_input)
+        adapter = SDXLParameterAdapter(gen_input, "cpu")
         generator = adapter._create_generator()
 
         assert generator is None
-
-    def test_create_generator_default_device_is_cuda(self):
-        """Test generator defaults to cuda device when not specified"""
-        gen_input = GenerationInput(input=[
-            GenerationInputItem(name="seed", value=42, io_type=IOType.SEED),
-        ])
-        adapter = SDXLParameterAdapter(gen_input)
-
-        # The implementation defaults to "cuda", but we test the logic not actual creation
-        # since CUDA may not be available in test environment
-        device = gen_input.get_by_name("device", "cuda")
-        assert device == "cuda"
 
     # Edge Cases and Error Handling
 
@@ -293,7 +280,7 @@ class TestSDXLParameterAdapter:
             GenerationInputItem(name="cfg", value=7, io_type=IOType.CFG),  # Integer
         ])
 
-        adapter = SDXLParameterAdapter(gen_input)
+        adapter = SDXLParameterAdapter(gen_input, "cpu")
         params = adapter.build_pipeline_params(mock_conditioning, mode="txt2img")
 
         assert params["guidance_scale"] == 7.0  # Converted to float
@@ -305,7 +292,7 @@ class TestSDXLParameterAdapter:
             GenerationInputItem(name="cfg", value=7.5, io_type=IOType.CFG),
         ])
 
-        adapter = SDXLParameterAdapter(gen_input)
+        adapter = SDXLParameterAdapter(gen_input, "cpu")
         params = adapter.build_pipeline_params(mock_conditioning, mode="txt2img")
 
         # Should work with direct integer

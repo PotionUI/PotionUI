@@ -64,7 +64,7 @@ class TestImportBundleValidation:
         self.mock_plugins = Mock()
         self.query = GenerationHistoryQuery(generation_repo=self.mock_repo)
         self.archive = GenerationHistoryArchive(
-            self.mock_repo, self.mock_file_service, self.mock_plugins, self.query
+            self.mock_repo, self.mock_file_service, self.mock_plugins, self.query, Mock()
         )
 
     def test_accepts_bare_json_with_no_models_or_preset(self):
@@ -214,7 +214,7 @@ class TestExportImportRoundTrip:
         mock_file_service = Mock()
         mock_file_service.generation_exists.return_value = False
         return GenerationHistoryArchive(
-            self.generation_repo, mock_file_service, Mock(spec=PluginRegistry), query
+            self.generation_repo, mock_file_service, Mock(spec=PluginRegistry), query, Mock()
         )
 
     def _create_generation_with_seed_batch(self, seeds):

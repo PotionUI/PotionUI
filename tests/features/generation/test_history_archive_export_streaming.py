@@ -37,7 +37,7 @@ class _Harness:
         self.query = GenerationHistoryQuery(generation_repo=self.mock_repo)
         self.file_service = FileStore(str(tmp_path))
         self.archive = GenerationHistoryArchive(
-            self.mock_repo, self.file_service, self.mock_plugins, self.query
+            self.mock_repo, self.file_service, self.mock_plugins, self.query, Mock()
         )
         self.tmp_path = tmp_path
 
@@ -181,7 +181,7 @@ class TestExportBundleSpoolThreshold:
             mock_file_service.generation_exists.return_value = False
             query = GenerationHistoryQuery(generation_repo=generation_repo)
             archive = GenerationHistoryArchive(
-                generation_repo, mock_file_service, Mock(), query
+                generation_repo, mock_file_service, Mock(), query, Mock()
             )
 
             zip_file, _ = archive.export_bundle(gen_id, user_id)

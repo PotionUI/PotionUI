@@ -12,16 +12,19 @@ from __future__ import annotations
 from typing import Iterable, List, Tuple
 
 from backend.preset_import.defaults import (
+    _audio_item,
     _image_item,
     _lora_item,
     _model_item,
     _resolution_item,
     _simple_item,
+    _video_item,
 )
 from backend.preset_import.schema import FormTab, HistoryEntry, ImportForm
 
 _MODEL_ROLES = ("checkpoint", "diffusion_model", "clip", "vae")
-_SPECIAL_ROLES = frozenset({"resolution_width", "resolution_height", *_MODEL_ROLES, "lora_slot", "image"})
+_MEDIA_ROLES = {"image": _image_item, "video": _video_item, "audio": _audio_item}
+_SPECIAL_ROLES = frozenset({"resolution_width", "resolution_height", *_MODEL_ROLES, "lora_slot", *_MEDIA_ROLES})
 
 
 def form_from_roles(analysis, roles: Iterable[str], *, tab_id: str = "generation", tab_label: str = "Generation") -> ImportForm:
@@ -48,8 +51,9 @@ def form_from_roles(analysis, roles: Iterable[str], *, tab_id: str = "generation
     if by_role.get("lora_slot"):
         items.append(_lora_item())
 
-    for c in by_role.get("image", []):
-        items.append(_image_item(c))
+    for role, item_fn in _MEDIA_ROLES.items():
+        for c in by_role.get(role, []):
+            items.append(item_fn(c))
 
     for role, candidates in by_role.items():
         if role in _SPECIAL_ROLES:

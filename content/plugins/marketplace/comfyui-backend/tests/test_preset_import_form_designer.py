@@ -35,6 +35,8 @@ from backend.preset_import.schema import (
 )
 from backend.preset_import.suggest import AnalyzeResult, InputCandidate, suggest_fields
 
+from ._form_helpers import form_from_roles
+
 FIXTURES = Path(__file__).parent / "fixtures"
 REPO_ROOT = Path(__file__).resolve().parents[5]
 
@@ -684,10 +686,44 @@ class TestImageCandidatesNeverBecomeSelectFields:
         assert image_candidate.suggested_field_type == "image"
         assert "options" not in image_candidate.suggested_config
 
+    def test_load_video_combo_options_never_populate_the_video_fields_config(self):
+        workflow = parse_api_workflow({
+            "10": {"class_type": "LoadVideo", "inputs": {"file": "input.mp4"}},
+        })
+        object_info = {
+            "LoadVideo": {
+                "input": {"required": {"file": [["a.mp4", "b.mp4", "c.mp4"], {"video_upload": True}]}},
+                "output": ["VIDEO"],
+            }
+        }
+
+        analysis = suggest_fields(workflow, object_info=object_info)
+
+        video_candidate = next(c for c in analysis.candidates if c.node_id == "10" and c.input_name == "file")
+        assert video_candidate.suggested_field_type == "video"
+        assert "options" not in video_candidate.suggested_config
+
+    def test_load_audio_combo_options_never_populate_the_audio_fields_config(self):
+        workflow = parse_api_workflow({
+            "10": {"class_type": "LoadAudio", "inputs": {"audio": "input.wav"}},
+        })
+        object_info = {
+            "LoadAudio": {
+                "input": {"required": {"audio": [["a.wav", "b.wav", "c.wav"], {"audio_upload": True}]}},
+                "output": ["AUDIO"],
+            }
+        }
+
+        analysis = suggest_fields(workflow, object_info=object_info)
+
+        audio_candidate = next(c for c in analysis.candidates if c.node_id == "10" and c.input_name == "audio")
+        assert audio_candidate.suggested_field_type == "audio"
+        assert "options" not in audio_candidate.suggested_config
+
     def test_bite_check_an_ordinary_combo_still_gets_its_options_captured(self):
-        """Confirms the assertion above is really reading the role-based
+        """Confirms the assertions above are really reading the role-based
         guard, not a coincidence of `_combo_options` refusing this shape:
-        the identical combo shape on a non-image input IS captured as
+        the identical combo shape on a non-media input IS captured as
         `select` options, exactly as before."""
         workflow = parse_api_workflow({
             "1": {"class_type": "SomeAllInOneNode", "inputs": {"mode": "fast", "seed": 1, "text": "a prompt"}},
@@ -704,6 +740,75 @@ class TestImageCandidatesNeverBecomeSelectFields:
         mode_candidate = next(c for c in analysis.candidates if c.node_id == "1" and c.input_name == "mode")
         assert mode_candidate.suggested_field_type == "select"
         assert mode_candidate.suggested_config["options"] == ["fast", "quality"]
+
+
+class TestNoEmittedFieldEverCarriesAFilesystemDerivedOptionsList:
+    """Maintainer ruling: this importer must never derive field values or
+    option lists from the ComfyUI server's filesystem - it should only ever
+    reflect this app's own catalog. End-to-end sweep across every field kind
+    a live `/object_info` can hand a COMBO for (model, media, and an
+    ordinary enum) through a full `emit_preset` call, reading what actually
+    lands in the written tab YAML - not just the in-memory candidate, as the
+    tests above already cover."""
+
+    @pytest.fixture()
+    def dest_root(self, tmp_path):
+        return tmp_path / "presets"
+
+    def test_no_model_image_video_or_audio_field_ever_gets_a_filesystem_options_list(self, dest_root):
+        workflow_dict = dict(_load("sdxl_basic_api.json"))
+        workflow_dict["100"] = {"class_type": "LoadImage", "inputs": {"image": "input.png"}}
+        workflow_dict["101"] = {"class_type": "LoadVideo", "inputs": {"file": "input.mp4"}}
+        workflow_dict["102"] = {"class_type": "LoadAudio", "inputs": {"audio": "input.wav"}}
+        workflow = parse_api_workflow(workflow_dict)
+
+        object_info = {
+            "CheckpointLoaderSimple": {
+                "input": {"required": {"ckpt_name": [["a.safetensors", "b.safetensors"], {}]}},
+                "output": ["MODEL", "CLIP", "VAE"],
+            },
+            "KSampler": {
+                "input": {"required": {"sampler_name": [["euler", "ddim"], {}]}},
+                "output": ["LATENT"],
+            },
+            "LoadImage": {
+                "input": {"required": {"image": [["a.png", "b.png"], {"image_upload": True}]}},
+                "output": ["IMAGE", "MASK"],
+            },
+            "LoadVideo": {
+                "input": {"required": {"file": [["a.mp4", "b.mp4"], {"video_upload": True}]}},
+                "output": ["VIDEO"],
+            },
+            "LoadAudio": {
+                "input": {"required": {"audio": [["a.wav", "b.wav"], {"audio_upload": True}]}},
+                "output": ["AUDIO"],
+            },
+        }
+
+        analysis = suggest_fields(workflow, object_info=object_info)
+        form = form_from_roles(analysis, {"checkpoint", "sampler", "image", "video", "audio"})
+
+        result = emit_preset(
+            workflow, form, [], model_family="NoFilesystemOptions", variant="v1",
+            display_name="X", dest_root=dest_root, object_info=object_info,
+        )
+
+        tab_yaml = yaml.safe_load(
+            (result.preset_dir / "modes" / result.mode / "tabs" / "generation.yml").read_text()
+        )
+        fields_by_name = {f["name"]: f for f in tab_yaml["fields"] if "name" in f}
+
+        for name in ("checkpoint", "source_image", "source_video", "source_audio"):
+            field = fields_by_name[name]
+            options = (field.get("configuration") or {}).get("options")
+            assert options is None, f"{name} carries a filesystem-derived options list: {options}"
+            assert field["required"] is True
+            assert "default" not in field
+
+        # Positive control: an ordinary enum (never a filesystem listing)
+        # still legitimately picks up the live server's own option list.
+        sampler_field = fields_by_name["sampler_name"]
+        assert sampler_field["configuration"]["options"] == ["euler", "ddim"]
 
 
 # ----------------------------------------------------------------------

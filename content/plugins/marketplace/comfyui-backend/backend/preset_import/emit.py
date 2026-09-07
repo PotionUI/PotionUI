@@ -488,21 +488,23 @@ def _field_mapping_entry(field: FieldItem, mapping) -> List[Any]:
         value += " }}"
         return [value, f"{mapping.node_id}.inputs.{mapping.input_name}", "str"]
 
-    if field.field_type == "image":
-        # An image field never carries a literal `default` (see
-        # `defaults._image_item`) - a required image (the workflow's primary
-        # LoadImage) has no fallback at all, exactly like a hand-authored
+    if field.field_type in ("image", "video", "audio"):
+        # A media field never carries a literal `default` (see
+        # `defaults._upload_item`) - a required one (the workflow's primary
+        # LoadImage, or any LoadVideo/LoadAudio - see `defaults._video_item`/
+        # `_audio_item`) has no fallback at all, exactly like a hand-authored
         # preset's own `source_image` mapping, so a missing upload surfaces
         # as an error rather than submitting whatever the workflow's own
-        # placeholder filename was. An optional one falls back to "" so its
-        # `remove_node` manipulation (see the wizard's ref-image handling)
-        # can detect "not provided" and drop the node instead.
+        # placeholder filename was. An optional one (only ever an image -
+        # a reference image) falls back to "" so its `remove_node`
+        # manipulation (see the wizard's ref-image handling) can detect
+        # "not provided" and drop the node instead.
         if field.required:
             value = "{{ form." + field.field_name + " }}"
-            cast = "image_required"
+            cast = f"{field.field_type}_required"
         else:
             value = "{{ form." + field.field_name + " | default('') }}"
-            cast = "image"
+            cast = field.field_type
         return [value, f"{mapping.node_id}.inputs.{mapping.input_name}", cast]
 
     # "none" - a plain literal value, cast from the field's own shape.

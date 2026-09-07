@@ -87,23 +87,42 @@ def _lora_item() -> FieldItem:
     )
 
 
-def _image_item(candidate: InputCandidate) -> FieldItem:
-    # An `image` field is an upload, never a literal - `candidate.current_value`
-    # is the workflow's own LoadImage filename (a placeholder from whoever
-    # exported it, not something this importer ever has a real file for), so
-    # it must never become a `default` an admin never touches. The first
-    # image candidate (named "source_image" - see suggest.suggest_fields) is
-    # the workflow's primary input and can't run without one; every further
-    # one is an optional reference image.
+def _upload_item(candidate: InputCandidate, *, required: bool) -> FieldItem:
+    """A media (image/video/audio) field is an upload, never a literal -
+    `candidate.current_value` is the workflow's own placeholder filename (a
+    LoadImage/LoadVideo/LoadAudio filename from whoever exported it, not
+    something this importer ever has a real file for, and never resolved
+    against ComfyUI's own filesystem - see `defaults.py`'s and
+    `suggest._enrich_with_object_info`'s module docs), so it must never
+    become a `default` an admin never touches."""
     return FieldItem(
         field_name=candidate.suggested_field_name,
-        field_type="image",
+        field_type=candidate.suggested_field_type,
         label=candidate.suggested_label,
-        required=candidate.suggested_field_name == "source_image",
+        required=required,
         default=None,
         config=dict(candidate.suggested_config) or None,
         mappings=[FieldMapping(node_id=candidate.node_id, input_name=candidate.input_name, transform=candidate.suggested_transform)],
     )
+
+
+def _image_item(candidate: InputCandidate) -> FieldItem:
+    # The first image candidate (named "source_image" - see
+    # suggest.suggest_fields) is the workflow's primary input and can't run
+    # without one; every further one is an optional reference image.
+    return _upload_item(candidate, required=candidate.suggested_field_name == "source_image")
+
+
+def _video_item(candidate: InputCandidate) -> FieldItem:
+    """Same as `_image_item`, for a workflow's video input (LoadVideo, ...).
+    Unlike `image`, this importer has no "optional reference video" concept
+    - every video candidate is required."""
+    return _upload_item(candidate, required=True)
+
+
+def _audio_item(candidate: InputCandidate) -> FieldItem:
+    """Same as `_video_item`, for a workflow's audio input (LoadAudio, ...)."""
+    return _upload_item(candidate, required=True)
 
 
 def _simple_item(candidate: InputCandidate) -> FieldItem:
@@ -159,6 +178,10 @@ def _build_tab_items(candidates: List[InputCandidate]) -> List[Item]:
             continue
         if c.role == "image":
             items.append(_image_item(c))
+        elif c.role == "video":
+            items.append(_video_item(c))
+        elif c.role == "audio":
+            items.append(_audio_item(c))
         else:
             items.append(_simple_item(c))
 

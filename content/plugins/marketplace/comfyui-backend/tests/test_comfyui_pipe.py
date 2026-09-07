@@ -197,6 +197,33 @@ class TestComfyUIPipe:
         assert result["42"]["inputs"]["image"] == "workflow_placeholder.png"
 
     @pytest.mark.asyncio
+    async def test_apply_field_mappings_video_required_raises_when_the_file_is_missing(self):
+        """Same guarantee as `image_required`, for the importer's video
+        upload fields (LoadVideo, ... - see `defaults._video_item`, which is
+        always required)."""
+        workflow = {"10": {"inputs": {"file": "workflow_placeholder.mp4"}}}
+        self.pipe.config["field_mappings"] = [
+            ["not_a_real_uploaded_file.mp4", "10.inputs.file", "video_required"],
+        ]
+        generation_outputs = Mock()
+
+        with pytest.raises(GenerationExecutionError):
+            await self.pipe.apply_field_mappings(workflow, self.pipe_input, generation_outputs)
+
+    @pytest.mark.asyncio
+    async def test_apply_field_mappings_audio_required_raises_when_the_file_is_missing(self):
+        """Same guarantee, for the importer's audio upload fields (LoadAudio,
+        ... - see `defaults._audio_item`, which is always required)."""
+        workflow = {"10": {"inputs": {"audio": "workflow_placeholder.wav"}}}
+        self.pipe.config["field_mappings"] = [
+            ["not_a_real_uploaded_file.wav", "10.inputs.audio", "audio_required"],
+        ]
+        generation_outputs = Mock()
+
+        with pytest.raises(GenerationExecutionError):
+            await self.pipe.apply_field_mappings(workflow, self.pipe_input, generation_outputs)
+
+    @pytest.mark.asyncio
     @patch('websockets.connect', new_callable=AsyncMock)
     async def test_connect_websocket(self, mock_connect):
         """Test WebSocket connection.

@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from backend.preset_import.defaults import _image_item, _lora_item, _model_item
+from backend.preset_import.defaults import _audio_item, _image_item, _lora_item, _model_item, _video_item
 from backend.preset_import.emit import EmittedPreset, PresetEmitError, emit_preset
 from backend.preset_import.parser import parse_api_workflow
 from backend.preset_import.schema import FormTab, ImportForm, LoraChainSelection, parse_form
@@ -931,6 +931,30 @@ class TestModelAndImageFieldsNeverSeedAnUnresolvedDefault:
         item = _image_item(ref)
 
         assert item.required is False
+        assert item.default is None
+
+    def test_video_item_is_always_required_with_no_default(self):
+        workflow = parse_api_workflow({
+            "10": {"class_type": "LoadVideo", "inputs": {"file": "input.mp4"}},
+        })
+        analysis = suggest_fields(workflow)
+        video = next(c for c in analysis.candidates if c.role == "video")
+
+        item = _video_item(video)
+
+        assert item.required is True
+        assert item.default is None
+
+    def test_audio_item_is_always_required_with_no_default(self):
+        workflow = parse_api_workflow({
+            "10": {"class_type": "LoadAudio", "inputs": {"audio": "input.wav"}},
+        })
+        analysis = suggest_fields(workflow)
+        audio = next(c for c in analysis.candidates if c.role == "audio")
+
+        item = _audio_item(audio)
+
+        assert item.required is True
         assert item.default is None
 
     def test_bite_check_required_and_default_are_written_to_the_emitted_tab_yaml(self, dest_root):

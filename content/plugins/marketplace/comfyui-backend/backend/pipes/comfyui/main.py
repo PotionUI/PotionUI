@@ -660,14 +660,19 @@ class ComfyUIPipe(BasePipe):
                     else:
                         logger.warning(f"Expected file path string, PIL Image or image data dict for image type mapping, got {type(value)}")
                         continue
-                elif type_cast == "video" and value is not None:
+                elif type_cast in ("video", "video_required") and value is not None:
                     if isinstance(value, str):
-                        try:
-                            video_path = Path(value)
-                            if not video_path.exists():
-                                logger.error(f"Video file not found: {value}")
-                                continue
+                        video_path = Path(value)
+                        if not video_path.exists():
+                            logger.error(f"Video file not found: {value}")
+                            if type_cast == "video_required":
+                                raise GenerationExecutionError(
+                                    f"{target_path.split('.')[0]}: a required video is missing - "
+                                    f"no file was uploaded for this input"
+                                )
+                            continue
 
+                        try:
                             filename = await self.upload_video_to_comfyui(video_path, generation_outputs)
                             if filename:
                                 value = filename
@@ -680,14 +685,19 @@ class ComfyUIPipe(BasePipe):
                     else:
                         logger.warning(f"Expected file path string for video type mapping, got {type(value)}")
                         continue
-                elif type_cast == "audio" and value is not None:
+                elif type_cast in ("audio", "audio_required") and value is not None:
                     if isinstance(value, str):
-                        try:
-                            audio_path = Path(value)
-                            if not audio_path.exists():
-                                logger.error(f"Audio file not found: {value}")
-                                continue
+                        audio_path = Path(value)
+                        if not audio_path.exists():
+                            logger.error(f"Audio file not found: {value}")
+                            if type_cast == "audio_required":
+                                raise GenerationExecutionError(
+                                    f"{target_path.split('.')[0]}: a required audio file is missing - "
+                                    f"no file was uploaded for this input"
+                                )
+                            continue
 
+                        try:
                             filename = await self.upload_audio_to_comfyui(audio_path, generation_outputs)
                             if filename:
                                 value = filename

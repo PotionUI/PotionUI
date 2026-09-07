@@ -27,11 +27,6 @@ configuration:
     type: "model_tags"
     label: "LoRA tags"
     description: "Only LoRAs with any of these tags appear in the LoRA picker."
-  upscaler_tags:
-    type: "model_tags"
-    label: "Upscaler tags"
-    description: "Only models with any of these tags appear in the Upscaler picker."
-
 # zImage-specific variables
 vars:
   # Model configuration

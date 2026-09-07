@@ -113,8 +113,6 @@ def test_tab_order_and_icons(loader, serializer, suffix, mode, variant, has_refe
     advanced = _by_title(tabs, "Advanced")
     assert advanced["configuration"]["icon"] == "settings"
     assert advanced["audience"] == "advanced"
-    # Advanced is always the last tab (family extras, e.g. zImage's Post
-    # Processing, sit before it).
     assert titles[-1] == "Advanced", f"{suffix}/{mode}/{variant} tabs are {titles}"
 
     if has_references:
@@ -179,9 +177,6 @@ def test_no_group_or_header_containers_anywhere_on_the_form(
             _walk(child, banned_types)
 
     for tab in _tabs(loader, serializer, suffix, mode, variant):
-        if tab.get("title") == "Post Processing":
-            # Explicitly kept as-is (task scope: "family extra tabs, keep").
-            continue
         _walk(tab, {"group", "header"})
 
 
@@ -193,11 +188,6 @@ def test_qwenimage_references_tab_holds_only_media_fields(loader, serializer):
 def test_fluxklein9b_references_tab_holds_only_media_fields(loader, serializer):
     references = _by_title(_tabs(loader, serializer, "comfyui-backend/presets/FluxKlein9b", "img2img", None), "References")
     assert _all_field_names(references) == {"input_image", "input_image_2"}
-
-
-def test_zimage_post_processing_sits_before_advanced(loader, serializer):
-    titles = [t.get("title") for t in _tabs(loader, serializer, "comfyui-backend/presets/zImage", "txt2img", None)]
-    assert titles == ["Generation", "LoRA", "Post Processing", "Advanced"], titles
 
 
 def test_quantity_is_a_stepper_with_the_original_range(loader, serializer):

@@ -17,13 +17,6 @@ fields:
         children: "{{ paths.preset }}/modes/txt2img/tabs/lora.yml"
 
       - type: "tab"
-        label: "Post Processing"
-        configuration:
-          icon: "image"
-          icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/txt2img/tabs/post_processing.yml"
-
-      - type: "tab"
         label: "Advanced"
         audience: "advanced"
         configuration:

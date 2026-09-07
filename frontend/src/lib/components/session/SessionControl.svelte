@@ -2,7 +2,9 @@
 	import type { Session, SessionVersionSummary } from '$lib/types/api';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Spinner } from '$lib/components/ui';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import SessionPopoverContent from '$lib/components/generation-panel/SessionPopoverContent.svelte';
+	import { shortcutLabels } from '$lib/stores/keybindings';
 
 	export let enabled = false;
 	// A tight single-line pill (dot + name + Save) for the tabs-row
@@ -145,26 +147,30 @@
 	{/if}
 
 	{#if enabled && currentSession && dirty}
-		<button
-			type="button"
-			class="inline-flex items-center justify-center gap-1.5 rounded-r-lg border-l border-line-strong text-xs font-semibold text-signal transition-colors hover:bg-signal/10 disabled:cursor-wait disabled:opacity-60 {compact ? 'px-2.5' : 'min-w-16 px-3'}"
-			on:click={onSave}
-			disabled={saving}
-			aria-label={saving ? 'Saving session' : 'Save session'}
-		>
-			{#if saving}<Spinner size="sm" />{:else if !compact}<Icon name="save" className="h-3.5 w-3.5" />{/if}
-			<span>{saving ? 'Saving' : 'Save'}</span>
-		</button>
+		<Tooltip text={saving ? 'Saving session' : 'Save session'} kbd={$shortcutLabels['save_session']} position="top" delay={150} wrapperClass="flex items-stretch">
+			<button
+				type="button"
+				class="inline-flex items-center justify-center gap-1.5 rounded-r-lg border-l border-line-strong text-xs font-semibold text-signal transition-colors hover:bg-signal/10 disabled:cursor-wait disabled:opacity-60 {compact ? 'px-2.5' : 'min-w-16 px-3'}"
+				on:click={onSave}
+				disabled={saving}
+				aria-label={saving ? 'Saving session' : 'Save session'}
+			>
+				{#if saving}<Spinner size="sm" />{:else if !compact}<Icon name="save" className="h-3.5 w-3.5" />{/if}
+				<span>{saving ? 'Saving' : 'Save'}</span>
+			</button>
+		</Tooltip>
 	{:else if enabled && !currentSession}
-		<button
-			type="button"
-			class="inline-flex items-center justify-center gap-1.5 rounded-r-lg border-l border-line-strong text-xs font-semibold text-signal transition-colors hover:bg-signal/10 {compact ? 'px-2.5' : 'px-3'}"
-			on:click={onSaveAs}
-			aria-label="Save as a new session"
-		>
-			{#if !compact}<Icon name="plus" className="h-3.5 w-3.5" />{/if}
-			<span>Save</span>
-		</button>
+		<Tooltip text="Save as a new session" kbd={$shortcutLabels['save_session']} position="top" delay={150} wrapperClass="flex items-stretch">
+			<button
+				type="button"
+				class="inline-flex items-center justify-center gap-1.5 rounded-r-lg border-l border-line-strong text-xs font-semibold text-signal transition-colors hover:bg-signal/10 {compact ? 'px-2.5' : 'px-3'}"
+				on:click={onSaveAs}
+				aria-label="Save as a new session"
+			>
+				{#if !compact}<Icon name="plus" className="h-3.5 w-3.5" />{/if}
+				<span>Save</span>
+			</button>
+		</Tooltip>
 	{/if}
 
 	{#if open}

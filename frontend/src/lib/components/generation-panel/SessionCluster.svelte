@@ -9,7 +9,7 @@
 	import { storage } from '$lib/utils/storage';
 	import { api } from '$lib/services/api/index';
 	import { tabsStore } from '$lib/stores/tabs';
-	import { keybindingsStore } from '$lib/stores/keybindings';
+	import { keybindingsStore, shortcutLabels } from '$lib/stores/keybindings';
 	import type { PresetModeVariant } from '$lib/types/api';
 	import { sortVariants } from '$lib/utils/variants';
 	import { createSessionController, saveOrPrompt } from '$lib/session/sessionController';
@@ -270,7 +270,7 @@
 	     unavailable"): real contract (session-edit-survives-tab-switch.spec.ts,
 	     button[aria-label="Save session"] etc.) matches on the attribute, not
 	     on visible text, so an icon-only button satisfies it unchanged. -->
-	<Tooltip text={saveCellAriaLabel} position="top" delay={150}>
+	<Tooltip text={saveCellAriaLabel} kbd={$shortcutLabels['save_session']} position="top" delay={150}>
 		<button
 			type="button"
 			class="session-save-button"

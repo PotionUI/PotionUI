@@ -58,7 +58,7 @@ class TestSidecarWritten:
         assert sidecar["display_name"] == "Sidecar Test"
         assert sidecar["mode"] == result.mode
         assert isinstance(sidecar["created_at"], int)
-        assert sidecar["source_file"] == f"modes/{result.mode}/files/workflows/{result.mode}.json"
+        assert sidecar["source_file"] == "import-source.json"
 
     def test_sidecar_carries_the_exact_form_and_history_submitted(self, dest_root):
         workflow = parse_api_workflow(_load("sdxl_basic_api.json"))

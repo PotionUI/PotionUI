@@ -65,6 +65,9 @@ IMPORTER_VERSION = 3
 # of what it was told to build, so reload/modify can reproduce it exactly
 # instead of re-analyzing with only the "obvious" defaults.
 IMPORT_SIDECAR_FILENAME = "import.json"
+# The workflow exactly as imported, every node included - what edit/reload
+# re-open; the emitted `<mode>.json` no longer holds the replaced LoRA nodes.
+IMPORT_SOURCE_FILENAME = "import-source.json"
 
 # `strip_model_prefix`'s per-model-type root - a field's own `config.model_type`
 # (set on a "model" field by the wizard/defaults.py) selects which of these
@@ -725,6 +728,22 @@ def _lora_node_manipulations(
     return manipulations
 
 
+def _node_entry(node) -> Dict[str, Any]:
+    """One node in ComfyUI's Export (API) shape, with its own copy of
+    `inputs` (the emitted graph's copy is rewired in place by
+    `_bypass_replaced_lora_nodes`)."""
+    entry: Dict[str, Any] = {"class_type": node.class_type, "inputs": dict(node.inputs)}
+    if node.title:
+        entry["_meta"] = {"title": node.title}
+    return entry
+
+
+def _source_workflow_json(workflow: Workflow) -> Dict[str, Any]:
+    """Every node of the parsed workflow, untouched - what
+    `IMPORT_SOURCE_FILENAME` holds when the caller has no exact source text."""
+    return {node_id: _node_entry(node) for node_id, node in workflow.nodes.items()}
+
+
 def _check_schema_drift(
     analysis: AnalyzeResult,
     object_info: Optional[Dict[str, Any]],
@@ -783,6 +802,7 @@ def emit_preset(
     expected_object_info_used: Optional[bool] = None,
     overwrite: bool = False,
     preset_id: Optional[str] = None,
+    source_text: Optional[str] = None,
 ) -> EmittedPreset:
     """`overwrite`/`preset_id` back the reload/modify flow
     (`POST .../presets/imported/{id}/reload`, `overwrite_preset_id` on
@@ -791,7 +811,12 @@ def emit_preset(
     existing directory is always refused, exactly as before; `overwrite=True`
     requires `preset_id` (there is nothing to keep the identity of
     otherwise) and refuses a directory that doesn't already exist - it is
-    "replace this", never "create or replace"."""
+    "replace this", never "create or replace".
+
+    `source_text` is the workflow's exact source text, stored verbatim as
+    `IMPORT_SOURCE_FILENAME` so an oversized integer literal survives the
+    edit/reload round trip (see `api._read_stored_workflow`); without it
+    the parsed `workflow` is serialized back instead."""
     if not model_family or not variant:
         raise PresetEmitError("model_family and variant are both required.")
     _validate_path_segment(model_family, "model_family")
@@ -1004,14 +1029,11 @@ def emit_preset(
     # ------------------------------------------------------------------
     # workflow.json
     # ------------------------------------------------------------------
-    workflow_out: Dict[str, Any] = {}
-    for node_id, node in workflow.nodes.items():
-        if node_id in excluded_node_ids:
-            continue
-        entry = {"class_type": node.class_type, "inputs": dict(node.inputs)}
-        if node.title:
-            entry["_meta"] = {"title": node.title}
-        workflow_out[node_id] = entry
+    workflow_out: Dict[str, Any] = {
+        node_id: _node_entry(node)
+        for node_id, node in workflow.nodes.items()
+        if node_id not in excluded_node_ids
+    }
 
     if lora_field is not None and analysis.lora_chain is not None and replaced_lora_node_ids:
         _bypass_replaced_lora_nodes(workflow_out, workflow, replaced_lora_node_ids)
@@ -1024,7 +1046,7 @@ def emit_preset(
     # ------------------------------------------------------------------
     sidecar = {
         "importer_version": IMPORTER_VERSION,
-        "source_file": f"modes/{mode}/files/workflows/{workflow_filename}",
+        "source_file": IMPORT_SOURCE_FILENAME,
         "form": form.model_dump(mode="json"),
         "history": [entry.model_dump(mode="json") for entry in history],
         "model_family": model_family,
@@ -1079,6 +1101,10 @@ def emit_preset(
         write(staging_dir / "preset.yml", _dump_yaml(preset_yml))
         write(staging_dir / "description.md", description_md)
         write(staging_dir / IMPORT_SIDECAR_FILENAME, _dump_json(sidecar))
+        write(
+            staging_dir / IMPORT_SOURCE_FILENAME,
+            source_text if source_text is not None else _dump_json(_source_workflow_json(workflow)),
+        )
         write(mode_dir / "form.yml", _dump_yaml(form_yml))
         write(mode_dir / "pipeline.yml", _dump_yaml(pipeline_yml))
         for filename, data in form_files.items():

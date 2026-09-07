@@ -15,6 +15,7 @@ import yaml
 from backend import api
 from backend.preset_import.emit import emit_preset
 from backend.preset_import.parser import parse_api_workflow
+from backend.preset_import.schema import LoraChainSelection
 from backend.preset_import.suggest import suggest_fields
 
 from ._form_helpers import form_from_roles
@@ -149,6 +150,7 @@ class TestReloadImportedPreset:
     @pytest.mark.asyncio
     async def test_reload_after_deleting_the_source_workflow_file_errors_cleanly(self, _imported_root):
         result = _import_fixture(_imported_root, model_family="ReloadMissingSource")
+        (result.preset_dir / "import-source.json").unlink()
         workflows_dir = result.preset_dir / "modes" / result.mode / "files" / "workflows"
         for f in workflows_dir.iterdir():
             f.unlink()
@@ -312,3 +314,103 @@ class TestDeleteImportedPreset:
             await api.delete_imported_preset(result.preset_id, current_user=None)
         assert exc_info.value.status_code == 400
         assert result.preset_dir.exists()  # the real directory was untouched
+
+
+def _import_lora_chain_fixture(dest_root, *, source_text=None):
+    """`lora_chain_img2img_api.json` (4 -> 101 -> 102 -> 3) imported with a
+    `loras` picker replacing the WHOLE chain, the way the wizard's "Convert
+    to LoRA picker" saves it - the emitted `<mode>.json` drops nodes
+    101/102, the exact source keeps them."""
+    workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
+    analysis = suggest_fields(workflow)
+    assert analysis.lora_chain is not None and analysis.lora_chain.lora_node_ids == ["101", "102"]
+    form = form_from_roles(analysis, {"checkpoint", "lora_slot", "image"}).model_copy(
+        update={"lora_chain": LoraChainSelection(replaced_node_ids=["101", "102"], kept_node_ids=[])}
+    )
+    return emit_preset(
+        workflow, form, [], model_family="LoraChain", variant="imported",
+        display_name="LoraChain display", dest_root=dest_root, source_text=source_text,
+    )
+
+
+class TestSourceWorkflowPreservation:
+    """An imported preset re-opens the workflow exactly as it was imported
+    (`import-source.json`), never the emitted `<mode>.json` the `lora_picker`
+    rewrite already cut the replaced LoRA nodes from - otherwise the stored
+    `form.lora_chain` names nodes the re-analysis can't find and every save
+    of an untouched preset fails with "no detected LoRA chain"."""
+
+    def test_the_exact_source_text_is_stored_verbatim(self, _imported_root):
+        text = '{"4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "x.safetensors"}}, "3": {"class_type": "KSampler", "inputs": {"seed": 12345678901234567890, "model": ["4", 0]}}}'
+        workflow = parse_api_workflow(json.loads(text))
+        result = emit_preset(
+            workflow, form_from_roles(suggest_fields(workflow), {"checkpoint"}), [],
+            model_family="Exact", variant="v1", display_name="X", dest_root=_imported_root, source_text=text,
+        )
+        assert (result.preset_dir / "import-source.json").read_text(encoding="utf-8") == text
+
+    def test_without_source_text_every_node_is_stored_including_the_replaced_loras(self, _imported_root):
+        result = _import_lora_chain_fixture(_imported_root)
+        source = json.loads((result.preset_dir / "import-source.json").read_text(encoding="utf-8"))
+        emitted = json.loads((result.preset_dir / "modes" / result.mode / "files" / "workflows" / f"{result.mode}.json").read_text())
+        assert {"101", "102"} <= set(source)
+        assert not {"101", "102"} & set(emitted)
+        assert source["3"]["inputs"]["model"] == ["102", 0]
+        assert emitted["3"]["inputs"]["model"] != ["102", 0]
+
+    @pytest.mark.asyncio
+    async def test_source_reopens_the_chain_and_the_selection_that_replaced_it(self, _imported_root):
+        result = _import_lora_chain_fixture(_imported_root)
+        payload = await api.get_imported_preset_source(result.preset_id, current_user=None)
+        assert {"101", "102"} <= set(payload["workflow"])
+        assert payload["lora_chain"]["lora_node_ids"] == ["101", "102"]
+        assert payload["form"]["lora_chain"] == {"replaced_node_ids": ["101", "102"], "kept_node_ids": []}
+
+    @pytest.mark.asyncio
+    async def test_saving_a_reopened_preset_unchanged_succeeds(self, _imported_root):
+        """The wizard's "Update preset" straight after opening an imported
+        preset: the `/source` payload goes back as-is with
+        `overwrite_preset_id` set."""
+        result = _import_lora_chain_fixture(_imported_root)
+        payload = await api.get_imported_preset_source(result.preset_id, current_user=None)
+        body = api.ImportWorkflowRequest(
+            workflow=payload["workflow"], workflow_text=payload["workflow_text"],
+            form=payload["form"], history=payload["history"],
+            model_family=payload["model_family"], variant=payload["variant"], display_name=payload["display_name"],
+            overwrite_preset_id=result.preset_id,
+            schema_fingerprint=payload["schema_fingerprint"], schema_object_info_used=payload["object_info_used"],
+        )
+        response = await api.import_workflow(body, current_user=None)
+        assert response["preset_id"] == result.preset_id
+        sidecar = json.loads((result.preset_dir / "import.json").read_text())
+        assert sidecar["form"]["lora_chain"] == {"replaced_node_ids": ["101", "102"], "kept_node_ids": []}
+        assert (result.preset_dir / "import-source.json").read_text(encoding="utf-8") == payload["workflow_text"]
+
+    @pytest.mark.asyncio
+    async def test_reload_of_a_preset_with_a_replaced_chain_succeeds(self, _imported_root):
+        result = _import_lora_chain_fixture(_imported_root)
+        response = await api.reload_imported_preset(result.preset_id, current_user=None)
+        assert response["preset_id"] == result.preset_id
+        emitted = json.loads((result.preset_dir / "modes" / result.mode / "files" / "workflows" / f"{result.mode}.json").read_text())
+        assert not {"101", "102"} & set(emitted)
+        assert {"101", "102"} <= set(json.loads((result.preset_dir / "import-source.json").read_text()))
+
+    @pytest.mark.asyncio
+    async def test_a_preset_stored_without_the_source_file_drops_the_replaced_ids_and_still_saves(self, _imported_root):
+        """Imported before `import-source.json` existed: the only workflow on
+        disk is the emitted one, already without nodes 101/102, so the
+        selection that replaced them has nothing left to name."""
+        result = _import_lora_chain_fixture(_imported_root)
+        (result.preset_dir / "import-source.json").unlink()
+        payload = await api.get_imported_preset_source(result.preset_id, current_user=None)
+        assert not {"101", "102"} & set(payload["workflow"])
+        assert payload["form"]["lora_chain"] == {"replaced_node_ids": [], "kept_node_ids": []}
+        body = api.ImportWorkflowRequest(
+            workflow=payload["workflow"], workflow_text=payload["workflow_text"],
+            form=payload["form"], history=payload["history"],
+            model_family=payload["model_family"], variant=payload["variant"], display_name=payload["display_name"],
+            overwrite_preset_id=result.preset_id,
+        )
+        response = await api.import_workflow(body, current_user=None)
+        assert (result.preset_dir / "import-source.json").is_file()
+        await api.reload_imported_preset(result.preset_id, current_user=None)

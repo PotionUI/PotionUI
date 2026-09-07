@@ -1938,6 +1938,13 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    `GET /presets/imported/{id}/source` returns the stored `form`/`history` (from the
    preset's `import.json` sidecar, or `default_form`/`default_history` for a preset imported before
    the sidecar carried them) so the wizard can reopen an imported preset exactly as it was built.
+   The workflow it returns, and the one reload re-emits from, is `import-source.json` - the
+   workflow exactly as imported, every node included - never the emitted `modes/<mode>/files/
+   workflows/<mode>.json`, which the `lora_picker` rewrite has already stripped the replaced LoRA
+   chain nodes from (so its re-analysis would find no chain for `form.lora_chain` to refer to). A
+   preset stored before `import-source.json` existed re-opens the emitted workflow instead, with
+   the selection's `replaced_node_ids` dropped: those nodes are gone from that graph, and the kept
+   ones are still wired as imported.
 
    **Failure-safe publication.** `import`/reload never write into the live preset directory
    directly: the replacement preset is fully rendered and written into a staging directory first,

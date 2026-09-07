@@ -7,7 +7,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 import yaml
@@ -26,12 +26,13 @@ from .preset_import.defaults import build_default_form, build_default_history
 from .preset_import.emit import (
     IMPORT_PROVENANCE_PREFIX,
     IMPORT_SIDECAR_FILENAME,
+    IMPORT_SOURCE_FILENAME,
     PresetEmitError,
     _infer_requirements,
     emit_preset,
 )
 from .preset_import.parser import Workflow, WorkflowFormatError, parse_api_workflow
-from .preset_import.schema import parse_form, parse_history
+from .preset_import.schema import ImportForm, parse_form, parse_history
 from .preset_import.suggest import AnalyzeResult, classification_fingerprint, suggest_fields
 from .requirements import ComfyUIModelChecker, ComfyUINodeChecker, _fetch_object_info
 
@@ -437,6 +438,7 @@ async def import_workflow(
             expected_object_info_used=body.schema_object_info_used,
             overwrite=bool(body.overwrite_preset_id),
             preset_id=body.overwrite_preset_id,
+            source_text=body.workflow_text,
         )
     except PresetEmitError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -491,6 +493,15 @@ class _ImportedPresetEntry:
     @property
     def has_sidecar(self) -> bool:
         return self.sidecar is not None
+
+    @property
+    def source_workflow_path(self) -> Path:
+        return self.dir / IMPORT_SOURCE_FILENAME
+
+    @property
+    def has_source_workflow(self) -> bool:
+        """Whether the exact imported workflow is stored - see `_parse_stored_form`."""
+        return self.source_workflow_path.is_file()
 
 
 def _scan_imported_presets():
@@ -554,13 +565,17 @@ def _find_imported_preset(preset_id: str) -> Optional[_ImportedPresetEntry]:
 
 
 def _resolve_stored_workflow_path(entry: _ImportedPresetEntry) -> Path:
-    """The workflow file this preset was built from. A preset imported
-    before this importer dropped UI-format support may still have a kept
-    `<mode>.ui.json` alongside the converted `<mode>.json` - that file is
-    still preferred here (same historical source the preset was built from),
-    but `_parse_workflow` now rejects it with the same teaching error a
-    fresh UI-format upload gets, since there is no conversion path left to
-    run it through."""
+    """The workflow file this preset was built from: the exact imported
+    source (`IMPORT_SOURCE_FILENAME`) when the emitter stored one, else the
+    emitted `<mode>.json`. A preset imported before this importer dropped
+    UI-format support may still have a kept `<mode>.ui.json` alongside the
+    converted `<mode>.json` - that file is still preferred over the emitted
+    one (same historical source the preset was built from), but
+    `_parse_workflow` now rejects it with the same teaching error a fresh
+    UI-format upload gets, since there is no conversion path left to run it
+    through."""
+    if entry.has_source_workflow:
+        return entry.source_workflow_path
     if entry.mode is None:
         raise HTTPException(status_code=400, detail="This preset has no recorded mode to reload from.")
     workflows_dir = entry.dir / "modes" / entry.mode / "files" / "workflows"
@@ -586,13 +601,26 @@ def _read_stored_workflow_text(entry: _ImportedPresetEntry) -> str:
         raise HTTPException(status_code=400, detail=f"Could not read the stored workflow: {e}")
 
 
-def _read_stored_workflow(entry: _ImportedPresetEntry) -> Dict[str, Any]:
-    """The raw workflow JSON this preset was built from - see
-    `_read_stored_workflow_text` for the exact-text counterpart."""
+def _read_stored_workflow(entry: _ImportedPresetEntry) -> Tuple[str, Dict[str, Any]]:
+    """`(exact_text, parsed)` of the workflow this preset was built from -
+    the text goes back out as `workflow_text` (`/source`) or into the
+    re-emitted preset's source file (reload) unchanged; the parsed dict is
+    what gets analyzed."""
+    text = _read_stored_workflow_text(entry)
     try:
-        return json.loads(_read_stored_workflow_text(entry))
+        return text, json.loads(text)
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=400, detail=f"Could not read the stored workflow: {e}")
+
+
+def _parse_stored_form(entry: _ImportedPresetEntry, stored_form: Dict[str, Any]) -> ImportForm:
+    """The sidecar's `form`; without `IMPORT_SOURCE_FILENAME` the re-opened
+    workflow is the emitted one, which no longer holds the replaced LoRA
+    nodes, so `lora_chain.replaced_node_ids` is dropped."""
+    form = parse_form(stored_form)
+    if entry.has_source_workflow or form.lora_chain is None:
+        return form
+    return form.model_copy(update={"lora_chain": form.lora_chain.model_copy(update={"replaced_node_ids": []})})
 
 
 @router.get("/presets/imported")
@@ -631,11 +659,7 @@ async def get_imported_preset_source(preset_id: str, current_user=Depends(get_cu
     if entry is None:
         raise HTTPException(status_code=404, detail="Imported preset not found.")
 
-    workflow_text = _read_stored_workflow_text(entry)
-    try:
-        raw_workflow = json.loads(workflow_text)
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=400, detail=f"Could not read the stored workflow: {e}")
+    workflow_text, raw_workflow = _read_stored_workflow(entry)
     workflow = _parse_workflow(raw_workflow)
 
     resolved = await _resolve_analysis(workflow)
@@ -644,7 +668,7 @@ async def get_imported_preset_source(preset_id: str, current_user=Depends(get_cu
     stored_form = entry.sidecar.get("form") if entry.sidecar else None
     stored_history = entry.sidecar.get("history") if entry.sidecar else None
     try:
-        form = parse_form(stored_form) if stored_form else build_default_form(analysis)
+        form = _parse_stored_form(entry, stored_form) if stored_form else build_default_form(analysis)
         history = (
             parse_history(stored_history)
             if stored_history is not None
@@ -684,7 +708,7 @@ async def reload_imported_preset(preset_id: str, current_user=Depends(get_curren
     if entry is None:
         raise HTTPException(status_code=404, detail="Imported preset not found.")
 
-    raw_workflow = _read_stored_workflow(entry)
+    workflow_text, raw_workflow = _read_stored_workflow(entry)
     workflow = _parse_workflow(raw_workflow)
     resolved = await _resolve_analysis(workflow)
 
@@ -698,7 +722,7 @@ async def reload_imported_preset(preset_id: str, current_user=Depends(get_curren
     expected_object_info_used = entry.sidecar.get("schema_object_info_used") if entry.sidecar else None
     try:
         if stored_form is not None:
-            form = parse_form(stored_form)
+            form = _parse_stored_form(entry, stored_form)
             history = parse_history(stored_history or [])
         else:
             form = build_default_form(resolved.analysis)
@@ -718,6 +742,7 @@ async def reload_imported_preset(preset_id: str, current_user=Depends(get_curren
             expected_object_info_used=expected_object_info_used,
             overwrite=True,
             preset_id=preset_id,
+            source_text=workflow_text,
         )
     except PresetEmitError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -109,37 +109,6 @@ pipeline:
           input_key: "model"
           input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}37{% endif %}", 0]
 
-        #############
-        # KREA2T ENHANCER (node 300) — optional model patch
-        # https://github.com/capitan01R/ComfyUI-Krea2T-Enhancer
-        # Sits at the END of the model chain: UNET(37) -> LoRAs (lora_1..lora_N) ->
-        # Enhancer(300) -> KSampler(3). Added only when the form toggle is on;
-        # these entries run AFTER the LoRA chain above, so the final
-        # 3.model override wins. NOTE: strength lives here (not in
-        # field_mappings) — mapping onto a conditionally-absent node would
-        # create a malformed stub.
-        #############
-        - type: "add_node"
-          node_id: "300"
-          condition: "{{ form.krea_enhancer | default(false) in [true, 'true', 'True', 1] }}"
-          node_config:
-            inputs:
-              model:
-                - "{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}37{% endif %}"
-                - 0
-              enabled: true
-              strength: "{{ form.krea_enhancer_strength | default(1.0) | float }}"
-              debug: false
-            class_type: "ComfyUI-Krea2T-Enhancer"
-            _meta:
-              title: "Krea2T Enhancer"
-
-        - type: "update_node_input"
-          condition: "{{ form.krea_enhancer | default(false) in [true, 'true', 'True', 1] }}"
-          node_id: "3"
-          input_key: "model"
-          input_value: ["300", 0]
-
       field_mappings:
         # Positive prompt -> CLIPTextEncode (node 6). Negative is zeroed out
         # (node 7 = ConditioningZeroOut) since Krea 2 Turbo runs at cfg 1.

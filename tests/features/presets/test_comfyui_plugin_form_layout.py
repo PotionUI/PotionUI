@@ -41,7 +41,6 @@ CASES = [
     ("comfyui-backend/presets/FluxKlein9b", "img2img", None, True),
     ("comfyui-backend/presets/Krea-2", "txt2img", None, False),
     ("comfyui-backend/presets/QwenImage", "txt2img", None, False),
-    ("comfyui-backend/presets/QwenImage", "txt2img", "nunchaku", False),
     ("comfyui-backend/presets/QwenImage", "img2img", None, True),
     ("comfyui-backend/presets/SDXL", "txt2img", None, False),
     ("comfyui-backend/presets/zImage", "txt2img", None, False),
@@ -194,18 +193,6 @@ def test_qwenimage_references_tab_holds_only_media_fields(loader, serializer):
 def test_fluxklein9b_references_tab_holds_only_media_fields(loader, serializer):
     references = _by_title(_tabs(loader, serializer, "comfyui-backend/presets/FluxKlein9b", "img2img", None), "References")
     assert _all_field_names(references) == {"input_image", "input_image_2"}
-
-
-def test_krea2_enhancer_boolean_became_a_gate(loader, serializer):
-    """The Krea-2 Enhancer checkbox purely enables its sibling strength slider,
-    so the tab-grammar conversion applies: `type: gate` absorbing the boolean's
-    name, the disable-on-off reactions gone."""
-    advanced = _by_title(_tabs(loader, serializer, "comfyui-backend/presets/Krea-2", "txt2img", None), "Advanced")
-    gate = next(c for c in advanced["children"] if c.get("name") == "krea_enhancer")
-    assert gate["type"] == "gate"
-    assert all(c.get("type") != "section" or "krea_enhancer" not in _all_field_names(c) for c in advanced["children"])
-    child_names = {c["name"] for c in gate["children"]}
-    assert child_names == {"krea_enhancer_strength"}
 
 
 def test_zimage_post_processing_sits_before_advanced(loader, serializer):

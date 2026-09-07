@@ -33,23 +33,3 @@ fields:
           max: 10.0
           step: 0.1
         default: 1.0
-
-  #############
-  ## Krea2T Enhancer — optional model patch (node 300).
-  ## Requires the ComfyUI-Krea2T-Enhancer custom node on the ComfyUI server:
-  ## https://github.com/capitan01R/ComfyUI-Krea2T-Enhancer
-  #############
-  - name: "krea_enhancer"
-    type: "gate"
-    label: "Enable Krea2T Enhancer"
-    default: false
-    children:
-      - name: "krea_enhancer_strength"
-        type: "slider"
-        label: "Strength"
-        configuration:
-          min: 0.0
-          max: 2.0
-          step: 0.05
-          tooltip: "0 = neutral, 1 = default enhancement, 2 = maximum."
-        default: 1.0

@@ -116,14 +116,9 @@ pipeline:
           node_id: "91:69"
           input_key: "image3"
 
-        # LoRA Chain Management - replace the baked-in Power Lora Loader (91:89) with a
-        # LoraLoaderModelOnly chain built from the `loras` picker value
+        # LoRA Chain Management - build the chain from the `loras` picker value
         # ([{model, strength}, ...] - only selected entries, may be empty):
         # Model (91:12) → LoRA 1 → LoRA 2 → ... → ModelSamplingAuraFlow (91:67)
-
-        # Remove the Power Lora Loader - the chain is recreated from form data below
-        - type: "remove_node"
-          node_id: "91:89"
 
         # Add one LoraLoaderModelOnly node per selected LoRA (node ids lora_1, lora_2, ...),
         # chaining each entry to the previous one (the first connects to the diffusion model 91:12)
@@ -143,7 +138,7 @@ pipeline:
 
         # Reconnect ModelSamplingAuraFlow (91:67) to the end of the chain:
         # the last generated LoRA node, or the diffusion model 91:12 when no LoRAs are selected
-        # (needed unconditionally because node 91:89 is always removed above)
+        # (needed unconditionally: the chain end must be wired whether or not LoRAs are selected)
         - type: "update_node_input"
           node_id: "91:67"
           input_key: "model"

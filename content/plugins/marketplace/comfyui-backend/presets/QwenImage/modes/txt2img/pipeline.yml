@@ -1,14 +1,6 @@
-# txt2img pipeline for QwenImage (ComfyUI), shared by two form variants:
-#   - "custom" (default): full-precision UNETLoader + CLIPLoader, LoRA chain
-#     (LoraLoaderModelOnly nodes 76, 77, ... -> ModelSamplingAuraFlow 66)
-#   - "nunchaku": Nunchaku FP4-quantized DiT (NunchakuQwenImageDiTLoader),
-#     LoRA slot-fill (NunchakuQwenImageLoraStackV3 node 20)
-#
-# Both variants share this one pipeline.yml (docs/presets.md "Variants"); the
-# two mechanisms are structurally different (LoRA chain vs slot-fill, and
-# different workflow JSON graphs) so they run as two mutually-exclusive
-# `comfyui` pipe entries, toggled on `request.form_name`, rather than trying
-# to force one node_manipulations/field_mappings shape to cover both.
+# txt2img pipeline for QwenImage (ComfyUI): full-precision UNETLoader +
+# CLIPLoader, LoRA chain (LoraLoaderModelOnly nodes 76, 77, ... ->
+# ModelSamplingAuraFlow 66).
 pipeline:
   #############
   ## Rendered prompts (provenance)
@@ -58,8 +50,8 @@ pipeline:
     configuration:
       quantity: "{{ form.quantity | default(1) }}"
       parameters:
-        # Main DiT model - "custom" reads `diffusion_model`, "nunchaku" reads `dit_model`
-        - ["model", "{{ (form.dit_model | default('')) if request.form_name == 'nunchaku' else (form.diffusion_model | default('')) }}"]
+        # Main DiT model
+        - ["model", "{{ form.diffusion_model | default('') }}"]
         # CLIP model
         - ["model", "{{ form.clip | default('') }}"]
         # VAE model
@@ -74,22 +66,20 @@ pipeline:
         - ["positive_prompt", "{{ generation.prompts.first.positive }}"]
         - ["negative_prompt", "{{ generation.prompts.first.negative }}"]
 
-        # Generation parameters - defaults differ per variant (nunchaku ships
-        # a 4-step distilled recipe; custom is the full 8-step recipe)
-        - ["cfg", "{{ form.cfg | default(1 if request.form_name == 'nunchaku' else 1.0) }}"]
-        - ["steps", "{{ form.steps | default(4 if request.form_name == 'nunchaku' else 8) }}"]
+        # Generation parameters
+        - ["cfg", "{{ form.cfg | default(1.0) }}"]
+        - ["steps", "{{ form.steps | default(8) }}"]
         - ["sampler", "{{ form.sampler_name | default('euler') }}"]
         - ["scheduler", "{{ form.scheduler | default('simple') }}"]
-        - ["resolution", "{{ form.resolution | default('1140x1472' if request.form_name == 'nunchaku' else '1024x1328') }}"]
+        - ["resolution", "{{ form.resolution | default('1024x1328') }}"]
         - ["denoise", "{{ form.denoise | default(1.0) }}"]
 
   #############
-  ## ComfyUI Workflow Executor - "custom" (default) variant
+  ## ComfyUI Workflow Executor
   ## Full-precision UNETLoader + LoraLoaderModelOnly chain
   #############
   - name: "comfyui"
-    id: "comfyui_custom"
-    enabled: "{{ request.form_name != 'nunchaku' }}"
+    enabled: true
     input:
       - ["seed", "seed_generator", "seed"]
     configuration:
@@ -161,110 +151,11 @@ pipeline:
         # NOTE: LoRA values are set via add_node manipulations above, not field mappings
         # This prevents creating incomplete nodes when LoRAs are not selected
 
-  #############
-  ## ComfyUI Workflow Executor - "nunchaku" variant
-  ## Nunchaku FP4-quantized DiT + LoRA stack slot-fill
-  #############
-  - name: "comfyui"
-    id: "comfyui_nunchaku"
-    enabled: "{{ request.form_name == 'nunchaku' }}"
-    input:
-      - ["seed", "seed_generator", "seed"]
-    configuration:
-      host: "127.0.0.1"
-      port: 8188
-      workflow_file: "{{ paths.preset }}/files/workflows/txt2img_nunchaku.json"
-      timeout: 300
-      secure: false
-
-      #############
-      ## Node Manipulations
-      ## The Nunchaku-quantized DiT requires its own LoRA stack node
-      ## (NunchakuQwenImageLoraStackV3, node 20) instead of a standard
-      ## LoraLoaderModelOnly chain, so the `loras` picker value
-      ## ([{model, strength}, ...] - only selected entries, may be empty)
-      ## fills the stack's slots. Unused slots get lora_name "None" (a no-op
-      ## for the stack), which also clears the Lightning LoRA the workflow
-      ## JSON ships in slot 1.
-      #############
-      node_manipulations:
-        # Reset all 6 stack slots to "None" first
-        - "@loop":
-            count: 6
-            template:
-              type: "update_node_input"
-              node_id: "20"
-              input_key: "lora_name_{{ loop.index }}"
-              input_value: "None"
-
-        # Fill one slot per selected LoRA (name + strength)
-        - "@loop":
-            items: "{{ form.loras | default([]) }}"
-            template:
-              type: "update_node_input"
-              node_id: "20"
-              input_key: "lora_name_{{ loop.index }}"
-              input_value: "{{ item.model | replace('models/loras/', '') }}"
-
-        - "@loop":
-            items: "{{ form.loras | default([]) }}"
-            template:
-              type: "update_node_input"
-              node_id: "20"
-              input_key: "lora_strength_{{ loop.index }}"
-              input_value: "{{ item.strength }}"
-              type_cast: "float"
-
-      #############
-      ## Field Mappings
-      ## Map form values to workflow node inputs
-      #############
-      field_mappings:
-        # Prompts
-        - ["{{ generation.prompts.first.positive }}", "9.inputs.text", "str"]
-        - ["{{ generation.prompts.first.negative }}", "5.inputs.text", "str"]
-
-        # DiT Model (Nunchaku quantized)
-        - ["{{ (form.dit_model | default('') or '') | replace('models/diffusion_models/', '') | replace('models/checkpoints/', '') }}", "13.inputs.model_name", "str"]
-
-        # DiT Loader settings
-        - ["{{ form.cpu_offload | default('auto') }}", "13.inputs.cpu_offload", "str"]
-        - ["{{ form.num_blocks_on_gpu | default(60) }}", "13.inputs.num_blocks_on_gpu", "int"]
-
-        # CLIP Model
-        - ["{{ (form.clip | default('') or '') | replace('models/clip/', '') }}", "7.inputs.clip_name", "str"]
-
-        # VAE Model
-        - ["{{ (form.vae | default('') or '') | replace('models/vae/', '') }}", "1.inputs.vae_name", "str"]
-
-        # NOTE: LoRA values are set via node_manipulations above (the `loras`
-        # picker fills the NunchakuQwenImageLoraStackV3 slots on node 20)
-
-        # Resolution
-        - ["{{ (form.resolution | default('1140x1472')).split('x')[0] }}", "4.inputs.width", "int"]
-        - ["{{ (form.resolution | default('1140x1472')).split('x')[1] }}", "4.inputs.height", "int"]
-
-        # Batch size
-        - ["{{ form.quantity | default(1) }}", "4.inputs.batch_size", "int"]
-
-        # KSampler parameters
-        - ["@seed", "12.inputs.seed", "int"]
-        - ["{{ form.steps | default(4) }}", "12.inputs.steps", "int"]
-        - ["{{ form.cfg | default(1) }}", "12.inputs.cfg", "float"]
-        - ["{{ form.sampler_name | default('euler') }}", "12.inputs.sampler_name", "str"]
-        - ["{{ form.scheduler | default('simple') }}", "12.inputs.scheduler", "str"]
-        - ["{{ form.denoise | default(1.0) }}", "12.inputs.denoise", "float"]
-
-        # ModelSamplingAuraFlow shift
-        - ["{{ form.shift | default(1.23) }}", "8.inputs.shift", "float"]
-
-  # Output skipper - no skipping needed. Always sourced from whichever
-  # `comfyui` variant is active (the two are mutually exclusive - see
-  # `enabled:` above), addressed by `id:` for clarity.
+  # Output skipper - no skipping needed
   - name: "output_skipper"
     enabled: true
     input:
-      - ["image", "{{ 'comfyui_nunchaku' if request.form_name == 'nunchaku' else 'comfyui_custom' }}", "image"]
+      - ["image", "comfyui", "image"]
     configuration:
       rules: []
 

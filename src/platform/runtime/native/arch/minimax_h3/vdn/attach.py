@@ -114,6 +114,10 @@ def attach_vdn_branch(
                 f"block {index})"
             )
         wrapper.linear.load_state_dict(provided, strict=True, assign=True)
+        # The base module was frozen at load (base.py's ``requires_grad_(False)``);
+        # assign-loading fresh tensors re-enables autograd on them, and the scan
+        # writes into preallocated banks with ``out=``, which autograd refuses.
+        wrapper.linear.requires_grad_(False)
         wrappers.append(wrapper)
         tensors += len(provided)
         total_bytes += sum(t.numel() * t.element_size() for t in provided.values())

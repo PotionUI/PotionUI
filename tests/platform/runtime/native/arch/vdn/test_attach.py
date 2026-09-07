@@ -136,3 +136,16 @@ def test_a_device_move_after_attach_still_drops_the_rope_cache():
     assert model._pe_cache_key is None
     assert model.release_derived_caches() == 0
     assert all(p.device.type == "cpu" for p in model.blocks[0].attn.linear.parameters())
+
+
+def test_attached_branch_parameters_are_frozen():
+    # ``load_state_dict(assign=True)`` wraps the raw checkpoint tensors in fresh
+    # Parameters, which require grad by default; the scan writes its state banks
+    # with ``out=`` and autograd refuses that (maintainer's first VDN run).
+    model = _model()
+    model.requires_grad_(False)
+
+    attach_vdn_branch(model, _state())
+
+    grads = [name for name, p in model.named_parameters() if p.requires_grad]
+    assert grads == []

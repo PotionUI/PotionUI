@@ -1,10 +1,14 @@
 <script lang="ts">
 	import StudioSheet from './StudioSheet.svelte';
 	import UnifiedAIChat from '$lib/components/UnifiedAIChat.svelte';
+	import { loadHistoryRailCollapsed } from '$lib/utils/chatHistoryRail';
 
 	export let onClose: () => void;
 
-	let railCollapsed = false;
+	// Seeded from the persisted preference: a bound prop with a parent-side
+	// initial value overrides the child's own default on every mount, which is
+	// what kept resetting the rail (maintainer report 09-07).
+	let railCollapsed = loadHistoryRailCollapsed();
 </script>
 
 <StudioSheet

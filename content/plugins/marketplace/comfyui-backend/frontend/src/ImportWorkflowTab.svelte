@@ -532,13 +532,21 @@
 		}
 		const tab = form.tabs.find((t) => t.id === activeTabId) || form.tabs[0];
 		if (!tab) return;
+		// A model/media candidate's `current_value` is the workflow's own
+		// literal (a bare filename, never a valid picker value, or a
+		// placeholder upload) - this app only ever shows what's in its own
+		// depot, so these start empty, same as the backend's own
+		// `defaults._model_item`/`_upload_item`.
+		const isModelOrMedia = ['model', 'image', 'video', 'audio'].includes(c.suggested_field_type);
 		const field = {
 			_id: uid('item'),
 			kind: 'field',
 			field_name: uniqueFieldName(name),
 			field_type: c.suggested_field_type || 'text',
 			label: c.suggested_label || c.input_name,
-			default: c.suggested_field_type === 'resolution' ? whToDefault({ [c.input_name]: c.current_value }) : (c.current_value ?? null),
+			default: c.suggested_field_type === 'resolution'
+				? whToDefault({ [c.input_name]: c.current_value })
+				: isModelOrMedia ? null : (c.current_value ?? null),
 			config: c.suggested_config ?? null,
 			mappings: [{ node_id: c.node_id, input_name: c.input_name, transform: defaultTransformFor(c) }]
 		};
@@ -632,10 +640,13 @@
 			field_name: fieldName,
 			field_type: 'lora_picker',
 			label: 'LoRAs',
-			default: replaced.map((n) => ({
-				model: `models/loras/${n.lora_name || ''}`,
-				strength: typeof n.strength_model === 'number' ? n.strength_model : 1
-			})),
+			// Never seed from the replaced chain's own LoRA files: this app only
+			// ever shows what's installed in its own depot, not what the workflow
+			// happened to reference (see backend.preset_import.defaults - the
+			// same rule for a model/image field's default). The replaced nodes
+			// still get spliced out via the picker's own @loop, and their files
+			// still surface through the `comfyui_model` requirement entries.
+			default: [],
 			config: loraPickerConfig(),
 			mappings: []
 		};
@@ -1275,9 +1286,15 @@
 			};
 		}
 		if (newType === 'model') {
+			// Never carry the old field's default forward: for a candidate whose
+			// field_type wasn't already 'model', that default is the workflow's
+			// own literal (`current_value` - see the initial-candidate seeding
+			// above), never a valid picker value. This app only shows what's
+			// installed in its own depot, so a model field starts empty - same
+			// rule as the backend's `defaults._model_item`.
 			const inputName = item.mappings?.[0]?.input_name || '';
 			return {
-				default: typeof item.default === 'string' ? item.default : '',
+				default: null,
 				config: { model_type: guessModelTypeFromInputName(inputName), allow_info_modal: true }
 			};
 		}

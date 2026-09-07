@@ -42,6 +42,23 @@ def _fingerprint_hash(fingerprint: str) -> str:
     profiler event fields."""
     return hashlib.sha1(fingerprint.encode("utf-8", "replace")).hexdigest()[:12]
 
+
+def _key_slot(key: str) -> Optional[str]:
+    """The cache "slot" a native cache key belongs to: the second
+    ``/``-separated segment of a ``native/<slot>/...`` key (e.g. ``"dit"``,
+    ``"te"``, ``"vae"``, ``"audio_vae"``). A variant suffix (e.g. the VDN
+    branch's ``+vdn``) lives inside the third segment, so two keys for the
+    same slot with different variants still compare equal here. Non-native
+    keys (comfyui, or anything not shaped ``native/<slot>/...``) return None
+    so they never participate in same-slot eviction.
+    """
+    if not key.startswith("native/"):
+        return None
+    parts = key.split("/", 2)
+    if len(parts) < 3:
+        return None
+    return parts[1]
+
 _BYTES_PER_GB = 1024 ** 3
 
 # System-RAM floor kept free on top of whatever a load needs, mirroring
@@ -487,6 +504,8 @@ class ModelLifecycle:
                 if self._evict_entry(key):
                     self.cleanup(aggressive=True)
 
+            self._evict_same_slot_sibling(key, _cache_owner.get())
+
             self._acquiring.add(key)
             try:
                 # RAM admission only. There is deliberately NO VRAM-budget
@@ -550,6 +569,40 @@ class ModelLifecycle:
             k for k in sorted(self._entries, key=lambda k: self._entries[k].last_used)
             if k not in self._acquiring and not self._entries[k].leased_by
         ]
+
+    def _evict_same_slot_sibling(self, key: str, owner: Optional[str]) -> None:
+        """On a cache MISS for ``key``, proactively evict any OTHER entry
+        owned by the same preset that occupies the same cache slot (the
+        ``native/<slot>/...`` second path segment - see ``_key_slot``) and
+        isn't held by a live lease.
+
+        Two DiTs (or two TEs, two VAEs, ...) belonging to one preset family
+        are never both wanted at once: a form change that swaps the DiT
+        variant (e.g. MiniMax-H3's nvfp4 <-> fp8 checkpoints) makes the old
+        one dead by construction the moment the new key misses. Without this,
+        the stale sibling is only reclaimed by RAM-pressure LRU (which the
+        big-file streaming loader can outrun - it offloads the stale entry to
+        host RAM instead of freeing it, then the incoming load lands on top
+        of it) or by the end-of-generation sweep (which runs AFTER the new
+        model has already been loaded and placed, too late to help this
+        load). Evicting here runs BEFORE the new loader, so the freed
+        GPU/RAM is actually available for it.
+        """
+        slot = _key_slot(key)
+        if slot is None or owner is None:
+            return
+        victims = [
+            k for k in self._evictable_keys()
+            if k != key and self._entries[k].owner == owner and _key_slot(k) == slot
+        ]
+        for k in victims:
+            logger.info(
+                f"[MODEL_LIFECYCLE] same-slot eviction: key='{key}' missed "
+                f"(owner={owner!r}, slot={slot!r}); evicting stale sibling key='{k}'"
+            )
+            self._evict_entry(k)
+        if victims:
+            self.cleanup(aggressive=True)
 
     def _make_room_for_ram(self, needed_gb: Optional[float] = None) -> None:
         """Evict LRU entries until system RAM has headroom, or everything

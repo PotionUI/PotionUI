@@ -1321,3 +1321,115 @@ class TestGenerationEndSweep:
         ])
         assert "native/llm/chat" in m._entries
         assert "dit" in m._entries
+
+
+class TestSameSlotSiblingEviction:
+    """Proactive same-owner, same-slot eviction: a cache MISS for a
+    ``native/<slot>/...`` key evicts an unleased sibling entry owned by the
+    same preset in the same slot BEFORE the new loader runs. Closes the gap
+    where a same-owner DiT swap (e.g. MiniMax-H3's nvfp4 <-> fp8 checkpoints,
+    both ``native/dit/...``) left the stale checkpoint resident until
+    RAM-pressure LRU or the end-of-generation sweep - both of which act only
+    AFTER the new (large) load already ran.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_contextvars(self):
+        owner_token = manager_module._cache_owner.set(None)
+        lease_token = manager_module._active_lease_id.set(None)
+        yield
+        manager_module._cache_owner.reset(owner_token)
+        manager_module._active_lease_id.reset(lease_token)
+
+    def _mgr(self, scope="preset"):
+        return ModelLifecycle(gpu_monitor=None, settings=_Settings(scope))
+
+    def _acquire_as(self, m, owner, key, loader, lease_id):
+        """acquire() one key tagged with ``owner`` under a held-open lease
+        (caller must ``end_lease(lease_id)`` when done)."""
+        manager_module._cache_owner.set(owner)
+        m.begin_lease(lease_id)
+        return m.acquire(key, "fp", loader)
+
+    def test_stale_sibling_evicted_during_new_loader_call(self):
+        m = self._mgr()
+        self._acquire_as(m, "presets/A", "native/dit/A", lambda: FakeModel("A"), "gen-1")
+        m.end_lease("gen-1")
+        assert "native/dit/A" in m._entries
+
+        captured = {}
+
+        def loader_b():
+            # Captured from INSIDE the loader: the sibling must already be
+            # gone before the new (expensive) load runs, not merely after.
+            captured["a_present"] = "native/dit/A" in m._entries
+            return FakeModel("B")
+
+        self._acquire_as(m, "presets/A", "native/dit/B", loader_b, "gen-2")
+        m.end_lease("gen-2")
+
+        assert captured["a_present"] is False
+        assert "native/dit/A" not in m._entries
+        assert "native/dit/B" in m._entries
+
+    def test_different_slot_survives(self):
+        m = self._mgr()
+        self._acquire_as(m, "presets/A", "native/dit/A", lambda: FakeModel("A"), "gen-1")
+        self._acquire_as(m, "presets/A", "native/te/T", lambda: FakeModel("T"), "gen-1")
+        m.end_lease("gen-1")
+
+        # Checked right after the acquire (before end_lease's own end-of-
+        # generation sweep, which is owner-scoped, not slot-scoped, and would
+        # otherwise also sweep "native/te/T" as "unused by gen-2") so this
+        # isolates the same-slot rule from that separate mechanism.
+        self._acquire_as(m, "presets/A", "native/dit/B", lambda: FakeModel("B"), "gen-2")
+
+        assert "native/te/T" in m._entries          # different slot, untouched
+        assert "native/dit/A" not in m._entries      # same slot, stale, evicted
+        m.end_lease("gen-2")
+
+    def test_different_owner_sibling_survives(self):
+        m = self._mgr()
+        self._acquire_as(m, "presets/A", "native/dit/A", lambda: FakeModel("A"), "gen-1")
+        m.end_lease("gen-1")
+
+        self._acquire_as(m, "presets/B", "native/dit/B", lambda: FakeModel("B"), "gen-2")
+        m.end_lease("gen-2")
+
+        assert "native/dit/A" in m._entries
+        assert "native/dit/B" in m._entries
+
+    def test_live_leased_sibling_not_evicted(self):
+        m = self._mgr()
+        manager_module._cache_owner.set("presets/A")
+        m.begin_lease("gen-1")
+        m.acquire("native/dit/A", "fp", lambda: FakeModel("A"))
+
+        # "native/dit/A" is still leased by "gen-1" (not yet ended) when
+        # "native/dit/B" misses under the same owner/slot -> must survive.
+        m.acquire("native/dit/B", "fp", lambda: FakeModel("B"))
+
+        assert "native/dit/A" in m._entries
+        assert "native/dit/B" in m._entries
+        m.end_lease("gen-1")
+
+    def test_vdn_suffixed_and_plain_key_share_a_slot(self):
+        m = self._mgr()
+        self._acquire_as(
+            m, "presets/A", "native/dit/models/h3.safetensors",
+            lambda: FakeModel("plain"), "gen-1",
+        )
+        m.end_lease("gen-1")
+
+        # Checked right after the acquire, before end_lease's own
+        # end-of-generation sweep (which would ALSO evict the plain key here
+        # as "unused by gen-2" regardless of this rule) - isolates the
+        # proactive same-slot eviction from that separate mechanism.
+        self._acquire_as(
+            m, "presets/A", "native/dit/models/h3.safetensors+vdn",
+            lambda: FakeModel("vdn"), "gen-2",
+        )
+
+        assert "native/dit/models/h3.safetensors" not in m._entries
+        assert "native/dit/models/h3.safetensors+vdn" in m._entries
+        m.end_lease("gen-2")

@@ -264,9 +264,9 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		expect(formYml).toContain('icon_display: icon_label');
 
 		// The "checkpoint" field switched to `lora_picker` above: its emitted
-		// tab YAML must carry the fresh picker shape (list default seeded
-		// from the old filename default, max_items), never the `model` type's
-		// leftover `options`/scalar-string config it replaced.
+		// tab YAML must carry the fresh picker shape (an EMPTY list default -
+		// the workflow's own file is never seeded - and max_items), never the
+		// `model` type's leftover `options`/scalar-string config it replaced.
 		const tabsDir = resolve(createdPresetDir, 'imported/modes/txt2img/tabs');
 		const tabYamls = readdirSync(tabsDir).map((f) => readFileSync(resolve(tabsDir, f), 'utf-8'));
 		const checkpointTabYml = tabYamls.find((y) => y.includes('name: checkpoint'));
@@ -274,7 +274,8 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		const checkpointFieldYml = extractFieldBlock(checkpointTabYml!, 'checkpoint');
 		expect(checkpointFieldYml).toContain('type: lora_picker');
 		expect(checkpointFieldYml).toContain('max_items: 6');
-		expect(checkpointFieldYml).toMatch(/default:\s*\n\s*-\s*model: models\/loras\/sdxlBase_v10\.safetensors/);
+		expect(checkpointFieldYml).toMatch(/default:\s*\[\]/);
+		expect(checkpointFieldYml).not.toContain('models/loras/');
 		expect(checkpointFieldYml).not.toContain('options');
 
 		// The "steps" field's re-typed default (integer, text "4") landed as

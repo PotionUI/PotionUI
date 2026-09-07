@@ -55,7 +55,7 @@ class _MemoryDb:
 
 _SCHEMA = """
 CREATE TABLE generations (
-    id TEXT PRIMARY KEY, preset_id TEXT, status TEXT, created_at TIMESTAMP
+    id TEXT PRIMARY KEY, user_id TEXT, preset_id TEXT, status TEXT, created_at TIMESTAMP
 );
 CREATE TABLE generation_files (
     id TEXT PRIMARY KEY, generation_id TEXT NOT NULL, file_id TEXT,

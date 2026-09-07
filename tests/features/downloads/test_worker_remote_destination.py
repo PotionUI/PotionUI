@@ -65,6 +65,9 @@ class FakeAvailabilityRepository:
     def upsert(self, availability: ModelAvailability) -> None:
         self.upserted.append(availability)
 
+    def get_for_backend(self, backend_id: str) -> List[ModelAvailability]:
+        return [a for a in self.upserted if a.backend_id == backend_id]
+
     def delete_for_backend(self, backend_id: str, keep_model_ids) -> int:
         return 0
 

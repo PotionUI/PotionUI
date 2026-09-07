@@ -82,6 +82,7 @@ from typing import Any, Iterable, Literal
 
 import torch
 
+from src.pipelines.outputs import GenerationExecutionError
 from src.platform.observability.profiling import get_profiler
 from src.platform.runtime.native.memory.residency import (
     free_vram_gb,
@@ -91,6 +92,37 @@ from src.platform.runtime.native.memory.residency import (
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
 
 logger = logging.getLogger(__name__)
+
+
+class DitPlacementInfeasible(GenerationExecutionError):
+    """Raised when ``total_reserve`` (activation reserve + any caller
+    ``reserve_gb``) exceeds free VRAM on its own -- no weight-streaming ladder
+    can rescue this: the request needs more activation headroom than the card
+    has even with ZERO DiT weight resident. Raised BEFORE any placement I/O
+    (``move_to``/``stream_to``/``offload``) so a request that can never fit
+    fails immediately instead of after a slow weight stream followed by an
+    OOM on the first forward (the maintainer's MiniMax-H3 VDN trace: a
+    34.6GB total reserve on a 31.4GB card streamed for 12s before dying on
+    the first allocation).
+
+    Derives from :class:`GenerationExecutionError` (not a bare
+    ``RuntimeError``) so ``GenerationEngine`` surfaces ``message`` to the user
+    verbatim -- ``error_classification.classify_generation_error`` only
+    substitutes its own generic summary when an exception carries no
+    ``.detail``.
+    """
+
+    def __init__(
+        self, message: str, *, detail: str, total_reserve_gb: float, activation_reserve_gb: float,
+        extra_reserve_gb: float, free_gb: float, video_tokens: int, audio_tokens: int,
+    ) -> None:
+        super().__init__(message, detail=detail)
+        self.total_reserve_gb = total_reserve_gb
+        self.activation_reserve_gb = activation_reserve_gb
+        self.extra_reserve_gb = extra_reserve_gb
+        self.free_gb = free_gb
+        self.video_tokens = video_tokens
+        self.audio_tokens = audio_tokens
 
 _BYTES_PER_GB = 1024 ** 3
 
@@ -403,6 +435,32 @@ def place_dit_for_sequence(
     extra_reserve = max(0.0, float(reserve_gb))
     total_reserve = activation_reserve + extra_reserve
 
+    # Feasibility gate, BEFORE any placement I/O: credit back this dit's own
+    # currently-resident weight (if any -- mirrors the warm-residency fast
+    # path's `free_crediting_self` below) so the comparison is against the
+    # largest free VRAM this generation could ever see, i.e. with THIS dit's
+    # own weight fully unloaded. If `total_reserve` still doesn't fit that,
+    # no amount of weight-streaming can rescue it -- refuse now rather than
+    # discovering it after a slow stream and an OOM on the first forward.
+    free_if_dit_unloaded = (free_vram_gb(device) or 0.0)
+    if _dit_is_fully_resident(dit, device):
+        free_if_dit_unloaded += weight_gb
+    if total_reserve > free_if_dit_unloaded:
+        _log_refusal(total_reserve, activation_reserve, extra_reserve, free_if_dit_unloaded, video_tokens, audio_tokens)
+        raise DitPlacementInfeasible(
+            f"This clip needs about {total_reserve:.1f} GB of VRAM for activations at "
+            f"{video_tokens:,} video tokens (+{audio_tokens:,} audio), but only "
+            f"{free_if_dit_unloaded:.1f} GB is free -- shorten the clip or lower the resolution.",
+            detail=(
+                f"activation_reserve_gb={activation_reserve:.2f} extra_reserve_gb={extra_reserve:.2f} "
+                f"total_reserve_gb={total_reserve:.2f} free_gb={free_if_dit_unloaded:.2f} "
+                f"video_tokens={video_tokens} audio_tokens={audio_tokens}"
+            ),
+            total_reserve_gb=total_reserve, activation_reserve_gb=activation_reserve,
+            extra_reserve_gb=extra_reserve, free_gb=free_if_dit_unloaded,
+            video_tokens=video_tokens, audio_tokens=audio_tokens,
+        )
+
     if _dit_is_fully_resident(dit, device):
         free_crediting_self = (free_vram_gb(device) or 0.0) + weight_gb
         credited_budget = max(0.0, free_crediting_self - total_reserve)
@@ -511,6 +569,23 @@ def _move_partial(dit: Any, device: str, weight_budget_gb: float, own_models: It
             torch.cuda.empty_cache()
         dit.stream_to(device, 0.0)
         return "partial"
+
+
+def _log_refusal(
+    total_reserve_gb: float, activation_reserve_gb: float, extra_reserve_gb: float,
+    free_gb: float, video_tokens: int, audio_tokens: int,
+) -> None:
+    get_profiler().mark(
+        "ltx.dit_placement.refused",
+        total_reserve_gb=round(total_reserve_gb, 2), activation_reserve_gb=round(activation_reserve_gb, 2),
+        extra_reserve_gb=round(extra_reserve_gb, 2), free_gb=round(free_gb, 2),
+        video_tokens=video_tokens, audio_tokens=audio_tokens,
+    )
+    logger.warning(
+        "[LTX PLACEMENT] refused: total reserve %.2fGB (activation %.2fGB + extra %.2fGB) exceeds "
+        "%.2fGB free with zero DiT weight resident, S=%d video (+%d audio)",
+        total_reserve_gb, activation_reserve_gb, extra_reserve_gb, free_gb, video_tokens, audio_tokens,
+    )
 
 
 def _log_decision(decision: DitPlacementDecision, device: str) -> None:

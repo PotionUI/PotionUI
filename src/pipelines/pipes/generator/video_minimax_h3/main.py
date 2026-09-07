@@ -115,7 +115,7 @@ from src.platform.runtime.native.arch.minimax_h3.vdn import (
     window_bounds,
 )
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext, emit_gallery
-from src.pipelines.pipes._shared.generation.dit_placement import place_dit_for_sequence
+from src.pipelines.pipes._shared.generation.dit_placement import DitPlacementInfeasible, place_dit_for_sequence
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.reference_order import pack_references
 from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
@@ -145,6 +145,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     CANVAS_MULTIPLE,
     FPS,
+    LATENTS_PER_CHUNK,
     MAX_ASPECT_RATIO,
     MIN_ASPECT_RATIO,
     audio_latent_num_frames,
@@ -202,6 +203,87 @@ H3_INNER_DIM = max(H3_ATTN_INNER_DIM, H3_HIDDEN_SIZE)
 # residency) was instead placed fully resident, and died mid-sampling on
 # exactly this allocation (`_ffn_transient_bytes_per_token`'s docstring).
 H3_FFN_DIM = 14336
+
+
+@dataclass(frozen=True)
+class _FitHint:
+    """What WOULD fit this card, in each of two independent axes -- either
+    field may be `None` on its own when that axis's arithmetic doesn't reduce
+    to a whole aligned clip (see :func:`_fit_hint`)."""
+
+    fit_seconds: Optional[float]
+    fit_pixel_frames: Optional[int]
+    alt_width: Optional[int]
+    alt_height: Optional[int]
+
+
+def _fit_hint(
+    free_gb: float, extra_reserve_gb: float, activation_reserve_gb: float,
+    total_tokens: int, latent_frames: int, fps: float, width: int, height: int,
+) -> Optional[_FitHint]:
+    """The longest clip (at `width`x`height`) or the widest canvas (at this
+    clip's own duration) that would have fit `free_gb`, derived by linearly
+    rescaling `total_tokens` -- the SAME token count `place_dit_for_sequence`
+    used to compute `activation_reserve_gb` -- by how much of `free_gb`
+    (after `extra_reserve_gb`) that reserve overshot. Not a new estimation
+    model: `estimate_activation_reserve_gb` is linear in token count above
+    its floor, so this is the same ratio inverted, using numbers the failed
+    placement already computed.
+
+    Returns `None` when nothing usable can be said (a non-positive token/
+    frame count, or the budget itself is non-positive). Either field on the
+    returned `_FitHint` can independently be `None`:
+    - `fit_seconds`/`fit_pixel_frames`: `None` when the rescaled token count
+      doesn't clear even the video VAE's smallest chunk (`5*0+2 = 2` latent
+      frames) -- there's no clip length short of zero to report.
+    - `alt_width`/`alt_height`: `None` when the rescaled canvas doesn't clear
+      one `CANVAS_MULTIPLE` tile on a side.
+    The scale-by-token-count-ratio approach folds text-token overhead (which
+    doesn't shrink with a smaller clip/canvas) into the SAME linear term as
+    video tokens (which do) -- an approximation, not an exact inverse, which
+    is why both results are reported as "about", not exact figures.
+    """
+    budget_gb = free_gb - extra_reserve_gb
+    if activation_reserve_gb <= 0.0 or total_tokens <= 0 or latent_frames <= 0 or budget_gb <= 0.0:
+        return None
+    scale = budget_gb / activation_reserve_gb
+    fit_tokens = total_tokens * scale
+
+    fit_seconds = fit_pixel_frames = None
+    tokens_per_latent_frame = total_tokens / latent_frames
+    raw_fit_latent_frames = int(fit_tokens / tokens_per_latent_frame)
+    if raw_fit_latent_frames >= 2:
+        aligned_latent_frames = (raw_fit_latent_frames - 2) // LATENTS_PER_CHUNK * LATENTS_PER_CHUNK + 2
+        if aligned_latent_frames >= 2:
+            fit_pixel_frames = pixel_frames_for_latent_frames(aligned_latent_frames)
+            fit_seconds = fit_pixel_frames / fps
+
+    alt_width = alt_height = None
+    side_scale = scale ** 0.5
+    raw_alt_width = int(width * side_scale)
+    raw_alt_height = int(height * side_scale)
+    if raw_alt_width >= CANVAS_MULTIPLE and raw_alt_height >= CANVAS_MULTIPLE:
+        alt_width = raw_alt_width // CANVAS_MULTIPLE * CANVAS_MULTIPLE
+        alt_height = raw_alt_height // CANVAS_MULTIPLE * CANVAS_MULTIPLE
+
+    if fit_seconds is None and alt_width is None:
+        return None
+    return _FitHint(fit_seconds, fit_pixel_frames, alt_width, alt_height)
+
+
+def _format_fit_hint(hint: Optional[_FitHint], width: int, height: int) -> str:
+    """Render :func:`_fit_hint`'s result as a trailing sentence for the
+    refusal message, or `""` when there's nothing to add."""
+    if hint is None:
+        return ""
+    parts = []
+    if hint.fit_seconds is not None:
+        parts.append(
+            f"At {width}x{height} about {hint.fit_seconds:.1f}s ({hint.fit_pixel_frames} frames) fits on this card"
+        )
+    if hint.alt_width is not None:
+        parts.append(f"this length would fit at about {hint.alt_width}x{hint.alt_height}")
+    return "; ".join(parts) + "." if parts else ""
 
 # The only anchor mode the released VDN checkpoint was trained under, and the
 # only one under which the softmax window and the linear branch partition the
@@ -1712,23 +1794,45 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 sparse_attn_reserve,
             )
 
-        place_dit_for_sequence(
-            # Text rows ride the SAME packed attention document as video/audio
-            # (dossier §A.2: no cross-attention, one sequence) -- folded into
-            # `video_tokens` since `place_dit_for_sequence`'s reserve is sized
-            # off the TOTAL sequence length, not "video" in the LTX sense
-            # (LTX's own text conditioning is cross-attention, off-sequence;
-            # H3 has none, so every row here is part of the one S this
-            # function budgets for).
-            c.bundle.dit, c.device,
-            video_tokens=video_rows.shape[0] + layout.text_indices.numel(), audio_tokens=audio_rows.shape[0],
-            own_models=(c.bundle.dit, c.bundle.video_vae, c.bundle.audio_vae),
-            inner_dim=H3_INNER_DIM, ffn_dim=H3_FFN_DIM,
-            # 0.0 unless a sparse-attention method is on: its routing and QKV
-            # copies are the one piece of this generation's GPU work the
-            # token-derived reserve cannot see.
-            reserve_gb=max(sparse_attn_reserve, vdn_reserve_gb(vdn_layout)),
-        )
+        try:
+            place_dit_for_sequence(
+                # Text rows ride the SAME packed attention document as
+                # video/audio (dossier §A.2: no cross-attention, one
+                # sequence) -- folded into `video_tokens` since
+                # `place_dit_for_sequence`'s reserve is sized off the TOTAL
+                # sequence length, not "video" in the LTX sense (LTX's own
+                # text conditioning is cross-attention, off-sequence; H3 has
+                # none, so every row here is part of the one S this function
+                # budgets for).
+                c.bundle.dit, c.device,
+                video_tokens=video_rows.shape[0] + layout.text_indices.numel(), audio_tokens=audio_rows.shape[0],
+                own_models=(c.bundle.dit, c.bundle.video_vae, c.bundle.audio_vae),
+                inner_dim=H3_INNER_DIM, ffn_dim=H3_FFN_DIM,
+                # 0.0 unless a sparse-attention method is on: its routing and QKV
+                # copies are the one piece of this generation's GPU work the
+                # token-derived reserve cannot see.
+                reserve_gb=max(sparse_attn_reserve, vdn_reserve_gb(vdn_layout)),
+            )
+        except DitPlacementInfeasible as exc:
+            # Re-raised with an H3-specific fit hint appended -- the base
+            # message alone doesn't tell the user what WOULD fit this card.
+            # `exc.video_tokens + exc.audio_tokens` (not `video_tokens`
+            # alone) matches the total S `estimate_activation_reserve_gb`
+            # actually scaled `exc.activation_reserve_gb` off (see the call
+            # above's own comment on why H3 folds text+video+audio into one
+            # sequence length).
+            hint = _fit_hint(
+                exc.free_gb, exc.extra_reserve_gb, exc.activation_reserve_gb,
+                exc.video_tokens + exc.audio_tokens, num_latent_frames, FPS, c.width, c.height,
+            )
+            hint_text = _format_fit_hint(hint, c.width, c.height)
+            raise DitPlacementInfeasible(
+                f"{exc}{' ' + hint_text if hint_text else ''}",
+                detail=exc.detail,
+                total_reserve_gb=exc.total_reserve_gb, activation_reserve_gb=exc.activation_reserve_gb,
+                extra_reserve_gb=exc.extra_reserve_gb, free_gb=exc.free_gb,
+                video_tokens=exc.video_tokens, audio_tokens=exc.audio_tokens,
+            ) from exc
         # `c.bundle.dit.device` is the wrapper's OWN placement contract (set by
         # `move_to`/the streamer's `apply` even under partial residency --
         # engine.py keeps it as the intended compute device regardless of

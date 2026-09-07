@@ -33,11 +33,16 @@ from src.pipelines.pipes.generator.video_minimax_h3.layout import (
 from src.pipelines.pipes.generator.video_minimax_h3.main import (
     GeneratorMinimaxH3Pipe,
     H3_INNER_DIM,
+    _fit_hint,
+    _format_fit_hint,
+    _FitHint,
     _MiniMaxH3Ctx,
     _MiniMaxH3Forward,
     build_step_cache,
     validate_minimax_h3_config,
 )
+from src.pipelines.pipes.generator.video_minimax_h3.geometry import CANVAS_MULTIPLE, FPS
+from src.pipelines.pipes._shared.generation.dit_placement import DitPlacementInfeasible
 from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.sampling.step_cache import FirstBlockCache
 from src.pipelines.pipes.generator.video_minimax_h3.schedule import (
@@ -2595,6 +2600,100 @@ def test_enabled_sla_reserves_its_transients_from_the_dit_placement():
     calls = _placement_calls({"sparse_attn": "sla"}, ctx_overrides=sla_layout)
     assert calls
     assert all(kwargs["reserve_gb"] > 0.0 for kwargs in calls)
+
+
+# -- DiT placement infeasibility: the fit hint appended to a refusal ----------
+# (the maintainer's real MiniMax-H3 VDN trace: dit_weight_gb=15.65,
+# activation_reserve_gb=30.35, extra_reserve_gb=4.21, on a ~31.0GB-free card
+# at 1344x768 -- total_reserve (34.6GB) exceeds free before any weight is
+# even resident.)
+
+def test_fit_hint_is_none_when_nothing_is_computable():
+    assert _fit_hint(0.0, 0.0, 0.0, 0, 0, FPS, 32, 32) is None
+    # extra_reserve_gb alone exceeds free_gb -> non-positive budget.
+    assert _fit_hint(10.0, 20.0, 5.0, 1_000, 10, FPS, 32, 32) is None
+    assert _fit_hint(31.0, 4.21, 30.35, 0, 107, FPS, 1344, 768) is None  # no tokens
+    assert _fit_hint(31.0, 4.21, 30.35, 104_019, 0, FPS, 1344, 768) is None  # no latent frames
+
+
+def test_fit_hint_on_the_maintainer_trace_reports_a_shorter_clip_and_a_smaller_canvas():
+    hint = _fit_hint(
+        free_gb=31.0, extra_reserve_gb=4.21, activation_reserve_gb=30.35,
+        total_tokens=102_869 + 1_150, latent_frames=107, fps=FPS, width=1344, height=768,
+    )
+    assert hint is not None
+    # Both axes must report something SMALLER than the request that just
+    # failed -- the whole point of the hint.
+    assert hint.fit_seconds is not None and 0.0 < hint.fit_seconds < 15.0
+    assert hint.fit_pixel_frames is not None
+    assert (hint.fit_pixel_frames - 5) % 17 == 0  # the video VAE's 17*n+5 alignment
+    assert hint.alt_width is not None and 0 < hint.alt_width < 1344
+    assert hint.alt_height is not None and 0 < hint.alt_height < 768
+    assert hint.alt_width % CANVAS_MULTIPLE == 0
+    assert hint.alt_height % CANVAS_MULTIPLE == 0
+
+
+def test_fit_hint_duration_omitted_when_it_would_round_below_two_latent_frames():
+    # Duration is LINEAR in the token scale while the canvas side is its
+    # SQUARE ROOT, so a small-but-not-tiny scale kills the duration axis (it
+    # can't clear the video VAE's 2-latent-frame minimum) well before it kills
+    # the canvas axis -- only the duration half must go None, not the whole
+    # result.
+    hint = _fit_hint(
+        free_gb=4.15175, extra_reserve_gb=4.0, activation_reserve_gb=30.35,
+        total_tokens=104_019, latent_frames=107, fps=FPS, width=1344, height=768,
+    )
+    assert hint is not None
+    assert hint.fit_seconds is None
+    assert hint.fit_pixel_frames is None
+    assert hint.alt_width is not None and hint.alt_height is not None
+
+
+def test_format_fit_hint_empty_string_for_none():
+    assert _format_fit_hint(None, 1344, 768) == ""
+
+
+def test_format_fit_hint_includes_both_axes_when_both_are_computable():
+    hint = _FitHint(fit_seconds=9.5, fit_pixel_frames=233, alt_width=1024, alt_height=576)
+    text = _format_fit_hint(hint, 1344, 768)
+    assert "1344x768" in text
+    assert "9.5s" in text
+    assert "233 frames" in text
+    assert "1024x576" in text
+    assert text.endswith(".")
+
+
+def test_format_fit_hint_omits_the_duration_clause_when_not_computable():
+    hint = _FitHint(fit_seconds=None, fit_pixel_frames=None, alt_width=1024, alt_height=576)
+    text = _format_fit_hint(hint, 1344, 768)
+    assert "fits on this card" not in text
+    assert "1024x576" in text
+
+
+def test_infeasible_placement_reraises_with_the_fit_hint_appended():
+    """End to end: `_sample_window` catches `DitPlacementInfeasible`, appends
+    the fit hint, and re-raises the SAME exception type/attributes -- the
+    caller (`GenerationEngine`) still sees a `DitPlacementInfeasible`."""
+    def _raise(*_args, **_kwargs):
+        raise DitPlacementInfeasible(
+            "This clip needs about 34.6 GB of VRAM for activations at 102,869 video tokens "
+            "(+1,150 audio), but only 31.0 GB is free -- shorten the clip or lower the resolution.",
+            detail="activation_reserve_gb=30.35 extra_reserve_gb=4.21 total_reserve_gb=34.56 "
+                   "free_gb=31.00 video_tokens=102869 audio_tokens=1150",
+            total_reserve_gb=34.56, activation_reserve_gb=30.35, extra_reserve_gb=4.21,
+            free_gb=31.0, video_tokens=102_869, audio_tokens=1_150,
+        )
+
+    with patch("src.pipelines.pipes.generator.video_minimax_h3.main.place_dit_for_sequence", side_effect=_raise):
+        with pytest.raises(DitPlacementInfeasible) as exc_info:
+            _run_generate_one({}, ctx_overrides={"height": 768, "width": 1344, "num_latent_frames": 107})
+
+    err = exc_info.value
+    assert "shorten the clip or lower the resolution." in str(err)
+    assert "fits on this card" in str(err) or "would fit at about" in str(err)
+    assert err.total_reserve_gb == pytest.approx(34.56)
+    assert err.video_tokens == 102_869
+    assert err.audio_tokens == 1_150
 
 
 # -- sampler / scheduler wiring into the loop ---------------------------------

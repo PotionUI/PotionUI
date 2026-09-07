@@ -31,6 +31,7 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     _ffn_transient_bytes_per_token,
     _LTX_INNER_DIM,
     DitPlacementDecision,
+    DitPlacementInfeasible,
     estimate_activation_reserve_gb,
     place_dit_for_sequence,
 )
@@ -101,7 +102,11 @@ def test_place_dit_for_sequence_threads_inner_dim_into_the_reserve(monkeypatch):
     # decision purely because of inner_dim -- proves place_dit_for_sequence
     # actually forwards it to estimate_activation_reserve_gb rather than
     # silently dropping the kwarg.
-    monkeypatch.setattr(f"{_MOD}.free_vram_gb", lambda device: 15.0)
+    # 70.0, not a smaller value: high enough that the WIDE inner_dim's ~67.6GB
+    # reserve still clears the new infeasibility gate (total_reserve < free)
+    # while remaining too big for the DiT's own weight to also fit resident --
+    # the point of this test is the resident/partial split, not a refusal.
+    monkeypatch.setattr(f"{_MOD}.free_vram_gb", lambda device: 70.0)
     monkeypatch.setattr(f"{_MOD}.minimum_inference_memory_gb", lambda: 0.0)
     manager = SimpleNamespace(ensure_free=lambda *a, **k: False, offload_all=lambda *a, **k: False)
     monkeypatch.setattr(f"{_MOD}.get_residency_registry", lambda: manager)
@@ -254,6 +259,84 @@ def test_cpu_device_is_a_plain_move_no_vram_queries():
     assert decision.mode == "cpu"
 
 
+# -- infeasibility gate: total_reserve alone exceeds free VRAM, refused BEFORE
+# any placement I/O rather than discovered after a stream + a first-forward
+# OOM (the maintainer's MiniMax-H3 VDN trace: 34.6GB total reserve on a
+# 31.4GB card, streamed for 12s before dying).
+
+def test_infeasible_when_activation_reserve_alone_exceeds_free_vram():
+    dit, calls = _dit(estimated_vram_gb=15.65)
+    patches, manager = _patched(free_gb=31.0)
+    with patches[0], patches[1], patches[2]:
+        with pytest.raises(DitPlacementInfeasible) as exc_info:
+            place_dit_for_sequence(
+                dit, "cuda", video_tokens=102_869, audio_tokens=1_150,
+                inner_dim=H3_ATTN_INNER_DIM, ffn_dim=14336, reserve_gb=4.21,
+            )
+    err = exc_info.value
+    assert err.video_tokens == 102_869
+    assert err.audio_tokens == 1_150
+    assert err.extra_reserve_gb == pytest.approx(4.21)
+    assert err.free_gb == pytest.approx(31.0)
+    assert err.total_reserve_gb == pytest.approx(err.activation_reserve_gb + err.extra_reserve_gb)
+    assert err.total_reserve_gb > err.free_gb
+    # The message reaches the user verbatim (GenerationEngine only substitutes
+    # its own summary when `.detail` is falsy) -- must carry the actionable
+    # numbers, not a generic "something went wrong".
+    assert "102,869" in str(err)
+    assert "31.0" in str(err)
+    assert calls["move_to"] == []
+    assert calls["stream_to"] == []
+    assert calls["offload"] == 0
+
+
+def test_infeasible_never_offloads_a_foreign_resident_before_raising():
+    dit, calls = _dit(estimated_vram_gb=15.65)
+    patches, manager = _patched(free_gb=5.0)
+    with patches[0], patches[1], patches[2]:
+        with pytest.raises(DitPlacementInfeasible):
+            place_dit_for_sequence(
+                dit, "cuda", video_tokens=102_869, audio_tokens=1_150,
+                inner_dim=H3_ATTN_INNER_DIM, ffn_dim=14336, own_models=(dit,),
+            )
+    assert manager.ensure_free_calls == []
+    assert manager.offload_all_calls == []
+
+
+def test_total_reserve_exactly_equal_to_free_is_not_refused():
+    # `total_reserve == free` leaves a zero weight budget (still correctly
+    # "partial", not "resident" -- there's no room left for the DiT's own
+    # weight), but it must NOT raise: the gate is `>`, not `>=`, matching
+    # every other boundary in this module (weight_budget clamps at 0, never
+    # goes negative).
+    dit, calls = _dit(estimated_vram_gb=1.0)
+    reserve = estimate_activation_reserve_gb(50_000)
+    patches, manager = _patched(free_gb=reserve)  # free == total_reserve exactly (reserve_gb=0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=50_000)
+    assert decision.mode == "partial"
+    assert decision.weight_budget_gb == pytest.approx(0.0, abs=1e-9)
+    assert calls["move_to"] == []
+    assert len(calls["stream_to"]) == 1
+
+
+def test_warm_resident_fast_path_unaffected_by_the_infeasibility_gate():
+    # The existing "still fits" warm-residency fast path (kept_resident,
+    # zero calls) must be byte-identical -- the gate credits the dit's own
+    # resident weight back exactly like the fast path does, so a
+    # comfortably-fitting warm dit never trips it.
+    dit, calls = _dit(estimated_vram_gb=19.6)
+    dit.device = "cuda"
+    patches, manager = _patched(free_gb=11.8)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=0, reserve_gb=5.0)
+    assert decision.mode == "resident"
+    assert decision.kept_resident is True
+    assert calls["move_to"] == []
+    assert calls["stream_to"] == []
+    assert calls["offload"] == 0
+
+
 # -- decision matrix: 5s / 15s / 40s @ 720x1280 on a 32GB card, 23.3GB DiT ----
 # t_lat*h_lat*w_lat held at 880 tokens/frame (matches the audit's 14,080 at
 # t_lat=16 i.e. 5s); frames -> t_lat via (frames-1)//8+1 at 25fps.
@@ -312,21 +395,27 @@ def test_audio_tokens_can_tip_placement_into_partial():
     patches, manager = _patched(free_gb=32.0)
     with patches[0], patches[1], patches[2]:
         decision = place_dit_for_sequence(
-            dit, "cuda", video_tokens=video_tokens, audio_tokens=2_000_000,  # absurd, forces the tip
+            # Big enough to push the DiT's own weight out of the budget
+            # (reserve ~13.6GB vs. the ~8.7GB the 23.3GB DiT leaves free on a
+            # 32GB card), but nowhere near infeasible on its own.
+            dit, "cuda", video_tokens=video_tokens, audio_tokens=100_000,
         )
     assert decision.mode == "partial"
 
 
-# -- degenerate tiny VRAM -------------------------------------------------------
+# -- degenerate tiny VRAM: the activation reserve alone doesn't fit, so this
+# is now refused up front instead of streaming a DiT that will OOM on the
+# first forward regardless of how little weight it's given -------------------
 
-def test_degenerate_tiny_vram_still_produces_a_non_negative_budget():
+def test_degenerate_tiny_vram_raises_infeasible_before_any_placement_io():
     dit, calls = _dit(estimated_vram_gb=23.3)
     patches, manager = _patched(free_gb=0.5)
     with patches[0], patches[1], patches[2]:
-        decision = place_dit_for_sequence(dit, "cuda", video_tokens=_video_tokens_for(5))
-    assert decision.mode == "partial"
-    assert decision.weight_budget_gb == 0.0
-    assert calls["stream_to"] == [("cuda", 0.0)]
+        with pytest.raises(DitPlacementInfeasible):
+            place_dit_for_sequence(dit, "cuda", video_tokens=_video_tokens_for(5))
+    assert calls["move_to"] == []
+    assert calls["stream_to"] == []
+    assert calls["offload"] == 0
 
 
 # -- foreign-resident exclusion / one-shot-generator footgun ------------------
@@ -693,12 +782,13 @@ def test_bite_check_without_crediting_self_this_exact_scenario_would_wrongly_str
 def test_warm_resident_dit_that_no_longer_fits_offloads_then_places_fresh():
     dit, calls = _dit(estimated_vram_gb=23.3)
     dit.device = "cuda"
-    # Read 1 (fast-path check): only 2.0GB free -- 2.0+23.3=25.3 credited,
-    # minus a 10.5GB reserve, doesn't clear 23.3 -> falls through and offloads.
-    # Reads 2-3 (post-offload: _ensure_room_for's own read, then the main
-    # measurement) both see the FULL 40.0GB the stale copy's release
-    # genuinely freed.
-    free_reads = iter([2.0, 40.0, 40.0])
+    # Read 1 (the new infeasibility gate, credited the same way: 2.0+23.3=25.3
+    # clears the 10.5GB reserve, so it proceeds). Read 2 (fast-path check):
+    # still only 2.0GB free -- 2.0+23.3=25.3 credited, minus a 10.5GB reserve,
+    # doesn't clear 23.3 -> falls through and offloads. Reads 3-4
+    # (post-offload: _ensure_room_for's own read, then the main measurement)
+    # both see the FULL 40.0GB the stale copy's release genuinely freed.
+    free_reads = iter([2.0, 2.0, 40.0, 40.0])
     manager = _FakeResidencyRegistry()
     with patch(f"{_MOD}.free_vram_gb", side_effect=lambda device: next(free_reads)), \
          patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
@@ -713,12 +803,13 @@ def test_warm_resident_dit_that_no_longer_fits_offloads_then_places_fresh():
 def test_warm_resident_dit_that_no_longer_fits_can_still_degrade_to_partial():
     dit, calls = _dit(estimated_vram_gb=23.3)
     dit.device = "cuda"
-    # total_reserve = reserve_gb(10.0) + floor(0.5) = 10.5. Read 1: 2.0GB free
-    # < 10.5 -> doesn't fit even credited -> offloads. Reads 2-3 (post-
-    # offload): 5.0GB free -> weight_budget = max(0, 5.0-10.5) = 0.0, still
-    # nowhere near 23.3 -> genuinely must degrade to partial, not force a
-    # resident placement it cannot back.
-    free_reads = iter([2.0, 5.0, 5.0])
+    # total_reserve = reserve_gb(10.0) + floor(0.5) = 10.5. Read 1 (the new
+    # infeasibility gate): 2.0+23.3=25.3 credited clears 10.5, proceeds. Read
+    # 2 (fast-path check): still 2.0GB free < 10.5 even credited -> doesn't
+    # fit -> offloads. Reads 3-4 (post-offload): 5.0GB free -> weight_budget
+    # = max(0, 5.0-10.5) = 0.0, still nowhere near 23.3 -> genuinely must
+    # degrade to partial, not force a resident placement it cannot back.
+    free_reads = iter([2.0, 2.0, 5.0, 5.0])
     manager = _FakeResidencyRegistry()
     with patch(f"{_MOD}.free_vram_gb", side_effect=lambda device: next(free_reads)), \
          patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \

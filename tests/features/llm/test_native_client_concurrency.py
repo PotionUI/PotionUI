@@ -719,6 +719,11 @@ class TestSupervisedTeardownOnStopTimeout:
         assert not models_manager._entries[key].leased_by
         assert key in models_manager._evictable_keys()
         assert identity not in native_module._EXECUTION_GATES
+        # The task discards itself through a done-callback, one loop
+        # iteration after its last observable effect.
+        deadline = time.monotonic() + _BOUND
+        while client._supervised_teardowns and time.monotonic() < deadline:
+            await asyncio.sleep(0)
         assert len(client._supervised_teardowns) == 0
 
     @pytest.mark.asyncio
@@ -818,6 +823,11 @@ class TestSupervisedTeardownOnStopTimeout:
 
         assert not models_manager._entries[key].leased_by
         assert key in models_manager._evictable_keys()
+        # The task discards itself through a done-callback, one loop
+        # iteration after its last observable effect.
+        deadline = time.monotonic() + _BOUND
+        while client._supervised_teardowns and time.monotonic() < deadline:
+            await asyncio.sleep(0)
         assert len(client._supervised_teardowns) == 0
 
     @pytest.mark.asyncio
@@ -875,6 +885,11 @@ class TestSupervisedTeardownOnStopTimeout:
 
         assert not models_manager._entries[key].leased_by
         assert key in models_manager._evictable_keys()
+        # The task discards itself through a done-callback, one loop
+        # iteration after its last observable effect.
+        deadline = time.monotonic() + _BOUND
+        while client._supervised_teardowns and time.monotonic() < deadline:
+            await asyncio.sleep(0)
         assert len(client._supervised_teardowns) == 0
 
 
@@ -947,6 +962,11 @@ class TestBufferedCancellationRetainsOwnership:
         assert "A:to:cpu" in events
         assert not models_manager._entries[key].leased_by
         assert key in models_manager._evictable_keys()
+        # The task discards itself through a done-callback, one loop
+        # iteration after its last observable effect.
+        deadline = time.monotonic() + _BOUND
+        while client._supervised_teardowns and time.monotonic() < deadline:
+            await asyncio.sleep(0)
         assert len(client._supervised_teardowns) == 0
 
 
@@ -1020,6 +1040,11 @@ class TestLifecycleCancellationBoundaries:
         )
         assert not models_manager._entries[key].leased_by
         assert key in models_manager._evictable_keys()
+        # The task discards itself through a done-callback, one loop
+        # iteration after its last observable effect.
+        deadline = time.monotonic() + _BOUND
+        while client._supervised_teardowns and time.monotonic() < deadline:
+            await asyncio.sleep(0)
         assert len(client._supervised_teardowns) == 0
 
     @pytest.mark.asyncio
@@ -1089,6 +1114,11 @@ class TestLifecycleCancellationBoundaries:
         assert "cpu" in checkpoint.model.moves
         assert not models_manager._entries[key].leased_by
         assert key in models_manager._evictable_keys()
+        # The task discards itself through a done-callback, one loop
+        # iteration after its last observable effect.
+        deadline = time.monotonic() + _BOUND
+        while client._supervised_teardowns and time.monotonic() < deadline:
+            await asyncio.sleep(0)
         assert len(client._supervised_teardowns) == 0
 
     @pytest.mark.asyncio
@@ -1161,6 +1191,11 @@ class TestLifecycleCancellationBoundaries:
         assert checkpoint.model.moves.count("cpu") >= 1
         assert not models_manager._entries[key].leased_by
         assert key in models_manager._evictable_keys()
+        # The task discards itself through a done-callback, one loop
+        # iteration after its last observable effect.
+        deadline = time.monotonic() + _BOUND
+        while client._supervised_teardowns and time.monotonic() < deadline:
+            await asyncio.sleep(0)
         assert len(client._supervised_teardowns) == 0
 
     @pytest.mark.asyncio
@@ -1226,6 +1261,11 @@ class TestLifecycleCancellationBoundaries:
             # Never started: no supervisor should ever have been spawned,
             # and the lease/gate must release promptly rather than hang
             # forever waiting on a call that will never happen.
+            # The task discards itself through a done-callback, one loop
+            # iteration after its last observable effect.
+            deadline = time.monotonic() + _BOUND
+            while client._supervised_teardowns and time.monotonic() < deadline:
+                await asyncio.sleep(0)
             assert len(client._supervised_teardowns) == 0
             assert not models_manager._entries[key].leased_by
             assert key in models_manager._evictable_keys()
@@ -1318,4 +1358,9 @@ class TestStreamWithToolsCloseScope:
         assert "worker_returning_after_stop" in events
         assert not models_manager._entries[key].leased_by
         assert key in models_manager._evictable_keys()
+        # The task discards itself through a done-callback, one loop
+        # iteration after its last observable effect.
+        deadline = time.monotonic() + _BOUND
+        while client._supervised_teardowns and time.monotonic() < deadline:
+            await asyncio.sleep(0)
         assert len(client._supervised_teardowns) == 0

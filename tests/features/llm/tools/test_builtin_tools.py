@@ -105,6 +105,7 @@ class TestRegisterBuiltinTools:
             "get_form_state",
             "get_active_models",
             "update_form_settings",
+            "manage_prompt_variables",
             "search_model_prompts",
             "search_gallery",
             "add_prompt",

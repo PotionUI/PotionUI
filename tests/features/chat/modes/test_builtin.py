@@ -29,3 +29,24 @@ class TestMemoryPromptBullet:
         assert "call update_memory by its scope and key" not in prompt
         assert "{{#if" not in prompt
         assert "{{/if" not in prompt
+
+
+class TestPromptVariablesGuidance:
+    def _resolve(self, allowed):
+        registry = ChatModeRegistry()
+        mode = build_generation_mode()
+        return registry.resolve_system_prompt(mode, "- some_tool: hint", allowed)
+
+    def test_manage_prompt_variables_instruction_present_when_allowed(self):
+        prompt = self._resolve(["manage_prompt_variables"])
+        assert "manage_prompt_variables first" in prompt
+        assert "{{#if" not in prompt
+        assert "{{/if" not in prompt
+
+    def test_manage_prompt_variables_instruction_absent_when_not_allowed(self):
+        prompt = self._resolve([])
+        assert "manage_prompt_variables first" not in prompt
+        # The base sentence about reusing an existing variable still stands.
+        assert "named ${...} placeholders" in prompt
+        assert "{{#if" not in prompt
+        assert "{{/if" not in prompt

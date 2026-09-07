@@ -59,6 +59,7 @@
 	} from '$lib/utils/musicDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import { collectFormImages, type FormImageEntry } from '$lib/chat/formMedia';
+	import { applyVariableChanges } from '$lib/chat/applyVariableChanges';
 	import {
 		loadFromStorage,
 		saveToStorage,
@@ -1127,6 +1128,9 @@
 					if (resultData.action === 'apply_segment_updates') {
 						handleSegmentUpdatesApplied(resultData.updates);
 					}
+					if (resultData.action === 'apply_variable_changes') {
+						handleVariableChangesApplied(resultData.operations);
+					}
 				}
 			} catch {
 				/* result not JSON — nothing to apply */
@@ -1203,6 +1207,12 @@
 			updatedFormData[change.field_name] = change.new_value;
 		}
 		tabsStore.updateTab(tab.id, { formData: updatedFormData });
+	}
+
+	function handleVariableChangesApplied(operations: Parameters<typeof applyVariableChanges>[1]) {
+		const tab = contextTab;
+		if (!tab || !operations || operations.length === 0) return;
+		tabsStore.updateTab(tab.id, { variables: applyVariableChanges(tab.variables ?? {}, operations) });
 	}
 
 	function handleMusicDirectorApplied(operations: unknown[]) {

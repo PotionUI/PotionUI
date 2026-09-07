@@ -40,6 +40,14 @@ instead of failing the generation.
 itself a template, so `{"mood": "{noir|sunlit}"}` re-samples per use. Variables are scoped to the
 generate tab; there is no variables table.
 
+The LLM chat's `manage_prompt_variables` tool (`src/features/llm/tools/builtin/prompt_variables_tool.py`)
+can create, update, and remove a tab's variables, approval-gated the same way `update_form_settings`
+is. It reads the read-only `form_state.variables` snapshot the frontend sends (rendered by
+`src/platform/resources/prompt_variables.py`) to validate names, count, and option caps, and its
+confirmed result is an `apply_variable_changes` action the frontend applies via
+`frontend/src/lib/chat/applyVariableChanges.ts`. The model never invents a `${name}`: it either
+references one already in `form_state.variables`, or calls this tool first.
+
 ## Seeding
 
 `src/features/generation/orchestrator.py::_expand_prompts_per_image` runs just before

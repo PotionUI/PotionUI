@@ -200,87 +200,70 @@
 		{/if}
 
 		<div class="flex flex-1 items-center justify-end gap-3">
-			<div class="flex items-center gap-2">
-				<label class="flex flex-col items-start gap-0.5">
-					<span class="font-mono text-[9px] uppercase tracking-[0.04em] text-fg-subtle">Dur</span>
-					<span class="flex items-center gap-1">
-						<input
-							type="number"
-							class="h-6 w-[5ch] rounded border border-line-strong bg-surface-2 px-1 text-center font-mono text-[11px] tabular-nums text-fg focus:outline-none focus:ring-1 focus:ring-signal"
-							step="0.1"
-							min="0.1"
-							max={maxDurationSeconds ?? undefined}
-							value={shot.durationSeconds.toFixed(1)}
-							aria-label="Shot duration in seconds"
-							onclick={(e) => e.stopPropagation()}
-							onchange={commitDuration}
-							onkeydown={handleDurationKeydown}
-						/>
-						<span class="font-mono text-[10px] text-fg-subtle">s</span>
+			<div class="flex items-center gap-1 font-mono text-[11px] text-fg-subtle">
+				<input
+					type="text"
+					inputmode="decimal"
+					class="h-6 w-14 rounded border border-line-strong bg-surface-2 px-1.5 text-right font-mono text-[11px] tabular-nums text-fg focus:outline-none focus:ring-1 focus:ring-signal"
+					value={shot.durationSeconds.toFixed(1)}
+					aria-label="Shot duration in seconds"
+					onclick={(e) => e.stopPropagation()}
+					onchange={commitDuration}
+					onkeydown={handleDurationKeydown}
+				/>
+				<span>s</span>
+				<span>·</span>
+				<input
+					type="text"
+					inputmode="numeric"
+					class="h-6 w-12 rounded border border-line-strong bg-surface-2 px-1.5 text-right font-mono text-[11px] tabular-nums text-fg focus:outline-none focus:ring-1 focus:ring-signal"
+					value={shot.frames}
+					aria-label="Shot frame count"
+					onclick={(e) => e.stopPropagation()}
+					onchange={commitFrames}
+					onkeydown={handleFramesKeydown}
+				/>
+				<span>{shot.capFrames != null ? `/ ${shot.capFrames} frames` : 'frames'}</span>
+				{#if shot.newFrames != null}
+					<span class="text-[9px] uppercase tracking-[0.04em]">+{shot.newFrames} new</span>
+				{/if}
+				{#if timingUnknown}
+					<span
+						class="text-[9px] uppercase tracking-[0.04em]"
+						title="Motion latents unknown -- showing the requested length, not the generator's real output"
+					>
+						requested
 					</span>
-				</label>
-
-				<label class="flex flex-col items-start gap-0.5">
-					<span class="font-mono text-[9px] uppercase tracking-[0.04em] text-fg-subtle">Frames</span>
-					<span class="flex items-center gap-1">
-						<input
-							type="number"
-							class="h-6 w-[6ch] rounded border border-line-strong bg-surface-2 px-1 text-center font-mono text-[11px] tabular-nums text-fg focus:outline-none focus:ring-1 focus:ring-signal"
-							step="1"
-							min="1"
-							max={shot.capFrames ?? undefined}
-							value={shot.frames}
-							aria-label="Shot frame count"
-							onclick={(e) => e.stopPropagation()}
-							onchange={commitFrames}
-							onkeydown={handleFramesKeydown}
-						/>
-						{#if shot.capFrames != null}<span class="font-mono text-[10px] text-fg-subtle">/ {shot.capFrames}</span>{/if}
-						{#if shot.newFrames != null}<span class="font-mono text-[10px] text-fg-subtle">+{shot.newFrames} new</span>{/if}
-						{#if timingUnknown}
-							<span
-								class="font-mono text-[9px] uppercase tracking-[0.04em] text-fg-subtle"
-								title="Motion latents unknown -- showing the requested length, not the generator's real output"
-							>
-								requested
-							</span>
-						{/if}
-					</span>
-				</label>
-
-				<label class="flex flex-col items-start gap-0.5">
-					<span class="font-mono text-[9px] uppercase tracking-[0.04em] text-fg-subtle">FPS</span>
-					<span class="flex items-center gap-1">
-						<input
-							type="number"
-							class="h-6 w-[4ch] rounded border border-line-strong bg-surface-2 px-1 text-center font-mono text-[11px] tabular-nums text-fg focus:outline-none focus:ring-1 focus:ring-signal disabled:cursor-not-allowed disabled:text-fg-disabled"
-							step="1"
-							min="1"
-							max="60"
-							value={shot.fps}
-							disabled={shot.fpsLocked}
-							aria-label="Film frame rate"
-							title="Film frame rate"
-							onclick={(e) => e.stopPropagation()}
-							onchange={commitFps}
-							onkeydown={handleFpsKeydown}
-						/>
-						{#if shot.fpsLocked}
-							<span class="font-mono text-[9px] uppercase tracking-[0.04em] text-fg-subtle">fixed</span>
-						{/if}
-					</span>
-				</label>
-
+				{/if}
 				{#if maxDurationSeconds != null}
 					<button
 						type="button"
-						class="border-none bg-none p-0 font-mono text-[10px] uppercase tracking-[0.04em] text-fg-subtle underline decoration-line-strong hover:text-fg disabled:cursor-not-allowed disabled:text-fg-disabled disabled:no-underline"
+						class="ml-2 border-none bg-none p-0 font-mono text-[10px] uppercase tracking-[0.04em] text-fg-subtle hover:text-fg disabled:cursor-not-allowed disabled:text-fg-disabled"
 						disabled={atMax}
 						title={`Set to the maximum this generator allows (${maxFrames} frames)`}
 						onclick={() => onSetMax(shot.id)}
 					>
 						Max
 					</button>
+				{/if}
+				<span>·</span>
+				<input
+					type="text"
+					inputmode="numeric"
+					class={shot.fpsLocked
+						? 'h-6 w-10 rounded border-none bg-transparent px-1.5 text-right font-mono text-[11px] tabular-nums text-fg-muted'
+						: 'h-6 w-10 rounded border border-line-strong bg-surface-2 px-1.5 text-right font-mono text-[11px] tabular-nums text-fg focus:outline-none focus:ring-1 focus:ring-signal'}
+					value={shot.fps}
+					disabled={shot.fpsLocked}
+					aria-label="Film frame rate"
+					title="Film frame rate"
+					onclick={(e) => e.stopPropagation()}
+					onchange={commitFps}
+					onkeydown={handleFpsKeydown}
+				/>
+				<span>fps</span>
+				{#if shot.fpsLocked}
+					<span class="text-[9px] uppercase tracking-[0.04em]">fixed</span>
 				{/if}
 			</div>
 

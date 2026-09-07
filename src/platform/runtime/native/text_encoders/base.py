@@ -46,6 +46,8 @@ from abc import ABC, abstractmethod
 import torch
 import torch.nn as nn
 
+from ..base import release_module_storage
+
 logger = logging.getLogger(__name__)
 
 # Roles already warned about not supporting prompt weighting - a preset that
@@ -160,9 +162,14 @@ def _module_to(module: nn.Module, device: str | torch.device) -> None:
 
 
 def _module_unload(module: nn.Module | None) -> None:
+    """Release ``module``'s weight storage for lifecycle eviction.
+
+    No host copy -- see ``NativeModel.unload``'s docstring in ``engine.py``
+    for why ``module.to("cpu")`` is the wrong tool here.
+    """
     if module is None:
         return
     try:
-        module.to("cpu")
+        release_module_storage(module)
     except Exception:  # pragma: no cover - best-effort eviction
-        logger.debug("text-encoder module eviction to cpu failed", exc_info=True)
+        logger.debug("text-encoder module storage release failed", exc_info=True)

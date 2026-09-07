@@ -10,6 +10,7 @@ engine's orchestration + adapter).
 from __future__ import annotations
 
 import gc
+import weakref
 from types import SimpleNamespace
 
 import numpy as np
@@ -686,6 +687,38 @@ def test_native_model_unload_drops_module(dit_path):
     assert model.module is None
 
 
+def test_unload_releases_parameter_storage_in_place_without_a_host_copy():
+    """unload() must never call `module.to()` -- that materialises a full
+    host-RAM copy of the module before the copy itself is discarded a moment
+    later, exactly the OOM-shape transient an eviction exists to avoid (see
+    `NativeModel.unload`'s docstring). It must instead drop each parameter's
+    storage in place, leaving the Parameter object itself collectible once
+    nothing else holds it."""
+    module = torch.nn.Linear(4, 4, bias=False)
+    original_data = module.weight.data
+
+    def _forbidden_to(*_args, **_kwargs):
+        raise AssertionError("unload() must not call module.to() -- that copies to host RAM")
+
+    module.to = _forbidden_to  # instance-level: any device-move call fails the test
+
+    model = NativeModel("diffusion_model", module, estimated_vram_gb=1.0)
+    param_ref = weakref.ref(module.weight)
+
+    model.unload()
+
+    assert model.module is None
+    # Storage released in place, not copied: same dtype, zero elements, and a
+    # different underlying buffer than the original weight.
+    assert module.weight.data.numel() == 0
+    assert module.weight.data.dtype == original_data.dtype
+    assert module.weight.data.data_ptr() != original_data.data_ptr()
+
+    del module
+    gc.collect()
+    assert param_ref() is None, "the parameter must become collectible once its only holder is dropped"
+
+
 class _TinyLinearModule(torch.nn.Module):
     def __init__(self, in_f, out_f):
         super().__init__()
@@ -955,6 +988,26 @@ def test_unload_skips_trim_when_no_streamer_was_active():
         assert not calls
     finally:
         setattr(lifecycle, "trim_host_allocator", original)
+
+
+def test_offload_still_moves_module_to_cpu_unchanged():
+    """Unlike unload(), offload() is a deliberate GPU->CPU move that keeps the
+    weights around for reuse (a phase boundary, not an eviction) -- it must
+    keep calling `module.to("cpu")`, not switch to unload()'s storage-release
+    path."""
+    calls = []
+
+    class _TrackedModule:
+        def to(self, device):
+            calls.append(str(device))
+            return self
+
+    model = NativeModel("diffusion_model", _TrackedModule(), estimated_vram_gb=1.0, device="cuda:0")
+    model.offload()
+
+    assert calls == ["cpu"]
+    assert model.device == "cpu"
+    assert model.module is not None
 
 
 class _FakeStreamerForStreamTo:

@@ -36,7 +36,7 @@ from typing import Any, Callable, Literal, Sequence
 import numpy as np
 import torch
 
-from .base import load_into_module, release_derived_caches
+from .base import load_into_module, release_derived_caches, release_module_storage
 from .detect.registry import ModelSpec, match_model_spec
 from .detect.unet_detect import detect_unet_config
 from .errors import HostMemoryExhaustedError, NativeEngineUnsupportedError
@@ -671,7 +671,22 @@ class NativeModel:
         self.move_to("cpu")
 
     def unload(self) -> None:
-        """Drop the module (best-effort CPU move first) for lifecycle eviction."""
+        """Drop the module for lifecycle eviction.
+
+        Unlike ``offload()`` (a deliberate GPU->CPU move that keeps the
+        weights around for reuse), this never copies weights to host RAM: an
+        evicted component is about to be discarded outright, so
+        ``module.to("cpu")`` would only materialise a full host-RAM copy of a
+        (possibly GPU-resident) component moments before that very copy is
+        dropped too -- exactly the OOM-shape transient an eviction exists to
+        avoid. A raw arch ``nn.Module`` (DiT/VAE/vocoder) has each leaf's
+        storage released in place via ``release_module_storage``, with no
+        copy either way. A text-encoder ``kind`` wraps a
+        ``NativeTextEncoder`` instead (duck-typed, not an ``nn.Module`` --
+        see ``_load_te``), so it is delegated to its own ``.unload()``
+        (``text_encoders/base.py``'s ``_module_unload``, which follows the
+        same no-copy rule) rather than probed for ``.parameters()`` directly.
+        """
         get_profiler().mark("native.unload", kind=self.kind, estimated_vram_gb=self.estimated_vram_gb)
         if self._compiled is not None:
             from .optimizations.compile import restore_compiled
@@ -692,10 +707,14 @@ class NativeModel:
             cache = getattr(self.module, "run_cache", None)
             if cache is not None:
                 cache.clear()
+            module_unload = getattr(self.module, "unload", None)
             try:
-                self.module.to("cpu")
+                if callable(module_unload):
+                    module_unload()
+                else:
+                    release_module_storage(self.module)
             except Exception:  # pragma: no cover - best-effort eviction
-                logger.debug("native model eviction to cpu failed", exc_info=True)
+                logger.debug("native model storage release failed", exc_info=True)
             self.module = None
         # Same gap as offload() above: a component evicted while partially
         # resident tears down through this method, not move_to(), so it needs

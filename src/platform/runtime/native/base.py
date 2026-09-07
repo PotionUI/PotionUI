@@ -134,6 +134,35 @@ def _iter_tensors(module: nn.Module):
             yield name, b
 
 
+def release_module_storage(module: Any) -> None:
+    """Free every parameter's and buffer's storage in place, with no host copy.
+
+    Lifecycle eviction only needs the module (and its cache entry) to become
+    unreachable -- ``module.to("cpu")`` would first copy a GPU-resident
+    module's ENTIRE weight set into freshly allocated host RAM, a transient
+    the size of the whole component that a low-RAM eviction exists to avoid
+    (that copy is then itself dropped a moment later once the caller releases
+    ``module``). Swapping each parameter's/buffer's ``.data`` for a zero-size
+    CPU tensor of the same dtype drops the real storage (CUDA or CPU)
+    immediately, with no copy in either direction -- the Parameter/buffer
+    object itself keeps its identity, so a weakref taken on it before eviction
+    (see ``model_lifecycle.lifecycle._sample_parameter_weakref``) still tracks
+    the right object afterward.
+
+    Duck-typed like :func:`release_derived_caches`: a module double without
+    the full ``nn.Module`` surface (e.g. a test fake) is a no-op here, not an
+    ``AttributeError``.
+    """
+    parameters = getattr(module, "parameters", None)
+    if callable(parameters):
+        for param in parameters(recurse=True):
+            param.data = torch.empty(0, dtype=param.dtype)
+    buffers = getattr(module, "buffers", None)
+    if callable(buffers):
+        for buf in buffers(recurse=True):
+            buf.data = torch.empty(0, dtype=buf.dtype)
+
+
 def release_derived_caches(module: nn.Module) -> int:
     """Release every placement-derived cache under ``module``; return bytes freed.
 

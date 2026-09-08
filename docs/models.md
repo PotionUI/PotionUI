@@ -35,7 +35,7 @@ may be.
 
 **Preset templates reconstruct the remote name by string surgery.** Because the field value is a
 local path, every ComfyUI preset strips the prefix back off, via the `strip_model_dir` filter
-(`src/platform/templating/dict_utils.py`; see [`docs/presets.md`](presets.md#filters)):
+(`src/platform/templating/dict_utils.py`; see [Pipelines → `pipeline.yml` context](presets/pipelines.md#pipelineyml-context)):
 
 ```jinja
 lora_name: "{{ item.model | strip_model_dir }}"

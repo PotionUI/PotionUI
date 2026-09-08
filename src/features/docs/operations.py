@@ -145,11 +145,11 @@ class _DocRecord:
 def build_tree(plugin_registry, base_docs_path: "Path | str", is_admin: bool) -> Dict[str, Any]:
     """Build `{"sections": [...], "hidden_sections": [...]}`.
 
-    The developer/contributor sections (which is where `docs/models/*.md`
-    and `docs/techniques/*.md` land - see `_collect_repo_docs` - alongside
-    architecture notes and plugin-contributed developer docs) are omitted
-    entirely for non-admins: they're native-engine/plugin-authoring
-    reference material, not end-user guidance.
+    The developer/contributor sections (which is where `docs/models/*.md`,
+    `docs/techniques/*.md`, and `docs/presets/*.md` land - see
+    `_collect_repo_docs` - alongside architecture notes and plugin-contributed
+    developer docs) are omitted entirely for non-admins: they're
+    native-engine/plugin-authoring reference material, not end-user guidance.
 
     `hidden_sections` signals that omission without exposing any content:
     for a non-admin it lists the omitted section ids/titles and how many
@@ -244,10 +244,14 @@ def _collect_repo_docs(base_docs_path: Path) -> List[_DocRecord]:
         for md_path in sorted(base_docs_path.glob("*.md")):
             records.append(_record_from_markdown(md_path, id_prefix="dev", audience="developer"))
 
-    # Docs 2.0 typed sections: docs/techniques/*.md and docs/models/*.md
-    # (recursive one level). The directory sets a default category; a doc's
-    # own frontmatter category still wins.
-    for subdir, default_category in (("techniques", "Techniques"), ("models", "Models")):
+    # Subdirectories recursed one level: docs/techniques/*.md and docs/models/*.md
+    # (Docs 2.0 typed sections) plus docs/presets/*.md (an untyped, plain
+    # ordered sub-guide - see docs/presets.md for the split rationale). The
+    # directory sets a default category; a doc's own frontmatter category
+    # still wins - every docs/presets/*.md declares one explicitly today.
+    for subdir, default_category in (
+        ("techniques", "Techniques"), ("models", "Models"), ("presets", "Presets / Models"),
+    ):
         section_dir = base_docs_path / subdir
         if not section_dir.is_dir():
             continue

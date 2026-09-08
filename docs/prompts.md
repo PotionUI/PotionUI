@@ -74,7 +74,7 @@ to the literal text the user typed.
 ## How the expanded prompts reach the pipes
 
 `PresetProcessor` (`src/features/presets/processor.py`) exposes the expanded prompts under the
-`generation.prompts` template context root (see [Preset Authoring Guide](presets.md#pipelineyml-context)):
+`generation.prompts` template context root (see [Pipelines → `pipeline.yml` context](presets/pipelines.md#pipelineyml-context)):
 
 | Reference | Value |
 |---|---|

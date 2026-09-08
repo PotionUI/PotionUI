@@ -202,7 +202,7 @@ backends are plugins, not core code:
   server via the `comfyui-backend` plugin, which also ships image presets for
   SDXL, Qwen-Image, Z-Image, Krea-2, and Flux Klein 9B); you can import your
   own ComfyUI workflows as presets too — see
-  [docs/presets.md](docs/presets.md#comfyui-presets)
+  [docs/presets/comfyui.md](docs/presets/comfyui.md)
 - **Pipes** — the individual steps a generation pipeline is built from
 - **Field types, chat modes, frontend pages** — all pluggable
 

@@ -31,13 +31,21 @@ presets:
 recipes:
   - path: "recipes"
 
-# Preset requirement checkers for the `comfyui` engine - see docs/presets.md
-# "Requirements" and backend/requirements.py.
+# Preset requirement checkers for the `comfyui` engine - see docs/presets/requirements.md
+# and backend/requirements.py.
 requirement_checkers:
   - type: "comfyui_node"
     backend: "backend.requirements:ComfyUINodeChecker"
   - type: "comfyui_model"
     backend: "backend.requirements:ComfyUIModelChecker"
+
+# Importer implementation internals (GGUF compat, failure-safe publication, exact-integer
+# transport, schema-consistency checks, the node catalog CLI) - not preset-authoring guidance,
+# which lives in docs/presets/comfyui.md instead.
+docs:
+  - path: "README.md"
+    title: "ComfyUI Backend: Importer Internals"
+    audience: "developer"
 
 hooks:
   backend:

@@ -508,7 +508,7 @@ first one (contributions sorted by plugin id, then declaration order) wins and t
 rejected with a load error attributed to the plugin. A contributed mode inherits the target's
 `speed_profiles:` and admin `configuration:` (its fields' `@config:<key>` filter_tags resolve
 against the target, same as a core mode's) — there is no separate per-contribution mechanism for
-either. See [Presets](presets.md) "Plugin-contributed modes" for the full contract, including how
+either. See [Plugin-Contributed Presets](presets/plugins.md) for the full contract, including how
 provenance (`source_plugin`) surfaces in `GET /api/presets/{id}/modes` and the mode picker.
 `content/plugins/marketplace/krea2-edit/` is the first shipped example: an `edit` mode contributed onto
 the native Krea-2 preset.

@@ -195,7 +195,7 @@ class TemplateFunctionsDocumenter:
                         "constants). There is no `preset.speed_profiles`/`preset.configuration` - "
                         "use `get_speed_profile()`/`generation.profile` for speed profiles, and "
                         "`@config:<key>` field indirection for admin-set configuration (see "
-                        "[Configuration (admin-set)](presets.md#configuration-admin-set))."
+                        "[Configuration (admin-set)](presets/manifest.md#configuration-admin-set))."
                     ),
                     "parameters": [
                         {"name": "id", "type": "str", "description": "Preset id"},

@@ -74,7 +74,7 @@ end" rather than a real step count — leave it alone unless you're deliberately
 workflow with two `KSampler (Advanced)` nodes (a base and a refiner) gets two full sets of these
 fields, numbered so each stays mapped to its own sampler.
 
-For scripting, the raw endpoints remain available — see "The two-minute path: import a workflow" in the developer [Preset Authoring Guide](../presets.md#comfyui-presets) for the exact calls.
+For scripting, the raw endpoints remain available — see "The two-minute path: import a workflow" in the developer [ComfyUI Presets](../presets/comfyui.md) reference for the exact calls.
 
 Imported presets are saved as **your own**, separate from anything your administrator ships or
 manages centrally, so importing one never changes what other people on the instance see. To come
@@ -89,7 +89,7 @@ same way you'd adjust settings on any preset that isn't quite tuned for you yet.
 missed something — a slider that should exist, a field with the wrong label — that's expected for
 an unusual graph, not a sign the import failed; it can be corrected afterward through the same
 Administration screen, or by someone comfortable editing preset files by hand (see the developer
-[Preset Authoring Guide](../presets.md#comfyui-presets) for that path).
+[ComfyUI Presets](../presets/comfyui.md) reference for that path).
 
 ## Sharing a preset with someone else
 
@@ -103,6 +103,6 @@ today — it's a file copy an administrator does, not a self-serve action.
 
 - [Presets & Forms](presets-and-forms.md) — what a preset and its form are, from a user's point of view.
 - [Administration](admin.md) — where backends and preset management live.
-- [Preset Authoring Guide](../presets.md#comfyui-presets) — the developer-level reference for
+- [ComfyUI Presets](../presets/comfyui.md) — the developer-level reference for
   writing or hand-editing a ComfyUI preset, including troubleshooting a workflow that runs in
   ComfyUI but not here.

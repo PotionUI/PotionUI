@@ -679,7 +679,7 @@ right or rejected, never quietly truncated.
 
 ## Preset capability declaration
 
-A preset opts in by declaring `vars.video_director` in `preset.yml` (see [`vars:`](presets.md#presetyml-reference)
+A preset opts in by declaring `vars.video_director` in `preset.yml` (see [`vars:`](presets/manifest.md#presetyml-reference)
 in the Preset Authoring Guide for how `vars:` works generally). This is the
 `capabilities` dict `normalize_video_director` validates the document against — a preset
 that omits a mode from `modes` simply never accepts that mode's documents, and a preset

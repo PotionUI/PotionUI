@@ -177,6 +177,45 @@ class TestBuildTreeRepoDocs:
         assert item["category"] == "Presets / Models"
         assert item["category_order"] == 20
 
+    def test_presets_subdir_recursed_one_level_like_techniques_and_models(self, tmp_path):
+        """docs/presets/*.md (the split preset-authoring guide) is recursed the
+        same way docs/techniques/*.md and docs/models/*.md are - it must show
+        up as an ordered dev-section page under its own frontmatter category,
+        not be silently skipped as an unrecognized subdirectory."""
+        write(
+            tmp_path / "docs" / "presets" / "tutorial.md",
+            (
+                "---\n"
+                "title: 'Tutorial: Your First Native Preset'\n"
+                "category: Presets / Models\n"
+                "category_order: 70\n"
+                "order: 14\n"
+                "---\n"
+                "# Tutorial\n"
+                "Body"
+            ),
+        )
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
+
+        tree = operations.build_tree(registry, base_docs_path, is_admin=True)
+        dev_items = {item["id"]: item for item in tree["sections"][1]["items"]}
+
+        assert "dev/presets/tutorial" in dev_items
+        item = dev_items["dev/presets/tutorial"]
+        assert item["title"] == "Tutorial: Your First Native Preset"
+        assert item["category"] == "Presets / Models"
+        assert item["category_order"] == 70
+        assert item["order"] == 14
+
+    def test_presets_subdir_falls_back_to_directory_default_category(self, tmp_path):
+        write(tmp_path / "docs" / "presets" / "untyped.md", "# Untyped\nBody, no frontmatter.")
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
+
+        tree = operations.build_tree(registry, base_docs_path, is_admin=True)
+        item = next(i for i in tree["sections"][1]["items"] if i["id"] == "dev/presets/untyped")
+
+        assert item["category"] == "Presets / Models"
+
     @pytest.mark.parametrize("category", ["", "   ", None, 123])
     def test_blank_or_non_string_frontmatter_category_is_uncategorized(self, tmp_path, category):
         category_yaml = "null" if category is None else repr(category)

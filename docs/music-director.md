@@ -242,7 +242,7 @@ is out of scope for this phase and unimplemented.
 
 ## Preset capability declaration
 
-A preset opts in by declaring `vars.music_director` in `preset.yml` (see [`vars:`](presets.md#presetyml-reference)
+A preset opts in by declaring `vars.music_director` in `preset.yml` (see [`vars:`](presets/manifest.md#presetyml-reference)
 in the Preset Authoring Guide). This is the `capabilities` dict `normalize_music_director`
 validates the document against — a preset that omits a mode from `modes` simply never
 accepts that mode's documents, and a preset that omits `vars.music_director` entirely

@@ -10,9 +10,12 @@
 	import type { InspirationDto } from '$lib/services/api/inspirations';
 
 	let sidebarOpen = true;
-	let selected: InspirationDto | null = null;
 
 	$: state = $inspirationsStore;
+	// Derived by id (not held as a standalone copy) so a store patch after
+	// save/comment mutations - which only touch `items` - flows straight
+	// through to the modal instead of leaving it pinned to a stale snapshot.
+	$: selected = state.items.find((item) => item.id === state.selectedId) ?? null;
 
 	onMount(() => {
 		inspirationsStore.load();
@@ -20,15 +23,15 @@
 	});
 
 	function openItem(item: InspirationDto) {
-		selected = item;
+		inspirationsStore.setSelectedId(item.id);
 	}
 
 	function closeModal() {
-		selected = null;
+		inspirationsStore.setSelectedId(null);
 	}
 
 	function handleDeleted(id: string) {
-		if (selected?.id === id) selected = null;
+		if (state.selectedId === id) inspirationsStore.setSelectedId(null);
 	}
 </script>
 

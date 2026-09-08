@@ -129,7 +129,7 @@ pipeline:
               node_id: "lora_{{ loop.index }}"
               node_config:
                 inputs:
-                  lora_name: "{{ item.model | replace('models/loras/', '') }}"
+                  lora_name: "{{ item.model | strip_model_dir }}"
                   strength_model: "{{ item.strength }}"
                   model: ["{% if loop.first %}91:12{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
                 class_type: "LoraLoaderModelOnly"
@@ -151,9 +151,9 @@ pipeline:
         - ["{{ generation.prompts.first.negative }}", "91:69.inputs.prompt", "str"]
 
         # Models
-        - ["{{ (form.diffusion_model | default('') or '') | replace('models/diffusion_models/', '') | replace('models/checkpoints/', '') }}", "91:12.inputs.unet_name", "str"]
-        - ["{{ (form.clip | default('') or '') | replace('models/clip/', '') }}", "91:61.inputs.clip_name", "str"]
-        - ["{{ (form.vae | default('') or '') | replace('models/vae/', '') }}", "91:10.inputs.vae_name", "str"]
+        - ["{{ form.diffusion_model | strip_model_dir }}", "91:12.inputs.unet_name", "str"]
+        - ["{{ form.clip | strip_model_dir }}", "91:61.inputs.clip_name", "str"]
+        - ["{{ form.vae | strip_model_dir }}", "91:10.inputs.vae_name", "str"]
 
         # Source Image - node 41 (LoadImage)
         # Check: not absolute path AND not already starting with storage directory

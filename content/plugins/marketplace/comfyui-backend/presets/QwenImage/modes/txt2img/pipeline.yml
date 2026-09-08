@@ -104,7 +104,7 @@ pipeline:
               node_id: "{{ 76 + loop.index0 }}"
               node_config:
                 inputs:
-                  lora_name: "{{ item.model | replace('models/loras/', '') }}"
+                  lora_name: "{{ item.model | strip_model_dir }}"
                   strength_model: "{{ item.strength }}"
                   model: ["{% if loop.first %}37{% else %}{{ 75 + loop.index0 }}{% endif %}", 0]
                 class_type: "LoraLoaderModelOnly"
@@ -126,9 +126,9 @@ pipeline:
         - ["{{ generation.prompts.first.negative }}", "7.inputs.text", "str"]
 
         # Models
-        - ["{{ (form.diffusion_model | default('') or '') | replace('models/diffusion_models/', '') | replace('models/checkpoints/', '') }}", "37.inputs.unet_name", "str"]
-        - ["{{ (form.clip | default('') or '') | replace('models/clip/', '') }}", "38.inputs.clip_name", "str"]
-        - ["{{ (form.vae | default('') or '') | replace('models/vae/', '') }}", "39.inputs.vae_name", "str"]
+        - ["{{ form.diffusion_model | strip_model_dir }}", "37.inputs.unet_name", "str"]
+        - ["{{ form.clip | strip_model_dir }}", "38.inputs.clip_name", "str"]
+        - ["{{ form.vae | strip_model_dir }}", "39.inputs.vae_name", "str"]
 
         # Resolution - parse width and height from resolution string (e.g., "1024x1328")
         - ["{{ (form.resolution | default('1024x1328')).split('x')[0] }}", "58.inputs.width", "int"]

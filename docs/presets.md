@@ -1347,7 +1347,7 @@ node_manipulations:
         node_id: "{{ 76 + loop.index0 }}"
         node_config:
           inputs:
-            lora_name: "{{ item.model | replace('models/loras/', '') }}"
+            lora_name: "{{ item.model | strip_model_dir }}"
             strength_model: "{{ item.strength }}"
             model: ["{{ '37' if loop.first else (75 + loop.index0) | string }}", 0]
           class_type: "LoraLoaderModelOnly"
@@ -1499,8 +1499,14 @@ Allowlisted globals (registered in `src/platform/templating/processor.py`):
 | `icon` | `icon(name)` | Resolve a UI icon token (used in form labels). |
 | `get_speed_profile` | `get_speed_profile(profile_name, default=<raises>)` | Look up a `speed_profiles:` entry by name. Raises a clear error naming the preset and profile if missing and no `default` is given. See [Speed profiles](#speed-profiles). |
 
-Filters: `matches` (regex search; alias `regex_search`) plus all Jinja builtins — `default` being
-the load-bearing one (see above).
+Filters: `matches` (regex search; alias `regex_search`), `active_loras` (drops a `lora_picker`
+list's zero-strength entries — a `@loop`'s `items:` expression filters through it, e.g.
+`{{ form.loras | default([]) | active_loras }}`; missing/non-numeric/negative strengths are kept,
+only an exact-zero strength drops), `strip_model_dir` (strips a model picker value's depot type
+directory — `models/<vae|loras|checkpoints|...>/` — while keeping any subdirectories underneath,
+e.g. `{{ form.vae | strip_model_dir }}`; `None`/`''` and a value with no such prefix pass through
+as `''`/unchanged — see [Models and Backend Availability](models.md)) plus all Jinja builtins —
+`default` being the load-bearing one (see above).
 
 Note: `device`, `dtype` and `gpu_max_vram` are **not** in the template context — they are
 native-backend config, injected into every pipe by `NativeBackend.prepare_pipes`. See
@@ -1853,8 +1859,8 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    - `{kind: "field", field_name, field_type, label, default?, config?, mappings}` — a real form
      field. `mappings` is a list of `{node_id, input_name, transform}` (a field can map several
      inputs — resolution maps one field to both a width and a height input); `transform` is one of
-     `"none"`, `"strip_model_prefix"` (strips the model picker's storage prefix, the
-     `MODEL_TYPE_STRIP_PREFIXES` idiom below), `"split_wh_width"` / `"split_wh_height"` (the
+     `"none"`, `"strip_model_prefix"` (strips the model picker's depot type directory via the
+     `strip_model_dir` filter), `"split_wh_width"` / `"split_wh_height"` (the
      `.split('x')[0|1]` idiom below), or `"seed"` (wires the literal `"@seed"` sentinel regardless
      of the field's own value). A field needs at least one mapping, with one exception:
      `field_type: "lora_picker"` is graph-wired (see the `@loop` recipe below), never a single
@@ -2119,10 +2125,11 @@ applied in order after the workflow JSON loads:
   - ["{{ (form.resolution | default('832x1216')).split('x')[0] }}", "5.inputs.width", "int"]
   - ["{{ (form.resolution | default('832x1216')).split('x')[1] }}", "5.inputs.height", "int"]
   ```
-- Model-picker values carry their storage prefix (`models/checkpoints/foo.safetensors`); strip it
-  to the bare filename the ComfyUI loader node expects:
+- Model-picker values carry their depot type directory (`models/checkpoints/foo.safetensors`);
+  strip it with the `strip_model_dir` filter — it keeps any subdirectory underneath and passes a
+  bare filename or already-native ComfyUI ref through unchanged:
   ```yaml
-  - ["{{ (form.checkpoint | default('') or '') | replace('models/checkpoints/', '') }}", "4.inputs.ckpt_name", "str"]
+  - ["{{ form.checkpoint | strip_model_dir }}", "4.inputs.ckpt_name", "str"]
   ```
 
 **`node_manipulations`** — a list applied to the loaded workflow *before* `field_mappings`, each
@@ -2161,7 +2168,7 @@ node_manipulations:
         node_id: "lora_{{ loop.index }}"
         node_config:
           inputs:
-            lora_name: "{{ item.model | replace('models/loras/', '') }}"
+            lora_name: "{{ item.model | strip_model_dir }}"
             strength_model: "{{ item.strength }}"
             model: ["{% if loop.first %}4{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
           class_type: "LoraLoaderModelOnly"

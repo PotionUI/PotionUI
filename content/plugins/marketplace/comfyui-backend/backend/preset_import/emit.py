@@ -69,26 +69,6 @@ IMPORT_SIDECAR_FILENAME = "import.json"
 # re-open; the emitted `<mode>.json` no longer holds the replaced LoRA nodes.
 IMPORT_SOURCE_FILENAME = "import-source.json"
 
-# `strip_model_prefix`'s per-model-type root - a field's own `config.model_type`
-# (set on a "model" field by the wizard/defaults.py) selects which of these
-# applies; a field with no recognizable model_type falls back to stripping
-# every one of them in a chain (see `_ALL_MODEL_PREFIXES`).
-MODEL_TYPE_STRIP_PREFIXES = {
-    "checkpoint": ("models/checkpoints/",),
-    "diffusion_model": ("models/diffusion_models/", "models/checkpoints/"),
-    "clip": ("models/clip/",),
-    # The catalog's CLIP/text-encoder loaders (CLIPLoader, DualCLIPLoader, ...)
-    # all set `config.model_type: "text_encoder"`, never "clip" - the depot
-    # symlinks `models/text_encoders -> .../models/clip`, so a picker value
-    # can carry either spelling and both must be stripped.
-    "text_encoder": ("models/text_encoders/", "models/clip/"),
-    "vae": ("models/vae/",),
-    "lora": ("models/loras/",),
-}
-_ALL_MODEL_PREFIXES: Tuple[str, ...] = tuple(
-    dict.fromkeys(prefix for prefixes in MODEL_TYPE_STRIP_PREFIXES.values() for prefix in prefixes)
-)
-
 # ComfyUI built-ins the `comfyui_node` requirement never needs to name - a
 # node class outside this set is assumed to come from a custom node pack
 # and gets a `requirements:` entry so a missing install surfaces before
@@ -498,12 +478,7 @@ def _field_mapping_entry(field: FieldItem, mapping) -> List[Any]:
         return [value, f"{mapping.node_id}.inputs.{mapping.input_name}", "int"]
 
     if mapping.transform == "strip_model_prefix":
-        model_type = (field.config or {}).get("model_type")
-        prefixes = MODEL_TYPE_STRIP_PREFIXES.get(model_type, _ALL_MODEL_PREFIXES)
-        value = "{{ (form." + field.field_name + " | default('') or '')"
-        for prefix in prefixes:
-            value += " | replace('" + prefix + "', '')"
-        value += " }}"
+        value = "{{ form." + field.field_name + " | strip_model_dir }}"
         return [value, f"{mapping.node_id}.inputs.{mapping.input_name}", "str"]
 
     if field.field_type in ("image", "video", "audio"):
@@ -678,7 +653,7 @@ def _lora_node_manipulations(
     model_index: Any = source_index if source_index == 0 else f"{{{{ {source_index} if loop.first else 0 }}}}"
 
     node_inputs: Dict[str, Any] = {
-        "lora_name": "{{ item.model | replace('models/loras/', '') }}",
+        "lora_name": "{{ item.model | strip_model_dir }}",
         "strength_model": "{{ item.strength }}",
         "model": [
             "{% if loop.first %}" + source_id + "{% else %}lora_{{ loop.index0 }}{% endif %}",

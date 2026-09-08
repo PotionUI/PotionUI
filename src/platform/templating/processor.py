@@ -34,6 +34,7 @@ from src.platform.templating.icon_mapper import IconMapper
 from src.platform.templating.dict_utils import (
     active_loras,
     regex_search,
+    strip_model_dir,
     get_speed_profile_value,
     _NO_DEFAULT as _NO_SPEED_PROFILE_DEFAULT,
 )
@@ -129,6 +130,7 @@ class TemplateProcessor:
         self.env.filters['matches'] = self.regex_search
         self.env.filters['regex_search'] = self.regex_search
         self.env.filters['active_loras'] = self.active_loras
+        self.env.filters['strip_model_dir'] = self.strip_model_dir
 
     def _get_plugin_registry(self):
         """Get plugin registry for hook execution (lazy load to avoid import cycles)."""
@@ -327,6 +329,19 @@ class TemplateProcessor:
             The filtered list.
         """
         return active_loras(value)
+
+    def strip_model_dir(self, value: Any) -> str:
+        """
+        Strip a model picker value's `models/<type>/` prefix (see
+        `dict_utils.strip_model_dir`).
+
+        Args:
+            value: The picker value.
+
+        Returns:
+            The value with its depot type directory removed, or unchanged.
+        """
+        return strip_model_dir(value)
 
     def regex_search(self, value: str, pattern: str) -> bool:
         """

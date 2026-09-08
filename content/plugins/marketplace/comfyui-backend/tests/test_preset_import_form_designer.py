@@ -5,6 +5,7 @@ and one end-to-end emit -> lint -> render through a row + group + section.
 """
 
 import json
+import re
 import subprocess
 import sys
 import uuid
@@ -74,6 +75,31 @@ def _active_loras(value):
     return kept
 
 
+_STRIPPABLE_MODEL_DIRS = (
+    "checkpoints", "diffusion_models", "loras", "embeddings", "upscalers", "vae",
+    "controlnet", "adetailer", "text_encoders", "unet", "insightface", "facerestore",
+    "instantid", "detection_segm", "detection_bbox", "mediapipe", "llm", "vfi", "clip",
+)
+_MODEL_DIR_PREFIX_RE = re.compile(
+    r"(?:^|/)models/(?:" + "|".join(_STRIPPABLE_MODEL_DIRS) + r")/"
+)
+
+
+def _strip_model_dir(value):
+    """A plugin test may not import `src.platform.templating` (see
+    `_active_loras`) - a test-local copy of
+    `src.platform.templating.dict_utils.strip_model_dir`'s semantics, used
+    only to render a template's own output for a bite-check."""
+    if not value:
+        return ""
+    if not isinstance(value, str):
+        return value
+    matches = list(_MODEL_DIR_PREFIX_RE.finditer(value))
+    if not matches:
+        return value
+    return value[matches[-1].end():]
+
+
 def _render(template: str, context: dict) -> str:
     """Render one of this importer's own Jinja templates with plain
     `jinja2` (never `src.platform.templating`, a plugin-forbidden import -
@@ -81,6 +107,7 @@ def _render(template: str, context: dict) -> str:
     string this test built itself, not a stand-in for the real render path."""
     env = jinja2.Environment()
     env.filters["active_loras"] = _active_loras
+    env.filters["strip_model_dir"] = _strip_model_dir
     return env.from_string(template).render(context)
 
 
@@ -912,7 +939,7 @@ class TestTransforms:
         comfyui_pipe = next(p for p in pipeline["pipeline"] if p["name"] == "comfyui")
         return comfyui_pipe["configuration"]["field_mappings"]
 
-    def test_strip_model_prefix_uses_the_known_model_type_prefix(self, dest_root):
+    def test_strip_model_prefix_emits_the_strip_model_dir_filter(self, dest_root):
         workflow = _sdxl_workflow()
         field = FieldItem(
             field_name="checkpoint", field_type="model", label="Checkpoint", config={"model_type": "checkpoint"},
@@ -921,7 +948,7 @@ class TestTransforms:
         form = ImportForm(tabs=[FormTab(id="generation", label="Generation", items=[field])])
         result = emit_preset(workflow, form, [], model_family="StripKnown", variant="v1", display_name="X", dest_root=dest_root)
         entry = next(m for m in self._field_mappings(result) if m[1] == "4.inputs.ckpt_name")
-        assert "models/checkpoints/" in entry[0]
+        assert "strip_model_dir" in entry[0]
         assert entry[2] == "str"
 
     def test_bite_check_strip_model_prefix_actually_strips_at_render_time(self, dest_root):
@@ -939,7 +966,11 @@ class TestTransforms:
         rendered = _render(template, {"form": {"checkpoint": "models/checkpoints/foo.safetensors"}})
         assert rendered == "foo.safetensors"
 
-    def test_strip_model_prefix_falls_back_to_every_known_prefix_without_model_type(self, dest_root):
+    def test_strip_model_prefix_needs_no_model_type_config(self, dest_root):
+        """`strip_model_dir` recognizes every depot directory generically, so
+        the transform strips correctly even when the field carries no
+        `config.model_type` at all - unlike the old per-model-type prefix
+        dispatch, there is no "fallback" behavior to distinguish."""
         workflow = _sdxl_workflow()
         field = FieldItem(
             field_name="checkpoint", field_type="model", label="Checkpoint",
@@ -1021,9 +1052,9 @@ class TestTransforms:
     def test_text_encoder_strip_model_prefix_strips_the_text_encoders_prefix(self, dest_root):
         """The catalog's CLIP loaders set `config.model_type: "text_encoder"`
         (never "clip"), and the depot's own folder for these files is
-        `text_encoders` - MODEL_TYPE_STRIP_PREFIXES must resolve that key,
-        or a real picker value's `models/text_encoders/` prefix reaches
-        ComfyUI's `clip_name` unstripped."""
+        `text_encoders` - `strip_model_dir` must recognize that directory
+        name, or a real picker value's `models/text_encoders/` prefix
+        reaches ComfyUI's `clip_name` unstripped."""
         workflow = _sdxl_workflow()
         field = FieldItem(
             field_name="clip", field_type="model", label="CLIP Model", config={"model_type": "text_encoder"},

@@ -7,6 +7,55 @@ attribute access rather than dict-path helper functions; see docs/presets.md.
 import re
 from typing import Any, Dict, List
 
+from src.platform.filesystem.model_types import MODEL_DIRECTORY_NAMES
+
+# `clip` is the pre-migration depot directory name for what is now
+# `text_encoders` (see `migrations/002_rename_clip_to_text_encoder.py`); it is
+# not a current `MODEL_DIRECTORY_NAMES` entry, but a form value saved before
+# that migration - or the ComfyUI-vocabulary spelling some importer fields
+# still carry - can still hold it, so it must strip the same as any live
+# directory name.
+_STRIPPABLE_MODEL_DIRS = MODEL_DIRECTORY_NAMES + ('clip',)
+
+# A depot type directory, anchored so it only matches a real path segment
+# (start-of-string or right after a "/") - never the middle of an unrelated
+# name like "custom_models/loras/x". Matched greedily left-to-right; the
+# LAST occurrence in the value is used, so a leading storage root that
+# itself contains "models/<dir>/" (an oddly-named root, or a value with the
+# prefix repeated) still resolves to the real, innermost type boundary.
+_MODEL_DIR_PREFIX_RE = re.compile(
+    r'(?:^|/)models/(?:' + '|'.join(re.escape(name) for name in _STRIPPABLE_MODEL_DIRS) + r')/'
+)
+
+
+def strip_model_dir(value: Any) -> str:
+    """
+    Strip a model picker value down to its path relative to the depot type
+    directory, keeping any subdirectories under it.
+
+    Backs the `strip_model_dir` filter, which replaces the old per-preset
+    `replace('models/loras/', '')` idiom (see docs/models.md). A value with
+    no recognizable `models/<type>/` segment - a bare filename, an already
+    backend-native ComfyUI ref, or a value with an unrelated prefix - passes
+    through unchanged; `None`/`''` map to `''`.
+
+    Args:
+        value: The picker value (a form field's string, or an `item.model`
+            entry from a `lora_picker` list).
+
+    Returns:
+        The value with its `models/<type>/` prefix removed, or unchanged.
+    """
+    if not value:
+        return ''
+    if not isinstance(value, str):
+        return value
+
+    matches = list(_MODEL_DIR_PREFIX_RE.finditer(value))
+    if not matches:
+        return value
+    return value[matches[-1].end():]
+
 
 def active_loras(value: Any) -> List[Any]:
     """

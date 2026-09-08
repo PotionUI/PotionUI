@@ -97,7 +97,7 @@ pipeline:
               node_id: "lora_{{ loop.index }}"
               node_config:
                 inputs:
-                  lora_name: "{{ item.model | replace('models/loras/', '') }}"
+                  lora_name: "{{ item.model | strip_model_dir }}"
                   strength_model: "{{ item.strength }}"
                   model: ["{% if loop.first %}4{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
                 class_type: "LoraLoaderModelOnly"
@@ -122,7 +122,7 @@ pipeline:
         - ["{{ generation.prompts.first.negative }}", "7.inputs.text", "str"]
 
         # Checkpoint - node 4
-        - ["{{ (form.checkpoint | default('') or '') | replace('models/checkpoints/', '') }}", "4.inputs.ckpt_name", "str"]
+        - ["{{ form.checkpoint | strip_model_dir }}", "4.inputs.ckpt_name", "str"]
 
         # Resolution - parse width and height from resolution string (e.g., "832x1216")
         - ["{{ (form.resolution | default('832x1216')).split('x')[0] }}", "5.inputs.width", "int"]

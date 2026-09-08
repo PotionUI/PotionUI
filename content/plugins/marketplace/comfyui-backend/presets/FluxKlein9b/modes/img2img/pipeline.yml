@@ -104,7 +104,7 @@ pipeline:
               node_id: "lora_{{ loop.index }}"
               node_config:
                 inputs:
-                  lora_name: "{{ item.model | replace('models/loras/', '') }}"
+                  lora_name: "{{ item.model | strip_model_dir }}"
                   strength_model: "{{ item.strength }}"
                   model: ["{% if loop.first %}75:70{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
                 class_type: "LoraLoaderModelOnly"
@@ -180,9 +180,9 @@ pipeline:
         - ["{{ form.input_image_2 | default('') }}", "81.inputs.image", "image"]
 
         # Models
-        - ["{{ (form.diffusion_model | default('') or '') | replace('models/diffusion_models/', '') | replace('models/checkpoints/', '') }}", "75:70.inputs.unet_name", "str"]
-        - ["{{ (form.clip | default('') or '') | replace('models/clip/', '') }}", "75:71.inputs.clip_name", "str"]
-        - ["{{ (form.vae | default('') or '') | replace('models/vae/', '') }}", "75:72.inputs.vae_name", "str"]
+        - ["{{ form.diffusion_model | strip_model_dir }}", "75:70.inputs.unet_name", "str"]
+        - ["{{ form.clip | strip_model_dir }}", "75:71.inputs.clip_name", "str"]
+        - ["{{ form.vae | strip_model_dir }}", "75:72.inputs.vae_name", "str"]
 
         # Batch size
         - ["{{ form.quantity | default(1) }}", "75:66.inputs.batch_size", "int"]

@@ -106,7 +106,8 @@ class TestTemplateFunctionsDocumenter:
 
         names = [func['name'] for func in result['functions']]
 
-        for name in ['path', 'icon', 'get_speed_profile', 'matches', 'default',
+        for name in ['path', 'icon', 'get_speed_profile', 'matches', 'active_loras',
+                     'strip_model_dir', 'default',
                      'form', 'request', 'generation', 'preset', 'runtime', 'paths']:
             assert name in names, f"Expected template surface '{name}' not documented"
 
@@ -169,6 +170,17 @@ class TestTemplateFunctionsDocumenter:
         assert form_ctx is not None
         assert form_ctx['category'] == 'Template Context'
         assert len(form_ctx['examples']) > 0
+
+    def test_strip_model_dir_filter_documentation(self):
+        """Test the 'strip_model_dir' filter is properly documented."""
+        documenter = TemplateFunctionsDocumenter()
+        result = documenter.generate_documentation()
+
+        strip_filter = next((f for f in result['functions'] if f['name'] == 'strip_model_dir'), None)
+
+        assert strip_filter is not None
+        assert strip_filter['category'] == 'Filters'
+        assert len(strip_filter['examples']) > 0
 
     def test_default_filter_documentation(self):
         """Test the builtin 'default' filter is documented (the only miss-suppressor)."""

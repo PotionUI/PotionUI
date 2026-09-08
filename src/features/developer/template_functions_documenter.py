@@ -6,8 +6,9 @@ src/platform/templating/processor.py):
 
 - the three allowlisted global functions (``path``/``get_path_for``,
   ``icon``/``get_icon``, ``get_speed_profile``);
-- the two custom filters (``matches``/``regex_search``) plus Jinja's builtin
-  ``default`` (the ONLY suppression of a missing value under StrictUndefined);
+- the custom filters (``matches``/``regex_search``, ``active_loras``,
+  ``strip_model_dir``) plus Jinja's builtin ``default`` (the ONLY suppression
+  of a missing value under StrictUndefined);
 - the template context roots (``form``, ``request``, ``generation``,
   ``preset``, ``runtime``, ``paths``) that native attribute access reads from.
 
@@ -113,6 +114,45 @@ class TemplateFunctionsDocumenter:
                     "examples": [
                         {"code": "{% if form.model | matches('flux') %}...{% endif %}", "result": "True if the selected model name contains 'flux'"},
                         {"code": "{% if preset.name | matches('^SDXL') %}...{% endif %}", "result": "True if the preset name starts with 'SDXL'"},
+                    ],
+                },
+                {
+                    "name": "active_loras",
+                    "alias": None,
+                    "signature": "value | active_loras -> list",
+                    "description": (
+                        "Drop the lora_picker list's zero-strength entries. A missing strength "
+                        "(lora_picker's own strength_default applies), a negative strength "
+                        "(inverted LoRA) and a non-numeric strength all stay - only an exact-zero "
+                        "strength is dropped."
+                    ),
+                    "parameters": [
+                        {"name": "value", "type": "list", "description": "A lora_picker field's value (pipe input)"},
+                    ],
+                    "return_type": "list",
+                    "examples": [
+                        {"code": "{{ form.loras | default([]) | active_loras }}", "result": "The list with zero-strength entries removed"},
+                    ],
+                },
+                {
+                    "name": "strip_model_dir",
+                    "alias": None,
+                    "signature": "value | strip_model_dir -> str",
+                    "description": (
+                        "Strip a model picker value down to its path relative to the depot type "
+                        "directory (`models/<checkpoints|loras|vae|...>/`), keeping any "
+                        "subdirectories underneath. A bare filename or an already backend-native "
+                        "ref (no such prefix) passes through unchanged; None/'' map to ''. "
+                        "Replaces the old `replace('models/loras/', '')` idiom in ComfyUI preset "
+                        "templates - see docs/models.md."
+                    ),
+                    "parameters": [
+                        {"name": "value", "type": "str", "description": "A model/lora_picker field's value (pipe input)"},
+                    ],
+                    "return_type": "str",
+                    "examples": [
+                        {"code": "{{ form.vae | strip_model_dir }}", "result": "'x.safetensors' for 'models/vae/x.safetensors'"},
+                        {"code": "{{ item.model | strip_model_dir }}", "result": "'style/x.safetensors' for 'models/loras/style/x.safetensors'"},
                     ],
                 },
                 {

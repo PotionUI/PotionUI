@@ -313,6 +313,36 @@ class TestActiveLorasFilter:
         assert result == []
 
 
+class TestStripModelDirFilter:
+    """The `strip_model_dir` filter, as ComfyUI preset templates use it in
+    place of the old `replace('models/loras/', '')` idiom (see docs/models.md)."""
+
+    def test_strips_the_depot_type_directory(self, processor):
+        result = processor.process_template(
+            "{{ form.vae | strip_model_dir }}", {"form": {"vae": "models/vae/x.safetensors"}}
+        )
+        assert result == "x.safetensors"
+
+    def test_keeps_subdirectories(self, processor):
+        result = processor.process_template(
+            "{{ item.model | strip_model_dir }}",
+            {"item": {"model": "models/loras/style/x.safetensors"}},
+        )
+        assert result == "style/x.safetensors"
+
+    def test_bare_filename_unchanged(self, processor):
+        result = processor.process_template(
+            "{{ form.checkpoint | strip_model_dir }}", {"form": {"checkpoint": "foo.safetensors"}}
+        )
+        assert result == "foo.safetensors"
+
+    def test_undefined_form_field_via_default_maps_to_empty_string(self, processor):
+        result = processor.process_template(
+            "{{ form.vae | default('') | strip_model_dir }}", {"form": {}}
+        )
+        assert result == ""
+
+
 class TestEvaluateExpression:
     """evaluate_expression: the direct hook `@loop` items will call."""
 

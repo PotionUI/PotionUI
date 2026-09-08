@@ -13,6 +13,7 @@ from src.platform.templating.dict_utils import (
     active_loras,
     get_speed_profile_value,
     regex_search,
+    strip_model_dir,
 )
 
 
@@ -73,6 +74,48 @@ class TestActiveLoras:
     @pytest.mark.parametrize("value", [None, "loras", 5, {"model": "a"}])
     def test_non_list_returns_empty_list(self, value):
         assert active_loras(value) == []
+
+
+class TestStripModelDir:
+    """Test cases for strip_model_dir, backing the `strip_model_dir` filter."""
+
+    def test_none_maps_to_empty_string(self):
+        assert strip_model_dir(None) == ''
+
+    def test_empty_string_maps_to_empty_string(self):
+        assert strip_model_dir('') == ''
+
+    def test_bare_filename_passes_through_unchanged(self):
+        assert strip_model_dir('foo.safetensors') == 'foo.safetensors'
+
+    def test_strips_the_depot_type_directory(self):
+        assert strip_model_dir('models/vae/x.safetensors') == 'x.safetensors'
+
+    def test_keeps_subdirectories_under_the_type_directory(self):
+        assert strip_model_dir('models/vae/sub/dir/x.safetensors') == 'sub/dir/x.safetensors'
+
+    def test_strips_text_encoders_directory(self):
+        assert strip_model_dir('models/text_encoders/x.safetensors') == 'x.safetensors'
+
+    def test_strips_the_pre_migration_clip_alias(self):
+        """`clip` is not a live MODEL_DIRECTORY_NAMES entry (renamed to
+        text_encoders), but a value saved before that migration - or the
+        ComfyUI-vocabulary spelling - can still carry it."""
+        assert strip_model_dir('models/clip/x.safetensors') == 'x.safetensors'
+
+    def test_value_with_unrelated_prefix_passes_through_unchanged(self):
+        assert strip_model_dir('custom_models/loras/x.safetensors') == 'custom_models/loras/x.safetensors'
+
+    def test_tolerates_a_leading_absolute_storage_root(self):
+        assert strip_model_dir('/srv/weights/models/loras/x.safetensors') == 'x.safetensors'
+
+    def test_already_stripped_backend_native_ref_passes_through_unchanged(self):
+        """A ComfyUI-native ref (form_refs.py's resolved value) already has
+        no `models/<type>/` prefix - just its own subfolder, if any."""
+        assert strip_model_dir('style/x.safetensors') == 'style/x.safetensors'
+
+    def test_non_string_value_passes_through_unchanged(self):
+        assert strip_model_dir(42) == 42
 
 
 class TestRegexSearch:

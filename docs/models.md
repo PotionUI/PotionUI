@@ -7,9 +7,10 @@ order: 20
 # Models and Backend Availability
 
 > **Status: implemented** (2026-07-09), except where noted. The one deliberate exception is the
-> 134 `replace('models/…/', '')` calls in ComfyUI preset templates, which remain as a
-> compatibility shim — see "The form value" below. Read [`docs/backends.md`](backends.md) first;
-> engine vs. backend is assumed throughout.
+> `strip_model_dir` filter calls in ComfyUI preset templates (a `models/<type>/` prefix strip,
+> `replace('models/…/', '')` idiom before it), which remain as a compatibility shim — see "The
+> form value" below. Read [`docs/backends.md`](backends.md) first; engine vs. backend is assumed
+> throughout.
 
 ## The problem
 
@@ -33,18 +34,19 @@ ComfyUI server but absent from this host is simply invisible to the picker, howe
 may be.
 
 **Preset templates reconstruct the remote name by string surgery.** Because the field value is a
-local path, every ComfyUI preset strips the prefix back off:
+local path, every ComfyUI preset strips the prefix back off, via the `strip_model_dir` filter
+(`src/platform/templating/dict_utils.py`; see [`docs/presets.md`](presets.md#filters)):
 
 ```jinja
-lora_name: "{{ item['model'] | replace('models/loras/', '') }}"
+lora_name: "{{ item.model | strip_model_dir }}"
 ```
 
-There are 134 such calls. They only work while `models_dir` is exactly `./models`; point it
-elsewhere and `replace` matches the middle of an absolute path, silently corrupting the name:
-
-```
-/srv/weights/models/loras/x.safetensors  →  /srv/weights/x.safetensors
-```
+There are 26 such calls across the shipped preset templates. Unlike the naive
+`replace('models/loras/', '')` idiom it replaced,
+`strip_model_dir` anchors on the last `models/<known type dir>/` path boundary, so a `models_dir`
+other than the default `./models` doesn't corrupt the name — only the type directory is stripped,
+any subdirectory underneath it is kept, and a value it doesn't recognize (a bare filename, or an
+already backend-native ref) passes through unchanged.
 
 **Generation history breaks whenever the string doesn't match.** `generation_models.model_id` is
 a foreign key to `models.id` — the history is correctly keyed on the logical model. But
@@ -302,8 +304,10 @@ therefore receive an engine-native string.
 
 Anything that is not a `model:` reference passes through untouched. That is what keeps saved
 sessions, preset defaults (bare filenames) and legacy path values working — and it is why the
-134 `replace('models/loras/', '')` calls **cannot yet be deleted**: they remain load-bearing for
-those legacy values, while being harmless no-ops on a modern ref.
+`strip_model_dir` filter calls **cannot yet be deleted**: they remain load-bearing for those
+legacy values (a local `models/loras/x.safetensors` path resolved before availability existed),
+while being harmless no-ops on a modern ref (already backend-native, with no `models/<type>/`
+prefix to strip).
 
 A backend that has never been indexed is a special case. It holds models; it has simply never been
 asked, so an absent availability row proves nothing. Resolution then falls back to the model's own

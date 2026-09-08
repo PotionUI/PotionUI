@@ -1303,8 +1303,9 @@
 
 			currentChipIds.add(chipId);
 
-			// Check if chip is already mounted
-			if (container.querySelector('.inline-chip')) return;
+			// InlineChip's root carries `.phrase-chip`; `.inline-chip` is the
+			// container itself, so matching it never detected a mounted chip.
+			if (container.querySelector('.phrase-chip')) return;
 
 			const chipData = chips[chipId];
 
@@ -1389,8 +1390,13 @@
 		tick().then(syncDOMWithValue);
 	}
 
-	// React to external chip data changes (e.g., shuffle on generation)
-	// Track previous chip valueIds to detect which chips actually changed
+	// React to external chip data changes (e.g., shuffle on generation, or an
+	// apply that swaps a marker's chip id — see `mergeChipSelections` in
+	// promptSegments.ts — without touching `value` itself: when the marker's
+	// literal text is unchanged, the `value`-watcher above never fires, so a
+	// pure id swap has to be caught here or the DOM keeps a container whose
+	// `data-chip-id` no longer resolves in `chips` at all).
+	// Track previous chip valueIds to detect which chips actually changed.
 	let previousChipValues: Record<string, string> = {};
 
 	let lastChipsHash = '';
@@ -1404,14 +1410,41 @@
 			lastChipsHash = currentHash;
 			previousChipValues = currentValues;
 
-			// Remount only chips that actually changed their valueId
 			tick().then(() => {
-				if (editorRef) {
-					for (const [chipId, chipData] of Object.entries(chips)) {
-						// Only animate if this specific chip's value changed
-						const valueChanged = prevValues[chipId] !== undefined && prevValues[chipId] !== chipData.valueId;
-						remountChip(chipId, chipData, valueChanged);
-					}
+				if (!editorRef) return;
+
+				// A chip id swap under an unchanged marker leaves the DOM's
+				// `.inline-chip-container` ids out of step with `chips`'
+				// keys — `remountChip(newId, ...)` can't find a container for
+				// an id the DOM never got (nothing rebuilt it, since `value`
+				// text didn't change), and the container that's actually
+				// there still carries the now-deleted old id, so its chip's
+				// change/remove/deactivate handlers would close over a
+				// `chipId` no longer present in `chips`. Detect that
+				// structural mismatch and fall back to a full rebuild
+				// (`syncDOMWithValue`, which resolves every marker against
+				// the current `chips` map from scratch) instead of trying to
+				// patch individual containers by id.
+				const domChipIds = new Set(
+					Array.from(editorRef.querySelectorAll<HTMLElement>('.inline-chip-container'))
+						.map((el) => el.dataset.chipId)
+						.filter((id): id is string => !!id)
+				);
+				const chipIds = Object.keys(chips);
+				const idsMatch =
+					domChipIds.size === chipIds.length && chipIds.every((id) => domChipIds.has(id));
+
+				if (!idsMatch) {
+					syncDOMWithValue();
+					return;
+				}
+
+				// Same ids — an in-place value change (e.g. a shuffle).
+				// Remount only what actually changed.
+				for (const [chipId, chipData] of Object.entries(chips)) {
+					// Only animate if this specific chip's value changed
+					const valueChanged = prevValues[chipId] !== undefined && prevValues[chipId] !== chipData.valueId;
+					remountChip(chipId, chipData, valueChanged);
 				}
 			});
 		} else if (!lastChipsHash) {

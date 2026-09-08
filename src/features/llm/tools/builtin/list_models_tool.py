@@ -5,6 +5,7 @@ import logging
 from typing import Any, Dict
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.llm.tools.builtin.utils import allowed_model_ids
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,7 @@ class ListModelsTool(BaseTool):
                 limit=limit,
                 include_providers=False,
                 include_tags=True,
+                allowed_model_ids=allowed_model_ids(context),
             )
 
             results = []

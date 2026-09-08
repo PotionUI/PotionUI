@@ -3,10 +3,28 @@
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.features.llm.tools.base import ToolApprovalPreview
+from src.features.llm.tools.base import ToolApprovalPreview, ToolContext
 from src.features.models.form_refs import is_model_ref, model_id_of
+from src.platform.security.user import AccountType, User
 
 logger = logging.getLogger(__name__)
+
+
+def allowed_model_ids(context: ToolContext) -> Optional[List[str]]:
+    """Model ids the tool-calling user may see, per the same `ModelAccessPolicy`
+    the regular model listing/detail endpoints enforce (`ModelIndexCollaborators.access`,
+    reached off `context.model_index_manager`). `None` means unrestricted (an admin).
+
+    `ToolContext` carries only `user_id`/`is_admin`, not a full `User`, so this builds
+    the minimal stand-in the policy actually reads (`.id`/`.account_type`) rather than
+    re-deriving the admin-bypass/scoping rule here.
+    """
+    stand_in = User(
+        username="", email="", password_hash="",
+        id=context.user_id,
+        account_type=AccountType.ADMIN if context.is_admin else AccountType.USER,
+    )
+    return context.model_index_manager.access.get_allowed_model_ids(stand_in, all_models=True)
 
 # form_data keys the generation preview's settings grid reads, in display order.
 _GENERATION_SETTINGS_FIELDS = (

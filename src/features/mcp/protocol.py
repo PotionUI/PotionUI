@@ -149,12 +149,13 @@ def _allowed_tool_names(collaborators: McpToolCollaborators, user_id: str) -> Li
     return compute_allowed_tool_names(candidate_names, snapshot, user_disabled)
 
 
-def _build_tool_context(collaborators: McpToolCollaborators, user_id: str) -> ToolContext:
+def _build_tool_context(collaborators: McpToolCollaborators, user_id: str, is_admin: bool) -> ToolContext:
     llm_repository = collaborators.llm_repository
     default_config = llm_repository.get_default_configuration() if llm_repository else None
     return ToolContext(
         user_id=user_id,
         mode_id=_MCP_SCOPE.id,
+        is_admin=is_admin,
         session_metadata={},
         segment_category_repository=collaborators.segment_category_repository,
         saved_segment_repository=collaborators.saved_segment_repository,
@@ -205,7 +206,8 @@ def list_tools(collaborators: McpToolCollaborators, user_id: str) -> Dict[str, A
 
 
 async def call_tool(
-    collaborators: McpToolCollaborators, user_id: str, name: str, arguments: Dict[str, Any]
+    collaborators: McpToolCollaborators, user_id: str, name: str, arguments: Dict[str, Any],
+    is_admin: bool = False,
 ) -> Dict[str, Any]:
     allowed = _allowed_tool_names(collaborators, user_id)
     if name not in allowed:
@@ -215,7 +217,7 @@ async def call_tool(
     if tool is None:
         raise JsonRpcError(INVALID_PARAMS, f"Unknown tool: {name}")
 
-    context = _build_tool_context(collaborators, user_id)
+    context = _build_tool_context(collaborators, user_id, is_admin)
     try:
         if tool.requires_approval:
             # The MCP client already gated this call behind its own
@@ -237,7 +239,8 @@ async def call_tool(
 # --- JSON-RPC dispatch ---
 
 async def handle_method(
-    collaborators: McpToolCollaborators, method: str, params: Dict[str, Any], user_id: str
+    collaborators: McpToolCollaborators, method: str, params: Dict[str, Any], user_id: str,
+    is_admin: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Returns the JSON-RPC `result` payload, or None for a notification
     that has no response body."""
@@ -262,7 +265,7 @@ async def handle_method(
         arguments = params.get("arguments") or {}
         if not isinstance(arguments, dict):
             raise JsonRpcError(INVALID_PARAMS, "'arguments' must be an object")
-        return await call_tool(collaborators, user_id, name, arguments)
+        return await call_tool(collaborators, user_id, name, arguments, is_admin=is_admin)
     raise JsonRpcError(METHOD_NOT_FOUND, f"Method not found: {method}")
 
 

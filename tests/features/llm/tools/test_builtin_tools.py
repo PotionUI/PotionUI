@@ -388,6 +388,7 @@ class TestGetModelInfoTool:
             }
         }
         mim = MagicMock()
+        mim.access.get_allowed_model_ids.return_value = None
         mim.catalog.get_model_by_id.return_value = raw
         ctx = make_context(model_index_manager=mim)
 
@@ -418,6 +419,7 @@ class TestGetModelInfoTool:
             }
         }
         mim = MagicMock()
+        mim.access.get_allowed_model_ids.return_value = None
         mim.catalog.get_model_by_id.return_value = raw
         ctx = make_context(model_index_manager=mim)
 
@@ -454,6 +456,7 @@ class TestGetModelInfoTool:
             }
         }
         mim = MagicMock()
+        mim.access.get_allowed_model_ids.return_value = None
         mim.catalog.get_model_by_id.return_value = raw
         ctx = make_context(model_index_manager=mim)
 
@@ -469,6 +472,7 @@ class TestGetModelInfoTool:
         raw = {"model": {"id": "m-3", "filename": "f.safetensors", "type": "checkpoint",
                          "description": "", "tags": [], "triggers": []}}
         mim = MagicMock()
+        mim.access.get_allowed_model_ids.return_value = None
         mim.catalog.get_model_by_id.return_value = raw
         ctx = make_context(model_index_manager=mim)
 
@@ -488,6 +492,7 @@ class TestGetModelInfoTool:
     @pytest.mark.asyncio
     async def test_missing_model_id(self):
         mim = MagicMock()
+        mim.access.get_allowed_model_ids.return_value = None
         ctx = make_context(model_index_manager=mim)
         result = await self._tool().execute(ctx)
         assert result.success is False
@@ -504,6 +509,7 @@ class TestGetModelInfoTool:
             "tags": [],
         }
         mim = MagicMock()
+        mim.access.get_allowed_model_ids.return_value = None
         mim.catalog.get_model_by_id.return_value = raw
         ctx = make_context(model_index_manager=mim)
 
@@ -518,6 +524,7 @@ class TestGetModelInfoTool:
     async def test_all_lookups_fail_returns_error(self):
         """When get_model_by_id, path lookup, and filename search all fail."""
         mim = MagicMock()
+        mim.access.get_allowed_model_ids.return_value = None
         mim.catalog.get_model_by_id.side_effect = KeyError("not found")
         repo = MagicMock()
         repo.get_by_file_path.return_value = None
@@ -532,6 +539,7 @@ class TestGetModelInfoTool:
     async def test_fallback_to_path_lookup(self):
         """When get_model_by_id fails, should try path-based lookup."""
         mim = MagicMock()
+        mim.access.get_allowed_model_ids.return_value = None
         mim.catalog.get_model_by_id.side_effect = KeyError("not found")
 
         model_obj = MagicMock()
@@ -564,6 +572,7 @@ class TestGetModelInfoTool:
     async def test_fallback_to_filename_search(self):
         """When both ID and path fail, should search by filename."""
         mim = MagicMock()
+        mim.access.get_allowed_model_ids.return_value = None
         mim.catalog.get_model_by_id.side_effect = KeyError("not found")
 
         model_obj = MagicMock()
@@ -592,6 +601,7 @@ class TestGetModelInfoTool:
         repo.get_all.assert_called_once_with(
             search="sdxl.safetensors", limit=1,
             include_providers=True, include_tags=True,
+            allowed_model_ids=None,
         )
 
     @pytest.mark.asyncio
@@ -621,6 +631,7 @@ class TestGetModelInfoTool:
             }
         }
         mim_by_id = MagicMock()
+        mim_by_id.access.get_allowed_model_ids.return_value = None
         mim_by_id.catalog.get_model_by_id.return_value = by_id_raw
         ctx_by_id = make_context(model_index_manager=mim_by_id)
         result_by_id = await self._tool().execute(ctx_by_id, model_id="m-1", fields=fields)
@@ -640,6 +651,7 @@ class TestGetModelInfoTool:
         repo = MagicMock()
         repo.get_by_file_path.return_value = model_obj
         mim_by_path = MagicMock()
+        mim_by_path.access.get_allowed_model_ids.return_value = None
         mim_by_path.catalog.get_model_by_id.side_effect = KeyError("not found")
         mim_by_path.model_repo = repo
         ctx_by_path = make_context(model_index_manager=mim_by_path)

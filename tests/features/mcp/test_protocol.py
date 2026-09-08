@@ -341,3 +341,103 @@ class TestRealOrganizationToolsOverMcp:
         payload = json.loads(result["content"][0]["text"])
         assert payload["collections"] == [{"id": "col-1", "name": "Favorites"}]
         collection_repository.list.assert_called_once_with("user-1", "history")
+
+
+class TestModelVisibilityOverMcp:
+    """MCP acts in the name of the token's owner and must see exactly what that
+    user sees, so list_models/get_model_info must apply the same
+    ModelAccessPolicy the regular /api/models listing enforces
+    (`ModelIndexCollaborators.access`) rather than handing every caller the
+    unfiltered catalog."""
+
+    @pytest.fixture
+    def model_protocol(self, mcp_db):
+        from src.features.llm.tools.builtin import register_builtin_tools
+        from src.features.models.access_policy import ModelAccessPolicy
+        from src.features.models.catalog import ModelCatalog
+        from src.features.models.records import Model
+        from src.features.models.repository import ModelRepository
+
+        model_repo = ModelRepository()
+        model = model_repo.create(Model(
+            filename="unassigned.safetensors",
+            file_path="/models/checkpoints/unassigned.safetensors",
+            file_size=1024,
+            sha256="a" * 64,
+            model_type="checkpoint",
+        ))
+        with mcp_db.get_cursor() as cursor:
+            for user_id, account_type in (("user-1", "USER"), ("admin-1", "ADMIN")):
+                cursor.execute(
+                    "INSERT INTO users (id, username, email, password_hash, account_type) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (user_id, user_id, f"{user_id}@x.com", "hash", account_type),
+                )
+
+        registry = ToolRegistry()
+        register_builtin_tools(registry)
+        governance_repo = ToolGovernanceRepository()
+        access_policy = ModelAccessPolicy(model_repo)
+        model_index_manager = SimpleNamespace(
+            model_repo=model_repo,
+            access=access_policy,
+            catalog=ModelCatalog(model_repo, access_policy, scanner=None),
+        )
+        collaborators = McpToolCollaborators(
+            tool_registry=registry,
+            tool_governance_repository=governance_repo,
+            llm_repository=_no_default_config(),
+            model_index_manager=model_index_manager,
+        )
+        return collaborators, model, model_repo
+
+    @pytest.mark.asyncio
+    async def test_list_models_hides_an_unassigned_model_from_a_normal_user(self, model_protocol):
+        collaborators, _model, _repo = model_protocol
+        result = await handle_method(
+            collaborators, "tools/call", {"name": "list_models", "arguments": {}}, "user-1",
+        )
+        payload = json.loads(result["content"][0]["text"])
+        assert payload["models"] == []
+
+    @pytest.mark.asyncio
+    async def test_list_models_shows_the_model_once_assigned(self, model_protocol):
+        collaborators, model, repo = model_protocol
+        repo.assign_model_to_user(model.id, "user-1")
+
+        result = await handle_method(
+            collaborators, "tools/call", {"name": "list_models", "arguments": {}}, "user-1",
+        )
+        payload = json.loads(result["content"][0]["text"])
+        assert [m["id"] for m in payload["models"]] == [model.id]
+
+    @pytest.mark.asyncio
+    async def test_list_models_shows_admin_everything_regardless_of_assignment(self, model_protocol):
+        collaborators, model, _repo = model_protocol
+        result = await handle_method(
+            collaborators, "tools/call", {"name": "list_models", "arguments": {}}, "admin-1",
+            is_admin=True,
+        )
+        payload = json.loads(result["content"][0]["text"])
+        assert [m["id"] for m in payload["models"]] == [model.id]
+
+    @pytest.mark.asyncio
+    async def test_get_model_info_reports_an_unassigned_model_not_found_to_a_normal_user(self, model_protocol):
+        collaborators, model, _repo = model_protocol
+        result = await handle_method(
+            collaborators, "tools/call", {"name": "get_model_info", "arguments": {"model_id": model.id}}, "user-1",
+        )
+        assert result["isError"] is True
+        assert "not found" in result["content"][0]["text"].lower()
+
+    @pytest.mark.asyncio
+    async def test_get_model_info_succeeds_once_assigned(self, model_protocol):
+        collaborators, model, repo = model_protocol
+        repo.assign_model_to_user(model.id, "user-1")
+
+        result = await handle_method(
+            collaborators, "tools/call", {"name": "get_model_info", "arguments": {"model_id": model.id}}, "user-1",
+        )
+        assert result["isError"] is False
+        payload = json.loads(result["content"][0]["text"])
+        assert payload["id"] == model.id

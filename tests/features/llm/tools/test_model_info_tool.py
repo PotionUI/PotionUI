@@ -33,6 +33,7 @@ class TestModelMetadataField:
 
     def _manager(self, model_metadata):
         manager = MagicMock()
+        manager.access.get_allowed_model_ids.return_value = None
         manager.catalog.get_model_by_id.return_value = {
             "model": {
                 "id": "model-1", "filename": "foo.safetensors", "type": "lora",

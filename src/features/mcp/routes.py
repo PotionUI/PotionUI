@@ -26,7 +26,7 @@ from src.features.mcp.protocol import JsonRpcError, McpToolCollaborators, handle
 from src.features.mcp.repository import McpTokenRepository
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
-from src.platform.security.user import User
+from src.platform.security.user import AccountType, User
 from src.platform.settings.settings import Settings
 
 if TYPE_CHECKING:
@@ -184,7 +184,10 @@ def build_router(container: "AppContainer") -> APIRouter:
         is_notification = isinstance(body, dict) and "id" not in body
 
         try:
-            result = await handle_method(collaborators, method, params, current_user.id)
+            result = await handle_method(
+                collaborators, method, params, current_user.id,
+                is_admin=current_user.account_type == AccountType.ADMIN,
+            )
         except JsonRpcError as exc:
             if is_notification:
                 return JSONResponse(status_code=202, content=None)

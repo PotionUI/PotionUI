@@ -205,6 +205,7 @@ class ConversationRunner:
         memory_result = self._m._context.inject_memory_block(
             conversation_history, context_metadata, user_id,
             write_memory_available="write_memory" in (allowed_tools or []),
+            mode_id=session.mode,
         )
         step_records.append({"step": "loading_memory", "duration_ms": int((time.monotonic() - _memory_start) * 1000)})
 
@@ -573,6 +574,7 @@ class ConversationRunner:
         memory_result = self._m._context.inject_memory_block(
             conversation_history, context_metadata, user_id,
             write_memory_available="write_memory" in (allowed_tools or []),
+            mode_id=session.mode,
         )
         step_records.append({
             "step": "loading_memory",

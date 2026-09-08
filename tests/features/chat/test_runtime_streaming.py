@@ -1650,8 +1650,8 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
         )
         detail = memory_completed["data"]["detail"]
         assert detail["note_count"] == 1
-        assert detail["by_scope"] == {"global": 1, "preset": 0, "model": 0}
-        assert detail["by_scope_dropped"] == {"global": 0, "preset": 0, "model": 0}
+        assert detail["by_scope"] == {"global": 1, "preset": 0, "model": 0, "mode": 0}
+        assert detail["by_scope_dropped"] == {"global": 0, "preset": 0, "model": 0, "mode": 0}
         assert detail["injected_chars"] > 0
 
         pre_chat_completed = next(
@@ -1714,7 +1714,7 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
         assert trace["system_prompt_source"] == "mode:generation"
         assert trace["resources"] == [{"uri": "fake.thing", "type": "thing"}]
         assert trace["memory"]["note_ids"] == ["note-1"]
-        assert trace["memory"]["by_scope"] == {"global": 1, "preset": 0, "model": 0}
+        assert trace["memory"]["by_scope"] == {"global": 1, "preset": 0, "model": 0, "mode": 0}
         assert trace["pre_chat_actions"] == ["clear_vram"]
         assert trace["tools_used"] == ["get_data"]
         assert trace["token_counts"] == {"prompt": 20, "completion": 10}

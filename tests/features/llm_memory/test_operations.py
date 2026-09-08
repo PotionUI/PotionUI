@@ -80,6 +80,39 @@ class TestWriteNote:
         assert call_arg.scope == "preset"
         assert call_arg.scope_ref == "preset-1"
 
+    def test_writes_mode_scoped_note(self):
+        repo = MagicMock()
+        note = make_note(scope="mode", scope_ref="lora-dataset")
+        repo.upsert.return_value = note
+
+        result = operations.write_note(
+            repo,
+            user_id="user-1",
+            key="captioning_habit",
+            content="Captions one image at a time",
+            scope="mode",
+            scope_ref="lora-dataset",
+        )
+
+        assert result == note
+        call_arg = repo.upsert.call_args[0][0]
+        assert call_arg.scope == "mode"
+        assert call_arg.scope_ref == "lora-dataset"
+
+    def test_mode_scope_requires_scope_ref(self):
+        repo = MagicMock()
+
+        with pytest.raises(ValueError, match="scope_ref is required"):
+            operations.write_note(
+                repo,
+                user_id="user-1",
+                key="test",
+                content="test",
+                scope="mode",
+            )
+
+        repo.upsert.assert_not_called()
+
     def test_model_scope_requires_scope_ref(self):
         repo = MagicMock()
 
@@ -278,6 +311,19 @@ class TestGetNoteByKey:
 
         assert result == note
         repo.get_by_key.assert_called_once_with("user-1", "quirk", "model", "model-1")
+
+    def test_resolves_mode_scoped_note_with_scope_ref(self):
+        repo = MagicMock()
+        note = make_note(scope="mode", scope_ref="lora-dataset")
+        repo.get_by_key.return_value = note
+
+        result = operations.get_note_by_key(
+            repo,
+            user_id="user-1", key="habit", scope="mode", scope_ref="lora-dataset",
+        )
+
+        assert result == note
+        repo.get_by_key.assert_called_once_with("user-1", "habit", "mode", "lora-dataset")
 
     def test_returns_none_on_miss(self):
         repo = MagicMock()

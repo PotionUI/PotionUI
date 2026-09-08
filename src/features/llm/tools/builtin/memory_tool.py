@@ -17,7 +17,13 @@ def _truncate(text: str, limit: int = 200) -> str:
 
 
 def _resolve_scope_ref(scope: str, scope_ref: Any, context: ToolContext) -> Any:
-    """Auto-resolve scope_ref from the active preset/model when omitted."""
+    """Auto-resolve scope_ref from the active preset/model/mode when omitted.
+
+    Mode resolves from ``context.mode_id`` (the session's own mode, set at
+    session creation) rather than ``form_state`` - unlike preset/model, a
+    chat mode isn't a Generate-form concept, so there's nothing to read out
+    of the form for it.
+    """
     if scope_ref:
         return scope_ref
     form_state = context.session_metadata.get("form_state")
@@ -25,6 +31,8 @@ def _resolve_scope_ref(scope: str, scope_ref: Any, context: ToolContext) -> Any:
         return resolve_active_preset_id(form_state)
     if scope == "model":
         return resolve_active_model_id(form_state, context.model_index_manager)
+    if scope == "mode":
+        return context.mode_id
     return None
 
 
@@ -134,17 +142,24 @@ class WriteMemoryTool(BaseTool):
             "one. "
             "scope is REQUIRED and decides where the note surfaces again — pick the narrowest "
             "scope the fact is actually true at. Decision rule: if the fact names or only applies "
-            "to one preset, model, or mode, it MUST be scoped to it; 'global' is only for facts "
-            "true everywhere, on every preset and every model. Contrast: "
+            "to one preset, model, or chat mode, it MUST be scoped to it; 'global' is only for "
+            "facts true everywhere, in every mode, on every preset and every model. Contrast: "
             "{\"scope\": \"global\", \"content\": \"prefers painterly fantasy scenes, dislikes "
             "photorealism\"} (true no matter what preset is open — global is correct); "
             "{\"scope\": \"preset\", \"content\": \"on Krea-2 Turbo, cfg 1 washes out reds — keep "
             "cfg above 2\"} (only true on that preset — scope_ref auto-resolves to the active "
             "session preset, omit it); {\"scope\": \"model\", \"scope_ref\": \"<model id>\", "
             "\"content\": \"responds well to cfg 3.5 with short prompts\"} (only true for that "
-            "checkpoint). A preset's image/video mode is finer than 'preset' scope but there is no "
-            "separate scope for it — name the mode in the content instead, e.g. \"in video mode, "
-            "keep duration under 4s to avoid OOM\" at scope='preset'. "
+            "checkpoint); {\"scope\": \"mode\", \"content\": \"always wants captions under 20 "
+            "words\"} (only true in this chat mode's own workflow — scope_ref auto-resolves to "
+            "the session's mode, omit it). A preset's image/video mode is finer than 'preset' "
+            "scope but there is no separate scope for that — name it in the content instead, e.g. "
+            "\"in video mode, keep duration under 4s to avoid OOM\" at scope='preset'. "
+            "The subject of a generation request — what was asked for THIS time — is never a "
+            "preference by itself, no matter the scope: do not save "
+            "{\"content\": \"likes generating a knight in silver armor\"} just because that's what "
+            "the user asked for once; save it only if they said it's a standing preference, or the "
+            "same request came up again on its own in a later message. "
             "Bad — do not save these: {\"content\": \"generated a castle at seed 1234\"} (one "
             "generation, not a pattern); {\"content\": \"user asked for a dragon\"} (a single "
             "request, not a preference). If it won't hold next week, don't save it. "
@@ -159,10 +174,11 @@ class WriteMemoryTool(BaseTool):
             "than a fact about one generation — seeds and generation ids are rejected outright, "
             "and at global scope a bare parameter dump with no descriptive text is rejected too. "
             "Notes are identified by a key and MUST be explicitly scoped: globally (true on every "
-            "preset and model), to the active preset, or to the active model — pick 'global' only "
-            "when the fact holds regardless of what preset or model is open; a fact that names or "
-            "only applies to one preset/model must use that scope instead. Writing to an existing "
-            "key updates the note. Saves immediately — no user approval required."
+            "preset, model, and mode), to the active preset, to the active model, or to the "
+            "active chat mode — pick 'global' only when the fact holds regardless of what "
+            "preset/model is open or what mode the chat is in; a fact that names or only applies "
+            "to one preset/model/mode must use that scope instead. Writing to an existing key "
+            "updates the note. Saves immediately — no user approval required."
         )
 
     @property
@@ -184,21 +200,24 @@ class WriteMemoryTool(BaseTool):
                 },
                 "scope": {
                     "type": "string",
-                    "enum": ["global", "preset", "model"],
+                    "enum": ["global", "preset", "model", "mode"],
                     "description": (
                         "REQUIRED, choose deliberately -- do not default to 'global'. 'global' is "
-                        "only for facts true regardless of preset or model. 'preset' is for anything "
-                        "tied to the active preset (e.g. a setting that only behaves this way on this "
-                        "preset) -- scope_ref auto-resolves, omit it. 'model' is for anything tied to "
-                        "the active checkpoint/LoRA -- scope_ref auto-resolves, omit it. If the note "
-                        "names or only applies to one preset/model, it MUST use that scope."
+                        "only for facts true regardless of preset, model, or chat mode. 'preset' is "
+                        "for anything tied to the active preset (e.g. a setting that only behaves "
+                        "this way on this preset) -- scope_ref auto-resolves, omit it. 'model' is "
+                        "for anything tied to the active checkpoint/LoRA -- scope_ref auto-resolves, "
+                        "omit it. 'mode' is for anything tied to this chat mode's own workflow (not "
+                        "the Generate form) -- scope_ref auto-resolves to the session's mode, omit "
+                        "it. If the note names or only applies to one preset/model/mode, it MUST "
+                        "use that scope."
                     ),
                 },
                 "scope_ref": {
                     "type": "string",
                     "description": (
-                        "Preset or model ID to associate with a scoped note. "
-                        "Auto-resolved from the active preset/model if omitted."
+                        "Preset, model, or mode ID to associate with a scoped note. "
+                        "Auto-resolved from the active preset/model/mode if omitted."
                     ),
                 },
             },
@@ -231,7 +250,7 @@ class WriteMemoryTool(BaseTool):
             )
         scope_ref = _resolve_scope_ref(scope, kwargs.get("scope_ref"), context)
 
-        if scope in ("preset", "model") and not scope_ref:
+        if scope in ("preset", "model", "mode") and not scope_ref:
             return ToolResult(
                 success=False, data="",
                 error=f"scope_ref is required for {scope}-scoped notes and could not be auto-resolved",
@@ -295,8 +314,8 @@ class ReadMemoryTool(BaseTool):
     def description(self) -> str:
         return (
             "Read persistent memory notes from previous sessions. "
-            "Can filter by scope ('global', 'preset', 'model', or 'all' for every scope) "
-            "and optionally by scope_ref (preset or model ID). Returns all matching notes."
+            "Can filter by scope ('global', 'preset', 'model', 'mode', or 'all' for every scope) "
+            "and optionally by scope_ref (preset, model, or mode ID). Returns all matching notes."
         )
 
     @property
@@ -306,15 +325,18 @@ class ReadMemoryTool(BaseTool):
             "properties": {
                 "scope": {
                     "type": "string",
-                    "enum": ["all", "global", "preset", "model"],
-                    "description": "Filter by scope. 'all' returns global, active-preset, and active-model notes.",
+                    "enum": ["all", "global", "preset", "model", "mode"],
+                    "description": (
+                        "Filter by scope. 'all' returns global, active-preset, active-model, and "
+                        "active-mode notes."
+                    ),
                     "default": "all",
                 },
                 "scope_ref": {
                     "type": "string",
                     "description": (
-                        "Preset or model ID to filter scoped notes. "
-                        "Auto-resolved from the active preset/model if omitted."
+                        "Preset, model, or mode ID to filter scoped notes. "
+                        "Auto-resolved from the active preset/model/mode if omitted."
                     ),
                 },
             },
@@ -330,6 +352,7 @@ class ReadMemoryTool(BaseTool):
         form_state = context.session_metadata.get("form_state")
         preset_ref = scope_ref or resolve_active_preset_id(form_state)
         model_ref = scope_ref or resolve_active_model_id(form_state, context.model_index_manager)
+        mode_ref = scope_ref or context.mode_id
 
         try:
             if scope == "all":
@@ -352,8 +375,20 @@ class ReadMemoryTool(BaseTool):
                         scope="model",
                         scope_ref=model_ref,
                     )
+                if mode_ref:
+                    all_notes += memory_operations.read_notes(
+                        context.llm_memory_repository,
+                        user_id=context.user_id,
+                        scope="mode",
+                        scope_ref=mode_ref,
+                    )
             else:
-                resolved_ref = preset_ref if scope == "preset" else model_ref if scope == "model" else None
+                resolved_ref = (
+                    preset_ref if scope == "preset"
+                    else model_ref if scope == "model"
+                    else mode_ref if scope == "mode"
+                    else None
+                )
                 filter_kwargs = {"user_id": context.user_id, "scope": scope}
                 if resolved_ref:
                     filter_kwargs["scope_ref"] = resolved_ref
@@ -556,7 +591,7 @@ class UpdateMemoryTool(BaseTool):
                 },
                 "scope": {
                     "type": "string",
-                    "enum": ["global", "preset", "model"],
+                    "enum": ["global", "preset", "model", "mode"],
                     "description": (
                         "The scope of the note to edit, as shown alongside it in your injected "
                         "memory context. Required (with 'key') when note_id is not given."
@@ -572,8 +607,8 @@ class UpdateMemoryTool(BaseTool):
                 "scope_ref": {
                     "type": "string",
                     "description": (
-                        "Preset or model ID for a scoped note. Auto-resolved from the active "
-                        "preset/model if omitted."
+                        "Preset, model, or mode ID for a scoped note. Auto-resolved from the "
+                        "active preset/model/mode if omitted."
                     ),
                 },
                 "new_key": {

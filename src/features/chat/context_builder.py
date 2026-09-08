@@ -514,30 +514,34 @@ class ChatContextBuilder:
         context_metadata: Optional[Dict[str, Any]],
         user_id: str,
         write_memory_available: bool = True,
+        mode_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Insert eagerly-recalled memory notes immediately before the last user message.
 
         Reads global notes plus notes scoped to the active preset/model (resolved from
-        `context_metadata['form_state']`). Failures are logged and never break the send.
+        `context_metadata['form_state']`) and to the active mode (``mode_id`` — the
+        session's own mode, e.g. from `session.mode`, NOT derived from `form_state`:
+        a plugin-mode session has no Generate form open at all). Failures are logged
+        and never break the send.
 
         ``write_memory_available`` gates the "call write_memory to add more" nudge in
         the block header — omitted when the session can't call write_memory, so the
         injected block never points at a disabled tool.
 
         Returns a summary of what was injected — ``{"note_ids": [...], "by_scope":
-        {"global": n, "preset": n, "model": n}, "by_scope_dropped": {"global": n,
-        "preset": n, "model": n}, "injected_chars": n}`` — so callers can record it
-        in the chat behavior-trace manifest and account it against the history
-        token budget. ``by_scope_dropped`` counts notes beyond the per-group cap
-        that were left out of the block entirely (a group over the cap also gets
-        an explicit "+N older notes not shown" line so the omission is visible to
-        the model, not just to the trace). ``injected_chars`` is the length of the
-        block actually inserted, 0 when nothing was read/injected.
+        {"global": n, "preset": n, "model": n, "mode": n}, "by_scope_dropped":
+        {"global": n, "preset": n, "model": n, "mode": n}, "injected_chars": n}`` —
+        so callers can record it in the chat behavior-trace manifest and account it
+        against the history token budget. ``by_scope_dropped`` counts notes beyond
+        the per-group cap that were left out of the block entirely (a group over the
+        cap also gets an explicit "+N older notes not shown" line so the omission is
+        visible to the model, not just to the trace). ``injected_chars`` is the
+        length of the block actually inserted, 0 when nothing was read/injected.
         """
         empty: Dict[str, Any] = {
             "note_ids": [],
-            "by_scope": {"global": 0, "preset": 0, "model": 0},
-            "by_scope_dropped": {"global": 0, "preset": 0, "model": 0},
+            "by_scope": {"global": 0, "preset": 0, "model": 0, "mode": 0},
+            "by_scope_dropped": {"global": 0, "preset": 0, "model": 0, "mode": 0},
             "injected_chars": 0,
         }
         if not self._m.llm_memory_repository:
@@ -549,7 +553,7 @@ class ChatContextBuilder:
             )
 
             groups: List[tuple] = []
-            by_scope = {"global": 0, "preset": 0, "model": 0}
+            by_scope = {"global": 0, "preset": 0, "model": 0, "mode": 0}
             note_ids: List[str] = []
 
             global_notes = memory_operations.read_notes(self._m.llm_memory_repository, user_id=user_id, scope="global")
@@ -580,19 +584,36 @@ class ChatContextBuilder:
                     by_scope["model"] = len(model_notes)
                     note_ids.extend(note.id for note in model_notes if note.id)
 
+            if mode_id:
+                mode_notes = memory_operations.read_notes(
+                    self._m.llm_memory_repository, user_id=user_id, scope="mode", scope_ref=mode_id,
+                )
+                if mode_notes:
+                    groups.append(("this mode", mode_notes))
+                    by_scope["mode"] = len(mode_notes)
+                    note_ids.extend(note.id for note in mode_notes if note.id)
+
             if not groups:
                 return empty
 
             max_notes_per_group = MEMORY_MAX_NOTES_PER_GROUP
             max_content_len = MEMORY_MAX_CONTENT_LEN
             header = (
-                "Things you remember about this user (persistent memory — use it; "
-                "call write_memory to add more):"
+                "Things you remember about this user (persistent memory — background "
+                "context: apply it only where the user's current request is silent, "
+                "never to override what they just asked for; call write_memory to add "
+                "more):"
                 if write_memory_available
-                else "Things you remember about this user (persistent memory — use it):"
+                else (
+                    "Things you remember about this user (persistent memory — "
+                    "background context: apply it only where the user's current "
+                    "request is silent, never to override what they just asked for):"
+                )
             )
-            scope_by_label = {"global": "global", "this preset": "preset", "this model": "model"}
-            by_scope_dropped = {"global": 0, "preset": 0, "model": 0}
+            scope_by_label = {
+                "global": "global", "this preset": "preset", "this model": "model", "this mode": "mode",
+            }
+            by_scope_dropped = {"global": 0, "preset": 0, "model": 0, "mode": 0}
             lines = [header]
             for label, notes in groups:
                 lines.append(f"[{label}]")

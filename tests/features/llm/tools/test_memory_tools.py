@@ -203,6 +203,37 @@ class TestWriteMemoryTool:
         )
 
     @pytest.mark.asyncio
+    async def test_execute_mode_scope_auto_resolves_from_context_mode_id(self, mock_ops):
+        """Mode auto-resolves from `context.mode_id` (the session's own mode),
+        not from `form_state` - a plugin-mode session has no Generate form."""
+        note = make_note(scope="mode", scope_ref="lora-dataset")
+        mm = MagicMock()
+        mock_ops.write_note.return_value = note
+        ctx = make_context(llm_memory_repository=mm, mode_id="lora-dataset")
+
+        result = await self._tool().execute(ctx, key="quirk", content="captions one at a time", scope="mode")
+
+        assert result.success is True
+        mock_ops.write_note.assert_called_once_with(
+            mm, user_id="user-test",
+            key="quirk",
+            content="captions one at a time",
+            scope="mode",
+            scope_ref="lora-dataset",
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_mode_scope_fails_without_resolvable_mode(self, mock_ops):
+        mm = MagicMock()
+        ctx = make_context(llm_memory_repository=mm)  # mode_id defaults to None
+
+        result = await self._tool().execute(ctx, key="test", content="test", scope="mode")
+
+        assert result.success is False
+        assert "scope_ref is required" in result.error
+        mock_ops.write_note.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_execute_model_scope_fails_without_scope_ref(self, mock_ops):
         mm = MagicMock()
         ctx = make_context(llm_memory_repository=mm)
@@ -299,6 +330,38 @@ class TestReadMemoryTool:
         data = json.loads(result.data)
         assert data["count"] == 3
         assert data["scope_filter"] == "all"
+
+    @pytest.mark.asyncio
+    async def test_execute_all_includes_mode_notes_when_session_has_a_mode(self, mock_ops):
+        global_notes = [make_note(id="g1", scope="global")]
+        mode_notes = [make_note(id="md1", scope="mode", scope_ref="lora-dataset")]
+        mm = MagicMock()
+        mock_ops.read_notes.side_effect = [global_notes, mode_notes]
+        ctx = make_context(llm_memory_repository=mm, mode_id="lora-dataset")
+
+        result = await self._tool().execute(ctx, scope="all")
+
+        assert result.success is True
+        data = json.loads(result.data)
+        assert data["count"] == 2
+        mock_ops.read_notes.assert_any_call(
+            mm, user_id="user-test", scope="mode", scope_ref="lora-dataset",
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_mode_scope(self, mock_ops):
+        notes = [make_note(id="md1", scope="mode", scope_ref="lora-dataset")]
+        mm = MagicMock()
+        mock_ops.read_notes.return_value = notes
+        ctx = make_context(llm_memory_repository=mm, mode_id="lora-dataset")
+
+        result = await self._tool().execute(ctx, scope="mode")
+
+        assert result.success is True
+        data = json.loads(result.data)
+        assert data["count"] == 1
+        mock_ops.read_notes.assert_called_once_with(
+            mm, user_id="user-test", scope="mode", scope_ref="lora-dataset")
 
     @pytest.mark.asyncio
     async def test_execute_global_scope(self, mock_ops):

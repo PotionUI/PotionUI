@@ -8,15 +8,27 @@ injects for the form currently open.
 
 ## Scopes and identity
 
-Every note lives at exactly one of three scopes:
+Every note lives at exactly one of four scopes:
 
-- **`global`** — true regardless of what preset or model is open.
+- **`global`** — true regardless of what preset, model, or chat mode is active.
 - **`preset`** — true only for one preset (`scope_ref` = preset id).
 - **`model`** — true only for one checkpoint/LoRA (`scope_ref` = model id).
+- **`mode`** — true only for one chat mode's own workflow (`scope_ref` = the mode id,
+  e.g. `generation` or a plugin mode like `lora-dataset`). Unlike preset/model, mode
+  resolves from the session itself (`session.mode`, set once at session creation) —
+  never from the Generate form's `form_state` — since a plugin-mode session has no
+  Generate form open at all.
 
 A note's address is the tuple `(user_id, key, scope, scope_ref)`. Writing to an address
 that already has a note **updates it in place** rather than creating a duplicate — the
 repository upserts on that exact tuple (`src/features/llm_memory/repository.py`).
+
+**`global` is never a fallback.** A note whose `scope`/`scope_ref` doesn't resolve to a
+real preset/model/mode for the request that produced it — an unresolvable scope, a
+mismatched or hallucinated `scope_ref`, or no active context at all for that scope — is
+**dropped**, not silently rewritten to `global`. A preset-shaped fact with no honest home
+is not evidence the fact is universally true; `global` is only ever what the caller (the
+model, via `write_memory`, or reflection) deliberately reported.
 
 Content is capped at 500 characters; anything longer is rejected outright with a message
 telling the caller to distill the fact rather than being silently truncated. Two further
@@ -31,9 +43,12 @@ of note is legitimate at `preset`/`model` scope, where it belongs). All of this 
 Nothing has to ask for memory — relevant notes are injected into every turn automatically,
 as a system block placed immediately before the user's message
 (`ChatContextBuilder.inject_memory_block`, `src/features/chat/context_builder.py`). The
-block groups notes under `[global]`, `[this preset]`, and `[this model]` headers, each
-scope read and ordered by `updated_at DESC` (repository `list_notes`), so the
-most-recently-touched facts in a scope always come first.
+block groups notes under `[global]`, `[this preset]`, `[this model]`, and `[this mode]`
+headers, each scope read and ordered by `updated_at DESC` (repository `list_notes`), so the
+most-recently-touched facts in a scope always come first. The block's header also tells the
+model plainly what this is: **background context, applied only where the current request
+is silent, and never something that overrides what the user just asked for** — the same
+rule the write-time content backstop below enforces for reflection-extracted facts.
 
 Each group is capped at 20 notes; if a scope has more, the extra ones are left out and the
 block says so explicitly — `(+N older notes not shown — consolidate or prune in the memory
@@ -55,15 +70,16 @@ Four tools give the model (and, indirectly, the user) direct control over notes,
 the automatic injection above:
 
 - **`write_memory`** — saves a note. `scope` is required with no default (the tool refuses
-  to guess `global`); `scope_ref` auto-resolves from the session's active preset/model when
-  omitted. Saves immediately, no approval needed.
+  to guess `global`); `scope_ref` auto-resolves from the session's active preset/model/mode
+  when omitted — preset/model resolve from the Generate form's `form_state`, mode resolves
+  from `ToolContext.mode_id` (the session's own mode). Saves immediately, no approval needed.
 - **`update_memory`** — edits an existing note's key and/or content, addressed either by
   `note_id` or by `(scope, key)` — the same address shown alongside every note already in
   context, so the model doesn't need a `read_memory` round-trip first. Requires user
   approval, showing an old → new preview.
 - **`read_memory`** — an explicit read, filterable by scope (`all` returns global +
-  active-preset + active-model). Mostly useful for a scope not already in context, or to
-  double-check something before writing.
+  active-preset + active-model + active-mode). Mostly useful for a scope not already in
+  context, or to double-check something before writing.
 - **`delete_memory`** — removes a note by id. Requires user approval, showing a preview of
   what will be deleted.
 
@@ -89,13 +105,54 @@ arrived since the session's last reflection (or since it started), gated by a pe
 `memory_reflection` toggle (default **on**) — `ChatReflectionGenerator`,
 `src/features/chat/reflection.py`.
 
-Reflection is told the turn's actual active preset/model ids and instructed to reuse them
-verbatim for a scoped fact. If the model reports a `preset`/`model` scope with any other
-`scope_ref` — a hallucinated id, or one that doesn't match what was actually active this
-turn — the note falls back to `global` scope rather than being trusted or dropped
-(`_validate_scope`). Extracted facts get a slugified key derived from the model's own label
-for the fact, so re-reflecting the same topic later updates the existing note instead of
-duplicating it.
+Reflection is told the turn's actual active preset/model/mode ids and instructed to reuse
+them verbatim for a scoped fact — preset/model come from the triggering turn's `form_state`;
+mode comes from `session.mode` (the session's own, stable mode id), since a plugin-mode
+session has no Generate form to read a preset/model out of. If the model reports a
+`preset`/`model`/`mode` scope with any other `scope_ref` — a hallucinated id, or one that
+doesn't match what was actually active this turn — the note is **dropped**, never rewritten
+to `global` (`_validate_scope`; see the "`global` is never a fallback" rule above). Extracted
+facts get a slugified key derived from the model's own label for the fact, so re-reflecting
+the same topic later updates the existing note instead of duplicating it.
+
+### Extraction quality: two independent backstops
+
+A background pass runs unsupervised, so "did this genuinely happen, or is the model
+inventing a pattern from one message" can't rely on the extraction prompt's wording alone —
+two code-enforced checks sit behind it, both in `reflection.py`:
+
+1. **Grounding (`kind`/`evidence`).** Every extracted item must carry a `kind`:
+   - `stated` — the user said this outright, in one turn. `evidence` is that turn's number
+     (the span numbers each user turn it sends, e.g. `"[3] User: ..."`) as a one-item array,
+     and `quote` must be the exact sentence, copied verbatim (whitespace/case-normalized)
+     from that turn, the fact rests on.
+   - `recurring` — not stated outright, but the same pattern showed up across separate
+     requests. `evidence` must list at least 2 **distinct** turn numbers.
+
+   An item missing `kind`, with an invalid `kind`, with no/empty/non-numeric `evidence`, a
+   `recurring` item with fewer than 2 distinct evidence turns, or a `stated` item whose
+   `quote` doesn't actually appear in the turn it cites, is dropped
+   (`_validate_fact_grounding`) before it ever reaches `write_note`.
+
+2. **Content-overlap backstop.** Grounding alone isn't enough: a model can legally quote its
+   own one-off generation prompt verbatim (satisfying the `stated` quote check) while the
+   note's *content* is just that prompt's subject matter wearing a preference sentence — e.g.
+   a single request for *"beautiful girl with white tshirt and jeans"* rewritten as *"user
+   likes to generate beautiful girls wearing white tshirts and jeans."* `_restates_single_prompt`
+   catches this independently: if a candidate note's own content words (stopwords and
+   preference-framing words like "likes"/"generate" stripped) are mostly just the words of
+   ONE user turn in the span, it's dropped — unless that turn itself already reads as a
+   preference statement in the user's own words (contains a cue like "always"/"prefer"/
+   "instead"/"never"), in which case a close paraphrase is legitimate rather than a
+   generation request laundered into a "preference." The reflection prompt also states this
+   rule directly: the subject of a generation request is never itself a preference, no matter
+   how it's phrased — a fact must be something the user said about themselves or their
+   workflow, or something that recurred across separate requests.
+
+The same "never a preference" rule is restated in the base system prompt's `write_memory`
+guidance (`src/features/chat/modes/builtin.py`), since the interactive tool path is subject
+to the identical failure mode — a user's live generation request can be mistaken for a
+standing preference just as easily as one surfaced by reflection.
 
 ## Auto-compaction
 

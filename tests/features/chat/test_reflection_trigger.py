@@ -93,7 +93,10 @@ class TestReflectionFiresOnSend:
         title_response = Mock()
         title_response.content = "A Title"
         reflection_response = Mock()
-        reflection_response.content = '[{"scope": "global", "key": "k", "content": "prefers moody lighting over bright scenes"}]'
+        reflection_response.content = (
+            '[{"scope": "global", "key": "k", "content": "prefers moody lighting over bright scenes", '
+            '"kind": "recurring", "evidence": [1, 2]}]'
+        )
         self.mock_llm.generate_with_history = AsyncMock(side_effect=[title_response, reflection_response])
 
         saved_note = Mock()

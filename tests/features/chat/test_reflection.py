@@ -31,12 +31,16 @@ def _messages(user_count: int, reflected_up_to: str = None) -> list:
     return out
 
 
-def _session(llm_config_id="llm-1", metadata=None) -> Mock:
+def _session(llm_config_id="llm-1", metadata=None, mode=None) -> Mock:
     session = Mock()
     session.id = "session-1"
     session.user_id = "user-1"
     session.llm_config_id = llm_config_id
     session.metadata = metadata or {}
+    # None unless a test opts in - keeps `active_mode` resolution inert
+    # (falls through `if mode_id:` in `_resolve_active_context`) for tests
+    # that aren't exercising mode scoping.
+    session.mode = mode
     return session
 
 
@@ -59,6 +63,17 @@ def _manager(monkeypatch, config_memory_reflection=True):
     monkeypatch.setattr("src.features.chat.reflection.memory_operations", mock_ops)
     manager.memory_ops = mock_ops
     return manager
+
+
+# A "recurring" item needs no verbatim quote - just >= 2 distinct evidence
+# turn numbers - so most fixtures below use it as the least fussy way to
+# clear the kind/evidence grounding gate without also having to match
+# `_messages()`'s literal "question N" turn text.
+def _recurring_item(scope="global", scope_ref=None, key="k", content="c"):
+    item = {"scope": scope, "key": key, "content": content, "kind": "recurring", "evidence": [1, 2]}
+    if scope_ref is not None:
+        item["scope_ref"] = scope_ref
+    return item
 
 
 class TestShouldReflect:
@@ -163,7 +178,8 @@ class TestReflect:
     async def test_happy_path_persists_items_and_records_bookkeeping(self, monkeypatch):
         manager, generator, messages = self._setup(
             monkeypatch,
-            '[{"scope": "global", "key": "likes anime", "content": "prefers anime style over realism"}]'
+            '[{"scope": "global", "key": "likes anime", "content": "prefers anime style over realism", '
+            '"kind": "recurring", "evidence": [1, 2]}]'
         )
 
         saved = await generator.reflect("session-1")
@@ -187,8 +203,10 @@ class TestReflect:
         """A seed-tainted item is rejected by validation but doesn't blow up the pass."""
         manager, generator, messages = self._setup(
             monkeypatch,
-            '[{"scope": "global", "key": "seed_note", "content": "castle at seed 1234"}, '
-            '{"scope": "global", "key": "good", "content": "prefers moody lighting"}]'
+            '[{"scope": "global", "key": "seed_note", "content": "castle at seed 1234", '
+            '"kind": "recurring", "evidence": [1, 2]}, '
+            '{"scope": "global", "key": "good", "content": "prefers moody lighting", '
+            '"kind": "recurring", "evidence": [1, 2]}]'
         )
 
         def write_note(repo, user_id, key, content, scope, scope_ref=None):
@@ -208,7 +226,8 @@ class TestReflect:
     async def test_sloppy_json_is_tolerated(self, monkeypatch):
         manager, generator, messages = self._setup(
             monkeypatch,
-            'Sure! [{"scope": "global", "key": "k", "content": "prefers dark fantasy over anime"}] done.'
+            'Sure! [{"scope": "global", "key": "k", "content": "prefers dark fantasy over anime", '
+            '"kind": "recurring", "evidence": [1, 2]}] done.'
         )
 
         saved = await generator.reflect("session-1")
@@ -229,7 +248,8 @@ class TestReflect:
     async def test_toggle_off_makes_no_llm_call(self, monkeypatch):
         manager, generator, messages = self._setup(
             monkeypatch,
-            '[{"scope": "global", "key": "k", "content": "c"}]', memory_reflection=False,
+            '[{"scope": "global", "key": "k", "content": "c", "kind": "recurring", "evidence": [1, 2]}]',
+            memory_reflection=False,
         )
 
         saved = await generator.reflect("session-1")
@@ -273,13 +293,184 @@ class TestReflect:
         manager.llm_service.generate_with_history.assert_not_called()
 
 
-class TestReflectScoping:
-    """Scope/scope_ref validation: only the exact id resolved from this turn's
-    form state is ever honored for a 'preset'/'model' note."""
+class TestReflectExtractionQuality:
+    """Acceptance-level checks for the kind/evidence grounding gate and the
+    content-overlap backstop, exercised through the real `reflect()` path
+    (span-building included) rather than the unit-level helpers below."""
 
-    def _setup(self, monkeypatch, response_content):
+    def _setup(self, monkeypatch, response_content, user_messages=None):
         manager = _manager(monkeypatch)
         session = _session()
+        messages = user_messages if user_messages is not None else _messages(MIN_UNREFLECTED_USER_MESSAGES)
+        manager.chat_repository.get_session.return_value = session
+        manager.chat_repository.get_messages.return_value = messages
+        manager.chat_repository.record_memory_reflection.return_value = True
+
+        response = Mock()
+        response.content = response_content
+        manager.llm_service.generate_with_history = AsyncMock(return_value=response)
+
+        saved_note = Mock()
+        saved_note.to_dict.return_value = {"key": "saved"}
+        manager.memory_ops.write_note.return_value = saved_note
+        manager.memory_ops.read_notes.return_value = []  # compaction no-op
+
+        return manager, ChatReflectionGenerator(manager)
+
+    @pytest.mark.asyncio
+    async def test_one_off_prompt_with_no_grounding_yields_no_note(self, monkeypatch):
+        """A model that tries to smuggle a single generation's subject through
+        as a fact, without a 'kind' at all, is dropped outright."""
+        manager, generator = self._setup(
+            monkeypatch,
+            '[{"scope": "global", "key": "outfit", '
+            '"content": "likes generating a knight in silver armor"}]',
+        )
+
+        saved = await generator.reflect("session-1")
+
+        assert saved == []
+        manager.memory_ops.write_note.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_recurring_request_across_three_turns_yields_one_note(self, monkeypatch):
+        manager, generator = self._setup(
+            monkeypatch,
+            '[{"scope": "global", "key": "wants_shorter_captions", '
+            '"content": "prefers short prompts without quality tags", '
+            '"kind": "recurring", "evidence": [1, 2, 3]}]',
+        )
+
+        saved = await generator.reflect("session-1")
+
+        assert saved == [{"key": "saved"}]
+        manager.memory_ops.write_note.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_recurring_fact_with_only_one_evidence_turn_is_dropped(self, monkeypatch):
+        manager, generator = self._setup(
+            monkeypatch,
+            '[{"scope": "global", "key": "k", "content": "always crops to portrait", '
+            '"kind": "recurring", "evidence": [2]}]',
+        )
+
+        saved = await generator.reflect("session-1")
+
+        assert saved == []
+        manager.memory_ops.write_note.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_stated_fact_with_quote_present_verbatim_is_accepted(self, monkeypatch):
+        # A transcript whose first user turn literally contains the quote.
+        messages = [_message("user", "I always want short captions, please.", msg_id="u0")]
+        for i in range(MIN_UNREFLECTED_USER_MESSAGES - 1):
+            messages.append(_message("assistant", f"ack {i}", msg_id=f"a{i}"))
+            messages.append(_message("user", f"question {i}", msg_id=f"u{i + 1}"))
+
+        manager, generator = self._setup(
+            monkeypatch,
+            '[{"scope": "global", "key": "short_captions", '
+            '"content": "wants captions kept short", "kind": "stated", '
+            '"evidence": [1], "quote": "I always want short captions, please."}]',
+            user_messages=messages,
+        )
+
+        saved = await generator.reflect("session-1")
+
+        assert saved == [{"key": "saved"}]
+        manager.memory_ops.write_note.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_stated_fact_with_quote_not_in_cited_turn_is_dropped(self, monkeypatch):
+        manager, generator = self._setup(
+            monkeypatch,
+            '[{"scope": "global", "key": "k", "content": "wants captions kept short", '
+            '"kind": "stated", "evidence": [1], '
+            '"quote": "this sentence was never actually said by the user"}]',
+        )
+
+        saved = await generator.reflect("session-1")
+
+        assert saved == []
+        manager.memory_ops.write_note.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_stated_fact_missing_quote_is_dropped(self, monkeypatch):
+        manager, generator = self._setup(
+            monkeypatch,
+            '[{"scope": "global", "key": "k", "content": "wants captions kept short", '
+            '"kind": "stated", "evidence": [1]}]',
+        )
+
+        saved = await generator.reflect("session-1")
+
+        assert saved == []
+        manager.memory_ops.write_note.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_generation_subject_restated_as_preference_is_dropped_by_overlap_backstop(self, monkeypatch):
+        """The maintainer's reported case: a single generation prompt
+        ('beautiful girl with white tshirt and jeans') restated as a
+        'preference'. Even when the model plays by the kind/evidence rules
+        (a real quote from the turn it cites), the content-overlap backstop
+        independently rejects it because the note is just that turn's
+        subject matter."""
+        messages = [_message("user", "beautiful girl with white tshirt and jeans", msg_id="u0")]
+        for i in range(MIN_UNREFLECTED_USER_MESSAGES - 1):
+            messages.append(_message("assistant", f"ack {i}", msg_id=f"a{i}"))
+            messages.append(_message("user", f"question {i}", msg_id=f"u{i + 1}"))
+
+        manager, generator = self._setup(
+            monkeypatch,
+            '[{"scope": "global", "key": "outfit_pref", '
+            '"content": "user likes to generate beautiful girls wearing white tshirts and jeans", '
+            '"kind": "stated", "evidence": [1], '
+            '"quote": "beautiful girl with white tshirt and jeans"}]',
+            user_messages=messages,
+        )
+
+        saved = await generator.reflect("session-1")
+
+        assert saved == []
+        manager.memory_ops.write_note.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_genuine_workflow_preference_passes_overlap_backstop(self, monkeypatch):
+        """A real standing preference, synthesized across turns whose actual
+        subject matter is unrelated, must not be caught by the same backstop
+        that rejects the restated-subject case above."""
+        messages = [
+            _message("user", "draw a wizard casting a lightning spell", msg_id="u0"),
+            _message("assistant", "ack", msg_id="a0"),
+            _message("user", "a red sports car on a mountain road", msg_id="u1"),
+            _message("assistant", "ack", msg_id="a1"),
+            _message("user", "a lighthouse at sunset", msg_id="u2"),
+            _message("assistant", "ack", msg_id="a2"),
+            _message("user", "a snowy mountain peak at dawn", msg_id="u3"),
+        ]
+
+        manager, generator = self._setup(
+            monkeypatch,
+            '[{"scope": "global", "key": "short_prompts", '
+            '"content": "prefers short prompts without quality tags", '
+            '"kind": "recurring", "evidence": [1, 2, 3]}]',
+            user_messages=messages,
+        )
+
+        saved = await generator.reflect("session-1")
+
+        assert saved == [{"key": "saved"}]
+        manager.memory_ops.write_note.assert_called_once()
+
+
+class TestReflectScoping:
+    """Scope/scope_ref validation: only the exact id resolved from this turn's
+    active context is ever honored for a 'preset'/'model'/'mode' note - and a
+    mismatch is DROPPED, never rewritten to 'global'."""
+
+    def _setup(self, monkeypatch, response_content, mode=None):
+        manager = _manager(monkeypatch)
+        session = _session(mode=mode)
         messages = _messages(MIN_UNREFLECTED_USER_MESSAGES)
         manager.chat_repository.get_session.return_value = session
         manager.chat_repository.get_messages.return_value = messages
@@ -293,6 +484,9 @@ class TestReflectScoping:
         model = Mock()
         model.filename = "my_model.safetensors"
         manager.model_index_manager.model_repo.get_by_id.return_value = model
+        chat_mode = Mock()
+        chat_mode.name = "LoRA Dataset"
+        manager.chat_mode_registry.get.return_value = chat_mode
 
         saved_note = Mock()
         saved_note.to_dict.return_value = {"key": "saved"}
@@ -308,7 +502,8 @@ class TestReflectScoping:
         manager, generator, messages = self._setup(
             monkeypatch,
             '[{"scope": "preset", "scope_ref": "preset-123", "key": "k", '
-            '"content": "always uses this preset for portraits"}]'
+            '"content": "always uses this preset for portraits", '
+            '"kind": "recurring", "evidence": [1, 2]}]'
         )
 
         await generator.reflect("session-1", form_state={"preset": "preset-123", "form_data": {}})
@@ -325,7 +520,8 @@ class TestReflectScoping:
         manager, generator, messages = self._setup(
             monkeypatch,
             '[{"scope": "model", "scope_ref": "model-1", "key": "k", '
-            '"content": "always adds a LoRA with this model"}]'
+            '"content": "always adds a LoRA with this model", '
+            '"kind": "recurring", "evidence": [1, 2]}]'
         )
 
         await generator.reflect(
@@ -341,28 +537,13 @@ class TestReflectScoping:
         )
 
     @pytest.mark.asyncio
-    async def test_hallucinated_scope_ref_falls_back_to_global(self, monkeypatch):
+    async def test_valid_mode_scope_ref_accepted(self, monkeypatch):
         manager, generator, messages = self._setup(
             monkeypatch,
-            '[{"scope": "preset", "scope_ref": "preset-999", "key": "k", '
-            '"content": "made up preference for a preset never active here"}]'
-        )
-
-        await generator.reflect("session-1", form_state={"preset": "preset-123", "form_data": {}})
-
-        manager.memory_ops.write_note.assert_called_once_with(
-            manager.llm_memory_repository,
-            user_id="user-1", key="k",
-            content="made up preference for a preset never active here",
-            scope="global", scope_ref=None,
-        )
-
-    @pytest.mark.asyncio
-    async def test_no_form_state_everything_lands_global(self, monkeypatch):
-        manager, generator, messages = self._setup(
-            monkeypatch,
-            '[{"scope": "preset", "scope_ref": "preset-123", "key": "k", '
-            '"content": "a preference reported with no active context at all"}]'
+            '[{"scope": "mode", "scope_ref": "lora-dataset", "key": "k", '
+            '"content": "always captions one image at a time in this mode", '
+            '"kind": "recurring", "evidence": [1, 2]}]',
+            mode="lora-dataset",
         )
 
         await generator.reflect("session-1")
@@ -370,7 +551,73 @@ class TestReflectScoping:
         manager.memory_ops.write_note.assert_called_once_with(
             manager.llm_memory_repository,
             user_id="user-1", key="k",
-            content="a preference reported with no active context at all",
+            content="always captions one image at a time in this mode",
+            scope="mode", scope_ref="lora-dataset",
+        )
+
+    @pytest.mark.asyncio
+    async def test_mismatched_mode_scope_ref_dropped(self, monkeypatch):
+        manager, generator, messages = self._setup(
+            monkeypatch,
+            '[{"scope": "mode", "scope_ref": "some-other-mode", "key": "k", '
+            '"content": "a habit reported for a mode never active here", '
+            '"kind": "recurring", "evidence": [1, 2]}]',
+            mode="lora-dataset",
+        )
+
+        await generator.reflect("session-1")
+
+        manager.memory_ops.write_note.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_hallucinated_scope_ref_dropped(self, monkeypatch):
+        """A mismatched scope_ref is DROPPED, never silently rewritten to
+        'global' - a scoped fact with no honest home is not evidence it's
+        universally true."""
+        manager, generator, messages = self._setup(
+            monkeypatch,
+            '[{"scope": "preset", "scope_ref": "preset-999", "key": "k", '
+            '"content": "made up preference for a preset never active here", '
+            '"kind": "recurring", "evidence": [1, 2]}]'
+        )
+
+        await generator.reflect("session-1", form_state={"preset": "preset-123", "form_data": {}})
+
+        manager.memory_ops.write_note.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_form_state_scoped_fact_dropped(self, monkeypatch):
+        """No active preset/model/mode for this turn: a fact reported as
+        'preset'/'model'/'mode' scope has nothing to validate against and is
+        dropped - it does NOT fall back to a global note either (zero preset
+        notes AND zero global notes derived from it)."""
+        manager, generator, messages = self._setup(
+            monkeypatch,
+            '[{"scope": "preset", "scope_ref": "preset-123", "key": "k", '
+            '"content": "a preference reported with no active context at all", '
+            '"kind": "recurring", "evidence": [1, 2]}]'
+        )
+
+        await generator.reflect("session-1")
+
+        manager.memory_ops.write_note.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_model_scoped_global_still_saves_as_global_when_reported(self, monkeypatch):
+        """'global' is only ever what the model itself deliberately reports -
+        confirms the drop rule above isn't blocking legitimate global facts."""
+        manager, generator, messages = self._setup(
+            monkeypatch,
+            '[{"scope": "global", "key": "k", "content": "prefers moody lighting overall", '
+            '"kind": "recurring", "evidence": [1, 2]}]'
+        )
+
+        await generator.reflect("session-1")
+
+        manager.memory_ops.write_note.assert_called_once_with(
+            manager.llm_memory_repository,
+            user_id="user-1", key="k",
+            content="prefers moody lighting overall",
             scope="global", scope_ref=None,
         )
 
@@ -379,14 +626,193 @@ class TestValidateScope:
     def test_matching_preset_ref_kept(self):
         assert ChatReflectionGenerator._validate_scope("preset", "p1", "p1", None) == ("preset", "p1")
 
-    def test_mismatched_preset_ref_falls_back(self):
-        assert ChatReflectionGenerator._validate_scope("preset", "p2", "p1", None) == ("global", None)
+    def test_mismatched_preset_ref_dropped(self):
+        assert ChatReflectionGenerator._validate_scope("preset", "p2", "p1", None) is None
 
     def test_matching_model_ref_kept(self):
         assert ChatReflectionGenerator._validate_scope("model", "m1", None, "m1") == ("model", "m1")
 
-    def test_preset_scope_with_no_active_preset_falls_back(self):
-        assert ChatReflectionGenerator._validate_scope("preset", "p1", None, None) == ("global", None)
+    def test_mismatched_model_ref_dropped(self):
+        assert ChatReflectionGenerator._validate_scope("model", "m2", None, "m1") is None
 
-    def test_invalid_scope_name_falls_back(self):
-        assert ChatReflectionGenerator._validate_scope("banana", "p1", "p1", None) == ("global", None)
+    def test_matching_mode_ref_kept(self):
+        assert ChatReflectionGenerator._validate_scope("mode", "md1", None, None, "md1") == ("mode", "md1")
+
+    def test_mismatched_mode_ref_dropped(self):
+        assert ChatReflectionGenerator._validate_scope("mode", "md2", None, None, "md1") is None
+
+    def test_mode_ref_with_no_active_mode_dropped(self):
+        assert ChatReflectionGenerator._validate_scope("mode", "md1", None, None, None) is None
+
+    def test_preset_scope_with_no_active_preset_dropped(self):
+        assert ChatReflectionGenerator._validate_scope("preset", "p1", None, None) is None
+
+    def test_invalid_scope_name_dropped(self):
+        assert ChatReflectionGenerator._validate_scope("banana", "p1", "p1", None) is None
+
+    def test_global_scope_always_kept(self):
+        assert ChatReflectionGenerator._validate_scope("global", None, "p1", "m1", "md1") == ("global", None)
+
+
+class TestValidateFactGrounding:
+    def test_recurring_with_two_distinct_turns_passes(self):
+        item = {"kind": "recurring", "evidence": [1, 3]}
+        assert ChatReflectionGenerator._validate_fact_grounding(item, {}) is None
+
+    def test_recurring_with_duplicate_indices_fails(self):
+        item = {"kind": "recurring", "evidence": [2, 2]}
+        assert ChatReflectionGenerator._validate_fact_grounding(item, {}) is not None
+
+    def test_recurring_with_one_turn_fails(self):
+        item = {"kind": "recurring", "evidence": [1]}
+        assert ChatReflectionGenerator._validate_fact_grounding(item, {}) is not None
+
+    def test_stated_with_verbatim_quote_passes(self):
+        item = {"kind": "stated", "evidence": [1], "quote": "always wants short captions"}
+        turns = {1: "The user says: always wants short captions, every time."}
+        assert ChatReflectionGenerator._validate_fact_grounding(item, turns) is None
+
+    def test_stated_quote_is_whitespace_and_case_normalized(self):
+        item = {"kind": "stated", "evidence": [1], "quote": "Always Wants   short captions"}
+        turns = {1: "always wants short captions please"}
+        assert ChatReflectionGenerator._validate_fact_grounding(item, turns) is None
+
+    def test_stated_with_quote_not_in_turn_fails(self):
+        item = {"kind": "stated", "evidence": [1], "quote": "never said this"}
+        turns = {1: "something completely different"}
+        assert ChatReflectionGenerator._validate_fact_grounding(item, turns) is not None
+
+    def test_stated_missing_quote_fails(self):
+        item = {"kind": "stated", "evidence": [1]}
+        turns = {1: "anything"}
+        assert ChatReflectionGenerator._validate_fact_grounding(item, turns) is not None
+
+    def test_stated_citing_a_turn_not_in_span_fails(self):
+        item = {"kind": "stated", "evidence": [5], "quote": "hello"}
+        turns = {1: "hello there"}
+        assert ChatReflectionGenerator._validate_fact_grounding(item, turns) is not None
+
+    def test_missing_kind_fails(self):
+        item = {"evidence": [1, 2]}
+        assert ChatReflectionGenerator._validate_fact_grounding(item, {}) is not None
+
+    def test_invalid_kind_fails(self):
+        item = {"kind": "vibes", "evidence": [1, 2]}
+        assert ChatReflectionGenerator._validate_fact_grounding(item, {}) is not None
+
+    def test_missing_evidence_fails(self):
+        item = {"kind": "recurring"}
+        assert ChatReflectionGenerator._validate_fact_grounding(item, {}) is not None
+
+    def test_empty_evidence_fails(self):
+        item = {"kind": "recurring", "evidence": []}
+        assert ChatReflectionGenerator._validate_fact_grounding(item, {}) is not None
+
+    def test_non_integer_evidence_fails(self):
+        item = {"kind": "recurring", "evidence": ["1", "2"]}
+        assert ChatReflectionGenerator._validate_fact_grounding(item, {}) is not None
+
+
+class TestRestatesSinglePrompt:
+    def test_generation_subject_restated_as_preference_detected(self):
+        content = "user likes to generate beautiful girls wearing white tshirts and jeans"
+        turns = {1: "beautiful girl with white tshirt and jeans"}
+        assert ChatReflectionGenerator._restates_single_prompt(content, turns) is True
+
+    def test_genuine_workflow_preference_not_flagged(self):
+        content = "prefers short prompts without quality tags"
+        turns = {
+            1: "draw a wizard casting a lightning spell",
+            2: "a red sports car on a mountain road",
+            3: "a lighthouse at sunset",
+        }
+        assert ChatReflectionGenerator._restates_single_prompt(content, turns) is False
+
+    def test_short_content_never_flagged(self):
+        """Below the minimum content-word count, the check doesn't even try -
+        too few words and any overlap looks total."""
+        content = "likes cats"
+        turns = {1: "a photo of two cats sitting on a windowsill"}
+        assert ChatReflectionGenerator._restates_single_prompt(content, turns) is False
+
+    def test_no_turns_never_flagged(self):
+        assert ChatReflectionGenerator._restates_single_prompt("prefers moody cinematic lighting", {}) is False
+
+    def test_high_overlap_turn_that_is_itself_a_preference_statement_not_flagged(self):
+        """A note closely restating a turn is only suspect when that turn
+        reads as a plain generation request - not when the turn itself
+        already reads as the user stating a preference."""
+        content = "wants captions kept short"
+        turns = {1: "I always want short captions, please."}
+        assert ChatReflectionGenerator._restates_single_prompt(content, turns) is False
+
+
+class TestLooksLikeAPreferenceStatement:
+    def test_generation_request_has_no_cue(self):
+        from src.features.chat.reflection import _looks_like_a_preference_statement
+        assert _looks_like_a_preference_statement("beautiful girl with white tshirt and jeans") is False
+
+    def test_preference_statement_has_a_cue(self):
+        from src.features.chat.reflection import _looks_like_a_preference_statement
+        assert _looks_like_a_preference_statement("I always want short captions, please.") is True
+
+    def test_prefer_variants_match(self):
+        from src.features.chat.reflection import _looks_like_a_preference_statement
+        assert _looks_like_a_preference_statement("I prefer darker palettes") is True
+        assert _looks_like_a_preference_statement("my preferred style is anime") is True
+
+
+class TestBuildSpanTurnNumbering:
+    def test_user_turns_numbered_sequentially_assistant_unnumbered(self, monkeypatch):
+        manager = _manager(monkeypatch)
+        generator = ChatReflectionGenerator(manager)
+        session = _session()
+        messages = _messages(3)
+        manager.chat_repository.get_session.return_value = session
+
+        span = generator._build_span(session, messages, char_budget=10000)
+
+        assert span.user_turn_texts == {1: "question 0", 2: "question 1", 3: "question 2"}
+        assert "[1] User: question 0" in span.transcript
+        assert "[2] User: question 1" in span.transcript
+        assert "[3] User: question 2" in span.transcript
+        assert "Assistant: answer 0" in span.transcript
+        assert "[1] Assistant" not in span.transcript
+
+    def test_deferred_backlog_turn_does_not_consume_a_number(self, monkeypatch):
+        """A message that doesn't fit and is deferred to backlog must not
+        burn a turn number that then never appears in the transcript."""
+        manager = _manager(monkeypatch)
+        generator = ChatReflectionGenerator(manager)
+        session = _session()
+        messages = _messages(2)
+        manager.chat_repository.get_session.return_value = session
+
+        # Budget fits only the first user+assistant pair's worth of text.
+        first_line_len = len(f"[1] User: {messages[0].content}")
+        span = generator._build_span(session, messages, char_budget=first_line_len)
+
+        assert span.user_turn_texts == {1: "question 0"}
+        assert span.has_backlog is True
+
+
+class TestValidateScopeAndPersistIntegration:
+    """`_persist_items` never rewrites a dropped scope to global - regression
+    guard for the old fallback behavior at the persistence boundary itself,
+    independent of the full `reflect()` path above."""
+
+    def test_scope_mismatch_is_never_persisted_as_global(self, monkeypatch):
+        manager = _manager(monkeypatch)
+        generator = ChatReflectionGenerator(manager)
+        items = [{
+            "scope": "preset", "scope_ref": "preset-999", "key": "k",
+            "content": "a fact for a preset that was never active",
+            "kind": "recurring", "evidence": [1, 2],
+        }]
+
+        saved = generator._persist_items(
+            "user-1", items, active_preset_id="preset-123", active_model_id=None, active_mode_id=None,
+        )
+
+        assert saved == []
+        manager.memory_ops.write_note.assert_not_called()

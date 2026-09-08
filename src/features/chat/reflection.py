@@ -46,7 +46,7 @@ import json
 import logging
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.chat.dto import SessionResponse
@@ -88,6 +88,87 @@ _METADATA_KEY = "memory_reflection"
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _JSON_ARRAY_RE = re.compile(r"\[.*\]", re.DOTALL)
 
+# --- content-overlap backstop (see `_restates_single_prompt`) ---
+#
+# A candidate whose content is mostly just the words of one generation
+# request, wearing a "preference" sentence as a costume, is rejected even
+# when it otherwise passes the kind/evidence grounding check below (a model
+# can legally quote its own one-off prompt verbatim, which satisfies
+# `_validate_fact_grounding`'s "stated" quote check without the CONTENT
+# actually being a preference). This is the independent second layer that
+# catches that case.
+_CONTENT_WORD_RE = re.compile(r"[a-zA-Z']{2,}")
+
+# Generic English function words - carry no subject-matter signal either way.
+_STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "but", "of", "in", "on", "at", "to", "for",
+    "with", "is", "are", "was", "were", "be", "been", "being", "this", "that",
+    "these", "those", "i", "you", "he", "she", "it", "we", "they", "my",
+    "your", "his", "her", "its", "our", "their", "as", "by", "from", "into",
+    "about", "than", "then", "so", "if", "not", "no", "do", "does", "did",
+    "have", "has", "had", "will", "would", "can", "could", "should", "just",
+    "also", "very", "one", "some",
+})
+
+# Words a model reaches for to dress up a one-off request as a standing
+# preference ("user LIKES to GENERATE beautiful girls...") - stripped
+# separately from `_STOPWORDS` because they carry preference-framing
+# signal, not subject-matter signal, and would otherwise pad the overlap
+# denominator in the note's favor.
+_PREFERENCE_FRAMING_WORDS = frozenset({
+    "user", "likes", "like", "prefers", "prefer", "wants", "want",
+    "generate", "generates", "generating", "generated", "generation",
+    "creates", "creating", "create", "created", "produces", "producing",
+    "produce", "produced", "asks", "asked", "asking", "requests",
+    "requested", "requesting", "tends", "typically", "usually", "always",
+    "often", "generally",
+})
+
+# A candidate note needs at least this many content words before the
+# overlap check applies at all - too few and any overlap looks total.
+_MIN_CONTENT_WORDS_FOR_OVERLAP_CHECK = 3
+
+# >= this fraction of the note's own content words showing up in ANY ONE
+# user turn means the note is that turn's subject matter, not a pattern -
+# UNLESS that turn itself already reads as a preference statement in the
+# user's own words (see `_looks_like_a_preference_statement`): a note that
+# closely restates "I always want short captions" is a legitimate close
+# paraphrase of something the user actually said as a preference, not a
+# generation request laundered into one - the overlap alone can't tell
+# those apart, so the cue check is what draws the line.
+_CONTENT_OVERLAP_REJECT_THRESHOLD = 0.6
+
+# Cues that mark a TURN (not the candidate note) as already being phrased as
+# a standing preference/habit rather than a one-off request - deliberately a
+# different, smaller set than `_PREFERENCE_FRAMING_WORDS` above: a plain
+# generation request can legitimately contain "generate"/"create" without
+# being a preference statement, but these cues are specific to a user
+# describing what they generally want.
+_PREFERENCE_CUE_RE = re.compile(
+    r"\b(prefer\w*|always|never|instead|rather|usually|typically|generally|"
+    r"tend\w*|habit\w*|don'?t|from now on|every time)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_a_preference_statement(turn_text: str) -> bool:
+    return bool(_PREFERENCE_CUE_RE.search(turn_text))
+
+
+def _normalize_word(word: str) -> str:
+    """A crude plural fold (girls -> girl, tshirts -> tshirt) applied
+    identically to note content and turn text, so the two sides compare on
+    the same footing - not meant to be linguistically correct, only
+    consistent."""
+    if len(word) > 4 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def _content_words(text: str) -> frozenset:
+    words = (_normalize_word(w.lower()) for w in _CONTENT_WORD_RE.findall(text))
+    return frozenset(w for w in words if w not in _STOPWORDS and w not in _PREFERENCE_FRAMING_WORDS)
+
 
 @dataclass
 class _ReflectionSpan:
@@ -106,6 +187,12 @@ class _ReflectionSpan:
     message order itself (see its monotonic-advance docstring).
     ``has_backlog`` is True when the budget was hit before every unreflected
     message was covered (a mid-message chunk, or whole messages deferred).
+
+    ``user_turn_texts`` maps the 1-based turn number shown in the transcript
+    (``"[3] User: ..."``, see ``_build_span``) to the exact text that turn
+    contributed to THIS span - used both to build the prompt's turn numbers
+    and to verify a "stated" fact's quote actually appears in the turn it
+    cites (see ``_validate_fact_grounding``).
     """
 
     transcript: str
@@ -113,6 +200,7 @@ class _ReflectionSpan:
     end_offset: int = 0
     end_seq: int = -1
     has_backlog: bool = False
+    user_turn_texts: Dict[int, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -270,8 +358,8 @@ class ChatReflectionGenerator:
 
         # Prompt first: its own token cost has to come out of the budget
         # before we know how much room is left for transcript text.
-        active_preset, active_model = self._resolve_active_context(form_state)
-        prompt = self._build_prompt(active_preset, active_model)
+        active_preset, active_model, active_mode = self._resolve_active_context(session, form_state)
+        prompt = self._build_prompt(active_preset, active_model, active_mode)
 
         config = self._m.llm_service.repository.get_configuration(session.llm_config_id) if session.llm_config_id else None
 
@@ -345,6 +433,8 @@ class ChatReflectionGenerator:
             session.user_id, items,
             active_preset_id=active_preset[0] if active_preset else None,
             active_model_id=active_model[0] if active_model else None,
+            active_mode_id=active_mode[0] if active_mode else None,
+            user_turn_texts=span.user_turn_texts,
         )
 
         # A valid empty extraction (the model found nothing durable) still
@@ -531,12 +621,20 @@ class ChatReflectionGenerator:
         span resumes mid-message rather than re-sending or skipping text. A
         message covered IN FULL records its whole content length as the
         offset, never 0 - see ``_ReflectionSpan``'s docstring for why.
+
+        Each USER turn actually included (whole or chunked) is numbered
+        sequentially from 1, e.g. ``"[3] User: ..."`` - assistant turns are
+        unnumbered. The number is only consumed when the turn's text is
+        actually appended, never for a turn deferred to backlog, so numbers
+        stay dense within a span. See ``_ReflectionSpan.user_turn_texts``.
         """
         entries = self._unreflected_entries(session, messages)
         parts: List[str] = []
         total = 0
         end_seq, end_id, end_offset = -1, None, 0
         has_backlog = False
+        user_turn_texts: Dict[int, str] = {}
+        next_turn_no = 1
         for seq, m, start_offset in entries:
             if m.role not in ("user", "assistant"):
                 continue
@@ -545,30 +643,45 @@ class ChatReflectionGenerator:
             if not text.strip():
                 end_seq, end_id, end_offset = seq, m.id, len(content)
                 continue
-            line = f"{m.role.capitalize()}: {text}"
+            is_user = m.role == "user"
+            prefix = f"[{next_turn_no}] User: " if is_user else "Assistant: "
+            line = f"{prefix}{text}"
             projected = total + (len(_LINE_SEP) if parts else 0) + len(line)
             if projected <= char_budget:
                 parts.append(line)
                 total = projected
                 end_seq, end_id, end_offset = seq, m.id, len(content)
+                if is_user:
+                    user_turn_texts[next_turn_no] = text
+                    next_turn_no += 1
                 continue
             if not parts:
-                prefix = f"{m.role.capitalize()}: "
                 room = char_budget - len(prefix)
                 if room > 0:
                     chunk = text[:room]
                     parts.append(f"{prefix}{chunk}")
                     end_seq, end_id, end_offset = seq, m.id, start_offset + len(chunk)
+                    if is_user:
+                        user_turn_texts[next_turn_no] = chunk
+                        next_turn_no += 1
             has_backlog = True
             break
-        return _ReflectionSpan(_LINE_SEP.join(parts), end_id, end_offset, end_seq, has_backlog)
+        return _ReflectionSpan(_LINE_SEP.join(parts), end_id, end_offset, end_seq, has_backlog, user_turn_texts)
 
     # --- active context / prompt ---
 
     def _resolve_active_context(
-        self, form_state: Optional[Dict[str, Any]]
-    ) -> Tuple[Optional[Tuple[str, str]], Optional[Tuple[str, str]]]:
-        """Resolve the turn's active preset/model into (id, label) pairs for the prompt.
+        self, session: SessionResponse, form_state: Optional[Dict[str, Any]]
+    ) -> Tuple[Optional[Tuple[str, str]], Optional[Tuple[str, str]], Optional[Tuple[str, str]]]:
+        """Resolve the turn's active preset/model/mode into (id, label) pairs
+        for the prompt.
+
+        Preset/model come from ``form_state`` (the live turn's Generate-page
+        context, only meaningful when that page is actually open). Mode
+        comes from ``session.mode`` instead - a stable, immutable field set
+        at session creation (``ChatMode.id``) - not from the frontend, since
+        a plugin-mode session (e.g. lora-dataset) has no Generate form open
+        at all and would otherwise have nothing to scope to but global.
 
         Best-effort: a label lookup failure still yields the id with itself as
         the label rather than dropping the context entirely, since the id
@@ -601,15 +714,31 @@ class ChatReflectionGenerator:
                     pass
             active_model = (model_id, label)
 
-        return active_preset, active_model
+        active_mode = None
+        mode_id = getattr(session, "mode", None)
+        if mode_id:
+            label = mode_id
+            registry = getattr(self._m, "chat_mode_registry", None)
+            if registry is not None:
+                try:
+                    mode = registry.get(mode_id)
+                    if mode is not None and getattr(mode, "name", None):
+                        label = mode.name
+                except Exception:
+                    pass
+            active_mode = (mode_id, label)
+
+        return active_preset, active_model, active_mode
 
     @staticmethod
     def _build_prompt(
-        active_preset: Optional[Tuple[str, str]], active_model: Optional[Tuple[str, str]],
+        active_preset: Optional[Tuple[str, str]],
+        active_model: Optional[Tuple[str, str]],
+        active_mode: Optional[Tuple[str, str]],
     ) -> str:
         """Compose the reflection prompt with this turn's actual active ids.
 
-        The model is given the real preset/model id and told to reuse it
+        The model is given the real preset/model/mode id and told to reuse it
         verbatim for a scoped fact; ``_validate_scope`` then checks the id it
         reports against these same values, so a hallucinated id can never
         make it into a persisted note.
@@ -630,24 +759,52 @@ class ChatReflectionGenerator:
         else:
             model_line = '- No active model in this conversation - never use scope "model".'
 
+        if active_mode:
+            mode_line = (
+                f'- Active mode: "{active_mode[1]}" (id: {active_mode[0]}) - use scope '
+                f'"mode" with scope_ref exactly "{active_mode[0]}" for facts tied only to it '
+                "(e.g. a habit specific to this chat mode's own workflow, not the Generate form)."
+            )
+        else:
+            mode_line = '- No active mode in this conversation - never use scope "mode".'
+
         return (
             "Review this conversation and extract durable facts worth remembering for "
             "FUTURE, unrelated conversations with this user - not facts about this one "
             "exchange.\n\n"
+            "The SUBJECT of a generation request - what the user asked to be drawn, "
+            "written, or rendered this one time - is NEVER itself a preference, no "
+            "matter how you phrase it. A fact must be either something the user said "
+            "about themselves or their workflow, or something that recurred across "
+            "separate requests - never the content of a single request restated as if "
+            "it were a taste.\n\n"
             "Look for: preferences the user states outright, corrections the user "
             "makes to your work, and requests repeated more than once. Ignore anything "
             "tied to a single generation - a seed, a one-off prompt, a result the user "
             "reacted to only once.\n\n"
-            f"{preset_line}\n{model_line}\n\n"
+            f"{preset_line}\n{model_line}\n{mode_line}\n\n"
+            "Each user turn below is numbered, like '[3] User: ...' - use these numbers "
+            "as evidence.\n\n"
             "For each fact, pick a scope: 'global' for something true everywhere, or "
-            "'preset'/'model' for something tied ONLY to the active preset/model named "
-            "above - never invent an id, only ever the exact one given above.\n\n"
+            "'preset'/'model'/'mode' for something tied ONLY to the active preset/model/"
+            "mode named above - never invent an id, only ever the exact one given "
+            "above.\n\n"
+            "For each fact, also set 'kind':\n"
+            "- 'stated': the user said this outright, in their own words, in ONE turn. "
+            "'evidence' is that turn's number as a one-item array, e.g. [3]. 'quote' is "
+            "the exact sentence copied verbatim from that turn that the fact rests on.\n"
+            "- 'recurring': not stated outright, but the SAME pattern showed up across "
+            "separate requests. 'evidence' lists at least 2 distinct turn numbers where "
+            "it appeared, e.g. [1, 4]. No 'quote' needed.\n"
+            "A fact backed by neither a verbatim quote nor two separate occurrences is "
+            "not durable - do not report it.\n\n"
             f"Keep each fact's content under {_TARGET_CONTENT_CHARS} characters.\n\n"
             "Reply with a JSON array only, no other text. Each item:\n"
-            '{"scope": "global"|"preset"|"model", "scope_ref": "<the exact id given '
-            'above, or null for global>", "key": "<short snake_case identifier>", '
+            '{"scope": "global"|"preset"|"model"|"mode", "scope_ref": "<the exact id '
+            'given above, or null for global>", "key": "<short snake_case identifier>", '
             '"content": "<the fact, written as a general statement>", '
-            '"why_generalizes": "<one line: why this applies beyond this conversation>"}\n\n'
+            '"kind": "stated"|"recurring", "evidence": [<turn number>, ...], '
+            '"quote": "<verbatim quote - only when kind is stated>"}\n\n'
             "If nothing durable came up, reply with an empty array: []"
         )
 
@@ -692,16 +849,43 @@ class ChatReflectionGenerator:
         items: List[Dict[str, Any]],
         active_preset_id: Optional[str] = None,
         active_model_id: Optional[str] = None,
+        active_mode_id: Optional[str] = None,
+        user_turn_texts: Optional[Dict[int, str]] = None,
     ) -> List[Dict[str, Any]]:
+        user_turn_texts = user_turn_texts or {}
         saved: List[Dict[str, Any]] = []
         for item in items:
             key = item.get("key")
             content = item.get("content")
             if not isinstance(key, str) or not key.strip() or not isinstance(content, str) or not content.strip():
                 continue
-            scope, scope_ref = self._validate_scope(
-                item.get("scope"), item.get("scope_ref"), active_preset_id, active_model_id,
+            content = content.strip()
+
+            grounding_issue = self._validate_fact_grounding(item, user_turn_texts)
+            if grounding_issue:
+                logger.info(f"Reflection item '{key}' dropped: {grounding_issue}")
+                continue
+
+            scoped = self._validate_scope(
+                item.get("scope"), item.get("scope_ref"),
+                active_preset_id, active_model_id, active_mode_id,
             )
+            if scoped is None:
+                logger.info(
+                    f"Reflection item '{key}' dropped: scope '{item.get('scope')}' "
+                    f"(scope_ref '{item.get('scope_ref')}') does not match this turn's "
+                    "active preset/model/mode - never rewritten to global"
+                )
+                continue
+            scope, scope_ref = scoped
+
+            if self._restates_single_prompt(content, user_turn_texts):
+                logger.info(
+                    f"Reflection item '{key}' dropped: content mostly restates a single "
+                    "user turn's request rather than describing a lasting pattern"
+                )
+                continue
+
             try:
                 note = memory_operations.write_note(
                     self._m.llm_memory_repository,
@@ -710,7 +894,7 @@ class ChatReflectionGenerator:
                     # Defensive truncation: the prompt asks for shorter notes, but a
                     # prompt instruction is not a length guarantee, and write_note
                     # rejects anything over MAX_CONTENT_LENGTH outright.
-                    content=content.strip()[:MAX_CONTENT_LENGTH],
+                    content=content[:MAX_CONTENT_LENGTH],
                     scope=scope,
                     scope_ref=scope_ref,
                 )
@@ -726,16 +910,104 @@ class ChatReflectionGenerator:
         scope_ref: Any,
         active_preset_id: Optional[str],
         active_model_id: Optional[str],
-    ) -> Tuple[str, Optional[str]]:
-        """Accept a 'preset'/'model' scope only when scope_ref names exactly the
-        id this turn's form state actually resolved for that scope. Anything
-        else - an invalid scope, a mismatched or hallucinated scope_ref, or no
-        active id at all for that scope - falls back to 'global' rather than
-        being trusted or dropped, since VALID_SCOPES membership alone says
-        nothing about whether the referenced preset/model is the one this
-        conversation was actually about."""
+        active_mode_id: Optional[str] = None,
+    ) -> Optional[Tuple[str, Optional[str]]]:
+        """Accept a 'preset'/'model'/'mode' scope only when scope_ref names
+        exactly the id this turn's actual context resolved for that scope.
+        Anything else - an invalid scope name, a mismatched or hallucinated
+        scope_ref, or no active id at all for that scope - is DROPPED
+        (returns ``None``), never silently rewritten to 'global': 'global' is
+        only ever what the model itself deliberately reported, since a
+        preset/model/mode-shaped fact with no honest home is not evidence the
+        fact is universally true."""
+        if scope == "global":
+            return "global", None
         if scope == "preset" and active_preset_id and scope_ref == active_preset_id:
             return "preset", active_preset_id
         if scope == "model" and active_model_id and scope_ref == active_model_id:
             return "model", active_model_id
-        return "global", None
+        if scope == "mode" and active_mode_id and scope_ref == active_mode_id:
+            return "mode", active_mode_id
+        return None
+
+    @staticmethod
+    def _validate_fact_grounding(item: Dict[str, Any], user_turn_texts: Dict[int, str]) -> Optional[str]:
+        """Code-enforced backstop for extraction quality (see module docstring
+        addition in the reflection prompt): a 'stated' fact must trace to a
+        verbatim quote in the turn it cites, and a 'recurring' fact must cite
+        at least 2 distinct turns. Returns ``None`` when the item is properly
+        grounded, else a human-readable reason for the drop.
+
+        Only checks that GROUNDING is present and internally consistent - it
+        does not (and cannot) verify a 'recurring' fact's cited turns
+        actually contain the pattern; that's beyond what code can check
+        without re-reading the model's own judgment. The separate
+        ``_restates_single_prompt`` check catches the complementary failure
+        mode: a 'stated' fact whose quote is technically real but whose
+        CONTENT is just that one turn's request restated as a preference.
+        """
+        kind = item.get("kind")
+        if kind not in ("stated", "recurring"):
+            return "missing or invalid 'kind' (must be 'stated' or 'recurring')"
+
+        evidence = item.get("evidence")
+        if not isinstance(evidence, list) or not evidence or not all(
+            isinstance(e, int) and not isinstance(e, bool) for e in evidence
+        ):
+            return "missing or invalid 'evidence' (must be a non-empty array of turn numbers)"
+
+        if kind == "recurring":
+            if len(set(evidence)) < 2:
+                return "'recurring' fact needs at least 2 distinct turn numbers as evidence"
+            return None
+
+        quote = item.get("quote")
+        if not isinstance(quote, str) or not quote.strip():
+            return "'stated' fact needs a 'quote' that appears verbatim in the cited turn"
+        turn_text = user_turn_texts.get(evidence[0])
+        if not turn_text or not ChatReflectionGenerator._normalized_contains(turn_text, quote):
+            return "'stated' fact's quote does not appear verbatim in the turn it cites"
+        return None
+
+    @staticmethod
+    def _normalized_contains(haystack: str, needle: str) -> bool:
+        """Whitespace/case-normalized substring check - a quote is still
+        "verbatim" across incidental whitespace/case differences a model's
+        own transcription can introduce."""
+        def _norm(s: str) -> str:
+            return re.sub(r"\s+", " ", s.strip().lower())
+
+        normalized_needle = _norm(needle)
+        return bool(normalized_needle) and normalized_needle in _norm(haystack)
+
+    @staticmethod
+    def _restates_single_prompt(content: str, user_turn_texts: Dict[int, str]) -> bool:
+        """True when ``content``'s own (stopword/framing-stripped) words are
+        mostly just the words of ONE user turn in the span - i.e. the note is
+        that turn's subject matter wearing a preference sentence, not an
+        actual pattern.
+
+        Skips a turn that already reads as a preference statement in the
+        user's own words (``_looks_like_a_preference_statement``): closely
+        restating "I always want short captions" is a legitimate paraphrase
+        of a preference the user actually stated, not a generation request
+        laundered into one - word overlap alone can't distinguish those, so
+        this is the deciding factor for a high-overlap turn.
+
+        See the module-level constants above for the exact thresholds and
+        why they're set where they are.
+        """
+        content_words = _content_words(content)
+        if len(content_words) < _MIN_CONTENT_WORDS_FOR_OVERLAP_CHECK:
+            return False
+        for turn_text in user_turn_texts.values():
+            turn_words = _content_words(turn_text)
+            if not turn_words:
+                continue
+            overlap = len(content_words & turn_words)
+            if overlap / len(content_words) < _CONTENT_OVERLAP_REJECT_THRESHOLD:
+                continue
+            if _looks_like_a_preference_statement(turn_text):
+                continue
+            return True
+        return False

@@ -720,8 +720,8 @@ class TestSendMessageBehaviorTrace:
         assert trace["system_prompt_source"] == "mode:generation"
         assert trace["resources"] == []
         assert trace["memory"]["note_ids"] == ["note-1"]
-        assert trace["memory"]["by_scope"] == {"global": 1, "preset": 0, "model": 0}
-        assert trace["memory"]["by_scope_dropped"] == {"global": 0, "preset": 0, "model": 0}
+        assert trace["memory"]["by_scope"] == {"global": 1, "preset": 0, "model": 0, "mode": 0}
+        assert trace["memory"]["by_scope_dropped"] == {"global": 0, "preset": 0, "model": 0, "mode": 0}
         assert trace["memory"]["injected_chars"] > 0
         assert trace["pre_chat_actions"] == []
         assert trace["tools_used"] == []
@@ -1385,7 +1385,7 @@ class TestInjectMemoryBlock:
         )
 
         assert "write_memory" not in history[0]["content"]
-        assert "persistent memory — use it" in history[0]["content"]
+        assert "persistent memory" in history[0]["content"]
 
     def test_read_failure_never_raises(self):
         self.mock_memory_ops.read_notes.side_effect = RuntimeError("db down")
@@ -1406,7 +1406,7 @@ class TestInjectMemoryBlock:
         assert "(+5 older notes not shown — consolidate or prune in the memory panel)" in block
         assert "k19" in block  # last of the 20 shown
         assert "k20" not in block  # first of the 5 dropped
-        assert result["by_scope_dropped"] == {"global": 5, "preset": 0, "model": 0}
+        assert result["by_scope_dropped"] == {"global": 5, "preset": 0, "model": 0, "mode": 0}
 
     def test_group_under_cap_reports_no_drops(self):
         self.mock_memory_ops.read_notes.return_value = [self._make_note()]
@@ -1414,7 +1414,7 @@ class TestInjectMemoryBlock:
 
         result = self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
 
-        assert result["by_scope_dropped"] == {"global": 0, "preset": 0, "model": 0}
+        assert result["by_scope_dropped"] == {"global": 0, "preset": 0, "model": 0, "mode": 0}
         assert "not shown" not in history[0]["content"]
 
     def test_long_note_content_clipped_with_visible_ellipsis(self):
@@ -1444,7 +1444,7 @@ class TestInjectMemoryBlock:
         result = self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
 
         assert result["injected_chars"] == 0
-        assert result["by_scope_dropped"] == {"global": 0, "preset": 0, "model": 0}
+        assert result["by_scope_dropped"] == {"global": 0, "preset": 0, "model": 0, "mode": 0}
 
 
 def _mock_model(model_type, filename, triggers=None, guidance=None, description="", model_id="id"):

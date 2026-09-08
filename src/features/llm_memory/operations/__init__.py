@@ -1,6 +1,6 @@
 """
 LLM memory note operations: write/read/update/delete persistent cross-session
-notes, scoped globally, per-preset, or per-model.
+notes, scoped globally, per-preset, per-model, or per-mode.
 
 Post-Manager reference shape (see `src.features.plugins.operations`): no
 class holds these collaborators together. Each operation is a module-level
@@ -23,7 +23,7 @@ from src.features.llm_memory.repository import LLMMemoryRepository
 
 logger = logging.getLogger(__name__)
 
-VALID_SCOPES = {"global", "preset", "model"}
+VALID_SCOPES = {"global", "preset", "model", "mode"}
 
 MAX_CONTENT_LENGTH = 500
 _CONTENT_TOO_LONG_MESSAGE = (
@@ -104,8 +104,8 @@ def write_note(
         user_id: Owning user ID.
         key: Unique key for this note within its scope.
         content: The note content.
-        scope: 'global', 'preset', or 'model'.
-        scope_ref: Required when scope is 'preset' or 'model' (preset id / model id).
+        scope: 'global', 'preset', 'model', or 'mode'.
+        scope_ref: Required when scope is 'preset'/'model'/'mode' (preset id / model id / mode id).
 
     Returns:
         The persisted LLMMemoryNote.
@@ -116,7 +116,7 @@ def write_note(
     if scope not in VALID_SCOPES:
         raise ValueError(f"Invalid scope '{scope}'. Must be one of: {', '.join(VALID_SCOPES)}")
 
-    if scope in ("preset", "model") and not scope_ref:
+    if scope in ("preset", "model", "mode") and not scope_ref:
         raise ValueError(f"scope_ref is required when scope is '{scope}'")
 
     # Clear scope_ref for global scope
@@ -146,8 +146,8 @@ def read_notes(
     Args:
         repository: LLMMemoryRepository.
         user_id: Owning user ID.
-        scope: Optional scope filter ('global', 'preset', or 'model').
-        scope_ref: Optional scope reference filter (preset id / model id).
+        scope: Optional scope filter ('global', 'preset', 'model', or 'mode').
+        scope_ref: Optional scope reference filter (preset id / model id / mode id).
 
     Returns:
         List of matching LLMMemoryNote objects.
@@ -208,8 +208,8 @@ def get_note_by_key(
         repository: LLMMemoryRepository.
         user_id: Owning user ID.
         key: The note's key within its scope.
-        scope: 'global', 'preset', or 'model'.
-        scope_ref: Required when scope is 'preset' or 'model' (preset id / model id).
+        scope: 'global', 'preset', 'model', or 'mode'.
+        scope_ref: Required when scope is 'preset'/'model'/'mode' (preset id / model id / mode id).
 
     Returns:
         LLMMemoryNote if found, None otherwise.
@@ -220,7 +220,7 @@ def get_note_by_key(
     if scope not in VALID_SCOPES:
         raise ValueError(f"Invalid scope '{scope}'. Must be one of: {', '.join(VALID_SCOPES)}")
 
-    if scope in ("preset", "model") and not scope_ref:
+    if scope in ("preset", "model", "mode") and not scope_ref:
         raise ValueError(f"scope_ref is required when scope is '{scope}'")
 
     return repository.get_by_key(user_id, key, scope, scope_ref)

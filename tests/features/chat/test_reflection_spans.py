@@ -264,7 +264,8 @@ class TestReflectionFailure:
         ]
         manager.chat_repository.get_messages.return_value = messages
         manager.llm_service.queue(
-            '[{"scope": "global", "key": "k", "content": "prefers dark fantasy over anime"}]'
+            '[{"scope": "global", "key": "k", "content": "prefers dark fantasy over anime", '
+            '"kind": "recurring", "evidence": [1, 2]}]'
         )
         manager.chat_repository.record_memory_reflection.side_effect = RuntimeError("db write failed")
 
@@ -570,7 +571,10 @@ class TestReflectionConcurrencyAndBookkeeping(PersistenceTestBase):
         # extract it once the model behaves.
         with patch("src.features.chat.reflection.memory_operations") as mock_ops:
             mock_ops.write_note.return_value = Mock(to_dict=lambda: {"key": "k"})
-            llm.queue('[{"scope": "global", "key": "k", "content": "prefers dark fantasy over anime"}]')
+            llm.queue(
+                '[{"scope": "global", "key": "k", "content": "prefers dark fantasy over anime", '
+                '"kind": "recurring", "evidence": [1, 2]}]'
+            )
             saved2 = await runtime.reflection_generator.reflect(session_id)
             assert len(saved2) == 1
 
@@ -616,7 +620,8 @@ class TestReflectionConcurrencyAndBookkeeping(PersistenceTestBase):
 
             llm.queue(
                 '[{"scope": "preset", "scope_ref": "preset-B", "key": "k", '
-                '"content": "always wants dark fantasy lighting with this preset"}]'
+                '"content": "always wants dark fantasy lighting with this preset", '
+                '"kind": "recurring", "evidence": [1, 2]}]'
             )
             gate.set()
             await asyncio.gather(*list(runtime._reflection_tasks))
@@ -839,7 +844,7 @@ class TestReflectionRealGatewayBudget(PersistenceTestBase):
             id="llm-1", name="Reflect Test", type="native", enabled=True,
             base_url="http://internal", model="native-model",
             system_message=system_message, disable_system_prompt=False,
-            memory_reflection=True, provider_options={"context_window": 2000},
+            memory_reflection=True, provider_options={"context_window": 2800},
             max_tokens=2000,
         )
         gateway.repository.get_configuration.return_value = config

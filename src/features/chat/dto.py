@@ -91,8 +91,8 @@ class MemoryWriteRequest(BaseModel):
     """Request model for creating/updating a persistent LLM memory note"""
     key: str
     content: str
-    scope: str = 'global'  # 'global' | 'preset' | 'model'
-    scope_ref: Optional[str] = None  # required for 'preset' / 'model' scopes
+    scope: str = 'global'  # 'global' | 'preset' | 'model' | 'mode'
+    scope_ref: Optional[str] = None  # required for 'preset' / 'model' / 'mode' scopes
 
 
 class MemoryUpdateRequest(BaseModel):

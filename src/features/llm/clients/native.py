@@ -1316,8 +1316,11 @@ class NativeLLMClient:
     def _placeholder_value(schema: Any) -> Any:
         """A stand-in for a required argument's value that satisfies its own
         JSON-schema fragment: an enum's first member, a union's first branch,
-        a nested object's own required keys — never an empty object or a
-        free-form string where the schema names the allowed values."""
+        a nested object's own required keys, a `minItems`-long array built
+        from its own `items` schema, a `minLength`-satisfying string, a
+        `minimum`/`maximum`-satisfying number — never an empty object,
+        an empty array where `minItems` demands one, or a free-form value
+        where the schema constrains it."""
         if not isinstance(schema, dict):
             return "..."
         enum = schema.get("enum")
@@ -1331,11 +1334,17 @@ class NativeLLMClient:
         if isinstance(schema_type, list):
             schema_type = next((t for t in schema_type if t != "null"), None)
         if schema_type in ("number", "integer"):
-            return 0
+            value = schema.get("minimum", 0)
+            maximum = schema.get("maximum")
+            if maximum is not None and value > maximum:
+                value = maximum
+            return value
         if schema_type == "boolean":
             return False
         if schema_type == "array":
-            return []
+            min_items = schema.get("minItems") or 0
+            item_schema = schema.get("items") or {}
+            return [NativeLLMClient._placeholder_value(item_schema) for _ in range(min_items)]
         if schema_type == "object":
             properties = schema.get("properties") or {}
             return {
@@ -1343,7 +1352,11 @@ class NativeLLMClient:
                 for key in (schema.get("required") or [])
                 if key in properties
             }
-        return "..."
+        placeholder = "..."
+        min_length = schema.get("minLength")
+        if isinstance(min_length, int) and min_length > len(placeholder):
+            placeholder = placeholder.ljust(min_length, ".")
+        return placeholder
 
     @staticmethod
     def _example_tool_call(tools: List[Dict[str, Any]]) -> str:

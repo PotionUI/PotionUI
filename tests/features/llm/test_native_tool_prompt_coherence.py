@@ -20,10 +20,12 @@ import json
 import re
 import weakref
 
+import jsonschema
 import pytest
 import torch
 
 from src.features.llm.clients.native import NativeLLMClient, _LoadedCheckpoint
+from src.features.llm.tools.builtin.manage_prompts_tool import AddPromptTool
 from tests.features.llm.test_native_client import _config, client, fake_native_model, models_manager
 
 
@@ -313,6 +315,40 @@ class TestPromptCoherenceWithEnumAndUnionArguments:
         counter(config.system_message, [{"role": "user", "content": "hi"}], self.TOOLS)
         text = _system_text(wired_checkpoint.tokenizer.calls[-1])
         _assert_scoped_arguments_satisfy_their_schema(_example_arguments(text))
+
+
+class TestPromptCoherenceWithRealAddPromptTool:
+    """The real, shipping `AddPromptTool` requires `segments` with
+    `minItems: 1` — a schema feature the hand-rolled tools above don't
+    exercise. The example's arguments are validated against the tool's
+    actual JSON schema with `jsonschema` rather than hand-checked, so this
+    catches any schema keyword the generator doesn't yet honor."""
+
+    TOOLS = [AddPromptTool().to_schema()]
+
+    @pytest.mark.asyncio
+    async def test_generate_with_tools(self, client, fake_native_model, wired_checkpoint):
+        config = _config(fake_native_model)
+        await client.generate_with_tools(
+            [{"role": "user", "content": "hi"}], config, config.system_message, tools=self.TOOLS,
+        )
+        text = _system_text(wired_checkpoint.tokenizer.calls[-1])
+        _assert_example_names_are_offered_or_generic(text, self.TOOLS)
+        jsonschema.validate(instance=_example_arguments(text), schema=self.TOOLS[0]["function"]["parameters"])
+
+    @pytest.mark.asyncio
+    async def test_stream_with_tools(self, client, fake_native_model, wired_checkpoint):
+        config = _config(fake_native_model)
+        await _drain_stream_with_tools(client, [{"role": "user", "content": "hi"}], config, self.TOOLS)
+        text = _system_text(wired_checkpoint.tokenizer.calls[-1])
+        jsonschema.validate(instance=_example_arguments(text), schema=self.TOOLS[0]["function"]["parameters"])
+
+    def test_prepared_request_accounting(self, client, fake_native_model, wired_checkpoint):
+        config = _config(fake_native_model)
+        counter = client.messages_token_counter(config)
+        counter(config.system_message, [{"role": "user", "content": "hi"}], self.TOOLS)
+        text = _system_text(wired_checkpoint.tokenizer.calls[-1])
+        jsonschema.validate(instance=_example_arguments(text), schema=self.TOOLS[0]["function"]["parameters"])
 
 
 class TestPromptCoherenceWithNoTools:

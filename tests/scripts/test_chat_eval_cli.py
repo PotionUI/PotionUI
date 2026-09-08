@@ -1,4 +1,4 @@
-"""scripts/chat_eval.py against the REAL API envelope shapes and SSE wire
+"""tests/e2e/harness/chat_eval.py against the REAL API envelope shapes and SSE wire
 format, via a fake HTTP layer (monkeypatched ``_http_request``) — never a
 live network call.
 
@@ -16,9 +16,9 @@ from pathlib import Path
 
 import pytest
 
-_SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
-if str(_SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPTS_DIR))
+_HARNESS_DIR = Path(__file__).resolve().parents[2] / "tests" / "e2e" / "harness"
+if str(_HARNESS_DIR) not in sys.path:
+    sys.path.insert(0, str(_HARNESS_DIR))
 
 import chat_eval  # noqa: E402
 from tests.evaluation.chat import fixtures as chat_fixtures  # noqa: E402

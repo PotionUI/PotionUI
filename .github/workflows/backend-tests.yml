@@ -49,7 +49,7 @@ jobs:
             paths: tests/ --ignore=tests/platform
             serial_paths: ""
           # Each marketplace plugin's own tests/ dir is run through
-          # scripts/test_plugin_suites.py, one pytest subprocess per plugin
+          # tests/plugins/run_suites.py, one pytest subprocess per plugin
           # (see that script's docstring for why they can't share a process).
           - name: plugins
             paths: ""
@@ -123,7 +123,7 @@ jobs:
           MKL_NUM_THREADS: "1"
           OPENBLAS_NUM_THREADS: "1"
         run: >
-          python scripts/test_plugin_suites.py -q --timeout=300
+          python tests/plugins/run_suites.py -q --timeout=300
           -m "not requires_gpu and not requires_models and not gc_sensitive"
 
   frontend-tests:

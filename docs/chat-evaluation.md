@@ -20,7 +20,7 @@ tests/evaluation/chat/
   test_evaluator.py               # good transcripts pass, broken ones fail their check
   test_turn_replay_contract.py    # the interruption/reconnect scenario against the
                                    # REAL ChatTurnRegistry (public API only)
-scripts/chat_eval.py      # the CLI: replay (default) and run
+tests/e2e/harness/chat_eval.py  # the CLI: replay (default) and run
 ```
 
 A **scenario** (`scenarios/<id>.json`, version 2) describes one chat workflow:
@@ -44,7 +44,7 @@ canonical `<scenario id>.good.json` or a deliberately broken fixture used by
 that must behave differently for a real capture vs. an authored fixture
 (`budget_pressure_observed` today) reads it directly rather than guessing.
 Full shapes are documented in the docstrings of `fixtures.py`, `evaluator.py`,
-and `scripts/chat_eval.py`.
+and `tests/e2e/harness/chat_eval.py`.
 
 Checks are predicates over the transcript, never an expected exact call
 sequence — e.g. "a call to `search_model_prompts` with `model_id` matching the
@@ -89,9 +89,9 @@ protocol doesn't expose real round boundaries (see `evaluate_transcript`'s
 ### `replay` (default, fully offline)
 
 ```bash
-PYTHONPATH=./venv/lib/python3.12/site-packages:. python scripts/chat_eval.py
+PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/e2e/harness/chat_eval.py
 # equivalently:
-PYTHONPATH=./venv/lib/python3.12/site-packages:. python scripts/chat_eval.py replay
+PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/e2e/harness/chat_eval.py replay
 ```
 
 Loads every scenario fixture, confirms its declared tools resolve against the
@@ -123,7 +123,7 @@ PYTHONPATH=./venv/lib/python3.12/site-packages:. python -m pytest tests/evaluati
 ### `run --config <id or name>` (a bounded live comparison)
 
 ```bash
-PYTHONPATH=./venv/lib/python3.12/site-packages:. python scripts/chat_eval.py run \
+PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/e2e/harness/chat_eval.py run \
   --config my-ollama-config --base-url http://localhost:7680 --token "$POTIONUI_CHAT_EVAL_TOKEN"
 ```
 
@@ -253,7 +253,7 @@ own defaults, unchanged, exactly once.
 ## The report
 
 Both entry points write the same JSON shape (documented in full in
-`scripts/chat_eval.py`'s module docstring, `version: 2`): one entry per
+`tests/e2e/harness/chat_eval.py`'s module docstring, `version: 2`): one entry per
 scenario carrying `http_completed` (HTTP/stream success; always `null` in
 `replay`, since no HTTP call happens there) separately from `passed` (task
 correctness — did the transcript pass `evaluate_transcript`'s checks) plus

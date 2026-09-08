@@ -9,7 +9,7 @@ conftest collection time, and a second plugin's conftest doing the same
 would silently point the first plugin's `backend.*` imports at the wrong
 plugin's package for the rest of the session.
 
-Usage: test_plugin_suites.py [pytest-args...]
+Usage: run_suites.py [pytest-args...]
 Any arguments are forwarded verbatim to each per-plugin pytest invocation.
 """
 
@@ -17,7 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MARKETPLACE_ROOT = REPO_ROOT / "content" / "plugins" / "marketplace"
 
 

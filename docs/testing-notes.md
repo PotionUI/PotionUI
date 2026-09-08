@@ -51,7 +51,7 @@ test tree.
 
 A third `plugins` shard covers marketplace plugins' own `tests/` directories
 (`content/plugins/marketplace/*/tests`, outside `pytest.ini`'s `testpaths`),
-via `scripts/test_plugin_suites.py`. It runs each plugin's suite in its own
+via `tests/plugins/run_suites.py`. It runs each plugin's suite in its own
 pytest subprocess rather than one shared invocation — plugins that use the
 `api: module: "backend/api.py"` convention claim a top-level `backend` module
 name at conftest collection time, and pooling two such plugins' tests into
@@ -59,7 +59,7 @@ one pytest call leaves the second plugin's `backend` module shadowing the
 first's for the whole session. Locally:
 
 ```
-PYTHONPATH=./venv/lib/python3.12/site-packages:. python scripts/test_plugin_suites.py -q --no-cov
+PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/plugins/run_suites.py -q --no-cov
 ```
 
 ## Backend: known environment noise
@@ -238,10 +238,10 @@ documents a known gap and fails by design until forward-delete is handled.
 
 ## Chat and tool evaluation pack
 
-`tests/evaluation/chat/` + `scripts/chat_eval.py` — reproducible scenario
+`tests/evaluation/chat/` + `tests/e2e/harness/chat_eval.py` — reproducible scenario
 fixtures and a replayable report format for comparing chat workflows across
 explicitly selected model configurations. Fully offline by default
-(`python scripts/chat_eval.py`, no args); see `docs/chat-evaluation.md` for
+(`python tests/e2e/harness/chat_eval.py`, no args); see `docs/chat-evaluation.md` for
 the layout, the two entry points, and the report schema.
 
 ## Install matrix (`./potionui start`; CI runs `remote` for real, `local`/`hybrid`/`worker` stay local-only)

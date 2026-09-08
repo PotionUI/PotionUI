@@ -499,7 +499,7 @@ def _check_budget_pressure_observed(transcript: Dict[str, Any], params: Dict[str
     Gated on ``transcript["capture"]`` (``"live"`` or ``"replay"``, defaulting
     to ``"replay"`` for an older canned fixture with no such field):
 
-    - ``"live"`` — a real captured conversation (see ``scripts/chat_eval.py``'s
+    - ``"live"`` — a real captured conversation (see ``tests/e2e/harness/chat_eval.py``'s
       ``_run_scenario_live``). Only the REAL backend's own reported
       ``transcript["budget_ledger"]`` counts as evidence here; a live capture
       with no ledger is reported ``unverified``, NEVER recomputed locally —
@@ -593,7 +593,7 @@ def evaluate_transcript(
     ``round_boundaries_known`` defaults to reading
     ``transcript.get("round_boundaries_known", True)`` — the qualifier lives
     IN the transcript/artifact data itself (set by whatever recorded it —
-    ``scripts/chat_eval.py``'s ``_run_scenario_live`` stamps ``False`` onto a
+    ``tests/e2e/harness/chat_eval.py``'s ``_run_scenario_live`` stamps ``False`` onto a
     live capture) rather than being a caller-only flag, so re-scoring a saved
     artifact later reproduces the same result without the caller having to
     remember which recording path produced it. An explicit argument still
@@ -604,7 +604,7 @@ def evaluate_transcript(
     per-turn tool calls were folded from a source that doesn't expose real
     intra-turn round boundaries (the live SSE wire protocol emits one
     "thinking" status per TURN, not per round — see
-    ``scripts/chat_eval.py``'s ``turn_transcript_messages``) must carry
+    ``tests/e2e/harness/chat_eval.py``'s ``turn_transcript_messages``) must carry
     ``round_boundaries_known: false``. In that case a scenario's
     ``max_tool_rounds`` check is replaced with an ``unverified`` result
     instead of being computed against the folded (and therefore unreliable)

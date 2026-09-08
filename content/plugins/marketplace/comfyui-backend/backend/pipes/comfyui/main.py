@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import uuid
 import io
 import os
@@ -26,8 +27,9 @@ from src.plugin_api import (
     Progress,
     ProgressGenerationOutput,
     VideoGenerationOutput,
-    logger,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ComfyUIPipe(BasePipe):
@@ -453,13 +455,12 @@ class ComfyUIPipe(BasePipe):
                         ))
                         return None
 
-        except Exception as e:
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             logger.error(f"Error uploading image to ComfyUI: {e}")
-            generation_outputs(ProgressGenerationOutput(
-                state=f"Error uploading image: {str(e)}",
-                icon=Icon("x-circle")
-            ))
-            return None
+            raise GenerationExecutionError(
+                f"Could not reach ComfyUI at {self.config['host']}:{self.config['port']} "
+                f"to upload the image: {e}"
+            ) from e
 
     async def upload_video_to_comfyui(self, video_path: Path, generation_outputs: callable) -> Optional[str]:
         """Upload video file to ComfyUI input directory and return the filename"""
@@ -497,13 +498,12 @@ class ComfyUIPipe(BasePipe):
                         ))
                         return None
 
-        except Exception as e:
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             logger.error(f"Error uploading video to ComfyUI: {e}")
-            generation_outputs(ProgressGenerationOutput(
-                state=f"Error uploading video: {str(e)}",
-                icon=Icon("x-circle")
-            ))
-            return None
+            raise GenerationExecutionError(
+                f"Could not reach ComfyUI at {self.config['host']}:{self.config['port']} "
+                f"to upload the video: {e}"
+            ) from e
 
     async def upload_audio_to_comfyui(self, audio_path: Path, generation_outputs: callable) -> Optional[str]:
         """Upload audio file to ComfyUI input directory and return the filename"""
@@ -542,13 +542,12 @@ class ComfyUIPipe(BasePipe):
                         ))
                         return None
 
-        except Exception as e:
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             logger.error(f"Error uploading audio to ComfyUI: {e}")
-            generation_outputs(ProgressGenerationOutput(
-                state=f"Error uploading audio: {str(e)}",
-                icon=Icon("x-circle")
-            ))
-            return None
+            raise GenerationExecutionError(
+                f"Could not reach ComfyUI at {self.config['host']}:{self.config['port']} "
+                f"to upload the audio: {e}"
+            ) from e
 
     async def apply_field_mappings(self, workflow: Dict[str, Any], pipe_input: PipeInput, generation_outputs: callable) -> Dict[str, Any]:
         """Apply field mappings to the workflow"""
@@ -640,9 +639,16 @@ class ComfyUIPipe(BasePipe):
                             filename = await self.upload_image_to_comfyui(pil_image, generation_outputs)
                             if filename:
                                 value = filename
+                            elif type_cast == "image_required":
+                                raise GenerationExecutionError(
+                                    f"{target_path.split('.')[0]}: ComfyUI rejected the required "
+                                    f"image upload for node reference '{target_path.split('.')[0]}'"
+                                )
                             else:
                                 logger.error(f"Failed to upload image for mapping {mapping}")
                                 continue
+                        except GenerationExecutionError:
+                            raise
                         except Exception as e:
                             logger.error(f"Failed to load image from path {value}: {e}")
                             continue
@@ -671,6 +677,8 @@ class ComfyUIPipe(BasePipe):
                             else:
                                 logger.warning(f"Expected bytes in image data, got {type(image_bytes)}")
                                 continue
+                        except GenerationExecutionError:
+                            raise
                         except Exception as e:
                             logger.error(f"Failed to process image data: {e}")
                             continue
@@ -693,9 +701,16 @@ class ComfyUIPipe(BasePipe):
                             filename = await self.upload_video_to_comfyui(video_path, generation_outputs)
                             if filename:
                                 value = filename
+                            elif type_cast == "video_required":
+                                raise GenerationExecutionError(
+                                    f"{target_path.split('.')[0]}: ComfyUI rejected the required "
+                                    f"video upload for node reference '{target_path.split('.')[0]}'"
+                                )
                             else:
                                 logger.error(f"Failed to upload video for mapping {mapping}")
                                 continue
+                        except GenerationExecutionError:
+                            raise
                         except Exception as e:
                             logger.error(f"Failed to upload video from path {value}: {e}")
                             continue
@@ -718,9 +733,16 @@ class ComfyUIPipe(BasePipe):
                             filename = await self.upload_audio_to_comfyui(audio_path, generation_outputs)
                             if filename:
                                 value = filename
+                            elif type_cast == "audio_required":
+                                raise GenerationExecutionError(
+                                    f"{target_path.split('.')[0]}: ComfyUI rejected the required "
+                                    f"audio upload for node reference '{target_path.split('.')[0]}'"
+                                )
                             else:
                                 logger.error(f"Failed to upload audio for mapping {mapping}")
                                 continue
+                        except GenerationExecutionError:
+                            raise
                         except Exception as e:
                             logger.error(f"Failed to upload audio from path {value}: {e}")
                             continue
@@ -873,8 +895,12 @@ class ComfyUIPipe(BasePipe):
 
             except GenerationExecutionError:
                 raise
-            except Exception as e:
-                logger.error(f"Failed to apply mapping {mapping}: {e}")
+            except (ValueError, KeyError, TypeError) as e:
+                node_ref = target_path.split('.')[0]
+                raise GenerationExecutionError(
+                    f"Could not apply field mapping to node reference '{node_ref}' "
+                    f"(target '{target_path}'): {e}"
+                ) from e
 
         return workflow_copy
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image
 import io
 
+import aiohttp
 import pytest
 
 # Add plugin path to allow importing the ComfyUI pipe from the plugin
@@ -197,6 +198,33 @@ class TestComfyUIPipe:
         assert result["42"]["inputs"]["image"] == "workflow_placeholder.png"
 
     @pytest.mark.asyncio
+    @patch.object(ComfyUIPipe, 'upload_image_to_comfyui', new_callable=AsyncMock)
+    async def test_apply_field_mappings_image_required_raises_when_upload_is_rejected(self, mock_upload):
+        """Same guarantee as the missing-file case above, but for a file that
+        exists and is uploaded, where ComfyUI itself rejects the upload (a
+        non-200 response) - upload_image_to_comfyui returns None rather than
+        raising, and that must still surface as a failure for a required
+        field, not a silently kept placeholder."""
+        mock_upload.return_value = None
+
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+            image_path = f.name
+        Image.new('RGB', (4, 4)).save(image_path)
+
+        try:
+            workflow = {"78": {"inputs": {"image": "workflow_placeholder.png"}}}
+            self.pipe.config["field_mappings"] = [
+                [image_path, "78.inputs.image", "image_required"],
+            ]
+            generation_outputs = Mock()
+
+            with pytest.raises(GenerationExecutionError):
+                await self.pipe.apply_field_mappings(workflow, self.pipe_input, generation_outputs)
+        finally:
+            Path(image_path).unlink()
+
+    @pytest.mark.asyncio
     async def test_apply_field_mappings_video_required_raises_when_the_file_is_missing(self):
         """Same guarantee as `image_required`, for the importer's video
         upload fields (LoadVideo, ... - see `defaults._video_item`, which is
@@ -306,6 +334,26 @@ class TestComfyUIPipe:
 
         assert "400" in str(ctx.value)
         assert "Bad request" in str(ctx.value)
+
+    @pytest.mark.asyncio
+    @patch('aiohttp.ClientSession')
+    async def test_submit_workflow_transport_error_is_distinguishable_from_rejection(self, mock_session_class):
+        """A transport failure (never reaching ComfyUI) must raise
+        GenerationExecutionError with wording distinct from a rejected
+        submission (test_submit_workflow_error above) - callers and users
+        need to tell "ComfyUI said no" apart from "ComfyUI wasn't reachable"."""
+        mock_session = MagicMock()
+        mock_session.post.side_effect = aiohttp.ClientConnectionError("connection refused")
+        mock_session_class.return_value.__aenter__.return_value = mock_session
+
+        self.pipe.client_id = "test-client"
+        generation_outputs = Mock()
+
+        with pytest.raises(GenerationExecutionError) as ctx:
+            await self.pipe.submit_workflow(self.sample_workflow, generation_outputs)
+
+        assert "connection refused" in str(ctx.value)
+        assert "rejected" not in str(ctx.value)
 
     @pytest.mark.asyncio
     async def test_listen_for_updates_executing(self):
@@ -1158,12 +1206,13 @@ class TestComfyUIPipe:
 
     @pytest.mark.asyncio
     async def test_apply_field_mappings_duplicate_name_error(self):
-        """A field mapping targeting an ambiguous (duplicate) node name is
-        skipped, not raised: apply_field_mappings wraps each mapping in its
-        own try/except (so one bad mapping can't abort the rest of the
-        workflow) - the ambiguous nodes are left at their default values.
-        The ValueError itself is real and still verified directly against
-        resolve_node_reference by test_resolve_node_reference_duplicate_error.
+        """A field mapping targeting an ambiguous (duplicate) node name must
+        reach the caller as a GenerationExecutionError, not be silently
+        skipped: a swallowed mapping means the field the user filled in is
+        dropped and the workflow runs anyway, indistinguishable from success.
+        The ValueError itself is verified directly against
+        resolve_node_reference by test_resolve_node_reference_duplicate_error;
+        this test verifies apply_field_mappings does not catch it.
         """
         workflow = {
             "1": {
@@ -1185,10 +1234,10 @@ class TestComfyUIPipe:
         pipe_input = PipeInput(input={})
         generation_outputs = Mock()
 
-        result = await self.pipe.apply_field_mappings(workflow, pipe_input, generation_outputs)
+        with pytest.raises(GenerationExecutionError) as ctx:
+            await self.pipe.apply_field_mappings(workflow, pipe_input, generation_outputs)
 
-        assert result["1"]["inputs"]["text"] == ""
-        assert result["2"]["inputs"]["text"] == ""
+        assert "CLIP Encode" in str(ctx.value)
 
     @pytest.mark.asyncio
     async def test_apply_node_manipulations_remove_by_name(self):
@@ -1690,6 +1739,31 @@ class TestComfyUIPipeVideoUpload:
             assert result is None
             # Should report error via generation_outputs
             generation_outputs.assert_called()
+        finally:
+            video_path.unlink()
+
+    @pytest.mark.asyncio
+    @patch('aiohttp.ClientSession')
+    async def test_upload_video_to_comfyui_transport_error_raises(self, mock_session_class):
+        """A transport failure reaching ComfyUI (never got a response) must
+        raise GenerationExecutionError, distinct from the 500-rejected case
+        above which still returns None - a caller can't tell "ComfyUI is
+        unreachable" from "ComfyUI said no" if both come back as None."""
+        mock_session = MagicMock()
+        mock_session.post.side_effect = aiohttp.ClientConnectionError("connection refused")
+        mock_session_class.return_value.__aenter__.return_value = mock_session
+
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as f:
+            f.write(b'\x00\x00\x00\x1cftypisom')
+            video_path = Path(f.name)
+
+        try:
+            generation_outputs = Mock()
+            with pytest.raises(GenerationExecutionError) as ctx:
+                await self.pipe.upload_video_to_comfyui(video_path, generation_outputs)
+
+            assert "reach ComfyUI" in str(ctx.value)
         finally:
             video_path.unlink()
 

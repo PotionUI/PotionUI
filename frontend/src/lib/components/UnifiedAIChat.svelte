@@ -13,8 +13,9 @@
 	import { page } from '$app/stores';
 	import { chatSession } from '$lib/stores/chatSession';
 	import { chatComposerDrafts } from '$lib/stores/chatComposerDrafts';
-	import { chatModes, resolveModeForRoute, toolsForMode } from '$lib/stores/chatModes';
+	import { chatModes, resolveModeForRoute, resolveModeName, toolsForMode } from '$lib/stores/chatModes';
 	import { declaredMode, collectProvidedContext, dispatchToolApplied } from '$lib/chat/pageContext';
+	import { isGeneratePageContext } from '$lib/chat/activeFormContext';
 	import ChatHeader from '$lib/components/chat/ChatHeader.svelte';
 	import ChatMemoryPanel from '$lib/components/chat/ChatMemoryPanel.svelte';
 	import ChatToolPreferencesPanel from '$lib/components/chat/ChatToolPreferencesPanel.svelte';
@@ -898,16 +899,24 @@
 				...(seg.template ? { template: seg.template } : {}),
 				...(negative ? { negative: true } : {})
 			});
+			// The shared Generate-page tab store (`tab`, above) describes whatever
+			// tab happens to be pinned/active there regardless of which page this
+			// chat is actually open on — only report its preset/checkpoint as the
+			// "active" one when the chat is itself scoped to the Generate page
+			// (see isGeneratePageContext), so a chat opened elsewhere doesn't leak
+			// a stale/unrelated preset into active-context resolution (memory
+			// scope included).
+			const generatePageActive = isGeneratePageContext(currentPageMode);
 			const contextMetadata: Record<string, any> = {
 				segments: [
 					...activeSegments.map((seg, i) => mapSegment(seg, i, false)),
 					...negativeSegments.map((seg, i) => mapSegment(seg, activeSegments.length + i, true))
 				],
 				form_state: {
-					preset: tab?.selectedPreset || null,
+					preset: generatePageActive ? tab?.selectedPreset || null : null,
 					mode: tab?.selectedMode || null,
 					variant: tab?.selectedVariant || null,
-					form_data: tab?.formData || {},
+					form_data: generatePageActive ? tab?.formData || {} : {},
 					variables: buildVariablesSnapshot(tab?.variables, tab?.variableRolls),
 					video_director: videoDirectorActive
 						? {
@@ -1703,6 +1712,8 @@
 		<ChatMemoryPanel
 			presetId={contextTab?.selectedPreset ?? null}
 			formData={contextTab?.formData ?? {}}
+			modeId={currentMode}
+			modeLabel={resolveModeName(currentMode, $chatModes.modes)}
 			onClose={closeMemoryPanel}
 			onCountChange={(n) => (memoryNoteCount = n)}
 		/>

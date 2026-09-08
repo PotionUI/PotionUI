@@ -631,10 +631,15 @@ export function formatContextLedgerSummary(ledger: ContextLedger): string {
 
 /** Total memory notes left out of the injected block across all scopes. */
 export function sumMemoryDropped(
-	byScopeDropped: { global: number; preset: number; model: number } | undefined | null
+	byScopeDropped: { global: number; mode?: number; preset: number; model: number } | undefined | null
 ): number {
 	if (!byScopeDropped) return 0;
-	return (byScopeDropped.global ?? 0) + (byScopeDropped.preset ?? 0) + (byScopeDropped.model ?? 0);
+	return (
+		(byScopeDropped.global ?? 0) +
+		(byScopeDropped.mode ?? 0) +
+		(byScopeDropped.preset ?? 0) +
+		(byScopeDropped.model ?? 0)
+	);
 }
 
 /** `title` event: patch the generated title onto a session in a session list. */

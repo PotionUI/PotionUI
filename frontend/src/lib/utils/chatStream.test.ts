@@ -794,6 +794,10 @@ describe('sumMemoryDropped', () => {
 	it('is 0 when nothing was dropped', () => {
 		expect(sumMemoryDropped({ global: 0, preset: 0, model: 0 })).toBe(0);
 	});
+
+	it('includes the mode scope in the sum when present', () => {
+		expect(sumMemoryDropped({ global: 0, mode: 2, preset: 3, model: 1 })).toBe(6);
+	});
 });
 
 describe('applyTitle', () => {

@@ -157,9 +157,10 @@ export interface BehaviorTraceManifest {
 	resources: Array<{ uri: string; type: string }>;
 	memory: {
 		note_ids: string[];
-		by_scope: { global: number; preset: number; model: number };
+		/** `mode` is absent on manifests persisted before the mode scope existed. */
+		by_scope: { global: number; mode?: number; preset: number; model: number };
 		/** Notes beyond the per-group injection cap, left out of the block entirely. */
-		by_scope_dropped?: { global: number; preset: number; model: number };
+		by_scope_dropped?: { global: number; mode?: number; preset: number; model: number };
 		injected_chars?: number;
 	};
 	pre_chat_actions: string[];
@@ -263,7 +264,7 @@ export interface ResourceChipData {
 }
 
 /** Scope of a persistent memory note stored by the assistant. */
-export type MemoryScope = 'global' | 'preset' | 'model';
+export type MemoryScope = 'global' | 'mode' | 'preset' | 'model';
 
 /**
  * A persistent memory note the assistant keeps about the user, a preset, or a

@@ -4,12 +4,19 @@
 	import { api } from '$lib/services/api/index';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import type { MemoryNote, MemoryScope } from '$lib/types/chat';
+	import { buildMemoryGroups, memoryGroupTitle, notesForGroup } from '$lib/chat/memoryGroups';
 
 	// The panel resolves the preset name + active model itself from the chat's
 	// current tab context (see UnifiedAIChat). It needs the raw preset ULID and
 	// the tab's form_data (to map the active checkpoint path -> model ULID).
 	export let presetId: string | null = null;
 	export let formData: Record<string, any> = {};
+	// The chat session's mode (e.g. "generation", "lora-dataset") and its
+	// display name — the "This mode" group's scope_ref and label. Unlike
+	// preset/model, a session's mode is always set (see chatSession.ts's
+	// DEFAULT_CHAT_MODE), so this group is always available.
+	export let modeId: string | null = null;
+	export let modeLabel: string | null = null;
 	export let onClose: () => void;
 	// Lets the composer's "Memory" button show a live count without this panel
 	// needing to be mounted just to read one.
@@ -46,11 +53,7 @@
 
 	let scrollEl: HTMLDivElement;
 
-	$: groups = [
-		{ scope: 'global' as MemoryScope, ref: null as string | null, available: true },
-		{ scope: 'preset' as MemoryScope, ref: presetId, available: !!presetId },
-		{ scope: 'model' as MemoryScope, ref: modelId, available: !!modelId }
-	];
+	$: groups = buildMemoryGroups({ presetId, modelId, modeId });
 
 	// Notes per scope group, keyed by `group.scope` (the `{#each}` below is keyed by
 	// `group.scope`). `notes` starts empty and is populated asynchronously by
@@ -59,12 +62,7 @@
 	// recomputes once it loads — a function call hides that read, and since the
 	// group rows render (and get their key assigned) before the fetch resolves, the
 	// panel would keep showing "no notes" forever.
-	$: notesByGroupScope = new Map(
-		groups.map((g) => [
-			g.scope,
-			notes.filter((n) => n.scope === g.scope && (g.scope === 'global' || n.scope_ref === g.ref))
-		])
-	);
+	$: notesByGroupScope = new Map(groups.map((g) => [g.scope, notesForGroup(notes, g)]));
 
 	// Notes relevant to this conversation (global + the active preset/model),
 	// as opposed to every note the user has ever written across every preset —
@@ -76,12 +74,6 @@
 	);
 
 	$: if (!loading) onCountChange?.(activeNoteCount);
-
-	function groupTitle(group: { scope: MemoryScope; available: boolean }, count: number): string {
-		if (group.scope === 'global') return `Global · ${count} note${count === 1 ? '' : 's'}`;
-		if (group.scope === 'preset') return presetName ? `Preset · ${presetName}` : 'Preset';
-		return modelName ? `Model · ${modelName}` : 'Model';
-	}
 
 	interface GroupFootprint {
 		total: number;
@@ -348,7 +340,7 @@
 				<section class="memory-group">
 					<div class="memory-group-head">
 						<span>
-							{groupTitle(group, groupNotes.length)}
+							{memoryGroupTitle(group, groupNotes.length, { presetName, modelName, modeLabel })}
 							{#if footprint && footprint.overCap}
 								<span class="memory-footprint-badge">{footprint.injectedCount}/{footprint.total} injected</span>
 							{/if}
@@ -361,7 +353,13 @@
 					</div>
 
 					{#if !group.available}
-						<div class="memory-empty">{group.scope === 'model' ? 'No active model' : 'No active preset'}</div>
+						<div class="memory-empty">
+							{group.scope === 'model'
+								? 'No active model'
+								: group.scope === 'mode'
+									? 'No active mode'
+									: 'No active preset'}
+						</div>
 					{:else}
 						{#if addingScope === group.scope}
 							<div class="memory-add-form">

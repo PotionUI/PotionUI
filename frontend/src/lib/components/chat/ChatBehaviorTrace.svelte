@@ -174,8 +174,8 @@
 									{/each}
 								{:else if step.step === 'loading_memory' && step.detail?.by_scope}
 									<div>
-										global {step.detail.by_scope.global ?? 0} · preset {step.detail.by_scope.preset ?? 0} · model {step
-											.detail.by_scope.model ?? 0}
+										global {step.detail.by_scope.global ?? 0} · mode {step.detail.by_scope.mode ?? 0} · preset {step
+											.detail.by_scope.preset ?? 0} · model {step.detail.by_scope.model ?? 0}
 									</div>
 								{:else if step.step === 'running_pre_chat' && step.detail?.actions}
 									{#each step.detail.actions as action}

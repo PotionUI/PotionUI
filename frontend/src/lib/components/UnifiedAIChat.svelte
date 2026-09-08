@@ -109,6 +109,12 @@
 	$: messages = $chatSession.messages;
 	$: currentMode = $chatSession.mode;
 	$: isGenerating = $chatSession.isGenerating;
+	// What a brand-new conversation would resolve to right now — used only to
+	// tell the user a locked conversation's mode has fallen behind the page
+	// (see ChatModeSelector's scope-mismatch notice); doesn't itself change
+	// `currentMode` (see loadAllData, which resolves it once for a conversation
+	// that's still fresh).
+	$: currentPageMode = $declaredMode || resolveModeForRoute($page.url.pathname, $chatModes.modes);
 	$: pendingApprovalQueue = deriveApprovalQueue(messages);
 	$: pendingQuestionQueue = deriveQuestionQueue(messages, $dismissedQuestions);
 
@@ -1472,6 +1478,8 @@
 		{selectedConfigId}
 		onSelectConfig={handleSelectConfig}
 		onSelectMode={handleSelectMode}
+		pageModeId={currentPageMode}
+		onNewChat={handleNewSession}
 		{currentContextSize}
 		railCollapsed={historyRailCollapsed}
 		onToggleRail={toggleHistoryRail}

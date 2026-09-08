@@ -19,6 +19,11 @@
 
 	// Mode selection (locks once the conversation has messages)
 	export let onSelectMode: (id: string) => void;
+	/** The scope the current page resolves to (route or a declared override) —
+	 * passed through to the mode chip so a locked conversation whose scope no
+	 * longer matches the page can say so. Null while unresolved. */
+	export let pageModeId: string | null = null;
+	export let onNewChat: (() => void) | undefined = undefined;
 
 	// Token usage: the last request's prompt-token count. No context-window
 	// field exists on an LLM config today, so the ring has nothing to size an
@@ -185,7 +190,14 @@
 
 	<div class="header-actions">
 		{#if $chatModes.modes.length > 0}
-			<ChatModeSelector modes={$chatModes.modes} selected={mode} locked={$modeLocked} onSelect={onSelectMode} />
+			<ChatModeSelector
+				modes={$chatModes.modes}
+				selected={mode}
+				locked={$modeLocked}
+				onSelect={onSelectMode}
+				{pageModeId}
+				{onNewChat}
+			/>
 		{/if}
 
 		{#if currentContextSize > 0}

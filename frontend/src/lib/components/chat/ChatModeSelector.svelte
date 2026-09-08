@@ -1,17 +1,23 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { ChatMode } from '$lib/types/chat';
+	import { deriveModeScopeMismatch } from '$lib/chat/modeScopeNotice';
 
 	export let modes: ChatMode[] = [];
 	export let selected: string;
 	export let locked = false;
 	export let onSelect: (id: string) => void;
+	/** The scope the current page resolves to, so a locked chip that no longer
+	 * agrees with it can say so. Null while unresolved. */
+	export let pageModeId: string | null = null;
+	export let onNewChat: (() => void) | undefined = undefined;
 
 	let open = false;
 	let triggerEl: HTMLButtonElement;
 	let menuEl: HTMLDivElement;
 
 	$: selectedMode = modes.find((m) => m.id === selected);
+	$: scopeMismatch = deriveModeScopeMismatch(selected, pageModeId, modes, locked);
 
 	function choose(id: string) {
 		open = false;
@@ -49,22 +55,41 @@
 	});
 </script>
 
-<button
-	bind:this={triggerEl}
-	type="button"
-	class="mode-chip"
-	title={locked ? 'Mode is fixed after the conversation starts' : 'Choose assistant mode'}
-	disabled={locked}
-	data-testid="chat-mode-selector-trigger"
-	aria-expanded={open}
-	on:click={toggleOpen}
->
-	<svg class="icon"><use href="#i-sparkles" /></svg>
-	<span>{selectedMode?.name || selected}</span>
-	{#if locked}
-		<svg class="icon lock"><use href="#i-lock" /></svg>
+<div class="relative">
+	<button
+		bind:this={triggerEl}
+		type="button"
+		class="mode-chip"
+		title={locked ? 'Mode is fixed after the conversation starts' : 'Choose assistant mode'}
+		disabled={locked}
+		data-testid="chat-mode-selector-trigger"
+		aria-expanded={open}
+		on:click={toggleOpen}
+	>
+		<svg class="icon"><use href="#i-sparkles" /></svg>
+		<span>{selectedMode?.name || selected}</span>
+		{#if locked}
+			<svg class="icon lock"><use href="#i-lock" /></svg>
+		{/if}
+	</button>
+	{#if scopeMismatch}
+		<p
+			class="absolute right-0 top-full mt-1 whitespace-nowrap text-2xs text-fg-subtle"
+			data-testid="chat-mode-scope-notice"
+		>
+			Started in {scopeMismatch.conversationModeName}. This chat stays in {scopeMismatch.conversationModeName};
+			<button
+				type="button"
+				class="text-signal hover:underline underline-offset-2"
+				data-testid="chat-mode-scope-new-chat"
+				on:click={() => onNewChat?.()}
+			>
+				start a new chat
+			</button>
+			to use {scopeMismatch.pageModeName}.
+		</p>
 	{/if}
-</button>
+</div>
 {#if open && !locked}
 	<div class="floating-menu mode-menu" bind:this={menuEl} data-testid="chat-mode-selector-menu">
 		<div class="menu-label">Assistant mode</div>

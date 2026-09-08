@@ -439,7 +439,7 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
         Lives here, not in each family's own ``configuration()``, so it applies
         uniformly even to a family whose ``configuration()`` doesn't (yet)
         carry these keys -- ``validate_pipe_configuration``
-        (``src/features/generation/generation.py``) calls this hook on the
+        (``src/features/generation/engine.py``) calls this hook on the
         fully resolved config (declared specs applied AND unknown/passthrough
         keys preserved) for every pipe, regardless of what its own
         ``configuration()`` declares.

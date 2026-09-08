@@ -13,7 +13,7 @@ spec:
   engine: native
 files:
   - role: dit
-    dir: models/checkpoints
+    dir: models/diffusion_models
     note: covers turbo, base, and finetune checkpoints — one model spec, different preset defaults
   - role: text_encoder
     dir: models/text_encoders

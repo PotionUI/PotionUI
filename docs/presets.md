@@ -25,6 +25,16 @@ python scripts/preset_lint.py content/presets/marketplace/MyModel/standard
 
 Then fill in `modes/<mode>/pipeline.yml` with the real pipes and flesh out the form.
 
+### Reference pages
+
+Two generated pages back this guide: [Pipes Reference](pipes.md) (every pipe's `name:` key,
+inputs, outputs, and configuration) and the [Preset Context Cheat Sheet](preset-context.md)
+(every template global/filter/context root, `model_type` value, built-in field type, and
+`_shared` option file) — both regenerated from the running code by
+`python scripts/pipes_reference.py` and drift-checked in CI. The same data, read live against a
+running install's actually enabled plugins, is also in-app under Help → Documentation →
+**Pipes** / **Field Types** / **Template Functions** / **Output Types**.
+
 ## Canonical layout
 
 Presets live under `content/presets/marketplace/<Model>/` (optionally `content/presets/marketplace/<Model>/<variant>/`
@@ -870,12 +880,13 @@ The authoritative list is the field-type registry (`src/platform/plugins/field_t
 their own types via the manifest `field_types:` section, so query the endpoint for the live set rather
 than assuming a fixed list.
 
-The ~28 built-in types (from `src/features/fields/builtin.py`):
+The built-in types (from `src/features/fields/builtin.py`; the generated, always-current list is
+in the [Preset Context Cheat Sheet](preset-context.md#built-in-field-types)):
 
 | Category | Types |
 |----------|-------|
 | Text | `string`, `textbox` |
-| Numeric | `number`, `integer`, `slider`, `seed`, `resolution` |
+| Numeric | `number`, `integer`, `slider`, `stepper`, `seed`, `resolution` |
 | Boolean | `boolean`, `checkbox` |
 | Options-backed | `select`, `checkbox_group`, `model` (alias `models`), `lora_picker` |
 | Media | `image`, `video`, `audio`, `media`, `file` |
@@ -884,7 +895,8 @@ The ~28 built-in types (from `src/features/fields/builtin.py`):
 
 Common field shapes (all from real presets under `content/presets/marketplace/`):
 
-Model picker (`type: "model"` — the canonical name; `model_type` selects the model directory):
+Model picker (`type: "model"` — the canonical name; `model_type` selects the model directory — see
+the generated [`model_type` values table](preset-context.md#model_type-values) for the full set):
 
 ```yaml
 - name: "model"
@@ -1179,11 +1191,18 @@ YAML value of the field's type** — validated at preset load by `FieldSpec`
 - `integer` → a real int;
 - `checkbox` / `boolean` → a real bool (`default: false`; `"false"` is an error);
 - `select` → a scalar; `string` / `textbox` → a string;
-- **Jinja is never rendered in form definitions** — a `default:` containing `{{` is a schema error.
-  Make form fields dynamic with `reactions:`, not templates.
+- **A field's `default:` is never Jinja-rendered** — a `default:` containing `{{` is a schema
+  error. Make form fields dynamic with `reactions:`, not templates.
 
 Defaults pass through to the frontend and to `bind_form` **as-is**, including falsy values
 (`false`, `0`, `""`, `[]`) — there is no truthiness collapse.
+
+This is narrower than "form definitions never render Jinja": a **container** field's
+(`tabs`/`tab`/`row`/`group`/`accordion`) `configuration:` values ARE Jinja-rendered, against a
+`{paths: {preset}}`-only context (`Container._process_configuration_templates`,
+`src/features/fields/container.py:42`) — the same idiom `{{ icon('...') }}` in a tab's `label`
+configuration relies on. `default:` is the one form-definition value that is never templated;
+container `configuration:` values are the (narrow) exception.
 
 ## External option files
 
@@ -1193,7 +1212,9 @@ so they can be shared and edited centrally. Two locations:
 - **Preset-local:** `files/form/*.yml` inside the preset, referenced with `{{ paths.preset }}/files/form/...`.
 - **Shared:** `content/presets/_shared/**` referenced with `{{ paths._shared }}/...` (e.g.
   `{{ paths._shared }}/resolutions/sdxl.yml`, `{{ paths._shared }}/comfyui/form/samplers/all.yml`).
-  Use `_shared` for vocabulary reused across presets (resolutions, ComfyUI samplers/schedulers).
+  Use `_shared` for vocabulary reused across presets (resolutions, ComfyUI samplers/schedulers) —
+  see the generated [`content/presets/_shared/**` option files listing](preset-context.md#contentpresets_shared-option-files)
+  for every file and its first entries.
 
 `{{ paths._shared }}` is only defined in **field option-file path** templates — the `file:` / `files:` /
 `phrasebook_source` values of `select`/`resolution` fields, which are rendered separately when options
@@ -1426,6 +1447,7 @@ available in another:
 | `pipeline.yml` values | `PresetProcessor.process` (at generation time) | Full set below: `form`/`request`/`generation`/`preset`/`runtime`/`paths` context roots + the `path`/`icon`/`get_speed_profile` globals. **No `paths._shared`.** |
 | Form `children:` paths (form.yml / tab yml) | the loader, at load time (`src/features/presets/loader.py`) | **Only `{{ paths.preset }}`**, substituted textually. No form data, no `_shared`. |
 | Field option-file paths (`file:`/`files:`/`phrasebook_source` of `select`/`resolution`) | `src/features/fields/select.py`, `resolution.py` (at option-load time) | **Only `paths.preset` and `paths._shared`.** |
+| A `model`/`lora_picker` field's `filter_tags: "@config:<key>"` | `src/features/presets/configuration.py`'s `resolve_field_filter_tags` (at form-schema serve time) | **Not Jinja at all** — a bare `str.startswith('@config:')` prefix match against the preset's stored `configuration:` values. No context object; a typo in `<key>` (or a preset with no `configuration:` block) resolves to "no filtering", not an error. See [Preset Context Cheat Sheet](preset-context.md#configkey-indirection). |
 
 Practical consequence: form/tab YAML cannot read form data — that's pipeline-only. Make form
 fields dynamic with `default:` and `reactions:`, not Jinja. Use `{{ paths._shared }}` only in a
@@ -1465,9 +1487,27 @@ steps: "{{ form.steps | default(30) }}"        # OK when the form has no steps f
 steps: "{{ form.steps }}"                      # build error if steps was never submitted/defaulted
 ```
 
-Give every optional form-field reference a `| default(...)` whose fallback matches the field's own
-`default:` — the linter warns when a `{{ form.<name> }}` reference names a field that doesn't
-exist in the mode's form tree and has no default (see "Linting" below).
+`| default(...)` isn't needed on every `form.<name>` reference — `bind_form`
+(`src/features/forms/binding.py`) has already resolved every field the *bound* form declares to a
+concrete value (the client's, an admin override, a `reactions:` result, or the field's own static
+`default:`) before `pipeline.yml` ever renders, so `{{ form.<name> }}` for one of those fields
+never raises and a `| default(...)` on it can never fire. A guard is load-bearing — actually
+changes what renders — in exactly two cases:
+
+- **The field doesn't exist in every form variant sharing this `pipeline.yml`.** A mode's variants
+  can each declare a different field set; `bind_form` only binds the one variant a request actually
+  submitted through. A field present in variant A's tree but absent from variant B's is genuinely
+  undefined when a variant-B submission renders the pipeline — the guard prevents a real build
+  error, and its fallback should match variant A's own `default:`.
+- **The field declares no static `default:`.** An optional field with none binds to `None` when the
+  client omits it (`bind_form` still inserts the key — it's `None`, not "undefined" — so this
+  doesn't raise), which is rarely what a typed pipe config wants. The guard supplies the real
+  fallback value here, same as it would for a plain Python `None`.
+
+Otherwise — the field is declared (with a static `default:`) in every variant sharing the
+pipeline — write the bare reference; the linter still warns when a `{{ form.<name> }}` reference
+names a field that doesn't exist anywhere in the mode's form tree and has no default (see "Linting"
+below), which catches a genuine typo either way.
 
 ### `pipeline.yml` context
 
@@ -1524,6 +1564,13 @@ roots above: `get_form('custom', ['steps'], 20)` → `{{ form.steps | default(20
 Minimal pipe shape (`PipeSpec`): `name` (required, the registered pipe name), optional `id`
 (referenced by other pipes' `input`), `enabled`, `input` (a list of
 `[name, provider_pipe_id, provider_output_var]`), and `configuration`.
+
+`provider_pipe_id` is resolved against the step's own `id:` when it declared one, falling back to
+its `name:` otherwise (`src/features/generation/engine.py`) — so a step with no `id:` is addressed
+by `name:` from downstream `input` entries. When the provider's output is declared `is_array` but
+the consuming input isn't, the engine extracts the **first element** automatically rather than
+raising a type mismatch — the reverse (a single-valued output feeding an array input) also passes,
+wrapped into a one-element array.
 
 `enabled:` is a **real YAML bool** (`true`/`false`) or an exact `{{ expression }}` that evaluates
 to a bool. **Omitted means enabled.** Anything else — a string that isn't exactly one expression

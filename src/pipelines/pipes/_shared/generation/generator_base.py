@@ -8,7 +8,7 @@ support, and default Gallery/seed-param result emission.
 Declaring `is_cancelled` in `process`'s signature is what makes migrated
 generators cancellable for free: GenerationEngine introspects the pipe's
 `process` signature and only passes `is_cancelled` through when the pipe
-declares it (see src/features/generation/generation.py).
+declares it (see src/features/generation/engine.py).
 """
 from contextlib import nullcontext
 from dataclasses import dataclass, field

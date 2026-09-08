@@ -170,7 +170,6 @@ def sample_preset_template(
             GenerationMode.TXT2IMG: sample_mode_template,
             GenerationMode.IMG2IMG: sample_mode_template
         },
-        form=None,
         vars=None,
         tags=['realistic', 'sdxl']
     )
@@ -199,7 +198,6 @@ def sample_flux_preset_template(sample_mode_template) -> PresetTemplate:
         modes={
             GenerationMode.TXT2IMG: sample_mode_template
         },
-        form=None,
         vars=None,
         tags=['flux']
     )

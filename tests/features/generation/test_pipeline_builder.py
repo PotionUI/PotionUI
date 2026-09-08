@@ -73,7 +73,6 @@ def sample_preset_template(sample_mode_template):
             GenerationMode.TXT2IMG: sample_mode_template,
             GenerationMode.IMG2IMG: sample_mode_template
         },
-        form=None,
         vars=None,
         tags=['test']
     )

@@ -9,6 +9,13 @@ Everything here is data and abstract methods. The other half of the vocabulary
 is in `outputs.py` (what a pipe emits while it runs) and `models.py` (the model
 objects that travel between pipes). Discovery lives in `catalog.py` and
 requirement handling in `installer.py`, so a pipe author needs none of those.
+
+Most pipes don't implement `BasePipe` directly: a model-loading pipe extends
+`BaseModelLoaderPipe` (`_shared/generation/loader_base.py`), and a native
+flow-matching family's generator extends `FlowMatchGeneratorPipe` (itself a
+`BaseGeneratorPipe`, `_shared/generation/flow_generator_pipe.py`/
+`generator_base.py`) rather than reimplementing the seed-plan loop and
+cancellation support each family already shares.
 """
 
 import logging
@@ -71,7 +78,7 @@ class IOType(Enum):
     DICT = "DICT"
 
     # Built-in Services (injected by GenerationEngine)
-    SERVICE = "SERVICE"  # System services (GPU, SYSTEM, MEMORY, LLM, MODELS, ASSETS) - uppercase names
+    SERVICE = "SERVICE"  # System services (ASSETS, GPU, LLM, MEMORY, MODELS, SETTINGS) - uppercase names
 
     # Model Types
     LORA = "LORA"  # [(Path(model_path), weight)]
@@ -271,7 +278,7 @@ class BasePipe(ABC):
         parameter in isolation).
 
         Called by ``validate_pipe_configuration``
-        (``src/features/generation/generation.py``) right after per-parameter
+        (``src/features/generation/engine.py``) right after per-parameter
         validation, with the fully resolved config (defaults applied, types
         coerced). Raise ``ValueError`` to reject a combination of otherwise
         individually-valid parameters that is degenerate together (e.g. a

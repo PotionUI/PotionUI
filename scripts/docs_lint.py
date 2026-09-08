@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.features.docs.lint import lint_docs  # noqa: E402
+from scripts.pipes_reference import check as check_pipes_reference  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -30,8 +31,22 @@ def main(argv=None) -> int:
         print(f"WARN  {w.path}: {w.message}")
     for e in report.errors:
         print(f"ERROR {e.path}: {e.message}")
-    print(f"\n{len(report.errors)} error(s), {len(report.warnings)} warning(s).")
-    return 0 if report.ok else 1
+
+    # docs/pipes.md and docs/preset-context.md are generated from the pipe
+    # catalog and the templating/preset surface (scripts/pipes_reference.py);
+    # a drift here means the committed file no longer matches the code. An
+    # environment that can't import some pipes can't verify their sections
+    # either - that surfaces as a warning, not a silent pass.
+    reference_report = check_pipes_reference()
+    for w in reference_report.warnings:
+        print(f"WARN  {w}")
+    for e in reference_report.errors:
+        print(f"ERROR {e}")
+
+    total_errors = len(report.errors) + len(reference_report.errors)
+    total_warnings = len(report.warnings) + len(reference_report.warnings)
+    print(f"\n{total_errors} error(s), {total_warnings} warning(s).")
+    return 0 if total_errors == 0 else 1
 
 
 if __name__ == "__main__":

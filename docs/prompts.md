@@ -73,30 +73,36 @@ to the literal text the user typed.
 
 ## How the expanded prompts reach the pipes
 
-`PresetProcessor` (`src/features/presets/processor.py`) exposes, under `input.generation.prompts`:
+`PresetProcessor` (`src/features/presets/processor.py`) exposes the expanded prompts under the
+`generation.prompts` template context root (see [Preset Authoring Guide](presets.md#pipelineyml-context)):
 
-| Key | Value |
+| Reference | Value |
 |---|---|
-| `p_prompt` / `n_prompt` | `pairs[0]` — the scalar every preset already used |
-| `pairs` | `[{positive, negative}, ...]`, one entry per image |
-| `positives` / `negatives` | the same, split per channel |
+| `generation.prompts.first` | `pairs[0]` — `{positive, negative}`, the scalar every preset already used |
+| `generation.prompts.pairs` | `[{positive, negative}, ...]`, one entry per image |
+| `generation.prompts.positives` / `.negatives` | the same, split per channel |
 
-Because `p_prompt` still means `pairs[0]`, **every existing preset keeps rendering unchanged**. The
-per-image data rides alongside in `pairs`.
-
-A preset opts into per-image prompts with `@object:` (which returns the real list, where a `{{ }}`
-template would stringify it):
+Because `first` still means `pairs[0]`, **every existing preset keeps rendering unchanged**. The
+per-image data rides alongside in `pairs`. An exact `{{ expression }}` scalar referencing any of
+these evaluates to its native Python value (a dict or a list, not a stringified one) — there is no
+separate opt-in directive; real example (`content/presets/marketplace/ZImage/modes/txt2img/pipeline.yml`):
 
 ```yaml
 - name: "prompt_encoder"
   configuration:
-    pairs: "@object:input.generation.prompts.pairs"
+    p_prompt:
+      input: "{{ generation.prompts.first.positive }}"
+      output: "{{ generation.prompts.first.positive }}"
+    n_prompt:
+      input: "{{ generation.prompts.first.negative }}"
+      output: "{{ generation.prompts.first.negative }}"
+    pairs: "{{ generation.prompts.pairs }}"
 
 - name: "param_emitter"
   configuration:
     parameters:
-      - ["positive_prompt", "@object:input.generation.prompts.positives"]
-      - ["negative_prompt", "@object:input.generation.prompts.negatives"]
+      - ["positive_prompt", "{{ generation.prompts.positives }}"]
+      - ["negative_prompt", "{{ generation.prompts.negatives }}"]
 ```
 
 `param_emitter` stores an array of length `quantity` per-index, so `GET /{id}/params/{index}` — the

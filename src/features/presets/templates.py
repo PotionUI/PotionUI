@@ -129,7 +129,6 @@ class PresetTemplate:
     description: Optional[str] = None
     tags: List[str] = None
     category: Optional[str] = None  # "image", "video", "audio", "3d", "utility"
-    form: FormTemplate = None  # Deprecated/unused: legacy top-level form, no longer populated by the loader
     vars: Dict[str, Any] = None
     # Named generation profiles from preset.yml's `speed_profiles:` (roadmap 3.6),
     # e.g. {"draft": {"steps": 6, "guidance": 1.0}, "standard": {"steps": 28}}.
@@ -172,7 +171,6 @@ class PresetTemplate:
             description=self.description,
             tags=self.tags,
             category=self.category,
-            form=self.form,
             vars=self.vars,
             speed_profiles=self.speed_profiles,
             path=self.path,

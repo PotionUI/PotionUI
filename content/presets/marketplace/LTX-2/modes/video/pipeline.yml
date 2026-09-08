@@ -330,7 +330,7 @@ pipeline:
       # Distilled profile supplies preset.vars.distilled_sigma_recipe (single
       # source of truth) directly; Quality profile clears manual_sigmas. The
       # one genuinely-needed ternary left -- neither branch is a
-      # SpeedProfile-typed knob the get_speed_profile() idiom above covers.
+      # SpeedProfile-typed knob the generation.profile idiom above covers.
       manual_sigmas: "{{ preset.vars.distilled_sigma_recipe if (form.speed_profile == 'distilled') else ('' if (form.speed_profile == 'quality') else (form.manual_sigmas)) }}"
       # Quality recipe: MultiModalGuider params. quality_cfg
       # reads the SAME baked cfg value as the plain `cfg` key above (by

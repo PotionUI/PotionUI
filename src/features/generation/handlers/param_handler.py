@@ -5,14 +5,20 @@ This module provides a handler for ParamGenerationOutput, which saves generation
 parameters to the database. It includes special handling for the "model" parameter,
 which also creates associations in the generation_models table by looking up model
 IDs from file paths.
+
+The value recorded for a parameter is never a raw depot/backend path: the "model"
+parameter records the resolved catalog model's display name (falling back to the
+leaked value's basename when nothing resolves), and any other display parameter
+whose value looks like a model file path is reduced to its basename too.
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 
 from src.pipelines.outputs import GenerationOutput, ParamGenerationOutput
 from src.features.generation.handlers.base_handler import BaseGenerationOutputHandler
 from src.features.generation.output_types import OutputTypeSpec, output_type_registry
+from src.platform.filesystem.model_types import SUPPORTED_MODEL_EXTENSIONS
 from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -30,6 +36,53 @@ def _looks_unrendered(value: Any) -> bool:
     return isinstance(value, str) and (
         ("{{" in value and "}}" in value) or ("{%" in value and "%}" in value)
     )
+
+
+def _basename(value: str) -> str:
+    """`value` reduced to its filename, splitting on either path separator.
+
+    Not `pathlib.Path(value).name`: a depot-relative value always uses `/`
+    (see `docs/models.md`) regardless of which OS records it, and `Path.name`
+    only splits on `/` on a POSIX host.
+    """
+    return value.replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _reduce_leaked_model_path(value: Any) -> Any:
+    """A display parameter value that is itself a depot/backend model path,
+    reduced to its basename.
+
+    `model` is not the only parameter name a preset can attach a model
+    reference to - `param_emitter` is free to record a LoRA or upscaler ref
+    under a display name its author chose. A string that ends in a
+    recognised model file extension and carries a path separator is a leak
+    by construction: it names a location in a backend's directory layout,
+    something no user reads back as a value in generation history.
+    """
+    if not isinstance(value, str):
+        return value
+    if "/" not in value and "\\" not in value:
+        return value
+    _, _, extension = value.rpartition(".")
+    if f".{extension.lower()}" not in SUPPORTED_MODEL_EXTENSIONS:
+        return value
+    return _basename(value)
+
+
+def _model_display_value(raw_value: Any, model: Optional[Any]) -> Any:
+    """The value recorded to `generation_parameters` for one emitted `model` value.
+
+    Never the raw ref a preset emitted - see `_resolve_model`'s docstring for why
+    that string belongs to whichever backend produced it, not to what a person
+    reads back in history. Prefer the catalog row's display name; when nothing
+    resolved, fall back to the leaked value's own basename so at least the
+    directory it lived in does not end up in generation history.
+    """
+    if model is not None:
+        return model.display_name
+    if isinstance(raw_value, str):
+        return _basename(raw_value)
+    return raw_value
 
 
 class ParamGenerationOutputHandler(BaseGenerationOutputHandler):
@@ -67,6 +120,11 @@ class ParamGenerationOutputHandler(BaseGenerationOutputHandler):
             metadata['saved_count'] = 0
             metadata['parameter_ids'] = []
 
+            # Resolved once, ahead of recording, so the display value written
+            # for "model" and the generation_models association below agree
+            # on the same catalog lookup instead of resolving twice.
+            resolved_models = self._resolve_models(output.values) if output.name == "model" else None
+
             if not is_display_parameter(output.name):
                 logger.debug(f"[PARAM HANDLER] '{output.name}' is not a display parameter, not recording")
             elif any(_looks_unrendered(v) for v in output.values):
@@ -78,11 +136,19 @@ class ParamGenerationOutputHandler(BaseGenerationOutputHandler):
                     f"not recording: {output.values!r}"
                 )
             else:
+                if resolved_models is not None:
+                    recorded_values = [
+                        _model_display_value(value, model)
+                        for value, model in zip(output.values, resolved_models)
+                    ]
+                else:
+                    recorded_values = [_reduce_leaked_model_path(v) for v in output.values]
+
                 # Save parameters directly to generation with index
                 saved_params = generation_parameter_repo.create_batch(
                     self.generation_id,
                     output.name,
-                    output.values
+                    recorded_values
                 )
 
                 metadata['saved_count'] = len(saved_params)
@@ -91,9 +157,8 @@ class ParamGenerationOutputHandler(BaseGenerationOutputHandler):
                 logger.debug(f"Saved {len(saved_params)} parameters for {output.name} in generation {self.generation_id}")
 
             # Special handling for "model" parameter - save to generation_models table
-            if output.name == "model":
-                model_metadata = self._handle_model_parameter(output.values)
-                metadata['models'] = model_metadata
+            if resolved_models is not None:
+                metadata['models'] = self._save_model_associations(resolved_models)
 
             return metadata
 
@@ -140,43 +205,47 @@ class ParamGenerationOutputHandler(BaseGenerationOutputHandler):
             )
         return None
 
-    def _handle_model_parameter(self, model_paths: list) -> Dict[str, Any]:
-        """
-        Handle model parameter - lookup model IDs and save to generation_models table.
+    def _resolve_models(self, model_paths: list) -> List[Optional[Any]]:
+        """Resolve every emitted `model` value to its catalog row, same order, same length.
 
-        Args:
-            model_paths: List of model file paths or engine-native refs
-
-        Returns:
-            Metadata about model handling
+        `None` at an index means nothing resolved for `model_paths[index]` - the slot is
+        kept rather than dropped, so this list stays index-aligned with `model_paths`
+        for both the recorded display value and the generation_models association.
         """
         from src.features.models.repository import model_repo
+
+        resolved: List[Optional[Any]] = []
+        for model_path in model_paths:
+            try:
+                model = self._resolve_model(model_repo, model_path)
+                resolved.append(model)
+                if model:
+                    logger.debug(f"[PARAM HANDLER] Found model for path '{model_path}': {model.id}")
+                else:
+                    logger.warning(f"[PARAM HANDLER] Model not found for path: {model_path}")
+            except Exception as e:
+                resolved.append(None)
+                logger.error(f"[PARAM HANDLER] Error looking up model for path '{model_path}': {str(e)}")
+        return resolved
+
+    def _save_model_associations(self, resolved_models: List[Optional[Any]]) -> Dict[str, Any]:
+        """Save the generation_models associations for an already-resolved `model` list."""
         from src.features.generation.model_repository import generation_model_repo
 
         metadata = {
-            'total_paths': len(model_paths),
+            'total_paths': len(resolved_models),
             'models_found': 0,
             'models_not_found': 0,
             'saved_associations': 0
         }
 
         model_ids = []
-
-        for model_path in model_paths:
-            try:
-                model = self._resolve_model(model_repo, model_path)
-
-                if model:
-                    model_ids.append(model.id)
-                    metadata['models_found'] += 1
-                    logger.debug(f"[PARAM HANDLER] Found model for path '{model_path}': {model.id}")
-                else:
-                    metadata['models_not_found'] += 1
-                    logger.warning(f"[PARAM HANDLER] Model not found for path: {model_path}")
-
-            except Exception as e:
+        for model in resolved_models:
+            if model:
+                model_ids.append(model.id)
+                metadata['models_found'] += 1
+            else:
                 metadata['models_not_found'] += 1
-                logger.error(f"[PARAM HANDLER] Error looking up model for path '{model_path}': {str(e)}")
 
         # Save model associations to generation_models table
         if model_ids:

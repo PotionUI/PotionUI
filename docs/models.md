@@ -355,6 +355,11 @@ guessing, because attributing a generation to the wrong model is worse than attr
 there is no way to know which machine produced an image — which defeats the provenance that
 motivates keeping models in the application at all.
 
+The `model` **display parameter** (`generation_parameters`, distinct from the `generation_models`
+association above) never records the raw ref a preset emitted. It records the resolved catalog
+model's `display_name` — falling back to the leaked value's own basename when nothing resolves —
+so generation history reads a name, never a depot path or ComfyUI folder ref.
+
 ## Model installation
 
 Out of scope, and deliberately so.

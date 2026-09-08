@@ -15,7 +15,7 @@ pipeline:
     enabled: true
     configuration:
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## Seed Generator
@@ -24,8 +24,8 @@ pipeline:
     id: "seed_generator"
     enabled: true
     configuration:
-      seed: "{{ form.seed | default(-1) }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
   #############
   ## IOType to Value Converter
   ## Converts IOType values (like seed) to regular values for param_emitter
@@ -48,7 +48,7 @@ pipeline:
     input:
       - ["seed", "from_iotype", "seed"]
     configuration:
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       parameters:
         # Main DiT model
         - ["model", "{{ form.diffusion_model | default('') }}"]
@@ -59,7 +59,7 @@ pipeline:
 
         # LoRAs (the picker value only contains selected entries)
         - "@loop":
-            items: "{{ form.loras | default([]) | active_loras }}"
+            items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
 
         # Prompts
@@ -67,11 +67,11 @@ pipeline:
         - ["negative_prompt", "{{ generation.prompts.first.negative }}"]
 
         # Generation parameters
-        - ["cfg", "{{ form.cfg | default(1.0) }}"]
-        - ["steps", "{{ form.steps | default(8) }}"]
-        - ["sampler", "{{ form.sampler_name | default('euler') }}"]
-        - ["scheduler", "{{ form.scheduler | default('simple') }}"]
-        - ["resolution", "{{ form.resolution | default('1140x1472') }}"]
+        - ["cfg", "{{ form.cfg }}"]
+        - ["steps", "{{ form.steps }}"]
+        - ["sampler", "{{ form.sampler_name }}"]
+        - ["scheduler", "{{ form.scheduler }}"]
+        - ["resolution", "{{ form.resolution }}"]
         - ["denoise", "{{ form.denoise | default(1.0) }}"]
 
   #############
@@ -98,7 +98,7 @@ pipeline:
         # Add one LoraLoaderModelOnly node per selected LoRA (node ids 76, 77, ...),
         # chaining each entry to the previous one (the first connects to base model 37)
         - "@loop":
-            items: "{{ form.loras | default([]) }}"
+            items: "{{ form.loras }}"
             template:
               type: "add_node"
               node_id: "{{ 76 + loop.index0 }}"
@@ -118,7 +118,7 @@ pipeline:
         - type: "update_node_input"
           node_id: "66"
           input_key: "model"
-          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}{{ 75 + loras | length }}{% else %}{{ preset.vars.lora_chain_base_node.txt2img }}{% endif %}", 0]
+          input_value: ["{% set loras = form.loras %}{% if loras %}{{ 75 + loras | length }}{% else %}{{ preset.vars.lora_chain_base_node.txt2img }}{% endif %}", 0]
 
       field_mappings:
         # Prompts - node 6 (Positive) and node 7 (Negative)
@@ -132,22 +132,22 @@ pipeline:
         - ["{{ form.vae | strip_model_dir }}", "39.inputs.vae_name", "str"]
 
         # Resolution - parse width and height from resolution string (e.g., "1140x1472")
-        - ["{{ (form.resolution | default('1140x1472')).split('x')[0] }}", "58.inputs.width", "int"]
-        - ["{{ (form.resolution | default('1140x1472')).split('x')[1] }}", "58.inputs.height", "int"]
+        - ["{{ (form.resolution).split('x')[0] }}", "58.inputs.width", "int"]
+        - ["{{ (form.resolution).split('x')[1] }}", "58.inputs.height", "int"]
 
         # Batch size
-        - ["{{ form.quantity | default(1) }}", "58.inputs.batch_size", "int"]
+        - ["{{ form.quantity }}", "58.inputs.batch_size", "int"]
 
         # KSampler (node 3) - seed, steps, cfg, sampler, scheduler, denoise
         - ["@seed", "3.inputs.seed", "int"]
-        - ["{{ form.steps | default(8) }}", "3.inputs.steps", "int"]
-        - ["{{ form.cfg | default(1.0) }}", "3.inputs.cfg", "float"]
-        - ["{{ form.sampler_name | default('euler') }}", "3.inputs.sampler_name", "str"]
-        - ["{{ form.scheduler | default('simple') }}", "3.inputs.scheduler", "str"]
+        - ["{{ form.steps }}", "3.inputs.steps", "int"]
+        - ["{{ form.cfg }}", "3.inputs.cfg", "float"]
+        - ["{{ form.sampler_name }}", "3.inputs.sampler_name", "str"]
+        - ["{{ form.scheduler }}", "3.inputs.scheduler", "str"]
         - ["{{ form.denoise | default(1.0) }}", "3.inputs.denoise", "float"]
 
         # ModelSamplingAuraFlow (node 66) - shift parameter
-        - ["{{ form.shift | default(3.1) }}", "66.inputs.shift", "float"]
+        - ["{{ form.shift }}", "66.inputs.shift", "float"]
 
         # NOTE: LoRA values are set via add_node manipulations above, not field mappings
         # This prevents creating incomplete nodes when LoRAs are not selected
@@ -167,6 +167,3 @@ pipeline:
     enabled: true
     input:
       - ["image", "output_skipper", "image"]
-    configuration:
-      mode: "save"
-      support_video: false

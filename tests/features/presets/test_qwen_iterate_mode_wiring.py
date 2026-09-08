@@ -16,6 +16,7 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
+from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
@@ -48,7 +49,11 @@ def _process(qwen_template, form_over: dict | None = None):
     }
     if form_over:
         form_data.update(form_over)
-    generation_data = {"prompts": [], "mode": "txt2img", "form_data": form_data}
+    bound = bind_form(
+        qwen_template, "txt2img", form_name=None, raw_form_data=form_data,
+        user_id=None, storage_dir=None,
+    )
+    generation_data = {"prompts": [], "mode": "txt2img", "form_data": dict(bound.values)}
     return processor.process(qwen_template, generation_data)
 
 

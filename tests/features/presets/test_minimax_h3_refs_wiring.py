@@ -17,6 +17,7 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
+from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.features.video_director import normalize_video_director
@@ -75,10 +76,14 @@ def _process(h3_template, form_over: dict | None = None):
     }
     if form_over:
         form_data.update(form_over)
+    bound = bind_form(
+        h3_template, "refs", form_name=None, raw_form_data=form_data,
+        user_id=None, storage_dir=None,
+    )
     generation_data = {
         "prompts": [{"positive": "a dragon", "negative": ""}],
         "mode": "refs",
-        "form_data": form_data,
+        "form_data": dict(bound.values),
     }
     return processor.process(h3_template, generation_data)
 
@@ -322,8 +327,14 @@ def test_the_clip_length_in_seconds_reaches_the_generator_as_frames(h3_template)
 
 
 def test_omitted_duration_falls_back_to_default_frames(h3_template):
+    # `duration` has a field default of 5, so `bind_form` (the real request
+    # path) always fills it -- the pipeline's `preset.vars.default_frames`
+    # fallback (`if form.duration is defined else ...`) is unreachable in
+    # production; "omitted" now resolves through the same 5-second branch
+    # `test_the_clip_length_in_seconds_reaches_the_generator_as_frames`
+    # exercises explicitly.
     cfg = _pipe(_process(h3_template, {}), "generator/video_minimax_h3")["config"]
-    assert cfg["frames"] == 124
+    assert cfg["frames"] == 120
 
 
 def test_the_video_director_is_wired_into_this_mode(h3_template):

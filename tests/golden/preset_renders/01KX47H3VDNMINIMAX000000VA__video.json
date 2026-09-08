@@ -411,12 +411,7 @@
       "name": "generator/video_minimax_h3"
     },
     {
-      "config": {
-        "save": {
-          "type": "str",
-          "value": "true"
-        }
-      },
+      "config": {},
       "enabled": {
         "type": "bool",
         "value": true

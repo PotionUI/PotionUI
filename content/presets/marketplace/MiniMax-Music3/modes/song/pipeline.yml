@@ -54,10 +54,10 @@ pipeline:
         - ["model", "{{ form.model }}"]
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.vae }}"]
-        - ["steps", "{{ form.steps | default(30) }}"]
-        - ["cfg_scale", "{{ form.cfg_scale | default(1.7) }}"]
-        - ["ar_cfg_scale", "{{ form.ar_cfg_scale | default(1.5) }}"]
-        - ["top_k", "{{ form.top_k | default(50) }}"]
+        - ["steps", "{{ form.steps }}"]
+        - ["cfg_scale", "{{ form.cfg_scale }}"]
+        - ["ar_cfg_scale", "{{ form.ar_cfg_scale }}"]
+        - ["top_k", "{{ form.top_k }}"]
         - ["duration", "{{ form.duration if form.duration is defined else 60 }}"]
 
   #############
@@ -71,8 +71,8 @@ pipeline:
       caption: "{{ form.description if form.description is defined else '' }}"
       lyrics: "{{ '[instrumental]' if (form.instrumental is defined and form.instrumental) else generation.prompts.first.positive }}"
       duration: "{{ form.duration if form.duration is defined else 60 }}"
-      steps: "{{ form.steps | default(30) }}"
-      seed: "{{ form.seed | default(-1) }}"
-      ar_cfg_scale: "{{ form.ar_cfg_scale | default(1.5) }}"
-      cfg_scale: "{{ form.cfg_scale | default(1.7) }}"
-      top_k: "{{ form.top_k | default(50) }}"
+      steps: "{{ form.steps }}"
+      seed: "{{ form.seed }}"
+      ar_cfg_scale: "{{ form.ar_cfg_scale }}"
+      cfg_scale: "{{ form.cfg_scale }}"
+      top_k: "{{ form.top_k }}"

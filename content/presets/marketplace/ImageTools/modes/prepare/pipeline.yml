@@ -40,33 +40,33 @@ pipeline:
         # Only record a model when matting actually ran with one selected --
         # an empty "model" row in history is noise, not provenance.
         - "@loop":
-            items: "{{ [form.matting_model | default('')] if (form.remove_background | default(true)) and (form.matting_model | default('')) != '' else [] }}"
+            items: "{{ [form.matting_model | default('')] if (form.remove_background) and (form.matting_model | default('')) != '' else [] }}"
             template: ["model", "{{ item }}"]
-        - ["remove_background", "{{ form.remove_background | default(true) }}"]
-        - ["matte_strength", "{{ form.matte_strength | default(50) }}"]
-        - ["matte_feather", "{{ form.matte_feather | default(0) }}"]
-        - ["trim_to_subject", "{{ form.trim_to_subject | default(true) }}"]
-        - ["crop_margin", "{{ form.crop_margin | default(0) }}"]
-        - ["crop_alpha_threshold", "{{ form.crop_alpha_threshold | default(16) }}"]
-        - ["canvas", "{{ form.canvas_resolution | default('832x480') }}"]
-        - ["scale_percent", "{{ form.scale_percent | default(70) }}"]
-        - ["anchor", "{{ form.anchor | default('center') }}"]
-        - ["fill", "{{ form.fill | default('#00B140') }}"]
+        - ["remove_background", "{{ form.remove_background }}"]
+        - ["matte_strength", "{{ form.matte_strength }}"]
+        - ["matte_feather", "{{ form.matte_feather }}"]
+        - ["trim_to_subject", "{{ form.trim_to_subject }}"]
+        - ["crop_margin", "{{ form.crop_margin }}"]
+        - ["crop_alpha_threshold", "{{ form.crop_alpha_threshold }}"]
+        - ["canvas", "{{ form.canvas_resolution }}"]
+        - ["scale_percent", "{{ form.scale_percent }}"]
+        - ["anchor", "{{ form.anchor }}"]
+        - ["fill", "{{ form.fill }}"]
 
   #############
   ## Matting - BiRefNet cutout, run while the subject still fills the frame
   #############
   - name: "matting/birefnet"
     id: "matting"
-    enabled: "{{ form.remove_background | default(true) }}"
+    enabled: "{{ form.remove_background }}"
     input:
       - ["image", "media_loader", "image"]
     configuration:
       model:
         file_path: "{{ form.matting_model | default('') }}"
         name: "{{ form.matting_model | default('') }}"
-      matte_strength: "{{ form.matte_strength | default(50) }}"
-      feather: "{{ form.matte_feather | default(0) }}"
+      matte_strength: "{{ form.matte_strength }}"
+      feather: "{{ form.matte_feather }}"
 
   #############
   ## Crop to subject - trim to the alpha bbox so framing stops depending on
@@ -74,12 +74,12 @@ pipeline:
   #############
   - name: "crop_subject"
     id: "crop_subject"
-    enabled: "{{ form.trim_to_subject | default(true) }}"
+    enabled: "{{ form.trim_to_subject }}"
     input:
-      - ["image", "{% if form.remove_background | default(true) %}matting{% else %}media_loader{% endif %}", "image"]
+      - ["image", "{% if form.remove_background %}matting{% else %}media_loader{% endif %}", "image"]
     configuration:
-      margin: "{{ form.crop_margin | default(0) }}"
-      alpha_threshold: "{{ form.crop_alpha_threshold | default(16) }}"
+      margin: "{{ form.crop_margin }}"
+      alpha_threshold: "{{ form.crop_alpha_threshold }}"
 
   #############
   ## Canvas fit - scale the subject down onto the target video canvas so the
@@ -89,13 +89,13 @@ pipeline:
     id: "canvas_fit"
     enabled: true
     input:
-      - ["image", "{% if form.trim_to_subject | default(true) %}crop_subject{% elif form.remove_background | default(true) %}matting{% else %}media_loader{% endif %}", "image"]
+      - ["image", "{% if form.trim_to_subject %}crop_subject{% elif form.remove_background %}matting{% else %}media_loader{% endif %}", "image"]
     configuration:
-      width: "{{ (form.canvas_resolution | default('832x480')).split('x')[0] | int }}"
-      height: "{{ (form.canvas_resolution | default('832x480')).split('x')[1] | int }}"
-      scale_percent: "{{ form.scale_percent | default(70) }}"
-      anchor: "{{ form.anchor | default('center') }}"
-      fill: "{{ form.fill | default('#00B140') }}"
+      width: "{{ (form.canvas_resolution).split('x')[0] | int }}"
+      height: "{{ (form.canvas_resolution).split('x')[1] | int }}"
+      scale_percent: "{{ form.scale_percent }}"
+      anchor: "{{ form.anchor }}"
+      fill: "{{ form.fill }}"
 
   #############
   ## Gallery - save the prepared image

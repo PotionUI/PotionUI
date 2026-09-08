@@ -30,12 +30,12 @@ pipeline:
     configuration:
       quantity: 1
       parameters:
-        - ["key_mode", "{{ form.key_mode | default('auto') }}"]
-        - ["key_color", "{{ form.key_color | default('#00B140') }}"]
-        - ["tolerance", "{{ form.tolerance | default(25) }}"]
-        - ["softness", "{{ form.softness | default(10) }}"]
-        - ["despill", "{{ form.despill | default(true) }}"]
-        - ["key_feather", "{{ form.key_feather | default(0) }}"]
+        - ["key_mode", "{{ form.key_mode }}"]
+        - ["key_color", "{{ form.key_color }}"]
+        - ["tolerance", "{{ form.tolerance }}"]
+        - ["softness", "{{ form.softness }}"]
+        - ["despill", "{{ form.despill }}"]
+        - ["key_feather", "{{ form.key_feather }}"]
 
   #############
   ## Colour key - flat background colour -> alpha
@@ -46,12 +46,12 @@ pipeline:
     input:
       - ["image", "media_loader", "image"]
     configuration:
-      key_mode: "{{ form.key_mode | default('auto') }}"
-      key_color: "{{ form.key_color | default('#00B140') }}"
-      tolerance: "{{ form.tolerance | default(25) }}"
-      softness: "{{ form.softness | default(10) }}"
-      despill: "{{ form.despill | default(true) }}"
-      feather: "{{ form.key_feather | default(0) }}"
+      key_mode: "{{ form.key_mode }}"
+      key_color: "{{ form.key_color }}"
+      tolerance: "{{ form.tolerance }}"
+      softness: "{{ form.softness }}"
+      despill: "{{ form.despill }}"
+      feather: "{{ form.key_feather }}"
 
   #############
   ## Gallery - save the keyed RGBA image

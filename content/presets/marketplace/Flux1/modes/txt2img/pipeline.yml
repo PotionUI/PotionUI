@@ -26,7 +26,7 @@ pipeline:
         name: "{{ form.vae }}"
       loras:
         "@loop":
-          items: "{{ form.loras | default([]) }}"
+          items: "{{ form.loras }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -47,7 +47,7 @@ pipeline:
         output: "{{ generation.prompts.first.negative }}"
       # Per-image expanded prompt pairs (src/core/prompt/expander.py).
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       # Flux uses embedded (distilled) guidance, not CFG: guidance_scale <= 1
       # tells the encoder not to encode a negative pass.
       guidance_scale: 1.0
@@ -58,8 +58,8 @@ pipeline:
   - name: "seed_generator"
     enabled: true
     configuration:
-      seed: "{{ form.seed | default(-1) }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## Rendered prompts (provenance)
@@ -73,7 +73,7 @@ pipeline:
     enabled: true
     configuration:
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## IOType to Value Converter
@@ -95,14 +95,14 @@ pipeline:
     input:
       - ["seed", "from_iotype", "seed"]
     configuration:
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       parameters:
         - ["model", "{{ form.diffusion_model }}"]
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.vae }}"]
         - ["model", "{{ form.clip_l }}"]
         - "@loop":
-            items: "{{ form.loras | default([]) | active_loras }}"
+            items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
         # Per-image arrays, so history records the prompt each image actually ran with.
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
@@ -130,7 +130,7 @@ pipeline:
       shift: ""
       sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
       resolution: "{{ form.resolution }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       # Step cache (FBCache, Advanced tab): assembled here into the nested
       # `step_cache` dict FlowMatchGeneratorPipe.build_context reads directly
       # (self.config.get("step_cache")) -- this family has no
@@ -141,12 +141,12 @@ pipeline:
       # checks rel_threshold > 0), so an untouched form renders
       # byte-identical to before this knob existed.
       step_cache:
-        rel_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
-        warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
-        max_consecutive_skips: "{{ form.step_cache_max_skips | default(3) }}"
+        rel_threshold: "{{ form.step_cache_threshold }}"
+        warmup_steps: "{{ form.step_cache_warmup_steps }}"
+        max_consecutive_skips: "{{ form.step_cache_max_skips }}"
       # Trajectory warm-start (Advanced tab). Only engages on the Euler
       # sampler for this txt2img pass -- ignored elsewhere by the engine.
-      iterate_mode: "{{ form.iterate_mode | default(false) }}"
+      iterate_mode: "{{ form.iterate_mode }}"
 
   #############
   ## Gallery
@@ -156,5 +156,3 @@ pipeline:
       - ["image", "generator/flux", "image"]
       - ["seed", "seed_generator", "seed"]
     enabled: true
-    configuration:
-      save: "true"

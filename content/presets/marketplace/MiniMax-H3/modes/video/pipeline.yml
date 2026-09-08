@@ -57,7 +57,7 @@ pipeline:
       # there iterates the string's CHARACTERS instead.
       loras:
         "@loop":
-          items: "{{ form.loras | default([]) }}"
+          items: "{{ form.loras }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -149,11 +149,11 @@ pipeline:
         input: "{{ generation.prompts.first.positive }}"
         output: "{{ generation.prompts.first.positive }}"
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       guidance_scale: 1.0
       # Caps the keyframe area the TE's vision tower sees, as a multiple of the
       # output canvas. Both keys are inert without a keyframe.
-      image_pixel_budget: "{{ form.keyframe_pixel_budget | default('0') }}"
+      image_pixel_budget: "{{ form.keyframe_pixel_budget }}"
       output_resolution: "{{ form.resolution }}"
 
   #############
@@ -192,8 +192,8 @@ pipeline:
   - name: "seed_generator"
     enabled: true
     configuration:
-      seed: "{{ form.seed | default(-1) }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## Rendered prompts (provenance): surfaces the per-clip expanded prompts as
@@ -204,7 +204,7 @@ pipeline:
     enabled: true
     configuration:
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## IOType to Value Converter
@@ -226,18 +226,18 @@ pipeline:
     input:
       - ["seed", "from_iotype", "seed"]
     configuration:
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       parameters:
         - ["model", "{{ form.model }}"]
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.video_vae }}"]
         - ["model", "{{ form.audio_vae }}"]
         - "@loop":
-            items: "{{ form.loras | default([]) | active_loras }}"
+            items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
-        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile | default('turbo'))['steps']) }}"]
-        - ["speed_profile", "{{ form.speed_profile | default('turbo') }}"]
+        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"]
+        - ["speed_profile", "{{ form.speed_profile }}"]
         - ["resolution", "{{ form.resolution }}"]
         - ["frames", "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (form.frames | default(preset.vars.default_frames)) }}"]
         - ["fps", "{{ preset.vars.fps }}"]
@@ -268,7 +268,7 @@ pipeline:
       # The profile supplies the baseline; the visible Steps slider (baked to
       # the profile's exact value by the reactions in tabs/generation.yml) is
       # what actually wins once a profile is selected.
-      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('turbo'))['steps']) }}"
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"
       resolution: "{{ form.resolution }}"
       # A document's `settings.duration` is the truth once one is attached --
       # a derived single-shot document (t2v/i2v/flf, `document` above stays
@@ -279,8 +279,8 @@ pipeline:
       # each window's own `frames` (windows.py's `build_director_plan`) is
       # what actually runs -- so reading it here costs nothing.
       frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (form.frames | default(preset.vars.default_frames)) }}"
-      quantity: "{{ form.quantity | default(1) }}"
-      preview: "{{ form.preview | default(true) }}"
+      quantity: "{{ form.quantity }}"
+      preview: "{{ form.preview }}"
       # Positional with the `keyframes` loader's `items:` above -- SAME filter,
       # SAME sort, so the Nth anchor here always names the Nth image there.
       keyframe_anchors: "{{ (form.video_director.media | selectattr('role', 'in', ['first', 'last']) | sort(attribute='role') | map(attribute='role') | list) if (form.video_director is defined and form.video_director.mode != 'director') else [] }}"
@@ -293,29 +293,29 @@ pipeline:
       # FBCache. The pipe's own defaults are off (threshold 0.0), so an
       # untouched Advanced tab renders exactly the pipeline it did before
       # these three controls existed.
-      step_cache_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
-      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
-      step_cache_max_skips: "{{ form.step_cache_max_skips | default(3) }}"
+      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
       # Sparse attention: ONE method knob (off/sol/sla). Off by default like
       # FBCache above, and for the same reason: an untouched Advanced tab must
       # render exactly the pipeline it did before these controls existed.
       # Independent of the cache -- a step the cache skips never reaches
       # attention at all.
-      sparse_attn: "{{ form.sparse_attn | default('off') }}"
-      sol_attn_tau: "{{ form.sol_attn_tau | default(1.0) }}"
-      sla_sparsity: "{{ form.sla_sparsity | default(0.9) }}"
-      sla_block_size: "{{ form.sla_block_size | default('64') | int }}"
-      sparse_attn_dense_last_steps: "{{ form.sparse_attn_dense_last_steps | default(2) }}"
+      sparse_attn: "{{ form.sparse_attn }}"
+      sol_attn_tau: "{{ form.sol_attn_tau }}"
+      sla_sparsity: "{{ form.sla_sparsity }}"
+      sla_block_size: "{{ form.sla_block_size | int }}"
+      sparse_attn_dense_last_steps: "{{ form.sparse_attn_dense_last_steps }}"
       # Solver and knot placement. The pipe's defaults (euler/simple) ARE the
       # reference schedule, so an untouched Generation tab renders exactly the
       # pipeline it did before these two controls existed.
-      sampler: "{{ form.sampler | default('euler') }}"
-      scheduler: "{{ form.scheduler | default('simple') }}"
+      sampler: "{{ form.sampler }}"
+      scheduler: "{{ form.scheduler }}"
       # Blank (the default) leaves the schedules computed from `steps` above;
       # a filled-in list owns the step count outright, profile included, and
       # is refused outright alongside a non-simple `scheduler`.
-      manual_sigmas: "{{ form.manual_sigmas | default('') }}"
-      manual_audio_sigmas: "{{ form.manual_audio_sigmas | default('') }}"
+      manual_sigmas: "{{ form.manual_sigmas }}"
+      manual_audio_sigmas: "{{ form.manual_audio_sigmas }}"
 
   #############
   ## Gallery
@@ -325,5 +325,3 @@ pipeline:
       - ["video", "generator/video_minimax_h3", "video"]
       - ["seed", "seed_generator", "seed"]
     enabled: true
-    configuration:
-      save: "true"

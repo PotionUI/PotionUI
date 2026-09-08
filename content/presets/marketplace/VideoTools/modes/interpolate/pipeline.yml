@@ -31,9 +31,9 @@ pipeline:
       quantity: 1
       parameters:
         - ["model", "{{ form.model }}"]
-        - ["factor", "{{ form.factor | default(2) }}"]
-        - ["flow_scale", "{{ form.flow_scale | default(1.0) }}"]
-        - ["keep_audio", "{{ form.keep_audio | default(true) }}"]
+        - ["factor", "{{ form.factor }}"]
+        - ["flow_scale", "{{ form.flow_scale }}"]
+        - ["keep_audio", "{{ form.keep_audio }}"]
 
   #############
   ## Interpolator - RIFE 4.x frame interpolation (streaming, frame pair at a time)
@@ -47,9 +47,9 @@ pipeline:
       model:
         file_path: "{{ form.model }}"
         name: "{{ form.model }}"
-      factor: "{{ form.factor | default(2) }}"
-      flow_scale: "{{ form.flow_scale | default(1.0) }}"
-      keep_audio: "{{ form.keep_audio | default(true) }}"
+      factor: "{{ form.factor }}"
+      flow_scale: "{{ form.flow_scale }}"
+      keep_audio: "{{ form.keep_audio }}"
 
   #############
   ## Gallery - Save the interpolated video
@@ -59,5 +59,3 @@ pipeline:
     input:
       - ["video", "interpolator", "video"]
     enabled: true
-    configuration:
-      support_video: true

@@ -57,7 +57,7 @@ pipeline:
         name: "{{ form.upscale_model }}"
       loras:
         "@loop":
-          items: "{{ form.loras | default([]) }}"
+          items: "{{ form.loras }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -81,12 +81,12 @@ pipeline:
       # string to the TE.
       p_prompt:
         input: "{{ generation.prompts.first.positive }}"
-        output: "{{ (generation.prompts.first.positive ~ ', ' ~ preset.vars.refine_quality_prompt) if (generation.prompts.first.positive and (form.apply_quality_prompt | default(true))) else (preset.vars.refine_quality_prompt if (form.apply_quality_prompt | default(true)) else generation.prompts.first.positive) }}"
+        output: "{{ (generation.prompts.first.positive ~ ', ' ~ preset.vars.refine_quality_prompt) if (generation.prompts.first.positive and (form.apply_quality_prompt)) else (preset.vars.refine_quality_prompt if (form.apply_quality_prompt) else generation.prompts.first.positive) }}"
       n_prompt:
         input: "{{ generation.prompts.first.negative }}"
         output: "{{ generation.prompts.first.negative }}"
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       # Refine pass runs at CFG 1.0 (Lightricks' SimpleDenoiser, no negative
       # pass) -- see generator_refine's `cfg` below; guidance_scale <= 1.0 here
       # means the negative branch is never encoded (do_cfg check in
@@ -96,8 +96,8 @@ pipeline:
   - name: "seed_generator"
     enabled: true
     configuration:
-      seed: "{{ form.seed | default(-1) }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## Rendered prompts (provenance)
@@ -111,7 +111,7 @@ pipeline:
     enabled: true
     configuration:
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## IOType to Value Converter
@@ -133,20 +133,20 @@ pipeline:
     input:
       - ["seed", "from_iotype", "seed"]
     configuration:
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       parameters:
         - ["model", "{{ form.model }}"]
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.video_vae }}"]
         - ["model", "{{ form.upscale_model }}"]
         - "@loop":
-            items: "{{ form.loras | default([]) | active_loras }}"
+            items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
         - ["negative_prompt", "{{ generation.prompts.negatives }}"]
         - ["cfg", 1.0]
         - ["sampler", "euler"]
-        - ["refine_strength", "{{ form.refine_strength | default('strong') }}"]
+        - ["refine_strength", "{{ form.refine_strength }}"]
 
   #############
   ## VAE-encode the source video, then upsample its latent via the model
@@ -185,7 +185,7 @@ pipeline:
       - ["source_frame_count", "latent_upscaler", "source_frame_count"]
     enabled: true
     configuration:
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       decode: true
       # Lightricks' own two-stage recipe: CFG 1 (SimpleDenoiser, no negative
       # pass) and a plain DETERMINISTIC Euler loop for the refine stage --
@@ -205,7 +205,7 @@ pipeline:
       # `or`, NOT `| default(...)`: see video/pipeline.yml's identical comment --
       # the Advanced tab field's own default is "" (a DEFINED empty string, not
       # Undefined), so `| default()` would never apply.
-      refine_sigmas: "{{ form.refine_sigmas or (preset.vars.stage2_sigma_recipe_balanced if (form.refine_strength | default('strong')) == 'balanced' else (preset.vars.stage2_sigma_recipe_light if (form.refine_strength | default('strong')) == 'light' else preset.vars.stage2_sigma_recipe)) }}"
+      refine_sigmas: "{{ form.refine_sigmas or (preset.vars.stage2_sigma_recipe_balanced if (form.refine_strength) == 'balanced' else (preset.vars.stage2_sigma_recipe_light if (form.refine_strength) == 'light' else preset.vars.stage2_sigma_recipe)) }}"
 
   #############
   ## Face/hand enhancement: refine detected faces and hands as stabilized
@@ -223,9 +223,9 @@ pipeline:
       - ["model", "model_loader/ltx", "model"]
       - ["conditioning", "prompt_encoder", "conditioning"]
       - ["seed", "seed_generator", "seed"]
-    enabled: "{{ form.enhance_faces_hands | default(false) }}"
+    enabled: "{{ form.enhance_faces_hands }}"
     configuration:
-      strength: "{{ form.enhancement_strength | default('balanced') }}"
+      strength: "{{ form.enhancement_strength }}"
       # `or`, not `default()` -- an unpicked `model` field submits "", which
       # `default()` would not catch (see the video mode's identical comment).
       face_model: "{{ form.face_detector_model or 'models/mediapipe/face_landmarker.task' }}"
@@ -233,8 +233,6 @@ pipeline:
 
   - name: "gallery"
     input:
-      - ["video", "{% if form.enhance_faces_hands | default(false) %}detailer{% else %}generator_refine{% endif %}", "video"]
+      - ["video", "{% if form.enhance_faces_hands %}detailer{% else %}generator_refine{% endif %}", "video"]
       - ["seed", "seed_generator", "seed"]
     enabled: true
-    configuration:
-      save: "true"

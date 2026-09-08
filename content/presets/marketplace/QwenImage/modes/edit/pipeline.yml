@@ -30,7 +30,7 @@ pipeline:
         name: "{{ form.vae }}"
       loras:
         "@loop":
-          items: "{{ form.loras | default([]) }}"
+          items: "{{ form.loras }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -81,9 +81,9 @@ pipeline:
         output: "{{ generation.prompts.first.negative }}"
       # Per-image expanded prompt pairs (src/core/prompt/expander.py).
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       # Qwen-Image uses true CFG -> encode the negative pass (guidance_scale > 1).
-      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
 
   #############
   ## Seed generator
@@ -91,8 +91,8 @@ pipeline:
   - name: "seed_generator"
     enabled: true
     configuration:
-      seed: "{{ form.seed | default(-1) }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## Rendered prompts (provenance)
@@ -106,7 +106,7 @@ pipeline:
     enabled: true
     configuration:
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## IOType to Value Converter
@@ -128,20 +128,20 @@ pipeline:
     input:
       - ["seed", "from_iotype", "seed"]
     configuration:
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       parameters:
         - ["model", "{{ form.diffusion_model }}"]
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.vae }}"]
         - "@loop":
-            items: "{{ form.loras | default([]) | active_loras }}"
+            items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
         # Per-image arrays, so history records the prompt each image actually ran with.
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
         - ["negative_prompt", "{{ generation.prompts.negatives }}"]
-        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"]
-        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"]
-        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"]
+        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"]
+        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"]
+        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"]
 
   #############
   ## Generator (edit mode: vision-grounded conditioning + ref_latents)
@@ -155,12 +155,12 @@ pipeline:
     enabled: true
     configuration:
       mode: "edit"
-      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"
-      guidance: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"
+      guidance: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
       # Optional shift override; blank -> spec default (1.15).
       shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
-      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## Gallery
@@ -170,5 +170,3 @@ pipeline:
       - ["image", "generator/qwen", "image"]
       - ["seed", "seed_generator", "seed"]
     enabled: true
-    configuration:
-      save: "true"

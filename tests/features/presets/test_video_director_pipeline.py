@@ -15,6 +15,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from src.features.forms.binding import bind_form
 from src.features.generation.engine import GenerationEngine, deep_update, validate_pipe_configuration
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
@@ -167,7 +168,11 @@ def _process(wan_template, doc, form_over=None):
     }
     if form_over:
         form_data.update(form_over)
-    generation_data = {"prompts": [], "mode": "video", "form_data": form_data}
+    bound = bind_form(
+        wan_template, "video", form_name=None, raw_form_data=form_data,
+        user_id=None, storage_dir=None,
+    )
+    generation_data = {"prompts": [], "mode": "video", "form_data": dict(bound.values)}
     return processor.process(wan_template, generation_data)
 
 
@@ -319,9 +324,12 @@ def test_chain_media_first_enabled_media_last_not(wan_template):
 # -- expert-boundary picker + switch-at-step mapping -----------------------
 
 def test_expert_boundary_preset_and_switch_step_reach_the_generator(wan_template):
-    pipes = _process(wan_template, DOC_T2V, form_over={"expert_boundary_preset": "0.9", "expert_switch_step": 12})
+    # The field's declared options are "", "0.875", "0.900" (see
+    # modes/video/tabs/advanced.yml) -- bind_form validates the submitted
+    # value against them literally, so it must be the exact option string.
+    pipes = _process(wan_template, DOC_T2V, form_over={"expert_boundary_preset": "0.900", "expert_switch_step": 12})
     cfg = _pipe(pipes, "generator/txt2vid_wan22")["config"]
-    assert cfg["expert_boundary"] == "0.9"
+    assert cfg["expert_boundary"] == "0.900"
     assert cfg["expert_switch_step"] == "12"
 
 
@@ -565,7 +573,11 @@ def _process_ltx(ltx_template, doc, form_over=None):
     }
     if form_over:
         form_data.update(form_over)
-    generation_data = {"prompts": [], "mode": "video", "form_data": form_data}
+    bound = bind_form(
+        ltx_template, "video", form_name=None, raw_form_data=form_data,
+        user_id=None, storage_dir=None,
+    )
+    generation_data = {"prompts": [], "mode": "video", "form_data": dict(bound.values)}
     return processor.process(ltx_template, generation_data)
 
 

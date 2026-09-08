@@ -39,6 +39,7 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
+from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
@@ -96,7 +97,14 @@ def _process(ltx_template, mode, form_over=None, prompts=None):
         })
     if form_over:
         form_data.update(form_over)
-    generation_data = {"prompts": prompts if prompts is not None else [], "mode": mode, "form_data": form_data}
+    bound = bind_form(
+        ltx_template, mode, form_name=None, raw_form_data=form_data,
+        user_id=None, storage_dir=None,
+    )
+    generation_data = {
+        "prompts": prompts if prompts is not None else [], "mode": mode,
+        "form_data": dict(bound.values),
+    }
     return processor.process(ltx_template, generation_data)
 
 

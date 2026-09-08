@@ -21,7 +21,7 @@ pipeline:
     id: "seed_generator"
     enabled: true
     configuration:
-      seed: "{{ form.seed | default(-1) }}"
+      seed: "{{ form.seed }}"
       quantity: "{{ form.quantity | default(1) }}"
   #############
   ## IOType to Value Converter
@@ -56,7 +56,7 @@ pipeline:
 
         # LoRAs (the picker value only contains selected entries)
         - "@loop":
-            items: "{{ form.loras | default([]) | active_loras }}"
+            items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
 
         # Prompts
@@ -64,11 +64,11 @@ pipeline:
         - ["negative_prompt", "{{ generation.prompts.first.negative }}"]
 
         # Generation parameters
-        - ["cfg", "{{ form.cfg | default(1.0) }}"]
-        - ["steps", "{{ form.steps | default(4) }}"]
-        - ["sampler", "{{ form.sampler_name | default('euler') }}"]
-        - ["scheduler", "{{ form.scheduler | default('simple') }}"]
-        - ["denoise", "{{ form.denoise | default(1.0) }}"]
+        - ["cfg", "{{ form.cfg }}"]
+        - ["steps", "{{ form.steps }}"]
+        - ["sampler", "{{ form.sampler_name }}"]
+        - ["scheduler", "{{ form.scheduler }}"]
+        - ["denoise", "{{ form.denoise }}"]
 
   - name: "comfyui"
     enabled: true
@@ -123,7 +123,7 @@ pipeline:
         # Add one LoraLoaderModelOnly node per selected LoRA (node ids lora_1, lora_2, ...),
         # chaining each entry to the previous one (the first connects to the diffusion model 91:12)
         - "@loop":
-            items: "{{ form.loras | default([]) }}"
+            items: "{{ form.loras }}"
             template:
               type: "add_node"
               node_id: "lora_{{ loop.index }}"
@@ -143,7 +143,7 @@ pipeline:
         - type: "update_node_input"
           node_id: "91:67"
           input_key: "model"
-          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}{{ preset.vars.lora_chain_base_node.img2img }}{% endif %}", 0]
+          input_value: ["{% set loras = form.loras %}{% if loras %}lora_{{ loras | length }}{% else %}{{ preset.vars.lora_chain_base_node.img2img }}{% endif %}", 0]
 
       field_mappings:
         # Prompts - TextEncodeQwenImageEditPlus nodes
@@ -170,17 +170,17 @@ pipeline:
 
         # KSampler - node 91:65
         - ["@seed", "91:65.inputs.seed", "int"]
-        - ["{{ form.steps | default(4) }}", "91:65.inputs.steps", "int"]
-        - ["{{ form.cfg | default(1.0) }}", "91:65.inputs.cfg", "float"]
-        - ["{{ form.sampler_name | default('euler') }}", "91:65.inputs.sampler_name", "str"]
-        - ["{{ form.scheduler | default('simple') }}", "91:65.inputs.scheduler", "str"]
-        - ["{{ form.denoise | default(1.0) }}", "91:65.inputs.denoise", "float"]
+        - ["{{ form.steps }}", "91:65.inputs.steps", "int"]
+        - ["{{ form.cfg }}", "91:65.inputs.cfg", "float"]
+        - ["{{ form.sampler_name }}", "91:65.inputs.sampler_name", "str"]
+        - ["{{ form.scheduler }}", "91:65.inputs.scheduler", "str"]
+        - ["{{ form.denoise }}", "91:65.inputs.denoise", "float"]
 
         # ModelSamplingAuraFlow - node 91:67
-        - ["{{ form.shift | default(3.1) }}", "91:67.inputs.shift", "float"]
+        - ["{{ form.shift }}", "91:67.inputs.shift", "float"]
 
         # CFGNorm - node 91:64
-        - ["{{ form.cfg_norm_strength | default(1.0) }}", "91:64.inputs.strength", "float"]
+        - ["{{ form.cfg_norm_strength }}", "91:64.inputs.strength", "float"]
 
         # NOTE: LoRA values are set via node_manipulations above (the Power Lora Loader
         # is replaced by a LoraLoaderModelOnly chain built from the `loras` picker)
@@ -200,6 +200,3 @@ pipeline:
     enabled: true
     input:
       - ["image", "output_skipper", "image"]
-    configuration:
-      mode: "save"
-      support_video: false

@@ -3,5 +3,3 @@ pipeline:
   - name: "gallery"
     id: "gallery"
     enabled: true
-    configuration:
-      mode: "save"

@@ -251,12 +251,7 @@
       "name": "generator/qwen"
     },
     {
-      "config": {
-        "save": {
-          "type": "str",
-          "value": "true"
-        }
-      },
+      "config": {},
       "enabled": {
         "type": "bool",
         "value": true

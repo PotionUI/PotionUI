@@ -275,12 +275,7 @@
       "name": "generator/krea2"
     },
     {
-      "config": {
-        "save": {
-          "type": "str",
-          "value": "true"
-        }
-      },
+      "config": {},
       "enabled": {
         "type": "bool",
         "value": true

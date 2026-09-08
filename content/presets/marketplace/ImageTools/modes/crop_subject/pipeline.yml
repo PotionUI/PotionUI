@@ -31,8 +31,8 @@ pipeline:
     configuration:
       quantity: 1
       parameters:
-        - ["crop_margin", "{{ form.crop_margin | default(0) }}"]
-        - ["crop_alpha_threshold", "{{ form.crop_alpha_threshold | default(16) }}"]
+        - ["crop_margin", "{{ form.crop_margin }}"]
+        - ["crop_alpha_threshold", "{{ form.crop_alpha_threshold }}"]
 
   #############
   ## Crop to subject - trim to the alpha bounding box
@@ -43,8 +43,8 @@ pipeline:
     input:
       - ["image", "media_loader", "image"]
     configuration:
-      margin: "{{ form.crop_margin | default(0) }}"
-      alpha_threshold: "{{ form.crop_alpha_threshold | default(16) }}"
+      margin: "{{ form.crop_margin }}"
+      alpha_threshold: "{{ form.crop_alpha_threshold }}"
 
   #############
   ## Gallery - save the trimmed cutout

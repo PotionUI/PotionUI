@@ -15,6 +15,7 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
+from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
@@ -28,7 +29,7 @@ _SOL_ON = {
 _SLA_ON = {
     "sparse_attn": "sla",
     "sla_sparsity": 0.85,
-    "sla_block_size": 128,
+    "sla_block_size": "128",  # the field's declared options are strings
     "sparse_attn_dense_last_steps": 3,
 }
 
@@ -72,10 +73,14 @@ def _process(h3_template, form_over: dict | None = None):
     }
     if form_over:
         form_data.update(form_over)
+    bound = bind_form(
+        h3_template, "video", form_name=None, raw_form_data=form_data,
+        user_id=None, storage_dir=None,
+    )
     generation_data = {
         "prompts": [{"positive": "a dragon", "negative": ""}],
         "mode": "video",
-        "form_data": form_data,
+        "form_data": dict(bound.values),
     }
     return processor.process(h3_template, generation_data)
 

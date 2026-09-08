@@ -17,6 +17,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
@@ -60,10 +61,14 @@ def _process(vdn_template, form_over: dict | None = None):
     }
     if form_over:
         form_data.update(form_over)
+    bound = bind_form(
+        vdn_template, "video", form_name=None, raw_form_data=form_data,
+        user_id=None, storage_dir=None,
+    )
     generation_data = {
         "prompts": [{"positive": "a dragon", "negative": ""}],
         "mode": "video",
-        "form_data": form_data,
+        "form_data": dict(bound.values),
     }
     return processor.process(vdn_template, generation_data)
 
@@ -97,9 +102,15 @@ def test_the_adaln_sidecar_reaches_the_loader_when_picked(vdn_template):
 def test_an_unpicked_sidecar_renders_blank_rather_than_failing(vdn_template):
     """The sidecar is required only for the turbo tier over a pruned checkpoint,
     so the 50-step path submits no value for it at all. A bare `{{ form.x }}`
-    would be a build error under strict evaluation."""
+    would be a build error under strict evaluation.
+
+    `dense_time_embedder` has no field `default:`, so `bind_form` (the real
+    request path) resolves an unpicked model picker to `None`, not an absent
+    key -- and Jinja's `| default('')` only rescues a genuinely Undefined
+    value, not an explicit `None`, so the guard does not fire here. `None` is
+    the real, current rendered value for this case."""
     cfg = _loader(_process(vdn_template))["config"]
-    assert cfg["dense_time_embedder"] == {"file_path": "", "name": ""}
+    assert cfg["dense_time_embedder"] == {"file_path": None, "name": None}
 
 
 def test_the_generator_carries_no_sparse_attention_configuration(vdn_template):

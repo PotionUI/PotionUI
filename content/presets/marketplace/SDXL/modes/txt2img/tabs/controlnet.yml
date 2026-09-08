@@ -56,14 +56,11 @@ fields:
                       value: "mlsd"
                     - label: "HED"
                       value: "hed"
-                  placeholder: "Select type..."
                 default: "canny"
 
               - name: "controlnet_{{ loop.index }}_image"
                 type: "image"
                 label: "Control Image"
-                configuration:
-                  placeholder: "Upload control image..."
 
               - type: "row"
                 children:

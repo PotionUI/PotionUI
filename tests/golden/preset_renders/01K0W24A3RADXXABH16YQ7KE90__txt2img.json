@@ -628,12 +628,7 @@
       "name": "film_grain"
     },
     {
-      "config": {
-        "save": {
-          "type": "str",
-          "value": "true"
-        }
-      },
+      "config": {},
       "enabled": {
         "type": "bool",
         "value": true

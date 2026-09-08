@@ -17,6 +17,7 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
+from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
@@ -43,12 +44,21 @@ def _process(music3_template, form_over: dict | None = None, positive: str = "")
         "model": "/models/minimax_music3_dit.safetensors",
         "text_encoder": "/models/minimax_music3_te.safetensors",
         "vae": "/models/minimax_music3_dav.safetensors",
+        # required: true, no field default -- bind_form rejects an absent OR
+        # blank value outright (a real caller must always supply this). Tests
+        # that care about the exact caption/description value override it;
+        # everything else just needs *some* valid value present.
+        "description": "ambient synth pads",
     }
     form_data.update(form_over or {})
+    bound = bind_form(
+        music3_template, "song", form_name=None, raw_form_data=form_data,
+        user_id=None, storage_dir=None,
+    )
     return processor.process(music3_template, {
         "prompts": [{"positive": positive, "negative": ""}],
         "mode": "song",
-        "form_data": form_data,
+        "form_data": dict(bound.values),
     })
 
 
@@ -125,12 +135,16 @@ def test_lyrics_come_from_the_resolved_prompt(music3_template):
     assert config["lyrics"] == "[Verse]\nrain on the window\n\n[Chorus]\nnowhere to go"
 
 
-def test_a_field_less_submission_composes_an_empty_caption_and_lyrics(music3_template):
-    """A raw API/MCP caller that submits neither the form fields nor a
-    prompt still gets safe empty-string defaults, never a Jinja
-    StrictUndefined error."""
+def test_a_field_less_submission_composes_an_empty_lyrics(music3_template):
+    """A raw API/MCP caller that submits no prompt (lyrics come from the
+    resolved prompt, not a dedicated field) still gets a safe empty-string
+    default, never a Jinja StrictUndefined error. Style description is
+    `required: true` with no field default, unlike lyrics/prompt -- a
+    caller must always supply it (bind_form rejects an absent or blank
+    value outright), so `caption` (== `form.description` verbatim, see
+    pipeline.yml:71) is never field-less in practice."""
     config = _pipe(_process(music3_template), "generator/audio_minimax_music3")["config"]
-    assert config["caption"] == ""
+    assert config["caption"] == "ambient synth pads"
     assert config["lyrics"] == ""
 
 

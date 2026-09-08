@@ -12,7 +12,7 @@ pipeline:
     enabled: true
     configuration:
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## Seed Generator
@@ -21,8 +21,8 @@ pipeline:
     id: "seed_generator"
     enabled: true
     configuration:
-      seed: "{{ form.seed | default(-1) }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## IOType to Value Converter (seed -> plain value for param_emitter)
@@ -44,7 +44,7 @@ pipeline:
     input:
       - ["seed", "from_iotype", "seed"]
     configuration:
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       parameters:
         # Models
         - ["model", "{{ form.diffusion_model | default('') }}"]
@@ -53,7 +53,7 @@ pipeline:
 
         # LoRAs (the picker value only contains selected entries)
         - "@loop":
-            items: "{{ form.loras | default([]) | active_loras }}"
+            items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
 
         # Prompts
@@ -61,11 +61,11 @@ pipeline:
         - ["negative_prompt", "{{ generation.prompts.first.negative }}"]
 
         # Generation parameters
-        - ["cfg", "{{ form.cfg | default(1.0) }}"]
-        - ["steps", "{{ form.steps | default(8) }}"]
-        - ["sampler", "{{ form.sampler_name | default('euler') }}"]
-        - ["scheduler", "{{ form.scheduler | default('simple') }}"]
-        - ["resolution", "{{ form.resolution | default('1024x1024') }}"]
+        - ["cfg", "{{ form.cfg }}"]
+        - ["steps", "{{ form.steps }}"]
+        - ["sampler", "{{ form.sampler_name }}"]
+        - ["scheduler", "{{ form.scheduler }}"]
+        - ["resolution", "{{ form.resolution }}"]
         - ["denoise", "{{ form.denoise | default(1.0) }}"]
 
   #############
@@ -89,7 +89,7 @@ pipeline:
         # Add one LoraLoaderModelOnly node per selected LoRA, chaining each entry
         # to the previous one (the first connects to the UNET loader 37)
         - "@loop":
-            items: "{{ form.loras | default([]) }}"
+            items: "{{ form.loras }}"
             template:
               type: "add_node"
               node_id: "lora_{{ loop.index }}"
@@ -108,7 +108,7 @@ pipeline:
         - type: "update_node_input"
           node_id: "3"
           input_key: "model"
-          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}{{ preset.vars.lora_chain_base_node }}{% endif %}", 0]
+          input_value: ["{% set loras = form.loras %}{% if loras %}lora_{{ loras | length }}{% else %}{{ preset.vars.lora_chain_base_node }}{% endif %}", 0]
 
       field_mappings:
         # Positive prompt -> CLIPTextEncode (node 6). Negative is zeroed out
@@ -121,16 +121,16 @@ pipeline:
         - ["{{ form.vae | strip_model_dir }}", "39.inputs.vae_name", "str"]
 
         # Resolution (parsed from "WxH")
-        - ["{{ (form.resolution | default('1024x1024')).split('x')[0] }}", "58.inputs.width", "int"]
-        - ["{{ (form.resolution | default('1024x1024')).split('x')[1] }}", "58.inputs.height", "int"]
-        - ["{{ form.quantity | default(1) }}", "58.inputs.batch_size", "int"]
+        - ["{{ (form.resolution).split('x')[0] }}", "58.inputs.width", "int"]
+        - ["{{ (form.resolution).split('x')[1] }}", "58.inputs.height", "int"]
+        - ["{{ form.quantity }}", "58.inputs.batch_size", "int"]
 
         # KSampler (node 3)
         - ["@seed", "3.inputs.seed", "int"]
-        - ["{{ form.steps | default(8) }}", "3.inputs.steps", "int"]
-        - ["{{ form.cfg | default(1.0) }}", "3.inputs.cfg", "float"]
-        - ["{{ form.sampler_name | default('euler') }}", "3.inputs.sampler_name", "str"]
-        - ["{{ form.scheduler | default('simple') }}", "3.inputs.scheduler", "str"]
+        - ["{{ form.steps }}", "3.inputs.steps", "int"]
+        - ["{{ form.cfg }}", "3.inputs.cfg", "float"]
+        - ["{{ form.sampler_name }}", "3.inputs.sampler_name", "str"]
+        - ["{{ form.scheduler }}", "3.inputs.scheduler", "str"]
         - ["{{ form.denoise | default(1.0) }}", "3.inputs.denoise", "float"]
 
   #############
@@ -140,6 +140,3 @@ pipeline:
     enabled: true
     input:
       - ["image", "comfyui", "image"]
-    configuration:
-      mode: "save"
-      support_video: false

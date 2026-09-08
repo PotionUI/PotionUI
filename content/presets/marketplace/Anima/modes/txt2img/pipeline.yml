@@ -24,7 +24,7 @@ pipeline:
         name: "{{ form.vae }}"
       loras:
         "@loop":
-          items: "{{ form.loras | default([]) }}"
+          items: "{{ form.loras }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -45,7 +45,7 @@ pipeline:
         output: "{{ generation.prompts.first.negative }}"
       # Per-image expanded prompt pairs (src/core/prompt/expander.py).
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       # Anima uses true CFG -> encode the negative pass (guidance_scale > 1).
       guidance_scale: "{{ form.cfg | default(preset.vars.default_cfg) }}"
 
@@ -55,8 +55,8 @@ pipeline:
   - name: "seed_generator"
     enabled: true
     configuration:
-      seed: "{{ form.seed | default(-1) }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## Rendered prompts (provenance)
@@ -70,7 +70,7 @@ pipeline:
     enabled: true
     configuration:
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## IOType to Value Converter
@@ -92,13 +92,13 @@ pipeline:
     input:
       - ["seed", "from_iotype", "seed"]
     configuration:
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       parameters:
         - ["model", "{{ form.diffusion_model }}"]
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.vae }}"]
         - "@loop":
-            items: "{{ form.loras | default([]) | active_loras }}"
+            items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
         # Per-image arrays, so history records the prompt each image actually ran with.
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
@@ -124,16 +124,16 @@ pipeline:
       shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
       sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
       resolution: "{{ form.resolution }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       # Step cache (FBCache, Advanced tab): assembled into the nested
       # `step_cache` dict FlowMatchGeneratorPipe.build_context reads directly
       # -- mirrors the Flux/Krea-2/Z-Image preset wiring. rel_threshold 0.0
       # (default) never wraps the guidance strategy, so an untouched form
       # renders byte-identical to before this knob existed.
       step_cache:
-        rel_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
-        warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
-        max_consecutive_skips: "{{ form.step_cache_max_skips | default(3) }}"
+        rel_threshold: "{{ form.step_cache_threshold }}"
+        warmup_steps: "{{ form.step_cache_warmup_steps }}"
+        max_consecutive_skips: "{{ form.step_cache_max_skips }}"
 
   #############
   ## Gallery
@@ -143,5 +143,3 @@ pipeline:
       - ["image", "generator/anima", "image"]
       - ["seed", "seed_generator", "seed"]
     enabled: true
-    configuration:
-      save: "true"

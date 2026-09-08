@@ -75,13 +75,13 @@ pipeline:
         name: "{{ form.vae }}"
       loras_high:
         "@loop":
-          items: "{{ form.t2v_loras_high | default([]) }}"
+          items: "{{ form.t2v_loras_high }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
       loras_low:
         "@loop":
-          items: "{{ form.t2v_loras_low | default([]) }}"
+          items: "{{ form.t2v_loras_low }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -104,13 +104,13 @@ pipeline:
         name: "{{ form.vae }}"
       loras_high:
         "@loop":
-          items: "{{ form.i2v_loras_high | default([]) }}"
+          items: "{{ form.i2v_loras_high }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
       loras_low:
         "@loop":
-          items: "{{ form.i2v_loras_low | default([]) }}"
+          items: "{{ form.i2v_loras_low }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -142,8 +142,8 @@ pipeline:
             positive: "{{ item.prompt }}"
             negative: "{{ item.negative_prompt }}"
       quantity: "{{ form.video_director.segments | length }}"
-      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
-      nag_scale: "{{ form.nag_scale | default(1.0) }}"
+      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
+      nag_scale: "{{ form.nag_scale }}"
 
   - name: "seed_generator"
     enabled: true
@@ -184,13 +184,13 @@ pipeline:
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.vae }}"]
         - "@loop":
-            items: "{{ (form.t2v_loras_high | default([])) + (form.t2v_loras_low | default([])) + (form.i2v_loras_high | default([])) + (form.i2v_loras_low | default([])) | active_loras }}"
+            items: "{{ (form.t2v_loras_high) + (form.t2v_loras_low) + (form.i2v_loras_high) + (form.i2v_loras_low) | active_loras }}"
             template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ form.video_director.segments | map(attribute='prompt') | list }}"]
         - ["negative_prompt", "{{ form.video_director.segments | map(attribute='negative_prompt') | list }}"]
-        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"]
-        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"]
-        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"]
+        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"]
+        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"]
+        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"]
         - ["resolution", "{{ form.resolution }}"]
         - ["fps", "{{ form.video_director.settings.fps }}"]
         - ["director_mode", "{{ form.video_director.mode | default('') }}"]
@@ -224,42 +224,42 @@ pipeline:
       - ["seed", "seed_generator", "seed"]
     enabled: "{{ form.video_director.mode == 't2v' }}"
     configuration:
-      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"
-      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
-      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"
-      expert_boundary: "{% set b = form.expert_boundary_preset | default('') %}{% if b is not none and b != '' %}{{ b }}{% endif %}"
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"
+      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
+      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"
+      expert_boundary: "{% set b = form.expert_boundary_preset %}{% if b is not none and b != '' %}{{ b }}{% endif %}"
       expert_switch_step: "{% set s = form.expert_switch_step | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
-      nag_scale: "{{ form.nag_scale | default(1.0) }}"
-      nag_tau: "{{ form.nag_tau | default(3.5) }}"
-      nag_alpha: "{{ form.nag_alpha | default(0.5) }}"
+      nag_scale: "{{ form.nag_scale }}"
+      nag_tau: "{{ form.nag_tau }}"
+      nag_alpha: "{{ form.nag_alpha }}"
       # Advanced guidance / schedule knobs (advanced.yml). Every default here is
       # the technique's own no-op value, so an untouched form is byte-identical to
       # not threading them at all. FreeInit is txt2vid-only (no spec on i2v/chain).
-      cfg_zero_star: "{{ form.cfg_zero_star | default(true) }}"
-      zero_init_steps: "{{ form.zero_init_steps | default(0) }}"
-      apg_eta: "{{ form.apg_eta | default(1.0) }}"
-      apg_norm_threshold: "{{ form.apg_norm_threshold | default(0.0) }}"
-      apg_momentum: "{{ form.apg_momentum | default(0.0) }}"
-      slg_scale: "{{ form.slg_scale | default(0.0) }}"
-      slg_layers: "{{ form.slg_layers | default('') }}"
-      slg_sigma_start: "{{ form.slg_sigma_start | default(1.0) }}"
-      slg_sigma_end: "{{ form.slg_sigma_end | default(0.0) }}"
-      schedule: "{{ form.schedule | default('') }}"
+      cfg_zero_star: "{{ form.cfg_zero_star }}"
+      zero_init_steps: "{{ form.zero_init_steps }}"
+      apg_eta: "{{ form.apg_eta }}"
+      apg_norm_threshold: "{{ form.apg_norm_threshold }}"
+      apg_momentum: "{{ form.apg_momentum }}"
+      slg_scale: "{{ form.slg_scale }}"
+      slg_layers: "{{ form.slg_layers }}"
+      slg_sigma_start: "{{ form.slg_sigma_start }}"
+      slg_sigma_end: "{{ form.slg_sigma_end }}"
+      schedule: "{{ form.schedule }}"
       schedule_options:
-        threshold_noise: "{{ form.linear_quadratic_threshold_noise | default(0.025) }}"
-        linear_steps: "{{ none if (form.linear_quadratic_linear_steps_auto | default(true)) else (form.linear_quadratic_linear_steps | default(none)) }}"
-      manual_sigmas: "{{ form.manual_sigmas | default('') }}"
-      detail_strength: "{{ form.detail_strength | default(0.0) }}"
-      detail_start: "{{ form.detail_start | default(0.1) }}"
-      detail_end: "{{ form.detail_end | default(0.9) }}"
-      riflex: "{{ form.riflex | default(false) }}"
+        threshold_noise: "{{ form.linear_quadratic_threshold_noise }}"
+        linear_steps: "{{ none if (form.linear_quadratic_linear_steps_auto) else (form.linear_quadratic_linear_steps | default(none)) }}"
+      manual_sigmas: "{{ form.manual_sigmas }}"
+      detail_strength: "{{ form.detail_strength }}"
+      detail_start: "{{ form.detail_start }}"
+      detail_end: "{{ form.detail_end }}"
+      riflex: "{{ form.riflex }}"
       riflex_trained_frames: "{% set r = form.riflex_trained_frames | default('') %}{% if r is not none and r != '' %}{{ r }}{% endif %}"
-      freeinit_iterations: "{{ form.freeinit_iterations | default(0) }}"
-      freeinit_cutoff: "{{ form.freeinit_cutoff | default(0.25) }}"
-      freeinit_order: "{{ form.freeinit_order | default(4) }}"
-      step_cache_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
-      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
-      step_cache_max_skips: "{{ form.step_cache_max_skips | default(3) }}"
+      freeinit_iterations: "{{ form.freeinit_iterations }}"
+      freeinit_cutoff: "{{ form.freeinit_cutoff }}"
+      freeinit_order: "{{ form.freeinit_order }}"
+      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
       resolution: "{{ form.resolution }}"
       # duration is only guaranteed non-None for t2v/i2v/flf (chain leaves it
       # unset) -- these generators are disabled for chain, but every pipe's
@@ -278,38 +278,38 @@ pipeline:
       - ["seed", "seed_generator", "seed"]
     enabled: "{{ form.video_director.mode in ['i2v', 'flf'] }}"
     configuration:
-      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"
-      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
-      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"
-      expert_boundary: "{% set b = form.expert_boundary_preset | default('') %}{% if b is not none and b != '' %}{{ b }}{% endif %}"
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"
+      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
+      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"
+      expert_boundary: "{% set b = form.expert_boundary_preset %}{% if b is not none and b != '' %}{{ b }}{% endif %}"
       expert_switch_step: "{% set s = form.expert_switch_step | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
-      nag_scale: "{{ form.nag_scale | default(1.0) }}"
-      nag_tau: "{{ form.nag_tau | default(3.5) }}"
-      nag_alpha: "{{ form.nag_alpha | default(0.5) }}"
+      nag_scale: "{{ form.nag_scale }}"
+      nag_tau: "{{ form.nag_tau }}"
+      nag_alpha: "{{ form.nag_alpha }}"
       # Advanced guidance / schedule knobs (advanced.yml); no-op defaults. FreeInit
       # is txt2vid-only, so it is deliberately not threaded here.
-      cfg_zero_star: "{{ form.cfg_zero_star | default(true) }}"
-      zero_init_steps: "{{ form.zero_init_steps | default(0) }}"
-      apg_eta: "{{ form.apg_eta | default(1.0) }}"
-      apg_norm_threshold: "{{ form.apg_norm_threshold | default(0.0) }}"
-      apg_momentum: "{{ form.apg_momentum | default(0.0) }}"
-      slg_scale: "{{ form.slg_scale | default(0.0) }}"
-      slg_layers: "{{ form.slg_layers | default('') }}"
-      slg_sigma_start: "{{ form.slg_sigma_start | default(1.0) }}"
-      slg_sigma_end: "{{ form.slg_sigma_end | default(0.0) }}"
-      schedule: "{{ form.schedule | default('') }}"
+      cfg_zero_star: "{{ form.cfg_zero_star }}"
+      zero_init_steps: "{{ form.zero_init_steps }}"
+      apg_eta: "{{ form.apg_eta }}"
+      apg_norm_threshold: "{{ form.apg_norm_threshold }}"
+      apg_momentum: "{{ form.apg_momentum }}"
+      slg_scale: "{{ form.slg_scale }}"
+      slg_layers: "{{ form.slg_layers }}"
+      slg_sigma_start: "{{ form.slg_sigma_start }}"
+      slg_sigma_end: "{{ form.slg_sigma_end }}"
+      schedule: "{{ form.schedule }}"
       schedule_options:
-        threshold_noise: "{{ form.linear_quadratic_threshold_noise | default(0.025) }}"
-        linear_steps: "{{ none if (form.linear_quadratic_linear_steps_auto | default(true)) else (form.linear_quadratic_linear_steps | default(none)) }}"
-      manual_sigmas: "{{ form.manual_sigmas | default('') }}"
-      detail_strength: "{{ form.detail_strength | default(0.0) }}"
-      detail_start: "{{ form.detail_start | default(0.1) }}"
-      detail_end: "{{ form.detail_end | default(0.9) }}"
-      riflex: "{{ form.riflex | default(false) }}"
+        threshold_noise: "{{ form.linear_quadratic_threshold_noise }}"
+        linear_steps: "{{ none if (form.linear_quadratic_linear_steps_auto) else (form.linear_quadratic_linear_steps | default(none)) }}"
+      manual_sigmas: "{{ form.manual_sigmas }}"
+      detail_strength: "{{ form.detail_strength }}"
+      detail_start: "{{ form.detail_start }}"
+      detail_end: "{{ form.detail_end }}"
+      riflex: "{{ form.riflex }}"
       riflex_trained_frames: "{% set r = form.riflex_trained_frames | default('') %}{% if r is not none and r != '' %}{{ r }}{% endif %}"
-      step_cache_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
-      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
-      step_cache_max_skips: "{{ form.step_cache_max_skips | default(3) }}"
+      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
       resolution: "{{ form.resolution }}"
       frames: "{{ ((form.video_director.settings.duration or 0) * form.video_director.settings.fps) | round | int }}"
       fps: "{{ form.video_director.settings.fps }}"
@@ -333,41 +333,41 @@ pipeline:
       # nested dicts/lists, not a str()'d-and-reparsed copy.
       document: "{{ form.video_director }}"
       # SVI Pro 2.0 continuity knobs (svi_pro.yml tab); flat field names.
-      motion_latent_count: "{{ form.svi_motion_latent_count | default(2) }}"
-      anchor_latent_strength: "{{ form.svi_anchor_latent_strength | default(0.75) }}"
-      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"
-      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
-      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"
-      nag_scale: "{{ form.nag_scale | default(1.0) }}"
-      nag_tau: "{{ form.nag_tau | default(3.5) }}"
-      nag_alpha: "{{ form.nag_alpha | default(0.5) }}"
+      motion_latent_count: "{{ form.svi_motion_latent_count }}"
+      anchor_latent_strength: "{{ form.svi_anchor_latent_strength }}"
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"
+      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
+      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"
+      nag_scale: "{{ form.nag_scale }}"
+      nag_tau: "{{ form.nag_tau }}"
+      nag_alpha: "{{ form.nag_alpha }}"
       # Advanced guidance / schedule knobs (advanced.yml); no-op defaults. Applied
       # to every segment of the chain. FreeInit is txt2vid-only (not threaded).
-      cfg_zero_star: "{{ form.cfg_zero_star | default(true) }}"
-      zero_init_steps: "{{ form.zero_init_steps | default(0) }}"
-      apg_eta: "{{ form.apg_eta | default(1.0) }}"
-      apg_norm_threshold: "{{ form.apg_norm_threshold | default(0.0) }}"
-      apg_momentum: "{{ form.apg_momentum | default(0.0) }}"
-      slg_scale: "{{ form.slg_scale | default(0.0) }}"
-      slg_layers: "{{ form.slg_layers | default('') }}"
-      slg_sigma_start: "{{ form.slg_sigma_start | default(1.0) }}"
-      slg_sigma_end: "{{ form.slg_sigma_end | default(0.0) }}"
-      schedule: "{{ form.schedule | default('') }}"
+      cfg_zero_star: "{{ form.cfg_zero_star }}"
+      zero_init_steps: "{{ form.zero_init_steps }}"
+      apg_eta: "{{ form.apg_eta }}"
+      apg_norm_threshold: "{{ form.apg_norm_threshold }}"
+      apg_momentum: "{{ form.apg_momentum }}"
+      slg_scale: "{{ form.slg_scale }}"
+      slg_layers: "{{ form.slg_layers }}"
+      slg_sigma_start: "{{ form.slg_sigma_start }}"
+      slg_sigma_end: "{{ form.slg_sigma_end }}"
+      schedule: "{{ form.schedule }}"
       schedule_options:
-        threshold_noise: "{{ form.linear_quadratic_threshold_noise | default(0.025) }}"
-        linear_steps: "{{ none if (form.linear_quadratic_linear_steps_auto | default(true)) else (form.linear_quadratic_linear_steps | default(none)) }}"
-      manual_sigmas: "{{ form.manual_sigmas | default('') }}"
-      detail_strength: "{{ form.detail_strength | default(0.0) }}"
-      detail_start: "{{ form.detail_start | default(0.1) }}"
-      detail_end: "{{ form.detail_end | default(0.9) }}"
-      riflex: "{{ form.riflex | default(false) }}"
+        threshold_noise: "{{ form.linear_quadratic_threshold_noise }}"
+        linear_steps: "{{ none if (form.linear_quadratic_linear_steps_auto) else (form.linear_quadratic_linear_steps | default(none)) }}"
+      manual_sigmas: "{{ form.manual_sigmas }}"
+      detail_strength: "{{ form.detail_strength }}"
+      detail_start: "{{ form.detail_start }}"
+      detail_end: "{{ form.detail_end }}"
+      riflex: "{{ form.riflex }}"
       riflex_trained_frames: "{% set r = form.riflex_trained_frames | default('') %}{% if r is not none and r != '' %}{{ r }}{% endif %}"
-      step_cache_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
-      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
-      step_cache_max_skips: "{{ form.step_cache_max_skips | default(3) }}"
+      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
       resolution: "{{ form.resolution }}"
       fps: "{{ form.video_director.settings.fps }}"
-      expert_boundary: "{% set b = form.expert_boundary_preset | default('') %}{% if b is not none and b != '' %}{{ b }}{% endif %}"
+      expert_boundary: "{% set b = form.expert_boundary_preset %}{% if b is not none and b != '' %}{{ b }}{% endif %}"
       expert_switch_step: "{% set s = form.expert_switch_step | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
       dtype: "bfloat16"
       # Per-set re-acquire targets for per-segment LoRA swaps (a t2v segment
@@ -390,5 +390,3 @@ pipeline:
       - ["video", "{% if form.video_director.mode == 't2v' %}generator/txt2vid_wan22{% elif form.video_director.mode in ['i2v', 'flf'] %}generator/img2vid_wan22{% else %}generator/chain_video_wan22{% endif %}", "video"]
       - ["seed", "seed_generator", "seed"]
     enabled: true
-    configuration:
-      save: "true"

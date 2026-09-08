@@ -12,6 +12,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.features.video_director import normalize_video_director
@@ -61,10 +62,14 @@ def _process(h3_template, form_over: dict | None = None):
         "prompt": "a dragon",
     }
     form_data.update(form_over or {})
+    bound = bind_form(
+        h3_template, "video", form_name=None, raw_form_data=form_data,
+        user_id=None, storage_dir=None,
+    )
     return processor.process(h3_template, {
         "prompts": [{"positive": "a dragon", "negative": ""}],
         "mode": "video",
-        "form_data": form_data,
+        "form_data": dict(bound.values),
     })
 
 

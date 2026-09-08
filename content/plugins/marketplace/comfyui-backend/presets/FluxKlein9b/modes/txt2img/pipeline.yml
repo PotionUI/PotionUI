@@ -12,7 +12,7 @@ pipeline:
     enabled: true
     configuration:
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## Seed Generator
@@ -21,8 +21,8 @@ pipeline:
     id: "seed_generator"
     enabled: true
     configuration:
-      seed: "{{ form.seed | default(-1) }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
   #############
   ## IOType to Value Converter
   ## Converts IOType values (like seed) to regular values for param_emitter
@@ -45,7 +45,7 @@ pipeline:
     input:
       - ["seed", "from_iotype", "seed"]
     configuration:
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       parameters:
         # Main diffusion model
         - ["model", "{{ form.diffusion_model | default('') }}"]
@@ -56,7 +56,7 @@ pipeline:
 
         # LoRAs (the picker value only contains selected entries)
         - "@loop":
-            items: "{{ form.loras | default([]) | active_loras }}"
+            items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
 
         # Prompts
@@ -66,14 +66,14 @@ pipeline:
         # (see the "fast" branch of the comfyui pipe's field_mappings below).
         - "@loop":
             items: "{{ [generation.prompts.first.negative] }}"
-            when: "{{ (form.speed_profile | default('balanced')) == 'balanced' }}"
+            when: "{{ (form.speed_profile) == 'balanced' }}"
             template: ["negative_prompt", "{{ item }}"]
 
         # Generation parameters
-        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"]
-        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"]
-        - ["sampler", "{{ form.sampler_name | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"]
-        - ["resolution", "{{ form.resolution | default('1024x1024') }}"]
+        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"]
+        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"]
+        - ["sampler", "{{ form.sampler_name | default(get_speed_profile(form.speed_profile)['sampler']) }}"]
+        - ["resolution", "{{ form.resolution }}"]
 
   #############
   ## ComfyUI Workflow Executor
@@ -89,7 +89,7 @@ pipeline:
     configuration:
       host: "127.0.0.1"
       port: 8188
-      workflow_file: "{{ paths.preset }}/modes/txt2img/files/workflows/{% if (form.speed_profile | default('balanced')) == 'balanced' %}txt2img_balanced.json{% else %}txt2img_fast.json{% endif %}"
+      workflow_file: "{{ paths.preset }}/modes/txt2img/files/workflows/{% if (form.speed_profile) == 'balanced' %}txt2img_balanced.json{% else %}txt2img_fast.json{% endif %}"
       timeout: 300
       secure: false
 
@@ -103,7 +103,7 @@ pipeline:
         # Add one LoraLoaderModelOnly node per selected LoRA, chaining each entry
         # to the previous one (the first connects to the base model <prefix>:70)
         - "@loop":
-            items: "{{ form.loras | default([]) }}"
+            items: "{{ form.loras }}"
             template:
               type: "add_node"
               node_id: "lora_{{ loop.index }}"
@@ -111,7 +111,7 @@ pipeline:
                 inputs:
                   lora_name: "{{ item.model | strip_model_dir }}"
                   strength_model: "{{ item.strength }}"
-                  model: ["{% if loop.first %}{{ preset.vars.node_prefix[form.speed_profile | default('balanced')] }}:70{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
+                  model: ["{% if loop.first %}{{ preset.vars.node_prefix[form.speed_profile] }}:70{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
                 class_type: "LoraLoaderModelOnly"
                 _meta:
                   title: "LoRA {{ loop.index }}"
@@ -119,9 +119,9 @@ pipeline:
         # Connect CFGGuider (<prefix>:63) to the end of the chain: the last generated LoRA
         # node, or the base model <prefix>:70 (the workflow default) when no LoRAs are selected
         - type: "update_node_input"
-          node_id: "{{ preset.vars.node_prefix[form.speed_profile | default('balanced')] }}:63"
+          node_id: "{{ preset.vars.node_prefix[form.speed_profile] }}:63"
           input_key: "model"
-          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}{{ preset.vars.node_prefix[form.speed_profile | default('balanced')] }}:70{% endif %}", 0]
+          input_value: ["{% set loras = form.loras %}{% if loras %}lora_{{ loras | length }}{% else %}{{ preset.vars.node_prefix[form.speed_profile] }}:70{% endif %}", 0]
 
         #############
         ## Negative prompt (Balanced only): the base-checkpoint graph has a
@@ -131,7 +131,7 @@ pipeline:
         ## rather than pointed at a node that doesn't exist in that graph.
         #############
         - type: "update_node_input"
-          condition: "{% if (form.speed_profile | default('balanced')) == 'balanced' %}true{% else %}false{% endif %}"
+          condition: "{% if (form.speed_profile) == 'balanced' %}true{% else %}false{% endif %}"
           node_id: "75:67"
           input_key: "text"
           input_value: "{{ generation.prompts.first.negative }}"
@@ -149,32 +149,32 @@ pipeline:
 
         # Models
         # UNETLoader (<prefix>:70)
-        - ["{{ form.diffusion_model | strip_model_dir }}", "{{ preset.vars.node_prefix[form.speed_profile | default('balanced')] }}:70.inputs.unet_name", "str"]
+        - ["{{ form.diffusion_model | strip_model_dir }}", "{{ preset.vars.node_prefix[form.speed_profile] }}:70.inputs.unet_name", "str"]
         # CLIPLoader (<prefix>:71)
-        - ["{{ form.clip | strip_model_dir }}", "{{ preset.vars.node_prefix[form.speed_profile | default('balanced')] }}:71.inputs.clip_name", "str"]
+        - ["{{ form.clip | strip_model_dir }}", "{{ preset.vars.node_prefix[form.speed_profile] }}:71.inputs.clip_name", "str"]
         # VAELoader (<prefix>:72)
-        - ["{{ form.vae | strip_model_dir }}", "{{ preset.vars.node_prefix[form.speed_profile | default('balanced')] }}:72.inputs.vae_name", "str"]
+        - ["{{ form.vae | strip_model_dir }}", "{{ preset.vars.node_prefix[form.speed_profile] }}:72.inputs.vae_name", "str"]
 
         # Resolution - EmptyFlux2LatentImage (<prefix>:66) gets size from PrimitiveInt nodes
         # Width node (<prefix>:68)
-        - ["{{ (form.resolution | default('1024x1024')).split('x')[0] }}", "{{ preset.vars.node_prefix[form.speed_profile | default('balanced')] }}:68.inputs.value", "int"]
+        - ["{{ (form.resolution).split('x')[0] }}", "{{ preset.vars.node_prefix[form.speed_profile] }}:68.inputs.value", "int"]
         # Height node (<prefix>:69)
-        - ["{{ (form.resolution | default('1024x1024')).split('x')[1] }}", "{{ preset.vars.node_prefix[form.speed_profile | default('balanced')] }}:69.inputs.value", "int"]
+        - ["{{ (form.resolution).split('x')[1] }}", "{{ preset.vars.node_prefix[form.speed_profile] }}:69.inputs.value", "int"]
 
         # Batch size - EmptyFlux2LatentImage (<prefix>:66)
-        - ["{{ form.quantity | default(1) }}", "{{ preset.vars.node_prefix[form.speed_profile | default('balanced')] }}:66.inputs.batch_size", "int"]
+        - ["{{ form.quantity }}", "{{ preset.vars.node_prefix[form.speed_profile] }}:66.inputs.batch_size", "int"]
 
         # Seed - RandomNoise (<prefix>:73)
-        - ["@seed", "{{ preset.vars.node_prefix[form.speed_profile | default('balanced')] }}:73.inputs.noise_seed", "int"]
+        - ["@seed", "{{ preset.vars.node_prefix[form.speed_profile] }}:73.inputs.noise_seed", "int"]
 
         # Steps - Flux2Scheduler (<prefix>:62)
-        - ["{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}", "{{ preset.vars.node_prefix[form.speed_profile | default('balanced')] }}:62.inputs.steps", "int"]
+        - ["{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}", "{{ preset.vars.node_prefix[form.speed_profile] }}:62.inputs.steps", "int"]
 
         # CFG - CFGGuider (<prefix>:63)
-        - ["{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}", "{{ preset.vars.node_prefix[form.speed_profile | default('balanced')] }}:63.inputs.cfg", "float"]
+        - ["{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}", "{{ preset.vars.node_prefix[form.speed_profile] }}:63.inputs.cfg", "float"]
 
         # Sampler - KSamplerSelect (<prefix>:61)
-        - ["{{ form.sampler_name | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}", "{{ preset.vars.node_prefix[form.speed_profile | default('balanced')] }}:61.inputs.sampler_name", "str"]
+        - ["{{ form.sampler_name | default(get_speed_profile(form.speed_profile)['sampler']) }}", "{{ preset.vars.node_prefix[form.speed_profile] }}:61.inputs.sampler_name", "str"]
 
   #############
   ## Gallery - Collect all outputs
@@ -183,6 +183,3 @@ pipeline:
     enabled: true
     input:
       - ["image", "comfyui", "image"]
-    configuration:
-      mode: "save"
-      support_video: false

@@ -27,7 +27,7 @@ pipeline:
         name: "{{ form.vae }}"
       loras:
         "@loop":
-          items: "{{ form.loras | default([]) }}"
+          items: "{{ form.loras }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -60,21 +60,21 @@ pipeline:
         input: "{{ generation.prompts.first.negative }}"
         output: "{{ generation.prompts.first.negative }}"
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       # guidance_scale <= 1 tells the encoder to skip the negative pass -- unless
       # NAG is on, which needs the negative encoded to work at all. Must move in
       # lockstep with generator/krea2's `guidance` below (and param_emitter's
       # "cfg") -- same expression, same value. No speed_profile in this mode
       # (see the pipeline header comment), so `cfg` defaults straight to 1.0
       # (today's single-forward behavior) rather than through a profile lookup.
-      guidance_scale: "{{ form.cfg | default(1.0) }}"
-      nag_scale: "{{ form.nag_scale | default(1.0) }}"
+      guidance_scale: "{{ form.cfg }}"
+      nag_scale: "{{ form.nag_scale }}"
 
   - name: "seed_generator"
     enabled: true
     configuration:
-      seed: "{{ form.seed | default(-1) }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## Rendered prompts (provenance)
@@ -88,7 +88,7 @@ pipeline:
     enabled: true
     configuration:
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
 
   - name: "from_iotype"
     id: "from_iotype"
@@ -104,13 +104,13 @@ pipeline:
     input:
       - ["seed", "from_iotype", "seed"]
     configuration:
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       parameters:
         - ["model", "{{ form.diffusion_model }}"]
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.vae }}"]
         - "@loop":
-            items: "{{ form.loras | default([]) | active_loras }}"
+            items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
         # Per-image arrays, so history records the prompt each image actually ran with.
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
@@ -118,8 +118,8 @@ pipeline:
         # Same expression as prompt_encoder's guidance_scale and generator's
         # guidance. 1.0 = single forward (today's behavior); above 1.0 runs a
         # real negative-conditioned pass each step.
-        - ["cfg", "{{ form.cfg | default(1.0) }}"]
-        - ["upscale_by", "{{ form.upscale_by | default('2x') }}"]
+        - ["cfg", "{{ form.cfg }}"]
+        - ["upscale_by", "{{ form.upscale_by }}"]
         # Form-facing name for the generator's `refine_tail` config (the pipe
         # itself also emits a "refine_tail" + "refine_tail_sigmas" param with
         # the exact sigma values it ran — see generator/krea2's emit_results).
@@ -143,7 +143,7 @@ pipeline:
       steps: 8
       # Same expression as prompt_encoder's guidance_scale and param_emitter's
       # "cfg" -- all three must move together (see prompt_encoder's comment).
-      guidance: "{{ form.cfg | default(1.0) }}"
+      guidance: "{{ form.cfg }}"
       sampler: "euler"
       # "Upscale by" (Generation tab) is a literal multiplier of the SOURCE
       # image's own (width, height) -- img2img_scale (img2img.py's
@@ -152,16 +152,14 @@ pipeline:
       # bypassing the resolution-area-match path entirely. No `resolution:`
       # here on purpose: it would be dead for this mode (img2img_scale wins
       # outright) and the pipe's own default ("1024x1024") is never read.
-      img2img_scale: "{{ 1.5 if (form.upscale_by | default('2x')) == '1_5x' else (4.0 if (form.upscale_by | default('2x')) == '4x' else 2.0) }}"
-      quantity: "{{ form.quantity | default(1) }}"
-      nag_scale: "{{ form.nag_scale | default(1.0) }}"
-      nag_tau: "{{ form.nag_tau | default(3.5) }}"
-      nag_alpha: "{{ form.nag_alpha | default(0.5) }}"
+      img2img_scale: "{{ 1.5 if (form.upscale_by) == '1_5x' else (4.0 if (form.upscale_by) == '4x' else 2.0) }}"
+      quantity: "{{ form.quantity }}"
+      nag_scale: "{{ form.nag_scale }}"
+      nag_tau: "{{ form.nag_tau }}"
+      nag_alpha: "{{ form.nag_alpha }}"
 
   - name: "gallery"
     input:
       - ["image", "generator/krea2", "image"]
       - ["seed", "seed_generator", "seed"]
     enabled: true
-    configuration:
-      save: "true"

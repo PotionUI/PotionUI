@@ -53,11 +53,11 @@ pipeline:
         - ["model", "{{ form.diffusion_model }}"]
         - ["model", "{{ form.vae }}"]
         - ["model", "{{ form.prompt_embedding }}"]
-        - ["seed", "{{ form.seed | default(-1) }}"]
-        - ["scale", "{{ form.scale | default(1.5 if (form.resolution_target | default('fhd1080')) == 'x1_5' else (2.0 if (form.resolution_target | default('fhd1080')) == 'x2' else preset.vars.default_scale)) }}"]
-        - ["resolution_target", "{{ form.resolution_target | default('fhd1080') }}"]
-        - ["color_correction", "{{ form.color_correction | default('wavelet') }}"]
-        - ["restoration_intent", "{{ form.restoration_intent | default('faithful') }}"]
+        - ["seed", "{{ form.seed }}"]
+        - ["scale", "{{ form.scale | default(1.5 if (form.resolution_target) == 'x1_5' else (2.0 if (form.resolution_target) == 'x2' else preset.vars.default_scale)) }}"]
+        - ["resolution_target", "{{ form.resolution_target }}"]
+        - ["color_correction", "{{ form.color_correction }}"]
+        - ["restoration_intent", "{{ form.restoration_intent }}"]
 
   #############
   ## Generator - one-step restoration/upscale, temporal-batched over the clip
@@ -75,22 +75,22 @@ pipeline:
       # for API callers who submit resolution_target without the two raw
       # fields -- mirrors LTX-2's own upscale-factor ternary
       # (presets/native/LTX-2/modes/video/pipeline.yml).
-      scale: "{{ form.scale | default(1.5 if (form.resolution_target | default('fhd1080')) == 'x1_5' else (2.0 if (form.resolution_target | default('fhd1080')) == 'x2' else preset.vars.default_scale)) }}"
-      target_short_side: "{{ form.target_short_side | default(720 if (form.resolution_target | default('fhd1080')) == 'hd720' else (1080 if (form.resolution_target | default('fhd1080')) == 'fhd1080' else (1440 if (form.resolution_target | default('fhd1080')) == 'qhd1440' else (2160 if (form.resolution_target | default('fhd1080')) == 'uhd2160' else 0)))) }}"
-      color_correction: "{{ form.color_correction | default('wavelet') }}"
+      scale: "{{ form.scale | default(1.5 if (form.resolution_target) == 'x1_5' else (2.0 if (form.resolution_target) == 'x2' else preset.vars.default_scale)) }}"
+      target_short_side: "{{ form.target_short_side | default(720 if (form.resolution_target) == 'hd720' else (1080 if (form.resolution_target) == 'fhd1080' else (1440 if (form.resolution_target) == 'qhd1440' else (2160 if (form.resolution_target) == 'uhd2160' else 0)))) }}"
+      color_correction: "{{ form.color_correction }}"
       # "Restoration Intent" (Generation tab) bakes these two noise knobs;
       # 'heavy' values are conservative/experimental (no upstream-documented
       # nonzero recipe -- see docs/models/seedvr2.md).
-      latent_noise_scale: "{{ form.latent_noise_scale | default(0.2 if (form.restoration_intent | default('faithful')) == 'heavy' else 0.0) }}"
-      input_noise_scale: "{{ form.input_noise_scale | default(0.1 if (form.restoration_intent | default('faithful')) == 'heavy' else 0.0) }}"
-      seed: "{{ form.seed | default(-1) }}"
-      tile_size: "{{ form.tile_size | default(2048) }}"
-      tile_overlap: "{{ form.tile_overlap | default(256) }}"
-      batch_size: "{{ form.batch_size | default(0) }}"
-      temporal_overlap: "{{ form.temporal_overlap | default(0) }}"
-      prepend_frames: "{{ form.prepend_frames | default(0) }}"
-      uniform_batch_size: "{{ form.uniform_batch_size | default(true) }}"
-      keep_audio: "{{ form.keep_audio | default(true) }}"
+      latent_noise_scale: "{{ form.latent_noise_scale | default(0.2 if (form.restoration_intent) == 'heavy' else 0.0) }}"
+      input_noise_scale: "{{ form.input_noise_scale | default(0.1 if (form.restoration_intent) == 'heavy' else 0.0) }}"
+      seed: "{{ form.seed }}"
+      tile_size: "{{ form.tile_size }}"
+      tile_overlap: "{{ form.tile_overlap }}"
+      batch_size: "{{ form.batch_size }}"
+      temporal_overlap: "{{ form.temporal_overlap }}"
+      prepend_frames: "{{ form.prepend_frames }}"
+      uniform_batch_size: "{{ form.uniform_batch_size }}"
+      keep_audio: "{{ form.keep_audio }}"
 
   #############
   ## Gallery - Save the restored/upscaled video
@@ -100,5 +100,3 @@ pipeline:
     input:
       - ["video", "generator", "video"]
     enabled: true
-    configuration:
-      support_video: true

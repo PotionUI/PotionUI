@@ -136,7 +136,7 @@ pipeline:
       vae:
         file_path: "{{ form.video_vae }}"
         name: "{{ form.video_vae }}"
-      audio: "{{ form.generate_audio | default(false) or (form.video_director.audio | length) > 0 }}"
+      audio: "{{ form.generate_audio or (form.video_director.audio | length) > 0 }}"
       # Optional, exactly as long as `audio` above can be false. When audio IS
       # requested and this is blank, model_loader/ltx's
       # `_require_embedded_component` raises up front instead of failing deep
@@ -170,7 +170,7 @@ pipeline:
           # expose `.model`/`.strength` uniformly, so `template:` needs no
           # branching (@loop's native evaluator requires items to yield an
           # actual list, not a string).
-          items: "{{ (form.loras | default([])) + (form.video_director.ic_lora | map(attribute='lora') | list) }}"
+          items: "{{ (form.loras) + (form.video_director.ic_lora | map(attribute='lora') | list) }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -205,13 +205,13 @@ pipeline:
       # profile's reactions bake to the ACTUAL recipe value (1.0 distilled, 3.0
       # quality, whatever the user set for balanced) -- so this is the SAME
       # source the generator's own cfg/quality_cfg below read.
-      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
       # NAG needs the negative pass ENCODED even when true CFG is off, and both
       # generator stages can request it (stage 2 runs at a hardcoded cfg 1.0).
       # Without mirroring it here, prompt_encoder._do_cfg() returns False at cfg
       # 1.0, n_embeds comes back {}, and _attach_nag's `uncond is None` guard
       # silently drops NAG -- the exact distilled case NAG exists for.
-      nag_scale: "{{ form.nag_scale | default(1.0) }}"
+      nag_scale: "{{ form.nag_scale }}"
 
   - name: "seed_generator"
     enabled: true
@@ -250,13 +250,13 @@ pipeline:
         - ["model", "{{ form.upscale_model | default('') }}"]
         - ["model", "{{ form.temporal_upscale_model | default('') }}"]
         - "@loop":
-            items: "{{ (form.loras | default([])) + (form.video_director.ic_lora | map(attribute='lora') | list) | active_loras }}"
+            items: "{{ (form.loras) + (form.video_director.ic_lora | map(attribute='lora') | list) | active_loras }}"
             template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ form.video_director.segments | map(attribute='prompt') | join(' ') }}"]
         - ["negative_prompt", "{{ form.video_director.segments[0].negative_prompt }}"]
-        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"]
-        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"]
-        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"]
+        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"]
+        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"]
+        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"]
         - ["resolution", "{{ form.resolution }}"]
         - ["fps", "{{ form.video_director.settings.fps }}"]
         - ["director_mode", "{{ form.video_director.mode | default('') }}"]
@@ -324,12 +324,12 @@ pipeline:
       # supplies the baseline, the visible form field (baked to the profile's
       # exact value by the reactions in tabs/generation.yml) is what actually
       # wins once a profile is selected.
-      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"
-      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"
+      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
       # euler_ancestral on every profile -- the first-party LTX-2.5 stage-1
       # sampler (see preset.yml's speed_profiles comment for the provenance and
       # its limits). Stage 2 below stays deterministic euler.
-      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"
+      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"
       # LTX-2.5's resolution-aware shift: interpolates the flow shift between
       # base_shift and max_shift from the packed video token count, which the
       # generator passes automatically when this schedule is selected
@@ -347,12 +347,12 @@ pipeline:
       # Quality profile clears manual_sigmas. The one genuinely-needed ternary
       # -- neither branch is a SpeedProfile-typed knob the get_speed_profile()
       # idiom above covers.
-      manual_sigmas: "{{ preset.vars.distilled_sigma_recipe if (form.speed_profile | default('balanced') == 'distilled') else ('' if (form.speed_profile | default('balanced') == 'quality') else (form.manual_sigmas | default(''))) }}"
+      manual_sigmas: "{{ preset.vars.distilled_sigma_recipe if (form.speed_profile == 'distilled') else ('' if (form.speed_profile == 'quality') else (form.manual_sigmas)) }}"
       # Quality recipe: MultiModalGuider params. quality_cfg reads the SAME
       # baked cfg value as the plain `cfg` key above (by design, for the quality
       # profile they're the same 3.0).
-      quality_mode: "{{ (form.speed_profile | default('balanced')) == 'quality' }}"
-      quality_cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+      quality_mode: "{{ (form.speed_profile) == 'quality' }}"
+      quality_cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
       quality_stg: "{{ preset.vars.quality_stg }}"
       quality_rescale: "{{ preset.vars.quality_rescale }}"
       quality_modality: "{{ preset.vars.quality_modality }}"
@@ -360,9 +360,9 @@ pipeline:
       # NAG (Advanced tab): attention-level negative prompt, the only negative
       # mechanism that survives cfg 1.0. 1.0 = off, and at 1.0 _attach_nag
       # returns the cond dict untouched.
-      nag_scale: "{{ form.nag_scale | default(1.0) }}"
-      nag_tau: "{{ form.nag_tau | default(3.5) }}"
-      nag_alpha: "{{ form.nag_alpha | default(0.5) }}"
+      nag_scale: "{{ form.nag_scale }}"
+      nag_tau: "{{ form.nag_tau }}"
+      nag_alpha: "{{ form.nag_alpha }}"
       # Step cache (FBCache, Advanced tab): first-block-residual step skipping
       # on the base generation pass -- threshold 0.0 (default) resolves to
       # step_cache_options=None. Deliberately bound to generator_stage1 ONLY,
@@ -371,9 +371,9 @@ pipeline:
       # step costs exactly the fine detail the refine exists to add, whereas the
       # base pass is the one with a real steps budget to spend
       # cheap-but-slightly-lossy speed on.
-      step_cache_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
-      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
-      step_cache_max_skips: "{{ form.step_cache_max_skips | default(3) }}"
+      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
       # Stage 1 always renders at the picked Resolution, unchanged by Upscale --
       # the factor scales stage 2 UP from here instead (see this file's header).
       resolution: "{{ form.resolution }}"
@@ -397,7 +397,7 @@ pipeline:
             frame: "{{ item.frame }}"
             strength: "{{ item.strength }}"
             role: "{{ item.role }}"
-      audio: "{{ form.generate_audio | default(false) or (form.video_director.audio | length) > 0 }}"
+      audio: "{{ form.generate_audio or (form.video_director.audio | length) > 0 }}"
       audio_source: "{% if (form.video_director.audio | length) > 0 %}file{% else %}generate{% endif %}"
       # Decode straight to video when Off; when upscaling, skip decode --
       # latent_upscaler/ltx reads this pipe's raw `latent` output instead. Audio
@@ -407,7 +407,7 @@ pipeline:
       # `bool(self.config.get("decode", True))`, and Python's `bool("False")` is
       # True (non-empty string), so a string-rendered "False" here would
       # silently defeat this gate and always decode.
-      decode: "{{ (form.upscale | default('off')) == 'off' and (form.dfr_rounds | default('off') | int) == 0 }}"
+      decode: "{{ (form.upscale) == 'off' and (form.dfr_rounds | int) == 0 }}"
 
   #############
   ## Latent-space spatial upscale (only when the upscale selection is not
@@ -423,7 +423,7 @@ pipeline:
     # to evaluate to a native bool -- see TemplateProcessor.process_template's
     # docstring; a `{% set %}`-prefixed string string-renders instead and the
     # pipe is never enabled.
-    enabled: "{{ (form.upscale | default('off')) != 'off' }}"
+    enabled: "{{ (form.upscale) != 'off' }}"
     configuration: {}
 
   #############
@@ -469,20 +469,20 @@ pipeline:
       - ["audio", "generator_stage1", "audio"]
     # See latent_upscaler/ltx's identical comment above -- `enabled:` needs an
     # exact `{{ expression }}`, not a `{% set %}`-prefixed string.
-    enabled: "{{ (form.upscale | default('off')) != 'off' }}"
+    enabled: "{{ (form.upscale) != 'off' }}"
     configuration:
       # Resolution x factor -- the inverse of stage 1's (plain) `form.resolution`
       # (see this file's header and generator_stage1's own resolution comment).
       # 544x960 + 2.0x -> 1088x1920. `latent_upscaler/ltx` needs no matching
       # change: it's a fixed-factor model, its own output shape already lands
       # here.
-      resolution: "{% set effective_upscale = (form.upscale | default('off')) %}{% set factor = 1.5 if effective_upscale == '1.5x' else (2.0 if effective_upscale == '2.0x' else 1.0) %}{{ (form.resolution.split('x')[0] | int * factor) | round | int }}x{{ (form.resolution.split('x')[1] | int * factor) | round | int }}"
+      resolution: "{% set effective_upscale = (form.upscale) %}{% set factor = 1.5 if effective_upscale == '1.5x' else (2.0 if effective_upscale == '2.0x' else 1.0) %}{{ (form.resolution.split('x')[0] | int * factor) | round | int }}x{{ (form.resolution.split('x')[1] | int * factor) | round | int }}"
       frames: "{{ ((form.video_director.settings.duration or 0) * form.video_director.settings.fps) | round | int }}"
       fps: "{{ form.video_director.settings.fps }}"
       quantity: 1
       # Mirrors generator_stage1's own `audio` bool -- stage 2 only looks at its
       # `audio` input (stage 1's passthrough output) when audio was requested.
-      audio: "{{ form.generate_audio | default(false) or (form.video_director.audio | length) > 0 }}"
+      audio: "{{ form.generate_audio or (form.video_director.audio | length) > 0 }}"
       audio_source: "passthrough"
       # Identical @loop to generator_stage1's -- see the media-index-alignment
       # contract in this file's header: `media_images`/`media_videos` and this
@@ -498,7 +498,7 @@ pipeline:
             frame: "{{ item.frame }}"
             strength: "{{ item.strength }}"
             role: "{{ item.role }}"
-      decode: "{{ (form.dfr_rounds | default('off') | int) == 0 }}"
+      decode: "{{ (form.dfr_rounds | int) == 0 }}"
       # Lightricks' own two-stage recipe: CFG 1 (SimpleDenoiser, no negative
       # pass) and a plain DETERMINISTIC Euler loop for the refine stage --
       # unchanged from 2.3 to 2.5, unlike stage 1's ancestral base pass. No
@@ -512,9 +512,9 @@ pipeline:
       # it reaches stage 2 at all. Same three form values as stage 1 -- one
       # slider governs the whole render, rather than the control's reach
       # depending on the Upscale setting.
-      nag_scale: "{{ form.nag_scale | default(1.0) }}"
-      nag_tau: "{{ form.nag_tau | default(3.5) }}"
-      nag_alpha: "{{ form.nag_alpha | default(0.5) }}"
+      nag_scale: "{{ form.nag_scale }}"
+      nag_tau: "{{ form.nag_tau }}"
+      nag_alpha: "{{ form.nag_alpha }}"
       # Step cache (Advanced tab) is deliberately NOT bound here -- see
       # generator_stage1's identical-name config above for the reasoning (this
       # is a short refine pass, not the base generation pass).
@@ -531,14 +531,14 @@ pipeline:
       # UX: the explicit Advanced-tab override (empty by default) wins first via
       # `or`; absent that, the friendly Refine Strength select (Enhance tab)
       # picks which suffix of Lightricks' recipe to use.
-      refine_sigmas: "{{ form.upscale_refine_sigmas or (preset.vars.stage2_sigma_recipe_balanced if (form.refine_strength | default('strong')) == 'balanced' else (preset.vars.stage2_sigma_recipe_light if (form.refine_strength | default('strong')) == 'light' else preset.vars.stage2_sigma_recipe)) }}"
+      refine_sigmas: "{{ form.upscale_refine_sigmas or (preset.vars.stage2_sigma_recipe_balanced if (form.refine_strength) == 'balanced' else (preset.vars.stage2_sigma_recipe_light if (form.refine_strength) == 'light' else preset.vars.stage2_sigma_recipe)) }}"
       # Enhance tab's own LoRA picker (stage 2 only): ADDED on top of
       # model_loader/ltx's `loras` above, applied around this call's sampling
       # alone (generator/video_ltx's own stage2_loras config). Same
       # file_path/weight flattening as the `loras` @loop above. Empty -> [].
       stage2_loras:
         "@loop":
-          items: "{{ form.enhancement_loras | default([]) }}"
+          items: "{{ form.enhancement_loras }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -578,19 +578,19 @@ pipeline:
       - ["model", "model_loader/ltx", "model"]
       - ["conditioning", "prompt_encoder", "conditioning"]
       - ["seed", "seed_generator", "seed"]
-      - ["latent", "{% if (form.upscale | default('off')) != 'off' %}generator_stage2{% else %}generator_stage1{% endif %}", "latent"]
+      - ["latent", "{% if (form.upscale) != 'off' %}generator_stage2{% else %}generator_stage1{% endif %}", "latent"]
       - ["image", "media_images", "image"]
       - ["audio", "generator_stage1", "audio"]
-    enabled: "{{ (form.dfr_rounds | default('off') | int) > 0 }}"
+    enabled: "{{ (form.dfr_rounds | int) > 0 }}"
     configuration:
       # 'off' | int -- Jinja's `int` filter falls back to 0 on a value it
       # cannot convert, which is exactly the mapping this select wants.
-      rounds: "{{ form.dfr_rounds | default('off') | int }}"
+      rounds: "{{ form.dfr_rounds | int }}"
       # The rounds run at the resolution of the latent they are handed, so this
       # mirrors whichever stage fed them (the same expression generator_stage2
       # uses for its own resolution). The pipe cross-checks it against the
       # latent before any GPU work rather than trusting it.
-      resolution: "{% set effective_upscale = (form.upscale | default('off')) %}{% if effective_upscale == 'off' %}{{ form.resolution }}{% else %}{% set factor = 1.5 if effective_upscale == '1.5x' else 2.0 %}{{ (form.resolution.split('x')[0] | int * factor) | round | int }}x{{ (form.resolution.split('x')[1] | int * factor) | round | int }}{% endif %}"
+      resolution: "{% set effective_upscale = (form.upscale) %}{% if effective_upscale == 'off' %}{{ form.resolution }}{% else %}{% set factor = 1.5 if effective_upscale == '1.5x' else 2.0 %}{{ (form.resolution.split('x')[0] | int * factor) | round | int }}x{{ (form.resolution.split('x')[1] | int * factor) | round | int }}{% endif %}"
       frames: "{{ ((form.video_director.settings.duration or 0) * form.video_director.settings.fps) | round | int }}"
       # The BASE frame rate. Playback comes out at fps * 2**rounds; the RoPE
       # conditioning frame rate the DiT sees is capped at 60 independently.
@@ -607,9 +607,9 @@ pipeline:
       # Same three NAG values as both stages -- one slider governs the whole
       # render. It matters most here: the rounds run at cfg 1.0, so NAG is the
       # only path by which the negative prompt reaches them at all.
-      nag_scale: "{{ form.nag_scale | default(1.0) }}"
-      nag_tau: "{{ form.nag_tau | default(3.5) }}"
-      nag_alpha: "{{ form.nag_alpha | default(0.5) }}"
+      nag_scale: "{{ form.nag_scale }}"
+      nag_tau: "{{ form.nag_tau }}"
+      nag_alpha: "{{ form.nag_alpha }}"
       decode: true
 
   #############
@@ -628,13 +628,13 @@ pipeline:
   - name: "detailer/video_ltx"
     id: "detailer"
     input:
-      - ["video", "{% set effective_upscale = (form.upscale | default('off')) %}{% if (form.dfr_rounds | default('off') | int) > 0 %}dfr{% elif effective_upscale != 'off' %}generator_stage2{% else %}generator_stage1{% endif %}", "video"]
+      - ["video", "{% set effective_upscale = (form.upscale) %}{% if (form.dfr_rounds | int) > 0 %}dfr{% elif effective_upscale != 'off' %}generator_stage2{% else %}generator_stage1{% endif %}", "video"]
       - ["model", "model_loader/ltx", "model"]
       - ["conditioning", "prompt_encoder", "conditioning"]
       - ["seed", "seed_generator", "seed"]
-    enabled: "{{ form.enhance_faces_hands | default(false) }}"
+    enabled: "{{ form.enhance_faces_hands }}"
     configuration:
-      strength: "{{ form.enhancement_strength | default('balanced') }}"
+      strength: "{{ form.enhancement_strength }}"
       # `or`, not `default()` -- an unpicked `model` field submits "" (see
       # docs/presets.md / the templating gotcha), which `default()` would not
       # catch, silently handing the pipe an empty path.
@@ -648,8 +648,6 @@ pipeline:
   #############
   - name: "gallery"
     input:
-      - ["video", "{% set effective_upscale = (form.upscale | default('off')) %}{% if form.enhance_faces_hands | default(false) %}detailer{% elif (form.dfr_rounds | default('off') | int) > 0 %}dfr{% elif effective_upscale != 'off' %}generator_stage2{% else %}generator_stage1{% endif %}", "video"]
+      - ["video", "{% set effective_upscale = (form.upscale) %}{% if form.enhance_faces_hands %}detailer{% elif (form.dfr_rounds | int) > 0 %}dfr{% elif effective_upscale != 'off' %}generator_stage2{% else %}generator_stage1{% endif %}", "video"]
       - ["seed", "seed_generator", "seed"]
     enabled: true
-    configuration:
-      save: "true"

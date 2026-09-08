@@ -29,7 +29,7 @@ pipeline:
         name: "{{ form.vae }}"
       loras:
         "@loop":
-          items: "{{ form.loras | default([]) }}"
+          items: "{{ form.loras }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -61,7 +61,7 @@ pipeline:
         output: "{{ generation.prompts.first.negative }}"
       # Per-image expanded prompt pairs (src/core/prompt/expander.py).
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       # Flux uses embedded (distilled) guidance, not CFG: guidance_scale <= 1
       # tells the encoder not to encode a negative pass.
       guidance_scale: 1.0
@@ -72,8 +72,8 @@ pipeline:
   - name: "seed_generator"
     enabled: true
     configuration:
-      seed: "{{ form.seed | default(-1) }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## Rendered prompts (provenance)
@@ -87,7 +87,7 @@ pipeline:
     enabled: true
     configuration:
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## IOType to Value Converter
@@ -109,14 +109,14 @@ pipeline:
     input:
       - ["seed", "from_iotype", "seed"]
     configuration:
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       parameters:
         - ["model", "{{ form.diffusion_model }}"]
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.vae }}"]
         - ["model", "{{ form.clip_l }}"]
         - "@loop":
-            items: "{{ form.loras | default([]) | active_loras }}"
+            items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
         # Per-image arrays, so history records the prompt each image actually ran with.
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
@@ -125,7 +125,7 @@ pipeline:
         - ["cfg", "{{ form.guidance | default(preset.vars.default_guidance) }}"]
         - ["steps", "{{ form.steps | default(preset.vars.default_steps) }}"]
         - ["sampler", "{{ form.sampler | default(preset.vars.default_sampler) }}"]
-        - ["denoise", "{{ form.denoise | default(0.55) }}"]
+        - ["denoise", "{{ form.denoise }}"]
 
   #############
   ## Generator (img2img mode: encode -> partial denoise -> decode; resolution
@@ -141,14 +141,14 @@ pipeline:
     enabled: true
     configuration:
       mode: "img2img"
-      denoise: "{{ form.denoise | default(0.55) }}"
+      denoise: "{{ form.denoise }}"
       steps: "{{ form.steps | default(preset.vars.default_steps) }}"
       guidance: "{{ form.guidance | default(preset.vars.default_guidance) }}"
       # Flux1 uses its own dynamic-mu shift schedule; leave blank for the
       # engine's spec default (this form has no shift override field).
       shift: ""
       sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## Gallery
@@ -158,5 +158,3 @@ pipeline:
       - ["image", "generator/flux", "image"]
       - ["seed", "seed_generator", "seed"]
     enabled: true
-    configuration:
-      save: "true"

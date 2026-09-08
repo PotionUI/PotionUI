@@ -20,6 +20,7 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
+from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
@@ -76,7 +77,17 @@ def _process(flux_template, preset_name, form_over: dict | None = None):
         form_data["clip_l"] = "/models/clip_l.safetensors"
     if form_over:
         form_data.update(form_over)
-    generation_data = {"prompts": [], "mode": "txt2img", "form_data": form_data}
+    # bind_form fills every field's own `default:` server-side, typed --
+    # exactly what a real generation request goes through before
+    # PresetProcessor ever renders (docs/presets.md "Form binding and
+    # validation"). Skipping it (as this test used to) leaves any field the
+    # test doesn't explicitly set genuinely undefined, which a guard-free
+    # pipeline.yml (correctly, for the real request path) no longer covers.
+    bound = bind_form(
+        flux_template, "txt2img", form_name=None, raw_form_data=form_data,
+        user_id=None, storage_dir=None,
+    )
+    generation_data = {"prompts": [], "mode": "txt2img", "form_data": dict(bound.values)}
     return processor.process(flux_template, generation_data)
 
 

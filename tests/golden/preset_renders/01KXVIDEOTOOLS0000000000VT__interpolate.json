@@ -98,12 +98,7 @@
       "name": "interpolator/rife"
     },
     {
-      "config": {
-        "support_video": {
-          "type": "bool",
-          "value": true
-        }
-      },
+      "config": {},
       "enabled": {
         "type": "bool",
         "value": true

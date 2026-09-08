@@ -30,10 +30,10 @@ pipeline:
     configuration:
       quantity: 1
       parameters:
-        - ["canvas", "{{ form.canvas_resolution | default('1024x1024') }}"]
-        - ["scale_percent", "{{ form.scale_percent | default(100) }}"]
-        - ["anchor", "{{ form.anchor | default('center') }}"]
-        - ["fill", "{{ form.fill | default('transparent') }}"]
+        - ["canvas", "{{ form.canvas_resolution }}"]
+        - ["scale_percent", "{{ form.scale_percent }}"]
+        - ["anchor", "{{ form.anchor }}"]
+        - ["fill", "{{ form.fill }}"]
 
   #############
   ## Canvas fit - scale and place onto a fixed canvas
@@ -44,11 +44,11 @@ pipeline:
     input:
       - ["image", "media_loader", "image"]
     configuration:
-      width: "{{ (form.canvas_resolution | default('1024x1024')).split('x')[0] | int }}"
-      height: "{{ (form.canvas_resolution | default('1024x1024')).split('x')[1] | int }}"
-      scale_percent: "{{ form.scale_percent | default(100) }}"
-      anchor: "{{ form.anchor | default('center') }}"
-      fill: "{{ form.fill | default('transparent') }}"
+      width: "{{ (form.canvas_resolution).split('x')[0] | int }}"
+      height: "{{ (form.canvas_resolution).split('x')[1] | int }}"
+      scale_percent: "{{ form.scale_percent }}"
+      anchor: "{{ form.anchor }}"
+      fill: "{{ form.fill }}"
 
   #############
   ## Gallery - save the placed image

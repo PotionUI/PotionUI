@@ -31,8 +31,8 @@ pipeline:
       quantity: 1
       parameters:
         - ["model", "{{ form.matting_model }}"]
-        - ["matte_strength", "{{ form.matte_strength | default(50) }}"]
-        - ["matte_feather", "{{ form.matte_feather | default(0) }}"]
+        - ["matte_strength", "{{ form.matte_strength }}"]
+        - ["matte_feather", "{{ form.matte_feather }}"]
 
   #############
   ## Matting - BiRefNet cutout
@@ -46,8 +46,8 @@ pipeline:
       model:
         file_path: "{{ form.matting_model }}"
         name: "{{ form.matting_model }}"
-      matte_strength: "{{ form.matte_strength | default(50) }}"
-      feather: "{{ form.matte_feather | default(0) }}"
+      matte_strength: "{{ form.matte_strength }}"
+      feather: "{{ form.matte_feather }}"
 
   #############
   ## Gallery - save the RGBA cutout

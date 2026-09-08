@@ -13,12 +13,12 @@ pipeline:
       # LoRAs (the picker value only contains selected entries, may be empty)
       loras:
         "@loop":
-          items: "{{ form.loras | default([]) }}"
+          items: "{{ form.loras }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
       nsfw: "{{ runtime.settings.nsfw }}"
-      clip_skip: "{{ form.clip_skip | default(2) }}"
+      clip_skip: "{{ form.clip_skip }}"
 
   #############
   ## Media Loader (Source Image)
@@ -54,7 +54,7 @@ pipeline:
       - [ "mask", "mask_loader", "image" ]
     configuration:
       dilate_iterations: 4
-      blur_radius: "{{ form.mask_blur | default(4) }}"
+      blur_radius: "{{ form.mask_blur }}"
 
   #############
   ## Inpaint Region Crop (Fooocus-style: crop to masked region for VRAM savings)
@@ -109,7 +109,7 @@ pipeline:
       # Per-image expanded prompt pairs (see src/core/prompt/expander.py). `@object:`
       # hands the pipe the real list instead of a rendered string.
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## Seed Generator
@@ -118,8 +118,8 @@ pipeline:
     id: "seed_generator"
     enabled: true
     configuration:
-      seed: "{{ form.seed | default(-1) }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## Rendered prompts (provenance)
@@ -133,7 +133,7 @@ pipeline:
     enabled: true
     configuration:
       pairs: "{{ generation.prompts.pairs }}"
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
 
   #############
   ## IOType to Value Converter
@@ -155,11 +155,11 @@ pipeline:
     input:
       - [ "seed", "from_iotype", "seed" ]
     configuration:
-      quantity: "{{ form.quantity | default(1) }}"
+      quantity: "{{ form.quantity }}"
       parameters:
         - ["model", "{{ form.model }}"]
         - "@loop":
-            items: "{{ form.loras | default([]) | active_loras }}"
+            items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
         # Per-image arrays, so history records the prompt each image actually ran
         # with rather than the shared template. param_emitter keeps arrays per-index.
@@ -169,22 +169,22 @@ pipeline:
         - ["steps", "{{ form.steps | default(preset.vars.default_steps) }}"]
         - ["sampler", "{{ form.sampler | default(preset.vars.default_sampler) }}"]
         - ["scheduler", "{{ form.scheduler | default(preset.vars.default_scheduler) }}"]
-        - ["clip_skip", "{{ form.clip_skip | default(2) }}"]
-        - ["denoise", "{{ form.denoise | default(0.75) }}"]
-        - ["mask_blur", "{{ form.mask_blur | default(4) }}"]
+        - ["clip_skip", "{{ form.clip_skip }}"]
+        - ["denoise", "{{ form.denoise }}"]
+        - ["mask_blur", "{{ form.mask_blur }}"]
 
   #############
   ## ADM Guidance (optional enhancement)
   ############
   - name: "adm_guidance/sdxl"
     id: "adm_guidance"
-    enabled: "{{ form.adm_guidance_enabled | default(true) }}"
+    enabled: "{{ form.adm_guidance_enabled }}"
     input:
       - ["model", "checkpoint_loader/sdxl", "model"]
     configuration:
-      positive_scale: "{{ form.adm_positive_scale | default(1.5) }}"
-      negative_scale: "{{ form.adm_negative_scale | default(0.8) }}"
-      scaler_end: "{{ form.adm_scaler_end | default(0.3) }}"
+      positive_scale: "{{ form.adm_positive_scale }}"
+      negative_scale: "{{ form.adm_negative_scale }}"
+      scaler_end: "{{ form.adm_scaler_end }}"
 
   #############
   ## Sharpness (optional enhancement)
@@ -208,16 +208,16 @@ pipeline:
   ############
   - name: "sag/sdxl"
     id: "sag"
-    enabled: "{{ form.sag_enabled | default(false) }}"
+    enabled: "{{ form.sag_enabled }}"
     input:
       - ["model", "checkpoint_loader/sdxl", "model"]
     configuration:
       # Defaults match SAGPipe.get_default_config() (src/pipelines/pipes/sag/sdxl/main.py)
       # exactly, the single source of truth for these three numbers - the
       # form's own defaults were reconciled to match (see advanced.yml).
-      scale: "{{ form.sag_scale | default(0.75) }}"
-      sigma: "{{ form.sag_sigma | default(2.0) }}"
-      sag_threshold: "{{ form.sag_threshold | default(1.0) }}"
+      scale: "{{ form.sag_scale }}"
+      sigma: "{{ form.sag_sigma }}"
+      sag_threshold: "{{ form.sag_threshold }}"
 
   #############
   ## Generator (Inpainting Mode - Fooocus-style with region cropping)
@@ -236,9 +236,9 @@ pipeline:
       steps: "{{ form.steps | default(preset.vars.default_steps) }}"
       sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
       scheduler: "{{ form.scheduler | default(preset.vars.default_scheduler) }}"
-      quantity: "{{ form.quantity | default(1) }}"
-      denoise: "{{ form.denoise | default(0.75) }}"
-      mask_blur: "{{ form.mask_blur | default(4) }}"
+      quantity: "{{ form.quantity }}"
+      denoise: "{{ form.denoise }}"
+      mask_blur: "{{ form.mask_blur }}"
       # Inpainting mode flags
       inpaint_mode: "{{ (form.source_image_inpaint_mask | default('')) != '' }}"
 
@@ -266,5 +266,3 @@ pipeline:
     input:
       - ["image", "{% if (form.source_image_inpaint_mask | default('')) != '' %}inpaint_region_restore{% else %}generator/sdxl{% endif %}", "image"]
       - ["seed", "seed_generator", "seed"]
-    configuration:
-      save: "true"

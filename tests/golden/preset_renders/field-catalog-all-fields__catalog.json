@@ -2,12 +2,7 @@
   "mode": "catalog",
   "pipes": [
     {
-      "config": {
-        "mode": {
-          "type": "str",
-          "value": "save"
-        }
-      },
+      "config": {},
       "enabled": {
         "type": "bool",
         "value": true

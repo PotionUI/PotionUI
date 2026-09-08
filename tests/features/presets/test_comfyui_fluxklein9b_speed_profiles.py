@@ -33,6 +33,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
@@ -74,10 +75,14 @@ def _process(fluxklein_template, mode, form_over=None):
         form_data["megapixels"] = 1.0
     if form_over:
         form_data.update(form_over)
+    bound = bind_form(
+        fluxklein_template, mode, form_name=None, raw_form_data=form_data,
+        user_id=None, storage_dir=None,
+    )
     generation_data = {
         "prompts": [{"positive": "a cat", "negative": "blurry"}],
         "mode": mode,
-        "form_data": form_data,
+        "form_data": dict(bound.values),
     }
     return processor.process(fluxklein_template, generation_data)
 

@@ -40,8 +40,8 @@ pipeline:
     configuration:
       quantity: 1
       parameters:
-        - ["start_seconds", "{{ form.start_seconds | default(0.0) }}"]
-        - ["duration_seconds", "{{ form.duration_seconds | default(10.0) }}"]
+        - ["start_seconds", "{{ form.start_seconds }}"]
+        - ["duration_seconds", "{{ form.duration_seconds }}"]
 
   #############
   ## Audio Trim - cut the (start, duration) window, clamped to the source
@@ -52,5 +52,5 @@ pipeline:
     input:
       - ["audio", "media_loader", "audio"]
     configuration:
-      start_seconds: "{{ form.start_seconds | default(0.0) }}"
-      duration_seconds: "{{ form.duration_seconds | default(10.0) }}"
+      start_seconds: "{{ form.start_seconds }}"
+      duration_seconds: "{{ form.duration_seconds }}"

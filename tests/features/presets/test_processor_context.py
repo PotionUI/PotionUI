@@ -69,6 +69,7 @@ class TestContextShape:
                 "form_ok": "{{ form is defined }}",
                 "request_ok": "{{ request.mode }}",
                 "generation_ok": "{{ generation.prompts.pairs | length }}",
+                "generation_profile": "{{ generation.profile }}",
                 "preset_ok": "{{ preset.name }}",
                 "runtime_ok": "{{ runtime.settings is defined }}",
                 "paths_ok": "{{ paths.preset }}",
@@ -79,12 +80,40 @@ class TestContextShape:
         assert cfg["form_ok"] is True
         assert cfg["request_ok"] == "txt2img"
         assert cfg["generation_ok"] == 1
+        # No speed_profiles declared on this preset - {} so a
+        # generation.profile.<key> reference fails loudly, not silently.
+        assert cfg["generation_profile"] == {}
         assert cfg["preset_ok"] == "Test Preset"
         assert cfg["runtime_ok"] is True
         assert cfg["paths_ok"] == "/tmp/does-not-matter"
 
     def test_input_namespace_is_gone(self):
         template = _preset(pipe_configuration={"x": "{{ input.form.quantity }}"})
+        with pytest.raises(TemplateEvaluationError):
+            _processor().process(template, _generation_data())
+
+    def test_generation_seed_is_gone(self):
+        """`generation.seed` was a dead alias for `form.seed` - the
+        seed_generator pipe's own `seed` config is the only real consumer."""
+        template = _preset(pipe_configuration={"x": "{{ generation.seed }}"})
+        with pytest.raises(TemplateEvaluationError):
+            _processor().process(template, _generation_data())
+
+    def test_generation_quantity_is_gone(self):
+        template = _preset(pipe_configuration={"x": "{{ generation.quantity }}"})
+        with pytest.raises(TemplateEvaluationError):
+            _processor().process(template, _generation_data())
+
+    def test_preset_speed_profiles_direct_access_is_gone(self):
+        """Direct dot access is gone - get_speed_profile()/generation.profile
+        (tests/features/presets/test_speed_profiles.py) replace it."""
+        template = _preset(pipe_configuration={"x": "{{ preset.speed_profiles }}"})
+        with pytest.raises(TemplateEvaluationError):
+            _processor().process(template, _generation_data())
+
+    def test_preset_configuration_direct_access_is_gone(self):
+        """@config:<key> field indirection (configuration.py) replaces it."""
+        template = _preset(pipe_configuration={"x": "{{ preset.configuration }}"})
         with pytest.raises(TemplateEvaluationError):
             _processor().process(template, _generation_data())
 

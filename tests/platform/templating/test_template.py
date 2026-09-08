@@ -3,9 +3,10 @@ Tests for TemplateProcessor - the native expression evaluator.
 
 Covers: exact-expression -> native type, mixed-text -> string, multiline
 preservation, StrictUndefined -> TemplateEvaluationError, sandbox denial
-(attribute escapes + mutating methods), get_speed_profile, deleted globals
-actually gone, non-string passthrough, dict/list recursion, and the `matches`
-filter (unaffected by the rework).
+(attribute escapes + mutating methods), get_speed_profile, deleted globals/
+filters actually gone (including `path`/`icon`/`matches`/`regex_search`,
+which never had a real preset consumer), non-string passthrough, and
+dict/list recursion.
 """
 
 import pytest
@@ -156,16 +157,20 @@ class TestSandboxDenial:
 
 
 class TestGetSpeedProfile:
-    """get_speed_profile stays available (ergonomic, typed lookup)."""
+    """get_speed_profile stays available (ergonomic, typed lookup), reading
+    the internal `_speed_profiles` context key `PresetProcessor.process`
+    sets - not `preset.speed_profiles` (removed, see TestDeletedGlobalsAreGone
+    and TestPresetSpeedProfilesAndConfigurationAreGone below)."""
 
     def test_known_profile(self, processor):
-        context = {"preset": {"speed_profiles": {"draft": {"steps": 6}}}}
+        context = {"_speed_profiles": {"draft": {"steps": 6}}}
         result = processor.process_template("{{ get_speed_profile('draft') }}", context)
         assert result == {"steps": 6}
 
     def test_missing_profile_without_default_raises(self, processor):
         context = {
-            "preset": {"speed_profiles": {"draft": {"steps": 6}}, "name": "Test Preset"},
+            "_speed_profiles": {"draft": {"steps": 6}},
+            "preset": {"name": "Test Preset"},
         }
         with pytest.raises(TemplateEvaluationError) as exc_info:
             processor.process_template("{{ get_speed_profile('turbo') }}", context)
@@ -174,13 +179,17 @@ class TestGetSpeedProfile:
         assert "turbo" in str(exc_info.value.cause)
 
     def test_missing_profile_with_explicit_default(self, processor):
-        context = {"preset": {"speed_profiles": {}}}
+        context = {"_speed_profiles": {}}
         result = processor.process_template("{{ get_speed_profile('turbo', {}) }}", context)
         assert result == {}
 
 
 class TestDeletedGlobalsAreGone:
-    """get_form, value/get, contains/get_is_in, setting/config no longer exist."""
+    """get_form, value/get, contains/get_is_in, setting/config, path/get_path_for,
+    icon/get_icon no longer exist as globals (neither path/icon ever had a
+    real preset consumer - see docs/presets.md "Removed"). An undefined
+    global is resolved as a variable at render time, so calling it raises
+    via `Undefined.__call__` -> `UndefinedError`."""
 
     @pytest.mark.parametrize("template", [
         "{{ get_form('custom', ['x']) }}",
@@ -190,6 +199,10 @@ class TestDeletedGlobalsAreGone:
         "{{ get_is_in(form, 'x', ['a']) }}",
         "{{ setting('SYSTEM', 'file_storage_directory') }}",
         "{{ config('SYSTEM', 'file_storage_directory') }}",
+        "{{ path('lora') }}",
+        "{{ get_path_for('checkpoint') }}",
+        "{{ icon('prompt') }}",
+        "{{ get_icon('lora') }}",
     ])
     def test_deleted_global_raises(self, processor, template):
         with pytest.raises(TemplateEvaluationError) as exc_info:
@@ -204,6 +217,24 @@ class TestDeletedGlobalsAreGone:
         `get_dict_value` path-lookup semantics."""
         with pytest.raises(TemplateEvaluationError):
             processor.process_template("{{ dict(form, 'x') }}", {"form": {"x": 1}})
+
+
+class TestDeletedFiltersAreGone:
+    """matches/regex_search no longer exist as filters (never had a real
+    preset consumer - see docs/presets.md "Removed"). Unlike an undefined
+    GLOBAL (resolved as a variable at render time), an unknown FILTER name is
+    rejected by Jinja at template-compile time, so the cause is a
+    TemplateAssertionError (a TemplateSyntaxError subclass), not an
+    UndefinedError - still wrapped in TemplateEvaluationError either way."""
+
+    @pytest.mark.parametrize("template", [
+        "{{ form.x | matches('1') }}",
+        "{{ form.x | regex_search('1') }}",
+    ])
+    def test_deleted_filter_raises(self, processor, template):
+        with pytest.raises(TemplateEvaluationError) as exc_info:
+            processor.process_template(template, {"form": {"x": 1}})
+        assert isinstance(exc_info.value.cause, TemplateSyntaxError)
 
 
 class TestNonStringPassthroughAndRecursion:
@@ -242,45 +273,6 @@ class TestNonStringPassthroughAndRecursion:
                 {"name": "upscaler", "enabled": False},
             ]
         }
-
-
-class TestPathAndIconGlobalsStillWork:
-    """path/get_path_for and icon/get_icon stay allowlisted globals."""
-
-    def test_path_function(self, processor):
-        result = processor.process_template("{{ path('lora', 'style.safetensors') }}", {})
-        assert result == "models/loras/style.safetensors"
-
-    def test_get_path_for_alias(self, processor):
-        result = processor.process_template("{{ get_path_for('checkpoint') }}", {})
-        assert result == "models/checkpoints"
-
-    def test_icon_function(self, processor):
-        assert processor.process_template("{{ icon('prompt') }}", {}) == "pencil-square"
-
-    def test_get_icon_alias(self, processor):
-        assert processor.process_template("{{ get_icon('lora') }}", {}) == "puzzle-piece"
-
-    def test_invalid_path_type_raises(self, processor):
-        with pytest.raises(TemplateEvaluationError) as exc_info:
-            processor.process_template("{{ path('invalid_type') }}", {})
-        assert isinstance(exc_info.value.cause, ValueError)
-
-
-class TestMatchesFilter:
-    """The `matches`/`regex_search` filter is unaffected by the rework."""
-
-    def test_matches_filter(self, processor):
-        result = processor.process_template(
-            "{{ email | matches('@example\\.com$') }}", {"email": "user@example.com"}
-        )
-        assert result is True
-
-    def test_regex_search_alias(self, processor):
-        result = processor.process_template(
-            "{{ email | regex_search('@example\\.com$') }}", {"email": "user@example.com"}
-        )
-        assert result is True
 
 
 class TestActiveLorasFilter:
@@ -366,38 +358,3 @@ class TestEvaluateExpression:
         with pytest.raises(TemplateEvaluationError) as exc_info:
             processor.evaluate_expression("{{ missing }}", {})
         assert isinstance(exc_info.value.cause, UndefinedError)
-
-
-class TestPathResolverAndIconMapperDirect:
-    """Direct (non-template) method access, unaffected by the rework."""
-
-    def test_get_path_for_all_types(self, processor):
-        expected_paths = {
-            "checkpoint": "models/checkpoints",
-            "lora": "models/loras",
-            "embedding": "models/embeddings",
-            "upscaler": "models/upscalers",
-            "detector": "models/detectors",
-            "wildcard": "models/wildcards",
-            "diffusion_model": "models/diffusion_models",
-            "controlnet": "models/controlnet",
-            "std": "src/std",
-        }
-        for path_type, expected_base in expected_paths.items():
-            assert processor.get_path_for(path_type) == expected_base
-
-    def test_get_path_for_with_filename(self, processor):
-        assert processor.get_path_for("embedding", "negative.pt") == "models/embeddings/negative.pt"
-
-    def test_get_path_for_invalid_type(self, processor):
-        with pytest.raises(ValueError, match="Unsupported path type: invalid_type"):
-            processor.get_path_for("invalid_type")
-
-    def test_get_icon_predefined_and_custom(self, processor):
-        assert processor.get_icon("prompt") == "pencil-square"
-        assert processor.get_icon("PROMPT") == "pencil-square"
-        assert processor.get_icon("custom-icon-name") == "custom-icon-name"
-
-    def test_regex_search_direct(self, processor):
-        assert processor.regex_search("hello world", r"wor\w+") is True
-        assert processor.regex_search("hello world", r"\d+") is False

@@ -19,7 +19,6 @@ Rendering/evaluation failures raise ``TemplateEvaluationError`` - there is
 no catch-log-return-None left in this module.
 """
 
-import re
 from typing import Any, Dict, Optional, Tuple
 
 from jinja2 import BaseLoader, StrictUndefined, Undefined
@@ -29,11 +28,8 @@ from src.platform.observability.logger import logger
 from src.platform.settings.settings import Settings
 from src.platform.templating.errors import TemplateEvaluationError
 from src.platform.templating.hooks import TEMPLATE_HOOKS
-from src.platform.templating.path_resolver import PathResolver
-from src.platform.templating.icon_mapper import IconMapper
 from src.platform.templating.dict_utils import (
     active_loras,
-    regex_search,
     strip_model_dir,
     get_speed_profile_value,
     _NO_DEFAULT as _NO_SPEED_PROFILE_DEFAULT,
@@ -70,23 +66,14 @@ class TemplateProcessor:
     still how every caller in the codebase invokes this class.
     """
 
-    def __init__(
-        self,
-        settings: Settings,
-        path_resolver: Optional[PathResolver] = None,
-        icon_mapper: Optional[IconMapper] = None,
-    ):
+    def __init__(self, settings: Settings):
         """
         Initialize TemplateProcessor.
 
         Args:
             settings: Settings manager for configuration access.
-            path_resolver: Optional custom path resolver (defaults to PathResolver()).
-            icon_mapper: Optional custom icon mapper (defaults to IconMapper()).
         """
         self.settings = settings
-        self.path_resolver = path_resolver or PathResolver()
-        self.icon_mapper = icon_mapper or IconMapper()
 
         # Sandboxed + strict: unsafe attribute access, mutating methods (list.append,
         # dict.update, ...), and missing variables all raise instead of silently
@@ -105,30 +92,19 @@ class TemplateProcessor:
             keep_trailing_newline=True,
         )
 
-        self._register_globals()
         self._register_filters()
-
-    def _register_globals(self) -> None:
-        """Register the allowlisted global functions in the Jinja environment.
-
-        Only these three globals are allowed: `path`/`get_path_for`,
-        `icon`/`get_icon`, `get_speed_profile`. Other render globals
-        (`get_form`, `value`/`get`, `contains`/`get_is_in`, `dict`,
-        `setting`/`config`) are intentionally absent - `form.x`, `preset.vars.x`,
-        and `runtime.settings.x` native attribute access replace them.
-        """
-        self.env.globals['path'] = self.get_path_for
-        self.env.globals['get_path_for'] = self.get_path_for
-        self.env.globals['icon'] = self.get_icon
-        self.env.globals['get_icon'] = self.get_icon
-        # get_speed_profile needs the per-call context (preset.speed_profiles),
-        # so it's bound per-render in process_template/evaluate_expression rather
-        # than registered here as a context-free global.
+        # The only allowed global is `get_speed_profile` - other render globals
+        # (`get_form`, `value`/`get`, `contains`/`get_is_in`, `dict`, `setting`/
+        # `config`, `path`/`get_path_for`, `icon`/`get_icon`) are intentionally
+        # absent: `form.x`, `preset.vars.x`, `runtime.settings.x` native
+        # attribute access replaces the first group, and neither `path`/`icon`
+        # ever had a real preset consumer. `get_speed_profile` needs the
+        # per-call context (the internal `_speed_profiles` key), so it's bound
+        # per-render in process_template/evaluate_expression rather than
+        # registered as a context-free global here.
 
     def _register_filters(self) -> None:
         """Register custom filters in Jinja environment."""
-        self.env.filters['matches'] = self.regex_search
-        self.env.filters['regex_search'] = self.regex_search
         self.env.filters['active_loras'] = self.active_loras
         self.env.filters['strip_model_dir'] = self.strip_model_dir
 
@@ -252,8 +228,9 @@ class TemplateProcessor:
     def _call_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Build the kwargs passed into a compiled expression/template.
 
-        Adds `get_speed_profile`, which (unlike the other globals) needs the
-        per-render context bound in, since it looks up `preset.speed_profiles`.
+        Adds `get_speed_profile`, which (unlike a context-free global) needs
+        the per-render context bound in, since it looks up the internal
+        `_speed_profiles` key `PresetProcessor.process` sets.
         """
         call_context = dict(context)
         call_context['get_speed_profile'] = lambda profile_name, default=_NO_SPEED_PROFILE_DEFAULT: \
@@ -283,41 +260,6 @@ class TemplateProcessor:
         except Exception as e:
             raise TemplateEvaluationError(template, e) from e
 
-    def get_path_for(self, path_type: str, file_name: str = None) -> str:
-        """
-        Resolve a path based on the type and name.
-
-        Args:
-            path_type: The type of the resource (e.g., "lora", "model").
-            file_name: The name or identifier of the resource.
-
-        Returns:
-            The resolved path as a string.
-        """
-        # Execute resolve_path hook to allow plugins to add custom path types
-        hook_data, _ = self._execute_hook(
-            TEMPLATE_HOOKS.resolve_path,
-            {"path_type": path_type, "file_name": file_name}
-        )
-
-        # If hook provided a resolved path, use it
-        if "resolved_path" in hook_data:
-            return hook_data["resolved_path"]
-
-        return self.path_resolver.get_path_for(path_type, file_name)
-
-    def get_icon(self, icon_type: str) -> str:
-        """
-        Get an icon name for the specified type.
-
-        Args:
-            icon_type: The type of icon needed (e.g., "prompt", "lora").
-
-        Returns:
-            The icon name/identifier to be used in the frontend.
-        """
-        return self.icon_mapper.get_icon(icon_type)
-
     def active_loras(self, value: Any) -> Any:
         """
         Drop LoRA entries whose strength is zero (see `dict_utils.active_loras`).
@@ -342,19 +284,6 @@ class TemplateProcessor:
             The value with its depot type directory removed, or unchanged.
         """
         return strip_model_dir(value)
-
-    def regex_search(self, value: str, pattern: str) -> bool:
-        """
-        Check if a regex pattern matches a value.
-
-        Args:
-            value: The string to search in.
-            pattern: The regex pattern to match.
-
-        Returns:
-            True if the pattern matches, False otherwise.
-        """
-        return regex_search(value, pattern)
 
     def get_speed_profile(
         self,

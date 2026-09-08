@@ -725,6 +725,37 @@ modes:
         issues = PresetLinter([str(tmp_path)]).lint()
         assert not any("no form field or pipeline.yml" in i.message for i in issues)
 
+    def test_direct_jinja_dot_access_also_gets_the_deleted_context_error(self, tmp_path):
+        # `preset.speed_profiles` recognized as a reference (previous test)
+        # does NOT mean it's clean - direct dot access is itself a hard
+        # build error under `_lint_pipeline_templates`'s deleted-context check.
+        self._write(
+            tmp_path, "01QQQQQQQQQQQQQQQQQQQQQQQQQ",
+            "speed_profiles:\n  draft:\n    steps: 6\n",
+            pipeline_yaml=(
+                "pipeline:\n  - name: generator\n    configuration:\n"
+                "      steps: \"{{ preset.speed_profiles.draft.steps }}\"\n"
+            ),
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "error" and "deleted template context" in i.message
+            and "preset.speed_profiles" in i.message
+            for i in issues
+        )
+
+    def test_referenced_via_generation_profile_is_not_flagged(self, tmp_path):
+        self._write(
+            tmp_path, "01PPPPPPPPPPPPPPPPPPPPPPPPP",
+            "speed_profiles:\n  draft:\n    steps: 6\n",
+            pipeline_yaml=(
+                "pipeline:\n  - name: generator\n    configuration:\n"
+                "      steps: \"{{ generation.profile.steps }}\"\n"
+            ),
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert not any("no form field or pipeline.yml" in i.message for i in issues)
+
 
 class TestLintConfigurationRefs:
     """`"@config:<key>"` indirection (e.g. a `model` field's `filter_tags:`) must
@@ -1122,6 +1153,16 @@ class TestLintPipelineTemplates:
         ("@object:input.form.x", "@object:"),
         ("@dict:preset.vars.x", "@dict:"),
         ("{{ input.form.x }}", "input."),
+        ("{{ preset.speed_profiles.draft.steps }}", "preset.speed_profiles"),
+        ("{{ preset.configuration.checkpoint_tags }}", "preset.configuration"),
+        ("{{ generation.seed }}", "generation.seed"),
+        ("{{ generation.quantity }}", "generation.quantity"),
+        ("{{ path('lora') }}", "path("),
+        ("{{ get_path_for('lora') }}", "get_path_for("),
+        ("{{ icon('prompt') }}", "icon("),
+        ("{{ get_icon('prompt') }}", "get_icon("),
+        ("{{ form.x | matches('foo') }}", "matches("),
+        ("{{ form.x | regex_search('foo') }}", "regex_search("),
     ])
     def test_deleted_context_is_error(self, tmp_path, expr, token):
         self._write_mode(
@@ -1133,6 +1174,20 @@ class TestLintPipelineTemplates:
         issues = PresetLinter([str(tmp_path)]).lint()
         assert any(
             i.level == "error" and "deleted template context" in i.message and token in i.message
+            for i in issues
+        )
+
+    def test_deleted_context_error_carries_a_migration_hint(self, tmp_path):
+        self._write_mode(
+            tmp_path, "del_hint",
+            "pipeline:\n  - name: generator\n"
+            "    configuration:\n"
+            "      v: \"{{ preset.speed_profiles.draft.steps }}\"\n",
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "error" and "deleted template context" in i.message
+            and "get_speed_profile" in i.message and "generation.profile" in i.message
             for i in issues
         )
 

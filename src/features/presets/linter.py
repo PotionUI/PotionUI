@@ -69,14 +69,49 @@ _TEMPLATE_REGION_RE = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
 # `form.`; `form.loras[0].strength` and `form.a.b` both capture the root name).
 _FORM_REF_RE = re.compile(r"\bform\.([A-Za-z_][A-Za-z0-9_]*)")
 
-# Deleted render globals (call form) that the templating rework removed - a
-# leftover is a hard build error under strict eval, so lint them as errors.
-# `(?<![.\w])` avoids flagging a method/attribute that merely shares the name.
+# Deleted render globals/filters (call form) that the templating rework
+# removed - a leftover is a hard build error under strict eval, so lint them
+# as errors. `(?<![.\w])` avoids flagging a method/attribute that merely
+# shares the name; it also lets a filter usage (`| matches(...)`) match, since
+# the char right before the name is `|`/whitespace, never `.`/a word char.
+# `path`/`get_path_for`/`icon`/`get_icon` (globals) and `matches`/`regex_search`
+# (filter) never had a real preset consumer and were dropped alongside
+# `preset.speed_profiles`/`preset.configuration`/`generation.seed`/
+# `generation.quantity` below.
 _DELETED_CALL_RE = re.compile(
-    r"(?<![.\w])(get_form|get_is_in|contains|value|setting|config)\s*\("
+    r"(?<![.\w])(get_form|get_is_in|contains|value|setting|config"
+    r"|path|get_path_for|icon|get_icon|matches|regex_search)\s*\("
 )
 # Deleted `input.*` context (input.form.x / input['form']['x']).
 _DELETED_INPUT_RE = re.compile(r"(?<![.\w])input\s*[.\[]")
+# Deleted dotted context paths: `preset.speed_profiles`/`preset.configuration`
+# direct access, and `generation.seed`/`generation.quantity` (the seed_generator
+# pipe's own `seed`/`quantity` config, fed from `form.seed`/`form.quantity`,
+# is the only real consumer either ever had).
+_DELETED_DOTTED_RE = re.compile(
+    r"(?<![.\w])(preset\.speed_profiles|preset\.configuration"
+    r"|generation\.seed|generation\.quantity)\b"
+)
+
+# Per-token migration hint appended to the generic deleted-context message
+# below - a token with no entry here falls back to the generic context-roots
+# list the message already names.
+_DELETED_TOKEN_MIGRATION_HINTS = {
+    "preset.speed_profiles": "use get_speed_profile(name) for an explicit lookup, "
+        "or generation.profile for the profile resolved for this request",
+    "preset.configuration": "use \"@config:<key>\" indirection on the field's own "
+        "configuration instead (see docs/presets.md 'Configuration (admin-set)')",
+    "generation.seed": "use form.seed - the seed_generator pipe's own `seed` config "
+        "is the only real consumer",
+    "generation.quantity": "use form.quantity - the seed_generator pipe's own "
+        "`quantity` config is the only real consumer",
+    "path(": "no real preset ever used it - resolve the path some other way",
+    "get_path_for(": "no real preset ever used it - resolve the path some other way",
+    "icon(": "use a literal icon name (every shipped preset already does)",
+    "get_icon(": "use a literal icon name (every shipped preset already does)",
+    "matches(": "no real preset ever used it - use another filter or a plain comparison",
+    "regex_search(": "no real preset ever used it - use another filter or a plain comparison",
+}
 
 # NAG (docs/techniques/nag.md): a generator pipe's `nag_scale` only takes
 # effect if the mode's `prompt_encoder` pipe mirrors it - `prompt_encoder.
@@ -532,13 +567,18 @@ class PresetLinter:
         - a preset that declares profiles nothing in its modes ever reads
           (textual scan, same reasoning as `_lint_engine_matches_pipes`:
           pipeline.yml is a Jinja template, not guaranteed to parse as plain
-          YAML, so this can't be a structural check). Two access idioms are
-          recognized: the `get_speed_profile('name')` helper call, and a
-          direct Jinja lookup on the `preset.speed_profiles` manifest object
+          YAML, so this can't be a structural check). Three access idioms are
+          recognized: the `get_speed_profile('name')` helper call, `generation.profile`
+          (the request-resolved profile - see docs/presets.md "Speed profiles"),
+          and a legacy direct Jinja lookup on `preset.speed_profiles`
           (`preset.speed_profiles.name` dot access or
           `preset.speed_profiles['name']` subscript) — the latter has no
           quoted profile-name literal in the dot form, so it needs its own
           pattern rather than relying on the generic quoted-name scan below.
+          `preset.speed_profiles` direct access is itself now a hard build
+          error (`_lint_pipeline_templates`'s deleted-context check) - it's
+          still recognized here too so a not-yet-migrated preset gets that
+          error instead of ALSO this warning piled on top.
 
         Type errors (e.g. `steps: "fast"`) are NOT handled here - they are
         already schema-level errors surfaced by `validate_manifest` above,
@@ -576,7 +616,7 @@ class PresetLinter:
                     raw = text_file.read_text()
                 except Exception:
                     continue
-                if "get_speed_profile" in raw or any(
+                if "get_speed_profile" in raw or "generation.profile" in raw or any(
                     re.search(rf'["\']{re.escape(name)}["\']', raw)
                     # direct Jinja lookup: preset.speed_profiles.NAME (dot access)
                     # or preset.speed_profiles['NAME']/["NAME"] (subscript) -- the
@@ -598,7 +638,7 @@ class PresetLinter:
                     preset_str,
                     f"speed_profiles declares {sorted(profile_names)} but no form field or "
                     f"pipeline.yml under modes/ appears to reference them (no get_speed_profile() "
-                    f"call and no literal profile name found)",
+                    f"call, no generation.profile use, and no literal profile name found)",
                 )
             )
 
@@ -1027,6 +1067,8 @@ class PresetLinter:
                         )
             elif isinstance(node, str):
                 for token in self._deleted_context_hits(node):
+                    hint = _DELETED_TOKEN_MIGRATION_HINTS.get(token)
+                    hint_suffix = f" {hint}." if hint else ""
                     issues.append(
                         LintIssue(
                             "error",
@@ -1034,7 +1076,7 @@ class PresetLinter:
                             f"{loc}: {path}: uses deleted template context '{token}'. The pipeline "
                             f"context is now form.* / request.* / generation.* / preset.* / "
                             f"runtime.settings.* / paths.* (see docs/presets.md 'Migrating the old "
-                            f"template syntax').",
+                            f"template syntax').{hint_suffix}",
                         )
                     )
 
@@ -1659,11 +1701,13 @@ class PresetLinter:
         """Return the deleted-context tokens present in ``scalar``.
 
         `@object:`/`@dict:` were bare string directives (often the whole
-        value), so they're matched anywhere. The deleted call globals and the
-        `input.*` context are only meaningful inside a `{{ }}`/`{% %}` region -
-        matching there (never in surrounding literal text) keeps a data value
-        like `file_path: "input.png"` from being mistaken for a legacy context
-        reference.
+        value), so they're matched anywhere. The deleted call globals/filters,
+        the `input.*` context, and the deleted dotted context paths
+        (`preset.speed_profiles`/`preset.configuration`/`generation.seed`/
+        `generation.quantity`) are only meaningful inside a `{{ }}`/`{% %}`
+        region - matching there (never in surrounding literal text) keeps a
+        data value like `file_path: "input.png"` from being mistaken for a
+        legacy context reference.
         """
         hits: List[str] = []
         if "@object:" in scalar:
@@ -1679,6 +1723,10 @@ class PresetLinter:
                     hits.append(token)
             if _DELETED_INPUT_RE.search(regions) and "input." not in hits:
                 hits.append("input.")
+            for m in _DELETED_DOTTED_RE.finditer(regions):
+                token = m.group(1)
+                if token not in hits:
+                    hits.append(token)
         return hits
 
     @staticmethod

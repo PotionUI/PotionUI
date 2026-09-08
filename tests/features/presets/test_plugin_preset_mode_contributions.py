@@ -25,8 +25,14 @@ def _registry(enabled):
     return SimpleNamespace(get_enabled_plugins=lambda: list(enabled))
 
 
-def _write_preset(root: Path, preset_id: str, modes: list[str]) -> Path:
-    """A minimal, schema-valid core preset with one empty mode per name in `modes`."""
+def _write_preset(root: Path, preset_id: str, modes: list[str], configuration: dict = None) -> Path:
+    """A minimal, schema-valid core preset with one empty mode per name in `modes`.
+
+    `configuration` (optional) is the preset's declared `configuration:` schema
+    - a contribution's `@config:<key>` resolves against THIS, the target's own
+    declared block (docs/presets.md "Speed profiles and admin configuration
+    are inherited, not per-contribution").
+    """
     preset_dir = root / preset_id
     preset_dir.mkdir(parents=True)
     manifest = {
@@ -38,6 +44,8 @@ def _write_preset(root: Path, preset_id: str, modes: list[str]) -> Path:
         "engine": "native",
         "modes": modes,
     }
+    if configuration is not None:
+        manifest["configuration"] = configuration
     (preset_dir / "preset.yml").write_text(yaml.dump(manifest))
     for mode in modes:
         mode_dir = preset_dir / "modes" / mode
@@ -47,16 +55,16 @@ def _write_preset(root: Path, preset_id: str, modes: list[str]) -> Path:
     return preset_dir
 
 
-def _write_modes_root(plugin_dir: Path, modes: dict[str, str]) -> Path:
+def _write_modes_root(plugin_dir: Path, modes: dict[str, str], form_yaml: str = MINIMAL_FORM) -> Path:
     """A plugin's `modes_root` dir: `modes/<name>/{pipeline.yml,form.yml}` per
     entry in `modes` (name -> pipeline.yml content, so a test can inject a
-    broken one)."""
+    broken one). `form_yaml` (optional) applies to every contributed mode."""
     modes_root = plugin_dir / "contributed"
     for mode_name, pipeline_content in modes.items():
         mode_dir = modes_root / "modes" / mode_name
         mode_dir.mkdir(parents=True)
         (mode_dir / "pipeline.yml").write_text(pipeline_content)
-        (mode_dir / "form.yml").write_text(MINIMAL_FORM)
+        (mode_dir / "form.yml").write_text(form_yaml)
     return modes_root
 
 
@@ -302,6 +310,79 @@ def test_multiple_contributed_modes_from_one_plugin_all_merge(tmp_path):
     assert set(target.modes.keys()) == {"txt2img", "img2img", "upscale"}
     assert target.modes["img2img"].source_plugin == "some-plugin"
     assert target.modes["upscale"].source_plugin == "some-plugin"
+
+
+# --- contribution filter_tags/@config: validation ---------------------------
+# `PresetTemplateLoader._validate_filter_tags_directives` runs on a
+# contributed mode too, against the TARGET preset's own declared
+# `configuration:` schema - see test_loader_filter_tags_directive.py for the
+# core (non-contribution) coverage of the same check.
+
+FORM_WITH_CONFIG_REF = (
+    "fields:\n  - name: checkpoint\n    type: model\n"
+    "    configuration:\n      model_type: checkpoint\n"
+    "      filter_tags: \"@config:checkpoint_tags\"\n"
+)
+
+FORM_WITH_UNRECOGNIZED_AT_DIRECTIVE = (
+    "fields:\n  - name: checkpoint\n    type: model\n"
+    "    configuration:\n      model_type: checkpoint\n"
+    "      filter_tags: \"@seed\"\n"
+)
+
+
+def test_contribution_referencing_undeclared_config_key_is_rejected(tmp_path):
+    core_root = tmp_path / "presets"
+    _write_preset(core_root, "target-preset", ["txt2img"])  # no configuration: block
+    plugin_dir = tmp_path / "plugin"
+    _write_modes_root(plugin_dir, {"edit": MINIMAL_PIPELINE}, form_yaml=FORM_WITH_CONFIG_REF)
+    manifest = _manifest("some-plugin", plugin_dir, [{"target": "target-preset", "modes_root": "contributed"}])
+
+    loader = PresetTemplateLoader([str(core_root)], plugin_registry=_registry([manifest]))
+    loader.load_presets()
+
+    target = next(p for p in loader.presets if p.id == "target-preset")
+    assert set(target.modes.keys()) == {"txt2img"}
+    error_text = " ".join(msg for msgs in loader.load_errors.values() for msg in msgs)
+    assert "@config:checkpoint_tags" in error_text
+    assert "checkpoint_tags" in error_text
+    assert "checkpoint" in error_text  # the field name
+
+
+def test_contribution_referencing_declared_config_key_merges_cleanly(tmp_path):
+    core_root = tmp_path / "presets"
+    _write_preset(
+        core_root, "target-preset", ["txt2img"],
+        configuration={"checkpoint_tags": {"type": "model_tags"}},
+    )
+    plugin_dir = tmp_path / "plugin"
+    _write_modes_root(plugin_dir, {"edit": MINIMAL_PIPELINE}, form_yaml=FORM_WITH_CONFIG_REF)
+    manifest = _manifest("some-plugin", plugin_dir, [{"target": "target-preset", "modes_root": "contributed"}])
+
+    loader = PresetTemplateLoader([str(core_root)], plugin_registry=_registry([manifest]))
+    loader.load_presets()
+
+    target = next(p for p in loader.presets if p.id == "target-preset")
+    assert set(target.modes.keys()) == {"txt2img", "edit"}
+    assert target.modes["edit"].source_plugin == "some-plugin"
+    assert loader.load_errors == {}
+
+
+def test_contribution_with_unrecognized_at_directive_is_rejected(tmp_path):
+    core_root = tmp_path / "presets"
+    _write_preset(core_root, "target-preset", ["txt2img"])
+    plugin_dir = tmp_path / "plugin"
+    _write_modes_root(plugin_dir, {"edit": MINIMAL_PIPELINE}, form_yaml=FORM_WITH_UNRECOGNIZED_AT_DIRECTIVE)
+    manifest = _manifest("some-plugin", plugin_dir, [{"target": "target-preset", "modes_root": "contributed"}])
+
+    loader = PresetTemplateLoader([str(core_root)], plugin_registry=_registry([manifest]))
+    loader.load_presets()
+
+    target = next(p for p in loader.presets if p.id == "target-preset")
+    assert set(target.modes.keys()) == {"txt2img"}
+    error_text = " ".join(msg for msgs in loader.load_errors.values() for msg in msgs)
+    assert "@seed" in error_text
+    assert "not a recognized" in error_text
 
 
 NATIVE_KREA2_PRESET_ID = "4TK1KBQZ2XMB8ME0PTMXS1YJQP"

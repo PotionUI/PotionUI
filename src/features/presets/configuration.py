@@ -73,6 +73,16 @@ def resolve_filter_tags(
     is resolved against the preset's stored configuration values. Missing/empty
     resolved value -> None (no filtering), matching the documented backward-compat
     rule.
+
+    A `@config:<key>` naming a key the preset's `configuration:` block never
+    declares, or any other `@`-prefixed `filter_tags` value, is caught at
+    preset-load time instead of here - `PresetTemplateLoader._validate_filter_tags_directives`
+    (loader.py) walks every field's `filter_tags`/reaction `set_filter_tags`
+    against the preset's declared schema while building the template, so a
+    bad reference never reaches a running preset in the first place. This
+    function stays a pure, unconditional prefix match - no DB/container
+    access, no raising - by the time anything calls it, the value has
+    already been validated.
     """
     if raw is None:
         return None

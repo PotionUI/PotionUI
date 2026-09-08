@@ -99,20 +99,6 @@ def active_loras(value: Any) -> List[Any]:
     return kept
 
 
-def regex_search(value: str, pattern: str) -> bool:
-    """
-    Check if a regex pattern matches a value.
-
-    Args:
-        value: The string to search in.
-        pattern: The regex pattern to match.
-
-    Returns:
-        True if the pattern matches, False otherwise.
-    """
-    return bool(re.search(pattern, value))
-
-
 # Sentinel distinguishing "no default given" from "default explicitly set to
 # None" - get_speed_profile_value must raise when the caller passes neither,
 # but None is otherwise a perfectly legitimate default value to request.
@@ -128,7 +114,10 @@ def get_speed_profile_value(
     Look up a named entry from preset.yml's `speed_profiles:` block.
 
     Args:
-        context: The template context (`preset.speed_profiles` + `preset.name`).
+        context: The template context (the internal `_speed_profiles` key
+            `PresetProcessor.process` sets, plus `preset.name` for the error
+            message - `preset.speed_profiles` itself is not part of the
+            documented render context, see docs/presets.md "Speed profiles").
         profile_name: The profile name to look up (e.g. 'draft').
         default: Returned when the profile is missing. If omitted, a missing
             profile raises ``ValueError`` naming both the preset and the
@@ -141,7 +130,7 @@ def get_speed_profile_value(
         get_speed_profile('draft')
         get_speed_profile('experimental', {})   # explicit default suppresses the error
     """
-    profiles = context.get('preset', {}).get('speed_profiles') or {}
+    profiles = context.get('_speed_profiles') or {}
     if profile_name in profiles:
         return profiles[profile_name]
     if default is not _NO_DEFAULT:

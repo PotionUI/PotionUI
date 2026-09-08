@@ -12,9 +12,7 @@ raise ``TemplateEvaluationError`` rather than being swallowed.
 Components:
     - TemplateProcessor: the evaluator/renderer
     - TemplateEvaluationError: structured error carrying expression + cause + location
-    - PathResolver: resolves resource paths (checkpoints, loras, etc.)
-    - IconMapper: maps icon types to icon names
-    - dict_utils: regex_search filter + get_speed_profile_value helper
+    - dict_utils: active_loras/strip_model_dir filters + get_speed_profile_value helper
 
 Usage:
     from src.platform.templating import TemplateProcessor

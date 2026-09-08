@@ -1,18 +1,18 @@
 """
 Tests for the dict_utils helpers that survive the templating rework:
-regex_search (backs the `matches`/`regex_search` filter) and
+active_loras/strip_model_dir (back their own-named filters) and
 get_speed_profile_value (backs the `get_speed_profile` global).
 
 The old dict-path helpers (get_value/get_is_in/get_dict_value/get_form_value)
-backed the deleted `value`/`get`/`contains`/`dict`/`get_form` render globals
-and are gone with them.
+backed the deleted `value`/`get`/`contains`/`dict`/`get_form` render globals,
+and regex_search backed the deleted `matches`/`regex_search` filter - all gone
+with them (neither ever had a real preset consumer).
 """
 
 import pytest
 from src.platform.templating.dict_utils import (
     active_loras,
     get_speed_profile_value,
-    regex_search,
     strip_model_dir,
 )
 
@@ -118,40 +118,22 @@ class TestStripModelDir:
         assert strip_model_dir(42) == 42
 
 
-class TestRegexSearch:
-    """Test cases for regex_search function."""
-
-    def test_match(self):
-        """Test regex_search with matching pattern."""
-        assert regex_search("hello world", r"wor\w+") is True
-
-    def test_no_match(self):
-        """Test regex_search with non-matching pattern."""
-        assert regex_search("hello world", r"\d+") is False
-
-    def test_complex_pattern(self):
-        """Test regex_search with complex pattern."""
-        email = "user@example.com"
-        pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-        assert regex_search(email, pattern) is True
-
-    def test_partial_match(self):
-        """Test regex_search with partial match."""
-        assert regex_search("test123test", r"\d+") is True
-
-
 class TestGetSpeedProfileValue:
-    """Test cases for get_speed_profile_value function (roadmap 3.6)."""
+    """Test cases for get_speed_profile_value function (roadmap 3.6).
+
+    Reads the internal `_speed_profiles` context key `PresetProcessor.process`
+    sets (plus `preset.name` for the error message) - `preset.speed_profiles`
+    itself is not part of the documented render context (docs/presets.md
+    "Speed profiles"); see also tests/features/presets/test_speed_profiles.py.
+    """
 
     @pytest.fixture
     def sample_context(self):
         return {
-            "preset": {
-                "name": "My Preset",
-                "speed_profiles": {
-                    "draft": {"steps": 6, "guidance": 1.0},
-                    "standard": {"steps": 28, "guidance": 5.0},
-                },
+            "preset": {"name": "My Preset"},
+            "_speed_profiles": {
+                "draft": {"steps": 6, "guidance": 1.0},
+                "standard": {"steps": 28, "guidance": 5.0},
             },
             "request": {"mode": "txt2img"},
         }
@@ -184,5 +166,5 @@ class TestGetSpeedProfileValue:
         assert "draft" in str(exc_info.value)
 
     def test_empty_profiles_dict_with_default_returns_default(self):
-        result = get_speed_profile_value({"preset": {"speed_profiles": {}}}, "draft", default="fallback")
+        result = get_speed_profile_value({"_speed_profiles": {}}, "draft", default="fallback")
         assert result == "fallback"

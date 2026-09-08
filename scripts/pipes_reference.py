@@ -61,19 +61,6 @@ from src.features.fields.builtin import register_builtin_fields  # noqa: E402
 PIPES_MD_PATH = REPO_ROOT / "docs" / "pipes.md"
 CONTEXT_MD_PATH = REPO_ROOT / "docs" / "preset-context.md"
 
-# `PresetProcessor.process` roots (src/features/presets/processor.py) that no
-# shipped preset under content/presets/marketplace actually references today
-# (a docraft-tracked separate card decides whether to remove them) - a manual
-# audit finding, not something introspectable from the code, so it's kept as
-# a short fixed annotation rather than derived.
-_UNUSED_BY_SHIPPED_PRESETS = (
-    "preset.speed_profiles", "preset.configuration",
-    "generation.seed", "generation.quantity",
-    "request.mode", "request.form_name",
-    "path()", "icon()", "matches (filter)",
-)
-
-
 @dataclass
 class CheckReport:
     """`check()`'s result: `errors` are drift/missing-file problems (fail the
@@ -389,19 +376,19 @@ def render_context_md(repo_root: Path) -> str:
     lines += _template_functions_sections()
 
     lines += [
-        "**Present, unused by any shipped preset today** (a separate card decides "
-        "whether to remove them - kept documented rather than silently dropped): "
-        + ", ".join(f"`{item}`" for item in _UNUSED_BY_SHIPPED_PRESETS) + ".",
-        "",
         "## `@config:<key>` indirection",
         "",
         "Not a Jinja construct: a bare string-prefix match (`str.startswith('@config:')`) "
         "resolved in `src/features/presets/configuration.py`'s `resolve_filter_tags`/"
         "`resolve_field_filter_tags` at form-schema time, against the preset's admin-set "
         "`configuration:` values (see \"Configuration (admin-set)\" in the Preset Authoring "
-        "Guide). A key with no `@config:` prefix, or a value the preset's stored "
-        "configuration doesn't have, both resolve to \"no filtering\" - a typo in the key "
-        "falls through silently rather than erroring.",
+        "Guide). A key the preset **declares** but an admin never set resolves to \"no "
+        "filtering\" (a normal, expected state) - by the time this runs, an undeclared key or "
+        "any other `@`-prefixed value has already failed the preset's LOAD: "
+        "`PresetTemplateLoader._validate_filter_tags_directives` (loader.py) walks every "
+        "field's `configuration.filter_tags`/reaction `set_filter_tags` while building the "
+        "template and rejects those two mistakes there, naming the preset, the field, and "
+        "the declared keys, so a bad reference never reaches this resolver at all.",
         "",
         "## Injected form keys",
         "",

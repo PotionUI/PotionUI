@@ -4,18 +4,24 @@ Documents the ACTUAL surface a preset's ``pipeline.yml`` (and templated form
 values) may use after the templating rework (see docs/presets.md and
 src/platform/templating/processor.py):
 
-- the three allowlisted global functions (``path``/``get_path_for``,
-  ``icon``/``get_icon``, ``get_speed_profile``);
-- the custom filters (``matches``/``regex_search``, ``active_loras``,
-  ``strip_model_dir``) plus Jinja's builtin ``default`` (the ONLY suppression
-  of a missing value under StrictUndefined);
+- the one allowlisted global function, ``get_speed_profile``;
+- the custom filters (``active_loras``, ``strip_model_dir``) plus Jinja's
+  builtin ``default`` (the ONLY suppression of a missing value under
+  StrictUndefined);
 - the template context roots (``form``, ``request``, ``generation``,
   ``preset``, ``runtime``, ``paths``) that native attribute access reads from.
 
 The deleted render globals (``get_form``, ``value``/``get``,
 ``contains``/``get_is_in``, ``dict``/``@dict:``, ``@object:``,
-``setting``/``config``) and the whole ``input.*`` context are intentionally
-absent - they are build errors now, not documented syntax.
+``setting``/``config``, ``path``/``get_path_for``, ``icon``/``get_icon``),
+the deleted filters (``matches``/``regex_search``), the whole ``input.*``
+context, and ``preset.speed_profiles``/``preset.configuration``/
+``generation.seed``/``generation.quantity`` direct access (a live audit found
+zero real consumers of any of them across every shipped preset -
+``get_speed_profile()`` and ``generation.profile`` replace the first,
+``@config:<key>`` field indirection the second, the ``seed_generator`` pipe's
+own ``seed``/``quantity`` config the last two) are intentionally absent -
+they are build errors now, not documented syntax.
 
 Consumed by ``DeveloperController.get_template_functions_documentation`` (served
 at the developer docs endpoint); the ``{functions, total, categories}`` /
@@ -32,51 +38,6 @@ class TemplateFunctionsDocumenter:
     def _get_function_categories(self) -> Dict[str, List[Dict[str, Any]]]:
         """Return the documentation entries organized by category."""
         return {
-            "Path Helpers": [
-                {
-                    "name": "path",
-                    "alias": "get_path_for",
-                    "signature": "path(path_type: str, file_name: str = None) -> str",
-                    "description": (
-                        "Resolve a filesystem path by resource type (checkpoint, lora, "
-                        "embedding, upscaler, detector, wildcard, diffusion_model, "
-                        "controlnet, std, ...). With no file_name, returns the resource "
-                        "directory; with one, the full path to that file. Plugins can "
-                        "register additional path types via the resolve_path hook."
-                    ),
-                    "parameters": [
-                        {"name": "path_type", "type": "str", "description": "Resource type, e.g. 'checkpoint', 'lora', 'embedding'"},
-                        {"name": "file_name", "type": "str", "default": "None", "description": "Resource name/identifier (optional)"},
-                    ],
-                    "return_type": "str",
-                    "examples": [
-                        {"code": "{{ path('checkpoint') }}", "result": "models/checkpoints"},
-                        {"code": "{{ path('lora', 'detail_enhancer.safetensors') }}", "result": "models/loras/detail_enhancer.safetensors"},
-                        {"code": "{{ path('wildcard') }}", "result": "models/wildcards"},
-                    ],
-                }
-            ],
-            "Icon Mapping": [
-                {
-                    "name": "icon",
-                    "alias": "get_icon",
-                    "signature": "icon(icon_type: str) -> str",
-                    "description": (
-                        "Map a semantic icon type to the frontend icon identifier "
-                        "(e.g. 'prompt', 'lora', 'controlnet', 'advanced', 'generation'). "
-                        "Used in form tab/section configuration."
-                    ),
-                    "parameters": [
-                        {"name": "icon_type", "type": "str", "description": "Semantic icon type, e.g. 'prompt', 'lora', 'advanced'"},
-                    ],
-                    "return_type": "str",
-                    "examples": [
-                        {"code": "{{ icon('prompt') }}", "result": "'pencil-square'"},
-                        {"code": "{{ icon('lora') }}", "result": "'puzzle-piece'"},
-                        {"code": "{{ icon('generation') }}", "result": "'bolt'"},
-                    ],
-                }
-            ],
             "Speed Profiles": [
                 {
                     "name": "get_speed_profile",
@@ -86,8 +47,9 @@ class TemplateFunctionsDocumenter:
                         "Look up a named entry from preset.yml's `speed_profiles:` block "
                         "(draft/standard/max, ...) and return its dict of generation-knob "
                         "overrides. Omitting `default` makes a missing profile a build error "
-                        "that names both the preset and the profile. `preset.speed_profiles.<name>` "
-                        "direct dot access is equivalent."
+                        "that names both the preset and the profile. Use this for an EXPLICIT "
+                        "profile name; `generation.profile` (Template Context, below) is the "
+                        "already-resolved profile for whichever name the current request selected."
                     ),
                     "parameters": [
                         {"name": "profile_name", "type": "str", "description": "Profile name to look up, e.g. 'draft'"},
@@ -96,26 +58,11 @@ class TemplateFunctionsDocumenter:
                     "return_type": "dict",
                     "examples": [
                         {"code": "{{ get_speed_profile('draft')['steps'] }}", "result": "6 (from speed_profiles.draft.steps)"},
-                        {"code": "{{ preset.speed_profiles.draft.steps }}", "result": "6 (equivalent direct access)"},
+                        {"code": "{{ generation.profile.steps }}", "result": "6 (the profile resolved for this request)"},
                     ],
                 }
             ],
             "Filters": [
-                {
-                    "name": "matches",
-                    "alias": "regex_search",
-                    "signature": "value | matches(pattern: str) -> bool",
-                    "description": "Regex-search filter: True if `pattern` matches anywhere in the piped string value.",
-                    "parameters": [
-                        {"name": "value", "type": "str", "description": "String to search (pipe input)"},
-                        {"name": "pattern", "type": "str", "description": "Regex pattern"},
-                    ],
-                    "return_type": "bool",
-                    "examples": [
-                        {"code": "{% if form.model | matches('flux') %}...{% endif %}", "result": "True if the selected model name contains 'flux'"},
-                        {"code": "{% if preset.name | matches('^SDXL') %}...{% endif %}", "result": "True if the preset name starts with 'SDXL'"},
-                    ],
-                },
                 {
                     "name": "active_loras",
                     "alias": None,
@@ -215,44 +162,49 @@ class TemplateFunctionsDocumenter:
                 {
                     "name": "generation",
                     "alias": None,
-                    "signature": "generation.{prompts:{first,pairs,positives,negatives}, seed, quantity}",
+                    "signature": "generation.{prompts:{first,pairs,positives,negatives}, profile}",
                     "description": (
                         "Generation-level data resolved before the pipeline builds: expanded "
-                        "prompt pairs (one per image), the resolved seed (never -1 here), and the "
-                        "image quantity. `prompts.first` is the first pair; `prompts.pairs` the full "
-                        "list; `prompts.positives`/`negatives` the flattened sides."
+                        "prompt pairs (one per image), and `profile` - the `speed_profiles:` entry "
+                        "resolved for this request (the one `form.speed_profile` names; the first "
+                        "declared profile if the form has no matching value; `{}` if the preset "
+                        "declares none, so `generation.profile.steps` fails loudly like any other "
+                        "missing key). `prompts.first` is the first pair; `prompts.pairs` the full "
+                        "list; `prompts.positives`/`negatives` the flattened sides. There is no "
+                        "`generation.seed`/`generation.quantity` - read `form.seed`/`form.quantity` "
+                        "(the seed_generator pipe's own config is the only real consumer)."
                     ),
                     "parameters": [
                         {"name": "prompts.first", "type": "dict", "description": "First expanded prompt pair {positive, negative}"},
                         {"name": "prompts.pairs", "type": "list", "description": "All per-image expanded prompt pairs"},
-                        {"name": "seed", "type": "int", "description": "Resolved base seed"},
-                        {"name": "quantity", "type": "int", "description": "Number of images requested"},
+                        {"name": "profile", "type": "dict", "description": "The speed_profiles: entry resolved for this request ({} if the preset declares none)"},
                     ],
                     "return_type": "native value",
                     "examples": [
                         {"code": "{{ generation.prompts.first.positive }}", "result": "First image's positive prompt"},
                         {"code": "{{ generation.prompts.pairs }}", "result": "List of {positive, negative} pairs"},
+                        {"code": "{{ form.steps | default(generation.profile.steps) }}", "result": "form.steps if set, else the resolved profile's steps"},
                     ],
                 },
                 {
                     "name": "preset",
                     "alias": None,
-                    "signature": "preset.{id, name, vars, speed_profiles, configuration}",
+                    "signature": "preset.{id, name, vars}",
                     "description": (
-                        "The preset manifest: its id/name, the `vars:` bag (preset-wide constants), "
-                        "the `speed_profiles:` block, and admin-set `configuration:` values."
+                        "The preset manifest: its id/name and the `vars:` bag (preset-wide "
+                        "constants). There is no `preset.speed_profiles`/`preset.configuration` - "
+                        "use `get_speed_profile()`/`generation.profile` for speed profiles, and "
+                        "`@config:<key>` field indirection for admin-set configuration (see "
+                        "[Configuration (admin-set)](presets.md#configuration-admin-set))."
                     ),
                     "parameters": [
                         {"name": "id", "type": "str", "description": "Preset id"},
                         {"name": "name", "type": "str", "description": "Preset display name"},
                         {"name": "vars", "type": "dict", "description": "Preset-wide constants declared under `vars:`"},
-                        {"name": "speed_profiles", "type": "dict", "description": "Named speed-profile overrides"},
-                        {"name": "configuration", "type": "dict", "description": "Admin-set configuration values"},
                     ],
                     "return_type": "native value",
                     "examples": [
                         {"code": "{{ preset.vars.default_cfg }}", "result": "The preset's default CFG constant"},
-                        {"code": "{{ preset.speed_profiles.draft.steps }}", "result": "Steps for the 'draft' profile"},
                     ],
                 },
                 {

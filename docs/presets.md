@@ -219,9 +219,10 @@ Give the user a `select` field listing the profile names:
 
 Then consume it in `pipeline.yml` with the `get_speed_profile(name)` global (registered in
 `src/platform/templating/processor.py`): look up the selected name, then read whichever knobs the profile
-sets. `preset.speed_profiles` is also in context directly (mirroring `preset.vars`), so a literal
-lookup works too — `get_speed_profile()` is the recommended idiom because a **missing profile name
-raises a clear error naming the preset and the profile**, instead of a bare attribute error:
+sets. There is no `preset.speed_profiles` direct dot access in the render context — it's a build
+error (see "Removed" under [Template contexts](#template-contexts)) — `get_speed_profile()` is the
+recommended idiom for an EXPLICIT lookup because a **missing profile name raises a clear error
+naming the preset and the profile**, instead of a bare attribute error:
 
 ```yaml
 - name: "generator/txt2vid_wan22"
@@ -238,14 +239,38 @@ type — `steps` arrives at the pipe as an `int`, not a string (see
 `get_speed_profile(name, default=...)` also accepts an explicit `default` (e.g. `{}`) to suppress
 the error for an optional/experimental profile reference instead of failing generation.
 
+### `generation.profile`: the resolved-profile shortcut
+
+Every knob a preset reads from a profile repeats the same
+`get_speed_profile(form.speed_profile | default('standard'))[...]` expression — `generation.profile`
+(a `pipeline.yml` context root, see [Template contexts](#template-contexts)) is that exact lookup,
+already done once per build: the profile `form.speed_profile` names, or the **first declared**
+profile if the form has no `speed_profile` field/value (or its value doesn't name a declared one —
+`speed_profiles:` preserves YAML declaration order end to end, and `SpeedProfile` has no
+`default:`/`is_default:` marker to prefer instead), or `{}` if the preset declares no profiles at
+all — so `generation.profile.steps` fails loudly (StrictUndefined) exactly like any other missing
+key rather than silently. The two examples above rewrite to:
+
+```yaml
+- name: "generator/txt2vid_wan22"
+  enabled: true
+  configuration:
+    steps: "{{ generation.profile.steps }}"
+    cfg: "{{ generation.profile.guidance }}"
+```
+
+Prefer `generation.profile` for the common case (read the profile the current request selected);
+reach for `get_speed_profile(name)` only to look up a profile OTHER than the resolved one, or to
+get the loud missing-name error `generation.profile`'s silent first-profile fallback doesn't give you.
+
 ### Rules
 
 - Known keys are typed and validated at schema (preset-load) time; unknown keys are a lint
   **warning**, not a load failure — put forward-compat data under `extra:` to silence it.
 - `scripts/preset_lint.py` also warns when a preset declares `speed_profiles` but nothing in its
-  `modes/` (no `get_speed_profile()` call, no literal profile name) appears to reference them — a
-  declared-but-unused block is almost always a mistake (a forgotten form field, or a leftover from
-  a refactor).
+  `modes/` (no `get_speed_profile()` call, no `generation.profile` use, and no literal profile name)
+  appears to reference them — a declared-but-unused block is almost always a mistake (a forgotten
+  form field, or a leftover from a refactor).
 - `loras` entries follow the same `{file, weight}` shape used elsewhere in this doc (the `@loop`
   recipe) — consume them with an `items:`-based `@loop` in `pipeline.yml`, same as a `lora_picker`
   field's value.
@@ -258,15 +283,21 @@ The idiom in every shipped preset that uses `speed_profiles:` is:
 steps: "{{ get_speed_profile(form.speed_profile | default('standard'))['steps'] }}"
 ```
 
+or, equivalently, using the resolved shortcut:
+
+```yaml
+steps: "{{ generation.profile.steps }}"
+```
+
 Read this as **the profile supplies the baseline value**, and if the form itself has an explicit
 field for the same knob (e.g. an advanced-only `steps` slider under `audience: advanced`), that
 field's value is what actually reaches `pipeline.yml` — the profile only fills in what the form
-didn't ask the user for. Concretely: `form.speed_profile | default('standard')` resolves *which*
-profile is selected (falling back to `'standard'` only when the form has no `speed_profile`
-field/value at all), and `get_speed_profile(...)['steps']` is that profile's baseline `steps`. A
-preset that also exposes a real `steps` field should read that field with its own fallback
+didn't ask the user for. Concretely: `form.speed_profile | default('standard')` (or, for
+`generation.profile`, whatever `form.speed_profile` names) resolves *which* profile is selected,
+and `get_speed_profile(...)['steps']`/`generation.profile.steps` is that profile's baseline `steps`.
+A preset that also exposes a real `steps` field should read that field with its own fallback
 *sourced from* the selected profile, not a hardcoded literal, e.g.
-`{{ form.steps | default(get_speed_profile(form.speed_profile | default('standard'))['steps']) }}`
+`{{ form.steps | default(generation.profile.steps) }}`
 — so changing the profile still changes the effective value for a user who never touched the
 advanced `steps` field, while a user who did override it always wins.
 
@@ -323,16 +354,25 @@ IDs stored under `checkpoint_tags`:
 ```
 
 `filter_tags` accepts either this indirection or a literal tag-ID list. It's resolved to a concrete
-tag-ID list at form-schema time; a missing/empty resolved value means **no filtering** (backward
-compatible with presets that never declare `configuration:` at all). Filtering itself is OR
-semantics — a model matches if it carries *any* of the listed tags, not all of them (contrast with
-the library picker's own multi-tag browsing filter, which requires all). The frontend passes the
-resolved list to `GET /api/presets/{id}/models` as `any_tag_ids` (comma-separated) to actually
-filter the option list.
+tag-ID list at form-schema time; a key the preset **declares** but an admin never set means **no
+filtering** (backward compatible with presets that never declare `configuration:` at all — an
+unset/empty stored value is a normal, expected state). Filtering itself is OR semantics — a model
+matches if it carries *any* of the listed tags, not all of them (contrast with the library picker's
+own multi-tag browsing filter, which requires all). The frontend passes the resolved list to `GET
+/api/presets/{id}/models` as `any_tag_ids` (comma-separated) to actually filter the option list.
 
-`scripts/preset_lint.py` errors if a field references `@config:<key>` for a key the preset's
-`configuration:` block never declares — the same "cross-file reference must resolve" treatment
-`files/form/*.yml` option-file references get.
+A key the preset's `configuration:` block never declares at all — a typo, or `@config:` left over
+after the key was renamed — is a different, authoring-time mistake: `PresetTemplateLoader.
+_validate_filter_tags_directives` (`src/features/presets/loader.py`) walks every field's
+`configuration.filter_tags` and reaction `then.set_filter_tags` while building the preset template
+and fails the preset's LOAD, naming the preset, the field, the unknown key, and the declared keys —
+so a bad reference never reaches a running preset in the first place, rather than silently degrading
+to "no filtering" the way an unset (but declared) key does at serve time. So does any `"@"`-prefixed
+value that isn't `"@config:..."` — it's the only `@` directive `filter_tags`/`set_filter_tags` ever
+accepted. `scripts/preset_lint.py` catches the exact same mistake independently, without booting the
+app, for the developer lint endpoint/CI; `resolve_filter_tags` (`src/features/presets/
+configuration.py`), which actually resolves the value at form-schema-serve time, stays a pure,
+unconditional prefix match — by the time it runs, the value has already been validated at load.
 
 ### Tag deletion is blocked while referenced
 
@@ -1521,30 +1561,31 @@ The context roots built by `PresetProcessor.process` (verified in `src/features/
 | `generation.prompts.first` | The first expanded prompt pair, `{positive, negative}`. |
 | `generation.prompts.pairs` | All per-image expanded pairs (see [Prompts](prompts.md)). |
 | `generation.prompts.positives` / `.negatives` | The flattened per-side lists. |
-| `generation.seed` | The resolved base seed (never `-1` here). |
-| `generation.quantity` | Number of images requested. |
+| `generation.profile` | The `speed_profiles:` entry resolved for this request: the profile `form.speed_profile` names, or the first declared profile if the form has no matching field/value, or `{}` if the preset declares none — so `generation.profile.<key>` fails loudly (StrictUndefined) exactly like any other missing key, never silently. See [Speed profiles](#speed-profiles). |
 | `preset.id` / `preset.name` | The preset's id and display name. |
 | `preset.vars` | The `vars:` mapping from `preset.yml` (e.g. `preset.vars.num_lora_slots`). |
-| `preset.speed_profiles` | The `speed_profiles:` mapping (e.g. `preset.speed_profiles.draft.steps`); prefer `get_speed_profile()` for the clear-error-on-missing behavior. |
-| `preset.configuration` | Admin-set configuration values (see "Configuration (admin-set)"). |
 | `runtime.settings.file_storage_directory` | The storage root, resolved **once per build** with the authenticated user (a snapshot — no live settings calls at render time). |
 | `runtime.settings.nsfw` | The user's NSFW setting (same snapshot). |
 | `paths.preset` | Absolute path to this preset directory. (No `paths._shared` in the pipeline context.) |
+
+There is no `generation.seed`/`generation.quantity` (read `form.seed`/`form.quantity` — the
+`seed_generator` pipe's own `seed`/`quantity` config is the only real consumer either ever had)
+and no `preset.speed_profiles`/`preset.configuration` direct access (`get_speed_profile()`/
+`generation.profile` above replace the first, `@config:<key>` field indirection the second — see
+"Removed" below).
 
 Allowlisted globals (registered in `src/platform/templating/processor.py`):
 
 | Name | Signature | What it does |
 |------|-----------|--------------|
-| `path` | `path(path_type, file_name=None)` | Resolve a resource path (models, loras, ...). (alias: `get_path_for`) |
-| `icon` | `icon(name)` | Resolve a UI icon token (used in form labels). |
 | `get_speed_profile` | `get_speed_profile(profile_name, default=<raises>)` | Look up a `speed_profiles:` entry by name. Raises a clear error naming the preset and profile if missing and no `default` is given. See [Speed profiles](#speed-profiles). |
 
-Filters: `matches` (regex search; alias `regex_search`), `active_loras` (drops a `lora_picker`
-list's zero-strength entries — a `@loop`'s `items:` expression filters through it, e.g.
-`{{ form.loras | default([]) | active_loras }}`; missing/non-numeric/negative strengths are kept,
-only an exact-zero strength drops), `strip_model_dir` (strips a model picker value's depot type
-directory — `models/<vae|loras|checkpoints|...>/` — while keeping any subdirectories underneath,
-e.g. `{{ form.vae | strip_model_dir }}`; `None`/`''` and a value with no such prefix pass through
+Filters: `active_loras` (drops a `lora_picker` list's zero-strength entries — a `@loop`'s `items:`
+expression filters through it, e.g. `{{ form.loras | default([]) | active_loras }}`;
+missing/non-numeric/negative strengths are kept, only an exact-zero strength drops),
+`strip_model_dir` (strips a model picker value's depot type directory —
+`models/<vae|loras|checkpoints|...>/` — while keeping any subdirectories underneath, e.g.
+`{{ form.vae | strip_model_dir }}`; `None`/`''` and a value with no such prefix pass through
 as `''`/unchanged — see [Models and Backend Availability](models.md)) plus all Jinja builtins —
 `default` being the load-bearing one (see above).
 
@@ -1553,11 +1594,19 @@ native-backend config, injected into every pipe by `NativeBackend.prepare_pipes`
 [Backends and Engines](backends.md).
 
 **Removed** (build errors if used — the linter flags them with a migration hint): the `get_form`,
-`value`/`get`, `contains`/`get_is_in`, `dict`, `setting`/`config` globals, the `@object:`/`@dict:`
-string directives, and the entire `input.*` context. Their replacements are the native context
-roots above: `get_form('custom', ['steps'], 20)` → `{{ form.steps | default(20) }}`,
+`value`/`get`, `contains`/`get_is_in`, `dict`, `setting`/`config`, `path`/`get_path_for`,
+`icon`/`get_icon` globals, the `matches`/`regex_search` filter, the `@object:`/`@dict:` string
+directives, the entire `input.*` context, and direct `preset.speed_profiles`/
+`preset.configuration`/`generation.seed`/`generation.quantity` access. Their replacements:
+`get_form('custom', ['steps'], 20)` → `{{ form.steps | default(20) }}`,
 `setting('SYSTEM', 'file_storage_directory')` → `{{ runtime.settings.file_storage_directory }}`,
-`input.generation.prompts.p_prompt` → `{{ generation.prompts.first.positive }}`.
+`input.generation.prompts.p_prompt` → `{{ generation.prompts.first.positive }}`,
+`preset.speed_profiles.draft.steps` → `get_speed_profile('draft').steps` or
+`generation.profile.steps`, `preset.configuration.checkpoint_tags` → a field's own
+`filter_tags: "@config:checkpoint_tags"` (see [Configuration (admin-set)](#configuration-admin-set)),
+`generation.seed`/`generation.quantity` → `form.seed`/`form.quantity`. `path`/`icon`/
+`matches`/`regex_search` have no replacement — a live audit found no shipped preset ever used them
+(every preset's `icon:` field is a literal name, e.g. `icon: "generation"`).
 
 ### Pipe shape and `enabled:`
 

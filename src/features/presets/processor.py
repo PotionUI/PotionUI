@@ -317,18 +317,29 @@ class PresetProcessor:
             return value
 
     @staticmethod
-    def _get_configuration_values(preset_id: str) -> Dict[str, Any]:
-        """Admin-set configuration values stored for an installed preset.
+    def _resolve_generation_profile(preset_template: PresetTemplate, form: Dict[str, Any]) -> Dict[str, Any]:
+        """Resolve `generation.profile` - the single speed-profile mapping a
+        pipeline's config values source their baseline from.
 
-        Lazily imported (mirrors other core/pipe modules reaching into the
-        persistence layer on demand) to avoid a hard import-time dependency
-        from the preset template layer onto the database.
+        - No `speed_profiles:` declared at all: `{}`, so `generation.profile.steps`
+          fails loudly under StrictUndefined exactly like any other missing key -
+          there is nothing to silently fall back to.
+        - Declared, and `form.speed_profile` names one of them: that profile.
+        - Declared, but the form has no `speed_profile` field/value, or its value
+          doesn't name a declared profile: the FIRST declared profile (`speed_profiles:`
+          preserves YAML declaration order end to end - loader.py, schema.py - and
+          `SpeedProfile` has no `default:`/`is_default:` marker to prefer instead).
+
+        `get_speed_profile(name)` stays the way to look up a profile OTHER than
+        this resolved one.
         """
-        try:
-            from src.features.presets.repository import preset_repo
-            return preset_repo.get_preset_configuration(preset_id)
-        except Exception:
+        profiles = preset_template.speed_profiles or {}
+        if not profiles:
             return {}
+        selected_name = form.get('speed_profile')
+        if selected_name in profiles:
+            return profiles[selected_name]
+        return next(iter(profiles.values()))
 
     def _build_runtime_settings(self, user_id: Optional[str]) -> Dict[str, Any]:
         """Snapshot the allowlisted settings ONCE per `process()` call.
@@ -448,26 +459,23 @@ class PresetProcessor:
                     'positives': [p.get('positive', '') for p in prompts],
                     'negatives': [p.get('negative', '') for p in prompts],
                 },
-                'seed': form.get('seed', -1),
-                'quantity': form.get('quantity', 1),
+                # The seed_generator pipe's own `seed`/`quantity` config (fed
+                # from `form.seed | default(-1)` / `form.quantity | default(1)`)
+                # is the only consumer either value ever had - `generation.seed`/
+                # `generation.quantity` were a dead alias for the same form
+                # fields (zero uses across every shipped preset).
+                'profile': self._resolve_generation_profile(preset_template, form),
             },
             'preset': {
                 'id': preset_template.id,
                 'name': preset_template.name,
                 'vars': preset_template.vars,
-                # Named generation profiles from preset.yml's `speed_profiles:`
-                # (roadmap 3.6) - a plain name -> dict mapping, read directly as
-                # `preset.speed_profiles.draft.steps` or looked up dynamically
-                # via the `get_speed_profile(name)` global (src/platform/templating/
-                # processor.py), which raises a clear error naming the preset
-                # and the missing profile instead of silently rendering None.
-                'speed_profiles': preset_template.speed_profiles or {},
-                # Admin-set configuration values (roadmap: preset configuration),
-                # e.g. `preset.configuration.checkpoint_tags`. Stored per installed
-                # preset (src/features/presets/records.py), not part of the YAML -
-                # see docs/presets.md "Configuration (admin-set)". Empty dict for a
-                # preset with no `configuration:` block or no admin-set values yet.
-                'configuration': self._get_configuration_values(preset_template.id),
+                # `preset.speed_profiles`/`preset.configuration` direct dot access
+                # is gone (zero uses across every shipped preset) -
+                # `generation.profile` above and `get_speed_profile(name)` (which
+                # still reads the declared profiles internally) replace the
+                # former; `@config:<key>` field indirection replaces the latter,
+                # resolved entirely outside the render context (configuration.py).
             },
             'runtime': {
                 'settings': self._build_runtime_settings(user_id),
@@ -475,6 +483,10 @@ class PresetProcessor:
             'paths': {
                 'preset': preset_template.path,
             },
+            # Internal wiring for the `get_speed_profile(name)` global
+            # (src/platform/templating/dict_utils.py) - not a documented
+            # context root, never advertised to pipeline.yml authors.
+            '_speed_profiles': preset_template.speed_profiles or {},
         }
 
         # Process all pipes configurations recursively

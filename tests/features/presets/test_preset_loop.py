@@ -253,13 +253,20 @@ class TestLoopDirective:
             preset_processor.process_value(value, context)
     
     def test_real_world_lora_example(self, preset_processor):
-        """Test real-world example of LoRA configuration."""
+        """Test real-world example of LoRA configuration.
+
+        `input` here is an ordinary user-defined context variable (a plain
+        dict named "input"), unrelated to the removed `input.*` render
+        context - `path()` (a removed global with no real preset consumer)
+        is replaced by a plain string-concatenation expression building the
+        same `models/loras/<file>` path.
+        """
         value = {
             "loras": {
                 "@loop": {
                     "count": "{{ num_lora_slots }}",
                     "template": {
-                        "file_path": "{{ path('lora', input['form']['lora_' ~ loop.index ~ '_file']) }}",
+                        "file_path": "{{ 'models/loras/' ~ input['form']['lora_' ~ loop.index ~ '_file'] }}",
                         "weight": "{{ input['form']['lora_' ~ loop.index ~ '_strength'] }}"
                     }
                 }

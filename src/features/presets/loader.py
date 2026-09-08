@@ -256,6 +256,11 @@ class PresetTemplateLoader:
                 if mode_template is not None:
                     modes_dict[mode_name] = mode_template
 
+            declared_config_keys = set((manifest.configuration or {}).keys())
+            errors.extend(
+                self._validate_filter_tags_directives(manifest.id, declared_config_keys, modes_dict)
+            )
+
         if errors:
             errors_out[str(preset_path)] = errors
             for err in errors:
@@ -407,6 +412,82 @@ class PresetTemplateLoader:
             ))
 
         return forms, errors
+
+    def _validate_filter_tags_directives(
+        self, preset_id: str, declared_config_keys: set, modes_dict: Dict[str, ModeTemplate]
+    ) -> List[str]:
+        """A `model`/`lora_picker` field's `configuration.filter_tags`, and a
+        reaction's `then.set_filter_tags` (docs/presets.md "`@config:<key>`
+        indirection in form fields"), are load-time errors rather than the
+        silent "no filtering" `resolve_filter_tags` (configuration.py) falls
+        back to at serve time - a typo here should never reach a running
+        preset. Walks every mode's every form's fully-built field tree
+        (children included - so a fragment loaded from an external tab file
+        is covered exactly like an inline field), checked against THIS
+        preset's own declared `configuration:` schema.
+
+        Two mistakes are load errors: `@config:<key>` naming a key
+        `declared_config_keys` doesn't contain, and any other `@`-prefixed
+        value (`@config:` is the only `@` directive `filter_tags`/
+        `set_filter_tags` ever accepted - `@loop` is a YAML key elsewhere,
+        `@seed` a `pipe.input:` wiring sentinel, neither a filter_tags value).
+        A plain literal list, or a string with no `@` prefix at all, is never
+        flagged here - `resolve_filter_tags` already treats those as "no
+        documented shape here, no-op" and always did.
+        """
+        errors: List[str] = []
+        for mode_name, mode in modes_dict.items():
+            for form in mode.forms:
+                loc = f"modes/{mode_name}/form '{form.name}'"
+                errors.extend(
+                    self._check_fields_filter_tags(form.fields, declared_config_keys, loc)
+                )
+        return errors
+
+    def _check_fields_filter_tags(
+        self, fields: List[FieldTemplate], declared_config_keys: set, loc: str
+    ) -> List[str]:
+        """Recurse `fields` (including `children`) collecting filter_tags/
+        set_filter_tags directive errors - see `_validate_filter_tags_directives`."""
+        errors: List[str] = []
+        for field in fields:
+            config = field.configuration or {}
+            if 'filter_tags' in config:
+                errors.extend(self._check_one_filter_tags_directive(
+                    config['filter_tags'], declared_config_keys, loc, field.name, 'configuration.filter_tags'
+                ))
+            for reaction in (field.reactions or []):
+                then = reaction.get('then') if isinstance(reaction, dict) else None
+                if isinstance(then, dict) and 'set_filter_tags' in then:
+                    errors.extend(self._check_one_filter_tags_directive(
+                        then['set_filter_tags'], declared_config_keys, loc, field.name,
+                        'reactions[].then.set_filter_tags',
+                    ))
+            if isinstance(field.children, list):
+                errors.extend(self._check_fields_filter_tags(field.children, declared_config_keys, loc))
+        return errors
+
+    @staticmethod
+    def _check_one_filter_tags_directive(
+        raw, declared_config_keys: set, loc: str, field_name: str, where: str
+    ) -> List[str]:
+        if not isinstance(raw, str) or not raw.startswith('@'):
+            return []
+
+        if raw.startswith('@config:'):
+            key = raw[len('@config:'):]
+            if key in declared_config_keys:
+                return []
+            return [
+                f"{loc} field '{field_name}' {where}: references '@config:{key}' but "
+                f"preset.yml declares no configuration entry '{key}' "
+                f"(declared: {sorted(declared_config_keys)})"
+            ]
+
+        return [
+            f"{loc} field '{field_name}' {where}: '{raw}' is not a recognized '@' "
+            f"directive - only '@config:<key>' is valid here"
+        ]
 
     def _build_field_template(self, field_data: dict, preset_root: Path, prefix: str) -> FieldTemplate:
         """Recursively convert a validated field dict into a FieldTemplate.
@@ -605,6 +686,18 @@ class PresetTemplateLoader:
                 mode_template, mode_errors = self._load_mode(synthetic_preset_path, mode_name)
                 if mode_errors:
                     errors.setdefault(error_key, []).extend(mode_errors)
+                    continue
+
+                # A contribution's `@config:<key>` references resolve against the
+                # TARGET preset's own declared `configuration:` schema (docs/presets.md
+                # "Speed profiles and admin configuration are inherited, not
+                # per-contribution") - not the contributing plugin's, which has none.
+                declared_config_keys = set((target.configuration or {}).keys())
+                filter_tags_errors = self._validate_filter_tags_directives(
+                    contribution.target_preset_id, declared_config_keys, {mode_name: mode_template}
+                )
+                if filter_tags_errors:
+                    errors.setdefault(error_key, []).extend(filter_tags_errors)
                     continue
 
                 existing = target.modes.get(mode_name)

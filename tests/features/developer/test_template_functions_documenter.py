@@ -19,20 +19,20 @@ class TestTemplateFunctionsDocumenter:
         assert isinstance(categories, dict)
         assert len(categories) > 0
 
-        # The categories reflect the ACTUAL post-rework surface: three global
-        # helpers, filters, and the template context roots. The deleted
-        # globals' old categories ("Value Access", "Form Access", "Settings",
-        # "Conditionals", "Dictionary Access") must NOT reappear.
-        expected_categories = [
-            "Path Helpers", "Icon Mapping", "Speed Profiles",
-            "Filters", "Template Context",
-        ]
+        # The categories reflect the ACTUAL post-rework surface: the one
+        # allowlisted global, filters, and the template context roots. The
+        # deleted globals' old categories ("Value Access", "Form Access",
+        # "Settings", "Conditionals", "Dictionary Access", "Path Helpers",
+        # "Icon Mapping" - neither path/icon ever had a real preset consumer)
+        # must NOT reappear.
+        expected_categories = ["Speed Profiles", "Filters", "Template Context"]
         for category in expected_categories:
             assert category in categories
 
         deleted_categories = [
             "Value Access", "Form Access", "Settings",
             "Conditionals", "Dictionary Access",
+            "Path Helpers", "Icon Mapping",
         ]
         for category in deleted_categories:
             assert category not in categories
@@ -100,53 +100,51 @@ class TestTemplateFunctionsDocumenter:
             assert func_doc['category'] in result['categories']
 
     def test_surviving_globals_are_documented(self):
-        """The three allowlisted globals + filters + context roots are present."""
+        """The one allowlisted global + filters + context roots are present."""
         documenter = TemplateFunctionsDocumenter()
         result = documenter.generate_documentation()
 
         names = [func['name'] for func in result['functions']]
 
-        for name in ['path', 'icon', 'get_speed_profile', 'matches', 'active_loras',
+        for name in ['get_speed_profile', 'active_loras',
                      'strip_model_dir', 'default',
                      'form', 'request', 'generation', 'preset', 'runtime', 'paths']:
             assert name in names, f"Expected template surface '{name}' not documented"
 
     def test_deleted_globals_are_absent(self):
-        """The removed render globals must NOT be documented as current syntax."""
+        """The removed render globals/filters must NOT be documented as
+        current syntax - path/icon never had a real preset consumer, and
+        neither did the matches/regex_search filter."""
         documenter = TemplateFunctionsDocumenter()
         result = documenter.generate_documentation()
 
         names = {func['name'] for func in result['functions']}
 
         for name in ['get_form', 'value', 'get', 'setting', 'config',
-                     'contains', 'get_is_in', 'dict', 'get_dict_value']:
-            assert name not in names, f"Deleted global '{name}' still documented"
+                     'contains', 'get_is_in', 'dict', 'get_dict_value',
+                     'path', 'get_path_for', 'icon', 'get_icon',
+                     'matches', 'regex_search']:
+            assert name not in names, f"Deleted global/filter '{name}' still documented"
 
     def test_no_example_uses_deleted_syntax(self):
-        """No example may show a deleted global, @object:/@dict:, or input.* context."""
+        """No example may show a deleted global/filter, @object:/@dict:,
+        input.* context, or the removed preset.speed_profiles/
+        preset.configuration/generation.seed/generation.quantity roots."""
         documenter = TemplateFunctionsDocumenter()
         result = documenter.generate_documentation()
 
-        forbidden = ["get_form(", "value(input", "setting(", "@object:", "@dict:", "input."]
+        forbidden = [
+            "get_form(", "value(input", "setting(", "@object:", "@dict:", "input.",
+            "path(", "get_path_for(", "icon(", "get_icon(", "matches(", "regex_search(",
+            "preset.speed_profiles", "preset.configuration",
+            "generation.seed", "generation.quantity",
+        ]
         for func_doc in result['functions']:
             for example in func_doc['examples']:
                 for token in forbidden:
                     assert token not in example['code'], (
                         f"Entry '{func_doc['name']}' example uses deleted syntax '{token}'"
                     )
-
-    def test_path_function_documentation(self):
-        """Test the 'path' function is properly documented."""
-        documenter = TemplateFunctionsDocumenter()
-        result = documenter.generate_documentation()
-
-        path_func = next((f for f in result['functions'] if f['name'] == 'path'), None)
-
-        assert path_func is not None
-        assert path_func['alias'] == 'get_path_for'
-        assert 'path_type' in str(path_func['parameters'])
-        assert len(path_func['examples']) > 0
-        assert path_func['category'] == 'Path Helpers'
 
     def test_get_speed_profile_documentation(self):
         """Test the 'get_speed_profile' global is properly documented."""
@@ -170,6 +168,31 @@ class TestTemplateFunctionsDocumenter:
         assert form_ctx is not None
         assert form_ctx['category'] == 'Template Context'
         assert len(form_ctx['examples']) > 0
+
+    def test_generation_context_documents_profile_not_seed_or_quantity(self):
+        """generation.profile replaces generation.seed/generation.quantity
+        (dead aliases for form.seed/form.quantity - see docs/presets.md)."""
+        documenter = TemplateFunctionsDocumenter()
+        result = documenter.generate_documentation()
+
+        generation_ctx = next((f for f in result['functions'] if f['name'] == 'generation'), None)
+
+        assert generation_ctx is not None
+        param_names = {p['name'] for p in generation_ctx['parameters']}
+        assert 'profile' in param_names
+        assert 'seed' not in param_names
+        assert 'quantity' not in param_names
+
+    def test_preset_context_no_longer_documents_speed_profiles_or_configuration(self):
+        documenter = TemplateFunctionsDocumenter()
+        result = documenter.generate_documentation()
+
+        preset_ctx = next((f for f in result['functions'] if f['name'] == 'preset'), None)
+
+        assert preset_ctx is not None
+        param_names = {p['name'] for p in preset_ctx['parameters']}
+        assert 'speed_profiles' not in param_names
+        assert 'configuration' not in param_names
 
     def test_strip_model_dir_filter_documentation(self):
         """Test the 'strip_model_dir' filter is properly documented."""

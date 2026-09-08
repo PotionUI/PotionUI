@@ -167,8 +167,8 @@ pipeline:
         - ["negative_prompt", "{{ generation.prompts.negatives }}"]
         - ["cfg", "{{ form.cfg | default(preset.vars.default_cfg) }}"]
         - ["steps", "{{ form.steps | default(preset.vars.default_steps) }}"]
-        - ["sampler", "{{ form.sampler | default(preset.vars.sampler) }}"]
-        - ["scheduler", "{{ form.scheduler | default(preset.vars.scheduler) }}"]
+        - ["sampler", "{{ form.sampler | default(preset.vars.default_sampler) }}"]
+        - ["scheduler", "{{ form.scheduler | default(preset.vars.default_scheduler) }}"]
         - ["clip_skip", "{{ form.clip_skip | default(2) }}"]
         - ["denoise", "{{ form.denoise | default(0.75) }}"]
         - ["mask_blur", "{{ form.mask_blur | default(4) }}"]
@@ -234,8 +234,8 @@ pipeline:
     configuration:
       cfg: "{{ form.cfg | default(preset.vars.default_cfg) }}"
       steps: "{{ form.steps | default(preset.vars.default_steps) }}"
-      sampler: "{{ form.sampler | default(preset.vars.sampler) }}"
-      scheduler: "{{ form.scheduler | default(preset.vars.scheduler) }}"
+      sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
+      scheduler: "{{ form.scheduler | default(preset.vars.default_scheduler) }}"
       quantity: "{{ form.quantity | default(1) }}"
       denoise: "{{ form.denoise | default(0.75) }}"
       mask_blur: "{{ form.mask_blur | default(4) }}"

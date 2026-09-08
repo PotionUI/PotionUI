@@ -71,7 +71,7 @@ pipeline:
         - ["steps", "{{ form.steps | default(8) }}"]
         - ["sampler", "{{ form.sampler_name | default('euler') }}"]
         - ["scheduler", "{{ form.scheduler | default('simple') }}"]
-        - ["resolution", "{{ form.resolution | default('1024x1328') }}"]
+        - ["resolution", "{{ form.resolution | default('1140x1472') }}"]
         - ["denoise", "{{ form.denoise | default(1.0) }}"]
 
   #############
@@ -106,18 +106,19 @@ pipeline:
                 inputs:
                   lora_name: "{{ item.model | strip_model_dir }}"
                   strength_model: "{{ item.strength }}"
-                  model: ["{% if loop.first %}37{% else %}{{ 75 + loop.index0 }}{% endif %}", 0]
+                  model: ["{% if loop.first %}{{ preset.vars.lora_chain_base_node.txt2img }}{% else %}{{ 75 + loop.index0 }}{% endif %}", 0]
                 class_type: "LoraLoaderModelOnly"
                 _meta:
                   title: "LoRA {{ loop.index }}"
 
-        # Reconnect ModelSamplingAuraFlow (66) to the end of the chain:
-        # the last generated LoRA node, or base model 37 when no LoRAs are selected
-        # (needed unconditionally because node 76 is always removed above)
+        # Reconnect ModelSamplingAuraFlow (66) to the end of the chain: the last
+        # generated LoRA node, or base model (preset.vars.lora_chain_base_node.txt2img)
+        # when no LoRAs are selected (needed unconditionally because node 76 is always
+        # removed above)
         - type: "update_node_input"
           node_id: "66"
           input_key: "model"
-          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}{{ 75 + loras | length }}{% else %}37{% endif %}", 0]
+          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}{{ 75 + loras | length }}{% else %}{{ preset.vars.lora_chain_base_node.txt2img }}{% endif %}", 0]
 
       field_mappings:
         # Prompts - node 6 (Positive) and node 7 (Negative)
@@ -130,9 +131,9 @@ pipeline:
         - ["{{ form.clip | strip_model_dir }}", "38.inputs.clip_name", "str"]
         - ["{{ form.vae | strip_model_dir }}", "39.inputs.vae_name", "str"]
 
-        # Resolution - parse width and height from resolution string (e.g., "1024x1328")
-        - ["{{ (form.resolution | default('1024x1328')).split('x')[0] }}", "58.inputs.width", "int"]
-        - ["{{ (form.resolution | default('1024x1328')).split('x')[1] }}", "58.inputs.height", "int"]
+        # Resolution - parse width and height from resolution string (e.g., "1140x1472")
+        - ["{{ (form.resolution | default('1140x1472')).split('x')[0] }}", "58.inputs.width", "int"]
+        - ["{{ (form.resolution | default('1140x1472')).split('x')[1] }}", "58.inputs.height", "int"]
 
         # Batch size
         - ["{{ form.quantity | default(1) }}", "58.inputs.batch_size", "int"]

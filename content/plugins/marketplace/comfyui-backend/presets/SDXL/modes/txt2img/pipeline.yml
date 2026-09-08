@@ -99,17 +99,18 @@ pipeline:
                 inputs:
                   lora_name: "{{ item.model | strip_model_dir }}"
                   strength_model: "{{ item.strength }}"
-                  model: ["{% if loop.first %}4{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
+                  model: ["{% if loop.first %}{{ preset.vars.lora_chain_base_node }}{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
                 class_type: "LoraLoaderModelOnly"
                 _meta:
                   title: "LoRA {{ loop.index }}"
 
         # Connect KSampler (3) to the end of the chain: the last generated LoRA node,
-        # or the checkpoint loader 4 (the workflow default) when no LoRAs are selected
+        # or the checkpoint loader (preset.vars.lora_chain_base_node, the workflow
+        # default) when no LoRAs are selected
         - type: "update_node_input"
           node_id: "3"
           input_key: "model"
-          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}4{% endif %}", 0]
+          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}{{ preset.vars.lora_chain_base_node }}{% endif %}", 0]
 
       #############
       ## Field Mappings

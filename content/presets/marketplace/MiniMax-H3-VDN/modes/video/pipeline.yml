@@ -172,7 +172,7 @@ pipeline:
       guidance_scale: 1.0
       # Caps the keyframe area the TE's vision tower sees, as a multiple of the
       # output canvas. Both keys are inert without a keyframe.
-      image_pixel_budget: "{{ form.keyframe_pixel_budget | default(0) }}"
+      image_pixel_budget: "{{ form.keyframe_pixel_budget | default('0') }}"
       output_resolution: "{{ form.resolution }}"
 
   #############

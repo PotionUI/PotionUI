@@ -313,7 +313,7 @@
         },
         "resolution": {
           "type": "str",
-          "value": "  896x1152\n"
+          "value": "896x1152"
         },
         "sampler": {
           "type": "str",

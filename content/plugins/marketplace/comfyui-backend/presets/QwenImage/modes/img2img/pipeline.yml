@@ -131,18 +131,19 @@ pipeline:
                 inputs:
                   lora_name: "{{ item.model | strip_model_dir }}"
                   strength_model: "{{ item.strength }}"
-                  model: ["{% if loop.first %}91:12{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
+                  model: ["{% if loop.first %}{{ preset.vars.lora_chain_base_node.img2img }}{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
                 class_type: "LoraLoaderModelOnly"
                 _meta:
                   title: "LoRA {{ loop.index }}"
 
-        # Reconnect ModelSamplingAuraFlow (91:67) to the end of the chain:
-        # the last generated LoRA node, or the diffusion model 91:12 when no LoRAs are selected
-        # (needed unconditionally: the chain end must be wired whether or not LoRAs are selected)
+        # Reconnect ModelSamplingAuraFlow (91:67) to the end of the chain: the last
+        # generated LoRA node, or the diffusion model (preset.vars.lora_chain_base_node.img2img)
+        # when no LoRAs are selected (needed unconditionally: the chain end must be
+        # wired whether or not LoRAs are selected)
         - type: "update_node_input"
           node_id: "91:67"
           input_key: "model"
-          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}91:12{% endif %}", 0]
+          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}{{ preset.vars.lora_chain_base_node.img2img }}{% endif %}", 0]
 
       field_mappings:
         # Prompts - TextEncodeQwenImageEditPlus nodes

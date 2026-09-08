@@ -64,11 +64,23 @@ vars:
   num_controlnet_slots: 3
 
   # Generation defaults
-  sampler: "DPMPP_2M"
-  scheduler: "karras"
+  default_sampler: "DPMPP_2M"
+  default_scheduler: "karras"
   default_steps: 30
   default_cfg: 5
   generator_denoise: 0.7
+
+  # Snaps an upscaled/tiled-detailer-stage width (the doubled/quadrupled
+  # canvas the txt2img pipeline can end up with) back to the nearest of the
+  # two canonical SDXL aspect ratios; a width with no entry here passes the
+  # resolution through unchanged. Keyed by the pre-'x' width component of
+  # `form.resolution`, e.g. "1792x896" -> width 1792 -> "896x1152".
+  resolution_snap:
+    1792: "896x1152"
+    2304: "1152x896"
+    896: "896x1152"
+    1152: "1152x896"
+    3584: "896x1152"
 
   # Detailer settings
   tiled_detailer_denoise: 0.25

@@ -166,8 +166,8 @@ pipeline:
         - ["negative_prompt", "{{ generation.prompts.negatives }}"]
         - ["cfg", "{{ form.cfg | default(preset.vars.default_cfg) }}"]
         - ["steps", "{{ form.steps | default(preset.vars.default_steps) }}"]
-        - ["sampler", "{{ form.sampler | default(preset.vars.sampler) }}"]
-        - ["scheduler", "{{ form.scheduler | default(preset.vars.scheduler) }}"]
+        - ["sampler", "{{ form.sampler | default(preset.vars.default_sampler) }}"]
+        - ["scheduler", "{{ form.scheduler | default(preset.vars.default_scheduler) }}"]
         - ["resolution", "{{ form.resolution }}"]
         - ["clip_skip", "{{ form.clip_skip | default(2) }}"]
 
@@ -189,11 +189,11 @@ pipeline:
   ############
   - name: "sharpness/sdxl"
     id: "sharpness"
-    enabled: "{{ form.sharpness | default(0)|float > 0 }}"
+    enabled: "{{ form.sharpness | default(2.0)|float > 0 }}"
     input:
       - ["model", "checkpoint_loader/sdxl", "model"]
     configuration:
-      strength: "{{ form.sharpness | default(0) }}"
+      strength: "{{ form.sharpness | default(2.0) }}"
 
   #############
   ## Self-Attention Guidance (optional enhancement, ~15-20% overhead when
@@ -232,8 +232,8 @@ pipeline:
     configuration:
       cfg: "{{ form.cfg | default(preset.vars.default_cfg) }}"
       steps: "{{ form.steps | default(preset.vars.default_steps) }}"
-      sampler: "{{ form.sampler | default(preset.vars.sampler) }}"
-      scheduler: "{{ form.scheduler | default(preset.vars.scheduler) }}"
+      sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
+      scheduler: "{{ form.scheduler | default(preset.vars.default_scheduler) }}"
       quantity: "{{ form.quantity | default(1) }}"
       # resolution's `.split('x')[0]|int` chain used to have no fallback for a
       # missing `resolution` key (the form field sets `value: "896x1152"`, not
@@ -243,21 +243,10 @@ pipeline:
       # resolution raised `AttributeError: 'NoneType' object has no attribute
       # 'split'` inside the Jinja render, which PresetProcessor swallowed into
       # a `None` config value rather than failing loudly. Default matches the
-      # field's own `value: "896x1152"` in tabs/generation.yml.
-      resolution: |
-        {% if (form.resolution | default('896x1152')).split('x')[0] | int == 1792 %}
-          896x1152
-        {% elif (form.resolution | default('896x1152')).split('x')[0] | int == 2304 %}
-          1152x896
-        {% elif (form.resolution | default('896x1152')).split('x')[0] | int == 896 %}
-          896x1152
-        {% elif (form.resolution | default('896x1152')).split('x')[0] | int == 1152 %}
-          1152x896
-        {% elif (form.resolution | default('896x1152')).split('x')[0] | int == 3584 %}
-          896x1152
-        {% else %}
-          {{ form.resolution | default('896x1152') }}
-        {% endif %}
+      # field's own `value: "896x1152"` in tabs/generation.yml. Snapping table
+      # is `preset.vars.resolution_snap` (see preset.yml) -- an unmapped width
+      # passes the resolution through unchanged.
+      resolution: "{{ preset.vars.resolution_snap.get((form.resolution | default('896x1152')).split('x')[0] | int, form.resolution | default('896x1152')) }}"
 
   #############
   ## Upscaler
@@ -299,8 +288,8 @@ pipeline:
       steps: "{{ form.td_steps | default(preset.vars.tiled_detailer_steps) }}"
       cfg: "{{ form.td_cfg | default(preset.vars.tiled_detailer_cfg) }}"
       detail_boost: "{{ form.td_detail_boost | default(preset.vars.tiled_detailer_boost) }}"
-      sampler: "{{ form.sampler | default(preset.vars.sampler) }}"
-      scheduler: "{{ form.scheduler | default(preset.vars.scheduler) }}"
+      sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
+      scheduler: "{{ form.scheduler | default(preset.vars.default_scheduler) }}"
 
       # Tile configuration from form with fallback to resolution-based defaults
       tile_size: "{{ form.td_tile_size | default(1536) }}"
@@ -311,9 +300,9 @@ pipeline:
       min_tile_size: "{{ form.td_min_tile_size | default(896) }}"
 
       # Advanced boolean options with fallback defaults
-      adaptive_tiles: "{{ 'adaptive_tiles' in (form.td_adaptive_tiles | default([])) }}"
-      enable_detail_conditioning: "{{ 'enable_detail_conditioning' in (form.td_adaptive_tiles | default([])) }}"
-      content_aware_denoise: "{{ 'content_aware_denoise' in (form.td_adaptive_tiles | default([])) }}"
+      adaptive_tiles: "{{ 'adaptive_tiles' in (form.td_adaptive_tiles | default(['adaptive_tiles', 'enable_detail_conditioning', 'content_aware_denoise'])) }}"
+      enable_detail_conditioning: "{{ 'enable_detail_conditioning' in (form.td_adaptive_tiles | default(['adaptive_tiles', 'enable_detail_conditioning', 'content_aware_denoise'])) }}"
+      content_aware_denoise: "{{ 'content_aware_denoise' in (form.td_adaptive_tiles | default(['adaptive_tiles', 'enable_detail_conditioning', 'content_aware_denoise'])) }}"
 
       # Content-aware settings (only used if content_aware_denoise is enabled)
       min_denoise: "{{ form.td_min_denoise | default(0.1) }}"
@@ -341,8 +330,8 @@ pipeline:
           confidence: "{{ form.face_confidence | default(preset.vars.face_fix_confidence) }}"
           steps: "{{ form.face_steps | default(preset.vars.face_fix_steps) }}"
           cfg: "{{ form.face_cfg | default(preset.vars.face_fix_cfg) }}"
-          sampler: "{{ form.sampler | default(preset.vars.sampler) }}"
-          scheduler: "{{ form.scheduler | default(preset.vars.scheduler) }}"
+          sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
+          scheduler: "{{ form.scheduler | default(preset.vars.default_scheduler) }}"
           min_size_for_upscale: "{{ form.face_min_size | default(256) }}"
           upscale_factor: "{{ form.face_upscale_factor | default(1.5) }}"
           mask_blur: "{{ form.face_mask_blur | default(0.5) }}"
@@ -355,8 +344,8 @@ pipeline:
           confidence: "{{ form.hand_confidence | default(0.3) }}"
           steps: "{{ form.hand_steps | default(8) }}"
           cfg: "{{ form.hand_cfg | default(2.0) }}"
-          sampler: "{{ form.sampler | default(preset.vars.sampler) }}"
-          scheduler: "{{ form.scheduler | default(preset.vars.scheduler) }}"
+          sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
+          scheduler: "{{ form.scheduler | default(preset.vars.default_scheduler) }}"
           mask_blur: "{{ form.hand_mask_blur | default(2) }}"
           padding: "{{ form.hand_padding | default(32) }}"
         eyes:
@@ -370,8 +359,8 @@ pipeline:
           eye_padding: "{{ form.eyes_padding | default(10) }}"
           eye_v_padding: "{{ form.eyes_v_padding | default(15) }}"
           mask_blur: "{{ form.eyes_mask_blur | default(1) }}"
-          sampler: "{{ form.sampler | default(preset.vars.sampler) }}"
-          scheduler: "{{ form.scheduler | default(preset.vars.scheduler) }}"
+          sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
+          scheduler: "{{ form.scheduler | default(preset.vars.default_scheduler) }}"
         teeth:
           type: "mediapipe"  # Teeth always use MediaPipe (no YOLO model available)
           model: "{{ form.teeth_detector_model | default('models/mediapipe/face_landmarker.task') }}"
@@ -384,8 +373,8 @@ pipeline:
           teeth_padding: "{{ form.teeth_padding | default(5) }}"
           teeth_v_padding: "{{ form.teeth_v_padding | default(8) }}"
           mask_blur: "{{ form.teeth_mask_blur | default(0) }}"
-          sampler: "{{ form.sampler | default(preset.vars.sampler) }}"
-          scheduler: "{{ form.scheduler | default(preset.vars.scheduler) }}"
+          sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
+          scheduler: "{{ form.scheduler | default(preset.vars.default_scheduler) }}"
         person:
           type: "{{ form.person_detector_type | default('yolo') }}"  # Person uses YOLO detection with COCO model
           model: "{{ form.person_detector_model | default('yolov8m.pt') }}"
@@ -394,8 +383,8 @@ pipeline:
           confidence: "{{ form.person_confidence | default(0.4) }}"
           steps: "{{ form.person_steps | default(20) }}"
           cfg: "{{ form.person_cfg | default(5.0) }}"
-          sampler: "{{ form.sampler | default(preset.vars.sampler) }}"
-          scheduler: "{{ form.scheduler | default(preset.vars.scheduler) }}"
+          sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
+          scheduler: "{{ form.scheduler | default(preset.vars.default_scheduler) }}"
           mask_blur: "{{ form.person_mask_blur | default(3) }}"
           padding: "{{ form.person_padding | default(48) }}"
   #############
@@ -403,11 +392,11 @@ pipeline:
   ############
   - name: "film_grain"
     id: "film_grain"
-    enabled: "{{ (form.film_grain | default('')) != '' }}"
+    enabled: "{{ (form.film_grain | default('classic_35mm')) != '' }}"
     input:
       - [ "image", "detailer/sdxl", "image" ]
     configuration:
-      preset: "{{ form.film_grain | default('') }}"
+      preset: "{{ form.film_grain | default('classic_35mm') }}"
 
   ##############
   ## Gallery
@@ -416,7 +405,7 @@ pipeline:
     id: "gallery"
     enabled: true
     input:
-      - ["image", "{% if form.film_grain | default(false) %}film_grain{% else %}detailer/sdxl{% endif %}", "image"]
+      - ["image", "{% if form.film_grain | default('classic_35mm') %}film_grain{% else %}detailer/sdxl{% endif %}", "image"]
       - ["seed", "seed_generator", "seed"]
     configuration:
       save: "true"

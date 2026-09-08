@@ -141,7 +141,7 @@ pipeline:
       steps: "{{ form.steps | default(preset.vars.default_steps) }}"
       guidance: "{{ form.guidance | default(preset.vars.default_guidance) }}"
       # Optional shift override (constant-shift variants only); blank -> spec default.
-      shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      shift: "{% set s = form.shift | default(2.02) %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
       sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
       quantity: "{{ form.quantity | default(1) }}"
 

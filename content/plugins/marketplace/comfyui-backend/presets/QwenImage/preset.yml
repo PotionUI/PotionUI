@@ -40,6 +40,14 @@ vars:
   default_sampler: "euler"
   default_scheduler: "simple"
 
+  # The workflow's base model-loader node the rebuilt LoRA chain (see
+  # node_manipulations in each mode's pipeline.yml) starts from when no LoRA
+  # is selected, or chains onto as node 0 when one is. Per-mode: txt2img and
+  # img2img ship different workflow graphs with different node ids.
+  lora_chain_base_node:
+    txt2img: "37"
+    img2img: "91:12"
+
 modes:
   - txt2img
   - img2img

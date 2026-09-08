@@ -106,17 +106,18 @@ pipeline:
                 inputs:
                   lora_name: "{{ item.model | strip_model_dir }}"
                   strength_model: "{{ item.strength }}"
-                  model: ["{% if loop.first %}75:70{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
+                  model: ["{% if loop.first %}{{ preset.vars.node_prefix.balanced }}:70{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
                 class_type: "LoraLoaderModelOnly"
                 _meta:
                   title: "LoRA {{ loop.index }}"
 
         # Connect CFGGuider (75:63) to the end of the chain: the last generated LoRA
-        # node, or the base model 75:70 (the workflow default) when no LoRAs are selected
+        # node, or the base model (preset.vars.node_prefix.balanced ~ ":70" -- img2img
+        # always runs the balanced graph, unlike txt2img) when no LoRAs are selected
         - type: "update_node_input"
           node_id: "75:63"
           input_key: "model"
-          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}75:70{% endif %}", 0]
+          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}{{ preset.vars.node_prefix.balanced }}:70{% endif %}", 0]
 
         #############
         ## Optional second reference image

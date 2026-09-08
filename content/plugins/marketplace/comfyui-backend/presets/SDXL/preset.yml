@@ -32,5 +32,10 @@ vars:
   default_scheduler: "normal"
   default_resolution: "832x1216"
 
+  # The workflow's base model-loader node the rebuilt LoRA chain (see
+  # node_manipulations in modes/txt2img/pipeline.yml) starts from when no
+  # LoRA is selected, or chains onto as node 0 when one is.
+  lora_chain_base_node: "4"
+
 modes:
   - txt2img

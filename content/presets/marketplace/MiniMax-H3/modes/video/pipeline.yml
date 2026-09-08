@@ -153,7 +153,7 @@ pipeline:
       guidance_scale: 1.0
       # Caps the keyframe area the TE's vision tower sees, as a multiple of the
       # output canvas. Both keys are inert without a keyframe.
-      image_pixel_budget: "{{ form.keyframe_pixel_budget | default(0) }}"
+      image_pixel_budget: "{{ form.keyframe_pixel_budget | default('0') }}"
       output_resolution: "{{ form.resolution }}"
 
   #############
@@ -236,8 +236,8 @@ pipeline:
             items: "{{ form.loras | default([]) | active_loras }}"
             template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
-        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile | default('quality'))['steps']) }}"]
-        - ["speed_profile", "{{ form.speed_profile | default('quality') }}"]
+        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile | default('turbo'))['steps']) }}"]
+        - ["speed_profile", "{{ form.speed_profile | default('turbo') }}"]
         - ["resolution", "{{ form.resolution }}"]
         - ["frames", "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (form.frames | default(preset.vars.default_frames)) }}"]
         - ["fps", "{{ preset.vars.fps }}"]
@@ -268,7 +268,7 @@ pipeline:
       # The profile supplies the baseline; the visible Steps slider (baked to
       # the profile's exact value by the reactions in tabs/generation.yml) is
       # what actually wins once a profile is selected.
-      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('quality'))['steps']) }}"
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('turbo'))['steps']) }}"
       resolution: "{{ form.resolution }}"
       # A document's `settings.duration` is the truth once one is attached --
       # a derived single-shot document (t2v/i2v/flf, `document` above stays
@@ -304,7 +304,7 @@ pipeline:
       sparse_attn: "{{ form.sparse_attn | default('off') }}"
       sol_attn_tau: "{{ form.sol_attn_tau | default(1.0) }}"
       sla_sparsity: "{{ form.sla_sparsity | default(0.9) }}"
-      sla_block_size: "{{ form.sla_block_size | default(64) | int }}"
+      sla_block_size: "{{ form.sla_block_size | default('64') | int }}"
       sparse_attn_dense_last_steps: "{{ form.sparse_attn_dense_last_steps | default(2) }}"
       # Solver and knot placement. The pipe's defaults (euler/simple) ARE the
       # reference schedule, so an untouched Generation tab renders exactly the

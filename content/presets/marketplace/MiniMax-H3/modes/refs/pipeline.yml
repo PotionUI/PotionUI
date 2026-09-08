@@ -162,7 +162,7 @@ pipeline:
       guidance_scale: 1.0
       # Caps the reference area the TE's vision tower sees, as a multiple of
       # the output canvas. Inert with no references picked.
-      image_pixel_budget: "{{ form.reference_pixel_budget | default(0) }}"
+      image_pixel_budget: "{{ form.reference_pixel_budget | default('0') }}"
       output_resolution: "{{ form.resolution }}"
       # The generated clip's frame count, mirrored from the generator's own
       # `frames` below. A reference VIDEO is truncated to it before it is
@@ -221,7 +221,7 @@ pipeline:
           template: "{{ item.reference_indices | default([]) }}"
       quantity: "{{ (form.video_director.segments | length) if form.video_director is defined else 1 }}"
       guidance_scale: 1.0
-      image_pixel_budget: "{{ form.reference_pixel_budget | default(0) }}"
+      image_pixel_budget: "{{ form.reference_pixel_budget | default('0') }}"
       output_resolution: "{{ form.resolution }}"
       reference_video_frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (((form.duration | default(5)) * preset.vars.fps) | round(0, 'floor') | int if form.duration is defined else preset.vars.default_frames) }}"
 
@@ -360,7 +360,7 @@ pipeline:
       sparse_attn: "{{ form.sparse_attn | default('off') }}"
       sol_attn_tau: "{{ form.sol_attn_tau | default(1.0) }}"
       sla_sparsity: "{{ form.sla_sparsity | default(0.9) }}"
-      sla_block_size: "{{ form.sla_block_size | default(64) | int }}"
+      sla_block_size: "{{ form.sla_block_size | default('64') | int }}"
       sparse_attn_dense_last_steps: "{{ form.sparse_attn_dense_last_steps | default(2) }}"
       # Solver and knot placement. The pipe's defaults (euler/simple) ARE the
       # reference schedule, so an untouched Generation tab renders exactly the

@@ -333,8 +333,8 @@ pipeline:
       # nested dicts/lists, not a str()'d-and-reparsed copy.
       document: "{{ form.video_director }}"
       # SVI Pro 2.0 continuity knobs (svi_pro.yml tab); flat field names.
-      motion_latent_count: "{{ form.svi_motion_latent_count | default(1) }}"
-      anchor_latent_strength: "{{ form.svi_anchor_latent_strength | default(1.0) }}"
+      motion_latent_count: "{{ form.svi_motion_latent_count | default(2) }}"
+      anchor_latent_strength: "{{ form.svi_anchor_latent_strength | default(0.75) }}"
       steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"
       cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
       sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"

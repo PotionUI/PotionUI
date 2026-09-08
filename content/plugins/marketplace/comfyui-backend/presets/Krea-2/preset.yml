@@ -16,6 +16,11 @@ vars:
   default_sampler: "euler"
   default_scheduler: "simple"
 
+  # The workflow's base model-loader node the rebuilt LoRA chain (see
+  # node_manipulations in modes/txt2img/pipeline.yml) starts from when no
+  # LoRA is selected, or chains onto as node 0 when one is.
+  lora_chain_base_node: "37"
+
 # Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
 # these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
 configuration:

@@ -38,6 +38,7 @@
 	import { formatBytes, formatDuration } from '$lib/utils/format';
 	import { notifySetupCompleted } from '$lib/stores/setupCompletion';
 	import { Badge, Button, Card, EmptyState, Input, PageContainer, PageHeader, Spinner, Alert } from '$lib/components/ui';
+	import ModelsLocationStep from './components/ModelsLocationStep.svelte';
 
 	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
 
@@ -671,6 +672,10 @@
 					{/if}
 				</Card>
 			{:else if isAdmin && runChecked && !run}
+				<!-- Models location: before offering recipes (which download models),
+				     let the admin point at an external directory. Skippable. -->
+				<ModelsLocationStep />
+
 				<!-- Start-a-recipe: no active run, offer the recipe catalog. -->
 				<div class="space-y-3">
 					<h2 class="text-sm font-semibold text-fg">Start guided setup</h2>

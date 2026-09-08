@@ -87,7 +87,7 @@ pipeline:
       # NAG is on, which needs the negative encoded to work at all. Must move in
       # lockstep with generator/krea2's `guidance` below (and param_emitter's
       # "cfg") -- same expression, same value, every mode.
-      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
+      guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
       nag_scale: "{{ form.nag_scale }}"
 
   - name: "seed_generator"
@@ -140,13 +140,13 @@ pipeline:
         # Same expression as prompt_encoder's guidance_scale and generator's
         # guidance - the enhancer tracks the same cfg (see its own `guidance`
         # comment below).
-        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
         # steps/sampler/resolution always describe the base generator's pass;
         # the enhance pass's own settings, when it runs, are recorded
         # separately below (enhance_detail/enhance_resolution) rather than
         # overwriting these.
-        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"]
-        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
         - ["resolution", "{{ form.resolution }}"]
         # Always-present toggle param; detail/resolution are only meaningful
         # (and only emitted) when the pass actually ran.
@@ -171,15 +171,15 @@ pipeline:
       # Speed profile is the baseline; the submitted form fields (kept in sync by
       # the speed_profile field's reactions) override it. The profile fallback
       # covers API callers that submit a profile but no explicit steps/sampler.
-      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
       # Same expression as prompt_encoder's guidance_scale and param_emitter's
       # "cfg" -- all three must move together (see prompt_encoder's comment).
-      guidance: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
+      guidance: "{{ form.cfg | default(generation.profile.guidance) }}"
       # "base" speed profile -> the resolution-anchored dynamic-mu schedule a
       # raw/non-distilled checkpoint needs; every other profile keeps the
       # ModelSpec's own official fixed_mu=1.15 (turbo distilled schedule).
       mu_schedule: "{{ 'dynamic' if (form.speed_profile) == 'base' else 'fixed' }}"
-      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
       resolution: "{{ form.resolution }}"
       quantity: "{{ form.quantity }}"
       nag_scale: "{{ form.nag_scale }}"
@@ -220,7 +220,7 @@ pipeline:
       # Tracks the base generation's cfg (same expression as the base
       # `generator` above) -- refine_tail's own sigmas fully own the schedule
       # either way, but guidance must still match what prompt_encoder encoded.
-      guidance: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
+      guidance: "{{ form.cfg | default(generation.profile.guidance) }}"
       sampler: "euler"
       # "Upscale by" (Enhance tab) is a literal multiplier of the SOURCE image's
       # own (width, height) -- img2img_scale (img2img.py's _img2img_target_size)

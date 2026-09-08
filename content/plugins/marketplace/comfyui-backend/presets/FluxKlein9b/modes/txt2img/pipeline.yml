@@ -70,9 +70,9 @@ pipeline:
             template: ["negative_prompt", "{{ item }}"]
 
         # Generation parameters
-        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"]
-        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"]
-        - ["sampler", "{{ form.sampler_name | default(get_speed_profile(form.speed_profile)['sampler']) }}"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler_name | default(generation.profile.sampler) }}"]
         - ["resolution", "{{ form.resolution }}"]
 
   #############
@@ -168,13 +168,13 @@ pipeline:
         - ["@seed", "{{ preset.vars.node_prefix[form.speed_profile] }}:73.inputs.noise_seed", "int"]
 
         # Steps - Flux2Scheduler (<prefix>:62)
-        - ["{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}", "{{ preset.vars.node_prefix[form.speed_profile] }}:62.inputs.steps", "int"]
+        - ["{{ form.steps | default(generation.profile.steps) }}", "{{ preset.vars.node_prefix[form.speed_profile] }}:62.inputs.steps", "int"]
 
         # CFG - CFGGuider (<prefix>:63)
-        - ["{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}", "{{ preset.vars.node_prefix[form.speed_profile] }}:63.inputs.cfg", "float"]
+        - ["{{ form.cfg | default(generation.profile.guidance) }}", "{{ preset.vars.node_prefix[form.speed_profile] }}:63.inputs.cfg", "float"]
 
         # Sampler - KSamplerSelect (<prefix>:61)
-        - ["{{ form.sampler_name | default(get_speed_profile(form.speed_profile)['sampler']) }}", "{{ preset.vars.node_prefix[form.speed_profile] }}:61.inputs.sampler_name", "str"]
+        - ["{{ form.sampler_name | default(generation.profile.sampler) }}", "{{ preset.vars.node_prefix[form.speed_profile] }}:61.inputs.sampler_name", "str"]
 
   #############
   ## Gallery - Collect all outputs

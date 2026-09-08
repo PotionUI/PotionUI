@@ -63,9 +63,9 @@ pipeline:
         - ["positive_prompt", "{{ generation.prompts.first.positive }}"]
 
         # Generation parameters
-        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"]
-        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"]
-        - ["sampler", "{{ form.sampler_name | default(get_speed_profile(form.speed_profile)['sampler']) }}"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler_name | default(generation.profile.sampler) }}"]
         - ["megapixels", "{{ form.megapixels }}"]
 
   #############
@@ -192,13 +192,13 @@ pipeline:
         - ["@seed", "75:73.inputs.noise_seed", "int"]
 
         # Steps (affects Flux2Scheduler)
-        - ["{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}", "75:62.inputs.steps", "int"]
+        - ["{{ form.steps | default(generation.profile.steps) }}", "75:62.inputs.steps", "int"]
 
         # CFG
-        - ["{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}", "75:63.inputs.cfg", "float"]
+        - ["{{ form.cfg | default(generation.profile.guidance) }}", "75:63.inputs.cfg", "float"]
 
         # Sampler
-        - ["{{ form.sampler_name | default(get_speed_profile(form.speed_profile)['sampler']) }}", "75:61.inputs.sampler_name", "str"]
+        - ["{{ form.sampler_name | default(generation.profile.sampler) }}", "75:61.inputs.sampler_name", "str"]
 
         # Megapixels (ImageScaleToTotalPixels) - image 1 and image 2
         - ["{{ form.megapixels }}", "75:80.inputs.megapixels", "float"]

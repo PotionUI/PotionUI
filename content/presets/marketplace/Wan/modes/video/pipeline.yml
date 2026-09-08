@@ -142,7 +142,7 @@ pipeline:
             positive: "{{ item.prompt }}"
             negative: "{{ item.negative_prompt }}"
       quantity: "{{ form.video_director.segments | length }}"
-      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
+      guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
       nag_scale: "{{ form.nag_scale }}"
 
   - name: "seed_generator"
@@ -188,9 +188,9 @@ pipeline:
             template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ form.video_director.segments | map(attribute='prompt') | list }}"]
         - ["negative_prompt", "{{ form.video_director.segments | map(attribute='negative_prompt') | list }}"]
-        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"]
-        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"]
-        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
         - ["resolution", "{{ form.resolution }}"]
         - ["fps", "{{ form.video_director.settings.fps }}"]
         - ["director_mode", "{{ form.video_director.mode | default('') }}"]
@@ -224,9 +224,9 @@ pipeline:
       - ["seed", "seed_generator", "seed"]
     enabled: "{{ form.video_director.mode == 't2v' }}"
     configuration:
-      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"
-      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
-      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
       expert_boundary: "{% set b = form.expert_boundary_preset %}{% if b is not none and b != '' %}{{ b }}{% endif %}"
       expert_switch_step: "{% set s = form.expert_switch_step | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
       nag_scale: "{{ form.nag_scale }}"
@@ -278,9 +278,9 @@ pipeline:
       - ["seed", "seed_generator", "seed"]
     enabled: "{{ form.video_director.mode in ['i2v', 'flf'] }}"
     configuration:
-      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"
-      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
-      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
       expert_boundary: "{% set b = form.expert_boundary_preset %}{% if b is not none and b != '' %}{{ b }}{% endif %}"
       expert_switch_step: "{% set s = form.expert_switch_step | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
       nag_scale: "{{ form.nag_scale }}"
@@ -335,9 +335,9 @@ pipeline:
       # SVI Pro 2.0 continuity knobs (svi_pro.yml tab); flat field names.
       motion_latent_count: "{{ form.svi_motion_latent_count }}"
       anchor_latent_strength: "{{ form.svi_anchor_latent_strength }}"
-      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"
-      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
-      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
       nag_scale: "{{ form.nag_scale }}"
       nag_tau: "{{ form.nag_tau }}"
       nag_alpha: "{{ form.nag_alpha }}"

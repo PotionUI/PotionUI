@@ -275,7 +275,7 @@ pipeline:
             items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
-        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
         - ["speed_profile", "{{ form.speed_profile }}"]
         - ["resolution", "{{ form.resolution }}"]
         - ["frames", "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (((form.duration) * preset.vars.fps) | round(0, 'floor') | int if form.duration is defined else preset.vars.default_frames) }}"]
@@ -331,7 +331,7 @@ pipeline:
       # The profile supplies the baseline; the visible Steps slider (baked to
       # the profile's exact value by the reactions in tabs/generation.yml) is
       # what actually wins once a profile is selected.
-      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
       resolution: "{{ form.resolution }}"
       # Seconds on the form, frames on the pipe: fixed 24 fps, floored here and
       # snapped UP to the next 17n+5 by the pipe itself. A document's own

@@ -205,7 +205,7 @@ pipeline:
       # profile's reactions bake to the ACTUAL recipe value (1.0 distilled, 3.0
       # quality, whatever the user set for balanced) -- so this is the SAME
       # source the generator's own cfg/quality_cfg below read.
-      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
+      guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
       # NAG needs the negative pass ENCODED even when true CFG is off, and both
       # generator stages can request it (stage 2 runs at a hardcoded cfg 1.0).
       # Without mirroring it here, prompt_encoder._do_cfg() returns False at cfg
@@ -254,9 +254,9 @@ pipeline:
             template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ form.video_director.segments | map(attribute='prompt') | join(' ') }}"]
         - ["negative_prompt", "{{ form.video_director.segments[0].negative_prompt }}"]
-        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"]
-        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"]
-        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
         - ["resolution", "{{ form.resolution }}"]
         - ["fps", "{{ form.video_director.settings.fps }}"]
         - ["director_mode", "{{ form.video_director.mode | default('') }}"]
@@ -324,12 +324,12 @@ pipeline:
       # supplies the baseline, the visible form field (baked to the profile's
       # exact value by the reactions in tabs/generation.yml) is what actually
       # wins once a profile is selected.
-      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"
-      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
       # euler_ancestral on every profile -- the first-party LTX-2.5 stage-1
       # sampler (see preset.yml's speed_profiles comment for the provenance and
       # its limits). Stage 2 below stays deterministic euler.
-      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
       # LTX-2.5's resolution-aware shift: interpolates the flow shift between
       # base_shift and max_shift from the packed video token count, which the
       # generator passes automatically when this schedule is selected
@@ -352,7 +352,7 @@ pipeline:
       # baked cfg value as the plain `cfg` key above (by design, for the quality
       # profile they're the same 3.0).
       quality_mode: "{{ (form.speed_profile) == 'quality' }}"
-      quality_cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
+      quality_cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
       quality_stg: "{{ preset.vars.quality_stg }}"
       quality_rescale: "{{ preset.vars.quality_rescale }}"
       quality_modality: "{{ preset.vars.quality_modality }}"

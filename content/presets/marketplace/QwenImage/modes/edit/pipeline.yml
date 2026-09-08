@@ -83,7 +83,7 @@ pipeline:
       pairs: "{{ generation.prompts.pairs }}"
       quantity: "{{ form.quantity }}"
       # Qwen-Image uses true CFG -> encode the negative pass (guidance_scale > 1).
-      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
+      guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
 
   #############
   ## Seed generator
@@ -139,9 +139,9 @@ pipeline:
         # Per-image arrays, so history records the prompt each image actually ran with.
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
         - ["negative_prompt", "{{ generation.prompts.negatives }}"]
-        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"]
-        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"]
-        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
 
   #############
   ## Generator (edit mode: vision-grounded conditioning + ref_latents)
@@ -155,11 +155,11 @@ pipeline:
     enabled: true
     configuration:
       mode: "edit"
-      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile)['steps']) }}"
-      guidance: "{{ form.cfg | default(get_speed_profile(form.speed_profile)['guidance']) }}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      guidance: "{{ form.cfg | default(generation.profile.guidance) }}"
       # Optional shift override; blank -> spec default (1.15).
       shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
-      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile)['sampler']) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
       quantity: "{{ form.quantity }}"
 
   #############

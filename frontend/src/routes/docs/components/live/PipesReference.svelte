@@ -198,7 +198,7 @@
 										</tr>
 									</thead>
 									<tbody>
-										{#each inputs as input (input.name)}
+										{#each inputs as input, i (`${input.name}:${i}`)}
 											<tr class="border-t border-line/60 align-top">
 												<td class="pr-3 py-1.5 font-mono text-fg whitespace-nowrap">{input.name}</td>
 												<td class="pr-3 py-1.5 font-mono text-fg-muted whitespace-nowrap"
@@ -235,7 +235,7 @@
 										</tr>
 									</thead>
 									<tbody>
-										{#each outputs as output (output.name)}
+										{#each outputs as output, i (`${output.name}:${i}`)}
 											<tr class="border-t border-line/60 align-top">
 												<td class="pr-3 py-1.5 font-mono text-fg whitespace-nowrap">{output.name}</td
 												>
@@ -270,7 +270,7 @@
 										</tr>
 									</thead>
 									<tbody>
-										{#each configuration as option (option.name)}
+										{#each configuration as option, i (`${option.name}:${i}`)}
 											<tr class="border-t border-line/60 align-top">
 												<td class="pr-3 py-1.5 font-mono text-fg whitespace-nowrap">
 													{option.name}

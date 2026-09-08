@@ -90,8 +90,6 @@ class PromptEncoderPipe(BasePipe):
                           min_value=1, max_value=12),
             PipeConfigSpec("pairs", list, [], "Per-image expanded prompt pairs (from the prompt expander)",
                           required=False),
-            PipeConfigSpec("quantity", int, 1, "Number of conditioning tensors to generate", required=False,
-                          min_value=1, max_value=20),
             PipeConfigSpec("positive_embeddings", list, [], "Positive text embeddings configuration", required=False),
             PipeConfigSpec("negative_embeddings", list, [], "Negative text embeddings configuration", required=False),
             PipeConfigSpec("prompt_helpers", dict, {}, "Prompt helper data", required=False),

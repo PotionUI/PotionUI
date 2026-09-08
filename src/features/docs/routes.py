@@ -16,8 +16,8 @@ from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.features.docs import operations
 from src.features.docs.operations import DocNotFoundError, DocForbiddenError, DocIsLiveError
+from src.features.developer.output_types_documenter import OutputTypesDocumenter
 from src.features.developer.pipes_documenter import PipesDocumenter
-from src.features.generation.output_types import output_type_registry
 from src.platform.security.user import User, AccountType
 
 if TYPE_CHECKING:
@@ -27,11 +27,18 @@ if TYPE_CHECKING:
 class DocsController(BaseController):
     """Controller for the in-app Documentation feature."""
 
-    def __init__(self, plugin_registry, base_docs_path: str, pipes_documenter: PipesDocumenter):
+    def __init__(
+        self,
+        plugin_registry,
+        base_docs_path: str,
+        pipes_documenter: PipesDocumenter,
+        output_types_documenter: OutputTypesDocumenter,
+    ):
         super().__init__()
         self.plugin_registry = plugin_registry
         self.base_docs_path = Path(base_docs_path)
         self.pipes_documenter = pipes_documenter
+        self.output_types_documenter = output_types_documenter
 
     async def get_tree(self, is_admin: bool) -> APIResponse:
         """Get the role-filtered documentation tree."""
@@ -78,22 +85,7 @@ class DocsController(BaseController):
     async def get_live_output_types(self) -> APIResponse:
         """Get the live output-type registry reference."""
         try:
-            specs = output_type_registry.all()
-            data = {
-                "output_types": [
-                    {
-                        "key": spec.key,
-                        "output_class": spec.output_cls.__name__,
-                        "message_type": (
-                            spec.message_type if isinstance(spec.message_type, str) else "<dynamic>"
-                        ),
-                        "has_handler": spec.handler_cls is not None,
-                        "has_serializer": spec.serializer is not None,
-                    }
-                    for spec in specs
-                ],
-                "total": len(specs),
-            }
+            data = self.output_types_documenter.generate_documentation()
             return self.success_response(data=data)
         except Exception as e:
             self.logger.error(f"Failed to get live output-types reference: {e}")

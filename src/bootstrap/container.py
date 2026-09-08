@@ -869,9 +869,12 @@ def build_container() -> AppContainer:
     # domain its tool context reaches exists.
 
     # Developer components
+    from src.features.developer.output_types_documenter import OutputTypesDocumenter
     from src.features.developer.pipes_documenter import PipesDocumenter
     from src.features.developer.template_functions_documenter import TemplateFunctionsDocumenter
+    from src.features.generation.output_types import output_type_registry
     pipes_documenter = PipesDocumenter(pipe_catalog)
+    output_types_documenter = OutputTypesDocumenter(output_type_registry)
     template_functions_documenter = TemplateFunctionsDocumenter()
     from src.features.developer.routes import DeveloperController
     developer_controller = DeveloperController(template_functions_documenter, preset_template_loader)
@@ -880,7 +883,12 @@ def build_container() -> AppContainer:
     # markdown, plugin-manifest `docs:` entries, and live-reference APIs
     # into a role-filtered tree)
     from src.features.docs.routes import DocsController
-    docs_controller = DocsController(plugin_registry, base_docs_path="docs", pipes_documenter=pipes_documenter)
+    docs_controller = DocsController(
+        plugin_registry,
+        base_docs_path="docs",
+        pipes_documenter=pipes_documenter,
+        output_types_documenter=output_types_documenter,
+    )
 
     # Form components (the field-type registry was populated earlier, ahead
     # of plugin discovery, so builtin field types could be registered first)

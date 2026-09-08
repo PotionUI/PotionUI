@@ -44,7 +44,9 @@ def _make_client(user, docs_root):
     plugin_registry.get_enabled_plugins.return_value = []
     pipes_documenter = Mock()
     pipes_documenter.generate_documentation.return_value = {"pipes": [], "total": 0}
-    controller = DocsController(plugin_registry, str(docs_root), pipes_documenter)
+    output_types_documenter = Mock()
+    output_types_documenter.generate_documentation.return_value = {"output_types": [], "total": 0}
+    controller = DocsController(plugin_registry, str(docs_root), pipes_documenter, output_types_documenter)
 
     container = SimpleNamespace(docs_controller=controller)
     app = FastAPI()

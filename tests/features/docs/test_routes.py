@@ -37,8 +37,16 @@ class TestDocsController:
         return documenter
 
     @pytest.fixture
-    def controller(self, mock_operations, mock_pipes_documenter):
-        return DocsController(Mock(), "docs", mock_pipes_documenter)
+    def mock_output_types_documenter(self):
+        documenter = Mock()
+        documenter.generate_documentation.return_value = {
+            "output_types": [{"key": "fake"}], "total": 1
+        }
+        return documenter
+
+    @pytest.fixture
+    def controller(self, mock_operations, mock_pipes_documenter, mock_output_types_documenter):
+        return DocsController(Mock(), "docs", mock_pipes_documenter, mock_output_types_documenter)
 
     @pytest.fixture
     def admin_user(self):
@@ -160,34 +168,18 @@ class TestDocsController:
         assert response.error == "live_pipes_failed"
 
     @pytest.mark.asyncio
-    async def test_get_live_output_types_success(self, controller):
-        from src.features.generation.output_types import (
-            OutputTypeRegistry,
-            OutputTypeSpec,
-        )
-        from src.pipelines.outputs import GenerationOutput
-
-        class FakeOutput(GenerationOutput):
-            pass
-
-        fake_registry = OutputTypeRegistry()
-        fake_registry.register(OutputTypeSpec(
-            output_cls=FakeOutput,
-            key="fake",
-            message_type="fake_update",
-            serializer=lambda output, ctx: {},
-            handler_cls=None,
-        ))
-
-        import src.features.docs.routes as docs_controller_module
-        original_registry = docs_controller_module.output_type_registry
-        docs_controller_module.output_type_registry = fake_registry
-        try:
-            response = await controller.get_live_output_types()
-        finally:
-            docs_controller_module.output_type_registry = original_registry
+    async def test_get_live_output_types_success(self, controller, mock_output_types_documenter):
+        response = await controller.get_live_output_types()
 
         assert response.success is True
-        assert response.data["total"] == 1
-        assert response.data["output_types"][0]["key"] == "fake"
-        assert response.data["output_types"][0]["has_handler"] is False
+        assert response.data["output_types"] == [{"key": "fake"}]
+        mock_output_types_documenter.generate_documentation.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_live_output_types_handles_exception(self, controller, mock_output_types_documenter):
+        mock_output_types_documenter.generate_documentation.side_effect = Exception("boom")
+
+        response = await controller.get_live_output_types()
+
+        assert response.success is False
+        assert response.error == "live_output_types_failed"

@@ -1,8 +1,15 @@
 """Pipes documentation generator."""
 from typing import Dict, Any, List
+import inspect
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _first_paragraph(doc: str) -> str:
+    """First paragraph of a docstring, dedented and folded to one line."""
+    first = inspect.cleandoc(doc).split("\n\n", 1)[0]
+    return " ".join(line.strip() for line in first.splitlines()).strip()
 
 
 class PipesDocumenter:
@@ -26,9 +33,16 @@ class PipesDocumenter:
         Returns:
             Dict with pipe documentation
         """
+        if hasattr(pipe_class, 'description'):
+            description = pipe_class.description
+        elif pipe_class.__doc__:
+            description = _first_paragraph(pipe_class.__doc__)
+        else:
+            description = "No description available"
+
         pipe_info = {
             'name': pipe_name,
-            'description': pipe_class.description if hasattr(pipe_class, 'description') else pipe_class.__doc__ or "No description available",
+            'description': description,
             'status': self.pipe_catalog.get_pipe_status(pipe_name).value,
             # Non-null means no Install action can help this pipe - the reader
             # renders these commands instead of offering one.

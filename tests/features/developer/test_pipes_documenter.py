@@ -155,6 +155,26 @@ class TestPipesDocumenter:
         assert result['configuration'] == []
         assert result['requirements'] == {}
 
+    def test_document_pipe_trims_docstring_fallback_to_first_paragraph(self, mock_pipe_catalog):
+        """A pipe with no `description` attribute falls back to its docstring,
+        but the reference should show only the first paragraph, not the full
+        multi-paragraph docstring (with its indentation artifacts)."""
+        class VerbosePipe:
+            __doc__ = """Resizes the incoming image to the target resolution.
+
+            This paragraph documents an implementation detail nobody browsing
+            the pipe reference needs to see, spanning several lines.
+            """
+
+            @staticmethod
+            def get_default_config():
+                return {}
+
+        documenter = PipesDocumenter(mock_pipe_catalog)
+        result = documenter._document_pipe('verbose_pipe', VerbosePipe)
+
+        assert result['description'] == 'Resizes the incoming image to the target resolution.'
+
     def test_generate_documentation_empty_registry(self, mock_pipe_catalog):
         """Test generating documentation with empty pipe registry."""
         mock_pipe_catalog.pipes = {}

@@ -326,6 +326,14 @@ class GeneratorWanChainVideoPipe(BasePipe):
                            "CFG-Zero*: rescale the uncond branch onto cond before extrapolation", required=False),
             PipeConfigSpec("zero_init_steps", int, 0, "CFG-Zero*: zero velocity for the first N steps",
                            required=False, min_value=0, max_value=100),
+            PipeConfigSpec("nag_scale", float, 1.0, "Normalized Attention Guidance scale (1.0 = off). Injects the negative "
+                           "prompt into cross-attention so it's enforced even at cfg=1.0 (single-forward speed) — set "
+                           "cfg to 1.0 and nag_scale to ~1.1-1.5 for the speed win; NAG stacks with true CFG if both are on.",
+                           required=False, min_value=1.0, max_value=20.0),
+            PipeConfigSpec("nag_tau", float, 3.5, "NAG norm-clamp threshold (paper default 3.5)", required=False,
+                           min_value=0.1, max_value=20.0),
+            PipeConfigSpec("nag_alpha", float, 0.5, "NAG blend-back-toward-positive weight (paper default 0.5)", required=False,
+                           min_value=0.0, max_value=1.0),
             *riflex_config_specs(),
             *apg_settings_config_specs(),
             *slg_settings_config_specs(),

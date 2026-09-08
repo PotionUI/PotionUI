@@ -8,6 +8,7 @@ Used by `scripts/preset_lint.py` and `GET /api/developer/presets/lint`.
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
@@ -108,10 +109,48 @@ _MEDIA_RESIZABLE_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".webp"})
 # special-case (see tests_schema.py's module docstring for the convention).
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
+# `form.<name> | default(<expr>)` - the same shape extract_defaults.py-style
+# tooling looks for. The default's argument allows one level of nested
+# parens (a call like `default(get_speed_profile('x').steps)`), mirroring
+# the balanced-paren trick used to build this pattern.
+_GUARD_DEFAULT_RE = re.compile(
+    r"\bform\.([A-Za-z_][A-Za-z0-9_]*)\s*\|\s*default\(([^()]*(?:\([^()]*\)[^()]*)*)\)"
+)
+
+# A `default(...)` argument recognized as a plain literal (number, quoted
+# string, bool, null, or an empty list) - anything else (a dotted lookup like
+# `preset.vars.default_cfg`, a function call, a non-empty list/dict) is an
+# EXPRESSION, not a value the guard/default-mismatch check can compare
+# against a field's own `default:` without evaluating Jinja.
+_GUARD_LITERAL_RE = re.compile(
+    r"^(?:-?\d+\.\d+|-?\d+|'[^']*'|\"[^\"]*\"|true|false|True|False|null|None|\[\s*\])$"
+)
+
+
+def _parse_guard_literal(expr: str) -> Tuple[bool, Any]:
+    """`(is_literal, value)` for one `default(<expr>)` argument's raw text."""
+    text = expr.strip()
+    if not _GUARD_LITERAL_RE.match(text):
+        return False, None
+    try:
+        return True, yaml.safe_load(text)
+    except Exception:
+        return False, None
+
+
+def _literal_eq(a: Any, b: Any) -> bool:
+    """`a == b`, but bool/int never cross-match - Python's `bool` is an `int`
+    subclass, so bare `==` would let a guard `default(0)` "match" a
+    checkbox's `default: false` (mirrors `_js_strict_eq`'s reasoning in
+    src/features/forms/binding.py for the same hazard)."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return type(a) is type(b) and a == b
+    return a == b
+
 
 @dataclass
 class LintIssue:
-    level: str  # "error" | "warning"
+    level: str  # "error" | "warning" | "info"
     preset_path: str
     message: str
 
@@ -158,13 +197,16 @@ class PresetLinter:
         paths: List[str],
         plugin_manifests: Optional[List[Any]] = None,
         requirement_checker_registry: Optional[Any] = None,
+        pipe_catalog: Optional[Any] = None,
     ):
         """`plugin_manifests`: discovered `PluginManifest`s (see
         `scripts/preset_lint.py`), used only to cross-check `preset_modes:`
         contributions against the presets found under `paths` - a
         plugin outside `paths` can still target a preset inside them. `None`/
         empty skips that cross-check entirely (mirrors how an explicit
-        `paths` invocation already skips plugin-owned `presets:` roots).
+        `paths` invocation already skips plugin-owned `presets:` roots). Also
+        feeds the pipe catalog built by `_pipe_catalog` (below) so a
+        plugin-contributed pipe is checked against too.
 
         `requirement_checker_registry`: an already-built
         `RequirementCheckerRegistry` to validate `requirements:` entries
@@ -172,7 +214,13 @@ class PresetLinter:
         when linting inside a running app, so a plugin enabled at runtime (not
         just at boot) is seen. Takes precedence over `plugin_manifests` for
         that purpose; `None` falls back to building one from
-        `plugin_manifests` (the standalone-script path)."""
+        `plugin_manifests` (the standalone-script path).
+
+        `pipe_catalog`: an already-built `PipeCatalog` to check pipeline
+        `name:`/`configuration:` entries against - pass the live one
+        (`get_container().pipe_catalog`) when linting inside a running app,
+        same rationale as `requirement_checker_registry`. `None` falls back to
+        building one from `plugin_manifests` lazily (see `_pipe_catalog`)."""
         self.paths = [Path(p) for p in paths]
         self.plugin_manifests = plugin_manifests or []
         self._image_processor = ImageProcessor()
@@ -186,6 +234,17 @@ class PresetLinter:
         # one in explicitly.
         self._req_checker_registry = requirement_checker_registry
         self._req_checker_warnings: List[LintIssue] = []
+        # Built lazily by `_pipe_catalog`, memoized per linter run. Pre-set
+        # here when the caller passed one in explicitly.
+        self._pipe_catalog_instance = pipe_catalog
+        # pipe name -> imported class | None (unknown to the catalog, or its
+        # module failed to import) - memoized per linter run by `_load_pipe_class`.
+        self._pipe_class_cache: Dict[str, Optional[type]] = {}
+        # Pipe names already reported as import failures this run, so
+        # `_load_pipe_class` queues one informational LintIssue per name, not
+        # one per preset that happens to reference it.
+        self._pipe_import_notes_seen: set = set()
+        self._pipe_import_notes: List[LintIssue] = []
 
     def lint(self) -> List[LintIssue]:
         issues: List[LintIssue] = []
@@ -207,8 +266,97 @@ class PresetLinter:
 
         issues.extend(self._lint_preset_mode_contributions(loaded_manifests))
         issues.extend(self._req_checker_warnings)
+        issues.extend(self._pipe_import_notes)
 
         return issues
+
+    def _pipe_catalog(self):
+        """The `PipeCatalog` to check pipeline `name:`/`configuration:`
+        entries against. If `__init__` was given one explicitly, that is
+        returned as-is (the in-app, live-container path - see `__init__`'s
+        docstring). Otherwise built once per linter run and memoized on
+        `self`, treating every discovered manifest as enabled - the same
+        no-DB posture `scripts/preset_render.py`'s `_plugin_registry_stub`
+        uses, since a standalone lint run has no DB to ask which plugins are
+        really enabled.
+
+        Falls back to discovering plugins from disk (`PluginLoader.
+        discover_plugins()` - a read-only manifest.yml scan, no imports, no
+        app boot) when `self.plugin_manifests` is empty, rather than trusting
+        the caller remembered to pass it: several `PresetLinter(...)` call
+        sites (a plugin's own preset-import flow via `lint_preset_dir`, a
+        bare test construction) don't, and a plugin-contributed pipe name -
+        the ComfyUI backend plugin's `comfyui` pipe is the load-bearing
+        example - must never be mistaken for a typo just because the caller
+        didn't discover plugins itself. `scripts/preset_lint.py`'s own CLI
+        entry point already always runs this same scan unconditionally; this
+        just means every caller gets it, not only that one.
+
+        Uses the SAME relative paths `build_container()` does
+        (`src/bootstrap/container.py`) - correct when run from the repo root,
+        which is how `scripts/preset_lint.py` and pytest are always invoked.
+        """
+        if self._pipe_catalog_instance is not None:
+            return self._pipe_catalog_instance
+
+        from src.pipelines.catalog import PipeCatalog
+
+        manifests = self.plugin_manifests
+        if not manifests:
+            from src.platform.plugins.loader import PluginLoader
+
+            manifests = PluginLoader().discover_plugins()
+
+        plugin_registry = None
+        if manifests:
+            plugin_registry = SimpleNamespace(get_enabled_plugins=lambda: manifests)
+
+        self._pipe_catalog_instance = PipeCatalog(
+            "src/pipelines/pipes", "pipes/custom", plugin_registry=plugin_registry
+        )
+        return self._pipe_catalog_instance
+
+    def _load_pipe_class(self, name: str) -> Optional[type]:
+        """Import and return the pipe class registered as `name`, or `None`
+        if the catalog's light-scan tier doesn't know this name at all, or
+        importing its module fails.
+
+        `PipeCatalog.get_pipe()` never raises on a broken import - it logs
+        and returns `None` (see `_load_pipe_module`) - so a location known
+        but unimportable is reported here as ONE informational `LintIssue`
+        per pipe NAME per linter run (`_pipe_import_notes`, folded into
+        `lint()`'s result), not a crash: several pipe families can't import
+        outside a real app/GPU environment (docs/testing-notes.md), and the
+        config-key/wiring checks simply skip a pipe they can't inspect rather
+        than failing the whole lint pass over an environment gap.
+
+        Memoized on `self` for the life of one linter run - `configuration()`/
+        `inputs()`/`outputs()` are pure classmethod calls once a class is
+        imported, and importing is the expensive, one-time part.
+        """
+        if name in self._pipe_class_cache:
+            return self._pipe_class_cache[name]
+
+        catalog = self._pipe_catalog()
+        if catalog.get_pipe_source(name) is None:
+            self._pipe_class_cache[name] = None
+            return None
+
+        pipe_class = catalog.get_pipe(name)
+        if pipe_class is None and name not in self._pipe_import_notes_seen:
+            self._pipe_import_notes_seen.add(name)
+            self._pipe_import_notes.append(
+                LintIssue(
+                    "info",
+                    "<pipe catalog>",
+                    f"pipe '{name}': its module could not be imported for lint (see the process "
+                    f"log for the exception) - config-key and wiring checks are skipped for it here; "
+                    f"docs/testing-notes.md catalogues known-broken imports in this environment",
+                )
+            )
+
+        self._pipe_class_cache[name] = pipe_class
+        return pipe_class
 
     def _lint_preset(self, preset_file: Path, seen_ids: Dict[str, str]) -> Tuple[List[LintIssue], Any]:
         issues: List[LintIssue] = []
@@ -271,6 +419,12 @@ class PresetLinter:
             issues.extend(self._lint_pipeline_templates(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_field_config_keys(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_alert_field_config(preset_file, mode_dir, mode_name))
+            issues.extend(self._lint_pipe_names(preset_file, mode_dir, mode_name))
+            issues.extend(self._lint_pipe_config_keys(preset_file, mode_dir, mode_name))
+            issues.extend(self._lint_pipeline_wiring(preset_file, mode_dir, mode_name))
+            issues.extend(self._lint_config_exact_expression(preset_file, mode_dir, mode_name))
+            issues.extend(self._lint_variant_form_refs(preset_file, mode_dir, mode_name))
+            issues.extend(self._lint_guard_default_mismatch(preset_file, mode_dir, mode_name))
 
         issues.extend(self._lint_media_refs(preset_file, manifest))
 
@@ -760,9 +914,13 @@ class PresetLinter:
           `value(`, `setting(`, `@object:`, `@dict:`, `input.*`, ...): error
           with a migration hint. Strict eval turns a leftover into a hard
           build failure.
-        - (form refs) a `{{ form.<name> }}` reference naming a field that does
-          not exist in this mode's form tree AND lacking a `| default(...)`:
-          warning (strict eval makes it a runtime build error).
+        - (form refs) a `{{ form.<name> }}` reference naming a field missing
+          from a form variant, and (guard/default mismatch) a
+          `| default(<literal>)` disagreeing with the field's own `default:`,
+          are handled separately by `_lint_variant_form_refs` /
+          `_lint_guard_default_mismatch` - both need EACH variant's own field
+          set individually (`bind_form` binds exactly one variant per
+          request), not the union this method used to check against.
         - (nag) a `generator/*` pipe setting `configuration.nag_scale` with no
           `prompt_encoder` pipe in the same pipeline mirroring it: error (see
           `_NAG_MIRROR_KEY` module docstring).
@@ -785,7 +943,6 @@ class PresetLinter:
             return issues
 
         loc = f"modes/{mode_name}/pipeline.yml"
-        known_fields = self._collect_mode_field_names(mode_dir, preset_file.parent)
 
         # (a) pipe-level enabled: must be a real bool or an exact expression.
         pipes = data.get("pipeline")
@@ -848,7 +1005,7 @@ class PresetLinter:
                         )
                     )
 
-        # Walk every node once for (c), (d) and the form-reference check.
+        # Walk every node once for (c) and (d).
         for path, node in self._iter_nodes(data, "pipeline.yml"):
             if isinstance(node, dict) and "@loop" in node:
                 loop_cfg = node["@loop"]
@@ -880,35 +1037,492 @@ class PresetLinter:
                             f"template syntax').",
                         )
                     )
+
+        return issues
+
+    def _lint_variant_form_refs(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
+        """`{{ form.<name> }}` references in a mode's pipeline.yml, checked
+        against EACH form variant's own field set individually - not their
+        union (the check this replaces). `bind_form` (src/features/forms/
+        binding.py) binds exactly one variant per request, so a reference
+        that's only safe because a DIFFERENT variant happens to declare that
+        field still fails strict evaluation for every submission that picked
+        THIS one.
+
+        A block carrying `| default(...)` is skipped (same as before) - the
+        default makes a missing field safe under strict eval regardless of
+        variant.
+        """
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+        preset_root = preset_file.parent
+        pipeline_file = mode_dir / "pipeline.yml"
+        if not pipeline_file.exists():
+            return issues
+
+        try:
+            with open(pipeline_file, 'r') as f:
+                data = yaml.safe_load(f)
+        except Exception:
+            return issues
+        if not isinstance(data, dict):
+            return issues
+
+        loc = f"modes/{mode_name}/pipeline.yml"
+        variants = list(discover_form_variants(mode_dir))
+
+        for variant_name, form_dir in variants:
+            vloc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
+            known_fields = set(_INJECTED_FORM_KEYS)
+            try:
+                with open(form_dir / "form.yml", 'r') as f:
+                    form_data = yaml.safe_load(f) or {}
+            except Exception:
+                continue
+            self._collect_field_names(form_data.get("fields", []), preset_root, known_fields)
+
+            for path, node in self._iter_nodes(data, "pipeline.yml"):
+                if not isinstance(node, str):
+                    continue
                 for name in self._missing_form_refs(node, known_fields):
                     issues.append(
                         LintIssue(
                             "warning",
                             preset_str,
                             f"{loc}: {path}: references form.{name} but no field named '{name}' "
-                            f"exists in this mode's form tree and the expression has no "
-                            f"| default(...) - strict evaluation would fail the build. Add the "
-                            f"field or a | default(...) fallback.",
+                            f"exists in form variant '{variant_name}' ({vloc}/form.yml) and the "
+                            f"expression has no | default(...) - a submission using this variant "
+                            f"would fail strict evaluation. Add the field to this variant or a "
+                            f"| default(...) fallback.",
                         )
                     )
 
         return issues
 
-    def _collect_mode_field_names(self, mode_dir: Path, preset_root: Path) -> set:
-        """Every form-field name available to a mode's pipeline `{{ form.x }}`
-        references: the union across all form variants (default + variants/),
-        recursing into external tab fragments and statically expanding `@loop`
-        field-generators, plus the runtime-injected keys (`video_director`, ...).
+    def _lint_guard_default_mismatch(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
+        """`{{ form.<name> | default(<literal>) }}` guards whose literal
+        disagrees with the field's own `default:` in a form variant.
+
+        `bind_form` already fills in a missing key with the field's declared
+        `default:` before the pipeline ever renders (src/features/forms/
+        binding.py), so the pipeline's own `| default(...)` almost never
+        actually fires - it's a belt-and-braces fallback for the rare
+        caller that bypasses binding. When its literal disagrees with the
+        field's real default, that fallback is either stale (the field's
+        default changed and this wasn't updated) or was always wrong -
+        either way, worth a warning.
+
+        A guard that AGREES with the field default is deliberately not
+        reported at all, even at `info`: prototyping this against the full
+        preset tree turned up ~450 agreeing guards against ~30 real
+        mismatches - agreement is the intended, healthy convention (a
+        belt-and-braces literal mirroring the field default on purpose), so
+        flagging every instance would bury the handful of actual bugs this
+        check exists to find under 9x its own noise.
+
+        Only LITERAL default() arguments are checked (numbers, quoted
+        strings, true/false/null, `[]` - see `_parse_guard_literal`); an
+        expression like `default(preset.vars.default_cfg)` is skipped, since
+        comparing it would mean evaluating Jinja.
         """
-        names = set(_INJECTED_FORM_KEYS)
-        for _variant_name, form_dir in discover_form_variants(mode_dir):
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+        preset_root = preset_file.parent
+        pipeline_file = mode_dir / "pipeline.yml"
+        if not pipeline_file.exists():
+            return issues
+
+        try:
+            with open(pipeline_file, 'r') as f:
+                data = yaml.safe_load(f)
+        except Exception:
+            return issues
+        if not isinstance(data, dict):
+            return issues
+
+        loc = f"modes/{mode_name}/pipeline.yml"
+        guards: set = set()
+        for _path, node in self._iter_nodes(data, "pipeline.yml"):
+            if not isinstance(node, str):
+                continue
+            for m in _GUARD_DEFAULT_RE.finditer(node):
+                guards.add((m.group(1), m.group(2)))
+        if not guards:
+            return issues
+
+        for variant_name, form_dir in discover_form_variants(mode_dir):
+            vloc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
             try:
                 with open(form_dir / "form.yml", 'r') as f:
                     form_data = yaml.safe_load(f) or {}
             except Exception:
                 continue
-            self._collect_field_names(form_data.get("fields", []), preset_root, names)
-        return names
+            defaults: Dict[str, Any] = {}
+            self._collect_field_defaults(form_data.get("fields", []), preset_root, defaults)
+
+            for field_name, guard_text in sorted(guards):
+                if field_name not in defaults:
+                    continue
+                is_literal, guard_value = _parse_guard_literal(guard_text)
+                if not is_literal:
+                    continue
+                field_default = defaults[field_name]
+                if _literal_eq(guard_value, field_default):
+                    continue  # agreeing guard - the healthy, intended case (see docstring)
+                issues.append(
+                    LintIssue(
+                        "warning",
+                        preset_str,
+                        f"{loc}: form.{field_name} | default({guard_text.strip()}) does not match "
+                        f"the field's own default {field_default!r} in {vloc}/form.yml - bind_form "
+                        f"already fills in the field default before the pipeline ever renders, so "
+                        f"this guard literal is stale or wrong and will never actually be used",
+                    )
+                )
+
+        return issues
+
+    def _lint_pipe_names(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
+        """A pipe's `name:` must resolve to something in the pipe catalog
+        (core pipes, `pipes/custom`, or an enabled plugin) -
+        `GenerationEngine.validate_pipeline` (src/features/generation/
+        engine.py) raises `Pipe '<name>' not found in pipe registry` for a
+        typo here, at generation-RUN time. Checked via the catalog's
+        light-scan tier (`PipeCatalog.get_pipe_source`), which never imports
+        a pipe module just to answer "does this name exist". A templated
+        `name:` (contains `{{`) is skipped - its real value isn't known
+        until render.
+        """
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+        pipeline_file = mode_dir / "pipeline.yml"
+        if not pipeline_file.exists():
+            return issues
+
+        try:
+            with open(pipeline_file, 'r') as f:
+                data = yaml.safe_load(f)
+        except Exception:
+            return issues
+        if not isinstance(data, dict):
+            return issues
+        pipes = data.get("pipeline")
+        if not isinstance(pipes, list):
+            return issues
+
+        loc = f"modes/{mode_name}/pipeline.yml"
+        catalog = self._pipe_catalog()
+
+        for idx, pipe in enumerate(pipes):
+            if not isinstance(pipe, dict):
+                continue
+            name = pipe.get("name")
+            if not isinstance(name, str) or "{{" in name:
+                continue
+            if catalog.get_pipe_source(name) is None:
+                issues.append(
+                    LintIssue(
+                        "error",
+                        preset_str,
+                        f"{loc}: pipeline[{idx}]: pipe name '{name}' not found in the pipe catalog "
+                        f"(checked core pipes, pipes/custom, and enabled plugins) - check for a typo",
+                    )
+                )
+
+        return issues
+
+    def _lint_pipe_config_keys(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
+        """Cross-check each pipe's `configuration:` keys against the pipe
+        class's declared `PipeConfigSpec`s - the pipeline-side counterpart of
+        `_lint_field_config_keys`.
+
+        Warning, not error: `validate_pipe_configuration`
+        (src/features/generation/engine.py) silently PRESERVES an unknown key
+        as an "injected parameter" (e.g. `backend_config`) rather than
+        rejecting it, so an undeclared key is never a load-time failure -
+        just possibly dead weight or an undocumented parameter a pipe reads
+        straight off `self.config`.
+
+        Needs the pipe CLASS (`configuration()` is a classmethod), so it
+        goes through `_load_pipe_class` - a pipe whose module can't be
+        imported here is skipped with one informational note (see that
+        method), not a crash.
+        """
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+        pipeline_file = mode_dir / "pipeline.yml"
+        if not pipeline_file.exists():
+            return issues
+
+        try:
+            with open(pipeline_file, 'r') as f:
+                data = yaml.safe_load(f)
+        except Exception:
+            return issues
+        if not isinstance(data, dict):
+            return issues
+        pipes = data.get("pipeline")
+        if not isinstance(pipes, list):
+            return issues
+
+        loc = f"modes/{mode_name}/pipeline.yml"
+
+        for pipe in pipes:
+            if not isinstance(pipe, dict):
+                continue
+            name = pipe.get("name")
+            config = pipe.get("configuration")
+            if not isinstance(name, str) or "{{" in name or not isinstance(config, dict):
+                continue
+
+            pipe_class = self._load_pipe_class(name)
+            if pipe_class is None:
+                continue
+            try:
+                specs = pipe_class.configuration() or []
+            except Exception:
+                continue
+
+            allowed = {s.name for s in specs}
+            unknown_keys = sorted(k for k in config.keys() if k not in allowed)
+            if unknown_keys:
+                identifier = pipe.get("id") or name
+                issues.append(
+                    LintIssue(
+                        "warning",
+                        preset_str,
+                        f"{loc}: pipe '{identifier}' ({name}) configuration has key(s) not declared "
+                        f"in its PipeConfigSpec: {unknown_keys} (declared: {sorted(allowed)})",
+                    )
+                )
+
+        return issues
+
+    def _lint_pipeline_wiring(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
+        """Statically mirrors `GenerationEngine.validate_pipeline`
+        (src/features/generation/engine.py) over the DECLARED pipe list, so a
+        fake provider, a fake output variable, or a missing required input
+        surfaces at lint time instead of raising at generation-run time.
+
+        Same identifier resolution as the engine: a pipe is addressed by its
+        `id:` if set, else its `name:` (only when that name is unique in the
+        pipeline - a repeated name can only be addressed by `id:`), and
+        `available_outputs` accumulates in DECLARATION ORDER exactly like the
+        engine's own loop, so a forward reference (a provider declared LATER
+        in the list) is correctly flagged as unresolved here too.
+
+        Only a wired `input:` entry that matches one of the CONSUMING pipe's
+        own declared, required input specs (by `name`) is checked at all -
+        exactly what the engine's own loop does (`for input_spec in
+        required_inputs: ... for input_config in pipe_config['input']: if
+        param_name == input_spec.name: ...`). A pipe with dynamic/free-form
+        inputs (an empty `inputs()` declaration - e.g. `from_iotype`,
+        `param_emitter`) accepts ANY wiring unchecked by design; validating
+        every wired entry regardless of whether the consumer even declares
+        that parameter would flag this legitimate pattern as broken.
+
+        A provider/pipe `name:` containing `{{`/`{%` (an expression or a
+        statement tag, e.g. a Jinja `{% if %}...{% endif %}` picking the
+        provider conditionally) is skipped - not known until render. A pipe
+        whose class can't be imported here is skipped for the checks that
+        need its inputs()/outputs() (see `_load_pipe_class` - one
+        informational note per pipe name, not a crash); pure existence
+        checks (does this identifier appear in the pipeline at all) don't
+        need an import and still run. Disabled pipes (`enabled: false`
+        LITERAL) are excluded, exactly like the engine's `[p for p in pipes
+        if p['enabled']]` filter - anything else (missing, `true`, or a
+        template string) is conservatively treated as enabled, since its
+        real value isn't known until render.
+        """
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+        pipeline_file = mode_dir / "pipeline.yml"
+        if not pipeline_file.exists():
+            return issues
+
+        try:
+            with open(pipeline_file, 'r') as f:
+                data = yaml.safe_load(f)
+        except Exception:
+            return issues
+        if not isinstance(data, dict):
+            return issues
+        pipes = data.get("pipeline")
+        if not isinstance(pipes, list):
+            return issues
+
+        loc = f"modes/{mode_name}/pipeline.yml"
+        enabled_pipes = [p for p in pipes if isinstance(p, dict) and p.get("enabled") is not False]
+
+        name_counts: Dict[str, int] = {}
+        for p in enabled_pipes:
+            name = p.get("name")
+            if isinstance(name, str):
+                name_counts[name] = name_counts.get(name, 0) + 1
+
+        identifier_map: Dict[str, str] = {}
+        for p in enabled_pipes:
+            name = p.get("name")
+            pid = p.get("id")
+            identifier = pid if pid else name
+            if isinstance(name, str) and name_counts.get(name) == 1:
+                identifier_map[name] = identifier
+            if pid and pid != name:
+                identifier_map[pid] = identifier
+
+        available_outputs: Dict[str, Optional[set]] = {}
+
+        for idx, pipe in enumerate(enabled_pipes):
+            name = pipe.get("name")
+            identifier = pipe.get("id") or name or f"[{idx}]"
+
+            pipe_class = None
+            if isinstance(name, str) and "{{" not in name:
+                pipe_class = self._load_pipe_class(name)
+
+            required_inputs = []
+            if pipe_class is not None:
+                try:
+                    required_inputs = [
+                        s for s in (pipe_class.inputs() or [])
+                        if s.required and s.io_type.name != "SERVICE"
+                    ]
+                except Exception:
+                    required_inputs = []
+
+            parsed_inputs: List[Tuple[Any, Any, Any]] = []  # (param_name, provider, output_var)
+            for input_entry in pipe.get("input") or []:
+                if isinstance(input_entry, dict):
+                    parsed_inputs.append((
+                        input_entry.get("name"), input_entry.get("provider"), input_entry.get("output_var"),
+                    ))
+                elif isinstance(input_entry, list) and len(input_entry) >= 2:
+                    parsed_inputs.append((
+                        input_entry[0], input_entry[1], input_entry[2] if len(input_entry) > 2 else None,
+                    ))
+
+            for input_spec in required_inputs:
+                matched = next((e for e in parsed_inputs if e[0] == input_spec.name), None)
+                if matched is None:
+                    issues.append(
+                        LintIssue(
+                            "error",
+                            preset_str,
+                            f"{loc}: pipe '{identifier}' requires input '{input_spec.name}' but it is "
+                            f"not wired in this pipe's `input:` list",
+                        )
+                    )
+                    continue
+
+                _param_name, provider, output_var = matched
+                if not isinstance(provider, str) or "{{" in provider or "{%" in provider:
+                    continue  # templated provider - not resolvable statically
+
+                actual_provider = identifier_map.get(provider, provider)
+                if actual_provider not in available_outputs:
+                    issues.append(
+                        LintIssue(
+                            "error",
+                            preset_str,
+                            f"{loc}: pipe '{identifier}' input '{input_spec.name}' references non-existent "
+                            f"provider pipe '{provider}'",
+                        )
+                    )
+                    continue
+
+                provider_outputs = available_outputs[actual_provider]
+                if provider_outputs is None:
+                    continue  # provider's class couldn't be imported - can't check its outputs
+                if (
+                    isinstance(output_var, str)
+                    and "{{" not in output_var
+                    and "{%" not in output_var
+                    and output_var not in provider_outputs
+                ):
+                    issues.append(
+                        LintIssue(
+                            "error",
+                            preset_str,
+                            f"{loc}: pipe '{identifier}' input '{input_spec.name}' references non-existent "
+                            f"output '{output_var}' from pipe '{provider}'",
+                        )
+                    )
+
+            outputs_for_this = None
+            if pipe_class is not None:
+                try:
+                    outputs_for_this = {s.name for s in (pipe_class.outputs() or [])}
+                except Exception:
+                    outputs_for_this = None
+            available_outputs[identifier] = outputs_for_this
+
+        return issues
+
+    def _lint_config_exact_expression(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
+        """Extends the exact-expression contract (`_lint_pipeline_templates`'s
+        (a)/(c) rules) to every `configuration:` key whose pipe declares it as
+        `bool`/`list` in its `PipeConfigSpec` - a string value there that
+        isn't a single `{{ expression }}` block string-renders instead of
+        evaluating natively, exactly the same hazard as `enabled:`/`@loop
+        items:`. Needs the pipe class (same lazy, memoized lookup as
+        `_lint_pipe_config_keys` - one informational note per unimportable
+        pipe, not a crash).
+        """
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+        pipeline_file = mode_dir / "pipeline.yml"
+        if not pipeline_file.exists():
+            return issues
+
+        try:
+            with open(pipeline_file, 'r') as f:
+                data = yaml.safe_load(f)
+        except Exception:
+            return issues
+        if not isinstance(data, dict):
+            return issues
+        pipes = data.get("pipeline")
+        if not isinstance(pipes, list):
+            return issues
+
+        loc = f"modes/{mode_name}/pipeline.yml"
+
+        for pipe in pipes:
+            if not isinstance(pipe, dict):
+                continue
+            name = pipe.get("name")
+            config = pipe.get("configuration")
+            if not isinstance(name, str) or "{{" in name or not isinstance(config, dict):
+                continue
+
+            pipe_class = self._load_pipe_class(name)
+            if pipe_class is None:
+                continue
+            try:
+                specs = pipe_class.configuration() or []
+            except Exception:
+                continue
+
+            typed_keys = {s.name: s.param_type for s in specs if s.param_type in (bool, list)}
+            identifier = pipe.get("id") or name
+
+            for key, value in config.items():
+                param_type = typed_keys.get(key)
+                if param_type is None or not isinstance(value, str):
+                    continue
+                if not _is_exact_expression(value):
+                    issues.append(
+                        LintIssue(
+                            "error",
+                            preset_str,
+                            f"{loc}: pipe '{identifier}': configuration.{key}: {value!r} is a string "
+                            f"but not an exact '{{{{ expression }}}}' - it renders to a string, not a "
+                            f"{param_type.__name__}, so this value is never correct at runtime. Use a "
+                            f"YAML literal or a single '{{{{ ... }}}}' expression.",
+                        )
+                    )
+
+        return issues
 
     def _collect_field_names(self, node, preset_root: Path, acc: set) -> None:
         """Recursively add every declared field `name:` under ``node`` to
@@ -946,6 +1560,43 @@ class PresetLinter:
             self._collect_field_names(frag_data.get("fields", []), preset_root, acc)
         elif isinstance(children, list):
             self._collect_field_names(children, preset_root, acc)
+
+    def _collect_field_defaults(self, node, preset_root: Path, acc: Dict[str, Any]) -> None:
+        """Same recursion as `_collect_field_names`, but records each named
+        field's own `default:` value instead of just its name - a field with
+        no `default:` key is simply absent from ``acc``, not `None`. Used by
+        `_lint_guard_default_mismatch`."""
+        if isinstance(node, list):
+            for item in node:
+                self._collect_field_defaults(item, preset_root, acc)
+            return
+        if not isinstance(node, dict):
+            return
+
+        if node.get("type") == "@loop":
+            cfg = node.get("configuration") or {}
+            template = cfg.get("template")
+            count = cfg.get("count")
+            if template is not None and isinstance(count, int) and not isinstance(count, bool):
+                for i in range(1, count + 1):
+                    self._collect_field_defaults(self._expand_loop_indices(template, i), preset_root, acc)
+            return
+
+        name = node.get("name")
+        if isinstance(name, str) and "{{" not in name and "default" in node:
+            acc[name] = node["default"]
+
+        children = node.get("children")
+        if isinstance(children, str):
+            frag_path = self._resolve_children_path(children, preset_root)
+            try:
+                with open(frag_path, 'r') as f:
+                    frag_data = yaml.safe_load(f) or {}
+            except Exception:
+                return
+            self._collect_field_defaults(frag_data.get("fields", []), preset_root, acc)
+        elif isinstance(children, list):
+            self._collect_field_defaults(children, preset_root, acc)
 
     @staticmethod
     def _expand_loop_indices(template, index: int):

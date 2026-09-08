@@ -593,9 +593,9 @@ def golden_filename(preset: PresetTemplate, mode: str) -> str:
     return f"{safe_id}__{mode}.json"
 
 
-def run_golden_all(out_dir: Path) -> Dict[str, Any]:
+def run_golden_all(out_dir: Path, presets_root: Optional[Path] = None) -> Dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
-    presets, load_errors = load_all_presets(include_plugins=False)
+    presets, load_errors = load_all_presets(presets_root=presets_root, include_plugins=False)
     processor = build_processor()
     form_serializer = build_form_serializer()
 
@@ -638,10 +638,15 @@ def main() -> int:
     parser.add_argument("--golden-all", action="store_true", help="Render every preset x mode and write golden snapshots")
     parser.add_argument("--golden", action="store_true", help="Write this single preset+mode's render as a golden snapshot instead of printing it; leaves every other golden file untouched")
     parser.add_argument("--out", type=Path, default=ROOT / "tests" / "golden" / "preset_renders", help="Output directory for --golden-all / --golden")
+    parser.add_argument(
+        "--root", type=Path, default=None,
+        help="Presets root directory to scan (default: content/presets) - mirrors "
+             "scripts/preset_new.py's --root, e.g. a scratch tree outside the repo",
+    )
     args = parser.parse_args()
 
     if args.golden_all:
-        summary = run_golden_all(args.out)
+        summary = run_golden_all(args.out, presets_root=args.root)
         print(f"Wrote {summary['snapshot_count']} golden files "
               f"({summary['preset_count']} presets) to {args.out}")
         print(f"Total captured values (enabled + config leaves): {summary['total_values']}")
@@ -658,7 +663,7 @@ def main() -> int:
     if not args.preset or not args.mode:
         parser.error("preset and mode are required unless --golden-all is given")
 
-    presets, _ = load_all_presets()
+    presets, _ = load_all_presets(presets_root=args.root)
     preset = find_preset(presets, args.preset)
     if preset is None:
         print(f"No preset found matching {args.preset!r}", file=sys.stderr)
@@ -666,6 +671,30 @@ def main() -> int:
     if args.mode not in preset.modes:
         print(f"Preset {preset.name!r} has no mode {args.mode!r} (available: {sorted(preset.modes.keys())})", file=sys.stderr)
         return 1
+
+    # Structural pipe/wiring lint for this preset+mode, surfaced before the
+    # render itself - the same checks `preset_lint.py` runs (called directly,
+    # not re-derived: `PresetLinter._lint_pipe_names` / `_lint_pipe_config_keys`
+    # / `_lint_pipeline_wiring` / `_lint_config_exact_expression`), scoped to
+    # just this one mode so a developer iterating on a single preset sees a
+    # fake pipe name/provider/output or an unknown config key right next to
+    # the render that would otherwise raise mid-generation.
+    from src.features.presets.linter import PresetLinter
+
+    mode_dir = Path(preset.path) / "modes" / args.mode
+    preset_file = Path(preset.path) / "preset.yml"
+    pipe_linter = PresetLinter([preset.path])
+    pipe_issues = (
+        pipe_linter._lint_pipe_names(preset_file, mode_dir, args.mode)
+        + pipe_linter._lint_pipe_config_keys(preset_file, mode_dir, args.mode)
+        + pipe_linter._lint_pipeline_wiring(preset_file, mode_dir, args.mode)
+        + pipe_linter._lint_config_exact_expression(preset_file, mode_dir, args.mode)
+    )
+    if pipe_issues:
+        print("=== Pipe/wiring lint ===")
+        for issue in pipe_issues:
+            print(str(issue))
+        print()
 
     processor = build_processor()
     form_serializer = build_form_serializer()

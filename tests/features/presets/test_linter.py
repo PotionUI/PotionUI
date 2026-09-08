@@ -1461,3 +1461,494 @@ class TestLintPresetModeContributions:
         # developer running `preset_lint.py <subtree>`) must not crash.
         _write_preset(tmp_path, "p", "target8", ["txt2img"])
         assert PresetLinter([str(tmp_path / "p")]).lint() == []
+
+
+# ---------------------------------------------------------------------------
+# Pipeline-side checks: pipe name existence, pipe configuration keys, static
+# wiring, and the exact-expression contract extended to bool/list config
+# keys. A tiny in-memory fake catalog stands in for the real one so these
+# tests are fast, deterministic, and independent of which real pipes happen
+# to import cleanly in this environment (see `_load_pipe_class`'s docstring -
+# several pipe families can't import here at all).
+# ---------------------------------------------------------------------------
+
+from src.pipelines.contracts import (  # noqa: E402
+    BasePipe, PipeConfigSpec, PipeInput, PipeInputSpec, PipeOutput, PipeOutputSpec, IOType,
+)
+
+
+class _FakeSourcePipe(BasePipe):
+    name = "fake/source"
+    description = "test source pipe"
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return [PipeOutputSpec("value", IOType.TEXT, "", False)]
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
+        return PipeOutput(output={})
+
+
+class _FakeConsumerPipe(BasePipe):
+    name = "fake/consumer"
+    description = "test consumer pipe with one required input"
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return [PipeInputSpec("value", IOType.TEXT, required=True)]
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return [
+            PipeConfigSpec("flag", bool, False, "a bool config key"),
+            PipeConfigSpec("items", list, [], "a list config key"),
+            PipeConfigSpec("label", str, "", "a str config key"),
+        ]
+
+    def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
+        return PipeOutput(output={})
+
+
+class _FakeDynamicPipe(BasePipe):
+    """Mirrors `from_iotype`/`param_emitter`: declares NO input specs at
+    all, so it accepts free-form `input:` wiring the engine never validates."""
+    name = "fake/dynamic"
+    description = "test pipe with dynamic, undeclared inputs"
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
+        return PipeOutput(output={})
+
+
+class _FakeCatalog:
+    """Minimal stand-in for `PipeCatalog`'s public surface
+    (`get_pipe_source`/`get_pipe`) - `pipes` maps a name to its class, or to
+    `None` to simulate a location the catalog knows about whose module fails
+    to import (see `_load_pipe_class`)."""
+
+    def __init__(self, pipes: dict):
+        self._pipes = pipes
+
+    def get_pipe_source(self, name):
+        return "test" if name in self._pipes else None
+
+    def get_pipe(self, name):
+        return self._pipes.get(name)
+
+
+def _write_pipeline_mode(tmp_path, preset_id, pipeline_yaml, form_yaml=None):
+    preset_dir = _write_preset(tmp_path, preset_id, preset_id, ["txt2img"], with_tests_yml=False)
+    (preset_dir / "tests.yml").write_text("schema: 1\ncases: []\n")
+    mode_dir = preset_dir / "modes" / "txt2img"
+    (mode_dir / "pipeline.yml").write_text(pipeline_yaml)
+    if form_yaml is not None:
+        (mode_dir / "form.yml").write_text(form_yaml)
+    return preset_dir
+
+
+class TestLintPipeNames:
+    def test_unknown_pipe_name_is_error(self, tmp_path):
+        _write_pipeline_mode(tmp_path, "pipe_unknown", 'pipeline:\n  - name: "totally/fake/pipe"\n')
+        catalog = _FakeCatalog({"fake/source": _FakeSourcePipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert any(
+            i.level == "error" and "totally/fake/pipe" in i.message and "not found in the pipe catalog" in i.message
+            for i in issues
+        )
+
+    def test_known_pipe_name_is_clean(self, tmp_path):
+        _write_pipeline_mode(tmp_path, "pipe_known", 'pipeline:\n  - name: "fake/source"\n')
+        catalog = _FakeCatalog({"fake/source": _FakeSourcePipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert not any("not found in the pipe catalog" in i.message for i in issues)
+
+    def test_templated_pipe_name_is_skipped(self, tmp_path):
+        _write_pipeline_mode(
+            tmp_path, "pipe_templated",
+            'pipeline:\n  - name: "{{ form.engine_pipe }}"\n',
+        )
+        catalog = _FakeCatalog({})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert not any("not found in the pipe catalog" in i.message for i in issues)
+
+
+class TestLintPipeConfigKeys:
+    def test_declared_config_key_is_clean(self, tmp_path):
+        _write_pipeline_mode(
+            tmp_path, "pcfg_ok",
+            'pipeline:\n  - name: "fake/consumer"\n    configuration:\n      flag: true\n',
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert not any("not declared in its PipeConfigSpec" in i.message for i in issues)
+
+    def test_undeclared_config_key_is_warning(self, tmp_path):
+        _write_pipeline_mode(
+            tmp_path, "pcfg_bad",
+            'pipeline:\n  - name: "fake/consumer"\n    configuration:\n      cfg: 4.0\n',
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert any(
+            i.level == "warning" and "cfg" in i.message and "not declared in its PipeConfigSpec" in i.message
+            for i in issues
+        )
+
+    def test_unimportable_pipe_is_skipped_with_info(self, tmp_path):
+        _write_pipeline_mode(
+            tmp_path, "pcfg_broken",
+            'pipeline:\n  - name: "fake/broken"\n    configuration:\n      whatever: 1\n',
+        )
+        catalog = _FakeCatalog({"fake/broken": None})  # known location, import fails
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert not any("not declared in its PipeConfigSpec" in i.message for i in issues)
+        assert any(
+            i.level == "info" and "fake/broken" in i.message and "could not be imported" in i.message
+            for i in issues
+        )
+
+
+class TestLintConfigExactExpression:
+    def test_bool_config_string_not_exact_expression_is_error(self, tmp_path):
+        _write_pipeline_mode(
+            tmp_path, "cfgexpr_bad_bool",
+            'pipeline:\n  - name: "fake/consumer"\n'
+            '    configuration:\n      flag: "yes and {{ form.x }}"\n',
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert any(
+            i.level == "error" and "configuration.flag" in i.message and "not a bool/list" not in i.message
+            and "renders to a string, not a bool" in i.message
+            for i in issues
+        )
+
+    def test_list_config_string_not_exact_expression_is_error(self, tmp_path):
+        _write_pipeline_mode(
+            tmp_path, "cfgexpr_bad_list",
+            'pipeline:\n  - name: "fake/consumer"\n'
+            '    configuration:\n      items: "prefix {{ form.x }}"\n',
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert any(
+            i.level == "error" and "configuration.items" in i.message and "renders to a string, not a list" in i.message
+            for i in issues
+        )
+
+    def test_bool_config_exact_expression_is_clean(self, tmp_path):
+        _write_pipeline_mode(
+            tmp_path, "cfgexpr_ok",
+            'pipeline:\n  - name: "fake/consumer"\n'
+            '    configuration:\n      flag: "{{ form.x | default(false) }}"\n',
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert not any("renders to a string" in i.message for i in issues)
+
+    def test_bool_config_yaml_literal_is_clean(self, tmp_path):
+        _write_pipeline_mode(
+            tmp_path, "cfgexpr_literal",
+            'pipeline:\n  - name: "fake/consumer"\n    configuration:\n      flag: true\n',
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert not any("renders to a string" in i.message for i in issues)
+
+    def test_str_config_key_is_not_checked(self, tmp_path):
+        # `label` is declared `str` - the exact-expression contract only
+        # applies to bool/list keys (a str param_type is fine either way).
+        _write_pipeline_mode(
+            tmp_path, "cfgexpr_str_skip",
+            'pipeline:\n  - name: "fake/consumer"\n'
+            '    configuration:\n      label: "prefix {{ form.x }} suffix"\n',
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert not any("configuration.label" in i.message for i in issues)
+
+
+class TestLintPipelineWiring:
+    def test_missing_required_input_is_error(self, tmp_path):
+        _write_pipeline_mode(tmp_path, "wire_missing", 'pipeline:\n  - name: "fake/consumer"\n')
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe, "fake/source": _FakeSourcePipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert any(
+            i.level == "error" and "requires input 'value'" in i.message and "not wired" in i.message
+            for i in issues
+        )
+
+    def test_nonexistent_provider_is_error(self, tmp_path):
+        _write_pipeline_mode(
+            tmp_path, "wire_bad_provider",
+            'pipeline:\n  - name: "fake/consumer"\n'
+            '    input:\n      - ["value", "nope", "value"]\n',
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe, "fake/source": _FakeSourcePipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert any(
+            i.level == "error" and "references non-existent provider pipe 'nope'" in i.message
+            for i in issues
+        )
+
+    def test_nonexistent_output_is_error(self, tmp_path):
+        _write_pipeline_mode(
+            tmp_path, "wire_bad_output",
+            'pipeline:\n  - name: "fake/source"\n    id: "src"\n'
+            '  - name: "fake/consumer"\n'
+            '    input:\n      - ["value", "src", "nope"]\n',
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe, "fake/source": _FakeSourcePipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert any(
+            i.level == "error" and "references non-existent output 'nope' from pipe 'src'" in i.message
+            for i in issues
+        )
+
+    def test_satisfied_wiring_is_clean(self, tmp_path):
+        _write_pipeline_mode(
+            tmp_path, "wire_ok",
+            'pipeline:\n  - name: "fake/source"\n    id: "src"\n'
+            '  - name: "fake/consumer"\n'
+            '    input:\n      - ["value", "src", "value"]\n',
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe, "fake/source": _FakeSourcePipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert not any(
+            ("requires input" in i.message or "non-existent provider" in i.message or "non-existent output" in i.message)
+            for i in issues
+        )
+
+    def test_forward_reference_provider_is_error(self, tmp_path):
+        # `available_outputs` accumulates in declaration order, mirroring the
+        # engine - a provider declared LATER in the list is unresolved here.
+        _write_pipeline_mode(
+            tmp_path, "wire_forward_ref",
+            'pipeline:\n  - name: "fake/consumer"\n'
+            '    input:\n      - ["value", "src", "value"]\n'
+            '  - name: "fake/source"\n    id: "src"\n',
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe, "fake/source": _FakeSourcePipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert any("references non-existent provider pipe 'src'" in i.message for i in issues)
+
+    def test_dynamic_input_pipe_extra_wiring_is_not_checked(self, tmp_path):
+        # `fake/dynamic` declares NO input specs at all (mirrors from_iotype/
+        # param_emitter) - a wired `input:` entry referencing garbage is never
+        # validated by the real engine (its `required_inputs` loop never even
+        # considers a param name the class didn't declare), so this must stay
+        # clean.
+        _write_pipeline_mode(
+            tmp_path, "wire_dynamic",
+            'pipeline:\n  - name: "fake/dynamic"\n'
+            '    input:\n      - ["anything", "nonexistent_provider", "nonexistent_output"]\n',
+        )
+        catalog = _FakeCatalog({"fake/dynamic": _FakeDynamicPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert not any(
+            ("non-existent provider" in i.message or "non-existent output" in i.message)
+            for i in issues
+        )
+
+    def test_templated_provider_statement_tag_is_skipped(self, tmp_path):
+        # A `{% if %}...{% endif %}` provider (not just `{{ }}`) is not known
+        # until render - must not be flagged as a fake provider.
+        _write_pipeline_mode(
+            tmp_path, "wire_stmt_provider",
+            'pipeline:\n  - name: "fake/consumer"\n'
+            '    input:\n      - ["value", "{% if form.x %}a{% else %}b{% endif %}", "value"]\n',
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert not any("non-existent provider" in i.message for i in issues)
+
+    def test_disabled_pipe_is_excluded_from_wiring(self, tmp_path):
+        _write_pipeline_mode(
+            tmp_path, "wire_disabled",
+            'pipeline:\n  - name: "fake/consumer"\n    enabled: false\n',
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert not any("requires input" in i.message for i in issues)
+
+
+class TestLintVariantFormRefs:
+    """`{{ form.x }}` references checked against EACH form variant's own
+    field set - not their union (the check this replaces)."""
+
+    def _write_variant_preset(self, tmp_path, preset_id, pipeline_yaml, default_fields, variant_fields):
+        preset_dir = _write_pipeline_mode(tmp_path, preset_id, pipeline_yaml)
+        mode_dir = preset_dir / "modes" / "txt2img"
+        (mode_dir / "form.yml").write_text(f"name: default\nfields:\n{default_fields}\n")
+        variant_dir = mode_dir / "variants" / "compact"
+        variant_dir.mkdir(parents=True)
+        (variant_dir / "form.yml").write_text(f"name: compact\nfields:\n{variant_fields}\n")
+        return preset_dir
+
+    def test_field_missing_from_one_variant_is_warning_naming_variant(self, tmp_path):
+        self._write_variant_preset(
+            tmp_path, "variant_ref_missing",
+            'pipeline:\n  - name: "fake/consumer"\n'
+            '    configuration:\n      label: "{{ form.only_in_default }}"\n',
+            default_fields='  - {type: string, name: only_in_default, default: ""}\n',
+            variant_fields='  - {type: string, name: something_else, default: ""}\n',
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert any(
+            i.level == "warning" and "form.only_in_default" in i.message and "variant 'compact'" in i.message
+            for i in issues
+        )
+        assert not any("variant 'default'" in i.message for i in issues)
+
+    def test_field_present_in_both_variants_is_clean(self, tmp_path):
+        self._write_variant_preset(
+            tmp_path, "variant_ref_ok",
+            'pipeline:\n  - name: "fake/consumer"\n'
+            '    configuration:\n      label: "{{ form.shared }}"\n',
+            default_fields='  - {type: string, name: shared, default: ""}\n',
+            variant_fields='  - {type: string, name: shared, default: ""}\n',
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert not any("no field named" in i.message for i in issues)
+
+
+class TestLintGuardDefaultMismatch:
+    def _write_guard_preset(self, tmp_path, preset_id, guard_expr, field_default_yaml):
+        pipeline_yaml = (
+            'pipeline:\n  - name: "fake/consumer"\n'
+            f'    configuration:\n      label: "{guard_expr}"\n'
+        )
+        preset_dir = _write_pipeline_mode(tmp_path, preset_id, pipeline_yaml)
+        mode_dir = preset_dir / "modes" / "txt2img"
+        (mode_dir / "form.yml").write_text(
+            f"name: default\nfields:\n  - {{type: string, name: speed_profile, default: {field_default_yaml}}}\n"
+        )
+        return preset_dir
+
+    def test_guard_literal_mismatches_default_is_warning(self, tmp_path):
+        self._write_guard_preset(
+            tmp_path, "guard_mismatch",
+            "{{ form.speed_profile | default('quality') }}", "'turbo'",
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert any(
+            i.level == "warning" and "default('quality')" in i.message and "'turbo'" in i.message
+            for i in issues
+        )
+
+    def test_guard_literal_matches_default_is_clean(self, tmp_path):
+        self._write_guard_preset(
+            tmp_path, "guard_match",
+            "{{ form.speed_profile | default('turbo') }}", "'turbo'",
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert not any("does not match the field's own default" in i.message for i in issues)
+
+    def test_guard_expression_default_is_skipped(self, tmp_path):
+        self._write_guard_preset(
+            tmp_path, "guard_expr",
+            "{{ form.speed_profile | default(preset.vars.default_profile) }}", "'turbo'",
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert not any("does not match the field's own default" in i.message for i in issues)
+
+    def test_guard_field_without_default_is_skipped(self, tmp_path):
+        pipeline_yaml = (
+            'pipeline:\n  - name: "fake/consumer"\n'
+            '    configuration:\n      label: "{{ form.no_default_field | default(1) }}"\n'
+        )
+        preset_dir = _write_pipeline_mode(tmp_path, "guard_no_default", pipeline_yaml)
+        mode_dir = preset_dir / "modes" / "txt2img"
+        (mode_dir / "form.yml").write_text(
+            "name: default\nfields:\n  - {type: number, name: no_default_field}\n"
+        )
+        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
+        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
+        assert not any("does not match the field's own default" in i.message for i in issues)
+
+
+class TestColdReadBrokenPipeline:
+    """A preset combining every pipeline-side defect these rules target -
+    a fake pipe name, a fake provider, a fake output variable, and an unknown
+    config key (`cfg` where `generator/z_image` declares `guidance`) - all
+    against the REAL pipe catalog, so this proves the rules fire end-to-end
+    on a real, importable pipe, not just against the fakes above."""
+
+    def test_cold_read_broken_preset_fails_lint(self, tmp_path):
+        preset_dir = _write_preset(tmp_path, "p", "cold_read_broken", ["txt2img"], with_tests_yml=False)
+        (preset_dir / "tests.yml").write_text("schema: 1\ncases: []\n")
+        mode_dir = preset_dir / "modes" / "txt2img"
+        (mode_dir / "pipeline.yml").write_text(
+            'pipeline:\n'
+            '  - name: "totally/fake/pipe_xyz"\n'
+            '    id: "phantom"\n'
+            '\n'
+            '  - name: "gallery"\n'
+            '    id: "gallery_stage"\n'
+            '\n'
+            '  - name: "generator/z_image"\n'
+            '    id: "gen"\n'
+            '    input:\n'
+            '      - ["model", "nonexistent_provider", "model"]\n'
+            '      - ["conditioning", "gallery_stage", "not_a_real_output"]\n'
+            '    configuration:\n'
+            '      cfg: 4.0\n'
+            '      steps: 20\n'
+        )
+
+        issues = PresetLinter([str(tmp_path)]).lint()
+        errors = [i for i in issues if i.level == "error"]
+
+        assert any("totally/fake/pipe_xyz" in i.message and "not found in the pipe catalog" in i.message for i in errors)
+        assert any(
+            "input 'model' references non-existent provider pipe 'nonexistent_provider'" in i.message
+            for i in errors
+        )
+        assert any(
+            "input 'conditioning' references non-existent output 'not_a_real_output' from pipe 'gallery_stage'" in i.message
+            for i in errors
+        )
+        assert any(
+            i.level == "warning" and "'cfg'" in i.message and "not declared in its PipeConfigSpec" in i.message
+            for i in issues
+        )

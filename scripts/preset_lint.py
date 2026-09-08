@@ -5,9 +5,24 @@ Preset lint/migration CLI.
 Usage:
     python scripts/preset_lint.py [paths...]              # lint only, exit 1 on any error
     python scripts/preset_lint.py --fix [paths...]         # migrate to canonical schema, then lint
+    python scripts/preset_lint.py --render [paths...]      # lint, then also render every
+                                                            # preset x mode's default form
+                                                            # variant and report template
+                                                            # evaluation failures
 
 With no paths given, lints/migrates `content/presets/marketplace/` and
 `content/presets/local/`.
+
+--render renders every in-scope preset x mode's default form variant through the real
+`PresetProcessor`, with the same fixture form data `scripts/preset_render.py` builds
+(reused, not duplicated - see `_render_check`). A `TemplateEvaluationError` raised
+during that render becomes a lint error naming the pipe id and config path, catching a
+build-time-only failure (a bad `{{ }}` expression, a missing field with no `| default`,
+...) that the structural checks above can't - they parse pipeline.yml as YAML and never
+actually evaluate a template. Any other exception during a render (e.g. a form field
+this harness has no fixture value for) is not this flag's concern and is skipped -
+`scripts/preset_render.py --golden-all` / `tests/features/presets/test_golden_renders.py`
+already track those.
 
 --fix performs a mechanical, comment-preserving text migration of each preset.yml:
   1. add `schema: 1` if missing
@@ -282,6 +297,79 @@ def migrate_preset(preset_path: Path) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
+# --render
+# ---------------------------------------------------------------------------
+
+
+def _in_scope(preset_path: str, scoped_roots: List[Path]) -> bool:
+    """Whether `preset_path` sits under one of `scoped_roots` (or equals
+    one) - `load_all_presets()` always loads the FULL default preset set
+    (every plugin root included), so `--render` narrows that down to what
+    this particular lint invocation was actually asked to check."""
+    resolved = Path(preset_path).resolve()
+    for root in scoped_roots:
+        try:
+            resolved.relative_to(root)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def render_check(paths: List[str], presets_root: Optional[Path] = None) -> List[LintIssue]:
+    """`--render`: render every in-scope preset x mode's default form variant
+    through the real `PresetProcessor`, reusing `scripts/preset_render.py`'s
+    fixture-form-data walk and processor/serializer stubs (not duplicated
+    here). A `TemplateEvaluationError` raised during that render becomes a
+    lint error naming the pipe id and config path; any other exception (a
+    render failure unrelated to templating - see this module's docstring) is
+    skipped, not this flag's concern.
+
+    `presets_root`: passed straight through to `load_all_presets` (default
+    `None` -> `content/presets`) - lets a test point this at an isolated
+    fixture tree instead of the real repo.
+    """
+    from scripts.preset_render import (
+        build_fixture_form_data,
+        build_form_serializer,
+        build_generation_data,
+        build_processor,
+        load_all_presets,
+    )
+    from src.platform.templating.errors import TemplateEvaluationError
+
+    issues: List[LintIssue] = []
+    presets, _load_errors = load_all_presets(presets_root=presets_root)
+    scoped_roots = [Path(p).resolve() for p in paths]
+
+    processor = build_processor()
+    form_serializer = build_form_serializer()
+
+    for preset in sorted(presets, key=lambda p: p.id):
+        if not _in_scope(preset.path, scoped_roots):
+            continue
+        for mode in sorted(preset.modes.keys()):
+            try:
+                form_data = build_fixture_form_data(form_serializer, preset, mode)
+                generation_data = build_generation_data(mode, form_data, preset.modes.get(mode))
+                processor.process(preset, generation_data)
+            except TemplateEvaluationError as e:
+                preset_str = f"{preset.path}/modes/{mode}/pipeline.yml"
+                issues.append(
+                    LintIssue(
+                        "error",
+                        preset_str,
+                        f"--render {preset.name!r} ({preset.id}) / mode '{mode}': pipe_id="
+                        f"{e.pipe_id!r} config_path={e.config_path!r}: {e.expression!r}: {e.cause}",
+                    )
+                )
+            except Exception:
+                continue
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -290,6 +378,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("paths", nargs="*", default=None)
     parser.add_argument("--fix", action="store_true", help="Migrate preset.yml files to the canonical schema")
+    parser.add_argument(
+        "--render", action="store_true",
+        help="Also render every in-scope preset x mode's default form variant and report "
+             "template evaluation failures (see this module's docstring)",
+    )
     args = parser.parse_args()
 
     # Plugin manifests are always discovered (cheap - manifest.yml files on
@@ -324,6 +417,10 @@ def main() -> int:
     print("=== Linting presets ===\n")
     linter = PresetLinter(paths, plugin_manifests=plugin_manifests)
     issues = linter.lint()
+
+    if args.render:
+        print("=== Rendering presets ===\n")
+        issues = issues + render_check(paths)
 
     if not issues:
         print("No issues found.")

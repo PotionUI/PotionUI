@@ -33,6 +33,11 @@ export function createDocsApi(client: AxiosInstance) {
 		async getDocsLiveOutputTypes(): Promise<APIResponse<any>> {
 			const response = await client.get('/api/docs/live/output-types');
 			return response.data;
+		},
+
+		async getDocsLiveMcpTools(): Promise<APIResponse<any>> {
+			const response = await client.get('/api/docs/live/mcp-tools');
+			return response.data;
 		}
 	};
 }

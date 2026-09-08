@@ -4,8 +4,8 @@ Documentation Controller.
 Exposes the in-app Documentation feature built by
 `src/features/docs/operations.py`: a role-filtered tree aggregated from repo
 markdown, plugin manifests, and live-reference sources, plus per-doc markdown
-content. Also hosts the two new live-reference endpoints (pipes, output
-types) the developer-only "live" tree entries render from.
+content. Also hosts the live-reference endpoints (pipes, output types, MCP
+tools) the developer-only "live" tree entries render from.
 """
 from pathlib import Path
 from typing import Any, Dict, TYPE_CHECKING
@@ -16,6 +16,7 @@ from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.features.docs import operations
 from src.features.docs.operations import DocNotFoundError, DocForbiddenError, DocIsLiveError
+from src.features.developer.mcp_tools_documenter import McpToolsDocumenter
 from src.features.developer.output_types_documenter import OutputTypesDocumenter
 from src.features.developer.pipes_documenter import PipesDocumenter
 from src.platform.security.user import User, AccountType
@@ -33,12 +34,14 @@ class DocsController(BaseController):
         base_docs_path: str,
         pipes_documenter: PipesDocumenter,
         output_types_documenter: OutputTypesDocumenter,
+        mcp_tools_documenter: McpToolsDocumenter,
     ):
         super().__init__()
         self.plugin_registry = plugin_registry
         self.base_docs_path = Path(base_docs_path)
         self.pipes_documenter = pipes_documenter
         self.output_types_documenter = output_types_documenter
+        self.mcp_tools_documenter = mcp_tools_documenter
 
     async def get_tree(self, is_admin: bool) -> APIResponse:
         """Get the role-filtered documentation tree."""
@@ -94,6 +97,18 @@ class DocsController(BaseController):
                 message=f"Failed to get live output-types reference: {str(e)}"
             )
 
+    async def get_live_mcp_tools(self) -> APIResponse:
+        """Get the live MCP tool-surface reference."""
+        try:
+            data = self.mcp_tools_documenter.generate_documentation()
+            return self.success_response(data=data)
+        except Exception as e:
+            self.logger.error(f"Failed to get live MCP tools reference: {e}")
+            return self.error_api_response(
+                error="live_mcp_tools_failed",
+                message=f"Failed to get live MCP tools reference: {str(e)}"
+            )
+
 
 def _is_admin(user: User) -> bool:
     return user.account_type == AccountType.ADMIN
@@ -144,5 +159,16 @@ def build_router(container: "AppContainer") -> APIRouter:
             raise HTTPException(status_code=403, detail="Admin access required")
 
         return await controller.get_live_output_types()
+
+    @router.get("/live/mcp-tools", response_model=APIResponse, summary="Get Live MCP Tools Reference")
+    async def get_live_mcp_tools(current_user: User = Depends(get_current_active_user)) -> APIResponse:
+        """Get the live MCP tool-surface reference.
+
+        Requires: Admin authentication
+        """
+        if current_user.account_type != AccountType.ADMIN:
+            raise HTTPException(status_code=403, detail="Admin access required")
+
+        return await controller.get_live_mcp_tools()
 
     return router

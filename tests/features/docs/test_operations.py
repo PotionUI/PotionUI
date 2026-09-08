@@ -64,10 +64,10 @@ class TestBuildTreeRepoDocs:
         tree still says it exists and how many docs it holds, instead of
         silently omitting it with zero explanation.
 
-        Baseline (zero repo markdown) is 6 developer + 1 contributor "live
+        Baseline (zero repo markdown) is 7 developer + 1 contributor "live
         reference" entries (`_LIVE_DOCS` - hooks/field-types/pipes/output-types/
-        template-functions/icons + frontend-kit) - these are always present,
-        so the two markdown docs below land on top of that baseline."""
+        template-functions/icons/mcp-tools + frontend-kit) - these are always
+        present, so the two markdown docs below land on top of that baseline."""
         write(tmp_path / "docs" / "ARCHITECTURE.md", "# Architecture\n")
         write(tmp_path / "docs" / "models" / "sdxl.md", "---\ntype: model\ntitle: SDXL\n"
               "family_key: sdxl\nspec: {arch: a, latent: l, vae: v, te: t, guidance: g}\n---\nBody")
@@ -77,7 +77,7 @@ class TestBuildTreeRepoDocs:
 
         assert [s["id"] for s in tree["sections"]] == ["user"]
         hidden = {h["id"]: h for h in tree["hidden_sections"]}
-        assert hidden["developer"]["count"] == 8  # 6 live + ARCHITECTURE.md + models/sdxl.md
+        assert hidden["developer"]["count"] == 9  # 7 live + ARCHITECTURE.md + models/sdxl.md
         assert hidden["developer"]["title"] == "Developer"
         assert hidden["contributor"]["count"] == 1  # live/frontend-kit
 
@@ -90,7 +90,7 @@ class TestBuildTreeRepoDocs:
         tree = operations.build_tree(registry, base_docs_path, is_admin=False)
 
         hidden = {h["id"]: h for h in tree["hidden_sections"]}
-        assert hidden["developer"]["count"] == 6
+        assert hidden["developer"]["count"] == 7
         assert hidden["contributor"]["count"] == 1
 
     def test_hidden_sections_always_empty_for_admin(self, tmp_path):

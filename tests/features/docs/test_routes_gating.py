@@ -46,7 +46,11 @@ def _make_client(user, docs_root):
     pipes_documenter.generate_documentation.return_value = {"pipes": [], "total": 0}
     output_types_documenter = Mock()
     output_types_documenter.generate_documentation.return_value = {"output_types": [], "total": 0}
-    controller = DocsController(plugin_registry, str(docs_root), pipes_documenter, output_types_documenter)
+    mcp_tools_documenter = Mock()
+    mcp_tools_documenter.generate_documentation.return_value = {"tools": [], "total": 0, "governance": {}}
+    controller = DocsController(
+        plugin_registry, str(docs_root), pipes_documenter, output_types_documenter, mcp_tools_documenter
+    )
 
     container = SimpleNamespace(docs_controller=controller)
     app = FastAPI()
@@ -101,4 +105,18 @@ def test_admin_allowed_live_pipes_reference(docs_root):
     client = _make_client(_user(AccountType.ADMIN), docs_root)
 
     response = client.get("/api/docs/live/pipes")
+    assert response.status_code == 200
+
+
+def test_regular_user_denied_live_mcp_tools_reference(docs_root):
+    client = _make_client(_user(AccountType.USER), docs_root)
+
+    response = client.get("/api/docs/live/mcp-tools")
+    assert response.status_code == 403
+
+
+def test_admin_allowed_live_mcp_tools_reference(docs_root):
+    client = _make_client(_user(AccountType.ADMIN), docs_root)
+
+    response = client.get("/api/docs/live/mcp-tools")
     assert response.status_code == 200

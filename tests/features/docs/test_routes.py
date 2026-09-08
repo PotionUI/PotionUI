@@ -45,8 +45,20 @@ class TestDocsController:
         return documenter
 
     @pytest.fixture
-    def controller(self, mock_operations, mock_pipes_documenter, mock_output_types_documenter):
-        return DocsController(Mock(), "docs", mock_pipes_documenter, mock_output_types_documenter)
+    def mock_mcp_tools_documenter(self):
+        documenter = Mock()
+        documenter.generate_documentation.return_value = {
+            "tools": [{"name": "fake_tool"}], "total": 1, "governance": {}
+        }
+        return documenter
+
+    @pytest.fixture
+    def controller(
+        self, mock_operations, mock_pipes_documenter, mock_output_types_documenter, mock_mcp_tools_documenter
+    ):
+        return DocsController(
+            Mock(), "docs", mock_pipes_documenter, mock_output_types_documenter, mock_mcp_tools_documenter
+        )
 
     @pytest.fixture
     def admin_user(self):
@@ -183,3 +195,22 @@ class TestDocsController:
 
         assert response.success is False
         assert response.error == "live_output_types_failed"
+
+    # ---- live MCP tools ----
+
+    @pytest.mark.asyncio
+    async def test_get_live_mcp_tools_success(self, controller, mock_mcp_tools_documenter):
+        response = await controller.get_live_mcp_tools()
+
+        assert response.success is True
+        assert response.data["tools"] == [{"name": "fake_tool"}]
+        mock_mcp_tools_documenter.generate_documentation.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_live_mcp_tools_handles_exception(self, controller, mock_mcp_tools_documenter):
+        mock_mcp_tools_documenter.generate_documentation.side_effect = Exception("boom")
+
+        response = await controller.get_live_mcp_tools()
+
+        assert response.success is False
+        assert response.error == "live_mcp_tools_failed"

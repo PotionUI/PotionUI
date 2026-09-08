@@ -19,8 +19,8 @@ Aggregates the in-app Documentation feature's tree from three sources:
 2. Plugin docs - the `docs:` manifest section of ENABLED plugins.
 3. Live reference - `type: "live"` items the frontend renders from existing
    APIs: hooks catalog, field types, pipes, output types, template functions,
-   APIs plus the client-side frontend kit. Developer and Contributor sections,
-   ADMIN only.
+   MCP tools, icons, plus the client-side frontend kit. Developer and
+   Contributor sections, ADMIN only.
 
 The tree is rebuilt fresh on every call - docs live on disk and change
 independently of the running process, and the scan is cheap (a handful of
@@ -64,6 +64,7 @@ _LIVE_DOCS: List[Dict[str, Any]] = [
     {"live_kind": "output-types", "title": "Output Types", "order": 40},
     {"live_kind": "template-functions", "title": "Template Functions", "order": 50},
     {"live_kind": "icons", "title": "Icons", "order": 60},
+    {"live_kind": "mcp-tools", "title": "MCP Tools", "order": 70},
     {"live_kind": "frontend-kit", "title": "Frontend Kit", "order": 10, "audience": "contributor"},
 ]
 

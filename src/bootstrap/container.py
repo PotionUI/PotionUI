@@ -881,14 +881,8 @@ def build_container() -> AppContainer:
 
     # Docs components (in-app Documentation feature - aggregates repo
     # markdown, plugin-manifest `docs:` entries, and live-reference APIs
-    # into a role-filtered tree)
-    from src.features.docs.routes import DocsController
-    docs_controller = DocsController(
-        plugin_registry,
-        base_docs_path="docs",
-        pipes_documenter=pipes_documenter,
-        output_types_documenter=output_types_documenter,
-    )
+    # into a role-filtered tree) are built below, once `mcp_tool_collaborators`
+    # (its MCP tools reference needs) exists.
 
     # Form components (the field-type registry was populated earlier, ahead
     # of plugin discovery, so builtin field types could be registered first)
@@ -1408,6 +1402,18 @@ def build_container() -> AppContainer:
         tag_repository=tag_repository,
         plugin_registry=plugin_registry,
         generation_history_facade=generation_history_facade,
+    )
+
+    from src.features.developer.mcp_tools_documenter import McpToolsDocumenter
+    from src.features.docs.routes import DocsController
+
+    mcp_tools_documenter = McpToolsDocumenter(mcp_tool_collaborators)
+    docs_controller = DocsController(
+        plugin_registry,
+        base_docs_path="docs",
+        pipes_documenter=pipes_documenter,
+        output_types_documenter=output_types_documenter,
+        mcp_tools_documenter=mcp_tools_documenter,
     )
 
     chat = build_chat(

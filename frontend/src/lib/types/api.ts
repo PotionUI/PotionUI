@@ -688,7 +688,15 @@ export interface ToolExecution {
 
 // Documentation feature (GET /api/docs/*)
 export type DocLiveKind =
-	'hooks' | 'field-types' | 'pipes' | 'output-types' | 'template-functions' | 'icons' | 'frontend-kit' | null;
+	| 'hooks'
+	| 'field-types'
+	| 'pipes'
+	| 'output-types'
+	| 'template-functions'
+	| 'mcp-tools'
+	| 'icons'
+	| 'frontend-kit'
+	| null;
 
 // Docs 2.0 (#48/#49/#50): `type` stays 'markdown' | 'live' -- the RENDER kind
 // (does this id have fetchable markdown, or a live component?) is unchanged.

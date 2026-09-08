@@ -8,6 +8,7 @@
 	import FieldTypesReference from './live/FieldTypesReference.svelte';
 	import PipesReference from './live/PipesReference.svelte';
 	import OutputTypesReference from './live/OutputTypesReference.svelte';
+	import McpToolsReference from './live/McpToolsReference.svelte';
 	import TemplateFunctionsReference from './live/TemplateFunctionsReference.svelte';
 	import IconsReference from './live/IconsReference.svelte';
 	import FrontendKit from './live/FrontendKit.svelte';
@@ -111,6 +112,8 @@
 			<PipesReference />
 		{:else if item.live_kind === 'output-types'}
 			<OutputTypesReference />
+		{:else if item.live_kind === 'mcp-tools'}
+			<McpToolsReference />
 		{:else if item.live_kind === 'template-functions'}
 			<TemplateFunctionsReference />
 		{:else if item.live_kind === 'icons'}

@@ -21,4 +21,4 @@ class PromptEnhancementCollaborators:
     model_index_manager: Any = None
     llm_memory_repository: Any = None
     feedback_repository: Any = None
-    preset_manager: Any = None
+    preset_collaborators: Any = None

@@ -435,8 +435,6 @@ class TestPresetProcessor(unittest.TestCase):
 
 
 class TestPresetTemplateMedia(unittest.TestCase):
-    """`copy()` and `to_dict()` enumerate fields by hand, so a new field can silently drop."""
-
     MEDIA = {
         "cover": "public/cover.png",
         "gallery": [{"src": "public/examples/a.png", "seed": 7, "mode": "txt2img"}],
@@ -450,16 +448,8 @@ class TestPresetTemplateMedia(unittest.TestCase):
     def test_media_defaults_to_none(self):
         self.assertIsNone(self._template().media)
 
-    def test_copy_preserves_media(self):
-        self.assertEqual(self._template(self.MEDIA).copy().media, self.MEDIA)
-
-    def test_to_dict_includes_media(self):
-        d = self._template(self.MEDIA).to_dict()
-        self.assertIn("media", d)
-        self.assertEqual(d["media"], self.MEDIA)
-
-    def test_to_dict_media_none_when_absent(self):
-        self.assertIsNone(self._template().to_dict()["media"])
+    def test_media_set_when_provided(self):
+        self.assertEqual(self._template(self.MEDIA).media, self.MEDIA)
 
 
 if __name__ == '__main__':

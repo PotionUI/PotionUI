@@ -46,7 +46,7 @@ def make_context(
         user_id="user-1",
         model_index_manager=FakeModelIndexManager(models_by_id or {}),
         session_metadata={"form_state": form_state},
-        preset_manager=None,
+        preset_collaborators=None,
     )
 
 

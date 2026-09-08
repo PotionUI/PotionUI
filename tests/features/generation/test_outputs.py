@@ -16,9 +16,7 @@ class TestGenerationOutput:
     def test_base_class_attributes(self):
         """Test that GenerationOutput has correct base attributes."""
         output = GenerationOutput()
-        
-        assert hasattr(output, 'type')
-        assert output.type == "generation_output"
+
         assert output.pipe_id is None
         assert output.pipe_name is None
 
@@ -247,16 +245,6 @@ class TestCompareImagesGenerationOutput:
         assert output.to == ("Generated", self.image2)
         assert isinstance(output, GenerationOutput)
 
-    def test_type_attribute(self):
-        """Test that type is set to artifact_output."""
-        output = CompareImagesGenerationOutput(
-            index=1,
-            compare=("A", self.image1),
-            to=("B", self.image2)
-        )
-        
-        assert output.type == "artifact_output"
-
     def test_tuple_structure(self):
         """Test that compare and to are proper tuples."""
         output = CompareImagesGenerationOutput(
@@ -400,12 +388,6 @@ class TestSeedGenerationOutput:
         assert output.seed == 12345
         assert isinstance(output, GenerationOutput)
 
-    def test_type_attribute(self):
-        """Test that type is set to artifact_output."""
-        output = SeedGenerationOutput(index=1, seed=67890)
-        
-        assert output.type == "artifact_output"
-
     def test_different_values(self):
         """Test with different index and seed values."""
         test_cases = [
@@ -435,16 +417,6 @@ class TestDiffTextGenerationOutput:
         assert output.name == "prompt_diff"
         assert output.diff == diff_text
         assert isinstance(output, GenerationOutput)
-
-    def test_type_attribute(self):
-        """Test that type is set to artifact_output."""
-        output = DiffTextGenerationOutput(
-            index=1,
-            name="test_diff",
-            diff="test diff content"
-        )
-        
-        assert output.type == "artifact_output"
 
     def test_different_diff_types(self):
         """Test with different types of diff content."""
@@ -550,12 +522,6 @@ class TestModelsGenerationOutput:
         assert output.models == models
         assert isinstance(output, GenerationOutput)
 
-    def test_type_attribute(self):
-        """Test that type is set to artifact_output."""
-        output = ModelsGenerationOutput(models=[])
-        
-        assert output.type == "artifact_output"
-
     def test_empty_models_list(self):
         """Test with empty models list."""
         output = ModelsGenerationOutput(models=[])
@@ -634,7 +600,6 @@ class TestDataclassStructure:
         assert hasattr(output, 'image')  # Own field
         assert hasattr(output, 'pipe_id')  # Inherited field
         assert hasattr(output, 'pipe_name')  # Inherited field
-        assert hasattr(output, 'type')  # Inherited field
 
     def test_kw_only_behavior(self):
         """Test that GenerationOutput uses kw_only=True for its fields."""

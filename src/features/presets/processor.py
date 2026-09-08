@@ -27,7 +27,7 @@ from src.features.models.directory import ModelDirectories
 from src.platform.settings.settings import Settings
 from src.platform.templating import TemplateProcessor
 from src.platform.templating.errors import TemplateEvaluationError
-from src.features.presets.templates import PresetTemplate, FieldTemplate, default_form_name
+from src.features.presets.templates import PresetTemplate, default_form_name
 
 from .loader import PresetTemplateLoader
 
@@ -61,81 +61,6 @@ class PresetProcessor:
         self.model_directories = model_directories
         self.settings = settings
         self.preset_template_loader = preset_template_loader
-
-    def _convert_dict_to_field_template(self, item: dict, context: Dict[str, Any]) -> FieldTemplate:
-        """Convert a dictionary to FieldTemplate, recursively processing children"""
-        # If children is a list of dicts, convert them to FieldTemplate objects
-        if 'children' in item and isinstance(item['children'], list):
-            item = item.copy()
-            children = []
-            for child in item['children']:
-                if isinstance(child, dict):
-                    children.append(self._convert_dict_to_field_template(child, context))
-                elif isinstance(child, FieldTemplate):
-                    children.append(child)
-            item['children'] = children
-
-        return FieldTemplate(**item)
-
-    def _expand_loop_fields(self, fields: List[FieldTemplate], context: Dict[str, Any]) -> List[FieldTemplate]:
-        """Expand @loop fields into concrete field definitions"""
-        expanded_fields = []
-
-        for field in fields:
-            # Check if this is a loop field
-            if field.type == "@loop":
-                # Extract loop configuration from field configuration
-                if not field.configuration:
-                    raise ValueError("@loop field requires configuration with count/items and template")
-
-                loop_config = {
-                    'count': field.configuration.get('count'),
-                    'items': field.configuration.get('items'),
-                    'template': field.configuration.get('template'),
-                    'when': field.configuration.get('when'),
-                    'as': field.configuration.get('as')
-                }
-
-                # Use existing _process_loop to expand the template
-                expanded_items = self._process_loop(loop_config, context)
-
-                # Convert expanded items to FieldTemplate objects
-                for item in expanded_items:
-                    if isinstance(item, dict):
-                        # If the item is a dict with field properties, create FieldTemplate
-                        try:
-                            expanded_field = self._convert_dict_to_field_template(item, context)
-                            # Recursively expand loops in children
-                            if expanded_field.children and isinstance(expanded_field.children, list):
-                                expanded_field_dict = expanded_field.__dict__.copy()
-                                expanded_field_dict['children'] = self._expand_loop_fields(expanded_field.children, context)
-                                expanded_field = FieldTemplate(**expanded_field_dict)
-                            expanded_fields.append(expanded_field)
-                        except Exception as e:
-                            logger.warning(f"Error creating FieldTemplate from loop expansion: {e}")
-                    elif isinstance(item, list):
-                        # If the template returns a list of fields, process each
-                        for sub_item in item:
-                            if isinstance(sub_item, dict):
-                                try:
-                                    expanded_field = self._convert_dict_to_field_template(sub_item, context)
-                                    # Recursively expand loops in children
-                                    if expanded_field.children and isinstance(expanded_field.children, list):
-                                        expanded_field_dict = expanded_field.__dict__.copy()
-                                        expanded_field_dict['children'] = self._expand_loop_fields(expanded_field.children, context)
-                                        expanded_field = FieldTemplate(**expanded_field_dict)
-                                    expanded_fields.append(expanded_field)
-                                except Exception as e:
-                                    logger.warning(f"Error creating FieldTemplate from loop expansion: {e}")
-            else:
-                # Not a loop field, recursively process children
-                if field.children and isinstance(field.children, list):
-                    field_dict = field.__dict__.copy()
-                    field_dict['children'] = self._expand_loop_fields(field.children, context)
-                    field = FieldTemplate(**field_dict)
-                expanded_fields.append(field)
-
-        return expanded_fields
 
     def _resolve_loop_items(self, items: Any, context: Dict[str, Any]) -> List[Any]:
         """Resolve `@loop`'s `items:` to a concrete list of loop items.

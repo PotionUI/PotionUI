@@ -13,6 +13,11 @@ than attempted - its requirements are ones this vocabulary cannot install.
 
 Uninstalling removes git checkouts only: models are left alone because another
 pipe may well need the same weights.
+
+No core pipe under `src/pipelines/pipes/` declares `get_requirements()` today -
+model weights are fetched on demand through the `downloader` plugin's
+`AssetFetcher`, not this vocabulary. It exists for a plugin pipe that needs a
+pip package or a git checkout installed before it can run.
 """
 
 import asyncio

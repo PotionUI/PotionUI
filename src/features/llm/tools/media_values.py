@@ -157,7 +157,7 @@ def validate_media_changes(
 
 
 def preset_form_media_errors(
-    preset_manager: Any,
+    preset_collaborators: Any,
     storage_dir: Optional[str],
     preset_id: str,
     mode: str,
@@ -167,10 +167,10 @@ def preset_form_media_errors(
     fields, loading the form schema itself. Shared by any tool that lets a
     model set form field values outside a live form_state (`run_generation`
     instead reads the schema already open on the session's current preset)."""
-    if not proposed or preset_manager is None:
+    if not proposed or preset_collaborators is None:
         return []
     try:
-        schema_data = preset_manager.get_form_schema(preset_id, mode=mode)
+        schema_data = preset_collaborators.get_form_schema(preset_id, mode=mode)
         media_fields = media_field_names(schema_data.get("form_schema", {}).get("properties", {}))
     except Exception as e:
         logger.debug(f"Could not load form schema for media validation: {e}")

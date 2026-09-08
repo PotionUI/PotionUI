@@ -45,7 +45,7 @@ class TestPresetController:
     """Comprehensive tests for PresetController with PresetCollaborators."""
 
     @pytest.fixture
-    def mock_preset_manager(self):
+    def mock_preset_collaborators(self):
         """Mock PresetCollaborators bundle, duck-typed with one method per operation."""
         return Mock()
 
@@ -73,16 +73,16 @@ class TestPresetController:
         return Mock()
 
     @pytest.fixture
-    def controller(self, mock_preset_manager, mock_backend_registry):
+    def controller(self, mock_preset_collaborators, mock_backend_registry):
         """Create PresetController instance with mocked collaborators."""
-        return PresetController(mock_preset_manager, mock_backend_registry)
+        return PresetController(mock_preset_collaborators, mock_backend_registry)
 
     # ===== list_presets tests =====
 
     @pytest.mark.asyncio
-    async def test_list_presets_success(self, controller, mock_preset_manager, mock_current_user):
+    async def test_list_presets_success(self, controller, mock_preset_collaborators, mock_current_user):
         """Test successful preset listing."""
-        mock_preset_manager.list_presets.return_value = [
+        mock_preset_collaborators.list_presets.return_value = [
             {"id": "preset-1", "name": "Preset 1"},
             {"id": "preset-2", "name": "Preset 2"},
         ]
@@ -92,12 +92,12 @@ class TestPresetController:
         assert isinstance(result, APIResponse)
         assert result.success is True
         assert len(result.data) == 2
-        mock_preset_manager.list_presets.assert_called_once_with(mock_current_user, False)
+        mock_preset_collaborators.list_presets.assert_called_once_with(mock_current_user, False)
 
     @pytest.mark.asyncio
-    async def test_list_presets_failure(self, controller, mock_preset_manager, mock_current_user):
+    async def test_list_presets_failure(self, controller, mock_preset_collaborators, mock_current_user):
         """Test preset listing failure."""
-        mock_preset_manager.list_presets.side_effect = Exception("Database error")
+        mock_preset_collaborators.list_presets.side_effect = Exception("Database error")
 
         with pytest.raises(HTTPException) as exc_info:
             await controller.list_presets(mock_current_user)
@@ -108,9 +108,9 @@ class TestPresetController:
     # ===== get_preset tests =====
 
     @pytest.mark.asyncio
-    async def test_get_preset_success(self, controller, mock_preset_manager):
+    async def test_get_preset_success(self, controller, mock_preset_collaborators):
         """Test successful preset retrieval."""
-        mock_preset_manager.get_preset.return_value = {
+        mock_preset_collaborators.get_preset.return_value = {
             "id": "test-preset",
             "name": "Test Preset",
             "vars": {"key": "value"},
@@ -121,12 +121,12 @@ class TestPresetController:
         assert isinstance(result, APIResponse)
         assert result.success is True
         assert result.data["id"] == "test-preset"
-        mock_preset_manager.get_preset.assert_called_once_with("test-preset")
+        mock_preset_collaborators.get_preset.assert_called_once_with("test-preset")
 
     @pytest.mark.asyncio
-    async def test_get_preset_not_found(self, controller, mock_preset_manager):
+    async def test_get_preset_not_found(self, controller, mock_preset_collaborators):
         """Test preset not found scenario."""
-        mock_preset_manager.get_preset.side_effect = PresetNotFoundException("non-existent")
+        mock_preset_collaborators.get_preset.side_effect = PresetNotFoundException("non-existent")
 
         result = await controller.get_preset("non-existent")
 
@@ -137,9 +137,9 @@ class TestPresetController:
     # ===== get_available_modes tests =====
 
     @pytest.mark.asyncio
-    async def test_get_available_modes_success(self, controller, mock_preset_manager):
+    async def test_get_available_modes_success(self, controller, mock_preset_collaborators):
         """Test successful mode retrieval."""
-        mock_preset_manager.get_available_modes.return_value = {
+        mock_preset_collaborators.get_available_modes.return_value = {
             "preset_id": "test-preset",
             "modes": [
                 {"name": "txt2img", "label": "Txt2img"},
@@ -155,9 +155,9 @@ class TestPresetController:
         assert len(result.data["modes"]) == 2
 
     @pytest.mark.asyncio
-    async def test_get_available_modes_not_found(self, controller, mock_preset_manager):
+    async def test_get_available_modes_not_found(self, controller, mock_preset_collaborators):
         """Test mode retrieval for non-existent preset."""
-        mock_preset_manager.get_available_modes.side_effect = PresetNotFoundException("non-existent")
+        mock_preset_collaborators.get_available_modes.side_effect = PresetNotFoundException("non-existent")
 
         result = await controller.get_available_modes("non-existent")
 
@@ -167,54 +167,54 @@ class TestPresetController:
     # ===== get_preset_form_schema tests =====
 
     @pytest.mark.asyncio
-    async def test_get_preset_form_schema_success(self, controller, mock_preset_manager):
+    async def test_get_preset_form_schema_success(self, controller, mock_preset_collaborators):
         """Test successful form schema retrieval."""
-        mock_preset_manager.get_form_schema.return_value = {
+        mock_preset_collaborators.get_form_schema.return_value = {
             "preset_id": "test-preset",
             "form_schema": {"fields": []},
             "debug_info": {},
         }
 
-        result = await controller.get_preset_form_schema("test-preset", "txt2img")
+        result = await controller.get_form_schema("test-preset", "txt2img")
 
         assert isinstance(result, APIResponse)
         assert result.success is True
-        mock_preset_manager.get_form_schema.assert_called_once_with("test-preset", "txt2img", None)
+        mock_preset_collaborators.get_form_schema.assert_called_once_with("test-preset", "txt2img", None)
 
     @pytest.mark.asyncio
-    async def test_get_preset_form_schema_mode_not_found(self, controller, mock_preset_manager):
+    async def test_get_preset_form_schema_mode_not_found(self, controller, mock_preset_collaborators):
         """Test form schema retrieval with invalid mode."""
-        mock_preset_manager.get_form_schema.side_effect = ModeNotFoundException("test-preset", "invalid-mode")
+        mock_preset_collaborators.get_form_schema.side_effect = ModeNotFoundException("test-preset", "invalid-mode")
 
-        result = await controller.get_preset_form_schema("test-preset", "invalid-mode")
+        result = await controller.get_form_schema("test-preset", "invalid-mode")
 
         assert result.success is False
         assert result.error == "mode_not_found"
 
     @pytest.mark.asyncio
-    async def test_get_preset_form_schema_form_not_found(self, controller, mock_preset_manager):
+    async def test_get_preset_form_schema_form_not_found(self, controller, mock_preset_collaborators):
         """Test form schema retrieval with non-existent form."""
-        mock_preset_manager.get_form_schema.side_effect = FormNotFoundException("test-preset", "txt2img", "custom")
+        mock_preset_collaborators.get_form_schema.side_effect = FormNotFoundException("test-preset", "txt2img", "custom")
 
-        result = await controller.get_preset_form_schema("test-preset", "txt2img", "custom")
+        result = await controller.get_form_schema("test-preset", "txt2img", "custom")
 
         assert result.success is False
         assert result.error == "form_not_found"
 
     @pytest.mark.asyncio
-    async def test_get_preset_form_schema_no_modes(self, controller, mock_preset_manager):
+    async def test_get_preset_form_schema_no_modes(self, controller, mock_preset_collaborators):
         """Test form schema retrieval with no modes available."""
-        mock_preset_manager.get_form_schema.side_effect = NoModesAvailableException("test-preset")
+        mock_preset_collaborators.get_form_schema.side_effect = NoModesAvailableException("test-preset")
 
-        result = await controller.get_preset_form_schema("test-preset")
+        result = await controller.get_form_schema("test-preset")
 
         assert result.success is False
         assert result.error == "no_modes_available"
 
-    # ===== get_pipes tests =====
+    # ===== get_pipeline tests =====
 
     @pytest.mark.asyncio
-    async def test_get_pipes_success(self, controller, mock_preset_manager):
+    async def test_get_pipes_success(self, controller, mock_preset_collaborators):
         """Test successful pipeline retrieval."""
         mock_result = Mock(spec=PipelineGraph)
         mock_result.to_dict.return_value = {
@@ -224,20 +224,20 @@ class TestPresetController:
             "connections": [],
             "debug_info": {},
         }
-        mock_preset_manager.get_pipeline.return_value = mock_result
+        mock_preset_collaborators.get_pipeline.return_value = mock_result
 
-        result = await controller.get_pipes("test-preset", "txt2img", {})
+        result = await controller.get_pipeline("test-preset", "txt2img", {})
 
         assert isinstance(result, APIResponse)
         assert result.success is True
         assert result.data["preset_id"] == "test-preset"
 
     @pytest.mark.asyncio
-    async def test_get_pipes_mode_not_found(self, controller, mock_preset_manager):
+    async def test_get_pipes_mode_not_found(self, controller, mock_preset_collaborators):
         """Test pipeline retrieval with invalid mode."""
-        mock_preset_manager.get_pipeline.side_effect = ModeNotFoundException("test-preset", "invalid-mode")
+        mock_preset_collaborators.get_pipeline.side_effect = ModeNotFoundException("test-preset", "invalid-mode")
 
-        result = await controller.get_pipes("test-preset", "invalid-mode")
+        result = await controller.get_pipeline("test-preset", "invalid-mode")
 
         assert result.success is False
         assert result.error == "mode_not_found"
@@ -245,9 +245,9 @@ class TestPresetController:
     # ===== reload_preset tests =====
 
     @pytest.mark.asyncio
-    async def test_reload_preset_success(self, controller, mock_preset_manager):
+    async def test_reload_preset_success(self, controller, mock_preset_collaborators):
         """Test successful preset reload."""
-        mock_preset_manager.reload_preset.return_value = {"id": "test-preset", "name": "Test"}
+        mock_preset_collaborators.reload_preset.return_value = {"id": "test-preset", "name": "Test"}
 
         result = await controller.reload_preset("test-preset")
 
@@ -258,9 +258,9 @@ class TestPresetController:
     # ===== install_preset tests =====
 
     @pytest.mark.asyncio
-    async def test_install_preset_success(self, controller, mock_preset_manager, mock_admin_user):
+    async def test_install_preset_success(self, controller, mock_preset_collaborators, mock_admin_user):
         """Test successful preset installation."""
-        mock_preset_manager.install_preset.return_value = {"id": "installed-id"}
+        mock_preset_collaborators.install_preset.return_value = {"id": "installed-id"}
 
         result = await controller.install_preset("test-preset", mock_admin_user)
 
@@ -269,9 +269,9 @@ class TestPresetController:
         assert "installed successfully" in result.message
 
     @pytest.mark.asyncio
-    async def test_install_preset_permission_denied(self, controller, mock_preset_manager, mock_current_user):
+    async def test_install_preset_permission_denied(self, controller, mock_preset_collaborators, mock_current_user):
         """Test preset installation without admin permission."""
-        mock_preset_manager.install_preset.side_effect = PermissionDeniedException("install_preset")
+        mock_preset_collaborators.install_preset.side_effect = PermissionDeniedException("install_preset")
 
         result = await controller.install_preset("test-preset", mock_current_user)
 
@@ -279,9 +279,9 @@ class TestPresetController:
         assert result.error == "permission_denied"
 
     @pytest.mark.asyncio
-    async def test_install_preset_already_installed(self, controller, mock_preset_manager, mock_admin_user):
+    async def test_install_preset_already_installed(self, controller, mock_preset_collaborators, mock_admin_user):
         """Test installing already installed preset."""
-        mock_preset_manager.install_preset.side_effect = PresetAlreadyInstalledException("test-preset")
+        mock_preset_collaborators.install_preset.side_effect = PresetAlreadyInstalledException("test-preset")
 
         result = await controller.install_preset("test-preset", mock_admin_user)
 
@@ -291,9 +291,9 @@ class TestPresetController:
     # ===== uninstall_preset tests =====
 
     @pytest.mark.asyncio
-    async def test_uninstall_preset_success(self, controller, mock_preset_manager, mock_admin_user):
+    async def test_uninstall_preset_success(self, controller, mock_preset_collaborators, mock_admin_user):
         """Test successful preset uninstallation."""
-        mock_preset_manager.uninstall_preset.return_value = "Preset uninstalled. Removed 3 assignments."
+        mock_preset_collaborators.uninstall_preset.return_value = "Preset uninstalled. Removed 3 assignments."
 
         result = await controller.uninstall_preset("test-preset", mock_admin_user)
 
@@ -301,9 +301,9 @@ class TestPresetController:
         assert result.success is True
 
     @pytest.mark.asyncio
-    async def test_uninstall_preset_not_installed(self, controller, mock_preset_manager, mock_admin_user):
+    async def test_uninstall_preset_not_installed(self, controller, mock_preset_collaborators, mock_admin_user):
         """Test uninstalling non-installed preset."""
-        mock_preset_manager.uninstall_preset.side_effect = PresetNotInstalledException("test-preset")
+        mock_preset_collaborators.uninstall_preset.side_effect = PresetNotInstalledException("test-preset")
 
         result = await controller.uninstall_preset("test-preset", mock_admin_user)
 
@@ -313,9 +313,9 @@ class TestPresetController:
     # ===== assign_preset_to_users tests =====
 
     @pytest.mark.asyncio
-    async def test_assign_preset_to_users_success(self, controller, mock_preset_manager, mock_admin_user):
+    async def test_assign_preset_to_users_success(self, controller, mock_preset_collaborators, mock_admin_user):
         """Test successful preset assignment."""
-        mock_preset_manager.assign_preset_to_users.return_value = {
+        mock_preset_collaborators.assign_preset_to_users.return_value = {
             "preset_id": "test-preset",
             "assigned_count": 2,
             "assignments": [],
@@ -328,9 +328,9 @@ class TestPresetController:
         assert "assigned to 2 users" in result.message
 
     @pytest.mark.asyncio
-    async def test_assign_preset_invalid_users(self, controller, mock_preset_manager, mock_admin_user):
+    async def test_assign_preset_invalid_users(self, controller, mock_preset_collaborators, mock_admin_user):
         """Test assigning preset with invalid users."""
-        mock_preset_manager.assign_preset_to_users.side_effect = InvalidUsersException(["invalid-user"])
+        mock_preset_collaborators.assign_preset_to_users.side_effect = InvalidUsersException(["invalid-user"])
 
         result = await controller.assign_preset_to_users("test-preset", ["invalid-user"], mock_admin_user)
 
@@ -340,9 +340,9 @@ class TestPresetController:
     # ===== unassign_preset_from_user tests =====
 
     @pytest.mark.asyncio
-    async def test_unassign_preset_from_user_success(self, controller, mock_preset_manager, mock_admin_user):
+    async def test_unassign_preset_from_user_success(self, controller, mock_preset_collaborators, mock_admin_user):
         """Test successful preset unassignment."""
-        mock_preset_manager.unassign_preset_from_user.return_value = "Preset unassigned from user"
+        mock_preset_collaborators.unassign_preset_from_user.return_value = "Preset unassigned from user"
 
         result = await controller.unassign_preset_from_user("test-preset", "user-1", mock_admin_user)
 
@@ -350,9 +350,9 @@ class TestPresetController:
         assert result.success is True
 
     @pytest.mark.asyncio
-    async def test_unassign_preset_user_not_found(self, controller, mock_preset_manager, mock_admin_user):
+    async def test_unassign_preset_user_not_found(self, controller, mock_preset_collaborators, mock_admin_user):
         """Test unassigning preset from non-existent user."""
-        mock_preset_manager.unassign_preset_from_user.side_effect = UserNotFoundException("non-existent")
+        mock_preset_collaborators.unassign_preset_from_user.side_effect = UserNotFoundException("non-existent")
 
         result = await controller.unassign_preset_from_user("test-preset", "non-existent", mock_admin_user)
 
@@ -360,9 +360,9 @@ class TestPresetController:
         assert result.error == "user_not_found"
 
     @pytest.mark.asyncio
-    async def test_unassign_preset_not_assigned(self, controller, mock_preset_manager, mock_admin_user):
+    async def test_unassign_preset_not_assigned(self, controller, mock_preset_collaborators, mock_admin_user):
         """Test unassigning preset that isn't assigned."""
-        mock_preset_manager.unassign_preset_from_user.side_effect = PresetNotAssignedException("test-preset", "user-1")
+        mock_preset_collaborators.unassign_preset_from_user.side_effect = PresetNotAssignedException("test-preset", "user-1")
 
         result = await controller.unassign_preset_from_user("test-preset", "user-1", mock_admin_user)
 
@@ -372,9 +372,9 @@ class TestPresetController:
     # ===== get_preset_assignments tests =====
 
     @pytest.mark.asyncio
-    async def test_get_preset_assignments_success(self, controller, mock_preset_manager, mock_admin_user):
+    async def test_get_preset_assignments_success(self, controller, mock_preset_collaborators, mock_admin_user):
         """Test successful preset assignments retrieval."""
-        mock_preset_manager.get_preset_assignments.return_value = {
+        mock_preset_collaborators.get_preset_assignments.return_value = {
             "installed": True,
             "total_assignments": 3,
             "assignments": [],
@@ -387,9 +387,9 @@ class TestPresetController:
         assert result.data["total_assignments"] == 3
 
     @pytest.mark.asyncio
-    async def test_get_preset_assignments_permission_denied(self, controller, mock_preset_manager, mock_current_user):
+    async def test_get_preset_assignments_permission_denied(self, controller, mock_preset_collaborators, mock_current_user):
         """Test getting assignments without admin permission."""
-        mock_preset_manager.get_preset_assignments.side_effect = PermissionDeniedException("get_preset_assignments")
+        mock_preset_collaborators.get_preset_assignments.side_effect = PermissionDeniedException("get_preset_assignments")
 
         result = await controller.get_preset_assignments("test-preset", mock_current_user)
 
@@ -399,8 +399,8 @@ class TestPresetController:
     # ===== get_form_overrides / set_form_overrides tests =====
 
     @pytest.mark.asyncio
-    async def test_get_form_overrides_success(self, controller, mock_preset_manager, mock_admin_user):
-        mock_preset_manager.get_form_overrides_inventory.return_value = {
+    async def test_get_form_overrides_success(self, controller, mock_preset_collaborators, mock_admin_user):
+        mock_preset_collaborators.get_form_overrides_inventory.return_value = {
             "preset_id": "test-preset",
             "mode": "txt2img",
             "modes": ["txt2img"],
@@ -411,13 +411,13 @@ class TestPresetController:
 
         assert result.success is True
         assert result.data["mode"] == "txt2img"
-        mock_preset_manager.get_form_overrides_inventory.assert_called_once_with(
+        mock_preset_collaborators.get_form_overrides_inventory.assert_called_once_with(
             "test-preset", "txt2img", mock_admin_user
         )
 
     @pytest.mark.asyncio
-    async def test_get_form_overrides_permission_denied(self, controller, mock_preset_manager, mock_current_user):
-        mock_preset_manager.get_form_overrides_inventory.side_effect = PermissionDeniedException(
+    async def test_get_form_overrides_permission_denied(self, controller, mock_preset_collaborators, mock_current_user):
+        mock_preset_collaborators.get_form_overrides_inventory.side_effect = PermissionDeniedException(
             "get_form_overrides_inventory"
         )
 
@@ -427,8 +427,8 @@ class TestPresetController:
         assert result.error == "permission_denied"
 
     @pytest.mark.asyncio
-    async def test_get_form_overrides_mode_not_found(self, controller, mock_preset_manager, mock_admin_user):
-        mock_preset_manager.get_form_overrides_inventory.side_effect = ModeNotFoundException(
+    async def test_get_form_overrides_mode_not_found(self, controller, mock_preset_collaborators, mock_admin_user):
+        mock_preset_collaborators.get_form_overrides_inventory.side_effect = ModeNotFoundException(
             "test-preset", "not_a_mode"
         )
 
@@ -438,8 +438,8 @@ class TestPresetController:
         assert result.error == "mode_not_found"
 
     @pytest.mark.asyncio
-    async def test_set_form_overrides_success(self, controller, mock_preset_manager, mock_admin_user):
-        mock_preset_manager.set_form_overrides.return_value = {
+    async def test_set_form_overrides_success(self, controller, mock_preset_collaborators, mock_admin_user):
+        mock_preset_collaborators.set_form_overrides.return_value = {
             "preset_id": "test-preset",
             "mode": "txt2img",
             "modes": ["txt2img"],
@@ -451,13 +451,13 @@ class TestPresetController:
         )
 
         assert result.success is True
-        mock_preset_manager.set_form_overrides.assert_called_once_with(
+        mock_preset_collaborators.set_form_overrides.assert_called_once_with(
             "test-preset", "txt2img", {"steps": {"editable": False}}, mock_admin_user
         )
 
     @pytest.mark.asyncio
-    async def test_set_form_overrides_permission_denied(self, controller, mock_preset_manager, mock_current_user):
-        mock_preset_manager.set_form_overrides.side_effect = PermissionDeniedException("set_form_overrides")
+    async def test_set_form_overrides_permission_denied(self, controller, mock_preset_collaborators, mock_current_user):
+        mock_preset_collaborators.set_form_overrides.side_effect = PermissionDeniedException("set_form_overrides")
 
         result = await controller.set_form_overrides(
             "test-preset", "txt2img", {"steps": {"editable": False}}, mock_current_user
@@ -467,10 +467,10 @@ class TestPresetController:
         assert result.error == "permission_denied"
 
     @pytest.mark.asyncio
-    async def test_set_form_overrides_invalid(self, controller, mock_preset_manager, mock_admin_user):
+    async def test_set_form_overrides_invalid(self, controller, mock_preset_collaborators, mock_admin_user):
         from src.features.presets.exceptions import InvalidFormOverridesException
 
-        mock_preset_manager.set_form_overrides.side_effect = InvalidFormOverridesException(
+        mock_preset_collaborators.set_form_overrides.side_effect = InvalidFormOverridesException(
             "test-preset", "txt2img", ["unknown field 'bogus'"]
         )
 
@@ -487,7 +487,7 @@ class TestPresetControllerModelAccessFiltering:
     access when a `model_access_policy` was supplied."""
 
     @pytest.fixture
-    def mock_preset_manager(self):
+    def mock_preset_collaborators(self):
         manager = Mock()
         preset = Mock()
         preset.engine = "native"
@@ -505,9 +505,9 @@ class TestPresetControllerModelAccessFiltering:
         return Mock()
 
     @pytest.fixture
-    def controller(self, mock_preset_manager, mock_backend_registry, mock_model_access_policy):
+    def controller(self, mock_preset_collaborators, mock_backend_registry, mock_model_access_policy):
         return PresetController(
-            mock_preset_manager, mock_backend_registry,
+            mock_preset_collaborators, mock_backend_registry,
             model_access_policy=mock_model_access_policy,
         )
 
@@ -553,10 +553,10 @@ class TestPresetControllerModelAccessFiltering:
         assert mock_models_for_engine.call_args.kwargs["user_allowed_model_ids"] == ["m1"]
 
     @pytest.mark.asyncio
-    async def test_no_policy_wired_skips_filtering(self, mock_preset_manager, mock_backend_registry, regular_user):
+    async def test_no_policy_wired_skips_filtering(self, mock_preset_collaborators, mock_backend_registry, regular_user):
         """Backward compatible: a controller built without a policy (e.g. an
         older test) behaves exactly as before - unfiltered."""
-        controller_without_policy = PresetController(mock_preset_manager, mock_backend_registry)
+        controller_without_policy = PresetController(mock_preset_collaborators, mock_backend_registry)
 
         with patch("src.features.models.availability.models_for_engine") as mock_models_for_engine, \
              patch("src.features.models.availability_repository.model_availability_repo") as mock_repo:

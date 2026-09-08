@@ -41,7 +41,7 @@ indexer = c.media_indexer
 report = {
     "unwired": sorted(k for k, v in vars(r).items() if v is None),
     "same": {
-        "preset_manager": r.preset_manager is c.preset_manager,
+        "preset_collaborators": r.preset_collaborators is c.preset_collaborators,
         "model_index_manager": r.model_index_manager is c.model_index_manager,
         "generation_orchestrator": r.generation_orchestrator is c.generation_orchestrator,
         "generation_history_facade": r.generation_history_facade is c.generation_history_facade,

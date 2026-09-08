@@ -32,7 +32,6 @@ class Progress:
 
 @dataclass(kw_only=True)
 class GenerationOutput:
-    type = "generation_output"
     pipe_id: int = None  # Index of the pipe that generated this output
     pipe_name: str = None  # Name of the pipe that generated this output
 
@@ -157,7 +156,6 @@ class ProgressGenerationOutput(GenerationOutput):
 
 @dataclass
 class CompareImagesGenerationOutput(GenerationOutput):
-    type = "artifact_output"
     index: int  # Index of the resource to compare / the resource = Image (when generating more than 1 image)
     compare: Tuple[Any, Image]
     to: Tuple[str, Image]
@@ -187,7 +185,6 @@ class GalleryGenerationOutput(GenerationOutput):
 
 @dataclass
 class SeedGenerationOutput(GenerationOutput):
-    type = "artifact_output"
     index: int
     seed: int
 
@@ -206,7 +203,6 @@ class RenderedPromptGenerationOutput(GenerationOutput):
     than the template itself. Transport-only ``pipe_artifact``; like the seed,
     it is not written back to the generation row.
     """
-    type = "artifact_output"
     index: int
     positive: str
     negative: str = ""
@@ -222,7 +218,6 @@ class WarmStartGenerationOutput(GenerationOutput):
     resumed at; ``similarity`` is the cosine between this run's pooled
     conditioning and the cached run's.
     """
-    type = "artifact_output"
     index: int
     resume_step: int
     total_steps: int
@@ -232,7 +227,6 @@ class WarmStartGenerationOutput(GenerationOutput):
 
 @dataclass
 class DiffTextGenerationOutput(GenerationOutput):
-    type = "artifact_output"
     index: int
     name: str
     diff: str
@@ -256,7 +250,6 @@ class ModelGenerationOutput(GenerationOutput):
     architecture or carry contributions (e.g. a DoRA magnitude) the delta
     math does not apply.
     """
-    type = "artifact_output"
     name: str
     type: Literal["checkpoint", "upscaler", "lora", "text_encoder", "vae", "other", "embedding"]
     weight: float = None
@@ -283,14 +276,12 @@ class ModelGenerationOutput(GenerationOutput):
 
 @dataclass
 class ModelsGenerationOutput(GenerationOutput):
-    type = "artifact_output"
     models: List[ModelGenerationOutput]
 
 
 @dataclass
 class ComfyUIWorkflowGenerationOutput(GenerationOutput):
     """Output containing the built ComfyUI workflow for debugging/display"""
-    type = "artifact_output"
     workflow: Dict[str, Any]  # The complete workflow JSON
     node_count: int = None    # Number of nodes in workflow
     workflow_file: str = None # Original workflow file path

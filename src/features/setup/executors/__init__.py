@@ -50,7 +50,7 @@ def build_default_executor_registry(
     recipe_catalog: RecipeCatalog,
     plugin_registry,
     backend_registry,
-    preset_manager,
+    preset_collaborators,
     user_repository,
     preset_template_loader,
     template_processor,
@@ -83,7 +83,7 @@ def build_default_executor_registry(
         "backend.detect": BackendDetectExecutor(backend_registry),
         "models.index": ModelsIndexExecutor(),
         "models.index_backend": ModelsIndexBackendExecutor(backend_registry, backend_model_indexer),
-        "preset.ensure": PresetEnsureExecutor(preset_manager, user_repository),
+        "preset.ensure": PresetEnsureExecutor(preset_collaborators, user_repository),
         "pipeline.render": PipelineRenderExecutor(
             preset_template_loader, template_processor, pipeline_builder
         ),

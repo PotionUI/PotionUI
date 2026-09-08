@@ -3,7 +3,7 @@
 A processed pipe carries only what its preset actually wrote. The rest of the
 configuration it runs with comes from the pipe class itself -
 ``PipelineExecutor`` deep-merges ``get_default_config()`` *underneath* the
-shipped config at execution time (``generation.py``). In-process that is
+shipped config at execution time (``engine.py``). In-process that is
 invisible; for an execution package it is not, because those defaults contain
 literal ``models/...`` paths (the detailer family alone contributes 23), so a
 package whose ``config`` looks path-free still resolves to host paths on

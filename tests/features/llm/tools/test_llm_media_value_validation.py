@@ -68,7 +68,7 @@ def make_settings(storage_root):
     return settings
 
 
-def make_preset_manager(media_field="source_image"):
+def make_preset_collaborators(media_field="source_image"):
     manager = MagicMock()
     manager.get_form_schema.return_value = {
         "form_schema": {
@@ -81,7 +81,7 @@ def make_preset_manager(media_field="source_image"):
     return manager
 
 
-def make_nested_preset_manager():
+def make_nested_preset_collaborators():
     manager = MagicMock()
     manager.get_form_schema.return_value = {"form_schema": {"properties": NESTED_SCHEMA_PROPERTIES}}
     return manager
@@ -91,7 +91,7 @@ def make_context(storage_root, form_state=None):
     return ToolContext(
         user_id="user-1",
         session_metadata={"form_state": form_state} if form_state else {},
-        preset_manager=make_preset_manager(),
+        preset_collaborators=make_preset_collaborators(),
         settings=make_settings(storage_root),
     )
 
@@ -298,7 +298,7 @@ class TestGuardFiresOnANestedPreset:
         context = ToolContext(
             user_id="user-1",
             session_metadata={"form_state": form_state({"steps": 30, "source_image": REAL_PATH})},
-            preset_manager=make_nested_preset_manager(),
+            preset_collaborators=make_nested_preset_collaborators(),
             settings=make_settings(storage),
         )
 
@@ -315,7 +315,7 @@ class TestGuardFiresOnANestedPreset:
         context = ToolContext(
             user_id="user-1",
             session_metadata={"form_state": form_state({"steps": 30, "source_image": None})},
-            preset_manager=make_nested_preset_manager(),
+            preset_collaborators=make_nested_preset_collaborators(),
             settings=make_settings(storage),
         )
 

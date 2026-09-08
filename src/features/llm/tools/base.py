@@ -100,7 +100,7 @@ class ToolContext:
     saved_segment_repository: Any = None
     segment_template_repository: Any = None
     model_index_manager: Any = None
-    preset_manager: Any = None
+    preset_collaborators: Any = None
     phrasebook_category_repository: Any = None
     phrasebook_value_repository: Any = None
     llm_repository: Any = None

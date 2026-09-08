@@ -88,7 +88,7 @@ class GetActiveModelsTool(BaseTool):
 
         try:
             # Get field metadata from schema (labels, model_type) if available
-            field_meta = build_model_field_metadata(context.preset_manager, form_state)
+            field_meta = build_model_field_metadata(context.preset_collaborators, form_state)
 
             # Deep data — description, tags, provider — is fetchable per model via
             # get_model_info; this survey stays compact so the first tool call does

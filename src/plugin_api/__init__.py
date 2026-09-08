@@ -115,7 +115,6 @@ from src.plugin_api.pipes import (
     ProgressGenerationOutput,
     SerializeContext,
     VideoGenerationOutput,
-    logger,
     output_type_registry,
 )
 
@@ -249,7 +248,6 @@ __all__ = [
     "ProgressGenerationOutput",
     "SerializeContext",
     "VideoGenerationOutput",
-    "logger",
     "output_type_registry",
     # Native engine generation
     "Conditioning",

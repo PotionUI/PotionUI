@@ -107,7 +107,7 @@ class McpToolCollaborators:
     saved_segment_repository: Any = None
     segment_template_repository: Any = None
     model_index_manager: Any = None
-    preset_manager: Any = None
+    preset_collaborators: Any = None
     phrasebook_category_repository: Any = None
     phrasebook_value_repository: Any = None
     prompt_database: Any = None
@@ -161,7 +161,7 @@ def _build_tool_context(collaborators: McpToolCollaborators, user_id: str, is_ad
         saved_segment_repository=collaborators.saved_segment_repository,
         segment_template_repository=collaborators.segment_template_repository,
         model_index_manager=collaborators.model_index_manager,
-        preset_manager=collaborators.preset_manager,
+        preset_collaborators=collaborators.preset_collaborators,
         phrasebook_category_repository=collaborators.phrasebook_category_repository,
         phrasebook_value_repository=collaborators.phrasebook_value_repository,
         llm_repository=llm_repository,

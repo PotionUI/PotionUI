@@ -13,13 +13,13 @@ from src.features.llm.tools.builtin.start_generation_tool import StartGeneration
 def make_context(
     user_id: str = "user-1",
     generation_orchestrator: Any = None,
-    preset_manager: Any = None,
+    preset_collaborators: Any = None,
     settings: Any = None,
 ) -> ToolContext:
     return ToolContext(
         user_id=user_id,
         generation_orchestrator=generation_orchestrator,
-        preset_manager=preset_manager,
+        preset_collaborators=preset_collaborators,
         settings=settings,
     )
 
@@ -165,15 +165,15 @@ class TestExecuteConfirmed:
 class TestMediaOverrideValidation:
     @pytest.mark.asyncio
     async def test_rejects_media_override_pointing_outside_storage_root(self, tmp_path):
-        preset_manager = MagicMock()
-        preset_manager.get_form_schema.return_value = {
+        preset_collaborators = MagicMock()
+        preset_collaborators.get_form_schema.return_value = {
             "form_schema": {"properties": {"init_image": {"type": "image"}}},
         }
         settings = MagicMock()
         settings.get_file_storage_directory.return_value = str(tmp_path)
         orchestrator = make_orchestrator()
         ctx = make_context(
-            generation_orchestrator=orchestrator, preset_manager=preset_manager, settings=settings,
+            generation_orchestrator=orchestrator, preset_collaborators=preset_collaborators, settings=settings,
         )
         result = await StartGenerationTool().execute_confirmed(
             ctx, preset_id="sdxl/img2img", form_overrides={"init_image": "/etc/passwd"},

@@ -58,7 +58,7 @@ class ChatRuntime:
         saved_segment_repository: Optional[Any] = None,
         segment_template_repository: Optional[Any] = None,
         model_index_manager: Optional[Any] = None,
-        preset_manager: Optional[Any] = None,
+        preset_collaborators: Optional[Any] = None,
         phrasebook_category_repository: Optional[Any] = None,
         phrasebook_value_repository: Optional[Any] = None,
         phrasebook_search: Optional[Any] = None,
@@ -91,7 +91,7 @@ class ChatRuntime:
             saved_segment_repository: Optional saved segment repository for tool context
             segment_template_repository: Optional segment template repository for tool context
             model_index_manager: Optional model index manager for tool context
-            preset_manager: Optional preset manager for tool context
+            preset_collaborators: Optional preset manager for tool context
             phrasebook_category_repository: Optional phrasebook category repository for tool context
             phrasebook_value_repository: Optional phrasebook value repository for tool context
             phrasebook_search: Optional callable(path, user_id, limit=...) -> dict, bound to
@@ -122,7 +122,7 @@ class ChatRuntime:
         self.saved_segment_repository = saved_segment_repository
         self.segment_template_repository = segment_template_repository
         self.model_index_manager = model_index_manager
-        self.preset_manager = preset_manager
+        self.preset_collaborators = preset_collaborators
         self.phrasebook_category_repository = phrasebook_category_repository
         self.phrasebook_value_repository = phrasebook_value_repository
         self.phrasebook_search = phrasebook_search

@@ -23,8 +23,8 @@ from src.features.users.repository import UserRepository
 
 
 class PresetEnsureExecutor:
-    def __init__(self, preset_manager: PresetCollaborators, user_repository: UserRepository):
-        self.preset_manager = preset_manager
+    def __init__(self, preset_collaborators: PresetCollaborators, user_repository: UserRepository):
+        self.preset_collaborators = preset_collaborators
         self.user_repository = user_repository
 
     def execute(self, context: StepContext) -> StepResult:
@@ -44,7 +44,7 @@ class PresetEnsureExecutor:
                 suggested_repair="Open Administration -> Presets and assign it to your account manually.",
             )
 
-        if self.preset_manager.file_repo.find_preset_by_id(preset_id) is None:
+        if self.preset_collaborators.file_repo.find_preset_by_id(preset_id) is None:
             return StepResult.fail(
                 "PRESET_MISSING_ON_DISK",
                 f"The preset this setup needs ('{preset_id}') isn't available on this installation.",
@@ -52,14 +52,14 @@ class PresetEnsureExecutor:
             )
 
         try:
-            operations.install_preset(self.preset_manager, preset_id, owner)
+            operations.install_preset(self.preset_collaborators, preset_id, owner)
         except PresetAlreadyInstalledException:
             pass  # already installed - nothing to do, not an error
         except (PresetNotFoundException, PermissionDeniedException) as exc:
             return StepResult.fail("PRESET_INSTALL_FAILED", f"Installing the preset failed: {exc}")
 
         try:
-            operations.assign_preset_to_users(self.preset_manager, preset_id, [owner.id], owner)
+            operations.assign_preset_to_users(self.preset_collaborators, preset_id, [owner.id], owner)
         except (PresetNotInstalledException, InvalidUsersException, PermissionDeniedException) as exc:
             return StepResult.fail("PRESET_ASSIGN_FAILED", f"Assigning the preset to your account failed: {exc}")
 

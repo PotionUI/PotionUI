@@ -58,7 +58,7 @@ class GetPresetInfoTool(BaseTool):
         }
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.preset_manager:
+        if not context.preset_collaborators:
             return ToolResult(success=False, data="", error="Preset manager not available")
 
         form_state = context.session_metadata.get("form_state")
@@ -76,7 +76,7 @@ class GetPresetInfoTool(BaseTool):
             )
 
         try:
-            preset_data = context.preset_manager.get_preset(preset_id)
+            preset_data = context.preset_collaborators.get_preset(preset_id)
             preset = preset_data.get("preset", preset_data)
             summary = {
                 "id": preset.get("id", ""),

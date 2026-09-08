@@ -1,9 +1,12 @@
-"""The model objects that travel between pipes.
+"""The model objects that travel between pipes - SDXL and Maya only.
 
 A loader pipe produces a `Model` and hands it downstream as an `IOType.MODEL`
 value; a generator pipe consumes it and calls whichever capability mixin the
 model implements. `BaseModel` names the families those models belong to, which
-is how a pipe states what it can drive.
+is how a pipe states what it can drive. SDXL and Maya are the only families
+still on this path; every other family (Flux, Qwen-Image, Wan, LTX, Krea-2,
+Z-Image, SeedVR2, ...) loads through `ModelLifecycle` and hands generator pipes
+a bundle instead.
 
 This is the wiring between pipes, not the on-disk model/artifact cache - that is
 `ModelLifecycle`, the service the generation feature injects into pipes as `MODELS`.

@@ -63,6 +63,8 @@ class FilePresetRepository:
             source=source,
             engine=preset_template.engine,
             media=media,
+            vars=preset_template.vars or {},
+            llm=preset_template.llm or {},
             requires=preset_template.requires,
         )
 

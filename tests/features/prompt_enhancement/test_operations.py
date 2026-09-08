@@ -59,7 +59,7 @@ def make_prompt_db(approved=None, community=None):
 
 
 def make_collaborators(
-    llm, prompt_db=None, feedback_repo=None, model_index_manager=None, preset_manager=None,
+    llm, prompt_db=None, feedback_repo=None, model_index_manager=None, preset_collaborators=None,
 ):
     return PromptEnhancementCollaborators(
         llm_service=llm,
@@ -67,7 +67,7 @@ def make_collaborators(
         model_index_manager=model_index_manager,
         llm_memory_repository=None,
         feedback_repository=feedback_repo,
-        preset_manager=preset_manager,
+        preset_collaborators=preset_collaborators,
     )
 
 
@@ -241,27 +241,27 @@ class TestGroundingIncludesAdminPromptingGuidance:
 class TestPresetGuideThreading:
     """`llm.guide` (preset-authored family-level style grounding, see
     docs/presets.md "LLM context") reaches the write-stage prompt when a
-    preset_manager is wired in and the active preset declares one."""
+    preset_collaborators is wired in and the active preset declares one."""
 
     @pytest.mark.asyncio
-    async def test_preset_guide_included_when_preset_manager_wired(self):
+    async def test_preset_guide_included_when_preset_collaborators_wired(self):
         llm = FakeLLMService(['["fox"]', "1. a", LONG_PROMPT])
-        preset_manager = MagicMock()
-        preset_manager.file_repo.find_preset_by_id.return_value = SimpleNamespace(
+        preset_collaborators = MagicMock()
+        preset_collaborators.file_repo.find_preset_by_id.return_value = SimpleNamespace(
             llm={"guide": "This model prefers short, comma-separated tags."},
         )
-        collaborators = make_collaborators(llm, preset_manager=preset_manager)
+        collaborators = make_collaborators(llm, preset_collaborators=preset_collaborators)
 
         await run_enhance(collaborators, n_candidates=1, form_state={"preset": "native/SDXL", "form_data": {}})
 
         write_prompt = llm.calls[-1]["messages"][0]["content"]
         assert "This model prefers short, comma-separated tags." in write_prompt
-        preset_manager.file_repo.find_preset_by_id.assert_called_once_with("native/SDXL")
+        preset_collaborators.file_repo.find_preset_by_id.assert_called_once_with("native/SDXL")
 
     @pytest.mark.asyncio
-    async def test_no_preset_manager_omits_the_guide_and_never_raises(self):
+    async def test_no_preset_collaborators_omits_the_guide_and_never_raises(self):
         llm = FakeLLMService(['["fox"]', "1. a", LONG_PROMPT])
-        collaborators = make_collaborators(llm)  # no preset_manager wired
+        collaborators = make_collaborators(llm)  # no preset_collaborators wired
 
         events = await run_enhance(
             collaborators, n_candidates=1, form_state={"preset": "native/SDXL", "form_data": {}},
@@ -274,9 +274,9 @@ class TestPresetGuideThreading:
     @pytest.mark.asyncio
     async def test_preset_without_llm_block_omits_the_guide(self):
         llm = FakeLLMService(['["fox"]', "1. a", LONG_PROMPT])
-        preset_manager = MagicMock()
-        preset_manager.file_repo.find_preset_by_id.return_value = SimpleNamespace(llm=None)
-        collaborators = make_collaborators(llm, preset_manager=preset_manager)
+        preset_collaborators = MagicMock()
+        preset_collaborators.file_repo.find_preset_by_id.return_value = SimpleNamespace(llm=None)
+        collaborators = make_collaborators(llm, preset_collaborators=preset_collaborators)
 
         await run_enhance(collaborators, n_candidates=1, form_state={"preset": "native/SDXL", "form_data": {}})
 
@@ -286,14 +286,14 @@ class TestPresetGuideThreading:
     @pytest.mark.asyncio
     async def test_mode_override_replaces_base_guide(self):
         llm = FakeLLMService(['["fox"]', "1. a", LONG_PROMPT])
-        preset_manager = MagicMock()
-        preset_manager.file_repo.find_preset_by_id.return_value = SimpleNamespace(
+        preset_collaborators = MagicMock()
+        preset_collaborators.file_repo.find_preset_by_id.return_value = SimpleNamespace(
             llm={
                 "guide": "Base guide: plain description.",
                 "modes": {"refs": {"guide": "Refs guide: six-section brief."}},
             },
         )
-        collaborators = make_collaborators(llm, preset_manager=preset_manager)
+        collaborators = make_collaborators(llm, preset_collaborators=preset_collaborators)
 
         await run_enhance(
             collaborators, n_candidates=1,
@@ -307,14 +307,14 @@ class TestPresetGuideThreading:
     @pytest.mark.asyncio
     async def test_mode_without_override_falls_back_to_base_guide(self):
         llm = FakeLLMService(['["fox"]', "1. a", LONG_PROMPT])
-        preset_manager = MagicMock()
-        preset_manager.file_repo.find_preset_by_id.return_value = SimpleNamespace(
+        preset_collaborators = MagicMock()
+        preset_collaborators.file_repo.find_preset_by_id.return_value = SimpleNamespace(
             llm={
                 "guide": "Base guide: plain description.",
                 "modes": {"refs": {"guide": "Refs guide: six-section brief."}},
             },
         )
-        collaborators = make_collaborators(llm, preset_manager=preset_manager)
+        collaborators = make_collaborators(llm, preset_collaborators=preset_collaborators)
 
         await run_enhance(
             collaborators, n_candidates=1,

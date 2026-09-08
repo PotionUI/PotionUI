@@ -123,17 +123,10 @@ def get_preset(collaborators: PresetCollaborators, preset_id: str) -> Dict[str, 
     if not found_preset:
         raise PresetNotFoundException(preset_id)
 
-    # Convert to PresetInfo and add vars (detail view: include the full gallery)
+    # Detail view: include the full gallery. `vars`/`llm` reach the response
+    # through the PresetInfo constructor (see file_repository.preset_to_info).
     preset_info = collaborators.file_repo.preset_to_info(found_preset, include_gallery=True)
     data = preset_info.dict()
-
-    # Include vars for frontend configuration
-    data['vars'] = found_preset.vars or {}
-
-    # Preset/family-level prompting guide + chat-workspace context knobs
-    # (see docs/presets.md "LLM context"), for get_preset_info and similar
-    # LLM-facing consumers.
-    data['llm'] = found_preset.llm or {}
 
     data['requirements_summary'] = _peek_requirements_summary(collaborators, preset_id)
 

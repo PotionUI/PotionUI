@@ -117,11 +117,11 @@ class StartGenerationTool(BaseTool):
 
         mode = kwargs.get("mode") or "txt2img"
         overrides = kwargs.get("form_overrides") or {}
-        media_errors = preset_form_media_errors(context.preset_manager, context.storage_dir(), preset_id, mode, overrides)
+        media_errors = preset_form_media_errors(context.preset_collaborators, context.storage_dir(), preset_id, mode, overrides)
         if media_errors:
             return ToolResult(success=False, data="", error="; ".join(media_errors))
         model_errors = preset_form_model_errors(
-            context.preset_manager, context.model_index_manager, preset_id, mode, overrides
+            context.preset_collaborators, context.model_index_manager, preset_id, mode, overrides
         )
         if model_errors:
             return ToolResult(success=False, data="", error="; ".join(model_errors))
@@ -146,11 +146,11 @@ class StartGenerationTool(BaseTool):
 
         # Re-validated on replay (same reasoning as run_generation): approval
         # is not evidence a path still exists.
-        media_errors = preset_form_media_errors(context.preset_manager, context.storage_dir(), preset_id, mode, form_data)
+        media_errors = preset_form_media_errors(context.preset_collaborators, context.storage_dir(), preset_id, mode, form_data)
         if media_errors:
             return ToolResult(success=False, data="", error="; ".join(media_errors))
         model_errors = preset_form_model_errors(
-            context.preset_manager, context.model_index_manager, preset_id, mode, form_data
+            context.preset_collaborators, context.model_index_manager, preset_id, mode, form_data
         )
         if model_errors:
             return ToolResult(success=False, data="", error="; ".join(model_errors))

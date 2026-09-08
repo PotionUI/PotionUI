@@ -201,7 +201,9 @@ class TestPresetOperationsQuery:
         """Test getting a preset successfully."""
         mock_file_repo.find_preset_by_id.return_value = mock_preset_template
         mock_preset_info = Mock()
-        mock_preset_info.dict.return_value = {"id": "test-preset", "name": "Test Preset"}
+        mock_preset_info.dict.return_value = {
+            "id": "test-preset", "name": "Test Preset", "vars": {"key": "value"}, "llm": {},
+        }
         mock_file_repo.preset_to_info.return_value = mock_preset_info
 
         result = operations.get_preset(collaborators, "test-preset")
@@ -225,7 +227,10 @@ class TestPresetOperationsQuery:
         mock_preset_template.llm = {"guide": "Use tags.", "context": {"form": "summary"}}
         mock_file_repo.find_preset_by_id.return_value = mock_preset_template
         mock_preset_info = Mock()
-        mock_preset_info.dict.return_value = {"id": "test-preset", "name": "Test Preset"}
+        mock_preset_info.dict.return_value = {
+            "id": "test-preset", "name": "Test Preset", "vars": {"key": "value"},
+            "llm": {"guide": "Use tags.", "context": {"form": "summary"}},
+        }
         mock_file_repo.preset_to_info.return_value = mock_preset_info
 
         result = operations.get_preset(collaborators, "test-preset")
@@ -241,7 +246,13 @@ class TestPresetOperationsQuery:
         }
         mock_file_repo.find_preset_by_id.return_value = mock_preset_template
         mock_preset_info = Mock()
-        mock_preset_info.dict.return_value = {"id": "test-preset", "name": "Test Preset"}
+        mock_preset_info.dict.return_value = {
+            "id": "test-preset", "name": "Test Preset", "vars": {"key": "value"},
+            "llm": {
+                "guide": "Use tags.",
+                "modes": {"refs": {"guide": "Six-section reference brief."}},
+            },
+        }
         mock_file_repo.preset_to_info.return_value = mock_preset_info
 
         result = operations.get_preset(collaborators, "test-preset")
@@ -253,7 +264,9 @@ class TestPresetOperationsQuery:
         for callers that read it without a None-check."""
         mock_file_repo.find_preset_by_id.return_value = mock_preset_template
         mock_preset_info = Mock()
-        mock_preset_info.dict.return_value = {"id": "test-preset", "name": "Test Preset"}
+        mock_preset_info.dict.return_value = {
+            "id": "test-preset", "name": "Test Preset", "vars": {"key": "value"}, "llm": {},
+        }
         mock_file_repo.preset_to_info.return_value = mock_preset_info
 
         result = operations.get_preset(collaborators, "test-preset")

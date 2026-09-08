@@ -65,7 +65,7 @@ class ChatDeps:
     saved_segment_repository: "SavedSegmentRepository"
     segment_template_repository: "SegmentTemplateRepository"
     model_index_manager: Any
-    preset_manager: Any
+    preset_collaborators: Any
     prompt_database: Any
     prompt_enhancement_manager: Any
     generation_orchestrator: "GenerationOrchestrator"
@@ -116,7 +116,7 @@ def build_chat(deps: ChatDeps) -> ChatComponents:
         saved_segment_repository=deps.saved_segment_repository,
         segment_template_repository=deps.segment_template_repository,
         model_index_manager=deps.model_index_manager,
-        preset_manager=deps.preset_manager,
+        preset_collaborators=deps.preset_collaborators,
         phrasebook_category_repository=deps.phrasebook_category_repository,
         phrasebook_value_repository=deps.phrasebook_value_repository,
         phrasebook_search=deps.phrasebook_search,

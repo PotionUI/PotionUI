@@ -6,7 +6,7 @@ needed). Mirrors tests/core/preset/test_speed_profiles.py's shape.
 
 Complements:
 - tests/core/preset/test_schema.py::TestFormFile (variant metadata schema)
-- tests/core/preset_manager/test_manager.py (get_available_modes variants shape)
+- tests/core/preset_collaborators/test_manager.py (get_available_modes variants shape)
 - tests/api/dto/test_generation_dto.py (GenerationRequest.form_name)
 """
 

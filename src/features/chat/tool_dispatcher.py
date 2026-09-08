@@ -110,7 +110,7 @@ class ToolCallDispatcher:
                 saved_segment_repository=self._m.saved_segment_repository,
                 segment_template_repository=self._m.segment_template_repository,
                 model_index_manager=self._m.model_index_manager,
-                preset_manager=self._m.preset_manager,
+                preset_collaborators=self._m.preset_collaborators,
                 phrasebook_category_repository=self._m.phrasebook_category_repository,
                 phrasebook_value_repository=self._m.phrasebook_value_repository,
                 prompt_database=self._m.prompt_database,

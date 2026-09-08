@@ -366,7 +366,7 @@ class AppContainer:
     # Presets
     file_preset_repository: "FilePresetRepository"
     database_preset_repository: "DatabasePresetRepository"
-    preset_manager: PresetCollaborators
+    preset_collaborators: PresetCollaborators
     preset_controller: "PresetController"
 
     # Prompt database / enhancement
@@ -675,7 +675,7 @@ def build_container() -> AppContainer:
     setup_runner = SetupRunner()
     # Recipe catalog (discovers/validates content/recipes/{marketplace,local}/*.yml).
     # The executor registry is wired further down (see "setup executors")
-    # because it needs preset_manager/backend_registry, built later in this
+    # because it needs preset_collaborators/backend_registry, built later in this
     # function. `POTIONUI_RECIPES_DIR` lets an ephemeral/test instance point
     # the catalog at a disposable directory instead of the repo's real
     # `content/recipes/`.
@@ -1274,7 +1274,7 @@ def build_container() -> AppContainer:
     file_preset_repository = FilePresetRepository(preset_template_loader)
     database_preset_repository = DatabasePresetRepository()
     _user_group_repo_for_presets = _UGR()
-    preset_manager = PresetCollaborators(
+    preset_collaborators = PresetCollaborators(
         preset_loader=preset_template_loader,
         preset_processor=preset_processor,
         template_processor=template_processor,
@@ -1292,14 +1292,14 @@ def build_container() -> AppContainer:
         requirements_cache=requirements_cache,
     )
     preset_controller = PresetController(
-        preset_manager, backend_registry, media_store,
+        preset_collaborators, backend_registry, media_store,
         model_access_policy=model_access_policy,
     )
 
     # Setup executors: wire the built-in step executors (one per recipe step
     # `kind` - see src/features/setup/executors/) onto the run manager's
     # executor-registry seam. Built here, not up near `recipe_catalog`, because
-    # it needs preset_manager/backend_registry/pipeline_builder, constructed above.
+    # it needs preset_collaborators/backend_registry/pipeline_builder, constructed above.
     from src.features.setup.executors import build_default_executor_registry
 
     setup_runner.register_executor_registry(
@@ -1307,7 +1307,7 @@ def build_container() -> AppContainer:
             recipe_catalog=recipe_catalog,
             plugin_registry=plugin_registry,
             backend_registry=backend_registry,
-            preset_manager=preset_manager,
+            preset_collaborators=preset_collaborators,
             user_repository=user_repository,
             preset_template_loader=preset_template_loader,
             template_processor=template_processor,
@@ -1369,7 +1369,7 @@ def build_container() -> AppContainer:
         model_index_manager=model_index_manager,
         llm_memory_repository=llm_memory_repository,
         feedback_repository=enhancement_feedback_repository,
-        preset_manager=preset_manager,
+        preset_collaborators=preset_collaborators,
     )
 
     # MCP (Model Context Protocol): per-user tokens exposing the same tool
@@ -1389,7 +1389,7 @@ def build_container() -> AppContainer:
         saved_segment_repository=saved_segment_repo,
         segment_template_repository=segment_template_repo,
         model_index_manager=model_index_manager,
-        preset_manager=preset_manager,
+        preset_collaborators=preset_collaborators,
         phrasebook_category_repository=phrasebook_category_repo,
         phrasebook_value_repository=phrasebook_value_repo,
         prompt_database=prompt_database,
@@ -1433,7 +1433,7 @@ def build_container() -> AppContainer:
             saved_segment_repository=saved_segment_repo,
             segment_template_repository=segment_template_repo,
             model_index_manager=model_index_manager,
-            preset_manager=preset_manager,
+            preset_collaborators=preset_collaborators,
             prompt_database=prompt_database,
             prompt_enhancement_manager=prompt_enhancement_manager,
             generation_orchestrator=generation_orchestrator,

@@ -1470,7 +1470,7 @@ class TestInjectWorkspaceBlock:
 
     def setup_method(self):
         self.mock_model_index = Mock()
-        # preset_manager=None → build_model_field_metadata returns {}, so the
+        # preset_collaborators=None → build_model_field_metadata returns {}, so the
         # checkpoint/LoRA split relies on each model's own DB model_type.
         self.manager = ChatRuntime(
             chat_repository=Mock(),
@@ -1479,7 +1479,7 @@ class TestInjectWorkspaceBlock:
             plugin_registry=Mock(),
             chat_mode_registry=_mode_registry(),
             model_index_manager=self.mock_model_index,
-            preset_manager=None,
+            preset_collaborators=None,
         )
 
     def _wire_models(self, by_path):
@@ -1679,7 +1679,7 @@ class TestInjectWorkspaceBlockMusicDirector:
             plugin_registry=Mock(),
             chat_mode_registry=_mode_registry(),
             model_index_manager=Mock(),
-            preset_manager=None,
+            preset_collaborators=None,
         )
 
     def test_steering_line_and_summary_when_active(self):
@@ -1754,10 +1754,10 @@ class TestInjectWorkspaceBlockVideoDirector:
     above."""
 
     def setup_method(self):
-        self.mock_preset_manager = Mock()
+        self.mock_preset_collaborators = Mock()
         # No `llm:` block resolution needed for these tests -- unwired, a bare
         # Mock() stands in for `preset_template.llm` and blows up _cap_text.
-        self.mock_preset_manager.file_repo.find_preset_by_id.return_value = None
+        self.mock_preset_collaborators.file_repo.find_preset_by_id.return_value = None
         self.manager = ChatRuntime(
             chat_repository=Mock(),
             llm_service=Mock(),
@@ -1765,11 +1765,11 @@ class TestInjectWorkspaceBlockVideoDirector:
             plugin_registry=Mock(),
             chat_mode_registry=_mode_registry(),
             model_index_manager=Mock(),
-            preset_manager=self.mock_preset_manager,
+            preset_collaborators=self.mock_preset_collaborators,
         )
 
     def _wire_form_schema(self, properties):
-        self.mock_preset_manager.get_form_schema.return_value = {"form_schema": {"properties": properties}}
+        self.mock_preset_collaborators.get_form_schema.return_value = {"form_schema": {"properties": properties}}
 
     def _chain_capabilities(self, max_segments=8):
         return {
@@ -1876,7 +1876,7 @@ class TestInjectWorkspaceBlockLLMContext:
 
     def setup_method(self):
         self.mock_model_index = Mock()
-        self.mock_preset_manager = Mock()
+        self.mock_preset_collaborators = Mock()
         self.manager = ChatRuntime(
             chat_repository=Mock(),
             llm_service=Mock(),
@@ -1884,7 +1884,7 @@ class TestInjectWorkspaceBlockLLMContext:
             plugin_registry=Mock(),
             chat_mode_registry=_mode_registry(),
             model_index_manager=self.mock_model_index,
-            preset_manager=self.mock_preset_manager,
+            preset_collaborators=self.mock_preset_collaborators,
         )
 
     def _wire_models(self, by_path):
@@ -1893,10 +1893,10 @@ class TestInjectWorkspaceBlockLLMContext:
         )
 
     def _wire_preset(self, preset_template):
-        self.mock_preset_manager.file_repo.find_preset_by_id.return_value = preset_template
+        self.mock_preset_collaborators.file_repo.find_preset_by_id.return_value = preset_template
 
     def _wire_form_schema(self, properties):
-        self.mock_preset_manager.get_form_schema.return_value = {"form_schema": {"properties": properties}}
+        self.mock_preset_collaborators.get_form_schema.return_value = {"form_schema": {"properties": properties}}
 
     def test_header_uses_preset_name_not_raw_id(self):
         self._wire_preset(_make_preset_template(name="Qwen Image"))
@@ -1914,7 +1914,7 @@ class TestInjectWorkspaceBlockLLMContext:
     def test_header_falls_back_to_raw_id_when_preset_not_found(self):
         """No plugin-manager resolution possible - degrade to exactly the old
         behavior instead of showing nothing."""
-        self.mock_preset_manager.file_repo.find_preset_by_id.return_value = None
+        self.mock_preset_collaborators.file_repo.find_preset_by_id.return_value = None
         history = [{"role": "user", "content": "hello"}]
         context_metadata = {
             "form_state": {"preset": "native/SDXL", "mode": "image", "form_data": {}}

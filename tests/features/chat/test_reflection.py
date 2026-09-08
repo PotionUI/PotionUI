@@ -480,7 +480,7 @@ class TestReflectScoping:
         response.content = response_content
         manager.llm_service.generate_with_history = AsyncMock(return_value=response)
 
-        manager.preset_manager.get_preset.return_value = {"name": "My Preset"}
+        manager.preset_collaborators.get_preset.return_value = {"name": "My Preset"}
         model = Mock()
         model.filename = "my_model.safetensors"
         manager.model_index_manager.model_repo.get_by_id.return_value = model

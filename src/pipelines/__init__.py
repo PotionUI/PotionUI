@@ -2,7 +2,8 @@
 
 - contracts.py: what a pipe is - BasePipe, the IOType vocabulary, the input/output/config specs.
 - outputs.py:   what a pipe emits while it runs - progress, previews, artifacts, the gallery.
-- models.py:    the model objects that travel between pipes, and the families they belong to.
+- models.py:    the model objects that travel between pipes (SDXL/Maya only - every
+                other family loads through ModelLifecycle and hands pipes a bundle).
 - catalog.py:   which pipes exist - discovery from the app, from `pipes/custom`, and from plugins.
 - installer.py: whether a pipe's requirements are met, and how to meet them.
 - graph.py:     a processed pipe list projected into nodes and connections, for the preview API.

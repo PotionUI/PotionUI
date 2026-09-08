@@ -111,11 +111,11 @@ class TestWriteMemoryTool:
         note = make_note()
         mm = MagicMock()
         mock_ops.write_note.return_value = note
-        preset_manager = MagicMock()
-        preset_manager.get_preset.return_value = {"preset": {"id": "preset-1", "name": "Krea-2 Turbo"}}
+        preset_collaborators = MagicMock()
+        preset_collaborators.get_preset.return_value = {"preset": {"id": "preset-1", "name": "Krea-2 Turbo"}}
         ctx = make_context(
             llm_memory_repository=mm,
-            preset_manager=preset_manager,
+            preset_collaborators=preset_collaborators,
             session_metadata={"form_state": {"preset": "preset-1", "form_data": {}}},
         )
 
@@ -134,11 +134,11 @@ class TestWriteMemoryTool:
         note = make_note()
         mm = MagicMock()
         mock_ops.write_note.return_value = note
-        preset_manager = MagicMock()
-        preset_manager.get_preset.return_value = {"preset": {"id": "preset-1", "name": "Krea-2 Turbo"}}
+        preset_collaborators = MagicMock()
+        preset_collaborators.get_preset.return_value = {"preset": {"id": "preset-1", "name": "Krea-2 Turbo"}}
         ctx = make_context(
             llm_memory_repository=mm,
-            preset_manager=preset_manager,
+            preset_collaborators=preset_collaborators,
             session_metadata={"form_state": {"preset": "preset-1", "form_data": {}}},
         )
 

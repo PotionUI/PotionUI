@@ -34,7 +34,7 @@ class TestGetPresetInfoResolutionOrder:
         pm = MagicMock()
         pm.get_preset.return_value = make_preset_data("p-form-state")
         ctx = make_context(
-            preset_manager=pm,
+            preset_collaborators=pm,
             session_metadata={"form_state": {"preset": "p-form-state", "mode": "t2i"}},
         )
 
@@ -51,7 +51,7 @@ class TestGetPresetInfoResolutionOrder:
         pm = MagicMock()
         pm.get_preset.return_value = make_preset_data("p-legacy")
         ctx = make_context(
-            preset_manager=pm,
+            preset_collaborators=pm,
             session_metadata={"preset_id": "p-legacy"},
         )
 
@@ -66,7 +66,7 @@ class TestGetPresetInfoResolutionOrder:
         pm = MagicMock()
         pm.get_preset.return_value = make_preset_data("p-legacy-2")
         ctx = make_context(
-            preset_manager=pm,
+            preset_collaborators=pm,
             session_metadata={
                 "form_state": {"mode": "t2i"},
                 "preset_id": "p-legacy-2",
@@ -83,7 +83,7 @@ class TestGetPresetInfoResolutionOrder:
         pm = MagicMock()
         pm.get_preset.return_value = make_preset_data("p-explicit")
         ctx = make_context(
-            preset_manager=pm,
+            preset_collaborators=pm,
             session_metadata={
                 "form_state": {"preset": "p-form-state"},
                 "preset_id": "p-legacy",
@@ -100,7 +100,7 @@ class TestGetPresetInfoResolutionOrder:
         pm = MagicMock()
         pm.get_preset.return_value = make_preset_data("p-form-state")
         ctx = make_context(
-            preset_manager=pm,
+            preset_collaborators=pm,
             session_metadata={
                 "form_state": {"preset": "p-form-state"},
                 "preset_id": "p-legacy",
@@ -115,7 +115,7 @@ class TestGetPresetInfoResolutionOrder:
     @pytest.mark.asyncio
     async def test_neither_present_gives_human_error(self):
         pm = MagicMock()
-        ctx = make_context(preset_manager=pm, session_metadata={})
+        ctx = make_context(preset_collaborators=pm, session_metadata={})
 
         result = await self._tool().execute(ctx)
 
@@ -126,7 +126,7 @@ class TestGetPresetInfoResolutionOrder:
     @pytest.mark.asyncio
     async def test_neither_present_gives_human_error_with_empty_form_state(self):
         pm = MagicMock()
-        ctx = make_context(preset_manager=pm, session_metadata={"form_state": {}})
+        ctx = make_context(preset_collaborators=pm, session_metadata={"form_state": {}})
 
         result = await self._tool().execute(ctx)
 
@@ -147,7 +147,7 @@ class TestGetPresetInfoLLMGuideModeResolution:
         pm = MagicMock()
         pm.get_preset.return_value = make_preset_data("p1", llm={"guide": "Base guide."})
         ctx = make_context(
-            preset_manager=pm,
+            preset_collaborators=pm,
             session_metadata={"form_state": {"preset": "p1", "mode": "txt2img"}},
         )
 
@@ -165,7 +165,7 @@ class TestGetPresetInfoLLMGuideModeResolution:
             "modes": {"refs": {"guide": "Refs guide: six-section brief."}},
         })
         ctx = make_context(
-            preset_manager=pm,
+            preset_collaborators=pm,
             session_metadata={"form_state": {"preset": "p1", "mode": "refs"}},
         )
 
@@ -184,7 +184,7 @@ class TestGetPresetInfoLLMGuideModeResolution:
         })
         # No 'mode' key in form_state at all - the tool cannot resolve one.
         ctx = make_context(
-            preset_manager=pm,
+            preset_collaborators=pm,
             session_metadata={"form_state": {"preset": "p1"}},
         )
 
@@ -204,7 +204,7 @@ class TestGetPresetInfoLLMGuideModeResolution:
             "modes": {"refs": {"guide": "Should not apply here."}},
         })
         ctx = make_context(
-            preset_manager=pm,
+            preset_collaborators=pm,
             session_metadata={"form_state": {"preset": "p1", "mode": "refs"}},
         )
 

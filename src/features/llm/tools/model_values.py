@@ -95,7 +95,7 @@ def validate_model_value(
 
 
 def preset_form_model_errors(
-    preset_manager: Any,
+    preset_collaborators: Any,
     model_index_manager: Any,
     preset_id: str,
     mode: str,
@@ -104,10 +104,10 @@ def preset_form_model_errors(
     """Errors for `proposed` field values against `preset_id`/`mode`'s model
     fields, loading the form schema itself. Mirrors
     `media_values.preset_form_media_errors`."""
-    if not proposed or preset_manager is None:
+    if not proposed or preset_collaborators is None:
         return []
     try:
-        schema_data = preset_manager.get_form_schema(preset_id, mode=mode)
+        schema_data = preset_collaborators.get_form_schema(preset_id, mode=mode)
         fields = model_field_names(schema_data.get("form_schema", {}).get("properties", {}))
     except Exception as e:
         logger.debug(f"Could not load form schema for model validation: {e}")

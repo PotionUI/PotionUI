@@ -107,7 +107,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         if "mgr" not in _readiness:
             _readiness["mgr"] = ReadinessAggregator(
                 backend_registry=container.backend_registry,
-                preset_manager=container.preset_manager,
+                preset_collaborators=container.preset_collaborators,
                 model_repository=container.model_repository,
                 generation_repository=container.generation_repository,
                 instance_claim_repository=container.instance_claim_repository,

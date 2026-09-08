@@ -152,40 +152,6 @@ class TestPresetSupportedBackends(unittest.TestCase):
 
         self.assertEqual(preset.engine, "native")
 
-    def test_preset_template_copy_includes_engine(self):
-        """Test that copy() preserves engine"""
-        from src.features.presets.templates import PresetTemplate, GenerationMode
-
-        preset = PresetTemplate(
-            id="test-preset",
-            name="Test Preset",
-            version="1.0",
-            path="presets/test/test/1.0/test",
-            modes={GenerationMode.TXT2IMG: []},
-            engine="comfyui"
-        )
-
-        copy = preset.copy()
-
-        self.assertEqual(copy.engine, "comfyui")
-
-    def test_preset_template_to_dict_includes_engine(self):
-        """Test that to_dict() includes engine"""
-        from src.features.presets.templates import PresetTemplate, ModeTemplate
-
-        preset = PresetTemplate(
-            id="test-preset",
-            name="Test Preset",
-            version="1.0",
-            path="presets/test/test/1.0/test",
-            modes={"txt2img": ModeTemplate(forms=[], pipes=[])},
-            engine="comfyui"
-        )
-
-        dict_repr = preset.to_dict()
-
-        self.assertEqual(dict_repr["engine"], "comfyui")
-
 
 class TestEngineSelfDescription(unittest.TestCase):
     """

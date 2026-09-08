@@ -1,10 +1,12 @@
 """The in-memory shape of a loaded preset.
 
 `preset.yml`, its `modes/`, `pipeline.yml` and `form.yml` files are parsed by
-`PresetTemplateLoader` into the dataclasses here, and `PresetProcessor` renders
-them (Jinja) into the concrete pipeline and form a generation runs against.
-`schema.py` holds the pydantic models that *validate* the YAML on the way in;
-these are what the rest of the application works with once it is loaded.
+`PresetTemplateLoader` into the dataclasses here. `PresetProcessor` renders the
+`pipeline.yml` side (Jinja) into the concrete pipeline a generation runs
+against; `PresetFormSerializer` renders the `form.yml` side into the JSON
+schema the frontend builds a form from. `schema.py` holds the pydantic models
+that *validate* the YAML on the way in; these are what the rest of the
+application works with once it is loaded.
 """
 
 from enum import Enum
@@ -162,44 +164,6 @@ class PresetTemplate:
         # Default to the built-in native engine if not specified
         if self.engine is None:
             self.engine = "native"
-
-    def copy(self):
-        return PresetTemplate(
-            id=self.id,
-            name=self.name,
-            version=self.version,
-            description=self.description,
-            tags=self.tags,
-            category=self.category,
-            vars=self.vars,
-            speed_profiles=self.speed_profiles,
-            path=self.path,
-            modes=self.modes,
-            base_path=self.base_path,
-            engine=self.engine,
-            media=self.media,
-            configuration=self.configuration,
-            llm=self.llm,
-            requires=self.requires,
-            requirements=self.requirements,
-        )
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "version": self.version,
-            "description": self.description,
-            "tags": self.tags,
-            "category": self.category,
-            "path": self.path,
-            "modes": {k: [v.__dict__ for v in value.pipes] for k, value in self.modes.items()},
-            "vars": self.vars,
-            "speed_profiles": self.speed_profiles,
-            "engine": self.engine,
-            "media": self.media,
-            "configuration": self.configuration,
-        }
 
 
 @dataclass

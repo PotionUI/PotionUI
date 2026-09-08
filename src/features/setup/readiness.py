@@ -124,14 +124,14 @@ class ReadinessAggregator:
     def __init__(
         self,
         backend_registry: "BackendRegistry",
-        preset_manager: "PresetCollaborators",
+        preset_collaborators: "PresetCollaborators",
         model_repository: "ModelRepository",
         generation_repository: "GenerationRepository",
         migration_runner: "MigrationRunner",
         instance_claim_repository: "InstanceClaimRepository",
     ):
         self.backend_registry = backend_registry
-        self.preset_manager = preset_manager
+        self.preset_collaborators = preset_collaborators
         self.model_repository = model_repository
         self.generation_repository = generation_repository
         self.migration_runner = migration_runner
@@ -274,7 +274,7 @@ class ReadinessAggregator:
 
         from src.features.presets import operations as preset_operations
 
-        presets = preset_operations.list_presets(self.preset_manager, user)
+        presets = preset_operations.list_presets(self.preset_collaborators, user)
         if not presets:
             return _Row(
                 area=area,

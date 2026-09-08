@@ -166,14 +166,14 @@ class TestToolContext:
         assert ctx.saved_segment_repository is None
         assert ctx.segment_template_repository is None
         assert ctx.model_index_manager is None
-        assert ctx.preset_manager is None
+        assert ctx.preset_collaborators is None
         assert ctx.phrasebook_category_repository is None
         assert ctx.phrasebook_value_repository is None
 
     def test_with_services(self):
         mock_pm = MagicMock()
-        ctx = ToolContext(user_id="u2", preset_manager=mock_pm, session_metadata={"k": "v"})
-        assert ctx.preset_manager is mock_pm
+        ctx = ToolContext(user_id="u2", preset_collaborators=mock_pm, session_metadata={"k": "v"})
+        assert ctx.preset_collaborators is mock_pm
         assert ctx.session_metadata == {"k": "v"}
 
 

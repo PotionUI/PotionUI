@@ -81,35 +81,35 @@ def _context(preset_id="PRESET1", owner_id="owner-1"):
 
 
 def test_installs_and_assigns_when_all_new():
-    preset_manager = FakePresetManager(known_ids={"PRESET1"})
+    preset_collaborators = FakePresetManager(known_ids={"PRESET1"})
     user_repo = FakeUserRepository({"owner-1": _owner()})
-    executor = PresetEnsureExecutor(preset_manager, user_repo)
+    executor = PresetEnsureExecutor(preset_collaborators, user_repo)
 
     result = executor.execute(_context())
 
     assert result.success is True
     assert result.safe_output == {"preset_id": "PRESET1", "assigned_to": "owner-1"}
-    assert preset_manager.install_calls == [("PRESET1", "owner-1")]
-    assert preset_manager.assign_calls == [("PRESET1", ["owner-1"], "owner-1")]
+    assert preset_collaborators.install_calls == [("PRESET1", "owner-1")]
+    assert preset_collaborators.assign_calls == [("PRESET1", ["owner-1"], "owner-1")]
 
 
 def test_already_installed_is_not_an_error():
-    preset_manager = FakePresetManager(
+    preset_collaborators = FakePresetManager(
         known_ids={"PRESET1"}, install_raises=PresetAlreadyInstalledException("PRESET1")
     )
     user_repo = FakeUserRepository({"owner-1": _owner()})
-    executor = PresetEnsureExecutor(preset_manager, user_repo)
+    executor = PresetEnsureExecutor(preset_collaborators, user_repo)
 
     result = executor.execute(_context())
 
     assert result.success is True
-    assert preset_manager.assign_calls == [("PRESET1", ["owner-1"], "owner-1")]
+    assert preset_collaborators.assign_calls == [("PRESET1", ["owner-1"], "owner-1")]
 
 
 def test_missing_owner_account_fails_clearly():
-    preset_manager = FakePresetManager(known_ids={"PRESET1"})
+    preset_collaborators = FakePresetManager(known_ids={"PRESET1"})
     user_repo = FakeUserRepository({})  # owner-1 not found
-    executor = PresetEnsureExecutor(preset_manager, user_repo)
+    executor = PresetEnsureExecutor(preset_collaborators, user_repo)
 
     result = executor.execute(_context())
 
@@ -118,23 +118,23 @@ def test_missing_owner_account_fails_clearly():
 
 
 def test_preset_missing_on_disk_fails_clearly():
-    preset_manager = FakePresetManager(known_ids=set())
+    preset_collaborators = FakePresetManager(known_ids=set())
     user_repo = FakeUserRepository({"owner-1": _owner()})
-    executor = PresetEnsureExecutor(preset_manager, user_repo)
+    executor = PresetEnsureExecutor(preset_collaborators, user_repo)
 
     result = executor.execute(_context())
 
     assert result.success is False
     assert result.error_code == "PRESET_MISSING_ON_DISK"
-    assert preset_manager.install_calls == []
+    assert preset_collaborators.install_calls == []
 
 
 def test_assignment_failure_is_reported():
-    preset_manager = FakePresetManager(
+    preset_collaborators = FakePresetManager(
         known_ids={"PRESET1"}, assign_raises=InvalidUsersException(["owner-1"])
     )
     user_repo = FakeUserRepository({"owner-1": _owner()})
-    executor = PresetEnsureExecutor(preset_manager, user_repo)
+    executor = PresetEnsureExecutor(preset_collaborators, user_repo)
 
     result = executor.execute(_context())
 
@@ -143,9 +143,9 @@ def test_assignment_failure_is_reported():
 
 
 def test_missing_preset_id_param_is_misconfiguration():
-    preset_manager = FakePresetManager(known_ids={"PRESET1"})
+    preset_collaborators = FakePresetManager(known_ids={"PRESET1"})
     user_repo = FakeUserRepository({"owner-1": _owner()})
-    executor = PresetEnsureExecutor(preset_manager, user_repo)
+    executor = PresetEnsureExecutor(preset_collaborators, user_repo)
 
     result = executor.execute(_context(preset_id=None))
 

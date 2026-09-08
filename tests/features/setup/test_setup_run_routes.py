@@ -85,7 +85,7 @@ def _client(current_user: User, *, recipe_catalog=None, executor_registry=None) 
         setup_runner=runner,
         # readiness deps are resolved lazily and never touched here.
         backend_registry=Mock(),
-        preset_manager=Mock(),
+        preset_collaborators=Mock(),
         model_repository=Mock(),
         generation_repository=Mock(),
         instance_claim_repository=Mock(),

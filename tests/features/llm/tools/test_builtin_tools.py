@@ -697,7 +697,7 @@ class TestGetPresetInfoTool:
     async def test_returns_preset_info_with_explicit_id(self):
         pm = MagicMock()
         pm.get_preset.return_value = self._make_preset_data()
-        ctx = make_context(preset_manager=pm)
+        ctx = make_context(preset_collaborators=pm)
 
         result = await self._tool().execute(ctx, preset_id="p-1")
 
@@ -714,7 +714,7 @@ class TestGetPresetInfoTool:
     async def test_falls_back_to_session_metadata(self):
         pm = MagicMock()
         pm.get_preset.return_value = self._make_preset_data()
-        ctx = make_context(preset_manager=pm, session_metadata={"preset_id": "p-1"})
+        ctx = make_context(preset_collaborators=pm, session_metadata={"preset_id": "p-1"})
 
         result = await self._tool().execute(ctx)
 
@@ -724,13 +724,13 @@ class TestGetPresetInfoTool:
     @pytest.mark.asyncio
     async def test_no_preset_id_and_no_session_metadata(self):
         pm = MagicMock()
-        ctx = make_context(preset_manager=pm)
+        ctx = make_context(preset_collaborators=pm)
         result = await self._tool().execute(ctx)
         assert result.success is False
         assert "No preset_id" in result.error
 
     @pytest.mark.asyncio
-    async def test_no_preset_manager(self):
+    async def test_no_preset_collaborators(self):
         ctx = make_context()
         result = await self._tool().execute(ctx, preset_id="p-1")
         assert result.success is False
@@ -749,7 +749,7 @@ class TestGetPresetInfoTool:
         }
         pm = MagicMock()
         pm.get_preset.return_value = raw
-        ctx = make_context(preset_manager=pm)
+        ctx = make_context(preset_collaborators=pm)
 
         result = await self._tool().execute(ctx, preset_id="p-2")
 
@@ -762,7 +762,7 @@ class TestGetPresetInfoTool:
         raw = {"id": "p-3", "name": "Flat", "description": "", "modes": []}
         pm = MagicMock()
         pm.get_preset.return_value = raw
-        ctx = make_context(preset_manager=pm)
+        ctx = make_context(preset_collaborators=pm)
 
         result = await self._tool().execute(ctx, preset_id="p-3")
 
@@ -774,7 +774,7 @@ class TestGetPresetInfoTool:
     async def test_exception_returns_error(self):
         pm = MagicMock()
         pm.get_preset.side_effect = Exception("preset not found")
-        ctx = make_context(preset_manager=pm)
+        ctx = make_context(preset_collaborators=pm)
         result = await self._tool().execute(ctx, preset_id="bad")
         assert result.success is False
         assert "preset not found" in result.error
@@ -2417,7 +2417,7 @@ class TestGetFormStateTool:
 
     @pytest.mark.asyncio
     async def test_returns_preset_and_mode(self):
-        """With no form_data and no preset_manager, only preset/mode are returned."""
+        """With no form_data and no preset_collaborators, only preset/mode are returned."""
         form_state = {
             "preset": "sdxl-standard",
             "mode": "t2i",
@@ -2434,8 +2434,8 @@ class TestGetFormStateTool:
         assert "fields" not in data
 
     @pytest.mark.asyncio
-    async def test_returns_fields_with_values_only_when_no_preset_manager(self):
-        """Without preset_manager, form_data values are placed in 'fields' with only a 'value' key."""
+    async def test_returns_fields_with_values_only_when_no_preset_collaborators(self):
+        """Without preset_collaborators, form_data values are placed in 'fields' with only a 'value' key."""
         form_state = {
             "preset": "sdxl-standard",
             "mode": "t2i",
@@ -2453,7 +2453,7 @@ class TestGetFormStateTool:
         data = json.loads(result.data)
         assert data["preset"] == "sdxl-standard"
         assert data["mode"] == "t2i"
-        # No preset_manager → no schema → form_data fields appear under 'fields' with only 'value'
+        # No preset_collaborators → no schema → form_data fields appear under 'fields' with only 'value'
         assert "fields" in data
         assert "form_data" not in data
         assert data["fields"]["steps"]["value"] == 25
@@ -2464,8 +2464,8 @@ class TestGetFormStateTool:
         assert "type" not in data["fields"]["steps"]
 
     @pytest.mark.asyncio
-    async def test_merges_schema_with_form_data_when_preset_manager_available(self):
-        """With preset_manager that returns schema, returns 'fields' key with merged info."""
+    async def test_merges_schema_with_form_data_when_preset_collaborators_available(self):
+        """With preset_collaborators that returns schema, returns 'fields' key with merged info."""
         form_state = {
             "preset": "sdxl-standard",
             "mode": "t2i",
@@ -2486,7 +2486,7 @@ class TestGetFormStateTool:
                 "title": "Steps",
             },
         })
-        ctx = make_context(preset_manager=pm, session_metadata={"form_state": form_state})
+        ctx = make_context(preset_collaborators=pm, session_metadata={"form_state": form_state})
 
         result = await self._tool().execute(ctx)
 
@@ -2554,7 +2554,7 @@ class TestGetFormStateTool:
             "reference_image": {"type": "image", "title": "Reference Image"},
             "gallery": {"type": "image", "title": "Gallery"},
         })
-        ctx = make_context(preset_manager=pm, session_metadata={"form_state": form_state})
+        ctx = make_context(preset_collaborators=pm, session_metadata={"form_state": form_state})
 
         result = await self._tool().execute(ctx)
 
@@ -2584,7 +2584,7 @@ class TestGetFormStateTool:
         pm.get_form_schema.return_value = _make_form_schema_response({
             "resolution": {"type": "resolution", "title": "Resolution"},
         })
-        ctx = make_context(preset_manager=pm, session_metadata={"form_state": form_state})
+        ctx = make_context(preset_collaborators=pm, session_metadata={"form_state": form_state})
 
         result = await self._tool().execute(ctx)
 
@@ -2604,7 +2604,7 @@ class TestGetFormStateTool:
             "checkpoint": {"type": "model", "title": "Checkpoint"},
             "steps": {"type": "slider", "title": "Steps"},
         })
-        ctx = make_context(preset_manager=pm, session_metadata={"form_state": form_state})
+        ctx = make_context(preset_collaborators=pm, session_metadata={"form_state": form_state})
 
         result = await self._tool().execute(ctx)
 
@@ -2626,7 +2626,7 @@ class TestGetFormStateTool:
         pm.get_form_schema.return_value = _make_form_schema_response({
             "steps": {"type": "slider", "title": "Steps"},
         })
-        ctx = make_context(preset_manager=pm, session_metadata={"form_state": form_state})
+        ctx = make_context(preset_collaborators=pm, session_metadata={"form_state": form_state})
 
         result = await self._tool().execute(ctx)
 
@@ -2646,7 +2646,7 @@ class TestGetFormStateTool:
         }
         pm = MagicMock()
         pm.get_form_schema.side_effect = RuntimeError("schema unavailable")
-        ctx = make_context(preset_manager=pm, session_metadata={"form_state": form_state})
+        ctx = make_context(preset_collaborators=pm, session_metadata={"form_state": form_state})
 
         result = await self._tool().execute(ctx)
 
@@ -2732,8 +2732,8 @@ class TestGetActiveModelsTool:
         assert schema["function"]["parameters"]["properties"] == {}
 
     @pytest.mark.asyncio
-    async def test_no_preset_manager_succeeds_without_field_metadata(self):
-        """preset_manager is now optional — tool should still work and return results."""
+    async def test_no_preset_collaborators_succeeds_without_field_metadata(self):
+        """preset_collaborators is now optional — tool should still work and return results."""
         model_repo = _make_model_repo_with_model("models/checkpoints/sdxl.safetensors", {
             "id": "m-1", "filename": "sdxl.safetensors", "model_type": "checkpoint",
             "description": "", "tags": [], "providers": [],
@@ -2752,7 +2752,7 @@ class TestGetActiveModelsTool:
         assert result.success is True
         data = json.loads(result.data)
         assert data["count"] == 1
-        # Without preset_manager, type still resolves from the model record itself
+        # Without preset_collaborators, type still resolves from the model record itself
         assert data["models"][0]["type"] == "checkpoint"
 
     @pytest.mark.asyncio
@@ -2827,7 +2827,7 @@ class TestGetActiveModelsTool:
     @pytest.mark.asyncio
     async def test_no_model_index_manager(self):
         pm = MagicMock()
-        ctx = make_context(preset_manager=pm)
+        ctx = make_context(preset_collaborators=pm)
         result = await self._tool().execute(ctx)
         assert result.success is False
         assert "Model index manager not available" in result.error
@@ -2907,7 +2907,7 @@ class TestGetActiveModelsTool:
         mim = MagicMock()
         mim.model_repo = model_repo
 
-        # Optional: preset_manager for field metadata
+        # Optional: preset_collaborators for field metadata
         pm = MagicMock()
         pm.get_form_schema.return_value = _make_form_schema_response({
             "checkpoint": {
@@ -2918,7 +2918,7 @@ class TestGetActiveModelsTool:
         })
 
         ctx = make_context(
-            preset_manager=pm,
+            preset_collaborators=pm,
             model_index_manager=mim,
             session_metadata={"form_state": {
                 "preset": "p-1",
@@ -3084,7 +3084,7 @@ class TestGetActiveModelsTool:
         mim = MagicMock()
         mim.model_repo = model_repo
 
-        # No preset_manager at all — tool still detects the model path
+        # No preset_collaborators at all — tool still detects the model path
         ctx = make_context(
             model_index_manager=mim,
             session_metadata={"form_state": {
@@ -3127,7 +3127,7 @@ class TestGetActiveModelsTool:
         })
 
         ctx = make_context(
-            preset_manager=pm,
+            preset_collaborators=pm,
             model_index_manager=mim,
             session_metadata={"form_state": {
                 "preset": "p-1",
@@ -3164,7 +3164,7 @@ class TestGetActiveModelsTool:
         })
 
         ctx = make_context(
-            preset_manager=pm,
+            preset_collaborators=pm,
             model_index_manager=mim,
             session_metadata={"form_state": {
                 "preset": "p-1",
@@ -3307,7 +3307,7 @@ class TestGetActiveModelsTool:
         pm.get_form_schema.return_value = {"form_schema": {"properties": props}}
 
         ctx = make_context(
-            preset_manager=pm,
+            preset_collaborators=pm,
             model_index_manager=mim,
             session_metadata={"form_state": {
                 "preset": "p-1",
@@ -3502,7 +3502,7 @@ class TestGetFormStateToolAiHint:
         }
         pm = MagicMock()
         pm.get_form_schema.return_value = {"form_schema": {"properties": props}}
-        ctx = make_context(preset_manager=pm, session_metadata={"form_state": form_state})
+        ctx = make_context(preset_collaborators=pm, session_metadata={"form_state": form_state})
 
         result = await self._tool().execute(ctx)
 
@@ -3523,7 +3523,7 @@ class TestGetFormStateToolAiHint:
         pm.get_form_schema.return_value = _make_form_schema_response({
             "steps": {"type": "slider", "title": "Steps"},
         })
-        ctx = make_context(preset_manager=pm, session_metadata={"form_state": form_state})
+        ctx = make_context(preset_collaborators=pm, session_metadata={"form_state": form_state})
 
         result = await self._tool().execute(ctx)
 

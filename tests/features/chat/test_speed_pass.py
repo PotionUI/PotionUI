@@ -593,7 +593,7 @@ class TestResolveMessageResourcesParallel:
         manager.phrasebook_category_repository = None
         manager.phrasebook_value_repository = None
         manager.phrasebook_search = None
-        manager.preset_manager = None
+        manager.preset_collaborators = None
         manager.generation_repository = None
         manager.generation_parameter_repository = None
         manager.generation_model_repository = None

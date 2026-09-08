@@ -36,12 +36,12 @@ class PresetsResourceProvider(BaseResourceProvider):
         ctx: ResourceContext,
         limit: int = 15,
     ) -> List[ResourceSuggestion]:
-        if not ctx.preset_manager:
+        if not ctx.preset_collaborators:
             return []
 
         if not path:
             needle = partial.lower()
-            presets = ctx.preset_manager.file_repo.list_all_presets()
+            presets = ctx.preset_collaborators.file_repo.list_all_presets()
             return [
                 ResourceSuggestion(
                     uri=f"presets.{p['id']}",
@@ -76,7 +76,7 @@ class PresetsResourceProvider(BaseResourceProvider):
         return suggestions[:limit]
 
     async def resolve(self, path: List[str], ctx: ResourceContext) -> Optional[ResolvedResource]:
-        if not ctx.preset_manager or not path:
+        if not ctx.preset_collaborators or not path:
             return None
 
         preset = self._get_preset(ctx, path[0])
@@ -95,7 +95,7 @@ class PresetsResourceProvider(BaseResourceProvider):
     @staticmethod
     def _get_preset(ctx: ResourceContext, preset_id: str) -> Optional[Dict[str, Any]]:
         try:
-            data = ctx.preset_manager.get_preset(preset_id)
+            data = ctx.preset_collaborators.get_preset(preset_id)
             return data.get("preset", data)
         except Exception:
             logger.debug(f"Preset '{preset_id}' not found for @resource resolution")

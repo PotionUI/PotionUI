@@ -16,12 +16,12 @@ from src.features.llm.tools.builtin.update_form_settings_tool import UpdateFormS
 def make_context(
     user_id: str = "user-1",
     session_metadata: dict = None,
-    preset_manager: Any = None,
+    preset_collaborators: Any = None,
 ) -> ToolContext:
     return ToolContext(
         user_id=user_id,
         session_metadata=session_metadata or {},
-        preset_manager=preset_manager,
+        preset_collaborators=preset_collaborators,
     )
 
 
@@ -269,8 +269,8 @@ class TestUpdateFormSettingsToolSchemaValidation:
     @pytest.mark.asyncio
     async def test_accepts_fields_from_schema_not_in_form_data(self):
         """Fields listed in preset schema but absent from form_data should be accepted."""
-        preset_manager = MagicMock()
-        preset_manager.get_form_schema = MagicMock(return_value={
+        preset_collaborators = MagicMock()
+        preset_collaborators.get_form_schema = MagicMock(return_value={
             "form_schema": {
                 "properties": {
                     "extra_field": {"type": "integer"},
@@ -280,7 +280,7 @@ class TestUpdateFormSettingsToolSchemaValidation:
         # form_data has no "extra_field"
         ctx = make_context(
             session_metadata={"form_state": make_form_state(form_data={})},
-            preset_manager=preset_manager,
+            preset_collaborators=preset_collaborators,
         )
         result = await UpdateFormSettingsTool().execute(
             ctx, changes=[make_change("extra_field", 42)]
@@ -291,13 +291,13 @@ class TestUpdateFormSettingsToolSchemaValidation:
 
     @pytest.mark.asyncio
     async def test_schema_load_failure_falls_back_to_form_data_keys(self):
-        """If preset_manager.get_form_schema raises, known_fields falls back to form_data."""
-        preset_manager = MagicMock()
-        preset_manager.get_form_schema = MagicMock(side_effect=RuntimeError("schema error"))
+        """If preset_collaborators.get_form_schema raises, known_fields falls back to form_data."""
+        preset_collaborators = MagicMock()
+        preset_collaborators.get_form_schema = MagicMock(side_effect=RuntimeError("schema error"))
         form_data = {"steps": 30}
         ctx = make_context(
             session_metadata={"form_state": make_form_state(form_data=form_data)},
-            preset_manager=preset_manager,
+            preset_collaborators=preset_collaborators,
         )
         result = await UpdateFormSettingsTool().execute(
             ctx, changes=[make_change("steps", 50)]
@@ -305,10 +305,10 @@ class TestUpdateFormSettingsToolSchemaValidation:
         assert result.success is True
 
     @pytest.mark.asyncio
-    async def test_no_preset_manager_still_validates_against_form_data(self):
+    async def test_no_preset_collaborators_still_validates_against_form_data(self):
         ctx = make_context(
             session_metadata={"form_state": make_form_state()},
-            preset_manager=None,
+            preset_collaborators=None,
         )
         result = await UpdateFormSettingsTool().execute(
             ctx, changes=[make_change("steps", 50)]

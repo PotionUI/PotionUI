@@ -153,7 +153,7 @@ def _walk_model_field_metadata(
 
 
 def build_model_field_metadata(
-    preset_manager: Any,
+    preset_collaborators: Any,
     form_state: Dict[str, Any],
 ) -> Dict[str, Dict[str, Any]]:
     """Build ``{field_name: {label, model_type, ai_hint?}}`` from the processed form schema.
@@ -166,10 +166,10 @@ def build_model_field_metadata(
     result: Dict[str, Dict[str, Any]] = {}
     preset_id = form_state.get("preset")
     mode = form_state.get("mode")
-    if not preset_id or not preset_manager:
+    if not preset_id or not preset_collaborators:
         return result
     try:
-        schema_data = preset_manager.get_form_schema(preset_id, mode=mode)
+        schema_data = preset_collaborators.get_form_schema(preset_id, mode=mode)
         props = schema_data.get("form_schema", {}).get("properties", {})
         for name, spec in props.items():
             _walk_model_field_metadata(spec, result, fallback_name=name)

@@ -96,27 +96,27 @@ class TestValidateModelValue:
 
 
 class TestPresetFormModelErrors:
-    def _preset_manager(self):
-        preset_manager = MagicMock()
-        preset_manager.get_form_schema.return_value = {"form_schema": {"properties": NESTED_SCHEMA_PROPERTIES}}
-        return preset_manager
+    def _preset_collaborators(self):
+        preset_collaborators = MagicMock()
+        preset_collaborators.get_form_schema.return_value = {"form_schema": {"properties": NESTED_SCHEMA_PROPERTIES}}
+        return preset_collaborators
 
     def test_rejects_every_unresolvable_model_field(self):
         errors = preset_form_model_errors(
-            self._preset_manager(), _model_index_manager(found=False), "krea2", "txt2img",
+            self._preset_collaborators(), _model_index_manager(found=False), "krea2", "txt2img",
             {"diffusion_model": "a.safetensors", "text_encoder": "b.safetensors", "speed_profile": "turbo"},
         )
         assert len(errors) == 2
 
     def test_accepts_resolvable_model_fields(self):
         errors = preset_form_model_errors(
-            self._preset_manager(), _model_index_manager(found=True), "krea2", "txt2img",
+            self._preset_collaborators(), _model_index_manager(found=True), "krea2", "txt2img",
             {"diffusion_model": "found.safetensors"},
         )
         assert errors == []
 
-    def test_no_preset_manager_skips(self):
+    def test_no_preset_collaborators_skips(self):
         assert preset_form_model_errors(None, _model_index_manager(found=False), "krea2", "txt2img", {"diffusion_model": "x"}) == []
 
     def test_no_proposed_values_skips(self):
-        assert preset_form_model_errors(self._preset_manager(), _model_index_manager(found=False), "krea2", "txt2img", {}) == []
+        assert preset_form_model_errors(self._preset_collaborators(), _model_index_manager(found=False), "krea2", "txt2img", {}) == []

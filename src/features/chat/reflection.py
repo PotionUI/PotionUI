@@ -692,9 +692,9 @@ class ChatReflectionGenerator:
         active_preset = None
         if preset_id:
             label = preset_id
-            if self._m.preset_manager:
+            if self._m.preset_collaborators:
                 try:
-                    label = self._m.preset_manager.get_preset(preset_id).get("name") or preset_id
+                    label = self._m.preset_collaborators.get_preset(preset_id).get("name") or preset_id
                 except Exception:
                     pass
             active_preset = (preset_id, label)

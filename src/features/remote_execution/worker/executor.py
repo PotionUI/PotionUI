@@ -2,7 +2,7 @@
 
 **The instantiation algorithm is not invented here.** It is the same one
 ``PipelineExecutor`` uses locally
-(``src/features/generation/generation.py:601-624``): pipe-class defaults
+(``src/features/generation/engine.py:630-643``): pipe-class defaults
 deep-merged under the shipped config via ``deep_update``, then
 ``validate_pipe_configuration`` fills any spec default still missing. A
 package's config already carries the class defaults

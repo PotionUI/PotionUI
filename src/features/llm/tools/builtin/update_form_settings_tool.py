@@ -111,9 +111,9 @@ class UpdateFormSettingsTool(BaseTool):
         # Get schema to validate field names
         known_fields = set(form_data.keys())
         media_fields: set = set()
-        if preset_id and context.preset_manager:
+        if preset_id and context.preset_collaborators:
             try:
-                schema_data = context.preset_manager.get_form_schema(
+                schema_data = context.preset_collaborators.get_form_schema(
                     preset_id, mode=mode
                 )
                 schema_props = schema_data.get("form_schema", {}).get("properties", {})
@@ -226,10 +226,10 @@ class UpdateFormSettingsTool(BaseTool):
     def _media_fields(context: ToolContext, form_state) -> set:
         """Media-carrying field names for the loaded preset's form, or empty."""
         preset_id = (form_state or {}).get("preset")
-        if not preset_id or not context.preset_manager:
+        if not preset_id or not context.preset_collaborators:
             return set()
         try:
-            schema_data = context.preset_manager.get_form_schema(
+            schema_data = context.preset_collaborators.get_form_schema(
                 preset_id, mode=(form_state or {}).get("mode")
             )
             return media_field_names(schema_data.get("form_schema", {}).get("properties", {}))

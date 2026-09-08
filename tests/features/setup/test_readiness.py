@@ -27,7 +27,7 @@ def _forward_preset_operations_to_manager(monkeypatch):
     """`ReadinessAggregator` calls `src.features.presets.operations.list_presets`
     with the preset-manager collaborator as its leading arg, rather than
     calling `.list_presets()` on it directly. This forwards that call to the
-    fake's own method, so `preset_manager` here can stay a plain mock with
+    fake's own method, so `preset_collaborators` here can stay a plain mock with
     `.list_presets`, exactly like the retired manager double."""
     from src.features.presets import operations as preset_operations_module
 
@@ -83,8 +83,8 @@ def _manager(
     backend_registry.get_all_backends.return_value = (
         {"native-1": _backend()} if backends is None else backends
     )
-    preset_manager = MagicMock()
-    preset_manager.list_presets.return_value = (
+    preset_collaborators = MagicMock()
+    preset_collaborators.list_presets.return_value = (
         [{"id": "p1", "engine": "native"}] if presets is None else presets
     )
     model_repository = MagicMock()
@@ -95,7 +95,7 @@ def _manager(
     migration_runner.has_pending_migrations.return_value = pending
     return ReadinessAggregator(
         backend_registry=backend_registry,
-        preset_manager=preset_manager,
+        preset_collaborators=preset_collaborators,
         model_repository=model_repository,
         generation_repository=generation_repository,
         migration_runner=migration_runner,

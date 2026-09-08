@@ -5,7 +5,7 @@ chat LLM can reason about what the user has actually configured. A bare
 ``@form`` dumps every non-empty scalar (and model-valued) field.
 
 Field resolution is TYPE-aware, keyed on the bound form's field types (via
-``preset_manager.get_form_schema``), never on field names:
+``preset_collaborators.get_form_schema``), never on field names:
 
 - Model-reference fields (schema type ``model``/``models``, plus any field
   whose value carries the self-describing ``model:<id>`` ref — the shape every
@@ -170,13 +170,13 @@ class FormResourceProvider(BaseResourceProvider):
     def _field_types(ctx: ResourceContext) -> Dict[str, str]:
         """Field name → schema type for the bound form, {} when unavailable."""
         form_state = getattr(ctx, "form_state", None)
-        if not isinstance(form_state, dict) or not ctx.preset_manager:
+        if not isinstance(form_state, dict) or not ctx.preset_collaborators:
             return {}
         preset_id = form_state.get("preset")
         if not preset_id:
             return {}
         try:
-            schema = ctx.preset_manager.get_form_schema(preset_id, mode=form_state.get("mode"))
+            schema = ctx.preset_collaborators.get_form_schema(preset_id, mode=form_state.get("mode"))
         except Exception:
             return {}
         props = ((schema or {}).get("form_schema") or {}).get("properties")

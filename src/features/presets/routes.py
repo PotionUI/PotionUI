@@ -45,13 +45,13 @@ class PresetController(BaseController):
 
     def __init__(
         self,
-        preset_manager: PresetCollaborators,
+        preset_collaborators: PresetCollaborators,
         backend_registry: BackendRegistry,
         media_store: Optional["MediaStore"] = None,
         model_access_policy: Optional["ModelAccessPolicy"] = None,
     ):
         super().__init__()
-        self.collaborators = preset_manager
+        self.collaborators = preset_collaborators
         self.backend_registry = backend_registry
         # Only used to reclaim a reloaded preset's rendered thumbnails. Optional so
         # the presets feature stays free of any media dependency.
@@ -268,7 +268,7 @@ class PresetController(BaseController):
         except Exception as e:
             return self._handle_preset_exception(e, "modes_get_failed", "Failed to get modes")
 
-    async def get_preset_form_schema(
+    async def get_form_schema(
         self,
         preset_id: str,
         mode: str = None,
@@ -281,7 +281,7 @@ class PresetController(BaseController):
         except Exception as e:
             return self._handle_preset_exception(e, "form_schema_failed", "Failed to get form schema")
 
-    async def get_pipes(
+    async def get_pipeline(
         self,
         preset_id: str,
         mode: str = "txt2img",
@@ -497,18 +497,18 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("/{preset_id}/form", response_model=APIResponse, summary="Get Form Schema")
     async def get_preset_form_schema(preset_id: str, mode: str = None, form_name: str = None, current_user=Depends(get_current_active_user)):
         """Get the dynamic form schema for a preset, including field definitions and validation rules."""
-        return await controller.get_preset_form_schema(preset_id, mode, form_name)
+        return await controller.get_form_schema(preset_id, mode, form_name)
 
     @router.get("/{preset_id}/pipes", response_model=APIResponse, summary="Get Pipeline Configuration")
     async def get_preset_pipes(preset_id: str, mode: str = "txt2img", current_user=Depends(get_current_active_user)):
         """Get the pipeline configuration and pipe connections for a preset and mode."""
-        return await controller.get_pipes(preset_id, mode)
+        return await controller.get_pipeline(preset_id, mode)
 
     @router.post("/{preset_id}/pipes", response_model=APIResponse, summary="Get Pipeline with Form Data")
     async def get_preset_pipes_with_form_data(preset_id: str, request: Dict[str, Any], mode: str = "txt2img", current_user=Depends(get_current_active_user)):
         """Get pipeline configuration evaluated with specific form data for dynamic pipe configuration."""
         form_data = request.get('form_data', {})
-        return await controller.get_pipes(preset_id, mode, form_data)
+        return await controller.get_pipeline(preset_id, mode, form_data)
 
     @router.post("/{preset_id}/reload", response_model=APIResponse, summary="Reload Preset")
     async def reload_preset(preset_id: str, current_user=Depends(get_current_admin_user)):

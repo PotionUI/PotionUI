@@ -430,21 +430,12 @@ class TestAudioOutputInheritance:
         output = AudioGenerationOutput(audio_path=audio_path)
 
         # Should have inherited fields
-        assert hasattr(output, 'type')
         assert hasattr(output, 'pipe_id')
         assert hasattr(output, 'pipe_name')
 
         # Should have own fields
         assert hasattr(output, 'audio_path')
         assert hasattr(output, 'track_type')
-
-    def test_type_attribute(self):
-        """Test that type attribute is inherited."""
-        audio_path = Path("/tmp/test.wav")
-        output = AudioGenerationOutput(audio_path=audio_path)
-
-        assert hasattr(output, 'type')
-        assert output.type == "generation_output"
 
 
 class TestAudioOutputEdgeCases:

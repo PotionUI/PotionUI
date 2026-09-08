@@ -240,13 +240,13 @@ def _gather_preset_guide(
 ) -> Optional[str]:
     """Look up the active preset's `llm.guide` (see docs/presets.md "LLM context"),
     replaced by `llm.modes[<current mode>].guide` when one is declared."""
-    if not form_state or not collaborators.preset_manager:
+    if not form_state or not collaborators.preset_collaborators:
         return None
     preset_id = form_state.get("preset")
     if not preset_id:
         return None
     try:
-        preset = collaborators.preset_manager.file_repo.find_preset_by_id(preset_id)
+        preset = collaborators.preset_collaborators.file_repo.find_preset_by_id(preset_id)
     except Exception:
         return None
     if not preset:

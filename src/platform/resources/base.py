@@ -79,7 +79,7 @@ class ResourceContext:
     # not import a feature module directly (see tests/architecture), so the
     # search composition itself is not reachable here as a class.
     phrasebook_search: Optional[Any] = None
-    preset_manager: Optional[Any] = None
+    preset_collaborators: Optional[Any] = None
     generation_repository: Optional[Any] = None
     generation_parameter_repository: Optional[Any] = None
     generation_model_repository: Optional[Any] = None

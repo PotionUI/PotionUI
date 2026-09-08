@@ -76,10 +76,10 @@ class RunGenerationTool(BaseTool):
     @staticmethod
     def _validate_media_overrides(context, preset_id, mode, override_values) -> list:
         """Errors for any media-field override the model proposed."""
-        if not override_values or not context.preset_manager:
+        if not override_values or not context.preset_collaborators:
             return []
         try:
-            schema_data = context.preset_manager.get_form_schema(preset_id, mode=mode)
+            schema_data = context.preset_collaborators.get_form_schema(preset_id, mode=mode)
             media_fields = media_field_names(
                 schema_data.get("form_schema", {}).get("properties", {})
             )

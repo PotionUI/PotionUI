@@ -354,31 +354,31 @@ class TestPresetsProvider:
 
     @pytest.mark.asyncio
     async def test_suggest_presets(self):
-        suggestions = await self.provider.suggest([], "real", _ctx(preset_manager=self.manager))
+        suggestions = await self.provider.suggest([], "real", _ctx(preset_collaborators=self.manager))
         assert suggestions[0].uri == "presets.01ABC"
         assert suggestions[0].has_children is True
 
     @pytest.mark.asyncio
     async def test_suggest_option_fields_only(self):
-        suggestions = await self.provider.suggest(["01ABC"], "", _ctx(preset_manager=self.manager))
+        suggestions = await self.provider.suggest(["01ABC"], "", _ctx(preset_collaborators=self.manager))
         assert [s.uri for s in suggestions] == ["presets.01ABC.angles"]
 
     @pytest.mark.asyncio
     async def test_resolve_field_options(self):
-        resolved = await self.provider.resolve(["01ABC", "angles"], _ctx(preset_manager=self.manager))
+        resolved = await self.provider.resolve(["01ABC", "angles"], _ctx(preset_collaborators=self.manager))
         assert resolved.kind == "form_field"
         assert "Dutch: dutch angle" in resolved.content
 
     @pytest.mark.asyncio
     async def test_resolve_preset_summary(self):
-        resolved = await self.provider.resolve(["01ABC"], _ctx(preset_manager=self.manager))
+        resolved = await self.provider.resolve(["01ABC"], _ctx(preset_collaborators=self.manager))
         assert resolved.kind == "preset"
         assert "angles: 1 options" in resolved.content
 
     @pytest.mark.asyncio
     async def test_resolve_missing_preset_returns_none(self):
         self.manager.get_preset.side_effect = Exception("not found")
-        resolved = await self.provider.resolve(["nope"], _ctx(preset_manager=self.manager))
+        resolved = await self.provider.resolve(["nope"], _ctx(preset_collaborators=self.manager))
         assert resolved is None
 
 
@@ -402,14 +402,14 @@ class TestFormProvider:
         model.prompting_guidance = prompting_guidance
         return model
 
-    def _ctx(self, form_data, preset_manager=None):
+    def _ctx(self, form_data, preset_collaborators=None):
         return _ctx(
             model_index_manager=self.manager,
-            preset_manager=preset_manager,
+            preset_collaborators=preset_collaborators,
             form_state={"preset": "01ABC", "mode": "txt2img", "form_data": form_data},
         )
 
-    def _preset_manager(self, field_types):
+    def _preset_collaborators(self, field_types):
         manager = Mock()
         manager.get_form_schema.return_value = {
             "form_schema": {
@@ -457,10 +457,10 @@ class TestFormProvider:
 
     @pytest.mark.asyncio
     async def test_resolve_model_typed_field_by_schema_without_ref_value(self):
-        preset_manager = self._preset_manager({"model": "model"})
+        preset_collaborators = self._preset_collaborators({"model": "model"})
         self.repo.get_by_file_path.return_value = self._model()
         resolved = await self.provider.resolve(
-            ["model"], self._ctx({"model": "checkpoints/dreamshaper.safetensors"}, preset_manager)
+            ["model"], self._ctx({"model": "checkpoints/dreamshaper.safetensors"}, preset_collaborators)
         )
         assert "## Model: dreamshaper" in resolved.content
         self.repo.get_by_file_path.assert_called_once()
@@ -475,10 +475,10 @@ class TestFormProvider:
 
     @pytest.mark.asyncio
     async def test_suggest_marks_lora_picker_field_browsable(self):
-        preset_manager = self._preset_manager({"loras": "lora_picker", "steps": "slider"})
+        preset_collaborators = self._preset_collaborators({"loras": "lora_picker", "steps": "slider"})
         suggestions = await self.provider.suggest(
             [], "",
-            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.8}], "steps": 30}, preset_manager),
+            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.8}], "steps": 30}, preset_collaborators),
         )
         lora = next(s for s in suggestions if s.uri == "form.loras")
         assert lora.has_children is True
@@ -489,7 +489,7 @@ class TestFormProvider:
 
     @pytest.mark.asyncio
     async def test_suggest_lora_rows_lists_selected_loras_with_weights(self):
-        preset_manager = self._preset_manager({"loras": "lora_picker"})
+        preset_collaborators = self._preset_collaborators({"loras": "lora_picker"})
         self.repo.get_by_id.side_effect = lambda model_id, **kw: {
             "l-1": self._model("l-1", "detail.safetensors", "Detail LoRA", model_type="lora"),
             "l-2": self._model("l-2", "grain.safetensors", "Film Grain", model_type="lora"),
@@ -501,7 +501,7 @@ class TestFormProvider:
                     {"model": "model:l-1", "strength": 0.8},
                     {"model": "model:l-2", "strength": 1.0},
                 ]},
-                preset_manager,
+                preset_collaborators,
             ),
         )
         assert suggestions[0].uri == "form.loras"
@@ -513,19 +513,19 @@ class TestFormProvider:
 
     @pytest.mark.asyncio
     async def test_suggest_non_lora_field_has_no_children(self):
-        preset_manager = self._preset_manager({"steps": "slider"})
-        assert await self.provider.suggest(["steps"], "", self._ctx({"steps": 30}, preset_manager)) == []
+        preset_collaborators = self._preset_collaborators({"steps": "slider"})
+        assert await self.provider.suggest(["steps"], "", self._ctx({"steps": 30}, preset_collaborators)) == []
 
     @pytest.mark.asyncio
     async def test_resolve_lora_row_attaches_model_resource_with_weight(self):
-        preset_manager = self._preset_manager({"loras": "lora_picker"})
+        preset_collaborators = self._preset_collaborators({"loras": "lora_picker"})
         self.repo.get_by_id.return_value = self._model(
             "l-1", "detail.safetensors", "Detail LoRA", model_type="lora",
             triggers=["add detail"], prompting_guidance="Keep weight under 1.",
         )
         resolved = await self.provider.resolve(
             ["loras", "l-1"],
-            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.8}]}, preset_manager),
+            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.8}]}, preset_collaborators),
         )
         assert resolved is not None
         assert resolved.kind == "lora"
@@ -537,31 +537,31 @@ class TestFormProvider:
 
     @pytest.mark.asyncio
     async def test_resolve_lora_row_by_index(self):
-        preset_manager = self._preset_manager({"loras": "lora_picker"})
+        preset_collaborators = self._preset_collaborators({"loras": "lora_picker"})
         self.repo.get_by_id.return_value = self._model("l-1", "detail.safetensors", "Detail LoRA", model_type="lora")
         resolved = await self.provider.resolve(
             ["loras", "0"],
-            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.5}]}, preset_manager),
+            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.5}]}, preset_collaborators),
         )
         assert resolved is not None
         assert "Detail LoRA at weight 0.5" in resolved.content
 
     @pytest.mark.asyncio
     async def test_resolve_lora_row_unknown_selector_returns_none(self):
-        preset_manager = self._preset_manager({"loras": "lora_picker"})
+        preset_collaborators = self._preset_collaborators({"loras": "lora_picker"})
         resolved = await self.provider.resolve(
             ["loras", "nope"],
-            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.5}]}, preset_manager),
+            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.5}]}, preset_collaborators),
         )
         assert resolved is None
 
     @pytest.mark.asyncio
     async def test_resolve_lora_row_unindexed_model_falls_back(self):
-        preset_manager = self._preset_manager({"loras": "lora_picker"})
+        preset_collaborators = self._preset_collaborators({"loras": "lora_picker"})
         self.repo.get_by_id.return_value = None
         resolved = await self.provider.resolve(
             ["loras", "l-1"],
-            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.5}]}, preset_manager),
+            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.5}]}, preset_collaborators),
         )
         assert resolved is not None
         assert resolved.kind == "form_value"
@@ -569,9 +569,9 @@ class TestFormProvider:
 
     @pytest.mark.asyncio
     async def test_resolve_selector_on_non_lora_field_returns_none(self):
-        preset_manager = self._preset_manager({"steps": "slider"})
+        preset_collaborators = self._preset_collaborators({"steps": "slider"})
         assert await self.provider.resolve(
-            ["steps", "0"], self._ctx({"steps": 30}, preset_manager)
+            ["steps", "0"], self._ctx({"steps": 30}, preset_collaborators)
         ) is None
 
     @pytest.mark.asyncio

@@ -84,9 +84,9 @@ def _global_scope_nudge(context: ToolContext, content: str) -> Optional[str]:
     form_state = context.session_metadata.get("form_state")
 
     preset_id = resolve_active_preset_id(form_state)
-    if preset_id and context.preset_manager:
+    if preset_id and context.preset_collaborators:
         try:
-            preset_data = context.preset_manager.get_preset(preset_id)
+            preset_data = context.preset_collaborators.get_preset(preset_id)
             preset_name = preset_data.get("preset", preset_data).get("name")
         except Exception:
             preset_name = None

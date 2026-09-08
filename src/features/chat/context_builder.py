@@ -359,7 +359,7 @@ class ChatContextBuilder:
             phrasebook_category_repository=self._m.phrasebook_category_repository,
             phrasebook_value_repository=self._m.phrasebook_value_repository,
             phrasebook_search=self._m.phrasebook_search,
-            preset_manager=self._m.preset_manager,
+            preset_collaborators=self._m.preset_collaborators,
             generation_repository=self._m.generation_repository,
             generation_parameter_repository=self._m.generation_parameter_repository,
             generation_model_repository=self._m.generation_model_repository,
@@ -675,7 +675,7 @@ class ChatContextBuilder:
         overrides the per-model guidance cap. A preset with no ``llm:`` block gets
         none of this — exact prior behavior, except the header always shows the
         preset's name instead of its raw id (one extra, cheap in-memory lookup
-        through the same ``self._m.preset_manager`` already used for
+        through the same ``self._m.preset_collaborators`` already used for
         ``field_meta`` below).
 
         When ``llm.modes[<current mode>]`` exists, its ``guide`` REPLACES
@@ -711,12 +711,12 @@ class ChatContextBuilder:
             variant = form_state.get("variant")
             video_director = form_state.get("video_director")
             music_director = form_state.get("music_director")
-            field_meta = build_model_field_metadata(self._m.preset_manager, form_state)
+            field_meta = build_model_field_metadata(self._m.preset_collaborators, form_state)
 
             preset_template = None
-            if preset_id and self._m.preset_manager:
+            if preset_id and self._m.preset_collaborators:
                 try:
-                    preset_template = self._m.preset_manager.file_repo.find_preset_by_id(preset_id)
+                    preset_template = self._m.preset_collaborators.file_repo.find_preset_by_id(preset_id)
                 except Exception:
                     preset_template = None
             llm_spec = (getattr(preset_template, "llm", None) or {}) if preset_template else {}
@@ -847,9 +847,9 @@ class ChatContextBuilder:
         from src.features.llm.tools.media_values import media_field_names
 
         media_fields: List[str] = []
-        if self._m.preset_manager and preset_id:
+        if self._m.preset_collaborators and preset_id:
             try:
-                schema_data = self._m.preset_manager.get_form_schema(preset_id, mode=mode, form_name=variant)
+                schema_data = self._m.preset_collaborators.get_form_schema(preset_id, mode=mode, form_name=variant)
                 props = (schema_data.get("form_schema") or {}).get("properties")
                 media_fields = sorted(media_field_names(props))
             except Exception:
@@ -913,10 +913,10 @@ class ChatContextBuilder:
         Never raises — a schema lookup failure yields an empty listing rather than
         dropping the rest of the already-built workspace block.
         """
-        if not self._m.preset_manager:
+        if not self._m.preset_collaborators:
             return []
         try:
-            schema_data = self._m.preset_manager.get_form_schema(preset_id, mode=mode, form_name=variant)
+            schema_data = self._m.preset_collaborators.get_form_schema(preset_id, mode=mode, form_name=variant)
         except Exception:
             return []
         props = (schema_data.get("form_schema") or {}).get("properties") or {}

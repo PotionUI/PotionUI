@@ -3,7 +3,7 @@ OutputBridge: a single non-blocking, non-dropping thread -> event-loop
 funnel for generation outputs.
 
 Replaces the two blocking bridges that used to exist
-(``GenerationWorker.on_yield`` in generation.py with
+(``GenerationWorker.on_yield`` in engine.py with
 ``future.result(timeout=1.0)`` + bare ``except: pass``, and ComfyUIBackend's
 ``thread_safe_callback`` with ``future.result(timeout=5.0)``), both of which
 could block the CUDA worker thread on a WS/DB round-trip and silently drop

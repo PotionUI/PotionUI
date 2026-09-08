@@ -30,7 +30,6 @@ from src.pipelines.contracts import (
     PipeInputSpec,
     PipeOutput,
     PipeOutputSpec,
-    logger,
 )
 from src.pipelines.outputs import (
     AudioGenerationOutput,
@@ -77,6 +76,5 @@ __all__ = [
     "SerializeContext",
     "VideoGenerationOutput",
     "asset_subdir",
-    "logger",
     "output_type_registry",
 ]

@@ -219,9 +219,9 @@ class GetFormStateTool(BaseTool):
 
             # Try to get form schema to merge with values
             schema_props = {}
-            if preset_id and context.preset_manager:
+            if preset_id and context.preset_collaborators:
                 try:
-                    schema_data = context.preset_manager.get_form_schema(
+                    schema_data = context.preset_collaborators.get_form_schema(
                         preset_id, mode=mode
                     )
                     schema_props = (

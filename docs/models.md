@@ -337,11 +337,21 @@ each `model:<id>` occurrence's exact location alongside its `(model_type, filena
 by `(model_type, filename)` and rewrites only that recorded path — every other string in
 `form_data`, model-filename-shaped or not, passes through untouched.
 
-A v1 bundle (`schema_version: 1`, no `model_refs`) predates this and is still accepted: import
-falls back to the old global substitution, keyed by `(model_type, filename)` from the bundle's own
-`models` list rather than filename alone. When that list names the same filename under more than
-one model type, which field is which can no longer be told apart without path data, so those
-occurrences are left as the bare filename with a warning instead of guessed.
+Which branch import takes is decided by whether the `model_refs` **key** is present at all, not by
+whether the list is non-empty: a v2 bundle whose export found no `model:<id>` occurrences declares
+`model_refs: []`, and that is authoritative — it means "none", so import leaves every string in
+`form_data` exactly as exported. Only a bundle with no `model_refs` key at all is genuinely v1.
+
+A v1 bundle predates path-recording and is still accepted, but with nothing to substitute by value
+across the whole of `form_data` this time — the field's own type has to stand in for the missing
+path. Import only rewrites a filename match inside a field the importing instance's own,
+locally-installed copy of the bundle's preset (matched on `preset_id`/`mode`/`form_name`) declares
+as a `model`/`models` picker or a `lora_picker` list; every other field, whatever value it holds, is
+never a candidate. When that preset can't be resolved locally at all, there is no way to tell a
+model reference from an ordinary field by value alone, so nothing is rewritten and every local
+match is reported unresolved instead of guessed. Within the fields that do qualify, a filename the
+bundle's own `models` list names under more than one model type is also left as the bare filename
+with a warning — which field is which still can't be told apart without path data.
 
 ## Consequences for history
 

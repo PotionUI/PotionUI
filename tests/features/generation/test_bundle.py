@@ -164,11 +164,27 @@ class TestImportBundleValidation:
 
 
 class _StubPresetNameResolver:
-    def __init__(self, names: dict):
+    def __init__(self, names: dict, preset_loader=None):
         self._names = names
+        # `_model_reference_field_names` reads `.preset_loader` off the real
+        # resolver to load the bundle's preset's field types - only set on
+        # tests that exercise that path, so `getattr(resolver, "preset_loader",
+        # None)` correctly sees "no local preset schema" everywhere else.
+        self.preset_loader = preset_loader
 
     def name_map(self):
         return dict(self._names)
+
+
+class _StubPresetLoader:
+    """Enough of `PresetTemplateLoader` for `_model_reference_field_names`:
+    an already-loaded `.presets` list and a no-op `_ensure_loaded`."""
+
+    def __init__(self, presets):
+        self.presets = presets
+
+    def _ensure_loaded(self):
+        pass
 
 
 class TestExportImportRoundTrip:
@@ -205,11 +221,11 @@ class TestExportImportRoundTrip:
 
         self.harness.tearDown()
 
-    def _make_archive(self, preset_names=None):
+    def _make_archive(self, preset_names=None, preset_loader=None):
         from src.platform.plugins import PluginRegistry
         query = GenerationHistoryQuery(
             generation_repo=self.generation_repo,
-            preset_name_resolver=_StubPresetNameResolver(preset_names or {}),
+            preset_name_resolver=_StubPresetNameResolver(preset_names or {}, preset_loader=preset_loader),
         )
         mock_file_service = Mock()
         mock_file_service.generation_exists.return_value = False
@@ -407,9 +423,15 @@ class TestExportImportRoundTrip:
         assert form_data["loras"] == [{"model": "lora.safetensors", "strength": 0.8}]
         assert form_data["unresolvable"] == make_model_ref("does-not-exist")
 
-    def test_import_rewrites_unambiguous_filename_matches_to_model_refs(self):
-        from src.features.models.form_refs import make_model_ref
-
+    def test_import_of_v2_export_with_empty_model_refs_leaves_bare_filename_untouched(self):
+        """`diffusion_model` here is a plain string in `form_data`, never a
+        `model:<id>` ref - so `_portable_form_data` records no occurrence for it
+        and the export's `generation.model_refs` comes back `[]`. That is the
+        exporter's own declaration that this bundle carries no model
+        references, and it must be trusted over a filename coincidence: even
+        though a local model shares this exact filename, import must not fall
+        back to legacy's global-by-value substitution and rewrite it.
+        """
         export_gen_id = self._create_generation_with_form_data({
             "prompt": "a cat",
             "seed": 1,
@@ -418,14 +440,15 @@ class TestExportImportRoundTrip:
         self._add_model(export_gen_id, filename="checkpoint.safetensors", sha256="digest-1")
         export_archive = self._make_archive()
         zip_file, _ = export_archive.export_bundle(export_gen_id, self.user_id)
+        envelope = self._extract_envelope(zip_file)
+        assert envelope["generation"]["model_refs"] == []
+        zip_file.seek(0)
 
-        # Importing instance: exactly one local model with the same filename.
         import_archive = self._make_archive()
         result = import_archive.import_bundle(zip_file.read())
 
-        candidates = self.model_repo.get_by_filename("checkpoint.safetensors")
-        assert len(candidates) == 1
-        assert result["reuse"]["form_data"]["diffusion_model"] == make_model_ref(candidates[0].id)
+        assert result["reuse"]["form_data"]["diffusion_model"] == "checkpoint.safetensors"
+        assert not any("weights" in w or "checkpoint.safetensors" in w for w in result["warnings"])
 
     def test_import_leaves_filename_when_no_local_match(self):
         export_gen_id = self._create_generation_with_form_data({
@@ -575,24 +598,30 @@ class TestExportImportRoundTrip:
         assert len(stale) == 1, result["warnings"]
         assert "no longer holds" in stale[0]
 
-    def test_import_of_v1_bundle_resolves_unambiguous_filenames_and_flags_type_collisions(self):
+    def test_import_of_v1_bundle_resolves_only_declared_model_fields_and_flags_type_collisions(self):
         """A v1 bundle (no `model_refs`) has no path information, so a filename
-        shared by two model types in the bundle's own `models` list can't be
-        resolved by value alone without risking exactly the corruption the v2
-        format exists to prevent - it must be left unresolved with a warning,
-        while a filename that is unambiguous in that list still resolves the
-        way v1 bundles always have.
+        match can only be trusted where the importing instance's own,
+        locally-installed copy of the bundle's preset declares that field as a
+        model-reference type. `caption` is an ordinary `string` field that
+        happens to hold the same value as the checkpoint and must never be
+        rewritten just because it matches. A filename shared by two model types
+        in the bundle's own `models` list (`diffusion_model`/`vae`, both a
+        declared `model` field) still can't be resolved by value alone and is
+        left unresolved with a warning, while `upscaler` - unambiguous, and a
+        declared `model` field - resolves the way v1 bundles always have.
         """
         from src.features.models.form_refs import make_model_ref
+        from src.features.presets.templates import FieldTemplate, FormTemplate, ModeTemplate, PresetTemplate
 
         doc = _valid_document(
+            preset_id="preset-1",
             form_data={
                 "prompt": "a cat",
                 "diffusion_model": "shared.safetensors",
                 "vae": "shared.safetensors",
                 "caption": "shared.safetensors",
                 "upscaler": "unique.safetensors",
-            }
+            },
         )
         doc["models"] = [
             {"model_type": "checkpoint", "filename": "shared.safetensors"},
@@ -600,11 +629,28 @@ class TestExportImportRoundTrip:
             {"model_type": "upscaler", "filename": "unique.safetensors"},
         ]
 
-        checkpoint_id = self._add_model_row("shared.safetensors", "checkpoint")
+        self._add_model_row("shared.safetensors", "checkpoint")
         self._add_model_row("shared.safetensors", "vae")
         upscaler_id = self._add_model_row("unique.safetensors", "upscaler")
 
-        archive = self._make_archive()
+        form = FormTemplate(
+            name="default",
+            default=True,
+            fields=[
+                FieldTemplate(type="model", name="diffusion_model"),
+                FieldTemplate(type="model", name="vae"),
+                FieldTemplate(type="string", name="caption"),
+                FieldTemplate(type="model", name="upscaler"),
+            ],
+        )
+        preset = PresetTemplate(
+            id="preset-1", name="Stub Preset", version="1.0", path="/tmp/stub-preset",
+            modes={"txt2img": ModeTemplate(forms=[form], pipes=[])},
+        )
+        archive = self._make_archive(
+            preset_names={"preset-1": "Stub Preset"},
+            preset_loader=_StubPresetLoader([preset]),
+        )
         result = archive.import_bundle(json.dumps(doc).encode("utf-8"))
 
         form_data = result["reuse"]["form_data"]
@@ -613,6 +659,95 @@ class TestExportImportRoundTrip:
         assert form_data["caption"] == "shared.safetensors"
         assert form_data["upscaler"] == make_model_ref(upscaler_id)
         assert any("shared.safetensors" in w and "more than one model type" in w for w in result["warnings"])
+
+    def test_import_of_v1_bundle_does_not_rewrite_an_unrelated_field_matching_a_filename(self):
+        """QA repro: importing a v1 bundle whose single checkpoint is
+        `weights.safetensors` must never rewrite an ordinary field whose value
+        happens to equal that filename. With no preset installed locally there
+        is no local evidence at all that any field is a model reference, so
+        every match is left as-is and reported unresolved rather than guessed.
+        """
+        from src.features.models.form_refs import is_model_ref
+
+        doc = _valid_document(
+            form_data={
+                "prompt": "a cat",
+                "caption": "weights.safetensors",
+            },
+        )
+        doc["models"] = [{"model_type": "checkpoint", "filename": "weights.safetensors"}]
+
+        self._add_model_row("weights.safetensors", "checkpoint")
+
+        archive = self._make_archive()  # no preset installed anywhere
+        result = archive.import_bundle(json.dumps(doc).encode("utf-8"))
+
+        caption = result["reuse"]["form_data"]["caption"]
+        assert caption == "weights.safetensors"
+        assert not is_model_ref(caption)
+        assert any("weights.safetensors" in w and "left unresolved" in w for w in result["warnings"])
+
+    def test_import_of_v2_bundle_with_declared_empty_model_refs_never_falls_back_to_legacy(self):
+        """QA repro: a v2 bundle that explicitly declares `generation.model_refs:
+        []` has already told import there are no model references anywhere in
+        `form_data` - the empty list means "none", not "unknown". Falling back
+        to legacy's global-by-value substitution (as if this were a v1 bundle)
+        would corrupt any field whose value happens to match a locally-known
+        filename.
+        """
+        doc = _valid_document(
+            form_data={
+                "prompt": "a cat",
+                "caption": "weights.safetensors",
+            },
+            model_refs=[],
+        )
+        doc["schema_version"] = 2
+        doc["models"] = [{"model_type": "checkpoint", "filename": "weights.safetensors"}]
+
+        self._add_model_row("weights.safetensors", "checkpoint")
+
+        archive = self._make_archive()
+        result = archive.import_bundle(json.dumps(doc).encode("utf-8"))
+
+        assert result["reuse"]["form_data"]["caption"] == "weights.safetensors"
+        assert result["warnings"] == []
+
+    def test_import_of_v2_bundle_with_populated_model_refs_resolves_and_preserves_caption(self):
+        """Control for the two reproductions above: a v2 bundle with a
+        non-empty, correctly located reference list still resolves the
+        checkpoint at its recorded path while still leaving an unrelated
+        caption field - which happens to hold the same filename - untouched.
+        """
+        from src.features.models.form_refs import make_model_ref
+
+        doc = _valid_document(
+            form_data={
+                "prompt": "a cat",
+                "diffusion_model": "weights.safetensors",
+                "caption": "weights.safetensors",
+            },
+            model_refs=[
+                {
+                    "path": ["diffusion_model"],
+                    "model_type": "checkpoint",
+                    "filename": "weights.safetensors",
+                    "sha256": None,
+                },
+            ],
+        )
+        doc["schema_version"] = 2
+        doc["models"] = [{"model_type": "checkpoint", "filename": "weights.safetensors"}]
+
+        model_id = self._add_model_row("weights.safetensors", "checkpoint")
+
+        archive = self._make_archive()
+        result = archive.import_bundle(json.dumps(doc).encode("utf-8"))
+
+        form_data = result["reuse"]["form_data"]
+        assert form_data["diffusion_model"] == make_model_ref(model_id)
+        assert form_data["caption"] == "weights.safetensors"
+        assert result["warnings"] == []
 
     def _add_model_row(self, filename, model_type, sha256=None):
         from src.platform.util.ids import generate_ulid

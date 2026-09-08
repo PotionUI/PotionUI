@@ -52,6 +52,13 @@ logger = logging.getLogger(__name__)
 # what lets import rewrite each occurrence by its own path instead of matching
 # by filename value across the whole form, which conflated distinct fields that
 # happened to share a filename (see docs/models.md#portable-generation-bundles).
+# The key's presence, not its truthiness, is what selects the branch on import:
+# an empty `model_refs: []` means the exporter looked and found none, so import
+# must not fall back to legacy matching; only a bundle with no `model_refs` key
+# at all is genuinely v1. Legacy matching itself is further restricted to the
+# fields the locally-installed preset's form declares as a model-reference type
+# - it has no path data, so a filename match outside that set (or with the
+# preset unavailable to consult at all) is reported unresolved, never guessed.
 GENERATION_BUNDLE_SCHEMA = "potionui.generation"
 GENERATION_BUNDLE_SCHEMA_VERSION = 2
 GENERATION_BUNDLE_SUPPORTED_VERSIONS = {1, GENERATION_BUNDLE_SCHEMA_VERSION}
@@ -903,21 +910,85 @@ class GenerationHistoryArchive:
             form_data = set_at_path(form_data, path, make_model_ref(model_id))
         return form_data, warnings
 
+    def _model_reference_field_names(
+        self,
+        preset_id: Optional[str],
+        mode: Optional[str],
+        form_name: Optional[str],
+    ) -> Optional[set]:
+        """Top-level `form_data` field names that `preset_id`'s form for `mode`
+        (its `form_name` variant, or the default) declares as a model-reference
+        type (`model`/`models` picker, `lora_picker` list). This is the only
+        local evidence a v1 bundle can offer that a bare filename sitting in a
+        field is actually a model reference rather than a coincidence - a
+        caption field can legitimately hold the same string.
+
+        Returns `None` when that evidence isn't available (no preset id, no
+        matching preset/mode/form loaded locally): the caller must then treat
+        every filename match as unresolved rather than guess from the value
+        alone.
+        """
+        resolver = self._query.preset_name_resolver
+        preset_loader = getattr(resolver, "preset_loader", None) if resolver is not None else None
+        if not preset_id or preset_loader is None or not mode:
+            return None
+
+        from src.features.presets.templates import default_form_name, sorted_forms
+
+        try:
+            preset_loader._ensure_loaded()
+            preset = next((p for p in preset_loader.presets if p.id == preset_id), None)
+        except Exception:
+            logger.exception("preset lookup failed while resolving legacy bundle model-reference fields")
+            return None
+        if preset is None:
+            return None
+
+        mode_template = preset.modes.get(mode)
+        if mode_template is None:
+            return None
+        forms = sorted_forms(mode_template)
+        if not forms:
+            return None
+        target_name = form_name or default_form_name(mode_template)
+        form = next((f for f in forms if f.name == target_name), forms[0])
+
+        names: set = set()
+
+        def walk(fields):
+            for f in fields or []:
+                if f.type in ("model", "models", "lora_picker") and f.name:
+                    names.add(f.name)
+                if isinstance(f.children, list):
+                    walk(f.children)
+
+        walk(form.fields)
+        return names
+
     @staticmethod
     def _resolve_model_refs_legacy(
         form_data: Dict[str, Any],
         models: List[Dict[str, Any]],
         local_id_by_key: Dict[Tuple[Optional[str], str], str],
+        field_names: Optional[set],
     ) -> Tuple[Dict[str, Any], List[str]]:
         """v1 bundles carry no `model_refs`, so a resolved filename can only be
-        substituted by value across the whole of `form_data` - there is no path to
-        target. That is safe exactly when the bundle's own `models` list names
-        that filename under a single model_type; when it names the same filename
-        under more than one type (a checkpoint and a vae sharing a name), a global
-        substitution cannot tell which field is which, so those occurrences are
-        left unresolved with a warning rather than guessed.
+        substituted by value - there is no path to target. Restricted to the
+        top-level fields `field_names` declares as a model-reference type (a
+        model picker or a LoRA list): an ordinary field that happens to hold
+        the same filename (a caption, say) is never a candidate in the first
+        place, so it is never rewritten regardless of what its value matches.
+
+        `field_names` is `None` when the bundle's preset (or its exact form)
+        isn't resolvable locally - with no schema to consult there is no local
+        evidence that a filename match is actually a model reference, so
+        nothing is rewritten and every local match is reported as unresolved
+        instead of guessed. Within a single type, a filename the bundle's own
+        `models` list names under more than one model_type is also left
+        unresolved - a global-by-value substitution cannot tell which field is
+        which.
         """
-        from src.features.models.form_refs import make_model_ref, substitute_strings
+        from src.features.models.form_refs import make_model_ref
 
         filename_types: Dict[str, set] = {}
         for model in models:
@@ -936,9 +1007,35 @@ class GenerationHistoryArchive:
             for (model_type, filename), model_id in local_id_by_key.items()
             if filename not in ambiguous
         }
-        if not ref_by_filename:
+
+        if field_names is None:
+            warnings.extend(
+                f"'{filename}' matches a model available locally, but this legacy bundle's "
+                "preset isn't installed here, so its form can't say which field is a model "
+                "reference - it was left unresolved rather than guessed by filename"
+                for filename in sorted(ref_by_filename)
+            )
             return form_data, warnings
-        return substitute_strings(form_data, ref_by_filename), warnings
+
+        if not ref_by_filename or not field_names or not isinstance(form_data, dict):
+            return form_data, warnings
+
+        def rewrite(node: Any) -> Any:
+            if isinstance(node, str):
+                return ref_by_filename.get(node, node)
+            if isinstance(node, dict):
+                return {key: rewrite(value) for key, value in node.items()}
+            if isinstance(node, list):
+                return [rewrite(item) for item in node]
+            if isinstance(node, tuple):
+                return tuple(rewrite(item) for item in node)
+            return node
+
+        result = dict(form_data)
+        for name in field_names:
+            if name in result:
+                result[name] = rewrite(result[name])
+        return result, warnings
 
     def import_bundle(self, content: bytes) -> Dict[str, Any]:
         """Parse an uploaded generation bundle into a reuse payload.
@@ -970,12 +1067,22 @@ class GenerationHistoryArchive:
         preset_available, warnings, local_id_by_key = self._check_bundle_environment(generation, models)
 
         form_data = generation.get("form_data")
-        model_refs = generation.get("model_refs")
-        if isinstance(model_refs, list) and model_refs:
-            form_data, ref_warnings = self._resolve_model_refs_by_path(form_data, model_refs, local_id_by_key)
+        if "model_refs" in generation:
+            # A declared `model_refs` - even an empty list - means the exporter
+            # already looked and recorded every `model:<id>` occurrence it found;
+            # an empty list is "none", not "unknown", and must never fall back to
+            # legacy's global-by-value substitution over the rest of form_data.
+            form_data, ref_warnings = self._resolve_model_refs_by_path(
+                form_data, generation.get("model_refs") or [], local_id_by_key
+            )
             warnings.extend(ref_warnings)
         elif local_id_by_key:
-            form_data, ref_warnings = self._resolve_model_refs_legacy(form_data, models, local_id_by_key)
+            field_names = self._model_reference_field_names(
+                generation.get("preset_id"), generation.get("mode"), generation.get("form_name")
+            )
+            form_data, ref_warnings = self._resolve_model_refs_legacy(
+                form_data, models, local_id_by_key, field_names
+            )
             warnings.extend(ref_warnings)
 
         reuse = {

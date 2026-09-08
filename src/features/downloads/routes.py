@@ -56,7 +56,8 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """List all downloads with optional filtering. Admin only."""
         try:
-            data = download_queue.list_downloads(
+            data = await asyncio.to_thread(
+                download_queue.list_downloads,
                 status=status,
                 download_type=type,
                 limit=limit,
@@ -201,10 +202,11 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """Get a specific download by ID (with its per-file children for grouped jobs). Admin only."""
         try:
-            download = download_queue.get_download(download_id)
+            download = await asyncio.to_thread(download_queue.get_download, download_id)
             data = download.to_dict()
             if download.type == DownloadType.HF_REPO:
-                data["children"] = [c.to_dict() for c in download_repository.get_children(download_id)]
+                children = await asyncio.to_thread(download_repository.get_children, download_id)
+                data["children"] = [c.to_dict() for c in children]
             return {"success": True, "data": data}
         except DownloadNotFoundException as e:
             raise HTTPException(status_code=404, detail=str(e))

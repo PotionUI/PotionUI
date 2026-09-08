@@ -87,6 +87,22 @@ class TestModelScanner:
         result = self.indexer.calculate_sha256("/non/existent/path")
         assert result is None
 
+    def test_calculate_sha256_matches_across_chunk_boundaries(self):
+        """A file spanning several read chunks must hash identically to hashlib
+        run over the whole buffer at once - the default `chunk_size` (4 MiB, raised
+        from 8192 bytes to cut GIL contention during indexing) must not change the
+        digest for a file several chunks long."""
+        import random
+
+        rng = random.Random(1234)
+        content = rng.randbytes(10 * 1024 * 1024)
+        file_path = self._create_test_file("checkpoints/large.safetensors", content)
+
+        result = self.indexer.calculate_sha256(file_path)
+        expected = self._calculate_sha256(content)
+
+        assert result == expected
+
     @patch('src.features.models.indexer.model_repo')
     def test_index_single_model_new_model(self, mock_repo):
         """Test indexing a completely new model"""

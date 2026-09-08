@@ -149,7 +149,7 @@ class ModelScanner:
             logger.error(f"Error fingerprinting HF-layout directory {dir_path}: {e}")
             return None
 
-    def calculate_sha256(self, file_path: str, chunk_size: int = 8192) -> Optional[str]:
+    def calculate_sha256(self, file_path: str, chunk_size: int = 4 * 1024 * 1024) -> Optional[str]:
         """
         Calculate SHA256 hash of a file
         """

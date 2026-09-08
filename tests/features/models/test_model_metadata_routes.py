@@ -9,6 +9,7 @@ a scratch DB for the validation behavior (undeclared key / out-of-range /
 wrong type / per-user-only), so the test exercises the actual coercion and
 rejection logic rather than a mock configured to match the assertion.
 """
+import asyncio
 from pathlib import Path
 from unittest.mock import MagicMock, Mock
 
@@ -327,7 +328,7 @@ class TestUpdateModelMetadataValidation(PersistenceTestBase):
         user_attrs = self.collaborators.catalog.user_attributes
         user_attrs.upsert("a1", self.model.id, "strength", 0.42)
 
-        result = operations.list_models(self.collaborators, ListModelsParams(all_models=True), _admin())
+        result = asyncio.run(operations.list_models(self.collaborators, ListModelsParams(all_models=True), _admin()))
 
         entry = next(m for m in result["models"] if m["id"] == self.model.id)
         assert entry["user_model_metadata"] == {"strength": 0.42}

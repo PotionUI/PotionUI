@@ -4,13 +4,20 @@ There's no pre-existing test_model_controller.py; this covers the new
 favorite/custom-name surface added for the user-level model library feature,
 not the full pre-existing controller (indexing, providers, tags, etc.).
 """
+import asyncio
+import time
+
 import pytest
 from unittest.mock import Mock
 
-from src.features.models.routes import ModelController
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+
+from src.features.models.routes import ModelController, build_router
 from src.features.models.dto import ModelFavoriteRequest, ModelLibraryNameRequest
 from src.features.model_library.records.user_model_meta import UserModelMeta
-from src.platform.security.user import User
+from src.platform.security.current_user import get_current_active_user
+from src.platform.security.user import User, AccountType
 
 
 class TestParseRef:
@@ -227,3 +234,49 @@ class TestRouteOrder:
             assert get_paths.index(static) < catch_all, (
                 f"{static} is registered after /{{model_id}} and can never match"
             )
+
+
+class TestListModelsOffTheEventLoop:
+    """`GET /api/models` must not block the event loop for the duration of its
+    (synchronous) catalog read - during a model-indexing run the DB stays busy for
+    a while, and a blocking read there used to stall every other connection on the
+    single uvicorn worker until it finished. `operations.list_models` offloads the
+    catalog call with `asyncio.to_thread`; this drives the real ASGI app so both
+    requests actually contend for the same event loop."""
+
+    @pytest.fixture
+    def app(self):
+        def slow_list_models(params, user):
+            time.sleep(0.5)
+            return {"models": [], "total": 0}
+
+        collaborators = Mock()
+        collaborators.catalog.list_models = slow_list_models
+
+        user = Mock(spec=User)
+        user.id = "user-1"
+        user.account_type = AccountType.ADMIN
+
+        container = Mock()
+        container.model_controller = ModelController(collaborators, Mock(), Mock())
+
+        fastapi_app = FastAPI()
+        fastapi_app.include_router(build_router(container))
+        fastapi_app.dependency_overrides[get_current_active_user] = lambda: user
+        return fastapi_app
+
+    @pytest.mark.asyncio
+    async def test_second_request_is_not_delayed_by_a_slow_first_one(self, app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            start = time.perf_counter()
+            first, second = await asyncio.gather(
+                client.get("/api/models"),
+                client.get("/api/models"),
+            )
+            elapsed = time.perf_counter() - start
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        # Serialized behind one blocking call, two 0.5s reads would take ~1.0s;
+        # served concurrently off the event loop, they finish in ~0.5s.
+        assert elapsed < 0.9, f"requests were serialized: took {elapsed:.2f}s"

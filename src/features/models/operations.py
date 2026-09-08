@@ -5,8 +5,18 @@ class holds the role objects together (see `collaborators.py`'s docstring).
 Almost every operation here is a one-line dispatch onto the right role
 object; `list_model_previews_for_user` is the one exception with real glue
 logic (the house 404-not-403 idiom - see its docstring).
+
+The catalog/indexing reads below (`list_models`, `get_model_stats`,
+`get_model_types`, `get_model_by_hash`, `get_model_by_id`,
+`get_model_generations`, `get_model_availability`, `count_unindexed`) are
+`async def` and go through `asyncio.to_thread` even though the role objects
+themselves are synchronous: every caller is an `async def` route handler, and
+without the offload the blocking SQLite call runs directly on the event
+loop, stalling every other connection for its duration - visible under load
+as the whole UI freezing during a model-indexing run.
 """
 
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from src.features.models.catalog import ListModelsParams
@@ -33,38 +43,38 @@ __all__ = [
 
 # ========== Catalog / queries ==========
 
-def list_models(collaborators: ModelIndexCollaborators, params: ListModelsParams, user: User) -> Dict[str, Any]:
-    return collaborators.catalog.list_models(params, user)
+async def list_models(collaborators: ModelIndexCollaborators, params: ListModelsParams, user: User) -> Dict[str, Any]:
+    return await asyncio.to_thread(collaborators.catalog.list_models, params, user)
 
 
-def get_model_availability(collaborators: ModelIndexCollaborators, model_id: str) -> Dict[str, Any]:
-    return collaborators.catalog.get_model_availability(model_id)
+async def get_model_availability(collaborators: ModelIndexCollaborators, model_id: str) -> Dict[str, Any]:
+    return await asyncio.to_thread(collaborators.catalog.get_model_availability, model_id)
 
 
-def get_model_stats(collaborators: ModelIndexCollaborators) -> Dict[str, Any]:
-    return collaborators.catalog.get_model_stats()
+async def get_model_stats(collaborators: ModelIndexCollaborators) -> Dict[str, Any]:
+    return await asyncio.to_thread(collaborators.catalog.get_model_stats)
 
 
-def get_model_types(
+async def get_model_types(
     collaborators: ModelIndexCollaborators, user: User, user_scoped: bool = False, include_empty: bool = False
 ) -> Dict[str, Any]:
-    return collaborators.catalog.get_model_types(user, user_scoped, include_empty)
+    return await asyncio.to_thread(collaborators.catalog.get_model_types, user, user_scoped, include_empty)
 
 
-def get_model_by_hash(collaborators: ModelIndexCollaborators, sha256: str) -> Dict[str, Any]:
-    return collaborators.catalog.get_model_by_hash(sha256)
+async def get_model_by_hash(collaborators: ModelIndexCollaborators, sha256: str) -> Dict[str, Any]:
+    return await asyncio.to_thread(collaborators.catalog.get_model_by_hash, sha256)
 
 
-def get_model_by_id(
+async def get_model_by_id(
     collaborators: ModelIndexCollaborators, model_id: str, user: Optional[User] = None, admin: bool = False
 ) -> Dict[str, Any]:
-    return collaborators.catalog.get_model_by_id(model_id, user, admin)
+    return await asyncio.to_thread(collaborators.catalog.get_model_by_id, model_id, user, admin)
 
 
-def get_model_generations(
+async def get_model_generations(
     collaborators: ModelIndexCollaborators, model_id: str, user: User, limit: int = 20, offset: int = 0
 ) -> Dict[str, Any]:
-    return collaborators.catalog.get_model_generations(model_id, user, limit, offset)
+    return await asyncio.to_thread(collaborators.catalog.get_model_generations, model_id, user, limit, offset)
 
 
 # ========== Indexing ==========
@@ -81,8 +91,8 @@ def cleanup_deleted_models(collaborators: ModelIndexCollaborators) -> Dict[str, 
     return collaborators.indexing.cleanup_deleted_models()
 
 
-def count_unindexed(collaborators: ModelIndexCollaborators) -> Dict[str, Any]:
-    return collaborators.indexing.count_unindexed()
+async def count_unindexed(collaborators: ModelIndexCollaborators) -> Dict[str, Any]:
+    return await asyncio.to_thread(collaborators.indexing.count_unindexed)
 
 
 # ========== Models location ==========

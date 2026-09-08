@@ -110,7 +110,7 @@ def collaborators(mock_model_repository, mock_tag_repository, mock_plugin_regist
 class TestListModels:
     """Tests for list_models method."""
 
-    def test_list_models_empty(self, collaborators, mock_model_repository, mock_admin_user):
+    async def test_list_models_empty(self, collaborators, mock_model_repository, mock_admin_user):
         """Test listing models when none exist."""
         collaborators.catalog.scanner.get_indexing_status.return_value = {'total_models_db': 0}
 
@@ -119,13 +119,13 @@ class TestListModels:
             mock_avail.has_any.return_value = False
 
             params = ListModelsParams()
-            result = operations.list_models(collaborators, params, mock_admin_user)
+            result = await operations.list_models(collaborators, params, mock_admin_user)
 
         assert result['models'] == []
         assert result['total'] == 0
         mock_model_repository.get_all.assert_called_once()
 
-    def test_list_models_with_results(self, collaborators, mock_model_repository, mock_admin_user):
+    async def test_list_models_with_results(self, collaborators, mock_model_repository, mock_admin_user):
         """Test listing models returns proper data."""
         mock_model = Mock(id='test-id')
         mock_model.to_dict.return_value = {'id': 'test-id', 'filename': 'model.safetensors'}
@@ -138,7 +138,7 @@ class TestListModels:
             mock_avail.has_any.return_value = True
 
             params = ListModelsParams()
-            result = operations.list_models(collaborators, params, mock_admin_user)
+            result = await operations.list_models(collaborators, params, mock_admin_user)
 
         assert len(result['models']) == 1
         assert result['models'][0]['id'] == 'test-id'
@@ -146,7 +146,7 @@ class TestListModels:
         assert result['models'][0]['backend_ids'] == ['local']
         assert result['availability_indexed'] is True
 
-    def test_list_models_marks_availability_unindexed_rather_than_unavailable(
+    async def test_list_models_marks_availability_unindexed_rather_than_unavailable(
         self, collaborators, mock_model_repository, mock_admin_user
     ):
         """`backend_ids: []` with `availability_indexed: false` means nobody asked.
@@ -164,12 +164,12 @@ class TestListModels:
             mock_avail.backend_ids_by_model.return_value = {}
             mock_avail.has_any.return_value = False
 
-            result = operations.list_models(collaborators, ListModelsParams(), mock_admin_user)
+            result = await operations.list_models(collaborators, ListModelsParams(), mock_admin_user)
 
         assert result['models'][0]['backend_ids'] == []
         assert result['availability_indexed'] is False
 
-    def test_list_models_queries_availability_once_for_the_page(
+    async def test_list_models_queries_availability_once_for_the_page(
         self, collaborators, mock_model_repository, mock_admin_user
     ):
         """One query for the whole page, never one per row."""
@@ -186,29 +186,29 @@ class TestListModels:
             mock_avail.backend_ids_by_model.return_value = {}
             mock_avail.has_any.return_value = True
 
-            operations.list_models(collaborators, ListModelsParams(), mock_admin_user)
+            await operations.list_models(collaborators, ListModelsParams(), mock_admin_user)
 
         mock_avail.backend_ids_by_model.assert_called_once_with(['id-0', 'id-1', 'id-2'])
 
-    def test_list_models_filters_for_regular_user(self, collaborators, mock_model_repository, mock_regular_user):
+    async def test_list_models_filters_for_regular_user(self, collaborators, mock_model_repository, mock_regular_user):
         """Test that regular users get filtered model list."""
         mock_model_repository.get_available_model_ids_for_user.return_value = ['model-1', 'model-2']
 
         params = ListModelsParams()
-        operations.list_models(collaborators, params, mock_regular_user)
+        await operations.list_models(collaborators, params, mock_regular_user)
 
         # Verify that allowed_model_ids was passed
         call_kwargs = mock_model_repository.get_all.call_args[1]
         assert call_kwargs['allowed_model_ids'] == ['model-1', 'model-2']
 
-    def test_list_models_admin_all_models(self, collaborators, mock_model_repository, mock_admin_user):
+    async def test_list_models_admin_all_models(self, collaborators, mock_model_repository, mock_admin_user):
         """Test that admin with all_models=True gets all models."""
         with patch('src.features.models.catalog.model_availability_repo') as mock_avail:
             mock_avail.backend_ids_by_model.return_value = {}
             mock_avail.has_any.return_value = False
 
             params = ListModelsParams(all_models=True)
-            operations.list_models(collaborators, params, mock_admin_user)
+            await operations.list_models(collaborators, params, mock_admin_user)
 
         # Verify that allowed_model_ids is None (all models)
         call_kwargs = mock_model_repository.get_all.call_args[1]
@@ -228,14 +228,14 @@ class TestGetModelTypes:
         collaborators.catalog.scanner.MODEL_TYPE_MAPPING = ModelScanner.MODEL_TYPE_MAPPING
         collaborators.catalog.scanner.models_dir = Path('models')
 
-    def test_admin_include_empty_adds_zero_count_types(
+    async def test_admin_include_empty_adds_zero_count_types(
         self, collaborators, mock_model_repository, mock_admin_user
     ):
         self._stub_scanner_mapping(collaborators)
         mock_model_repository.count_by_type.return_value = {'checkpoint': 3, 'lora': 5}
         mock_model_repository.get_total_size_by_type.return_value = {'checkpoint': 1000, 'lora': 2000}
 
-        result = operations.get_model_types(collaborators, mock_admin_user, user_scoped=False, include_empty=True)
+        result = await operations.get_model_types(collaborators, mock_admin_user, user_scoped=False, include_empty=True)
 
         types_by_name = {t['type']: t for t in result['types']}
         known_types = set(ModelScanner.MODEL_TYPE_MAPPING.values())
@@ -254,23 +254,23 @@ class TestGetModelTypes:
         assert types_by_name['checkpoint']['count'] == 3
         assert types_by_name['lora']['count'] == 5
 
-    def test_admin_include_empty_false_is_unchanged(
+    async def test_admin_include_empty_false_is_unchanged(
         self, collaborators, mock_model_repository, mock_admin_user
     ):
         self._stub_scanner_mapping(collaborators)
         mock_model_repository.count_by_type.return_value = {'checkpoint': 3}
         mock_model_repository.get_total_size_by_type.return_value = {'checkpoint': 1000}
 
-        result = operations.get_model_types(collaborators, mock_admin_user, user_scoped=False, include_empty=False)
+        result = await operations.get_model_types(collaborators, mock_admin_user, user_scoped=False, include_empty=False)
 
         assert [t['type'] for t in result['types']] == ['checkpoint']
         assert result['total_types'] == 1
 
         # Omitting include_empty entirely defaults to the same behavior.
-        result_default = operations.get_model_types(collaborators, mock_admin_user, user_scoped=False)
+        result_default = await operations.get_model_types(collaborators, mock_admin_user, user_scoped=False)
         assert [t['type'] for t in result_default['types']] == ['checkpoint']
 
-    def test_admin_user_scoped_ignores_include_empty(
+    async def test_admin_user_scoped_ignores_include_empty(
         self, collaborators, mock_model_repository, mock_admin_user
     ):
         self._stub_scanner_mapping(collaborators)
@@ -278,12 +278,12 @@ class TestGetModelTypes:
         mock_model_repository.count_by_type.return_value = {'checkpoint': 1}
         mock_model_repository.get_total_size_by_type.return_value = {'checkpoint': 500}
 
-        result = operations.get_model_types(collaborators, mock_admin_user, user_scoped=True, include_empty=True)
+        result = await operations.get_model_types(collaborators, mock_admin_user, user_scoped=True, include_empty=True)
 
         assert [t['type'] for t in result['types']] == ['checkpoint']
         assert result['total_types'] == 1
 
-    def test_regular_user_ignores_include_empty(
+    async def test_regular_user_ignores_include_empty(
         self, collaborators, mock_model_repository, mock_regular_user
     ):
         self._stub_scanner_mapping(collaborators)
@@ -291,19 +291,19 @@ class TestGetModelTypes:
         mock_model_repository.count_by_type.return_value = {'lora': 2}
         mock_model_repository.get_total_size_by_type.return_value = {'lora': 200}
 
-        result = operations.get_model_types(collaborators, mock_regular_user, user_scoped=False, include_empty=True)
+        result = await operations.get_model_types(collaborators, mock_regular_user, user_scoped=False, include_empty=True)
 
         assert [t['type'] for t in result['types']] == ['lora']
         assert result['total_types'] == 1
 
-    def test_total_types_matches_returned_list_length(
+    async def test_total_types_matches_returned_list_length(
         self, collaborators, mock_model_repository, mock_admin_user
     ):
         self._stub_scanner_mapping(collaborators)
         mock_model_repository.count_by_type.return_value = {}
         mock_model_repository.get_total_size_by_type.return_value = {}
 
-        result = operations.get_model_types(collaborators, mock_admin_user, user_scoped=False, include_empty=True)
+        result = await operations.get_model_types(collaborators, mock_admin_user, user_scoped=False, include_empty=True)
 
         assert result['total_types'] == len(result['types'])
         assert result['total_types'] == len(set(ModelScanner.MODEL_TYPE_MAPPING.values()))
@@ -312,21 +312,21 @@ class TestGetModelTypes:
 class TestGetModel:
     """Tests for get_model_by_id method."""
 
-    def test_get_model_found(self, collaborators, mock_model_repository):
+    async def test_get_model_found(self, collaborators, mock_model_repository):
         """Test getting a model that exists."""
         mock_model = Mock()
         mock_model.id = 'test-id'
         mock_model.to_dict.return_value = {'id': 'test-id', 'filename': 'model.safetensors'}
         mock_model_repository.get_by_id.return_value = mock_model
 
-        result = operations.get_model_by_id(collaborators, 'test-id')
+        result = await operations.get_model_by_id(collaborators, 'test-id')
 
         assert result['model']['id'] == 'test-id'
         mock_model_repository.get_by_id.assert_called_once_with(
             'test-id', include_providers=False, library_user_id=None
         )
 
-    def test_get_model_found_with_user_passes_library_user_id(
+    async def test_get_model_found_with_user_passes_library_user_id(
         self, collaborators, mock_model_repository, mock_regular_user
     ):
         """The per-user overlay (custom_name/is_favorite) needs the caller's id threaded through."""
@@ -335,47 +335,47 @@ class TestGetModel:
         mock_model.to_dict.return_value = {'id': 'test-id', 'filename': 'model.safetensors'}
         mock_model_repository.get_by_id.return_value = mock_model
 
-        operations.get_model_by_id(collaborators, 'test-id', user=mock_regular_user)
+        await operations.get_model_by_id(collaborators, 'test-id', user=mock_regular_user)
 
         mock_model_repository.get_by_id.assert_called_once_with(
             'test-id', include_providers=False, library_user_id=mock_regular_user.id
         )
 
-    def test_get_model_not_found(self, collaborators, mock_model_repository):
+    async def test_get_model_not_found(self, collaborators, mock_model_repository):
         """Test getting a model that doesn't exist."""
         mock_model_repository.get_by_id.return_value = None
 
         with pytest.raises(ModelNotFoundException):
-            operations.get_model_by_id(collaborators, 'nonexistent-id')
+            await operations.get_model_by_id(collaborators, 'nonexistent-id')
 
 
 class TestGetModelByHash:
     """Tests for get_model_by_hash method."""
 
-    def test_get_model_by_hash_found(self, collaborators, mock_model_repository):
+    async def test_get_model_by_hash_found(self, collaborators, mock_model_repository):
         """Test getting a model by hash that exists."""
         mock_model = Mock()
         mock_model.id = 'test-id'
         mock_model.to_dict.return_value = {'id': 'test-id', 'sha256': 'abc123'}
         mock_model_repository.get_by_sha256.return_value = mock_model
 
-        result = operations.get_model_by_hash(collaborators, 'abc123')
+        result = await operations.get_model_by_hash(collaborators, 'abc123')
 
         assert result['model']['sha256'] == 'abc123'
         mock_model_repository.get_by_sha256.assert_called_once_with('abc123', include_providers=False)
 
-    def test_get_model_by_hash_not_found(self, collaborators, mock_model_repository):
+    async def test_get_model_by_hash_not_found(self, collaborators, mock_model_repository):
         """Test getting a model by hash that doesn't exist."""
         mock_model_repository.get_by_sha256.return_value = None
 
         with pytest.raises(ModelNotFoundException):
-            operations.get_model_by_hash(collaborators, 'nonexistent-hash')
+            await operations.get_model_by_hash(collaborators, 'nonexistent-hash')
 
 
 class TestGetModelGenerations:
     """Tests for get_model_generations method."""
 
-    def test_get_generations_success(self, collaborators, mock_model_repository, mock_admin_user):
+    async def test_get_generations_success(self, collaborators, mock_model_repository, mock_admin_user):
         """Test getting generations for a model."""
         mock_model = Mock()
         mock_model.id = 'model-id'
@@ -389,19 +389,19 @@ class TestGetModelGenerations:
             mock_gen_repo.get_generations_by_model.return_value = ([mock_generation], 1)
             mock_tag_repo.get_generation_tags.return_value = []
 
-            result = operations.get_model_generations(collaborators, 'model-id', mock_admin_user)
+            result = await operations.get_model_generations(collaborators, 'model-id', mock_admin_user)
 
         assert len(result['generations']) == 1
         assert result['total'] == 1
 
-    def test_get_generations_model_not_found(self, collaborators, mock_model_repository, mock_admin_user):
+    async def test_get_generations_model_not_found(self, collaborators, mock_model_repository, mock_admin_user):
         """Test getting generations for non-existent model."""
         mock_model_repository.get_by_id.return_value = None
 
         with pytest.raises(ModelNotFoundException):
-            operations.get_model_generations(collaborators, 'nonexistent-id', mock_admin_user)
+            await operations.get_model_generations(collaborators, 'nonexistent-id', mock_admin_user)
 
-    def test_get_generations_access_denied(self, collaborators, mock_model_repository, mock_regular_user):
+    async def test_get_generations_access_denied(self, collaborators, mock_model_repository, mock_regular_user):
         """Test getting generations without access."""
         mock_model = Mock()
         mock_model.id = 'model-id'
@@ -409,7 +409,7 @@ class TestGetModelGenerations:
         mock_model_repository.get_available_model_ids_for_user.return_value = []  # No access
 
         with pytest.raises(ModelAccessDeniedException):
-            operations.get_model_generations(collaborators, 'model-id', mock_regular_user)
+            await operations.get_model_generations(collaborators, 'model-id', mock_regular_user)
 
 
 class TestIndexing:
@@ -433,13 +433,13 @@ class TestIndexing:
 
         assert 'Test block' in str(exc_info.value)
 
-    def test_count_unindexed_delegates_to_the_scanner(self, collaborators):
+    async def test_count_unindexed_delegates_to_the_scanner(self, collaborators):
         """The collaborators is a thin facade here - the diff itself is the scanner's
         (see tests/features/models/test_indexer.py)."""
         collaborators.indexing.scanner = MagicMock()
         collaborators.indexing.scanner.count_unindexed.return_value = {'total': 3, 'by_type': {'lora': 3}}
 
-        result = operations.count_unindexed(collaborators)
+        result = await operations.count_unindexed(collaborators)
 
         assert result == {'total': 3, 'by_type': {'lora': 3}}
 
@@ -764,23 +764,23 @@ class TestDownloadAndIndex:
 class TestModelTypes:
     """Tests for get_model_types method."""
 
-    def test_get_model_types_admin(self, collaborators, mock_model_repository, mock_admin_user):
+    async def test_get_model_types_admin(self, collaborators, mock_model_repository, mock_admin_user):
         """Test getting model types as admin."""
         mock_model_repository.count_by_type.return_value = {'checkpoint': 5, 'lora': 3}
         mock_model_repository.get_total_size_by_type.return_value = {'checkpoint': 1000000, 'lora': 500000}
 
-        result = operations.get_model_types(collaborators, mock_admin_user)
+        result = await operations.get_model_types(collaborators, mock_admin_user)
 
         assert result['total_types'] == 2
         assert len(result['types']) == 2
 
-    def test_get_model_types_user_scoped(self, collaborators, mock_model_repository, mock_regular_user):
+    async def test_get_model_types_user_scoped(self, collaborators, mock_model_repository, mock_regular_user):
         """Test getting model types with user scope."""
         mock_model_repository.get_available_model_ids_for_user.return_value = ['model-1']
         mock_model_repository.count_by_type.return_value = {'checkpoint': 1}
         mock_model_repository.get_total_size_by_type.return_value = {'checkpoint': 100000}
 
-        result = operations.get_model_types(collaborators, mock_regular_user, user_scoped=True)
+        result = await operations.get_model_types(collaborators, mock_regular_user, user_scoped=True)
 
         # Verify user-scoped filtering was applied
         mock_model_repository.get_available_model_ids_for_user.assert_called_once_with(mock_regular_user.id)
@@ -869,13 +869,13 @@ class TestAssignmentFailureIsExplained:
 class TestGetModelAvailability:
     """Where a model can be loaded, and under what name on each backend."""
 
-    def _availability(self, collaborators, rows, backends, has_any=True):
+    async def _availability(self, collaborators, rows, backends, has_any=True):
         with patch('src.features.models.catalog.model_availability_repo') as mock_avail, \
              patch('src.features.backends.repository.backend_repo') as mock_be:
             mock_avail.get_for_model.return_value = rows
             mock_avail.has_any.return_value = has_any
             mock_be.get_all.return_value = backends
-            return operations.get_model_availability(collaborators, 'm1')
+            return await operations.get_model_availability(collaborators, 'm1')
 
     @staticmethod
     def _backend(bid, name, engine):
@@ -894,7 +894,7 @@ class TestGetModelAvailability:
         row.backend_id = backend_id
         return row
 
-    def test_each_backend_reports_its_own_engine_native_ref(self, collaborators):
+    async def test_each_backend_reports_its_own_engine_native_ref(self, collaborators):
         """The ref differs per engine: a path natively, a bare name on ComfyUI."""
         rows = [
             self._row('local', 'models/loras/detail.safetensors', 100, 'verified'),
@@ -905,7 +905,7 @@ class TestGetModelAvailability:
             self._backend('comfy', 'ComfyUI', 'comfyui'),
         ]
 
-        result = self._availability(collaborators, rows, backends)
+        result = await self._availability(collaborators, rows, backends)
 
         by_backend = {e['backend_id']: e for e in result['availability']}
         assert by_backend['local']['ref'] == 'models/loras/detail.safetensors'
@@ -914,7 +914,7 @@ class TestGetModelAvailability:
         assert by_backend['comfy']['backend_name'] == 'ComfyUI'
         assert result['size_conflict'] is False
 
-    def test_differing_sizes_across_backends_raise_a_size_conflict(self, collaborators):
+    async def test_differing_sizes_across_backends_raise_a_size_conflict(self, collaborators):
         """Same filename, different byte counts: the backends hold different weights."""
         rows = [
             self._row('local', 'models/checkpoints/a.safetensors', 23_000_000_000),
@@ -925,9 +925,9 @@ class TestGetModelAvailability:
             self._backend('comfy', 'ComfyUI', 'comfyui'),
         ]
 
-        assert self._availability(collaborators, rows, backends)['size_conflict'] is True
+        assert (await self._availability(collaborators, rows, backends))['size_conflict'] is True
 
-    def test_missing_sizes_are_not_a_conflict(self, collaborators):
+    async def test_missing_sizes_are_not_a_conflict(self, collaborators):
         """`name_only` confidence carries no size; absence is not disagreement."""
         rows = [
             self._row('comfy_a', 'a.safetensors', None, 'name_only'),
@@ -938,21 +938,21 @@ class TestGetModelAvailability:
             self._backend('comfy_b', 'B', 'comfyui'),
         ]
 
-        assert self._availability(collaborators, rows, backends)['size_conflict'] is False
+        assert (await self._availability(collaborators, rows, backends))['size_conflict'] is False
 
-    def test_model_on_no_backend_reports_whether_anything_was_indexed(self, collaborators):
+    async def test_model_on_no_backend_reports_whether_anything_was_indexed(self, collaborators):
         """Empty availability means "nowhere" only once something has been indexed."""
-        unindexed = self._availability(collaborators, [], [], has_any=False)
+        unindexed = await self._availability(collaborators, [], [], has_any=False)
         assert unindexed['availability'] == [] and unindexed['indexed'] is False
 
-        indexed = self._availability(collaborators, [], [], has_any=True)
+        indexed = await self._availability(collaborators, [], [], has_any=True)
         assert indexed['availability'] == [] and indexed['indexed'] is True
 
-    def test_deleted_backend_falls_back_to_its_id(self, collaborators):
+    async def test_deleted_backend_falls_back_to_its_id(self, collaborators):
         """Availability rows cascade on backend delete, but never render a crash."""
         rows = [self._row('ghost', 'a.safetensors', 100)]
 
-        result = self._availability(collaborators, rows, [])
+        result = await self._availability(collaborators, rows, [])
 
         assert result['availability'][0]['backend_name'] == 'ghost'
         assert result['availability'][0]['engine'] is None
@@ -961,7 +961,7 @@ class TestGetModelAvailability:
 class TestUserFacingListModels:
     """A generating user gets no backend topology and no operational fields."""
 
-    def _list(self, collaborators, mock_model_repository, user):
+    async def _list(self, collaborators, mock_model_repository, user):
         m = Mock(id='m1')
         m.to_dict.return_value = {'id': 'm1', 'name': 'detail'}
         mock_model_repository.get_all.return_value = [m]
@@ -971,29 +971,29 @@ class TestUserFacingListModels:
             collaborators.catalog.scanner.get_indexing_status.return_value = {'total_models_db': 1}
             mock_avail.backend_ids_by_model.return_value = {'m1': ['local']}
             mock_avail.has_any.return_value = True
-            result = operations.list_models(collaborators, ListModelsParams(), user)
+            result = await operations.list_models(collaborators, ListModelsParams(), user)
         return result, m, mock_avail
 
-    def test_regular_user_gets_no_backend_ids_and_no_indexed_flag(
+    async def test_regular_user_gets_no_backend_ids_and_no_indexed_flag(
         self, collaborators, mock_model_repository, mock_regular_user
     ):
-        result, _, mock_avail = self._list(collaborators, mock_model_repository, mock_regular_user)
+        result, _, mock_avail = await self._list(collaborators, mock_model_repository, mock_regular_user)
 
         assert 'backend_ids' not in result['models'][0]
         assert 'availability_indexed' not in result
         mock_avail.backend_ids_by_model.assert_not_called()
 
-    def test_regular_user_gets_the_restricted_serialization(
+    async def test_regular_user_gets_the_restricted_serialization(
         self, collaborators, mock_model_repository, mock_regular_user
     ):
-        _, model, _ = self._list(collaborators, mock_model_repository, mock_regular_user)
+        _, model, _ = await self._list(collaborators, mock_model_repository, mock_regular_user)
 
         assert model.to_dict.call_args.kwargs['admin'] is False
 
-    def test_admin_gets_backend_ids_and_the_full_serialization(
+    async def test_admin_gets_backend_ids_and_the_full_serialization(
         self, collaborators, mock_model_repository, mock_admin_user
     ):
-        result, model, _ = self._list(collaborators, mock_model_repository, mock_admin_user)
+        result, model, _ = await self._list(collaborators, mock_model_repository, mock_admin_user)
 
         assert result['models'][0]['backend_ids'] == ['local']
         assert result['availability_indexed'] is True
@@ -1003,7 +1003,7 @@ class TestUserFacingListModels:
 class TestGenerationsCarryTheirTags:
     """The generation details modal renders and can edit tags."""
 
-    def test_tags_are_loaded_not_left_empty(self, collaborators, mock_model_repository, mock_admin_user):
+    async def test_tags_are_loaded_not_left_empty(self, collaborators, mock_model_repository, mock_admin_user):
         """`Generation.tags` defaults to []. Serializing that for a generation that has
         tags would tell the modal there are none — and a save would then wipe them."""
         mock_model_repository.get_by_id.return_value = Mock(id='model-id')
@@ -1017,7 +1017,7 @@ class TestGenerationsCarryTheirTags:
             gen_repo.get_generations_by_model.return_value = ([generation], 1)
             mock_tag_repo.get_generation_tags.return_value = [tag]
 
-            operations.get_model_generations(collaborators, 'model-id', mock_admin_user)
+            await operations.get_model_generations(collaborators, 'model-id', mock_admin_user)
 
         mock_tag_repo.get_generation_tags.assert_called_once_with('gen-1')
         assert generation.tags == [tag]

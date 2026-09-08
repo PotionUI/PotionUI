@@ -137,7 +137,7 @@ class ModelController(BaseController):
                 in_any_collection=in_any_collection
             )
 
-            data = operations.list_models(self.collaborators, params, user)
+            data = await operations.list_models(self.collaborators, params, user)
             return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error listing models: {e}")
@@ -159,7 +159,8 @@ class ModelController(BaseController):
                 status_code=403,
             )
         try:
-            return self.success_response(data=operations.get_model_availability(self.collaborators, model_id))
+            data = await operations.get_model_availability(self.collaborators, model_id)
+            return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error getting availability for model {model_id}: {e}")
             return self.error_api_response(
@@ -170,7 +171,7 @@ class ModelController(BaseController):
     async def get_model_stats(self) -> APIResponse:
         """Get model indexing statistics."""
         try:
-            stats = operations.get_model_stats(self.collaborators)
+            stats = await operations.get_model_stats(self.collaborators)
             return self.success_response(data=stats)
         except Exception as e:
             logger.exception(f"Error getting model stats: {e}")
@@ -187,7 +188,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Get available model types and their counts."""
         try:
-            data = operations.get_model_types(self.collaborators, user, user_scoped, include_empty)
+            data = await operations.get_model_types(self.collaborators, user, user_scoped, include_empty)
             return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error getting model types: {e}")
@@ -199,7 +200,7 @@ class ModelController(BaseController):
     async def get_model_by_hash(self, sha256: str) -> APIResponse:
         """Get model by SHA256 hash."""
         try:
-            data = operations.get_model_by_hash(self.collaborators, sha256)
+            data = await operations.get_model_by_hash(self.collaborators, sha256)
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(
@@ -217,7 +218,7 @@ class ModelController(BaseController):
         """Get specific model by ID."""
         try:
             is_admin = bool(user and user.account_type == AccountType.ADMIN)
-            data = operations.get_model_by_id(self.collaborators, model_id, user=user, admin=is_admin)
+            data = await operations.get_model_by_id(self.collaborators, model_id, user=user, admin=is_admin)
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(
@@ -240,7 +241,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Get generations that used a specific model."""
         try:
-            data = operations.get_model_generations(self.collaborators, model_id, user, limit, offset)
+            data = await operations.get_model_generations(self.collaborators, model_id, user, limit, offset)
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(
@@ -264,7 +265,7 @@ class ModelController(BaseController):
     async def count_unindexed_models(self) -> APIResponse:
         """Count model files on disk not yet indexed, by type. No hashing, no writes."""
         try:
-            data = operations.count_unindexed(self.collaborators)
+            data = await operations.count_unindexed(self.collaborators)
             return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error counting unindexed models: {e}")
@@ -995,7 +996,7 @@ class ModelController(BaseController):
     async def get_recommendation_download(self, download_id: str) -> APIResponse:
         """Poll a recommendation download's status/progress by ID."""
         try:
-            download = self.download_queue.get_download(download_id)
+            download = await asyncio.to_thread(self.download_queue.get_download, download_id)
             status = self._STATUS_MAP.get(download.status.value, download.status.value)
             return self.success_response(data={
                 "status": status,

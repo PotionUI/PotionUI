@@ -1,0 +1,35 @@
+# Intent picks which nvvfx effect runs; Quality is its tier. Scale (Advanced
+# tab) only applies to the two upscale intents -- a reaction hides it for
+# Denoise/Deblur rather than rendering it disabled-and-ignored.
+fields:
+  - name: "intent"
+    type: "select"
+    label: "Intent"
+    default: "upscale"
+    ai_hint: "What the RTX effect does to the image. Upscale and Upscale (compressed source) both increase resolution by Scale (Advanced tab); Denoise and Deblur enhance at the SAME resolution and ignore Scale entirely."
+    configuration:
+      options:
+        - { label: "Upscale", value: "upscale", sub_label: "Increase resolution -- tuned for a clean source." }
+        - { label: "Upscale — compressed source", value: "upscale_highbitrate", sub_label: "Increase resolution -- tuned for a heavily compressed or lossy source." }
+        - { label: "Denoise", value: "denoise", sub_label: "Same-resolution noise reduction." }
+        - { label: "Deblur", value: "deblur", sub_label: "Same-resolution sharpening of blurred detail." }
+
+  - name: "quality"
+    type: "select"
+    label: "Quality"
+    default: "ultra"
+    configuration:
+      options:
+        - { label: "Low", value: "low" }
+        - { label: "Medium", value: "medium" }
+        - { label: "High", value: "high" }
+        - { label: "Ultra", value: "ultra", sub_label: "Recommended -- best quality, slowest." }
+
+  - type: "section"
+    label: "Image"
+    children:
+      - name: "input_image"
+        type: "image"
+        label: "Input Image"
+        required: true
+        ai_hint: "Upload an image to process, or pick one of your previous generations from history."

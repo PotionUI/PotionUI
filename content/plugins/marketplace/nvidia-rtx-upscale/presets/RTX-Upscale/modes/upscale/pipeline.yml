@@ -1,0 +1,57 @@
+# Pipeline for the 'upscale' mode.
+#
+#   media_loader -> param_emitter -> upscaler/rtx_vsr -> gallery
+#
+# nvvfx is deterministic per-frame processing: no text encoder, no denoise
+# loop, no seed -- so there is no prompt_encoder or seed_generator pipe, and
+# no model_loader either (the effect ships its own weights inside the
+# nvidia-vfx package, there is no checkpoint to pick).
+pipeline:
+  #############
+  ## Media Loader - Load the source image from the form file path
+  #############
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 52428800  # 50MB
+      auto_detect_type: true
+      media:
+        - type: "image"
+          path: "{{ form.input_image }}"
+
+  #############
+  ## Parameter Emitter - record the run's settings on the generation
+  #############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["intent", "{{ form.intent | default('upscale') }}"]
+        - ["quality", "{{ form.quality | default('ultra') }}"]
+        - ["scale", "{{ form.scale | default(2.0) }}"]
+
+  #############
+  ## RTX Video Super Resolution - upscale/denoise/deblur the image
+  #############
+  - name: "upscaler/rtx_vsr"
+    id: "rtx_vsr"
+    input:
+      - ["image", "media_loader", "image"]
+    enabled: true
+    configuration:
+      intent: "{{ form.intent | default('upscale') }}"
+      quality: "{{ form.quality | default('ultra') }}"
+      scale: "{{ form.scale | default(2.0) }}"
+
+  #############
+  ## Gallery - Save the processed image
+  #############
+  - name: "gallery"
+    id: "gallery"
+    input:
+      - ["image", "rtx_vsr", "image"]
+    enabled: true

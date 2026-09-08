@@ -1,0 +1,14 @@
+fields:
+  - name: "scale"
+    type: "slider"
+    label: "Scale"
+    audience: "advanced"
+    default: 2.0
+    ai_hint: "Output area multiplier, up to 4x. Only applies to the Upscale intents -- hidden for Denoise/Deblur, which are same-resolution enhancement."
+    configuration:
+      min: 1.0
+      max: 4.0
+      step: 0.5
+    reactions:
+      - when: { field: "intent", in: ["denoise", "deblur"] }
+        then: { set_visibility: false }

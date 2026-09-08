@@ -1,0 +1,54 @@
+########
+## RTX Upscale (native engine)
+##
+## NVIDIA RTX Video Super Resolution (nvidia-vfx / `import nvvfx`) run as a
+## native pipe: a per-frame RTX Tensor Core effect, not a diffusion model --
+## no checkpoint, no prompt, no seed. One `upscaler/rtx_vsr` pipe drives all
+## four intents (upscale, upscale for a compressed source, denoise, deblur)
+## at four quality tiers. Requires an NVIDIA RTX GPU (Turing or newer), a
+## Linux driver >= 570.190, and the `nvidia-vfx` pip package -- see
+## content/plugins/marketplace/nvidia-rtx-upscale/pipes/upscaler_rtx/main.py.
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01KXRTXUPSCALE0000000000RU"
+name: "RTX Upscale"
+category: "utility"
+version: "0.1.0"
+engine: "native"
+tags: ["upscale", "rtx", "nvidia", "video-super-resolution", "denoise", "deblur", "utility", "local"]
+
+# Nothing here is text-conditioned: both modes are a deterministic transform
+# of media the user supplies. Hides the prompt pane and drops the "prompt
+# required" gate on Generate (docs/presets.md `promptless_modes`).
+vars:
+  promptless_modes: [upscale, video_upscale]
+
+llm:
+  guide: |
+    Utility preset — no diffusion model, no prompt. NVIDIA RTX Video Super
+    Resolution runs one of four intents per frame: Upscale, Upscale for a
+    compressed/lossy source, Denoise, or Deblur — the last two enhance at the
+    SAME resolution and ignore Scale. Help the user pick intent, quality tier
+    and (for the two upscale intents) scale from the form summary below;
+    never suggest prompt text.
+
+modes:
+  - upscale
+  - video_upscale
+
+# `nvidia-vfx` is checked here by its PyPI distribution name
+# (`python_package` reads `importlib.metadata`, not the import name) - the
+# separate `nvvfx` import-name check lives in the pipe's own
+# `get_requirements()`/`manual_install_instructions()`, which drives the
+# pipe installer's NOT_INSTALLED status instead of this admin-facing tab.
+# The RTX GPU generation (Turing+) and the exact driver floor (>= 570.190)
+# have no live checker: core ships no `gpu_generation`/`driver_version`
+# requirement type, so neither is declared here rather than approximated.
+requirements:
+  - type: python_package
+    name: "nvidia-vfx"
+    hint: "pip install nvidia-vfx (import name: nvvfx)"
+  - type: platform
+    os: [linux]
+    hint: "NVIDIA RTX Video Super Resolution ships a Linux-only wheel (driver >= 570.190)"

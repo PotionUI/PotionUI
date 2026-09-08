@@ -1,0 +1,38 @@
+fields:
+  - name: "intent"
+    type: "select"
+    label: "Intent"
+    default: "upscale"
+    ai_hint: "What the RTX effect does to each frame. Upscale and Upscale (compressed source) both increase resolution by Scale (Advanced tab); Denoise and Deblur enhance at the SAME resolution and ignore Scale entirely."
+    configuration:
+      options:
+        - { label: "Upscale", value: "upscale", sub_label: "Increase resolution -- tuned for a clean source." }
+        - { label: "Upscale — compressed source", value: "upscale_highbitrate", sub_label: "Increase resolution -- tuned for a heavily compressed or lossy source." }
+        - { label: "Denoise", value: "denoise", sub_label: "Same-resolution noise reduction." }
+        - { label: "Deblur", value: "deblur", sub_label: "Same-resolution sharpening of blurred detail." }
+
+  - name: "quality"
+    type: "select"
+    label: "Quality"
+    default: "ultra"
+    configuration:
+      options:
+        - { label: "Low", value: "low" }
+        - { label: "Medium", value: "medium" }
+        - { label: "High", value: "high" }
+        - { label: "Ultra", value: "ultra", sub_label: "Recommended -- best quality, slowest." }
+
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "input_video"
+        type: "video"
+        label: "Input Video"
+        required: true
+        ai_hint: "Content and duration are unchanged -- only per-frame quality/resolution changes. Audio is passed through when the source has an audio track."
+
+      - name: "keep_audio"
+        type: "checkbox"
+        label: "Keep Audio"
+        default: true
+        ai_hint: "Mux the source video's audio track into the processed output."

@@ -1,0 +1,33 @@
+id: "nvidia-rtx-upscale"
+name: "NVIDIA RTX Upscale"
+version: "0.1.0"
+description: "NVIDIA RTX Video Super Resolution (nvidia-vfx) as a native pipe: per-frame RTX Tensor Core upscaling, denoise and deblur for images and video. No diffusion checkpoint, no prompt -- a Tensor Core effect, not a generative model. Needs an NVIDIA RTX GPU (Turing or newer), a Linux driver >= 570.190, and the nvidia-vfx pip package -- the pipe names the exact install command when it isn't there."
+author: "PotionUI Team"
+type: "backend-only"
+category: "generation"
+license: "MIT"
+homepage: "https://developer.nvidia.com/maxine/nvidia-vfx"
+tags: ["upscale", "video-super-resolution", "denoise", "deblur", "rtx", "nvidia", "video", "image", "local"]
+
+capabilities:
+  - "pipe-provider"
+
+# `register_as` keeps the pipe in the catalog's light-scan tier: its registry key
+# is known from this file, so the module is not imported until a pipeline asks
+# for it. That matters here because the module's `nvvfx` import happens lazily
+# inside `process()`, not at module scope -- see the pipe's own docstring.
+pipes:
+  - path: "pipes/upscaler_rtx"
+    register_as: "upscaler/rtx_vsr"
+
+presets:
+  - path: "presets"
+
+# No `dependencies:` block, deliberately. `nvidia-vfx` is the PyPI package but
+# `nvvfx` is the import name -- `validate_dependencies` (loader.py) would gate
+# enable on `python: [nvvfx]`, which pip cannot satisfy under that spelling
+# (`pip install nvvfx` installs nothing, or the wrong thing), so the plugin
+# would either never enable or falsely claim to be ready. The pipe reports
+# NOT_INSTALLED through `get_requirements()` (import-name check) instead, and
+# `manual_install_instructions()` gives the correct `pip install nvidia-vfx`
+# command plus the GPU/driver prerequisites -- see pipes/upscaler_rtx/main.py.

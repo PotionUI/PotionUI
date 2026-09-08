@@ -1,0 +1,63 @@
+# Pipeline for the 'video_upscale' mode.
+#
+#   media_loader -> param_emitter -> upscaler/rtx_vsr -> gallery
+#
+# Same pipe as the image 'upscale' mode, wired to a VIDEO input instead: it
+# decodes the clip frame-by-frame (never the whole decoded clip in memory),
+# runs each frame through the RTX effect, and re-encodes at the source fps
+# with the source audio muxed back in when keep_audio (see the pipe's own
+# `_process_video`/`_mux_audio_from_source`). No model_loader -- nvvfx ships
+# its own weights, there is no checkpoint to pick.
+pipeline:
+  #############
+  ## Media Loader - Load the source video from the form file path
+  #############
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 524288000  # 500MB
+      auto_detect_type: true
+      media:
+        - type: "video"
+          path: "{{ form.input_video }}"
+
+  #############
+  ## Parameter Emitter - record the run's settings on the generation
+  #############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["intent", "{{ form.intent | default('upscale') }}"]
+        - ["quality", "{{ form.quality | default('ultra') }}"]
+        - ["scale", "{{ form.scale | default(2.0) }}"]
+        - ["keep_audio", "{{ form.keep_audio | default(true) }}"]
+
+  #############
+  ## RTX Video Super Resolution - upscale/denoise/deblur the clip, frame by frame
+  #############
+  - name: "upscaler/rtx_vsr"
+    id: "rtx_vsr"
+    input:
+      - ["video", "media_loader", "video"]
+    enabled: true
+    configuration:
+      intent: "{{ form.intent | default('upscale') }}"
+      quality: "{{ form.quality | default('ultra') }}"
+      scale: "{{ form.scale | default(2.0) }}"
+      keep_audio: "{{ form.keep_audio | default(true) }}"
+
+  #############
+  ## Gallery - Save the processed video
+  #############
+  - name: "gallery"
+    id: "gallery"
+    input:
+      - ["video", "rtx_vsr", "video"]
+    enabled: true
+    configuration:
+      support_video: true

@@ -34,6 +34,9 @@ These plugins come with PotionUI. Any of them may or may not be enabled on your 
 - **System Monitor** — real-time GPU, RAM, and CPU monitoring shown in the sidebar so you can keep an eye on server load.
 - **Clear Local VRAM** — a quick action that unloads cached models from the app and frees GPU memory.
 - **Ollama** — a quick action to free VRAM held by a local Ollama LLM daemon.
+- **ComfyUI Backend** — runs presets on an external ComfyUI server and imports ComfyUI workflows as presets from Admin → Presets.
+- **RunPod Provider** — provisions a remote native worker on RunPod from Admin → Backends.
+- **NVIDIA RTX Upscale** — upscales, denoises and deblurs images and videos with NVIDIA RTX Video Super Resolution on an RTX GPU; needs the `nvidia-vfx` package from NVIDIA's index, which the preset's requirements list until it is installed.
 
 Because plugins can bring in new interfaces, the best way to learn a specific plugin is to open its page and explore — each provides its own controls for the job it does.
 

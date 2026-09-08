@@ -19,6 +19,8 @@ import yaml
 
 from src.features.generation.engine import validate_pipe_configuration
 from src.pipelines.pipes.gallery.main import GalleryPipe
+from src.features.forms.binding import bind_form
+from src.features.presets import PresetTemplateLoader
 from src.platform.templating import TemplateProcessor
 
 REPO = Path(__file__).resolve().parents[4]
@@ -37,6 +39,22 @@ def _deep_render(obj, tp, context):
     if isinstance(obj, dict):
         return {k: _deep_render(v, tp, context) for k, v in obj.items()}
     return obj
+
+
+_KREA2_ID = yaml.safe_load((PIPELINE_YML.parents[2] / "preset.yml").read_text())["id"]
+
+
+def _bound(form_data):
+    """Bind like a real request: every declared field carries its default, so the
+    pipeline renders against the same values production does."""
+    template = PresetTemplateLoader(["content/presets"]).load_preset_by_id(_KREA2_ID)
+    raw = {
+        "diffusion_model": "/models/krea2.safetensors",
+        "text_encoder": "/models/krea2_te.safetensors",
+        "vae": "/models/krea2_vae.safetensors",
+        **form_data,
+    }
+    return dict(bind_form(template, "txt2img", None, raw, user_id=None, storage_dir=None).values)
 
 
 def _context(form_data):
@@ -65,7 +83,7 @@ def _rendered_nodes(form_data, names, render_config_for=()):
     base generator's own config calls get_speed_profile(), which needs a real
     preset/speed_profiles context this test doesn't build, so it's skipped
     unless actually asserted on."""
-    context = _context(form_data)
+    context = _context(_bound(form_data))
     tp = TemplateProcessor(settings=Mock())
     nodes = {}
     for node in _pipeline():

@@ -25,6 +25,7 @@ import pytest
 from src.features.generation.model_identity import resolve_model_identity
 from src.features.generation.pipeline_builder import PipelineBuilder
 from src.features.models.records import Model
+from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.features.video_director.normalize import derive_segment_routing
@@ -125,8 +126,9 @@ def _build_pipes(
         "vae": _ref("shared-vae"),
         "resolution": "832x480",
     }
+    bound = bind_form(template, "video", None, form_data, user_id=None, storage_dir=None)
     built = builder.build_pipeline(
-        preset_id=template, form_data=form_data, mode="video", form_name=None, user_id=None,
+        preset_id=template, form_data=dict(bound.values), mode="video", form_name=None, user_id=None,
     )
     return built.pipes
 

@@ -315,7 +315,7 @@ Start with the in-app documentation browser, or read the Markdown directly:
 The two most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
 
-### 0.0.4 — 2026-09-07
+### 0.0.4 — 2026-09-08
 
 - ComfyUI: the `comfyui-backend` plugin ships in the marketplace with five image
   presets (Qwen-Image, SDXL, Z-Image, Krea-2, Flux.2 Klein 9B) built on official
@@ -340,8 +340,8 @@ The two most recent releases; older history lives in the
 - Generate: a docked generation panel with status, context rail and session
   cluster; `Q` floats the form, `W` floats the workbench, `H` opens a Last
   generations drawer, `S` saves the session; the prompt segments editor gets the
-  composer card with icon actions and a resolved-prompt panel; a backend picker
-  appears when several backends can run the preset.
+  composer card with icon actions and a resolved-prompt panel; the running
+  status names the backend that took the generation and why.
 - Native engine: a run-scoped cache stops Flux, Krea-2, Qwen-Image, Z-Image and
   Wan 2.2 recomputing unchanged work every step; text encoders load only on a
   cache miss; fp8 weights take the fast scaled-matmul path even while streamed;
@@ -367,8 +367,9 @@ The two most recent releases; older history lives in the
   longer shows the chip twice; the chained Wan video generator declares its NAG
   keys.
 - Admin: presets declare requirements (nodes, model files, VRAM) that are
-  checked per backend; generation routing is traceable, with a Routing panel on
-  each generation; per-backend queue scheduling can be fair across users; a
+  checked per backend; the backend that runs a generation is always the
+  router's decision, traceable in a Routing panel on each generation; per-backend
+  queue scheduling can be fair across users; a
   backend's execution device comes from real hardware evidence; enabling a
   plugin rolls back cleanly on failure and a local plugin shadowing a
   marketplace one is flagged; plugin frontends ship minified.

@@ -11,9 +11,7 @@
 	import { historyCollectionsStore as collectionsStore } from '$lib/stores/collections';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { WebSocketService, createGenerationSocket, type WebSocketMessage } from '$lib/services/websocket';
-	import { getBackends, type Backend } from '$lib/services/admin-api';
 	import { buildHistoryReuseTabData } from '$lib/utils/historyReuse';
-	import { toasts } from '$lib/stores/toast';
 	import GenerationDetailsModal from '$lib/components/modals/GenerationDetailsModal.svelte';
 	import UploadGenerationModal from '$lib/components/modals/UploadGenerationModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -37,21 +35,6 @@
 	let showDeleteByTagsModal = false;
 	let showCompareModal = false;
 	let sidebarOpen = true;
-
-	// Lazily fetched + cached on first reuse click — only needed to resolve
-	// whether a generation's original backend is still around.
-	let availableBackends: Backend[] | null = null;
-	async function loadAvailableBackends(): Promise<Backend[]> {
-		if (availableBackends) return availableBackends;
-		try {
-			const response = await getBackends();
-			availableBackends = response.data ?? [];
-		} catch (error) {
-			logger.error('Failed to load backends for history reuse:', error);
-			availableBackends = [];
-		}
-		return availableBackends;
-	}
 
 	$: currentState = $historyStore;
 	$: availableTags = currentState.availableTags;
@@ -216,18 +199,13 @@
 		historyStore.setSelectedGeneration(null);
 	}
 
-	async function handleReuseRequest(generation: GenerationHistoryItem) {
+	function handleReuseRequest(generation: GenerationHistoryItem) {
 		if (!generation.preset_id) return;
 
 		const tabName = `Reused: ${generation.preset_name ?? generation.preset_id.split('/').pop()}`;
-		const backends = await loadAvailableBackends();
-		const { tabData, backendUnavailable } = buildHistoryReuseTabData(generation, backends);
+		const { tabData } = buildHistoryReuseTabData(generation);
 
 		tabsStore.addTabWithData(tabName, tabData);
-
-		if (backendUnavailable) {
-			toasts.info('Original backend is no longer available — using the default backend.');
-		}
 
 		handleModalClose();
 		goto('/generate');

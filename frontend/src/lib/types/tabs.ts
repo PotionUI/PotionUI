@@ -77,7 +77,6 @@ export interface PersistedTab {
 	variables?: VariablesMap;
 	modeStateByMode?: Record<string, ModeState>;
 	seed?: number;
-	selectedBackendId?: string | null;
 	/** See the matching fields on `Tab` below. */
 	directorRuns?: Record<string, DirectorRunState>;
 	directorRunLinks?: DirectorRunLinks;
@@ -422,7 +421,6 @@ export interface Tab {
 	 *  fields under their own names. */
 	modeStateByMode?: Record<string, ModeState>;
 	seed?: number;
-	selectedBackendId?: string | null;
 	activeGenerationId?: string | null;
 	/** Library prompt (src/features/prompt_database) applied to this tab from the
 	 *  Prompt Library's "Generate with this" — rides onto GenerationRequest.source_prompt_id.

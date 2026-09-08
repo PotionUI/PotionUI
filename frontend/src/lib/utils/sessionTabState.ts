@@ -37,7 +37,6 @@ export function collectTabSessionData(
 				? { variables: tab.variables }
 				: {}),
 			seed: tab.seed,
-			selectedBackendId: tab.selectedBackendId || undefined,
 			workbenchMaxHeight: tab.workbenchMaxHeight || '600',
 			leftPanelWidth: tab.leftPanelWidth || 380,
 			...(typeof tab.leftPanelCollapsed === 'boolean'

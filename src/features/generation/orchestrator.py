@@ -685,21 +685,17 @@ class GenerationOrchestrator:
             field_overrides=field_overrides,
         )
 
-        backend_id = getattr(request, 'backend_id', None)
         router = getattr(self, "router", None)
         if router is not None:
             decision = await router.route(RoutingRequest(
                 engine=engine,
                 preset=preset_template,
                 form_data=bound.values,
-                requested_backend_id=backend_id,
                 user_id=user_id,
             ))
             backend = decision.chosen
         else:
-            backend = self.backend_registry.select_backend_for_generation(
-                engine=engine, backend_id=backend_id,
-            )
+            backend = self.backend_registry.select_backend_for_generation(engine=engine)
 
         try:
             prepared_form_data = _prepare_director_form_data(
@@ -871,23 +867,19 @@ class GenerationOrchestrator:
             # deployment that hasn't wired one: fall back to the plain,
             # unnarrowed pick (exactly `select_backend_for_generation`'s own
             # behavior always was) rather than skip backend selection.
-            backend_id = getattr(request, 'backend_id', None)
             router = getattr(self, "router", None)
             if router is not None:
                 decision = await router.route(RoutingRequest(
                     engine=engine,
                     preset=preset_template,
                     form_data=request.form_data or {},
-                    requested_backend_id=backend_id,
                     user_id=user_id,
                 ))
                 backend = decision.chosen
                 routing_summary = decision.summary()
             else:
                 decision = None
-                backend = self.backend_registry.select_backend_for_generation(
-                    engine=engine, backend_id=backend_id,
-                )
+                backend = self.backend_registry.select_backend_for_generation(engine=engine)
                 routing_summary = None
 
             logger.debug(f"Selected backend: {backend.name} (engine={backend.engine})")

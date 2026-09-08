@@ -25,7 +25,6 @@ class RoutingRequest:
     engine: str
     preset: Any
     form_data: Dict[str, Any] = field(default_factory=dict)
-    requested_backend_id: Optional[str] = None
     user_id: Optional[str] = None
 
 
@@ -84,8 +83,8 @@ class RuleTraceEntry:
     """One rule's contribution to a `RoutingDecision`: how many live
     (non-dropped) candidates existed before/after it ran, and how long it
     took. `before == after` for an annotate-only rule (`Preference`); a
-    dropping rule (`ModelAvailability`, `RequirementsEligibility`,
-    `RequestPin`) can shrink it."""
+    dropping rule (`ModelAvailability`, `RequirementsEligibility`) can
+    shrink it."""
 
     rule: str
     before: int

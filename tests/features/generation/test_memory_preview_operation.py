@@ -156,13 +156,12 @@ def _orchestrator(backend, gpu_monitor=None, pipes=_KNOWN_PIPES, build_error=Fal
     )
 
 
-def _make_request(backend_id=None):
+def _make_request():
     request = Mock()
     request.preset_id = 'preset_1'
     request.form_data = {'steps': 20}
     request.mode = 'txt2img'
     request.form_name = None
-    request.backend_id = backend_id
     return request
 
 
@@ -414,36 +413,6 @@ async def test_budget_reflects_backend_cap_change():
 
     assert low['budget']['configured_gb'] == 4.0
     assert high['budget']['configured_gb'] == 16.0
-
-
-@pytest.mark.asyncio
-async def test_explicit_backend_id_is_honored_without_a_router():
-    backend = _local_backend()
-    orchestrator = _orchestrator(backend)
-
-    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
-        await orchestrator.preview_memory(_make_request(backend_id='native_1'), 'user_1')
-
-    orchestrator.backend_registry.select_backend_for_generation.assert_called_once_with(
-        engine='native', backend_id='native_1',
-    )
-
-
-@pytest.mark.asyncio
-async def test_explicit_backend_id_passed_through_router():
-    from src.features.generation.routing.contracts import Candidate, RoutingDecision
-
-    backend = _local_backend()
-    router = Mock()
-    router.route = AsyncMock(return_value=RoutingDecision(
-        chosen=backend, candidates=[Candidate(backend=backend)], rule_trace=[],
-    ))
-    orchestrator = _orchestrator(backend, router=router)
-
-    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
-        await orchestrator.preview_memory(_make_request(backend_id='native_1'), 'user_1')
-
-    assert router.route.call_args[0][0].requested_backend_id == 'native_1'
 
 
 @pytest.mark.asyncio

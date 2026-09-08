@@ -54,7 +54,6 @@ export interface GenerationRequest {
 	 *  presets/modes with a single implicit variant. */
 	form_name?: string;
 	form_data?: Record<string, unknown>;
-	backend_id?: string;
 	tag_ids?: string[];
 	collection_ids?: string[];
 	prompt_state?: Record<string, unknown>;
@@ -426,7 +425,6 @@ export interface SessionData {
 	/** Prompt variables saved with this session (see Tab.variables). */
 	variables?: VariablesMap;
 	seed?: number;
-	selectedBackendId?: string;
 	// Panel layout for the generate page ('two' | 'three' panes)
 	layoutMode?: 'two' | 'three';
 	// Whether the generation settings form is folded to its compact rail

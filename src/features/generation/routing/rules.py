@@ -1,10 +1,9 @@
 """Built-in routing rules, applied in this fixed order (`registry.BUILTIN_RULES`):
 
 1. `EnabledForEngine` - seeds the candidate list.
-2. `RequestPin` - a user-requested `backend_id` narrows to just that backend.
-3. `ModelAvailability` - drops a backend that doesn't hold every selected model.
-4. `RequirementsEligibility` - drops a backend with a cached hard-missing requirement.
-5. `Preference` - annotates (never drops) which survivor is preferred.
+2. `ModelAvailability` - drops a backend that doesn't hold every selected model.
+3. `RequirementsEligibility` - drops a backend with a cached hard-missing requirement.
+4. `Preference` - annotates (never drops) which survivor is preferred.
 
 See docs/generation-routing.md for the full picture (a flowchart of this
 chain, a decision table per rule, and worked examples) - the docstring on
@@ -37,43 +36,6 @@ class EnabledForEngine:
     ) -> List[Candidate]:
         backends = ctx.backend_registry.get_backends_for_engine(request.engine)
         return [Candidate(backend=b) for b in backends]
-
-
-class RequestPin:
-    """A `requested_backend_id` (a user pin, or a history re-run reproducing
-    its original backend) that matches a live candidate wins immediately:
-    every OTHER candidate is dropped, so later rules only ever validate the
-    pin, never second-guess it in favor of a different backend. A pin that
-    matches NO live candidate (wrong engine, disabled, never existed) drops
-    everything, with a reason naming the pin - the router surfaces this as
-    `NoEligibleBackendError` rather than silently falling back to some other
-    backend the caller didn't ask for."""
-
-    name = "request_pin"
-
-    async def apply(
-        self, candidates: List[Candidate], request: RoutingRequest, ctx: RoutingContext
-    ) -> List[Candidate]:
-        if not request.requested_backend_id:
-            return candidates
-
-        live = [c for c in candidates if not c.dropped]
-        matched_ids = {c.backend_id for c in live if c.backend_id == request.requested_backend_id}
-
-        if not matched_ids:
-            for c in live:
-                c.drop(
-                    f"requested backend '{request.requested_backend_id}' is not an enabled "
-                    f"'{request.engine}' backend"
-                )
-            return candidates
-
-        for c in live:
-            if c.backend_id in matched_ids:
-                c.annotate(f"requested backend '{request.requested_backend_id}'")
-            else:
-                c.drop(f"not the requested backend '{request.requested_backend_id}'")
-        return candidates
 
 
 class ModelAvailability:

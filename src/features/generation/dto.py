@@ -47,7 +47,6 @@ class GenerationRequest(BaseModel):
     # variant is used (same resolution rule as GET .../form's form_name).
     form_name: Optional[str] = None
     form_data: Dict[str, Any] = {}
-    backend_id: Optional[str] = None  # Specific backend to use for generation
     # Library prompt (src.features.prompt_database) this submission came from, if
     # any - carried through to Generation.source_prompt_id for "used in
     # generations" provenance. Not validated against the prompt table here; a

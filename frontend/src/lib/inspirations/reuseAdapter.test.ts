@@ -40,11 +40,10 @@ describe('buildInspirationReuseSource', () => {
 			mode: 'img2img',
 			omitted_fields: []
 		});
-		const { tabData, backendUnavailable } = buildImportBundleTabData(source);
+		const { tabData } = buildImportBundleTabData(source);
 		expect(tabData.selectedPreset).toBe('sdxl/base');
 		expect(tabData.selectedMode).toBe('img2img');
 		expect(tabData.formData).toEqual({ seed: 42 });
-		expect(backendUnavailable).toBe(false);
 	});
 
 	it('defaults the tab to txt2img when the snapshot has no mode', () => {

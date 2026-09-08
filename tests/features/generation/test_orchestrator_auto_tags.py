@@ -140,7 +140,6 @@ def _make_request(tag_ids=None):
     request.form_data = {'steps': 20}
     request.prompts = None
     request.mode = 'txt2img'
-    request.backend_id = None
     request.tag_ids = tag_ids or []
     request.collection_ids = []
     return request

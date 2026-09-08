@@ -171,7 +171,6 @@ def sample_request():
     request.prompts = None  # Explicit None for no prompts
     request.prompt_state = None
     request.mode = 'txt2img'
-    request.backend_id = None
     request.tag_ids = None
     request.source_prompt_id = None
     return request
@@ -269,8 +268,8 @@ class TestBackendPersistence:
         mock_backend_registry,
         mock_generation_repo
     ):
-        """A pinned backend_id is a *request*; the registry decides. We persist the
-        decision, so history cannot disagree with what actually ran."""
+        """Whatever the registry selects is what gets persisted, so history
+        cannot disagree with what actually ran."""
         chosen = mock_backend_registry._remote_backend
         mock_backend_registry.select_backend_for_generation = Mock(return_value=chosen)
         user_id = 'user_123'
@@ -458,27 +457,6 @@ class TestLocalGenerationStartup:
         assert status.started_at is not None
         assert status.preset_id == 'test_preset_123'
         assert status.backend_id == 'local_backend_1'
-
-    @pytest.mark.asyncio
-    async def test_start_generation_with_specific_backend(
-        self,
-        orchestrator,
-        sample_request,
-        mock_backend_registry,
-        mock_generation_repo
-    ):
-        """Test backend selection with specific backend_id."""
-        user_id = 'user_123'
-        sample_request.backend_id = 'specific_backend_id'
-
-        with patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_789'):
-            await orchestrator.start_generation(sample_request, user_id)
-
-        # Verify backend registry was called with specific ID
-        mock_backend_registry.select_backend_for_generation.assert_called_once()
-        call_kwargs = mock_backend_registry.select_backend_for_generation.call_args[1]
-        assert call_kwargs['backend_id'] == 'specific_backend_id'
-        assert call_kwargs['engine'] == 'native'
 
     @pytest.mark.asyncio
     async def test_start_generation_pipeline_build_failure(

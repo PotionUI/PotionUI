@@ -277,7 +277,6 @@ class BackendRegistry:
     def select_backend_for_generation(
         self,
         engine: str,
-        backend_id: Optional[str] = None,
         allowed_backend_ids: Optional[List[str]] = None,
     ) -> BaseBackend:
         """
@@ -287,21 +286,18 @@ class BackendRegistry:
         1. Candidates are the enabled backends providing `engine`.
         2. Candidates are narrowed to `allowed_backend_ids`, when given - the backends
            that hold every model the user selected (see src/features/models/availability.py).
-        3. If `backend_id` is given, use it - but only if it is a candidate.
-        4. Otherwise use the engine's default backend, if one is marked.
-        5. Otherwise use the highest-priority candidate.
+        3. Otherwise use the engine's default backend, if one is marked.
+        4. Otherwise use the highest-priority candidate.
 
         Args:
             engine: The engine required by the preset
-            backend_id: Specific backend to pin to (optional)
             allowed_backend_ids: Restrict candidates to these backends (optional)
 
         Returns:
             The selected backend
 
         Raises:
-            NoBackendForEngineError: if no enabled backend provides the engine,
-                or the requested backend_id is not a candidate.
+            NoBackendForEngineError: if no enabled backend provides the engine.
         """
         candidates = self.get_backends_for_engine(engine)
 
@@ -320,15 +316,6 @@ class BackendRegistry:
                 f"No enabled backend provides engine '{engine}'. "
                 f"Available engines: {sorted(available) or 'none'}. "
                 f"Is the plugin providing '{engine}' enabled, and a backend configured for it?"
-            )
-
-        if backend_id:
-            for backend in candidates:
-                if backend.backend_id == backend_id:
-                    logger.debug(f"[BACKEND_REGISTRY] Selected requested backend: {backend.name}")
-                    return backend
-            raise NoBackendForEngineError(
-                f"Requested backend '{backend_id}' is not an enabled backend for engine '{engine}'"
             )
 
         default_config = self.backend_config_store.get_default_backend(engine)

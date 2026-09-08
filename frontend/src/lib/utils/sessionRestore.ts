@@ -21,7 +21,6 @@ import type { Tab } from '$lib/types/tabs';
 
 export interface SessionRestoreFallback {
 	/** Current tab value to fall back to when the saved session doesn't specify one. */
-	selectedBackendId?: string | null;
 	promptPanelWidth?: number;
 }
 
@@ -55,7 +54,6 @@ export function buildSessionRestoreTabPatch(
 		formData: modeData.formData || {},
 		variables: modeData.variables || {},
 		seed: modeData.seed,
-		selectedBackendId: modeData.selectedBackendId || fallback.selectedBackendId || undefined,
 		workbenchMaxHeight: modeData.workbenchMaxHeight || DEFAULT_WORKBENCH_MAX_HEIGHT,
 		leftPanelWidth: modeData.leftPanelWidth || DEFAULT_LEFT_PANEL_WIDTH,
 		...(modeData.layoutMode === 'two' || modeData.layoutMode === 'three'

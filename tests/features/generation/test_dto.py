@@ -143,16 +143,6 @@ class TestGenerationRequestMultiPrompt:
 
         assert request.mode == "img2img"
 
-    def test_backend_id_preserved(self):
-        """Test that backend_id is preserved with multi-prompt."""
-        request = GenerationRequest(
-            preset_id="test-preset",
-            prompts=[PromptPair(positive="test", negative="")],
-            backend_id="custom-backend"
-        )
-
-        assert request.backend_id == "custom-backend"
-
     def test_form_name_defaults_to_none(self):
         """Test that form_name (preset "variant" selection) defaults to None
         when omitted, so the mode's default variant is resolved downstream."""

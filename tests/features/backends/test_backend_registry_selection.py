@@ -2,10 +2,9 @@
 selection algorithm described in docs/backends.md:
 
   1. candidates = enabled backends whose engine == requested engine
-  2. explicit backend_id honored only if it is a candidate, else error
-  3. else: the engine's default backend, if it is a candidate
-  4. else: highest-priority candidate
-  5. else: NoBackendForEngineError
+  2. else: the engine's default backend, if it is a candidate
+  3. else: highest-priority candidate
+  4. else: NoBackendForEngineError
 """
 
 from unittest.mock import Mock
@@ -52,32 +51,6 @@ class TestEngineMatching:
 
         with pytest.raises(NoBackendForEngineError):
             registry.select_backend_for_generation(engine="comfyui")
-
-
-class TestExplicitBackendId:
-    def test_backend_id_honored_when_a_candidate(self):
-        a = make_backend("comfyui-a", "comfyui", priority=1)
-        b = make_backend("comfyui-b", "comfyui", priority=5)
-        registry = make_registry([a, b])
-
-        selected = registry.select_backend_for_generation(engine="comfyui", backend_id="comfyui-a")
-
-        assert selected is a
-
-    def test_backend_id_from_different_engine_raises(self):
-        native = make_backend("native", "native")
-        comfy = make_backend("comfyui-1", "comfyui")
-        registry = make_registry([native, comfy])
-
-        with pytest.raises(NoBackendForEngineError):
-            registry.select_backend_for_generation(engine="comfyui", backend_id="native")
-
-    def test_unknown_backend_id_raises(self):
-        comfy = make_backend("comfyui-1", "comfyui")
-        registry = make_registry([comfy])
-
-        with pytest.raises(NoBackendForEngineError):
-            registry.select_backend_for_generation(engine="comfyui", backend_id="does-not-exist")
 
 
 class TestDefaultPreference:

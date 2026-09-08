@@ -8,10 +8,10 @@ order: 26
 
 `src/features/generation/routing/` decides which **enabled backend of a preset's engine** executes
 one generation. It exists because "which backend" stopped being a one-line question the moment more
-than one backend can provide the same engine: a request can be pinned to a specific backend, a
-selected model can live on only one of several backends, and a backend can be missing something the
-preset needs (a ComfyUI custom node, say). `GenerationRouter` answers all of that in one pass, and
-explains itself — every candidate it considered, kept or dropped, carries a reason.
+than one backend can provide the same engine: a selected model can live on only one of several
+backends, and a backend can be missing something the preset needs (a ComfyUI custom node, say).
+`GenerationRouter` answers all of that in one pass, and explains itself — every candidate it
+considered, kept or dropped, carries a reason.
 
 The router sits directly above `BackendRegistry.select_backend_for_generation` (docs/backends.md
 "Backend selection"), which stays the single, tested implementation of the final "default backend,
@@ -27,16 +27,15 @@ never adds one back. What's left when the chain ends is who gets to compete for 
 
 ```mermaid
 flowchart TD
-    Start(["Generation request\nengine + preset + form_data + backend_id?"]) --> Seed
+    Start(["Generation request\nengine + preset + form_data"]) --> Seed
 
     subgraph Chain["GenerationRouter.route() — one pass"]
         direction TB
         Seed["1 · EnabledForEngine\nseed: every enabled backend of the engine"]
-        Pin["2 · RequestPin\nkeep only the pinned backend, if any"]
-        Avail["3 · ModelAvailability\ndrop backends missing a selected model"]
-        Req["4 · RequirementsEligibility\ndrop backends with a hard-missing requirement"]
-        Pref["5 · Preference\nannotate the default / highest-priority survivor"]
-        Seed --> Pin --> Avail --> Req --> Pref
+        Avail["2 · ModelAvailability\ndrop backends missing a selected model"]
+        Req["3 · RequirementsEligibility\ndrop backends with a hard-missing requirement"]
+        Pref["4 · Preference\nannotate the default / highest-priority survivor"]
+        Seed --> Avail --> Req --> Pref
     end
 
     Pref --> AnyLeft{"any candidate\nstill kept?"}
@@ -70,14 +69,13 @@ sequenceDiagram
     Rules->>BR: get_backends_for_engine(engine)
     BR-->>Rules: [backend_a, backend_b, ...]
     Rules-->>R: candidates
-    R->>Rules: RequestPin.apply(candidates)
     R->>Rules: ModelAvailability.apply(candidates)
     R->>Rules: RequirementsEligibility.apply(candidates)
     Rules->>RC: peek_backend_missing(preset, backend_id) — per candidate, cache read only
     RC-->>Rules: [] / [names] / None (unknown)
     Note over Rules,RC: unknown → kept + a background refresh is scheduled,<br/>never awaited here
     R->>Rules: Preference.apply(candidates)
-    R->>BR: select_backend_for_generation(engine, backend_id, allowed_backend_ids)
+    R->>BR: select_backend_for_generation(engine, allowed_backend_ids)
     BR-->>R: chosen backend
     R-->>O: RoutingDecision
     O-->>C: {generation_id, backend: {id, name, engine, routing_reason}}
@@ -88,7 +86,6 @@ sequenceDiagram
 | Rule | Can it drop? | Can it annotate? | Why it exists | When it fires | Example reason text |
 |---|---|---|---|---|---|
 | `EnabledForEngine` | no (seeds) | no | Every other rule needs a starting candidate list | Always, first | *(none — it only seeds)* |
-| `RequestPin` | yes | yes | A user (or a history re-run) asked for a specific backend | `requested_backend_id` is set | `"requested backend 'comfy-a'"` (kept) / `"requested backend 'comfy-a' is not an enabled 'comfyui' backend"` (dropped) |
 | `ModelAvailability` | yes | no | A selected checkpoint/LoRA may only be downloaded to one backend | The form references `model:<id>` values AND at least one backend of the engine has been indexed | `"does not hold every selected model"` |
 | `RequirementsEligibility` | yes | yes | A backend can lack something the preset needs (a ComfyUI custom node, a model file) — see [Preset Authoring Guide](presets.md) "Requirements" | The preset declares `requirements:` AND a requirements cache is wired | `"missing requirement(s): FaceDetailer node"` (dropped) / `"requirements not yet checked"` (kept, refresh scheduled) / `"requirements satisfied"` |
 | `Preference` | no | yes | Explains which survivor the final pick will choose, without re-deciding it | At least one candidate survived | `"default backend for this engine"` / `"highest priority (5) among eligible backends"` |
@@ -101,10 +98,10 @@ blocks the chain on live work. See "Requirements interplay" below.
 
 ## Worked examples
 
-**Single backend.** One enabled `native` backend, no pin, no model refs, no requirements. Every rule
+**Single backend.** One enabled `native` backend, no model refs, no requirements. Every rule
 after `EnabledForEngine` is a no-op; `Preference` annotates it as the only survivor (there being no
 other candidate to prefer over); the final pick returns it. `rule_trace` shows `before == after == 1`
-for all five rules.
+for all four rules.
 
 **Two ComfyUI backends, one lacking a node.** `comfy-a` and `comfy-b` are both enabled for `comfyui`;
 the preset's `requirements:` includes `{type: comfyui_node, class_type: FaceDetailer}`, and the
@@ -113,14 +110,6 @@ requirements cache's last check found the node on `comfy-a` but not `comfy-b`.
 `comfy-a` the only survivor — chosen regardless of which one is marked default or has higher
 priority. If `comfy-b` is the default and BOTH backends were missing the node, the candidate list
 empties and `route()` raises `NoEligibleBackendError` naming both backends and the node they lack.
-
-**History re-run pinned to a now-disabled backend.** A past generation ran on `comfy-old`, which an
-admin has since disabled. Re-running it passes `requested_backend_id="comfy-old"`. `EnabledForEngine`
-never seeds a disabled backend, so `comfy-old` isn't in the candidate list at all by the time
-`RequestPin` runs; finding no live match, `RequestPin` drops every candidate with
-`"requested backend 'comfy-old' is not an enabled 'comfyui' backend"`, and `route()` raises
-`NoEligibleBackendError` — a clear "that backend is gone" rather than a silent fallback to whatever
-else happens to be enabled.
 
 ## Reading the trace
 
@@ -139,7 +128,6 @@ renders the whole decision as plain JSON:
   ],
   "rule_trace": [
     {"rule": "enabled_for_engine", "before": 0, "after": 2, "ms": 0.04},
-    {"rule": "request_pin", "before": 2, "after": 2, "ms": 0.001},
     {"rule": "model_availability", "before": 2, "after": 2, "ms": 0.12},
     {"rule": "requirements_eligibility", "before": 2, "after": 1, "ms": 0.08},
     {"rule": "preference", "before": 1, "after": 1, "ms": 0.005}
@@ -189,7 +177,7 @@ def register_rules(context: HookContext) -> HookContext:
 ```
 
 `position` is `"before:<rule name>"`, `"after:<rule name>"`, or omitted to append at the end — the
-name is any built-in's (`enabled_for_engine`, `request_pin`, `model_availability`,
+name is any built-in's (`enabled_for_engine`, `model_availability`,
 `requirements_eligibility`, `preference`) or another plugin rule's. An anchor that can't be found
 (a typo, or a rule from a since-disabled plugin) falls back to appending, logged, rather than
 silently dropping your rule. A rule should stay fast and side-effect-free the same way the built-ins

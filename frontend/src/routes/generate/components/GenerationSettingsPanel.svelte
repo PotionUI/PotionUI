@@ -4,7 +4,6 @@
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import { Switch } from '$lib/components/ui';
 	import { tabsStore } from '$lib/stores/tabs';
-	import BackendPicker from './BackendPicker.svelte';
 	import {
 		getApplySoundToAllTabs,
 		setApplySoundToAllTabs,
@@ -18,14 +17,11 @@
 	// lives in the tabs-row overflow menu now — it is saved per session.
 	export let tabId: string;
 	export let presetId: string | undefined = undefined;
-	export let presetEngine: string | undefined = undefined;
 	export let mode: string | undefined = undefined;
 	export let autoTagIds: string[] = [];
 	export let autoCollectionIds: string[] = [];
 	export let soundOnComplete = true;
 	export let soundOnError = true;
-	export let selectedBackendId: string | null | undefined = undefined;
-	export let onBackendEligibilityChange: ((visible: boolean) => void) | undefined = undefined;
 
 	let applyToAllTabs = getApplySoundToAllTabs();
 
@@ -51,14 +47,6 @@
 </script>
 
 <div class="p-4 space-y-5">
-	<BackendPicker
-		{tabId}
-		{presetId}
-		engine={presetEngine}
-		{selectedBackendId}
-		onEligibilityChange={onBackendEligibilityChange}
-	/>
-
 	<section>
 		<h3 class="label">Auto-tags</h3>
 		<p class="text-xs text-fg-subtle mb-2">Applied to every output generated in this tab.</p>

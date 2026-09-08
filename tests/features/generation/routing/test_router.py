@@ -76,7 +76,7 @@ class TestGenerationRouterChain:
         decision = await router.route(RoutingRequest(engine="native", preset=Mock(requirements=[])))
 
         assert [t.rule for t in decision.rule_trace] == [
-            "enabled_for_engine", "request_pin", "model_availability", "requirements_eligibility", "preference",
+            "enabled_for_engine", "model_availability", "requirements_eligibility", "preference",
         ]
         assert all(t.ms >= 0 for t in decision.rule_trace)
         # The seeding rule goes from 0 -> 1; nothing else narrows this scenario.
@@ -94,15 +94,6 @@ class TestGenerationRouterChain:
         assert "comfyui" in str(exc_info.value)
 
     @pytest.mark.asyncio
-    async def test_invalid_pin_surfaces_as_no_eligible_backend_naming_why(self):
-        router = _router([_backend("a")])
-
-        with pytest.raises(NoEligibleBackendError, match="not-a-real-backend"):
-            await router.route(RoutingRequest(
-                engine="native", preset=Mock(requirements=[]), requested_backend_id="not-a-real-backend",
-            ))
-
-    @pytest.mark.asyncio
     async def test_requirements_eligibility_drops_the_only_backend_with_a_hard_miss(self):
         cache = Mock()
         cache.peek_backend_missing.return_value = ["FaceDetailer node"]
@@ -111,16 +102,6 @@ class TestGenerationRouterChain:
 
         with pytest.raises(NoEligibleBackendError, match="FaceDetailer node"):
             await router.route(RoutingRequest(engine="comfyui", preset=preset))
-
-    @pytest.mark.asyncio
-    async def test_valid_pin_wins_over_a_non_default_backend(self):
-        a = _backend("a")
-        b = _backend("b")
-        router = _router([a, b], default_id="a")
-
-        decision = await router.route(RoutingRequest(engine="native", preset=Mock(requirements=[]), requested_backend_id="b"))
-
-        assert decision.chosen is b
 
     @pytest.mark.asyncio
     async def test_model_availability_error_propagates_through_the_full_chain(self):

@@ -242,7 +242,6 @@ class TestFieldOverridesThreadedFromRepository:
         request.form_data = {"steps": 20}
         request.mode = "txt2img"
         request.form_name = None
-        request.backend_id = None
         request.tag_ids = None
         request.collection_ids = None
         request.segments = None

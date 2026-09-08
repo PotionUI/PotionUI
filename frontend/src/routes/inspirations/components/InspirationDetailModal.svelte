@@ -10,7 +10,6 @@
 	import { authStore } from '$lib/stores/auth';
 	import { toasts } from '$lib/stores/toast';
 	import { inspirationsStore } from '$lib/stores/inspirations';
-	import { getBackends, type Backend } from '$lib/services/admin-api';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { buildImportBundleTabData } from '$lib/utils/historyReuse';
 	import { buildInspirationReuseSource, formatOmittedFieldsHint } from '$lib/inspirations/reuseAdapter';
@@ -82,7 +81,6 @@
 	}
 
 	// --- Reuse ---------------------------------------------------------------
-	let availableBackends: Backend[] | null = null;
 	let availablePresets: PresetInfo[] | null = null;
 	let reusing = false;
 
@@ -115,22 +113,10 @@
 				}
 			}
 
-			if (!availableBackends) {
-				try {
-					const backendsResponse = await getBackends();
-					availableBackends = backendsResponse.data ?? [];
-				} catch (e) {
-					logger.error('Failed to load backends for inspiration reuse:', getErrorMessage(e));
-					availableBackends = [];
-				}
-			}
 			const source = buildInspirationReuseSource(paramsResponse.data);
-			const { tabData, backendUnavailable } = buildImportBundleTabData(source);
+			const { tabData } = buildImportBundleTabData(source);
 			const tabName = `Reused: ${paramsResponse.data.preset_name ?? item.title}`;
 			tabsStore.addTabWithData(tabName, tabData);
-			if (backendUnavailable) {
-				toasts.info('Original backend is no longer available — using the default backend.');
-			}
 			const omittedHint = formatOmittedFieldsHint(paramsResponse.data.omitted_fields ?? []);
 			if (omittedHint) {
 				toasts.info(omittedHint);

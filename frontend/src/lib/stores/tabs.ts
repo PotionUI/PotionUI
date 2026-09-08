@@ -121,8 +121,7 @@ function createTabsStore() {
 					formData: p.formData ?? {},
 					variables: p.variables ?? {},
 					modeStateByMode: p.modeStateByMode ?? {},
-					seed: p.seed,
-					selectedBackendId: p.selectedBackendId ?? null
+					seed: p.seed
 				};
 		  })
 		: [createDefaultTab(generateTabId(), 'Generation 1')];

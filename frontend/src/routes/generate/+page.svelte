@@ -60,7 +60,6 @@
 	import { resolveVariant } from '$lib/utils/variants';
 	import { isPromptlessMode } from '$lib/utils/promptlessMode';
 	import { toasts } from '$lib/stores/toast';
-	import { getBackends, type Backend } from '$lib/services/admin-api';
 	import { buildActiveTabReuseUpdate } from '$lib/utils/historyReuse';
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import { timeAgo } from '$lib/utils/relativeTime';
@@ -231,7 +230,6 @@
 			mode: tab.selectedMode ?? undefined,
 			form_name: tab.selectedVariant ?? undefined,
 			form_data: { ...tab.formData, video_director: resolvedDoc },
-			backend_id: tab.selectedBackendId ?? undefined,
 			tag_ids: tab.autoTagIds?.length ? tab.autoTagIds : undefined,
 			collection_ids: tab.autoCollectionIds?.length ? tab.autoCollectionIds : undefined,
 			variables: variablesResult.variables,
@@ -537,12 +535,6 @@
 	// The generation bar's session cluster needs the same version-drift check
 	// PresetHeader/SessionPill get per-tab below.
 	$: currentTabPresetVersion = presets.find((p: any) => p.id === currentTab.selectedPreset)?.version;
-	$: currentTabPresetEngine = presets.find((p: any) => p.id === currentTab.selectedPreset)?.engine;
-	// Set by BackendPicker (inside the settings drawer) once it knows whether
-	// the current preset's engine has more than one enabled backend - gates
-	// the generation bar's "Runs on <backend> — <reason>" pre-flight line,
-	// which would otherwise be noise when there's no real choice to explain.
-	let currentTabHasMultipleBackends = false;
 	$: generatingTabName = $generatingTab?.name;
 	$: generation = currentTab.generation;
 	$: isGenerating = generation.isGenerating;
@@ -799,7 +791,6 @@
 						// see sessionRestore.ts's header for why (this path was the one
 						// missing `variables`, `promptTabs`, and `leftPanelCollapsed`).
 						const restoredPatch = buildSessionRestoreTabPatch(modeData, {
-							selectedBackendId: tab.selectedBackendId,
 							promptPanelWidth: tab.promptPanelWidth
 						});
 						const restoredTab = {
@@ -1041,37 +1032,16 @@
 		return presetVars[presetId || '']?.prompt?.segment_join === 'paragraph' ? 'paragraph' : 'comma';
 	}
 
-	// Lazily fetched + cached on first reuse click — only needed to resolve
-	// whether a generation's original backend is still around (mirrors the
-	// history page's own loadAvailableBackends).
-	let availableBackends: Backend[] | null = null;
-	async function loadAvailableBackends(): Promise<Backend[]> {
-		if (availableBackends) return availableBackends;
-		try {
-			const response = await getBackends();
-			availableBackends = response.data ?? [];
-		} catch (error) {
-			console.error('Failed to load backends for generation reuse:', error);
-			availableBackends = [];
-		}
-		return availableBackends;
-	}
-
 	// "Reuse in this tab" from the last-generations drawer — applies a past
 	// generation's preset/mode/form/prompt/seed onto the ACTIVE tab in place
 	// (as opposed to the history page's reuse, which opens a new tab). A
 	// preset switch included in the same `updateTab` call is picked up by the
 	// per-tab mode-manifest effect above exactly as it is for a freshly
 	// created tab, so the form re-renders against the new preset's schema.
-	async function handleReuseInActiveTab(generation: GenerationHistoryItem) {
+	function handleReuseInActiveTab(generation: GenerationHistoryItem) {
 		if (!generation.preset_id) return;
 		const tab = currentTab;
-		const backends = await loadAvailableBackends();
-		const { tabData, backendUnavailable, presetChanged } = buildActiveTabReuseUpdate(
-			generation,
-			tab,
-			backends
-		);
+		const { tabData, presetChanged } = buildActiveTabReuseUpdate(generation, tab);
 
 		if (presetChanged) {
 			// Drop the stale mode manifest so the mode dropdown doesn't flash the
@@ -1085,9 +1055,6 @@
 
 		tabsStore.updateTab(tab.id, tabData);
 
-		if (backendUnavailable) {
-			toasts.info('Original backend is no longer available — using the default backend.');
-		}
 		toasts.success(`Reused generation from ${timeAgo(generation.created_at)}`);
 	}
 
@@ -1522,7 +1489,6 @@
 				mode: currentTab.selectedMode ?? undefined,
 				form_name: currentTab.selectedVariant ?? undefined,
 				form_data: formDataForRequest,
-				backend_id: currentTab.selectedBackendId ?? undefined,
 				tag_ids: currentTab.autoTagIds?.length ? currentTab.autoTagIds : undefined,
 				collection_ids: currentTab.autoCollectionIds?.length ? currentTab.autoCollectionIds : undefined,
 				variables: variablesResult.variables,
@@ -2090,21 +2056,17 @@
 			tabId={currentTab.id}
 			presetVersion={currentTabPresetVersion}
 			availableModes={activeTabModes}
-			multiBackend={currentTabHasMultipleBackends}
 			on:generationcomplete={() => lastGenerationsRefreshSignal++}
 		>
 			<GenerationSettingsPanel
 				slot="settings"
 				tabId={currentTab.id}
 				presetId={currentTab.selectedPreset ?? undefined}
-				presetEngine={currentTabPresetEngine}
 				mode={currentTab.selectedMode ?? undefined}
 				bind:autoTagIds={currentTab.autoTagIds}
 				bind:autoCollectionIds={currentTab.autoCollectionIds}
 				soundOnComplete={currentTab.soundOnComplete}
 				soundOnError={currentTab.soundOnError}
-				selectedBackendId={currentTab.selectedBackendId ?? null}
-				onBackendEligibilityChange={(visible) => (currentTabHasMultipleBackends = visible)}
 			/>
 			<LastGenerationsDrawer
 				slot="lastGenerations"

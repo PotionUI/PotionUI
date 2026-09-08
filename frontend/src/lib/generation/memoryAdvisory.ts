@@ -35,7 +35,6 @@ export interface MemoryAdvisoryInput {
 	mode?: string;
 	formName?: string;
 	formData: Record<string, unknown>;
-	backendId?: string | null;
 }
 
 export type MemoryAdvisoryStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -64,7 +63,6 @@ function inputKey(input: MemoryAdvisoryInput): string {
 		// video's response arrives.
 		mode: input.mode ?? null,
 		formName: input.formName ?? null,
-		backendId: input.backendId ?? null,
 		formData: input.formData
 	});
 }
@@ -92,8 +90,7 @@ export function createMemoryAdvisoryController() {
 				preset_id: input.presetId as string,
 				mode: input.mode,
 				form_name: input.formName,
-				form_data: input.formData,
-				backend_id: input.backendId ?? undefined
+				form_data: input.formData
 			});
 			if (disposed || key !== currentKey) return;
 			if (response.success && response.data) {

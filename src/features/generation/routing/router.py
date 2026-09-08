@@ -86,10 +86,7 @@ class GenerationRouter:
                 per backend.
             NoBackendForEngineError: the engine has no enabled backend at
                 all (raised by `rules.EnabledForEngine`'s empty seed reaching
-                the final pick), or a `requested_backend_id` collides with
-                `select_backend_for_generation`'s own pin check in a way
-                `rules.RequestPin` didn't already catch - see
-                `src.features.backends.backend_registry`.
+                the final pick) - see `src.features.backends.backend_registry`.
             NoBackendHoldsAllModelsError: `rules.ModelAvailability` found
                 model references no single candidate holds all of - the
                 detailed, user-facing explanation propagates unchanged.
@@ -116,7 +113,6 @@ class GenerationRouter:
 
         chosen = self._backend_registry.select_backend_for_generation(
             engine=request.engine,
-            backend_id=request.requested_backend_id,
             allowed_backend_ids=[c.backend_id for c in kept],
         )
 

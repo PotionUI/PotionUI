@@ -182,7 +182,6 @@ def _make_request():
     request.form_data = {'steps': 20}
     request.prompts = None
     request.mode = 'txt2img'
-    request.backend_id = None
     request.tag_ids = []
     request.segments = None
     return request

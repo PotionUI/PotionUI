@@ -72,8 +72,7 @@ export function toPersistedTab(t: Tab): PersistedTab {
 		formData: sanitizeForPersistence(t.formData) as Record<string, unknown>,
 		variables: sanitizeForPersistence(t.variables) as Tab['variables'],
 		modeStateByMode: sanitizeForPersistence(t.modeStateByMode) as Tab['modeStateByMode'],
-		seed: t.seed,
-		selectedBackendId: t.selectedBackendId ?? null
+		seed: t.seed
 	};
 }
 

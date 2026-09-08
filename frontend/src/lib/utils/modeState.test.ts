@@ -205,7 +205,7 @@ describe('seedModeStateFromSessionData', () => {
 describe('mergeCachedModesIntoSessionData', () => {
 	it('overlays cached modes onto the saved baseline, preserving fields the cache does not track', () => {
 		const baseline: ModeBasedSessionData = {
-			img2img: { prompt: 'stale dog', formData: { steps: 8 }, seed: 42, selectedBackendId: 'backend-1' }
+			img2img: { prompt: 'stale dog', formData: { steps: 8 }, seed: 42 }
 		};
 		const modeStateByMode = {
 			img2img: { ...emptyModeState(), prompt: 'a dog', formData: { steps: 12 } }
@@ -217,7 +217,6 @@ describe('mergeCachedModesIntoSessionData', () => {
 		expect(merged.img2img.formData).toEqual({ steps: 12 });
 		// Fields the live cache never captured stay exactly as the baseline had them.
 		expect(merged.img2img.seed).toBe(42);
-		expect(merged.img2img.selectedBackendId).toBe('backend-1');
 	});
 
 	it('adds a mode the baseline never had', () => {

@@ -907,7 +907,6 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		const restoredVariant = resolveVariant(ctx.modeVariants, modeData.selectedVariant ?? null);
 		const restoredModeState = seedModeStateFromSessionData(modeBasedData, ctx.currentMode);
 		const restoredPatch = buildSessionRestoreTabPatch(modeData, {
-			selectedBackendId: currentTabData?.selectedBackendId,
 			promptPanelWidth: currentTabData?.promptPanelWidth
 		});
 		const restoredTab = currentTabData && {

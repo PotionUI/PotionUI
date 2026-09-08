@@ -112,7 +112,6 @@ describe('saveTabsToLocalStorage / loadTabsFromLocalStorage', () => {
 			formData: { steps: 30 },
 			variables: {},
 			seed: 42,
-			selectedBackendId: 'backend-1',
 			activeGenerationId: null,
 			generation: { queue: [] } as any,
 			workbenchMaxHeight: '600',
@@ -140,7 +139,6 @@ describe('saveTabsToLocalStorage / loadTabsFromLocalStorage', () => {
 		expect(restoredTab.promptSegments).toEqual([{ id: 's1', content: 'a cat' }]);
 		expect(restoredTab.formData).toEqual({ steps: 30 });
 		expect(restoredTab.seed).toBe(42);
-		expect(restoredTab.selectedBackendId).toBe('backend-1');
 		expect(restoredTab.selectedVariant).toBe('default');
 	});
 

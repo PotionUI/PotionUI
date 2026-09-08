@@ -39,7 +39,7 @@ export function createGenerationsApi(client: AxiosInstance) {
 		 *  shape as `startGeneration`, minus everything that only matters once a
 		 *  generation actually commits (prompts/segments/tags/...). */
 		async previewGenerationMemory(
-			request: Pick<GenerationRequest, 'preset_id' | 'mode' | 'form_name' | 'form_data' | 'backend_id'>
+			request: Pick<GenerationRequest, 'preset_id' | 'mode' | 'form_name' | 'form_data'>
 		): Promise<APIResponse<MemoryPreviewResult>> {
 			const response = await client.post('/api/generations/memory-preview', request);
 			return response.data;

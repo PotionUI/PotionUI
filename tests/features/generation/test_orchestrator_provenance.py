@@ -246,7 +246,6 @@ def _request(form_data=None, mode='txt2img'):
     request.prompts = None
     request.prompt_state = None
     request.mode = mode
-    request.backend_id = None
     request.tag_ids = None
     request.segments = None
     request.variables = None

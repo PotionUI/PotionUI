@@ -157,7 +157,6 @@ def _make_request(video_director_doc):
     request.form_data = _form_data(video_director_doc)
     request.mode = "video"
     request.form_name = None
-    request.backend_id = None
     return request
 
 

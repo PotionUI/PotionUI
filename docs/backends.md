@@ -284,34 +284,31 @@ the preset's requirements?) before picking among them. See
 final pick the router (and any other caller) delegates to:
 
 ```python
-BackendRegistry.select_backend_for_generation(engine: str, backend_id: str | None = None) -> BaseBackend
+BackendRegistry.select_backend_for_generation(engine: str, allowed_backend_ids: list[str] | None = None) -> BaseBackend
 ```
 
 (`src/features/backends/backend_registry.py`). The algorithm, in order:
 
 1. **Candidates** — every backend whose `engine` equals the preset's `engine` *and* is `enabled`,
    sorted by descending `priority`. If the list is empty, raise.
-2. If the request supplied a **`backend_id`**, use that backend if and only if it is among the
-   candidates. Otherwise raise — a pin to an incompatible or disabled backend is an error, never a
-   silent fallback.
+2. If the router supplied **`allowed_backend_ids`** (the candidates its rules kept), narrow to
+   those. An empty intersection raises.
 3. Otherwise, the candidate flagged **`is_default`** for that engine.
 4. Otherwise, the highest-`priority` candidate.
 
-It returns a `BaseBackend` and never `None`. Both failure paths raise **`NoBackendForEngineError`**
+It returns a `BaseBackend` and never `None`. The failure path raises **`NoBackendForEngineError`**
 (defined in `backend_registry.py`, a `RuntimeError` subclass):
 
 ```
 No enabled backend provides engine 'comfyui'. Available engines: ['native'].
 Is the plugin providing 'comfyui' enabled, and a backend configured for it?
-
-Requested backend 'comfyui-2' is not an enabled backend for engine 'comfyui'
 ```
 
 There is no cross-engine fallback. A `comfyui` preset never quietly runs on the native GPU when the
 ComfyUI server is down — the pipes would not exist. The failure is loud by design.
 
-`backend_id` on the generation request is unchanged and remains optional. It exists so a user with
-two ComfyUI backends can pin a run to a specific one.
+A generation request never names a backend. The backend is always the router's decision; a user
+with two ComfyUI backends sees which one won and why in the status feed and in Admin → Generations.
 
 ## Scheduling policy
 
@@ -604,10 +601,6 @@ server is actually listening on the configured `host:port`, that `secure` matche
 (`http` vs `https`), and that an `api_key` is set if the server requires one. `host` must be
 reachable *from the PotionUI process* — `127.0.0.1` means the PotionUI machine, which is not the
 pod.
-
-**`NoBackendForEngineError: Requested backend '<id>' is not an enabled backend for engine '<engine>'`**
-Selection step 2: the pinned `backend_id` must be enabled and its `engine` must equal the preset's
-`engine`. Pinning a `native` backend on a `comfyui` preset is an error, not a fallback.
 
 **A preset runs on the wrong backend.**
 Selection ignores directory names entirely. Read `engine:` in the preset's `preset.yml`, then check

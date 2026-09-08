@@ -74,16 +74,14 @@ describe('buildSessionRestoreTabPatch', () => {
 		expect(buildSessionRestoreTabPatch({ prompt: '', layoutMode: 'three' }).layoutMode).toBe('three');
 	});
 
-	it('falls back to the caller-provided backend id and panel width when the session has none', () => {
-		const patch = buildSessionRestoreTabPatch({ prompt: '' }, { selectedBackendId: 'backend-1', promptPanelWidth: 500 });
-		expect(patch.selectedBackendId).toBe('backend-1');
+	it('falls back to the caller-provided panel width when the session has none', () => {
+		const patch = buildSessionRestoreTabPatch({ prompt: '' }, { promptPanelWidth: 500 });
 		expect(patch.promptPanelWidth).toBe(500);
 	});
 
-	it('prefers the session-saved backend id and panel width over the fallback', () => {
-		const modeData: SessionData = { prompt: '', selectedBackendId: 'backend-2', promptPanelWidth: 600 };
-		const patch = buildSessionRestoreTabPatch(modeData, { selectedBackendId: 'backend-1', promptPanelWidth: 500 });
-		expect(patch.selectedBackendId).toBe('backend-2');
+	it('prefers the session-saved panel width over the fallback', () => {
+		const modeData: SessionData = { prompt: '', promptPanelWidth: 600 };
+		const patch = buildSessionRestoreTabPatch(modeData, { promptPanelWidth: 500 });
 		expect(patch.promptPanelWidth).toBe(600);
 	});
 

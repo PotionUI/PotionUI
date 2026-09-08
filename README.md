@@ -349,6 +349,23 @@ The two most recent releases; older history lives in the
   no effect is diagnosed instead of silently ignored; the host RAM reserve
   scales with the machine; an experimental MiniMax-H3 VDN preset adds hybrid
   attention.
+- Presets and templating: the authoring guide is split into `docs/presets/` with a
+  tutorial that walks the real eight-pipe Z-Image chain, and two pages generated
+  from code, `docs/pipes.md` (every pipe's name, inputs, outputs and configuration)
+  and `docs/preset-context.md` (the template context, filters and vocabularies),
+  kept in sync by `docs_lint`; `preset_new.py --family` scaffolds a family's real
+  pipe chain; the linter checks pipeline.yml (pipe names, configuration keys,
+  input wiring, per-variant fields, stale `| default()` literals) and
+  `preset_lint --render` renders every mode through the real processor; the
+  render context gains `generation.profile` and loses four unused roots; an
+  `@config:` typo is a load error; 866 dead form guards are gone from the
+  shipped presets; a `strip_model_dir` filter replaces the ComfyUI presets'
+  path-stripping chains; the Pipes and Output Types reference pages in Help →
+  Documentation are complete and grouped by family.
+- Fixes: generation history never records a model's internal path (existing rows
+  migrated); applying a chat change to a segment with a phrasebook chip no
+  longer shows the chip twice; the chained Wan video generator declares its NAG
+  keys.
 - Admin: presets declare requirements (nodes, model files, VRAM) that are
   checked per backend; generation routing is traceable, with a Routing panel on
   each generation; per-backend queue scheduling can be fair across users; a

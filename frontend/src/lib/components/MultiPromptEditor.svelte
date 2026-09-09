@@ -4,6 +4,7 @@
 	import type { Segment } from '$lib/types/segments';
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
 	import SegmentedPromptEditor from './SegmentedPromptEditor.svelte';
+	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import { flattenRichSegments } from '$lib/utils/richSegments';
 
 	export let promptTabs: PromptTabData[] = [];
@@ -16,6 +17,7 @@
 	export let onVariableDefChange: ((name: string, def: VariableDef) => void) | undefined = undefined;
 	export let onOpenVariableManager: (() => void) | undefined = undefined;
 	export let activeTriggerWords: string[] = [];
+	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
 
 	const dispatch = createEventDispatcher();
 
@@ -97,6 +99,7 @@
 				{onVariableDefChange}
 				{onOpenVariableManager}
 				{activeTriggerWords}
+				{presetSegmentTemplates}
 				on:segmentsChange={(e) => handleSegmentsChange(i, e.detail)}
 				on:negativeSegmentsChange={(e) => handleNegativeSegmentsChange(i, e.detail)}
 			/>

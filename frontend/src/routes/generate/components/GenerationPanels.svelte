@@ -22,6 +22,7 @@
 	import type { Tab, DirectorRunState } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
+	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import type { PresetInfo, PresetModeVariant } from '$lib/services/api/index';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 
@@ -49,6 +50,9 @@
 	export let numPrompts: number;
 	export let negativePromptSupported = true;
 	export let negativeInert = false;
+	/** Resolved on the page from the preset's `vars.prompt`; passed straight
+	 *  through to every PromptSection instance below. */
+	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
 	// Promptless modes (upscale, slow-motion, …) hide the prompt pane entirely.
 	// In three-pane layout this degrades to the two-pane arrangement (form |
 	// workbench) with the workbench taking the freed space.
@@ -323,6 +327,7 @@
 					{numPrompts}
 					{negativePromptSupported}
 					{negativeInert}
+					{presetSegmentTemplates}
 					spacingClass=""
 				/>
 			</div>
@@ -423,6 +428,7 @@
 							{numPrompts}
 							{negativePromptSupported}
 							{negativeInert}
+							{presetSegmentTemplates}
 							spacingClass=""
 						/>
 					</div>
@@ -477,6 +483,7 @@
 							{numPrompts}
 							{negativePromptSupported}
 							{negativeInert}
+							{presetSegmentTemplates}
 							spacingClass="mt-6"
 						/>
 					{/if}

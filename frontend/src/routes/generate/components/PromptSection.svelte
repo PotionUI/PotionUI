@@ -5,6 +5,7 @@
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import type { VariablesMap, VariableDef } from '$lib/utils/variableDefs';
+	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
 	import MultiPromptEditor from '$lib/components/MultiPromptEditor.svelte';
 	import PromptRelayEditor from '$lib/components/PromptRelayEditor.svelte';
@@ -41,6 +42,9 @@
 	export let numPrompts: number;
 	export let negativePromptSupported = true;
 	export let negativeInert = false;
+	/** Segment Templates the tab's preset declares for its selected mode --
+	 *  resolved on the page and merged into the apply picker here. */
+	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
 	export let spacingClass: string = 'mt-4';
 	let variablesModalOpen = false;
 
@@ -127,6 +131,7 @@
 			onVariableDefChange={handleVariableDefChange}
 			onOpenVariableManager={openVariableManager}
 			{activeTriggerWords}
+			{presetSegmentTemplates}
 			on:tabsChange={(e) => tabHandlers.handlePromptTabsChange(e.detail)}
 			on:activeTabChange={(e) => tabHandlers.handleActivePromptTabChange(e.detail)}
 		/>
@@ -145,6 +150,7 @@
 				onVariableDefChange={handleVariableDefChange}
 				onOpenVariableManager={openVariableManager}
 				{activeTriggerWords}
+				{presetSegmentTemplates}
 				on:segmentsChange={(e) => tabHandlers.handlePromptSegmentsChange(e.detail)}
 				on:negativeSegmentsChange={(e) => tabHandlers.handleNegativePromptSegmentsChange(e.detail)}
 			/>

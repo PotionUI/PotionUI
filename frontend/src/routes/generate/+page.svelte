@@ -58,6 +58,7 @@
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import { resolveVariant } from '$lib/utils/variants';
 	import { isPromptlessMode } from '$lib/utils/promptlessMode';
+	import { resolvePresetSegmentTemplates } from '$lib/utils/presetSegmentTemplates';
 	import { toasts } from '$lib/stores/toast';
 	import { buildActiveTabReuseUpdate } from '$lib/utils/historyReuse';
 	import type { GenerationHistoryItem } from '$lib/types/history';
@@ -541,6 +542,13 @@
 	// Get num_prompts for current preset (default 1)
 	$: numPrompts = presetVars[currentTab.selectedPreset || '']?.num_prompts || 1;
 	$: currentPresetVars = presetVars[currentTab.selectedPreset || ''] || {};
+	// Preset-declared Segment Templates for the tab's selected mode — merged into
+	// the segment editors' apply picker beside the user's own library.
+	$: presetSegmentTemplates = resolvePresetSegmentTemplates(
+		currentTab.selectedPreset,
+		currentPresetVars.prompt,
+		currentTab.selectedMode
+	);
 	$: negativePromptSupported =
 		currentPresetVars.supports_negative_prompt !== false &&
 		currentPresetVars.negative_prompt_supported !== false;
@@ -1932,6 +1940,7 @@
 						{videoDirectorCaps}
 						{musicDirectorActive}
 						{musicDirectorCaps}
+						{presetSegmentTemplates}
 						{numPrompts}
 						{negativePromptSupported}
 						{negativeInert}
@@ -1986,6 +1995,7 @@
 						{numPrompts}
 						{negativePromptSupported}
 						{negativeInert}
+						{presetSegmentTemplates}
 						promptless={promptlessActive}
 						{isActive}
 						{leftPanelWidth}

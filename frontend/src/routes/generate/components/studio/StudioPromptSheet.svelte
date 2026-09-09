@@ -4,6 +4,7 @@
 	import type { Tab } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
+	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 
 	export let tab: Tab;
 	export let tabHandlers: {
@@ -22,6 +23,7 @@
 	export let numPrompts: number;
 	export let negativePromptSupported: boolean;
 	export let negativeInert: boolean;
+	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
 	export let onClose: () => void;
 
 	$: segmentCount = tab.promptSegments?.length ?? 0;
@@ -46,6 +48,7 @@
 			{videoDirectorCaps}
 			{musicDirectorActive}
 			{musicDirectorCaps}
+			{presetSegmentTemplates}
 			{numPrompts}
 			{negativePromptSupported}
 			{negativeInert}

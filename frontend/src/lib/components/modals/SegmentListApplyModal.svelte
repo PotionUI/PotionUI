@@ -3,24 +3,28 @@
 	import { api } from '$lib/services/api';
 	import type { Prompt, SegmentTemplate } from '$lib/types/segments';
 	import { flattenRichSegments, type SegmentApplyMode } from '$lib/utils/richSegments';
+	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import { logger } from '$lib/utils/logger';
 	import BaseModal from './BaseModal.svelte';
 	import ConfirmModal from './ConfirmModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, Spinner, Alert } from '$lib/components/ui';
+	import { Badge, Button, Spinner, Alert } from '$lib/components/ui';
 
 	export let isOpen = false;
 	export let kind: 'prompt' | 'template' = 'prompt';
 	export let targetHasMeaningfulContent = false;
+	/** Templates the selected preset declares. They are already in memory on the
+	 *  generate page, so they join the fetched list here instead of being loaded. */
+	export let presetTemplates: PresetSegmentTemplate[] = [];
 
-	type LibraryItem = Prompt | SegmentTemplate;
+	type LibraryItem = Prompt | SegmentTemplate | PresetSegmentTemplate;
 
 	const dispatch = createEventDispatcher<{
 		close: void;
 		apply: { item: LibraryItem; mode: SegmentApplyMode };
 	}>();
 
-	let items: LibraryItem[] = [];
+	let loadedItems: LibraryItem[] = [];
 	let loading = false;
 	let error = '';
 	let searchTerm = '';
@@ -30,6 +34,7 @@
 	let showReplaceConfirmation = false;
 	const applyModes: SegmentApplyMode[] = ['append', 'prepend', 'replace'];
 
+	$: items = kind === 'template' ? [...presetTemplates, ...loadedItems] : loadedItems;
 	$: selectedItem = items.find((item) => item.id === selectedId) || null;
 	$: normalizedSearch = searchTerm.trim().toLowerCase();
 	$: filteredItems = items.filter((item) => {
@@ -65,6 +70,10 @@
 		return 'description' in item ? item.description || '' : '';
 	}
 
+	function isPresetItem(item: LibraryItem): boolean {
+		return 'origin' in item && item.origin === 'preset';
+	}
+
 	function resetSelection() {
 		searchTerm = '';
 		selectedId = null;
@@ -79,18 +88,18 @@
 			if (kind === 'prompt') {
 				const response = await api.listPrompts({ limit: 100 });
 				if (!response.success) throw new Error(response.error || 'Failed to load Prompts');
-				items = response.data?.items || [];
+				loadedItems = response.data?.items || [];
 			} else {
 				const response = await api.listSegmentTemplates();
 				if (!response.success) {
 					throw new Error(response.error || 'Failed to load Segment Templates');
 				}
-				items = response.data?.templates || [];
+				loadedItems = response.data?.templates || [];
 			}
 		} catch (loadError) {
 			logger.error(`Failed to load ${kind} library:`, loadError);
 			error = loadError instanceof Error ? loadError.message : `Failed to load ${kind} library`;
-			items = [];
+			loadedItems = [];
 		} finally {
 			loading = false;
 		}
@@ -163,7 +172,12 @@
 					>
 						<div class="flex items-start justify-between gap-3">
 							<div class="min-w-0 flex-1">
-								<div class="truncate text-sm font-medium text-fg">{itemName(item)}</div>
+								<div class="flex items-center gap-2">
+									<span class="truncate text-sm font-medium text-fg">{itemName(item)}</span>
+									{#if isPresetItem(item)}
+										<Badge size="sm" class="flex-shrink-0">Preset</Badge>
+									{/if}
+								</div>
 								<div class="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">
 									{itemPreview(item) || 'Blank starter segments'}
 								</div>

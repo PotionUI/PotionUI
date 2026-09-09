@@ -6,6 +6,16 @@ and other common testing utilities.
 """
 
 import os
+
+# Cap CPU threads for the whole test process BEFORE torch is imported anywhere:
+# torch otherwise spawns one intra-op thread per core inside every test, and a
+# single pytest run then saturates the shared dev box. Override with
+# POTIONUI_TEST_THREADS (0 = leave the environment alone).
+_test_threads = os.environ.get("POTIONUI_TEST_THREADS", "2")
+if _test_threads != "0":
+    for _var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        os.environ.setdefault(_var, _test_threads)
+
 import pytest
 import sqlite3
 import tempfile

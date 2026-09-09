@@ -84,6 +84,12 @@ def test_env_toggle_parsing(monkeypatch):
     assert tc.torch_compile_enabled() is True
     monkeypatch.setenv(tc.NATIVE_TORCH_COMPILE_ENV, "auto")
     assert tc.torch_compile_enabled() is True
+    for spelling in ("1", "true", "YES"):
+        monkeypatch.setenv(tc.NATIVE_TORCH_COMPILE_ENV, spelling)
+        assert tc.torch_compile_enabled() is True
+    for spelling in ("0", "false", "No"):
+        monkeypatch.setenv(tc.NATIVE_TORCH_COMPILE_ENV, spelling)
+        assert tc.torch_compile_enabled() is False
     monkeypatch.setenv(tc.NATIVE_TORCH_COMPILE_ENV, "nonsense")
     assert tc.torch_compile_enabled() is False
 

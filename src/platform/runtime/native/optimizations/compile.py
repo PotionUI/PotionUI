@@ -98,9 +98,9 @@ def torch_compile_enabled() -> bool:
     if _compile_override is not None:
         return _compile_override
     policy = os.environ.get(NATIVE_TORCH_COMPILE_ENV, "off").strip().lower()
-    if policy == "off":
+    if policy in ("off", "0", "false", "no"):
         return False
-    if policy not in ("on", "auto"):
+    if policy not in ("on", "auto", "1", "true", "yes"):
         global _warned_bad_compile_env
         if not _warned_bad_compile_env:
             _warned_bad_compile_env = True

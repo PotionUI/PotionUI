@@ -31,7 +31,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 - **Video and Music Directors** — compose shots and songs in sections instead
   of one giant prompt.
 
-*Alpha 0.0.4 · Linux x86_64 + NVIDIA · Windows via WSL2 or Docker ·
+*Alpha 0.0.5 · Linux x86_64 + NVIDIA · Windows via WSL2 or Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Ko-fi](https://ko-fi.com/A3B325D031)*
 
 ## 60 seconds to first image
@@ -217,7 +217,7 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Runs on Linux x86_64 with an NVIDIA GPU** — that's the tested 0.0.4
+> **Runs on Linux x86_64 with an NVIDIA GPU** — that's the tested 0.0.5
 > matrix. On Windows, use WSL2 or Docker Desktop (native Windows won't even
 > install yet). Details in [Supported platforms](#supported-platforms).
 
@@ -255,7 +255,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 | Platform                    | Status                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.4                                                              |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.5                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
 | Windows native              | No — the install pulls Linux-only packages (e.g. `uvloop`); use WSL2 or Docker Desktop      |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
@@ -323,6 +323,70 @@ Start with the in-app documentation browser, or read the Markdown directly:
 
 The two most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
+
+### 0.0.5 — 2026-09-09
+
+- Native engine: LoRAs on fp8 checkpoints no longer slow sampling down — the adapter
+  factors stay resident on the GPU and every adapter of a layer is applied to the
+  layer's output in one fused step, so a stack of LoRAs costs a few percent instead of
+  multiplying the step time; a LoRA file retrained in place is picked up on the next
+  generation instead of the old version staying merged until the model reloads; parsed
+  LoRA files are cached in RAM; each generation logs one line with LoRA load and apply
+  timing.
+- Native engine: a clip that looks too large for the card is no longer refused up
+  front — the VRAM estimate only sizes how much of the model stays resident, the first
+  sampling step recovers from an out-of-memory by reclaiming cache and streaming the
+  model from RAM, and only a genuine failure reports what was actually free with a
+  hint of what would fit; free VRAM is judged after the allocator's idle pool, so the
+  clip after a large one is not refused for memory that was never taken.
+- MiniMax-H3: video decode shows up as its own stage in the profile with chunk and
+  tile counts, the tiles of a chunk decode as one batched pass, and the decode tile
+  size is configurable per preset (256 reference, 512, or untiled).
+- Recipes: recipes are their own feature with an Admin → Recipes page — the catalog
+  with a readiness badge per recipe, a detail with steps, models and presets served,
+  run history, and Install with live progress; the setup wizard uses the same runner;
+  plugins can contribute recipe step kinds; the empty-state setup links on Generate,
+  Models and the preset picker become Install models for admins; guided setup asks for
+  the models location before any download.
+- History: a Tools menu on the selection bar groups tools by category — Compare,
+  Stitch and Download .zip — and plugins can add their own; Stitch composes the
+  selected images into one PNG with a chosen layout, tile size and background and a
+  pickable parameters strip, with a zoomable preview; previous/next navigation inside
+  the generation details modal with arrow keys that continue across generations.
+- Prompt segments: a segment can carry a prefix and a suffix joined byte-for-byte
+  around its text, editable in the segment details and visible on the card; a preset
+  can ship segment templates (per mode) that appear in the apply picker beside your
+  own, and the current cards can be saved as your own Segment Template from the
+  composer.
+- Admin: Backups on System Settings > Storage — Backup now with the saved tier, the
+  archive list, destination and retention, and the cron line for scheduled backups,
+  backed by `potionui backup` and `potionui restore` with a consistent snapshot, a
+  versioned manifest and a schema guard; Thumbnails panel with Compact, Balanced and
+  Full profiles, disk usage estimates and a regenerate job; a housekeeping pass prunes
+  storage/tmp by age and applies retention to run reports and LLM traces; an
+  admin-only log tail of the rotating server log with a level filter.
+- Reliability: one logging setup for every entry point with a size-rotated
+  storage/logs/potionui.log and uvicorn lines folded in; credentials and validation
+  input are kept out of request logs; model list and download endpoints no longer
+  block the event loop during an index run; uploads carry a content hash and identical
+  re-uploads reuse the existing file.
+- Chat: memory no longer falls back silently to global scope and gains a mode scope;
+  the chat shows when a conversation was started on another page's scope; MCP and chat
+  model tools see exactly the models their user may access; Documentation gains a live
+  MCP Tools reference.
+- Plugins: the NVIDIA RTX upscale plugin ships in the marketplace; plugins can declare
+  history tools and recipe step kinds; a plugin's ComfyUI pipe fails the generation
+  with the field named instead of swallowing errors.
+- Generate: the page no longer shows which backend runs a generation; the floating
+  workbench keeps tooltips above its backdrop and swaps cleanly with the floating
+  form; adding models to a collection refreshes the sidebar counts.
+- Fixes: bundle import rewrites only declared model-reference fields; the inspiration
+  detail modal updates its counts in place; download filenames from providers are
+  contained; JSON search highlights render without raw HTML; `NATIVE_TORCH_COMPILE`
+  accepts 1/true/yes.
+- Upgrading: migration 024 adds prefix/suffix columns to the three segment tables; the
+  server log moves to storage/logs/potionui.log (see README); the setup wizard's run
+  responses gain a `mode` field.
 
 ### 0.0.4 — 2026-09-08
 
@@ -394,50 +458,6 @@ The two most recent releases; older history lives in the
   nunchaku variant, the Krea-2 enhancer and the Z-Image post-processing chain
   were removed; migration 018 refuses to apply while two accounts differ only by
   letter case.
-
-### 0.0.3 — 2026-09-02
-
-- Remote native workers: Add Backend creates a remote worker, connects one you
-  run yourself, or provisions a pod through a provider plugin (RunPod ships in
-  the marketplace) with a live stage timeline; a heartbeat monitor tracks the
-  pod, pauses the backend when it stops and Start brings it back.
-- Remote backends get Infrastructure and Models tabs; the Models tab lists
-  what is on the worker with its depot path per file, pushes missing models
-  from this machine with per-file progress, and downloads can land straight
-  on a worker. Remote runs return the same outputs, previews and media as
-  local.
-- Install profiles: the launcher offers local, hybrid and remote installs plus
-  a worker subcommand for a GPU box that serves another instance.
-- 3D generation: TRELLIS.2 image-to-mesh runs on the native engine with a
-  marketplace preset; meshes get automatic thumbnails, an interactive viewer
-  in History (wireframe, materials, camera presets, screenshot) and a 3D
-  media-type filter.
-- LoRAs: step-windowed LoRAs on Krea-2 apply between chosen sampling steps;
-  strength becomes a recommended range shown in the picker; rows are
-  reorganized with tooltips on every action. Model pickers recommend
-  downloadable variants (bf16, fp8, nvfp4, int8) across nine native families.
-- Prompt library: import styles.csv, Fooocus style JSON, wildcard YAML, plain
-  lines and image metadata (A1111, ComfyUI, InvokeAI, NovelAI) with
-  auto-detection; export to styles.csv; a prompt can be assigned a catalog
-  model; new prompts are created directly in the workspace instead of a modal.
-- Phrasebook: find and replace across the whole module with highlighted
-  matches and a server-side preview; batch activate, deactivate, move and
-  delete; text search from the category pane with inline quick edit; search
-  and toolbar merge into one header; the category panel gains Overview and
-  Preview images tabs.
-- Admin: Plugins and Downloads become master-detail lists; every admin detail
-  panel shares one layout; Backends remembers the selected backend and tab in
-  the URL; a saved provider API key takes effect immediately; secret plugin
-  settings render as password fields; downloads can be retried after
-  completion or cancel.
-- Mobile: Generate becomes the Studio camera view with sheets instead of the
-  swipe carousel; modals fit the phone with safe-area footers.
-- Chat: pasting an image into the composer attaches it.
-- Generate: a New workspace button resets to a single fresh tab, asking to
-  save or discard when dirty; variable and choice chip menus are no longer
-  clipped by the segment card.
-- Inspirations use justified rows with native aspect ratios; login no longer
-  flashes the form mid-redirect.
 
 ## Contributing
 

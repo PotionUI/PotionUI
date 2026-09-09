@@ -479,18 +479,29 @@ def _add_lora_output_branch(
 
     out2d = out.reshape(-1, out_features)
     rows = out2d.shape[0]
+    # Prepared once for the whole call, not per chunk: `_stage_runtime_deltas`
+    # keeps a staged factor in the adapter file's own dtype (fp16 for most
+    # trainers) while `out.dtype` is the compute dtype (bf16), so this `.to()`
+    # does NOT short-circuit -- it is a real cast, and a 12-chunk 24576-wide
+    # layer paid it 2x per delta per chunk. Mirrors `_lora_output_branch`.
+    prepared = [
+        (
+            d.down.to(device=x2d.device, dtype=out.dtype),
+            d.up.to(device=x2d.device, dtype=out.dtype),
+            float(d.scale) * float(d.alpha) / d.down.shape[0],
+            d.target_slice,
+        )
+        for d in deltas
+    ]
     chunk_rows = max(1, _NVFP4_LORA_BRANCH_CHUNK_BYTES
                      // max(1, out_features * out.element_size()))
     for start_row in range(0, rows, chunk_rows):
         end_row = min(start_row + chunk_rows, rows)
         xc = x2d[start_row:end_row].to(out.dtype)
-        for d in deltas:
-            down = d.down.to(device=xc.device, dtype=out.dtype)
-            up = d.up.to(device=xc.device, dtype=out.dtype)
-            coeff = float(d.scale) * float(d.alpha) / d.down.shape[0]
+        for down, up, coeff, target_slice in prepared:
             term = (xc @ down.t()) @ up.t()
-            if d.target_slice is not None:
-                _dim, col, length = d.target_slice
+            if target_slice is not None:
+                _dim, col, length = target_slice
                 out2d[start_row:end_row, col:col + length].add_(term, alpha=coeff)
             else:
                 out2d[start_row:end_row].add_(term, alpha=coeff)

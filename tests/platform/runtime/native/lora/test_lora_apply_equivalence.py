@@ -16,6 +16,8 @@ its deltas attached exactly as mapped, on the CPU, in the file's own dtype.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 import torch
 
@@ -26,7 +28,9 @@ from src.platform.runtime.native.lora.apply import (
     _stage_runtime_deltas,
 )
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
+from vendor.gpl.comfyui import ops as _ops_module
 from vendor.gpl.comfyui.ops import (
+    _add_lora_output_branch,
     apply_lora_deltas,
     partition_output_branch_deltas,
     pick_operations,
@@ -233,3 +237,61 @@ class TestActivationSideIsEquivalentToTheWeightSide:
         with_none, empty = _fp8_linear(), _fp8_linear()
         empty.lora_deltas = []
         assert torch.equal(_forward(empty, x), _forward(with_none, x))
+
+
+class _CastCountingTensor(torch.Tensor):
+    """Counts the ``.to()`` calls made against a staged LoRA factor.
+
+    ``_stage_runtime_deltas`` deliberately leaves a factor in the adapter
+    file's dtype, so the output branch's ``.to(out.dtype)`` is a real cast
+    rather than a short-circuit -- which makes "once per call" vs "once per
+    chunk" a difference the forward actually pays for.
+    """
+
+    casts: list
+
+    def to(self, *args, **kwargs):  # type: ignore[override]
+        self.casts[0] += 1
+        return torch.Tensor.to(self, *args, **kwargs)
+
+
+def _counted_deltas(casts: list, count: int = 3):
+    torch.manual_seed(311)
+    deltas = []
+    for i in range(count):
+        factors = []
+        for raw in ((torch.randn(RANK, HIDDEN) * 0.1).to(torch.float16),
+                    (torch.randn(OUT, RANK) * 0.1).to(torch.float16)):
+            factor = raw.as_subclass(_CastCountingTensor)
+            factor.casts = casts
+            factors.append(factor)
+        deltas.append(LoraDelta(down=factors[0], up=factors[1],
+                                alpha=float(RANK), scale=0.3 + 0.1 * i))
+    return deltas
+
+
+def _run_output_branch(deltas, x, chunk_bytes):
+    out = torch.zeros(x.shape[0], OUT, dtype=torch.bfloat16)
+    with torch.no_grad(), patch.object(
+        _ops_module, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", chunk_bytes,
+    ):
+        return _add_lora_output_branch(out, x, deltas, OUT)
+
+
+def test_output_branch_casts_each_factor_once_per_call_not_per_chunk():
+    casts: list = [0]
+    deltas = _counted_deltas(casts)
+    rows = 200
+    x = torch.randn(rows, HIDDEN, dtype=torch.bfloat16)
+
+    casts[0] = 0
+    single = _run_output_branch(deltas, x, rows * OUT * 2 * 4)
+    single_casts = casts[0]
+
+    casts[0] = 0
+    chunked = _run_output_branch(deltas, x, 8 * OUT * 2)
+    chunked_casts = casts[0]
+
+    assert torch.equal(single, chunked)
+    # two factors per delta, cast once each, however many chunks it took.
+    assert single_casts == chunked_casts == 2 * len(deltas)

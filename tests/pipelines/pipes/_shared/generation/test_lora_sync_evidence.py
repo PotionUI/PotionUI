@@ -13,6 +13,9 @@ case) the weight tensor.
 
 from __future__ import annotations
 
+import logging
+import types
+
 import pytest
 import torch
 
@@ -384,3 +387,56 @@ def test_process_reemits_stored_evidence_on_a_cache_hit_without_reapplying(
     _run(pipe_cls, [VALID, BOGUS], models, rec2)
     assert len(rec2.warnings) == 1, "the cache-HIT reconciliation must still re-emit"
     assert len(calls) == 2, "an unchanged stack on a cache HIT must not recompute the mapping"
+
+
+# -- per-generation cost reporting -------------------------------------------
+
+def test_the_summary_line_names_the_mode_split_and_where_the_deltas_live(
+    dit, fake_lora_files, caplog,
+):
+    """A generation that pays a per-forward LoRA tax and one that does not are
+    indistinguishable from the matching diagnostics alone -- both report the
+    same params patched. The mode split is what tells them apart."""
+    with caplog.at_level(logging.INFO):
+        sync_loras(dit, [_entry(VALID)], "fp-a", _apply, log_tag="TEST")
+
+    [line] = [r.getMessage() for r in caplog.records if "loras: " in r.getMessage()]
+    assert line.startswith("[TEST] loras: 1 files, ")
+    assert "in-place 1 / runtime 0 linears" in line   # fp32 DiT -> baked at load
+    assert "delta tensors on none (0.0 MB)" in line
+
+
+def test_read_cost_is_carried_on_each_files_own_evidence(dit, fake_lora_files):
+    (report,) = sync_loras(dit, [_entry(VALID)], "fp-a", _apply, log_tag="TEST")
+
+    assert report.source_bytes == (192 * 4 + 4 * 64) * 4 + 4   # up + down + scalar alpha
+    assert report.load_seconds >= 0.0
+    assert report.apply_seconds > 0.0
+
+
+def test_a_cache_hit_still_reports_the_cost_of_the_stack_it_is_reusing(
+    dit, fake_lora_files, caplog,
+):
+    sync_loras(dit, [_entry(VALID)], "fp-a", _apply, log_tag="TEST")
+    caplog.clear()
+
+    with caplog.at_level(logging.INFO):
+        sync_loras(dit, [_entry(VALID)], "fp-a", _apply, log_tag="TEST")
+
+    [line] = [r.getMessage() for r in caplog.records if "loras: " in r.getMessage()]
+    assert line.endswith("(reused)")
+    assert "in-place 1 / runtime 0 linears" in line
+
+
+def test_the_sync_branch_taken_is_marked_for_the_profiler(dit, fake_lora_files, monkeypatch):
+    import src.pipelines.pipes._shared.generation.loader_lifecycle as lifecycle_mod
+
+    marks: list = []
+    monkeypatch.setattr(lifecycle_mod, "get_profiler", lambda: types.SimpleNamespace(
+        mark=lambda event, **fields: marks.append((event, fields))))
+
+    sync_loras(dit, [_entry(VALID)], "fp-a", _apply, log_tag="TEST")
+    sync_loras(dit, [_entry(VALID)], "fp-a", _apply, log_tag="TEST")
+    sync_loras(dit, [_entry(VALID)], "fp-b", _apply, log_tag="TEST")
+
+    assert [f["branch"] for e, f in marks if e == "lora.sync"] == ["reapply", "noop", "reapply"]

@@ -45,10 +45,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from src.platform.observability.profiling import get_profiler
 from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.lora import AdapterApplication, remove_loras
+from src.pipelines.contracts import logger
 from src.pipelines.pipes._shared.generation.loader_helpers import (
     ComponentProgress,
+    describe_lora_stack,
     emit_lora_application_diagnostics,
 )
 
@@ -176,8 +179,15 @@ def sync_loras(
         )
     if getattr(dit_model, "_active_lora_fp", None) == lora_fp:
         cached = getattr(dit_model, "_active_lora_application", ())
+        get_profiler().mark("lora.sync", branch="noop", fingerprint=lora_fp)
+        if cached:
+            # The stack is still patched into the resident weights, so the
+            # generation runs with exactly the cost this describes even though
+            # nothing was read or applied on this pass.
+            logger.info("[%s] %s (reused)", log_tag, describe_lora_stack(cached))
         emit_lora_application_diagnostics(generation_outputs, cached, log_tag)
         return cached
+    get_profiler().mark("lora.sync", branch="reapply", fingerprint=lora_fp)
     dit_model.bump_weight_revision(f"lora stack -> {lora_fp}")
     dit_model._active_lora_fp = None  # noqa: SLF001 - the loader's stamp, not the wrapper's private state
     dit_model._active_lora_application = ()  # noqa: SLF001 - cleared before the mutation, same as the stamp

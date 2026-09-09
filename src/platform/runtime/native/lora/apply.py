@@ -20,7 +20,11 @@ safely patched in place — this is what "composes with the ops layer" means:
     attached to the Linear's ``lora_deltas`` list and applied to the
     *dequantised, compute-dtype* weight each forward
     (:func:`vendor.gpl.comfyui.ops.apply_lora_deltas`). Quantized storage is never
-    touched.
+    touched. Their rank-sized ``up``/``down`` factors are staged onto the
+    layer's compute device at apply time (see :func:`_stage_runtime_deltas`) —
+    a LoRA state dict is read to CPU (mmapped from the safetensors file), so
+    leaving them there makes every forward re-copy each factor host-to-device
+    before it can multiply them.
 
 Both modes share the same delta math, so a quantized forward and an in-place
 forward with the same LoRA agree to within dequant/storage-rounding tolerance.
@@ -29,13 +33,15 @@ forward with the same LoRA agree to within dequant/storage-rounding tolerance.
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
 import torch
 import torch.nn as nn
 
+from src.platform.observability.profiling import get_profiler
 from vendor.gpl.comfyui.ops import apply_lora_deltas
 from .key_mapping import LoraDelta, map_lora_keys
 
@@ -104,6 +110,27 @@ class AdapterApplication:
     zero defaults must not read as "every key matched". ``None`` (the normal
     case) means the evidence came from a real mapping attempt and
     ``unmatched_keys``/``ignored`` already say everything there is to say.
+
+    ``inplace_params``/``runtime_params`` split ``matched_params`` by which
+    of the two application modes each target took, and ``staged_bytes``/
+    ``staged_device`` say how much rank-sized delta this file put on which
+    device for the runtime ones. Those are what tell a "LoRAs are slow on
+    this checkpoint" report apart at a glance: an all-runtime split pays a
+    per-forward recompute on every one of those linears, an all-in-place
+    split costs nothing after load.
+
+    ``load_seconds``/``source_bytes`` are the loader's, not this module's
+    (nothing here reads a file); :func:`apply_loras_with_report` leaves them
+    at zero and the caller that did the reading fills them in.
+
+    The two ``*_seconds`` fields are ``compare=False`` and that is load-
+    bearing, not tidiness: callers dedupe repeated evidence by VALUE (the
+    windowed-LoRA diagnostic emits once per generation by comparing the whole
+    report tuple against the last one it emitted, and ``_merge_reports``
+    treats a source's evidence as a pure function of module + state dict). A
+    wall-clock field inside ``__eq__`` makes every re-application of an
+    identical stack compare unequal, and the diagnostic fires once per batch
+    item instead of once per run.
     """
 
     source: str
@@ -112,6 +139,13 @@ class AdapterApplication:
     unmatched_sample: Tuple[str, ...]
     ignored: Tuple[IgnoredContribution, ...]
     reason: "str | None" = None
+    inplace_params: int = 0
+    runtime_params: int = 0
+    staged_bytes: int = 0
+    staged_device: "str | None" = None
+    source_bytes: int = 0
+    apply_seconds: float = field(default=0.0, compare=False)
+    load_seconds: float = field(default=0.0, compare=False)
 
     @property
     def zero_effect(self) -> bool:
@@ -222,6 +256,60 @@ def _needs_runtime_deltas(linear: nn.Module) -> bool:
     return weight.dtype not in _PATCHABLE_DTYPES
 
 
+def _runtime_delta_device(linear: nn.Module) -> torch.device:
+    """Where ``linear``'s forward will want this layer's deltas.
+
+    A CUDA tensor already on the layer names the exact device (index
+    included), which matters on a multi-GPU box: a delta staged on ``cuda:0``
+    for a layer running on ``cuda:1`` is copied every forward exactly as a CPU
+    one is. A partial-residency-streamed layer has its weight pinned on the
+    CPU and streamed per forward, so nothing on it is CUDA yet — the current
+    device is where its forward will run, and staging there is the point.
+    """
+    for tensor in list(linear.parameters(recurse=False)) + list(linear.buffers(recurse=False)):
+        if tensor is not None and tensor.device.type == "cuda":
+            return tensor.device
+    if torch.cuda.is_available():
+        return torch.device("cuda", torch.cuda.current_device())
+    weight = getattr(linear, "weight", None)
+    return weight.device if weight is not None else torch.device("cpu")
+
+
+def _stage_runtime_deltas(
+    deltas: List[LoraDelta], device: torch.device,
+) -> Tuple[List[LoraDelta], int]:
+    """``deltas`` with their rank-sized factors on ``device``, plus the bytes
+    that costs.
+
+    Device only — the factors keep the dtype they were mapped in, which for a
+    half-precision adapter is half what the forward's fp32 delta math wants.
+    That leaves ``apply_lora_deltas`` a rank-sized cast per forward (cheap: it
+    touches ``rank × in`` and ``out × rank`` elements, not the ``out × in``
+    weight) and halves what the staged stack costs on the card, which is the
+    trade the low-VRAM case needs. The host-to-device copy — the part that
+    scales with nothing and cost ~44% of the per-forward delta application —
+    is gone either way.
+
+    ``.contiguous()`` because a mapped factor can be a slice/transpose view of
+    a larger checkpoint tensor, and a non-contiguous operand makes the
+    per-forward matmul materialise its own copy.
+    """
+    staged: List[LoraDelta] = []
+    total_bytes = 0
+    seen: set[int] = set()
+    for d in deltas:
+        up = d.up.to(device=device).contiguous()
+        down = d.down.to(device=device).contiguous()
+        for tensor in (up, down):
+            key = tensor.untyped_storage().data_ptr()
+            if key not in seen:
+                seen.add(key)
+                total_bytes += tensor.numel() * tensor.element_size()
+        staged.append(LoraDelta(down=down, up=up, alpha=d.alpha, scale=d.scale,
+                                target_slice=d.target_slice, kron=d.kron))
+    return staged, total_bytes
+
+
 def apply_loras(
     module: nn.Module,
     loras: list[tuple[dict[str, torch.Tensor], float]],
@@ -265,10 +353,15 @@ def apply_loras_with_report(
 
     for index, (lora_sd, strength) in enumerate(loras):
         source = names[index] if names is not None and index < len(names) else f"adapter[{index}]"
+        started = time.perf_counter()
         mapped, unmatched = map_lora_keys(lora_sd, module)
         ignored = _dora_scale_contributions(lora_sd)
         file_unmatched = list(unmatched)
         file_matched: set[str] = set()
+        inplace_targets = 0
+        runtime_targets = 0
+        staged_bytes = 0
+        staged_device: "str | None" = None
         for param_name, deltas in mapped.items():
             resolved = _resolve_linear(module, param_name)
             if resolved is None:
@@ -282,14 +375,21 @@ def apply_loras_with_report(
                 for d in deltas
             ]
             if _needs_runtime_deltas(linear):
+                device = _runtime_delta_device(linear)
+                scaled, nbytes = _stage_runtime_deltas(scaled, device)
+                staged_bytes += nbytes
+                staged_device = str(device)
                 if linear.lora_deltas is None:
                     linear.lora_deltas = []
                 linear.lora_deltas.extend(scaled)
+                runtime_targets += 1
             else:
                 _apply_inplace(linear, scaled, pool)
+                inplace_targets += 1
             file_matched.add(param_name)
             patched_params.add(param_name)
 
+        elapsed = time.perf_counter() - started
         all_unmatched.extend(file_unmatched)
         reports.append(AdapterApplication(
             source=source,
@@ -297,7 +397,18 @@ def apply_loras_with_report(
             unmatched_keys=len(file_unmatched),
             unmatched_sample=tuple(file_unmatched[:_UNMATCHED_SAMPLE_CAP]),
             ignored=ignored,
+            inplace_params=inplace_targets,
+            runtime_params=runtime_targets,
+            staged_bytes=staged_bytes,
+            staged_device=staged_device,
+            apply_seconds=elapsed,
         ))
+        get_profiler().mark(
+            "lora.apply", source=source, seconds=elapsed,
+            matched_params=len(file_matched), unmatched_keys=len(file_unmatched),
+            inplace_params=inplace_targets, runtime_params=runtime_targets,
+            staged_mb=staged_bytes / (1024 ** 2), staged_device=staged_device,
+        )
 
     return len(patched_params), all_unmatched, reports
 

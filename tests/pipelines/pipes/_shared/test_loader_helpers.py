@@ -3,10 +3,12 @@
 import types
 
 import pytest
+import torch
 
 from src.pipelines.outputs import ProgressGenerationOutput
 from src.pipelines.pipes._shared.generation import loader_helpers as lh
-from src.platform.runtime.native.lora import LoraStepWindow
+from src.platform.runtime.native.engine import NativeModel
+from src.platform.runtime.native.lora import AdapterApplication, LoraStepWindow
 
 
 class TestPathOf:
@@ -204,3 +206,149 @@ class TestApplyLorasTo:
             ({"tensor": "/a.safetensors"}, 0.8),
             ({"tensor": "/b.safetensors"}, 0.5),
         ]
+
+
+class TestDescribeLoraStack:
+    """The one-line per-generation cost summary. Its mode split is the number
+    that explains a slow LoRA generation: ``runtime`` linears recompute their
+    delta against the dequantised weight on every forward, ``in-place`` ones
+    paid once at load."""
+
+    def _report(self, **kwargs):
+        base = dict(source="/loras/a.safetensors", matched_params=1, unmatched_keys=0,
+                    unmatched_sample=(), ignored=())
+        base.update(kwargs)
+        return AdapterApplication(**base)
+
+    def test_renders_files_size_timings_mode_split_and_delta_device(self):
+        reports = [
+            self._report(source_bytes=1 * 1024 ** 2, load_seconds=1.0,
+                         apply_seconds=0.2, inplace_params=10),
+            self._report(source_bytes=2 * 1024 ** 2, load_seconds=0.5, apply_seconds=0.05,
+                         runtime_params=254, staged_bytes=432537600, staged_device="cuda:0"),
+        ]
+        assert lh.describe_lora_stack(reports) == (
+            "loras: 2 files, 3.0 MB, load 1.50s, apply 0.25s, "
+            "in-place 10 / runtime 254 linears, delta tensors on cuda:0 (412.5 MB)"
+        )
+
+    def test_an_all_in_place_stack_reports_no_delta_device(self):
+        summary = lh.describe_lora_stack([self._report(inplace_params=264)])
+        assert "in-place 264 / runtime 0 linears" in summary
+        assert "delta tensors on none (0.0 MB)" in summary
+
+
+class TestLoraReadCost:
+    def _fake_files(self, monkeypatch, files):
+        monkeypatch.setattr(lh, "load_torch_file", lambda path, device="cpu": (files[path], {}))
+
+    def test_a_read_is_sized_from_the_state_dicts_tensor_footprint(self, monkeypatch):
+        self._fake_files(monkeypatch, {"/a.safetensors": {"w": torch.zeros(16, 8, dtype=torch.bfloat16)}})
+        _stack, [read] = lh.load_lora_stack_timed([{"file_path": "/a.safetensors", "weight": 1.0}])
+        assert read.nbytes == 16 * 8 * 2
+        assert read.seconds >= 0.0
+
+    def test_each_file_read_is_marked_for_the_profiler(self, monkeypatch):
+        marks = []
+        monkeypatch.setattr(lh, "get_profiler", lambda: types.SimpleNamespace(
+            mark=lambda event, **fields: marks.append((event, fields))))
+        self._fake_files(monkeypatch, {
+            "/a.safetensors": {"w": torch.zeros(4, 4)},
+            "/b.safetensors": {"w": torch.zeros(4, 4)},
+        })
+
+        lh.load_lora_stack([{"file_path": "/a.safetensors", "weight": 1.0},
+                            {"file_path": "/b.safetensors", "weight": 1.0}])
+
+        assert [m[0] for m in marks] == ["lora.file_read", "lora.file_read"]
+        assert [m[1]["file"] for m in marks] == ["a.safetensors", "b.safetensors"]
+        assert all(m[1]["bytes"] == 64 for m in marks)
+
+    def test_a_windowed_stack_rebuild_is_marked_as_one_read_per_generation(self, monkeypatch):
+        """``load_windowed_lora_stack`` runs on every ``build_context()``, i.e.
+        once per generation, and re-reads every windowed file each time."""
+        marks = []
+        monkeypatch.setattr(lh, "get_profiler", lambda: types.SimpleNamespace(
+            mark=lambda event, **fields: marks.append((event, fields))))
+        self._fake_files(monkeypatch, {"/w.safetensors": {"w": torch.zeros(8, 8)}})
+
+        lh.load_windowed_lora_stack(
+            [{"file_path": "/w.safetensors", "weight": 1.0, "window": LoraStepWindow(1, 2)}])
+
+        aggregate = [m for m in marks if m[0] == "lora.windowed_stack"]
+        assert len(aggregate) == 1
+        assert aggregate[0][1]["branch"] == "rebuilt"
+        assert aggregate[0][1]["files"] == 1
+        assert aggregate[0][1]["bytes"] == 8 * 8 * 4
+
+
+class TestWindowedStackReuse:
+    """``build_context`` runs once per generation, so an unchanged windowed
+    request used to rebuild the identical stack on every run."""
+
+    def _dit(self):
+        return NativeModel("diffusion_model", object(), estimated_vram_gb=1.0)
+
+    def _entry(self, start=1, end=2, path="/w.safetensors", weight=1.0):
+        return {"file_path": path, "weight": weight, "window": LoraStepWindow(start, end)}
+
+    def _count_rebuilds(self, monkeypatch):
+        built = []
+        monkeypatch.setattr(lh, "load_windowed_lora_stack",
+                            lambda loras: built.append(list(loras)) or [("sd", 1.0)])
+        return built
+
+    def test_an_unchanged_request_is_not_rebuilt(self, monkeypatch):
+        built = self._count_rebuilds(monkeypatch)
+        dit, loras = self._dit(), [self._entry()]
+
+        first = lh.windowed_lora_stack(dit, loras)
+        second = lh.windowed_lora_stack(dit, loras)
+
+        assert len(built) == 1
+        assert second is first
+
+    def test_a_changed_window_rebuilds(self, monkeypatch):
+        """The hook toggles by index, so a start/end edit genuinely changes
+        the stack even though the file and weight are identical."""
+        built = self._count_rebuilds(monkeypatch)
+        dit = self._dit()
+
+        lh.windowed_lora_stack(dit, [self._entry(1, 2)])
+        lh.windowed_lora_stack(dit, [self._entry(1, 5)])
+
+        assert len(built) == 2
+
+    def test_a_changed_weight_or_file_rebuilds(self, monkeypatch):
+        built = self._count_rebuilds(monkeypatch)
+        dit = self._dit()
+
+        lh.windowed_lora_stack(dit, [self._entry(weight=1.0)])
+        lh.windowed_lora_stack(dit, [self._entry(weight=0.5)])
+        lh.windowed_lora_stack(dit, [self._entry(weight=0.5, path="/other.safetensors")])
+
+        assert len(built) == 3
+
+    def test_a_freshly_loaded_dit_carries_no_stamp_and_rebuilds(self, monkeypatch):
+        built = self._count_rebuilds(monkeypatch)
+        loras = [self._entry()]
+
+        lh.windowed_lora_stack(self._dit(), loras)
+        lh.windowed_lora_stack(self._dit(), loras)
+
+        assert len(built) == 2
+
+    def test_the_branch_taken_is_marked_for_the_profiler(self, monkeypatch):
+        marks = []
+        self._count_rebuilds(monkeypatch)
+        monkeypatch.setattr(lh, "get_profiler", lambda: types.SimpleNamespace(
+            mark=lambda event, **fields: marks.append((event, fields))))
+        dit, loras = self._dit(), [self._entry()]
+
+        lh.windowed_lora_stack(dit, loras)
+        lh.windowed_lora_stack(dit, loras)
+
+        assert [f["branch"] for e, f in marks if e == "lora.windowed_stack"] == ["reused"]
+
+    def test_the_fingerprint_of_an_empty_request_is_stable(self):
+        assert lh.windowed_stack_fingerprint([]) == "none"

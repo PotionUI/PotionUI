@@ -10,14 +10,18 @@ existing per-preset log lines.
 from __future__ import annotations
 
 import hashlib
+import time
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from src.platform.observability.profiling import get_profiler
 from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.io.safetensors_loader import load_torch_file
 from src.platform.runtime.native.lora import AdapterApplication, apply_loras_with_report, parse_lora_window
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import PipeInput
+from src.pipelines.pipes._shared.generation.lora_cache import lora_state_dict_cache
 from src.pipelines.outputs import (
     Icon,
     ModelGenerationOutput,
@@ -126,17 +130,104 @@ def partition_step_windows(
     return baked, windowed
 
 
+@dataclass(frozen=True)
+class LoraFileRead:
+    """What obtaining one LoRA state dict cost.
+
+    ``nbytes`` is the state dict's tensor footprint, not the file's size on
+    disk: ``load_torch_file`` mmaps safetensors, so the read returns long
+    before the pages it hands back have actually been faulted in, and the
+    footprint is the number that predicts the later paging.
+
+    ``cached`` says the parse was served from :mod:`lora_cache` rather than
+    re-read, which is what makes ``seconds`` near-zero.
+    """
+
+    file_path: str
+    nbytes: int
+    seconds: float
+    cached: bool = False
+
+
+def _state_dict_bytes(state_dict: Dict[str, Any]) -> int:
+    """Tensor footprint of a loaded state dict. Reads shape/dtype metadata
+    only, so it never faults an mmapped tensor's pages in."""
+    return sum(t.numel() * t.element_size() for t in state_dict.values() if hasattr(t, "numel"))
+
+
+def _read_lora_file(file_path: str) -> Tuple[Dict[str, Any], LoraFileRead]:
+    """One LoRA state dict plus its :class:`LoraFileRead`, marked for the
+    profiler. Served from the parsed-LoRA cache when the file is unchanged
+    since it was last read (see :mod:`lora_cache` for what "unchanged" means)."""
+    started = time.perf_counter()
+
+    def _parse() -> Tuple[Dict[str, Any], int]:
+        state_dict = load_torch_file(file_path, device="cpu")[0]
+        return state_dict, _state_dict_bytes(state_dict)
+
+    state_dict, nbytes, hit = lora_state_dict_cache().get_or_load(file_path, _parse)
+    read = LoraFileRead(file_path, nbytes, time.perf_counter() - started, cached=hit)
+    get_profiler().mark("lora.file_read", file=Path(file_path).name,
+                        bytes=read.nbytes, seconds=read.seconds, cached=hit)
+    return state_dict, read
+
+
 def load_windowed_lora_stack(loras: List[Dict[str, Any]]) -> List[Any]:
     """Load windowed entries into the ``(state_dict, strength, window,
     file_path)`` 4-tuples :class:`~src.platform.runtime.native.lora.LoraStepWindowHook`
     toggles -- ``file_path`` is what the hook's application-evidence diagnostics
     use as the adapter's durable source identity (see ``AdapterApplication``);
     without it every windowed LoRA would report as an indistinguishable
-    ``"window-lora[i]"`` placeholder."""
-    return [
-        (load_torch_file(lora["file_path"], device="cpu")[0], lora["weight"], lora["window"], lora["file_path"])
-        for lora in loras
-    ]
+    ``"window-lora[i]"`` placeholder.
+
+    Rebuilds unconditionally; :func:`windowed_lora_stack` is the caller-facing
+    form that skips the rebuild when the request has not changed.
+    """
+    started = time.perf_counter()
+    stack: List[Any] = []
+    total_bytes = 0
+    for lora in loras:
+        state_dict, read = _read_lora_file(lora["file_path"])
+        total_bytes += read.nbytes
+        stack.append((state_dict, lora["weight"], lora["window"], lora["file_path"]))
+    get_profiler().mark("lora.windowed_stack", branch="rebuilt", files=len(stack),
+                        bytes=total_bytes, seconds=time.perf_counter() - started)
+    return stack
+
+
+def windowed_stack_fingerprint(loras: List[Dict[str, Any]]) -> str:
+    """Stamp of a windowed request: file, weight and the window itself.
+
+    ``window`` is a frozen ``LoraStepWindow``, so a start/end edit shows up
+    here even when the file and weight are unchanged -- and a window edit
+    genuinely changes the stack, since the hook toggles by index.
+    """
+    return "+".join(
+        f"{lora['file_path']}@{lora['weight']}{lora['window']}" for lora in loras
+    ) or "none"
+
+
+def windowed_lora_stack(dit_model: NativeModel, loras: List[Dict[str, Any]]) -> List[Any]:
+    """The windowed stack for ``loras``, rebuilt only when the request changed.
+
+    The generator's ``build_context`` runs once per generation, so without
+    this a preset whose windowed adapters never change rebuilt the identical
+    stack on every run. Stamped on the DiT wrapper, mirroring ``sync_loras``'s
+    ``_active_lora_fp``: the wrapper is the thing that outlives a generation,
+    and a DiT reloaded from disk arrives with no stamp and rebuilds.
+
+    The stack is read-only to its consumer -- ``LoraStepWindowHook`` patches
+    the MODULE, never the state dicts -- so handing the same one to
+    consecutive generations is safe.
+    """
+    fingerprint = windowed_stack_fingerprint(loras)
+    if getattr(dit_model, "_active_windowed_stack_fp", None) == fingerprint:
+        get_profiler().mark("lora.windowed_stack", branch="reused", files=len(loras))
+        return dit_model._active_windowed_stack
+    stack = load_windowed_lora_stack(loras)
+    dit_model._active_windowed_stack_fp = fingerprint  # noqa: SLF001 - the loader's stamp
+    dit_model._active_windowed_stack = stack  # noqa: SLF001 - paired with the stamp above
+    return stack
 
 
 # The native engine's tiering models activation/decode spikes explicitly
@@ -157,11 +248,48 @@ def vram_budget(pipe_input: PipeInput, vram_limit_gb: Any, log_tag: str) -> Opti
     return budget
 
 
+def load_lora_stack_timed(loras: List[Dict[str, Any]]) -> Tuple[List[Any], List[LoraFileRead]]:
+    """:func:`load_lora_stack` plus one :class:`LoraFileRead` per entry, in the
+    same order, for a caller that reports what the read cost."""
+    stack: List[Any] = []
+    reads: List[LoraFileRead] = []
+    for lora in loras:
+        state_dict, read = _read_lora_file(lora["file_path"])
+        stack.append((state_dict, lora["weight"]))
+        reads.append(read)
+    return stack, reads
+
+
 def load_lora_stack(loras: List[Dict[str, Any]]) -> List[Any]:
     """Load each LoRA file's state dict from disk (CPU) into the
     ``(state_dict, strength)`` stack shape ``apply_loras``/
     ``temporarily_applied_loras`` expect."""
-    return [(load_torch_file(lora["file_path"], device="cpu")[0], lora["weight"]) for lora in loras]
+    return load_lora_stack_timed(loras)[0]
+
+
+def describe_lora_stack(reports: Sequence[AdapterApplication]) -> str:
+    """One line saying what a LoRA stack cost and which application mode it
+    landed in.
+
+    The mode split is the part worth reading: an all-``runtime`` stack
+    recomputes ``up @ down`` against the dequantised weight on EVERY forward of
+    every one of those linears, so a stack that reports ``in-place 0 / runtime
+    N`` is paying per-step for what an ``in-place N`` stack paid once at load.
+    ``delta tensors on`` names where the staged rank factors ended up (see
+    ``lora/apply.py``'s ``_stage_runtime_deltas``) -- anything but the compute
+    device there means a host-to-device copy per forward.
+    """
+    source_mb = sum(r.source_bytes for r in reports) / (1024 ** 2)
+    staged_mb = sum(r.staged_bytes for r in reports) / (1024 ** 2)
+    devices = sorted({r.staged_device for r in reports if r.staged_device})
+    return (
+        f"loras: {len(reports)} files, {source_mb:.1f} MB, "
+        f"load {sum(r.load_seconds for r in reports):.2f}s, "
+        f"apply {sum(r.apply_seconds for r in reports):.2f}s, "
+        f"in-place {sum(r.inplace_params for r in reports)} / "
+        f"runtime {sum(r.runtime_params for r in reports)} linears, "
+        f"delta tensors on {'+'.join(devices) or 'none'} ({staged_mb:.1f} MB)"
+    )
 
 
 def apply_loras_to(
@@ -183,9 +311,12 @@ def apply_loras_to(
     """
     if not loras:
         return []
-    stack = load_lora_stack(loras)
+    stack, reads = load_lora_stack_timed(loras)
     file_paths = [lora["file_path"] for lora in loras]
     patched, unmatched, reports = apply_loras_with_report(dit_model.module, stack, names=file_paths)
+    reports = [replace(report, load_seconds=read.seconds, source_bytes=read.nbytes)
+               for report, read in zip(reports, reads)]
+    logger.info("[%s] %s", log_tag, describe_lora_stack(reports))
     if patched == 0:
         # A fully-unmatched stack means the LoRA had NO effect on the output —
         # silent-looking from the UI, so surface it loudly with enough detail

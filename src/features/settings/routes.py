@@ -9,6 +9,7 @@ from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.settings.settings import Settings
 from src.features.generation.thumbnail_profile import validate_setting as validate_thumbnail_setting
+from src.features.housekeeping.settings import validate_setting as validate_housekeeping_setting
 from src.features.models.directory import ModelDirectories
 from src.platform.runtime.gpu import GpuMonitor
 from src.features.backends.backend_registry import BackendRegistry
@@ -140,7 +141,7 @@ class SettingsController(BaseController):
                 if _is_stored_secret_mask(key, value):
                     continue
 
-                rejected = validate_thumbnail_setting(key, value)
+                rejected = validate_thumbnail_setting(key, value) or validate_housekeeping_setting(key, value)
                 if rejected:
                     errors.append(f"Invalid value for '{key}': {rejected}")
                     continue
@@ -289,7 +290,7 @@ class SettingsController(BaseController):
                 if _is_stored_secret_mask(key, update_data.value):
                     return self.success_response(message=f"Setting '{key}' unchanged")
 
-                rejected = validate_thumbnail_setting(key, update_data.value)
+                rejected = validate_thumbnail_setting(key, update_data.value) or validate_housekeeping_setting(key, update_data.value)
                 if rejected:
                     return self.error_response(
                         error="setting_update_rejected",

@@ -139,6 +139,7 @@ if TYPE_CHECKING:
     from src.features.automation.runtime import AutomationRuntime
     from src.platform.plugins.automation_templates import AutomationTemplateRegistry
     from src.features.media import MediaStore, MediaTypeResolver, FilePathResolver, ImageProcessor
+    from src.features.housekeeping.worker import HousekeepingWorker
     from src.features.media.thumbnail_regeneration import ThumbnailRegeneration
     from src.features.presets.file_repository import FilePresetRepository
     from src.features.presets.repository import DatabasePresetRepository
@@ -351,6 +352,7 @@ class AppContainer:
     image_processor: "ImageProcessor"
     media_store: "MediaStore"
     thumbnail_regeneration: "ThumbnailRegeneration"
+    housekeeping_worker: "HousekeepingWorker"
     media_controller: "MediaController"
     media_editor: "MediaEditor"
     media_edit_controller: "MediaEditController"
@@ -1217,6 +1219,18 @@ def build_container() -> AppContainer:
         storage_driver=storage_driver,
         file_repository=file_repo,
         upload_repository=upload_repository,
+    )
+
+    from src.features.housekeeping.worker import HousekeepingWorker, build_tasks
+
+    housekeeping_worker = HousekeepingWorker(
+        settings,
+        build_tasks(
+            settings=settings,
+            run_report_repository=run_report_repository,
+            run_report_recorder=run_report_recorder,
+            trace_repository=chat_call_trace_repository,
+        ),
     )
 
     # Pre-render preset media thumbnails ("install" - see docs/presets.md)

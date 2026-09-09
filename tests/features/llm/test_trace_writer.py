@@ -63,7 +63,7 @@ class FakeTraceRepository:
         self.created.append(kwargs)
         return f"trace-{len(self.created)}"
 
-    def prune_older_than(self) -> int:
+    def prune_older_than(self, days: int) -> int:
         if self.prune_delay:
             time.sleep(self.prune_delay)
         self.prune_calls += 1
@@ -261,7 +261,7 @@ class TestFailureHandling:
     def test_a_failing_prune_does_not_kill_the_writer(self):
         repository = FakeTraceRepository()
 
-        def boom():
+        def boom(days):
             repository.prune_calls += 1
             raise RuntimeError("prune exploded")
 

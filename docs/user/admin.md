@@ -25,6 +25,12 @@ Three named profiles cover the usual choices:
 
 You can also set the individual values yourself, which shows as a custom profile. Saving a change leaves what's already on disk alone — it only affects previews made from then on. **Regenerate** re-renders every existing preview to match the current settings, one file at a time, and deletes the sizes the new settings no longer produce. You can cancel it; it stops after the file it is on. The gallery keeps working throughout, because a request for a size that no longer exists falls back to the nearest one that does. The page also shows how much disk space previews currently take — a figure available only when files are stored on local disk, and not reported for S3 storage.
 
+### Housekeeping
+
+Three things grow without a limit unless you set one: the scratch folder, where in-progress previews and intermediate video files are written; the run report kept for each generation; and the call traces recorded for chat. Each has a retention window in days, and 0 keeps everything.
+
+Next to each window is what it would remove right now, so you can see the effect of a change before you save it. A pass runs shortly after the server starts and once a day after that. **Run now** applies all three immediately and reports what it freed; the last pass is shown alongside. Deleting a run report also deletes the images it saved, and nothing outside the scratch folder is ever touched.
+
 ## Models
 
 Server-side model management: reviewing installed models and, together with the **Model Downloader** plugin, adding new ones. This is the admin counterpart to the user-facing **Models** page.

@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Iterable, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 
 class GenerationRunReportRepository:
@@ -43,6 +43,32 @@ class GenerationRunReportRepository:
                 (generation_id,),
             )
             return cursor.rowcount > 0
+
+    def list_older_than(self, days: int) -> List[str]:
+        """The generations whose report was written more than `days` ago.
+
+        The cutoff is computed by SQLite so it is compared against
+        `created_at` in the format `CURRENT_TIMESTAMP` wrote it.
+        """
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT generation_id FROM generation_run_reports "
+                "WHERE created_at < datetime('now', ?)",
+                (f"-{int(days)} days",),
+            )
+            return [row["generation_id"] for row in cursor.fetchall()]
+
+    def count_older_than(self, days: int) -> int:
+        """How many reports `list_older_than` would return."""
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) AS n FROM generation_run_reports "
+                "WHERE created_at < datetime('now', ?)",
+                (f"-{int(days)} days",),
+            )
+            return cursor.fetchone()["n"]
 
     def exists_bulk(self, generation_ids: Iterable[str]) -> Set[str]:
         """Which of `generation_ids` have a persisted run report.

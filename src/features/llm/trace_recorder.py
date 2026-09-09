@@ -22,6 +22,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from src.features.housekeeping.settings import SETTING_LLM_TRACE_DAYS, load_retention
 from src.features.llm.trace_repository import ChatCallTraceRepository
 from src.platform.settings.settings import Settings
 
@@ -330,7 +331,9 @@ class ChatCallTraceRecorder:
         if self._last_prune_at is not None and now - self._last_prune_at < PRUNE_THROTTLE_SECONDS:
             return
         self._last_prune_at = now
-        self._repository.prune_older_than()
+        days = load_retention(self._settings)[SETTING_LLM_TRACE_DAYS]
+        if days > 0:
+            self._repository.prune_older_than(days)
 
     def record(
         self,

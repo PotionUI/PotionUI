@@ -241,7 +241,7 @@ class TestChatCallTraceRecorderPruneThrottle(unittest.TestCase):
     def test_prunes_on_first_record(self):
         self._record()
         self.recorder.shutdown()
-        self.repository.prune_older_than.assert_called_once_with()
+        self.repository.prune_older_than.assert_called_once_with(7)
 
     def test_does_not_prune_again_within_throttle_window(self):
         self._record()

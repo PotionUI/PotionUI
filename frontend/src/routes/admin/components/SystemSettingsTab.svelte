@@ -12,6 +12,7 @@
 	import ContentSafetyPanel from './settings/ContentSafetyPanel.svelte';
 	import FileStoragePanel from './settings/FileStoragePanel.svelte';
 	import ThumbnailsPanel from './settings/ThumbnailsPanel.svelte';
+	import HousekeepingPanel from './settings/HousekeepingPanel.svelte';
 	import ModelsLocationPanel from './settings/ModelsLocationPanel.svelte';
 	import PromptSearchPanel from './settings/PromptSearchPanel.svelte';
 	import MediaTaggingPanel from './settings/MediaTaggingPanel.svelte';
@@ -152,6 +153,7 @@
 						{:else if activeGroup === 'storage'}
 							<FileStoragePanel {settings} onSettingChange={handleSettingChange} />
 							<ThumbnailsPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
+							<HousekeepingPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
 							<ModelsLocationPanel />
 						{:else if activeGroup === 'search_tagging'}
 							<AiPanelFrame>

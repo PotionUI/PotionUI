@@ -99,6 +99,59 @@ export async function getThumbnailJob(): Promise<APIResponse<ThumbnailJob | null
 	return response.data;
 }
 
+// Admin API - Housekeeping
+export interface HousekeepingSettings {
+	tmp_retention_days: number;
+	run_report_retention_days: number;
+	llm_trace_retention_days: number;
+}
+
+export interface HousekeepingTmpResult {
+	removed: number;
+	bytes_freed: number;
+	errors: string[];
+}
+
+export interface HousekeepingRowResult {
+	rows_removed: number;
+	errors: string[];
+}
+
+export interface HousekeepingRun {
+	started_at: string;
+	finished_at: string;
+	tasks: {
+		tmp: HousekeepingTmpResult;
+		run_reports: HousekeepingRowResult;
+		llm_traces: HousekeepingRowResult;
+	};
+	errors: string[];
+}
+
+export interface HousekeepingPreview {
+	tmp: { files: number; bytes: number };
+	run_reports: number;
+	llm_traces: number;
+}
+
+export interface HousekeepingOverview {
+	settings: HousekeepingSettings;
+	running: boolean;
+	last_run: HousekeepingRun | null;
+	next_run_at: string | null;
+	preview: HousekeepingPreview;
+}
+
+export async function getHousekeeping(): Promise<APIResponse<HousekeepingOverview>> {
+	const response = await api.getClient().get('/api/admin/housekeeping');
+	return response.data;
+}
+
+export async function runHousekeeping(): Promise<APIResponse<HousekeepingRun>> {
+	const response = await api.getClient().post('/api/admin/housekeeping/run');
+	return response.data;
+}
+
 // Admin API - Semantic search / media indexing model status
 export interface ActiveModelDownload {
 	id: string;

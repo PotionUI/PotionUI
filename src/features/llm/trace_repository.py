@@ -11,8 +11,6 @@ from typing import Any, Dict, List, Optional
 from src.platform.database.rows import json_column
 from src.platform.util.ids import generate_ulid
 
-RETENTION_DAYS = 7
-
 
 def _dumps(value: Any) -> Optional[str]:
     return json.dumps(value) if value is not None else None
@@ -124,13 +122,31 @@ class ChatCallTraceRepository:
             cursor.execute("DELETE FROM chat_llm_call_traces")
             return cursor.rowcount
 
-    def prune_older_than(self, days: int = RETENTION_DAYS) -> int:
+    @staticmethod
+    def _cutoff(days: int) -> str:
+        """The ``created_at`` value rows must fall below, in the same local
+        ISO format ``create`` writes."""
+        return (datetime.now() - timedelta(days=days)).isoformat()
+
+    def prune_older_than(self, days: int) -> int:
         """Delete rows created before ``days`` ago. Returns the row count deleted."""
-        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
-            cursor.execute("DELETE FROM chat_llm_call_traces WHERE created_at < ?", (cutoff,))
+            cursor.execute(
+                "DELETE FROM chat_llm_call_traces WHERE created_at < ?",
+                (self._cutoff(days),),
+            )
             return cursor.rowcount
+
+    def count_older_than(self, days: int) -> int:
+        """How many rows ``prune_older_than`` would delete."""
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) AS n FROM chat_llm_call_traces WHERE created_at < ?",
+                (self._cutoff(days),),
+            )
+            return cursor.fetchone()["n"]
 
 
 # Process-wide singleton: the trace collector reaches it from provider clients

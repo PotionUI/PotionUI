@@ -412,10 +412,16 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         # disabled) within one interval, not on the next admin click.
         container.compute_status_monitor.start()
 
+        # Retention passes for the stores nothing else bounds: the scratch
+        # folder, run reports and chat call traces. First pass shortly after
+        # startup so a fresh instance is not competing with boot work.
+        container.housekeeping_worker.start()
+
         yield
 
         # Shutdown
         logging.info("Shutting down PotionUI API server...")
+        await container.housekeeping_worker.stop()
         await container.compute_status_monitor.stop()
         await container.download_queue.stop()
         await automation_runtime.stop_all()

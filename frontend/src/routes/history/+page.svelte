@@ -1,8 +1,14 @@
 <script lang="ts">
-	import { logger } from '$lib/utils/logger';
+	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { historyStore } from '$lib/stores/history';
+	import {
+		historyStore,
+		selectedPosition,
+		hasPreviousGeneration,
+		hasNextGeneration
+	} from '$lib/stores/history';
+	import { toasts } from '$lib/stores/toast';
 	import {
 		createHistoryVersionWatcher,
 		type HistoryVersionWatcher
@@ -199,6 +205,16 @@
 		historyStore.setSelectedGeneration(null);
 	}
 
+	async function handleGenerationNavigate(direction: -1 | 1) {
+		try {
+			return await historyStore.selectAdjacentGeneration(direction);
+		} catch (error) {
+			logger.error('Failed to walk to the adjacent generation:', error);
+			toasts.error(getErrorMessage(error));
+			return false;
+		}
+	}
+
 	function handleReuseRequest(generation: GenerationHistoryItem) {
 		if (!generation.preset_id) return;
 
@@ -263,6 +279,10 @@
 		generation={currentState.selectedGeneration}
 		isOpen={true}
 		initialFileIndex={currentState.selectedFileIndex}
+		onNavigate={handleGenerationNavigate}
+		hasPrevious={$hasPreviousGeneration}
+		hasNext={$hasNextGeneration}
+		position={$selectedPosition}
 		on:close={handleModalClose}
 		on:delete={(e) => handleDeleteRequest(e.detail)}
 		on:reuse={(e) => handleReuseRequest(e.detail)}

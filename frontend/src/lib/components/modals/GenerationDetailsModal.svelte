@@ -22,7 +22,8 @@
 	import { nsfwFilterStore, visibleMediaFiles } from '$lib/stores/nsfwFilter';
 	import { nsfwRevealStore, revealKey } from '$lib/stores/nsfwReveal';
 	import { pickActiveGeneration, needsDetailFetch } from '$lib/utils/generationDetail';
-	import { Badge, Spinner, CopyButton } from '$lib/components/ui';
+	import { Badge, Spinner, CopyButton, IconButton } from '$lib/components/ui';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import PublishToInspirationsModal from './PublishToInspirationsModal.svelte';
 	import GenerationArtifacts from '$lib/components/generation/artifacts/GenerationArtifacts.svelte';
 	import { filesWithPreview, mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
@@ -31,9 +32,38 @@
 	export let generation: GenerationHistoryItem | null = null;
 	export let generationId: string | undefined = undefined;
 	export let isOpen: boolean = false;
+	/** Which file to open on. Negative means the generation's last file. */
 	export let initialFileIndex: number = 0;
 
+	/** Unset = no list to walk, no navigation rendered. */
+	export let onNavigate: ((direction: -1 | 1) => Promise<boolean> | boolean) | undefined =
+		undefined;
+	export let hasPrevious: boolean = false;
+	export let hasNext: boolean = false;
+	export let position: { index: number; total: number } | null = null;
+
 	const dispatch = createEventDispatcher();
+
+	$: canNavigate = typeof onNavigate === 'function';
+	let navigating = false;
+
+	async function navigate(direction: -1 | 1) {
+		if (!onNavigate || navigating) return;
+		if (direction === -1 ? !hasPrevious : !hasNext) return;
+		navigating = true;
+		try {
+			await onNavigate(direction);
+		} finally {
+			navigating = false;
+		}
+	}
+
+	function isTextEntryTarget(target: EventTarget | null): boolean {
+		const element = target as HTMLElement | null;
+		if (!element || typeof element.tagName !== 'string') return false;
+		if (element.isContentEditable) return true;
+		return ['input', 'textarea', 'select'].includes(element.tagName.toLowerCase());
+	}
 
 	// Generation data (will be loaded if only ID is provided)
 	let loadedGeneration: GenerationHistoryItem | null = null;
@@ -75,6 +105,8 @@
 	$: if (generation?.id) {
 		if (previousGenerationId && previousGenerationId !== generation.id) {
 			tagsInitialized = false;
+			selectedTags = [];
+			selectedTagIds = [];
 		}
 		previousGenerationId = generation.id;
 	}
@@ -165,6 +197,18 @@
 
 	// Reactive computed values; hide mode drops nsfw files from navigation.
 	$: mediaFiles = visibleMediaFiles(activeGeneration?.files || [], $nsfwFilterStore.mode);
+	// Re-derived on every generation swap; reading `mediaFiles` orders this after it.
+	let renderedGenerationId = '';
+	$: if (activeGenerationId !== renderedGenerationId) {
+		renderedGenerationId = activeGenerationId;
+		currentFileIndex =
+			initialFileIndex < 0 ? Math.max(0, mediaFiles.length - 1) : initialFileIndex;
+		expandedShots = {};
+		overflowingShots = {};
+		segmentsExpanded = false;
+		showPublishModal = false;
+	}
+
 	$: currentFile = mediaFiles[currentFileIndex];
 	$: canGoPrev = currentFileIndex > 0;
 	$: canGoNext = currentFileIndex < mediaFiles.length - 1;
@@ -364,11 +408,30 @@
 		}
 	}
 
+	// Arrows walk files and roll over into the neighbouring generation; Shift jumps. Escape: BaseModal.
 	function handleKeyDown(event: KeyboardEvent) {
 		if (!isOpen) return;
-		if (event.key === 'ArrowLeft') goToPreviousFile();
-		else if (event.key === 'ArrowRight') goToNextFile();
-		// Escape handled by BaseModal
+		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+		if (isTextEntryTarget(event.target)) return;
+
+		const direction: -1 | 1 = event.key === 'ArrowRight' ? 1 : -1;
+
+		if (event.shiftKey) {
+			if (!canNavigate) return;
+			event.preventDefault();
+			navigate(direction);
+			return;
+		}
+
+		if (direction === 1 ? canGoNext : canGoPrev) {
+			if (direction === 1) goToNextFile();
+			else goToPreviousFile();
+			return;
+		}
+
+		if (!canNavigate) return;
+		event.preventDefault();
+		navigate(direction);
 	}
 
 	function handleClose() {
@@ -489,6 +552,31 @@
 			<Badge variant={getStatusVariant(activeGeneration.status)} dot class="flex-shrink-0 uppercase tracking-wide">
 				{activeGeneration.status}
 			</Badge>
+		{/if}
+		{#if canNavigate}
+			<div class="flex items-center gap-1 flex-shrink-0">
+				<Tooltip text="Previous generation" kbd="Shift+←" position="bottom">
+					<IconButton
+						icon="chevron-left"
+						label="Previous generation"
+						disabled={!hasPrevious || navigating}
+						onclick={() => navigate(-1)}
+					/>
+				</Tooltip>
+				{#if position}
+					<span class="font-mono tabular-nums text-xs text-fg-subtle">
+						{position.index} / {position.total}
+					</span>
+				{/if}
+				<Tooltip text="Next generation" kbd="Shift+→" position="bottom">
+					<IconButton
+						icon="chevron-right"
+						label="Next generation"
+						disabled={!hasNext || navigating}
+						onclick={() => navigate(1)}
+					/>
+				</Tooltip>
+			</div>
 		{/if}
 	</svelte:fragment>
 

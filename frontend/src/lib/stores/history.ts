@@ -250,6 +250,7 @@ function createHistoryStore() {
 	const store = writable<HistoryPageState>(initialState);
 	const { subscribe, set, update } = store;
 	const lifecycle = createRequestLifecycle(() => historyQueryKey(get(store)));
+	let steppingSelection = false;
 
 	return {
 		subscribe,
@@ -259,12 +260,14 @@ function createHistoryStore() {
 		// Pass { merge: true } to preserve the live (WebSocket-driven) status/progress
 		// of in-progress generations instead of overwriting them with the DB row
 		// (the DB keeps a running generation as 'pending', which would flicker).
-		async loadGenerations(opts?: { silent?: boolean; merge?: boolean }) {
+		// Resolves to whether a list was actually applied (a superseded fetch is not).
+		async loadGenerations(opts?: { silent?: boolean; merge?: boolean }): Promise<boolean> {
 			const silent = opts?.silent === true;
 			const merge = opts?.merge === true;
 			const snapshot = get(store);
 			const request = buildHistoryRequest(snapshot);
 			const key = historyQueryKey(snapshot);
+			let applied = false;
 
 			if (!silent) {
 				update((state) => ({ ...state, loading: true }));
@@ -278,6 +281,7 @@ function createHistoryStore() {
 					fetch: () => api.getGenerationHistory(request),
 					commit: (response) => {
 						if (!response.success || !response.data) return;
+						applied = true;
 						const data = response.data;
 						update((state) => {
 							if (!merge) {
@@ -310,6 +314,8 @@ function createHistoryStore() {
 					update((state) => ({ ...state, loading: false }));
 				}
 			}
+
+			return applied;
 		},
 
 		// Set current page
@@ -503,13 +509,64 @@ function createHistoryStore() {
 			}));
 		},
 
-		// Set selected generation
+		// Set selected generation. A negative fileIndex means "the last file",
+		// resolved by the viewer against the files it can actually show.
 		setSelectedGeneration(generation: GenerationHistoryItem | null, fileIndex: number = 0) {
 			update((state) => ({
 				...state,
 				selectedGeneration: generation,
 				selectedFileIndex: fileIndex
 			}));
+		},
+
+		// False at either end of the whole list; throws when the adjacent page failed to load.
+		async selectAdjacentGeneration(direction: -1 | 1): Promise<boolean> {
+			if (steppingSelection) return false;
+
+			const state = get(store);
+			const selectedId = state.selectedGeneration?.id;
+			if (!selectedId) return false;
+
+			const index = state.generations.findIndex((gen) => gen.id === selectedId);
+			if (index === -1) return false;
+
+			const fileIndexFor = (dir: -1 | 1) => (dir === 1 ? 0 : -1);
+
+			const neighbour = state.generations[index + direction];
+			if (neighbour) {
+				update((s) => ({
+					...s,
+					selectedGeneration: neighbour,
+					selectedFileIndex: fileIndexFor(direction)
+				}));
+				return true;
+			}
+
+			const targetPage = state.currentPage + direction;
+			const pageCount = Math.max(1, Math.ceil(state.totalCount / state.itemsPerPage));
+			if (targetPage < 1 || targetPage > pageCount) return false;
+
+			steppingSelection = true;
+			try {
+				update((s) => ({ ...s, currentPage: targetPage }));
+				const applied = await this.loadGenerations();
+				const page = get(store).generations;
+				if (!applied || page.length === 0) {
+					update((s) => ({ ...s, currentPage: state.currentPage }));
+					if (!applied) throw new Error('Could not load the adjacent page of history');
+					return false;
+				}
+
+				const target = direction === 1 ? page[0] : page[page.length - 1];
+				update((s) => ({
+					...s,
+					selectedGeneration: target,
+					selectedFileIndex: fileIndexFor(direction)
+				}));
+				return true;
+			} finally {
+				steppingSelection = false;
+			}
 		},
 
 		// Delete generation
@@ -672,3 +729,25 @@ export const totalPages = derived(historyStore, ($history) =>
 // store is a passthrough of the server-provided generations list, kept so
 // existing consumers (grid, selection toolbar) continue to work unchanged.
 export const filteredGenerations = derived(historyStore, ($history) => $history.generations);
+
+// 1-based position across pages, not within the loaded page.
+export const selectedPosition = derived(historyStore, ($history) => {
+	const selectedId = $history.selectedGeneration?.id;
+	if (!selectedId) return null;
+	const index = $history.generations.findIndex((gen) => gen.id === selectedId);
+	if (index === -1) return null;
+	return {
+		index: ($history.currentPage - 1) * $history.itemsPerPage + index + 1,
+		total: $history.totalCount
+	};
+});
+
+export const hasPreviousGeneration = derived(
+	selectedPosition,
+	($position) => $position !== null && $position.index > 1
+);
+
+export const hasNextGeneration = derived(
+	selectedPosition,
+	($position) => $position !== null && $position.index < $position.total
+);

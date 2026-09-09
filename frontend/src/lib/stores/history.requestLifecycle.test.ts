@@ -218,7 +218,8 @@ describe('stores/history request lifecycle', () => {
 		expect(get(historyStore).loading).toBe(false);
 
 		stale.reject(new Error('network down'));
-		await expect(first).resolves.toBeUndefined();
+		// Swallowed, and reported as "nothing applied" rather than rethrown.
+		await expect(first).resolves.toBe(false);
 
 		const state = get(historyStore);
 		expect(ids(state)).toEqual(['page2-1']);

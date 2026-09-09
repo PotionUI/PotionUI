@@ -297,6 +297,15 @@ already installed — `./potionui start` does not):
 ./run.sh 7680 7681 --lan          # also accept connections from the local network
 ```
 
+### Logs
+
+Console output is mirrored to a rotating log file at `storage/logs/potionui.log`.
+Tune it with `POTIONUI_LOG_LEVEL` (default `INFO`), `POTIONUI_LOG_DIR` (default
+`storage/logs`, empty disables the file), `POTIONUI_LOG_MAX_BYTES` (default
+20 MB) and `POTIONUI_LOG_BACKUP_COUNT` (default 10), or turn the file off
+outright with `POTIONUI_LOG_FILE=off`. Details in
+[Administration → Server logs](docs/user/admin.md#server-logs).
+
 ## Documentation
 
 Start with the in-app documentation browser, or read the Markdown directly:

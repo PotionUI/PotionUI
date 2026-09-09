@@ -20,7 +20,11 @@ on exactly one port: the backend serves the prebuilt SvelteKit SPA itself
 (`src/bootstrap/static_frontend.py`), so there is no node runtime, no dev
 server, and nothing to configure beyond the three volumes (`models`,
 `storage`, `outputs` — all runtime state lives there; the image contains
-none). GPU access works the same way as everything else in this directory:
+none). The `storage` volume also holds the rotating log file at
+`/app/storage/logs/potionui.log`, so the server's own log survives outside
+`docker logs`; set `POTIONUI_LOG_FILE=off` if the container runs with a
+read-only filesystem. GPU access works the same way as everything
+else in this directory:
 [nvidia-container-toolkit](https://github.com/NVIDIA/nvidia-container-toolkit)
 and `--gpus all`. The container binds `0.0.0.0` internally (a container's
 published port is its access control; the bare-metal loopback default would

@@ -182,10 +182,15 @@ def test_schedule_options_values_reach_the_enabled_generator_as_native_types(wan
 
 
 def test_linear_quadratic_is_a_valid_schedule_choice(wan_template):
+    """The pipe spec pins no choice list any more -- the schedule registry is
+    what decides which keys `build_sigmas` accepts."""
     from src.pipelines.pipes._shared.generation.guidance_options import schedule_settings_config_specs
+    from src.platform.runtime.native.sampling.registry import schedule_registry
 
     spec = next(s for s in schedule_settings_config_specs() if s.name == "schedule")
-    assert "linear_quadratic" in spec.choices
+    assert spec.choices is None
+    assert "linear_quadratic" in spec.description
+    assert schedule_registry.has("linear_quadratic")
 
 
 # -- the real override/build seam: schedule_settings_overrides -> build_sigmas -

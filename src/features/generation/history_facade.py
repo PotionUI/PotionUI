@@ -83,7 +83,8 @@ class GenerationHistoryFacade:
             media_indexer, preset_name_resolver
         )
         self._archive = GenerationHistoryArchive(
-            generation_repo, file_service, plugin_registry, self._query, run_report_repository
+            generation_repo, file_service, plugin_registry, self._query, run_report_repository,
+            settings
         )
         self.executor = HistoryExecutor()
 

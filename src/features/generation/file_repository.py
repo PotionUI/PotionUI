@@ -20,8 +20,8 @@ class FileRepository:
                 INSERT INTO files (
                     id, file_path, file_type, user_id, mime_type, file_size,
                     pipe_name, is_final, is_derived, thumbnail_small, thumbnail_medium, thumbnail_large,
-                    width, height, duration_seconds, fps
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    thumbnail_profile, width, height, duration_seconds, fps
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 file.id,
                 file.file_path,
@@ -35,6 +35,7 @@ class FileRepository:
                 file.thumbnail_small,
                 file.thumbnail_medium,
                 file.thumbnail_large,
+                file.thumbnail_profile,
                 file.width,
                 file.height,
                 file.duration_seconds,
@@ -236,8 +237,10 @@ class FileRepository:
             ]
 
     def set_thumbnail_paths(self, file_ids: List[str], thumbnail_small: Optional[str],
-                          thumbnail_medium: Optional[str], thumbnail_large: Optional[str]) -> int:
-        """Set thumbnail paths on every file in `file_ids` in one transaction.
+                          thumbnail_medium: Optional[str], thumbnail_large: Optional[str],
+                          thumbnail_profile: Optional[str] = None) -> int:
+        """Set thumbnail paths, and the profile they were rendered under, on
+        every file in `file_ids` in one transaction.
 
         Async thumbnail generation can find more than one matching video file
         record (duplicates), so all of them are updated together or not at all.
@@ -249,12 +252,52 @@ class FileRepository:
                 cursor.execute(
                     """
                     UPDATE files
-                    SET thumbnail_small = ?, thumbnail_medium = ?, thumbnail_large = ?
+                    SET thumbnail_small = ?, thumbnail_medium = ?, thumbnail_large = ?,
+                        thumbnail_profile = ?
                     WHERE id = ?
                     """,
-                    (thumbnail_small, thumbnail_medium, thumbnail_large, file_id)
+                    (thumbnail_small, thumbnail_medium, thumbnail_large, thumbnail_profile, file_id)
                 )
             return len(file_ids)
+
+    # Only a final IMAGE/VIDEO output carries a rendered thumbnail set. MESH
+    # rows get a single render through the media index and AUDIO none at all,
+    # so neither belongs to a thumbnail profile.
+    _THUMBNAIL_BEARING = "file_type IN ('IMAGE', 'VIDEO') AND is_final = 1"
+
+    def count_thumbnail_bearing(self) -> Dict[str, int]:
+        """How many final image and video outputs exist."""
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT file_type, COUNT(*) AS total FROM files "
+                f"WHERE {self._THUMBNAIL_BEARING} GROUP BY file_type"
+            )
+            counts = {row['file_type']: row['total'] for row in cursor.fetchall()}
+        return {"images": counts.get('IMAGE', 0), "videos": counts.get('VIDEO', 0)}
+
+    def count_stale_thumbnails(self, profile_hash: str) -> int:
+        """Final image/video outputs whose thumbnails predate `profile_hash`."""
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT COUNT(*) AS total FROM files WHERE {self._THUMBNAIL_BEARING} "
+                f"AND (thumbnail_profile IS NULL OR thumbnail_profile != ?)",
+                (profile_hash,)
+            )
+            return cursor.fetchone()['total']
+
+    def list_stale_thumbnails(self, profile_hash: str) -> List[File]:
+        """Every final image/video output whose thumbnails predate `profile_hash`."""
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT * FROM files WHERE {self._THUMBNAIL_BEARING} "
+                f"AND (thumbnail_profile IS NULL OR thumbnail_profile != ?) "
+                f"ORDER BY created_at ASC",
+                (profile_hash,)
+            )
+            return [File.from_row(row) for row in cursor.fetchall()]
 
     def get_generation_file_by_file_id(self, file_id: str) -> Optional[GenerationFile]:
         """Get GenerationFile junction record by file_id"""

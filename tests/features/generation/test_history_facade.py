@@ -646,7 +646,8 @@ class TestUploadGenerationsFileTypes:
         assert added_record.mime_type == "image/png"
         assert added_record.width == 32
         assert added_record.height == 32
-        assert added_record.thumbnail_small is not None
+        # The default profile renders the medium size only.
+        assert added_record.thumbnail_medium is not None
 
     @pytest.mark.asyncio
     async def test_upload_wav_is_stored_as_audio(self, tmp_path):

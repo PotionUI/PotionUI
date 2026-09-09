@@ -110,8 +110,10 @@ class TestImageHandlerDriverBypassClosed:
         files = generation_repo.get_files(gen_id, is_final=True)
         assert len(files) == 1
         record = files[0]
-        assert record.thumbnail_small is not None
-        thumb_key = f"{Path(saved_path).parent.as_posix()}/{record.thumbnail_small}"
+        # The default profile renders one medium thumbnail; the point here is
+        # only that whatever it renders goes through the driver.
+        assert record.thumbnail_medium is not None
+        thumb_key = f"{Path(saved_path).parent.as_posix()}/{record.thumbnail_medium}"
         assert bucket_driver.exists(thumb_key)
         assert not any(local_root.rglob('*.webp')), "thumbnail leaked onto the FileStore's own local root"
 

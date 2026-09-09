@@ -20,6 +20,85 @@ export async function updateSettings(settings: Record<string, unknown>): Promise
 	return response.data;
 }
 
+// Admin API - Thumbnail profiles
+export type ThumbnailProfileName = 'compact' | 'balanced' | 'full';
+
+export interface ThumbnailProfileSettings {
+	sizes: string[];
+	video_fps: number;
+	video_seconds: number;
+	video_quality: number;
+	image_quality: number;
+}
+
+export interface ThumbnailProfile extends ThumbnailProfileSettings {
+	estimated_bytes: number;
+}
+
+export type ThumbnailProfiles = Record<ThumbnailProfileName, ThumbnailProfile>;
+
+export interface ThumbnailJobError {
+	file_id: string;
+	path: string;
+	error: string;
+}
+
+export interface ThumbnailJob {
+	id: string;
+	status: 'running' | 'cancelling' | 'done' | 'failed' | 'cancelled';
+	total: number;
+	done: number;
+	failed: number;
+	current: string | null;
+	started_at: string | null;
+	finished_at: string | null;
+	last_error: string | null;
+	errors: ThumbnailJobError[];
+}
+
+export interface ThumbnailUsage {
+	static_bytes: number;
+	animated_bytes: number;
+	total_bytes: number;
+	measured_at: string;
+}
+
+export interface ThumbnailCounts {
+	images: number;
+	videos: number;
+	uploads: number;
+	stale: number;
+}
+
+export interface ThumbnailStats {
+	settings: ThumbnailProfileSettings;
+	profiles: ThumbnailProfiles;
+	active_profile: ThumbnailProfileName | 'custom';
+	counts: ThumbnailCounts;
+	usage: ThumbnailUsage | null;
+	job: ThumbnailJob | null;
+}
+
+export async function getThumbnailStats(): Promise<APIResponse<ThumbnailStats>> {
+	const response = await api.getClient().get('/api/admin/thumbnails');
+	return response.data;
+}
+
+export async function startThumbnailRegeneration(): Promise<APIResponse<ThumbnailJob>> {
+	const response = await api.getClient().post('/api/admin/thumbnails/regenerate');
+	return response.data;
+}
+
+export async function cancelThumbnailRegeneration(): Promise<APIResponse<ThumbnailJob>> {
+	const response = await api.getClient().post('/api/admin/thumbnails/regenerate/cancel');
+	return response.data;
+}
+
+export async function getThumbnailJob(): Promise<APIResponse<ThumbnailJob | null>> {
+	const response = await api.getClient().get('/api/admin/thumbnails/job');
+	return response.data;
+}
+
 // Admin API - Semantic search / media indexing model status
 export interface ActiveModelDownload {
 	id: string;

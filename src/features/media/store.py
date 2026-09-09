@@ -30,6 +30,12 @@ from src.features.generation.repository import GenerationRepository
 from src.features.generation import media_probe
 from src.features.generation.handlers.image_handler import generate_thumbnails
 from src.features.generation.handlers.video_handler import generate_video_thumbnails, render_poster_frame
+from src.features.generation.thumbnail_profile import (
+    SIZE_ORDER,
+    fallback_sizes,
+    load_thumbnail_profile,
+    profile_hash,
+)
 from src.platform.filesystem.file_store import FileStore
 from src.platform.filesystem.storage_driver import (
     FileStorageDriver,
@@ -194,14 +200,17 @@ class MediaStore:
 
         # Handle thumbnail requests
         if size and size in ['small', 'medium', 'large']:
+            base_key = Path(target_file.file_path).parent
             thumbnail_path = self.file_resolver.get_thumbnail_path(
-                target_file, size, animated
+                target_file, size, animated,
+                animated_exists=lambda candidate: self.storage_driver.exists(
+                    (base_key / candidate).as_posix()
+                ),
             )
             if not thumbnail_path:
                 raise ValueError(f"Thumbnail size '{size}' not available")
 
             # Key relative to the file's own generation directory
-            base_key = Path(target_file.file_path).parent
             key = (base_key / thumbnail_path).as_posix()
             result_filename = thumbnail_path.name
         else:
@@ -300,12 +309,21 @@ class MediaStore:
         if not upload:
             return None
 
-        thumbnail_path = getattr(upload, f'thumbnail_{size}', None)
+        thumbnail_path = None
+        for candidate in fallback_sizes(size):
+            value = getattr(upload, f'thumbnail_{candidate}', None)
+            if value:
+                thumbnail_path = value
+                break
+
         if not thumbnail_path:
             return None
 
         if animated and (upload.media_type or '').lower() == 'video':
-            thumbnail_path = str(Path(thumbnail_path).parent / f"{Path(thumbnail_path).stem}_animated.webp")
+            animated_path = str(Path(thumbnail_path).parent / f"{Path(thumbnail_path).stem}_animated.webp")
+            animated_key = self._upload_key(animated_path)
+            if self.storage_driver.exists(animated_key):
+                return animated_key
 
         return self._upload_key(thumbnail_path)
 
@@ -545,7 +563,9 @@ class MediaStore:
         try:
             image = Image.open(io.BytesIO(file_data))
             image.load()
-            return generate_thumbnails(image, self.storage_driver, "uploads", stem)
+            return generate_thumbnails(
+                image, self.storage_driver, "uploads", stem, load_thumbnail_profile(self.settings)
+            )
         except Exception as e:
             logger.warning(f"Failed to generate thumbnails for uploaded image: {e}")
             return {}
@@ -560,11 +580,14 @@ class MediaStore:
         """
         storage_driver = self.storage_driver
         upload_repo = self.upload_repo
+        profile = load_thumbnail_profile(self.settings)
 
         def worker():
             try:
                 with self._local_copy(key, file_ext) as local_path:
-                    thumbnail_paths = generate_video_thumbnails(str(local_path), storage_driver, "uploads", stem)
+                    thumbnail_paths = generate_video_thumbnails(
+                        str(local_path), storage_driver, "uploads", stem, profile
+                    )
 
                 if thumbnail_paths:
                     upload_repo.set_thumbnail_paths(
@@ -572,6 +595,7 @@ class MediaStore:
                         thumbnail_paths.get('small'),
                         thumbnail_paths.get('medium'),
                         thumbnail_paths.get('large'),
+                        profile_hash(profile),
                     )
                 else:
                     logger.warning(f"Failed to generate thumbnails for uploaded video: {key}")
@@ -626,6 +650,7 @@ class MediaStore:
                 thumbnail_small=thumbnail_paths.get('small'),
                 thumbnail_medium=thumbnail_paths.get('medium'),
                 thumbnail_large=thumbnail_paths.get('large'),
+                thumbnail_profile=profile_hash(load_thumbnail_profile(self.settings)) if thumbnail_paths else None,
                 duration_seconds=duration_seconds,
                 fps=fps,
                 file_size=file_size,

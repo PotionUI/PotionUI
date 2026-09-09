@@ -487,6 +487,7 @@ class TestFileModel(unittest.TestCase):
             'thumbnail_small': None,
             'thumbnail_medium': None,
             'thumbnail_large': None,
+            'thumbnail_profile': None,
             'width': None,
             'height': None,
             'duration_seconds': None,

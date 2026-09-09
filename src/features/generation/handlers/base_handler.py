@@ -65,6 +65,22 @@ class BaseGenerationOutputHandler(ABC):
         # saving - constructing eagerly would `mkdir` a real directory for
         # every handler, including ones that never save anything.
         self.storage_driver = storage_driver
+        self._thumbnail_profile = None
+
+    @property
+    def thumbnail_profile(self):
+        """The admin-configured thumbnail profile, read once per handler
+        instance (handlers are constructed fresh per output)."""
+        if self._thumbnail_profile is None:
+            from src.features.generation.thumbnail_profile import (
+                DEFAULT_PROFILE,
+                load_thumbnail_profile,
+            )
+
+            self._thumbnail_profile = (
+                load_thumbnail_profile(self.settings) if self.settings else DEFAULT_PROFILE
+            )
+        return self._thumbnail_profile
 
     def _resolve_storage_driver(self) -> FileStorageDriver:
         """The driver to save generation output through - the injected one,

@@ -109,10 +109,11 @@ class TestModelPreviewIntegration(PersistenceTestBase):
         file_id = self.repo.get_by_id(model.id).preview_media["file_id"]
         file_record = file_repo.get_by_id(file_id)
 
-        assert file_record.thumbnail_small, "image preview has no small thumbnail"
+        # The default thumbnail profile renders the medium size only.
+        assert file_record.thumbnail_medium, "image preview has no thumbnail"
         storage_dir = self.settings.get_file_storage_directory(file_record.user_id)
         original_dir = Path(FileStore(storage_dir).get_full_path(file_record.file_path)).parent
-        thumb = original_dir / file_record.thumbnail_small
+        thumb = original_dir / file_record.thumbnail_medium
         assert thumb.is_file(), f"thumbnail file missing on disk: {thumb}"
 
     def test_replace_deletes_previous_files_row(self):

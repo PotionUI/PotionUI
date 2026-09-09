@@ -26,6 +26,11 @@ export const SETTINGS_GROUPS: SettingsGroupDescriptor[] = [
  * — they never ride the shared save bar. */
 export const SETTINGS_KEY_GROUP: Record<string, SettingsGroupId> = {
 	file_storage_directory: 'storage',
+	thumbnail_sizes: 'storage',
+	thumbnail_video_fps: 'storage',
+	thumbnail_video_seconds: 'storage',
+	thumbnail_video_quality: 'storage',
+	thumbnail_image_quality: 'storage',
 	nsfw: 'content_safety',
 	prompt_embedding_provider: 'search_tagging',
 	prompt_embedding_model: 'search_tagging',

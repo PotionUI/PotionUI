@@ -139,6 +139,7 @@ if TYPE_CHECKING:
     from src.features.automation.runtime import AutomationRuntime
     from src.platform.plugins.automation_templates import AutomationTemplateRegistry
     from src.features.media import MediaStore, MediaTypeResolver, FilePathResolver, ImageProcessor
+    from src.features.media.thumbnail_regeneration import ThumbnailRegeneration
     from src.features.presets.file_repository import FilePresetRepository
     from src.features.presets.repository import DatabasePresetRepository
     from src.features.prompt_database.collaborators import PromptDatabaseCollaborators
@@ -349,6 +350,7 @@ class AppContainer:
     file_resolver: "FilePathResolver"
     image_processor: "ImageProcessor"
     media_store: "MediaStore"
+    thumbnail_regeneration: "ThumbnailRegeneration"
     media_controller: "MediaController"
     media_editor: "MediaEditor"
     media_edit_controller: "MediaEditController"
@@ -1207,6 +1209,15 @@ def build_container() -> AppContainer:
         storage_driver=storage_driver,
     )
     media_controller = MediaController(media_store)
+
+    from src.features.media.thumbnail_regeneration import ThumbnailRegeneration
+
+    thumbnail_regeneration = ThumbnailRegeneration(
+        settings=settings,
+        storage_driver=storage_driver,
+        file_repository=file_repo,
+        upload_repository=upload_repository,
+    )
 
     # Pre-render preset media thumbnails ("install" - see docs/presets.md)
     # off the request path: wired as the loader's change callback so every

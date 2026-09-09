@@ -11,8 +11,15 @@ from fastapi.responses import StreamingResponse, FileResponse, Response
 import aiofiles
 
 from src.platform.http.base_controller import BaseController, APIResponse
-from src.platform.security.current_user import get_current_active_user
+from src.platform.security.current_user import get_current_active_user, get_current_admin_user
+from src.features.generation.thumbnail_profile import (
+    PROFILES,
+    estimate_bytes,
+    load_thumbnail_profile,
+    match_profile,
+)
 from src.features.media import MediaStore, UnsupportedSizeError
+from src.features.media.thumbnail_regeneration import ThumbnailJobRunning, ThumbnailRegeneration
 from src.features.media.validators import UPLOAD_PURPOSE_USER
 
 if TYPE_CHECKING:
@@ -457,3 +464,89 @@ def build_router(container: "AppContainer") -> APIRouter:
         return await controller.serve_preset_file(preset_id, file_path, size, request)
 
     return router
+
+
+class ThumbnailAdminController(BaseController):
+    """Admin view of thumbnail rendering: the active profile, what the named
+    profiles would cost, what is on disk, and the regeneration run."""
+
+    def __init__(self, settings, regeneration: ThumbnailRegeneration):
+        super().__init__()
+        self.settings = settings
+        self.regeneration = regeneration
+
+    def _job_payload(self):
+        job = self.regeneration.current()
+        return job.to_dict() if job else None
+
+    async def get_overview(self) -> APIResponse:
+        profile = load_thumbnail_profile(self.settings)
+        counts = self.regeneration.counts()
+
+        profiles = {}
+        for name, candidate in PROFILES.items():
+            payload = candidate.to_dict()
+            payload["estimated_bytes"] = estimate_bytes(candidate, counts["images"], counts["videos"])
+            profiles[name] = payload
+
+        return self.success_response(data={
+            "settings": profile.to_dict(),
+            "profiles": profiles,
+            "active_profile": match_profile(profile),
+            "counts": counts,
+            "usage": self.regeneration.usage(),
+            "job": self._job_payload(),
+        })
+
+    async def regenerate(self) -> APIResponse:
+        try:
+            job = self.regeneration.start()
+        except ThumbnailJobRunning as e:
+            return self.error_response(
+                error="thumbnail_job_running", message=str(e), status_code=409
+            )
+        return self.success_response(data=job.to_dict(), message="Thumbnail regeneration started")
+
+    async def cancel(self) -> APIResponse:
+        job = self.regeneration.cancel()
+        if job is None:
+            return self.error_response(
+                error="thumbnail_job_not_found",
+                message="No thumbnail regeneration is running",
+                status_code=404,
+            )
+        return self.success_response(data=job.to_dict(), message="Cancelling after the current file")
+
+    async def get_job(self) -> APIResponse:
+        return self.success_response(data=self._job_payload())
+
+
+def build_admin_router(container: "AppContainer") -> APIRouter:
+    """Thumbnail rendering is admin configuration, not a media read - it lives
+    under /api/admin alongside the other admin-only operations."""
+    controller = ThumbnailAdminController(container.settings, container.thumbnail_regeneration)
+
+    admin_router = APIRouter(prefix="/api/admin", tags=["Media"])
+
+    @admin_router.get("/thumbnails", response_model=APIResponse, summary="Get Thumbnail Settings")
+    async def get_thumbnails(current_user=Depends(get_current_admin_user)):
+        """Active thumbnail profile, the named profiles and their estimated cost,
+        current disk usage, and any regeneration run."""
+        return await controller.get_overview()
+
+    @admin_router.post("/thumbnails/regenerate", response_model=APIResponse, status_code=202, summary="Regenerate Thumbnails")
+    async def regenerate_thumbnails(current_user=Depends(get_current_admin_user)):
+        """Start re-rendering every thumbnail whose profile is out of date."""
+        return await controller.regenerate()
+
+    @admin_router.post("/thumbnails/regenerate/cancel", response_model=APIResponse, summary="Cancel Thumbnail Regeneration")
+    async def cancel_thumbnail_regeneration(current_user=Depends(get_current_admin_user)):
+        """Stop the running regeneration after the file it is on."""
+        return await controller.cancel()
+
+    @admin_router.get("/thumbnails/job", response_model=APIResponse, summary="Get Thumbnail Regeneration Job")
+    async def get_thumbnail_job(current_user=Depends(get_current_admin_user)):
+        """The current or most recent regeneration run, or null."""
+        return await controller.get_job()
+
+    return admin_router

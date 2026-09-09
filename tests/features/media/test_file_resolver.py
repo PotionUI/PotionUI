@@ -259,9 +259,12 @@ class TestFilePathResolver:
         assert result is None
 
     def test_get_thumbnail_path_missing_thumbnail(self, resolver):
-        """Test get_thumbnail_path returns None when thumbnail not available."""
+        """None only when the record has no thumbnail at any size - a single
+        missing size falls back to a sibling (see test_thumbnail_fallback.py)."""
         mock_file = Mock()
         mock_file.thumbnail_small = None
+        mock_file.thumbnail_medium = None
+        mock_file.thumbnail_large = None
 
         result = resolver.get_thumbnail_path(mock_file, "small")
         assert result is None

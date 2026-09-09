@@ -12,12 +12,9 @@ The handler integrates with:
 - PIL for image processing and thumbnail generation
 
 Thumbnail Generation:
-    - Small: 480x480px
-    - Medium: 768x768px
-    - Large: 1024x1024px
-
-All thumbnails are saved as WebP format with optimized compression for better
-performance and reduced storage requirements.
+    Which sizes are rendered, and at what WebP quality, comes from the active
+    `ThumbnailProfile` (see `src.features.generation.thumbnail_profile`), not
+    from this module.
 """
 
 import io
@@ -32,6 +29,7 @@ from src.features.generation.output_types import OutputTypeSpec, SerializeContex
 from src.features.generation.media_utils import create_base64_image
 from src.features.generation.records import File
 from src.features.generation.repository import generation_repo
+from src.features.generation.thumbnail_profile import ThumbnailProfile, profile_hash
 from src.platform.filesystem.storage_driver import FileStorageDriver
 from src.platform.util.ids import generate_ulid
 from src.platform.settings.settings import Settings
@@ -39,38 +37,38 @@ from src.platform.settings.settings import Settings
 logger = logging.getLogger(__name__)
 
 
-def generate_thumbnails(image: Image.Image, storage_driver: FileStorageDriver, base_key: str, counter: int) -> Dict[str, str]:
+def generate_thumbnails(
+    image: Image.Image,
+    storage_driver: FileStorageDriver,
+    base_key: str,
+    counter,
+    profile: ThumbnailProfile,
+) -> Dict[str, str]:
     """
-    Generate thumbnails of different sizes for an image, written through
-    `storage_driver` under `{base_key}/thumbnails/...` - `base_key` is the
-    key-space directory the main output was just saved into (the parent of
-    its `files.file_path`).
+    Generate thumbnails for an image, written through `storage_driver` under
+    `{base_key}/thumbnails/...` - `base_key` is the key-space directory the
+    main output was just saved into (the parent of its `files.file_path`).
 
     Args:
         image: PIL Image to create thumbnails from
         storage_driver: Where the thumbnail bytes actually live
         base_key: The saved output's parent key, e.g. `generations/<date>/<id>`
         counter: Image counter for filename generation
+        profile: Which sizes to render, and at what WebP quality
 
     Returns:
         Dictionary with thumbnail paths (relative to `base_key`, matching
         `files.thumbnail_small/medium/large`): {'small': path, ...}
     """
-    thumbnail_sizes = {
-        'small': (480, 480),
-        'medium': (768, 768),
-        'large': (1024, 1024)
-    }
-
     thumbnail_paths = {}
 
-    for size_name, (width, height) in thumbnail_sizes.items():
+    for size_name, width in profile.widths():
         try:
             # Create a copy of the image to avoid modifying the original
             thumb_image = image.copy()
 
             # Use thumbnail() method to maintain aspect ratio
-            thumb_image.thumbnail((width, height), Image.Resampling.LANCZOS)
+            thumb_image.thumbnail((width, width), Image.Resampling.LANCZOS)
 
             # Convert to RGB if needed for WebP compatibility
             if thumb_image.mode == 'RGBA':
@@ -83,7 +81,7 @@ def generate_thumbnails(image: Image.Image, storage_driver: FileStorageDriver, b
             filename = f"{counter}_{size_name}.webp"
             relative_path = f"thumbnails/{filename}"
             buf = io.BytesIO()
-            thumb_image.save(buf, format='WebP', quality=85, method=6)
+            thumb_image.save(buf, format='WebP', quality=profile.image_quality, method=6)
             storage_driver.put_bytes(f"{base_key}/{relative_path}", buf.getvalue())
 
             thumbnail_paths[size_name] = relative_path
@@ -199,7 +197,9 @@ class ImageGenerationOutputHandler(BaseGenerationOutputHandler):
             # thumbnails live alongside it under a "thumbnails/" child key.
             base_key = file_metadata['file_path'].rsplit('/', 1)[0]
 
-            thumbnail_paths = generate_thumbnails(image, storage_driver, base_key, self.image_counter)
+            thumbnail_paths = generate_thumbnails(
+                image, storage_driver, base_key, self.image_counter, self.thumbnail_profile
+            )
             logger.debug(f"Generated thumbnails: {thumbnail_paths}")
 
             # Increment counter for next image
@@ -246,6 +246,7 @@ class ImageGenerationOutputHandler(BaseGenerationOutputHandler):
                 thumbnail_small=thumbnail_paths.get('small') if thumbnail_paths else None,
                 thumbnail_medium=thumbnail_paths.get('medium') if thumbnail_paths else None,
                 thumbnail_large=thumbnail_paths.get('large') if thumbnail_paths else None,
+                thumbnail_profile=profile_hash(self.thumbnail_profile),
                 width=width,
                 height=height
             )

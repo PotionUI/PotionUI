@@ -104,6 +104,7 @@ def copy_generation_file(collaborators: LibraryCollaborators, file_id: str, user
         thumbnail_small=thumbnail_paths.get('small'),
         thumbnail_medium=thumbnail_paths.get('medium'),
         thumbnail_large=thumbnail_paths.get('large'),
+        thumbnail_profile=file_record.thumbnail_profile if thumbnail_paths else None,
     ))
 
     logger.info(f"Copied generated file {file_id} into library as {filename}")

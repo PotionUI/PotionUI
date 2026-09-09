@@ -11,6 +11,7 @@
 	import AccessPanel from './settings/AccessPanel.svelte';
 	import ContentSafetyPanel from './settings/ContentSafetyPanel.svelte';
 	import FileStoragePanel from './settings/FileStoragePanel.svelte';
+	import ThumbnailsPanel from './settings/ThumbnailsPanel.svelte';
 	import ModelsLocationPanel from './settings/ModelsLocationPanel.svelte';
 	import PromptSearchPanel from './settings/PromptSearchPanel.svelte';
 	import MediaTaggingPanel from './settings/MediaTaggingPanel.svelte';
@@ -38,7 +39,7 @@
 
 	let dirtyKeys = $derived.by(() => {
 		const before = JSON.parse(snapshot) as Record<string, any>;
-		return USER_CONFIGURABLE_KEYS.filter((k) => settings[k] !== before[k]);
+		return USER_CONFIGURABLE_KEYS.filter((k) => JSON.stringify(settings[k]) !== JSON.stringify(before[k]));
 	});
 	let dirtyGroups = $derived(new Set(dirtyKeys.map((k) => SETTINGS_KEY_GROUP[k])));
 	let unsavedChanges = $derived(dirtyKeys.length > 0);
@@ -150,6 +151,7 @@
 							<ContentSafetyPanel {settings} onSettingChange={handleSettingChange} />
 						{:else if activeGroup === 'storage'}
 							<FileStoragePanel {settings} onSettingChange={handleSettingChange} />
+							<ThumbnailsPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
 							<ModelsLocationPanel />
 						{:else if activeGroup === 'search_tagging'}
 							<AiPanelFrame>

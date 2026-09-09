@@ -38,6 +38,8 @@ class Upload:
     thumbnail_small: Optional[str] = None
     thumbnail_medium: Optional[str] = None
     thumbnail_large: Optional[str] = None
+    # Fingerprint of the ThumbnailProfile these thumbnails were rendered under.
+    thumbnail_profile: Optional[str] = None
 
     @classmethod
     def from_row(cls, row) -> 'Upload':
@@ -59,4 +61,5 @@ class Upload:
             thumbnail_small=row_get(row, 'thumbnail_small'),
             thumbnail_medium=row_get(row, 'thumbnail_medium'),
             thumbnail_large=row_get(row, 'thumbnail_large'),
+            thumbnail_profile=row_get(row, 'thumbnail_profile'),
         )

@@ -25,6 +25,10 @@ class File:
     thumbnail_small: Optional[str] = None
     thumbnail_medium: Optional[str] = None
     thumbnail_large: Optional[str] = None
+    # Fingerprint of the ThumbnailProfile these thumbnails were rendered under
+    # (see src.features.generation.thumbnail_profile). NULL = rendered before
+    # profiles existed, which the regeneration job treats as stale.
+    thumbnail_profile: Optional[str] = None
     width: Optional[int] = None
     height: Optional[int] = None
     # duration_seconds: video and audio (added by migration 086 for video;
@@ -51,6 +55,7 @@ class File:
             thumbnail_small=row_get(row, 'thumbnail_small'),
             thumbnail_medium=row_get(row, 'thumbnail_medium'),
             thumbnail_large=row_get(row, 'thumbnail_large'),
+            thumbnail_profile=row_get(row, 'thumbnail_profile'),
             width=row_get(row, 'width'),
             height=row_get(row, 'height'),
             duration_seconds=row_get(row, 'duration_seconds'),
@@ -73,6 +78,7 @@ class File:
             'thumbnail_small': self.thumbnail_small,
             'thumbnail_medium': self.thumbnail_medium,
             'thumbnail_large': self.thumbnail_large,
+            'thumbnail_profile': self.thumbnail_profile,
             'width': self.width,
             'height': self.height,
             'duration_seconds': self.duration_seconds,

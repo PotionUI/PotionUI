@@ -105,7 +105,8 @@ class TestExtensionlessUploadTyping:
         assert record.file_path.endswith(".png")
         assert record.width == 16
         assert record.height == 16
-        assert record.thumbnail_small is not None
+        # The default profile renders the medium size only.
+        assert record.thumbnail_medium is not None
 
     @pytest.mark.asyncio
     async def test_declared_extension_still_wins_over_content(self, tmp_path):

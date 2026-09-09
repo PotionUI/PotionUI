@@ -14,8 +14,9 @@ The handler integrates with:
 
 Video Thumbnail Generation:
     - Static thumbnails (JPEG): First frame only, for immediate preview
-    - Animated thumbnails (WebP): 3-second clips with reduced quality
-    - Three sizes: small (480px), medium (768px), large (1024px)
+    - Animated thumbnails (WebP): a clip whose length, frame rate and quality
+      come from the active `ThumbnailProfile`
+    - Which sizes are rendered also comes from that profile
 
 Thumbnails are generated asynchronously to avoid blocking the main generation
 pipeline, with database updates occurring when thumbnails are ready.
@@ -36,6 +37,7 @@ from src.features.generation.records import File
 from src.features.generation.repository import generation_repo
 from src.features.generation import media_probe
 from src.features.generation.temp_source_tracker import temp_source_tracker
+from src.features.generation.thumbnail_profile import ThumbnailProfile, profile_hash
 from src.platform.filesystem.storage_driver import FileStorageDriver, local_copy, local_target
 from src.platform.settings.settings import Settings
 
@@ -80,33 +82,32 @@ def render_poster_frame(video_path: str, width: int, timeout: int = 10) -> Optio
 
 
 def generate_video_thumbnails(
-    video_path: str, storage_driver: FileStorageDriver, base_key: str, counter: int
+    video_path: str,
+    storage_driver: FileStorageDriver,
+    base_key: str,
+    counter,
+    profile: ThumbnailProfile,
 ) -> Dict[str, str]:
     """
-    Generate WebP animated thumbnails of different sizes for a video, written
-    through `storage_driver` under `{base_key}/thumbnails/...`.
+    Generate static and animated WebP thumbnails for a video, written through
+    `storage_driver` under `{base_key}/thumbnails/...`.
 
     Args:
         video_path: Path to the LOCAL source video file (ffmpeg needs a real path)
         storage_driver: Where the thumbnail bytes actually live
         base_key: The saved output's parent key, e.g. `generations/<date>/<id>`
         counter: Video counter for filename generation
+        profile: Which sizes to render, and the animated clip's fps/length/quality
 
     Returns:
         Dictionary with thumbnail paths (relative to `base_key`): {'small': path, ...}
     """
-    thumbnail_sizes = {
-        'small': 480,
-        'medium': 768,
-        'large': 1024
-    }
-
     thumbnail_paths = {}
 
     try:
-        # Optimize: Generate thumbnails with reduced quality and parallel processing
-        import subprocess
         import concurrent.futures
+
+        widths = profile.widths()
 
         def generate_static_thumbnail(size_name, width):
             try:
@@ -144,10 +145,10 @@ def generate_video_thumbnails(
                     cmd = [
                         'ffmpeg', '-y',
                         '-i', video_path,
-                        '-t', '3',  # Reduced from 5 to 3 seconds
-                        '-vf', f'scale={width}:-1',
+                        '-t', str(profile.video_seconds),
+                        '-vf', f'fps={profile.video_fps},scale={width}:-1',
                         '-c:v', 'libwebp',
-                        '-quality', '50',  # Reduced quality for speed
+                        '-quality', str(profile.video_quality),
                         '-loop', '0',
                         '-an',
                         str(target_path)
@@ -169,7 +170,7 @@ def generate_video_thumbnails(
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
                 static_futures = {
                     executor.submit(generate_static_thumbnail, size_name, width): size_name
-                    for size_name, width in thumbnail_sizes.items()
+                    for size_name, width in widths
                 }
 
                 for future in concurrent.futures.as_completed(static_futures):
@@ -183,7 +184,7 @@ def generate_video_thumbnails(
                 with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
                     animated_futures = {
                         executor.submit(generate_animated_thumbnail, size_name, width): size_name
-                        for size_name, width in thumbnail_sizes.items()
+                        for size_name, width in widths
                     }
 
                     # Wait for animated thumbnails but with shorter timeout
@@ -197,13 +198,17 @@ def generate_video_thumbnails(
             return {}
 
     except Exception as e:
-        logger.error(f"Failed to create video thumbnails directory: {str(e)}")
+        logger.error(f"Failed to create video thumbnails: {str(e)}")
 
     return thumbnail_paths
 
 
 def _schedule_async_thumbnail_generation(
-    saved_path: str, storage_driver: FileStorageDriver, generation_id: str, counter: int
+    saved_path: str,
+    storage_driver: FileStorageDriver,
+    generation_id: str,
+    counter: int,
+    profile: ThumbnailProfile,
 ):
     """Schedule async thumbnail generation in background thread.
 
@@ -255,11 +260,13 @@ def _schedule_async_thumbnail_generation(
 
                 # Generate thumbnails
                 base_key = saved_path.rsplit('/', 1)[0]
-                thumbnail_paths = generate_video_thumbnails(video_path, storage_driver, base_key, counter)
+                thumbnail_paths = generate_video_thumbnails(
+                    video_path, storage_driver, base_key, counter, profile
+                )
 
             if thumbnail_paths:
                 # Update database with thumbnail paths
-                _update_video_thumbnails_in_db(saved_path, generation_id, thumbnail_paths)
+                _update_video_thumbnails_in_db(saved_path, generation_id, thumbnail_paths, profile)
 
                 logger.debug(f"Video thumbnails generated successfully: {saved_path}")
             else:
@@ -273,7 +280,9 @@ def _schedule_async_thumbnail_generation(
     thread.start()
 
 
-def _update_video_thumbnails_in_db(saved_path: str, generation_id: str, thumbnail_paths: dict):
+def _update_video_thumbnails_in_db(
+    saved_path: str, generation_id: str, thumbnail_paths: dict, profile: ThumbnailProfile
+):
     """Update database file record with thumbnail paths"""
     try:
         from src.features.generation.repository import generation_repo
@@ -295,6 +304,7 @@ def _update_video_thumbnails_in_db(saved_path: str, generation_id: str, thumbnai
                 thumbnail_paths.get('small'),
                 thumbnail_paths.get('medium'),
                 thumbnail_paths.get('large'),
+                profile_hash(profile),
             )
 
             logger.debug(f"Updated thumbnails for {len(matching_files)} video file record(s): {video_filename}")
@@ -428,7 +438,9 @@ class VideoGenerationOutputHandler(BaseGenerationOutputHandler):
 
     def _schedule_async_thumbnail_generation(self, saved_path: str, generation_id: str, counter: int):
         """Schedule async thumbnail generation for this video"""
-        _schedule_async_thumbnail_generation(saved_path, self._resolve_storage_driver(), generation_id, counter)
+        _schedule_async_thumbnail_generation(
+            saved_path, self._resolve_storage_driver(), generation_id, counter, self.thumbnail_profile
+        )
 
     def _create_file_record(self, output: VideoGenerationOutput, saved_path: str) -> Optional[File]:
         """Create database record for the saved video file."""
@@ -469,7 +481,8 @@ class VideoGenerationOutputHandler(BaseGenerationOutputHandler):
                 fps=fps,
                 thumbnail_small=thumbnail_paths.get('small'),
                 thumbnail_medium=thumbnail_paths.get('medium'),
-                thumbnail_large=thumbnail_paths.get('large')
+                thumbnail_large=thumbnail_paths.get('large'),
+                thumbnail_profile=profile_hash(self.thumbnail_profile) if thumbnail_paths else None,
             )
 
             # Save to database and associate with generation

@@ -489,8 +489,10 @@ class TestMediaStore:
     async def test_upload_media_image_generates_thumbnails(
         self, manager, mock_file_resolver, mock_media_types, mock_upload_repo, temp_dir, sample_image_bytes
     ):
-        """An image upload gets the same three thumbnail sizes a generation
-        output does, generated synchronously and persisted on the row."""
+        """An image upload gets the same thumbnail set a generation output
+        does - the sizes the admin-configured profile names, generated
+        synchronously and persisted on the row with the profile's fingerprint."""
+        from src.features.generation.thumbnail_profile import PROFILES, profile_hash
         from src.platform.filesystem.storage_driver import LocalFileStorageDriver
 
         uploads_dir = temp_dir / "uploads"
@@ -500,6 +502,16 @@ class TestMediaStore:
         mock_media_types.is_image.return_value = True
         mock_media_types.is_video.return_value = False
         manager.storage_driver = LocalFileStorageDriver(str(temp_dir))
+        profile_settings = {
+            "thumbnail_sizes": list(PROFILES["full"].sizes),
+            "thumbnail_video_fps": PROFILES["full"].video_fps,
+            "thumbnail_video_seconds": PROFILES["full"].video_seconds,
+            "thumbnail_video_quality": PROFILES["full"].video_quality,
+            "thumbnail_image_quality": PROFILES["full"].image_quality,
+        }
+        manager.settings.get_setting.side_effect = (
+            lambda key, default=None, user_id=None: profile_settings.get(key, default)
+        )
 
         await manager.upload_media(
             file_data=sample_image_bytes,
@@ -512,8 +524,42 @@ class TestMediaStore:
         assert created_upload.thumbnail_small is not None
         assert created_upload.thumbnail_medium is not None
         assert created_upload.thumbnail_large is not None
+        assert created_upload.thumbnail_profile == profile_hash(PROFILES["full"])
         for path in (created_upload.thumbnail_small, created_upload.thumbnail_medium, created_upload.thumbnail_large):
             assert (uploads_dir / path).exists()
+
+    @pytest.mark.asyncio
+    async def test_upload_media_image_honours_a_narrower_profile(
+        self, manager, mock_file_resolver, mock_media_types, mock_upload_repo, temp_dir, sample_image_bytes
+    ):
+        """A profile naming one size writes one file, not three."""
+        from src.platform.filesystem.storage_driver import LocalFileStorageDriver
+
+        uploads_dir = temp_dir / "uploads"
+        uploads_dir.mkdir(exist_ok=True)
+        mock_file_resolver.get_uploads_directory.return_value = uploads_dir
+        mock_file_resolver.get_storage_directory.return_value = str(temp_dir)
+        mock_media_types.is_image.return_value = True
+        mock_media_types.is_video.return_value = False
+        manager.storage_driver = LocalFileStorageDriver(str(temp_dir))
+        manager.settings.get_setting.side_effect = (
+            lambda key, default=None, user_id=None: ["small"] if key == "thumbnail_sizes" else default
+        )
+
+        await manager.upload_media(
+            file_data=sample_image_bytes,
+            filename="cat.png",
+            content_type="image/png",
+            user_id="user123"
+        )
+
+        created_upload = mock_upload_repo.create.call_args[0][0]
+        assert created_upload.thumbnail_small is not None
+        assert created_upload.thumbnail_medium is None
+        assert created_upload.thumbnail_large is None
+        assert list((uploads_dir / "thumbnails").iterdir()) == [
+            uploads_dir / "thumbnails" / Path(created_upload.thumbnail_small).name
+        ]
 
     @pytest.mark.asyncio
     async def test_upload_media_image_thumbnail_failure_is_non_fatal(

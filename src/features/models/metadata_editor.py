@@ -254,6 +254,7 @@ class ModelMetadataEditor:
         """
         from src.features.generation.file_repository import file_repo
         from src.features.generation.records import File
+        from src.features.generation.thumbnail_profile import load_thumbnail_profile, profile_hash
 
         source_path = (preview_input.get('source_path') or '').strip()
         media_type = preview_input.get('type')
@@ -279,6 +280,7 @@ class ModelMetadataEditor:
             thumbnail_small=thumbs.get('small'),
             thumbnail_medium=thumbs.get('medium'),
             thumbnail_large=thumbs.get('large'),
+            thumbnail_profile=profile_hash(load_thumbnail_profile(self.settings)) if thumbs else None,
             width=width,
             height=height,
         ))
@@ -420,18 +422,20 @@ class ModelMetadataEditor:
         import uuid as _uuid
         from PIL import Image
         from src.features.generation.handlers import generate_thumbnails
+        from src.features.generation.thumbnail_profile import load_thumbnail_profile
         from src.platform.filesystem.storage_driver import LocalFileStorageDriver
 
         driver = self.storage_driver
         if driver is None:
             driver = LocalFileStorageDriver(self.settings.get_file_storage_directory(user_id))
 
+        profile = load_thumbnail_profile(self.settings)
         try:
             with Image.open(full_path) as image:
                 image.load()
                 dims = image.size
                 base_key = str(PurePosixPath(source_key).parent)
-                thumbs = generate_thumbnails(image, driver, base_key, _uuid.uuid4().hex)
+                thumbs = generate_thumbnails(image, driver, base_key, _uuid.uuid4().hex, profile)
             return thumbs or {}, dims
         except Exception as e:
             logger.error(f"Could not generate preview thumbnails for {full_path.name}: {e}")

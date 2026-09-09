@@ -26,8 +26,8 @@ class UploadRepository:
                 INSERT INTO uploads (
                     id, user_id, filename, original_filename, media_type, mime_type,
                     width, height, duration_seconds, fps, file_size, purpose,
-                    thumbnail_small, thumbnail_medium, thumbnail_large
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    thumbnail_small, thumbnail_medium, thumbnail_large, thumbnail_profile
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 upload.id,
                 upload.user_id,
@@ -44,6 +44,7 @@ class UploadRepository:
                 upload.thumbnail_small,
                 upload.thumbnail_medium,
                 upload.thumbnail_large,
+                upload.thumbnail_profile,
             ))
 
             cursor.execute("SELECT * FROM uploads WHERE id = ?", (upload.id,))
@@ -102,23 +103,64 @@ class UploadRepository:
         thumbnail_small: Optional[str],
         thumbnail_medium: Optional[str],
         thumbnail_large: Optional[str],
+        thumbnail_profile: Optional[str] = None,
     ) -> bool:
-        """Set thumbnail paths on one upload row, once they're ready.
+        """Set thumbnail paths, and the profile they were rendered under, on
+        one upload row.
 
-        Only the asynchronous video path needs this - image thumbnails are
-        generated before the row is first created and go in with `create()`.
+        The asynchronous video path and the regeneration job both land here -
+        image thumbnails on a fresh upload go in with `create()`.
         """
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE uploads
-                   SET thumbnail_small = ?, thumbnail_medium = ?, thumbnail_large = ?
+                   SET thumbnail_small = ?, thumbnail_medium = ?, thumbnail_large = ?,
+                       thumbnail_profile = ?
                  WHERE id = ?
                 """,
-                (thumbnail_small, thumbnail_medium, thumbnail_large, upload_id),
+                (thumbnail_small, thumbnail_medium, thumbnail_large, thumbnail_profile, upload_id),
             )
             return cursor.rowcount > 0
+
+    # Only a real Library upload gets a thumbnail set - a derived_artifact
+    # (mask, ...) never appears in the Library and never renders a tile.
+    _THUMBNAIL_BEARING = "purpose = 'user_upload' AND media_type IN ('image', 'video')"
+
+    def count_thumbnail_bearing(self) -> dict:
+        """How many image and video uploads carry a thumbnail set."""
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT media_type, COUNT(*) AS total FROM uploads "
+                f"WHERE {self._THUMBNAIL_BEARING} GROUP BY media_type"
+            )
+            counts = {row['media_type']: row['total'] for row in cursor.fetchall()}
+        return {"images": counts.get('image', 0), "videos": counts.get('video', 0)}
+
+    def count_stale_thumbnails(self, profile_hash: str) -> int:
+        """Uploads whose thumbnails predate `profile_hash`."""
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT COUNT(*) AS total FROM uploads WHERE {self._THUMBNAIL_BEARING} "
+                f"AND (thumbnail_profile IS NULL OR thumbnail_profile != ?)",
+                (profile_hash,)
+            )
+            return cursor.fetchone()['total']
+
+    def list_stale_thumbnails(self, profile_hash: str) -> List[Upload]:
+        """Every upload whose thumbnails predate `profile_hash`."""
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT * FROM uploads WHERE {self._THUMBNAIL_BEARING} "
+                f"AND (thumbnail_profile IS NULL OR thumbnail_profile != ?) "
+                f"ORDER BY created_at ASC",
+                (profile_hash,)
+            )
+            return [Upload.from_row(row) for row in cursor.fetchall()]
 
     def list_for_user(
         self,

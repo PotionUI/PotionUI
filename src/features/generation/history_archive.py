@@ -27,6 +27,11 @@ from src.features.generation.exceptions import (
     GenerationBundleImportError,
 )
 from src.features.generation.handlers import generate_thumbnails
+from src.features.generation.thumbnail_profile import (
+    DEFAULT_PROFILE,
+    load_thumbnail_profile,
+    profile_hash,
+)
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import execute_hook
 from src.features.generation.hooks import GENERATION_HOOKS
@@ -89,6 +94,7 @@ class GenerationHistoryArchive:
         plugin_registry: PluginRegistry,
         query: GenerationHistoryQuery,
         run_report_repository: GenerationRunReportRepository,
+        settings=None,
     ):
         """Initialize GenerationHistoryArchive.
 
@@ -98,12 +104,15 @@ class GenerationHistoryArchive:
             plugin_registry: Plugin registry for hook execution
             query: Read-side, reused for ownership checks and tag validation
             run_report_repository: Run reports own storage keys deleted with the generation
+            settings: Resolves the active thumbnail profile for uploaded files
+                (optional; the balanced default applies without it)
         """
         self.generation_repo = generation_repo
         self.file_service = file_service
         self.plugins = plugin_registry
         self._query = query
         self.run_report_repository = run_report_repository
+        self.settings = settings
 
     def _delete_generation_files(self, generation_id: str, user_id: str) -> Tuple[int, int]:
         """Delete generation files through `self.file_service`.
@@ -206,11 +215,15 @@ class GenerationHistoryArchive:
         width, height = None, None
         thumbnail_paths = {}
 
+        profile = load_thumbnail_profile(self.settings) if self.settings else DEFAULT_PROFILE
+
         if not is_video and not is_mesh and not is_audio:
             try:
                 with Image.open(io.BytesIO(content)) as img:
                     width, height = img.size
-                    thumbnail_paths = generate_thumbnails(img, storage_driver, generation_dir_relative, idx)
+                    thumbnail_paths = generate_thumbnails(
+                        img, storage_driver, generation_dir_relative, idx, profile
+                    )
             except Exception as e:
                 logger.error(f"Failed to process image {upload_file.filename}: {str(e)}")
 
@@ -226,6 +239,7 @@ class GenerationHistoryArchive:
             thumbnail_small=thumbnail_paths.get('small'),
             thumbnail_medium=thumbnail_paths.get('medium'),
             thumbnail_large=thumbnail_paths.get('large'),
+            thumbnail_profile=profile_hash(profile) if thumbnail_paths else None,
             width=width,
             height=height
         )

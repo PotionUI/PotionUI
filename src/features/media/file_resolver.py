@@ -8,9 +8,10 @@ including security validation against directory traversal attacks.
 import logging
 import os
 from pathlib import Path, PurePosixPath
-from typing import Optional, Any
+from typing import Any, Callable, Optional
 
 
+from src.features.generation.thumbnail_profile import SIZE_ORDER, fallback_sizes
 from src.features.media.media_types import MediaTypeResolver
 from src.platform.settings.settings import Settings
 
@@ -172,23 +173,36 @@ class FilePathResolver:
         self,
         file_record: Any,
         size: str,
-        animated: bool = False
+        animated: bool = False,
+        animated_exists: Optional[Callable[[Path], bool]] = None
     ) -> Optional[Path]:
         """Get thumbnail path for a file record.
 
+        A row only carries the sizes the profile in force when it was written
+        actually rendered, so a request for a size that was never produced
+        falls back to the nearest one that was rather than failing - the
+        gallery keeps working across a profile change.
+
         Args:
             file_record: Database file record with thumbnail paths
-            size: Thumbnail size ('small', 'medium', 'large')
+            size: Requested thumbnail size ('small', 'medium', 'large')
             animated: Whether to get animated thumbnail (for videos)
+            animated_exists: Whether an animated path is actually present in
+                storage. Without it an animated request is answered
+                unconditionally, as before.
 
         Returns:
-            Path to thumbnail, or None if not available
+            Path to thumbnail, or None if the record has no thumbnail at all
         """
-        if size not in ['small', 'medium', 'large']:
+        if size not in SIZE_ORDER:
             return None
 
-        thumbnail_attr = f'thumbnail_{size}'
-        thumbnail_path = getattr(file_record, thumbnail_attr, None)
+        thumbnail_path = None
+        for candidate in fallback_sizes(size):
+            value = getattr(file_record, f'thumbnail_{candidate}', None)
+            if value:
+                thumbnail_path = value
+                break
 
         if not thumbnail_path:
             return None
@@ -198,7 +212,10 @@ class FilePathResolver:
             thumbnail_dir = Path(thumbnail_path).parent
             thumbnail_name = Path(thumbnail_path).stem
             animated_path = thumbnail_dir / f"{thumbnail_name}_animated.webp"
-            return animated_path
+            if animated_exists is None or animated_exists(animated_path):
+                return animated_path
+            # No animated encode for this size - the static frame still shows
+            # something rather than the request failing.
 
         return Path(thumbnail_path)
 

@@ -13,6 +13,18 @@ Administration is organized into tabs:
 
 Global application settings for the server — the top-level configuration that applies to everyone.
 
+### Thumbnails
+
+Gallery previews are made at the moment a generation is written to disk. Which sizes get made, and how a video's moving preview is encoded, is set here, because a moving preview has no compression between frames and is by far the largest thing an install writes for each generation.
+
+Three named profiles cover the usual choices:
+
+- **Compact** — one small preview and a short, low-frame-rate animation. The smallest on disk.
+- **Balanced** — the default. One medium preview and a smoother animation.
+- **Full** — all three sizes at the highest frame rate. What earlier versions always did.
+
+You can also set the individual values yourself, which shows as a custom profile. Saving a change leaves what's already on disk alone — it only affects previews made from then on. **Regenerate** re-renders every existing preview to match the current settings, one file at a time, and deletes the sizes the new settings no longer produce. You can cancel it; it stops after the file it is on. The gallery keeps working throughout, because a request for a size that no longer exists falls back to the nearest one that does. The page also shows how much disk space previews currently take — a figure available only when files are stored on local disk, and not reported for S3 storage.
+
 ## Models
 
 Server-side model management: reviewing installed models and, together with the **Model Downloader** plugin, adding new ones. This is the admin counterpart to the user-facing **Models** page.

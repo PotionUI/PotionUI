@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import * as adminApi from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
+	import { formatBytes } from '$lib/utils/format';
 	import { Button, Spinner } from '$lib/components/ui';
 	import { MasterDetailLayout } from '$lib/components/master-detail';
 	import { Pane, PaneRow } from '$lib/components/pane';
@@ -20,6 +21,7 @@
 	import VisualSearchPanel from './settings/VisualSearchPanel.svelte';
 	import AiPanelFrame from './settings/AiPanelFrame.svelte';
 	import GenerationPanel from './settings/GenerationPanel.svelte';
+	import LogsPanel from './settings/LogsPanel.svelte';
 	import { SETTINGS_GROUPS, SETTINGS_KEY_GROUP, type SettingsGroupId } from './settings/settingsGroups';
 
 	// The PUT body System Settings sends - unchanged from the pre-rebuild
@@ -34,6 +36,10 @@
 	let loading = $state(true);
 	let saving = $state(false);
 	let activeGroup = $state<SettingsGroupId>('access');
+	// The Logs row's subtitle needs a live read from the log file, which is
+	// not part of `settings` - fetched once alongside it, not folded into the
+	// shared save-bar snapshot.
+	let logsSummary = $state<{ file: string | null; size_bytes: number; lines: number } | null>(null);
 
 	function snapshotOf(s: Record<string, any>): string {
 		return JSON.stringify(Object.fromEntries(USER_CONFIGURABLE_KEYS.map((k) => [k, s[k]])));
@@ -47,7 +53,25 @@
 	let unsavedChanges = $derived(dirtyKeys.length > 0);
 	let activeGroupLabel = $derived(SETTINGS_GROUPS.find((g) => g.id === activeGroup)?.label ?? '');
 
-	onMount(loadSettings);
+	onMount(() => {
+		loadSettings();
+		loadLogsSummary();
+	});
+
+	async function loadLogsSummary() {
+		try {
+			const response = await adminApi.getLogTail(500);
+			if (response.success && response.data) {
+				logsSummary = {
+					file: response.data.file,
+					size_bytes: response.data.size_bytes,
+					lines: response.data.lines.length
+				};
+			}
+		} catch (error) {
+			logger.error('Failed to load the log summary:', error);
+		}
+	}
 
 	async function loadSettings() {
 		try {
@@ -101,6 +125,9 @@
 				return '3 models';
 			case 'generation':
 				return `single-result gallery ${settings.workbench_single_result_gallery ? 'on' : 'off'}`;
+			case 'logs':
+				if (!logsSummary) return '…';
+				return logsSummary.file === null ? 'off' : `${formatBytes(logsSummary.size_bytes)} · ${logsSummary.lines} lines`;
 		}
 	}
 </script>
@@ -146,7 +173,7 @@
 				<div slot="detail" class="h-full min-h-0 flex flex-col">
 					<DetailHeader title={activeGroupLabel} />
 
-					<DetailBody>
+					<DetailBody fullWidth={activeGroup === 'logs'}>
 						{#if activeGroup === 'access'}
 							<AccessPanel {settings} onSettingChange={handleSettingChange} />
 						{:else if activeGroup === 'content_safety'}
@@ -165,6 +192,8 @@
 							</AiPanelFrame>
 						{:else if activeGroup === 'generation'}
 							<GenerationPanel {settings} onSettingChange={handleSettingChange} />
+						{:else if activeGroup === 'logs'}
+							<LogsPanel />
 						{/if}
 					</DetailBody>
 

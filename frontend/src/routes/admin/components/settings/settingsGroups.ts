@@ -5,7 +5,7 @@
  * what drives per-group dirty tracking off one snapshot diff.
  */
 
-export type SettingsGroupId = 'access' | 'content_safety' | 'storage' | 'search_tagging' | 'generation';
+export type SettingsGroupId = 'access' | 'content_safety' | 'storage' | 'search_tagging' | 'generation' | 'logs';
 
 export interface SettingsGroupDescriptor {
 	id: SettingsGroupId;
@@ -18,12 +18,14 @@ export const SETTINGS_GROUPS: SettingsGroupDescriptor[] = [
 	{ id: 'content_safety', label: 'Content Safety', icon: 'shield' },
 	{ id: 'storage', label: 'Storage', icon: 'folder' },
 	{ id: 'search_tagging', label: 'Search & Tagging', icon: 'search' },
-	{ id: 'generation', label: 'Generation', icon: 'image' }
+	{ id: 'generation', label: 'Generation', icon: 'image' },
+	{ id: 'logs', label: 'Logs', icon: 'clipboard-list' }
 ];
 
 /** Storage's S3 fields and Models Location manage their own apply flow (see
- * `FileStoragePanel`/`ModelsLocationPanel`) and are deliberately absent here
- * — they never ride the shared save bar. */
+ * `FileStoragePanel`/`ModelsLocationPanel`), and Logs manages no settings at
+ * all (`LogsPanel` just tails a file) — both are deliberately absent here,
+ * they never ride the shared save bar. */
 export const SETTINGS_KEY_GROUP: Record<string, SettingsGroupId> = {
 	file_storage_directory: 'storage',
 	thumbnail_sizes: 'storage',

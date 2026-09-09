@@ -101,6 +101,8 @@ A few environment variables tune this, set before starting the server:
 
 If the log directory can't be written to, the server logs a single warning to the console and keeps running with console output only — a logging problem never stops generation.
 
+The most recent lines are also viewable without shell access, at Admin → System Settings → Logs.
+
 ---
 
 Note that some plugins add their own tabs to Administration, so your install may show more than the tabs listed here.

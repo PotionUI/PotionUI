@@ -232,6 +232,30 @@ export async function deleteBackup(name: string): Promise<APIResponse> {
 	return response.data;
 }
 
+// Admin API - Server log tail
+export type LogLevel = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL';
+
+export interface LogEntry {
+	ts: string;
+	level: string;
+	logger: string;
+	message: string;
+}
+
+export interface LogTail {
+	lines: LogEntry[];
+	truncated: boolean;
+	/** Absolute path of the log file, or null when file logging is off or it
+	 * hasn't been created yet. */
+	file: string | null;
+	size_bytes: number;
+}
+
+export async function getLogTail(lines: number, level?: LogLevel): Promise<APIResponse<LogTail>> {
+	const response = await api.getClient().get('/api/admin/logs/tail', { params: { lines, level } });
+	return response.data;
+}
+
 // Admin API - Semantic search / media indexing model status
 export interface ActiveModelDownload {
 	id: string;

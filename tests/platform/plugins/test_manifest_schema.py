@@ -315,6 +315,79 @@ class TestPluginManifestSchema(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 PluginManifestSchema.model_validate(self._minimal(phrasebook_ops=[entry]))
 
+    def test_history_tool_accepted_with_applies_to(self):
+        schema = PluginManifestSchema.model_validate(self._minimal(history_tools=[
+            {
+                'id': 'contact-sheet',
+                'label': 'Contact sheet',
+                'description': 'Lay the selected images out on one sheet',
+                'icon': 'grid',
+                'category': 'compose',
+                'component': 'ContactSheetModal.svelte',
+                'applies_to': {'min_selection': 2, 'max_selection': 12, 'media_kinds': ['image']},
+            },
+        ]))
+
+        tool = schema.history_tools[0]
+        self.assertEqual(tool.id, 'contact-sheet')
+        self.assertEqual(tool.category, 'compose')
+        self.assertEqual(tool.applies_to.min_selection, 2)
+        self.assertEqual(tool.applies_to.max_selection, 12)
+        self.assertEqual(tool.applies_to.media_kinds, ['image'])
+
+    def test_history_tool_defaults_icon_and_applies_to(self):
+        schema = PluginManifestSchema.model_validate(self._minimal(history_tools=[
+            {'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte'},
+        ]))
+
+        tool = schema.history_tools[0]
+        self.assertEqual(tool.icon, 'tool')
+        self.assertEqual(tool.description, '')
+        self.assertIsNone(tool.applies_to.min_selection)
+        self.assertIsNone(tool.applies_to.max_selection)
+        self.assertEqual(tool.applies_to.media_kinds, [])
+
+    def test_history_tool_requires_label_category_component(self):
+        for entry in (
+            {'id': 'thing', 'category': 'analyze', 'component': 'Thing.svelte'},
+            {'id': 'thing', 'label': 'Thing', 'component': 'Thing.svelte'},
+            {'id': 'thing', 'label': 'Thing', 'category': 'analyze'},
+        ):
+            with self.assertRaises(ValidationError):
+                PluginManifestSchema.model_validate(self._minimal(history_tools=[entry]))
+
+    def test_history_tool_rejects_invalid_id_and_category_slugs(self):
+        for entry in (
+            {'id': 'Contact Sheet', 'label': 'X', 'category': 'compose', 'component': 'X.svelte'},
+            {'id': 'contact-sheet', 'label': 'X', 'category': 'Compose!', 'component': 'X.svelte'},
+        ):
+            with self.assertRaises(ValidationError):
+                PluginManifestSchema.model_validate(self._minimal(history_tools=[entry]))
+
+    def test_history_tool_rejects_unknown_media_kind(self):
+        entry = {
+            'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte',
+            'applies_to': {'media_kinds': ['spreadsheet']},
+        }
+        with self.assertRaises(ValidationError):
+            PluginManifestSchema.model_validate(self._minimal(history_tools=[entry]))
+
+    def test_history_tool_rejects_max_selection_below_min(self):
+        entry = {
+            'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte',
+            'applies_to': {'min_selection': 5, 'max_selection': 2},
+        }
+        with self.assertRaises(ValidationError):
+            PluginManifestSchema.model_validate(self._minimal(history_tools=[entry]))
+
+    def test_history_tool_rejects_min_selection_below_one(self):
+        entry = {
+            'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte',
+            'applies_to': {'min_selection': 0},
+        }
+        with self.assertRaises(ValidationError):
+            PluginManifestSchema.model_validate(self._minimal(history_tools=[entry]))
+
 
 if __name__ == '__main__':
     unittest.main()

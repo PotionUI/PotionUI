@@ -121,6 +121,10 @@ class PluginManifest:
     # Phrasebook batch tools: [{id, label, backend, component}]
     phrasebook_ops: List[Dict[str, Any]] = field(default_factory=list)
 
+    # History page selection-bar tools: [{id, label, description, icon,
+    # category, component, applies_to}]
+    history_tools: List[Dict[str, Any]] = field(default_factory=list)
+
     # Preset requirement checkers: [{type, backend}]
     requirement_checkers: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -443,6 +447,7 @@ class PluginLoader:
             automation_templates=[t.model_dump() for t in schema.automation_templates],
             prompt_importers=[p.model_dump() for p in schema.prompt_importers],
             phrasebook_ops=[o.model_dump() for o in schema.phrasebook_ops],
+            history_tools=[h.model_dump() for h in schema.history_tools],
             requirement_checkers=[r.model_dump() for r in schema.requirement_checkers],
         )
 

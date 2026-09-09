@@ -53,6 +53,44 @@ def get_active_quick_actions(repo: PluginRepository, registry: PluginRegistry) -
     return actions
 
 
+def get_active_history_tools(repo: PluginRepository, registry: PluginRegistry) -> List[Dict[str, Any]]:
+    """
+    Get History page selection-bar tools from enabled plugins.
+
+    Returns:
+        List of `{id, plugin_id, label, description, icon, category,
+        component, applies_to}` dicts, in plugin order. `id` is
+        `"<plugin_id>:<tool_id>"` and `component` is `"plugin:<plugin_id>:<asset>"`,
+        the same convention `phrasebook_ops` uses for its plugin-hosted modal.
+    """
+    tools = []
+    enabled_db_plugins = repo.get_enabled_plugins()
+
+    for plugin in enabled_db_plugins:
+        manifest = registry.get_plugin(plugin.id)
+        if not manifest or not manifest.history_tools:
+            continue
+
+        for tool_def in manifest.history_tools:
+            applies_to = tool_def.get("applies_to") or {}
+            tools.append({
+                "id": f"{manifest.id}:{tool_def.get('id')}",
+                "plugin_id": manifest.id,
+                "label": tool_def.get("label"),
+                "description": tool_def.get("description", ""),
+                "icon": tool_def.get("icon", "tool"),
+                "category": tool_def.get("category"),
+                "component": f"plugin:{manifest.id}:{tool_def.get('component')}",
+                "applies_to": {
+                    "min_selection": applies_to.get("min_selection"),
+                    "max_selection": applies_to.get("max_selection"),
+                    "media_kinds": applies_to.get("media_kinds", []),
+                },
+            })
+
+    return tools
+
+
 def get_active_sidebar_widgets(repo: PluginRepository, registry: PluginRegistry) -> List[Dict[str, Any]]:
     """
     Get sidebar widgets from enabled plugins.

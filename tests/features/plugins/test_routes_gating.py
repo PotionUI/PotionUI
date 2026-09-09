@@ -71,6 +71,7 @@ OPEN = [
     "/api/plugins/pages",
     "/api/plugins/sidebar",
     "/api/plugins/quick-actions",
+    "/api/plugins/history-tools",
     "/api/plugins/frontend-extensions",
     "/api/plugins/sidebar-widgets",
     "/api/plugins/hooks/frontend",

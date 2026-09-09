@@ -317,6 +317,48 @@ class PhrasebookOpSpec(BaseModel):
     component: Optional[str] = None
 
 
+class HistoryToolAppliesTo(BaseModel):
+    """Selection constraints on a history tool: `history_tools[].applies_to`.
+    Every key is optional; an unset bound doesn't constrain the selection."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    min_selection: Optional[int] = Field(default=None, ge=1)
+    max_selection: Optional[int] = None
+    media_kinds: List[Literal["image", "video", "audio", "mesh"]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_selection_bounds(self) -> "HistoryToolAppliesTo":
+        if (
+            self.min_selection is not None
+            and self.max_selection is not None
+            and self.max_selection < self.min_selection
+        ):
+            raise ValueError("max_selection must be >= min_selection")
+        return self
+
+
+class HistoryToolSpec(BaseModel):
+    """A plugin-provided History page selection-bar tool: `history_tools[]`.
+
+    Served as `<plugin_id>:<id>` by `GET /api/plugins/history-tools`.
+    `component` is the plugin frontend asset mounted in a modal over the
+    selected generations, the same convention as `phrasebook_ops[].component`.
+    `category` groups the tool alongside core's own `analyze`/`compose`/`export`
+    groups, or creates a new plugin-owned group under any other value.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    label: str = Field(min_length=1)
+    description: str = ""
+    icon: str = "tool"
+    category: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    component: str = Field(min_length=1)
+    applies_to: HistoryToolAppliesTo = Field(default_factory=HistoryToolAppliesTo)
+
+
 class DocEntry(BaseModel):
     """A plugin-provided documentation page: `docs[]` (used by the docs feature)."""
 
@@ -540,6 +582,9 @@ class PluginManifestSchema(BaseModel):
 
     # Phrasebook batch tools
     phrasebook_ops: List[PhrasebookOpSpec] = Field(default_factory=list)
+
+    # History page selection-bar tools
+    history_tools: List[HistoryToolSpec] = Field(default_factory=list)
 
     # Preset requirement checkers (see docs/presets.md "Requirements")
     requirement_checkers: List[RequirementCheckerSpec] = Field(default_factory=list)

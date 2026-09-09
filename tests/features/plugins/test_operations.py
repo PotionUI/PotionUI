@@ -582,6 +582,86 @@ def test_get_frontend_extensions_sorts_contributions_by_order(mock_plugin_repo, 
     assert [c["component"] for c in result["contributions"]] == ["A.svelte", "B.svelte"]
 
 
+def test_get_active_history_tools_from_enabled_plugin(mock_plugin_repo, mock_plugin_registry, sample_plugin):
+    """Enabled plugin's manifest history_tools are composed with plugin_id and a plugin: component ref."""
+    # Arrange
+    mock_plugin_repo.get_enabled_plugins.return_value = [sample_plugin]
+    manifest = PluginManifest(
+        id="test-plugin-1",
+        name="Test Plugin",
+        version="1.0.0",
+        description="A test plugin",
+        author="Test Author",
+        plugin_type="full-stack",
+        history_tools=[{
+            "id": "contact-sheet",
+            "label": "Contact sheet",
+            "description": "Lay the selected images out on one sheet",
+            "icon": "grid",
+            "category": "compose",
+            "component": "ContactSheetModal.svelte",
+            "applies_to": {"min_selection": 2, "max_selection": 12, "media_kinds": ["image"]},
+        }],
+    )
+    mock_plugin_registry.get_plugin.return_value = manifest
+
+    # Act
+    result = operations.get_active_history_tools(mock_plugin_repo, mock_plugin_registry)
+
+    # Assert
+    assert result == [{
+        "id": "test-plugin-1:contact-sheet",
+        "plugin_id": "test-plugin-1",
+        "label": "Contact sheet",
+        "description": "Lay the selected images out on one sheet",
+        "icon": "grid",
+        "category": "compose",
+        "component": "plugin:test-plugin-1:ContactSheetModal.svelte",
+        "applies_to": {"min_selection": 2, "max_selection": 12, "media_kinds": ["image"]},
+    }]
+
+
+def test_get_active_history_tools_excludes_disabled_plugins(mock_plugin_repo, mock_plugin_registry):
+    """Only plugins returned by get_enabled_plugins() contribute history tools."""
+    # Arrange
+    mock_plugin_repo.get_enabled_plugins.return_value = []
+
+    # Act
+    result = operations.get_active_history_tools(mock_plugin_repo, mock_plugin_registry)
+
+    # Assert
+    assert result == []
+
+
+def test_get_active_history_tools_defaults_applies_to(mock_plugin_repo, mock_plugin_registry, sample_plugin):
+    """A tool with no applies_to entry serves all-None/empty bounds."""
+    # Arrange
+    mock_plugin_repo.get_enabled_plugins.return_value = [sample_plugin]
+    manifest = PluginManifest(
+        id="test-plugin-1",
+        name="Test Plugin",
+        version="1.0.0",
+        description="A test plugin",
+        author="Test Author",
+        plugin_type="full-stack",
+        history_tools=[{
+            "id": "thing",
+            "label": "Thing",
+            "description": "",
+            "icon": "tool",
+            "category": "analyze",
+            "component": "Thing.svelte",
+        }],
+    )
+    mock_plugin_registry.get_plugin.return_value = manifest
+
+    # Act
+    result = operations.get_active_history_tools(mock_plugin_repo, mock_plugin_registry)
+
+    # Assert
+    assert result[0]["applies_to"] == {"min_selection": None, "max_selection": None, "media_kinds": []}
+
+
 # ========== preset/pipe rescan on enable/disable/delete ==========
 
 

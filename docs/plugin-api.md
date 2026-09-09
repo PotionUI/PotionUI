@@ -483,6 +483,55 @@ Three hooks bracket the path (full payloads in `GET /api/plugins/hooks/catalog`)
 
 Disabling the plugin removes its tools from `GET /api/phrasebook/batch-ops` immediately.
 
+## Contributing a history tool
+
+The History page's selection bar has a **Tools** menu that runs one action over the
+selected generations. Core owns three groups — **Compare** (`analyze`), **Stitch**
+(`compose`) and **Download .zip** (`export`) — and a plugin tool joins one of them, or
+opens a new plugin-owned group under any other `category` string. Declare each tool in
+`manifest.yml`:
+
+```yaml
+history_tools:
+  - id: "contact-sheet"                  # unique within the plugin; served as "<plugin_id>:<id>"
+    label: "Contact sheet"
+    description: "Lay the selected images out on one sheet"   # optional
+    icon: "grid"                          # optional, an Icon name; default "tool"
+    category: "compose"                   # core: analyze | compose | export; any other string = a plugin-owned group
+    component: "ContactSheetModal.svelte" # your plugin frontend asset, same build as any other
+    applies_to:                           # optional; every key optional
+      min_selection: 2                    # selected generations
+      max_selection: 12
+      media_kinds: ["image"]              # image | video | audio | mesh - selection must contain at least one file of one of these kinds
+```
+
+`GET /api/plugins/history-tools` returns `{"tools": [...]}` — every enabled plugin's
+tools, in plugin order, each as:
+
+```json
+{
+  "id": "my-plugin:contact-sheet",
+  "plugin_id": "my-plugin",
+  "label": "Contact sheet",
+  "description": "Lay the selected images out on one sheet",
+  "icon": "grid",
+  "category": "compose",
+  "component": "plugin:my-plugin:ContactSheetModal.svelte",
+  "applies_to": {"min_selection": 2, "max_selection": 12, "media_kinds": ["image"]}
+}
+```
+
+`component` is the same `plugin:<id>:<asset>` reference string a `phrasebook_ops[].component`
+resolves to. Your `component` is mounted in a modal with props `{ generationIds: string[],
+generations: GenerationHistoryItem[], onClose(), onDone() }`: it owns its own UI and runs the
+tool itself, and calls `onDone()` once it has finished successfully — the page clears the
+current selection. `onClose()` just closes the modal without touching the selection. There is
+no backend registration and no separate run endpoint — a history tool is a UI contribution
+only; if it needs to call the backend, it does so through its own plugin API route like any
+other plugin frontend component.
+
+Disabling the plugin removes its tools from `GET /api/plugins/history-tools` immediately.
+
 ## Contributing modes to an existing preset
 
 An enabled plugin can add one or more generation MODES to a preset it doesn't own — e.g. an

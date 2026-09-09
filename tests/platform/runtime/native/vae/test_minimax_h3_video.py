@@ -379,3 +379,157 @@ def test_decoder_qkv_split_bite_check_against_block_convention():
     q_block_grouped, _, _ = qkv_flat.reshape(1, 5, 3, heads, dim_head).unbind(dim=2)
 
     assert not torch.allclose(q_per_head, q_block_grouped)
+
+
+# -- batched spatial-tile decode -------------------------------------------
+
+# 14x10 pixels at the tiny config's 8px tile / 4px min overlap splits into a
+# 3x2 tile grid -- deliberately NOT square, so a row/column mix-up in the
+# regrouping cannot pass by symmetry. 8 latent frames run 2 temporal chunks
+# (tokens_chunk_size 3, token_drop 1), so the per-chunk observer has something
+# to observe.
+_TILED_LATENT_FRAMES = 8
+_TILED_LATENT_H = 7   # 14 px / spatial_compression_ratio 2
+_TILED_LATENT_W = 5   # 10 px
+
+
+def _tiled_vae() -> MiniMaxH3VideoVAE:
+    torch.manual_seed(7)
+    return _build(use_tiling=True)
+
+
+def _tiled_latent() -> torch.Tensor:
+    torch.manual_seed(11)
+    return torch.randn(1, 4, _TILED_LATENT_FRAMES, _TILED_LATENT_H, _TILED_LATENT_W)
+
+
+class TestBatchedTileDecode:
+    def test_tile_grid_matches_the_split(self):
+        module = _tiled_vae()
+        assert module.decode_tile_grid(_TILED_LATENT_H, _TILED_LATENT_W) == (3, 2)
+
+    def test_untiled_grid_is_one_tile(self):
+        module = _build(use_tiling=False)
+        assert module.decode_tile_grid(_TILED_LATENT_H, _TILED_LATENT_W) == (1, 1)
+
+    def test_batched_matches_sequential(self):
+        """The whole point: batching the tiles of a chunk changes launch count,
+        not math. Any regrouping bug (row/column swap, wrong split sizes,
+        tiles landing in the wrong blend position) shows up here."""
+        module = _tiled_vae()
+        z = _tiled_latent()
+
+        with torch.no_grad():
+            module.decode_tile_batch_size = 1
+            sequential = module.decode(z)
+            for batch in (2, 3, 6, 99):
+                module.decode_tile_batch_size = batch
+                torch.testing.assert_close(module.decode(z), sequential)
+
+    def test_tiles_land_in_the_original_blend_positions(self):
+        """An independent oracle: the literal nested row/column loop the tiled
+        decode was before it batched. `test_batched_matches_sequential` cannot
+        catch a regrouping bug on its own -- both sides of that comparison go
+        through the same regrouping -- so the blend positions are pinned here
+        against a reimplementation that never sees the batching code."""
+        module = _tiled_vae()
+        z = _tiled_latent()[:, :, :5]  # one chunk's worth of latent frames
+
+        ratio = module.spatial_compression_ratio
+        height = z.shape[-2] * ratio
+        width = z.shape[-1] * ratio
+        y_idx, y_len, y_ovl = module._split_tiles(height, module.tile_sample_min_height, module.tile_sample_min_overlap_height)
+        x_idx, x_len, x_ovl = module._split_tiles(width, module.tile_sample_min_width, module.tile_sample_min_overlap_width)
+        with torch.no_grad():
+            expected = module._stitch_tiles(
+                [
+                    [
+                        module.decoder(module.post_quant_conv(
+                            z[..., i_pos // ratio : i_pos // ratio + i_len // ratio,
+                                 j_pos // ratio : j_pos // ratio + j_len // ratio]
+                        ))
+                        for j_pos, j_len in zip(x_idx, x_len)
+                    ]
+                    for i_pos, i_len in zip(y_idx, y_len)
+                ],
+                y_ovl, x_ovl,
+            )
+            for batch in (1, 2, 6):
+                module.decode_tile_batch_size = batch
+                torch.testing.assert_close(module._decode_clip(z), expected)
+
+    def test_batch_of_one_is_the_bare_sequential_call(self):
+        """Batch 1 must not route through the concatenate/split path at all --
+        it is the reference-parity path and has to stay byte-identical."""
+        module = _tiled_vae()
+        module.decode_tile_batch_size = 1
+        seen: list[int] = []
+        real = module.decoder.forward
+        module.decoder.forward = lambda x: (seen.append(x.shape[0]), real(x))[1]
+        with torch.no_grad():
+            module.decode(_tiled_latent())
+        assert set(seen) == {1}
+
+    def test_batches_are_capped_at_the_configured_size(self):
+        module = _tiled_vae()
+        module.decode_tile_batch_size = 4
+        seen: list[int] = []
+        real = module.decoder.forward
+        module.decoder.forward = lambda x: (seen.append(x.shape[0]), real(x))[1]
+        with torch.no_grad():
+            module.decode(_tiled_latent())
+        # 6 tiles per chunk at a cap of 4 -> 4 + 2, twice (two chunks).
+        assert seen == [4, 2, 4, 2]
+
+    def test_oom_halves_the_batch_and_sticks(self):
+        """A batch that OOMs is halved and retried, and the reduced size holds
+        for the rest of the chunk -- the remaining tiles are the same size, so
+        retrying them at the size that just failed only buys another OOM."""
+        module = _tiled_vae()
+        module.decode_tile_batch_size = 6
+        seen: list[int] = []
+        real = module.decoder.forward
+
+        def flaky(x: torch.Tensor) -> torch.Tensor:
+            seen.append(x.shape[0])
+            if x.shape[0] > 2:
+                raise torch.cuda.OutOfMemoryError("synthetic decode OOM")
+            return real(x)
+
+        module.decoder.forward = flaky
+        with torch.no_grad():
+            decoded = module.decode(_tiled_latent())
+
+        # Per chunk: 6 OOMs, 3 OOMs, 1 succeeds and the cap sticks at 1.
+        assert seen[:8] == [6, 3, 1, 1, 1, 1, 1, 1]
+        assert torch.isfinite(decoded).all()
+
+    def test_oom_at_batch_one_propagates(self):
+        module = _tiled_vae()
+        module.decode_tile_batch_size = 2
+
+        def always_oom(x: torch.Tensor) -> torch.Tensor:
+            raise torch.cuda.OutOfMemoryError("synthetic decode OOM")
+
+        module.decoder.forward = always_oom
+        with torch.no_grad():
+            try:
+                module.decode(_tiled_latent())
+            except torch.cuda.OutOfMemoryError:
+                return
+        raise AssertionError("a tile that OOMs alone must not be swallowed")
+
+    def test_chunk_observer_sees_every_chunk(self):
+        module = _tiled_vae()
+        seen: list[tuple[int, int]] = []
+        module.decode_chunk_observer = lambda *, index, tiles: seen.append((index, tiles))
+        with torch.no_grad():
+            module.decode(_tiled_latent())
+        assert seen == [(0, 6), (1, 6)]
+        assert module.decode_chunk_count(_TILED_LATENT_FRAMES) == 2
+
+    def test_no_observer_means_no_calls(self):
+        module = _tiled_vae()
+        assert module.decode_chunk_observer is None
+        with torch.no_grad():
+            module.decode(_tiled_latent())

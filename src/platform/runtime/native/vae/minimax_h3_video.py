@@ -78,19 +78,25 @@ would run the temporal path over duplicate content and return the wrong
 latent-frame count; see `_encode`'s docstring).
 
 Spatial tiling (256px tile, 64px overlap) is ON by default, matching the
-reference (the released frames ARE the tiled/blended ones).
+reference (the released frames ARE the tiled/blended ones). The tiles of one
+temporal chunk are independent of each other -- they are decoded and only
+THEN blended -- so `decode_tile_batch_size` runs several of them through the
+ViT decoder as one batched forward; see that attribute's comment.
 """
 
 from __future__ import annotations
 
+import logging
 import math
-from typing import Any
+from typing import Any, Callable
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from ..base import NativeArchModule
+
+logger = logging.getLogger(__name__)
 
 # -- fixed H3 video-VAE geometry (single released variant) ------------------
 
@@ -584,6 +590,19 @@ class MiniMaxH3VideoVAE(NativeArchModule):
         self.tile_sample_min_overlap_height = tile_sample_min_overlap_height
         self.tile_sample_min_overlap_width = tile_sample_min_overlap_width
 
+        # How many spatial tiles of one temporal chunk go through the ViT
+        # decoder as a single batched forward. The tiles of a chunk are
+        # independent -- the blend that joins them happens after every tile is
+        # decoded -- so batching them changes launch count, not math. 1 is the
+        # sequential path; a caller that knows the VRAM budget (the pipe-side
+        # `_shared/vae/minimax_h3_decode.py`) raises it, because THIS module
+        # cannot see how much of the card the rest of the request is holding.
+        self.decode_tile_batch_size = 1
+        # Optional `observer(index=..., tiles=..., batches=...)` called after
+        # each temporal chunk of a decode. Unset by default, so a decode that
+        # nobody is profiling does no timing and no device sync.
+        self.decode_chunk_observer: Callable[..., None] | None = None
+
     @classmethod
     def from_config(cls, config: dict[str, Any], operations: Any) -> "MiniMaxH3VideoVAE":
         return cls(
@@ -689,6 +708,71 @@ class MiniMaxH3VideoVAE(NativeArchModule):
         latent_x_overlaps = [o // self.spatial_compression_ratio for o in x_overlaps]
         return self._stitch_tiles(rows, latent_y_overlaps, latent_x_overlaps)
 
+    def decode_tile_grid(self, latent_height: int, latent_width: int) -> tuple[int, int]:
+        """`(rows, cols)` of spatial tiles a decode of this latent size will
+        run -- the same split `_decode_clip` does, without decoding anything,
+        so a caller can budget the decode before starting it."""
+        if not self.use_tiling:
+            return 1, 1
+        ratio = self.spatial_compression_ratio
+        y_indices, _, _ = self._split_tiles(
+            latent_height * ratio, self.tile_sample_min_height, self.tile_sample_min_overlap_height
+        )
+        x_indices, _, _ = self._split_tiles(
+            latent_width * ratio, self.tile_sample_min_width, self.tile_sample_min_overlap_width
+        )
+        return len(y_indices), len(x_indices)
+
+    def _decode_tile_batch(self, group: list[torch.Tensor]) -> list[torch.Tensor]:
+        """One ViT-decoder forward over `group`, split back apart per tile.
+
+        A single-element group takes the bare call so the sequential path
+        stays byte-identical; a larger one concatenates on the batch axis,
+        which every op in the decoder treats per-sample (`register_tokens`/
+        `mask_token` expand over B, position ids expand over B, attention is
+        within a sample), so the outputs are the same values the tiles would
+        have produced one at a time up to kernel-level reassociation."""
+        if len(group) == 1:
+            return [self.decoder(self.post_quant_conv(group[0]))]
+        sizes = [tile.shape[0] for tile in group]
+        decoded = self.decoder(self.post_quant_conv(torch.cat(group, dim=0)))
+        return list(torch.split(decoded, sizes, dim=0))
+
+    def _decode_tiles(self, tiles: list[torch.Tensor]) -> list[torch.Tensor]:
+        """Decode every spatial tile of one temporal chunk, in order, in
+        batches of at most `decode_tile_batch_size` tiles that share a shape
+        (the last tile of a row or column can be a different size than its
+        neighbours, and only equal shapes concatenate).
+
+        An OOM halves the batch and retries rather than failing the decode:
+        the budget the caller sized the batch from is an upper-bound estimate
+        against free VRAM it does not exclusively own. The reduced size STICKS
+        for the rest of the chunk -- the tiles left are the same size as the
+        one that just OOM'd, so retrying them at the size that already failed
+        only buys another OOM."""
+        decoded: list[torch.Tensor] = []
+        limit = max(1, int(self.decode_tile_batch_size))
+        index = 0
+        while index < len(tiles):
+            group = 1
+            while group < limit and index + group < len(tiles) and tiles[index + group].shape == tiles[index].shape:
+                group += 1
+            while True:
+                try:
+                    decoded.extend(self._decode_tile_batch(tiles[index : index + group]))
+                    break
+                except torch.cuda.OutOfMemoryError:
+                    if group == 1:
+                        raise
+                    group = max(1, group // 2)
+                    limit = group
+                    torch.cuda.empty_cache()
+                    logger.warning(
+                        "minimax_h3 video VAE: batched tile decode OOM'd; retrying at batch %d", group,
+                    )
+            index += group
+        return decoded
+
     def _decode_clip(self, z: torch.Tensor) -> torch.Tensor:
         if not self.use_tiling:
             return self.decoder(self.post_quant_conv(z))
@@ -699,14 +783,15 @@ class MiniMaxH3VideoVAE(NativeArchModule):
         x_indices, x_lengths, x_overlaps = self._split_tiles(width, self.tile_sample_min_width, self.tile_sample_min_overlap_width)
 
         ratio = self.spatial_compression_ratio
-        rows = []
-        for i_pos, i_len in zip(y_indices, y_lengths):
-            row = []
-            for j_pos, j_len in zip(x_indices, x_lengths):
-                tile = z[..., i_pos // ratio : i_pos // ratio + i_len // ratio, j_pos // ratio : j_pos // ratio + j_len // ratio]
-                row.append(self.decoder(self.post_quant_conv(tile)))
-            rows.append(row)
+        tiles = [
+            z[..., i_pos // ratio : i_pos // ratio + i_len // ratio, j_pos // ratio : j_pos // ratio + j_len // ratio]
+            for i_pos, i_len in zip(y_indices, y_lengths)
+            for j_pos, j_len in zip(x_indices, x_lengths)
+        ]
+        decoded = self._decode_tiles(tiles)
 
+        cols = len(x_indices)
+        rows = [decoded[i * cols : (i + 1) * cols] for i in range(len(y_indices))]
         return self._stitch_tiles(rows, y_overlaps, x_overlaps)
 
     # -- temporal chunking -----------------------------------------------
@@ -736,23 +821,37 @@ class MiniMaxH3VideoVAE(NativeArchModule):
             moments = moments[:, :, : -self.token_drop]
         return moments
 
+    def decode_chunk_count(self, latent_frames: int) -> int:
+        """Temporal chunks a decode of `latent_frames` latent frames runs."""
+        return self._decode_chunking(latent_frames)[0]
+
+    def _decode_chunking(self, latent_frames: int) -> tuple[int, int]:
+        """`(num_chunks, pad_tokens)` for a decode of `latent_frames`."""
+        num_tokens = latent_frames + self.token_drop
+        pad_tokens = (-num_tokens) % self.tokens_chunk_size
+        num_chunks = (num_tokens + pad_tokens) // self.tokens_chunk_size - int(self.token_drop > 0)
+        return num_chunks, pad_tokens
+
     def _decode(self, z: torch.Tensor) -> torch.Tensor:
         tokens_chunk_size = self.tokens_chunk_size
         token_drop = self.token_drop
         temporal_ratio = self.temporal_compression_ratio
         chunk_num_frames = tokens_chunk_size * temporal_ratio
 
-        num_tokens = z.shape[2] + token_drop
-        pad_tokens = (-num_tokens) % tokens_chunk_size
-        num_chunks = (num_tokens + pad_tokens) // tokens_chunk_size - int(token_drop > 0)
+        num_chunks, pad_tokens = self._decode_chunking(z.shape[2])
         if pad_tokens > 0:
             z = torch.cat([z, z[:, :, -1:].repeat(1, 1, pad_tokens, 1, 1)], dim=2)
+
+        rows, cols = self.decode_tile_grid(z.shape[-2], z.shape[-1])
+        tiles_per_chunk = rows * cols
 
         decoded_chunks: list[torch.Tensor] = []
         overlap = None
         for i in range(num_chunks):
             start = i * tokens_chunk_size
             clip = self._decode_clip(z[:, :, start : start + tokens_chunk_size + self.token_overlap])
+            if self.decode_chunk_observer is not None:
+                self.decode_chunk_observer(index=i, tiles=tiles_per_chunk)
             for j in range(int(token_drop > 0) + 1):
                 frame_start = j * chunk_num_frames
                 chunk = clip[:, :, frame_start : frame_start + chunk_num_frames]

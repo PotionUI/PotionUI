@@ -15,6 +15,7 @@ import torch
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.media.video_encode import AudioTrack
+from tests.pipelines.pipes.generator.video_minimax_h3.vae_stub import StubVideoVae
 from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     ReferenceConditioning,
     ReferenceMedia,
@@ -928,10 +929,7 @@ def test_generate_one_t2va_mux_args(tmp_path):
     AudioTrack."""
     video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
 
-    class _FakeVideoVae:
-        latents_mean = torch.zeros(24)
-        latents_std = torch.ones(24)
-
+    class _FakeVideoVae(StubVideoVae):
         def decode(self, z):
             b, c, f, h, w = z.shape
             return torch.rand(b, 3, f, h, w)
@@ -994,10 +992,7 @@ def test_generate_one_ref2va_routes_through_the_reference_layout(tmp_path):
     this CPU test's tensors tiny regardless of REFERENCE_IMAGE_SHORT_EDGE."""
     video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
 
-    class _FakeVideoVae:
-        latents_mean = torch.zeros(24)
-        latents_std = torch.ones(24)
-
+    class _FakeVideoVae(StubVideoVae):
         def decode(self, z):
             b, c, f, h, w = z.shape
             return torch.rand(b, 3, f, h, w)
@@ -1103,10 +1098,7 @@ def test_generate_one_text_only_never_places_the_video_vae():
     legitimate) move_to/offload at the end of `generate_one`."""
     video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
 
-    class _FakeVideoVae:
-        latents_mean = torch.zeros(24)
-        latents_std = torch.ones(24)
-
+    class _FakeVideoVae(StubVideoVae):
         def encode(self, *args, **kwargs):
             raise AssertionError("a text-only request must never encode through the video VAE")
 
@@ -1226,9 +1218,8 @@ def test_generate_one_video_vae_offload_runs_only_when_placed_on_failure():
     must not call `offload` on a video VAE it never moved."""
     video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
 
-    class _FakeVideoVae:
-        latents_mean = torch.zeros(24)
-        latents_std = torch.ones(24)
+    class _FakeVideoVae(StubVideoVae):
+        pass
 
     def exploding_forward(*, hidden_states, audio_hidden_states, **kwargs):
         raise RuntimeError("boom")
@@ -1278,10 +1269,7 @@ def _cancel_after(n: int):
 
 
 def _fake_bundle_for_generate_one(video_patch_dim: int, *, seen_step_caches: list):
-    class _FakeVideoVae:
-        latents_mean = torch.zeros(24)
-        latents_std = torch.ones(24)
-
+    class _FakeVideoVae(StubVideoVae):
         def decode(self, z):
             b, c, f, h, w = z.shape
             return torch.rand(b, 3, f, h, w)
@@ -1397,10 +1385,7 @@ def _run_generate_one_capturing_forwards(steps: int, *, is_cancelled=None, dit_m
         dit_module = _fake_dit_module(video_patch_dim)
     prep_calls = _wrap_prepare_text_context_counter(dit_module)
 
-    class _FakeVideoVae:
-        latents_mean = torch.zeros(24)
-        latents_std = torch.ones(24)
-
+    class _FakeVideoVae(StubVideoVae):
         def decode(self, z):
             b, c, f, h, w = z.shape
             return torch.rand(b, 3, f, h, w)
@@ -1485,10 +1470,7 @@ def test_bite_check_removing_the_hoist_calls_prepare_every_step():
         move_to=lambda d: None, offload=lambda: None,
     )
 
-    class _FakeVideoVae:
-        latents_mean = torch.zeros(24)
-        latents_std = torch.ones(24)
-
+    class _FakeVideoVae(StubVideoVae):
         def decode(self, z):
             b, c, f, h, w = z.shape
             return torch.rand(b, 3, f, h, w)
@@ -1597,10 +1579,7 @@ def _run_generate_one(config_overrides: dict, *, steps: int = 4, tmp_path=None, 
     video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
     seen: list = []
 
-    class _FakeVideoVae:
-        latents_mean = torch.zeros(24)
-        latents_std = torch.ones(24)
-
+    class _FakeVideoVae(StubVideoVae):
         def decode(self, z):
             b, c, f, h, w = z.shape
             return torch.rand(b, 3, f, h, w)
@@ -2826,14 +2805,11 @@ def test_a_multistep_history_never_crosses_a_window_boundary(monkeypatch):
 _REF_AUDIO_HOP = 800
 
 
-class _RefVideoVae:
+class _RefVideoVae(StubVideoVae):
     """The video VAE's shape contract: `17n + 5` frames encode to `5n + 2`
     latent frames, one frame stays one, spatial size passes through (so a
     reference's latent geometry is the caller's own and each reference is
     identifiable by it)."""
-
-    latents_mean = torch.zeros(24)
-    latents_std = torch.ones(24)
 
     def encode(self, x, *, sample_posterior=False, generator=None):
         b, _c, f, h, w = x.shape
@@ -3230,10 +3206,7 @@ def _run_generate_one_with_preview(steps: int):
         return base_forward(**kwargs)
     forward.prepare_text_context = base_forward.prepare_text_context
 
-    class _FakeVideoVae:
-        latents_mean = torch.zeros(24)
-        latents_std = torch.ones(24)
-
+    class _FakeVideoVae(StubVideoVae):
         def decode(self, z):
             b, c, f, h, w = z.shape
             return torch.rand(b, 3, f, h, w)
@@ -3340,3 +3313,111 @@ def test_the_preview_disabled_path_computes_no_x0():
     with patch.object(h3_main, "data_estimate", wraps=h3_main.data_estimate) as spy:
         _run_generate_one_with_preview(steps)
     assert spy.call_count == steps
+
+
+# -- video decode: budget, marks, tile knob --------------------------------
+
+_DECODE_VAE_CONFIG = dict(
+    latent_channels=4,
+    block_out_channels=(8, 16),
+    layers_per_block=1,
+    spatial_downsample_factors=(2, 1),
+    temporal_downsample_factors=(1, 2),
+    norm_num_groups=2,
+    decoder_num_layers=2,
+    decoder_num_attention_heads=2,
+    decoder_attention_head_dim=8,
+    decoder_num_register_tokens=2,
+    decoder_ffn_mult=2,
+    clip_length=5,
+    token_drop=1,
+    tile_sample_min_height=8,
+    tile_sample_min_width=8,
+    tile_sample_min_overlap_height=4,
+    tile_sample_min_overlap_width=4,
+)
+
+
+
+class _MarkRecorder:
+    def __init__(self):
+        self.marks = []
+
+    def mark(self, event, **fields):
+        self.marks.append((event, fields))
+
+    def events(self, name):
+        return [fields for event, fields in self.marks if event == name]
+
+
+def _decode_ctx():
+    """A context carrying a tiny but real H3 video VAE -- `_decode_video` only
+    reaches for `bundle.video_vae` and `device`, and a Mock VAE would prove
+    nothing about the decode this test exists to cover."""
+    from src.platform.runtime.native.vae.minimax_h3_video import MiniMaxH3VideoVAE
+    from vendor.gpl.comfyui.ops import disable_weight_init
+
+    torch.manual_seed(7)
+    module = MiniMaxH3VideoVAE.from_config(_DECODE_VAE_CONFIG, disable_weight_init)
+    module.use_tiling = True
+    with torch.no_grad():
+        for p in module.parameters():
+            if p.is_floating_point():
+                p.normal_(std=0.02)
+
+    vae = SimpleNamespace(
+        module=module, compute_dtype=torch.float32,
+        move_to=lambda device: None, offload=lambda: None,
+    )
+    return _MiniMaxH3Ctx(
+        bundle=SimpleNamespace(video_vae=vae), conditioning=[], steps=1,
+        height=14, width=10, frames=17, num_latent_frames=8, latent_height=7,
+        latent_width=5, num_audio_latents=0, device="cpu", dtype=torch.float32, spec=None,
+    ), module
+
+
+def _decode_latent():
+    torch.manual_seed(11)
+    return torch.randn(1, 4, 8, 7, 5)
+
+
+def test_decode_video_marks_the_decode_and_its_chunks():
+    pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
+    ctx, _module = _decode_ctx()
+    recorder = _MarkRecorder()
+
+    with patch("src.pipelines.pipes._shared.vae.minimax_h3_decode.get_profiler", lambda: recorder):
+        frames = pipe._decode_video(ctx, _decode_latent())
+
+    assert frames.shape == (13, 14, 10, 3)
+    (decode,) = recorder.events("minimax_h3.decode")
+    # The pipe's own 256px tile knob wins over the tiny module's 8px default,
+    # so this 14x10 frame decodes whole -- the tile grid itself is covered
+    # where it lives, in the VAE module's and the helper's tests.
+    assert decode["tiles_per_chunk"] == 1
+    assert decode["tile_px"] == 256
+    assert decode["chunks"] == 2
+    assert decode["seconds"] > 0
+    assert [c["index"] for c in recorder.events("minimax_h3.decode.chunk")] == [0, 1]
+
+
+def test_decode_tile_px_config_reaches_the_vae_and_is_restored():
+    """The knob is per-request; `ModelLifecycle` caches the VAE across
+    generations, so it must not stick to the module."""
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "decode_tile_px": 0})
+    ctx, module = _decode_ctx()
+    recorder = _MarkRecorder()
+
+    with patch("src.pipelines.pipes._shared.vae.minimax_h3_decode.get_profiler", lambda: recorder):
+        pipe._decode_video(ctx, _decode_latent())
+
+    assert recorder.events("minimax_h3.decode")[0]["tile_px"] == 0
+    assert module.use_tiling is True
+    assert module.tile_sample_min_height == 8
+
+
+def test_decode_tile_px_is_a_declared_config_choice():
+    spec = next(s for s in GeneratorMinimaxH3Pipe.configuration() if s.name == "decode_tile_px")
+    assert spec.default == 256
+    assert GeneratorMinimaxH3Pipe.get_default_config()["decode_tile_px"] == 256
+    assert set(spec.choices) == {0, 256, 512}

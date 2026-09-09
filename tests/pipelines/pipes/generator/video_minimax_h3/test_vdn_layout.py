@@ -33,6 +33,7 @@ from src.platform.runtime.native.arch.minimax_h3.vdn import (
     window_bounds,
 )
 
+from tests.pipelines.pipes.generator.video_minimax_h3.vae_stub import StubVideoVae
 from tests.pipelines.pipes.generator.video_minimax_h3.test_main import (
     PATCH,
     _fake_audio_vae_module,
@@ -153,10 +154,7 @@ def _run(config_overrides: dict, *, attached: bool = True, steps: int = 3):
     video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
     dit_module = _AttachedDit(video_patch_dim, attached=attached)
 
-    class _FakeVideoVae:
-        latents_mean = torch.zeros(24)
-        latents_std = torch.ones(24)
-
+    class _FakeVideoVae(StubVideoVae):
         def decode(self, z):
             b, c, f, h, w = z.shape
             return torch.rand(b, 3, f, h, w)

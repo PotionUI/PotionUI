@@ -119,6 +119,7 @@ from src.pipelines.pipes._shared.generation.dit_placement import DitPlacementInf
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.reference_order import pack_references
 from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
+from src.pipelines.pipes._shared.vae.minimax_h3_decode import TILE_PX_CHOICES, decode_video
 from src.pipelines.pipes._shared.media.video_encode import AudioInput, AudioTrack, encode_frames_to_mp4
 from src.pipelines.pipes._shared.media.video_read import read_video_frames
 from src.pipelines.pipes.generator.txt2vid_ltx.main import release_idle_te
@@ -758,6 +759,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             "keyframe_anchors": [],
             "audio_source": "generate",
             "decode": True,
+            "decode_tile_px": 256,
             "step_cache_threshold": 0.0,
             "step_cache_warmup_steps": 4,
             "step_cache_max_skips": 3,
@@ -815,6 +817,16 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                            "output, e.g. a future refine stage)", required=False, choices=list(_VALID_AUDIO_SOURCES)),
             PipeConfigSpec("decode", bool, True, "Decode to video; set false to emit the raw latent instead "
                            "(audio is still decoded/populated either way)", required=False),
+            PipeConfigSpec(
+                "decode_tile_px", int, 256,
+                "Spatial tile size the video VAE decodes in. 256 is the reference "
+                "implementation's own tile and the only value whose frames match a "
+                "reference decode exactly; 512 blends at half as many seams and 0 "
+                "decodes each temporal chunk whole, both of which cost more VRAM per "
+                "forward. How many tiles run as ONE batched forward is not this knob: "
+                "that is sized to the free VRAM at decode time.",
+                required=False, choices=list(TILE_PX_CHOICES),
+            ),
             PipeConfigSpec(
                 "step_cache_threshold", float, 0.0,
                 "FBCache step-skipping: relative-change threshold below which the whole "
@@ -2216,7 +2228,11 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 device_type="cuda" if str(device).startswith("cuda") else "cpu",
                 dtype=torch.float16, enabled=str(device).startswith("cuda"),
             ):
-                video = vae_module.decode(z.to(dtype=vae.compute_dtype))
+                video = decode_video(
+                    vae_module, z.to(dtype=vae.compute_dtype), str(device),
+                    tile_px=int(self.config.get("decode_tile_px", 256)),
+                    log_prefix="[GENERATOR MINIMAX-H3]",
+                )
             pixel_mean = torch.tensor((0.485, 0.456, 0.406), device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)
             pixel_std = torch.tensor((0.229, 0.224, 0.225), device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)
             video = (video.float() * pixel_std + pixel_mean).clamp(0.0, 1.0)

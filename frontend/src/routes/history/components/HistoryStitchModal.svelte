@@ -429,11 +429,13 @@
 		<Icon name="grid" className="h-5 w-5 text-fg-muted" />
 	</svelte:fragment>
 
-	<div class="grid gap-4 p-4 sm:p-6 md:grid-cols-[minmax(0,1fr)_260px]">
-		<div class="relative min-h-[300px] rounded-lg border border-line bg-surface-2">
+	<div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 p-4 sm:p-6 md:grid-cols-[minmax(0,1fr)_260px]">
+		<div
+			class="relative h-[min(60vh,640px)] min-h-0 w-full min-w-0 rounded-lg border border-line bg-surface-2"
+		>
 			<div
 				bind:this={previewPane}
-				class="flex h-full min-h-[300px] overflow-auto p-3 {panning
+				class="flex h-full w-full min-h-0 min-w-0 overflow-auto p-3 {panning
 					? 'cursor-grabbing'
 					: canPan
 						? 'cursor-grab'
@@ -500,7 +502,7 @@
 			{/if}
 		</div>
 
-		<div class="space-y-4">
+		<div class="min-w-0 space-y-4">
 			<p class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle tabular-nums">
 				{loaded.length} image{loaded.length === 1 ? '' : 's'}
 			</p>

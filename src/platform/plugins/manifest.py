@@ -111,13 +111,31 @@ class PresetsRootSpec(BaseModel):
     path: str
 
 
+class RecipeStepSpec(BaseModel):
+    """A plugin-provided recipe step kind: `recipe_steps[]`.
+
+    `backend` is a `"module.path:ClassName"` reference to a
+    `src.plugin_api.recipes.StepExecutor` implementation, loaded the same way
+    a `requirement_checkers[].backend` is. `kind` is the recipe step `kind:`
+    this executor runs (e.g. `"collections.ensure"`) - it must not collide
+    with a core kind (see
+    `src.features.recipes.schema.RECOGNIZED_STEP_KINDS`) or one already
+    registered by another plugin.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str
+    backend: str
+
+
 class RecipesRootSpec(BaseModel):
-    """A plugin-contributed setup-recipe root: `recipes[]`.
+    """A plugin-contributed recipe root: `recipes[]`.
 
     `path` is a directory (relative to the plugin dir) scanned for
     `*.yml` recipe files, exactly like the core `content/recipes/` tree.
     Recipes keep the identity declared in their own `id:`, so a recipe moved
-    from core into a plugin keeps referring to the same setup runs.
+    from core into a plugin keeps referring to the same recipe runs.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -543,9 +561,11 @@ class PluginManifestSchema(BaseModel):
     # Modes this plugin contributes to OTHER (already-installed) presets - see
     # PresetModeContributionSpec.
     preset_modes: List[PresetModeContributionSpec] = Field(default_factory=list)
-    # Setup-recipe roots this plugin contributes, scanned like the core
+    # Recipe roots this plugin contributes, scanned like the core
     # content/recipes/ tree - see RecipesRootSpec.
     recipes: List[RecipesRootSpec] = Field(default_factory=list)
+    # Recipe step kinds this plugin contributes - see RecipeStepSpec.
+    recipe_steps: List[RecipeStepSpec] = Field(default_factory=list)
 
     # Frontend components
     frontend: Optional[str] = None  # Path to a frontend entry point, if any

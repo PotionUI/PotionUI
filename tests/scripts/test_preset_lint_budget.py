@@ -20,7 +20,7 @@ if str(_RELEASE_DIR) not in sys.path:
     sys.path.insert(0, str(_RELEASE_DIR))
 
 from preset_lint_budget import budget_ok, load_budget, resolve_recipe_preset_dirs  # noqa: E402
-from src.features.setup.recipe_schema import Recipe, RecipePresetRef
+from src.features.recipes.schema import Recipe, RecipePresetRef
 
 
 def _recipe(presets, source_path="content/recipes/marketplace/fake.yml") -> Recipe:

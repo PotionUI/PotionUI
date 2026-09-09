@@ -1,0 +1,153 @@
+"""`preset.ensure` executor against fake PresetCollaborators/UserRepository surfaces."""
+
+from types import SimpleNamespace
+
+import pytest
+
+from src.features.presets.exceptions import (
+    InvalidUsersException,
+    PresetAlreadyInstalledException,
+    PresetNotInstalledException,
+)
+from src.features.recipes.executors.base import StepContext
+from src.features.recipes.executors.preset_ensure import PresetEnsureExecutor
+from src.features.recipes.schema import Recipe, RecipeStep
+from src.features.recipes.records import RecipeRun, RecipeRunStatus
+from src.platform.security.user import AccountType, User
+
+
+@pytest.fixture(autouse=True)
+def _forward_operations_to_manager(monkeypatch):
+    """`PresetEnsureExecutor` calls module-level `src.features.presets.operations`
+    functions with the preset-manager collaborator as their leading arg, rather
+    than calling methods on it directly. This forwards those calls to the fake's
+    own like-named methods, so `FakePresetManager` can stay built exactly like
+    the retired manager double."""
+    from src.features.recipes.executors import preset_ensure as preset_ensure_module
+
+    class _OperationsForwarder:
+        def __getattr__(self, name):
+            def _call(collaborators, *args, **kwargs):
+                return getattr(collaborators, name)(*args, **kwargs)
+            return _call
+
+    monkeypatch.setattr(preset_ensure_module, "operations", _OperationsForwarder())
+
+
+class FakeFileRepo:
+    def __init__(self, known_ids=None):
+        self.known_ids = known_ids or set()
+
+    def find_preset_by_id(self, preset_id):
+        return SimpleNamespace(id=preset_id) if preset_id in self.known_ids else None
+
+
+class FakePresetManager:
+    def __init__(self, known_ids=None, install_raises=None, assign_raises=None):
+        self.file_repo = FakeFileRepo(known_ids)
+        self.install_raises = install_raises
+        self.assign_raises = assign_raises
+        self.install_calls = []
+        self.assign_calls = []
+
+    def install_preset(self, preset_id, user):
+        self.install_calls.append((preset_id, user.id))
+        if self.install_raises:
+            raise self.install_raises
+
+    def assign_preset_to_users(self, preset_id, user_ids, admin):
+        self.assign_calls.append((preset_id, user_ids, admin.id))
+        if self.assign_raises:
+            raise self.assign_raises
+
+
+class FakeUserRepository:
+    def __init__(self, users=None):
+        self.users = users or {}
+
+    def get_by_id(self, user_id):
+        return self.users.get(user_id)
+
+
+def _owner() -> User:
+    return User(username="owner", email="owner@example.com", password_hash="x", account_type=AccountType.ADMIN, id="owner-1")
+
+
+def _context(preset_id="PRESET1", owner_id="owner-1"):
+    run = RecipeRun(id="r1", recipe_id="x", recipe_version=1, scope="instance", status=RecipeRunStatus.RUNNING, created_by=owner_id)
+    recipe = Recipe(id="x", schema_version=1, version=1, name="X", engine="native")
+    step = RecipeStep(key="preset.ensure", kind="preset.ensure", title="Install preset", params={"preset_id": preset_id})
+    return StepContext(run=run, recipe=recipe, step=step)
+
+
+def test_installs_and_assigns_when_all_new():
+    preset_collaborators = FakePresetManager(known_ids={"PRESET1"})
+    user_repo = FakeUserRepository({"owner-1": _owner()})
+    executor = PresetEnsureExecutor(preset_collaborators, user_repo)
+
+    result = executor.execute(_context())
+
+    assert result.success is True
+    assert result.safe_output == {"preset_id": "PRESET1", "assigned_to": "owner-1"}
+    assert preset_collaborators.install_calls == [("PRESET1", "owner-1")]
+    assert preset_collaborators.assign_calls == [("PRESET1", ["owner-1"], "owner-1")]
+
+
+def test_already_installed_is_not_an_error():
+    preset_collaborators = FakePresetManager(
+        known_ids={"PRESET1"}, install_raises=PresetAlreadyInstalledException("PRESET1")
+    )
+    user_repo = FakeUserRepository({"owner-1": _owner()})
+    executor = PresetEnsureExecutor(preset_collaborators, user_repo)
+
+    result = executor.execute(_context())
+
+    assert result.success is True
+    assert preset_collaborators.assign_calls == [("PRESET1", ["owner-1"], "owner-1")]
+
+
+def test_missing_owner_account_fails_clearly():
+    preset_collaborators = FakePresetManager(known_ids={"PRESET1"})
+    user_repo = FakeUserRepository({})  # owner-1 not found
+    executor = PresetEnsureExecutor(preset_collaborators, user_repo)
+
+    result = executor.execute(_context())
+
+    assert result.success is False
+    assert result.error_code == "OWNER_NOT_FOUND"
+
+
+def test_preset_missing_on_disk_fails_clearly():
+    preset_collaborators = FakePresetManager(known_ids=set())
+    user_repo = FakeUserRepository({"owner-1": _owner()})
+    executor = PresetEnsureExecutor(preset_collaborators, user_repo)
+
+    result = executor.execute(_context())
+
+    assert result.success is False
+    assert result.error_code == "PRESET_MISSING_ON_DISK"
+    assert preset_collaborators.install_calls == []
+
+
+def test_assignment_failure_is_reported():
+    preset_collaborators = FakePresetManager(
+        known_ids={"PRESET1"}, assign_raises=InvalidUsersException(["owner-1"])
+    )
+    user_repo = FakeUserRepository({"owner-1": _owner()})
+    executor = PresetEnsureExecutor(preset_collaborators, user_repo)
+
+    result = executor.execute(_context())
+
+    assert result.success is False
+    assert result.error_code == "PRESET_ASSIGN_FAILED"
+
+
+def test_missing_preset_id_param_is_misconfiguration():
+    preset_collaborators = FakePresetManager(known_ids={"PRESET1"})
+    user_repo = FakeUserRepository({"owner-1": _owner()})
+    executor = PresetEnsureExecutor(preset_collaborators, user_repo)
+
+    result = executor.execute(_context(preset_id=None))
+
+    assert result.success is False
+    assert result.error_code == "PRESET_ENSURE_MISCONFIGURED"

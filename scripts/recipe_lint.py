@@ -2,7 +2,7 @@
 """
 Recipe lint CLI - validates every `content/recipes/{marketplace,local}/*.yml`
 file against the Phase-3 setup-recipe schema (see
-`src/features/setup/recipe_schema.py`).
+`src/features/recipes/schema.py`).
 
 Usage:
     python scripts/recipe_lint.py [paths...]    # defaults to marketplace + local
@@ -21,7 +21,7 @@ Two layers of checks, both exposed as plain functions any test can import:
 
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Set
 
 import yaml
 
@@ -30,8 +30,8 @@ sys.path.insert(0, str(ROOT))
 
 from src.features.presets.loader import PresetTemplateLoader, plugin_preset_roots  # noqa: E402
 from src.features.presets.templates import PresetTemplate  # noqa: E402
-from src.features.setup.recipe_catalog import plugin_recipe_roots  # noqa: E402
-from src.features.setup.recipe_schema import parse_recipe, validate_recipe_dict  # noqa: E402
+from src.features.recipes.catalog import plugin_recipe_roots  # noqa: E402
+from src.features.recipes.schema import parse_recipe, validate_recipe_dict  # noqa: E402
 from src.platform.plugins.loader import PluginLoader  # noqa: E402
 
 
@@ -48,14 +48,31 @@ def load_preset_index(
     return {p.id: p for p in loader.presets}
 
 
-def lint_recipe_file(path: Path, preset_index: Dict[str, PresetTemplate]) -> List[str]:
+def plugin_step_kinds(plugin_manifests) -> Set[str]:
+    """The step kinds plugins declare under `recipe_steps:`, read straight off
+    the manifests - a recipe using one of these lints as valid without the app
+    running (the backend class is never imported here, only its `kind:`)."""
+    kinds: Set[str] = set()
+    for manifest in plugin_manifests or []:
+        for entry in getattr(manifest, "recipe_steps", None) or []:
+            kind = entry.get("kind") if isinstance(entry, dict) else None
+            if kind:
+                kinds.add(kind)
+    return kinds
+
+
+def lint_recipe_file(
+    path: Path,
+    preset_index: Dict[str, PresetTemplate],
+    extra_kinds: Optional[Set[str]] = None,
+) -> List[str]:
     """Validate one recipe file. Returns a list of issue strings (empty = OK)."""
     try:
         data = yaml.safe_load(path.read_text()) or {}
     except Exception as exc:
         return [f"Could not parse YAML: {exc}"]
 
-    issues = validate_recipe_dict(data)
+    issues = validate_recipe_dict(data, extra_kinds=extra_kinds)
     if issues:
         return issues
 
@@ -95,11 +112,12 @@ def main() -> int:
         paths = [Path(p) for p in sys.argv[1:]]
     else:
         plugin_manifests = PluginLoader().discover_plugins()
-        paths = [Path("content/recipes/marketplace"), Path("content/recipes/local")] + list(
-            plugin_recipe_roots(plugin_manifests)
-        )
+        paths = [Path("content/recipes/marketplace"), Path("content/recipes/local")] + [
+            root.path for root in plugin_recipe_roots(plugin_manifests)
+        ]
 
     preset_index = load_preset_index(plugin_manifests=plugin_manifests)
+    extra_kinds = plugin_step_kinds(plugin_manifests)
 
     total_issues = 0
     found_any = False
@@ -109,7 +127,7 @@ def main() -> int:
             continue
         for recipe_file in sorted(base.glob("*.yml")):
             found_any = True
-            issues = lint_recipe_file(recipe_file, preset_index)
+            issues = lint_recipe_file(recipe_file, preset_index, extra_kinds)
             if issues:
                 total_issues += len(issues)
                 print(f"{recipe_file}:")

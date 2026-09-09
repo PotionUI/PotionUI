@@ -1,9 +1,9 @@
 ########
 ## Setup recipe: Z-Image on the native engine
 ##
-## See src/features/setup/recipe_schema.py for the schema this file is
+## See src/features/recipes/schema.py for the schema this file is
 ## validated against (scripts/recipe_lint.py) and
-## src/features/setup/executors/ for what each step kind actually does.
+## src/features/recipes/executors/ for what each step kind actually does.
 ########
 schema_version: 1
 id: "zimage-starter"
@@ -174,4 +174,7 @@ steps:
   - key: "workspace.activate"
     kind: "workspace.activate"
     title: "Finish onboarding"
+    # Only meaningful during the first-run wizard - a run started from
+    # Admin -> Recipes skips it.
+    onboarding_only: true
     params: {}

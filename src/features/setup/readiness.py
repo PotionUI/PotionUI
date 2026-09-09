@@ -356,3 +356,18 @@ class ReadinessAggregator:
             user_message="No generation has finished on this instance yet. Run one to finish setup.",
             admin_action="Run a generation end to end to confirm the instance really works.",
         )
+
+
+def build_readiness_aggregator(container) -> ReadinessAggregator:
+    """Assemble the aggregator from a container. Shared by the setup routes
+    (`GET /api/readiness`) and the recipes routes
+    (`GET /api/recipes/{id}/readiness`) so both report from the same
+    collaborators."""
+    return ReadinessAggregator(
+        backend_registry=container.backend_registry,
+        preset_collaborators=container.preset_collaborators,
+        model_repository=container.model_repository,
+        generation_repository=container.generation_repository,
+        instance_claim_repository=container.instance_claim_repository,
+        migration_runner=container.migration_runner,
+    )

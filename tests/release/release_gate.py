@@ -16,8 +16,8 @@ Gates, in order:
   2. Architecture layering — `pytest tests/architecture/` (+
      `tests/scripts/test_constraints_cover_requirements.py` if present),
      matching the `layering` job in `.github/workflows/onboarding-smoke.yml`.
-  3. Setup feature suite   — `pytest tests/features/setup/`
-     (setup-run/recipe test tree).
+  3. Setup + recipes suite — `pytest tests/features/setup/ tests/features/recipes/`
+     (the first-run wizard and the recipe-run test trees).
   4. GPU-gated preset E2E  — `python scripts/preset_test_suite.py
      --preset native/SDXL --tag fast`, the starter-recipe preset
      `recipes/sdxl-starter.yml` points at. Only runs when a CUDA device is
@@ -102,8 +102,11 @@ def gate_layering() -> bool:
 
 
 def gate_setup_suite() -> bool:
-    """(c) The setup feature test suite — setup-run/recipe test tree."""
-    cmd = [sys.executable, "-m", "pytest", "tests/features/setup/", "-q", "--no-cov"]
+    """(c) The first-run wizard and recipe-run test trees."""
+    cmd = [
+        sys.executable, "-m", "pytest",
+        "tests/features/setup/", "tests/features/recipes/", "-q", "--no-cov",
+    ]
     return _run(cmd, label="setup-suite")
 
 

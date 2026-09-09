@@ -54,8 +54,8 @@ from src.platform.plugins.router_mounter import PluginRouterMounter
 from src.features.generation.hooks import OUTPUT_TYPE_HOOKS
 from src.platform.security import AuthConfig, PasswordHasher, TokenCodec, Auth, ClaimTokenStore
 from src.features.setup import InstanceClaimRepository
-from src.features.setup.runner import SetupRunner
-from src.features.setup.recipe_catalog import RecipeCatalog
+from src.features.recipes.runner import RecipeRunner
+from src.features.recipes.catalog import RecipeCatalog
 from src.features.phrasebook.preview_generator import PhrasebookPreviewGenerator
 from src.features.chat import ChatRuntime, ResponseProcessor
 from src.features.downloads import DownloadQueue, DownloadRepository
@@ -71,6 +71,10 @@ from src.platform.plugins.phrasebook_ops import (
 from src.platform.plugins.requirement_checkers import (
     RequirementCheckerRegistry,
     requirement_checker_registry as _shared_requirement_checker_registry,
+)
+from src.platform.plugins.recipe_steps import (
+    RecipeStepKindRegistry,
+    recipe_step_kind_registry as _shared_recipe_step_kind_registry,
 )
 from src.features.fields.builtin import register_builtin_fields
 from src.features.presets.requirements.builtin import register_builtin_requirement_checkers
@@ -216,6 +220,7 @@ class AppContainer:
     prompt_importer_registry: PromptImporterRegistry
     phrasebook_operation_registry: PhrasebookOperationRegistry
     requirement_checker_registry: RequirementCheckerRegistry
+    recipe_step_kind_registry: RecipeStepKindRegistry
     requirements_cache: RequirementsCache
     tool_registry: "ToolRegistry"
     tool_executor: "ToolExecutor"
@@ -270,7 +275,7 @@ class AppContainer:
     password_hasher: PasswordHasher
     token_codec: TokenCodec
     auth: Auth
-    setup_runner: SetupRunner
+    recipe_runner: RecipeRunner
     recipe_catalog: RecipeCatalog
     user_controller: "UserController"
 
@@ -586,6 +591,13 @@ def build_container() -> AppContainer:
     register_builtin_requirement_checkers(requirement_checker_registry)
     requirements_cache = RequirementsCache()
 
+    # Recipe step kinds a plugin contributes (manifest `recipe_steps:`, see
+    # src/platform/plugins/recipe_steps.py). Core's own kinds live on the
+    # recipes executor registry, wired further down; this holds only what
+    # plugins add, and both the executor registry and the recipe catalog
+    # (for lint) read from it.
+    recipe_step_kind_registry = _shared_recipe_step_kind_registry
+
     plugin_router_mounter = PluginRouterMounter()
     plugin_registry = PluginRegistry(
         marketplace_dir="content/plugins/marketplace",
@@ -601,6 +613,7 @@ def build_container() -> AppContainer:
         prompt_importer_registry=prompt_importer_registry,
         phrasebook_operation_registry=phrasebook_operation_registry,
         requirement_checker_registry=requirement_checker_registry,
+        recipe_step_kind_registry=recipe_step_kind_registry,
     )
     _rr._global_plugin_registry = plugin_registry  # Set the global reference
 
@@ -678,15 +691,17 @@ def build_container() -> AppContainer:
         claim_tokens=claim_token_store,
         settings=settings,
     )
-    setup_runner = SetupRunner()
+    recipe_runner = RecipeRunner()
     # Recipe catalog (discovers/validates content/recipes/{marketplace,local}/*.yml).
-    # The executor registry is wired further down (see "setup executors")
+    # The executor registry is wired further down (see "recipe executors")
     # because it needs preset_collaborators/backend_registry, built later in this
     # function. `POTIONUI_RECIPES_DIR` lets an ephemeral/test instance point
     # the catalog at a disposable directory instead of the repo's real
     # `content/recipes/`.
     recipe_catalog = RecipeCatalog(
-        os.getenv("POTIONUI_RECIPES_DIR", "content/recipes"), plugin_registry=plugin_registry
+        os.getenv("POTIONUI_RECIPES_DIR", "content/recipes"),
+        plugin_registry=plugin_registry,
+        step_kind_registry=recipe_step_kind_registry,
     )
 
     # Initialize phrasebook components
@@ -1328,28 +1343,33 @@ def build_container() -> AppContainer:
         model_access_policy=model_access_policy,
     )
 
-    # Setup executors: wire the built-in step executors (one per recipe step
-    # `kind` - see src/features/setup/executors/) onto the run manager's
+    # Recipe executors: wire the built-in step executors (one per recipe step
+    # `kind` - see src/features/recipes/executors/) onto the run manager's
     # executor-registry seam. Built here, not up near `recipe_catalog`, because
     # it needs preset_collaborators/backend_registry/pipeline_builder, constructed above.
-    from src.features.setup.executors import build_default_executor_registry
+    from src.features.recipes.executors import build_default_executor_registry
+    from src.features.setup import WorkspaceActivateExecutor
 
-    setup_runner.register_executor_registry(
-        build_default_executor_registry(
-            recipe_catalog=recipe_catalog,
-            plugin_registry=plugin_registry,
-            backend_registry=backend_registry,
-            preset_collaborators=preset_collaborators,
-            user_repository=user_repository,
-            preset_template_loader=preset_template_loader,
-            template_processor=template_processor,
-            pipeline_builder=pipeline_builder,
-            model_repository=model_repository,
-            generation_orchestrator=generation_orchestrator,
-            backend_model_indexer=backend_model_indexer,
-            download_queue=download_queue,
-        )
+    _recipe_executors = build_default_executor_registry(
+        recipe_catalog=recipe_catalog,
+        plugin_registry=plugin_registry,
+        backend_registry=backend_registry,
+        preset_collaborators=preset_collaborators,
+        user_repository=user_repository,
+        preset_template_loader=preset_template_loader,
+        template_processor=template_processor,
+        pipeline_builder=pipeline_builder,
+        model_repository=model_repository,
+        generation_orchestrator=generation_orchestrator,
+        backend_model_indexer=backend_model_indexer,
+        download_queue=download_queue,
+        step_kind_registry=recipe_step_kind_registry,
     )
+    # `workspace.activate` is the first-run wizard's own step, so setup - not
+    # recipes - contributes it. Recipes mark it `onboarding_only`, so an admin
+    # run never reaches it.
+    _recipe_executors.register("workspace.activate", WorkspaceActivateExecutor())
+    recipe_runner.register_executor_registry(_recipe_executors)
 
     # Prompt database components
     from src.features.prompt_database.repository import PromptRepository

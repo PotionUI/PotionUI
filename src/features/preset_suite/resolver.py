@@ -81,7 +81,7 @@ class ModelResolver:
     ``downloader`` always wins when given (mainly for tests - see
     ``tests/features/preset_suite/test_resolver.py``). Otherwise, when
     ``download_queue`` is given, a missing model is fetched through it
-    (queue-then-poll, like ``src/features/setup/executors/artifacts_fetch.py``)
+    (queue-then-poll, like ``src/features/recipes/executors/artifacts_fetch.py``)
     so the fetch shows up in the admin download history and honors the
     configured depot the same way every other model fetch does. Only when
     neither is given does resolution fall back to a direct
@@ -263,7 +263,7 @@ class ModelResolver:
     def _download_via_queue(self, repo: str, file: str, dest_dir: Path) -> str:
         """Queue-then-poll a single HF file through the core download queue.
 
-        Same shape as ``ArtifactsFetchExecutor`` (`src/features/setup/executors/
+        Same shape as ``ArtifactsFetchExecutor`` (`src/features/recipes/executors/
         artifacts_fetch.py`): `queue_model_download` is async, this call site is
         not, so the queueing call is bridged with `run_sync` and completion is
         polled off the plain-sync `get_download`. `destination_dir` is passed as
@@ -271,7 +271,7 @@ class ModelResolver:
         above; `DownloadQueue.queue_model_download` re-validates it stays
         inside the configured depot regardless.
         """
-        from src.features.setup.executors._async_bridge import run_sync
+        from src.features.recipes.executors._async_bridge import run_sync
 
         url = f"{_HF_BASE_URL}/{repo}/resolve/main/{file}"
         download = run_sync(

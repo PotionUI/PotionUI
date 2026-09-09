@@ -107,7 +107,7 @@ DEFAULT_RECIPE = "sdxl-starter"
 SDXL_STARTER_CHECKPOINT = "cyberrealisticPony_v125.safetensors"
 
 # Generous: this bounds both the mutating action call itself (fast - it no
-# longer waits on `drive()`, see `SetupRunner.drive_async`) AND
+# longer waits on `drive()`, see `RecipeRunner.drive_async`) AND
 # the poll loop `_drive_with_progress` runs afterward to catch up with
 # whatever the background drive does (a real generation, a small download
 # can legitimately take a while).
@@ -395,7 +395,7 @@ def _drive_with_progress(journey: Journey, stage: str, action: Callable[[], requ
     comment).
 
     `drive()` runs on a background thread server-side (see
-    `SetupRunner.drive_async`), so the mutating call's own HTTP response
+    `RecipeRunner.drive_async`), so the mutating call's own HTTP response
     returns almost immediately and reflects whatever the run's status was at
     that instant - typically still pending/running, NOT the driven-forward
     state. So the harness catches up the same way the real frontend does: after the

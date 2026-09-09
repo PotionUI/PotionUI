@@ -12,7 +12,7 @@ Import from the package itself - every name below is available directly:
 
 The capability modules (`src.plugin_api.providers`, `.chat`, `.backends`,
 `.compute`, `.pipes`, `.native`, `.hooks`, `.storage`, `.presets`, `.forms`,
-`.identity`, `.media`, `.phrasebook`) are the same names, grouped, and each one's docstring
+`.identity`, `.media`, `.phrasebook`, `.recipes`) are the same names, grouped, and each one's docstring
 explains what it is for. Import from whichever reads better.
 
 If you need something the application can do but this module does not expose,
@@ -159,6 +159,21 @@ from src.plugin_api.media import BackgroundMattingModel, convert_image_to_base64
 # Contributing a prompt import source.
 from src.plugin_api.prompts import PromptImporter, PromptImportOutcome, create_prompt_for_user
 
+# Shipping a recipe, and contributing a recipe step kind.
+from src.plugin_api.recipes import (
+    Recipe,
+    RecipeArtifact,
+    RecipePresetRef,
+    RecipeRun,
+    RecipeRunStatus,
+    RecipeSmokeRef,
+    RecipeStep,
+    RecipeStepStatus,
+    StepContext,
+    StepExecutor,
+    StepResult,
+)
+
 # Contributing a phrasebook batch tool.
 from src.plugin_api.phrasebook import (
     BatchOperationError,
@@ -280,6 +295,18 @@ __all__ = [
     "PromptImporter",
     "PromptImportOutcome",
     "create_prompt_for_user",
+    # Recipes and recipe step kinds
+    "Recipe",
+    "RecipeArtifact",
+    "RecipePresetRef",
+    "RecipeRun",
+    "RecipeRunStatus",
+    "RecipeSmokeRef",
+    "RecipeStep",
+    "RecipeStepStatus",
+    "StepContext",
+    "StepExecutor",
+    "StepResult",
     # Phrasebook batch tools
     "BatchOperationError",
     "BatchOutcome",

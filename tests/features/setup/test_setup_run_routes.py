@@ -2,10 +2,10 @@
 
 The status route stays public; the run routes are admin-only with the
 404-not-403 idiom (a non-admin cannot even confirm a run exists). A real
-`SetupRunner` backed by a temp file exercises the wiring end to end.
+`RecipeRunner` backed by a temp file exercises the wiring end to end.
 
 `POST /runs` and the actions now drive the run forward on a
-background thread (`SetupRunner.drive_async`) instead of inline, so a
+background thread (`RecipeRunner.drive_async`) instead of inline, so a
 response no longer necessarily reflects steps that ran as a side effect of
 the same request - tests that need to observe a driven-forward state poll
 `GET /runs/{id}` with `_poll_until`, exactly like the real frontend does.
@@ -24,10 +24,10 @@ from src.platform.database.migration_runner import MigrationRunner
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 from src.features.setup.routes import build_router
-from src.features.setup.runner import SetupRunner
-from src.features.setup.executors.base import StepResult
-from src.features.setup.executors.registry import SetupExecutorRegistry
-from src.features.setup.recipe_schema import Recipe, RecipeStep
+from src.features.recipes.runner import RecipeRunner
+from src.features.recipes.executors.base import StepResult
+from src.features.recipes.executors.registry import RecipeExecutorRegistry
+from src.features.recipes.schema import Recipe, RecipeStep
 
 
 @pytest.fixture
@@ -78,11 +78,11 @@ def _consent_recipe(recipe_id="consent-recipe"):
 
 
 def _client(current_user: User, *, recipe_catalog=None, executor_registry=None) -> TestClient:
-    runner = SetupRunner()
+    runner = RecipeRunner()
     if executor_registry is not None:
         runner.register_executor_registry(executor_registry)
     container = SimpleNamespace(
-        setup_runner=runner,
+        recipe_runner=runner,
         # readiness deps are resolved lazily and never touched here.
         backend_registry=Mock(),
         preset_collaborators=Mock(),
@@ -124,7 +124,7 @@ def test_non_admin_gets_404_on_create(file_db):
 
 def test_non_admin_gets_404_on_get(file_db):
     # Seed a real run as admin so we prove the 404 hides an existing run.
-    run = SetupRunner().create_run("r")
+    run = RecipeRunner().create_run("r")
     client = _client(_user(AccountType.USER))
     resp = client.get(f"/api/setup/runs/{run.id}")
     assert resp.status_code == 404
@@ -234,7 +234,7 @@ def test_active_run_non_admin_gets_404(file_db):
 
 def test_grant_consent_advances_a_parked_run(file_db):
     recipe = _consent_recipe()
-    registry = SetupExecutorRegistry(_FakeCatalog([recipe]), {"artifacts.plan": _AwaitsConsentExecutor()})
+    registry = RecipeExecutorRegistry(_FakeCatalog([recipe]), {"artifacts.plan": _AwaitsConsentExecutor()})
     client = _client(_user(AccountType.ADMIN), recipe_catalog=_FakeCatalog([recipe]), executor_registry=registry)
 
     created_id = client.post("/api/setup/runs", json={"recipe_id": recipe.id}).json()["id"]
@@ -262,7 +262,7 @@ def test_grant_consent_advances_a_parked_run(file_db):
 
 def test_grant_consent_without_step_key_is_400(file_db):
     recipe = _consent_recipe()
-    registry = SetupExecutorRegistry(_FakeCatalog([recipe]), {"artifacts.plan": _AwaitsConsentExecutor()})
+    registry = RecipeExecutorRegistry(_FakeCatalog([recipe]), {"artifacts.plan": _AwaitsConsentExecutor()})
     client = _client(_user(AccountType.ADMIN), recipe_catalog=_FakeCatalog([recipe]), executor_registry=registry)
     run_id = client.post("/api/setup/runs", json={"recipe_id": recipe.id}).json()["id"]
 

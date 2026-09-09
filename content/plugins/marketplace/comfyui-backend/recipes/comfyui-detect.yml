@@ -72,4 +72,7 @@ steps:
   - key: "workspace.activate"
     kind: "workspace.activate"
     title: "Finish onboarding"
+    # Only meaningful during the first-run wizard - a run started from
+    # Admin -> Recipes skips it.
+    onboarding_only: true
     params: {}

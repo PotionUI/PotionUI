@@ -55,7 +55,9 @@ class PluginManifest:
     presets: List[Dict[str, Any]] = field(default_factory=list)  # Preset roots: [{path}]
     # Modes contributed to OTHER presets: [{target, modes_root}]
     preset_modes: List[Dict[str, Any]] = field(default_factory=list)
-    recipes: List[Dict[str, Any]] = field(default_factory=list)  # Setup-recipe roots: [{path}]
+    recipes: List[Dict[str, Any]] = field(default_factory=list)  # Recipe roots: [{path}]
+    # Recipe step kinds: [{kind, backend}]
+    recipe_steps: List[Dict[str, Any]] = field(default_factory=list)
 
     # Frontend components
     frontend_entry: Optional[str] = None  # Path to frontend entry point
@@ -413,6 +415,7 @@ class PluginLoader:
             presets=[p.model_dump() for p in schema.presets],
             preset_modes=[p.model_dump() for p in schema.preset_modes],
             recipes=[r.model_dump() for r in schema.recipes],
+            recipe_steps=[s.model_dump() for s in schema.recipe_steps],
             frontend_entry=schema.frontend,
             manifest_path=manifest_path,
             plugin_dir=plugin_dir,

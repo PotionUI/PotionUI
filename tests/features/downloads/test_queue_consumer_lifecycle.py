@@ -24,7 +24,7 @@ import pytest
 from src.features.downloads.models import Download, DownloadStatus
 from src.features.downloads.queue import DownloadQueue
 from src.features.downloads.worker import DownloadWorker
-from src.features.setup.executors._async_bridge import run_sync
+from src.features.recipes.executors._async_bridge import run_sync
 
 _POLL_TIMEOUT_SECONDS = 5.0
 _POLL_INTERVAL_SECONDS = 0.02
@@ -219,7 +219,7 @@ class TestThrowawayLoopOrphaning:
         ThreadPoolExecutor branch: a brand-new thread running a brand-new
         loop per call, discarded the instant each call returns. This is the
         literal shape `ArtifactsFetchExecutor` uses via
-        `src.features.setup.executors._async_bridge.run_sync`."""
+        `src.features.recipes.executors._async_bridge.run_sync`."""
         monkeypatch.setattr(DownloadWorker, "_download_file", _fake_download_file)
 
         run_sync(manager.start())

@@ -326,11 +326,16 @@ types are unavailable, the catalog explains which requirements are missing and p
 instantiation. Disabling the plugin removes its templates from the catalog; automations
 users already created from them remain theirs.
 
-## Contributing a setup recipe
+## Contributing a recipe (and recipe step kinds)
 
-An enabled plugin can ship its own setup-wizard recipe, the same way it can ship its own
-preset (see `presets:` below and [Presets](presets.md)). Declare a `recipes:` root in
-`manifest.yml`; no Python import or handler is required:
+A recipe is an ordered list of steps that takes an instance from "nothing installed" to
+"this preset generates". The first-run wizard runs one, and so does Admin → Recipes.
+
+### Shipping a recipe
+
+An enabled plugin can ship its own recipe, the same way it can ship its own preset (see
+`presets:` below and [Presets](presets.md)). Declare a `recipes:` root in `manifest.yml`;
+no Python import or handler is required:
 
 ```yaml
 recipes:
@@ -343,6 +348,53 @@ is reported as a load error and the core recipe wins — same precedence a `loca
 colliding with a `marketplace` one gets. `content/plugins/marketplace/comfyui-backend/`
 ships `comfyui-detect` this way: the recipe is useless without the plugin installed, so
 it lives with it, alongside the `comfyui` presets it installs.
+
+A step that only makes sense during the first-run wizard is marked `onboarding_only:
+true` and is skipped by a run started from Admin → Recipes. Core's `workspace.activate`
+(which closes onboarding out) is the one built-in step that carries the flag.
+
+### Contributing a step kind
+
+Every step names a `kind:`, and a plugin can add kinds of its own. Declare them under
+`recipe_steps:`:
+
+```yaml
+recipe_steps:
+  - kind: collections.ensure
+    backend: steps:EnsureCollections   # "module.path:ClassName" - a src/plugin_api/recipes.py StepExecutor
+```
+
+`backend` is loaded the same way a `field_types[].schema_class` is, and instantiated once
+when the plugin enables. A kind that collides with a core kind, or with one another
+enabled plugin already owns, fails the enable. Implement it against
+`src.plugin_api.recipes`:
+
+```python
+from src.plugin_api.recipes import StepContext, StepExecutor, StepResult
+
+class EnsureCollections(StepExecutor):
+    def execute(self, context: StepContext) -> StepResult:
+        wanted = context.step.params.get("collections", [])
+        if not wanted:
+            return StepResult.fail(
+                "NO_COLLECTIONS",
+                "This step needs at least one collection to create.",
+                suggested_repair="Add a `collections:` list to the step's params.",
+            )
+        return StepResult.ok({"created": len(wanted)})
+```
+
+`StepContext` carries the run, the parsed recipe, the step being run, and a
+`report_progress(current, total, unit)` callback a long-running step should call from its
+own poll loop so the UI can render progress before the step finishes. Besides `ok` and
+`fail`, a step can return `StepResult.awaiting(consent_request)` to park the run until an
+admin explicitly approves — that is how a multi-GB download gets a go-ahead. Failure
+messages are read by a non-technical owner mid-setup, so write them as a plain sentence
+and put any admin-shaped fix in `suggested_repair`.
+
+Registration makes the kind both runnable and lintable: `scripts/recipe_lint.py` and the
+running catalog accept recipes using it, while an unregistered kind stays an unknown-kind
+error. Disabling the plugin takes the kind away again.
 
 ## Contributing a prompt importer
 

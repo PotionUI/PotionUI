@@ -23,6 +23,7 @@ from src.platform.plugins.router_mounter import (
 from src.platform.plugins.field_types import FieldTypeDefinition, FieldTypeRegistry, DuplicateFieldTypeError
 from src.platform.plugins.prompt_importers import PromptImporterRegistry
 from src.platform.plugins.phrasebook_ops import PhrasebookOperationRegistry
+from src.platform.plugins.recipe_steps import RecipeStepKindRegistry
 from src.platform.plugins.requirement_checkers import RequirementCheckerRegistry
 from src.platform.plugins.automation_templates import (
     AutomationTemplateRegistrationError,
@@ -93,6 +94,7 @@ class PluginRegistry:
         prompt_importer_registry: Optional[PromptImporterRegistry] = None,
         phrasebook_operation_registry: Optional[PhrasebookOperationRegistry] = None,
         requirement_checker_registry: Optional[RequirementCheckerRegistry] = None,
+        recipe_step_kind_registry: Optional[RecipeStepKindRegistry] = None,
     ):
         self.loader = PluginLoader(marketplace_dir, local_dir)
         self.hook_chain = HookChain()
@@ -137,6 +139,8 @@ class PluginRegistry:
         # Preset requirement checkers contributed by enabled plugins - same
         # register-on-enable / unregister-by-source-on-disable shape.
         self.requirement_checker_registry = requirement_checker_registry
+        # Recipe step kinds a plugin contributes (manifest `recipe_steps:`).
+        self.recipe_step_kind_registry = recipe_step_kind_registry
 
         # Plugin storage
         self._plugins: Dict[str, PluginManifest] = {}
@@ -415,6 +419,7 @@ class PluginRegistry:
             self._register_plugin_prompt_importers,
             self._register_plugin_phrasebook_ops,
             self._register_plugin_requirement_checkers,
+            self._register_plugin_recipe_steps,
         ):
             error_msg = register_step(manifest)
             if error_msg:
@@ -708,12 +713,60 @@ class PluginRegistry:
 
         return None
 
+    def _register_plugin_recipe_steps(self, manifest: PluginManifest) -> Optional[str]:
+        """
+        Load and register a plugin's `recipe_steps:` manifest entries onto
+        `self.recipe_step_kind_registry`. Returns an error message on failure,
+        None on success.
+        """
+        skip, error = self._require_registry(
+            manifest.recipe_steps, self.recipe_step_kind_registry,
+            "recipe_steps", "recipe step kind",
+        )
+        if skip:
+            return error
+
+        from src.platform.plugins.recipe_steps import (
+            DuplicateRecipeStepKindError,
+            RecipeStepKindRegistration,
+        )
+
+        plugin_id = manifest.id
+
+        for entry in manifest.recipe_steps:
+            kind = entry.get('kind')
+            if not kind:
+                return "recipe_steps entry missing 'kind'"
+
+            backend_ref = entry.get('backend')
+            if not backend_ref:
+                return f"recipe_steps entry '{kind}' missing 'backend'"
+            executor_cls = self.loader.load_class(manifest, backend_ref)
+            if executor_cls is None:
+                return f"Failed to load recipe step executor backend: {backend_ref}"
+
+            try:
+                executor = executor_cls()
+            except Exception as e:
+                return f"Failed to instantiate recipe step executor backend '{backend_ref}': {e}"
+
+            try:
+                self.recipe_step_kind_registry.register(RecipeStepKindRegistration(
+                    kind=kind,
+                    executor=executor,
+                    source=plugin_id,
+                ))
+            except DuplicateRecipeStepKindError as e:
+                return str(e)
+
+        return None
+
     def _rollback_partial_enable(self, plugin_id: str) -> None:
         """Tear down everything the plugin registered: hooks, field types,
         model attributes, LLM chat extensions (tools/modes/resources),
         automation nodes and templates, prompt importers, phrasebook
-        operations, requirement checkers, mounted API routes, and its cached
-        modules.
+        operations, requirement checkers, recipe step kinds, mounted API
+        routes, and its cached modules.
 
         Every step is unregister-by-source and no-op when the plugin owns
         nothing there, so this is safe to run against a plugin that failed at
@@ -739,6 +792,8 @@ class PluginRegistry:
             self.phrasebook_operation_registry.unregister_source(plugin_id)
         if self.requirement_checker_registry is not None:
             self.requirement_checker_registry.unregister_source(plugin_id)
+        if self.recipe_step_kind_registry is not None:
+            self.recipe_step_kind_registry.unregister_source(plugin_id)
         if self.router_mounter is not None:
             self.router_mounter.unmount(plugin_id)
         # Drop this plugin's imported modules so a retry re-imports fresh code;

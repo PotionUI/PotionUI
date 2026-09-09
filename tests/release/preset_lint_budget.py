@@ -42,7 +42,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from src.features.presets.linter import LintIssue, PresetLinter  # noqa: E402
-from src.features.setup.recipe_schema import Recipe, parse_recipe, validate_recipe_dict  # noqa: E402
+from src.features.recipes.schema import Recipe, parse_recipe, validate_recipe_dict  # noqa: E402
 
 DEFAULT_PRESET_ROOTS = ("content/presets/marketplace", "content/presets/local")
 BUDGET_FILE = Path(__file__).resolve().parent / "lint_budget.json"

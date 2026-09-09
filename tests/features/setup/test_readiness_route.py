@@ -37,7 +37,7 @@ def _client(current_user=None) -> TestClient:
     instance_claim_repository.check_connection.return_value = None
 
     container = SimpleNamespace(
-        setup_runner=Mock(),
+        recipe_runner=Mock(),
         backend_registry=backend_registry,
         preset_collaborators=preset_collaborators,
         model_repository=model_repository,

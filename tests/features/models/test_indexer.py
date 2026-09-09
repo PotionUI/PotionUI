@@ -211,7 +211,7 @@ class TestModelScanner:
         """A large models folder makes indexing take a while
         (`index_single_model` hashes every new file's full contents) - the
         setup-run `models.index` step (see
-        src/features/setup/executors/models_index.py) needs a "N of M" tick
+        src/features/recipes/executors/models_index.py) needs a "N of M" tick
         per completed file, not just the indeterminate "Scanning..." one at
         the very start."""
         file1 = self._create_test_file("checkpoints/model1.safetensors")

@@ -72,10 +72,13 @@ jobs:
       # same way.
       - name: Install system dependencies
         run: |
-          # The runner image ships Google's Chrome apt source; its mirror rotates
-          # mid-update and fails apt with a Hash Sum mismatch. We do not need it.
-          sudo rm -f /etc/apt/sources.list.d/google-chrome*.list
-          sudo apt-get update -o Acquire::Retries=3
+          # The runner image ships Google's Chrome apt source (a .list or a deb822
+          # .sources file depending on the image); its mirror rotates mid-update and
+          # fails apt with a Hash Sum mismatch. We do not need it: drop every source
+          # that points at dl.google.com, and do not let an unrelated index failure
+          # fail the step - the Ubuntu indexes the two packages come from still load.
+          sudo grep -rl "dl.google.com" /etc/apt/sources.list.d/ 2>/dev/null | xargs -r sudo rm -f
+          sudo apt-get update -o Acquire::Retries=3 || true
           sudo apt-get install -y --no-install-recommends libglib2.0-0 ffmpeg
 
       # pytest-timeout backs pytest.ini's `timeout = 300` - it is not in

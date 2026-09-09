@@ -805,7 +805,7 @@ Native Krea-2 generator (flow matching, true CFG; turbo defaults to cfg=1)
 | `steps` | `int` | `8` | no | — | 1 | 100 | Denoising steps (turbo default 8) |
 | `guidance` | `float` | `1.0` | no | — | 1.0 | 15.0 | CFG scale. 1.0 = single conditional-only forward (turbo/distilled default, byte-identical to the old NoCFG path); above 1.0 runs a real negative-conditioned forward pass each step -- needed for a raw/base checkpoint, optional as an experiment on the distilled checkpoint at higher step counts. |
 | `mu_schedule` | `str` | `"fixed"` | no | `fixed`, `dynamic` | — | — | Sigma-schedule mu source: 'fixed' pins the official turbo schedule (fixed_mu=1.15); 'dynamic' switches to the resolution-anchored mu interpolation for a raw/base (non-distilled) checkpoint (see docs/models/krea2.md). |
-| `sampler` | `str` | `"euler"` | no | `euler`, `dpmpp_2m`, `dpmpp_2m_sde`, `dpmpp_3m`, `res_multistep`, `unipc`, `lcm` | — | — | Sampler |
+| `sampler` | `str` | `"euler"` | no | `euler`, `dpmpp_2m`, `dpmpp_2m_sde`, `dpmpp_3m`, `res_multistep`, `unipc`, `lcm`, `er_sde` | — | — | Sampler |
 | `resolution` | `str` | `"1024x1024"` | no | — | — | — | Resolution (WxH) |
 | `quantity` | `int` | `1` | no | — | 1 | 10 | Number of images |
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
@@ -815,6 +815,12 @@ Native Krea-2 generator (flow matching, true CFG; turbo defaults to cfg=1)
 | `nag_tau` | `float` | `3.5` | no | — | 0.1 | 20.0 | NAG norm-clamp threshold (paper default 3.5) |
 | `nag_alpha` | `float` | `0.5` | no | — | 0.0 | 1.0 | NAG blend-back-toward-positive weight (paper default 0.5) |
 | `refine_tail` | `str` | `""` | no | ``, `subtle`, `balanced`, `strong` | — | — | Whole-frame enhance (img2img only): walk only the tail of the official fixed-mu 8-step Euler grid instead of a denoise-truncated schedule. '' = off, 'subtle'/'balanced'/'strong' = the last 2/3/4 grid steps. |
+| `schedule` | `str` | `""` | no | ``, `beta`, `exponential`, `linear_quadratic`, `manual`, `ltx_dynamic` | — | — | Sigma schedule family override: '' (default, shift-based) \| 'beta' \| 'exponential' \| 'linear_quadratic' \| 'manual' \| 'ltx_dynamic'. Prefer 'manual_sigmas' below over setting this to 'manual' directly -- it also fills schedule_options for you. 'ltx_dynamic' (LTX-2.5 resolution-aware shift) only functions on a pipe that feeds image_seq_len into the schedule builder -- currently the LTX generator pipes. |
+| `schedule_options` | `dict` | `{}` | no | — | — | — | Schedule-specific options: beta {'alpha': 0.6, 'beta': 0.6}, exponential {'sigma_min': 1e-3}, linear_quadratic {'threshold_noise': 0.025, 'linear_steps': <int, default steps // 2>}, or ltx_dynamic {'base_shift': 0.95, 'max_shift': 2.05, 'stretch': True, 'terminal': 0.1} (LTX-2.5 defaults). Ignored when schedule is unset. |
+| `manual_sigmas` | `str` | `""` | no | — | — | — | Explicit, comma-separated, descending sigma schedule ('1.0, 0.99375, 0.9875, ..., 0.0'; ComfyUI 'ManualSigmas'-style, e.g. a distilled-LoRA refine tail -- see docs/models/ltx.md). Its length IS the step count: overrides 'steps' and any shift/schedule setting outright. Takes priority over 'schedule'/'schedule_options' when non-empty (the default '' is a no-op, byte-identical to not having this knob). |
+| `detail_strength` | `float` | — | no | — | -0.3 | 0.3 | Detail-daemon sigma warp strength (unset = inherit the model's own sampling_settings, or 0 = off if neither sets it; expected range -0.3 to 0.3) |
+| `detail_start` | `float` | — | no | — | 0.0 | 1.0 | Detail-daemon warp window start (trajectory fraction; unset = inherit) |
+| `detail_end` | `float` | — | no | — | 0.0 | 1.0 | Detail-daemon warp window end (trajectory fraction; unset = inherit) |
 | `step_cache` | `dict` | `{}` | no | — | — | — | FBCache step-skipping options, forwarded to NativeGenerator.sample() unmodified: {'rel_threshold': 0.12, 'warmup_steps': 4, 'max_consecutive_skips': 3}. rel_threshold<=0 (default/absent) is off and never wraps the guidance strategy -- byte-identical to leaving this unset. Read directly by FlowMatchGeneratorPipe.build_context, not through the flat step_cache_threshold/warmup_steps/max_skips resolver the Wan/LTX video pipes use (this family has no such resolver). |
 
 ### <a id="pipe-generator-maya"></a>`generator/maya`

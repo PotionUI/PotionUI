@@ -11,11 +11,11 @@ knobs:
   - key: sampler
     surface: preset
     default: euler
-    effect: "Selects the step algorithm (euler, dpmpp_2m, unipc, euler_sde, euler_restart, dpmpp_2m_sde, dpmpp_3m, res_multistep, lcm)"
+    effect: "Selects the step algorithm (euler, dpmpp_2m, unipc, euler_sde, euler_restart, dpmpp_2m_sde, dpmpp_3m, er_sde, res_multistep, lcm)"
   - key: sampler_options
     surface: preset
     default: "{}"
-    effect: "Per-sampler parameters, e.g. {eta: 0.5} for euler_sde, {restart_count: 2} for euler_restart"
+    effect: "Per-sampler parameters, e.g. {eta: 0.5} for euler_sde, {restart_count: 2} for euler_restart, {max_stage: 2} for er_sde"
   - key: schedule_settings.schedule
     surface: preset
     default: null (shift-based)
@@ -41,7 +41,7 @@ versions of the engine always did — nothing here changes behavior unless you o
 
 ## Samplers
 
-Nine samplers are registered:
+Ten samplers are registered:
 
 - **`euler`** (default) — deterministic first-order flow-matching step. The baseline: fast, exact
   for constant-velocity predictions, and the reference every other sampler is derived against.
@@ -63,12 +63,20 @@ Nine samplers are registered:
 - **`res_multistep`** — second-order exponential multistep solver derived from the RES paper's
   corrected integrator coefficients. A deterministic alternative to `dpmpp_2m` with different
   numerical behavior.
+- **`er_sde`** — ER-SDE-Solver-3 (Cui et al., arXiv:2309.06169), a stochastic third-order
+  multistep solver. Its extra reverse-time diffusion term replaces more of the latent with fresh
+  noise early in the trajectory than an ancestral step does, which is what people reach for on
+  Krea-2/Flux-class models when they want photographic texture instead of the smoother look `euler`
+  converges to. Configured via `sampler_options={"s_noise": ..., "max_stage": ...}`: `s_noise`
+  (default `1.0`) scales the injected noise, `max_stage` (default `3`) caps the solver order at 1,
+  2 or 3.
 - **`lcm`** — for distilled/consistency (LCM, TCD) checkpoints. Re-noises the clean estimate with
   fresh noise every step; on a normal (non-distilled) model this degrades quality, so it is an
   explicit choice rather than a default anyone would fall into.
 
-`euler_sde`, `dpmpp_2m_sde`, and `lcm` inject fresh random noise each step, so they need a seeded
-generator to stay reproducible; PotionUI wires this automatically from the generation's own seed.
+`euler_sde`, `dpmpp_2m_sde`, `er_sde`, and `lcm` inject fresh random noise each step, so they need
+a seeded generator to stay reproducible; PotionUI wires this automatically from the generation's own
+seed.
 
 ## Sigma schedules
 
@@ -88,9 +96,10 @@ Four schedule modes are available via `schedule_settings.schedule`:
 
 Stay on `euler` with the default shift schedule unless you have a specific reason to deviate:
 
-- Reach for a stochastic sampler (`euler_sde`, `dpmpp_2m_sde`, `lcm` on distilled checkpoints) to add
-  variation between otherwise-identical seeds, or to soften artifacts that a deterministic sampler
-  compounds.
+- Reach for a stochastic sampler (`euler_sde`, `dpmpp_2m_sde`, `er_sde`, `lcm` on distilled
+  checkpoints) to add variation between otherwise-identical seeds, or to soften artifacts that a
+  deterministic sampler compounds. `er_sde` is the one to try first for skin and fabric realism on a
+  flow-matching image model.
 - Reach for a higher-order deterministic solver (`dpmpp_2m`, `dpmpp_3m`, `res_multistep`, `unipc`)
   when you want to reduce step count without a proportional quality loss — these tend to converge
   faster than `euler` per step.
@@ -122,8 +131,11 @@ specifically.
 
 ## Tradeoffs and limitations
 
-- Stochastic samplers (`euler_sde`, `dpmpp_2m_sde`, `lcm`) trade determinism-adjacent stability for
-  variation; two runs with the same seed but different `eta` will diverge more as `eta` increases.
+- Stochastic samplers (`euler_sde`, `dpmpp_2m_sde`, `er_sde`, `lcm`) trade determinism-adjacent
+  stability for variation; two runs with the same seed but different `eta` will diverge more as `eta`
+  increases. `er_sde` has no `eta` — its noise level follows the solver's own noise scaler, scaled by
+  `s_noise` — so it never collapses back to a deterministic solver the way `euler_sde` does at
+  `eta=0`.
 - `lcm` is only appropriate for distilled/consistency checkpoints — using it on a normal checkpoint
   degrades output quality by design.
 - `euler_restart` and higher-order multistep solvers cost more compute per configured step count

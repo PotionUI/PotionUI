@@ -320,7 +320,8 @@ def test_euler_cfg_pp_registered():
 
 def test_stochastic_samplers_set():
     assert STOCHASTIC_SAMPLERS == {
-        "euler_sde", "euler_ancestral", "euler_ancestral_cfg_pp", "dpmpp_2m_sde", "lcm",
+        "euler_sde", "euler_ancestral", "euler_ancestral_cfg_pp", "dpmpp_2m_sde",
+        "er_sde", "lcm",
     }
 
 

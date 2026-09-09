@@ -147,6 +147,10 @@ pipeline:
         # overwriting these.
         - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
         - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - "@loop":
+            items: ["{{ form.schedule }}"]
+            when: "{{ form.schedule }}"
+            template: ["schedule", "{{ item }}"]
         - ["resolution", "{{ form.resolution }}"]
         # Always-present toggle param; detail/resolution are only meaningful
         # (and only emitted) when the pass actually ran.
@@ -180,6 +184,13 @@ pipeline:
       # ModelSpec's own official fixed_mu=1.15 (turbo distilled schedule).
       mu_schedule: "{{ 'dynamic' if (form.speed_profile) == 'base' else 'fixed' }}"
       sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      # Sigma-schedule family override (Advanced tab): '' (default) keeps the
+      # shift-based mu selection mu_schedule picks between; 'beta' bypasses it
+      # entirely (build_sigmas' beta branch never reads fixed_mu/dynamic_shift --
+      # see generator/krea2/main.py's module docstring). Base generator only,
+      # same as step_cache below -- the `enhancer` pass owns its own refine_tail
+      # sigmas outright.
+      schedule: "{{ form.schedule }}"
       resolution: "{{ form.resolution }}"
       quantity: "{{ form.quantity }}"
       nag_scale: "{{ form.nag_scale }}"

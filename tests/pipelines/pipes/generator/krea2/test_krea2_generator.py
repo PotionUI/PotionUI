@@ -172,6 +172,51 @@ def test_mu_schedule_dynamic_reaches_sample_call():
     assert ss["dynamic_shift"]["y2"] == pytest.approx(1.15)
 
 
+# --- schedule / schedule_options (flat sigma-schedule knobs) ---------------
+#
+# schedule_settings_config_specs()/schedule_settings_overrides() (guidance_
+# options.py) are the same flat knobs the Wan/LTX video pipes expose, spliced
+# into Krea-2 for the first time here. _apply_schedule_settings merges their
+# resolved values into ctx.extra["schedule_settings"] BEFORE _apply_mu_schedule
+# runs, so mu_schedule="dynamic"'s fixed_mu/dynamic_shift override still lands
+# on top (see main.py's module docstring for why that ordering is moot once
+# schedule="beta" -- build_sigmas' beta branch never reads them).
+
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
+def test_schedule_beta_with_options_lands_in_schedule_settings():
+    pipe = _make_pipe(schedule="beta", schedule_options={"alpha": 0.5, "beta": 0.7})
+    ctx = pipe.build_context(_pipe_input())
+    assert ctx.extra["schedule_settings"] == {
+        "schedule": "beta",
+        "schedule_options": {"alpha": 0.5, "beta": 0.7},
+    }
+
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
+def test_schedule_beta_and_mu_schedule_dynamic_keep_both_sets_of_keys():
+    pipe = _make_pipe(schedule="beta", mu_schedule="dynamic")
+    ctx = pipe.build_context(_pipe_input())
+    assert ctx.extra["schedule_settings"] == {
+        "schedule": "beta",
+        "fixed_mu": None,
+        "dynamic_shift": {"x1_px": 256, "x2_px": 1280, "y1": 0.5, "y2": 1.15, "align": 16},
+    }
+
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
+def test_empty_schedule_leaves_schedule_settings_untouched():
+    # Default "" (Model default) is a byte-identical no-op, same contract as
+    # mu_schedule="fixed" above -- schedule_settings_overrides() returns {} for
+    # every knob at its default, so _apply_schedule_settings never assigns.
+    pipe = _make_pipe()
+    ctx = pipe.build_context(_pipe_input())
+    assert ctx.extra.get("schedule_settings") is None
+
+
 def test_get_default_config_cfg_is_inert_off_not_zero():
     # BE-CFG-KREA2: guidance mode is now unconditionally "cfg" (registry.py), so
     # the "off" value that collapses TrueCFG to a single forward is 1.0, not

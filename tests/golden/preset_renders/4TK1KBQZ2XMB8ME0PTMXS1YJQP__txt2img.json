@@ -183,6 +183,7 @@
               "sampler",
               "euler"
             ],
+            [],
             [
               "resolution",
               "1024x1024"
@@ -240,6 +241,10 @@
         "sampler": {
           "type": "str",
           "value": "euler"
+        },
+        "schedule": {
+          "type": "str",
+          "value": ""
         },
         "step_cache.max_consecutive_skips": {
           "type": "int",

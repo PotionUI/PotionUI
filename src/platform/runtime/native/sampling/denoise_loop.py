@@ -39,6 +39,7 @@ from .algorithms import (
     sample_dpmpp_2m,
     sample_dpmpp_2m_sde,
     sample_dpmpp_3m,
+    sample_er_sde,
     sample_euler,
     sample_euler_ancestral,
     sample_euler_ancestral_cfg_pp,
@@ -76,6 +77,7 @@ SAMPLERS = {
     "euler_restart": sample_euler_restart,
     "dpmpp_2m_sde": sample_dpmpp_2m_sde,
     "dpmpp_3m": sample_dpmpp_3m,
+    "er_sde": sample_er_sde,
     "res_multistep": sample_res_multistep,
     "lcm": sample_lcm,
 }
@@ -93,7 +95,7 @@ SAMPLERS = {
 # module's own docstring below argues for -- see
 # ``sampling/algorithms/euler_ancestral.py``'s module docstring.
 STOCHASTIC_SAMPLERS = frozenset(
-    {"euler_sde", "euler_ancestral", "euler_ancestral_cfg_pp", "dpmpp_2m_sde", "lcm"}
+    {"euler_sde", "euler_ancestral", "euler_ancestral_cfg_pp", "dpmpp_2m_sde", "er_sde", "lcm"}
 )
 
 

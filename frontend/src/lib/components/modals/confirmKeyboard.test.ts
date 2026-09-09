@@ -31,6 +31,21 @@ describe('confirm keyboard interaction', () => {
 		});
 	});
 
+	it('leaves Enter on a focused button or link to the control itself', () => {
+		expect(getConfirmKeyboardAction(event('Enter', { tagName: 'BUTTON' }))).toEqual({
+			action: null,
+			suppress: false
+		});
+		expect(getConfirmKeyboardAction(event('Enter', { tagName: 'A' }))).toEqual({
+			action: null,
+			suppress: false
+		});
+		expect(getConfirmKeyboardAction(event('Escape', { tagName: 'BUTTON' }))).toEqual({
+			action: 'cancel',
+			suppress: true
+		});
+	});
+
 	it('suppresses repeated Enter and Escape without settling again', () => {
 		expect(getConfirmKeyboardAction(event('Enter', null, true))).toEqual({
 			action: null,

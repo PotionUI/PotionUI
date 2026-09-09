@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, untrack } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
 	import {
@@ -8,7 +8,7 @@
 		settleIfEligible
 	} from '$lib/components/modals/confirmKeyboard';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Input, Spinner, Switch } from '$lib/components/ui';
+	import { IconButton, Input, Spinner, Switch } from '$lib/components/ui';
 	import { api } from '$lib/services/api/index';
 	import { toasts } from '$lib/stores/toast';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
@@ -22,6 +22,13 @@
 		drawStitch,
 		paramLinesFor,
 		stitchFileName,
+		clampZoom,
+		fitScale,
+		previewScaleFor,
+		zoomStep,
+		MAX_ZOOM,
+		MIN_ZOOM,
+		ZOOM_STEP,
 		type ParamKeyOption,
 		type ParamLine,
 		type StitchBackground,
@@ -40,8 +47,9 @@
 		bitmap: ImageBitmap;
 	}
 
-	const PREVIEW_MAX_WIDTH = 640;
-	const PREVIEW_MAX_HEIGHT = 460;
+	// Only the first paint, before the pane has been measured, uses these.
+	const PREVIEW_FALLBACK_WIDTH = 640;
+	const PREVIEW_FALLBACK_HEIGHT = 460;
 	const PREVIEW_DEBOUNCE_MS = 120;
 
 	const LAYOUTS: Array<{ id: StitchLayoutMode; label: string }> = [
@@ -66,7 +74,13 @@
 	let options = $state<StitchOptions>({ ...DEFAULT_STITCH_OPTIONS });
 	let saving = $state(false);
 	let previewCanvas = $state<HTMLCanvasElement | null>(null);
+	let previewPane = $state<HTMLElement | null>(null);
 	let previewTimer: ReturnType<typeof setTimeout> | null = null;
+	// 1 is "fit"; the pane's own size decides what that means in pixels.
+	let zoom = $state(1);
+	let paneSize = $state({ width: PREVIEW_FALLBACK_WIDTH, height: PREVIEW_FALLBACK_HEIGHT });
+	let panning = $state(false);
+	let panOrigin: { x: number; y: number; scrollLeft: number; scrollTop: number } | null = null;
 
 	const settlementGate = createConfirmSettlementGate();
 
@@ -87,6 +101,14 @@
 		)
 	);
 	let columnsDisplay = $derived(String(options.columns));
+	let fit = $derived(fitScale({ width: layout.width, height: layout.height }, paneSize));
+	let preview = $derived(
+		previewScaleFor(fit, zoom, { width: layout.width, height: layout.height })
+	);
+	let zoomPercent = $derived(Math.round(zoom * 100));
+	let canPan = $derived(
+		preview.displayWidth > paneSize.width || preview.displayHeight > paneSize.height
+	);
 
 	function positivePrompt(generation: GenerationHistoryItem): string {
 		const direct = generation.form_data?.prompt;
@@ -152,27 +174,24 @@
 	});
 
 	// The preview canvas draws the full-size composition through a scale
-	// transform, so what is on screen is the same geometry the download uses.
+	// transform, so what is on screen is the same geometry the download uses -
+	// and it is redrawn at the zoomed scale rather than blown up by CSS, so the
+	// parameter text stays crisp until the backing store hits its cap.
 	function renderPreview() {
 		const canvas = previewCanvas;
 		if (!canvas) return;
-		if (layout.width <= 0 || layout.height <= 0) {
+		if (preview.renderScale <= 0) {
 			canvas.width = 0;
 			canvas.height = 0;
 			return;
 		}
 
-		const scale = Math.min(
-			1,
-			PREVIEW_MAX_WIDTH / layout.width,
-			PREVIEW_MAX_HEIGHT / layout.height
-		);
-		canvas.width = Math.max(1, Math.round(layout.width * scale));
-		canvas.height = Math.max(1, Math.round(layout.height * scale));
+		canvas.width = preview.width;
+		canvas.height = preview.height;
 
 		const ctx = canvas.getContext('2d');
 		if (!ctx) return;
-		ctx.setTransform(scale, 0, 0, scale, 0, 0);
+		ctx.setTransform(preview.renderScale, 0, 0, preview.renderScale, 0, 0);
 		ctx.imageSmoothingQuality = 'high';
 		drawStitch(
 			ctx,
@@ -184,11 +203,109 @@
 	}
 
 	$effect(() => {
-		// Touched so the redraw follows every option and every load.
-		void [previewCanvas, layout, lines, options.background, options.showParams];
+		// Touched so the redraw follows every option, every load and every zoom.
+		void [previewCanvas, layout, lines, preview, options.background, options.showParams];
 		if (previewTimer) clearTimeout(previewTimer);
 		previewTimer = setTimeout(() => untrack(renderPreview), PREVIEW_DEBOUNCE_MS);
 	});
+
+	// The pane's size is what "fit" means, so it has to be measured rather than
+	// assumed - the modal is responsive and the options column reflows.
+	$effect(() => {
+		const pane = previewPane;
+		if (!pane || typeof ResizeObserver === 'undefined') return;
+
+		const observer = new ResizeObserver((entries) => {
+			const box = entries[0]?.contentRect;
+			if (!box) return;
+			const next = { width: Math.round(box.width), height: Math.round(box.height) };
+			if (next.width <= 0 || next.height <= 0) return;
+			untrack(() => {
+				if (next.width === paneSize.width && next.height === paneSize.height) return;
+				paneSize = next;
+			});
+		});
+		observer.observe(pane);
+		return () => observer.disconnect();
+	});
+
+	/** Zooms by `factor`, keeping the point under (clientX, clientY) put. */
+	async function zoomAround(factor: number, clientX: number, clientY: number) {
+		const before = zoom;
+		const after = clampZoom(before * factor);
+		if (after === before) return;
+
+		const pane = previewPane;
+		if (!pane) {
+			zoom = after;
+			return;
+		}
+
+		const rect = pane.getBoundingClientRect();
+		const offsetX = clientX - rect.left;
+		const offsetY = clientY - rect.top;
+		const contentX = pane.scrollLeft + offsetX;
+		const contentY = pane.scrollTop + offsetY;
+		const ratio = after / before;
+
+		zoom = after;
+		await tick();
+		pane.scrollLeft = contentX * ratio - offsetX;
+		pane.scrollTop = contentY * ratio - offsetY;
+	}
+
+	function zoomByStep(direction: 1 | -1) {
+		const pane = previewPane;
+		if (!pane) {
+			zoom = zoomStep(zoom, direction);
+			return;
+		}
+		const rect = pane.getBoundingClientRect();
+		void zoomAround(
+			direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP,
+			rect.left + rect.width / 2,
+			rect.top + rect.height / 2
+		);
+	}
+
+	async function resetZoom() {
+		zoom = 1;
+		await tick();
+		if (previewPane) {
+			previewPane.scrollLeft = 0;
+			previewPane.scrollTop = 0;
+		}
+	}
+
+	function handleWheel(event: WheelEvent) {
+		// Plain wheel keeps scrolling the pane; only the zoom gesture is taken.
+		if (!event.ctrlKey && !event.metaKey) return;
+		event.preventDefault();
+		void zoomAround(Math.exp(-event.deltaY * 0.0025), event.clientX, event.clientY);
+	}
+
+	function handlePointerDown(event: PointerEvent) {
+		if (event.button !== 0 || !canPan) return;
+		const pane = previewPane;
+		if (!pane) return;
+		panning = true;
+		panOrigin = { x: event.clientX, y: event.clientY, scrollLeft: pane.scrollLeft, scrollTop: pane.scrollTop };
+		pane.setPointerCapture(event.pointerId);
+	}
+
+	function handlePointerMove(event: PointerEvent) {
+		const pane = previewPane;
+		if (!panning || !panOrigin || !pane) return;
+		pane.scrollLeft = panOrigin.scrollLeft - (event.clientX - panOrigin.x);
+		pane.scrollTop = panOrigin.scrollTop - (event.clientY - panOrigin.y);
+	}
+
+	function endPan(event: PointerEvent) {
+		if (!panning) return;
+		panning = false;
+		panOrigin = null;
+		previewPane?.releasePointerCapture(event.pointerId);
+	}
 
 	onDestroy(() => {
 		if (previewTimer) clearTimeout(previewTimer);
@@ -288,18 +405,69 @@
 	</svelte:fragment>
 
 	<div class="grid gap-4 p-4 sm:p-6 md:grid-cols-[minmax(0,1fr)_260px]">
-		<div
-			class="flex min-h-[300px] items-center justify-center overflow-auto rounded-lg border border-line bg-surface-2 p-3"
-		>
-			{#if loading}
-				<div class="flex items-center gap-2 text-fg-muted">
-					<Spinner size="sm" />
-					<span class="text-sm">Loading images…</span>
+		<div class="relative min-h-[300px] rounded-lg border border-line bg-surface-2">
+			<div
+				bind:this={previewPane}
+				class="flex h-full min-h-[300px] items-center justify-center overflow-auto p-3 {panning
+					? 'cursor-grabbing'
+					: canPan
+						? 'cursor-grab'
+						: ''}"
+				onwheel={handleWheel}
+				onpointerdown={handlePointerDown}
+				onpointermove={handlePointerMove}
+				onpointerup={endPan}
+				onpointercancel={endPan}
+				role="region"
+				aria-label="Stitch preview viewport"
+			>
+				{#if loading}
+					<div class="flex items-center gap-2 text-fg-muted">
+						<Spinner size="sm" />
+						<span class="text-sm">Loading images…</span>
+					</div>
+				{:else if loaded.length === 0}
+					<span class="text-sm text-fg-subtle">No images could be loaded.</span>
+				{:else}
+					<canvas
+						bind:this={previewCanvas}
+						class="max-w-none shrink-0"
+						style:width="{preview.displayWidth}px"
+						style:height="{preview.displayHeight}px"
+						aria-label="Stitch preview"
+					></canvas>
+				{/if}
+			</div>
+
+			{#if !loading && loaded.length > 0}
+				<div
+					class="absolute right-2 top-2 flex items-center gap-0.5 rounded border border-line bg-surface-1/90 px-1 py-0.5 shadow-raised"
+				>
+					<IconButton
+						icon="minus"
+						label="Zoom out"
+						size="sm"
+						disabled={zoom <= MIN_ZOOM}
+						onclick={() => zoomByStep(-1)}
+					/>
+					<span class="min-w-12 text-center font-mono text-2xs tabular-nums text-fg-muted">
+						{zoomPercent}%
+					</span>
+					<IconButton
+						icon="plus"
+						label="Zoom in"
+						size="sm"
+						disabled={zoom >= MAX_ZOOM}
+						onclick={() => zoomByStep(1)}
+					/>
+					<IconButton
+						icon="photo"
+						label="Fit to view"
+						size="sm"
+						disabled={zoom === 1}
+						onclick={resetZoom}
+					/>
 				</div>
-			{:else if loaded.length === 0}
-				<span class="text-sm text-fg-subtle">No images could be loaded.</span>
-			{:else}
-				<canvas bind:this={previewCanvas} class="max-w-full" aria-label="Stitch preview"></canvas>
 			{/if}
 		</div>
 

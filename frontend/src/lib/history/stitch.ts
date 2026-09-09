@@ -392,6 +392,92 @@ export function drawStitch(
 	});
 }
 
+/** Preview zoom is relative to the fit-to-pane scale, where 1 means "fit". */
+export const MIN_ZOOM = 0.25;
+export const MAX_ZOOM = 4;
+export const ZOOM_STEP = 1.25;
+
+/** What a preview canvas may cost before the display falls back to CSS scaling. */
+export interface PreviewCap {
+	maxSide: number;
+	maxPixels: number;
+}
+
+export const DEFAULT_PREVIEW_CAP: PreviewCap = { maxSide: 4096, maxPixels: 16_000_000 };
+
+export interface PreviewSize {
+	width: number;
+	height: number;
+}
+
+export function clampZoom(zoom: number): number {
+	if (!Number.isFinite(zoom)) return 1;
+	return Math.min(Math.max(zoom, MIN_ZOOM), MAX_ZOOM);
+}
+
+/** One notch in or out, snapped to the bounds rather than overshooting them. */
+export function zoomStep(zoom: number, direction: 1 | -1): number {
+	const current = clampZoom(zoom);
+	return clampZoom(direction > 0 ? current * ZOOM_STEP : current / ZOOM_STEP);
+}
+
+/** The scale that fits `content` inside `viewport`, never magnifying. */
+export function fitScale(content: PreviewSize, viewport: PreviewSize): number {
+	if (content.width <= 0 || content.height <= 0) return 1;
+	if (viewport.width <= 0 || viewport.height <= 0) return 1;
+	return Math.min(1, viewport.width / content.width, viewport.height / content.height);
+}
+
+export interface PreviewScale {
+	/** What the 2D context is scaled by before the composition is drawn. */
+	renderScale: number;
+	/** Canvas backing store, in device pixels. */
+	width: number;
+	height: number;
+	/** On-screen size, in CSS pixels. */
+	displayWidth: number;
+	displayHeight: number;
+	/** The backing store hit the cap, so the display is a CSS blow-up of it. */
+	capped: boolean;
+}
+
+/**
+ * Redrawing at the zoomed scale keeps the parameter text crisp, so the render
+ * scale follows the zoom - up to `cap`, past which the canvas stops growing
+ * and the browser stretches what is there.
+ */
+export function previewScaleFor(
+	fit: number,
+	zoom: number,
+	content: PreviewSize,
+	cap: PreviewCap = DEFAULT_PREVIEW_CAP
+): PreviewScale {
+	if (content.width <= 0 || content.height <= 0) {
+		return { renderScale: 0, width: 0, height: 0, displayWidth: 0, displayHeight: 0, capped: false };
+	}
+
+	const target = Math.max(0, fit) * clampZoom(zoom);
+	const displayWidth = Math.max(1, Math.round(content.width * target));
+	const displayHeight = Math.max(1, Math.round(content.height * target));
+
+	const shrinks = [1];
+	if (displayWidth > cap.maxSide) shrinks.push(cap.maxSide / displayWidth);
+	if (displayHeight > cap.maxSide) shrinks.push(cap.maxSide / displayHeight);
+	const pixels = displayWidth * displayHeight;
+	if (pixels > cap.maxPixels) shrinks.push(Math.sqrt(cap.maxPixels / pixels));
+	const shrink = Math.min(...shrinks);
+
+	const renderScale = target * shrink;
+	return {
+		renderScale,
+		width: Math.max(1, Math.round(content.width * renderScale)),
+		height: Math.max(1, Math.round(content.height * renderScale)),
+		displayWidth,
+		displayHeight,
+		capped: shrink < 1
+	};
+}
+
 export function stitchFileName(now: Date): string {
 	const pad = (value: number) => String(value).padStart(2, '0');
 	const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;

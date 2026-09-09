@@ -26,7 +26,7 @@ export function getConfirmKeyboardAction(event: KeyboardEventLike): ConfirmKeybo
 		return { action: event.repeat ? null : 'cancel', suppress: true };
 	}
 
-	if (event.key !== 'Enter' || isEditableTarget(event.target)) {
+	if (event.key !== 'Enter' || isEditableTarget(event.target) || isActivatableTarget(event.target)) {
 		return { action: null, suppress: false };
 	}
 
@@ -90,6 +90,13 @@ export function settleIfEligible(
 ): boolean {
 	if (!eligible) return false;
 	return gate.settle(callback);
+}
+
+/** A focused button or link owns Enter: it activates on keydown, so routing
+ *  the key to the dialog would confirm AND swallow that activation. */
+function isActivatableTarget(target: EventTarget | null): boolean {
+	const tag = (target as KeyboardTargetLike | null)?.tagName?.toUpperCase();
+	return tag === 'BUTTON' || tag === 'A';
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

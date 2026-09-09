@@ -7,6 +7,12 @@ import {
 	drawStitch,
 	paramLinesFor,
 	stitchFileName,
+	clampZoom,
+	fitScale,
+	previewScaleFor,
+	zoomStep,
+	MAX_ZOOM,
+	MIN_ZOOM,
 	type ParamLine,
 	type StitchDrawTarget,
 	type StitchItem,
@@ -313,5 +319,105 @@ describe('drawStitch', () => {
 describe('stitchFileName', () => {
 	it('stamps the local date and minute', () => {
 		expect(stitchFileName(new Date(2026, 8, 9, 4, 7))).toBe('stitch-20260909-0407.png');
+	});
+});
+
+describe('clampZoom', () => {
+	it('holds the zoom inside the range and rescues a non-number', () => {
+		expect(clampZoom(1.5)).toBe(1.5);
+		expect(clampZoom(0.1)).toBe(MIN_ZOOM);
+		expect(clampZoom(9)).toBe(MAX_ZOOM);
+		expect(clampZoom(Number.NaN)).toBe(1);
+	});
+});
+
+describe('zoomStep', () => {
+	it('steps by a quarter in each direction', () => {
+		expect(zoomStep(1, 1)).toBe(1.25);
+		expect(zoomStep(1, -1)).toBe(0.8);
+	});
+
+	it('snaps to the bound instead of overshooting it', () => {
+		expect(zoomStep(3.5, 1)).toBe(MAX_ZOOM);
+		expect(zoomStep(0.3, -1)).toBe(MIN_ZOOM);
+		expect(zoomStep(MAX_ZOOM, 1)).toBe(MAX_ZOOM);
+		expect(zoomStep(MIN_ZOOM, -1)).toBe(MIN_ZOOM);
+	});
+});
+
+describe('fitScale', () => {
+	it('shrinks to the tighter axis', () => {
+		expect(fitScale({ width: 1000, height: 500 }, { width: 500, height: 500 })).toBe(0.5);
+		expect(fitScale({ width: 500, height: 1000 }, { width: 500, height: 500 })).toBe(0.5);
+	});
+
+	it('never magnifies to fill the pane', () => {
+		expect(fitScale({ width: 100, height: 100 }, { width: 500, height: 500 })).toBe(1);
+	});
+
+	it('falls back to 1 when either side is unmeasured', () => {
+		expect(fitScale({ width: 0, height: 0 }, { width: 500, height: 500 })).toBe(1);
+		expect(fitScale({ width: 100, height: 100 }, { width: 0, height: 0 })).toBe(1);
+	});
+});
+
+describe('previewScaleFor', () => {
+	const content = { width: 1000, height: 500 };
+
+	it('renders at the zoomed scale so the text stays crisp', () => {
+		expect(previewScaleFor(0.5, 1, content)).toEqual({
+			renderScale: 0.5,
+			width: 500,
+			height: 250,
+			displayWidth: 500,
+			displayHeight: 250,
+			capped: false
+		});
+
+		expect(previewScaleFor(0.5, 2, content)).toMatchObject({
+			renderScale: 1,
+			width: 1000,
+			height: 500,
+			displayWidth: 1000,
+			capped: false
+		});
+	});
+
+	it('clamps the zoom it is handed', () => {
+		expect(previewScaleFor(1, 100, { width: 100, height: 100 })).toMatchObject({
+			renderScale: MAX_ZOOM,
+			displayWidth: 400
+		});
+	});
+
+	it('caps the backing store on pixels and hands the rest to CSS', () => {
+		const scale = previewScaleFor(1, 2, { width: 4000, height: 4000 });
+
+		expect(scale.capped).toBe(true);
+		expect({ width: scale.width, height: scale.height }).toEqual({ width: 4000, height: 4000 });
+		expect({ displayWidth: scale.displayWidth, displayHeight: scale.displayHeight }).toEqual({
+			displayWidth: 8000,
+			displayHeight: 8000
+		});
+		expect(scale.width * scale.height).toBeLessThanOrEqual(16_000_000);
+	});
+
+	it('caps the backing store on a single long side', () => {
+		const scale = previewScaleFor(1, 1, { width: 8000, height: 100 });
+
+		expect(scale.capped).toBe(true);
+		expect(scale.width).toBeLessThanOrEqual(4096);
+		expect(scale.displayWidth).toBe(8000);
+	});
+
+	it('reports nothing to draw for an empty composition', () => {
+		expect(previewScaleFor(1, 1, { width: 0, height: 0 })).toEqual({
+			renderScale: 0,
+			width: 0,
+			height: 0,
+			displayWidth: 0,
+			displayHeight: 0,
+			capped: false
+		});
 	});
 });

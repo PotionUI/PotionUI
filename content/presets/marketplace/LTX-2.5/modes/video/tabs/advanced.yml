@@ -29,26 +29,50 @@ fields:
       # deterministic. The field stays selectable so a user can still fall
       # back to a deterministic sampler; the reactions exist so the visible
       # value can never disagree with what the profile actually runs.
-      - name: "sampler"
-        type: "select"
-        label: "Sampler"
-        audience: "advanced"
-        default: "euler_ancestral"
-        configuration:
-          options:
-            - { label: "Euler Ancestral (LTX-2.5 default)", value: "euler_ancestral" }
-            - { label: "Euler", value: "euler" }
-            - { label: "Euler CFG++", value: "euler_cfg_pp" }
-            - { label: "Euler Ancestral CFG++", value: "euler_ancestral_cfg_pp" }
-        reactions:
-          - when: { field: "speed_profile", equals: "balanced" }
-            then: { set_value: "euler_ancestral", set_disabled: false }
-          - when: { field: "speed_profile", equals: "distilled" }
-            then: { set_value: "euler_ancestral", set_disabled: false }
-          - when: { field: "speed_profile", equals: "quality" }
-            then: { set_value: "euler_ancestral", set_disabled: false }
-          - when: { field: "speed_profile", equals: "custom" }
-            then: { set_disabled: false }
+      # `include`, not the whole registry catalog: generator/video_ltx holds
+      # conditioned tokens clean by re-deriving the clamp and the x0 blend at
+      # every step, so a multistep integrator that mixes PAST velocities into
+      # its update is invalid here -- see that pipe's module docstring.
+      - type: "row"
+        children:
+          - name: "sampler"
+            type: "sampler"
+            label: "Sampler"
+            audience: "advanced"
+            default: "euler_ancestral"
+            configuration:
+              family: "ltx"
+              include: ["euler_ancestral", "euler", "euler_cfg_pp", "euler_ancestral_cfg_pp"]
+            reactions:
+              - when: { field: "speed_profile", equals: "balanced" }
+                then: { set_value: "euler_ancestral", set_disabled: false }
+              - when: { field: "speed_profile", equals: "distilled" }
+                then: { set_value: "euler_ancestral", set_disabled: false }
+              - when: { field: "speed_profile", equals: "quality" }
+                then: { set_value: "euler_ancestral", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
+
+          # LTX-2.5's own resolution-aware sigma shift is the default here (the
+          # base pass pinned it before this field existed); every other profile
+          # resets to it too.
+          - name: "schedule"
+            type: "schedule"
+            label: "Schedule"
+            audience: "advanced"
+            default: "ltx_dynamic"
+            configuration:
+              family: "ltx"
+              exclude: ["manual"]
+            reactions:
+              - when: { field: "speed_profile", equals: "balanced" }
+                then: { set_value: "ltx_dynamic", set_disabled: false }
+              - when: { field: "speed_profile", equals: "distilled" }
+                then: { set_value: "ltx_dynamic", set_disabled: false }
+              - when: { field: "speed_profile", equals: "quality" }
+                then: { set_value: "ltx_dynamic", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
 
       - name: "cfg"
         type: "slider"

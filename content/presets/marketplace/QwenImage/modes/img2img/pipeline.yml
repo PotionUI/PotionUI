@@ -120,6 +120,7 @@ pipeline:
         - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
         - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
         - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - ["schedule", "{{ form.schedule }}"]
         - ["denoise", "{{ form.denoise }}"]
 
   #############
@@ -140,6 +141,10 @@ pipeline:
       # Optional shift override; blank -> spec default (1.15).
       shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
       sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      # Sigma schedule (Advanced tab): 'shift' is the registry key for the
+      # model's own ramp, so the default value is a no-op; any other key
+      # replaces it outright (see docs/techniques/samplers-and-schedules.md).
+      schedule: "{{ form.schedule }}"
       quantity: "{{ form.quantity }}"
 
   #############

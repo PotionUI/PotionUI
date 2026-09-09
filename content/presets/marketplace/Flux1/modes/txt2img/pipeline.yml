@@ -111,6 +111,7 @@ pipeline:
         - ["cfg", "{{ form.guidance | default(preset.vars.default_guidance) }}"]
         - ["steps", "{{ form.steps | default(preset.vars.default_steps) }}"]
         - ["sampler", "{{ form.sampler | default(preset.vars.default_sampler) }}"]
+        - ["schedule", "{{ form.schedule }}"]
         - ["resolution", "{{ form.resolution }}"]
 
   #############
@@ -129,6 +130,10 @@ pipeline:
       # engine's spec default (this form has no shift override field).
       shift: ""
       sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
+      # Sigma schedule (Advanced tab): 'shift' is the registry key for the
+      # model's own ramp, so the default value is a no-op; any other key
+      # replaces it outright (see docs/techniques/samplers-and-schedules.md).
+      schedule: "{{ form.schedule }}"
       resolution: "{{ form.resolution }}"
       quantity: "{{ form.quantity }}"
       # Step cache (FBCache, Advanced tab): assembled here into the nested

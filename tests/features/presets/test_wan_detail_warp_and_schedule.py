@@ -37,6 +37,7 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
+from src.features.fields.sampling_fields import ScheduleField
 from src.features.forms.binding import bind_form
 from src.features.generation.pipeline_builder import PipelineBuilder
 from src.features.presets import PresetTemplateLoader
@@ -303,10 +304,21 @@ def test_detail_warp_sliders_are_present_with_their_ranges(advanced_tab, name, d
     assert field["configuration"]["step"] == step
 
 
-def test_schedule_select_offers_linear_quadratic(advanced_tab):
+def test_schedule_picker_is_registry_driven_and_offers_linear_quadratic(advanced_tab):
+    # `type: schedule` has no preset-authored option list -- the rendered
+    # dropdown comes from schedule_registry, narrowed by family/exclude.
+    # `manual` is excluded: it is a pipeline-authoring knob (the Manual sigmas
+    # textbox on this same tab), never a dropdown row.
     field = _field_by_name(advanced_tab["fields"], "schedule")
-    values = [opt["value"] for opt in field["configuration"]["options"]]
+    assert field["type"] == "schedule"
+    assert field["default"] == "shift"
+    assert "options" not in field["configuration"]
+
+    rendered = ScheduleField(Mock()).output({**field, "validation": {}})
+    values = [opt["value"] for opt in rendered["options"]]
     assert "linear_quadratic" in values
+    assert "shift" in values
+    assert "manual" not in values
 
 
 def test_linear_quadratic_threshold_and_auto_toggle_hidden_unless_schedule_picked(advanced_tab):

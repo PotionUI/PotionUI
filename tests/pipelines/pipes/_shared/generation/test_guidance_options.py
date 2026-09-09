@@ -8,6 +8,7 @@ import pytest
 
 from src.pipelines.pipes._shared.generation.guidance_options import (
     apg_settings_overrides,
+    apply_schedule_settings,
     build_multimodal_guider_params,
     check_guider_mode_conflict,
     parse_int_set,
@@ -300,3 +301,33 @@ def test_schedule_config_spec_pins_no_choice_list():
     assert specs["schedule"].choices is None
     assert "ltx_dynamic" in specs["schedule"].description
     assert "/api/sampling/catalog" in specs["schedule"].description
+
+
+def test_shift_is_the_same_schedule_as_leaving_it_unset():
+    """Every converted preset's Schedule field defaults to `shift` rather than
+    an empty string, so `shift` now reaches build_sigmas as a real value on an
+    untouched form. It must build the identical schedule the unset path did."""
+    import torch
+    from src.platform.runtime.native.sampling.flow_schedule import build_sigmas
+
+    unset = build_sigmas(12, shift=3.0)
+    explicit = build_sigmas(12, shift=3.0, schedule="shift")
+    assert torch.equal(unset, explicit)
+
+
+def test_apply_schedule_settings_merges_over_existing_keys():
+    class _Ctx:
+        extra = {"schedule_settings": {"fixed_mu": 1.15}}
+
+    ctx = _Ctx()
+    apply_schedule_settings(ctx, {"schedule": "beta"})
+    assert ctx.extra["schedule_settings"] == {"fixed_mu": 1.15, "schedule": "beta"}
+
+
+def test_apply_schedule_settings_is_a_no_op_at_the_defaults():
+    class _Ctx:
+        extra = {}
+
+    ctx = _Ctx()
+    apply_schedule_settings(ctx, {"schedule": "", "schedule_options": {}, "manual_sigmas": ""})
+    assert ctx.extra == {}

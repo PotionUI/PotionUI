@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 
 from src.features.generation.engine import validate_pipe_configuration
+from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.pipes.generator.txt2vid_ltx.main import (
     GeneratorLtxTxt2VidPipe,
     validate_ltx_schedule_config,
@@ -217,9 +218,10 @@ def test_full_validate_pipe_configuration_accepts_default_video_ltx_config():
 
 # -- euler_ancestral (LTX-2.5 stage-1) is a valid sampler choice on both pipes -
 
-def test_txt2vid_ltx_sampler_choices_include_euler_ancestral():
+def test_txt2vid_ltx_sampler_spec_is_open_and_registry_carries_euler_ancestral():
     specs = {s.name: s for s in GeneratorLtxTxt2VidPipe.configuration()}
-    assert "euler_ancestral" in specs["sampler"].choices
+    assert specs["sampler"].choices is None
+    assert sampler_registry.has("euler_ancestral")
 
 
 def test_video_ltx_sampler_choices_include_euler_ancestral():

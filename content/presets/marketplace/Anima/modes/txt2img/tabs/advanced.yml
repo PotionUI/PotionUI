@@ -13,16 +13,27 @@ fields:
         default: 24
         configuration: {min: 1, max: 100, step: 1}
 
-      - name: "sampler"
-        type: "select"
-        label: "Sampler"
-        audience: "advanced"
-        default: "euler"
-        configuration:
-          options:
-            - { label: "Euler", value: "euler" }
-            - { label: "DPM++ 2M", value: "dpmpp_2m" }
-            - { label: "UniPC", value: "unipc" }
+      - type: "row"
+        children:
+          - name: "sampler"
+            type: "sampler"
+            label: "Sampler"
+            audience: "advanced"
+            default: "euler"
+            configuration:
+              family: "anima"
+              # A pipeline-authored choice for distilled/consistency
+              # checkpoints, garbage on a normal one -- never a dropdown row.
+              exclude: ["lcm"]
+
+          - name: "schedule"
+            type: "schedule"
+            label: "Schedule"
+            audience: "advanced"
+            default: "shift"
+            configuration:
+              family: "anima"
+              exclude: ["manual"]
 
       - name: "cfg"
         type: "slider"

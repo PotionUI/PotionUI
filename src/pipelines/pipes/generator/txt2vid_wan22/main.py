@@ -491,8 +491,8 @@ class GeneratorWanTxt2VidPipe(BaseGeneratorPipe):
             PipeConfigSpec("mode", str, "txt2vid", "Generation mode", required=True, choices=["txt2vid"]),
             PipeConfigSpec("steps", int, 30, "Denoising steps", required=False, min_value=1, max_value=100),
             PipeConfigSpec("cfg", float, 5.0, "True CFG scale", required=False, min_value=1.0, max_value=20.0),
-            PipeConfigSpec("sampler", str, "unipc", "Sampler", required=False,
-                           choices=["euler", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m", "res_multistep", "unipc", "lcm"]),
+            PipeConfigSpec("sampler", str, "unipc", "Sampler: any key registered on the sampler registry "
+                           "(see GET /api/sampling/catalog)", required=False),
             PipeConfigSpec("expert_boundary", float, None, "Dual-expert switch boundary override (sigma fraction)", required=False,
                            min_value=0.0, max_value=1.0),
             PipeConfigSpec("expert_switch_step", int, None, "Switch high->low expert at this step (wins over expert_boundary; converted to that step's sigma)", required=False,

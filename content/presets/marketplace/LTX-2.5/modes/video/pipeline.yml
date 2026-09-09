@@ -257,6 +257,7 @@ pipeline:
         - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
         - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
         - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - ["schedule", "{{ form.schedule }}"]
         - ["resolution", "{{ form.resolution }}"]
         - ["fps", "{{ form.video_director.settings.fps }}"]
         - ["director_mode", "{{ form.video_director.mode | default('') }}"]
@@ -335,11 +336,11 @@ pipeline:
       # generator passes automatically when this schedule is selected
       # (schedule_options left unset -> the ltx_dynamic defaults in
       # guidance_options.py, i.e. LTX-2.5's own anchors). 2.0/2.3 have no such
-      # curve, which is why presets/native/LTX-2 sets no `schedule:` at all and
-      # rides the LTX ModelSpec's static shift instead. `manual_sigmas` below
-      # takes priority over this when non-empty -- so the Distilled profile's
-      # hand-tuned sigma list still wins, by design.
-      schedule: "ltx_dynamic"
+      # curve, which is why the LTX-2 preset's Schedule field defaults to
+      # 'shift' and rides the LTX ModelSpec's static shift instead.
+      # `manual_sigmas` below takes priority over this when non-empty -- so the
+      # Distilled profile's hand-tuned sigma list still wins, by design.
+      schedule: "{{ form.schedule }}"
       # Manual sigma schedule override (Advanced tab): non-empty wins over
       # steps/shift/schedule entirely -- see guidance_options.py's
       # schedule_settings_overrides. Distilled profile supplies

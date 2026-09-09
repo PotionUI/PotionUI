@@ -182,8 +182,8 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
             PipeConfigSpec("mode", str, "img2vid", "Generation mode", required=True, choices=["img2vid"]),
             PipeConfigSpec("steps", int, 30, "Denoising steps", required=False, min_value=1, max_value=100),
             PipeConfigSpec("cfg", float, 5.0, "True CFG scale", required=False, min_value=1.0, max_value=20.0),
-            PipeConfigSpec("sampler", str, "unipc", "Sampler", required=False,
-                           choices=["euler", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m", "res_multistep", "unipc", "lcm"]),
+            PipeConfigSpec("sampler", str, "unipc", "Sampler: any key registered on the sampler registry "
+                           "(see GET /api/sampling/catalog)", required=False),
             PipeConfigSpec("resolution", str, "832x480", "Resolution (WxH)", required=False),
             PipeConfigSpec("frames", int, 81, "Number of video frames", required=False, min_value=1, max_value=257),
             PipeConfigSpec("fps", float, 16.0, "Output frame rate", required=False, min_value=1.0, max_value=60.0),

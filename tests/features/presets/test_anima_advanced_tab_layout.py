@@ -25,6 +25,7 @@ from src.platform.templating.processor import TemplateProcessor
 EXPECTED_FIELD_NAMES = {
     "steps",
     "sampler",
+    "schedule",
     "cfg",
     "shift",
     "step_cache_threshold",
@@ -66,6 +67,17 @@ def _all_field_names(node):
     return found
 
 
+def _names_in_order(node):
+    """Field names in render order, descending into layout containers -- Sampler
+    and Schedule share a `row`, so they are not direct children of the section."""
+    out = []
+    for child in node.get("children") or []:
+        if child.get("name"):
+            out.append(child["name"])
+        out.extend(_names_in_order(child))
+    return out
+
+
 def test_advanced_tab_keeps_every_field_name(advanced_tab):
     """Pure regrouping: field names are the pipeline.yml Jinja contract."""
     assert _all_field_names(advanced_tab) == EXPECTED_FIELD_NAMES
@@ -77,7 +89,6 @@ def test_advanced_tab_top_level_is_named_sections(advanced_tab):
     assert [c.get("title") for c in top_level] == ["Sampling", "Step cache (FBCache)"]
 
 
-def test_sampling_section_orders_steps_sampler_cfg(advanced_tab):
+def test_sampling_section_orders_steps_sampler_schedule_cfg(advanced_tab):
     sampling = advanced_tab["children"][0]
-    names_in_order = [c.get("name") for c in sampling["children"] if c.get("name")]
-    assert names_in_order[:3] == ["steps", "sampler", "cfg"]
+    assert _names_in_order(sampling)[:4] == ["steps", "sampler", "schedule", "cfg"]

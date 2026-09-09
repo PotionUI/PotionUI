@@ -301,8 +301,8 @@ class GeneratorWanChainVideoPipe(BasePipe):
                            required=False, min_value=1, max_value=150),
             PipeConfigSpec("cfg", float, 5.0, "Default true CFG scale (segment override: segments[i].cfg)",
                            required=False, min_value=0.0, max_value=30.0),
-            PipeConfigSpec("sampler", str, "unipc", "Sampler", required=False,
-                           choices=["euler", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m", "res_multistep", "unipc", "lcm"]),
+            PipeConfigSpec("sampler", str, "unipc", "Sampler: any key registered on the sampler registry "
+                           "(see GET /api/sampling/catalog)", required=False),
             PipeConfigSpec("resolution", str, "832x480", "Resolution (WxH), constant across all segments", required=False),
             PipeConfigSpec("fps", float, 16.0, "Output frame rate", required=False, min_value=1.0, max_value=60.0),
             PipeConfigSpec("expert_boundary", float, None, "Dual-expert switch boundary override (sigma fraction)",

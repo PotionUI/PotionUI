@@ -194,6 +194,10 @@
               "unipc"
             ],
             [
+              "schedule",
+              "shift"
+            ],
+            [
               "resolution",
               "832x480"
             ],
@@ -337,7 +341,7 @@
         },
         "schedule": {
           "type": "str",
-          "value": ""
+          "value": "shift"
         },
         "schedule_options.linear_steps": {
           "type": "NoneType",

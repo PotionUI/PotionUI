@@ -2,9 +2,9 @@ fields:
   - type: "section"
     label: "Sampling"
     children:
-      # Krea-2 layout: steps, sampler, cfg in that order, each carrying
-      # audience: advanced individually. Scheduler and Manual sigmas have no
-      # Krea-2 counterpart and are grouped after the canonical three.
+      # Krea-2 layout: steps, then Sampler + Schedule sharing one row, then
+      # cfg, each carrying audience: advanced individually. Manual sigmas has
+      # no Krea-2 counterpart and is grouped after the canonical three.
       - name: "steps"
         type: "slider"
         label: "Steps"
@@ -19,23 +19,41 @@ fields:
           - when: { field: "speed_profile", equals: "custom" }
             then: { set_disabled: false }
 
-      - name: "sampler"
-        type: "select"
-        label: "Sampler"
-        audience: "advanced"
-        default: "unipc"
-        configuration:
-          options:
-            - { label: "UniPC", value: "unipc" }
-            - { label: "Euler", value: "euler" }
-            - { label: "DPM++ 2M", value: "dpmpp_2m" }
-        reactions:
-          - when: { field: "speed_profile", equals: "balanced" }
-            then: { set_value: "unipc", set_disabled: false }
-          - when: { field: "speed_profile", equals: "fast" }
-            then: { set_value: "unipc", set_disabled: false }
-          - when: { field: "speed_profile", equals: "custom" }
-            then: { set_disabled: false }
+      - type: "row"
+        children:
+          - name: "sampler"
+            type: "sampler"
+            label: "Sampler"
+            audience: "advanced"
+            default: "unipc"
+            configuration:
+              family: "wan"
+              # A pipeline-authored choice for distilled/consistency
+              # checkpoints, garbage on a normal one -- never a dropdown row.
+              exclude: ["lcm"]
+            reactions:
+              - when: { field: "speed_profile", equals: "balanced" }
+                then: { set_value: "unipc", set_disabled: false }
+              - when: { field: "speed_profile", equals: "fast" }
+                then: { set_value: "unipc", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
+
+          - name: "schedule"
+            type: "schedule"
+            label: "Schedule"
+            audience: "advanced"
+            default: "shift"
+            configuration:
+              family: "wan"
+              exclude: ["manual"]
+            reactions:
+              - when: { field: "speed_profile", equals: "balanced" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "fast" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
 
       - name: "cfg"
         type: "slider"
@@ -51,20 +69,9 @@ fields:
           - when: { field: "speed_profile", equals: "custom" }
             then: { set_disabled: false }
 
-      - name: "schedule"
-        type: "select"
-        label: "Scheduler"
-        default: ""
-        configuration:
-          options:
-            - { label: "Model default (shift)", value: "" }
-            - { label: "Beta", value: "beta" }
-            - { label: "Exponential", value: "exponential" }
-            - { label: "Linear-quadratic", value: "linear_quadratic" }
-
       # Linear-quadratic-only params (LTX-lineage ramp: linear for the first
-      # `linear_steps`, quadratic for the tail). Hidden unless that scheduler is
-      # picked; ignored outright by 'manual_sigmas' below, same as the scheduler
+      # `linear_steps`, quadratic for the tail). Hidden unless that schedule is
+      # picked; ignored outright by 'manual_sigmas' below, same as the Schedule
       # select itself.
       - type: "row"
         children:

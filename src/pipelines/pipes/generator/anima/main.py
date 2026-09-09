@@ -34,6 +34,10 @@ from src.platform.runtime.native.engine import NativeGenerator
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec, logger
 from src.pipelines.pipes._shared.generation.flow_generator_pipe import FlowMatchGeneratorPipe
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
+from src.pipelines.pipes._shared.generation.guidance_options import (
+    apply_schedule_settings,
+    schedule_settings_config_specs,
+)
 from src.pipelines.pipes._shared.generation.native_generator import register_native_generator
 
 
@@ -78,6 +82,7 @@ class GeneratorAnimaPipe(FlowMatchGeneratorPipe):
     def build_context(self, pipe_input: PipeInput) -> GeneratorContext:
         ctx = super().build_context(pipe_input)
         self._release_idle_te(pipe_input)
+        apply_schedule_settings(ctx, self.config)
         return ctx
 
     def _release_idle_te(self, pipe_input: PipeInput) -> None:
@@ -119,6 +124,12 @@ class GeneratorAnimaPipe(FlowMatchGeneratorPipe):
             "denoise": 0.55,
             "preview": True,
             "step_cache": {},
+            "schedule": "",
+            "schedule_options": {},
+            "manual_sigmas": "",
+            "detail_strength": None,
+            "detail_start": None,
+            "detail_end": None,
         }
 
     @classmethod
@@ -129,13 +140,14 @@ class GeneratorAnimaPipe(FlowMatchGeneratorPipe):
             PipeConfigSpec("steps", int, 24, "Denoising steps", required=False, min_value=1, max_value=100),
             PipeConfigSpec("guidance", float, 6.0, "True CFG scale", required=False, min_value=0.0, max_value=30.0),
             PipeConfigSpec("shift", float, None, "Sigma-shift override; blank -> spec default (3.0)", required=False),
-            PipeConfigSpec("sampler", str, "euler", "Sampler", required=False,
-                           choices=["euler", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m", "res_multistep", "unipc", "lcm"]),
+            PipeConfigSpec("sampler", str, "euler", "Sampler: any key registered on the sampler registry "
+                           "(see GET /api/sampling/catalog)", required=False),
             PipeConfigSpec("resolution", str, "1024x1024", "Resolution (WxH)", required=False),
             PipeConfigSpec("quantity", int, 1, "Number of images", required=False, min_value=1, max_value=10),
             PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
             PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
             PipeConfigSpec("preview", bool, True, "Emit live latent previews to the workbench during sampling", required=False),
+            *schedule_settings_config_specs(),
             PipeConfigSpec(
                 "step_cache", dict, {},
                 "FBCache step-skipping options, forwarded to NativeGenerator.sample() "

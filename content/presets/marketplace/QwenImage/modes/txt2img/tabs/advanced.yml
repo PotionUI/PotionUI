@@ -18,25 +18,45 @@ fields:
           - when: { field: "speed_profile", equals: "custom" }
             then: { set_disabled: false }
 
-      - name: "sampler"
-        type: "select"
-        label: "Sampler"
-        audience: "advanced"
-        default: "euler"
-        configuration:
-          options:
-            - { label: "Euler", value: "euler" }
-            - { label: "DPM++ 2M", value: "dpmpp_2m" }
-            - { label: "UniPC", value: "unipc" }
-        reactions:
-          - when: { field: "speed_profile", equals: "balanced" }
-            then: { set_value: "euler", set_disabled: false }
-          - when: { field: "speed_profile", equals: "turbo" }
-            then: { set_value: "euler", set_disabled: false }
-          - when: { field: "speed_profile", equals: "turbo_4" }
-            then: { set_value: "euler", set_disabled: false }
-          - when: { field: "speed_profile", equals: "custom" }
-            then: { set_disabled: false }
+      - type: "row"
+        children:
+          - name: "sampler"
+            type: "sampler"
+            label: "Sampler"
+            audience: "advanced"
+            default: "euler"
+            configuration:
+              family: "qwen_image"
+              # A pipeline-authored choice for distilled/consistency
+              # checkpoints, garbage on a normal one -- never a dropdown row.
+              exclude: ["lcm"]
+            reactions:
+              - when: { field: "speed_profile", equals: "balanced" }
+                then: { set_value: "euler", set_disabled: false }
+              - when: { field: "speed_profile", equals: "turbo" }
+                then: { set_value: "euler", set_disabled: false }
+              - when: { field: "speed_profile", equals: "turbo_4" }
+                then: { set_value: "euler", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
+
+          - name: "schedule"
+            type: "schedule"
+            label: "Schedule"
+            audience: "advanced"
+            default: "shift"
+            configuration:
+              family: "qwen_image"
+              exclude: ["manual"]
+            reactions:
+              - when: { field: "speed_profile", equals: "balanced" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "turbo" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "turbo_4" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
 
       - name: "cfg"
         type: "slider"

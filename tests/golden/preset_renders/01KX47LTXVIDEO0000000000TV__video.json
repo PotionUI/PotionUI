@@ -161,6 +161,10 @@
               "euler"
             ],
             [
+              "schedule",
+              "shift"
+            ],
+            [
               "resolution",
               "768x512"
             ],
@@ -294,6 +298,10 @@
         "sampler": {
           "type": "str",
           "value": "euler"
+        },
+        "schedule": {
+          "type": "str",
+          "value": "shift"
         },
         "step_cache_max_skips": {
           "type": "int",

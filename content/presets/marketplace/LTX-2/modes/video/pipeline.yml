@@ -249,6 +249,7 @@ pipeline:
         - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
         - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
         - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - ["schedule", "{{ form.schedule }}"]
         - ["resolution", "{{ form.resolution }}"]
         - ["fps", "{{ form.video_director.settings.fps }}"]
         - ["director_mode", "{{ form.video_director.mode | default('') }}"]
@@ -325,8 +326,15 @@ pipeline:
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
       sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      # Sigma schedule (Advanced tab): 'shift' is the registry key for the LTX
+      # ModelSpec's own static shift, so the default value is a no-op. 2.0/2.3
+      # have no resolution-aware curve of their own -- 'ltx_dynamic' is offered
+      # because the pipe feeds image_seq_len either way, but it is LTX-2.5's
+      # anchors, not this family's.
+      schedule: "{{ form.schedule }}"
       # Manual sigma schedule override (Advanced tab): non-empty wins over
-      # steps/shift entirely -- see guidance_options.py's schedule_settings_*.
+      # steps/shift/schedule entirely -- see guidance_options.py's
+      # schedule_settings_*.
       # Distilled profile supplies preset.vars.distilled_sigma_recipe (single
       # source of truth) directly; Quality profile clears manual_sigmas. The
       # one genuinely-needed ternary left -- neither branch is a

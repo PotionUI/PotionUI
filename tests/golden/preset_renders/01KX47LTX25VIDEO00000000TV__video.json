@@ -197,6 +197,10 @@
               "euler_ancestral"
             ],
             [
+              "schedule",
+              "ltx_dynamic"
+            ],
+            [
               "resolution",
               "768x512"
             ],

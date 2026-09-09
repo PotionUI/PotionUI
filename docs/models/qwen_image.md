@@ -37,6 +37,8 @@ The shipped Qwen-Image preset ships `txt2img`.
 
 Default generation parameters: 20 steps, guidance 4.0 (true CFG scale), sampler `euler`, img2img strength 0.55.
 
+The preset's **Sampler** and **Schedule** pickers (`type: "sampler"` / `type: "schedule"`, family `qwen_image`) are registry-driven: they list whatever this instance has registered, core entries plus any a plugin contributes, rather than a list written into the preset. See [Samplers and sigma schedules](../techniques/samplers-and-schedules.md).
+
 ## Limitations
 
 Qwen2.5-VL has a different text-encoder architecture than CLIP-family encoders — there is no CLIP-skip concept for this family. A `clip_skip` setting carried over from an SDXL-style preset has no effect here.

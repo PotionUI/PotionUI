@@ -123,6 +123,17 @@ def _all_field_names(node):
     return found
 
 
+def _names_in_order(node):
+    """Field names in render order, descending into layout containers -- Sampler
+    and Schedule share a `row`, so they are not direct children of the section."""
+    out = []
+    for child in node.get("children") or []:
+        if child.get("name"):
+            out.append(child["name"])
+        out.extend(_names_in_order(child))
+    return out
+
+
 def test_advanced_tab_keeps_every_field_name(advanced_tab):
     """Pure regrouping / gate conversion: field names are the pipeline.yml Jinja contract."""
     assert _all_field_names(advanced_tab) == EXPECTED_FIELD_NAMES
@@ -144,7 +155,7 @@ def test_sampling_section_is_first_and_orders_steps_sampler_cfg(advanced_tab):
         "linear_quadratic_linear_steps_auto", "linear_quadratic_linear_steps",
         "manual_sigmas",
     }
-    assert [c.get("name") for c in sampling["children"][:3]] == ["steps", "sampler", "cfg"]
+    assert _names_in_order(sampling)[:4] == ["steps", "sampler", "schedule", "cfg"]
 
 
 def test_riflex_is_a_gate_owning_its_own_boolean(advanced_tab):

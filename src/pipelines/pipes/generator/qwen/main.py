@@ -59,6 +59,10 @@ from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutput
 from src.pipelines.outputs import GenerationExecutionError, ImageGenerationOutput, Icon
 from src.pipelines.pipes._shared.generation.flow_generator_pipe import FlowMatchGeneratorPipe, iterate_mode_config_specs
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
+from src.pipelines.pipes._shared.generation.guidance_options import (
+    apply_schedule_settings,
+    schedule_settings_config_specs,
+)
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter, native_step_hooks
 from src.platform.runtime.native.engine import Conditioning, NativeGenerator
 
@@ -87,6 +91,12 @@ class GeneratorQwenPipe(FlowMatchGeneratorPipe):
             "device": "cuda",
             "denoise": 0.55,
             "preview": True,
+            "schedule": "",
+            "schedule_options": {},
+            "manual_sigmas": "",
+            "detail_strength": None,
+            "detail_start": None,
+            "detail_end": None,
         }
 
     @classmethod
@@ -99,13 +109,14 @@ class GeneratorQwenPipe(FlowMatchGeneratorPipe):
             PipeConfigSpec("guidance", float, 4.0, "True CFG scale (Qwen true_cfg_scale)", required=False,
                            min_value=0.0, max_value=30.0),
             PipeConfigSpec("shift", float, None, "Sigma-shift override; blank -> spec default (1.15)", required=False),
-            PipeConfigSpec("sampler", str, "euler", "Sampler", required=False,
-                           choices=["euler", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m", "res_multistep", "unipc", "lcm"]),
+            PipeConfigSpec("sampler", str, "euler", "Sampler: any key registered on the sampler registry "
+                           "(see GET /api/sampling/catalog)", required=False),
             PipeConfigSpec("resolution", str, "1024x1024", "Resolution (WxH)", required=False),
             PipeConfigSpec("quantity", int, 1, "Number of images", required=False, min_value=1, max_value=10),
             PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
             PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
             PipeConfigSpec("preview", bool, True, "Emit live latent previews to the workbench during sampling", required=False),
+            *schedule_settings_config_specs(),
             # Only txt2img engages this (see NativeGenerator._plan_warm_start) --
             # img2img/edit always pass init_latent and silently fall back to a
             # cold run, same as an ineligible sampler.
@@ -134,6 +145,7 @@ class GeneratorQwenPipe(FlowMatchGeneratorPipe):
     def build_context(self, pipe_input: PipeInput) -> GeneratorContext:
         ctx = super().build_context(pipe_input)
         self._release_idle_te(pipe_input)
+        apply_schedule_settings(ctx, self.config)
         return ctx
 
     def _release_idle_te(self, pipe_input: PipeInput) -> None:

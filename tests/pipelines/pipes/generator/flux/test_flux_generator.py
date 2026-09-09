@@ -16,6 +16,7 @@ import numpy as np
 import torch
 
 from src.pipelines.outputs import GalleryGenerationOutput, ImageGenerationOutput, ParamGenerationOutput
+from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.generator.flux.main import GeneratorFluxPipe
 
@@ -116,11 +117,13 @@ def test_name_inputs_outputs():
     assert GeneratorFluxPipe.outputs()[0].io_type == IOType.IMAGE
 
 
-def test_sampler_choices():
+def test_sampler_spec_has_no_hardcoded_choices():
+    """A hardcoded `choices` list would reject any sampler a plugin registers
+    through its `samplers:` manifest root; the engine validates the key against
+    `sampler_registry` at run time instead."""
     spec = next(s for s in GeneratorFluxPipe.configuration() if s.name == "sampler")
-    assert set(spec.choices) == {
-        "euler", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m", "res_multistep", "unipc", "lcm",
-    }
+    assert spec.choices is None
+    assert sampler_registry.has(spec.default)
 
 
 # -- build_context ---------------------------------------------------------
@@ -334,3 +337,44 @@ def test_eviction_happens_once_per_generation_call_not_per_seed():
 def test_generator_declares_the_models_service_input():
     names = {s.name for s in GeneratorFluxPipe.inputs()}
     assert "MODELS" in names
+
+
+# -- schedule / schedule_options (flat sigma-schedule knobs) ---------------
+#
+# schedule_settings_config_specs()/schedule_settings_overrides()
+# (guidance_options.py) are the same flat knobs the Wan/LTX video pipes
+# expose; apply_schedule_settings merges their resolved values into
+# ctx.extra["schedule_settings"], which NativeGenerator.sample whitelists
+# through to build_sigmas.
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
+def test_schedule_beta_with_options_lands_in_schedule_settings():
+    pipe = _make_pipe(schedule="beta", schedule_options={"alpha": 0.5, "beta": 0.7})
+    ctx = pipe.build_context(_pipe_input())
+    assert ctx.extra["schedule_settings"] == {
+        "schedule": "beta",
+        "schedule_options": {"alpha": 0.5, "beta": 0.7},
+    }
+
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
+def test_schedule_shift_reaches_schedule_settings_verbatim():
+    # "shift" is the Schedule field's default and a real registry key, so it
+    # travels as a value rather than being dropped; build_sigmas resolves it to
+    # the model's own ramp (see test_guidance_options.py).
+    pipe = _make_pipe(schedule="shift")
+    ctx = pipe.build_context(_pipe_input())
+    assert ctx.extra["schedule_settings"] == {"schedule": "shift"}
+
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
+def test_empty_schedule_leaves_schedule_settings_untouched():
+    # The pipe's own default "" is a byte-identical no-op --
+    # schedule_settings_overrides() returns {} for every knob at its default,
+    # so apply_schedule_settings never assigns.
+    pipe = _make_pipe()
+    ctx = pipe.build_context(_pipe_input())
+    assert ctx.extra.get("schedule_settings") is None

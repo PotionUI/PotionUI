@@ -41,6 +41,8 @@ The shipped Flux preset ships `txt2img`. img2img is available through the shared
 
 Default generation parameters: 20 steps, guidance 3.5 (embedded/distilled — this is the CFG-equivalent knob for Flux, not a true-CFG scale), sampler `euler`, sigma shift unset (uses the per-variant default: 1.15 for Flux1, 2.02 for Flux2, unless a preset overrides it).
 
+The preset's **Sampler** and **Schedule** pickers (`type: "sampler"` / `type: "schedule"`, family `flux`) are registry-driven: they list whatever this instance has registered, core entries plus any a plugin contributes, rather than a list written into the preset. See [Samplers and sigma schedules](../techniques/samplers-and-schedules.md).
+
 ## Limitations
 
 Flux1 needs both T5-XXL and CLIP-L; Klein/Flux2 needs only Qwen3 — mixing up which text-encoder file a preset expects for which variant is the most common setup error, since the loader pipe accepts either shape and only the detected checkpoint variant decides which one it actually reads.

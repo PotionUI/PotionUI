@@ -516,12 +516,18 @@ Native Anima generator (flow matching, true CFG, LLMAdapter text fusion)
 | `steps` | `int` | `24` | no | — | 1 | 100 | Denoising steps |
 | `guidance` | `float` | `6.0` | no | — | 0.0 | 30.0 | True CFG scale |
 | `shift` | `float` | — | no | — | — | — | Sigma-shift override; blank -> spec default (3.0) |
-| `sampler` | `str` | `"euler"` | no | `euler`, `dpmpp_2m`, `dpmpp_2m_sde`, `dpmpp_3m`, `res_multistep`, `unipc`, `lcm` | — | — | Sampler |
+| `sampler` | `str` | `"euler"` | no | — | — | — | Sampler: any key registered on the sampler registry (see GET /api/sampling/catalog) |
 | `resolution` | `str` | `"1024x1024"` | no | — | — | — | Resolution (WxH) |
 | `quantity` | `int` | `1` | no | — | 1 | 10 | Number of images |
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `preview` | `bool` | `true` | no | — | — | — | Emit live latent previews to the workbench during sampling |
+| `schedule` | `str` | `""` | no | — | — | — | Sigma schedule key: '' (default) or 'shift' for the model's own shift-based ramp, or any key registered on the schedule registry -- 'beta', 'exponential', 'linear_quadratic', 'manual', 'ltx_dynamic' in core, plus whatever a plugin's 'schedules:' manifest root adds. GET /api/sampling/catalog lists what this instance accepts. Prefer 'manual_sigmas' below over setting this to 'manual' directly -- it also fills schedule_options for you. 'ltx_dynamic' only functions on a pipe that feeds image_seq_len into the schedule builder -- currently the LTX generator pipes. |
+| `schedule_options` | `dict` | `{}` | no | — | — | — | Schedule-specific options: beta {'alpha': 0.6, 'beta': 0.6}, exponential {'sigma_min': 1e-3}, linear_quadratic {'threshold_noise': 0.025, 'linear_steps': <int, default steps // 2>}, or ltx_dynamic {'base_shift': 0.95, 'max_shift': 2.05, 'stretch': True, 'terminal': 0.1} (LTX-2.5 defaults). Ignored when schedule is unset. |
+| `manual_sigmas` | `str` | `""` | no | — | — | — | Explicit, comma-separated, descending sigma schedule ('1.0, 0.99375, 0.9875, ..., 0.0'; ComfyUI 'ManualSigmas'-style, e.g. a distilled-LoRA refine tail -- see docs/models/ltx.md). Its length IS the step count: overrides 'steps' and any shift/schedule setting outright. Takes priority over 'schedule'/'schedule_options' when non-empty (the default '' is a no-op, byte-identical to not having this knob). |
+| `detail_strength` | `float` | — | no | — | -0.3 | 0.3 | Detail-daemon sigma warp strength (unset = inherit the model's own sampling_settings, or 0 = off if neither sets it; expected range -0.3 to 0.3) |
+| `detail_start` | `float` | — | no | — | 0.0 | 1.0 | Detail-daemon warp window start (trajectory fraction; unset = inherit) |
+| `detail_end` | `float` | — | no | — | 0.0 | 1.0 | Detail-daemon warp window end (trajectory fraction; unset = inherit) |
 | `step_cache` | `dict` | `{}` | no | — | — | — | FBCache step-skipping options, forwarded to NativeGenerator.sample() unmodified: {'rel_threshold': 0.12, 'warmup_steps': 4, 'max_consecutive_skips': 3}. rel_threshold<=0 (default/absent) is off and never wraps the guidance strategy -- byte-identical to leaving this unset. Read directly by FlowMatchGeneratorPipe.build_context, not through the flat step_cache_threshold/warmup_steps/max_skips resolver the Wan/LTX video pipes use (this family has no such resolver). |
 
 ### <a id="pipe-generator-audio-minimax-music3"></a>`generator/audio_minimax_music3`
@@ -588,7 +594,7 @@ Native Wan 2.2 sequential chain-video generator (SVI Pro 2.0-style continuation)
 | `seam_handoff` | `str` | `"latent"` | no | `latent`, `pixel` | — | — | Chain continuation seam conditioning. 'latent' (default) splices the previous segment's own SAMPLED latent tail directly into the next segment's locked slots, bypassing the decode->uint8->re-encode round trip (removes two of the three seam color-shift sources). 'pixel' reproduces the original round-tripped hand-off exactly, for A/B comparison against the previous default. |
 | `steps` | `int` | `30` | no | — | 1 | 150 | Default denoising steps (segment override: segments[i].steps) |
 | `cfg` | `float` | `5.0` | no | — | 0.0 | 30.0 | Default true CFG scale (segment override: segments[i].cfg) |
-| `sampler` | `str` | `"unipc"` | no | `euler`, `dpmpp_2m`, `dpmpp_2m_sde`, `dpmpp_3m`, `res_multistep`, `unipc`, `lcm` | — | — | Sampler |
+| `sampler` | `str` | `"unipc"` | no | — | — | — | Sampler: any key registered on the sampler registry (see GET /api/sampling/catalog) |
 | `resolution` | `str` | `"832x480"` | no | — | — | — | Resolution (WxH), constant across all segments |
 | `fps` | `float` | `16.0` | no | — | 1.0 | 60.0 | Output frame rate |
 | `expert_boundary` | `float` | — | no | — | 0.0 | 1.0 | Dual-expert switch boundary override (sigma fraction) |
@@ -702,12 +708,18 @@ Native Flux-family generator (flow matching, embedded guidance)
 | `steps` | `int` | `20` | no | — | 1 | 100 | Denoising steps |
 | `guidance` | `float` | `3.5` | no | — | 0.0 | 30.0 | Embedded (distilled) guidance scale |
 | `shift` | `float` | — | no | — | — | — | Sigma-shift override (constant-shift variants only) |
-| `sampler` | `str` | `"euler"` | no | `euler`, `dpmpp_2m`, `dpmpp_2m_sde`, `dpmpp_3m`, `res_multistep`, `unipc`, `lcm` | — | — | Sampler |
+| `sampler` | `str` | `"euler"` | no | — | — | — | Sampler: any key registered on the sampler registry (see GET /api/sampling/catalog) |
 | `resolution` | `str` | `"1024x1024"` | no | — | — | — | Resolution (WxH) |
 | `quantity` | `int` | `1` | no | — | 1 | 10 | Number of images |
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `preview` | `bool` | `true` | no | — | — | — | Emit live latent previews to the workbench during sampling |
+| `schedule` | `str` | `""` | no | — | — | — | Sigma schedule key: '' (default) or 'shift' for the model's own shift-based ramp, or any key registered on the schedule registry -- 'beta', 'exponential', 'linear_quadratic', 'manual', 'ltx_dynamic' in core, plus whatever a plugin's 'schedules:' manifest root adds. GET /api/sampling/catalog lists what this instance accepts. Prefer 'manual_sigmas' below over setting this to 'manual' directly -- it also fills schedule_options for you. 'ltx_dynamic' only functions on a pipe that feeds image_seq_len into the schedule builder -- currently the LTX generator pipes. |
+| `schedule_options` | `dict` | `{}` | no | — | — | — | Schedule-specific options: beta {'alpha': 0.6, 'beta': 0.6}, exponential {'sigma_min': 1e-3}, linear_quadratic {'threshold_noise': 0.025, 'linear_steps': <int, default steps // 2>}, or ltx_dynamic {'base_shift': 0.95, 'max_shift': 2.05, 'stretch': True, 'terminal': 0.1} (LTX-2.5 defaults). Ignored when schedule is unset. |
+| `manual_sigmas` | `str` | `""` | no | — | — | — | Explicit, comma-separated, descending sigma schedule ('1.0, 0.99375, 0.9875, ..., 0.0'; ComfyUI 'ManualSigmas'-style, e.g. a distilled-LoRA refine tail -- see docs/models/ltx.md). Its length IS the step count: overrides 'steps' and any shift/schedule setting outright. Takes priority over 'schedule'/'schedule_options' when non-empty (the default '' is a no-op, byte-identical to not having this knob). |
+| `detail_strength` | `float` | — | no | — | -0.3 | 0.3 | Detail-daemon sigma warp strength (unset = inherit the model's own sampling_settings, or 0 = off if neither sets it; expected range -0.3 to 0.3) |
+| `detail_start` | `float` | — | no | — | 0.0 | 1.0 | Detail-daemon warp window start (trajectory fraction; unset = inherit) |
+| `detail_end` | `float` | — | no | — | 0.0 | 1.0 | Detail-daemon warp window end (trajectory fraction; unset = inherit) |
 | `iterate_mode` | `bool` | `false` | no | — | — | — | Iterate mode: resume a cached mid-trajectory latent instead of a cold denoise when a follow-up generation's conditioning barely changed, skipping the steps that already agree. Off by default (needs GPU validation). Only engages on the 'euler' sampler, txt2img (no input image), with APG momentum unset/0 -- every other combination silently falls back to a normal cold run. |
 | `spectral_progressive` | `dict` | — | no | — | — | — | Spectral Progressive Diffusion (opt-in prototype): denoise the early, high-sigma steps at a reduced latent resolution and grow to full resolution as the schedule's frequency bands stop being noise-dominated. {'scales': [0.5, 1.0], 'delta': 0.01, 'power_beta': 2.5, 'power_amplitude': 1.0, 'basis': 'fft'\|'dct', 'transitions': null, 'enabled': true} -- usually only 'scales' is worth setting, the rest derive a sensible schedule from it. Off by default (needs GPU validation). Only engages on a constant-shift, 4D-image, txt2img family (Flux2/Klein, Z-Image); every dynamic-mu family (Flux1, Krea-2), video family, or img2img run silently falls back to the normal path. |
 | `step_cache` | `dict` | `{}` | no | — | — | — | FBCache step-skipping options, forwarded to NativeGenerator.sample() unmodified: {'rel_threshold': 0.12, 'warmup_steps': 4, 'max_consecutive_skips': 3}. rel_threshold<=0 (default/absent) is off and never wraps the guidance strategy -- byte-identical to leaving this unset. Read directly by FlowMatchGeneratorPipe.build_context, not through the flat step_cache_threshold/warmup_steps/max_skips resolver the Wan/LTX video pipes use (this family has no such resolver). |
@@ -739,7 +751,7 @@ Native Wan image-to-video generator (concat conditioning, dual-expert)
 | `mode` | `str` | `"img2vid"` | yes | `img2vid` | — | — | Generation mode |
 | `steps` | `int` | `30` | no | — | 1 | 100 | Denoising steps |
 | `cfg` | `float` | `5.0` | no | — | 1.0 | 20.0 | True CFG scale |
-| `sampler` | `str` | `"unipc"` | no | `euler`, `dpmpp_2m`, `dpmpp_2m_sde`, `dpmpp_3m`, `res_multistep`, `unipc`, `lcm` | — | — | Sampler |
+| `sampler` | `str` | `"unipc"` | no | — | — | — | Sampler: any key registered on the sampler registry (see GET /api/sampling/catalog) |
 | `resolution` | `str` | `"832x480"` | no | — | — | — | Resolution (WxH) |
 | `frames` | `int` | `81` | no | — | 1 | 257 | Number of video frames |
 | `fps` | `float` | `16.0` | no | — | 1.0 | 60.0 | Output frame rate |
@@ -805,7 +817,7 @@ Native Krea-2 generator (flow matching, true CFG; turbo defaults to cfg=1)
 | `steps` | `int` | `8` | no | — | 1 | 100 | Denoising steps (turbo default 8) |
 | `guidance` | `float` | `1.0` | no | — | 1.0 | 15.0 | CFG scale. 1.0 = single conditional-only forward (turbo/distilled default, byte-identical to the old NoCFG path); above 1.0 runs a real negative-conditioned forward pass each step -- needed for a raw/base checkpoint, optional as an experiment on the distilled checkpoint at higher step counts. |
 | `mu_schedule` | `str` | `"fixed"` | no | `fixed`, `dynamic` | — | — | Sigma-schedule mu source: 'fixed' pins the official turbo schedule (fixed_mu=1.15); 'dynamic' switches to the resolution-anchored mu interpolation for a raw/base (non-distilled) checkpoint (see docs/models/krea2.md). |
-| `sampler` | `str` | `"euler"` | no | `euler`, `dpmpp_2m`, `dpmpp_2m_sde`, `dpmpp_3m`, `res_multistep`, `unipc`, `lcm`, `er_sde` | — | — | Sampler |
+| `sampler` | `str` | `"euler"` | no | — | — | — | Sampler: any key registered on the sampler registry (see GET /api/sampling/catalog) |
 | `resolution` | `str` | `"1024x1024"` | no | — | — | — | Resolution (WxH) |
 | `quantity` | `int` | `1` | no | — | 1 | 10 | Number of images |
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
@@ -888,12 +900,18 @@ Native Qwen-Image generator (flow matching, true CFG)
 | `steps` | `int` | `20` | no | — | 1 | 100 | Denoising steps |
 | `guidance` | `float` | `4.0` | no | — | 0.0 | 30.0 | True CFG scale (Qwen true_cfg_scale) |
 | `shift` | `float` | — | no | — | — | — | Sigma-shift override; blank -> spec default (1.15) |
-| `sampler` | `str` | `"euler"` | no | `euler`, `dpmpp_2m`, `dpmpp_2m_sde`, `dpmpp_3m`, `res_multistep`, `unipc`, `lcm` | — | — | Sampler |
+| `sampler` | `str` | `"euler"` | no | — | — | — | Sampler: any key registered on the sampler registry (see GET /api/sampling/catalog) |
 | `resolution` | `str` | `"1024x1024"` | no | — | — | — | Resolution (WxH) |
 | `quantity` | `int` | `1` | no | — | 1 | 10 | Number of images |
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `preview` | `bool` | `true` | no | — | — | — | Emit live latent previews to the workbench during sampling |
+| `schedule` | `str` | `""` | no | — | — | — | Sigma schedule key: '' (default) or 'shift' for the model's own shift-based ramp, or any key registered on the schedule registry -- 'beta', 'exponential', 'linear_quadratic', 'manual', 'ltx_dynamic' in core, plus whatever a plugin's 'schedules:' manifest root adds. GET /api/sampling/catalog lists what this instance accepts. Prefer 'manual_sigmas' below over setting this to 'manual' directly -- it also fills schedule_options for you. 'ltx_dynamic' only functions on a pipe that feeds image_seq_len into the schedule builder -- currently the LTX generator pipes. |
+| `schedule_options` | `dict` | `{}` | no | — | — | — | Schedule-specific options: beta {'alpha': 0.6, 'beta': 0.6}, exponential {'sigma_min': 1e-3}, linear_quadratic {'threshold_noise': 0.025, 'linear_steps': <int, default steps // 2>}, or ltx_dynamic {'base_shift': 0.95, 'max_shift': 2.05, 'stretch': True, 'terminal': 0.1} (LTX-2.5 defaults). Ignored when schedule is unset. |
+| `manual_sigmas` | `str` | `""` | no | — | — | — | Explicit, comma-separated, descending sigma schedule ('1.0, 0.99375, 0.9875, ..., 0.0'; ComfyUI 'ManualSigmas'-style, e.g. a distilled-LoRA refine tail -- see docs/models/ltx.md). Its length IS the step count: overrides 'steps' and any shift/schedule setting outright. Takes priority over 'schedule'/'schedule_options' when non-empty (the default '' is a no-op, byte-identical to not having this knob). |
+| `detail_strength` | `float` | — | no | — | -0.3 | 0.3 | Detail-daemon sigma warp strength (unset = inherit the model's own sampling_settings, or 0 = off if neither sets it; expected range -0.3 to 0.3) |
+| `detail_start` | `float` | — | no | — | 0.0 | 1.0 | Detail-daemon warp window start (trajectory fraction; unset = inherit) |
+| `detail_end` | `float` | — | no | — | 0.0 | 1.0 | Detail-daemon warp window end (trajectory fraction; unset = inherit) |
 | `iterate_mode` | `bool` | `false` | no | — | — | — | Iterate mode: resume a cached mid-trajectory latent instead of a cold denoise when a follow-up generation's conditioning barely changed, skipping the steps that already agree. Off by default (needs GPU validation). Only engages on the 'euler' sampler, txt2img (no input image), with APG momentum unset/0 -- every other combination silently falls back to a normal cold run. |
 
 ### <a id="pipe-generator-sdxl"></a>`generator/sdxl`
@@ -1054,7 +1072,7 @@ Native LTX-2/2.3 text-to-video generator (video-only)
 | `refine_sigmas` | `str` | `""` | no | — | — | — | Explicit sigma schedule for a refine pass, comma-separated, descending, used VERBATIM (unlike manual_sigmas, the head is not forced to 1.0) -- required when 'initial_latent' is connected |
 | `steps` | `int` | `24` | no | — | 1 | 100 | Denoising steps |
 | `cfg` | `float` | `4.0` | no | — | 1.0 | 20.0 | True CFG scale |
-| `sampler` | `str` | `"euler"` | no | `euler`, `dpmpp_2m`, `dpmpp_2m_sde`, `dpmpp_3m`, `res_multistep`, `unipc`, `lcm`, `euler_ancestral`, `euler_ancestral_cfg_pp`, `euler_cfg_pp` | — | — | Sampler. 'euler_ancestral' is LTX-2.5's stage-1 sampler (stochastic, eta=1.0 by default via sampler_options) -- pair it with schedule='ltx_dynamic' for the matching resolution-aware sigma shift. |
+| `sampler` | `str` | `"euler"` | no | — | — | — | Sampler: any key registered on the sampler registry (see GET /api/sampling/catalog). 'euler_ancestral' is LTX-2.5's stage-1 sampler (stochastic, eta=1.0 by default via sampler_options) -- pair it with schedule='ltx_dynamic' for the matching resolution-aware sigma shift. |
 | `resolution` | `str` | `"768x512"` | no | — | — | — | Resolution (WxH) |
 | `frames` | `int` | `49` | no | — | 1 | 1001 | Number of video frames (must be 1 + 8*k; up to ~40s at 25fps) |
 | `fps` | `float` | — | no | — | 1.0 | 60.0 | Output frame rate (unset -> 25.0, or the audio_source video's own detected rate when one is connected, so muxed audio stays in sync) |
@@ -1117,7 +1135,7 @@ Native Wan text-to-video generator (dual-expert flow matching)
 | `mode` | `str` | `"txt2vid"` | yes | `txt2vid` | — | — | Generation mode |
 | `steps` | `int` | `30` | no | — | 1 | 100 | Denoising steps |
 | `cfg` | `float` | `5.0` | no | — | 1.0 | 20.0 | True CFG scale |
-| `sampler` | `str` | `"unipc"` | no | `euler`, `dpmpp_2m`, `dpmpp_2m_sde`, `dpmpp_3m`, `res_multistep`, `unipc`, `lcm` | — | — | Sampler |
+| `sampler` | `str` | `"unipc"` | no | — | — | — | Sampler: any key registered on the sampler registry (see GET /api/sampling/catalog) |
 | `expert_boundary` | `float` | — | no | — | 0.0 | 1.0 | Dual-expert switch boundary override (sigma fraction) |
 | `expert_switch_step` | `int` | — | no | — | 0 | — | Switch high->low expert at this step (wins over expert_boundary; converted to that step's sigma) |
 | `cfg_zero_star` | `bool` | `true` | no | — | — | — | CFG-Zero*: rescale the uncond branch onto cond before extrapolation (free quality correction) |
@@ -1324,12 +1342,18 @@ Native Z-Image generator (flow matching, true CFG)
 | `steps` | `int` | `8` | no | — | 1 | 100 | Denoising steps (turbo ~8, base ~30) |
 | `guidance` | `float` | `1.0` | no | — | 0.0 | 30.0 | True CFG scale (turbo 1.0 = single forward; base ~4) |
 | `shift` | `float` | — | no | — | — | — | Sigma-shift override; blank -> spec default (3.0) |
-| `sampler` | `str` | `"euler"` | no | `euler`, `dpmpp_2m`, `dpmpp_2m_sde`, `dpmpp_3m`, `res_multistep`, `unipc`, `lcm` | — | — | Sampler |
+| `sampler` | `str` | `"euler"` | no | — | — | — | Sampler: any key registered on the sampler registry (see GET /api/sampling/catalog) |
 | `resolution` | `str` | `"1024x1024"` | no | — | — | — | Resolution (WxH) |
 | `quantity` | `int` | `1` | no | — | 1 | 10 | Number of images |
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `preview` | `bool` | `true` | no | — | — | — | Emit live latent previews to the workbench during sampling |
+| `schedule` | `str` | `""` | no | — | — | — | Sigma schedule key: '' (default) or 'shift' for the model's own shift-based ramp, or any key registered on the schedule registry -- 'beta', 'exponential', 'linear_quadratic', 'manual', 'ltx_dynamic' in core, plus whatever a plugin's 'schedules:' manifest root adds. GET /api/sampling/catalog lists what this instance accepts. Prefer 'manual_sigmas' below over setting this to 'manual' directly -- it also fills schedule_options for you. 'ltx_dynamic' only functions on a pipe that feeds image_seq_len into the schedule builder -- currently the LTX generator pipes. |
+| `schedule_options` | `dict` | `{}` | no | — | — | — | Schedule-specific options: beta {'alpha': 0.6, 'beta': 0.6}, exponential {'sigma_min': 1e-3}, linear_quadratic {'threshold_noise': 0.025, 'linear_steps': <int, default steps // 2>}, or ltx_dynamic {'base_shift': 0.95, 'max_shift': 2.05, 'stretch': True, 'terminal': 0.1} (LTX-2.5 defaults). Ignored when schedule is unset. |
+| `manual_sigmas` | `str` | `""` | no | — | — | — | Explicit, comma-separated, descending sigma schedule ('1.0, 0.99375, 0.9875, ..., 0.0'; ComfyUI 'ManualSigmas'-style, e.g. a distilled-LoRA refine tail -- see docs/models/ltx.md). Its length IS the step count: overrides 'steps' and any shift/schedule setting outright. Takes priority over 'schedule'/'schedule_options' when non-empty (the default '' is a no-op, byte-identical to not having this knob). |
+| `detail_strength` | `float` | — | no | — | -0.3 | 0.3 | Detail-daemon sigma warp strength (unset = inherit the model's own sampling_settings, or 0 = off if neither sets it; expected range -0.3 to 0.3) |
+| `detail_start` | `float` | — | no | — | 0.0 | 1.0 | Detail-daemon warp window start (trajectory fraction; unset = inherit) |
+| `detail_end` | `float` | — | no | — | 0.0 | 1.0 | Detail-daemon warp window end (trajectory fraction; unset = inherit) |
 | `step_cache` | `dict` | `{}` | no | — | — | — | FBCache step-skipping options, forwarded to NativeGenerator.sample() unmodified: {'rel_threshold': 0.12, 'warmup_steps': 4, 'max_consecutive_skips': 3}. rel_threshold<=0 (default/absent) is off and never wraps the guidance strategy -- byte-identical to leaving this unset. Read directly by FlowMatchGeneratorPipe.build_context, not through the flat step_cache_threshold/warmup_steps/max_skips resolver the Wan/LTX video pipes use (this family has no such resolver). |
 | `spectral_progressive` | `dict` | — | no | — | — | — | Spectral Progressive Diffusion (opt-in prototype): denoise the early, high-sigma steps at a reduced latent resolution and grow to full resolution as the schedule's frequency bands stop being noise-dominated. {'scales': [0.5, 1.0], 'delta': 0.01, 'power_beta': 2.5, 'power_amplitude': 1.0, 'basis': 'fft'\|'dct', 'transitions': null, 'enabled': true} -- usually only 'scales' is worth setting, the rest derive a sensible schedule from it. Off by default (needs GPU validation). Only engages on a constant-shift, 4D-image, txt2img family (Flux2/Klein, Z-Image); every dynamic-mu family (Flux1, Krea-2), video family, or img2img run silently falls back to the normal path. |
 

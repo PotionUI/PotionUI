@@ -11,7 +11,7 @@ knobs:
   - key: sampler
     surface: preset
     default: euler
-    effect: "Selects the step algorithm (euler, dpmpp_2m, unipc, euler_sde, euler_restart, dpmpp_2m_sde, dpmpp_3m, er_sde, res_multistep, lcm)"
+    effect: "Selects the step algorithm (euler, dpmpp_2m, unipc, euler_sde, euler_ancestral, euler_cfg_pp, euler_ancestral_cfg_pp, euler_restart, dpmpp_2m_sde, dpmpp_3m, er_sde, res_multistep, lcm)"
   - key: sampler_options
     surface: preset
     default: "{}"
@@ -47,7 +47,7 @@ contracts and a worked example.
 
 ## Samplers
 
-Ten samplers are registered:
+Thirteen samplers are registered:
 
 - **`euler`** (default) — deterministic first-order flow-matching step. The baseline: fast, exact
   for constant-velocity predictions, and the reference every other sampler is derived against.
@@ -58,6 +58,20 @@ Ten samplers are registered:
 - **`euler_sde`** — stochastic (ancestral) variant of `euler`. Injects a configurable fraction of
   fresh noise at every step (`sampler_options={"eta": ...}`; `eta=1.0` is fully ancestral, lower
   values interpolate back toward deterministic `euler`, `eta=0` is identical to `euler`).
+- **`euler_ancestral`** — a different ancestral parameterization from `euler_sde`: it works in
+  `alpha = 1 - sigma` space with a `sigma_down`/renoise split (a faithful port of the per-step math
+  in diffusers' `LTXEulerAncestralRFScheduler`), which is what LTX-2.5's stage-1 pass runs. Options:
+  `eta` (default `1.0`, fully ancestral) and `s_noise` (default `1.0`). At `eta=0` it is
+  bit-identical to `euler`; away from `0` it walks a genuinely different trajectory than
+  `euler_sde` at the same `eta`, which is why both exist.
+- **`euler_cfg_pp`** — deterministic Euler with the CFG++ target/direction split (Chung et al.,
+  arXiv:2406.08070). Plain CFG's scale inflates the step size as well as the guidance, pushing the
+  trajectory off the data manifold at the scales that give good prompt adherence; CFG++ keeps the
+  guided prediction as the step's *target* but takes the step's *direction* from the raw
+  unconditional prediction. With no uncond branch to read (embedded guidance, or true CFG at scale
+  1.0) the split is a no-op and this reduces exactly to `euler`.
+- **`euler_ancestral_cfg_pp`** — the same CFG++ split with ancestral noise injection on top,
+  `eta`-configurable via `sampler_options` (variance-preserving mix, same as `euler_sde`).
 - **`euler_restart`** — restart sampling: re-noises partway through the trajectory and re-descends,
   giving the model extra passes at correcting compounding discretization error, at the cost of extra
   steps. Configured via `sampler_options={"restart_count": ..., "restart_strength": ...}`.
@@ -78,11 +92,15 @@ Ten samplers are registered:
   2 or 3.
 - **`lcm`** — for distilled/consistency (LCM, TCD) checkpoints. Re-noises the clean estimate with
   fresh noise every step; on a normal (non-distilled) model this degrades quality, so it is an
-  explicit choice rather than a default anyone would fall into.
+  explicit choice rather than a default anyone would fall into. It is the one sampler the shipped
+  presets do not put in their **Sampler** dropdown (`exclude: ["lcm"]` on the field): whether it is
+  valid depends on the checkpoint a pipeline loads, not on what the user picks at generation time,
+  so a preset that wants it pins it in `pipeline.yml` rather than offering it as a row someone can
+  select onto an ordinary checkpoint.
 
-`euler_sde`, `dpmpp_2m_sde`, `er_sde`, and `lcm` inject fresh random noise each step, so they need
-a seeded generator to stay reproducible; PotionUI wires this automatically from the generation's own
-seed.
+`euler_sde`, `euler_ancestral`, `euler_ancestral_cfg_pp`, `dpmpp_2m_sde`, `er_sde`, and `lcm`
+inject fresh random noise each step (the registry marks them `stochastic`), so they need a seeded
+generator to stay reproducible; PotionUI wires this automatically from the generation's own seed.
 
 ## Sigma schedules
 

@@ -48,11 +48,13 @@ Each chain segment carries its own `loras` list (same `{high, low}` shape as the
 
 ## Sampling
 
-Default generation parameters (text-to-video): 30 steps, CFG scale 5.0, sampler `unipc`, 832×480 resolution, 81 frames at 16fps. Frame count snaps to `1 + 4k` (the causal VAE's temporal chunking); resolution snaps to 16px granularity for the 14B variants, 32px for the 5B ti2v. Image-to-video shares the same defaults plus an expert-boundary override.
+Default generation parameters (text-to-video): 30 steps, CFG scale 5.0, sampler `unipc`, schedule `shift` (the model's own ramp), 832×480 resolution, 81 frames at 16fps. Frame count snaps to `1 + 4k` (the causal VAE's temporal chunking); resolution snaps to 16px granularity for the 14B variants, 32px for the 5B ti2v. Image-to-video shares the same defaults plus an expert-boundary override.
 
 ## Techniques
 
 Every knob below is exposed on the preset's **Advanced** tab and threaded into all three Wan generators (`txt2vid`/`img2vid`/`chain`) unless noted; each defaults to its own no-op value, so an untouched form generates exactly as it did before the knob existed. Speed profile, steps, CFG and sampler live on the Generation and Advanced → Sampling groups.
+
+The **Sampler** and **Schedule** pickers (`type: "sampler"` / `type: "schedule"`, family `wan`) share one row and are registry-driven: they list whatever this instance has registered, core entries plus any a plugin contributes, rather than a list written into the preset. See [Samplers and sigma schedules](../techniques/samplers-and-schedules.md).
 
 | Technique | What it does | Where | Default | Scope |
 | --- | --- | --- | --- | --- |
@@ -71,7 +73,7 @@ Every knob below is exposed on the preset's **Advanced** tab and threaded into a
 
 Not surfaced on the preset:
 
-- **`sampler_options`** (e.g. stochastic-sampler `eta`) is a no-op for the three exposed samplers (`unipc`/`euler`/`dpmpp_2m`), so it stays internal.
+- **`sampler_options`** (e.g. stochastic-sampler `eta`) has no preset-level field of its own; a sampler that reads it runs at `denoise()`'s own defaults.
 - **`beta`/`exponential` schedule options** (`alpha`/`beta`, `sigma_min`) have no preset-level fields of their own — those two families always run at `build_sigmas`'s own defaults (0.6/0.6, 1e-3); only `linear_quadratic` got typed fields, since it needed one to be usable at all beyond its own defaults.
 - **Engine-level levers** — sage attention, `NATIVE_TORCH_COMPILE`, `NATIVE_STREAM_PREFETCH`, fp8 quantize-at-load, partial layer residency, NVFP4 — are global backend/env settings (the admin Optimizations panel), not preset-scoped, and apply to Wan runs regardless of this preset.
 

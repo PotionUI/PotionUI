@@ -476,11 +476,10 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
             PipeConfigSpec("steps", int, 24, "Denoising steps", required=False, min_value=1, max_value=100),
             PipeConfigSpec("cfg", float, 4.0, "True CFG scale", required=False, min_value=1.0, max_value=20.0),
             PipeConfigSpec("sampler", str, "euler",
-                           "Sampler. 'euler_ancestral' is LTX-2.5's stage-1 sampler (stochastic, eta=1.0 "
+                           "Sampler: any key registered on the sampler registry (see GET /api/sampling/catalog). "
+                           "'euler_ancestral' is LTX-2.5's stage-1 sampler (stochastic, eta=1.0 "
                            "by default via sampler_options) -- pair it with schedule='ltx_dynamic' for the "
-                           "matching resolution-aware sigma shift.", required=False,
-                           choices=["euler", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m", "res_multistep", "unipc", "lcm",
-                                    "euler_ancestral", "euler_ancestral_cfg_pp", "euler_cfg_pp"]),
+                           "matching resolution-aware sigma shift.", required=False),
             PipeConfigSpec("resolution", str, "768x512", "Resolution (WxH)", required=False),
             PipeConfigSpec("frames", int, 49, "Number of video frames (must be 1 + 8*k; up to ~40s at 25fps)",
                            required=False, min_value=1, max_value=1001),
@@ -682,8 +681,9 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
         # euler_ancestral (LTX-2.5 stage-1): a DEDICATED generator, offset from
         # the request seed, so its per-step stochastic draws never overlap the
         # init-noise/FreeInit stream `gen` already drives -- unlike every other
-        # STOCHASTIC_SAMPLERS entry, which deliberately reuses `gen` itself (see
-        # ensure_sampler_generator's docstring vs. euler_ancestral.py's own).
+        # sampler the registry marks `stochastic`, which deliberately reuses
+        # `gen` itself (see ensure_sampler_generator's docstring vs.
+        # euler_ancestral.py's own).
         sampler_gen = gen
         if c.sampler == "euler_ancestral":
             sampler_gen = torch.Generator(device=c.device).manual_seed(int(seed) + ANCESTRAL_NOISE_SEED_OFFSET)

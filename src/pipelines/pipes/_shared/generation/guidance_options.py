@@ -184,6 +184,26 @@ def schedule_settings_overrides(config: dict) -> dict:
     return overrides
 
 
+def apply_schedule_settings(ctx, config: dict) -> None:
+    """Merge ``schedule_settings_overrides(config)`` into
+    ``ctx.extra["schedule_settings"]`` for the image-family pipes, which reach
+    ``build_sigmas`` through ``NativeGenerator.sample()`` rather than calling
+    ``denoise()`` with their own ``sampling_settings`` dict.
+
+    An untouched form resolves every one of these knobs to its no-op default,
+    so the override dict is empty and this is a byte-identical no-op. Call it
+    before any family-specific schedule override in ``build_context`` so that
+    override still lands on top.
+    """
+    overrides = schedule_settings_overrides(config)
+    if not overrides:
+        return
+    ctx.extra["schedule_settings"] = {
+        **(ctx.extra.get("schedule_settings") or {}),
+        **overrides,
+    }
+
+
 def parse_int_set(raw) -> set:
     """Comma-separated ``"0,2,5"`` -> ``{0, 2, 5}``; ``''``/``None``/``"None"``
     -> empty set. Also accepts an already-parsed list/tuple/set (config values

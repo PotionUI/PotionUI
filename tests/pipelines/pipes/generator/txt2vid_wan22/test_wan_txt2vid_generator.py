@@ -14,6 +14,7 @@ from src.pipelines.outputs import GalleryGenerationOutput
 from vendor.gpl.comfyui.ops import disable_weight_init
 from src.platform.runtime.native.errors import DecodeNumericsError
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D, LATENTS_MEAN, LATENTS_STD
+from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.generator.txt2vid_wan22.main import (
     GeneratorWanTxt2VidPipe, _ExpertRouter, _WanCtx, _decode_video,
@@ -198,11 +199,13 @@ def test_metadata():
     assert inputs["conditioning"] == IOType.CONDITIONING
 
 
-def test_sampler_choices():
+def test_sampler_spec_has_no_hardcoded_choices():
+    """A hardcoded `choices` list would reject any sampler a plugin registers
+    through its `samplers:` manifest root; the engine validates the key against
+    `sampler_registry` at run time instead."""
     spec = next(s for s in GeneratorWanTxt2VidPipe.configuration() if s.name == "sampler")
-    assert set(spec.choices) == {
-        "euler", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m", "res_multistep", "unipc", "lcm",
-    }
+    assert spec.choices is None
+    assert sampler_registry.has(spec.default)
 
 
 @patch("src.pipelines.pipes.generator.txt2vid_wan22.main.encode_frames_to_mp4", lambda frames, path, fps: path)

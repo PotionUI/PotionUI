@@ -22,7 +22,7 @@ only translates that choice into the ``schedule_settings`` override
 ``detail_start``/``detail_end`` (``schedule_settings_config_specs`` in
 ``_shared/generation/guidance_options.py``) are the same flat sigma-schedule
 knobs the Wan/LTX video pipes expose, merged into ``ctx.extra["schedule_settings"]``
-by ``_apply_schedule_settings`` -- resolved BEFORE ``_apply_mu_schedule`` so
+by ``apply_schedule_settings`` -- resolved BEFORE ``_apply_mu_schedule`` so
 ``mu_schedule="dynamic"``'s ``fixed_mu``/``dynamic_shift`` still land on top.
 That ordering is moot in practice: ``schedule="beta"``/``"exponential"``/
 ``"linear_quadratic"`` all bypass the shift-based mu selection entirely in
@@ -60,8 +60,8 @@ from src.pipelines.outputs import ParamGenerationOutput
 from src.pipelines.pipes._shared.generation.flow_generator_pipe import FlowMatchGeneratorPipe
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
 from src.pipelines.pipes._shared.generation.guidance_options import (
+    apply_schedule_settings,
     schedule_settings_config_specs,
-    schedule_settings_overrides,
 )
 from src.platform.runtime.native.sampling.flow_schedule import build_sigmas
 
@@ -85,28 +85,12 @@ class GeneratorKrea2Pipe(FlowMatchGeneratorPipe):
     def build_context(self, pipe_input: PipeInput) -> GeneratorContext:
         ctx = super().build_context(pipe_input)
         self._release_idle_te(pipe_input)
-        self._apply_schedule_settings(ctx)
+        # Before _apply_mu_schedule, so that method's fixed_mu/dynamic_shift
+        # override still lands on top for mu_schedule="dynamic".
+        apply_schedule_settings(ctx, self.config)
         self._refine_tail_sigmas = self._apply_refine_tail(ctx)
         self._apply_mu_schedule(ctx)
         return ctx
-
-    def _apply_schedule_settings(self, ctx: GeneratorContext) -> None:
-        """Merge the flat ``schedule``/``schedule_options``/``manual_sigmas``/
-        ``detail_*`` knobs (``schedule_settings_overrides``) into
-        ``ctx.extra["schedule_settings"]``. Runs before ``_apply_mu_schedule``
-        so that method's ``fixed_mu``/``dynamic_shift`` override still lands on
-        top for ``mu_schedule="dynamic"``. An untouched form resolves every one
-        of these knobs to its no-op default, so ``schedule_settings_overrides``
-        returns ``{}`` and this is a byte-identical no-op -- same treatment as
-        every other optional knob in ``build_context``.
-        """
-        overrides = schedule_settings_overrides(self.config)
-        if not overrides:
-            return
-        ctx.extra["schedule_settings"] = {
-            **(ctx.extra.get("schedule_settings") or {}),
-            **overrides,
-        }
 
     def _apply_mu_schedule(self, ctx: GeneratorContext) -> None:
         """``mu_schedule="dynamic"``: override the ModelSpec's fixed_mu=1.15 with
@@ -247,7 +231,8 @@ class GeneratorKrea2Pipe(FlowMatchGeneratorPipe):
                            "schedule (fixed_mu=1.15); 'dynamic' switches to the resolution-anchored mu interpolation "
                            "for a raw/base (non-distilled) checkpoint (see docs/models/krea2.md).", required=False,
                            choices=["fixed", "dynamic"]),
-            PipeConfigSpec("sampler", str, "euler", "Sampler", required=False, choices=["euler", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m", "res_multistep", "unipc", "lcm", "er_sde"]),
+            PipeConfigSpec("sampler", str, "euler", "Sampler: any key registered on the sampler registry "
+                           "(see GET /api/sampling/catalog)", required=False),
             PipeConfigSpec("resolution", str, "1024x1024", "Resolution (WxH)", required=False),
             PipeConfigSpec("quantity", int, 1, "Number of images", required=False, min_value=1, max_value=10),
             PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),

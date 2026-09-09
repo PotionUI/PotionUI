@@ -38,6 +38,8 @@ The shipped Z-Image preset ships `txt2img`.
 
 Default generation parameters: 8 steps, guidance 1.0 (turbo default — the single-forward collapse point), sampler `euler`.
 
+The preset's **Sampler** and **Schedule** pickers (`type: "sampler"` / `type: "schedule"`, family `z_image`) are registry-driven: they list whatever this instance has registered, core entries plus any a plugin contributes, rather than a list written into the preset. See [Samplers and sigma schedules](../techniques/samplers-and-schedules.md).
+
 ## Limitations
 
 Raising guidance above 1.0 on the turbo checkpoint doubles compute (a real unconditional forward pass is now required) without necessarily improving quality — turbo checkpoints are typically distilled specifically for the `cfg_scale=1.0` operating point. Check the specific checkpoint's own documentation before assuming a higher CFG scale helps.

@@ -187,7 +187,9 @@ error before any GPU work.
 
 ## Sampling
 
-Default generation parameters: 24 steps, CFG scale 4.0, 768×512 resolution, 49 frames at 25fps. The default sampler is `euler` on the `LTX-2 / 2.3` preset and `euler_ancestral` on `LTX-2.5` — see [LTX-2.5: ancestral stage-1 sampling](#ltx-25-ancestral-stage-1-sampling) below.
+Default generation parameters: 24 steps, CFG scale 4.0, 768×512 resolution, 49 frames at 25fps. The default sampler is `euler` on the `LTX-2 / 2.3` preset and `euler_ancestral` on `LTX-2.5` — see [LTX-2.5: ancestral stage-1 sampling](#ltx-25-ancestral-stage-1-sampling) below. The default schedule is `shift` on `LTX-2 / 2.3` (the ModelSpec's static shift) and `ltx_dynamic` on `LTX-2.5`.
+
+Both presets' **Sampler** and **Schedule** pickers (`type: "sampler"` / `type: "schedule"`, family `ltx`) share one row and read the registries rather than a list written into the preset — see [Samplers and sigma schedules](../techniques/samplers-and-schedules.md). Schedule offers the family's whole catalog; Sampler does not. `generator/video_ltx` holds conditioned (keyframe) tokens clean by re-deriving its input clamp and x0 blend at every step, so a multistep integrator that mixes past velocities into its update is invalid on this pipe — the field carries an explicit `include` of the four single-step, no-history samplers (`euler`, `euler_ancestral`, `euler_cfg_pp`, `euler_ancestral_cfg_pp`), and the pipe keeps the matching `choices` guard on its own `sampler` config key.
 
 Three more samplers exist specifically for the distilled-refine recipe below:
 `euler_sde` (ancestral Euler), `euler_ancestral_cfg_pp`, and `euler_cfg_pp` —

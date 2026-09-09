@@ -23,25 +23,47 @@ fields:
           - when: { field: "speed_profile", equals: "custom" }
             then: { set_disabled: false }
 
-      - name: "sampler"
-        type: "select"
-        label: "Sampler"
-        audience: "advanced"
-        default: "euler"
-        configuration:
-          options:
-            - { label: "Euler", value: "euler" }
-            - { label: "Euler CFG++", value: "euler_cfg_pp" }
-            - { label: "Euler Ancestral CFG++", value: "euler_ancestral_cfg_pp" }
-        reactions:
-          - when: { field: "speed_profile", equals: "balanced" }
-            then: { set_value: "euler", set_disabled: false }
-          - when: { field: "speed_profile", equals: "distilled" }
-            then: { set_value: "euler_cfg_pp", set_disabled: false }
-          - when: { field: "speed_profile", equals: "quality" }
-            then: { set_value: "euler", set_disabled: false }
-          - when: { field: "speed_profile", equals: "custom" }
-            then: { set_disabled: false }
+      # `include`, not the whole registry catalog: generator/video_ltx holds
+      # conditioned tokens clean by re-deriving the clamp and the x0 blend at
+      # every step, so a multistep integrator that mixes PAST velocities into
+      # its update is invalid here -- see that pipe's module docstring.
+      - type: "row"
+        children:
+          - name: "sampler"
+            type: "sampler"
+            label: "Sampler"
+            audience: "advanced"
+            default: "euler"
+            configuration:
+              family: "ltx"
+              include: ["euler", "euler_ancestral", "euler_cfg_pp", "euler_ancestral_cfg_pp"]
+            reactions:
+              - when: { field: "speed_profile", equals: "balanced" }
+                then: { set_value: "euler", set_disabled: false }
+              - when: { field: "speed_profile", equals: "distilled" }
+                then: { set_value: "euler_cfg_pp", set_disabled: false }
+              - when: { field: "speed_profile", equals: "quality" }
+                then: { set_value: "euler", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
+
+          - name: "schedule"
+            type: "schedule"
+            label: "Schedule"
+            audience: "advanced"
+            default: "shift"
+            configuration:
+              family: "ltx"
+              exclude: ["manual"]
+            reactions:
+              - when: { field: "speed_profile", equals: "balanced" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "distilled" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "quality" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
 
       - name: "cfg"
         type: "slider"

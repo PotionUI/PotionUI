@@ -24,19 +24,15 @@ fields:
       - type: "row"
         children:
           - name: "sampler"
-            type: "select"
+            type: "sampler"
             label: "Sampler"
             audience: "advanced"
             default: "euler"
             configuration:
-              options:
-                - { label: "Euler", value: "euler" }
-                - { label: "DPM++ 2M", value: "dpmpp_2m" }
-                - { label: "DPM++ 2M SDE", value: "dpmpp_2m_sde" }
-                - { label: "DPM++ 3M", value: "dpmpp_3m" }
-                - { label: "RES Multistep", value: "res_multistep" }
-                - { label: "UniPC", value: "unipc" }
-                - { label: "ER SDE", value: "er_sde" }
+              family: "krea2"
+              # A pipeline-authored choice for distilled/consistency
+              # checkpoints, garbage on a normal one -- never a dropdown row.
+              exclude: ["lcm"]
             reactions:
               - when: { field: "speed_profile", in: ["turbo", "balanced"] }
                 then: { set_value: "euler", set_disabled: false }
@@ -48,17 +44,16 @@ fields:
                 then: { set_disabled: false }
 
           - name: "schedule"
-            type: "select"
+            type: "schedule"
             label: "Schedule"
             audience: "advanced"
-            default: ""
+            default: "shift"
             configuration:
-              options:
-                - { label: "Model default", value: "" }
-                - { label: "Beta", value: "beta" }
+              family: "krea2"
+              exclude: ["manual"]
             reactions:
               - when: { field: "speed_profile", in: ["turbo", "balanced", "quality", "base"] }
-                then: { set_value: "", set_disabled: false }
+                then: { set_value: "shift", set_disabled: false }
               - when: { field: "speed_profile", equals: "custom" }
                 then: { set_disabled: false }
 

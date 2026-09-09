@@ -180,6 +180,10 @@
               "euler"
             ],
             [
+              "schedule",
+              "shift"
+            ],
+            [
               "resolution",
               "1024x1024"
             ]
@@ -218,6 +222,10 @@
         "sampler": {
           "type": "str",
           "value": "euler"
+        },
+        "schedule": {
+          "type": "str",
+          "value": "shift"
         },
         "shift": {
           "type": "str",

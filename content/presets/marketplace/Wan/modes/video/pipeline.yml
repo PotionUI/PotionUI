@@ -191,6 +191,7 @@ pipeline:
         - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
         - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
         - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - ["schedule", "{{ form.schedule }}"]
         - ["resolution", "{{ form.resolution }}"]
         - ["fps", "{{ form.video_director.settings.fps }}"]
         - ["director_mode", "{{ form.video_director.mode | default('') }}"]

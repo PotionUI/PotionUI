@@ -12,6 +12,7 @@ import torch
 
 from src.pipelines.outputs import GalleryGenerationOutput
 from src.platform.runtime.native.errors import DecodeNumericsError
+from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.generator.txt2vid_ltx.main import (
     GeneratorLtxTxt2VidPipe,
@@ -102,12 +103,13 @@ def test_metadata():
     assert inputs["conditioning"] == IOType.CONDITIONING
 
 
-def test_sampler_choices():
+def test_sampler_spec_has_no_hardcoded_choices():
+    """A hardcoded `choices` list would reject any sampler a plugin registers
+    through its `samplers:` manifest root; the engine validates the key against
+    `sampler_registry` at run time instead."""
     spec = next(s for s in GeneratorLtxTxt2VidPipe.configuration() if s.name == "sampler")
-    assert set(spec.choices) == {
-        "euler", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m", "res_multistep", "unipc", "lcm",
-        "euler_ancestral", "euler_ancestral_cfg_pp", "euler_cfg_pp",
-    }
+    assert spec.choices is None
+    assert sampler_registry.has(spec.default)
 
 
 def test_build_context_default_geometry():

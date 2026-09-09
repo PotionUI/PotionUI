@@ -37,6 +37,8 @@ The shipped Anima preset ships `txt2img`.
 
 Default generation parameters: 24 steps, guidance 6.0 (true CFG scale), sampler `euler`.
 
+The preset's **Sampler** and **Schedule** pickers (`type: "sampler"` / `type: "schedule"`, family `anima`) are registry-driven: they list whatever this instance has registered, core entries plus any a plugin contributes, rather than a list written into the preset. See [Samplers and sigma schedules](../techniques/samplers-and-schedules.md).
+
 ## Limitations
 
 The T5 token ids/weights the LLMAdapter needs are supplied by the generator pipe alongside the Qwen3-0.6B hidden state — a custom prompt-encoding path that swaps in a different flow without also producing those T5 ids will silently lose part of Anima's conditioning rather than raising an error, so verify both halves of the conditioning dict are populated when customizing prompt encoding for this family.

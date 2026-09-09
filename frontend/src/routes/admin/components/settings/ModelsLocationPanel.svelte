@@ -3,7 +3,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { Button, Input, Alert, Spinner } from '$lib/components/ui';
 	import { DetailSection } from '$lib/components/detail';
-	import { ModelsLocationState } from '$lib/models-location/state.svelte';
+	import { ModelsLocationState, overrideDraftsFor } from '$lib/models-location/state.svelte';
 
 	const location = new ModelsLocationState();
 
@@ -14,7 +14,7 @@
 	onMount(async () => {
 		await location.load();
 		externalPath = location.config?.external_path ?? '';
-		overrideDrafts = { ...location.config?.overrides };
+		overrideDrafts = overrideDraftsFor(location.config);
 	});
 
 	async function apply() {
@@ -23,7 +23,7 @@
 		);
 		const ok = await location.apply(externalPath, overrides);
 		if (ok) {
-			overrideDrafts = { ...location.config?.overrides };
+			overrideDrafts = overrideDraftsFor(location.config);
 			toasts.success('Models location applied. Re-indexing in the background.');
 		}
 	}

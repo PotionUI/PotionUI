@@ -139,6 +139,7 @@ if TYPE_CHECKING:
     from src.features.automation.runtime import AutomationRuntime
     from src.platform.plugins.automation_templates import AutomationTemplateRegistry
     from src.features.media import MediaStore, MediaTypeResolver, FilePathResolver, ImageProcessor
+    from src.features.backup.admin import BackupRuns
     from src.features.housekeeping.worker import HousekeepingWorker
     from src.features.media.thumbnail_regeneration import ThumbnailRegeneration
     from src.features.presets.file_repository import FilePresetRepository
@@ -353,6 +354,7 @@ class AppContainer:
     media_store: "MediaStore"
     thumbnail_regeneration: "ThumbnailRegeneration"
     housekeeping_worker: "HousekeepingWorker"
+    backup_runs: "BackupRuns"
     media_controller: "MediaController"
     media_editor: "MediaEditor"
     media_edit_controller: "MediaEditController"
@@ -1232,6 +1234,11 @@ def build_container() -> AppContainer:
             trace_repository=chat_call_trace_repository,
         ),
     )
+
+    from src.features.backup.admin import BackupRuns
+    from src.features.backup.settings import repo_root as backup_repo_root
+
+    backup_runs = BackupRuns(settings, backup_repo_root())
 
     # Pre-render preset media thumbnails ("install" - see docs/presets.md)
     # off the request path: wired as the loader's change callback so every

@@ -152,6 +152,86 @@ export async function runHousekeeping(): Promise<APIResponse<HousekeepingRun>> {
 	return response.data;
 }
 
+// Admin API - Backups
+export type BackupTier = 'config' | 'media' | 'all';
+
+export interface BackupSettings {
+	destination: string;
+	retention: number;
+	default_tier: BackupTier;
+}
+
+export interface BackupArchive {
+	name: string;
+	path: string;
+	bytes: number;
+	created_at: string | null;
+	tier: string | null;
+	tiers: string[];
+	app_version: string | null;
+	migration_head: string | null;
+	readable: boolean;
+}
+
+export interface BackupJob {
+	id: string;
+	status: 'running' | 'done' | 'failed';
+	tier: string;
+	started_at: string;
+	finished_at: string | null;
+	archive: string | null;
+	bytes: number;
+	mirror: Record<string, unknown> | null;
+	last_error: string | null;
+}
+
+export interface BackupMirror {
+	last_synced: string | null;
+	day_count: number;
+	bytes: number;
+}
+
+export interface BackupLastRun {
+	time: string | null;
+	bytes: number;
+	tier: string | null;
+}
+
+export interface BackupOverview {
+	settings: BackupSettings;
+	destination_abs: string;
+	/** The destination directory is on disk right now. */
+	exists: boolean;
+	/** The destination is writable, or does not exist yet but its nearest
+	 * existing ancestor is - so the first backup can create it. */
+	writable: boolean;
+	archives: BackupArchive[];
+	mirror: BackupMirror | null;
+	last_backup: BackupLastRun | null;
+	cron_line: string;
+	job: BackupJob | null;
+}
+
+export async function getBackups(): Promise<APIResponse<BackupOverview>> {
+	const response = await api.getClient().get('/api/admin/backups');
+	return response.data;
+}
+
+export async function runBackup(tier: string): Promise<APIResponse<BackupJob>> {
+	const response = await api.getClient().post('/api/admin/backups/run', { tier });
+	return response.data;
+}
+
+export async function getBackupJob(): Promise<APIResponse<BackupJob | null>> {
+	const response = await api.getClient().get('/api/admin/backups/job');
+	return response.data;
+}
+
+export async function deleteBackup(name: string): Promise<APIResponse> {
+	const response = await api.getClient().delete(`/api/admin/backups/${encodeURIComponent(name)}`);
+	return response.data;
+}
+
 // Admin API - Semantic search / media indexing model status
 export interface ActiveModelDownload {
 	id: string;

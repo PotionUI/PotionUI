@@ -31,6 +31,14 @@ Three things grow without a limit unless you set one: the scratch folder, where 
 
 Next to each window is what it would remove right now, so you can see the effect of a change before you save it. A pass runs shortly after the server starts and once a day after that. **Run now** applies all three immediately and reports what it freed; the last pass is shown alongside. Deleting a run report also deletes the images it saved, and nothing outside the scratch folder is ever touched.
 
+### Backups
+
+Where backups go, how many are kept, and what a backup takes. The destination is a directory, relative to the install or absolute; it is created when you save it, and the panel says so if it can't be written to. Retention is a count of archives to keep, and 0 keeps all of them. The media mirror beside them is never pruned.
+
+Three tiers, each a superset of the one before it: **config** is the database, the encryption key, `.env`, your local presets, plugins and automation, and the small storage trees, all as one zip; **media** adds a directory mirror of your uploads and generations; **all** adds a mirror of the models directory.
+
+**Backup now** takes one at the default tier, in the background, and lists it when it finishes. Below the list is a cron line for the same backup on a schedule, ready to copy. Restore is not here: the app has to be stopped for it, so it runs from the command line — see [Backup & Restore](backup-and-restore.md).
+
 ## Models
 
 Server-side model management: reviewing installed models and, together with the **Model Downloader** plugin, adding new ones. This is the admin counterpart to the user-facing **Models** page.

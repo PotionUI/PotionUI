@@ -1444,9 +1444,19 @@ def backup_preflight(repo_root: Path, out_dir: Path) -> Optional[CheckResult]:
     return None
 
 
+def default_backup_dir(repo_root: Path) -> Path:
+    """Where `--out` points when nothing says otherwise: the destination the
+    admin panel writes into, so a scheduled run and a run from the panel land
+    in the same directory."""
+    try:
+        return _import_backup_module("settings").destination_dir(repo_root)
+    except Exception:
+        return repo_root / DEFAULT_BACKUP_DIR_NAME
+
+
 def cmd_backup(args) -> int:
     repo_root = REPO_ROOT
-    out_dir = Path(args.out).expanduser() if args.out else repo_root / DEFAULT_BACKUP_DIR_NAME
+    out_dir = Path(args.out).expanduser() if args.out else default_backup_dir(repo_root)
 
     failure = backup_preflight(repo_root, out_dir)
     if failure is not None:
@@ -1637,7 +1647,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     backup_p.add_argument(
         "--out", default=None,
-        help=f"Directory to write into (default: ./{DEFAULT_BACKUP_DIR_NAME}).",
+        help=(
+            f"Directory to write into (default: the `backup_destination` setting, "
+            f"else ./{DEFAULT_BACKUP_DIR_NAME})."
+        ),
     )
     backup_p.add_argument(
         "--tier", choices=BACKUP_TIERS, default="config",

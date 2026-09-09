@@ -35,6 +35,7 @@ from src.features.settings.routes import (
 )
 from src.features.stats.routes import build_router as build_stats_router
 from src.features.backends.routes import build_router as build_backend_router
+from src.features.backup.routes import build_admin_router as build_backup_admin_router
 from src.features.housekeeping.routes import build_admin_router as build_housekeeping_admin_router
 from src.features.provisioning.routes import build_admin_router as build_provisioning_admin_router
 from src.features.remote_execution.routes import build_admin_router as build_remote_models_admin_router
@@ -103,6 +104,7 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_settings_admin_router(container))  # /api/admin app-level actions (restart, ...)
     app.include_router(build_media_admin_router(container))  # /api/admin/thumbnails (admin-only)
     app.include_router(build_housekeeping_admin_router(container))  # /api/admin/housekeeping (admin-only)
+    app.include_router(build_backup_admin_router(container))  # /api/admin/backups (admin-only)
     app.include_router(build_stats_router(container))
     app.include_router(build_backend_router(container))  # All backend endpoints consolidated here
     app.include_router(build_provisioning_admin_router(container))  # Compute provisioning (admin-only)

@@ -341,7 +341,7 @@ class TestPluginManifestSchema(unittest.TestCase):
         ]))
 
         tool = schema.history_tools[0]
-        self.assertEqual(tool.icon, 'tool')
+        self.assertEqual(tool.icon, 'extension')
         self.assertEqual(tool.description, '')
         self.assertIsNone(tool.applies_to.min_selection)
         self.assertIsNone(tool.applies_to.max_selection)

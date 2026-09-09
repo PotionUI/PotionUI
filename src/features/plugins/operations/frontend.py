@@ -78,7 +78,7 @@ def get_active_history_tools(repo: PluginRepository, registry: PluginRegistry) -
                 "plugin_id": manifest.id,
                 "label": tool_def.get("label"),
                 "description": tool_def.get("description", ""),
-                "icon": tool_def.get("icon", "tool"),
+                "icon": tool_def.get("icon", "extension"),
                 "category": tool_def.get("category"),
                 "component": f"plugin:{manifest.id}:{tool_def.get('component')}",
                 "applies_to": {

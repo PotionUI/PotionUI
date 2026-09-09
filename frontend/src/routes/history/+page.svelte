@@ -30,8 +30,13 @@
 	import HistoryAddTagModal from './components/HistoryAddTagModal.svelte';
 	import HistoryBulkDeleteModal from './components/HistoryBulkDeleteModal.svelte';
 	import HistoryDeleteByTagsModal from './components/HistoryDeleteByTagsModal.svelte';
-	import HistoryCompareModal from './components/HistoryCompareModal.svelte';
+	import HistoryToolHost from './components/HistoryToolHost.svelte';
+	import { registerCoreHistoryTools } from './tools/coreTools';
+	import { loadPluginHistoryTools } from '$lib/history/pluginTools';
+	import type { HistoryTool, HistoryToolContext } from '$lib/history/tools';
 	import type { GenerationHistoryItem } from '$lib/types/history';
+
+	registerCoreHistoryTools();
 
 	let showDeleteModal = false;
 	let generationToDelete: GenerationHistoryItem | null = null;
@@ -39,21 +44,29 @@
 	let showBulkDeleteModal = false;
 	let showUploadModal = false;
 	let showDeleteByTagsModal = false;
-	let showCompareModal = false;
 	let sidebarOpen = true;
+
+	// The tool picked from the selection bar's Tools menu, with the selection
+	// snapshot it was picked for.
+	let activeTool: HistoryTool | null = null;
+	let activeToolContext: HistoryToolContext | null = null;
 
 	$: currentState = $historyStore;
 	$: availableTags = currentState.availableTags;
 
-	// The two selected generations for the compare modal (exactly 2 when enabled).
-	$: compareItems = currentState.generations.filter((gen) =>
-		currentState.selectedGenerationIds.includes(gen.id)
-	);
+	function handleToolSelect(tool: HistoryTool, context: HistoryToolContext) {
+		activeTool = tool;
+		activeToolContext = context;
+	}
 
-	function handleCompareClick() {
-		if (compareItems.length === 2) {
-			showCompareModal = true;
-		}
+	function closeTool() {
+		activeTool = null;
+		activeToolContext = null;
+	}
+
+	function finishTool() {
+		closeTool();
+		historyStore.clearSelection();
 	}
 
 	// ── Live status updates ────────────────────────────────────────────────
@@ -144,6 +157,7 @@
 		historyStore.loadGenerations().then(() => historyStore.loadTags());
 		historyStore.loadFacets();
 		collectionsStore.load();
+		void loadPluginHistoryTools();
 
 		versionWatcher = createHistoryVersionWatcher({
 			fetchVersion: async () => {
@@ -266,7 +280,7 @@
 
 		<HistorySelectionToolbar
 			onBulkDeleteClick={() => (showBulkDeleteModal = true)}
-			onCompareClick={handleCompareClick}
+			onToolSelect={handleToolSelect}
 		/>
 
 		<HistoryGrid onDeleteRequest={handleDeleteRequest} />
@@ -313,14 +327,13 @@
 	<HistoryDeleteByTagsModal onClose={() => (showDeleteByTagsModal = false)} />
 {/if}
 
-<!-- Compare Modal -->
-{#if showCompareModal && compareItems.length === 2}
-	<HistoryCompareModal
-		left={compareItems[0]}
-		right={compareItems[1]}
-		onClose={() => (showCompareModal = false)}
-	/>
-{/if}
+<!-- The one mount point for whichever tool the Tools menu picked -->
+<HistoryToolHost
+	tool={activeTool}
+	context={activeToolContext}
+	onClose={closeTool}
+	onDone={finishTool}
+/>
 
 <!-- Upload Generation Modal -->
 <UploadGenerationModal

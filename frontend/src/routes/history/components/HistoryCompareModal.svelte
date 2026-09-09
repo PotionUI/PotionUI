@@ -9,12 +9,16 @@
 	import type { GenerationHistoryItem, GenerationFile } from '$lib/types/history';
 	import type { GenerationParamModel } from '$lib/types/generation';
 	import { isImageFileType, isVideoFileType } from '$lib/utils/fileType';
+	import type { HistoryToolContext } from '$lib/history/tools';
 
-	export let left: GenerationHistoryItem;
-	export let right: GenerationHistoryItem;
+	// Mounted by the History Tools host as the `compare` tool, which only
+	// offers it when exactly two generations are selected.
+	export let context: HistoryToolContext;
 	export let onClose: () => void;
-	/** Only mounted from inside a parent `{#if}` today; default keeps that call site unchanged. */
-	export let isOpen: boolean = true;
+	export let onDone: () => void;
+
+	$: left = context.generations[0];
+	$: right = context.generations[1];
 
 	interface ParamsResult {
 		parameters: Record<string, unknown>;
@@ -124,7 +128,7 @@
 
 </script>
 
-<BaseModal {isOpen} size="xl" on:close={onClose}>
+<BaseModal isOpen={true} size="xl" on:close={onClose}>
 	<svelte:fragment slot="headerIcon">
 		<Icon name="layers" className="w-4 h-4 text-signal" />
 	</svelte:fragment>

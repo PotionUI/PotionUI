@@ -648,7 +648,7 @@ def test_get_active_history_tools_defaults_applies_to(mock_plugin_repo, mock_plu
             "id": "thing",
             "label": "Thing",
             "description": "",
-            "icon": "tool",
+            "icon": "extension",
             "category": "analyze",
             "component": "Thing.svelte",
         }],

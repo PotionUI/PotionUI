@@ -48,7 +48,7 @@ function mountToolbar() {
 		target,
 		props: {
 			onBulkDeleteClick: () => {},
-			onCompareClick: () => {}
+			onToolSelect: () => {}
 		}
 	});
 	return {

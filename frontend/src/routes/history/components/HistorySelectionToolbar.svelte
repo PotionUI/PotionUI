@@ -8,11 +8,21 @@
 	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
 	import { libraryStore } from '$lib/stores/library';
 	import { summarizeCopyOutcome } from '$lib/library/copyToLibrary';
+	import HistoryToolsMenu from './HistoryToolsMenu.svelte';
+	import {
+		buildHistoryToolContext,
+		listHistoryToolGroups,
+		type HistoryTool,
+		type HistoryToolContext,
+		type HistoryToolGroup
+	} from '$lib/history/tools';
+	import { historyToolRegistrations } from '$lib/history/pluginTools';
 
 	// Self-contained: reads/writes historyStore directly. Only the bulk delete
-	// confirmation modal and compare modal live on the page (need shared state).
+	// confirmation modal and the picked tool's modal live on the page (need
+	// shared state).
 	export let onBulkDeleteClick: () => void;
-	export let onCompareClick: () => void;
+	export let onToolSelect: (tool: HistoryTool, context: HistoryToolContext) => void;
 
 	$: currentState = $historyStore;
 	$: generations = $filteredGenerations;
@@ -22,9 +32,16 @@
 
 	const { message: feedback, flash } = createFlashMessage();
 
-	let stripMetadata = false;
-	let exporting = false;
 	let copyingToLibrary = false;
+
+	$: toolContext = buildHistoryToolContext(generations, selectedIds, activeCollectionId ?? null);
+	// The registry is a plain module map, so the plugin snapshot landing is the
+	// only signal that the menu has to be rebuilt.
+	$: toolGroups = groupsFor(toolContext, $historyToolRegistrations);
+
+	function groupsFor(context: HistoryToolContext, _registrations: number): HistoryToolGroup[] {
+		return listHistoryToolGroups(context);
+	}
 
 	// Copy, not move: the generations stay in history untouched and the copies
 	// land in the library stripped of every generation field.
@@ -109,22 +126,6 @@
 			return false;
 		}
 	}
-
-	async function handleExport(): Promise<boolean> {
-		if (selectedIds.length === 0) return false;
-		try {
-			exporting = true;
-			await api.exportGenerations(selectedIds, stripMetadata);
-			flash('Export started');
-			return true;
-		} catch (e) {
-			logger.error('Export failed:', getErrorMessage(e));
-			flash('Export failed');
-			return false;
-		} finally {
-			exporting = false;
-		}
-	}
 </script>
 
 <SelectionActionBar
@@ -140,22 +141,6 @@
 	onCreateAndAddToCollection={handleCreateAndAdd}
 >
 	<svelte:fragment slot="actionsBeforeCollection">
-		<!-- Compare (exactly 2) -->
-		<button
-			class="px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed {selectedIds.length ===
-			2
-				? 'text-fg-muted hover:text-fg hover:bg-surface-2'
-				: 'text-fg-muted'}"
-			disabled={selectedIds.length !== 2}
-			title={selectedIds.length === 2
-				? 'Compare the two selected generations'
-				: 'Select exactly 2 to compare'}
-			on:click={onCompareClick}
-		>
-			<Icon name="layers" className="w-4 h-4" />
-			Compare
-		</button>
-
 		<!-- Copy the selected generations' media into the private library -->
 		<button
 			class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -181,47 +166,13 @@
 			</button>
 		{/if}
 
-		<!-- Download zip -->
-		<div class="relative">
-			<button
-				class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
-				on:click={() => toggleMenu('export')}
-				aria-haspopup="menu"
-				aria-expanded={activeMenu === 'export'}
-			>
-				<Icon name="download" className="w-4 h-4" />
-				Download .zip
-				<Icon name="chevron-up" className="w-3 h-3" />
-			</button>
-			{#if activeMenu === 'export'}
-				<div
-					class="absolute bottom-full mb-2 right-0 w-60 bg-surface-1 border border-line-strong rounded-lg shadow-overlay p-3 flex flex-col gap-3"
-					role="menu"
-				>
-					<label class="flex items-center gap-2 text-sm text-fg-muted cursor-pointer">
-						<input type="checkbox" bind:checked={stripMetadata} class="accent-accent" />
-						Strip metadata
-					</label>
-					<button
-						class="w-full px-3 py-1.5 bg-accent text-accent-contrast text-sm rounded hover:bg-accent-hover transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-						disabled={exporting}
-						on:click={async () => {
-							if (await handleExport()) closeMenus();
-						}}
-					>
-						{#if exporting}
-							<span
-								class="w-4 h-4 rounded-full border-2 border-line-strong border-t-current animate-spin"
-							></span>
-							Zipping…
-						{:else}
-							<Icon name="download" className="w-4 h-4" />
-							Download {selectedIds.length}
-						{/if}
-					</button>
-				</div>
-			{/if}
-		</div>
+		<HistoryToolsMenu
+			open={activeMenu === 'tools'}
+			groups={toolGroups}
+			onToggle={() => toggleMenu('tools')}
+			onClose={closeMenus}
+			onPick={(tool) => onToolSelect(tool, toolContext)}
+		/>
 
 		<!-- Delete Button -->
 		<button

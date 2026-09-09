@@ -496,7 +496,7 @@ history_tools:
   - id: "contact-sheet"                  # unique within the plugin; served as "<plugin_id>:<id>"
     label: "Contact sheet"
     description: "Lay the selected images out on one sheet"   # optional
-    icon: "grid"                          # optional, an Icon name; default "tool"
+    icon: "grid"                          # optional, an Icon name; default "extension"
     category: "compose"                   # core: analyze | compose | export; any other string = a plugin-owned group
     component: "ContactSheetModal.svelte" # your plugin frontend asset, same build as any other
     applies_to:                           # optional; every key optional

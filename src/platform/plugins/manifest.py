@@ -353,7 +353,7 @@ class HistoryToolSpec(BaseModel):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
     label: str = Field(min_length=1)
     description: str = ""
-    icon: str = "tool"
+    icon: str = "extension"
     category: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9_-]*$")
     component: str = Field(min_length=1)
     applies_to: HistoryToolAppliesTo = Field(default_factory=HistoryToolAppliesTo)

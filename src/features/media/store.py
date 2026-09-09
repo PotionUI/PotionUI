@@ -486,6 +486,14 @@ class MediaStore:
         if blocked:
             raise ValueError(hook_data.get("block_reason", "Upload blocked"))
 
+        content_hash = hashlib.sha256(file_data).hexdigest()
+
+        # Reuse only when the matching row's file is still on disk.
+        if user_id:
+            existing = self.upload_repo.find_by_hash(user_id, content_hash, purpose)
+            if existing and self.storage_driver.exists(self._upload_key(existing.filename)):
+                return self._upload_result_from_existing(existing)
+
         # Generate unique filename and store it through the configured
         # backend (local disk by default, optionally S3 - see
         # `StorageSettings`).
@@ -537,6 +545,7 @@ class MediaStore:
             fps=fps,
             purpose=purpose,
             thumbnail_paths=thumbnail_paths,
+            content_hash=content_hash,
         )
 
         if purpose == UPLOAD_PURPOSE_USER and created_upload and self.media_types.is_video(file_ext):
@@ -552,6 +561,24 @@ class MediaStore:
             height=height,
             duration_seconds=duration_seconds,
             fps=fps
+        )
+
+    def _upload_result_from_existing(self, existing: Upload) -> UploadResult:
+        """Response for a duplicate upload: the existing file, nothing written."""
+        key = self._upload_key(existing.filename)
+        stored_path = self.storage_driver.local_path(key)
+        display_path = str(stored_path) if stored_path is not None else key
+
+        return UploadResult(
+            path=display_path,
+            relative_path=key,
+            filename=existing.filename,
+            size=existing.file_size or 0,
+            url=f"/api/media/uploads/{existing.filename}",
+            width=existing.width,
+            height=existing.height,
+            duration_seconds=existing.duration_seconds,
+            fps=existing.fps,
         )
 
     def _generate_upload_image_thumbnails(self, file_data: bytes, stem: str) -> Dict[str, str]:
@@ -617,6 +644,7 @@ class MediaStore:
         fps: Optional[float],
         purpose: str = UPLOAD_PURPOSE_USER,
         thumbnail_paths: Optional[Dict[str, str]] = None,
+        content_hash: Optional[str] = None,
     ) -> Optional[Upload]:
         """Record ownership + metadata for a freshly-saved upload.
 
@@ -655,6 +683,7 @@ class MediaStore:
                 fps=fps,
                 file_size=file_size,
                 purpose=purpose,
+                content_hash=content_hash,
             ))
         except Exception as e:
             logger.warning(f"Failed to record upload ownership for {filename}: {e}")

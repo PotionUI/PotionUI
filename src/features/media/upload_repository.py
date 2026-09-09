@@ -26,8 +26,9 @@ class UploadRepository:
                 INSERT INTO uploads (
                     id, user_id, filename, original_filename, media_type, mime_type,
                     width, height, duration_seconds, fps, file_size, purpose,
-                    thumbnail_small, thumbnail_medium, thumbnail_large, thumbnail_profile
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    thumbnail_small, thumbnail_medium, thumbnail_large, thumbnail_profile,
+                    content_hash
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 upload.id,
                 upload.user_id,
@@ -45,6 +46,7 @@ class UploadRepository:
                 upload.thumbnail_medium,
                 upload.thumbnail_large,
                 upload.thumbnail_profile,
+                upload.content_hash,
             ))
 
             cursor.execute("SELECT * FROM uploads WHERE id = ?", (upload.id,))
@@ -94,6 +96,23 @@ class UploadRepository:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM uploads WHERE filename = ?", (filename,))
+            row = cursor.fetchone()
+            return Upload.from_row(row) if row else None
+
+    def find_by_hash(self, user_id: str, content_hash: str, purpose: str) -> Optional[Upload]:
+        """Newest upload of this user with the same bytes and purpose; the caller
+        still checks the file exists."""
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT * FROM uploads
+                 WHERE user_id = ? AND content_hash = ? AND purpose = ?
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT 1
+                """,
+                (user_id, content_hash, purpose),
+            )
             row = cursor.fetchone()
             return Upload.from_row(row) if row else None
 

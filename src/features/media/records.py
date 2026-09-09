@@ -40,6 +40,13 @@ class Upload:
     thumbnail_large: Optional[str] = None
     # Fingerprint of the ThumbnailProfile these thumbnails were rendered under.
     thumbnail_profile: Optional[str] = None
+    # sha256 hex digest of the uploaded bytes (migration 022). NULL for rows
+    # written before this column existed - they never dedupe until
+    # re-uploaded. Scoped to `user_id` (not global) by
+    # `UploadRepository.find_by_hash`: two users uploading the same bytes get
+    # two separate files, each independently deduped against their own past
+    # uploads.
+    content_hash: Optional[str] = None
 
     @classmethod
     def from_row(cls, row) -> 'Upload':
@@ -62,4 +69,5 @@ class Upload:
             thumbnail_medium=row_get(row, 'thumbnail_medium'),
             thumbnail_large=row_get(row, 'thumbnail_large'),
             thumbnail_profile=row_get(row, 'thumbnail_profile'),
+            content_hash=row_get(row, 'content_hash'),
         )

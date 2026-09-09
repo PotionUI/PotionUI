@@ -72,7 +72,7 @@ from src.pipelines.pipes._shared.vae.ltx_tiled_decode import (
     DECODE_NOISE_SEED_OFFSET,
     decode_with_oom_retry,
 )
-from src.pipelines.pipes._shared.generation.dit_placement import place_dit_for_sequence
+from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.freeinit import freeinit_blend, freeinit_config_specs, resolve_freeinit
 from src.pipelines.pipes._shared.generation.guidance_options import (
@@ -729,7 +729,7 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
         # though the same DiT comfortably fits a short clip. See
         # dit_placement.py's module docstring for the full reasoning; short
         # clips see byte-identical behaviour (full pin, same call).
-        place_dit_for_sequence(
+        placement = place_dit_for_sequence(
             c.bundle.dit, c.device, video_tokens=t_lat * h_lat * w_lat,
             own_models=(c.bundle.dit, c.vae),
         )
@@ -786,6 +786,12 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
         logger.debug("[GENERATOR LTX] video %d/%d, seed %d, latent %s%s", index + 1, ctx.quantity, seed, shape,
                     f", freeinit {iterations} extra pass(es)" if iterations else "")
 
+        # Only the FIRST forward of the first pass is guarded; see
+        # `guard_sampling_oom`. The estimate never refuses, so the real
+        # allocator is what decides whether this clip runs.
+        sample_forward = guard_sampling_oom(
+            model_forward, dit=c.bundle.dit, device=c.device, decision=placement,
+        )
         init_noise = noise
         latent = None
         for it in range(total_passes):
@@ -803,7 +809,7 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
                     hooks.append(preview_hook)
 
             latent = denoise(
-                model_forward, latents, cond, uncond,
+                sample_forward, latents, cond, uncond,
                 steps=c.steps, sampler_name=c.sampler,
                 sampling_settings=c.sampling_settings, guidance_scale=c.cfg,
                 seed_noise=init_noise, hooks=hooks, is_cancelled=ctx.is_cancelled,

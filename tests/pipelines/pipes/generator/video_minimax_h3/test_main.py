@@ -43,7 +43,10 @@ from src.pipelines.pipes.generator.video_minimax_h3.main import (
     validate_minimax_h3_config,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import CANVAS_MULTIPLE, FPS
-from src.pipelines.pipes._shared.generation.dit_placement import DitPlacementInfeasible
+from src.pipelines.pipes._shared.generation.dit_placement import DitPlacementDecision, SamplingOutOfMemory
+
+_MAIN = "src.pipelines.pipes.generator.video_minimax_h3.main"
+_PLACEMENT = "src.pipelines.pipes._shared.generation.dit_placement"
 from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.sampling.step_cache import FirstBlockCache
 from src.pipelines.pipes.generator.video_minimax_h3.schedule import (
@@ -2649,30 +2652,75 @@ def test_format_fit_hint_omits_the_duration_clause_when_not_computable():
     assert "1024x576" in text
 
 
-def test_infeasible_placement_reraises_with_the_fit_hint_appended():
-    """End to end: `_sample_window` catches `DitPlacementInfeasible`, appends
-    the fit hint, and re-raises the SAME exception type/attributes -- the
-    caller (`GenerationEngine`) still sees a `DitPlacementInfeasible`."""
-    def _raise(*_args, **_kwargs):
-        raise DitPlacementInfeasible(
-            "This clip needs about 34.6 GB of VRAM for activations at 102,869 video tokens "
-            "(+1,150 audio), but only 31.0 GB is free -- shorten the clip or lower the resolution.",
-            detail="activation_reserve_gb=30.35 extra_reserve_gb=4.21 total_reserve_gb=34.56 "
-                   "free_gb=31.00 video_tokens=102869 audio_tokens=1150",
-            total_reserve_gb=34.56, activation_reserve_gb=30.35, extra_reserve_gb=4.21,
-            free_gb=31.0, video_tokens=102_869, audio_tokens=1_150,
-        )
+class _OomForward:
+    """Stands in for `_MiniMaxH3Forward`: every call raises the real
+    `torch.cuda.OutOfMemoryError` (constructing and raising it needs no
+    device), so the guard's ladder runs to exhaustion."""
 
-    with patch("src.pipelines.pipes.generator.video_minimax_h3.main.place_dit_for_sequence", side_effect=_raise):
-        with pytest.raises(DitPlacementInfeasible) as exc_info:
+    def __init__(self, *_args, **_kwargs) -> None:
+        self.calls = 0
+
+    def __call__(self, *_args, **_kwargs):
+        self.calls += 1
+        raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+
+    def release(self) -> None:
+        return None
+
+
+def test_sampling_oom_raises_with_the_fit_hint_appended():
+    """End to end: placement no longer refuses, so the fit hint now rides the
+    post-OOM failure. `_sample_window` wraps its forward in the shared ladder;
+    when that is exhausted the user-facing `SamplingOutOfMemory` carries the
+    MEASURED free VRAM plus H3's own "what would fit" text."""
+    # The DiT is already fully streamed (partial, zero weight budget), so the
+    # ladder has no weight left to shed -- it retries once and gives up.
+    placement = DitPlacementDecision(
+        "partial", 19.52, 30.35, 0.0, 102_869, 1_150, 4.21, True, 1.4,
+    )
+    with patch(f"{_MAIN}.place_dit_for_sequence", return_value=placement), \
+         patch(f"{_MAIN}._MiniMaxH3Forward", _OomForward), \
+         patch(f"{_PLACEMENT}.free_vram_gb", return_value=28.0), \
+         patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=31.0):
+        with pytest.raises(SamplingOutOfMemory) as exc_info:
             _run_generate_one({}, ctx_overrides={"height": 768, "width": 1344, "num_latent_frames": 107})
 
     err = exc_info.value
-    assert "shorten the clip or lower the resolution." in str(err)
-    assert "fits on this card" in str(err) or "would fit at about" in str(err)
-    assert err.total_reserve_gb == pytest.approx(34.56)
+    text = str(err)
+    assert "ran out of VRAM" in text
+    assert "streamed from RAM" in text
+    assert "31.0 GB free at the time" in text          # MEASURED, not estimated
+    assert "shorten the clip or lower the resolution" in text
+    assert "fits on this card" in text or "would fit at about" in text
+    assert err.free_effective_gb == pytest.approx(31.0)
+    assert err.free_raw_gb == pytest.approx(28.0)
     assert err.video_tokens == 102_869
     assert err.audio_tokens == 1_150
+
+
+def test_the_fit_hint_is_built_from_the_free_vram_measured_at_failure():
+    # Not from the pre-flight estimate: two different free readings must give
+    # two different hints for the same clip.
+    placement = DitPlacementDecision(
+        "partial", 19.52, 30.35, 0.0, 102_869, 1_150, 4.21, True, 1.4,
+    )
+    texts = []
+    for free_gb in (12.0, 31.0):
+        with patch(f"{_MAIN}.place_dit_for_sequence", return_value=placement), \
+             patch(f"{_MAIN}._MiniMaxH3Forward", _OomForward), \
+             patch(f"{_PLACEMENT}.free_vram_gb", return_value=free_gb), \
+             patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=free_gb):
+            with pytest.raises(SamplingOutOfMemory) as exc_info:
+                _run_generate_one({}, ctx_overrides={"height": 768, "width": 1344, "num_latent_frames": 107})
+        texts.append(str(exc_info.value))
+    assert texts[0] != texts[1]
+
+
+def test_a_sampling_forward_that_succeeds_is_never_touched_by_the_guard():
+    # The ladder must be invisible on the happy path -- every existing H3 test
+    # runs through `guard_sampling_oom` now.
+    pipe, seen = _run_generate_one({})
+    assert seen  # the DiT saw every step; nothing was intercepted
 
 
 # -- sampler / scheduler wiring into the loop ---------------------------------

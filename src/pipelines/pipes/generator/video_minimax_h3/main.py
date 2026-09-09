@@ -115,7 +115,7 @@ from src.platform.runtime.native.arch.minimax_h3.vdn import (
     window_bounds,
 )
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext, emit_gallery
-from src.pipelines.pipes._shared.generation.dit_placement import DitPlacementInfeasible, place_dit_for_sequence
+from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.reference_order import pack_references
 from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
@@ -1806,45 +1806,36 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 sparse_attn_reserve,
             )
 
-        try:
-            place_dit_for_sequence(
-                # Text rows ride the SAME packed attention document as
-                # video/audio (dossier §A.2: no cross-attention, one
-                # sequence) -- folded into `video_tokens` since
-                # `place_dit_for_sequence`'s reserve is sized off the TOTAL
-                # sequence length, not "video" in the LTX sense (LTX's own
-                # text conditioning is cross-attention, off-sequence; H3 has
-                # none, so every row here is part of the one S this function
-                # budgets for).
-                c.bundle.dit, c.device,
-                video_tokens=video_rows.shape[0] + layout.text_indices.numel(), audio_tokens=audio_rows.shape[0],
-                own_models=(c.bundle.dit, c.bundle.video_vae, c.bundle.audio_vae),
-                inner_dim=H3_INNER_DIM, ffn_dim=H3_FFN_DIM,
-                # 0.0 unless a sparse-attention method is on: its routing and QKV
-                # copies are the one piece of this generation's GPU work the
-                # token-derived reserve cannot see.
-                reserve_gb=max(sparse_attn_reserve, vdn_reserve_gb(vdn_layout)),
-            )
-        except DitPlacementInfeasible as exc:
-            # Re-raised with an H3-specific fit hint appended -- the base
-            # message alone doesn't tell the user what WOULD fit this card.
-            # `exc.video_tokens + exc.audio_tokens` (not `video_tokens`
-            # alone) matches the total S `estimate_activation_reserve_gb`
-            # actually scaled `exc.activation_reserve_gb` off (see the call
-            # above's own comment on why H3 folds text+video+audio into one
-            # sequence length).
+        # Text rows ride the SAME packed attention document as video/audio
+        # (dossier §A.2: no cross-attention, one sequence) -- folded into
+        # `video_tokens` since `place_dit_for_sequence`'s reserve is sized
+        # off the TOTAL sequence length, not "video" in the LTX sense (LTX's
+        # own text conditioning is cross-attention, off-sequence; H3 has
+        # none, so every row here is part of the one S this function budgets
+        # for).
+        # ONE hint, two consumers: the over-commit warning renders it against
+        # the pre-flight free reading, the post-OOM error against what was
+        # actually measured when sampling died. `tokens` is the TOTAL S the
+        # reserve was scaled off (text + video + audio), matching the
+        # `video_tokens` the placement call below folds them into.
+        def _h3_fit_hint(free_gb, *, activation_reserve_gb, extra_reserve_gb, tokens):
             hint = _fit_hint(
-                exc.free_gb, exc.extra_reserve_gb, exc.activation_reserve_gb,
-                exc.video_tokens + exc.audio_tokens, num_latent_frames, FPS, c.width, c.height,
+                free_gb, extra_reserve_gb, activation_reserve_gb, tokens,
+                num_latent_frames, FPS, c.width, c.height,
             )
-            hint_text = _format_fit_hint(hint, c.width, c.height)
-            raise DitPlacementInfeasible(
-                f"{exc}{' ' + hint_text if hint_text else ''}",
-                detail=exc.detail,
-                total_reserve_gb=exc.total_reserve_gb, activation_reserve_gb=exc.activation_reserve_gb,
-                extra_reserve_gb=exc.extra_reserve_gb, free_gb=exc.free_gb,
-                video_tokens=exc.video_tokens, audio_tokens=exc.audio_tokens,
-            ) from exc
+            return _format_fit_hint(hint, c.width, c.height)
+
+        placement = place_dit_for_sequence(
+            c.bundle.dit, c.device,
+            video_tokens=video_rows.shape[0] + layout.text_indices.numel(), audio_tokens=audio_rows.shape[0],
+            own_models=(c.bundle.dit, c.bundle.video_vae, c.bundle.audio_vae),
+            inner_dim=H3_INNER_DIM, ffn_dim=H3_FFN_DIM,
+            # 0.0 unless a sparse-attention method is on: its routing and QKV
+            # copies are the one piece of this generation's GPU work the
+            # token-derived reserve cannot see.
+            reserve_gb=max(sparse_attn_reserve, vdn_reserve_gb(vdn_layout)),
+            fit_hint=_h3_fit_hint,
+        )
         # `c.bundle.dit.device` is the wrapper's OWN placement contract (set by
         # `move_to`/the streamer's `apply` even under partial residency --
         # engine.py keeps it as the intended compute device regardless of
@@ -1859,6 +1850,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             compute_dtype=getattr(c.bundle.dit, "compute_dtype", None),
             compute_device=torch.device(dit_device) if dit_device is not None else None,
             vdn_layout=vdn_layout,
+        )
+
+        sample_forward = guard_sampling_oom(
+            forward, dit=c.bundle.dit, device=c.device, decision=placement, fit_hint=_h3_fit_hint,
         )
 
         reported_total = progress_total if progress_total is not None else num_steps
@@ -1902,7 +1897,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 is_final_step = step_index == num_steps - 1
                 if sparse_attn_ctx is not None:
                     sparse_attn_ctx.dense = is_dense_step(step_index, num_steps, dense_last_steps)
-                video_pred, audio_pred = forward(
+                video_pred, audio_pred = sample_forward(
                     video_rows, audio_rows, unique_timesteps.to(c.device), timestep_indices.to(c.device),
                     step_cache=None if is_final_step else step_cache,
                     sparse_attn_ctx=sparse_attn_ctx,

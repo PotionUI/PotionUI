@@ -110,7 +110,7 @@ from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutput
 from src.pipelines.outputs import Icon
 from src.platform.runtime.device import clear_gpu_memory
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
-from src.pipelines.pipes._shared.generation.dit_placement import place_dit_for_sequence
+from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
 from src.pipelines.pipes._shared.generation.ltx_conditioned_forward import ConditionedAVForward
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.loader_helpers import (
@@ -758,7 +758,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         # appended conditioning tokens (media keyframes / IC-LoRA references);
         # audio_tokens covers the appended audio stream when audio generation
         # is on -- both ride the same packed sampler state ``x``.
-        place_dit_for_sequence(
+        placement = place_dit_for_sequence(
             c.bundle.dit, c.device, video_tokens=s_video, audio_tokens=c.audio_tokens,
             own_models=tuple(m for m in (c.bundle.dit, c.bundle.vae, c.bundle.audio_vae, c.bundle.vocoder) if m is not None),
         )
@@ -810,9 +810,12 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         # (project rule: refinement shares the generation LoRA chain, this
         # only ADDS to it). Empty stack (no stage2_loras, or not a refine
         # call) -> no-op, byte-identical to before this feature existed.
+        sample_forward = guard_sampling_oom(
+            forward, dit=c.bundle.dit, device=c.device, decision=placement,
+        )
         with temporarily_applied_loras(c.bundle.dit.module, c.stage2_lora_stack):
             x = denoise_prenoised(
-                forward, x, cond, uncond,
+                sample_forward, x, cond, uncond,
                 steps=c.steps, sampler_name=c.sampler,
                 sampling_settings=c.sampling_settings, guidance_scale=c.cfg,
                 sigmas=sigmas, hooks=hooks, is_cancelled=ctx.is_cancelled,

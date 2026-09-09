@@ -16,6 +16,7 @@ no actual device).
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -24,15 +25,18 @@ import pytest
 import torch
 import torch.nn as nn
 
+from vendor.gpl.comfyui.ops import _add_lora_output_branch, _lora_output_branch
+
 from src.pipelines.pipes._shared.generation.dit_placement import (
     _ACTIVATION_RESERVE_FLOOR_GB,
-    _dit_has_active_lora,
-    _dit_lora_delta_gb,
+    _dit_lora_profile,
     _ffn_transient_bytes_per_token,
     _LTX_INNER_DIM,
+    DitLoraProfile,
     DitPlacementDecision,
-    DitPlacementInfeasible,
+    SamplingOutOfMemory,
     estimate_activation_reserve_gb,
+    guard_sampling_oom,
     place_dit_for_sequence,
 )
 
@@ -127,31 +131,51 @@ def test_place_dit_for_sequence_threads_inner_dim_into_the_reserve(monkeypatch):
     assert decision_wide.mode == "partial"
 
 
-# -- LoRA output-branch term -------------------------------------------
+# -- LoRA cost terms ------------------------------------------------------
 
-def test_lora_active_defaults_to_off_no_behavior_change():
+def test_empty_lora_profile_is_the_default_no_behavior_change():
     assert estimate_activation_reserve_gb(50_000) == estimate_activation_reserve_gb(
-        50_000, lora_active=False,
+        50_000, lora=DitLoraProfile(),
     )
 
 
-def test_lora_active_increases_the_reserve_above_the_floor():
-    # well above the floor so the LoRA term's contribution is visible.
-    without = estimate_activation_reserve_gb(50_000, lora_active=False)
-    with_lora = estimate_activation_reserve_gb(50_000, lora_active=True)
-    assert with_lora > without
+def test_a_merely_active_lora_profile_costs_nothing():
+    # The common case: plain deltas on quantized Linears, applied by the
+    # chunked activation-side branch. Nothing there scales with S, so a
+    # resident LoRA must not move the reserve at all.
+    plain = DitLoraProfile(active=True, delta_bytes=1_400_000_000)
+    assert estimate_activation_reserve_gb(50_000, lora=plain) == estimate_activation_reserve_gb(50_000)
 
 
-def test_lora_active_is_a_no_op_at_zero_tokens_the_floor_still_wins():
-    # zero tokens -> zero contribution from any per-token term, so both sides
-    # land on the same floor regardless of the LoRA flag.
-    assert estimate_activation_reserve_gb(0, lora_active=True) == _ACTIVATION_RESERVE_FLOOR_GB
-    assert estimate_activation_reserve_gb(0, lora_active=True) == estimate_activation_reserve_gb(
-        0, lora_active=False,
+def test_gemm_fast_path_output_buffer_adds_a_per_token_term():
+    without = estimate_activation_reserve_gb(50_000)
+    with_buffer = estimate_activation_reserve_gb(
+        50_000, lora=DitLoraProfile(output_buffer_out_features=8192, active=True),
     )
+    assert with_buffer > without
+    # Exactly the two (S, out_features) compute-dtype buffers the fast path
+    # holds at once -- not a fudge factor.
+    expected_extra_gb = (50_000 * 2 * 8192 * 2) / 1024 ** 3 * 1.15
+    assert with_buffer - without == pytest.approx(expected_extra_gb, rel=1e-6)
 
 
-# -- LoRA detection (_dit_has_active_lora) --------------------------------------
+def test_weight_side_deltas_add_a_flat_reserve_not_a_per_token_one():
+    lokr = DitLoraProfile(weight_side_bytes=2 * 5376 * 28672 * 2, active=True)
+    small = estimate_activation_reserve_gb(10_000, lora=lokr) - estimate_activation_reserve_gb(10_000)
+    large = estimate_activation_reserve_gb(200_000, lora=lokr) - estimate_activation_reserve_gb(200_000)
+    assert small == pytest.approx(large, rel=1e-6)
+    assert small == pytest.approx(lokr.weight_side_bytes / 1024 ** 3 * 1.15, rel=1e-6)
+
+
+def test_per_token_lora_terms_are_no_ops_at_zero_tokens_the_floor_still_wins():
+    # zero tokens -> zero contribution from any per-token term, so the floor
+    # wins regardless of the output-buffer width.
+    buffered = DitLoraProfile(output_buffer_out_features=8192, active=True)
+    assert estimate_activation_reserve_gb(0, lora=buffered) == _ACTIVATION_RESERVE_FLOOR_GB
+    assert estimate_activation_reserve_gb(0, lora=buffered) == estimate_activation_reserve_gb(0)
+
+
+# -- LoRA detection (_dit_lora_profile) --------------------------------------
 
 def _linear_with_deltas(deltas) -> nn.Linear:
     linear = nn.Linear(4, 4)
@@ -159,26 +183,63 @@ def _linear_with_deltas(deltas) -> nn.Linear:
     return linear
 
 
+def _plain_delta(in_features: int, out_features: int, rank: int = 8, *, dtype=torch.float32):
+    """A delta shaped the way ``_deltas_output_branch_ok`` requires of an
+    output-side (activation-branch) adapter: ``down`` ``(rank, in)``, ``up``
+    ``(out, rank)``, no Kronecker factorisation, no target slice."""
+    return SimpleNamespace(
+        down=torch.zeros(rank, in_features, dtype=dtype),
+        up=torch.zeros(out_features, rank, dtype=dtype),
+        kron=False, target_slice=None, scale=1.0, alpha=float(rank),
+    )
+
+
+def _lokr_delta(in_features: int, out_features: int, *, dtype=torch.float32):
+    """A LoKr delta: ``kron`` is what pushes it onto the weight side."""
+    delta = _plain_delta(in_features, out_features, dtype=dtype)
+    delta.kron = True
+    return delta
+
+
+def _linear_with_lokr_delta(in_features: int, out_features: int) -> nn.Linear:
+    linear = nn.Linear(in_features, out_features)
+    linear.lora_deltas = [_lokr_delta(in_features, out_features)]
+    return linear
+
+
+def _quantized_linear(in_features: int, out_features: int, *, nvfp4: bool) -> nn.Linear:
+    """A Linear carrying the state a quantized vendored Linear's own forward
+    branches on -- ``_is_nvfp4`` for the nvfp4 GEMM path, ``weight_scale``
+    for the fp8 ``_scaled_mm`` one -- plus one output-side-eligible delta."""
+    linear = nn.Linear(in_features, out_features)
+    if nvfp4:
+        linear._is_nvfp4 = True
+    else:
+        linear.weight_scale = torch.ones(())
+    linear.lora_deltas = [_plain_delta(in_features, out_features)]
+    return linear
+
+
 def test_dit_without_a_module_attribute_has_no_active_lora():
     dit, _ = _dit()  # the shared test double never sets .module
-    assert _dit_has_active_lora(dit) is False
+    assert _dit_lora_profile(dit).active is False
 
 
 def test_dit_module_that_is_not_an_nn_module_is_inactive():
     # Some pipe unit tests stub ``dit.module`` as a bare callable (the DiT
     # forward function itself, not a real ``nn.Module``) -- must not raise.
     dit = SimpleNamespace(module=lambda x: x)
-    assert _dit_has_active_lora(dit) is False
+    assert _dit_lora_profile(dit).active is False
 
 
 def test_dit_module_with_no_lora_deltas_attribute_anywhere_is_inactive():
     dit = SimpleNamespace(module=nn.Sequential(nn.Linear(4, 4), nn.ReLU()))
-    assert _dit_has_active_lora(dit) is False
+    assert _dit_lora_profile(dit).active is False
 
 
 def test_dit_module_with_only_empty_lora_deltas_is_inactive():
     dit = SimpleNamespace(module=nn.Sequential(_linear_with_deltas([]), _linear_with_deltas(None)))
-    assert _dit_has_active_lora(dit) is False
+    assert _dit_lora_profile(dit).active is False
 
 
 def test_dit_module_with_a_populated_lora_deltas_is_active():
@@ -186,7 +247,118 @@ def test_dit_module_with_a_populated_lora_deltas_is_active():
     dit = SimpleNamespace(
         module=nn.Sequential(_linear_with_deltas([]), _linear_with_deltas([active])),
     )
-    assert _dit_has_active_lora(dit) is True
+    assert _dit_lora_profile(dit).active is True
+
+
+# -- LoRA profile: which side each delta actually costs on ------------------
+#
+# The estimate must mirror vendor/gpl/comfyui/ops.py, so these assert against
+# that module's own behaviour rather than against copies of its constants.
+
+def test_the_chunked_activation_branch_allocates_nothing_extra():
+    # _add_lora_output_branch (the path a plain delta takes on every
+    # quantized Linear whose GEMM fast path is off, i.e. the default)
+    # accumulates INTO the layer's own output under no_grad -- it returns the
+    # very tensor it was handed, so there is no second S-sized buffer to
+    # reserve for. This is the fact the per-token term used to contradict.
+    out = torch.zeros(64, 32)
+    x = torch.zeros(64, 16)
+    with torch.no_grad():
+        result = _add_lora_output_branch(out, x, [_plain_delta(16, 32)], 32)
+    assert result is out
+
+
+def test_the_gemm_fast_path_branch_still_preallocates_an_s_sized_buffer():
+    # _lora_output_branch (what the nvfp4 / fp8 _scaled_mm fast paths add to
+    # their raw GEMM output) still returns a fresh (S, out_features) tensor,
+    # which is why the per-token term survives for those layers only.
+    x2d = torch.zeros(64, 16)
+    branch = _lora_output_branch(x2d, [_plain_delta(16, 32)], torch.float32, 32)
+    assert branch.shape == (64, 32)
+    assert branch.data_ptr() != x2d.data_ptr()
+
+
+def test_a_plain_delta_on_a_quantized_linear_costs_no_per_token_buffer_by_default():
+    # Both GEMM gates default to off, so the fast path is unreachable and the
+    # layer runs the chunked branch.
+    dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=True)))
+    profile = _dit_lora_profile(dit)
+    assert profile.active is True
+    assert profile.output_buffer_out_features == 0
+    assert profile.weight_side_bytes == 0
+
+
+def test_an_nvfp4_linear_costs_the_per_token_buffer_once_its_gate_is_on():
+    dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=True)))
+    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
+        profile = _dit_lora_profile(dit)
+    assert profile.output_buffer_out_features == 28672
+    assert profile.output_buffer_bytes_per_token == 2 * 28672 * 2
+
+
+def test_an_fp8_scaled_linear_costs_the_per_token_buffer_once_its_gate_is_on():
+    dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=False)))
+    with patch(f"{_MOD}._fp8_matmul_enabled", return_value=True):
+        profile = _dit_lora_profile(dit)
+    assert profile.output_buffer_out_features == 28672
+
+
+def test_the_nvfp4_gate_does_not_enable_an_fp8_layer_and_vice_versa():
+    fp8 = SimpleNamespace(module=nn.Sequential(_quantized_linear(512, 1024, nvfp4=False)))
+    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
+        assert _dit_lora_profile(fp8).output_buffer_out_features == 0
+    nvfp4 = SimpleNamespace(module=nn.Sequential(_quantized_linear(512, 1024, nvfp4=True)))
+    with patch(f"{_MOD}._fp8_matmul_enabled", return_value=True):
+        assert _dit_lora_profile(nvfp4).output_buffer_out_features == 0
+
+
+def test_an_unquantized_linear_never_reaches_a_gemm_fast_path():
+    linear = nn.Linear(512, 1024)
+    linear.lora_deltas = [_plain_delta(512, 1024)]
+    dit = SimpleNamespace(module=nn.Sequential(linear))
+    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True), \
+         patch(f"{_MOD}._fp8_matmul_enabled", return_value=True):
+        assert _dit_lora_profile(dit).output_buffer_out_features == 0
+
+
+def test_the_widest_fast_path_linear_sizes_the_per_token_buffer():
+    dit = SimpleNamespace(module=nn.Sequential(
+        _quantized_linear(5376, 5376, nvfp4=True),
+        _quantized_linear(5376, 28672, nvfp4=True),
+        _quantized_linear(14336, 5376, nvfp4=True),
+    ))
+    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
+        assert _dit_lora_profile(dit).output_buffer_out_features == 28672
+
+
+def test_a_lokr_delta_is_charged_weight_side_not_per_token():
+    dit = SimpleNamespace(module=nn.Sequential(_linear_with_lokr_delta(5376, 28672)))
+    profile = _dit_lora_profile(dit)
+    assert profile.output_buffer_out_features == 0
+    assert profile.weight_side_bytes == 2 * 28672 * 5376 * 2
+
+
+def test_the_widest_lokr_linear_sizes_the_flat_weight_side_reserve():
+    dit = SimpleNamespace(module=nn.Sequential(
+        _linear_with_lokr_delta(512, 512),
+        _linear_with_lokr_delta(5376, 28672),
+        _linear_with_lokr_delta(1024, 1024),
+    ))
+    assert _dit_lora_profile(dit).weight_side_bytes == 2 * 28672 * 5376 * 2
+
+
+def test_a_mixed_stack_is_split_per_delta_the_way_the_forward_splits_it():
+    # One Linear carrying both a LoKr and a plain adapter: the plain one
+    # rides the activation, only the LoKr one pays a weight-shaped delta --
+    # partition_output_branch_deltas' own per-delta contract.
+    linear = nn.Linear(5376, 28672)
+    linear._is_nvfp4 = True
+    linear.lora_deltas = [_lokr_delta(5376, 28672), _plain_delta(5376, 28672)]
+    dit = SimpleNamespace(module=nn.Sequential(linear))
+    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
+        profile = _dit_lora_profile(dit)
+    assert profile.output_buffer_out_features == 28672
+    assert profile.weight_side_bytes == 2 * 28672 * 5376 * 2
 
 
 # -- test doubles --------------------------------------------------------------
@@ -291,56 +463,122 @@ def test_cpu_device_is_a_plain_move_no_vram_queries():
     assert decision.mode == "cpu"
 
 
-# -- infeasibility gate: total_reserve alone exceeds free VRAM, refused BEFORE
-# any placement I/O rather than discovered after a stream + a first-forward
-# OOM (the maintainer's MiniMax-H3 VDN trace: 34.6GB total reserve on a
-# 31.4GB card, streamed for 12s before dying).
+# -- over-commit: total_reserve alone exceeds free VRAM. The estimate WARNS
+# and places anyway (streaming the DiT); it never refuses. The real allocator
+# gets the last word in guard_sampling_oom. ------------------------------
 
-def test_infeasible_when_activation_reserve_alone_exceeds_free_vram():
+def test_over_commit_warns_and_places_instead_of_raising(caplog):
     dit, calls = _dit(estimated_vram_gb=15.65)
     patches, manager = _patched(free_gb=31.0)
-    with patches[0], patches[1], patches[2]:
-        with pytest.raises(DitPlacementInfeasible) as exc_info:
+    with caplog.at_level(logging.WARNING, logger=_MOD):
+        with patches[0], patches[1], patches[2]:
+            decision = place_dit_for_sequence(
+                dit, "cuda", video_tokens=102_869, audio_tokens=1_150,
+                inner_dim=H3_ATTN_INNER_DIM, ffn_dim=14336, reserve_gb=4.21,
+            )
+    assert decision.activation_reserve_gb + decision.extra_reserve_gb > 31.0
+    assert decision.mode == "partial"
+    assert decision.weight_budget_gb == pytest.approx(0.0, abs=1e-9)
+    assert calls["move_to"] == []
+    assert len(calls["stream_to"]) == 1
+    warning = "\n".join(r.getMessage() for r in caplog.records)
+    assert "over-committed" in warning
+    assert "102869" in warning or "102,869" in warning
+
+
+def test_over_commit_still_reports_the_numbers_it_used_to_refuse_with(caplog):
+    dit, calls = _dit(estimated_vram_gb=15.65)
+    patches, manager = _patched(free_gb=31.0)
+    with caplog.at_level(logging.WARNING, logger=_MOD):
+        with patches[0], patches[1], patches[2]:
+            decision = place_dit_for_sequence(
+                dit, "cuda", video_tokens=102_869, audio_tokens=1_150,
+                inner_dim=H3_ATTN_INNER_DIM, ffn_dim=14336, reserve_gb=4.21,
+            )
+    assert decision.video_tokens == 102_869
+    assert decision.audio_tokens == 1_150
+    assert decision.extra_reserve_gb == pytest.approx(4.21)
+    warning = "\n".join(r.getMessage() for r in caplog.records)
+    # The same free/reserve numbers the old refusal detail carried.
+    assert "31.00" in warning
+    assert f"{decision.activation_reserve_gb:.2f}" in warning
+
+
+def test_the_over_commit_warning_carries_the_family_fit_hint(caplog):
+    seen = {}
+
+    def hint(free_gb, *, activation_reserve_gb, extra_reserve_gb, tokens):
+        seen.update(free_gb=free_gb, activation_reserve_gb=activation_reserve_gb,
+                    extra_reserve_gb=extra_reserve_gb, tokens=tokens)
+        return "A 4s clip fits on this card at 1344x768."
+
+    dit, _calls = _dit(estimated_vram_gb=15.65)
+    patches, manager = _patched(free_gb=31.0)
+    with caplog.at_level(logging.WARNING, logger=_MOD):
+        with patches[0], patches[1], patches[2]:
+            place_dit_for_sequence(
+                dit, "cuda", video_tokens=102_869, audio_tokens=1_150,
+                inner_dim=H3_ATTN_INNER_DIM, ffn_dim=14336, reserve_gb=4.21, fit_hint=hint,
+            )
+    warning = "\n".join(r.getMessage() for r in caplog.records)
+    assert "A 4s clip fits on this card at 1344x768." in warning
+    # Rendered against the PRE-FLIGHT free reading and the reserve it covers.
+    assert seen["free_gb"] == pytest.approx(31.0)
+    assert seen["extra_reserve_gb"] == pytest.approx(4.21)
+    assert seen["tokens"] == 104_019
+
+
+def test_a_broken_fit_hint_never_suppresses_the_over_commit_warning(caplog):
+    def hint(*_a, **_k):
+        raise ValueError("hint is broken")
+
+    dit, _calls = _dit(estimated_vram_gb=15.65)
+    patches, manager = _patched(free_gb=31.0)
+    with caplog.at_level(logging.WARNING, logger=_MOD):
+        with patches[0], patches[1], patches[2]:
+            decision = place_dit_for_sequence(
+                dit, "cuda", video_tokens=102_869, audio_tokens=1_150,
+                inner_dim=H3_ATTN_INNER_DIM, ffn_dim=14336, reserve_gb=4.21, fit_hint=hint,
+            )
+    assert "over-committed" in "\n".join(r.getMessage() for r in caplog.records)
+    assert decision.mode == "partial"
+
+
+def test_no_fit_hint_leaves_the_over_commit_warning_unchanged(caplog):
+    dit, _calls = _dit(estimated_vram_gb=15.65)
+    patches, manager = _patched(free_gb=31.0)
+    with caplog.at_level(logging.WARNING, logger=_MOD):
+        with patches[0], patches[1], patches[2]:
             place_dit_for_sequence(
                 dit, "cuda", video_tokens=102_869, audio_tokens=1_150,
                 inner_dim=H3_ATTN_INNER_DIM, ffn_dim=14336, reserve_gb=4.21,
             )
-    err = exc_info.value
-    assert err.video_tokens == 102_869
-    assert err.audio_tokens == 1_150
-    assert err.extra_reserve_gb == pytest.approx(4.21)
-    assert err.free_gb == pytest.approx(31.0)
-    assert err.total_reserve_gb == pytest.approx(err.activation_reserve_gb + err.extra_reserve_gb)
-    assert err.total_reserve_gb > err.free_gb
-    # The message reaches the user verbatim (GenerationEngine only substitutes
-    # its own summary when `.detail` is falsy) -- must carry the actionable
-    # numbers, not a generic "something went wrong".
-    assert "102,869" in str(err)
-    assert "31.0" in str(err)
-    assert calls["move_to"] == []
-    assert calls["stream_to"] == []
-    assert calls["offload"] == 0
+    warning = "\n".join(r.getMessage() for r in caplog.records)
+    assert warning.rstrip().endswith("streaming the DiT and sampling anyway.")
 
 
-def test_infeasible_never_offloads_a_foreign_resident_before_raising():
+def test_over_commit_does_not_evict_a_foreign_resident_owned_by_this_generation():
     dit, calls = _dit(estimated_vram_gb=15.65)
     patches, manager = _patched(free_gb=5.0)
     with patches[0], patches[1], patches[2]:
-        with pytest.raises(DitPlacementInfeasible):
-            place_dit_for_sequence(
-                dit, "cuda", video_tokens=102_869, audio_tokens=1_150,
-                inner_dim=H3_ATTN_INNER_DIM, ffn_dim=14336, own_models=(dit,),
-            )
-    assert manager.ensure_free_calls == []
-    assert manager.offload_all_calls == []
+        place_dit_for_sequence(
+            dit, "cuda", video_tokens=102_869, audio_tokens=1_150,
+            inner_dim=H3_ATTN_INNER_DIM, ffn_dim=14336, own_models=(dit,),
+        )
+    # It DOES try to make room now (it no longer bails out first), but never
+    # at the expense of this generation's own models.
+    for _device, _need, _free, exclude in manager.ensure_free_calls:
+        assert dit in exclude
+    for _device, exclude in manager.offload_all_calls:
+        assert dit in exclude
 
 
-def test_total_reserve_exactly_equal_to_free_is_not_refused():
+def test_total_reserve_exactly_equal_to_free_places_with_a_zero_budget():
     # `total_reserve == free` leaves a zero weight budget (still correctly
     # "partial", not "resident" -- there's no room left for the DiT's own
-    # weight), but it must NOT raise: the gate is `>`, not `>=`, matching
-    # every other boundary in this module (weight_budget clamps at 0, never
-    # goes negative).
+    # weight), and does not even warn: the over-commit check is `>`, not
+    # `>=`, matching every other boundary in this module (weight_budget
+    # clamps at 0, never goes negative).
     dit, calls = _dit(estimated_vram_gb=1.0)
     reserve = estimate_activation_reserve_gb(50_000)
     patches, manager = _patched(free_gb=reserve)  # free == total_reserve exactly (reserve_gb=0)
@@ -435,19 +673,197 @@ def test_audio_tokens_can_tip_placement_into_partial():
     assert decision.mode == "partial"
 
 
-# -- degenerate tiny VRAM: the activation reserve alone doesn't fit, so this
-# is now refused up front instead of streaming a DiT that will OOM on the
-# first forward regardless of how little weight it's given -------------------
+# -- degenerate tiny VRAM: the activation reserve alone doesn't fit. The DiT
+# is streamed with a zero weight budget and the forward is left to try; the
+# estimate does not get to veto it ------------------------------------------
 
-def test_degenerate_tiny_vram_raises_infeasible_before_any_placement_io():
+def test_degenerate_tiny_vram_streams_with_a_zero_budget_instead_of_raising():
     dit, calls = _dit(estimated_vram_gb=23.3)
     patches, manager = _patched(free_gb=0.5)
     with patches[0], patches[1], patches[2]:
-        with pytest.raises(DitPlacementInfeasible):
-            place_dit_for_sequence(dit, "cuda", video_tokens=_video_tokens_for(5))
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=_video_tokens_for(5))
+    assert decision.mode == "partial"
+    assert decision.weight_budget_gb == pytest.approx(0.0, abs=1e-9)
     assert calls["move_to"] == []
-    assert calls["stream_to"] == []
-    assert calls["offload"] == 0
+    assert len(calls["stream_to"]) == 1
+
+
+# -- guard_sampling_oom: the real allocator gets the last word ---------------
+#
+# The estimate never refuses, so this ladder is the only thing between an
+# over-committed clip and a raw CUDA OOM traceback.
+
+def _decision(mode="resident", *, weight_budget_gb=5.0, video_tokens=60_896,
+              audio_tokens=640, activation_reserve_gb=17.95, extra_reserve_gb=7.67):
+    return DitPlacementDecision(
+        mode, 19.52, activation_reserve_gb, weight_budget_gb, video_tokens, audio_tokens,
+        extra_reserve_gb, True, 1.4,
+    )
+
+
+def _oom_forward(fail_times: int):
+    """A forward that raises the real ``torch.cuda.OutOfMemoryError`` for its
+    first ``fail_times`` calls, then succeeds. Constructing and raising that
+    class needs no actual device."""
+    calls = {"n": 0}
+
+    def forward(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] <= fail_times:
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+        return ("ok", args, kwargs)
+
+    return forward, calls
+
+
+def test_a_forward_that_succeeds_is_passed_straight_through():
+    forward, calls = _oom_forward(0)
+    dit, _ = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_decision())
+    assert guarded(1, x=2) == ("ok", (1,), {"x": 2})
+    assert calls["n"] == 1
+
+
+def test_only_the_first_forward_is_guarded():
+    # Once a forward has succeeded the peak is paid; later steps must not pay
+    # for a try/except ladder, and an OOM there is not this ladder's to catch.
+    forward, calls = _oom_forward(0)
+    dit, _ = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_decision())
+    guarded()
+    later, later_calls = calls["n"], None
+    def boom(*_a, **_k):
+        raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+    guarded2 = guard_sampling_oom(boom, dit=dit, device="cuda", decision=_decision("partial", weight_budget_gb=0.0))
+    with pytest.raises(SamplingOutOfMemory):
+        guarded2()
+    assert later == 1
+
+
+def test_tier_one_reclaims_the_allocator_pool_and_retries():
+    forward, calls = _oom_forward(1)
+    dit, dit_calls = _dit()
+    patches, manager = _patched(free_gb=8.0)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.torch.cuda.empty_cache") as empty:
+        with patch(f"{_MOD}.torch.cuda.is_available", return_value=True):
+            guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_decision())
+            assert guarded()[0] == "ok"
+    assert calls["n"] == 2
+    assert empty.called
+    # Tier 2 never ran: no weight was shed.
+    assert dit_calls["offload"] == 0
+    assert dit_calls["stream_to"] == []
+
+
+def test_tier_two_sheds_every_resident_weight_and_retries():
+    forward, calls = _oom_forward(2)
+    dit, dit_calls = _dit()
+    patches, manager = _patched(free_gb=8.0)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.torch.cuda.empty_cache"):
+        with patch(f"{_MOD}.torch.cuda.is_available", return_value=True):
+            guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_decision())
+            assert guarded()[0] == "ok"
+    assert calls["n"] == 3
+    assert dit_calls["offload"] == 1
+    assert dit_calls["stream_to"] == [("cuda", 0.0)]  # fully streamed
+
+
+def test_an_already_fully_streamed_dit_has_no_tier_two():
+    forward, calls = _oom_forward(99)
+    dit, dit_calls = _dit()
+    patches, manager = _patched(free_gb=1.0)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.torch.cuda.empty_cache"):
+        with patch(f"{_MOD}.torch.cuda.is_available", return_value=True):
+            guarded = guard_sampling_oom(
+                forward, dit=dit, device="cuda", decision=_decision("partial", weight_budget_gb=0.0),
+            )
+            with pytest.raises(SamplingOutOfMemory):
+                guarded()
+    assert calls["n"] == 2  # first try + tier 1 only
+    assert dit_calls["stream_to"] == []
+
+
+def test_the_exhausted_ladder_raises_one_error_with_measured_numbers():
+    forward, _calls = _oom_forward(99)
+    dit, _dit_calls = _dit()
+    patches, manager = _patched(free_gb=3.5, effective_gb=4.25)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.torch.cuda.empty_cache"):
+        with patch(f"{_MOD}.torch.cuda.is_available", return_value=True):
+            guarded = guard_sampling_oom(
+                forward, dit=dit, device="cuda", decision=_decision("partial", weight_budget_gb=0.0),
+            )
+            with pytest.raises(SamplingOutOfMemory) as exc_info:
+                guarded()
+    err = exc_info.value
+    # MEASURED at failure, not the estimate's prediction.
+    assert err.free_raw_gb == pytest.approx(3.5)
+    assert err.free_effective_gb == pytest.approx(4.25)
+    assert err.video_tokens == 60_896
+    assert err.audio_tokens == 640
+    assert err.activation_reserve_gb == pytest.approx(17.95)
+    message = str(err)
+    assert "61,536 tokens" in message           # video + audio
+    assert "streamed from RAM" in message
+    assert "4.2 GB free" in message
+    assert "shorten the clip or lower the resolution" in message
+    assert "free_raw_gb=3.50" in err.detail
+    assert "free_effective_gb=4.25" in err.detail
+
+
+def test_the_family_fit_hint_is_appended_and_gets_the_measured_free_vram():
+    forward, _calls = _oom_forward(99)
+    dit, _dit_calls = _dit()
+    seen = {}
+
+    def hint(free_gb, *, activation_reserve_gb, extra_reserve_gb, tokens):
+        seen.update(free_gb=free_gb, activation_reserve_gb=activation_reserve_gb,
+                    extra_reserve_gb=extra_reserve_gb, tokens=tokens)
+        return "A 4s clip would fit at this size."
+
+    patches, manager = _patched(free_gb=3.5, effective_gb=4.25)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.torch.cuda.empty_cache"):
+        with patch(f"{_MOD}.torch.cuda.is_available", return_value=True):
+            guarded = guard_sampling_oom(
+                forward, dit=dit, device="cuda", decision=_decision("partial", weight_budget_gb=0.0),
+                fit_hint=hint,
+            )
+            with pytest.raises(SamplingOutOfMemory) as exc_info:
+                guarded()
+    assert seen["free_gb"] == pytest.approx(4.25)
+    # The hint is handed the reserve breakdown that free number has to cover.
+    assert seen["activation_reserve_gb"] == pytest.approx(17.95)
+    assert seen["extra_reserve_gb"] == pytest.approx(7.67)
+    assert seen["tokens"] == 61_536
+    assert str(exc_info.value).endswith("A 4s clip would fit at this size.")
+
+
+def test_a_broken_fit_hint_never_replaces_the_real_error():
+    forward, _calls = _oom_forward(99)
+    dit, _dit_calls = _dit()
+
+    def hint(*_a, **_k):
+        raise ValueError("hint is broken")
+
+    patches, manager = _patched(free_gb=3.5)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.torch.cuda.empty_cache"):
+        with patch(f"{_MOD}.torch.cuda.is_available", return_value=True):
+            guarded = guard_sampling_oom(
+                forward, dit=dit, device="cuda", decision=_decision("partial", weight_budget_gb=0.0),
+                fit_hint=hint,
+            )
+            with pytest.raises(SamplingOutOfMemory) as exc_info:
+                guarded()
+    assert "ran out of VRAM" in str(exc_info.value)
+
+
+def test_a_non_oom_error_from_the_forward_is_not_swallowed():
+    def forward(*_a, **_k):
+        raise ValueError("something else entirely")
+
+    dit, _ = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_decision())
+    with pytest.raises(ValueError, match="something else entirely"):
+        guarded()
 
 
 # -- foreign-resident exclusion / one-shot-generator footgun ------------------
@@ -541,7 +957,10 @@ _H3_INNER_DIM = 56 * 128   # 7168
 _H3_FFN_DIM = 14336
 _TRACE_VIDEO_TOKENS = 18870
 _TRACE_AUDIO_TOKENS = 414
-_TRACE_FREE_GB = 27.4
+# What the trace's own placement logged as free. Kept for the record; the
+# residency tests below judge against `_TRACE_DECISIVE_FREE_GB` instead --
+# see the comment there.
+_TRACE_REPORTED_FREE_GB = 27.4
 _TRACE_DIT_WEIGHT_GB = 19.52
 _TRACE_LORA_WEIGHT_GB = 1.4
 
@@ -575,14 +994,16 @@ def test_ffn_transient_bytes_matches_the_observed_failing_allocation():
 
 def test_ffn_dim_increases_the_reserve_above_the_attention_only_estimate():
     without_ffn = estimate_activation_reserve_gb(
-        _TRACE_VIDEO_TOKENS, _TRACE_AUDIO_TOKENS, lora_active=True, inner_dim=_H3_INNER_DIM,
+        _TRACE_VIDEO_TOKENS, _TRACE_AUDIO_TOKENS, inner_dim=_H3_INNER_DIM,
     )
     with_ffn = estimate_activation_reserve_gb(
-        _TRACE_VIDEO_TOKENS, _TRACE_AUDIO_TOKENS, lora_active=True, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+        _TRACE_VIDEO_TOKENS, _TRACE_AUDIO_TOKENS, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
     )
-    # Reproduces the trace's OWN reported value for the (undercounting) old
-    # formula exactly -- confirms this test's setup matches the real report.
-    assert without_ffn == pytest.approx(4.44, abs=0.01)
+    # The trace's own report said 4.44 here; that figure included the flat
+    # per-token LoRA buffer the estimate charged whenever any delta was
+    # resident, which no longer exists (the plain deltas in that run ride the
+    # chunked activation branch). What remains is the attention-shaped terms.
+    assert without_ffn == pytest.approx(3.26, abs=0.01)
     assert with_ffn > without_ffn
 
 
@@ -593,7 +1014,7 @@ def test_h3_corrected_reserve_lands_at_or_above_the_derived_floor():
     # need >= ~4.6GB before any margin. This module's own (more conservative)
     # first-principles estimate must clear that floor.
     reserve = estimate_activation_reserve_gb(
-        _TRACE_VIDEO_TOKENS, _TRACE_AUDIO_TOKENS, lora_active=True, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+        _TRACE_VIDEO_TOKENS, _TRACE_AUDIO_TOKENS, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
     )
     assert reserve >= 4.6
 
@@ -614,43 +1035,43 @@ def _linear_with_sized_delta(down_shape, up_shape, *, dtype=torch.float32) -> nn
     return linear
 
 
-def test_dit_lora_delta_gb_is_zero_with_no_lora():
+def test_dit_lora_profile_delta_gb_is_zero_with_no_lora():
     dit = SimpleNamespace(module=nn.Sequential(nn.Linear(4, 4)))
-    assert _dit_lora_delta_gb(dit) == 0.0
+    assert _dit_lora_profile(dit).delta_gb == 0.0
 
 
-def test_dit_lora_delta_gb_is_zero_for_a_non_module():
+def test_dit_lora_profile_delta_gb_is_zero_for_a_non_module():
     dit = SimpleNamespace(module=lambda x: x)
-    assert _dit_lora_delta_gb(dit) == 0.0
+    assert _dit_lora_profile(dit).delta_gb == 0.0
 
 
-def test_dit_lora_delta_gb_sums_down_and_up_tensors_exactly():
+def test_dit_lora_profile_delta_gb_sums_down_and_up_tensors_exactly():
     # down: 100x50, up: 50x100, both fp32 -- exactly 2*100*50*4 bytes.
     dit = SimpleNamespace(module=nn.Sequential(_linear_with_sized_delta((100, 50), (50, 100))))
     expected_gb = (2 * 100 * 50 * 4) / 1024 ** 3
-    assert _dit_lora_delta_gb(dit) == pytest.approx(expected_gb, rel=1e-9)
+    assert _dit_lora_profile(dit).delta_gb == pytest.approx(expected_gb, rel=1e-9)
 
 
-def test_dit_lora_delta_gb_sums_across_multiple_linears_and_stacked_loras():
+def test_dit_lora_profile_delta_gb_sums_across_multiple_linears_and_stacked_loras():
     dit = SimpleNamespace(module=nn.Sequential(
         _linear_with_sized_delta((10, 10), (10, 10)),
         _linear_with_sized_delta((20, 20), (20, 20)),
     ))
     expected_gb = (2 * 10 * 10 * 4 + 2 * 20 * 20 * 4) / 1024 ** 3
-    assert _dit_lora_delta_gb(dit) == pytest.approx(expected_gb, rel=1e-9)
+    assert _dit_lora_profile(dit).delta_gb == pytest.approx(expected_gb, rel=1e-9)
 
 
-def test_dit_lora_delta_gb_ignores_non_tensor_delta_fields():
+def test_dit_lora_profile_delta_gb_ignores_non_tensor_delta_fields():
     linear = nn.Linear(4, 4)
     linear.lora_deltas = [SimpleNamespace(down=None, up="not a tensor")]
     dit = SimpleNamespace(module=nn.Sequential(linear))
-    assert _dit_lora_delta_gb(dit) == 0.0
+    assert _dit_lora_profile(dit).delta_gb == 0.0
 
 
 def test_place_dit_for_sequence_folds_lora_delta_into_dit_weight_gb():
     dit, calls = _dit(estimated_vram_gb=19.52)
     dit.module = nn.Sequential(_linear_with_sized_delta((100, 50), (50, 100)))
-    lora_gb = _dit_lora_delta_gb(dit)
+    lora_gb = _dit_lora_profile(dit).delta_gb
     assert lora_gb > 0.0
     patches, manager = _patched(free_gb=100.0)  # plenty of room, isolate the weight_gb accounting
     with patches[0], patches[1], patches[2]:
@@ -668,6 +1089,62 @@ def test_place_dit_for_sequence_without_lora_reports_zero_lora_weight_gb():
     assert decision.lora_active is False
     assert decision.lora_weight_gb == 0.0
     assert decision.dit_weight_gb == pytest.approx(19.52)
+
+
+# -- the maintainer's refused 8s/768x1344 MiniMax-H3 clip: LoRAs active,
+# activation_reserve_gb=21.73 + extra_reserve_gb=7.67 = 29.40 against
+# free_effective 28.99 -> refused a clip that used to run. 3.78GB of that
+# reserve was the per-token LoRA output buffer, charged for a preallocation
+# the vendored code stopped making. -------------------------------------
+
+_REFUSAL_VIDEO_TOKENS = 60_896
+_REFUSAL_AUDIO_TOKENS = 640
+_REFUSAL_EXTRA_RESERVE_GB = 7.67
+_REFUSAL_FREE_EFFECTIVE_GB = 28.99
+
+
+def _refusal_dit():
+    """The maintainer's DiT: fp8 H3 with plain (non-LoKr) runtime deltas
+    resident on its widest Linears, both GEMM gates at their default off."""
+    dit, calls = _dit(estimated_vram_gb=19.52)
+    dit.module = nn.Sequential(
+        _quantized_linear(_H3_INNER_DIM, _H3_INNER_DIM, nvfp4=False),
+        _quantized_linear(_H3_INNER_DIM, 2 * _H3_FFN_DIM, nvfp4=False),
+    )
+    return dit, calls
+
+
+def test_the_refused_clip_is_no_longer_refused():
+    dit, calls = _refusal_dit()
+    patches, manager = _patched(free_gb=_REFUSAL_FREE_EFFECTIVE_GB)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=_REFUSAL_VIDEO_TOKENS, audio_tokens=_REFUSAL_AUDIO_TOKENS,
+            reserve_gb=_REFUSAL_EXTRA_RESERVE_GB, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+        )
+    assert decision.lora_active is True
+    assert decision.mode in ("resident", "partial")
+
+
+def test_the_refused_clips_activation_reserve_drops_to_the_attention_and_ffn_terms():
+    reserve = estimate_activation_reserve_gb(
+        _REFUSAL_VIDEO_TOKENS, _REFUSAL_AUDIO_TOKENS, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+    )
+    assert reserve == pytest.approx(18.2, rel=0.03)  # was 21.73 in the refusal detail
+    assert reserve + _REFUSAL_EXTRA_RESERVE_GB < _REFUSAL_FREE_EFFECTIVE_GB
+
+
+def test_bite_check_the_stale_per_token_lora_buffer_would_still_refuse_this_clip():
+    # BITE CHECK: charge the per-token output buffer the way the old formula
+    # did (4 * inner_dim * 2 bytes/token whenever any LoRA was resident) and
+    # the maintainer's clip is refused again, before any placement I/O.
+    stale = DitLoraProfile(output_buffer_out_features=2 * _H3_INNER_DIM, active=True)
+    stale_reserve = estimate_activation_reserve_gb(
+        _REFUSAL_VIDEO_TOKENS, _REFUSAL_AUDIO_TOKENS, lora=stale,
+        inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+    )
+    assert stale_reserve == pytest.approx(21.73, rel=0.02)  # the refusal detail's own number
+    assert stale_reserve + _REFUSAL_EXTRA_RESERVE_GB > _REFUSAL_FREE_EFFECTIVE_GB
 
 
 # -- the real OOM trace: both fixes together flip resident -> partial --------
@@ -688,9 +1165,20 @@ def _trace_dit(*, lora_weight_gb: float) -> Any:
     return dit, calls
 
 
-def test_real_trace_inputs_resolve_to_partial_with_both_fixes():
+# The trace reported `free_gb=27.4` at placement, yet the run died with
+# 25.55GB in play -- so that reading overstated what the card could actually
+# give by at least ~2GB (a free-VRAM accuracy question, owned elsewhere).
+# The mode this trace resolves to therefore turns on the free reading, not
+# on the LoRA term: with the stale per-token LoRA buffer gone, 20.92GB of
+# weights plus a 5.63GB reserve fits 27.4 and the decision is "resident".
+# `_TRACE_DECISIVE_FREE_GB` is the band where the SwiGLU term itself is what
+# flips the decision, which is what these two tests are actually about.
+_TRACE_DECISIVE_FREE_GB = 25.5
+
+
+def test_the_ffn_term_tips_the_real_trace_into_partial():
     dit, calls = _trace_dit(lora_weight_gb=_TRACE_LORA_WEIGHT_GB)
-    patches, manager = _patched(free_gb=_TRACE_FREE_GB)
+    patches, manager = _patched(free_gb=_TRACE_DECISIVE_FREE_GB)
     with patches[0], patches[1], patches[2]:
         decision = place_dit_for_sequence(
             dit, "cuda", video_tokens=_TRACE_VIDEO_TOKENS, audio_tokens=_TRACE_AUDIO_TOKENS,
@@ -706,13 +1194,24 @@ def test_bite_check_without_ffn_dim_the_same_trace_wrongly_stays_resident():
     # (drop ffn_dim) reproduces the ORIGINAL bug -- the exact scenario that
     # OOM'd on real hardware would still be placed fully resident.
     dit, calls = _trace_dit(lora_weight_gb=_TRACE_LORA_WEIGHT_GB)
-    patches, manager = _patched(free_gb=_TRACE_FREE_GB)
+    patches, manager = _patched(free_gb=_TRACE_DECISIVE_FREE_GB)
     with patches[0], patches[1], patches[2]:
         decision = place_dit_for_sequence(
             dit, "cuda", video_tokens=_TRACE_VIDEO_TOKENS, audio_tokens=_TRACE_AUDIO_TOKENS,
             inner_dim=_H3_INNER_DIM,  # ffn_dim NOT passed
         )
     assert decision.mode == "resident"
+
+
+def test_the_real_traces_reserve_still_covers_its_observed_activation_need():
+    # Independent of any free reading: the trace died with 24.52GB allocated
+    # (19.52 weights + 1.4 LoRA + ~3.6 activations) needing 1.03GiB more, so
+    # its true activation need was ~4.63GB. Dropping the stale per-token LoRA
+    # buffer must NOT drop the reserve below that.
+    reserve = estimate_activation_reserve_gb(
+        _TRACE_VIDEO_TOKENS, _TRACE_AUDIO_TOKENS, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+    )
+    assert reserve >= 4.63
 
 
 def test_bite_check_without_lora_weight_correction_the_same_trace_wrongly_stays_resident():
@@ -722,7 +1221,7 @@ def test_bite_check_without_lora_weight_correction_the_same_trace_wrongly_stays_
     # Confirms BOTH halves of the fix are independently load-bearing -- the
     # activation-reserve fix alone was not sufficient to flip this decision.
     dit, calls = _trace_dit(lora_weight_gb=0.0)  # no resident delta on the module
-    patches, manager = _patched(free_gb=_TRACE_FREE_GB)
+    patches, manager = _patched(free_gb=_TRACE_DECISIVE_FREE_GB)
     with patches[0], patches[1], patches[2]:
         decision = place_dit_for_sequence(
             dit, "cuda", video_tokens=_TRACE_VIDEO_TOKENS, audio_tokens=_TRACE_AUDIO_TOKENS,
@@ -953,7 +1452,11 @@ def test_placement_reports_lora_inactive_without_deltas():
     assert decision.lora_active is False
 
 
-def test_lora_active_placement_reserves_more_than_inactive_at_the_same_tokens():
+def test_a_plain_resident_lora_does_not_raise_the_activation_reserve():
+    # Post-22381b5e a plain delta on a quantized Linear is accumulated into
+    # the layer's own F.linear output in bounded row chunks -- nothing
+    # S-proportional -- so it must cost the reserve nothing. It still shows
+    # up in dit_weight_gb via its own resident up/down bytes.
     tokens = 50_000
     patches, manager = _patched(free_gb=32.0)
     dit_off, _ = _dit_with_lora(estimated_vram_gb=1.0, active=False)  # tiny DiT: both stay resident
@@ -962,27 +1465,45 @@ def test_lora_active_placement_reserves_more_than_inactive_at_the_same_tokens():
     dit_on, _ = _dit_with_lora(estimated_vram_gb=1.0, active=True)
     with patches[0], patches[1], patches[2]:
         on = place_dit_for_sequence(dit_on, "cuda", video_tokens=tokens)
-    assert on.activation_reserve_gb > off.activation_reserve_gb
-    assert on.weight_budget_gb < off.weight_budget_gb
+    assert on.lora_active is True
+    assert on.activation_reserve_gb == pytest.approx(off.activation_reserve_gb)
 
 
-def test_lora_active_can_tip_an_otherwise_resident_placement_into_partial():
+def test_a_lokr_delta_raises_the_reserve_by_its_weight_shaped_clone():
+    # LoKr has no output-side form, so apply_lora_deltas still clones the
+    # materialised weight and builds an (out, in) delta beside it every
+    # forward -- flat, weight-shaped headroom the estimate must reserve.
     tokens = 50_000
-    # Free VRAM sized to comfortably fit the no-LoRA reserve but not the
-    # LoRA-active one -- the exact "under-reserved" scenario this fixes.
-    without = estimate_activation_reserve_gb(tokens, lora_active=False)
-    with_lora = estimate_activation_reserve_gb(tokens, lora_active=True)
-    assert with_lora > without  # sanity: the gate must actually move the number
+    patches, manager = _patched(free_gb=32.0)
+    dit_off, _ = _dit(estimated_vram_gb=1.0)
+    dit_off.module = nn.Sequential(nn.Linear(512, 2048))
+    with patches[0], patches[1], patches[2]:
+        off = place_dit_for_sequence(dit_off, "cuda", video_tokens=tokens)
+    dit_on, _ = _dit(estimated_vram_gb=1.0)
+    dit_on.module = nn.Sequential(_linear_with_lokr_delta(512, 2048))
+    with patches[0], patches[1], patches[2]:
+        on = place_dit_for_sequence(dit_on, "cuda", video_tokens=tokens)
+    expected_gb = (2 * 2048 * 512 * 2) / 1024 ** 3 * 1.15
+    assert on.activation_reserve_gb - off.activation_reserve_gb == pytest.approx(expected_gb, rel=1e-6)
+
+
+def test_a_lokr_delta_can_tip_an_otherwise_resident_placement_into_partial():
+    tokens = 50_000
     dit_weight_gb = 20.0
-    free_gb = dit_weight_gb + without + 0.05  # fits without LoRA, not with it
+    # A LoKr-patched Linear wide enough that its clone+delta is worth GBs.
+    in_f, out_f = 5376, 28672
+    without = estimate_activation_reserve_gb(tokens)
+    free_gb = dit_weight_gb + without + 0.05  # fits with no weight-side delta, not with one
 
     patches, manager = _patched(free_gb=free_gb)
-    dit_off, _ = _dit_with_lora(estimated_vram_gb=dit_weight_gb, active=False)
+    dit_off, _ = _dit(estimated_vram_gb=dit_weight_gb)
+    dit_off.module = nn.Sequential(nn.Linear(4, 4))
     with patches[0], patches[1], patches[2]:
         off = place_dit_for_sequence(dit_off, "cuda", video_tokens=tokens)
     assert off.mode == "resident"
 
-    dit_on, _ = _dit_with_lora(estimated_vram_gb=dit_weight_gb, active=True)
+    dit_on, _ = _dit(estimated_vram_gb=dit_weight_gb)
+    dit_on.module = nn.Sequential(_linear_with_lokr_delta(in_f, out_f))
     with patches[0], patches[1], patches[2]:
         on = place_dit_for_sequence(dit_on, "cuda", video_tokens=tokens)
     assert on.mode == "partial"
@@ -1110,37 +1631,36 @@ def test_idle_reserved_pool_is_credited_so_a_fitting_clip_is_not_refused():
     assert len(calls["stream_to"]) == 1
 
 
-def test_gate_still_refuses_when_the_allocator_pool_is_empty():
+def test_over_commit_warning_fires_when_the_allocator_pool_is_empty(caplog):
     # Same clip, same card, but nothing cached: raw == effective, so there is
-    # no hidden headroom to credit and the refusal is correct.
+    # no hidden headroom to credit and the over-commit warning is correct.
     dit, calls = _dit(estimated_vram_gb=15.65)
     patches, manager = _patched(free_gb=_POOL_RAW_FREE_GB)
-    with patches[0], patches[1], patches[2]:
-        with pytest.raises(DitPlacementInfeasible) as exc_info:
-            place_dit_for_sequence(
+    with caplog.at_level(logging.WARNING, logger=_MOD):
+        with patches[0], patches[1], patches[2]:
+            decision = place_dit_for_sequence(
                 dit, "cuda", video_tokens=_POOL_VIDEO_TOKENS,
                 inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
             )
-    assert exc_info.value.free_gb == pytest.approx(_POOL_RAW_FREE_GB)
+    assert "over-committed" in "\n".join(r.getMessage() for r in caplog.records)
+    assert decision.mode == "partial"
     assert calls["move_to"] == []
-    assert calls["stream_to"] == []
 
 
-def test_refusal_detail_reports_both_the_raw_and_the_effective_free_number():
-    # So a refusal in the log says how much of the shortfall was the
-    # allocator holding on, rather than the card being genuinely full.
+def test_over_commit_warning_reports_both_the_raw_and_the_effective_free_number(caplog):
+    # So the log says how much of the shortfall was the allocator holding on,
+    # rather than the card being genuinely full.
     dit, _calls = _dit(estimated_vram_gb=15.65)
     patches, manager = _patched(free_gb=4.0, effective_gb=6.0)
-    with patches[0], patches[1], patches[2]:
-        with pytest.raises(DitPlacementInfeasible) as exc_info:
+    with caplog.at_level(logging.WARNING, logger=_MOD):
+        with patches[0], patches[1], patches[2]:
             place_dit_for_sequence(
                 dit, "cuda", video_tokens=_POOL_VIDEO_TOKENS,
                 inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
             )
-    detail = exc_info.value.detail
-    assert "free_raw_gb=4.00" in detail
-    assert "free_effective_gb=6.00" in detail
-    assert exc_info.value.free_gb == pytest.approx(6.0)
+    warning = "\n".join(r.getMessage() for r in caplog.records)
+    assert "6.00GB free" in warning
+    assert "4.00GB raw" in warning
 
 
 def test_warm_resident_dit_fits_once_the_idle_pool_is_credited():

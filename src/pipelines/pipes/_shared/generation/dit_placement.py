@@ -72,13 +72,22 @@ VRAM needs (like a decode) can force partial residency (streaming just
 said "plenty of room, pin it all." Zero-token / decode-less callers
 (txt2vid_ltx, video_ltx) never pass it, so their behavior is unchanged
 (``reserve_gb`` defaults to 0.0).
+
+**The estimate never refuses a generation.** It budgets placement and, when
+the request over-commits the card, warns and streams anyway. An estimate is a
+model; this one has been wrong in both directions, and the version that
+raised turned away clips that had been running. The real allocator gets the
+last word in :func:`guard_sampling_oom`, the ladder every caller wraps its
+sampling forward in: reclaim the allocator pool, shed every resident weight
+to host RAM, retry after each, and only then raise
+:class:`SamplingOutOfMemory` with numbers measured at the failure.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Iterable, Literal
+from typing import Any, Callable, Iterable, Literal
 
 import torch
 
@@ -91,20 +100,32 @@ from src.platform.runtime.native.memory.residency import (
     minimum_inference_memory_gb,
 )
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
+from vendor.gpl.comfyui.ops import (
+    _fp8_matmul_enabled,
+    _nvfp4_matmul_enabled,
+    partition_output_branch_deltas,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class DitPlacementInfeasible(GenerationExecutionError):
-    """Raised when ``total_reserve`` (activation reserve + any caller
-    ``reserve_gb``) exceeds free VRAM on its own -- no weight-streaming ladder
-    can rescue this: the request needs more activation headroom than the card
-    has even with ZERO DiT weight resident. Raised BEFORE any placement I/O
-    (``move_to``/``stream_to``/``offload``) so a request that can never fit
-    fails immediately instead of after a slow weight stream followed by an
-    OOM on the first forward (the maintainer's MiniMax-H3 VDN trace: a
-    34.6GB total reserve on a 31.4GB card streamed for 12s before dying on
-    the first allocation).
+class SamplingOutOfMemory(GenerationExecutionError):
+    """The sampling forward ran out of VRAM and the degrade ladder is spent --
+    it OOM'd with every DiT weight already streamed from host RAM, so there is
+    no weight left to shed and no retry left to make.
+
+    This is the ONLY place a token-count/VRAM mismatch becomes a user-facing
+    failure. The pre-flight estimate deliberately does not refuse: it sizes
+    the weight budget and warns when the request over-commits the card, then
+    lets placement stream as much as it must and lets the real allocator have
+    the final word (:func:`guard_sampling_oom`). An estimate is a model and
+    models are wrong in both directions; refusing on one turned away clips
+    that ran fine.
+
+    Every number on it is MEASURED at the moment of failure, not predicted:
+    ``free_raw_gb``/``free_effective_gb`` are read after the last retry died.
+    ``activation_reserve_gb``/``extra_reserve_gb`` are carried along as what
+    the estimate HAD thought, so a report can be compared against reality.
 
     Derives from :class:`GenerationExecutionError` (not a bare
     ``RuntimeError``) so ``GenerationEngine`` surfaces ``message`` to the user
@@ -114,18 +135,47 @@ class DitPlacementInfeasible(GenerationExecutionError):
     """
 
     def __init__(
-        self, message: str, *, detail: str, total_reserve_gb: float, activation_reserve_gb: float,
-        extra_reserve_gb: float, free_gb: float, video_tokens: int, audio_tokens: int,
+        self, message: str, *, detail: str, free_raw_gb: float, free_effective_gb: float,
+        activation_reserve_gb: float, extra_reserve_gb: float,
+        video_tokens: int, audio_tokens: int,
     ) -> None:
         super().__init__(message, detail=detail)
-        self.total_reserve_gb = total_reserve_gb
+        self.free_raw_gb = free_raw_gb
+        self.free_effective_gb = free_effective_gb
         self.activation_reserve_gb = activation_reserve_gb
         self.extra_reserve_gb = extra_reserve_gb
-        self.free_gb = free_gb
         self.video_tokens = video_tokens
         self.audio_tokens = audio_tokens
 
+
 _BYTES_PER_GB = 1024 ** 3
+
+# A family's "what WOULD fit this card" sentence. Called with the free VRAM to
+# judge against plus the reserve breakdown and token total that free number has
+# to cover, so ONE function serves both consumers: the over-commit warning
+# (free = the pre-flight reading) and the post-OOM error (free = what was
+# actually measured when sampling died). Core has none of its own -- only a
+# family knows how its tokens map back to seconds and pixels
+# (MiniMax-H3's ``_fit_hint``/``_format_fit_hint``).
+FitHint = Callable[..., str]
+
+
+def _render_fit_hint(
+    fit_hint: "FitHint | None", free_gb: float, *,
+    activation_reserve_gb: float, extra_reserve_gb: float, tokens: int,
+) -> str:
+    """The family's hint text, or ``""``. A hint that raises is swallowed: it
+    is a nicety appended to a message, and must never replace the real one."""
+    if fit_hint is None:
+        return ""
+    try:
+        return fit_hint(
+            free_gb, activation_reserve_gb=activation_reserve_gb,
+            extra_reserve_gb=extra_reserve_gb, tokens=tokens,
+        ) or ""
+    except Exception:  # noqa: BLE001 -- see the docstring
+        logger.debug("[LTX PLACEMENT] fit hint failed; continuing without it", exc_info=True)
+        return ""
 
 # LTX DiT inner (hidden) dimension shared by the 19B and 22B (2.3) variants
 # (docs/models/ltx.md). Video and (when audio generation is on) audio tokens
@@ -179,9 +229,9 @@ _ACTIVATION_RESERVE_BYTES_PER_TOKEN = _activation_reserve_bytes_per_token(_LTX_I
 # SwiGLU `fc1` fused value|gate output, which this family's own
 # attention-shaped reserve above never modeled at all). `None`/0 (the
 # default everywhere this isn't explicitly passed) is a no-op -- LTX's own
-# FeedForward width is already folded into the LoRA-output-branch term below
-# via `_LTX_FF_MULT`, and every existing LTX call site never passes
-# `ffn_dim`, so this is additive-only for families that opt in.
+# FeedForward is a plain GELU projection, not a SwiGLU, and every existing
+# LTX call site never passes `ffn_dim`, so this is additive-only for
+# families that opt in.
 #
 # Three eager-mode allocations are alive at the SwiGLU peak, all `bf16`:
 # `fc1`'s fused `value|gate` output (`2*ffn_dim` wide), `SiLU(gate)`
@@ -195,30 +245,85 @@ _ACTIVATION_RESERVE_BYTES_PER_TOKEN = _activation_reserve_bytes_per_token(_LTX_I
 def _ffn_transient_bytes_per_token(ffn_dim: int) -> int:
     return 4 * ffn_dim * 2
 
-# LoRA output-branch term (follow-up to 38b94c75): a resident runtime
-# LoRA delta (quantized-storage Linears -- lora/apply.py's
-# ``_needs_runtime_deltas``) can route through
-# ``vendor/gpl/comfyui/ops.py``'s ``_nvfp4_lora_output_branch``, whose
-# per-Linear-call footprint is dominated by its preallocated ``total`` output
-# buffer: shape ``(S, out_features)`` at compute dtype -- the ONE allocation
-# in that function NOT bounded by its own 32MiB token-chunking (only the
-# per-chunk transients are, and those stay in the tens-of-MB regardless of S,
-# already covered by ``_ACTIVATION_RESERVE_FLOOR_GB``). ``out_features`` is
-# sized off the widest LoRA-eligible Linear in an LTX block -- the
-# feed-forward up-projection (``FeedForward``'s ``_GELUApprox.proj``, model.py),
-# ``dim * mult`` wide with ``mult=4`` -- since that upper-bounds every other
-# Linear's (attention QKV/out, ff down-proj) narrower ``out_features``.
-# In-place-baked LoRA (float storage) never sets ``lora_deltas`` at all, so
-# gating on its presence correctly contributes zero when no runtime LoRA is
-# resident.
-_LTX_FF_MULT = 4
+# LoRA cost terms. A resident runtime LoRA delta (quantized-storage Linears
+# -- lora/apply.py's ``_needs_runtime_deltas``) is applied per forward by
+# ``vendor/gpl/comfyui/ops.py`` on one of two sides, and the two cost
+# completely different shapes of memory:
+#
+#   * ACTIVATION side, the default for every plain (non-LoKr) delta:
+#     ``linear_with_lora_deltas`` -> ``_add_lora_output_branch`` accumulates
+#     ``(x @ down.T) @ up.T`` straight INTO the layer's own ``F.linear``
+#     output, walking the token rows in chunks bounded by
+#     ``_NVFP4_LORA_BRANCH_CHUNK_BYTES`` (32MiB). Nothing here scales with
+#     ``S``: the live intermediates are ``(chunk_rows, rank)`` and
+#     ``(chunk_rows, out_features)``, tens of MB whatever the token count,
+#     already covered by :data:`_ACTIVATION_RESERVE_FLOOR_GB`. Per-token
+#     cost: ZERO.
+#   * ACTIVATION side through a native GEMM fast path
+#     (``Fp8ScaledLinear._forward_scaled_mm`` /
+#     ``Nvfp4Linear._forward_nvfp4_scaled_mm``, each behind its own env gate
+#     and hardware probe, both ``off`` by default): those add
+#     ``_lora_output_branch``'s RETURN VALUE to the raw GEMM output, and
+#     that function does still preallocate a full ``(S, out_features)``
+#     ``total`` at compute dtype -- with the ``out + total`` sum a second
+#     buffer of the same shape alive at the same moment, hence
+#     :data:`_LORA_OUTPUT_BUFFER_ALLOCATIONS`. Per-token cost: that, for the
+#     WIDEST Linear that can actually reach the fast path
+#     (:func:`_linear_takes_gemm_fast_path`).
+#   * WEIGHT side, the fallback for a delta with no output-side form (LoKr,
+#     which ``_deltas_output_branch_ok`` rejects): ``apply_lora_deltas``
+#     clones the materialised ``(out, in)`` weight and builds an
+#     ``(out, in)`` delta beside it. Weight-shaped, NOT token-shaped -- a
+#     flat reserve of twice the widest such Linear's weight, independent of
+#     ``S``, and only one Linear's forward is alive at a time.
+#
+# The estimate used to charge a flat ``4 * inner_dim * 2`` bytes/token
+# whenever ANY runtime LoRA was resident, back when every quantized-Linear
+# delta went through the weight-side path and only the GEMM fast paths had
+# an output branch. On an 8s MiniMax-H3 clip (S~61.5k, inner_dim 7168) that
+# stale term alone was ~3.8GB, enough to refuse a clip that fits.
+_COMPUTE_DTYPE_BYTES = 2
+# ``total`` inside ``_lora_output_branch`` plus the ``out + total`` result at
+# its call site -- both ``(S, out_features)``, both alive at once.
+_LORA_OUTPUT_BUFFER_ALLOCATIONS = 2
+# ``weight.clone()`` plus the ``(out, in)`` delta built beside it in
+# ``apply_lora_deltas``.
+_LORA_WEIGHT_SIDE_ALLOCATIONS = 2
 
 
-def _lora_output_buffer_bytes_per_token(inner_dim: int) -> int:
-    return _LTX_FF_MULT * inner_dim * 2
+@dataclass(frozen=True)
+class DitLoraProfile:
+    """What the runtime LoRA deltas resident on a DiT actually cost.
+
+    Produced by :func:`_dit_lora_profile` from a walk of the DiT's Linears;
+    the default instance (:data:`_NO_LORA`) is what a DiT with no runtime
+    LoRA yields and contributes nothing to any estimate. In-place-baked LoRA
+    (float storage) never sets ``lora_deltas`` at all, so it correctly
+    profiles as inactive -- matching its zero forward-time cost.
+
+    ``output_buffer_out_features`` is 0 unless some Linear can genuinely
+    reach the preallocating ``_lora_output_branch``; ``weight_side_bytes``
+    is 0 unless a LoKr-shaped delta is resident; ``delta_bytes`` is the
+    ``up``/``down`` pairs' own resident VRAM, invisible to a DiT's
+    ``estimated_vram_gb`` (the base checkpoint's file size) but genuinely
+    occupying the card alongside the base weights.
+    """
+
+    output_buffer_out_features: int = 0
+    weight_side_bytes: int = 0
+    delta_bytes: int = 0
+    active: bool = False
+
+    @property
+    def delta_gb(self) -> float:
+        return self.delta_bytes / _BYTES_PER_GB
+
+    @property
+    def output_buffer_bytes_per_token(self) -> int:
+        return _LORA_OUTPUT_BUFFER_ALLOCATIONS * self.output_buffer_out_features * _COMPUTE_DTYPE_BYTES
 
 
-_LORA_OUTPUT_BUFFER_BYTES_PER_TOKEN = _lora_output_buffer_bytes_per_token(_LTX_INNER_DIM)
+_NO_LORA = DitLoraProfile()
 
 # Multiplicative safety margin over the raw per-token estimate -- covers
 # allocator fragmentation, cuBLAS/cuDNN workspace, and any minor uncounted
@@ -232,7 +337,7 @@ _ACTIVATION_RESERVE_FLOOR_GB = 0.5
 
 
 def estimate_activation_reserve_gb(
-    video_tokens: int, audio_tokens: int = 0, *, lora_active: bool = False,
+    video_tokens: int, audio_tokens: int = 0, *, lora: DitLoraProfile = _NO_LORA,
     inner_dim: int = _LTX_INNER_DIM, ffn_dim: int | None = None,
 ) -> float:
     """Estimate the DiT-forward activation VRAM reserve for one sampling step.
@@ -243,10 +348,12 @@ def estimate_activation_reserve_gb(
     audio token count when audio generation is enabled (0 otherwise) -- both
     ride the SAME packed sampler state and so share this one reserve.
 
-    ``lora_active`` adds :data:`_LORA_OUTPUT_BUFFER_BYTES_PER_TOKEN` to the
-    per-token rate (see its definition) when the placed DiT has a resident
-    runtime LoRA delta; ``False`` (the default) reproduces the exact prior
-    formula.
+    ``lora`` is the placed DiT's :class:`DitLoraProfile` (see the LoRA cost
+    terms above): a Linear that can reach the preallocating GEMM-fast-path
+    output branch adds a per-token term, a resident LoKr delta adds a flat
+    weight-shaped one, and a plain delta on the chunked activation-side path
+    -- the common case -- adds neither. The default empty profile reproduces
+    the no-LoRA formula exactly.
 
     ``inner_dim`` defaults to LTX's own attention inner dimension (see
     :data:`_LTX_INNER_DIM`'s docstring) so every existing call site is
@@ -262,59 +369,92 @@ def estimate_activation_reserve_gb(
     """
     s = max(0, int(video_tokens)) + max(0, int(audio_tokens))
     bytes_per_token = _activation_reserve_bytes_per_token(inner_dim, ffn_dim)
-    if lora_active:
-        bytes_per_token += _lora_output_buffer_bytes_per_token(inner_dim)
-    raw_gb = (s * bytes_per_token) / _BYTES_PER_GB
+    bytes_per_token += lora.output_buffer_bytes_per_token
+    raw_gb = (s * bytes_per_token + lora.weight_side_bytes) / _BYTES_PER_GB
     return max(_ACTIVATION_RESERVE_FLOOR_GB, raw_gb * _ACTIVATION_SAFETY_MARGIN)
 
 
-def _dit_has_active_lora(dit: Any) -> bool:
-    """True iff any ``Linear`` on ``dit.module`` carries a resident runtime
-    LoRA delta (``lora_deltas``, set by ``lora/apply.py``'s
-    ``_needs_runtime_deltas`` path for quantized-storage weights). In-place-
-    baked LoRA (float storage) never sets this attribute, so it correctly
-    reports ``False`` for that case -- matching the zero forward-time cost of
-    a baked delta.
+def _linear_takes_gemm_fast_path(linear: Any) -> bool:
+    """True iff ``linear``'s forward can reach ``vendor/gpl/comfyui/ops.py``'s
+    ``_lora_output_branch`` -- the one LoRA path that still preallocates an
+    ``(S, out_features)`` buffer.
+
+    Only the two native ``_scaled_mm`` GEMM fast paths call it, and each is
+    reached solely when its own env gate plus hardware probe say so; every
+    other quantized Linear takes the dequant path, whose plain deltas ride
+    the chunked ``_add_lora_output_branch`` and allocate nothing
+    S-proportional. The gates are asked through the vendored predicates
+    rather than re-read here, so the policy has one source of truth. A layer
+    is nvfp4 or fp8-scaled by the same state its own forward branches on
+    (``_is_nvfp4``, ``weight_scale``), never by family or class name.
+    """
+    if getattr(linear, "_is_nvfp4", False):
+        return _nvfp4_matmul_enabled()
+    if getattr(linear, "weight_scale", None) is not None:
+        return _fp8_matmul_enabled()
+    return False
+
+
+def _dit_lora_profile(dit: Any) -> DitLoraProfile:
+    """Profile the runtime LoRA deltas resident on ``dit.module``'s Linears
+    (``lora_deltas``, set by ``lora/apply.py``'s ``_needs_runtime_deltas``
+    path for quantized-storage weights).
+
+    Each Linear's deltas are split the way its own forward splits them, with
+    ``partition_output_branch_deltas`` -- the same function
+    ``linear_with_lora_deltas`` calls -- so a stack mixing one LoKr adapter
+    with two plain ones is charged for exactly what each side costs rather
+    than for whichever kind happens to be first.
+
+    ``delta_bytes`` is the reason a resident-vs-partial decision cannot judge
+    on ``dit.estimated_vram_gb`` alone: that is the base checkpoint's own
+    file size and has no way to know a LoRA was ever applied, so it
+    under-budgets by exactly the delta bytes whenever one is (a real H3
+    turbo-LoRA OOM: ~1.4GB of bf16 deltas, invisible to the prior budget).
+
+    Returns :data:`_NO_LORA` when there is nothing to walk -- ``dit.module``
+    unset, or a bare callable test double rather than an ``nn.Module``.
     """
     module = getattr(dit, "module", None)
     walk = getattr(module, "modules", None)
     if not callable(walk):
-        # Not an ``nn.Module`` (e.g. a bare callable test double, or an
-        # unset/None ``.module``) -- nothing to walk, so no LoRA to detect.
-        return False
-    return any(getattr(m, "lora_deltas", None) for m in walk())
-
-
-def _dit_lora_delta_gb(dit: Any) -> float:
-    """Actual resident VRAM (GB) of every ``Linear``'s runtime LoRA delta on
-    ``dit.module`` -- the low-rank ``up``/``down`` pairs ``lora/apply.py``'s
-    ``_needs_runtime_deltas`` path keeps unbaked (``lora_deltas``, a list of
-    ``LoraDelta``) for a quantized-storage weight.
-
-    Follow-up to the same H3 turbo-LoRA OOM :func:`_ffn_transient_bytes_per_
-    token` documents: ``dit.estimated_vram_gb`` is the BASE checkpoint's own
-    file size and has no way to know a LoRA was ever applied, so a resident-
-    vs-partial decision that only looks at ``estimated_vram_gb`` silently
-    under-budgets by exactly this many GB whenever ``lora_active`` -- the
-    trace's own turbo deltas were ~1.4GB bf16, invisible to the prior budget
-    while genuinely resident in VRAM right alongside the fp8 base weights.
-    Returns ``0.0`` (a no-op) whenever :func:`_dit_has_active_lora` would too
-    (nothing to walk, or no resident delta found).
-    """
-    module = getattr(dit, "module", None)
-    walk = getattr(module, "modules", None)
-    if not callable(walk):
-        return 0.0
-    total_bytes = 0
+        return _NO_LORA
+    active = False
+    delta_bytes = 0
+    output_buffer_out_features = 0
+    weight_side_bytes = 0
     for m in walk():
         deltas = getattr(m, "lora_deltas", None)
         if not deltas:
             continue
+        active = True
         for delta in deltas:
             for tensor in (getattr(delta, "down", None), getattr(delta, "up", None)):
                 if isinstance(tensor, torch.Tensor):
-                    total_bytes += tensor.numel() * tensor.element_size()
-    return total_bytes / _BYTES_PER_GB
+                    delta_bytes += tensor.numel() * tensor.element_size()
+        out_features = int(getattr(m, "out_features", 0) or 0)
+        in_features = int(getattr(m, "in_features", 0) or 0)
+        if not out_features:
+            continue
+        output_side, weight_side = partition_output_branch_deltas(deltas, out_features)
+        if output_side and _linear_takes_gemm_fast_path(m):
+            output_buffer_out_features = max(output_buffer_out_features, out_features)
+        if weight_side and in_features:
+            weight_side_bytes = max(
+                weight_side_bytes,
+                _LORA_WEIGHT_SIDE_ALLOCATIONS * out_features * in_features * _COMPUTE_DTYPE_BYTES,
+            )
+    return DitLoraProfile(output_buffer_out_features, weight_side_bytes, delta_bytes, active)
+
+
+def _dit_lora_delta_gb(dit: Any) -> float:
+    """Resident VRAM (GB) of ``dit``'s runtime LoRA deltas -- the ``up``/
+    ``down`` pairs themselves, which ``dit.estimated_vram_gb`` cannot see.
+    The number a caller sizing its own weight budget has to add on top of
+    ``estimated_vram_gb`` (``txt2vid_wan22``'s per-expert placement does);
+    :func:`place_dit_for_sequence` reads it off the profile directly.
+    """
+    return _dit_lora_profile(dit).delta_gb
 
 
 def _dit_is_fully_resident(dit: Any, device: str) -> bool:
@@ -370,6 +510,7 @@ def place_dit_for_sequence(
     reserve_gb: float = 0.0,
     inner_dim: int = _LTX_INNER_DIM,
     ffn_dim: int | None = None,
+    fit_hint: "FitHint | None" = None,
 ) -> DitPlacementDecision:
     """Place ``dit`` on ``device`` for sampling, sized to THIS generation's
     token count instead of an unconditional full-pin ``move_to``.
@@ -393,10 +534,11 @@ def place_dit_for_sequence(
     call site is byte-identical; a non-LTX caller passes its own values.
 
     The comparison against ``weight_budget`` uses ``dit.estimated_vram_gb``
-    PLUS any resident runtime LoRA delta (:func:`_dit_lora_delta_gb`) --
-    invisible to ``estimated_vram_gb`` (the base checkpoint's own file size)
-    but genuinely resident in VRAM once a LoRA is applied; see that
-    function's docstring for the OOM this under-budgeting caused.
+    PLUS any resident runtime LoRA delta (:func:`_dit_lora_profile`'s
+    ``delta_gb``) -- invisible to ``estimated_vram_gb`` (the base
+    checkpoint's own file size) but genuinely resident in VRAM once a LoRA
+    is applied; see that function's docstring for the OOM this
+    under-budgeting caused.
 
     **Warm residency.** A generation whose DiT was left fully resident by
     the PRIOR generation's warm-start restore (``dit_restore.
@@ -418,8 +560,9 @@ def place_dit_for_sequence(
     be freed anyway -- a fresh placement decision, not a stale one.
     """
     own_models = tuple(own_models)
-    lora_active = _dit_has_active_lora(dit)
-    lora_weight_gb = _dit_lora_delta_gb(dit) if lora_active else 0.0
+    lora = _dit_lora_profile(dit)
+    lora_active = lora.active
+    lora_weight_gb = lora.delta_gb
     weight_gb = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + lora_weight_gb
 
     if not str(device).startswith("cuda"):
@@ -431,48 +574,41 @@ def place_dit_for_sequence(
         return decision
 
     activation_reserve = estimate_activation_reserve_gb(
-        video_tokens, audio_tokens, lora_active=lora_active, inner_dim=inner_dim, ffn_dim=ffn_dim,
+        video_tokens, audio_tokens, lora=lora, inner_dim=inner_dim, ffn_dim=ffn_dim,
     )
     extra_reserve = max(0.0, float(reserve_gb))
     total_reserve = activation_reserve + extra_reserve
 
-    # Feasibility gate, BEFORE any placement I/O: credit back this dit's own
+    # Over-commit check, BEFORE any placement I/O: credit back this dit's own
     # currently-resident weight (if any -- mirrors the warm-residency fast
     # path's `free_crediting_self` below) so the comparison is against the
     # largest free VRAM this generation could ever see, i.e. with THIS dit's
     # own weight fully unloaded. If `total_reserve` still doesn't fit that,
-    # no amount of weight-streaming can rescue it -- refuse now rather than
-    # discovering it after a slow stream and an OOM on the first forward.
+    # the estimate says no weight-streaming ladder can rescue this -- but it
+    # only WARNS and places anyway. The estimate is a model, wrong in both
+    # directions, and refusing here turned away clips that ran fine; the real
+    # allocator gets the last word in `guard_sampling_oom` instead. Placement
+    # below then lands on a zero (or near-zero) weight budget, i.e. a fully
+    # streamed DiT, which is the best shot at running this clip anyway.
     # Every fits-check in this function reads `effective_free_vram_gb`, never
     # `free_vram_gb`: `mem_get_info` counts OUR OWN caching allocator's
     # reserved-but-unallocated pool (the previous phase's activation buffers,
     # which the next cudaMalloc reclaims) as USED, so judging fit on the raw
-    # number refuses clips that fit -- and this gate raises before any
-    # placement I/O, so nothing downstream can rescue it. The raw number is
-    # still read, to report both on refusal.
+    # number under-reports the budget. The raw number is still read, to
+    # report both in the over-commit warning.
     free_raw = free_vram_gb(device) or 0.0
     free_if_dit_unloaded = effective_free_vram_gb(device) or 0.0
     if _dit_is_fully_resident(dit, device):
         free_raw += weight_gb
         free_if_dit_unloaded += weight_gb
     if total_reserve > free_if_dit_unloaded:
-        _log_refusal(
+        _log_overcommit(
             total_reserve, activation_reserve, extra_reserve, free_if_dit_unloaded, free_raw,
             video_tokens, audio_tokens,
-        )
-        raise DitPlacementInfeasible(
-            f"This clip needs about {total_reserve:.1f} GB of VRAM for activations at "
-            f"{video_tokens:,} video tokens (+{audio_tokens:,} audio), but only "
-            f"{free_if_dit_unloaded:.1f} GB is free -- shorten the clip or lower the resolution.",
-            detail=(
-                f"activation_reserve_gb={activation_reserve:.2f} extra_reserve_gb={extra_reserve:.2f} "
-                f"total_reserve_gb={total_reserve:.2f} free_gb={free_if_dit_unloaded:.2f} "
-                f"free_raw_gb={free_raw:.2f} free_effective_gb={free_if_dit_unloaded:.2f} "
-                f"video_tokens={video_tokens} audio_tokens={audio_tokens}"
+            _render_fit_hint(
+                fit_hint, free_if_dit_unloaded, activation_reserve_gb=activation_reserve,
+                extra_reserve_gb=extra_reserve, tokens=video_tokens + audio_tokens,
             ),
-            total_reserve_gb=total_reserve, activation_reserve_gb=activation_reserve,
-            extra_reserve_gb=extra_reserve, free_gb=free_if_dit_unloaded,
-            video_tokens=video_tokens, audio_tokens=audio_tokens,
         )
 
     if _dit_is_fully_resident(dit, device):
@@ -517,6 +653,175 @@ def place_dit_for_sequence(
     )
     _log_decision(decision, device)
     return decision
+
+
+def guard_sampling_oom(
+    forward: Callable[..., Any], *, dit: Any, device: str, decision: DitPlacementDecision,
+    fit_hint: "FitHint | None" = None,
+) -> Callable[..., Any]:
+    """Wrap ``forward`` so its FIRST call degrades instead of dying.
+
+    This is the other half of not refusing up front. The pre-flight estimate
+    sizes the weight budget and warns; the real allocator decides. When the
+    first sampling forward OOMs, the ladder reclaims the caching allocator's
+    idle pool, then sheds every resident DiT weight to host RAM, retrying
+    after each. Only when it OOMs with nothing left to shed does the user see
+    :class:`SamplingOutOfMemory`, carrying numbers measured at that moment.
+
+    Only the first call is guarded: once a forward has succeeded, this
+    generation's peak allocation has been paid and every later step of the
+    same sampling loop allocates the same shapes. The wrapper drops to a
+    plain passthrough from then on, so it costs a bool per step.
+
+    Retrying the first forward is safe against the step cache
+    (``sampling/step_cache.py``): ``record_compute`` runs only after the
+    output exists, so a forward that died mid-way recorded nothing, and
+    ``should_skip`` refuses during warmup regardless. A future cache that
+    commits state BEFORE its forward completes would break that and would
+    need a reset hook here.
+
+    ``fit_hint`` is the family's :data:`FitHint`, here rendered against the
+    free VRAM MEASURED at failure rather than the pre-flight reading the
+    over-commit warning used. Omitted, the message ends after the advice.
+    """
+    return _GuardedForward(forward, dit=dit, device=device, decision=decision, fit_hint=fit_hint)
+
+
+class _GuardedForward:
+    """Transparent proxy around a sampling forward.
+
+    A proxy rather than a plain closure because these forwards are objects
+    with state their pipe still reads THROUGH the value handed to the
+    sampler -- ``ConditionedAVForward``'s ``t_lat`` and ``unpack_base`` are
+    read off the same reference ``denoise_prenoised`` was given. Anything
+    but ``__call__`` falls through to the wrapped object, so wrapping is
+    invisible to every caller and every spy.
+    """
+
+    def __init__(
+        self, forward: Callable[..., Any], *, dit: Any, device: str,
+        decision: DitPlacementDecision, fit_hint: "FitHint | None",
+    ) -> None:
+        # Bypass __setattr__/__getattr__ ambiguity by keeping our own state
+        # under names the wrapped object will never be asked for.
+        object.__setattr__(self, "_guard_forward", forward)
+        object.__setattr__(self, "_guard_dit", dit)
+        object.__setattr__(self, "_guard_device", device)
+        object.__setattr__(self, "_guard_decision", decision)
+        object.__setattr__(self, "_guard_fit_hint", fit_hint)
+        object.__setattr__(self, "_guard_armed", True)
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        forward = object.__getattribute__(self, "_guard_forward")
+        if not object.__getattribute__(self, "_guard_armed"):
+            return forward(*args, **kwargs)
+        result = _forward_with_degrade(
+            forward, args, kwargs,
+            dit=object.__getattribute__(self, "_guard_dit"),
+            device=object.__getattribute__(self, "_guard_device"),
+            decision=object.__getattribute__(self, "_guard_decision"),
+            fit_hint=object.__getattribute__(self, "_guard_fit_hint"),
+        )
+        object.__setattr__(self, "_guard_armed", False)
+        return result
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(object.__getattribute__(self, "_guard_forward"), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(object.__getattribute__(self, "_guard_forward"), name, value)
+
+
+def _forward_with_degrade(
+    forward: Callable[..., Any], args: tuple, kwargs: dict, *, dit: Any, device: str,
+    decision: DitPlacementDecision, fit_hint: "FitHint | None",
+) -> Any:
+    try:
+        return forward(*args, **kwargs)
+    except torch.cuda.OutOfMemoryError:
+        logger.warning(
+            "[LTX PLACEMENT] first sampling forward OOM'd (S=%d video +%d audio, reserve %.2fGB); "
+            "reclaiming the allocator pool and retrying",
+            decision.video_tokens, decision.audio_tokens, decision.activation_reserve_gb,
+        )
+
+    # Tier 1: the allocator's reserved-but-unallocated pool is memory the next
+    # cudaMalloc can already have; releasing it back to the driver costs a
+    # sync and is often the whole shortfall.
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    try:
+        return forward(*args, **kwargs)
+    except torch.cuda.OutOfMemoryError:
+        pass
+
+    # Tier 2: hand the forward the whole card by streaming every DiT weight
+    # from pinned host RAM. Skipped when nothing is resident to shed -- a
+    # placement that already streamed everything has no tier 2.
+    if _dit_holds_resident_weight(decision):
+        logger.warning(
+            "[LTX PLACEMENT] retry after empty_cache still OOM'd; streaming the full DiT "
+            "(%.2fGB) from host RAM and retrying", decision.dit_weight_gb,
+        )
+        dit.offload()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        dit.stream_to(device, 0.0)
+        try:
+            return forward(*args, **kwargs)
+        except torch.cuda.OutOfMemoryError:
+            pass
+
+    raise _sampling_oom(device=device, decision=decision, fit_hint=fit_hint)
+
+
+def _dit_holds_resident_weight(decision: DitPlacementDecision) -> bool:
+    """Whether the ladder has any DiT weight left to shed. A "partial"
+    placement with a zero weight budget is already fully streamed."""
+    if decision.mode == "resident":
+        return True
+    return decision.mode == "partial" and decision.weight_budget_gb > 0.0
+
+
+def _sampling_oom(
+    *, device: str, decision: DitPlacementDecision, fit_hint: "FitHint | None",
+) -> SamplingOutOfMemory:
+    free_raw = free_vram_gb(device) or 0.0
+    free_effective = effective_free_vram_gb(device) or 0.0
+    tokens = decision.video_tokens + decision.audio_tokens
+    hint_text = _render_fit_hint(
+        fit_hint, free_effective, activation_reserve_gb=decision.activation_reserve_gb,
+        extra_reserve_gb=decision.extra_reserve_gb, tokens=tokens,
+    )
+    get_profiler().mark(
+        "ltx.dit_placement.sampling_oom",
+        free_raw_gb=round(free_raw, 2), free_effective_gb=round(free_effective, 2),
+        activation_reserve_gb=round(decision.activation_reserve_gb, 2),
+        extra_reserve_gb=round(decision.extra_reserve_gb, 2),
+        video_tokens=decision.video_tokens, audio_tokens=decision.audio_tokens,
+    )
+    logger.warning(
+        "[LTX PLACEMENT] sampling OOM with the DiT fully streamed: S=%d video (+%d audio), "
+        "%.2fGB free (%.2fGB raw), estimate had %.2fGB activation + %.2fGB extra",
+        decision.video_tokens, decision.audio_tokens, free_effective, free_raw,
+        decision.activation_reserve_gb, decision.extra_reserve_gb,
+    )
+    return SamplingOutOfMemory(
+        f"This clip ran out of VRAM at {tokens:,} tokens even with the model streamed from RAM "
+        f"({free_effective:.1f} GB free at the time) -- shorten the clip or lower the "
+        f"resolution.{' ' + hint_text if hint_text else ''}",
+        detail=(
+            f"free_raw_gb={free_raw:.2f} free_effective_gb={free_effective:.2f} "
+            f"activation_reserve_gb={decision.activation_reserve_gb:.2f} "
+            f"extra_reserve_gb={decision.extra_reserve_gb:.2f} "
+            f"dit_weight_gb={decision.dit_weight_gb:.2f} mode={decision.mode} "
+            f"video_tokens={decision.video_tokens} audio_tokens={decision.audio_tokens}"
+        ),
+        free_raw_gb=free_raw, free_effective_gb=free_effective,
+        activation_reserve_gb=decision.activation_reserve_gb,
+        extra_reserve_gb=decision.extra_reserve_gb,
+        video_tokens=decision.video_tokens, audio_tokens=decision.audio_tokens,
+    )
 
 
 def _ensure_room_for(device: str, need_gb: float, own_models: Iterable[Any]) -> None:
@@ -585,23 +890,26 @@ def _move_partial(dit: Any, device: str, weight_budget_gb: float, own_models: It
         return "partial"
 
 
-def _log_refusal(
+def _log_overcommit(
     total_reserve_gb: float, activation_reserve_gb: float, extra_reserve_gb: float,
     free_gb: float, free_raw_gb: float, video_tokens: int, audio_tokens: int,
+    hint_text: str = "",
 ) -> None:
+    """Warn that the estimate does not fit this card, and proceed anyway --
+    see the over-commit check in :func:`place_dit_for_sequence`."""
     get_profiler().mark(
-        "ltx.dit_placement.refused",
+        "ltx.dit_placement.overcommit",
         total_reserve_gb=round(total_reserve_gb, 2), activation_reserve_gb=round(activation_reserve_gb, 2),
         extra_reserve_gb=round(extra_reserve_gb, 2), free_gb=round(free_gb, 2),
         free_raw_gb=round(free_raw_gb, 2),
         video_tokens=video_tokens, audio_tokens=audio_tokens,
     )
     logger.warning(
-        "[LTX PLACEMENT] refused: total reserve %.2fGB (activation %.2fGB + extra %.2fGB) exceeds "
-        "%.2fGB free with zero DiT weight resident (%.2fGB raw, the rest held by the caching "
-        "allocator), S=%d video (+%d audio)",
+        "[LTX PLACEMENT] over-committed: total reserve %.2fGB (activation %.2fGB + extra %.2fGB) "
+        "exceeds %.2fGB free with zero DiT weight resident (%.2fGB raw, the rest held by the "
+        "caching allocator), S=%d video (+%d audio) -- streaming the DiT and sampling anyway.%s",
         total_reserve_gb, activation_reserve_gb, extra_reserve_gb, free_gb, free_raw_gb,
-        video_tokens, audio_tokens,
+        video_tokens, audio_tokens, f" {hint_text}" if hint_text else "",
     )
 
 

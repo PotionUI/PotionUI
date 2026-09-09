@@ -93,7 +93,7 @@ from src.pipelines.pipes._shared.generation.dfr_layout import (
     round_output_frames,
     tile_local_placements,
 )
-from src.pipelines.pipes._shared.generation.dit_placement import place_dit_for_sequence
+from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.ltx_conditioned_forward import ConditionedAVForward
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
@@ -658,7 +658,7 @@ class GeneratorDfrLtxPipe(BasePipe):
                             device=device, dtype=dtype)
         x = mix_initial_noise(prepared, noise, sigma0)
 
-        place_dit_for_sequence(
+        placement = place_dit_for_sequence(
             bundle.dit, device, video_tokens=s_video, audio_tokens=0,
             own_models=tuple(m for m in (bundle.dit, bundle.vae, bundle.temporal_upsampler)
                              if m is not None),
@@ -682,8 +682,11 @@ class GeneratorDfrLtxPipe(BasePipe):
             progress.step(step_index + 1, total, state=f"Tile {tile.index + 1}",
                           icon=Icon(name="film", effect="pulse"))
 
+        sample_forward = guard_sampling_oom(
+            forward, dit=bundle.dit, device=device, decision=placement,
+        )
         x = denoise_prenoised(
-            forward, x, cond, uncond,
+            sample_forward, x, cond, uncond,
             steps=len(sigmas) - 1, sampler_name="euler_ancestral",
             sampling_settings=dict(bundle.spec.sampling_settings),
             guidance_scale=float(self.config.get("cfg", 1.0)),

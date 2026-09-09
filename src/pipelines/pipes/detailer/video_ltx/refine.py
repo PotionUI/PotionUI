@@ -55,7 +55,7 @@ import torch
 
 from src.platform.runtime.native.sampling import denoise
 from src.platform.runtime.native.vae.ltx_causal_video import _MAX_CHUNK_BYTES
-from src.pipelines.pipes._shared.generation.dit_placement import place_dit_for_sequence
+from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
 from src.pipelines.pipes._shared.vae.ltx_tiled_decode import DECODE_NOISE_SEED_OFFSET, decode_with_oom_retry
 from src.pipelines.pipes._shared.vae.ltx_tiled_encode import encode_with_oom_retry
 # Constants + the CPU/GPU cond-move helper, imported (not copied) -- these are
@@ -222,7 +222,7 @@ def refine_tube_pixels(
     decode_reserve_gb = estimate_decode_reserve_gb(
         (t_lat - 1) * _TEMPORAL_DOWNSCALE + 1, h_lat * _SPATIAL_DOWNSCALE, w_lat * _SPATIAL_DOWNSCALE,
     )
-    place_dit_for_sequence(
+    placement = place_dit_for_sequence(
         bundle.dit, device, video_tokens=t_lat * h_lat * w_lat,
         own_models=(bundle.dit, bundle.vae), reserve_gb=decode_reserve_gb,
     )
@@ -239,8 +239,11 @@ def refine_tube_pixels(
     gen = torch.Generator(device=device).manual_seed(int(seed))
     noise = torch.randn(latent.shape, generator=gen, device=device, dtype=dtype)
 
+    sample_forward = guard_sampling_oom(
+        model_forward, dit=bundle.dit, device=device, decision=placement,
+    )
     refined = denoise(
-        model_forward, latent, cond, None,
+        sample_forward, latent, cond, None,
         steps=max(1, refine_sigmas.numel() - 1), sampler_name="euler",
         sampling_settings={**bundle.spec.sampling_settings}, guidance_scale=1.0,
         seed_noise=noise, sigmas=refine_sigmas, cfg_zero_star=False,

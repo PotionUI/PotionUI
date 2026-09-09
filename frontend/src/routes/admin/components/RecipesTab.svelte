@@ -251,12 +251,9 @@
 	}
 
 	/** Adopt a run and keep the poll in step with whatever status it carries.
-	 * Also the `onRunUpdated` handler `RecipeRunProgress` calls. Every run that
-	 * reaches here came from an `/api/recipes` response (or a spread of one), so
-	 * it carries `mode` even though the component's callback is typed on the
-	 * narrower shared shape. */
+	 * Also the `onRunUpdated` handler `RecipeRunProgress` calls. */
 	function adoptRun(updated: SetupRun) {
-		activeRun = updated as RecipeRun;
+		activeRun = updated;
 		if (shouldPollRun(updated.status)) schedulePoll(updated.id);
 		else clearPoll();
 	}

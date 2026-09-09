@@ -46,6 +46,13 @@ export type SetupStepStatus =
 /** The action names the run-actions endpoint accepts. */
 export type SetupRunAction = 'pause' | 'resume' | 'cancel' | 'retry_step';
 
+/** Which surface started a run. The wizard and Admin -> Recipes share one
+ * response model server-side (`RecipeRunView`), so every run carries this —
+ * a wizard-started run is always `onboarding`. An `admin` run skips the steps
+ * a recipe marks onboarding-only, so its `steps` is shorter than the same
+ * recipe's declared step list. */
+export type RecipeRunMode = 'admin' | 'onboarding';
+
 export interface SetupStepAttempt {
 	step_key: string;
 	attempt: number;
@@ -84,6 +91,7 @@ export interface SetupRun {
 	recipe_id: string;
 	recipe_version: number;
 	scope: string;
+	mode: RecipeRunMode;
 	status: SetupRunStatus;
 	current_step: string | null;
 	safe_input: Record<string, unknown> | null;

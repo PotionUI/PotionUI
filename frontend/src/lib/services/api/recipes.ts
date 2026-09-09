@@ -1,11 +1,10 @@
 import type { AxiosInstance } from 'axios';
-import type { ReadinessReport, SetupRun, SetupRunAction } from './setup';
+import type { ReadinessReport, RecipeRunMode, SetupRun, SetupRunAction } from './setup';
+
+export type { RecipeRunMode };
 
 /** Where a recipe was scanned from — the same three roots presets use. */
 export type RecipeSource = 'marketplace' | 'local' | 'plugin';
-
-/** Which surface started a run: the admin Recipes tab, or the /setup wizard. */
-export type RecipeRunMode = 'admin' | 'onboarding';
 
 /** One entry of `GET /api/recipes`. */
 export interface RecipeSummary {
@@ -67,12 +66,11 @@ export interface RecipeDetail extends RecipeSummary {
 	load_errors: string[];
 }
 
-/** A durable recipe run: the same redacted DTO the setup wizard renders, plus
- * which surface started it. Typed as an extension rather than a rename so the
- * wizard keeps importing `SetupRun` unchanged. */
-export interface RecipeRun extends SetupRun {
-	mode: RecipeRunMode;
-}
+/** A durable recipe run. The wizard and this tab render the same server DTO,
+ * so this is `SetupRun` under the name the admin surface calls it — kept as a
+ * name rather than collapsed, because a caller reading `RecipeRun` should not
+ * have to know the wizard owns the shape. */
+export type RecipeRun = SetupRun;
 
 export interface RecipeStepKind {
 	kind: string;
@@ -82,7 +80,8 @@ export interface RecipeStepKind {
 
 export function createRecipesApi(client: AxiosInstance) {
 	return {
-		/** The full recipe catalog (admin-only). */
+		/** The full recipe catalog. Admin-only: a regular user gets a 403 here,
+		 * unlike the wizard's setup routes, which answer 404-not-403. */
 		async listRecipes(): Promise<{ recipes: RecipeSummary[] }> {
 			const response = await client.get('/api/recipes');
 			return response.data;
@@ -108,7 +107,8 @@ export function createRecipesApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		/** Run history, newest first. */
+		/** Run history, newest first. The server bounds `limit` to 1-200 and 422s
+		 * outside that. */
 		async listRecipeRuns(options?: { recipeId?: string; limit?: number }): Promise<{ runs: RecipeRun[] }> {
 			const params: Record<string, string | number> = {};
 			if (options?.recipeId) params.recipe_id = options.recipeId;

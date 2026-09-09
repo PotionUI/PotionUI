@@ -16,6 +16,10 @@ Subcommands
   same ``--profile``/``--no-gpu``.
 - ``status``       — report whether a previously-started instance is alive.
 - ``stop``         — stop a previously-started instance (safe no-op if none).
+- ``backup``       — write a backup of the state PotionUI owns (``--tier
+  config|media|all``). See ``docs/user/backup-and-restore.md``.
+- ``restore``      — put a backup archive back onto this checkout
+  (``--dry-run`` reports the plan without writing).
 - ``start-docker`` — preflight + exec the containerized dev/simulation harness
   (``docker compose -f docker/docker-compose.yml up --build``). Requires an
   NVIDIA GPU and nvidia-container-toolkit; see ``docker/README.md``.
@@ -1386,6 +1390,187 @@ def cmd_worker(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# backup / restore
+# ---------------------------------------------------------------------------
+
+DEFAULT_BACKUP_DIR_NAME = "backups"
+BACKUP_TIERS = ("config", "media", "all")
+MAX_MISSING_LISTED = 20
+
+
+def _import_backup_module(name: str):
+    """Import a `src.features.backup` module, putting the repo on sys.path first.
+
+    Imported here rather than at module scope: every other subcommand has to
+    keep working on the bare interpreter the `./potionui` shim finds, before
+    the venv exists.
+    """
+    checkout = str(Path(__file__).resolve().parent.parent)
+    if checkout not in sys.path:
+        sys.path.insert(0, checkout)
+    import importlib
+
+    return importlib.import_module(f"src.features.backup.{name}")
+
+
+def format_bytes(count: int) -> str:
+    value = float(count)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024 or unit == "TB":
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} TB"
+
+
+def backup_preflight(repo_root: Path, out_dir: Path) -> Optional[CheckResult]:
+    """The blocking checks a backup needs: the storage tree it reads and the
+    directory it writes into."""
+    probe = RealProbe()
+    storage = check_storage(probe, repo_root)
+    if storage.severity == Severity.ERROR:
+        return storage
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return CheckResult(
+            "BACKUP_OUT", Severity.ERROR, f"{out_dir} could not be created ({exc}).",
+            repair=f"Choose a writable --out directory.", blocking=True,
+        )
+    if not probe.is_writable_dir(out_dir):
+        return CheckResult(
+            "BACKUP_OUT", Severity.ERROR, f"{out_dir} is not writable.",
+            repair=f"chmod u+w {out_dir} (or fix ownership).", blocking=True,
+        )
+    return None
+
+
+def cmd_backup(args) -> int:
+    repo_root = REPO_ROOT
+    out_dir = Path(args.out).expanduser() if args.out else repo_root / DEFAULT_BACKUP_DIR_NAME
+
+    failure = backup_preflight(repo_root, out_dir)
+    if failure is not None:
+        print(f"error: {failure.message}")
+        if failure.repair:
+            print(f"  fix: {failure.repair}")
+        return 1
+
+    archive = _import_backup_module("archive")
+    try:
+        result = archive.run_backup(
+            repo_root,
+            out_dir,
+            tier=args.tier,
+            include_models=args.include_models,
+            include_animated_thumbnails=args.include_animated_thumbnails,
+        )
+    except archive.BackupRefused as exc:
+        print(f"error: {exc}")
+        return 1
+    except OSError as exc:
+        print(f"error: backup failed: {exc}")
+        return 1
+
+    items = result.manifest.get("items", {})
+    print(f"Backup ({result.tier}) written in {result.duration_seconds:.1f}s")
+    print(f"  archive  {result.archive_path}  {format_bytes(result.archive_bytes)}")
+    for name in sorted(items):
+        counts = items[name]
+        print(f"    {name}  {counts['files']} file(s), {format_bytes(counts['bytes'])}")
+    if result.media is not None:
+        print(
+            f"  media    {result.media_dir}  "
+            f"{result.media.files_copied} copied ({format_bytes(result.media.bytes_copied)}), "
+            f"{result.media.files_skipped} already current"
+        )
+        if result.media.animated_skipped_files:
+            print(
+                f"    skipped {result.media.animated_skipped_files} animated thumbnail(s), "
+                f"{format_bytes(result.media.animated_skipped_bytes)} "
+                f"(--include-animated-thumbnails to keep them)"
+            )
+    if result.models is not None:
+        print(
+            f"  models   {out_dir / archive.MODELS_DIR_NAME}  "
+            f"{result.models.files_copied} copied "
+            f"({format_bytes(result.models.bytes_copied)}), "
+            f"{result.models.files_skipped} already current"
+        )
+    print("  the archive holds the credential encryption key: store it where you would store that key.")
+    return 0
+
+
+def _print_verify(report) -> None:
+    print(f"  verified {report.checked} media reference(s)")
+    if report.missing_animated:
+        print(
+            f"    {report.missing_animated} animated thumbnail(s) absent - expected, "
+            f"the thumbnail job rebuilds them"
+        )
+    for item in report.missing[:MAX_MISSING_LISTED]:
+        print(f"    MISSING {item.describe()}")
+    if len(report.missing) > MAX_MISSING_LISTED:
+        print(f"    ... and {len(report.missing) - MAX_MISSING_LISTED} more")
+    if report.missing:
+        print(f"    {len(report.missing)} referenced file(s) have no bytes on disk")
+    else:
+        print("    every referenced file is on disk")
+
+
+def cmd_restore(args) -> int:
+    repo_root = REPO_ROOT
+    restore = _import_backup_module("restore")
+    manifest_module = _import_backup_module("manifest")
+
+    try:
+        result = restore.run_restore(
+            Path(args.archive).expanduser(),
+            repo_root,
+            media_dir=Path(args.media).expanduser() if args.media else None,
+            dry_run=args.dry_run,
+        )
+    except (restore.RestoreRefused, manifest_module.UnsupportedArchiveError) as exc:
+        print(f"error: {exc}")
+        return 1
+    except OSError as exc:
+        print(f"error: restore failed: {exc}")
+        return 1
+
+    plan = result.plan
+    manifest = plan.manifest
+    print(
+        f"Archive {plan.archive_path.name}: tier {manifest.get('tier')}, "
+        f"app {manifest.get('app_version')}, migration {manifest.get('migration_head')}, "
+        f"taken {manifest.get('created_at')} on {manifest.get('hostname')}"
+    )
+
+    if result.dry_run:
+        print("Dry run - nothing was written.")
+        for item in plan.items:
+            print(f"  would restore {item.name} -> {item.destination}")
+        if plan.media_dir:
+            print(f"  would copy media back from {plan.media_dir}")
+        for blocker in plan.blockers:
+            print(f"  BLOCKED {blocker}")
+        _print_verify(result.verify)
+        return 1 if plan.blockers else 0
+
+    for item in result.placed:
+        print(f"  restored {item.name} -> {item.destination}")
+    for previous in result.previous_paths:
+        print(f"  kept     {previous}")
+    if result.media is not None:
+        print(
+            f"  media    {result.media.files_copied} copied "
+            f"({format_bytes(result.media.bytes_copied)}), "
+            f"{result.media.files_skipped} already present"
+        )
+    _print_verify(result.verify)
+    print("Start PotionUI with `./potionui start`; pending migrations run at boot.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # argparse wiring
 # ---------------------------------------------------------------------------
 
@@ -1443,6 +1628,52 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="Show whether PotionUI is running.")
     sub.add_parser("stop", help="Stop a running PotionUI instance.")
 
+    backup_p = sub.add_parser(
+        "backup",
+        help=(
+            "Write a backup of the state PotionUI owns: one zip of configuration, and "
+            "optionally a mirror of the media tree beside it."
+        ),
+    )
+    backup_p.add_argument(
+        "--out", default=None,
+        help=f"Directory to write into (default: ./{DEFAULT_BACKUP_DIR_NAME}).",
+    )
+    backup_p.add_argument(
+        "--tier", choices=BACKUP_TIERS, default="config",
+        help=(
+            "`config` (default): the database, the encryption key, .env, your local presets/"
+            "plugins/automation and the small storage trees, as one zip. `media`: that zip plus "
+            "a mirror of uploads and generations. `all`: media plus a mirror of the models "
+            "directory."
+        ),
+    )
+    backup_p.add_argument(
+        "--include-models", action="store_true",
+        help="Mirror the models directory too (what --tier all implies).",
+    )
+    backup_p.add_argument(
+        "--include-animated-thumbnails", action="store_true",
+        help=(
+            "Mirror the animated video thumbnails as well. They are derived files the "
+            "thumbnail job rebuilds, and they are skipped by default."
+        ),
+    )
+
+    restore_p = sub.add_parser(
+        "restore",
+        help="Restore an archive written by `potionui backup` onto this checkout.",
+    )
+    restore_p.add_argument("archive", help="Path to the backup zip.")
+    restore_p.add_argument(
+        "--media", default=None,
+        help="Media mirror to copy back (default: a `media` directory beside the archive).",
+    )
+    restore_p.add_argument(
+        "--dry-run", action="store_true",
+        help="Print the plan and verify the archive against what is on disk, writing nothing.",
+    )
+
     start_docker_p = sub.add_parser(
         "start-docker",
         help=(
@@ -1493,6 +1724,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         "build": cmd_build,
         "status": cmd_status,
         "stop": cmd_stop,
+        "backup": cmd_backup,
+        "restore": cmd_restore,
         "start-docker": cmd_start_docker,
         "worker": cmd_worker,
     }

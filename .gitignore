@@ -152,3 +152,6 @@ frontend/src/lib/storage/
 
 # Design proposals stay local
 design-proposals/
+
+# potionui backup default output
+/backups/

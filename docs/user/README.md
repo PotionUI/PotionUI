@@ -20,4 +20,5 @@ backend internals assumed. Read in this order, or jump to whatever you need:
 - [Models](models.md) — the installed model files (checkpoints, LoRAs, VAEs, upscalers) and how they connect to presets.
 - [Hardware Requirements](hardware-requirements.md) — honest VRAM/RAM numbers for what you're trying to run.
 - [Plugins](plugins.md) — optional features an administrator can enable.
+- [Backup & Restore](backup-and-restore.md) — the `potionui backup`/`restore` commands, what they cover, and how to restore onto a fresh install.
 - [Administration](admin.md) — the admin-only settings area (not needed for everyday generating).

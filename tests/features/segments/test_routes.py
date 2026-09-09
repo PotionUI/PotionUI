@@ -163,6 +163,38 @@ def test_saved_segment_crud(controller, categories, segments, mock_operations, s
     assert deleted.message == "Saved Segment deleted"
 
 
+def test_saved_segment_prefix_and_suffix_serialize_in_response(
+    controller, segments, mock_operations, category
+):
+    bracketed = SavedSegment(
+        id="segment-2",
+        user_id="user-1",
+        category_id="category-1",
+        name="Bracketed",
+        content="a fox",
+        prefix="(",
+        suffix=")",
+    )
+    segments.get_all.return_value = [bracketed]
+    listed = controller.get_segments("user-1", "category-1")
+    assert listed.data["segments"][0]["prefix"] == "("
+    assert listed.data["segments"][0]["suffix"] == ")"
+
+    request = SavedSegmentRequest(
+        name="Bracketed", category_id="category-1", content="a fox",
+        prefix="(", suffix=")",
+    )
+    mock_operations.create_segment.return_value = bracketed
+    created = controller.create_segment(request, "user-1")
+    assert created.data["prefix"] == "("
+    assert created.data["suffix"] == ")"
+    mock_operations.create_segment.assert_called_once_with(
+        segments, controller.categories, controller.plugins, request, "user-1"
+    )
+    assert mock_operations.create_segment.call_args[0][3].prefix == "("
+    assert mock_operations.create_segment.call_args[0][3].suffix == ")"
+
+
 def test_saved_segment_error_mapping(controller, mock_operations):
     mock_operations.get_segment.side_effect = ValueError("Saved Segment not found")
     result = controller.get_segment_by_id("missing", "user-1")

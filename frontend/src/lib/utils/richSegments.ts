@@ -43,7 +43,9 @@ export function toRichSegment(segment: Segment | RichSegment): RichSegment {
 		enabled: isSegmentEnabled(segment),
 		...((segment.name ?? editorSegment.title) ? { name: (segment.name ?? editorSegment.title) as string } : {}),
 		...(segment.color ? { color: segment.color } : {}),
-		...(segment.description ? { description: segment.description } : {})
+		...(segment.description ? { description: segment.description } : {}),
+		...(segment.prefix ? { prefix: segment.prefix } : {}),
+		...(segment.suffix ? { suffix: segment.suffix } : {})
 	};
 }
 
@@ -65,6 +67,8 @@ export function toEditorSegment(
 		...(rich.name ? { name: rich.name } : {}),
 		...(rich.color ? { color: rich.color } : {}),
 		...(rich.description ? { description: rich.description } : {}),
+		...(rich.prefix ? { prefix: rich.prefix } : {}),
+		...(rich.suffix ? { suffix: rich.suffix } : {}),
 		...(template ? { template } : {})
 	};
 }
@@ -103,7 +107,9 @@ export function isPristineBlankSegment(segment: Segment): boolean {
 		isSegmentEnabled(segment) &&
 		!(segment.name || segment.title || '').trim() &&
 		!(segment.color || '').trim() &&
-		!(segment.description || '').trim()
+		!(segment.description || '').trim() &&
+		!(segment.prefix || '').trim() &&
+		!(segment.suffix || '').trim()
 	);
 }
 
@@ -183,7 +189,9 @@ export function savedSegmentToRichSegment(
 		enabled: segment.enabled,
 		name: segment.name,
 		...(effectiveSavedSegmentColor(segment, category) ? { color: effectiveSavedSegmentColor(segment, category) } : {}),
-		...(segment.description ? { description: segment.description } : {})
+		...(segment.description ? { description: segment.description } : {}),
+		...(segment.prefix ? { prefix: segment.prefix } : {}),
+		...(segment.suffix ? { suffix: segment.suffix } : {})
 	};
 }
 
@@ -209,12 +217,27 @@ export function removeSegmentKeepingOne(target: readonly Segment[], segmentId: s
 	return target.filter((segment) => segment.id !== segmentId);
 }
 
+/** Join a segment's literal affixes onto its already-resolved body: no separator
+ *  of any kind, and nothing at all when that body resolves empty. The one
+ *  definition of the wrap, shared by the flattened prompt and the per-segment
+ *  record attached to a generation. */
+export function applySegmentAffixes(
+	segment: Pick<Segment | RichSegment, 'prefix' | 'suffix'>,
+	resolved: string
+): string {
+	if (!segment.prefix && !segment.suffix) return resolved;
+	const trimmed = resolved.trim();
+	return trimmed ? `${segment.prefix ?? ''}${trimmed}${segment.suffix ?? ''}` : '';
+}
+
 /** Preset-declared separator between enabled content segments (`vars.prompt.segment_join`
  *  in preset.yml). `comma` is the default every existing preset gets; `paragraph` is for
  *  presets whose segments are prose blocks (e.g. song sections) rather than tag fragments. */
 export type SegmentJoin = 'comma' | 'paragraph';
 
-/** Resolve enabled rich segments to the exact flattened text used for search and generation. */
+/** Resolve enabled rich segments to the exact flattened text used for search and
+ *  generation. A segment's `prefix`/`suffix` are joined to its resolved body
+ *  byte-for-byte, and only when that body is non-empty. */
 export function flattenRichSegments(
 	segments: readonly (Segment | RichSegment)[] = [],
 	join: SegmentJoin = 'comma'
@@ -240,7 +263,7 @@ export function flattenRichSegments(
 		if (!trimmed) continue;
 
 		if (result) result += previousWasBreak ? ' ' : join === 'paragraph' ? '\n\n' : ', ';
-		result += trimmed;
+		result += applySegmentAffixes(segment, trimmed);
 		previousWasBreak = false;
 	}
 

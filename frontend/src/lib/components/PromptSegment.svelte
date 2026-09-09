@@ -98,6 +98,9 @@
 	$: segmentDisabled = segment.enabled === false || !!segment.isDisabled;
 	$: displayName = segmentDisplayName(segment);
 	$: hasDescription = !!segment.description && segment.description.trim().length > 0;
+	$: prefixText = segment.prefix || '';
+	$: suffixText = segment.suffix || '';
+	$: hasAffix = !!prefixText || !!suffixText;
 	$: footerActions = segmentFooterActions(segment);
 	$: charCount = segmentCharCount(segment);
 	$: dynamicTokenCount =
@@ -227,7 +230,13 @@
 		detailsModalOpen = false;
 	}
 
-	function saveDetails(updates: { name?: string; color?: string; description?: string }) {
+	function saveDetails(updates: {
+		name?: string;
+		color?: string;
+		description?: string;
+		prefix?: string;
+		suffix?: string;
+	}) {
 		dispatch('metadataChange', updates);
 	}
 
@@ -471,7 +480,16 @@
 				</div>
 			</header>
 
-			<div class="card-content segment-content">
+			<div class="card-content segment-content" class:with-affix={hasAffix}>
+				{#if prefixText}
+					<button
+						type="button"
+						class="segment-affix"
+						tabindex="-1"
+						title="Prefix — edit it in Segment details"
+						on:click={() => inlineEditor?.focusEditor()}
+					>{prefixText}</button>
+				{/if}
 				<InlineChipEditor
 					bind:this={inlineEditor}
 					value={segment.content}
@@ -489,6 +507,15 @@
 					{activeTriggerWords}
 					variant="segment-composer"
 				/>
+				{#if suffixText}
+					<button
+						type="button"
+						class="segment-affix"
+						tabindex="-1"
+						title="Suffix — edit it in Segment details"
+						on:click={() => inlineEditor?.focusEditor()}
+					>{suffixText}</button>
+				{/if}
 			</div>
 
 			<footer class="segment-foot">
@@ -568,5 +595,50 @@
 		.card :global(.head-action-btn) {
 			display: none;
 		}
+	}
+
+	/* Affixes read as part of the prompt, so they sit on the body's own first
+	   line with nothing between them and the text — `--affix-pull` swallows the
+	   editor's horizontal padding (px-3, px-2.5 in compact) so the join on the
+	   card is the same zero-separator join flattenRichSegments performs. The
+	   editor only stops filling the row when an affix is present; without one
+	   this box keeps its plain block layout. */
+	.segment-content.with-affix {
+		--affix-pull: 0.75rem;
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-start;
+	}
+
+	.compact .segment-content.with-affix {
+		--affix-pull: 0.625rem;
+	}
+
+	.segment-content.with-affix > :global(.relative) {
+		flex: 0 1 auto;
+		width: max-content;
+		min-width: 8rem;
+		max-width: 100%;
+	}
+
+	.segment-affix {
+		flex: 0 0 auto;
+		padding: 0.5rem 0;
+		background: transparent;
+		border: 0;
+		text-align: left;
+		color: rgb(var(--fg-subtle));
+		font: inherit;
+		white-space: pre;
+		cursor: text;
+		user-select: none;
+	}
+
+	.segment-affix:first-child {
+		margin-right: calc(-1 * var(--affix-pull));
+	}
+
+	.segment-affix:last-child {
+		margin-left: calc(-1 * var(--affix-pull));
 	}
 </style>

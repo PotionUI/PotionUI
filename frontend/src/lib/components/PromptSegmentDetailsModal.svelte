@@ -6,9 +6,10 @@
 	import type { Segment } from '$lib/types/segments';
 	import PromptSegmentMetadataEditor from './PromptSegmentMetadataEditor.svelte';
 
-	// Replaces the old inline reveal under the card/content: name, colour and
-	// description now edit in a draft that only lands on the real segment when
-	// Save (or Enter) commits it — Cancel (or Esc) discards it untouched.
+	// Replaces the old inline reveal under the card/content: name, colour,
+	// description and the prefix/suffix affixes now edit in a draft that only
+	// lands on the real segment when Save (or Enter) commits it — Cancel (or
+	// Esc) discards it untouched.
 	let {
 		isOpen,
 		segment,
@@ -18,7 +19,13 @@
 		isOpen: boolean;
 		segment: Segment;
 		onClose: () => void;
-		onSave: (updates: { name?: string; color?: string; description?: string }) => void;
+		onSave: (updates: {
+			name?: string;
+			color?: string;
+			description?: string;
+			prefix?: string;
+			suffix?: string;
+		}) => void;
 	} = $props();
 
 	let draft = $state<Segment>(segment);
@@ -33,7 +40,7 @@
 	});
 
 	function handleChange(
-		event: CustomEvent<Partial<Pick<Segment, 'name' | 'color' | 'description'>>>
+		event: CustomEvent<Partial<Pick<Segment, 'name' | 'color' | 'description' | 'prefix' | 'suffix'>>>
 	) {
 		draft = { ...draft, ...event.detail };
 	}
@@ -44,7 +51,13 @@
 
 	function handleConfirm() {
 		settlementGate.settle(() => {
-			onSave({ name: draft.name ?? undefined, color: draft.color ?? undefined, description: draft.description ?? undefined });
+			onSave({
+				name: draft.name ?? undefined,
+				color: draft.color ?? undefined,
+				description: draft.description ?? undefined,
+				prefix: draft.prefix ?? undefined,
+				suffix: draft.suffix ?? undefined
+			});
 			onClose();
 		});
 	}

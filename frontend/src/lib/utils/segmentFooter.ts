@@ -1,6 +1,6 @@
 import type { Segment } from '$lib/types/segments';
 import { richTextToPlainText } from './richTextUtils';
-import { isSegmentEnabled } from './richSegments';
+import { applySegmentAffixes, isSegmentEnabled } from './richSegments';
 
 /** The card's header action cluster is the same set on every card: it never
  *  changes shape between states, only the first action's sense flips. Keeping
@@ -37,13 +37,16 @@ export function segmentDisplayName(segment: Pick<Segment, 'name' | 'title'>): st
 }
 
 /** The card's own char count: the text this segment would contribute, with its
- *  chips resolved to their chosen values. Independent of `enabled` — a disabled
- *  card still reports what it holds, even though it contributes nothing to the
- *  resolved prompt. */
-export function segmentCharCount(segment: Pick<Segment, 'content' | 'chips'>): number {
+ *  chips resolved to their chosen values and its affixes joined on. Independent
+ *  of `enabled` — a disabled card still reports what it holds, even though it
+ *  contributes nothing to the resolved prompt. */
+export function segmentCharCount(
+	segment: Pick<Segment, 'content' | 'chips' | 'prefix' | 'suffix'>
+): number {
 	const chips = segment.chips || {};
 	const content = segment.content || '';
-	return (Object.keys(chips).length ? richTextToPlainText(content, chips) : content).length;
+	const resolved = Object.keys(chips).length ? richTextToPlainText(content, chips) : content;
+	return applySegmentAffixes(segment, resolved).length;
 }
 
 // Order and glyphs match the mock's header cluster: details, save, duplicate,

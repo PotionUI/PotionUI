@@ -212,6 +212,8 @@ class SavedSegmentRepository:
             color=override_color,
             effective_color=override_color or category_color,
             description=row["description"],
+            prefix=row["prefix"],
+            suffix=row["suffix"],
             tags=json_column(row["tags"], []),
             created_at=_datetime(row["created_at"], datetime.now()),
             updated_at=_datetime(row["updated_at"], datetime.now()),
@@ -272,9 +274,10 @@ class SavedSegmentRepository:
                 """
                 INSERT INTO saved_segments (
                     id, user_id, category_id, name, type, content, chips,
-                    is_enabled, color, description, tags, created_at, updated_at
+                    is_enabled, color, description, prefix, suffix, tags,
+                    created_at, updated_at
                 )
-                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 WHERE EXISTS (
                     SELECT 1 FROM segment_categories WHERE id = ? AND user_id = ?
                 )
@@ -290,6 +293,8 @@ class SavedSegmentRepository:
                     1 if segment.enabled else 0,
                     segment.color,
                     segment.description,
+                    segment.prefix,
+                    segment.suffix,
                     _json_dumps(segment.tags),
                     segment.category_id,
                     user_id,
@@ -308,8 +313,8 @@ class SavedSegmentRepository:
                 """
                 UPDATE saved_segments
                 SET category_id = ?, name = ?, type = ?, content = ?, chips = ?,
-                    is_enabled = ?, color = ?, description = ?, tags = ?,
-                    updated_at = CURRENT_TIMESTAMP
+                    is_enabled = ?, color = ?, description = ?, prefix = ?, suffix = ?,
+                    tags = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ? AND user_id = ?
                   AND EXISTS (
                     SELECT 1 FROM segment_categories WHERE id = ? AND user_id = ?
@@ -324,6 +329,8 @@ class SavedSegmentRepository:
                     1 if segment.enabled else 0,
                     segment.color,
                     segment.description,
+                    segment.prefix,
+                    segment.suffix,
                     _json_dumps(segment.tags),
                     segment_id,
                     user_id,
@@ -359,6 +366,8 @@ class SegmentTemplateRepository:
             name=row["name"],
             color=row["color"],
             description=row["description"],
+            prefix=row["prefix"],
+            suffix=row["suffix"],
         )
 
     def _children(self, cursor, template_id: str) -> List[RichSegment]:
@@ -432,8 +441,8 @@ class SegmentTemplateRepository:
                 """
                 INSERT INTO segment_template_segments (
                     id, template_id, position, type, content, chips, is_enabled,
-                    name, color, description
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    name, color, description, prefix, suffix
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     generate_ulid(),
@@ -446,6 +455,8 @@ class SegmentTemplateRepository:
                     segment.name,
                     segment.color,
                     segment.description,
+                    segment.prefix,
+                    segment.suffix,
                 ),
             )
 

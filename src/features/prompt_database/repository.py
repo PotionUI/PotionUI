@@ -59,6 +59,7 @@ def flatten_segments(segments: Sequence[RichSegment]) -> str:
         text = resolve_rich_segment_text(segment).strip()
         if not text:
             continue
+        text = (segment.prefix or "") + text + (segment.suffix or "")
         if result:
             result += " " if previous_was_break else ", "
         result += text
@@ -89,6 +90,8 @@ class PromptRepository:
                 name=row["name"],
                 color=row["color"],
                 description=row["description"],
+                prefix=row["prefix"],
+                suffix=row["suffix"],
             )
             for row in cursor.fetchall()
         ]
@@ -115,12 +118,13 @@ class PromptRepository:
         for position, segment in enumerate(segments):
             cursor.execute(
                 """INSERT INTO prompt_segments
-                   (id, prompt_id, position, type, content, chips, is_enabled, name, color, description)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (id, prompt_id, position, type, content, chips, is_enabled, name, color,
+                    description, prefix, suffix)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     generate_ulid(), prompt_id, position, segment.type, segment.content,
                     json.dumps(segment.model_dump()["chips"]), int(segment.enabled), segment.name,
-                    segment.color, segment.description,
+                    segment.color, segment.description, segment.prefix, segment.suffix,
                 ),
             )
 

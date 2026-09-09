@@ -896,6 +896,8 @@
 				name: seg.name || seg.title || null,
 				type: seg.type || 'content',
 				enabled: isSegmentEnabled(seg),
+				...(seg.prefix ? { prefix: seg.prefix } : {}),
+				...(seg.suffix ? { suffix: seg.suffix } : {}),
 				...(seg.template ? { template: seg.template } : {}),
 				...(negative ? { negative: true } : {})
 			});

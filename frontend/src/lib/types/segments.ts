@@ -33,6 +33,11 @@ export interface RichSegment {
 	name?: string | null;
 	color?: string | null;
 	description?: string | null;
+	/** Literal text joined to the front of this segment's resolved body, with no
+	 *  separator of any kind. Contributes nothing when the body resolves empty. */
+	prefix?: string | null;
+	/** Literal text joined to the back of this segment's resolved body. */
+	suffix?: string | null;
 }
 
 /** Runtime editor shape. `id` is local and is never persisted in RichSegment. */
@@ -45,6 +50,8 @@ export interface Segment {
 	name?: string | null;
 	color?: string | null;
 	description?: string | null;
+	prefix?: string | null;
+	suffix?: string | null;
 
 	/** @deprecated Legacy editor/session compatibility; use `enabled`. */
 	isDisabled?: boolean;

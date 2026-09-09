@@ -239,3 +239,70 @@ class TestSegmentLibraryRepository(PersistenceTestBase):
         self.assertIsNone(self.templates.get_by_id(template.id, self.user_2))
         self.assertFalse(self.templates.delete(template.id, self.user_2))
         self.assertIsNotNone(self.templates.get_by_id(template.id, self.user_1))
+
+    def test_saved_segment_prefix_and_suffix_round_trip_through_create_and_update(self):
+        category = self.categories.get_all(self.user_1)[0]
+        created = self.segments.create(
+            SavedSegment(
+                id=generate_ulid(),
+                user_id=self.user_1,
+                category_id=category.id,
+                name="Bracketed",
+                content="a fox",
+                prefix="(",
+                suffix=")",
+            )
+        )
+        assert created is not None
+        self.assertEqual(created.prefix, "(")
+        self.assertEqual(created.suffix, ")")
+        fetched = self.segments.get_by_id(created.id, self.user_1)
+        assert fetched is not None
+        self.assertEqual(fetched.prefix, "(")
+        self.assertEqual(fetched.suffix, ")")
+
+        updated = self.segments.update(
+            created.id,
+            created.model_copy(update={"prefix": "[", "suffix": None}),
+            self.user_1,
+        )
+        assert updated is not None
+        self.assertEqual(updated.prefix, "[")
+        self.assertIsNone(updated.suffix)
+
+    def test_saved_segment_omitting_prefix_and_suffix_reads_back_as_none(self):
+        category = self.categories.get_all(self.user_1)[0]
+        created = self.segments.create(
+            SavedSegment(
+                id=generate_ulid(),
+                user_id=self.user_1,
+                category_id=category.id,
+                name="Unbracketed",
+                content="a fox",
+            )
+        )
+        assert created is not None
+        self.assertIsNone(created.prefix)
+        self.assertIsNone(created.suffix)
+
+    def test_template_child_prefix_and_suffix_round_trip(self):
+        original = self.templates.create(
+            SegmentTemplate(
+                id=generate_ulid(),
+                user_id=self.user_1,
+                name="Bracketed template",
+                segments=[
+                    RichSegment(content="a fox", prefix="(", suffix=")"),
+                    RichSegment(content="a hound"),
+                ],
+            )
+        )
+        self.assertEqual(original.segments[0].prefix, "(")
+        self.assertEqual(original.segments[0].suffix, ")")
+        self.assertIsNone(original.segments[1].prefix)
+        self.assertIsNone(original.segments[1].suffix)
+
+        fetched = self.templates.get_by_id(original.id, self.user_1)
+        assert fetched is not None
+        self.assertEqual(fetched.segments[0].prefix, "(")
+        self.assertEqual(fetched.segments[0].suffix, ")")

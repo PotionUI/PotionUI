@@ -9,6 +9,8 @@ import {
 	isPristineBlankSegment,
 	removeSegmentKeepingOne,
 	replaceFromSavedSegment,
+	savedSegmentToRichSegment,
+	toEditorSegment,
 	toRichSegment
 } from './richSegments';
 
@@ -277,5 +279,78 @@ describe('list invariants and flattening', () => {
 		expect(persistent).not.toHaveProperty('id');
 		expect(persistent).not.toHaveProperty('isCollapsed');
 		expect(persistent).not.toHaveProperty('sourcePromptId');
+	});
+});
+
+describe('segment affixes', () => {
+	it('joins prefix and suffix to the resolved body with nothing inserted between them', () => {
+		expect(
+			flattenRichSegments([
+				editor('chip', '#palette.color light', {
+					chips: { c1: chip() },
+					prefix: '(',
+					suffix: ':1.2)'
+				})
+			])
+		).toBe('(crimson light:1.2)');
+	});
+
+	it('keeps the separator between segments outside the affixes', () => {
+		const segments = [
+			editor('one', 'portrait', { prefix: '(', suffix: ')' }),
+			editor('two', 'rain', { suffix: ':0.8' })
+		];
+		expect(flattenRichSegments(segments)).toBe('(portrait), rain:0.8');
+		expect(flattenRichSegments(segments, 'paragraph')).toBe('(portrait)\n\nrain:0.8');
+	});
+
+	it('contributes nothing when the body is empty or the segment is off, affixes included', () => {
+		expect(
+			flattenRichSegments([
+				editor('blank', '   ', { prefix: '(', suffix: ')' }),
+				editor('off', 'hidden', { enabled: false, isDisabled: true, prefix: '[', suffix: ']' }),
+				editor('kept', 'portrait')
+			])
+		).toBe('portrait');
+	});
+
+	it('carries the affixes through the persistent and editor shapes', () => {
+		const persistent = toRichSegment(editor('editor-id', 'portrait', { prefix: '(', suffix: ':1.2)' }));
+		expect(persistent).toMatchObject({ prefix: '(', suffix: ':1.2)' });
+
+		const copy = toEditorSegment(persistent, () => 'copy-1');
+		expect(copy).toMatchObject({ id: 'copy-1', prefix: '(', suffix: ':1.2)' });
+	});
+
+	it('carries the affixes onto cards created from a template slot', () => {
+		const template = {
+			id: 'tmpl-1',
+			name: 'Cinematic Base',
+			segments: [rich('portrait', { prefix: '(', suffix: ':1.2)' })]
+		};
+		const result = applyTemplateSegments([], template, 'replace', ids());
+		expect(result[0]).toMatchObject({ content: 'portrait', prefix: '(', suffix: ':1.2)' });
+	});
+
+	it('carries the affixes off a Saved Segment', () => {
+		const saved: SavedSegment = {
+			id: 'saved-1',
+			name: 'Lighting',
+			category_id: 'category-1',
+			tags: [],
+			type: 'content',
+			content: 'soft light',
+			chips: {},
+			enabled: true,
+			prefix: '(',
+			suffix: ':1.1)'
+		};
+		expect(savedSegmentToRichSegment(saved)).toMatchObject({ prefix: '(', suffix: ':1.1)' });
+	});
+
+	it('does not treat a card carrying only an affix as an untouched placeholder', () => {
+		const blank = createBlankEditorSegment(() => 'blank');
+		expect(isPristineBlankSegment({ ...blank, prefix: '(' })).toBe(false);
+		expect(isPristineBlankSegment({ ...blank, suffix: ')' })).toBe(false);
 	});
 });

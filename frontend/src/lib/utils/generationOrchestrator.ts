@@ -3,7 +3,7 @@ import type { SegmentInput } from '$lib/services/api/index';
 import type { Tab, ImageData, VideoData, MeshData } from '$lib/types/tabs';
 import type { AudioData } from '$lib/types/audio';
 import type { Segment } from '$lib/types/segments';
-import { flattenRichSegments, type SegmentJoin } from '$lib/utils/richSegments';
+import { applySegmentAffixes, flattenRichSegments, type SegmentJoin } from '$lib/utils/richSegments';
 import { buildVariablesForSubmit, type VariableRoll, type VariablesForSubmitOptions } from '$lib/utils/variableDefs';
 
 // ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ export function buildSegmentInput(
 	promptIndex: number,
 	segmentIndex: number
 ): SegmentInput {
-	const text = resolveSegmentText(segment);
+	const text = applySegmentAffixes(segment, resolveSegmentText(segment));
 
 	const phrasebooks = Object.values(segment.chips || {}).map((c) => ({
 		phrasebook_value_id: c.valueId,

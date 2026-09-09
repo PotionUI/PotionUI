@@ -97,6 +97,12 @@ describe('segmentCharCount', () => {
 		expect(segmentCharCount(segment)).toBe('a lighthouse keeper at dusk'.length);
 	});
 
+	it('counts the affixes the segment carries into the prompt', () => {
+		const segment = editor('a', 'harsh noon sun', { prefix: '(', suffix: ':1.2)' });
+
+		expect(segmentCharCount(segment)).toBe('(harsh noon sun:1.2)'.length);
+	});
+
 	it('still reports a disabled card’s own length', () => {
 		const segment = editor('a', 'harsh noon sun', { enabled: false });
 		expect(segmentCharCount(segment)).toBe('harsh noon sun'.length);

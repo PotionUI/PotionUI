@@ -812,6 +812,13 @@
 		selection?.addRange(range);
 	}
 
+	/** Put the caret in the body without changing it — the card's read-only
+	 *  prefix/suffix affixes hand a click straight through to the text. */
+	export function focusEditor(): void {
+		if (isDisabled) return;
+		editorRef?.focus();
+	}
+
 	/** Insert `#` at the caret and open the phrasebook picker on it, exactly as
 	 *  typing `#` would. */
 	export function insertPhrasebookTrigger(): void {

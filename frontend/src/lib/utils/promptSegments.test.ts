@@ -163,6 +163,22 @@ describe('applySegmentUpdate', () => {
 		expect(segments[1].content).toBe('studio light');
 	});
 
+	it('leaves the affixes on a segment the chat rewrote', async () => {
+		const segments = [{ id: 'a', content: 'portrait', prefix: '(', suffix: ':1.2)' }];
+
+		const result = await applySegmentUpdate(segments, {
+			segmentId: 'a',
+			segmentIndex: 0,
+			content: 'close-up portrait'
+		});
+
+		expect(result?.segments[0]).toMatchObject({
+			content: 'close-up portrait',
+			prefix: '(',
+			suffix: ':1.2)'
+		});
+	});
+
 	it('hydrates a #category.path marker in the new content and carries forward the prior chip choice', async () => {
 		searchPhrasebook.mockResolvedValue({
 			success: true,

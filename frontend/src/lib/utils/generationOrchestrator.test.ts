@@ -184,6 +184,16 @@ describe('buildSegmentsPayload', () => {
 	it('returns an empty array when there are no segments', () => {
 		expect(buildSegmentsPayload(makeTab({}), 1)).toEqual([]);
 	});
+
+	it('records each segment with its affixes, so the payload reassembles to the prompt sent', () => {
+		const segments = [
+			segment({ id: 'p0', content: 'portrait', prefix: '(', suffix: ':1.2)' }),
+			segment({ id: 'p1', content: 'rain' })
+		];
+		const out = buildSegmentsPayload(makeTab({ promptSegments: segments }), 1);
+		expect(out.map((s) => s.text)).toEqual(['(portrait:1.2)', 'rain']);
+		expect(out.map((s) => s.text).join(', ')).toBe(combineSegmentsToString(segments));
+	});
 });
 
 describe('combineSegmentsToString', () => {

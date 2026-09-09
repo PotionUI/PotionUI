@@ -293,7 +293,7 @@
 	function handleMetadataUpdate(
 		target: ApplyTarget,
 		id: string,
-		metadata: Pick<Segment, 'name' | 'color' | 'description'>
+		metadata: Pick<Segment, 'name' | 'color' | 'description' | 'prefix' | 'suffix'>
 	) {
 		commitList(
 			target,

@@ -68,6 +68,8 @@ class RichSegment(BaseModel):
     name: Optional[str] = None
     color: Optional[str] = None
     description: Optional[str] = None
+    prefix: Optional[str] = None
+    suffix: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -87,7 +89,7 @@ class RichSegment(BaseModel):
             data["name"] = data["title"]
         return data
 
-    @field_validator("name", "color", "description", mode="before")
+    @field_validator("name", "color", "description", "prefix", "suffix", mode="before")
     @classmethod
     def empty_optional_strings(cls, value):
         return None if value == "" else value
@@ -130,6 +132,8 @@ class SavedSegment(BaseModel):
     color: Optional[str] = None
     effective_color: Optional[str] = None
     description: Optional[str] = None
+    prefix: Optional[str] = None
+    suffix: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
@@ -144,6 +148,8 @@ class SavedSegment(BaseModel):
             name=self.name,
             color=self.effective_color,
             description=self.description,
+            prefix=self.prefix,
+            suffix=self.suffix,
         )
 
 
@@ -156,6 +162,8 @@ class SavedSegmentRequest(BaseModel):
     enabled: bool = True
     color: Optional[str] = None
     description: Optional[str] = None
+    prefix: Optional[str] = None
+    suffix: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
 
     @model_validator(mode="before")

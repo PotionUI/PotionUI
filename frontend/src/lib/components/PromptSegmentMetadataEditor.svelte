@@ -2,7 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { PRESET_COLORS, type Segment } from '$lib/types/segments';
 
-	// The name / colour / description fields, hosted by
+	// The name / colour / description / prefix / suffix fields, hosted by
 	// PromptSegmentDetailsModal.svelte. Swatch values are user data, not
 	// theme tokens: they are stored on the segment and round-trip through
 	// the API, so they stay literal.
@@ -12,7 +12,7 @@
 
 	$: currentColor = segment.color || '';
 
-	function update(field: 'name' | 'color' | 'description', value: string) {
+	function update(field: 'name' | 'color' | 'description' | 'prefix' | 'suffix', value: string) {
 		dispatch('change', { [field]: value || undefined });
 	}
 </script>
@@ -63,6 +63,28 @@
 			{/if}
 		</div>
 	</div>
+
+	<label class="flex min-w-0 flex-col">
+		<span class="field-label">Prefix</span>
+		<input
+			type="text"
+			class="field font-mono"
+			value={segment.prefix || ''}
+			placeholder="Joined before the text"
+			on:input={(event) => update('prefix', event.currentTarget.value)}
+		/>
+	</label>
+
+	<label class="flex min-w-0 flex-col">
+		<span class="field-label">Suffix</span>
+		<input
+			type="text"
+			class="field font-mono"
+			value={segment.suffix || ''}
+			placeholder="Joined after the text"
+			on:input={(event) => update('suffix', event.currentTarget.value)}
+		/>
+	</label>
 
 	<label class="full flex min-w-0 flex-col">
 		<span class="field-label">Description</span>

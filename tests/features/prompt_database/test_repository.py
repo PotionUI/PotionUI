@@ -194,3 +194,63 @@ class TestPromptRepository(PersistenceTestBase):
             ),
             "BREAK alpha BREAK omega",
         )
+
+    def test_flattening_wraps_prefix_and_suffix_byte_for_byte(self):
+        self.assertEqual(
+            flatten_segments(
+                [
+                    RichSegment(content="alpha", prefix="(", suffix=")"),
+                    RichSegment(content="omega"),
+                ]
+            ),
+            "(alpha), omega",
+        )
+        self.assertEqual(
+            flatten_segments(
+                [RichSegment(type="break"), RichSegment(content="alpha", prefix="  <", suffix=">  ")]
+            ),
+            "BREAK   <alpha>",
+        )
+
+    def test_flattening_empty_body_with_prefix_contributes_nothing(self):
+        self.assertEqual(
+            flatten_segments(
+                [
+                    RichSegment(content="   ", prefix="(", suffix=")"),
+                    RichSegment(content="omega"),
+                ]
+            ),
+            "omega",
+        )
+
+    def test_flattening_disabled_segment_with_affixes_contributes_nothing(self):
+        self.assertEqual(
+            flatten_segments(
+                [
+                    RichSegment(content="alpha", prefix="(", suffix=")", enabled=False),
+                    RichSegment(content="omega"),
+                ]
+            ),
+            "omega",
+        )
+
+    def test_segment_prefix_and_suffix_round_trip(self):
+        created = self.repository.create(
+            Prompt(
+                id=generate_ulid(),
+                user_id=self.user_1,
+                segments=[
+                    RichSegment(content="a fox", prefix="(", suffix=")"),
+                    RichSegment(content="a hound"),
+                ],
+            )
+        )
+        self.assertEqual(created.segments[0].prefix, "(")
+        self.assertEqual(created.segments[0].suffix, ")")
+        self.assertIsNone(created.segments[1].prefix)
+        self.assertIsNone(created.segments[1].suffix)
+
+        fetched = self.repository.get_by_id(created.id, self.user_1)
+        assert fetched is not None
+        self.assertEqual(fetched.segments[0].prefix, "(")
+        self.assertEqual(fetched.segments[0].suffix, ")")

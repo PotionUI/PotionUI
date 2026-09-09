@@ -64,6 +64,8 @@ def create_segment(
         color=request.color,
         effective_color=request.color or category.color,
         description=request.description,
+        prefix=request.prefix,
+        suffix=request.suffix,
         tags=request.tags,
     )
     try:
@@ -129,6 +131,8 @@ def update_segment(
         color=request.color,
         effective_color=request.color or category.color,
         description=request.description,
+        prefix=request.prefix,
+        suffix=request.suffix,
         tags=request.tags,
         created_at=existing.created_at,
         updated_at=datetime.now(),

@@ -239,59 +239,124 @@ class TestActivationSideIsEquivalentToTheWeightSide:
         assert torch.equal(_forward(empty, x), _forward(with_none, x))
 
 
-class _CastCountingTensor(torch.Tensor):
-    """Counts the ``.to()`` calls made against a staged LoRA factor.
+def _unfused_branch(out, x, deltas, out_features):
+    """The output branch as it stood before delta fusion: one
+    ``(M, out_features)`` term per delta, then ``add_``. The equivalence bar
+    for the fused form."""
+    x2d = x.reshape(-1, x.shape[-1]).to(out.dtype)
+    out2d = out.reshape(-1, out_features)
+    for d in deltas:
+        down = d.down.to(device=x2d.device, dtype=out.dtype)
+        up = d.up.to(device=x2d.device, dtype=out.dtype)
+        coeff = float(d.scale) * float(d.alpha) / d.down.shape[0]
+        term = (x2d @ down.t()) @ up.t()
+        if d.target_slice is not None:
+            _dim, col, length = d.target_slice
+            out2d[:, col:col + length].add_(term, alpha=coeff)
+        else:
+            out2d.add_(term, alpha=coeff)
+    return out
 
-    ``_stage_runtime_deltas`` deliberately leaves a factor in the adapter
-    file's dtype, so the output branch's ``.to(out.dtype)`` is a real cast
-    rather than a short-circuit -- which makes "once per call" vs "once per
-    chunk" a difference the forward actually pays for.
-    """
 
-    casts: list
-
-    def to(self, *args, **kwargs):  # type: ignore[override]
-        self.casts[0] += 1
-        return torch.Tensor.to(self, *args, **kwargs)
-
-
-def _counted_deltas(casts: list, count: int = 3):
+def _branch_deltas(count, rank=RANK, strengths=None, target_slice=None):
     torch.manual_seed(311)
-    deltas = []
-    for i in range(count):
-        factors = []
-        for raw in ((torch.randn(RANK, HIDDEN) * 0.1).to(torch.float16),
-                    (torch.randn(OUT, RANK) * 0.1).to(torch.float16)):
-            factor = raw.as_subclass(_CastCountingTensor)
-            factor.casts = casts
-            factors.append(factor)
-        deltas.append(LoraDelta(down=factors[0], up=factors[1],
-                                alpha=float(RANK), scale=0.3 + 0.1 * i))
-    return deltas
+    length = target_slice[2] if target_slice is not None else OUT
+    strengths = strengths or [0.3 + 0.1 * i for i in range(count)]
+    return [
+        LoraDelta(
+            down=(torch.randn(rank, HIDDEN) * 0.1).to(torch.float16),
+            up=(torch.randn(length, rank) * 0.1).to(torch.float16),
+            alpha=float(rank),
+            scale=strengths[i],
+            target_slice=target_slice,
+        )
+        for i in range(count)
+    ]
 
 
-def _run_output_branch(deltas, x, chunk_bytes):
-    out = torch.zeros(x.shape[0], OUT, dtype=torch.bfloat16)
-    with torch.no_grad(), patch.object(
-        _ops_module, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", chunk_bytes,
-    ):
-        return _add_lora_output_branch(out, x, deltas, OUT)
+def _run_branch(deltas, x, base):
+    with torch.no_grad():
+        return _add_lora_output_branch(base.clone(), x, deltas, OUT)
 
 
-def test_output_branch_casts_each_factor_once_per_call_not_per_chunk():
-    casts: list = [0]
-    deltas = _counted_deltas(casts)
-    rows = 200
+@pytest.mark.parametrize("rows", [7, 200, 5000])
+@pytest.mark.parametrize("strengths", [None, [0.7, 0.7, 0.7]])
+def test_output_branch_fused_stack_matches_the_unfused_reference(rows, strengths):
+    # Equal and unequal adapter strengths, and token counts spanning what used
+    # to be one chunk and what used to be many.
+    deltas = _branch_deltas(3, strengths=strengths)
     x = torch.randn(rows, HIDDEN, dtype=torch.bfloat16)
+    base = torch.randn(rows, OUT, dtype=torch.bfloat16)
 
-    casts[0] = 0
-    single = _run_output_branch(deltas, x, rows * OUT * 2 * 4)
-    single_casts = casts[0]
+    got = _run_branch(deltas, x, base)
+    want = _unfused_branch(base.clone(), x, deltas, OUT)
 
-    casts[0] = 0
-    chunked = _run_output_branch(deltas, x, 8 * OUT * 2)
-    chunked_casts = casts[0]
+    assert torch.allclose(got, want, atol=2e-2, rtol=2e-2)
 
-    assert torch.equal(single, chunked)
-    # two factors per delta, cast once each, however many chunks it took.
-    assert single_casts == chunked_casts == 2 * len(deltas)
+
+def test_output_branch_fused_slice_group_matches_the_unfused_reference():
+    # A q-slice group and a full-width group in one stack: each fuses within
+    # itself, neither leaks into the other's columns.
+    sliced = _branch_deltas(2, target_slice=(0, 0, HIDDEN))
+    full = _branch_deltas(2)
+    deltas = sliced + full
+    x = torch.randn(64, HIDDEN, dtype=torch.bfloat16)
+    base = torch.randn(64, OUT, dtype=torch.bfloat16)
+
+    got = _run_branch(deltas, x, base)
+    want = _unfused_branch(base.clone(), x, deltas, OUT)
+
+    assert torch.allclose(got, want, atol=2e-2, rtol=2e-2)
+
+
+def test_output_branch_accumulates_once_per_slice_group_not_once_per_delta():
+    # The regression this guards: a materialised (M, out_features) term per
+    # delta, written and re-read, is what made the branch memory-bound at 8k
+    # tokens. Fused, a three-adapter full-width stack issues exactly ONE
+    # in-place accumulate, and no free-standing term add at all.
+    deltas = _branch_deltas(3)
+    x = torch.randn(64, HIDDEN, dtype=torch.bfloat16)
+    base = torch.randn(64, OUT, dtype=torch.bfloat16)
+    addmm_calls, add_calls = [], []
+    real_addmm_, real_add_ = torch.Tensor.addmm_, torch.Tensor.add_
+
+    def spy_addmm_(self, *a, **k):
+        addmm_calls.append(tuple(self.shape))
+        return real_addmm_(self, *a, **k)
+
+    def spy_add_(self, other, **k):
+        if torch.is_tensor(other) and other.dim() == 2:
+            add_calls.append(tuple(other.shape))
+        return real_add_(self, other, **k)
+
+    with patch.object(torch.Tensor, "addmm_", spy_addmm_), \
+            patch.object(torch.Tensor, "add_", spy_add_):
+        got = _run_branch(deltas, x, base)
+
+    assert addmm_calls == [(64, OUT)]
+    assert add_calls == []
+    assert torch.allclose(got, _unfused_branch(base.clone(), x, deltas, OUT),
+                          atol=2e-2, rtol=2e-2)
+
+
+def test_output_branch_work_does_not_scale_with_token_count():
+    # No row chunking left: the accumulate count is a property of the delta
+    # stack, not of M.
+    deltas = _branch_deltas(3)
+    counts = []
+    real_addmm_ = torch.Tensor.addmm_
+
+    for rows in (16, 4000):
+        calls = []
+
+        def spy(self, *a, _calls=calls, **k):
+            _calls.append(1)
+            return real_addmm_(self, *a, **k)
+
+        x = torch.randn(rows, HIDDEN, dtype=torch.bfloat16)
+        base = torch.zeros(rows, OUT, dtype=torch.bfloat16)
+        with patch.object(torch.Tensor, "addmm_", spy):
+            _run_branch(deltas, x, base)
+        counts.append(len(calls))
+
+    assert counts == [1, 1]

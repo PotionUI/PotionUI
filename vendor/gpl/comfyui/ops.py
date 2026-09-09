@@ -452,6 +452,38 @@ def partition_output_branch_deltas(
     return output_side, weight_side
 
 
+def _fuse_output_branch_deltas(
+    deltas: "list", dtype: torch.dtype, device: "torch.device",
+) -> "tuple[torch.Tensor, torch.Tensor, float]":
+    """One ``(down_cat, up_cat, alpha)`` standing in for a whole group of
+    deltas that share a ``target_slice``.
+
+    ``Σ_i coeff_i · up_i @ (down_i @ x) == up_cat @ (down_cat @ x)`` with the
+    factors concatenated along the rank axis, so a layer carrying N adapters
+    costs two matmuls instead of 2N — and, paired with ``addmm_``, ONE
+    read-modify-write of the ``(M, out_features)`` output instead of N.
+
+    Equal coefficients ride ``addmm_``'s own ``alpha``. Unequal ones (the
+    usual case: same rank, different user strengths) are folded into each
+    adapter's own rank rows in fp32 BEFORE the compute-dtype cast — strictly
+    better rounding than the pre-fusion path, which applied the coefficient to
+    an already-rounded compute-dtype ``(M, out_features)`` term.
+    """
+    coeffs = [float(d.scale) * float(d.alpha) / d.down.shape[0] for d in deltas]
+    if len(deltas) == 1:
+        d = deltas[0]
+        return (d.down.to(device=device, dtype=dtype),
+                d.up.to(device=device, dtype=dtype), coeffs[0])
+    up_cat = torch.cat([d.up for d in deltas], 1).to(device=device, dtype=dtype)
+    if all(c == coeffs[0] for c in coeffs):
+        down_cat = torch.cat([d.down for d in deltas], 0).to(device=device, dtype=dtype)
+        return down_cat, up_cat, coeffs[0]
+    down_cat = torch.cat(
+        [d.down.to(device=device, dtype=torch.float32) * c for d, c in zip(deltas, coeffs)], 0,
+    ).to(dtype)
+    return down_cat, up_cat, 1.0
+
+
 def _add_lora_output_branch(
     out: torch.Tensor, x: torch.Tensor, deltas: "list", out_features: int,
 ) -> torch.Tensor:
@@ -460,14 +492,24 @@ def _add_lora_output_branch(
     ``x`` keeps the caller's leading dims; the branch works on a flattened
     ``(M, in_features)`` view and lands back on ``out``'s shape.
 
-    Under ``no_grad`` the terms are accumulated straight INTO ``out``, which is
-    the freshly-allocated result of this layer's own ``F.linear`` and is
-    aliased by nothing else. That matters more than it looks: the functional
-    form allocates and writes a full ``(M, out_features)`` tensor for the
-    running sum and another for ``out + sum``, so on a 9216-wide layer with
-    1024 tokens the adds, not the two rank-sized matmuls, are what the LoRA
-    costs. With grad enabled (never on an inference path here, but the layer
-    is an ordinary ``nn.Module`` and someone may) it falls back to
+    Under ``no_grad`` the contribution is accumulated straight INTO ``out`` by
+    ``addmm_``. ``out`` is the freshly-allocated result of this layer's own
+    ``F.linear`` and is aliased by nothing else, and ``addmm_`` fuses the
+    ``up`` product with the accumulate, so no ``(M, out_features)`` term is
+    ever materialised. That is the whole cost of this function at high token
+    counts: a 24576-wide layer at ~8k tokens writes and re-reads ~395 MB per
+    materialised term, which is why the pre-fusion form (one term per delta,
+    then ``add_``) cost ~3x what this does while looking free at 1k tokens.
+    Deltas are fused per ``target_slice`` group first, so a three-adapter
+    stack pays that traffic once, not three times.
+
+    Row chunking is gone with the term it existed to bound: the only
+    intermediate left is ``(M, Σrank)`` (sub-megabyte at 8k tokens), and
+    ``down_cat``/``up_cat`` are rank-sized. :func:`_lora_output_branch`, which
+    must RETURN the branch rather than accumulate it, still chunks.
+
+    With grad enabled (never on an inference path here, but the layer is an
+    ordinary ``nn.Module`` and someone may) it falls back to
     :func:`_lora_output_branch`, which allocates rather than mutating.
     """
     if not deltas:
@@ -478,33 +520,21 @@ def _add_lora_output_branch(
         return out + branch.reshape(out.shape)
 
     out2d = out.reshape(-1, out_features)
-    rows = out2d.shape[0]
-    # Prepared once for the whole call, not per chunk: `_stage_runtime_deltas`
-    # keeps a staged factor in the adapter file's own dtype (fp16 for most
-    # trainers) while `out.dtype` is the compute dtype (bf16), so this `.to()`
-    # does NOT short-circuit -- it is a real cast, and a 12-chunk 24576-wide
-    # layer paid it 2x per delta per chunk. Mirrors `_lora_output_branch`.
-    prepared = [
-        (
-            d.down.to(device=x2d.device, dtype=out.dtype),
-            d.up.to(device=x2d.device, dtype=out.dtype),
-            float(d.scale) * float(d.alpha) / d.down.shape[0],
-            d.target_slice,
-        )
-        for d in deltas
-    ]
-    chunk_rows = max(1, _NVFP4_LORA_BRANCH_CHUNK_BYTES
-                     // max(1, out_features * out.element_size()))
-    for start_row in range(0, rows, chunk_rows):
-        end_row = min(start_row + chunk_rows, rows)
-        xc = x2d[start_row:end_row].to(out.dtype)
-        for down, up, coeff, target_slice in prepared:
-            term = (xc @ down.t()) @ up.t()
-            if target_slice is not None:
-                _dim, col, length = target_slice
-                out2d[start_row:end_row, col:col + length].add_(term, alpha=coeff)
-            else:
-                out2d[start_row:end_row].add_(term, alpha=coeff)
+    x2d = x2d.to(out.dtype)
+    groups: "dict" = {}
+    for d in deltas:
+        groups.setdefault(d.target_slice, []).append(d)
+    for target_slice, group in groups.items():
+        down_cat, up_cat, alpha = _fuse_output_branch_deltas(group, out.dtype, x2d.device)
+        hidden = x2d @ down_cat.t()
+        if target_slice is None:
+            out2d.addmm_(hidden, up_cat.t(), alpha=alpha)
+        else:
+            # A column slice of a row-major 2D tensor is a non-contiguous view;
+            # addmm_ takes it as `self` (cuBLAS carries the leading-dimension
+            # stride), so a sliced delta still accumulates in place.
+            _dim, col, length = target_slice
+            out2d[:, col:col + length].addmm_(hidden, up_cat.t(), alpha=alpha)
     return out
 
 

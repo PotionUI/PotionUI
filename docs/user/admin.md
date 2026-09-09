@@ -67,6 +67,26 @@ Install, inspect, enable, and disable plugins. Admins can scan for installed plu
 
 A reference and inspection area for people building presets and plugins. It documents the available form field types, template functions, icons, and Jinja2 templating syntax, with live previews of rendered output. It's a lookup tool for authors rather than something you change to run the app.
 
+## Server logs
+
+Everything the server logs to the console is also written to a plain-text file at `storage/logs/potionui.log`, so you have a copy to search or attach to a bug report even after the console scrollback is gone. Each line carries a timestamp, the level, the logger name, and the message, for example:
+
+```
+2026-09-09 14:03:11 |     INFO | is | message
+```
+
+The file rotates by size: once it passes the size limit it's renamed `potionui.log.1`, older backups shift up one number, and the oldest backup beyond the kept count is deleted. Rotation and console output are independent — the console keeps showing everything regardless of what's happened to the file.
+
+A few environment variables tune this, set before starting the server:
+
+- `POTIONUI_LOG_LEVEL` — the minimum level logged, for both the console and the file. Defaults to `INFO`.
+- `POTIONUI_LOG_DIR` — where the log file is written. Defaults to `storage/logs`; setting it to an empty value turns file logging off.
+- `POTIONUI_LOG_MAX_BYTES` — the size, in bytes, at which the file rotates. Defaults to 20 MB.
+- `POTIONUI_LOG_BACKUP_COUNT` — how many rotated backups are kept. Defaults to 10.
+- `POTIONUI_LOG_FILE=off` — turns file logging off outright, for a read-only filesystem or a console-only setup.
+
+If the log directory can't be written to, the server logs a single warning to the console and keeps running with console output only — a logging problem never stops generation.
+
 ---
 
 Note that some plugins add their own tabs to Administration, so your install may show more than the tabs listed here.

@@ -4,9 +4,12 @@ Thin wrapper over the application factory. The composition root lives in
 `src.bootstrap` (container + create_app); this module only loads the
 environment and exposes the module-level `app` object that `uvicorn api:app`
 (see run.sh) imports.
+
+Both entry points run this module body, so `configure_logging()` here is the
+single place logging is set up: `python api.py` and `uvicorn api:app` write the
+same lines to the console and to `storage/logs/potionui.log`.
 """
 
-import logging
 import os
 
 # Load environment variables from .env file
@@ -16,27 +19,14 @@ load_dotenv()
 import uvicorn
 
 from src.bootstrap.app import create_app
+from src.platform.observability.logger import configure_logging
+
+configure_logging()
 
 app = create_app()
 
 
 if __name__ == "__main__":
-    _log_level_name = os.environ.get("POTIONUI_LOG_LEVEL", "INFO").strip().upper()
-    _log_level = getattr(logging, _log_level_name, None)
-    if not isinstance(_log_level, int):
-        _log_level = logging.INFO
-
-    # Configure more detailed logging
-    logging.basicConfig(
-        level=_log_level,
-        format='%(asctime)s | %(levelname)8s | %(name)s | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-
-    # Create a logger for API requests/responses
-    api_logger = logging.getLogger("api.requests")
-    api_logger.setLevel(_log_level)
-
     # Note: Using reload=False to prevent multiple processes from being created
     # This ensures that there is only one instance of the ConnectionHub class
     # If you need to reload the server during development, restart it manually
@@ -58,6 +48,9 @@ if __name__ == "__main__":
         reload=False,  # Changed from True to False to prevent multiple processes
         workers=1,     # Explicitly set to 1 worker to prevent multiple processes
         log_level="info",
+        # uvicorn's default dictConfig would detach its loggers from the root
+        # handlers configured above and the file would lose server/access lines.
+        log_config=None,
         # Optimize for concurrent connections and reduce blocking
         limit_concurrency=1000,  # Allow more concurrent connections
         limit_max_requests=10000,  # Handle more requests before restarting

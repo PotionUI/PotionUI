@@ -20,6 +20,7 @@ same way: a client that sends it back means "leave the stored value alone".
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 # What a read of a secret returns, and what a client sends back to mean
@@ -59,7 +60,7 @@ def is_secret_key(key: str) -> bool:
     """Whether a key name looks like it names a credential."""
     if not isinstance(key, str):
         return False
-    lowered = key.strip().lower()
+    lowered = key.strip().lower().replace("-", "_")
     if lowered in _SECRET_EXACT:
         return True
     return any(lowered.endswith(suffix) for suffix in _SECRET_SUFFIXES)
@@ -100,3 +101,56 @@ def redact_mapping(value: Any) -> Any:
         redacted = [redact_mapping(item) for item in value]
         return tuple(redacted) if isinstance(value, tuple) else redacted
     return value
+
+
+# Only credential-shaped keys may match: a match-anything key would consume the
+# rest of the line and hide a later credential from the scan.
+_SECRET_KEY = (
+    "(?<![A-Za-z0-9_.\\-])(?i:"
+    "[A-Za-z0-9_.\\-]*(?:"
+    + "|".join(sorted((re.escape(s).replace("_", "[_-]") for s in _SECRET_SUFFIXES), key=lambda x: (-len(x), x)))
+    + ")|"
+    + "|".join(sorted((re.escape(s) for s in _SECRET_EXACT), key=lambda x: (-len(x), x)))
+    + ")"
+)
+
+_TEXT_SECRET_PATTERN = re.compile(
+    rf"""
+      (?P<quote>["\'])(?P<qkey>{_SECRET_KEY})(?P=quote)\s*:\s*
+        (?P<vquote>["\'])(?P<qval>[^"\']*)(?P=vquote)
+    | (?P<ekey>{_SECRET_KEY})\s*=\s*(?P<eval>"[^"]*"|\'[^\']*\'|[^\s,;&)\]}}]+)
+    | (?P<hkey>{_SECRET_KEY})\s*:\s*(?P<hval>[^\r\n]+)
+    | [Bb][Ee][Aa][Rr][Ee][Rr]\s+(?P<btok>[^\s,;)\]}}]+)
+    """,
+    re.VERBOSE,
+)
+
+_TEXT_PAIRS = (("qkey", "qval"), ("ekey", "eval"), ("hkey", "hval"))
+
+
+def _mask_text_match(match: "re.Match[str]") -> str:
+    matched = match.group(0)
+    offset = match.start()
+    for key_group, value_group in _TEXT_PAIRS:
+        key = match.group(key_group)
+        if key is None:
+            continue
+        if not is_secret_key(key):
+            return matched
+        start, end = match.span(value_group)
+        return matched[: start - offset] + SECRET_MASK + matched[end - offset :]
+    start, end = match.span("btok")
+    return matched[: start - offset] + SECRET_MASK + matched[end - offset :]
+
+
+def redact_text(text: str) -> str:
+    """`text` with credential-shaped values replaced by the mask.
+
+    The key is kept and only its value is hidden, so a masked traceback still
+    reads as one - `api_key=***` says a key was there without saying which.
+    A `Header: value` line is masked to the end of the line, because a header
+    value is allowed to contain spaces and a partial mask would leak the rest.
+    """
+    if not isinstance(text, str) or not text:
+        return text
+    return _TEXT_SECRET_PATTERN.sub(_mask_text_match, text)

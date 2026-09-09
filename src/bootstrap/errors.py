@@ -13,7 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from src.platform.security.redaction import is_secret_key
+from src.platform.security.redaction import is_secret_key, redact_text
 
 
 async def global_exception_handler(request: Request, exc: Exception):
@@ -25,11 +25,15 @@ async def global_exception_handler(request: Request, exc: Exception):
     """
     correlation_id = uuid.uuid4().hex
 
-    # Log the full exception server-side, keyed by the correlation id.
+    # Log the full exception server-side, keyed by the correlation id; message
+    # and frames are masked since a header or kwargs dump can reach both.
     logging.error(
-        f"Unhandled exception [{correlation_id}] in {request.method} {request.url.path}: {str(exc)}"
+        f"Unhandled exception [{correlation_id}] in {request.method} {request.url.path}: "
+        f"{redact_text(str(exc))}"
     )
-    logging.error(f"Full traceback [{correlation_id}]:\n{traceback.format_exc()}")
+    logging.error(
+        f"Full traceback [{correlation_id}]:\n{redact_text(traceback.format_exc())}"
+    )
 
     return JSONResponse(
         status_code=500,

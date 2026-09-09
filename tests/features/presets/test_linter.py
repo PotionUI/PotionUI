@@ -1,8 +1,15 @@
 """Tests for src.features.presets.linter.PresetLinter."""
 
+from unittest.mock import patch
+
 import pytest
 
 from src.features.presets.linter import PresetLinter
+from src.platform.runtime.native.sampling.registry import (
+    SamplingRegistry,
+    SamplerDefinition,
+    ScheduleDefinition,
+)
 
 
 def _write_preset(tmp_path, rel_dir, preset_id, modes, extra_yaml="", with_tests_yml=True):
@@ -2211,3 +2218,206 @@ class TestColdReadBrokenPipeline:
             i.level == "warning" and "'cfg'" in i.message and "not declared in its PipeConfigSpec" in i.message
             for i in issues
         )
+
+
+def _sampler(key, families=("*",)):
+    return SamplerDefinition(key=key, sample=lambda *a, **kw: None, label=key.title(), families=families)
+
+
+def _schedule(key, families=("*",)):
+    return ScheduleDefinition(key=key, build=lambda ctx: None, label=key.title(), families=families)
+
+
+class TestLintSamplingFields:
+    """`sampler`/`schedule` field `configuration.family`/`include`/`exclude`
+    and top-level `default` must resolve against the sampler/schedule
+    registries. Only runs when the relevant registry is non-empty, so every
+    test here patches in its own fixture registry."""
+
+    @staticmethod
+    def _write_form(preset_dir, mode, form_yaml):
+        form_file = preset_dir / "modes" / mode / "form.yml"
+        form_file.parent.mkdir(parents=True, exist_ok=True)
+        form_file.write_text(form_yaml)
+
+    def _lint(self, tmp_path, samplers=None, schedules=None):
+        samplers = samplers or SamplingRegistry("sampler")
+        schedules = schedules or SamplingRegistry("schedule")
+        with patch("src.features.presets.linter.sampler_registry", samplers), \
+                patch("src.features.presets.linter.schedule_registry", schedules):
+            return PresetLinter([str(tmp_path)]).lint()
+
+    def test_empty_registry_skips_the_check_entirely(self, tmp_path):
+        """No core registration has run - flagging every field would be a
+        false positive against an intentionally-empty registry, not a
+        finding."""
+        preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01SAMPLINGEMPTYREGAAAAAAAAA", ["txt2img"])
+        self._write_form(preset_dir, "txt2img", """name: custom
+fields:
+  - name: sampler
+    type: sampler
+    default: totally_made_up
+    configuration:
+      family: nonsense
+      include: [also_made_up]
+""")
+        issues = self._lint(tmp_path)
+        assert issues == []
+
+    def test_good_preset_is_clean(self, tmp_path):
+        preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01SAMPLINGOKAAAAAAAAAAAAAAAA", ["txt2img"])
+        self._write_form(preset_dir, "txt2img", """name: custom
+fields:
+  - name: sampler
+    type: sampler
+    default: euler
+    configuration:
+      family: flux
+  - name: schedule
+    type: schedule
+    default: simple
+    configuration:
+      family: flux
+""")
+        samplers = SamplingRegistry("sampler")
+        samplers.register(_sampler("euler", families=("flux",)))
+        schedules = SamplingRegistry("schedule")
+        schedules.register(_schedule("simple", families=("flux",)))
+
+        issues = [i for i in self._lint(tmp_path, samplers, schedules) if "sampler" in i.message.lower() or "schedule" in i.message.lower()]
+        assert issues == []
+
+    def test_unknown_family_is_error(self, tmp_path):
+        preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01SAMPLINGBADFAMILYAAAAAAAA", ["txt2img"])
+        self._write_form(preset_dir, "txt2img", """name: custom
+fields:
+  - name: sampler
+    type: sampler
+    default: euler
+    configuration:
+      family: not_a_real_family
+""")
+        samplers = SamplingRegistry("sampler")
+        samplers.register(_sampler("euler"))
+
+        issues = self._lint(tmp_path, samplers=samplers)
+        assert any(
+            i.level == "error"
+            and "configuration.family 'not_a_real_family' is not a known sampling family" in i.message
+            for i in issues
+        )
+
+    def test_unknown_include_key_is_error(self, tmp_path):
+        preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01SAMPLINGBADINCLUDEAAAAAAA", ["txt2img"])
+        self._write_form(preset_dir, "txt2img", """name: custom
+fields:
+  - name: sampler
+    type: sampler
+    default: euler
+    configuration:
+      include: [euler, does_not_exist]
+""")
+        samplers = SamplingRegistry("sampler")
+        samplers.register(_sampler("euler"))
+
+        issues = self._lint(tmp_path, samplers=samplers)
+        assert any(
+            i.level == "error" and "configuration.include names unknown sampler 'does_not_exist'" in i.message
+            for i in issues
+        )
+
+    def test_unknown_exclude_key_is_warning(self, tmp_path):
+        preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01SAMPLINGBADEXCLUDEAAAAAAA", ["txt2img"])
+        self._write_form(preset_dir, "txt2img", """name: custom
+fields:
+  - name: sampler
+    type: sampler
+    default: euler
+    configuration:
+      exclude: [does_not_exist]
+""")
+        samplers = SamplingRegistry("sampler")
+        samplers.register(_sampler("euler"))
+
+        issues = self._lint(tmp_path, samplers=samplers)
+        assert any(
+            i.level == "warning" and "configuration.exclude names unknown sampler 'does_not_exist'" in i.message
+            for i in issues
+        )
+        assert not any(i.level == "error" and "does_not_exist" in i.message for i in issues)
+
+    def test_default_not_in_resolved_options_is_error(self, tmp_path):
+        preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01SAMPLINGBADDEFAULTAAAAAAA", ["txt2img"])
+        self._write_form(preset_dir, "txt2img", """name: custom
+fields:
+  - name: sampler
+    type: sampler
+    default: dpmpp_2m_sde
+    configuration:
+      family: flux
+""")
+        samplers = SamplingRegistry("sampler")
+        samplers.register(_sampler("euler", families=("flux",)))
+
+        issues = self._lint(tmp_path, samplers=samplers)
+        assert any(
+            i.level == "error"
+            and "default 'dpmpp_2m_sde' is not one of the resolved options" in i.message
+            for i in issues
+        )
+
+    def test_default_excluded_by_configuration_is_error(self, tmp_path):
+        """`default` is checked against the field's own resolved option set,
+        not the registry's raw catalog - excluding the default's key must
+        still be caught."""
+        preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01SAMPLINGEXCLDEFAULTAAAAAA", ["txt2img"])
+        self._write_form(preset_dir, "txt2img", """name: custom
+fields:
+  - name: sampler
+    type: sampler
+    default: euler
+    configuration:
+      exclude: [euler]
+""")
+        samplers = SamplingRegistry("sampler")
+        samplers.register(_sampler("euler"))
+        samplers.register(_sampler("dpmpp"))
+
+        issues = self._lint(tmp_path, samplers=samplers)
+        assert any(
+            i.level == "error"
+            and "default 'euler' is not one of the resolved options" in i.message
+            for i in issues
+        )
+
+    def test_empty_default_with_allow_empty_is_clean(self, tmp_path):
+        preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01SAMPLINGALLOWEMPTYAAAAAAA", ["txt2img"])
+        self._write_form(preset_dir, "txt2img", """name: custom
+fields:
+  - name: sampler
+    type: sampler
+    default: ""
+    configuration:
+      allow_empty: true
+""")
+        samplers = SamplingRegistry("sampler")
+        samplers.register(_sampler("euler"))
+
+        issues = [i for i in self._lint(tmp_path, samplers=samplers) if "sampler" in i.message.lower()]
+        assert issues == []
+
+    def test_schedule_type_checked_independently_of_sampler_registry(self, tmp_path):
+        """Only the sampler registry is populated - the schedule field must
+        still be skipped (its own registry is empty), not crash or false-flag."""
+        preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01SAMPLINGSCHEDONLYAAAAAAAA", ["txt2img"])
+        self._write_form(preset_dir, "txt2img", """name: custom
+fields:
+  - name: schedule
+    type: schedule
+    default: totally_unregistered
+""")
+        samplers = SamplingRegistry("sampler")
+        samplers.register(_sampler("euler"))
+
+        issues = [i for i in self._lint(tmp_path, samplers=samplers) if "schedule" in i.message.lower()]
+        assert issues == []

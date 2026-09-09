@@ -50,6 +50,7 @@ from src.features.fields.llm import LLMField
 from src.features.fields.carousel import CarouselField
 from src.features.fields.prompt_timeline import PromptTimeline
 from src.features.fields.camera_shot import CameraShot
+from src.features.fields.sampling_fields import SamplerField, ScheduleField
 
 
 def register_builtin_fields(registry: FieldTypeRegistry, template_processor: Optional[object] = None) -> None:
@@ -88,6 +89,13 @@ def register_builtin_fields(registry: FieldTypeRegistry, template_processor: Opt
         FieldTypeDefinition("model", Model, options_provider=model_options, frontend_component="core:ModelField", shareable=True),
         FieldTypeDefinition("models", Model, options_provider=model_options, frontend_component="core:ModelField", shareable=True),
         FieldTypeDefinition("lora_picker", LoraPicker, frontend_component="core:LoraPickerField", shareable=True),
+
+        # Sampler/schedule pickers - options come from the sampler/schedule
+        # registries (src/platform/runtime/native/sampling/registry.py), not
+        # preset-authored options. Renders as a plain SelectField, same as
+        # `select`.
+        FieldTypeDefinition("sampler", SamplerField, frontend_component="core:SelectField", shareable=True),
+        FieldTypeDefinition("schedule", ScheduleField, frontend_component="core:SelectField", shareable=True),
 
         # Media - carries user-storage paths/uploads, never shareable.
         FieldTypeDefinition("image", Image, frontend_component="core:MediaLoaderField"),

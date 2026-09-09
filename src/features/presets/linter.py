@@ -17,6 +17,11 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from src.features.media.image_processor import ImageProcessor
 
 from ..fields.camera_shot_taxonomy import CATEGORY_KEYS, valid_shot_keys
+from src.platform.runtime.native.sampling.registry import (
+    ANY_FAMILY,
+    sampler_registry,
+    schedule_registry,
+)
 from .loader import discover_form_variants, plugin_preset_mode_contributions, _CHILDREN_PATH_VAR_RE
 from .schema import (
     SPEED_PROFILE_KNOWN_KEYS,
@@ -45,6 +50,15 @@ def _is_exact_expression(value: str) -> bool:
     inner = stripped[2:-2]
     return not ("{{" in inner or "}}" in inner or "{%" in inner or "%}" in inner)
 
+
+# Model families a `sampler`/`schedule` field's `configuration.family` may
+# name, unioned at check time with whatever families the live registry's
+# entries actually declare (a plugin-contributed family not yet in this fixed
+# list is still accepted) - see `_lint_sampling_fields`.
+_KNOWN_SAMPLING_FAMILIES = frozenset({
+    "anima", "flux", "krea2", "ltx", "minimax_h3", "qwen_image", "wan",
+    "z_image", "seedvr2", "minimax_music3",
+})
 
 # Runtime documents the orchestrator injects into the `form` context that are
 # not declared form fields (Video Director timeline, Music Director document,
@@ -453,6 +467,7 @@ class PresetLinter:
             issues.extend(self._lint_camera_shot_fields(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_pipeline_templates(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_field_config_keys(preset_file, mode_dir, mode_name))
+            issues.extend(self._lint_sampling_fields(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_alert_field_config(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_pipe_names(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_pipe_config_keys(preset_file, mode_dir, mode_name))
@@ -2019,6 +2034,119 @@ class PresetLinter:
                             f"modes/{mode_name}/{path}: type '{field_type}' configuration "
                             f"has key(s) not declared in its FieldConfigSpec: {unknown_keys} "
                             f"(declared: {sorted(allowed)})",
+                        )
+                    )
+
+        return issues
+
+    def _lint_sampling_fields(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
+        """Cross-check `sampler`/`schedule` field configuration against the
+        sampler/schedule registries (`src/platform/runtime/native/sampling/registry.py`):
+        `configuration.family` must be a known family, every
+        `configuration.include`/`exclude` key must be a registered key
+        (error/warning respectively - include picks the field's whole option
+        set, exclude only trims it), and the field's top-level `default` must
+        resolve to one of the options `configuration` would actually produce
+        (or be empty when `configuration.allow_empty` is set).
+
+        Only runs when the relevant registry is non-empty: a bare `PresetLinter`
+        constructed before core registration ran (this module imported
+        standalone, outside `scripts/preset_lint.py`/the live app, both of
+        which register core samplers/schedules before linting) has nothing to
+        check field configuration against, and flagging every family/key as
+        unknown against an empty registry would be a false positive, not a
+        real finding.
+        """
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+
+        for form_file in self._iter_form_yaml_files(mode_dir):
+            try:
+                with open(form_file, 'r') as f:
+                    form_data = yaml.load(f, Loader=yaml.FullLoader) or {}
+            except Exception:
+                continue
+
+            rel = form_file.relative_to(mode_dir)
+            for path, node in self._iter_nodes(form_data, str(rel)):
+                if not isinstance(node, dict):
+                    continue
+                field_type = node.get("type")
+                if field_type not in ("sampler", "schedule"):
+                    continue
+
+                registry = sampler_registry if field_type == "sampler" else schedule_registry
+                if not registry.definitions():
+                    continue
+
+                config = node.get("configuration")
+                if not isinstance(config, dict):
+                    config = {}
+
+                location = f"modes/{mode_name}/{path}"
+                field_name = node.get("name", "<unnamed>")
+
+                known_families = _KNOWN_SAMPLING_FAMILIES | {
+                    f for d in registry.definitions() for f in d.families if f != ANY_FAMILY
+                }
+
+                family = config.get("family") or None
+                family_valid = True
+                if family and family not in known_families:
+                    family_valid = False
+                    issues.append(
+                        LintIssue(
+                            "error",
+                            preset_str,
+                            f"{location}: {field_type} field '{field_name}' configuration.family "
+                            f"'{family}' is not a known sampling family (known: {sorted(known_families)})",
+                        )
+                    )
+
+                include = config.get("include") or []
+                for key in include:
+                    if not registry.has(key):
+                        issues.append(
+                            LintIssue(
+                                "error",
+                                preset_str,
+                                f"{location}: {field_type} field '{field_name}' configuration.include "
+                                f"names unknown {field_type} '{key}'",
+                            )
+                        )
+
+                exclude = config.get("exclude") or []
+                for key in exclude:
+                    if not registry.has(key):
+                        issues.append(
+                            LintIssue(
+                                "warning",
+                                preset_str,
+                                f"{location}: {field_type} field '{field_name}' configuration.exclude "
+                                f"names unknown {field_type} '{key}'",
+                            )
+                        )
+
+                default = node.get("default")
+                if default is None:
+                    continue
+                if default == "" and config.get("allow_empty"):
+                    continue
+                if not family_valid:
+                    # Family error already reported - checking default against
+                    # a registry narrowed by a bogus family would just add
+                    # noise on top of it.
+                    continue
+
+                options = registry.select(family=family, include=include or None, exclude=exclude or None)
+                option_keys = {d.key for d in options}
+                if default not in option_keys:
+                    issues.append(
+                        LintIssue(
+                            "error",
+                            preset_str,
+                            f"{location}: {field_type} field '{field_name}' default '{default}' "
+                            f"is not one of the resolved options ({sorted(option_keys)})",
                         )
                     )
 

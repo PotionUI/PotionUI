@@ -54,6 +54,8 @@ export function registerBuiltinFieldComponents(): void {
 		model: ModelField,
 		models: ModelField,
 		lora_picker: LoraPickerField,
+		sampler: SelectField,
+		schedule: SelectField,
 		image: MediaLoaderField,
 		video: MediaLoaderField,
 		audio: MediaLoaderField,

@@ -180,7 +180,7 @@ in the [Preset Context Cheat Sheet](../preset-context.md#built-in-field-types)):
 | Text | `string`, `textbox` |
 | Numeric | `number`, `integer`, `slider`, `stepper`, `seed`, `resolution` |
 | Boolean | `boolean`, `checkbox` |
-| Options-backed | `select`, `checkbox_group`, `model` (alias `models`), `lora_picker` |
+| Options-backed | `select`, `checkbox_group`, `model` (alias `models`), `lora_picker`, `sampler`, `schedule` |
 | Media | `image`, `video`, `audio`, `media`, `file` |
 | Widgets | `carousel`, `llm`, `alert`, `markdown`, `header`, `section`, `gate`, `prompt_timeline`, `camera_shot` |
 | Layout containers | `tabs`, `tab`, `row`, `group`, `accordion` |
@@ -344,6 +344,31 @@ Select with inline options:
     options:
       - { value: "male", label: "Male" }
       - { value: "female", label: "Female" }
+```
+
+Sampler / schedule pickers (`type: "sampler"` / `type: "schedule"`) — dropdowns whose options come
+from the sampler/schedule registries (`src/platform/runtime/native/sampling/registry.py`), not a
+preset-authored list. `configuration.family` narrows the catalog to one model family (`anima`,
+`flux`, `krea2`, `ltx`, `minimax_h3`, `qwen_image`, `wan`, `z_image`, `seedvr2`, `minimax_music3`,
+or another family a plugin registers); omitted/empty matches only family-agnostic entries.
+`configuration.include`/`exclude` narrow further — `include` also fixes display order:
+
+```yaml
+- type: "row"
+  children:
+    - name: "sampler"
+      type: "sampler"
+      label: "Sampler"
+      default: "euler"
+      configuration:
+        family: "flux"
+        exclude: ["lcm"]
+    - name: "schedule"
+      type: "schedule"
+      label: "Schedule"
+      default: "simple"
+      configuration:
+        family: "flux"
 ```
 
 Resolution loading grouped option files (note `{{ paths._shared }}`):

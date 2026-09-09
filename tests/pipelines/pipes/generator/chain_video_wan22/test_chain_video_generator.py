@@ -1270,7 +1270,7 @@ def test_segment_override_same_file_segment_weight_wins():
         pipe.process(pi, lambda o: None)
 
     fp = next(c for c in models.calls if c[0] == "native/dit//m/wan_i2v_high.safetensors")[1]
-    assert fp.endswith("lightning_high.safetensors@0.4")  # segment's weight, not the base's 1.0
+    assert "lightning_high.safetensors@0.4#" in fp  # segment's weight, not the base's 1.0; the stamp ends with the file identity
     assert fp.count("lightning_high.safetensors@") == 1   # not duplicated
 
 
@@ -1289,7 +1289,7 @@ def test_segment_empty_list_override_keeps_base_stack():
         pipe.process(pi, lambda o: None)
 
     fp = next(c for c in models.calls if c[0] == "native/dit//m/wan_i2v_high.safetensors")[1]
-    assert fp.endswith("lightning_high.safetensors@1.0")
+    assert "lightning_high.safetensors@1.0#" in fp  # the stamp ends with the file identity
     assert "none" not in fp.rsplit("|", 1)[-1]
 
 

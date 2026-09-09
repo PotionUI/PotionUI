@@ -21,22 +21,16 @@ logger = logging.getLogger(__name__)
 class GenerationOutputSerializer:
     """Centralized serializer for generation outputs to WebSocket messages."""
 
-    def __init__(self, generation_id: str = None, preset_id: str = None, backend: Dict[str, Any] = None):
+    def __init__(self, generation_id: str = None, preset_id: str = None):
         """
         Initialize the serializer.
 
         Args:
             generation_id: Current generation ID for organizing images
             preset_id: Current preset ID for image naming
-            backend: `{id, name, routing_reason}` to attach to the next
-                `generation_status` message this instance serializes, or
-                `None` to attach nothing. The caller (routes.py) passes this
-                only until the generation's first `generation_status` output,
-                so a live run announces "runs on <name>" once.
         """
         self.generation_id = generation_id or generate_ulid()
         self.preset_id = preset_id
-        self.backend = backend
 
     def serialize_output(self, output: GenerationOutput) -> Dict[str, Any]:
         """Serialize a generation output to a WebSocket-compatible dictionary."""
@@ -56,9 +50,6 @@ class GenerationOutputSerializer:
             # Add index field for artifact outputs if present
             if hasattr(output, 'index') and getattr(output, 'index', None) is not None:
                 base_message['index'] = output.index
-
-            if self.backend is not None and message_type == 'generation_status':
-                base_message['backend'] = self.backend
 
             # Merge type-specific payload, if a serializer is registered
             if spec is not None and spec.serializer is not None:

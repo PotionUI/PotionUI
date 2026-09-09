@@ -1448,7 +1448,6 @@
 					isGenerating: false,
 					currentGeneration: null,
 					currentProgress: null,
-					routingBackend: null,
 					pipeTimers: {},
 					startedAt: null,
 					totalTime: null,
@@ -1530,7 +1529,7 @@
 			const response = await api.startGeneration(request);
 
 			if (response.success && response.data) {
-				const { generation_id, status, queue_position, backend } = response.data;
+				const { generation_id, status, queue_position } = response.data;
 				const isQueued = queue_position !== null && queue_position !== undefined;
 
 				// Update tab with generation started (or queued)
@@ -1541,7 +1540,6 @@
 						isGenerating: true,
 						startedAt: Date.now(),
 						totalTime: null,
-						routingBackend: backend ?? null,
 						currentGeneration: {
 							...status,
 							id: generation_id,

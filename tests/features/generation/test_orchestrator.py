@@ -407,9 +407,7 @@ class TestLocalGenerationStartup:
         assert result['generation_id'] == 'gen_123'
         assert result['status']['status'] == 'running'
         assert result['queue_position'] is None
-        assert result['backend']['id'] == 'local_backend_1'
-        assert result['backend']['name'] == 'Local Backend'
-        assert result['backend']['engine'] == 'native'
+        assert 'backend' not in result
 
         # Verify database record created
         mock_generation_repo.create.assert_called_once()
@@ -532,8 +530,8 @@ class TestUnifiedBackendPath:
             result = await orchestrator.start_generation(sample_request, user_id)
 
         # Verify result
-        assert result['backend']['engine'] == 'comfyui'
-        assert result['backend']['name'] == 'ComfyUI Backend'
+        assert result['generation_id'] == 'gen_comfyui'
+        assert 'backend' not in result
 
         # Verify backend was called with pipeline_data (not serialized request)
         comfyui_backend.start_generation.assert_called_once()

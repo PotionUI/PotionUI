@@ -78,7 +78,8 @@ sequenceDiagram
     R->>BR: select_backend_for_generation(engine, allowed_backend_ids)
     BR-->>R: chosen backend
     R-->>O: RoutingDecision
-    O-->>C: {generation_id, backend: {id, name, engine, routing_reason}}
+    O-->>C: {generation_id, status, queue_position}
+    Note over O: RoutingDecision is persisted to the generation record<br/>(Admin → Generations "Routing" panel) - never returned to the caller
 ```
 
 ## Decision table: what each rule does
@@ -135,9 +136,10 @@ renders the whole decision as plain JSON:
 }
 ```
 
-`decision.summary()` is the compact form the orchestrator attaches to a generation's response as
-`backend.routing_reason` — the chosen candidate's last annotation, e.g. `"default backend for this
-engine"` — so a UI can show "runs on Comfy A (default; requirements ok)" without re-deriving it.
+`decision.summary()` is the compact form the orchestrator folds into the `rule_trace` persisted via
+`generation_repo.update_routing_decision` — the chosen candidate's last annotation, e.g. `"default
+backend for this engine"`. This is admin-only data (Admin → Generations "Routing" panel and the
+persisted run report); which backend ran a generation is never surfaced to the user who started it.
 
 ## Adding a rule from a plugin
 

@@ -104,24 +104,11 @@ export interface FormValidationErrorResponse {
 	message?: string;
 }
 
-/** The backend the Generation Router actually picked for this generation
- *  (`src/features/generation/orchestrator.py`'s `start_generation` return) -
- *  also re-sent on the first `generation_status` WebSocket message. */
-export interface GenerationRoutingBackend {
-	id: string;
-	name: string;
-	engine: string;
-	/** One-line "why this backend" from the router, or `null` when the
-	 *  router isn't wired. */
-	routing_reason: string | null;
-}
-
 export interface StartGenerationResponseData {
 	generation_id: string;
 	status: GenerationStatus;
 	/** 0-based position among ALL pending work, or null if it started running immediately. */
 	queue_position: number | null;
-	backend?: GenerationRoutingBackend;
 }
 
 export interface QueuedGenerationSummary {

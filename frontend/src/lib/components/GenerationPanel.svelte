@@ -479,9 +479,6 @@
 							progressMessage,
 							currentPipeName,
 							...progressMeta.map((marker) => marker.value),
-							generation.routingBackend
-								? `Runs on ${generation.routingBackend.name}${generation.routingBackend.routing_reason ? ` — ${generation.routingBackend.routing_reason}` : ''}`
-								: null,
 							$stopAfterCurrentRequested ? 'stopping after this one' : $generationMode === 'forever' ? 'continuous' : null
 						]
 							.filter(Boolean)

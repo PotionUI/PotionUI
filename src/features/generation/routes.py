@@ -262,29 +262,13 @@ class GenerationController(BaseController):
         )
 
         try:
-            # Create serializer instance. `backend` is offered on every call
-            # until it's actually consumed (the output turns out to be a
-            # `generation_status` one) - some other output type may broadcast
-            # first, and that must not burn the one-time announcement.
-            # `status` duck-types `GenerationRecord` (see
-            # `GenerationOrchestrator.get_generation_status`) - the `getattr`
-            # defaults keep a bare `dto.GenerationStatus` stand-in (no
-            # backend_info_sent field, as used by some existing tests) from
-            # ever being offered one, rather than raising.
             serializer = GenerationOutputSerializer(
                 generation_id=generation_id,
                 preset_id=status.preset_id,
-                backend=None if getattr(status, 'backend_info_sent', True) else {
-                    'id': getattr(status, 'backend_id', None),
-                    'name': getattr(status, 'backend_name', None),
-                    'routing_reason': getattr(status, 'routing_reason', None),
-                },
             )
 
             # Serialize the output
             message = serializer.serialize_output(output)
-            if 'backend' in message:
-                status.backend_info_sent = True
 
             try:
                 self.run_report_recorder.record_output(generation_id, message)

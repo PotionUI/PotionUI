@@ -24,7 +24,7 @@ Backend selection is based on the engine declared by the preset.
 Example:
     orchestrator = GenerationOrchestrator(...)
     result = await orchestrator.start_generation(request, user_id)
-    # Returns: {'generation_id': '...', 'status': {...}, 'backend': {...}}
+    # Returns: {'generation_id': '...', 'status': {...}, 'queue_position': None}
 
     status = await orchestrator.get_generation_status(generation_id)
     success = await orchestrator.cancel_generation(generation_id)
@@ -773,7 +773,7 @@ class GenerationOrchestrator:
             Dictionary containing:
             - generation_id: Unique ULID for this generation
             - status: GenerationStatus model dump
-            - backend: Backend info (id, name, engine)
+            - queue_position: 0-based queue position, or None if dispatched immediately
 
         Raises:
             ValueError: If no backend available or invalid preset
@@ -782,8 +782,6 @@ class GenerationOrchestrator:
             >>> result = await orchestrator.start_generation(request, 'user123')
             >>> print(result['generation_id'])
             '01ARZ3NDEKTSV4RRFFQ69G5FAV'
-            >>> print(result['backend']['name'])
-            'Local Generation'
         """
         try:
             logger.info(f"Starting generation for user={user_id}, preset={request.preset_id}")
@@ -1062,8 +1060,6 @@ class GenerationOrchestrator:
                 id=generation_id,
                 preset_id=request.preset_id,
                 backend_id=backend.backend_id,
-                backend_name=backend.name,
-                routing_reason=routing_summary['reason'] if routing_summary else None,
                 user_id=user_id,
                 tab_id=getattr(request, 'tab_id', None),
             )
@@ -1100,15 +1096,6 @@ class GenerationOrchestrator:
                 'generation_id': generation_id,
                 'status': record.model_dump(),
                 'queue_position': queue_position,
-                'backend': {
-                    'id': backend.backend_id,
-                    'name': backend.name,
-                    'engine': backend.engine,
-                    # One-line "why this backend" from the router (e.g.
-                    # "default backend for this engine") - `None` when
-                    # `self.router` isn't wired. See docs/generation-routing.md.
-                    'routing_reason': routing_summary['reason'] if routing_summary else None,
-                }
             }
 
         except Exception as e:

@@ -467,6 +467,8 @@ class PresetLinter:
 
         issues.extend(self._lint_speed_profiles(preset_file, manifest))
 
+        issues.extend(self._lint_segment_templates(preset_file, manifest))
+
         issues.extend(self._lint_requirements(preset_file, manifest))
 
         issues.extend(self._lint_tests_yml(preset_file, manifest))
@@ -641,6 +643,107 @@ class PresetLinter:
                     f"call, no generation.profile use, and no literal profile name found)",
                 )
             )
+
+        return issues
+
+    def _lint_segment_templates(self, preset_file: Path, manifest) -> List[LintIssue]:
+        """Cross-checks `vars.prompt.segment_templates` and its per-mode override
+        under `vars.prompt.modes.<mode>.segment_templates` (see
+        docs/presets/manifest.md "Prompt segment templates") - `vars:` is
+        deliberately untyped (schema.py, `PresetManifest.vars`), so this soft
+        check is the only place a malformed declaration gets caught before it
+        silently fails to render in the segment picker."""
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+
+        prompt_vars = manifest.vars.get("prompt")
+        if not isinstance(prompt_vars, dict):
+            return issues
+
+        flat = prompt_vars.get("segment_templates")
+        if flat is not None:
+            issues.extend(
+                self._lint_segment_template_list(preset_str, "vars.prompt.segment_templates", flat)
+            )
+
+        modes = prompt_vars.get("modes")
+        if modes is None:
+            return issues
+        if not isinstance(modes, dict):
+            issues.append(LintIssue("warning", preset_str, "vars.prompt.modes: must be a mapping"))
+            return issues
+
+        declared_modes = set(manifest.modes)
+        for mode_key, mode_val in modes.items():
+            path = f"vars.prompt.modes.{mode_key}"
+            if mode_key not in declared_modes:
+                issues.append(
+                    LintIssue(
+                        "warning",
+                        preset_str,
+                        f"{path}: mode '{mode_key}' is not declared in preset.yml modes:",
+                    )
+                )
+            if not isinstance(mode_val, dict):
+                issues.append(LintIssue("warning", preset_str, f"{path}: must be a mapping"))
+                continue
+            mode_templates = mode_val.get("segment_templates")
+            if mode_templates is not None:
+                issues.extend(
+                    self._lint_segment_template_list(preset_str, f"{path}.segment_templates", mode_templates)
+                )
+
+        return issues
+
+    def _lint_segment_template_list(self, preset_str: str, path: str, value: Any) -> List[LintIssue]:
+        """Validates one `segment_templates:` list (either the flat
+        `vars.prompt.segment_templates` or a per-mode override) against the
+        shape documented in docs/presets/manifest.md - shared by
+        `_lint_segment_templates` for both call sites so the same entry rules
+        apply flat and per-mode."""
+        issues: List[LintIssue] = []
+        if not isinstance(value, list):
+            issues.append(LintIssue("warning", preset_str, f"{path}: must be a list"))
+            return issues
+
+        for i, entry in enumerate(value):
+            entry_path = f"{path}[{i}]"
+            if not isinstance(entry, dict):
+                issues.append(LintIssue("warning", preset_str, f"{entry_path}: must be a mapping"))
+                continue
+            if not entry.get("name"):
+                issues.append(LintIssue("warning", preset_str, f"{entry_path}: missing 'name'"))
+
+            segments = entry.get("segments")
+            if not isinstance(segments, list) or not segments:
+                issues.append(
+                    LintIssue("warning", preset_str, f"{entry_path}: 'segments' must be a non-empty list")
+                )
+                continue
+
+            for j, segment in enumerate(segments):
+                segment_path = f"{entry_path}.segments[{j}]"
+                if not isinstance(segment, dict):
+                    issues.append(LintIssue("warning", preset_str, f"{segment_path}: must be a mapping"))
+                    continue
+                if "chips" in segment:
+                    issues.append(
+                        LintIssue(
+                            "warning",
+                            preset_str,
+                            f"{segment_path}: 'chips' is not allowed in a preset-declared segment "
+                            f"(a preset cannot know a user's phrasebook)",
+                        )
+                    )
+                segment_type = segment.get("type", "content")
+                if segment_type not in ("content", "break"):
+                    issues.append(
+                        LintIssue(
+                            "warning",
+                            preset_str,
+                            f"{segment_path}: type must be 'content' or 'break', got {segment_type!r}",
+                        )
+                    )
 
         return issues
 

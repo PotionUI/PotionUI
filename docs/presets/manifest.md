@@ -87,6 +87,49 @@ needs no schema change and rejects nothing when the prompt is empty. A promptles
 and any per-image expansion yields empty strings rather than failing. If a mode legitimately
 needs a prompt, leave it out of this list.
 
+### Prompt segment templates
+
+A `vars.prompt` block can declare **Segment Templates** the segment picker offers alongside a
+user's own saved templates — a curated starting structure for the prompt (e.g. MiniMax H3's
+recommended sections). They're read-only in the UI: applying one copies its segments into the
+editor, never writes to the database, and a preset-declared template can't carry `chips` (a
+preset has no way to know a user's phrasebook).
+
+```yaml
+vars:
+  prompt:
+    segment_join: "paragraph"          # unrelated key, same vars.prompt namespace
+    segment_templates:                 # applies to every mode unless overridden below
+      - name: "H3 — full structure"
+        description: "MiniMax H3's recommended prompt sections"
+        tags: ["minimax-h3"]
+        segments:
+          - name: "Scene description"
+            prefix: "integrated_multimodal_description: "
+            content: ""
+          - name: "Soundscape"
+            prefix: "overall_soundscape: "
+            content: ""
+    modes:                             # optional — per-mode override
+      refs:
+        segment_templates: [ ... ]     # REPLACES the flat list for this mode only
+```
+
+Each `segments:` entry is a plain `RichSegment` (`src/features/segments/dto.py`): `name`,
+`content`, `prefix`, `suffix`, `enabled`, `color`, `description`, and `type`
+(`content`/`break`, default `content`) — `chips` is not allowed.
+
+`vars.prompt.modes.<mode>.segment_templates`, when present, **replaces** the flat
+`vars.prompt.segment_templates` list for that mode only — a flat replace, not a merge. A mode
+absent from `modes:` falls back to the flat list; a mode present with an **empty** list means
+"no preset templates for this mode," not "fall back to the flat list." `segment_join` (the
+enabled-segment separator) shares the `vars.prompt` namespace but is unrelated to templates.
+
+`scripts/preset_lint.py` soft-checks the declaration (unknown shapes, missing `name`/`segments`,
+a disallowed `chips`/`type`, or a `modes.<key>` naming a mode the preset doesn't declare) but
+`vars:` itself stays untyped — a malformed template silently renders as nothing in the picker
+rather than failing preset validation.
+
 ## Speed profiles
 
 `speed_profiles:` is a top-level `preset.yml` mapping of **profile name -> generation-knob

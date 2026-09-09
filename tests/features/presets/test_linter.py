@@ -757,6 +757,210 @@ modes:
         assert not any("no form field or pipeline.yml" in i.message for i in issues)
 
 
+class TestLintSegmentTemplates:
+    """`vars.prompt.segment_templates` and its per-mode override under
+    `vars.prompt.modes.<mode>.segment_templates` (see
+    docs/presets/manifest.md "Prompt segment templates") - `vars:` is
+    untyped, so this soft check is the only place a malformed declaration
+    gets caught."""
+
+    def _write(self, tmp_path, preset_id, vars_yaml, modes=("txt2img",)):
+        return _write_preset(
+            tmp_path, "presets/native/Foo/std", preset_id, list(modes), extra_yaml=vars_yaml
+        )
+
+    def test_valid_flat_declaration_has_no_issues(self, tmp_path):
+        self._write(
+            tmp_path, "01RAAAAAAAAAAAAAAAAAAAAAAAA",
+            "vars:\n"
+            "  prompt:\n"
+            "    segment_templates:\n"
+            "      - name: \"H3 - full structure\"\n"
+            "        description: \"Recommended sections\"\n"
+            "        tags: [\"minimax-h3\"]\n"
+            "        segments:\n"
+            "          - name: \"Scene description\"\n"
+            "            prefix: \"integrated_multimodal_description: \"\n"
+            "            content: \"\"\n",
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert not any("segment_templates" in i.message or "vars.prompt.modes" in i.message for i in issues)
+
+    def test_valid_per_mode_declaration_has_no_issues(self, tmp_path):
+        self._write(
+            tmp_path, "01RBBBBBBBBBBBBBBBBBBBBBBBB",
+            "vars:\n"
+            "  prompt:\n"
+            "    modes:\n"
+            "      txt2img:\n"
+            "        segment_templates:\n"
+            "          - name: \"Refs\"\n"
+            "            segments:\n"
+            "              - name: \"Subject\"\n"
+            "                content: \"\"\n",
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert not any("segment_templates" in i.message or "vars.prompt.modes" in i.message for i in issues)
+
+    def test_declared_mode_with_empty_list_is_not_flagged(self, tmp_path):
+        self._write(
+            tmp_path, "01RCCCCCCCCCCCCCCCCCCCCCCCC",
+            "vars:\n"
+            "  prompt:\n"
+            "    modes:\n"
+            "      txt2img:\n"
+            "        segment_templates: []\n",
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert not any("segment_templates" in i.message or "vars.prompt.modes" in i.message for i in issues)
+
+    def test_segment_templates_not_a_list_is_warning(self, tmp_path):
+        preset_dir = self._write(
+            tmp_path, "01RDDDDDDDDDDDDDDDDDDDDDDDD",
+            "vars:\n  prompt:\n    segment_templates: \"not-a-list\"\n",
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "warning" and i.message.startswith("vars.prompt.segment_templates: must be a list")
+            for i in issues
+        )
+
+    def test_entry_not_a_mapping_is_warning(self, tmp_path):
+        self._write(
+            tmp_path, "01REEEEEEEEEEEEEEEEEEEEEEEE",
+            "vars:\n  prompt:\n    segment_templates:\n      - \"not-a-mapping\"\n",
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "warning" and "vars.prompt.segment_templates[0]: must be a mapping" in i.message
+            for i in issues
+        )
+
+    def test_entry_missing_name_is_warning(self, tmp_path):
+        self._write(
+            tmp_path, "01RFFFFFFFFFFFFFFFFFFFFFFFF",
+            "vars:\n  prompt:\n    segment_templates:\n"
+            "      - segments:\n          - name: \"Subject\"\n            content: \"\"\n",
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "warning" and "vars.prompt.segment_templates[0]: missing 'name'" in i.message
+            for i in issues
+        )
+
+    def test_entry_missing_segments_is_warning(self, tmp_path):
+        self._write(
+            tmp_path, "01RGGGGGGGGGGGGGGGGGGGGGGGG",
+            "vars:\n  prompt:\n    segment_templates:\n      - name: \"Refs\"\n",
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "warning"
+            and "vars.prompt.segment_templates[0]: 'segments' must be a non-empty list" in i.message
+            for i in issues
+        )
+
+    def test_entry_empty_segments_is_warning(self, tmp_path):
+        self._write(
+            tmp_path, "01RHHHHHHHHHHHHHHHHHHHHHHHH",
+            "vars:\n  prompt:\n    segment_templates:\n      - name: \"Refs\"\n        segments: []\n",
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "warning"
+            and "vars.prompt.segment_templates[0]: 'segments' must be a non-empty list" in i.message
+            for i in issues
+        )
+
+    def test_segment_not_a_mapping_is_warning(self, tmp_path):
+        self._write(
+            tmp_path, "01RIIIIIIIIIIIIIIIIIIIIIIII",
+            "vars:\n  prompt:\n    segment_templates:\n"
+            "      - name: \"Refs\"\n        segments:\n          - \"not-a-mapping\"\n",
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "warning"
+            and "vars.prompt.segment_templates[0].segments[0]: must be a mapping" in i.message
+            for i in issues
+        )
+
+    def test_segment_with_chips_is_warning(self, tmp_path):
+        self._write(
+            tmp_path, "01RJJJJJJJJJJJJJJJJJJJJJJJJ",
+            "vars:\n  prompt:\n    segment_templates:\n"
+            "      - name: \"Refs\"\n        segments:\n"
+            "          - name: \"Subject\"\n            content: \"\"\n            chips: {}\n",
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "warning"
+            and "vars.prompt.segment_templates[0].segments[0]: 'chips' is not allowed" in i.message
+            for i in issues
+        )
+
+    def test_segment_invalid_type_is_warning(self, tmp_path):
+        self._write(
+            tmp_path, "01RKKKKKKKKKKKKKKKKKKKKKKKK",
+            "vars:\n  prompt:\n    segment_templates:\n"
+            "      - name: \"Refs\"\n        segments:\n"
+            "          - name: \"Subject\"\n            content: \"\"\n            type: \"weird\"\n",
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "warning"
+            and "vars.prompt.segment_templates[0].segments[0]: type must be 'content' or 'break'" in i.message
+            for i in issues
+        )
+
+    def test_modes_not_a_mapping_is_warning(self, tmp_path):
+        self._write(
+            tmp_path, "01RLLLLLLLLLLLLLLLLLLLLLLLL",
+            "vars:\n  prompt:\n    modes: \"not-a-mapping\"\n",
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "warning" and i.message == "vars.prompt.modes: must be a mapping"
+            for i in issues
+        )
+
+    def test_undeclared_mode_is_warning(self, tmp_path):
+        self._write(
+            tmp_path, "01RMMMMMMMMMMMMMMMMMMMMMMMM",
+            "vars:\n  prompt:\n    modes:\n      img2img:\n        segment_templates: []\n",
+            modes=("txt2img",),
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "warning"
+            and "vars.prompt.modes.img2img: mode 'img2img' is not declared in preset.yml modes:" in i.message
+            for i in issues
+        )
+
+    def test_mode_entry_not_a_mapping_is_warning(self, tmp_path):
+        self._write(
+            tmp_path, "01RNNNNNNNNNNNNNNNNNNNNNNNN",
+            "vars:\n  prompt:\n    modes:\n      txt2img: \"not-a-mapping\"\n",
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "warning" and i.message == "vars.prompt.modes.txt2img: must be a mapping"
+            for i in issues
+        )
+
+    def test_mode_segment_templates_errors_use_mode_path(self, tmp_path):
+        self._write(
+            tmp_path, "01ROOOOOOOOOOOOOOOOOOOOOOOO",
+            "vars:\n  prompt:\n    modes:\n      txt2img:\n        segment_templates:\n          - \"not-a-mapping\"\n",
+        )
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "warning"
+            and "vars.prompt.modes.txt2img.segment_templates[0]: must be a mapping" in i.message
+            for i in issues
+        )
+
+
 class TestLintConfigurationRefs:
     """`"@config:<key>"` indirection (e.g. a `model` field's `filter_tags:`) must
     reference a key preset.yml's `configuration:` block actually declares."""

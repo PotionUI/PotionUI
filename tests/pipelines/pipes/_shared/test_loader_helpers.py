@@ -7,7 +7,6 @@ import torch
 
 from src.pipelines.outputs import ProgressGenerationOutput
 from src.pipelines.pipes._shared.generation import loader_helpers as lh
-from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.lora import AdapterApplication, LoraStepWindow
 
 
@@ -238,6 +237,7 @@ class TestDescribeLoraStack:
         assert "delta tensors on none (0.0 MB)" in summary
 
 
+
 class TestLoraReadCost:
     def _fake_files(self, monkeypatch, files):
         monkeypatch.setattr(lh, "load_torch_file", lambda path, device="cpu": (files[path], {}))
@@ -282,73 +282,29 @@ class TestLoraReadCost:
         assert aggregate[0][1]["bytes"] == 8 * 8 * 4
 
 
-class TestWindowedStackReuse:
-    """``build_context`` runs once per generation, so an unchanged windowed
-    request used to rebuild the identical stack on every run."""
-
-    def _dit(self):
-        return NativeModel("diffusion_model", object(), estimated_vram_gb=1.0)
+class TestWindowedStackFingerprint:
+    """Shared with the Krea-2 loader's step-window revision stamp."""
 
     def _entry(self, start=1, end=2, path="/w.safetensors", weight=1.0):
         return {"file_path": path, "weight": weight, "window": LoraStepWindow(start, end)}
 
-    def _count_rebuilds(self, monkeypatch):
-        built = []
-        monkeypatch.setattr(lh, "load_windowed_lora_stack",
-                            lambda loras: built.append(list(loras)) or [("sd", 1.0)])
-        return built
-
-    def test_an_unchanged_request_is_not_rebuilt(self, monkeypatch):
-        built = self._count_rebuilds(monkeypatch)
-        dit, loras = self._dit(), [self._entry()]
-
-        first = lh.windowed_lora_stack(dit, loras)
-        second = lh.windowed_lora_stack(dit, loras)
-
-        assert len(built) == 1
-        assert second is first
-
-    def test_a_changed_window_rebuilds(self, monkeypatch):
-        """The hook toggles by index, so a start/end edit genuinely changes
-        the stack even though the file and weight are identical."""
-        built = self._count_rebuilds(monkeypatch)
-        dit = self._dit()
-
-        lh.windowed_lora_stack(dit, [self._entry(1, 2)])
-        lh.windowed_lora_stack(dit, [self._entry(1, 5)])
-
-        assert len(built) == 2
-
-    def test_a_changed_weight_or_file_rebuilds(self, monkeypatch):
-        built = self._count_rebuilds(monkeypatch)
-        dit = self._dit()
-
-        lh.windowed_lora_stack(dit, [self._entry(weight=1.0)])
-        lh.windowed_lora_stack(dit, [self._entry(weight=0.5)])
-        lh.windowed_lora_stack(dit, [self._entry(weight=0.5, path="/other.safetensors")])
-
-        assert len(built) == 3
-
-    def test_a_freshly_loaded_dit_carries_no_stamp_and_rebuilds(self, monkeypatch):
-        built = self._count_rebuilds(monkeypatch)
-        loras = [self._entry()]
-
-        lh.windowed_lora_stack(self._dit(), loras)
-        lh.windowed_lora_stack(self._dit(), loras)
-
-        assert len(built) == 2
-
-    def test_the_branch_taken_is_marked_for_the_profiler(self, monkeypatch):
-        marks = []
-        self._count_rebuilds(monkeypatch)
-        monkeypatch.setattr(lh, "get_profiler", lambda: types.SimpleNamespace(
-            mark=lambda event, **fields: marks.append((event, fields))))
-        dit, loras = self._dit(), [self._entry()]
-
-        lh.windowed_lora_stack(dit, loras)
-        lh.windowed_lora_stack(dit, loras)
-
-        assert [f["branch"] for e, f in marks if e == "lora.windowed_stack"] == ["reused"]
-
-    def test_the_fingerprint_of_an_empty_request_is_stable(self):
+    def test_an_empty_request_is_stable(self):
         assert lh.windowed_stack_fingerprint([]) == "none"
+
+    def test_a_changed_window_changes_the_stamp(self):
+        """The hook toggles by index, so a start/end edit genuinely changes the
+        stack even though the file and weight are identical."""
+        assert (lh.windowed_stack_fingerprint([self._entry(1, 2)])
+                != lh.windowed_stack_fingerprint([self._entry(1, 5)]))
+
+    def test_a_changed_weight_or_file_changes_the_stamp(self):
+        stamps = {
+            lh.windowed_stack_fingerprint([self._entry(weight=1.0)]),
+            lh.windowed_stack_fingerprint([self._entry(weight=0.5)]),
+            lh.windowed_stack_fingerprint([self._entry(weight=0.5, path="/other.safetensors")]),
+        }
+        assert len(stamps) == 3
+
+    def test_an_identical_request_stamps_the_same(self):
+        assert (lh.windowed_stack_fingerprint([self._entry()])
+                == lh.windowed_stack_fingerprint([self._entry()]))

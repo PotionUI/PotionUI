@@ -34,6 +34,7 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     ComponentProgress,
     active_loras as _active_loras,
     apply_loras_to as _apply_loras_to,
+    lora_stack_fingerprint as _lora_stack_fingerprint,
     path_of as _path_of,
     reemit_lora_application_diagnostics as _emit_lora_diagnostics,
     vram_budget as _vram_budget_fn,
@@ -145,7 +146,7 @@ class ModelLoaderQwenPipe(BaseModelLoaderPipe):
 
         te_fp = f"{te_path}|{dtype}|vision={vision}"
         vae_fp = f"{vae_path}|{dtype}"
-        lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in loras) or "none"
+        lora_fp = _lora_stack_fingerprint(loras) or "none"
         dit_fp = f"{dit_path}|{dtype}|{lora_fp}"
 
         def load_te() -> NativeModel:

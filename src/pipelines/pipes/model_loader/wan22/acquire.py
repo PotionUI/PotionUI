@@ -21,6 +21,7 @@ from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
 from src.pipelines.pipes._shared.generation.loader_helpers import (
     active_loras as _active_loras,
     apply_loras_to as _apply_loras_to,
+    lora_stack_fingerprint as _lora_stack_fingerprint,
     reemit_lora_application_diagnostics as _emit_lora_diagnostics,
 )
 
@@ -53,7 +54,7 @@ def acquire_wan_dit(
     ``load()`` at all.
     """
     active = _active_loras(loras)
-    lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in active) or "none"
+    lora_fp = _lora_stack_fingerprint(active) or "none"
 
     def load() -> NativeModel:
         model = loader.load(path, "diffusion_model")

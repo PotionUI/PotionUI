@@ -27,7 +27,10 @@ from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
 from src.pipelines.contracts import PipeInput
 from src.pipelines.outputs import ModelsGenerationOutput, ProgressGenerationOutput
-from src.pipelines.pipes._shared.generation.loader_helpers import apply_loras_to
+from src.pipelines.pipes._shared.generation.loader_helpers import (
+    apply_loras_to,
+    lora_stack_fingerprint as _lora_stack_fingerprint,
+)
 from src.pipelines.pipes._shared.generation.loader_lifecycle import NO_LORAS, sync_loras
 from src.pipelines.pipes.model_loader.flux.main import ModelLoaderFluxPipe
 from src.pipelines.pipes.model_loader.krea2.main import ModelLoaderKrea2Pipe
@@ -440,3 +443,58 @@ def test_the_sync_branch_taken_is_marked_for_the_profiler(dit, fake_lora_files, 
     sync_loras(dit, [_entry(VALID)], "fp-b", _apply, log_tag="TEST")
 
     assert [f["branch"] for e, f in marks if e == "lora.sync"] == ["reapply", "noop", "reapply"]
+
+
+# -- a retrained adapter at the same path -------------------------------------
+
+def test_a_rewritten_adapter_at_the_same_path_and_strength_reapplies(dit, tmp_path, monkeypatch):
+    """The stale-adapter trap. Retraining overwrites the file in place, and a
+    stack stamp of path and strength alone says nothing changed: ``sync_loras``
+    no-ops and the resident weights keep the adapter they were patched with,
+    for as long as that DiT stays in the MODELS cache. Nothing recovers it --
+    not another generation, not a strength nudge back and forth."""
+    import src.platform.runtime.native.lora.apply as apply_mod
+    from src.pipelines.pipes._shared.generation.lora_cache import lora_state_dict_cache
+
+    lora_state_dict_cache().clear()
+    path = tmp_path / "character.safetensors"
+    path.write_bytes(b"v1")
+    served = {"sd": _kohya_lora("lora_unet_double_blocks_0_img_attn_qkv", seed=1)}
+    monkeypatch.setattr(
+        "src.pipelines.pipes._shared.generation.loader_helpers.load_torch_file",
+        lambda p, device="cpu": (served["sd"], {}),
+    )
+    applied = []
+    real = apply_mod.map_lora_keys
+    monkeypatch.setattr(apply_mod, "map_lora_keys",
+                        lambda sd, m: (applied.append(1), real(sd, m))[1])
+
+    entry = [_entry(str(path))]
+    sync_loras(dit, entry, _lora_stack_fingerprint(entry), _apply, log_tag="TEST")
+    assert len(applied) == 1
+
+    # Same file, same strength, nothing touched: still the no-op branch.
+    sync_loras(dit, entry, _lora_stack_fingerprint(entry), _apply, log_tag="TEST")
+    assert len(applied) == 1, "an unchanged stack must stay a no-op"
+
+    served["sd"] = _kohya_lora("lora_unet_double_blocks_0_img_attn_qkv", seed=2)
+    path.write_bytes(b"v2-is-longer")   # mtime and size both move
+
+    sync_loras(dit, entry, _lora_stack_fingerprint(entry), _apply, log_tag="TEST")
+    assert len(applied) == 2, "a rewritten adapter at the same path must re-apply"
+    lora_state_dict_cache().clear()
+
+
+def test_the_stack_stamp_follows_the_file_not_just_its_name(tmp_path):
+    path = tmp_path / "character.safetensors"
+    path.write_bytes(b"v1")
+    entry = [_entry(str(path))]
+
+    before = _lora_stack_fingerprint(entry)
+    assert _lora_stack_fingerprint(entry) == before, "an untouched file stamps the same"
+
+    path.write_bytes(b"v2-is-longer")
+    assert _lora_stack_fingerprint(entry) != before
+
+    assert _lora_stack_fingerprint([]) == ""
+    assert _lora_stack_fingerprint([_entry(str(path), 0.5)]) != _lora_stack_fingerprint(entry)

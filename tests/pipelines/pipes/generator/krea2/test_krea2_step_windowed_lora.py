@@ -149,11 +149,9 @@ def _fakes(monkeypatch):
     _SteppingGenerator.raise_at_step = None
     monkeypatch.setattr(f"{_FLOW}.make_device_plan", lambda **_: None)
     monkeypatch.setattr(f"{_FLOW}.NativeGenerator", _SteppingGenerator)
-    # No disk: one fake state dict per windowed entry. Patched at the READ,
-    # not at `flow_generator_pipe.windowed_lora_stack`, so the pipe still goes
-    # through the real rebuild-or-reuse decision.
+    # No disk: one fake state dict per windowed entry.
     monkeypatch.setattr(
-        "src.pipelines.pipes._shared.generation.loader_helpers.load_windowed_lora_stack",
+        f"{_FLOW}.load_windowed_lora_stack",
         lambda loras: [({"fake": torch.zeros(1)}, l["weight"], l["window"]) for l in loras],
     )
     yield

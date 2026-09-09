@@ -319,9 +319,9 @@ def test_eligible_staged_path_never_dequantizes_the_weight(monkeypatch):
     dequant_calls: list = []
     real_prepare = wo.Fp8ScaledLinear._prepare_dequant_operand
 
-    def _spy_prepare(self, dtype, device):
+    def _spy_prepare(self, dtype, device, **kwargs):
         dequant_calls.append(1)
-        return real_prepare(self, dtype, device)
+        return real_prepare(self, dtype, device, **kwargs)
 
     monkeypatch.setattr(wo.Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
 
@@ -394,12 +394,12 @@ def test_staged_operand_released_before_dense_fallback_on_kernel_rejection(monke
     dead_before_dequant: dict[int, bool] = {}
     real_prepare = wo.Fp8ScaledLinear._prepare_dequant_operand
 
-    def _spy_prepare(self, dtype, device):
+    def _spy_prepare(self, dtype, device, **kwargs):
         gc.collect()
         ref = staged_ref_by_leaf.get(id(self))
         if ref is not None:
             dead_before_dequant[id(self)] = ref() is None
-        return real_prepare(self, dtype, device)
+        return real_prepare(self, dtype, device, **kwargs)
 
     monkeypatch.setattr(wo.Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
 

@@ -23,6 +23,14 @@
 # weight already resident/prefetched -- upstream has no partial-residency
 # streaming concept at all, so this seam is PotionUI-original.
 #
+# ``linear_with_lora_deltas`` / ``partition_output_branch_deltas`` are PotionUI-original.
+# They move a plain LoRA delta off the weight and onto the activation for the DEQUANT
+# forwards, reusing the ``_lora_output_branch`` seam the fp8/nvfp4 GEMM fast paths already
+# had: ``x @ (up @ down).T == (x @ down.T) @ up.T``, so no ``(out, in)`` delta is
+# materialised and no weight is cloned per forward. Deltas that have no such factorisation
+# (LoKr) keep the weight-side ``apply_lora_deltas`` path. Upstream ComfyUI bakes patches
+# into the weight through ``ModelPatcher`` instead and has no per-forward delta at all.
+#
 # AWQ ``pre_quant_scale`` activation smoothing (Fp8ScaledLinear/Nvfp4Linear) ported from
 # comfy/ops.py @ 7d11ec31cb700d881fdf2d73731ecde0093b9540 (comfy-org/ComfyUI, fetched
 # 2026-08-10), ``MixedPrecisionOps.Linear.forward`` — the
@@ -417,6 +425,101 @@ def apply_lora_deltas(weight: torch.Tensor, deltas: "list | None") -> torch.Tens
     return out
 
 
+class _Unset:
+    """Sentinel: ``_prepare_dequant_operand``'s ``deltas`` distinguishes "all of
+    this layer's" from an explicit empty list, which ``None`` cannot."""
+
+
+_UNSET = _Unset()
+
+
+def partition_output_branch_deltas(
+    deltas: "list | None", out_features: int,
+) -> "tuple[list, list]":
+    """Split ``deltas`` into ``(output_side, weight_side)``.
+
+    Per-delta, unlike :func:`_deltas_output_branch_ok`, which the GEMM fast
+    paths use as an all-or-nothing gate because they must either take the
+    native kernel for the whole layer or not at all. Here a stack mixing one
+    LoKr adapter with two plain ones can still put the plain two on the
+    activation and only pay a weight-shaped delta for the LoKr one.
+    """
+    if not deltas:
+        return [], []
+    output_side, weight_side = [], []
+    for d in deltas:
+        (output_side if _deltas_output_branch_ok([d], out_features) else weight_side).append(d)
+    return output_side, weight_side
+
+
+def _add_lora_output_branch(
+    out: torch.Tensor, x: torch.Tensor, deltas: "list", out_features: int,
+) -> torch.Tensor:
+    """``out`` plus the output-side contribution of ``deltas`` against ``x``.
+
+    ``x`` keeps the caller's leading dims; the branch works on a flattened
+    ``(M, in_features)`` view and lands back on ``out``'s shape.
+
+    Under ``no_grad`` the terms are accumulated straight INTO ``out``, which is
+    the freshly-allocated result of this layer's own ``F.linear`` and is
+    aliased by nothing else. That matters more than it looks: the functional
+    form allocates and writes a full ``(M, out_features)`` tensor for the
+    running sum and another for ``out + sum``, so on a 9216-wide layer with
+    1024 tokens the adds, not the two rank-sized matmuls, are what the LoRA
+    costs. With grad enabled (never on an inference path here, but the layer
+    is an ordinary ``nn.Module`` and someone may) it falls back to
+    :func:`_lora_output_branch`, which allocates rather than mutating.
+    """
+    if not deltas:
+        return out
+    x2d = x.reshape(-1, x.shape[-1])
+    if torch.is_grad_enabled():
+        branch = _lora_output_branch(x2d, deltas, out.dtype, out_features)
+        return out + branch.reshape(out.shape)
+
+    out2d = out.reshape(-1, out_features)
+    rows = out2d.shape[0]
+    chunk_rows = max(1, _NVFP4_LORA_BRANCH_CHUNK_BYTES
+                     // max(1, out_features * out.element_size()))
+    for start_row in range(0, rows, chunk_rows):
+        end_row = min(start_row + chunk_rows, rows)
+        xc = x2d[start_row:end_row].to(out.dtype)
+        for d in deltas:
+            down = d.down.to(device=xc.device, dtype=out.dtype)
+            up = d.up.to(device=xc.device, dtype=out.dtype)
+            coeff = float(d.scale) * float(d.alpha) / d.down.shape[0]
+            term = (xc @ down.t()) @ up.t()
+            if d.target_slice is not None:
+                _dim, col, length = d.target_slice
+                out2d[start_row:end_row, col:col + length].add_(term, alpha=coeff)
+            else:
+                out2d[start_row:end_row].add_(term, alpha=coeff)
+    return out
+
+
+def linear_with_lora_deltas(
+    input: torch.Tensor,
+    weight: torch.Tensor,
+    bias: "torch.Tensor | None",
+    deltas: "list | None",
+    out_features: int,
+) -> torch.Tensor:
+    """``F.linear(input, weight, bias)`` with ``deltas`` applied, each on
+    whichever side it can be.
+
+    The weight-side form (:func:`apply_lora_deltas`) clones the materialised
+    weight and builds an ``(out, in)`` delta on EVERY forward; the output-side
+    form touches only ``(M, rank)`` and ``(M, out)`` intermediates. Both are
+    the same number: ``x @ (up @ down).T == (x @ down.T) @ up.T``. Only a delta
+    with no such factorisation (LoKr) still pays the weight-side cost.
+    """
+    output_side, weight_side = partition_output_branch_deltas(deltas, out_features)
+    if weight_side:
+        weight = apply_lora_deltas(weight, weight_side)
+    out = F.linear(input, weight, bias)
+    return _add_lora_output_branch(out, input, output_side, out_features)
+
+
 class disable_weight_init:
     """torch layers with parameter init skipped (weights come from load)."""
 
@@ -426,8 +529,7 @@ class disable_weight_init:
 
         def forward_comfy_cast_weights(self, input: torch.Tensor) -> torch.Tensor:
             weight, bias = cast_bias_weight(self, input)
-            weight = apply_lora_deltas(weight, self.lora_deltas)
-            return F.linear(input, weight, bias)
+            return linear_with_lora_deltas(input, weight, bias, self.lora_deltas, self.out_features)
 
         def forward(self, *args, **kwargs):
             if self.comfy_cast_weights:
@@ -1036,17 +1138,24 @@ class Fp8ScaledLinear(manual_cast.Linear):
                     # anywhere near the kernel -- this is the case that used to
                     # be completely silent (see _log_scaled_mm_fast_path_rejection).
                     _log_scaled_mm_fast_path_rejection(reject_reason)
-            weight, bias, dt = self._prepare_dequant_operand(input.dtype, input.device)
+            # Only the deltas that have no output-side form (LoKr) go into the
+            # dequantised weight; the rest ride the activation, so this forward
+            # never clones a weight or builds an (out, in) delta.
+            output_side, weight_side = partition_output_branch_deltas(
+                self.lora_deltas, self.out_features)
+            weight, bias, dt = self._prepare_dequant_operand(
+                input.dtype, input.device, deltas=weight_side)
             if input.dtype is not dt:
                 input = input.to(dt)
-            return F.linear(input, weight, bias)
+            out = F.linear(input, weight, bias)
+            return _add_lora_output_branch(out, input, output_side, self.out_features)
         # non-quantised layer inside a mixed fp8 checkpoint.
         weight, bias = cast_bias_weight(self, input)
-        weight = apply_lora_deltas(weight, self.lora_deltas)
-        return F.linear(input, weight, bias)
+        return linear_with_lora_deltas(input, weight, bias, self.lora_deltas, self.out_features)
 
     def _prepare_dequant_operand(
         self, dtype: torch.dtype, device: "torch.device | str",
+        deltas: "list | None | _Unset" = _UNSET,
     ) -> tuple[torch.Tensor, "torch.Tensor | None", torch.dtype]:
         """The effective dequantised weight/bias for a quantised layer
         (``self.weight_scale is not None``), for ``dtype``/``device``: cast +
@@ -1065,7 +1174,16 @@ class Fp8ScaledLinear(manual_cast.Linear):
         dtype. Upcast to bf16 exactly as a natively fp8 checkpoint would run;
         the resolved compute dtype is returned so the caller casts its own
         input tensor(s) to the SAME dtype instead of re-deriving it.
+
+        ``deltas`` names which LoRA deltas to fold into the returned weight.
+        Omitted means all of this layer's, which is what a caller wanting a
+        self-contained operand needs (:meth:`prepared_linear`'s chunk loop
+        reuses one weight across chunks and has nowhere to add an
+        activation-side term). The single-call forward passes only the
+        weight-side ones and adds the rest to its own output.
         """
+        if isinstance(deltas, _Unset):
+            deltas = self.lora_deltas
         nb = self.stream_non_blocking
         dt = dtype if dtype not in _FP8_DTYPES else torch.bfloat16
         weight = cast_to(self.weight, dt, device, non_blocking=nb)
@@ -1074,7 +1192,7 @@ class Fp8ScaledLinear(manual_cast.Linear):
             hadamard = cast_to(self.convrot_hadamard, dt, device, non_blocking=nb)
             weight = _convrot_unrotate_weight(weight, hadamard, self.convrot_groupsize)
         bias = cast_to(self.bias, dt, device, non_blocking=nb) if self.bias is not None else None
-        weight = apply_lora_deltas(weight, self.lora_deltas)
+        weight = apply_lora_deltas(weight, deltas)
         return weight, bias, dt
 
     @contextmanager
@@ -1997,9 +2115,8 @@ class Nvfp4Linear(Fp8ScaledLinear):
         num_blocks = self.in_features // _NVFP4_BLOCK
         weight = _scale_values(values, self.nvfp4_scale, self.out_features, self.in_features, num_blocks)
         weight = weight.to(device=input.device, dtype=input.dtype)
-        weight = apply_lora_deltas(weight, self.lora_deltas)
         bias = None if self.bias is None else self.bias.to(input.dtype)
-        return F.linear(input, weight, bias)
+        return linear_with_lora_deltas(input, weight, bias, self.lora_deltas, self.out_features)
 
     def _forward_nvfp4_scaled_mm(self, input: torch.Tensor) -> torch.Tensor | None:
         """Native nvfp4 GEMM via ``torch._scaled_mm_v2`` (``F.scaled_mm``) —

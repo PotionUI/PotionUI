@@ -16,6 +16,9 @@ from types import SimpleNamespace
 import pytest
 
 from src.pipelines.contracts import IOType, PipeInput
+from src.pipelines.pipes._shared.generation.loader_helpers import (
+    lora_stack_fingerprint as _lora_stack_fingerprint,
+)
 from src.pipelines.pipes.model_loader.flux.main import ModelLoaderFluxPipe
 from src.pipelines.pipes.model_loader.flux.bundle import FluxModelBundle
 from src.pipelines.pipes.model_loader.flux.flux_clip import FluxClipTextEncoder
@@ -244,7 +247,10 @@ def test_lora_change_on_warm_dit_reuses_cached_weights(_fake_engine, _apply_spy)
     dit1, dit2 = out1.output["model"].dit, out2.output["model"].dit
     assert dit1 is dit2, "expected the SAME DiT wrapper across a LoRA-set change (cache hit, no reload)"
     assert _fake_engine["diffusion_model"] == 1, "the checkpoint must be read from disk exactly once"
-    assert dit2._active_lora_fp == "/m/style.safetensors@0.8"
+    # Compared against the shared stamp rather than a literal: it carries the
+    # file's own identity, so a retrained adapter at this path is a new stack.
+    assert dit2._active_lora_fp == _lora_stack_fingerprint(
+        [{"file_path": "/m/style.safetensors", "weight": 0.8}])
     # apply_loras ran once for the (empty) cold load and once for the sync.
     non_empty_calls = [c for c in _apply_spy if c]
     assert non_empty_calls == [[{"file_path": "/m/style.safetensors", "weight": 0.8, "window": None}]]

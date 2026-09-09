@@ -45,6 +45,9 @@ from src.platform.runtime.native.arch.minimax_h3.vdn import AttachReport, attach
 from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.io.safetensors_loader import load_torch_file
 from src.platform.runtime.native.lora import AdapterApplication, apply_loras_with_report
+from src.pipelines.pipes._shared.generation.loader_helpers import (
+    read_lora_state_dict as _read_lora_state_dict,
+)
 from src.platform.runtime.native.lora.adaln_translate import (
     AffineFit,
     adaln_curve_timesteps,
@@ -270,7 +273,7 @@ def apply_loras_with_adaln_translation(
 
     for lora in loras:
         path = lora["file_path"]
-        lora_sd, _ = load_torch_file(path, device="cpu")
+        lora_sd = _read_lora_state_dict(path)
         stems = _dense_adaln_stems(lora_sd, module)
         if stems:
             if not dense_time_embedder_path:

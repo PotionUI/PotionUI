@@ -21,7 +21,7 @@ from src.platform.runtime.native.io.safetensors_loader import load_torch_file
 from src.platform.runtime.native.lora import AdapterApplication, apply_loras_with_report, parse_lora_window
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import PipeInput
-from src.pipelines.pipes._shared.generation.lora_cache import lora_state_dict_cache
+from src.pipelines.pipes._shared.generation.lora_cache import file_identity, lora_state_dict_cache
 from src.pipelines.outputs import (
     Icon,
     ModelGenerationOutput,
@@ -172,6 +172,17 @@ def _read_lora_file(file_path: str) -> Tuple[Dict[str, Any], LoraFileRead]:
     return state_dict, read
 
 
+def read_lora_state_dict(file_path: str) -> Dict[str, Any]:
+    """One LoRA state dict, through the parsed-LoRA cache.
+
+    The public form of :func:`_read_lora_file` for a caller that does its own
+    stack assembly (MiniMax-H3's VDN loader inspects each adapter's keys before
+    deciding what to do with it) and would otherwise re-read the file itself,
+    outside the cache, on every generation.
+    """
+    return _read_lora_file(file_path)[0]
+
+
 def load_windowed_lora_stack(loras: List[Dict[str, Any]]) -> List[Any]:
     """Load windowed entries into the ``(state_dict, strength, window,
     file_path)`` 4-tuples :class:`~src.platform.runtime.native.lora.LoraStepWindowHook`
@@ -195,39 +206,48 @@ def load_windowed_lora_stack(loras: List[Dict[str, Any]]) -> List[Any]:
     return stack
 
 
+def _entry_stamp(lora: Dict[str, Any]) -> str:
+    """One LoRA request's identity: which file, at what strength, in the state
+    that file is in right now.
+
+    The last part is the one that is easy to leave out and expensive to miss.
+    A stack stamp of path and strength alone says a retrained adapter,
+    overwritten at the same path, is the same request as the adapter it
+    replaced -- so ``sync_loras`` no-ops and the DiT keeps sampling the OLD
+    adapter, and a loader that folds the stamp into its MODELS fingerprint gets
+    a cache hit on the same stale weights. Neither ever recovers while that DiT
+    stays resident. ``mtime_ns`` and size are the same identity the parsed-LoRA
+    cache keys on, so the two agree about what "changed" means.
+
+    A file that cannot be stat'd stamps ``?``: no worse than the path-and-
+    strength stamp this replaces, and it is about to fail the read anyway.
+    """
+    identity = file_identity(lora["file_path"])
+    state = "?" if identity is None else f"{identity[1]}:{identity[2]}"
+    return f"{lora['file_path']}@{lora['weight']}#{state}"
+
+
+def lora_stack_fingerprint(loras: List[Dict[str, Any]]) -> str:
+    """Stamp of a baked LoRA stack, empty for an empty stack.
+
+    What every native loader compares to decide whether the resident weights
+    already carry the requested adapters -- through ``sync_loras`` for the
+    families whose DiT cache key is LoRA-independent, and through the MODELS
+    fingerprint for the families that bust and reload.
+    """
+    return "+".join(_entry_stamp(lora) for lora in loras)
+
+
 def windowed_stack_fingerprint(loras: List[Dict[str, Any]]) -> str:
-    """Stamp of a windowed request: file, weight and the window itself.
+    """Stamp of a windowed request: :func:`_entry_stamp` plus the window.
 
     ``window`` is a frozen ``LoraStepWindow``, so a start/end edit shows up
     here even when the file and weight are unchanged -- and a window edit
     genuinely changes the stack, since the hook toggles by index.
     """
-    return "+".join(
-        f"{lora['file_path']}@{lora['weight']}{lora['window']}" for lora in loras
-    ) or "none"
+    return "+".join(f"{_entry_stamp(lora)}{lora['window']}" for lora in loras) or "none"
 
 
-def windowed_lora_stack(dit_model: NativeModel, loras: List[Dict[str, Any]]) -> List[Any]:
-    """The windowed stack for ``loras``, rebuilt only when the request changed.
-
-    The generator's ``build_context`` runs once per generation, so without
-    this a preset whose windowed adapters never change rebuilt the identical
-    stack on every run. Stamped on the DiT wrapper, mirroring ``sync_loras``'s
-    ``_active_lora_fp``: the wrapper is the thing that outlives a generation,
-    and a DiT reloaded from disk arrives with no stamp and rebuilds.
-
-    The stack is read-only to its consumer -- ``LoraStepWindowHook`` patches
-    the MODULE, never the state dicts -- so handing the same one to
-    consecutive generations is safe.
-    """
-    fingerprint = windowed_stack_fingerprint(loras)
-    if getattr(dit_model, "_active_windowed_stack_fp", None) == fingerprint:
-        get_profiler().mark("lora.windowed_stack", branch="reused", files=len(loras))
-        return dit_model._active_windowed_stack
-    stack = load_windowed_lora_stack(loras)
-    dit_model._active_windowed_stack_fp = fingerprint  # noqa: SLF001 - the loader's stamp
-    dit_model._active_windowed_stack = stack  # noqa: SLF001 - paired with the stamp above
-    return stack
 
 
 # The native engine's tiering models activation/decode spikes explicitly

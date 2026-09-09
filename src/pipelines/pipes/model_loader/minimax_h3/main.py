@@ -50,6 +50,7 @@ from src.pipelines.pipes._shared.generation.loader_base import BaseModelLoaderPi
 from src.pipelines.pipes._shared.generation.loader_helpers import (
     ComponentProgress,
     active_loras as _active_loras,
+    lora_stack_fingerprint as _lora_stack_fingerprint,
     path_of as _path_of,
     reemit_lora_application_diagnostics as _emit_lora_diagnostics,
     vram_budget as _vram_budget_fn,
@@ -198,7 +199,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
                 label, key, f"{path}|{dtype}", lambda: loader.load(path, kind), file_size_gb(path),
             )
 
-        lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in loras) or "none"
+        lora_fp = _lora_stack_fingerprint(loras) or "none"
         vdn_path = _path_of(self.config.get("vdn_module"))
         sidecar_path = _path_of(self.config.get("dense_time_embedder"))
 

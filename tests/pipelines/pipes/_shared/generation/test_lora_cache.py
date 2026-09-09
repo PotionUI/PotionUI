@@ -190,3 +190,85 @@ class TestThroughTheLoader:
 def _window():
     from src.platform.runtime.native.lora import LoraStepWindow
     return LoraStepWindow(1, 2)
+
+
+class TestTheCachedDictSurvivesRepeatedUse:
+    """The cache hands the SAME dict and the SAME tensors to every generation.
+    Anything downstream that consumed or mutated them would give a LoRA that
+    works on the first generation and degrades on the next."""
+
+    @pytest.fixture(autouse=True)
+    def _clear(self):
+        lora_state_dict_cache().clear()
+        yield
+        lora_state_dict_cache().clear()
+
+    def _serve(self, monkeypatch, lora_file, state_dict):
+        monkeypatch.setattr(lh, "load_torch_file", lambda path, device="cpu": (state_dict, {}))
+        return [{"file_path": lora_file, "weight": 0.8}]
+
+    def test_three_generations_off_one_cached_dict_apply_identically(self, monkeypatch, lora_file):
+        from src.platform.runtime.native.lora.apply import apply_loras_with_report
+        from tests.platform.runtime.native.lora.test_lora import _build, _kohya_lora
+
+        source = _kohya_lora()
+        pristine = {k: v.clone() for k, v in source.items()}
+        entry = self._serve(monkeypatch, lora_file, source)
+
+        target = "double_blocks.0.img_attn.qkv"
+        patched_counts, patches = [], []
+        for _generation in range(3):
+            module = _build()   # a fresh, independently randomised base each time
+            qkv = dict(module.named_modules())[target]
+            base = qkv.weight.detach().clone()
+            stack, _reads = lh.load_lora_stack_timed(entry)
+            patched, unmatched, [report] = apply_loras_with_report(
+                module, stack, names=[lora_file])
+            patched_counts.append((patched, len(unmatched), report.matched_params))
+            # The DELTA the adapter contributed, not the absolute weight: the
+            # base differs per generation, the patch must not.
+            patches.append((qkv.weight.detach() - base).clone())
+
+        assert patched_counts[0][0] > 0
+        assert patched_counts[1] == patched_counts[0] == patched_counts[2], (
+            "a later generation matched a different number of params -- the "
+            "mapping consumed or mutated the cached dict")
+        assert torch.allclose(patches[1], patches[0], atol=1e-6)
+        assert torch.allclose(patches[2], patches[0], atol=1e-6)
+
+    def test_the_cached_dict_is_byte_identical_after_being_applied(self, monkeypatch, lora_file):
+        from src.platform.runtime.native.lora.apply import apply_loras_with_report
+        from tests.platform.runtime.native.lora.test_lora import _build, _kohya_lora
+
+        source = _kohya_lora()
+        pristine = {k: v.clone() for k, v in source.items()}
+        entry = self._serve(monkeypatch, lora_file, source)
+
+        stack, _reads = lh.load_lora_stack_timed(entry)
+        apply_loras_with_report(_build(), stack, names=[lora_file])
+
+        served, _n, hit = lora_state_dict_cache().get_or_load(lora_file, lambda: (None, 0))
+        assert hit is True
+        assert sorted(served) == sorted(pristine), "keys were consumed out of the cached dict"
+        assert all(torch.equal(served[k], pristine[k]) for k in pristine)
+
+    def test_a_rewritten_file_is_re_read_even_though_the_path_is_unchanged(
+        self, monkeypatch, lora_file,
+    ):
+        """Retraining a character LoRA overwrites it in place. Serving the
+        previous parse would generate against the old adapter forever."""
+        from tests.platform.runtime.native.lora.test_lora import _kohya_lora
+
+        first, second = _kohya_lora(seed=1), _kohya_lora(seed=2)
+        served = {"sd": first}
+        monkeypatch.setattr(lh, "load_torch_file", lambda path, device="cpu": (served["sd"], {}))
+        entry = [{"file_path": lora_file, "weight": 0.8}]
+
+        [(one, _w)] = lh.load_lora_stack(entry)
+        served["sd"] = second
+        with open(lora_file, "wb") as fh:
+            fh.write(b"z" * 256)
+        [(two, _w)] = lh.load_lora_stack(entry)
+
+        key = "lora_unet_double_blocks_0_img_attn_qkv.lora_up.weight"
+        assert not torch.equal(one[key], two[key])

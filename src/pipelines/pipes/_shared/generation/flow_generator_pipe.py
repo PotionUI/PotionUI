@@ -39,7 +39,7 @@ from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorP
 from src.pipelines.pipes._shared.generation.img2img import Img2ImgGeneratorMixin
 from src.pipelines.pipes._shared.generation.loader_helpers import (
     emit_lora_application_diagnostics,
-    windowed_lora_stack,
+    load_windowed_lora_stack,
 )
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter, native_step_hooks
 
@@ -224,7 +224,7 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
         # window; loaded once per process() and toggled per step by the
         # LoraStepWindowHook that `generation_scope` installs.
         windowed_loras = tuple(getattr(bundle, "windowed_loras", ()) or ())
-        lora_window_stack = windowed_lora_stack(bundle.dit, list(windowed_loras)) if windowed_loras else []
+        lora_window_stack = load_windowed_lora_stack(list(windowed_loras)) if windowed_loras else []
         if lora_window_stack and iterate_mode:
             # Warm start resumes mid-trajectory on a TRUNCATED schedule, so the
             # sampler's step indices restart at 0 and every window would fire at

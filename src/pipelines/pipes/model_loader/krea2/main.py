@@ -62,10 +62,12 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     ComponentProgress,
     active_loras as _active_loras,
     apply_loras_to as _apply_loras_to,
+    lora_stack_fingerprint as _lora_stack_fingerprint,
     partition_step_windows as _partition_step_windows,
     path_of as _path_of,
     reemit_lora_application_diagnostics as _emit_lora_diagnostics,
     vram_budget as _vram_budget_fn,
+    windowed_stack_fingerprint as _window_fingerprint,
 )
 from src.pipelines.pipes._shared.generation.loader_lifecycle import (
     NO_LORAS,
@@ -77,17 +79,6 @@ from src.pipelines.pipes.model_loader.krea2.bundle import Krea2ModelBundle
 from src.pipelines.pipes.model_loader.krea2.krea2_clip import Krea2ClipTextEncoder
 
 _LOG_TAG = "MODEL LOADER KREA2"
-
-
-def _window_fingerprint(windowed_loras: List[Dict[str, Any]]) -> str:
-    """Stamp of the step-windowed stack: file, weight and the window itself.
-
-    ``window`` is a frozen :class:`LoraStepWindow`, so its repr is order-stable
-    and a start/end edit shows up here even when the file and weight are unchanged.
-    """
-    return "+".join(
-        f"{lora['file_path']}@{lora['weight']}{lora['window']}" for lora in windowed_loras
-    ) or "none"
 
 
 class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
@@ -201,7 +192,7 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
         vae_fp = f"{vae_path}|{dtype}"
         # Baked entries only: a windowed LoRA is never patched into the cached
         # DiT, so including it here would stamp weights that aren't there.
-        lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in loras) or NO_LORAS
+        lora_fp = _lora_stack_fingerprint(loras) or NO_LORAS
         # LoRA-INDEPENDENT: the DiT cache identity is path+dtype only, so a
         # different LoRA stack is a cache HIT reusing the resident weights;
         # _sync_loras reconciles the applied stack in place rather than reloading.

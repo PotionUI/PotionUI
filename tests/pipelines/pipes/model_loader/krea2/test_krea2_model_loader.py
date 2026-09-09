@@ -20,6 +20,13 @@ from types import SimpleNamespace
 import pytest
 
 from src.pipelines.contracts import IOType, PipeInput
+from src.pipelines.pipes._shared.generation.loader_helpers import (
+    windowed_stack_fingerprint as _window_fingerprint,
+)
+from src.platform.runtime.native.lora import LoraStepWindow
+from src.pipelines.pipes._shared.generation.loader_helpers import (
+    lora_stack_fingerprint as _lora_stack_fingerprint,
+)
 from src.pipelines.pipes.model_loader.krea2.main import ModelLoaderKrea2Pipe
 from src.pipelines.pipes.model_loader.krea2.bundle import Krea2ModelBundle
 from src.pipelines.pipes.model_loader.krea2.krea2_clip import Krea2ClipTextEncoder
@@ -232,7 +239,10 @@ def test_lora_change_on_warm_dit_reuses_cached_weights(_fake_engine, _apply_spy)
     dit1, dit2 = out1.output["model"].dit, out2.output["model"].dit
     assert dit1 is dit2, "expected the SAME DiT wrapper across a LoRA-set change (cache hit, no reload)"
     assert _fake_engine["diffusion_model"] == 1, "the checkpoint must be read from disk exactly once"
-    assert dit2._active_lora_fp == "/m/style.safetensors@0.8"
+    # Compared against the shared stamp rather than a literal: it carries the
+    # file's own identity, so a retrained adapter at this path is a new stack.
+    assert dit2._active_lora_fp == _lora_stack_fingerprint(
+        [{"file_path": "/m/style.safetensors", "weight": 0.8}])
     # apply_loras ran once for the (empty) cold load and once for the sync.
     non_empty_calls = [c for c in _apply_spy if c]
     assert non_empty_calls == [[{"file_path": "/m/style.safetensors", "weight": 0.8, "window": None}]]
@@ -276,3 +286,38 @@ def test_different_dit_path_still_forces_a_real_reload(_fake_engine):
     _run(ModelLoaderKrea2Pipe(config=_config(diffusion_model={"file_path": "/m/krea2_dit.safetensors"})), models)
     _run(ModelLoaderKrea2Pipe(config=_config(diffusion_model={"file_path": "/m/krea2_dit_v2.safetensors"})), models)
     assert _fake_engine["diffusion_model"] == 2
+
+
+class TestWindowedStackRevision:
+    """``_sync_lora_windows`` revises a cache-HIT DiT's weight identity when the
+    step-windowed request changes. Windowed entries are never patched into the
+    cached module, so the stamp is the only thing that notices."""
+
+    def _dit(self):
+        return SimpleNamespace(bumps=[], bump_weight_revision=lambda reason: None)
+
+    def _model(self):
+        model = SimpleNamespace()
+        model.bumps = []
+        model.bump_weight_revision = model.bumps.append
+        return model
+
+    def _entry(self, start, end, path="/m/turbo-sda.safetensors", weight=1.0):
+        return {"file_path": path, "weight": weight, "window": LoraStepWindow(start, end)}
+
+    def test_an_unchanged_windowed_request_does_not_revise(self):
+        model = self._model()
+        stamp = _window_fingerprint([self._entry(1, 2)])
+
+        ModelLoaderKrea2Pipe._sync_lora_windows(model, stamp)
+        ModelLoaderKrea2Pipe._sync_lora_windows(model, stamp)
+
+        assert len(model.bumps) == 1
+
+    def test_a_changed_window_revises_even_at_the_same_file_and_weight(self):
+        model = self._model()
+
+        ModelLoaderKrea2Pipe._sync_lora_windows(model, _window_fingerprint([self._entry(1, 2)]))
+        ModelLoaderKrea2Pipe._sync_lora_windows(model, _window_fingerprint([self._entry(1, 5)]))
+
+        assert len(model.bumps) == 2

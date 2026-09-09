@@ -196,3 +196,62 @@ def test_each_files_apply_is_marked_for_the_profiler(monkeypatch):
     assert fields["staged_device"] == "cpu"
     assert fields["staged_mb"] > 0.0
     assert fields["seconds"] > 0.0
+
+
+class TestStagingIsValuePreserving:
+    """Staging moves a device; it must change nothing a forward can observe.
+
+    The parsed-LoRA cache now hands the SAME state dict to every generation, so
+    anything here that mutated or transformed a factor would show up as a LoRA
+    that works once and then drifts.
+    """
+
+    def _fp8_linear(self):
+        lin = pick_operations(torch.float8_e4m3fn, torch.bfloat16).Linear(16, 24, bias=False)
+        torch.manual_seed(3)
+        lin.weight.data = (torch.randn(24, 16) * 0.2).to(torch.float8_e4m3fn)
+        lin.weight_scale = torch.tensor(0.5)
+        return lin
+
+    def _delta(self):
+        torch.manual_seed(4)
+        return LoraDelta(down=(torch.randn(4, 16) * 0.3).to(torch.bfloat16),
+                         up=(torch.randn(24, 4) * 0.3).to(torch.bfloat16),
+                         alpha=4.0, scale=0.8, target_slice=(0, 0, 24))
+
+    def test_a_staged_forward_matches_the_unstaged_one_exactly(self, monkeypatch):
+        """The pre-staging behaviour, reproduced by attaching the factors as
+        they came off disk. Not 'within tolerance' -- bit-identical."""
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+        x = torch.randn(6, 16, dtype=torch.bfloat16)
+        delta = self._delta()
+
+        unstaged = self._fp8_linear()
+        unstaged.lora_deltas = [delta]
+        staged = self._fp8_linear()
+        staged.lora_deltas = _stage_runtime_deltas([delta], torch.device("cpu"))[0]
+
+        with torch.no_grad():
+            assert torch.equal(staged(x).float(), unstaged(x).float())
+
+    def test_the_factors_survive_staging_unchanged(self):
+        delta = self._delta()
+        up_before, down_before = delta.up.clone(), delta.down.clone()
+
+        [out], _bytes = _stage_runtime_deltas([delta], torch.device("cpu"))
+
+        assert torch.equal(out.up, up_before) and torch.equal(out.down, down_before)
+        assert torch.equal(delta.up, up_before) and torch.equal(delta.down, down_before)
+        assert out.up.shape == up_before.shape and out.down.shape == down_before.shape
+
+    def test_the_strength_folded_into_scale_before_staging_survives_it(self, monkeypatch):
+        """``apply_loras_with_report`` multiplies the user's strength into
+        ``scale`` and THEN stages; a stage that reset it would silently apply
+        every adapter at 1.0."""
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+        m, qkv = _fp8_flux(monkeypatch)
+
+        apply_loras(m, [(_bf16_kohya_lora(), 0.25)])
+
+        (delta,) = qkv.lora_deltas
+        assert delta.scale == pytest.approx(0.25)

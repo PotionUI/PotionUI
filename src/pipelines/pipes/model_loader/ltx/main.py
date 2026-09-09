@@ -73,6 +73,7 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     ComponentProgress,
     active_loras as _active_loras,
     apply_loras_to as _apply_loras_to,
+    lora_stack_fingerprint as _lora_stack_fingerprint,
     path_of as _path_of,
     reemit_lora_application_diagnostics as _emit_lora_diagnostics,
     vram_budget as _vram_budget_fn,
@@ -251,7 +252,7 @@ class ModelLoaderLtxPipe(BaseModelLoaderPipe):
                 label, key, f"{path}|{dtype}", lambda: loader.load(path, kind), estimated_vram_gb,
             )
 
-        lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in loras) or "none"
+        lora_fp = _lora_stack_fingerprint(loras) or "none"
 
         def load_dit() -> NativeModel:
             model = loader.load(model_path, "diffusion_model")

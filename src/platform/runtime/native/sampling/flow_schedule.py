@@ -29,6 +29,8 @@ import math
 
 import torch
 
+from .registry import OptionSpec, ScheduleContext, ScheduleDefinition, schedule_registry
+
 logger = logging.getLogger(__name__)
 
 Tensor = torch.Tensor
@@ -329,6 +331,160 @@ def _detail_daemon_warp(
     return out
 
 
+# --- registered schedule builders -----------------------------------------
+#
+# Each takes the ScheduleContext ``build_sigmas`` assembles and returns
+# ``ctx.steps + 1`` descending sigmas. Everything AROUND the call -- the
+# denoise truncation, the detail-daemon warp, the exact-zero terminal -- stays
+# in ``build_sigmas``; a builder that carries its own step count declares
+# ``owns_steps=True`` and is handed the raw ``steps`` instead.
+
+
+def _build_shift_schedule(ctx: ScheduleContext) -> Tensor:
+    """The shift-based selection, checked in this order: ``fixed_mu`` (a literal
+    mu fed straight to :func:`_flux_time_shift_sigmas`, ignoring resolution --
+    Krea-2 Turbo's distilled-at-fixed-mu schedule); the resolution-anchored mu
+    interpolation (``dynamic_shift`` + ``image_seq_len``, see
+    :func:`_anchored_mu`); Flux1's dynamic mu (``base_shift``/``max_shift``/
+    ``image_seq_len``, see :func:`_flux_mu`); else constant ``shift``,
+    defaulting to ``1.0`` (identity ramp)."""
+    t = torch.linspace(1.0, 0.0, ctx.steps + 1, dtype=torch.float32)
+    if ctx.fixed_mu is not None:
+        logger.debug("fixed-mu schedule: mu=%.5f (resolution-independent)", ctx.fixed_mu)
+        return _flux_time_shift_sigmas(t, float(ctx.fixed_mu))
+    if ctx.dynamic_shift is not None and ctx.image_seq_len is not None:
+        mu = _anchored_mu(ctx.dynamic_shift, int(ctx.image_seq_len))
+        logger.debug("anchored dynamic-mu schedule: seq_len=%d -> mu=%.5f", ctx.image_seq_len, mu)
+        return _flux_time_shift_sigmas(t, mu)
+    if ctx.base_shift is not None and ctx.max_shift is not None and ctx.image_seq_len is not None:
+        mu = _flux_mu(float(ctx.base_shift), float(ctx.max_shift), int(ctx.image_seq_len))
+        logger.debug(
+            "flux dynamic-mu schedule: seq_len=%d base=%.3f max=%.3f -> mu=%.5f",
+            ctx.image_seq_len, ctx.base_shift, ctx.max_shift, mu,
+        )
+        return _flux_time_shift_sigmas(t, mu)
+    return _constant_shift_sigmas(t, 1.0 if ctx.shift is None else float(ctx.shift))
+
+
+def _build_beta_schedule(ctx: ScheduleContext) -> Tensor:
+    alpha = float(ctx.options.get("alpha", 0.6))
+    beta_param = float(ctx.options.get("beta", 0.6))
+    # S17: alpha/beta <= 0 makes the Beta ppf return NaN at interior points.
+    if not (alpha > 0.0 and beta_param > 0.0):
+        raise ValueError(f"beta schedule needs alpha>0 and beta>0, got {alpha}/{beta_param}")
+    logger.debug("beta schedule: alpha=%.3f beta=%.3f steps=%d", alpha, beta_param, ctx.steps)
+    return _beta_sigmas(ctx.steps, alpha, beta_param)
+
+
+def _build_exponential_schedule(ctx: ScheduleContext) -> Tensor:
+    sigma_min = float(ctx.options.get("sigma_min", 1e-3))
+    # S17: sigma_min must sit strictly inside (0, 1) -- >= 1 yields an ASCENDING
+    # ramp (early Euler steps would move toward higher noise).
+    if not (0.0 < sigma_min < 1.0):
+        raise ValueError(f"exponential schedule needs sigma_min in (0, 1), got {sigma_min}")
+    logger.debug("exponential schedule: sigma_min=%.5f steps=%d", sigma_min, ctx.steps)
+    return _exponential_sigmas(ctx.steps, sigma_min)
+
+
+def _build_linear_quadratic_schedule(ctx: ScheduleContext) -> Tensor:
+    threshold_noise = float(ctx.options.get("threshold_noise", 0.025))
+    linear_steps = ctx.options.get("linear_steps")  # None -> steps // 2
+    logger.debug("linear_quadratic schedule: threshold=%.4f linear_steps=%s steps=%d",
+                 threshold_noise, linear_steps, ctx.steps)
+    return _linear_quadratic_sigmas(ctx.steps, threshold_noise, linear_steps)
+
+
+def _build_manual_schedule(ctx: ScheduleContext) -> Tensor:
+    return _manual_sigmas(ctx.options.get("sigmas"))
+
+
+def _build_ltx_dynamic_schedule(ctx: ScheduleContext) -> Tensor:
+    base_shift = float(ctx.options.get("base_shift", 0.95))
+    max_shift = float(ctx.options.get("max_shift", 2.05))
+    stretch = bool(ctx.options.get("stretch", True))
+    terminal = float(ctx.options.get("terminal", 0.1))
+    logger.debug(
+        "ltx_dynamic schedule: tokens=%d base=%.3f max=%.3f stretch=%s terminal=%.3f steps=%d",
+        ctx.image_seq_len, base_shift, max_shift, stretch, terminal, ctx.steps,
+    )
+    return _ltx_dynamic_shift_sigmas(
+        ctx.steps, int(ctx.image_seq_len), base_shift, max_shift, stretch, terminal,
+    )
+
+
+_CORE_SCHEDULES = (
+    ScheduleDefinition(
+        "shift", _build_shift_schedule, "Model default",
+        description="The model's own shift-based ramp: fixed mu, resolution-anchored mu, "
+                    "Flux1 dynamic mu, or a constant shift -- whichever the ModelSpec's "
+                    "sampling_settings supply.",
+    ),
+    ScheduleDefinition(
+        "beta", _build_beta_schedule, "Beta",
+        options=(
+            OptionSpec("alpha", "float", 0.6, "Beta distribution alpha.", min_value=0.0),
+            OptionSpec("beta", "float", 0.6, "Beta distribution beta.", min_value=0.0),
+        ),
+        description="Beta-CDF spacing; alpha, beta < 1 concentrates steps near both ends.",
+    ),
+    ScheduleDefinition(
+        "exponential", _build_exponential_schedule, "Exponential",
+        options=(
+            OptionSpec(
+                "sigma_min", "float", 1e-3,
+                "Geometric floor the ramp descends to before the exact-zero terminal.",
+                min_value=0.0, max_value=1.0,
+            ),
+        ),
+        description="Geometrically-spaced sigmas from 1.0 down to sigma_min.",
+    ),
+    ScheduleDefinition(
+        "linear_quadratic", _build_linear_quadratic_schedule, "Linear-quadratic",
+        options=(
+            OptionSpec(
+                "threshold_noise", "float", 0.025,
+                "Noise level the linear segment ramps to before the quadratic tail.",
+                min_value=0.0, max_value=1.0,
+            ),
+            OptionSpec(
+                "linear_steps", "int", None,
+                "Length of the linear segment; defaults to half the step count.",
+                min_value=1,
+            ),
+        ),
+        description="LTX-lineage linear-then-quadratic noise ramp.",
+    ),
+    ScheduleDefinition(
+        "manual", _build_manual_schedule, "Manual sigmas", owns_steps=True,
+        options=(
+            OptionSpec(
+                "sigmas", "str", None,
+                "Descending sigma list -- a comma-separated string or a sequence of "
+                "floats. Its length IS the step count.",
+            ),
+        ),
+        description="An explicit, hand-authored sigma list (ComfyUI 'ManualSigmas'-style); "
+                    "ignores steps and denoise entirely.",
+    ),
+    ScheduleDefinition(
+        "ltx_dynamic", _build_ltx_dynamic_schedule, "LTX dynamic shift",
+        families=("ltx",), requires_image_seq_len=True,
+        options=(
+            OptionSpec("base_shift", "float", 0.95, "mu at the low token-count anchor."),
+            OptionSpec("max_shift", "float", 2.05, "mu at the high token-count anchor."),
+            OptionSpec("stretch", "bool", True, "Stretch the last nonzero sigma onto 'terminal'."),
+            OptionSpec("terminal", "float", 0.1, "Stretch target for the last nonzero sigma.",
+                       min_value=0.0, max_value=1.0),
+        ),
+        description="LTX-2.5's resolution-dependent shift: mu interpolated from the packed "
+                    "video token count.",
+    ),
+)
+
+for _schedule in _CORE_SCHEDULES:
+    schedule_registry.register(_schedule)
+
+
 def build_sigmas(
     steps: int,
     *,
@@ -347,45 +503,20 @@ def build_sigmas(
 ) -> Tensor:
     """Build a descending flow-matching sigma schedule of length ``steps + 1``.
 
-    Mode selection (``schedule`` beats the shift-based modes):
-
-    * ``schedule="beta"`` — Beta-CDF spacing; ``schedule_options`` reads
-      ``alpha``/``beta`` (default ``0.6``/``0.6``).
-    * ``schedule="exponential"`` — geometric spacing; ``schedule_options``
-      reads ``sigma_min`` (default ``1e-3``).
-    * ``schedule="linear_quadratic"`` — LTX-lineage linear-then-quadratic ramp;
-      ``schedule_options`` reads ``threshold_noise`` (default ``0.025``) and
-      ``linear_steps`` (default ``steps // 2``).
-    * ``schedule="manual"`` — an explicit, hand-authored sigma list (ComfyUI
-      ``ManualSigmas``-style; see :func:`_manual_sigmas`); ``schedule_options``
-      reads ``sigmas`` (a comma-separated string or a sequence of floats).
-      The list's length dictates the step count directly -- ``steps`` and
-      ``denoise`` are IGNORED for this mode (no truncation, no shift math);
-      the head/tail are still forced to exactly ``1.0``/``0.0``.
-    * ``schedule="ltx_dynamic"`` — LTX-2.5's resolution-dependent shift (see
-      :func:`_ltx_dynamic_shift_sigmas`); requires ``image_seq_len`` (the
-      packed video token count). ``schedule_options`` reads ``base_shift``/
-      ``max_shift`` (default ``0.95``/``2.05``, LTX-2.5's own), ``stretch``
-      (default ``True``) and ``terminal`` (default ``0.1``). Our LTX
-      ModelSpec's own ``shift`` stays a STATIC ``exp(max_shift)`` unless a
-      preset opts into this mode explicitly -- existing LTX presets are
-      byte-identical until they do.
-    * ``schedule=None`` (default) — the original shift-based selection, checked
-      in this order: ``fixed_mu`` (a literal mu fed straight to
-      :func:`_flux_time_shift_sigmas`, ignoring resolution entirely — Krea-2
-      Turbo's distilled-at-fixed-mu=1.15 schedule; see the ModelSpec comment
-      in ``detect/registry.py``); else, if ``base_shift``, ``max_shift`` and
-      ``image_seq_len`` are all provided, the **flux dynamic mu** schedule
-      (Flux1); else ``shift`` (constant-shift, Flux2/Qwen/Wan/...), defaulting
-      to ``1.0`` (identity ramp) when omitted. ``dynamic_shift`` +
-      ``image_seq_len`` (both provided) selects the resolution-anchored mu
-      interpolation (see :func:`_anchored_mu`) when ``fixed_mu`` is absent.
+    ``schedule`` names an entry in the process-wide ``schedule_registry``
+    (:mod:`~.registry`); ``None`` and ``""`` both mean ``"shift"``, the
+    model's own shift-based ramp. The core entries are ``shift``, ``beta``,
+    ``exponential``, ``linear_quadratic``, ``manual`` and ``ltx_dynamic``
+    (registered above); a plugin's ``schedules:`` manifest root adds more, and
+    ``GET /api/sampling/catalog`` lists whatever is registered. Each entry's
+    own ``options`` document what ``schedule_options`` carries for it.
 
     ``denoise < 1.0`` truncates the schedule the ComfyUI way: a longer schedule
     of ``round(steps / denoise)`` steps is built and only its trailing
     ``steps + 1`` sigmas are kept (so ``sigmas[0] < 1.0`` for img2img). This
-    applies uniformly across every schedule mode EXCEPT ``"manual"``, which
-    ignores ``steps``/``denoise`` entirely (see above).
+    applies uniformly across every schedule EXCEPT one that declares
+    ``owns_steps`` (``"manual"``, whose list length IS the step count), which
+    receives the raw ``steps`` and is never truncated.
 
     ``detail_strength`` (default ``0.0`` = off, byte-identical output) applies
     the detail-daemon sigma warp (see :func:`_detail_daemon_warp`) over the
@@ -399,91 +530,35 @@ def build_sigmas(
     if not (0.0 < denoise <= 1.0):
         raise ValueError(f"denoise must be in (0, 1], got {denoise}")
 
-    opts = schedule_options or {}
-
-    # Manual mode bypasses everything else in this function (shift math,
-    # image_seq_len, the denoise truncation below): the list itself IS the
-    # schedule. Handled before `sched_steps`/`use_flux_mu` even look at
-    # `steps`, since a manual list's length has no relation to it.
-    if schedule == "manual":
-        sigmas = _manual_sigmas(opts.get("sigmas"))
-        if detail_strength:
-            sigmas = _detail_daemon_warp(sigmas, float(detail_strength), float(detail_start), float(detail_end))
-        return sigmas
-
-    use_flux_mu = (
-        base_shift is not None
-        and max_shift is not None
-        and image_seq_len is not None
-    )
-    use_anchored_mu = dynamic_shift is not None and image_seq_len is not None
+    key = schedule or "shift"
+    if not schedule_registry.has(key):
+        raise ValueError(
+            f"unknown schedule {key!r}; available: {sorted(schedule_registry.keys())}"
+        )
+    definition = schedule_registry.get(key)
+    if definition.requires_image_seq_len and image_seq_len is None:
+        raise ValueError(f"{key} schedule requires image_seq_len (packed video token count)")
 
     # Truncated-denoise: build for more steps, keep the tail (ComfyUI set_steps).
-    sched_steps = steps if denoise > 0.9999 else int(round(steps / denoise))
-    sched_steps = max(sched_steps, steps)
-
-    if schedule == "beta":
-        alpha = float(opts.get("alpha", 0.6))
-        beta_param = float(opts.get("beta", 0.6))
-        # S17: alpha/beta <= 0 makes the Beta ppf return NaN at interior points.
-        if not (alpha > 0.0 and beta_param > 0.0):
-            raise ValueError(f"beta schedule needs alpha>0 and beta>0, got {alpha}/{beta_param}")
-        logger.debug("beta schedule: alpha=%.3f beta=%.3f steps=%d", alpha, beta_param, sched_steps)
-        sigmas = _beta_sigmas(sched_steps, alpha, beta_param)
-    elif schedule == "exponential":
-        sigma_min = float(opts.get("sigma_min", 1e-3))
-        # S17: sigma_min must sit strictly inside (0, 1) — >= 1 yields an
-        # ASCENDING ramp (early Euler steps would move toward higher noise).
-        if not (0.0 < sigma_min < 1.0):
-            raise ValueError(f"exponential schedule needs sigma_min in (0, 1), got {sigma_min}")
-        logger.debug("exponential schedule: sigma_min=%.5f steps=%d", sigma_min, sched_steps)
-        sigmas = _exponential_sigmas(sched_steps, sigma_min)
-    elif schedule == "linear_quadratic":
-        threshold_noise = float(opts.get("threshold_noise", 0.025))
-        linear_steps = opts.get("linear_steps")  # None -> sched_steps // 2
-        logger.debug("linear_quadratic schedule: threshold=%.4f linear_steps=%s steps=%d",
-                     threshold_noise, linear_steps, sched_steps)
-        sigmas = _linear_quadratic_sigmas(sched_steps, threshold_noise, linear_steps)
-    elif schedule == "ltx_dynamic":
-        if image_seq_len is None:
-            raise ValueError("ltx_dynamic schedule requires image_seq_len (packed video token count)")
-        ltx_base_shift = float(opts.get("base_shift", 0.95))
-        ltx_max_shift = float(opts.get("max_shift", 2.05))
-        ltx_stretch = bool(opts.get("stretch", True))
-        ltx_terminal = float(opts.get("terminal", 0.1))
-        logger.debug(
-            "ltx_dynamic schedule: tokens=%d base=%.3f max=%.3f stretch=%s terminal=%.3f steps=%d",
-            image_seq_len, ltx_base_shift, ltx_max_shift, ltx_stretch, ltx_terminal, sched_steps,
-        )
-        sigmas = _ltx_dynamic_shift_sigmas(
-            sched_steps, int(image_seq_len), ltx_base_shift, ltx_max_shift, ltx_stretch, ltx_terminal,
-        )
-    elif schedule not in (None, "shift"):
-        raise ValueError(
-            f"unknown schedule {schedule!r}; expected "
-            "None/'shift'/'beta'/'exponential'/'linear_quadratic'/'manual'/'ltx_dynamic'"
-        )
+    # An owns_steps schedule dictates its own length, so it never sees this.
+    if definition.owns_steps:
+        sched_steps = steps
     else:
-        t = torch.linspace(1.0, 0.0, sched_steps + 1, dtype=torch.float32)
-        if fixed_mu is not None:
-            logger.debug("fixed-mu schedule: mu=%.5f (resolution-independent)", fixed_mu)
-            sigmas = _flux_time_shift_sigmas(t, float(fixed_mu))
-        elif use_anchored_mu:
-            mu = _anchored_mu(dynamic_shift, int(image_seq_len))
-            logger.debug("anchored dynamic-mu schedule: seq_len=%d -> mu=%.5f", image_seq_len, mu)
-            sigmas = _flux_time_shift_sigmas(t, mu)
-        elif use_flux_mu:
-            mu = _flux_mu(float(base_shift), float(max_shift), int(image_seq_len))
-            logger.debug(
-                "flux dynamic-mu schedule: seq_len=%d base=%.3f max=%.3f -> mu=%.5f",
-                image_seq_len, base_shift, max_shift, mu,
-            )
-            sigmas = _flux_time_shift_sigmas(t, mu)
-        else:
-            s = 1.0 if shift is None else float(shift)
-            sigmas = _constant_shift_sigmas(t, s)
+        sched_steps = steps if denoise > 0.9999 else int(round(steps / denoise))
+        sched_steps = max(sched_steps, steps)
 
-    if sched_steps != steps:
+    sigmas = definition.build(ScheduleContext(
+        steps=sched_steps,
+        options=schedule_options or {},
+        shift=shift,
+        base_shift=base_shift,
+        max_shift=max_shift,
+        dynamic_shift=dynamic_shift,
+        fixed_mu=fixed_mu,
+        image_seq_len=image_seq_len,
+    ))
+
+    if not definition.owns_steps and sched_steps != steps:
         sigmas = sigmas[-(steps + 1):]
 
     # Guarantee an exact clean-latent terminal regardless of float drift.

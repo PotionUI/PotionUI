@@ -103,13 +103,15 @@ def schedule_settings_config_specs() -> List[PipeConfigSpec]:
     return [
         PipeConfigSpec(
             "schedule", str, "",
-            "Sigma schedule family override: '' (default, shift-based) | 'beta' | "
-            "'exponential' | 'linear_quadratic' | 'manual' | 'ltx_dynamic'. Prefer "
-            "'manual_sigmas' below over setting this to 'manual' directly -- it also "
-            "fills schedule_options for you. 'ltx_dynamic' (LTX-2.5 resolution-aware "
-            "shift) only functions on a pipe that feeds image_seq_len into the "
+            "Sigma schedule key: '' (default) or 'shift' for the model's own shift-based "
+            "ramp, or any key registered on the schedule registry -- 'beta', "
+            "'exponential', 'linear_quadratic', 'manual', 'ltx_dynamic' in core, plus "
+            "whatever a plugin's 'schedules:' manifest root adds. GET /api/sampling/catalog "
+            "lists what this instance accepts. Prefer 'manual_sigmas' below over setting "
+            "this to 'manual' directly -- it also fills schedule_options for you. "
+            "'ltx_dynamic' only functions on a pipe that feeds image_seq_len into the "
             "schedule builder -- currently the LTX generator pipes.",
-            required=False, choices=["", "beta", "exponential", "linear_quadratic", "manual", "ltx_dynamic"],
+            required=False,
         ),
         PipeConfigSpec(
             "schedule_options", dict, {},
@@ -155,10 +157,8 @@ def schedule_settings_overrides(config: dict) -> dict:
 
     Only emits keys the preset actually set — see this module's docstring.
     ``schedule=""`` (the unset default) is treated the same as ``None``:
-    ``build_sigmas`` raises on any value outside
-    ``{None, "shift", "beta", "exponential", "linear_quadratic", "manual"}``,
-    and an empty string is not one of those, so an explicit empty string
-    would never be a meaningful preset choice anyway. ``manual_sigmas``
+    ``build_sigmas`` reads both as ``"shift"`` and raises on any key the
+    schedule registry does not carry. ``manual_sigmas``
     (non-empty) wins over both ``schedule`` and ``schedule_options`` — see
     its own PipeConfigSpec docstring above.
     """
@@ -497,9 +497,9 @@ def sampler_step_cache_kwargs(config: dict, *, sampler: str | None = None, gener
     exactly like the dict path's ``rel_threshold <= 0``.
 
     ``sampler``/``generator`` (both optional, keyword-only): when ``sampler``
-    is one of :data:`~src.platform.runtime.native.sampling.STOCHASTIC_SAMPLERS`
-    (``euler_sde``/``euler_ancestral``/``euler_ancestral_cfg_pp``/
-    ``dpmpp_2m_sde``/``lcm``) and the caller's
+    is registered stochastic (``euler_sde``/``euler_ancestral``/
+    ``euler_ancestral_cfg_pp``/``dpmpp_2m_sde``/``er_sde``/``lcm`` in core, plus
+    whatever a plugin's ``samplers:`` root adds) and the caller's
     ``sampler_options`` doesn't already carry an explicit ``"generator"``,
     populate it from the caller's own seeded ``generator`` (see
     :func:`~src.platform.runtime.native.sampling.ensure_sampler_generator` for the design

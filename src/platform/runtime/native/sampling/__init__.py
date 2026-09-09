@@ -3,6 +3,12 @@
 One denoise loop covers every native target (Flux1/Flux2/Klein/Qwen-Image/
 Wan/LTX): shift-scheduled sigmas per ModelSpec, guidance as strategy objects,
 and StepHooks fired per step. See ``denoise_loop.denoise`` for the entry point.
+
+The step algorithms and the sigma schedules are extension points: core
+registers its own onto ``sampler_registry``/``schedule_registry``
+(``registry.py``) at import time and plugins add more through the ``samplers:``
+/ ``schedules:`` manifest roots. There is no other list of sampler or schedule
+names anywhere.
 """
 
 from .algorithms import (
@@ -17,8 +23,19 @@ from .algorithms import (
 from .cfg import EmbeddedGuidance, GuidanceStrategy, NoCFG, SkipLayerGuidance, TrueCFG
 from .multimodal_guider import MultiModalGuidance, MultiModalGuiderParams, multimodal_combine
 from .conditioned import conditioned_sigmas, denoise_prenoised
-from .denoise_loop import SAMPLERS, STOCHASTIC_SAMPLERS, denoise, ensure_sampler_generator, make_guidance
+from .denoise_loop import denoise, ensure_sampler_generator, make_guidance
 from .flow_schedule import build_sigmas
+from .registry import (
+    ANY_FAMILY,
+    DuplicateSamplingEntryError,
+    OptionSpec,
+    SamplerDefinition,
+    SamplingRegistry,
+    ScheduleContext,
+    ScheduleDefinition,
+    sampler_registry,
+    schedule_registry,
+)
 from .hooks import BaseStepHook, PreviewHook, ProgressHook, StepHook, run_hooks
 from .preview import (
     PREVIEW_EVERY_N,
@@ -36,8 +53,15 @@ __all__ = [
     "denoise_prenoised",
     "conditioned_sigmas",
     "make_guidance",
-    "SAMPLERS",
-    "STOCHASTIC_SAMPLERS",
+    "ANY_FAMILY",
+    "DuplicateSamplingEntryError",
+    "OptionSpec",
+    "SamplerDefinition",
+    "SamplingRegistry",
+    "ScheduleContext",
+    "ScheduleDefinition",
+    "sampler_registry",
+    "schedule_registry",
     "ensure_sampler_generator",
     "sample_euler",
     "sample_euler_sde",

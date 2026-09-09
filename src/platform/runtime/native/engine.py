@@ -1845,7 +1845,8 @@ class NativeGenerator:
                                      steps, sampler, merged_settings, cfg_scale, opts,
                                      seed_noise, hooks, is_cancelled, sampler_options, sp_config):
         """Route a sample() call through the staged spectral-progressive orchestrator."""
-        from .sampling.denoise_loop import SAMPLERS, make_guidance
+        from .sampling.denoise_loop import make_guidance
+        from .sampling.registry import sampler_registry
         from .sampling.spectral_progressive import denoise_spectral_progressive
 
         guidance = make_guidance(
@@ -1854,7 +1855,7 @@ class NativeGenerator:
         )
         latent = denoise_spectral_progressive(
             model_forward, latents, cond, uncond, steps=steps,
-            sampler=SAMPLERS[sampler], sampler_name=sampler, guidance=guidance,
+            sampler=sampler_registry.get(sampler).sample, sampler_name=sampler, guidance=guidance,
             shift=float(merged_settings.get("shift", 1.0) or 1.0), cfg=sp_config,
             seed_noise=seed_noise, hooks=hooks, is_cancelled=is_cancelled,
             sampler_options=sampler_options,

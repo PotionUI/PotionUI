@@ -420,6 +420,8 @@ class PluginRegistry:
             self._register_plugin_phrasebook_ops,
             self._register_plugin_requirement_checkers,
             self._register_plugin_recipe_steps,
+            self._register_plugin_samplers,
+            self._register_plugin_schedules,
         ):
             error_msg = register_step(manifest)
             if error_msg:
@@ -761,6 +763,125 @@ class PluginRegistry:
 
         return None
 
+    def _unregister_sampling_entries(self, plugin_id: str) -> None:
+        """Drop the plugin's samplers and schedules off the native sampling
+        registries. Imported lazily: those singletons live behind
+        `runtime.native.sampling`, whose package import pulls torch and the
+        whole inference stack, and the plugin registry itself must stay light.
+        """
+        from src.platform.runtime.native.sampling.registry import (
+            sampler_registry,
+            schedule_registry,
+        )
+
+        sampler_registry.unregister_source(plugin_id)
+        schedule_registry.unregister_source(plugin_id)
+
+    def _sampling_option_specs(self, entries) -> tuple:
+        """Turn a manifest entry's `options:` list into `OptionSpec`s."""
+        from src.platform.runtime.native.sampling.registry import OptionSpec
+
+        return tuple(
+            OptionSpec(
+                name=o.get('name', ''),
+                type=o.get('type', 'float'),
+                default=o.get('default'),
+                description=o.get('description', ''),
+                min_value=o.get('min_value'),
+                max_value=o.get('max_value'),
+            )
+            for o in (entries or [])
+        )
+
+    def _register_plugin_samplers(self, manifest: PluginManifest) -> Optional[str]:
+        """
+        Load and register a plugin's `samplers:` manifest entries onto the
+        process-wide `sampler_registry`. Returns an error message on failure,
+        None on success.
+        """
+        if not manifest.samplers:
+            return None
+
+        from src.platform.runtime.native.sampling.registry import (
+            ANY_FAMILY,
+            DuplicateSamplingEntryError,
+            SamplerDefinition,
+            sampler_registry,
+        )
+
+        for entry in manifest.samplers:
+            key = entry.get('key')
+            if not key:
+                return "samplers entry missing 'key'"
+
+            handler_ref = entry.get('handler')
+            if not handler_ref:
+                return f"samplers entry '{key}' missing 'handler'"
+            handler = self.loader.load_hook_handler(manifest, handler_ref)
+            if handler is None:
+                return f"Failed to load sampler handler: {handler_ref}"
+
+            try:
+                sampler_registry.register(SamplerDefinition(
+                    key=key,
+                    sample=handler,
+                    label=entry.get('label') or key,
+                    stochastic=bool(entry.get('stochastic', False)),
+                    options=self._sampling_option_specs(entry.get('options')),
+                    families=tuple(entry.get('families') or (ANY_FAMILY,)),
+                    description=entry.get('description', ''),
+                    source=manifest.id,
+                ))
+            except DuplicateSamplingEntryError as e:
+                return str(e)
+
+        return None
+
+    def _register_plugin_schedules(self, manifest: PluginManifest) -> Optional[str]:
+        """
+        Load and register a plugin's `schedules:` manifest entries onto the
+        process-wide `schedule_registry`. Returns an error message on failure,
+        None on success.
+        """
+        if not manifest.schedules:
+            return None
+
+        from src.platform.runtime.native.sampling.registry import (
+            ANY_FAMILY,
+            DuplicateSamplingEntryError,
+            ScheduleDefinition,
+            schedule_registry,
+        )
+
+        for entry in manifest.schedules:
+            key = entry.get('key')
+            if not key:
+                return "schedules entry missing 'key'"
+
+            handler_ref = entry.get('handler')
+            if not handler_ref:
+                return f"schedules entry '{key}' missing 'handler'"
+            handler = self.loader.load_hook_handler(manifest, handler_ref)
+            if handler is None:
+                return f"Failed to load schedule handler: {handler_ref}"
+
+            try:
+                schedule_registry.register(ScheduleDefinition(
+                    key=key,
+                    build=handler,
+                    label=entry.get('label') or key,
+                    options=self._sampling_option_specs(entry.get('options')),
+                    families=tuple(entry.get('families') or (ANY_FAMILY,)),
+                    description=entry.get('description', ''),
+                    owns_steps=bool(entry.get('owns_steps', False)),
+                    requires_image_seq_len=bool(entry.get('requires_image_seq_len', False)),
+                    source=manifest.id,
+                ))
+            except DuplicateSamplingEntryError as e:
+                return str(e)
+
+        return None
+
     def _rollback_partial_enable(self, plugin_id: str) -> None:
         """Tear down everything the plugin registered: hooks, field types,
         model attributes, LLM chat extensions (tools/modes/resources),
@@ -794,6 +915,7 @@ class PluginRegistry:
             self.requirement_checker_registry.unregister_source(plugin_id)
         if self.recipe_step_kind_registry is not None:
             self.recipe_step_kind_registry.unregister_source(plugin_id)
+        self._unregister_sampling_entries(plugin_id)
         if self.router_mounter is not None:
             self.router_mounter.unmount(plugin_id)
         # Drop this plugin's imported modules so a retry re-imports fresh code;

@@ -290,9 +290,13 @@ def test_generator_omitted_when_sampler_kwarg_absent():
 
 
 # --------------------------------------------------------------------------- #
-# schedule_settings_config_specs: ltx_dynamic is a valid choice
+# schedule_settings_config_specs: the key is registry-driven, not a fixed list
 # --------------------------------------------------------------------------- #
 
-def test_schedule_config_spec_includes_ltx_dynamic_choice():
+def test_schedule_config_spec_pins_no_choice_list():
+    """A hardcoded `choices` list would reject any schedule a plugin registers,
+    which is the whole point of the schedule registry."""
     specs = {s.name: s for s in schedule_settings_config_specs()}
-    assert "ltx_dynamic" in specs["schedule"].choices
+    assert specs["schedule"].choices is None
+    assert "ltx_dynamic" in specs["schedule"].description
+    assert "/api/sampling/catalog" in specs["schedule"].description

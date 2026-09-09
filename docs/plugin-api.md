@@ -64,6 +64,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `Settings`, `SettingRepository`, `PluginRepository` |
 | **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel` |
 | **Phrasebook** — contributing a batch tool to Find & replace | `.phrasebook` | `PhrasebookBatchOperation`, `PhrasebookBatchContext`, `BatchOutcome`, `BatchPreview`, `BatchOperationError` |
+| **Sampling** — contributing a step algorithm or a sigma schedule | `.sampling` | `SamplerDefinition`, `ScheduleDefinition`, `ScheduleContext`, `OptionSpec`, `GuidanceStrategy`, `SamplingCancelled`, `run_hooks`, `sample_euler`, `sampler_registry`, `schedule_registry` |
 
 Each module's docstring explains what its exports are for; this table is the index.
 
@@ -395,6 +396,120 @@ and put any admin-shaped fix in `suggested_repair`.
 Registration makes the kind both runnable and lintable: `scripts/recipe_lint.py` and the
 running catalog accept recipes using it, while an unregistered kind stays an unknown-kind
 error. Disabling the plugin takes the kind away again.
+
+## Samplers and schedules
+
+The native engine's step algorithms (samplers) and sigma schedules are both registries. A
+plugin adds its own with two manifest roots and two plain functions; the entry then shows
+up everywhere a core one does — the `sampler` / `schedule` form fields, the pipe config
+surface, `GET /api/sampling/catalog`.
+
+### The manifest
+
+```yaml
+samplers:
+  - key: euler_jitter                    # what a preset selects; must not collide with a core key
+    handler: "sampling:sample_euler_jitter"   # "module.path:func" in your plugin
+    label: "Euler (jittered)"
+    stochastic: true                     # needs the request's seeded generator
+    description: "Euler with a small per-step noise kick."
+    families: ["*"]                      # or e.g. ["ltx", "wan"] - ModelSpec.family values
+    options:
+      - name: jitter
+        type: float
+        default: 0.05
+        description: "Fraction of the step size added as fresh noise."
+        min_value: 0.0
+        max_value: 1.0
+
+schedules:
+  - key: even
+    handler: "sampling:build_even"
+    label: "Even spacing"
+    description: "An unshifted 1 -> 0 ramp."
+    families: ["*"]
+    owns_steps: false                    # true when your list's own length is the step count
+    requires_image_seq_len: false        # true when you read ctx.image_seq_len
+```
+
+### The handlers
+
+```python
+# sampling.py, in your plugin directory
+import torch
+
+from src.plugin_api.sampling import SamplingCancelled, run_hooks, sample_euler
+
+
+def sample_euler_jitter(model_fn, x, sigmas, guidance, cond, uncond, hooks=(),
+                        is_cancelled=None, sampler_options=None):
+    """The uniform sampler signature. Delegates to core's Euler, then adds a
+    small noise kick drawn from the request's own seeded generator."""
+    opts = sampler_options or {}
+    x = sample_euler(model_fn, x, sigmas, guidance, cond, uncond,
+                     hooks=hooks, is_cancelled=is_cancelled, sampler_options=opts)
+    jitter = float(opts.get("jitter", 0.05))
+    if jitter:
+        noise = torch.randn(x.shape, generator=opts.get("generator"),
+                            device=x.device, dtype=x.dtype)
+        x = x + jitter * float(sigmas[-2]) * noise
+    return x
+
+
+def build_even(ctx):
+    """A schedule builder: ctx.steps + 1 descending sigmas, float32 on CPU."""
+    return torch.linspace(1.0, 0.0, ctx.steps + 1, dtype=torch.float32)
+```
+
+**The sampler contract.** `model_fn(x, sigma, conditioning) -> velocity` arrives already
+wrapped (expert routing, fp32 trajectory, step cache). `guidance` is a `GuidanceStrategy`
+that combines the cond/uncond predictions. `hooks` are fired once per step through
+`run_hooks(hooks, "on_step", ...)` — that is what drives the progress bar and the live
+preview, so call it. `is_cancelled()` is polled per step and a True answer must raise
+`SamplingCancelled`. `sampler_options` carries your declared options plus two
+engine-supplied keys: `generator` (the request's seeded `torch.Generator` — draw every
+stochastic sample from it, never from the global RNG, or the same seed stops reproducing
+the same image) and `discontinuity_steps` (step indices at which a multistep solver must
+clear its history, set when a dual-expert model switches networks mid-schedule). Read
+`sample_euler` before writing one; it is the reference implementation.
+
+**The schedule contract.** `build(ctx: ScheduleContext) -> Tensor` returns `ctx.steps + 1`
+descending sigmas. `build_sigmas` owns everything around that call — the `denoise < 1`
+truncation, the detail-daemon warp, the exact-zero terminal — so a builder only produces
+the curve. `ctx` carries `steps`, your `options` dict, and the shift-family inputs
+(`shift`, `base_shift`, `max_shift`, `dynamic_shift`, `fixed_mu`, `image_seq_len`). Set
+`owns_steps: true` when your own list length dictates the step count (core's `manual`
+sigma list is the one example) and you will be handed the raw `steps` with no truncation;
+set `requires_image_seq_len: true` and a caller with no packed token count is rejected
+before your builder runs.
+
+**Flow-matching conventions** every native target shares: sigmas descend from `1.0` (pure
+noise) to `0.0` (clean latent), the model returns a VELOCITY, and the denoised estimate is
+`x0 = x - sigma * v`.
+
+### Where the entries surface
+
+Both registrations happen when the plugin enables and are removed when it disables. A key
+that collides with a core algorithm, or with one another enabled plugin already owns,
+fails the enable with a message naming the incumbent.
+
+`GET /api/sampling/catalog` lists every registered sampler and schedule with its label,
+description, families and options — that is what the form fields read. A preset picks
+them with the `sampler` and `schedule` field types, whose option lists come from the
+registry rather than a hardcoded enum:
+
+```yaml
+- name: sampler
+  type: sampler
+  label: Sampler
+  configuration:
+    family: ltx            # only entries that declare this family (or "*")
+    include: [euler, euler_ancestral, euler_jitter]   # optional, kept in this order
+    exclude: [lcm]                                     # optional
+```
+
+A `schedule` field takes the same three configuration keys against the schedule registry.
+Leaving `family`, `include` and `exclude` off shows everything registered.
 
 ## Contributing a prompt importer
 

@@ -17,7 +17,8 @@ import math
 import torch
 
 from .cfg import SkipLayerGuidance, TrueCFG
-from .denoise_loop import SAMPLERS, _CachingGuidance, make_guidance
+from .denoise_loop import _CachingGuidance, make_guidance
+from .registry import sampler_registry
 from .flow_schedule import build_sigmas
 from .hooks import with_numerics_watchdog
 from .step_cache import StepCacheSet
@@ -137,9 +138,11 @@ def denoise_prenoised(
     (``guidance_scale``/``cfg_zero_star``/``zero_init_steps`` are ignored) and
     the ``step_cache_options`` wrapping is skipped (the override is used as-is).
     """
-    if sampler_name not in SAMPLERS:
-        raise ValueError(f"unknown sampler {sampler_name!r}; available: {sorted(SAMPLERS)}")
-    sampler = SAMPLERS[sampler_name]
+    if not sampler_registry.has(sampler_name):
+        raise ValueError(
+            f"unknown sampler {sampler_name!r}; available: {sorted(sampler_registry.keys())}"
+        )
+    sampler = sampler_registry.get(sampler_name).sample
 
     if sigmas is None:
         sigmas = conditioned_sigmas(steps, sampling_settings)

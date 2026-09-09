@@ -15,7 +15,7 @@ for the citation and the ComfyUI-consultation disclosure) at ``eta=0.0``: no
 fresh-noise draw ever happens, so there is no ancestral/stochastic component
 and no ``generator``/``eta`` knob to configure. Kept as a separate module
 (rather than a thin call into the ancestral one with ``sampler_options={"eta":
-0.0}`` baked in) so it appears as its own entry in ``SAMPLERS`` --
+0.0}`` baked in) so it appears as its own registered sampler --
 distinguishing "the deterministic recipe" from "the ancestral recipe with eta
 forced to 0" matters for callers picking a sampler by name (e.g. the LTX-2.3
 distilled speed profile, whose first-party recipe is deterministic -- see
@@ -76,7 +76,7 @@ def sample_euler_cfg_pp(
     docstring for the formula and the ``cfg=1.0`` <-> plain-Euler equivalence.
 
     Same signature as :func:`~.euler.sample_euler`; ``sampler_options`` is
-    part of the uniform :data:`~..denoise_loop.SAMPLERS` contract and is
+    part of the uniform sampler contract (:mod:`~..registry`) and is
     accepted but ignored -- there is no per-step randomness to seed and no
     other knob this sampler reads.
     """

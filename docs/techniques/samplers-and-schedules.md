@@ -39,6 +39,12 @@ switching models or presets.
 The default combination (`euler` sampler, shift-based schedule) reproduces exactly what earlier
 versions of the engine always did — nothing here changes behavior unless you opt in.
 
+Neither list is fixed. Both are registries — core registers the algorithms and schedules described
+below, a plugin adds its own through the `samplers:` / `schedules:` manifest roots, and
+`GET /api/sampling/catalog` reports whatever this instance actually carries. See
+[Plugin API → Samplers and schedules](../plugin-api.md#samplers-and-schedules) for the two callable
+contracts and a worked example.
+
 ## Samplers
 
 Ten samplers are registered:

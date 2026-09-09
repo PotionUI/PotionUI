@@ -12,8 +12,9 @@ Import from the package itself - every name below is available directly:
 
 The capability modules (`src.plugin_api.providers`, `.chat`, `.backends`,
 `.compute`, `.pipes`, `.native`, `.hooks`, `.storage`, `.presets`, `.forms`,
-`.identity`, `.media`, `.phrasebook`, `.recipes`) are the same names, grouped, and each one's docstring
-explains what it is for. Import from whichever reads better.
+`.identity`, `.media`, `.phrasebook`, `.recipes`, `.sampling`) are the same
+names, grouped, and each one's docstring explains what it is for. Import from
+whichever reads better.
 
 If you need something the application can do but this module does not expose,
 that is a gap in the API - ask for it to be added rather than importing around
@@ -186,6 +187,18 @@ from src.plugin_api.phrasebook import (
 # Model metadata field identifiers.
 from src.plugin_api.models import WellKnownModelMetadataField
 
+# Contributing a step algorithm or a sigma schedule to the native engine.
+from src.plugin_api.sampling import (
+    OptionSpec,
+    SamplerDefinition,
+    SamplingCancelled,
+    ScheduleContext,
+    ScheduleDefinition,
+    sample_euler,
+    sampler_registry,
+    schedule_registry,
+)
+
 __all__ = [
     # Identity
     "AccountType",
@@ -315,6 +328,15 @@ __all__ = [
     "PhrasebookBatchOperation",
     # Model metadata fields
     "WellKnownModelMetadataField",
+    # Samplers and schedules
+    "OptionSpec",
+    "SamplerDefinition",
+    "SamplingCancelled",
+    "ScheduleContext",
+    "ScheduleDefinition",
+    "sample_euler",
+    "sampler_registry",
+    "schedule_registry",
 ]
 
 

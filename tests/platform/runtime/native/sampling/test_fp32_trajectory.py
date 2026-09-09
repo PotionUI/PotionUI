@@ -20,7 +20,7 @@ from src.platform.runtime.native.sampling.denoise_loop import denoise
 from src.platform.runtime.native.sampling.conditioned import denoise_prenoised, conditioned_sigmas
 
 
-def test_sigmas_survive_fp32_exactly_from_denoise():
+def test_sigmas_survive_fp32_exactly_from_denoise(swap_sampler):
     """Manual sigmas like LTX 2.3 distilled schedule survive EXACTLY as fp32,
     no bf16 rounding, even when latents enter bf16."""
     # The LTX 2.3 distilled schedule's early steps differ by 0.00625; bf16 ULP
@@ -37,10 +37,7 @@ def test_sigmas_survive_fp32_exactly_from_denoise():
         return x  # Return unchanged for this test
 
     # Inject the mock sampler.
-    import src.platform.runtime.native.sampling.denoise_loop as dl
-    original = dl.SAMPLERS["euler"]
-    dl.SAMPLERS["euler"] = mock_sampler
-    try:
+    with swap_sampler("euler", mock_sampler):
         latents = torch.zeros((1, 16, 8, 8), dtype=torch.bfloat16)
         cond = {"context": torch.zeros((1, 77, 768), dtype=torch.bfloat16)}
         settings = {"shift": 1.0, "guidance": "none"}
@@ -63,8 +60,6 @@ def test_sigmas_survive_fp32_exactly_from_denoise():
         # The sigmas must match exactly (no rounding).
         # Since we built from a custom schedule via build_sigmas, compare shape only
         # for now (the actual schedule would differ from manual). The key is dtype.
-    finally:
-        dl.SAMPLERS["euler"] = original
 
 
 def test_model_boundary_receives_original_dtype():

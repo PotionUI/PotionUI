@@ -129,6 +129,74 @@ class RecipeStepSpec(BaseModel):
     backend: str
 
 
+class SamplingOptionSpec(BaseModel):
+    """One knob a plugin sampler or schedule reads out of its options dict:
+    `samplers[].options[]` / `schedules[].options[]`.
+
+    Pure metadata - it drives the catalog and the `sampler`/`schedule` form
+    field types; the value itself reaches the handler through
+    `sampler_options` / `schedule_options` unchanged.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    type: str = "float"
+    default: Optional[Any] = None
+    description: str = ""
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+
+
+class SamplerSpec(BaseModel):
+    """A plugin-provided step algorithm: `samplers[]`.
+
+    `handler` is a `"module.path:func"` reference to a callable with the
+    uniform sampler signature (`src.plugin_api.sampling`, whose docstring
+    carries the contract), loaded the same way a `hooks:` handler is. `key` is
+    the name a preset's `sampler` field selects - it must not collide with a
+    core algorithm or one another plugin already registered. `stochastic`
+    marks an algorithm whose per-step noise draw needs the request's seeded
+    generator; leave it False for a deterministic one. `families` restricts
+    the algorithm to specific model families (`ModelSpec.family`); the default
+    `["*"]` offers it everywhere.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    handler: str
+    label: str
+    stochastic: bool = False
+    families: List[str] = Field(default_factory=lambda: ["*"])
+    options: List[SamplingOptionSpec] = Field(default_factory=list)
+    description: str = ""
+
+
+class ScheduleSpec(BaseModel):
+    """A plugin-provided sigma schedule: `schedules[]`.
+
+    `handler` is a `"module.path:func"` reference to a
+    `build(ctx: ScheduleContext) -> Tensor` callable (see
+    `src.plugin_api.sampling`), loaded like a `samplers[].handler`.
+    `owns_steps` marks a schedule whose own length dictates the step count, so
+    the denoise truncation is skipped for it (core's `manual` list is the one
+    example). `requires_image_seq_len` makes `build_sigmas` reject the
+    schedule when the caller has no packed token count to give it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    handler: str
+    label: str
+    families: List[str] = Field(default_factory=lambda: ["*"])
+    options: List[SamplingOptionSpec] = Field(default_factory=list)
+    description: str = ""
+    owns_steps: bool = False
+    requires_image_seq_len: bool = False
+
+
 class RecipesRootSpec(BaseModel):
     """A plugin-contributed recipe root: `recipes[]`.
 
@@ -566,6 +634,10 @@ class PluginManifestSchema(BaseModel):
     recipes: List[RecipesRootSpec] = Field(default_factory=list)
     # Recipe step kinds this plugin contributes - see RecipeStepSpec.
     recipe_steps: List[RecipeStepSpec] = Field(default_factory=list)
+    # Step algorithms and sigma schedules this plugin contributes to the native
+    # sampling core - see SamplerSpec / ScheduleSpec.
+    samplers: List[SamplerSpec] = Field(default_factory=list)
+    schedules: List[ScheduleSpec] = Field(default_factory=list)
 
     # Frontend components
     frontend: Optional[str] = None  # Path to a frontend entry point, if any

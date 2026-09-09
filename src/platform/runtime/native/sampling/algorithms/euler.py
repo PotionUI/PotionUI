@@ -48,7 +48,7 @@ def sample_euler(
     ``sigma`` is passed to ``model_fn`` as a 1-D tensor broadcast over the batch
     (shape ``(batch,)``), matching how flow models expect a per-sample timestep.
 
-    ``sampler_options`` is part of the uniform :data:`~..denoise_loop.SAMPLERS`
+    ``sampler_options`` is part of the uniform sampler (:mod:`~..registry`)
     contract (see ``sampling/algorithms/euler_sde.py`` for a sampler that
     actually reads it); the deterministic Euler step has no options and ignores
     it.

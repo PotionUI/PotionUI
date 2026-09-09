@@ -12,7 +12,8 @@ from src.platform.runtime.native.sampling.algorithms.euler import sample_euler
 from src.platform.runtime.native.sampling.algorithms.lcm import sample_lcm
 from src.platform.runtime.native.sampling.algorithms.res_multistep import sample_res_multistep
 from src.platform.runtime.native.sampling.cfg import NoCFG
-from src.platform.runtime.native.sampling.denoise_loop import SAMPLERS, denoise
+from src.platform.runtime.native.sampling.denoise_loop import denoise
+from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.platform.runtime.native.sampling.hooks import BaseStepHook
 from src.platform.runtime.native.errors import SamplingCancelled
 
@@ -179,7 +180,7 @@ def test_hooks_fire_once_per_step(sampler):
 
 def test_all_new_samplers_registered():
     for name in ("dpmpp_2m_sde", "dpmpp_3m", "res_multistep", "lcm"):
-        assert name in SAMPLERS and callable(SAMPLERS[name])
+        assert sampler_registry.has(name) and callable(sampler_registry.get(name).sample)
 
 
 @pytest.mark.parametrize("name", ["dpmpp_2m_sde", "dpmpp_3m", "res_multistep", "lcm"])

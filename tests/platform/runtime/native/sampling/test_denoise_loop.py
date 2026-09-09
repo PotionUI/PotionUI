@@ -11,12 +11,15 @@ import torch
 from src.platform.runtime.native.errors import PoisonedConditioningError
 from src.platform.runtime.native.sampling.cfg import NoCFG, SkipLayerGuidance, TrueCFG
 from src.platform.runtime.native.sampling.denoise_loop import (
-    SAMPLERS,
-    STOCHASTIC_SAMPLERS,
     _expert_switch_step,
     _make_guidance,
     denoise,
     ensure_sampler_generator,
+)
+from src.platform.runtime.native.sampling.registry import sampler_registry
+
+STOCHASTIC_SAMPLERS = frozenset(
+    d.key for d in sampler_registry.definitions() if d.stochastic
 )
 
 
@@ -235,8 +238,9 @@ def test_unknown_guidance_raises():
 
 
 def test_sampler_registry_extensible():
-    assert "euler" in SAMPLERS
-    assert callable(SAMPLERS["euler"])
+    assert sampler_registry.has("euler")
+    assert callable(sampler_registry.get("euler").sample)
+    assert sampler_registry.get("euler").source == "core"
 
 
 def test_img2img_blends_noise_and_latent():
@@ -298,22 +302,22 @@ def test_explicit_sigmas_override_moved_to_latents_device_and_dtype_fp32():
 
 
 def test_new_samplers_registered():
-    assert "euler_sde" in SAMPLERS
-    assert "euler_restart" in SAMPLERS
-    assert callable(SAMPLERS["euler_sde"])
-    assert callable(SAMPLERS["euler_restart"])
+    assert sampler_registry.has("euler_sde")
+    assert sampler_registry.has("euler_restart")
+    assert callable(sampler_registry.get("euler_sde").sample)
+    assert callable(sampler_registry.get("euler_restart").sample)
 
 
 def test_euler_ancestral_cfg_pp_registered():
-    assert "euler_ancestral_cfg_pp" in SAMPLERS
-    assert callable(SAMPLERS["euler_ancestral_cfg_pp"])
+    assert sampler_registry.has("euler_ancestral_cfg_pp")
+    assert callable(sampler_registry.get("euler_ancestral_cfg_pp").sample)
 
 
 def test_euler_cfg_pp_registered():
-    assert "euler_cfg_pp" in SAMPLERS
-    assert callable(SAMPLERS["euler_cfg_pp"])
+    assert sampler_registry.has("euler_cfg_pp")
+    assert callable(sampler_registry.get("euler_cfg_pp").sample)
     # Deterministic -- not part of the seed-generator-needing set.
-    assert "euler_cfg_pp" not in STOCHASTIC_SAMPLERS
+    assert not sampler_registry.get("euler_cfg_pp").stochastic
 
 
 # -- ensure_sampler_generator (task #40: seed determinism) -------------------
@@ -323,6 +327,14 @@ def test_stochastic_samplers_set():
         "euler_sde", "euler_ancestral", "euler_ancestral_cfg_pp", "dpmpp_2m_sde",
         "er_sde", "lcm",
     }
+
+
+def test_every_core_sampler_carries_catalog_metadata():
+    for definition in sampler_registry.definitions():
+        assert definition.label, definition.key
+        assert definition.description, definition.key
+        assert definition.families == ("*",), definition.key
+        assert all(o.name for o in definition.options), definition.key
 
 
 def test_ensure_sampler_generator_noop_for_deterministic_sampler():
@@ -515,7 +527,7 @@ def test_expert_switch_step_never_crossed_is_none():
     assert _expert_switch_step(sigmas, -0.1) is None
 
 
-def test_denoise_threads_discontinuity_step_into_unipc_sampler_options(monkeypatch):
+def test_denoise_threads_discontinuity_step_into_unipc_sampler_options(swap_sampler):
     seen = {}
 
     def spy_unipc(model_fn, x, sigmas, guidance, cond, uncond, hooks=(), is_cancelled=None,
@@ -523,18 +535,18 @@ def test_denoise_threads_discontinuity_step_into_unipc_sampler_options(monkeypat
         seen["sampler_options"] = sampler_options
         return x
 
-    monkeypatch.setitem(SAMPLERS, "unipc", spy_unipc)
     latents = torch.zeros(1, 4, 2, 2)
-    denoise(
-        _const_velocity_model(1.0), latents, cond={}, uncond=None,
-        steps=4, sampler_name="unipc",
-        sampling_settings={"shift": 2.02, "guidance": None}, guidance_scale=0.0,
-        seed_noise=torch.zeros_like(latents), expert_boundary=0.5,
-    )
+    with swap_sampler("unipc", spy_unipc):
+        denoise(
+            _const_velocity_model(1.0), latents, cond={}, uncond=None,
+            steps=4, sampler_name="unipc",
+            sampling_settings={"shift": 2.02, "guidance": None}, guidance_scale=0.0,
+            seed_noise=torch.zeros_like(latents), expert_boundary=0.5,
+        )
     assert seen["sampler_options"]["discontinuity_steps"]
 
 
-def test_denoise_expert_boundary_none_leaves_sampler_options_unset(monkeypatch):
+def test_denoise_expert_boundary_none_leaves_sampler_options_unset(swap_sampler):
     seen = {}
 
     def spy_unipc(model_fn, x, sigmas, guidance, cond, uncond, hooks=(), is_cancelled=None,
@@ -542,14 +554,14 @@ def test_denoise_expert_boundary_none_leaves_sampler_options_unset(monkeypatch):
         seen["sampler_options"] = sampler_options
         return x
 
-    monkeypatch.setitem(SAMPLERS, "unipc", spy_unipc)
     latents = torch.zeros(1, 4, 2, 2)
-    denoise(
-        _const_velocity_model(1.0), latents, cond={}, uncond=None,
-        steps=4, sampler_name="unipc",
-        sampling_settings={"shift": 2.02, "guidance": None}, guidance_scale=0.0,
-        seed_noise=torch.zeros_like(latents), expert_boundary=None,
-    )
+    with swap_sampler("unipc", spy_unipc):
+        denoise(
+            _const_velocity_model(1.0), latents, cond={}, uncond=None,
+            steps=4, sampler_name="unipc",
+            sampling_settings={"shift": 2.02, "guidance": None}, guidance_scale=0.0,
+            seed_noise=torch.zeros_like(latents), expert_boundary=None,
+        )
     assert seen["sampler_options"] is None
 
 

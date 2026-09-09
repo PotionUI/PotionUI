@@ -85,7 +85,7 @@ One line per package, in loading order:
 | `arch/` | Vendored, empty-weight-constructible DiT modules, one subpackage per family (`arch/flux/`, `arch/krea2/`). |
 | `text_encoders/` | Vendored TE modules (Qwen3, T5-XXL, CLIP-L, Qwen2.5-VL, Qwen3-VL, UMT5-XXL, Gemma3) + bundled tokenizer assets + `load_text_encoder`, the detect→build→integrity-load→wrap entry point. |
 | `vae/` | `AutoEncoder2D` (Flux-family 2D VAE: `flux_ae`/`flux2_ae`) + `tiling.py` (its spatial tiled encode/decode, not yet 3D-aware); `AutoEncoderCausal3D` (Wan 2.1-shaped, 16ch — Qwen-Image's and Krea-2's VAE) and `AutoEncoderCausal3D_2_2` (Wan 2.2-shaped, 48ch, patchified) for the causal-3D family; `load_vae`/`load_causal3d_vae`/`load_causal3d_v2_vae` entry points. |
-| `sampling/` | `denoise()` — the one loop — plus `flow_schedule.build_sigmas`, `cfg.py`'s guidance strategies (`EmbeddedGuidance`/`TrueCFG`/`NoCFG`), the step algorithms (`euler`/`dpmpp_2m`/`unipc`), and `hooks.py`'s per-step `StepHook` protocol. |
+| `sampling/` | `denoise()` — the one loop — plus `flow_schedule.build_sigmas`, `cfg.py`'s guidance strategies (`EmbeddedGuidance`/`TrueCFG`/`NoCFG`), the step algorithms (`euler`/`dpmpp_2m`/`unipc`), and `hooks.py`'s per-step `StepHook` protocol. The algorithms and the schedules are both registries (`registry.py`): core registers its own at import time, a plugin adds more through the `samplers:` / `schedules:` manifest roots, and `denoise()`/`build_sigmas()` dispatch through them — there is no other list of sampler or schedule names. |
 | `memory/` | `device_plan.make_device_plan` (which CUDA device each component lives on) and `tiering.plan_placement` (residency/ops-mode per component from VRAM + component sizes). |
 | `lora/` | `key_mapping.map_lora_keys` (normalizes comfy/kohya/diffusers/PEFT LoRA key dialects onto native param names) and `apply.apply_loras`/`remove_loras` (in-place or cast-mode runtime patching). |
 
@@ -333,5 +333,5 @@ still no branch on family name.
 - [Providers](providers.md) — unrelated subsystem (marketplace credentials), same "core never
   hardcodes a specific implementation" philosophy this engine's `ModelSpec` registry follows.
 - [Native Engine Optimizations](native-optimizations.md) — guidance-stack corrections (CFG-Zero*,
-  APG, SLG), NAG, RIFLEx, the sampler/schedule menu, FBCache, temporal-chunked VAE decode, prompt-
+  APG, SLG), NAG, RIFLEx, the registry-driven sampler/schedule menu, FBCache, temporal-chunked VAE decode, prompt-
   embedding caching, new attention backends, and the fp8 GEMM fast path layered on top of this base.

@@ -13,7 +13,7 @@ from src.platform.runtime.native.sampling.algorithms.euler_ancestral import (
     sample_euler_ancestral,
 )
 from src.platform.runtime.native.sampling.cfg import NoCFG
-from src.platform.runtime.native.sampling.denoise_loop import SAMPLERS, STOCHASTIC_SAMPLERS
+from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.platform.runtime.native.sampling.hooks import BaseStepHook
 from src.platform.runtime.native.errors import SamplingCancelled
 
@@ -213,8 +213,9 @@ def test_cancellation_raises():
 # --- registry wiring --------------------------------------------------------
 
 def test_registered_in_samplers_and_stochastic_samplers():
-    assert "euler_ancestral" in SAMPLERS and callable(SAMPLERS["euler_ancestral"])
-    assert "euler_ancestral" in STOCHASTIC_SAMPLERS
+    assert sampler_registry.has("euler_ancestral")
+    assert callable(sampler_registry.get("euler_ancestral").sample)
+    assert sampler_registry.get("euler_ancestral").stochastic
 
 
 def test_ancestral_noise_seed_offset_is_a_large_positive_int():

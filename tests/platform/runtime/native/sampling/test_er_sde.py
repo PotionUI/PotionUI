@@ -9,11 +9,8 @@ from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.sampling.algorithms.er_sde import sample_er_sde
 from src.platform.runtime.native.sampling.algorithms.euler import sample_euler
 from src.platform.runtime.native.sampling.cfg import NoCFG
-from src.platform.runtime.native.sampling.denoise_loop import (
-    SAMPLERS,
-    STOCHASTIC_SAMPLERS,
-    denoise,
-)
+from src.platform.runtime.native.sampling.denoise_loop import denoise
+from src.platform.runtime.native.sampling.registry import sampler_registry
 
 
 def _const(v0):
@@ -141,8 +138,9 @@ def test_cancellation_raises():
 # --- registry + denoise() end to end --------------------------------------
 
 def test_registered_as_stochastic_sampler():
-    assert "er_sde" in SAMPLERS and callable(SAMPLERS["er_sde"])
-    assert "er_sde" in STOCHASTIC_SAMPLERS
+    assert sampler_registry.has("er_sde")
+    assert callable(sampler_registry.get("er_sde").sample)
+    assert sampler_registry.get("er_sde").stochastic
 
 
 def test_denoise_runs_er_sde_end_to_end():

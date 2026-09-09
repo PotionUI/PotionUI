@@ -202,7 +202,7 @@ def test_hooks_fire_once_per_step():
 
 
 def test_sampler_options_ignored_without_error():
-    # Part of the uniform SAMPLERS contract -- accepted, has no effect.
+    # Part of the uniform sampler contract -- accepted, has no effect.
     x_init = torch.tensor([[1.0]])
     sigmas = torch.tensor([1.0, 0.0])
     out_a = sample_euler_cfg_pp(_const_velocity_model(1.0), x_init.clone(), sigmas, NoCFG(), {}, None)

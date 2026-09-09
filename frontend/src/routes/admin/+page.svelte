@@ -95,6 +95,7 @@
 		{ id: 'settings', label: 'System Settings', icon: 'cog' },
 		{ id: 'models', label: 'Models', icon: 'database' },
 		{ id: 'presets', label: 'Presets', icon: 'cube' },
+		{ id: 'recipes', label: 'Recipes', icon: 'listChecks' },
 		{ id: 'backends', label: 'Backends', icon: 'server' },
 		{ id: 'generations', label: 'Generations', icon: 'document' },
 		{ id: 'users', label: 'Users', icon: 'userGroup' },
@@ -109,6 +110,7 @@
 		stats: () => import('./components/StatsTab.svelte'),
 		models: () => import('./components/ModelsTab.svelte'),
 		presets: () => import('./components/PresetsTab.svelte'),
+		recipes: () => import('./components/RecipesTab.svelte'),
 		backends: () => import('./components/BackendsTab.svelte'),
 		generations: () => import('./components/GenerationsTab.svelte'),
 		users: () => import('./components/UsersGroupsTab.svelte'),
@@ -146,7 +148,8 @@
 			chart: 'M3 3v18h18 M18 17V9 M13 17V5 M8 17v-4',
 			gauge: 'M3.34 19a10 10 0 1 1 17.32 0 M12 14l4-4',
 			document: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
-			sliders: 'M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6'
+			sliders: 'M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6',
+			listChecks: 'M11 18H3 M15 18l2 2 4-4 M16 12H3 M16 6H3'
 		};
 		return icons[icon] || icons.cog;
 	}

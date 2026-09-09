@@ -68,6 +68,8 @@
 	import { resolveDefaultModeSelection } from '$lib/utils/modeAutoSelect';
 	import { buildModeSwitchPatch, seedModeStateFromSessionData } from '$lib/utils/modeState';
 	import { describePresetsEmptyState } from '$lib/utils/presetsEmptyState';
+	import { resolveInstallModelsTarget } from '$lib/utils/installModelsTarget';
+	import { recipeCatalog, loadRecipeCatalog } from '$lib/stores/recipeCatalog';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import { EmptyState, Button } from '$lib/components/ui';
 
@@ -473,11 +475,16 @@
 	let readinessFetched = false;
 	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
 	$: presetsEmptyState = describePresetsEmptyState(readiness, isAdmin);
+	// An admin staring at an empty preset list can install what a recipe brings
+	// instead of walking the whole first-run wizard; a non-admin (or an
+	// instance with no recipes) keeps today's /setup link.
+	$: installModels = resolveInstallModelsTarget($recipeCatalog, null, isAdmin);
 
 	async function loadReadinessIfPresetsEmpty() {
 		if (readinessFetched || presets.length > 0) return;
 		readinessFetched = true;
 		readinessLoading = true;
+		if (isAdmin) void loadRecipeCatalog();
 		try {
 			readiness = await api.getReadiness();
 		} catch (error) {
@@ -1890,9 +1897,15 @@
 						>
 							{#snippet actions()}
 								{#if presetsEmptyState.showSetupLink}
-									<Button variant="primary" size="md" href="/setup" icon="arrow-right">
-										Go to Setup
-									</Button>
+									{#if installModels}
+										<Button variant="primary" size="md" href={installModels.href} icon="download">
+											{installModels.label}
+										</Button>
+									{:else}
+										<Button variant="primary" size="md" href="/setup" icon="arrow-right">
+											Go to Setup
+										</Button>
+									{/if}
 								{/if}
 							{/snippet}
 						</EmptyState>

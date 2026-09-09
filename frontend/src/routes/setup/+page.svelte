@@ -5,7 +5,7 @@
 	import { authStore } from '$lib/stores/auth';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { api } from '$lib/services/api/index';
-	import type { ReadinessReport, SetupRecipe, SetupRun, SetupConsentProvider } from '$lib/services/api/setup';
+	import type { ReadinessReport, SetupRecipe, SetupRun } from '$lib/services/api/setup';
 	import {
 		readinessBadgeVariant,
 		readinessAreaLabel,
@@ -13,31 +13,17 @@
 		readinessHeadline
 	} from '$lib/utils/readinessDisplay';
 	import {
-		runBadgeVariant,
-		runStatusLabel,
-		manifestStepBadgeVariant,
-		manifestStepStatusLabel,
-		resolveStepGroups,
-		runManifestProgressSummary,
-		stepDuration,
-		stepProgressLabel,
-		stepProgressPercent,
-		isConsentStatus,
-		runNeedsConsent,
-		canRetryRun,
 		shouldPollRun,
 		decideRunDiscovery,
-		extractConsentRequest,
 		extractGenerationHandoff,
 		extractSmokeGeneration,
-		computeTransferStats,
-		RUN_POLL_INTERVAL_MS,
-		type SetupManifestStepGroup,
-		type TransferStats
+		RUN_POLL_INTERVAL_MS
 	} from '$lib/utils/setupRunDisplay';
-	import { formatBytes, formatDuration } from '$lib/utils/format';
+	import { formatBytes } from '$lib/utils/format';
 	import { notifySetupCompleted } from '$lib/stores/setupCompletion';
-	import { Badge, Button, Card, EmptyState, Input, PageContainer, PageHeader, Spinner, Alert } from '$lib/components/ui';
+	import { Badge, Button, Card, EmptyState, PageContainer, PageHeader, Spinner } from '$lib/components/ui';
+	import RecipeRunProgress from '$lib/components/recipes/RecipeRunProgress.svelte';
+	import { setupRunActions } from '$lib/components/recipes/runActions';
 	import ModelsLocationStep from './components/ModelsLocationStep.svelte';
 
 	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
@@ -73,18 +59,8 @@
 	let run: SetupRun | null = null;
 	let runChecked = false;
 	let runFetchError = '';
-	let retryBusy = false;
-	let retryError = '';
 	let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
-	$: resolvedSteps = run
-		? resolveStepGroups(run)
-		: ({ groups: [] as SetupManifestStepGroup[], hasManifest: false });
-	$: consentGroup =
-		run && runNeedsConsent(run)
-			? (resolvedSteps.groups.find((g) => isConsentStatus(g.status as any)) ?? null)
-			: null;
-	$: consentRequest = consentGroup ? extractConsentRequest(consentGroup.latest) : null;
 	// Pokes the sidebar's "Resume setup" nudge to re-check the instant this
 	// run finishes, instead of it lingering until the next full page load —
 	// once per page lifetime is enough (the sidebar itself de-dupes further).
@@ -99,31 +75,6 @@
 		smokeResult?.filename && smokeResult.generationId
 			? api.getGenerationThumbnailURL(smokeResult.generationId, smokeResult.filename, 'medium')
 			: null;
-
-	// --- download transfer stats (speed/ETA) --------------------------------
-	//
-	// The server reports plain byte counts per poll (see `stepProgressLabel`);
-	// speed/ETA are reconstructed here from two consecutive polls, one sample
-	// per step — `lastProgressSamples` is a plain mutated Map (not reactive
-	// state) precisely so recording into it never re-triggers this block.
-	const lastProgressSamples = new Map<string, { bytes: number; at: number }>();
-	let transferStatsByStep: Record<string, TransferStats> = {};
-
-	$: if (run) {
-		const next: Record<string, TransferStats> = {};
-		for (const group of resolvedSteps.groups) {
-			const current = group.latest?.progress_current;
-			if (current == null) continue;
-			const sample = { bytes: current, at: Date.now() };
-			next[group.stepKey] = computeTransferStats(
-				lastProgressSamples.get(group.stepKey) ?? null,
-				sample,
-				group.latest?.progress_total ?? null
-			);
-			lastProgressSamples.set(group.stepKey, sample);
-		}
-		transferStatsByStep = next;
-	}
 
 	function storedRunId(): string | null {
 		if (!browser) return null;
@@ -238,25 +189,13 @@
 		run = null;
 	}
 
-	async function retryRun() {
-		if (!run || retryBusy) return;
-		const runId = run.id;
-		const previous = run;
-		// Optimistic flip so the failed state doesn't linger while the request
-		// is in flight.
-		run = { ...run, status: 'running', error_code: null, safe_error_detail: null };
-		retryBusy = true;
-		retryError = '';
-		try {
-			const updated = await api.applySetupRunAction(runId, 'retry_step');
-			run = updated;
-			schedulePoll(updated.id);
-		} catch (err: any) {
-			run = previous;
-			retryError = err?.response?.data?.detail || err?.message || "Couldn't start the retry.";
-		} finally {
-			retryBusy = false;
-		}
+	/** A run handed back by one of `RecipeRunProgress`'s actions (approve,
+	 * cancel, retry, and retry's optimistic pre-flip) — adopt it and keep the
+	 * poll in step with whatever status it now carries. */
+	function handleRunUpdated(updated: SetupRun) {
+		run = updated;
+		if (shouldPollRun(updated.status)) schedulePoll(updated.id);
+		else clearPoll();
 	}
 
 	// --- start-a-recipe -----------------------------------------------------
@@ -300,70 +239,6 @@
 			startError = err?.response?.data?.detail || err?.message || "Couldn't start this recipe.";
 		} finally {
 			startingRecipeId = null;
-		}
-	}
-
-	// --- consent -------------------------------------------------------------
-
-	let consentBusy = false;
-	let consentError = '';
-	let cancelBusy = false;
-	let cancelError = '';
-
-	// Optional inline "add a provider API key" field the consent gate offers
-	// when `consentRequest.providers` names one that isn't configured yet
-	// (see `ArtifactsPlanExecutor._unconfigured_credential_providers`) —
-	// keyed by provider id so more than one can be prompted for at once.
-	let credentialDrafts: Record<string, string> = {};
-	let credentialBusy: Record<string, boolean> = {};
-	let credentialError: Record<string, string> = {};
-	let credentialSaved: Record<string, boolean> = {};
-
-	async function saveProviderCredential(provider: SetupConsentProvider) {
-		const value = (credentialDrafts[provider.id] || '').trim();
-		if (!value || credentialBusy[provider.id]) return;
-		credentialBusy = { ...credentialBusy, [provider.id]: true };
-		credentialError = { ...credentialError, [provider.id]: '' };
-		try {
-			await api.saveSetupProviderCredential(provider.id, provider.field_name, value);
-			credentialSaved = { ...credentialSaved, [provider.id]: true };
-		} catch (err: any) {
-			credentialError = {
-				...credentialError,
-				[provider.id]: err?.response?.data?.detail || err?.message || "Couldn't save the API key."
-			};
-		} finally {
-			credentialBusy = { ...credentialBusy, [provider.id]: false };
-		}
-	}
-
-	async function approveConsent() {
-		if (!run || !consentGroup || consentBusy) return;
-		consentBusy = true;
-		consentError = '';
-		try {
-			const updated = await api.grantSetupRunConsent(run.id, consentGroup.stepKey);
-			run = updated;
-			if (shouldPollRun(updated.status)) schedulePoll(updated.id);
-		} catch (err: any) {
-			consentError = err?.response?.data?.detail || err?.message || "Couldn't approve the download.";
-		} finally {
-			consentBusy = false;
-		}
-	}
-
-	async function cancelRun() {
-		if (!run || cancelBusy) return;
-		cancelBusy = true;
-		cancelError = '';
-		try {
-			const updated = await api.applySetupRunAction(run.id, 'cancel');
-			run = updated;
-			clearPoll();
-		} catch (err: any) {
-			cancelError = err?.response?.data?.detail || err?.message || "Couldn't cancel setup.";
-		} finally {
-			cancelBusy = false;
 		}
 	}
 
@@ -424,20 +299,12 @@
 			</div>
 
 			{#if isAdmin && runChecked && run}
-				<Card class="space-y-4">
-					<div class="flex items-start justify-between gap-3">
-						<div class="min-w-0">
-							<h2 class="text-sm font-semibold text-fg">Guided setup</h2>
-							<p class="text-sm text-fg-muted mt-0.5">{runManifestProgressSummary(resolvedSteps)}</p>
-						</div>
-						<Badge variant={runBadgeVariant(run.status)}>{runStatusLabel(run.status)}</Badge>
-					</div>
-
-					{#if runFetchError}
-						<p class="text-xs text-fg-subtle">{runFetchError}</p>
-					{/if}
-
-					{#if run.status === 'completed'}
+				<!-- A snippet is hoisted out of this block, so it neither inherits the
+				     null-narrowing above nor may be declared inside <Card> (that would
+				     make it a Card prop). Both are settled by naming the run here. -->
+				{@const currentRun = run}
+				{#snippet completedHandoff()}
+					{#if currentRun.status === 'completed'}
 						<!-- first-generation handoff -->
 						<div class="rounded-lg border border-success/25 bg-success/5 px-4 py-5 text-center">
 							<p class="text-sm font-semibold text-success">You're all set</p>
@@ -463,213 +330,16 @@
 							</div>
 						</div>
 					{/if}
-
-					{#if consentGroup && consentRequest}
-						<div class="rounded border border-signal/30 bg-signal/5 px-3 py-3 space-y-3">
-							<div>
-								<p class="text-sm font-semibold text-signal">Needs your go-ahead</p>
-								<p class="text-sm text-fg-muted mt-0.5">
-									{consentGroup.title} wants to download the following before it can continue:
-								</p>
-							</div>
-
-							<ul class="space-y-1">
-								{#each consentRequest.artifacts as artifact (artifact.id)}
-									<li class="flex items-center justify-between gap-3 text-sm">
-										<span class="text-fg truncate">{artifact.display_name}</span>
-										{#if artifact.size_bytes != null}
-											<span class="font-mono tabular-nums text-fg-subtle shrink-0">
-												{formatBytes(artifact.size_bytes)}
-											</span>
-										{/if}
-									</li>
-								{/each}
-							</ul>
-
-							{#if consentRequest.total_bytes != null}
-								<div class="flex items-center justify-between text-sm border-t border-signal/20 pt-2">
-									<span class="text-fg-muted">Total</span>
-									<span class="font-mono tabular-nums text-fg">{formatBytes(consentRequest.total_bytes)}</span>
-								</div>
-							{/if}
-
-							{#each consentRequest.providers ?? [] as provider (provider.id)}
-								{#if provider.configured || credentialSaved[provider.id]}
-									<p class="text-xs text-success">{provider.name} API key saved.</p>
-								{:else}
-									<div class="rounded border border-line bg-surface-1 px-3 py-2 space-y-2">
-										<p class="text-xs text-fg-muted">
-											{provider.name} needs a free API key for some downloads —
-											{#if provider.website}
-												<a
-													href={provider.website}
-													target="_blank"
-													rel="noreferrer"
-													class="text-signal hover:underline"
-												>
-													get one
-												</a>,
-											{/if}
-											paste it here, or continue without.
-										</p>
-										<div class="flex items-center gap-2">
-											<Input
-												type="password"
-												autocomplete="off"
-												class="flex-1 text-sm"
-												placeholder="{provider.name} API key"
-												bind:value={credentialDrafts[provider.id]}
-											/>
-											<Button
-												size="sm"
-												variant="secondary"
-												loading={credentialBusy[provider.id]}
-												disabled={!credentialDrafts[provider.id]?.trim()}
-												onclick={() => saveProviderCredential(provider)}
-											>
-												Save
-											</Button>
-										</div>
-										{#if credentialError[provider.id]}
-											<p class="text-xs text-danger">{credentialError[provider.id]}</p>
-										{/if}
-									</div>
-								{/if}
-							{/each}
-
-							<div class="flex items-center justify-between gap-3 pt-1">
-								<Button size="sm" variant="primary" loading={consentBusy} onclick={approveConsent}>
-									Approve and download
-								</Button>
-								<button
-									type="button"
-									class="text-xs text-fg-subtle hover:text-fg-muted underline decoration-dotted disabled:opacity-50"
-									disabled={cancelBusy}
-									onclick={cancelRun}
-								>
-									Cancel setup instead
-								</button>
-							</div>
-							{#if consentError}
-								<p class="text-xs text-danger">{consentError}</p>
-							{/if}
-							{#if cancelError}
-								<p class="text-xs text-danger">{cancelError}</p>
-							{/if}
-						</div>
-					{/if}
-
-					{#if run.status === 'failed'}
-						{@const failedRunStatus = run.status}
-						<Alert variant="danger" density="compact" title="Setup couldn't finish">
-							{#if run.safe_error_detail}
-								<p>{run.safe_error_detail}</p>
-							{/if}
-							{#if retryError}
-								<p class="text-xs mt-1">{retryError}</p>
-							{/if}
-							<div class="mt-2">
-								<button
-									type="button"
-									class="text-xs text-fg-subtle hover:text-fg-muted underline decoration-dotted"
-									onclick={startOver}
-								>
-									Start over with a different recipe instead
-								</button>
-							</div>
-							{#snippet actions()}
-								{#if canRetryRun(failedRunStatus)}
-									<Button size="sm" variant="secondary" loading={retryBusy} onclick={retryRun}>
-										Try again
-									</Button>
-								{/if}
-							{/snippet}
-						</Alert>
-					{/if}
-
-					{#if resolvedSteps.groups.length > 0}
-						<div class="space-y-2">
-							{#each resolvedSteps.groups as group (group.stepKey)}
-								{@const isConsent = isConsentStatus(group.status as any)}
-								{@const isPending = group.status === 'pending'}
-								{@const duration = group.latest ? stepDuration(group.latest) : null}
-								{@const progress = group.status === 'running' ? stepProgressLabel(group.latest) : null}
-								{@const percent = group.status === 'running' ? stepProgressPercent(group.latest) : null}
-								{@const transfer = transferStatsByStep[group.stepKey]}
-								<div
-									class="rounded border px-3 py-2 {isConsent
-										? 'border-signal/30 bg-signal/5'
-										: isPending
-											? 'border-line bg-surface-1'
-											: 'border-line bg-surface-2'}"
-								>
-									<div class="flex items-center justify-between gap-3">
-										<div class="flex items-center gap-2 min-w-0">
-											<p class="text-sm font-medium {isPending ? 'text-fg-subtle' : 'text-fg'} truncate">
-												{group.title}
-											</p>
-											<Badge size="sm" variant={manifestStepBadgeVariant(group.status)}>
-												{manifestStepStatusLabel(group.status)}
-											</Badge>
-										</div>
-										{#if duration}
-											<span class="text-2xs font-mono tabular-nums text-fg-subtle shrink-0">
-												{duration}
-											</span>
-										{/if}
-									</div>
-
-									{#if isConsent}
-										<p class="text-sm text-fg-muted mt-1">
-											This step needs your go-ahead before it can continue.
-										</p>
-									{/if}
-
-									{#if group.status === 'running' && percent != null}
-										<div class="mt-2 h-1.5 bg-surface-3 rounded-sm overflow-hidden">
-											<div
-												class="h-full bg-signal-solid transition-all duration-300"
-												style="width: {percent}%"
-											></div>
-										</div>
-									{/if}
-
-									{#if progress || percent != null}
-										<div
-											class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-mono tabular-nums text-fg-subtle mt-1"
-										>
-											{#if percent != null}<span>{percent}%</span>{/if}
-											{#if progress}<span>{progress}</span>{/if}
-											{#if transfer?.bytesPerSecond}<span>{formatBytes(transfer.bytesPerSecond)}/s</span>{/if}
-											{#if transfer?.etaMs != null}<span>ETA {formatDuration(transfer.etaMs)}</span>{/if}
-										</div>
-										{#if isAdmin && group.kind === 'artifacts.fetch'}
-											<a
-												href="/admin?tab=downloads"
-												class="text-2xs text-fg-subtle hover:text-fg-muted underline decoration-dotted mt-1 inline-block"
-											>
-												View in Downloads
-											</a>
-										{/if}
-									{/if}
-
-									{#if group.latest?.status === 'failed' && group.latest.safe_error_detail}
-										<details class="mt-1">
-											<summary class="text-sm text-danger cursor-pointer">
-												Why it didn't finish
-											</summary>
-											<p class="text-sm text-fg-muted mt-1">
-												{group.latest.safe_error_detail}
-											</p>
-											{#if group.latest.safe_suggested_action}
-												<p class="text-sm text-fg-muted mt-1">{group.latest.safe_suggested_action}</p>
-											{/if}
-										</details>
-									{/if}
-								</div>
-							{/each}
-						</div>
-					{/if}
+				{/snippet}
+				<Card>
+					<RecipeRunProgress
+						run={currentRun}
+						fetchError={runFetchError}
+						actions={setupRunActions}
+						onRunUpdated={handleRunUpdated}
+						onStartOver={startOver}
+						completed={completedHandoff}
+					/>
 				</Card>
 			{:else if isAdmin && runChecked && !run}
 				<!-- Models location: before offering recipes (which download models),

@@ -6,6 +6,8 @@
 	import { browser } from '$app/environment';
 	import { api } from '$lib/services/api/index';
 	import { authStore } from '$lib/stores/auth';
+	import { resolveInstallModelsTarget } from '$lib/utils/installModelsTarget';
+	import { recipeCatalog, loadRecipeCatalog } from '$lib/stores/recipeCatalog';
 	import ModelCard from '$lib/components/ModelCard.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import QuickTagFilterBar from '$lib/components/QuickTagFilterBar.svelte';
@@ -68,6 +70,11 @@
 	$: hasActiveFilters =
 		selectedType !== 'all' || selectedTags.length > 0 || searchQuery !== '';
 	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
+	// An admin looking at an empty model library can install the models a
+	// recipe brings; without a recipe catalog (or as a non-admin) the page
+	// keeps its /setup link.
+	$: if (isAdmin && !hasActiveFilters && models.length === 0) void loadRecipeCatalog();
+	$: installModels = resolveInstallModelsTarget($recipeCatalog, null, isAdmin);
 
 	// Update URL when filters change (after initialization)
 	$: if (browser && initialized && (selectedType || searchQuery !== undefined || selectedTags || sortBy || sortOrder || currentPage || itemsPerPage || favoritesOnly || collectionId)) {
@@ -448,7 +455,9 @@
 						{hasActiveFilters
 							? "Try adjusting your search criteria or filters to find what you're looking for."
 							: isAdmin
-								? 'No models are available yet. Run guided setup to install one, or add one directly in Downloads.'
+								? installModels
+									? 'No models are available yet. Install the models a recipe brings, or add one directly in Downloads.'
+									: 'No models are available yet. Run guided setup to install one, or add one directly in Downloads.'
 								: 'No models are available yet. Ask your administrator to set up models for this instance.'}
 					</p>
 					{#if hasActiveFilters}
@@ -461,13 +470,23 @@
 						</button>
 					{:else if isAdmin}
 						<div class="flex items-center justify-center gap-3">
-							<a
-								href="/setup"
-								class="px-4 py-2 bg-surface-2 text-fg rounded hover:bg-surface-3 transition-colors font-medium inline-flex items-center gap-2 text-sm"
-							>
-								<Icon name="sparkles" className="w-4 h-4" />
-								Run guided setup
-							</a>
+							{#if installModels}
+								<a
+									href={installModels.href}
+									class="px-4 py-2 bg-surface-2 text-fg rounded hover:bg-surface-3 transition-colors font-medium inline-flex items-center gap-2 text-sm"
+								>
+									<Icon name="download" className="w-4 h-4" />
+									{installModels.label}
+								</a>
+							{:else}
+								<a
+									href="/setup"
+									class="px-4 py-2 bg-surface-2 text-fg rounded hover:bg-surface-3 transition-colors font-medium inline-flex items-center gap-2 text-sm"
+								>
+									<Icon name="sparkles" className="w-4 h-4" />
+									Run guided setup
+								</a>
+							{/if}
 							<a
 								href="/admin?tab=downloads"
 								class="px-4 py-2 bg-surface-2 text-fg rounded hover:bg-surface-3 transition-colors font-medium inline-flex items-center gap-2 text-sm"

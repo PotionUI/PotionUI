@@ -10,6 +10,8 @@
 	import { Badge, Button, EmptyState, Input, Spinner } from '$lib/components/ui';
 	import { authStore } from '$lib/stores/auth';
 	import { describePresetsEmptyState } from '$lib/utils/presetsEmptyState';
+	import { resolveInstallModelsTarget } from '$lib/utils/installModelsTarget';
+	import { recipeCatalog, loadRecipeCatalog } from '$lib/stores/recipeCatalog';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import { api } from '$lib/services/api/index';
 	import { formatVramBadge, formatRamBadge, vramShortfall } from '$lib/utils/presetHardware';
@@ -48,6 +50,8 @@
 	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
 	$: safePresets = Array.isArray(presets) ? presets : [];
 	$: presetsEmptyState = describePresetsEmptyState(readiness, isAdmin);
+	$: if (isAdmin && safePresets.length === 0) void loadRecipeCatalog();
+	$: installModels = resolveInstallModelsTarget($recipeCatalog, null, isAdmin);
 	$: hasActiveFilters = query.trim().length > 0 || selectedEngine !== null || selectedCategory !== null;
 
 	function clearFilters() {
@@ -246,7 +250,11 @@
 									>
 										{#snippet actions()}
 											{#if presetsEmptyState.showSetupLink}
-												<Button variant="primary" size="sm" href="/setup" icon="arrow-right">Go to Setup</Button>
+												{#if installModels}
+													<Button variant="primary" size="sm" href={installModels.href} icon="download">{installModels.label}</Button>
+												{:else}
+													<Button variant="primary" size="sm" href="/setup" icon="arrow-right">Go to Setup</Button>
+												{/if}
 											{/if}
 										{/snippet}
 									</EmptyState>

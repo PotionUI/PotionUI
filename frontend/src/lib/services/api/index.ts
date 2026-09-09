@@ -66,6 +66,7 @@ import { createPipesApi } from './pipes';
 import { createNotificationsApi } from './notifications';
 import { createAutomationsApi } from './automations';
 import { createSetupApi } from './setup';
+import { createRecipesApi } from './recipes';
 import { createMcpApi } from './mcp';
 import { createInspirationsApi } from './inspirations';
 import { createPluginsApi } from './plugins';
@@ -113,6 +114,7 @@ export const api = {
 	...createNotificationsApi(apiClient.getClient()),
 	...createAutomationsApi(apiClient.getClient()),
 	...createSetupApi(apiClient.getClient()),
+	...createRecipesApi(apiClient.getClient()),
 	...createMcpApi(apiClient.getClient()),
 	...createInspirationsApi(apiClient.getClient()),
 	...createPluginsApi(apiClient.getClient())
@@ -135,6 +137,18 @@ export type {
 	SetupConsentArtifact,
 	SetupConsentRequest
 } from './setup';
+export type {
+	RecipeSource,
+	RecipeRunMode,
+	RecipeSummary,
+	RecipeStepView,
+	RecipeArtifact,
+	RecipePresetRef,
+	RecipeSmoke,
+	RecipeDetail,
+	RecipeRun,
+	RecipeStepKind
+} from './recipes';
 export type { McpToken, McpTokenCreated, McpStatus } from './mcp';
 export type {
 	InspirationAuthor,

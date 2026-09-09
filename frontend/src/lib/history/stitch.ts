@@ -478,6 +478,62 @@ export function previewScaleFor(
 	};
 }
 
+/** One wheel notch in pixel mode; scales the other delta modes onto it. */
+const WHEEL_LINE_PX = 16;
+const WHEEL_PAGE_PX = 400;
+const WHEEL_MAX_PX = 200;
+const WHEEL_ZOOM_SENSITIVITY = 0.0025;
+
+/**
+ * The zoom factor for one wheel event. `deltaMode` matters: a mouse notch is
+ * ~100 in pixel mode but ~3 in line mode, so reading `deltaY` raw makes the
+ * same gesture do almost nothing on some devices.
+ */
+export function wheelZoomFactor(deltaY: number, deltaMode = 0): number {
+	if (!Number.isFinite(deltaY) || deltaY === 0) return 1;
+	const perUnit = deltaMode === 1 ? WHEEL_LINE_PX : deltaMode === 2 ? WHEEL_PAGE_PX : 1;
+	const pixels = Math.min(Math.max(deltaY * perUnit, -WHEEL_MAX_PX), WHEEL_MAX_PX);
+	return Math.exp(-pixels * WHEEL_ZOOM_SENSITIVITY);
+}
+
+/** One axis of a cursor-anchored zoom, all in viewport pixels. */
+export interface ZoomScrollAxis {
+	/** Where the cursor is. */
+	cursor: number;
+	/** The content's leading edge before the zoom. */
+	startBefore: number;
+	/** The content's leading edge after it resized, before the scroll is corrected. */
+	startAfter: number;
+	/** Displayed content size before and after. */
+	sizeBefore: number;
+	sizeAfter: number;
+	/** The pane's scroll offset as it stands now. */
+	scroll: number;
+	/** The largest offset the pane can scroll to. */
+	maxScroll: number;
+}
+
+function clampScroll(value: number, maxScroll: number): number {
+	if (!Number.isFinite(value)) return 0;
+	return Math.min(Math.max(value, 0), Math.max(0, maxScroll));
+}
+
+/**
+ * The scroll offset that puts the content point under the cursor back under
+ * the cursor after a zoom.
+ *
+ * It works from measured edges rather than from the two scales, because the
+ * content is centred with auto margins: those collapse to zero the moment it
+ * starts overflowing, so the content's offset inside the pane jumps by half
+ * the leftover space on the very step that matters most.
+ */
+export function scrollAfterZoom(axis: ZoomScrollAxis): number {
+	if (axis.sizeBefore <= 0 || axis.sizeAfter <= 0) return clampScroll(axis.scroll, axis.maxScroll);
+	const fraction = (axis.cursor - axis.startBefore) / axis.sizeBefore;
+	const anchored = axis.startAfter + fraction * axis.sizeAfter;
+	return clampScroll(axis.scroll + (anchored - axis.cursor), axis.maxScroll);
+}
+
 export function stitchFileName(now: Date): string {
 	const pad = (value: number) => String(value).padStart(2, '0');
 	const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;

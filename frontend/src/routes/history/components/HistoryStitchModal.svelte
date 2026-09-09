@@ -25,6 +25,8 @@
 		clampZoom,
 		fitScale,
 		previewScaleFor,
+		scrollAfterZoom,
+		wheelZoomFactor,
 		zoomStep,
 		MAX_ZOOM,
 		MIN_ZOOM,
@@ -229,29 +231,50 @@
 		return () => observer.disconnect();
 	});
 
-	/** Zooms by `factor`, keeping the point under (clientX, clientY) put. */
+	/**
+	 * Zooms by `factor`, keeping the point under (clientX, clientY) put. The
+	 * anchor is measured off the canvas itself, before and after: the canvas is
+	 * centred with auto margins, so its offset inside the pane jumps as soon as
+	 * it starts overflowing and cannot be predicted from the scales alone.
+	 */
 	async function zoomAround(factor: number, clientX: number, clientY: number) {
 		const before = zoom;
 		const after = clampZoom(before * factor);
 		if (after === before) return;
 
 		const pane = previewPane;
-		if (!pane) {
+		const canvas = previewCanvas;
+		if (!pane || !canvas) {
 			zoom = after;
 			return;
 		}
 
-		const rect = pane.getBoundingClientRect();
-		const offsetX = clientX - rect.left;
-		const offsetY = clientY - rect.top;
-		const contentX = pane.scrollLeft + offsetX;
-		const contentY = pane.scrollTop + offsetY;
-		const ratio = after / before;
+		const rectBefore = canvas.getBoundingClientRect();
 
 		zoom = after;
 		await tick();
-		pane.scrollLeft = contentX * ratio - offsetX;
-		pane.scrollTop = contentY * ratio - offsetY;
+
+		const rectAfter = canvas.getBoundingClientRect();
+		const scroll = { left: pane.scrollLeft, top: pane.scrollTop };
+
+		pane.scrollLeft = scrollAfterZoom({
+			cursor: clientX,
+			startBefore: rectBefore.left,
+			startAfter: rectAfter.left,
+			sizeBefore: rectBefore.width,
+			sizeAfter: rectAfter.width,
+			scroll: scroll.left,
+			maxScroll: pane.scrollWidth - pane.clientWidth
+		});
+		pane.scrollTop = scrollAfterZoom({
+			cursor: clientY,
+			startBefore: rectBefore.top,
+			startAfter: rectAfter.top,
+			sizeBefore: rectBefore.height,
+			sizeAfter: rectAfter.height,
+			scroll: scroll.top,
+			maxScroll: pane.scrollHeight - pane.clientHeight
+		});
 	}
 
 	function zoomByStep(direction: 1 | -1) {
@@ -277,11 +300,13 @@
 		}
 	}
 
+	// The wheel zooms, with or without a modifier - the preview is a viewport,
+	// not a document. Shift is left to the browser so a trackpad or a wheel can
+	// still scroll the pane sideways when the composition is bigger than it.
 	function handleWheel(event: WheelEvent) {
-		// Plain wheel keeps scrolling the pane; only the zoom gesture is taken.
-		if (!event.ctrlKey && !event.metaKey) return;
+		if (event.shiftKey) return;
 		event.preventDefault();
-		void zoomAround(Math.exp(-event.deltaY * 0.0025), event.clientX, event.clientY);
+		void zoomAround(wheelZoomFactor(event.deltaY, event.deltaMode), event.clientX, event.clientY);
 	}
 
 	function handlePointerDown(event: PointerEvent) {
@@ -408,7 +433,7 @@
 		<div class="relative min-h-[300px] rounded-lg border border-line bg-surface-2">
 			<div
 				bind:this={previewPane}
-				class="flex h-full min-h-[300px] items-center justify-center overflow-auto p-3 {panning
+				class="flex h-full min-h-[300px] overflow-auto p-3 {panning
 					? 'cursor-grabbing'
 					: canPan
 						? 'cursor-grab'
@@ -421,17 +446,21 @@
 				role="region"
 				aria-label="Stitch preview viewport"
 			>
+				<!-- `m-auto` centres, NOT `justify-content`/`align-items`: a centred
+				     flex line cannot be scrolled back past its start edge, which
+				     clips the left and top of anything that overflows. Auto margins
+				     centre the same way and collapse to 0 once it does. -->
 				{#if loading}
-					<div class="flex items-center gap-2 text-fg-muted">
+					<div class="m-auto flex items-center gap-2 text-fg-muted">
 						<Spinner size="sm" />
 						<span class="text-sm">Loading images…</span>
 					</div>
 				{:else if loaded.length === 0}
-					<span class="text-sm text-fg-subtle">No images could be loaded.</span>
+					<span class="m-auto text-sm text-fg-subtle">No images could be loaded.</span>
 				{:else}
 					<canvas
 						bind:this={previewCanvas}
-						class="max-w-none shrink-0"
+						class="m-auto block max-w-none shrink-0"
 						style:width="{preview.displayWidth}px"
 						style:height="{preview.displayHeight}px"
 						aria-label="Stitch preview"

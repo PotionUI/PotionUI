@@ -10,6 +10,8 @@ import {
 	clampZoom,
 	fitScale,
 	previewScaleFor,
+	scrollAfterZoom,
+	wheelZoomFactor,
 	zoomStep,
 	MAX_ZOOM,
 	MIN_ZOOM,
@@ -419,5 +421,106 @@ describe('previewScaleFor', () => {
 			displayHeight: 0,
 			capped: false
 		});
+	});
+});
+
+describe('wheelZoomFactor', () => {
+	it('zooms in scrolling up and out scrolling down', () => {
+		expect(wheelZoomFactor(-100)).toBeGreaterThan(1);
+		expect(wheelZoomFactor(100)).toBeLessThan(1);
+		expect(wheelZoomFactor(-100) * wheelZoomFactor(100)).toBeCloseTo(1, 10);
+	});
+
+	it('normalises a line-mode notch onto the pixel scale', () => {
+		// A mouse notch is ~3 in line mode and ~100 in pixel mode; read raw, the
+		// line-mode gesture would barely move the zoom at all.
+		expect(wheelZoomFactor(-3, 1)).toBeCloseTo(Math.exp(48 * 0.0025), 10);
+		expect(wheelZoomFactor(-3, 1)).toBeGreaterThan(wheelZoomFactor(-3, 0));
+		expect(wheelZoomFactor(-1, 2)).toBeCloseTo(Math.exp(200 * 0.0025), 10);
+	});
+
+	it('caps one event so a flung wheel cannot jump the whole range', () => {
+		expect(wheelZoomFactor(-10000)).toBeCloseTo(Math.exp(0.5), 10);
+		expect(wheelZoomFactor(10000)).toBeCloseTo(Math.exp(-0.5), 10);
+	});
+
+	it('is inert for a delta of zero or a non-number', () => {
+		expect(wheelZoomFactor(0)).toBe(1);
+		expect(wheelZoomFactor(Number.NaN)).toBe(1);
+	});
+});
+
+describe('scrollAfterZoom', () => {
+	it('keeps the point under the cursor under the cursor', () => {
+		// Pane spans viewport 0..500, content 1000 wide scrolled to 200, so the
+		// content starts at -200 and the cursor at 300 sits over its midpoint.
+		const scroll = scrollAfterZoom({
+			cursor: 300,
+			startBefore: -200,
+			startAfter: -200,
+			sizeBefore: 1000,
+			sizeAfter: 2000,
+			scroll: 200,
+			maxScroll: 1500
+		});
+
+		expect(scroll).toBe(700);
+		// At 700 the content starts at -700, so its midpoint lands back on 300.
+		expect(-700 + 0.5 * 2000).toBe(300);
+	});
+
+	it('survives the auto-margin collapse as the content starts overflowing', () => {
+		// 400 wide centred in a 500 pane starts at 50; zoomed to 1000 it
+		// overflows, the auto margins collapse and it starts at 0 instead.
+		const scroll = scrollAfterZoom({
+			cursor: 150,
+			startBefore: 50,
+			startAfter: 0,
+			sizeBefore: 400,
+			sizeAfter: 1000,
+			scroll: 0,
+			maxScroll: 500
+		});
+
+		expect(scroll).toBe(100);
+		expect(-100 + 0.25 * 1000).toBe(150);
+	});
+
+	it('stays inside the scrollable range', () => {
+		const beyondEnd = scrollAfterZoom({
+			cursor: 300,
+			startBefore: -200,
+			startAfter: -200,
+			sizeBefore: 1000,
+			sizeAfter: 2000,
+			scroll: 200,
+			maxScroll: 300
+		});
+		expect(beyondEnd).toBe(300);
+
+		const beforeStart = scrollAfterZoom({
+			cursor: 300,
+			startBefore: -200,
+			startAfter: -200,
+			sizeBefore: 1000,
+			sizeAfter: 100,
+			scroll: 200,
+			maxScroll: 1500
+		});
+		expect(beforeStart).toBe(0);
+	});
+
+	it('leaves the scroll alone when there is no content to anchor to', () => {
+		expect(
+			scrollAfterZoom({
+				cursor: 300,
+				startBefore: 0,
+				startAfter: 0,
+				sizeBefore: 0,
+				sizeAfter: 1000,
+				scroll: 40,
+				maxScroll: 1500
+			})
+		).toBe(40);
 	});
 });

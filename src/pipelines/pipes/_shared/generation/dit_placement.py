@@ -85,6 +85,7 @@ import torch
 from src.pipelines.outputs import GenerationExecutionError
 from src.platform.observability.profiling import get_profiler
 from src.platform.runtime.native.memory.residency import (
+    effective_free_vram_gb,
     free_vram_gb,
     get_residency_registry,
     minimum_inference_memory_gb,
@@ -442,11 +443,23 @@ def place_dit_for_sequence(
     # own weight fully unloaded. If `total_reserve` still doesn't fit that,
     # no amount of weight-streaming can rescue it -- refuse now rather than
     # discovering it after a slow stream and an OOM on the first forward.
-    free_if_dit_unloaded = (free_vram_gb(device) or 0.0)
+    # Every fits-check in this function reads `effective_free_vram_gb`, never
+    # `free_vram_gb`: `mem_get_info` counts OUR OWN caching allocator's
+    # reserved-but-unallocated pool (the previous phase's activation buffers,
+    # which the next cudaMalloc reclaims) as USED, so judging fit on the raw
+    # number refuses clips that fit -- and this gate raises before any
+    # placement I/O, so nothing downstream can rescue it. The raw number is
+    # still read, to report both on refusal.
+    free_raw = free_vram_gb(device) or 0.0
+    free_if_dit_unloaded = effective_free_vram_gb(device) or 0.0
     if _dit_is_fully_resident(dit, device):
+        free_raw += weight_gb
         free_if_dit_unloaded += weight_gb
     if total_reserve > free_if_dit_unloaded:
-        _log_refusal(total_reserve, activation_reserve, extra_reserve, free_if_dit_unloaded, video_tokens, audio_tokens)
+        _log_refusal(
+            total_reserve, activation_reserve, extra_reserve, free_if_dit_unloaded, free_raw,
+            video_tokens, audio_tokens,
+        )
         raise DitPlacementInfeasible(
             f"This clip needs about {total_reserve:.1f} GB of VRAM for activations at "
             f"{video_tokens:,} video tokens (+{audio_tokens:,} audio), but only "
@@ -454,6 +467,7 @@ def place_dit_for_sequence(
             detail=(
                 f"activation_reserve_gb={activation_reserve:.2f} extra_reserve_gb={extra_reserve:.2f} "
                 f"total_reserve_gb={total_reserve:.2f} free_gb={free_if_dit_unloaded:.2f} "
+                f"free_raw_gb={free_raw:.2f} free_effective_gb={free_if_dit_unloaded:.2f} "
                 f"video_tokens={video_tokens} audio_tokens={audio_tokens}"
             ),
             total_reserve_gb=total_reserve, activation_reserve_gb=activation_reserve,
@@ -462,7 +476,7 @@ def place_dit_for_sequence(
         )
 
     if _dit_is_fully_resident(dit, device):
-        free_crediting_self = (free_vram_gb(device) or 0.0) + weight_gb
+        free_crediting_self = (effective_free_vram_gb(device) or 0.0) + weight_gb
         credited_budget = max(0.0, free_crediting_self - total_reserve)
         if weight_gb <= 0.0 or weight_gb <= credited_budget:
             maybe_compile_dit(dit, resident=True, is_cuda=True)
@@ -483,7 +497,7 @@ def place_dit_for_sequence(
 
     need_gb = weight_gb + minimum_inference_memory_gb() if weight_gb > 0.0 else 0.0
     _ensure_room_for(device, need_gb, own_models)
-    free = free_vram_gb(device) or 0.0
+    free = effective_free_vram_gb(device) or 0.0
     weight_budget = max(0.0, free - total_reserve)
 
     if weight_gb <= 0.0 or weight_gb <= weight_budget:
@@ -573,18 +587,21 @@ def _move_partial(dit: Any, device: str, weight_budget_gb: float, own_models: It
 
 def _log_refusal(
     total_reserve_gb: float, activation_reserve_gb: float, extra_reserve_gb: float,
-    free_gb: float, video_tokens: int, audio_tokens: int,
+    free_gb: float, free_raw_gb: float, video_tokens: int, audio_tokens: int,
 ) -> None:
     get_profiler().mark(
         "ltx.dit_placement.refused",
         total_reserve_gb=round(total_reserve_gb, 2), activation_reserve_gb=round(activation_reserve_gb, 2),
         extra_reserve_gb=round(extra_reserve_gb, 2), free_gb=round(free_gb, 2),
+        free_raw_gb=round(free_raw_gb, 2),
         video_tokens=video_tokens, audio_tokens=audio_tokens,
     )
     logger.warning(
         "[LTX PLACEMENT] refused: total reserve %.2fGB (activation %.2fGB + extra %.2fGB) exceeds "
-        "%.2fGB free with zero DiT weight resident, S=%d video (+%d audio)",
-        total_reserve_gb, activation_reserve_gb, extra_reserve_gb, free_gb, video_tokens, audio_tokens,
+        "%.2fGB free with zero DiT weight resident (%.2fGB raw, the rest held by the caching "
+        "allocator), S=%d video (+%d audio)",
+        total_reserve_gb, activation_reserve_gb, extra_reserve_gb, free_gb, free_raw_gb,
+        video_tokens, audio_tokens,
     )
 
 

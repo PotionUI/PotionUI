@@ -107,6 +107,7 @@ def test_place_dit_for_sequence_threads_inner_dim_into_the_reserve(monkeypatch):
     # while remaining too big for the DiT's own weight to also fit resident --
     # the point of this test is the resident/partial split, not a refusal.
     monkeypatch.setattr(f"{_MOD}.free_vram_gb", lambda device: 70.0)
+    monkeypatch.setattr(f"{_MOD}.effective_free_vram_gb", lambda device: 70.0)
     monkeypatch.setattr(f"{_MOD}.minimum_inference_memory_gb", lambda: 0.0)
     manager = SimpleNamespace(ensure_free=lambda *a, **k: False, offload_all=lambda *a, **k: False)
     monkeypatch.setattr(f"{_MOD}.get_residency_registry", lambda: manager)
@@ -238,10 +239,39 @@ def _dit_with_lora(estimated_vram_gb=23.3, *, active: bool):
     return dit, calls
 
 
-def _patched(free_gb, *, min_reserve=1.0, manager=None):
+class _free_vram:
+    """Both free-VRAM readings at once -- placement reads the raw
+    ``free_vram_gb`` only to report it, and judges every fit against
+    ``effective_free_vram_gb`` (raw + the caching allocator's idle reserved
+    pool). Patching one without the other would leave the real CUDA query
+    live. A class, not ``@contextmanager``: several tests below enter the
+    same ``_patched(...)`` tuple twice, which a one-shot generator context
+    manager refuses."""
+
+    def __init__(self, raw_gb, effective_gb):
+        self._patchers = (
+            patch(f"{_MOD}.free_vram_gb", return_value=raw_gb),
+            patch(f"{_MOD}.effective_free_vram_gb", return_value=effective_gb),
+        )
+
+    def __enter__(self):
+        for patcher in self._patchers:
+            patcher.start()
+        return self
+
+    def __exit__(self, *exc_info):
+        for patcher in reversed(self._patchers):
+            patcher.stop()
+        return False
+
+
+def _patched(free_gb, *, effective_gb=None, min_reserve=1.0, manager=None):
+    """``effective_gb`` defaults to ``free_gb`` -- an empty allocator pool,
+    i.e. the exact numbers every test here asserted before the pool was
+    credited."""
     manager = manager or _FakeResidencyRegistry()
     return (
-        patch(f"{_MOD}.free_vram_gb", return_value=free_gb),
+        _free_vram(free_gb, free_gb if effective_gb is None else effective_gb),
         patch(f"{_MOD}.minimum_inference_memory_gb", return_value=min_reserve),
         patch(f"{_MOD}.get_residency_registry", return_value=manager),
     ), manager
@@ -251,9 +281,11 @@ def _patched(free_gb, *, min_reserve=1.0, manager=None):
 
 def test_cpu_device_is_a_plain_move_no_vram_queries():
     dit, calls = _dit()
-    with patch(f"{_MOD}.free_vram_gb") as mock_free:
+    with patch(f"{_MOD}.free_vram_gb") as mock_free, \
+         patch(f"{_MOD}.effective_free_vram_gb") as mock_effective:
         decision = place_dit_for_sequence(dit, "cpu", video_tokens=100_000)
     mock_free.assert_not_called()
+    mock_effective.assert_not_called()
     assert calls["move_to"] == ["cpu"]
     assert calls["stream_to"] == []
     assert decision.mode == "cpu"
@@ -782,15 +814,18 @@ def test_bite_check_without_crediting_self_this_exact_scenario_would_wrongly_str
 def test_warm_resident_dit_that_no_longer_fits_offloads_then_places_fresh():
     dit, calls = _dit(estimated_vram_gb=23.3)
     dit.device = "cuda"
-    # Read 1 (the new infeasibility gate, credited the same way: 2.0+23.3=25.3
-    # clears the 10.5GB reserve, so it proceeds). Read 2 (fast-path check):
-    # still only 2.0GB free -- 2.0+23.3=25.3 credited, minus a 10.5GB reserve,
-    # doesn't clear 23.3 -> falls through and offloads. Reads 3-4
-    # (post-offload: _ensure_room_for's own read, then the main measurement)
-    # both see the FULL 40.0GB the stale copy's release genuinely freed.
-    free_reads = iter([2.0, 2.0, 40.0, 40.0])
+    # Effective read 1 (the infeasibility gate, credited the same way:
+    # 2.0+23.3=25.3 clears the 10.5GB reserve, so it proceeds). Effective read
+    # 2 (fast-path check): still only 2.0GB free -- 2.0+23.3=25.3 credited,
+    # minus a 10.5GB reserve, doesn't clear 23.3 -> falls through and
+    # offloads. Effective read 3 (the post-offload measurement) sees the FULL
+    # 40.0GB the stale copy's release genuinely freed. The raw reads are the
+    # gate's report-only one and `_ensure_room_for`'s own.
+    free_reads = iter([2.0, 40.0])
+    effective_reads = iter([2.0, 2.0, 40.0])
     manager = _FakeResidencyRegistry()
     with patch(f"{_MOD}.free_vram_gb", side_effect=lambda device: next(free_reads)), \
+         patch(f"{_MOD}.effective_free_vram_gb", side_effect=lambda device: next(effective_reads)), \
          patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
          patch(f"{_MOD}.get_residency_registry", return_value=manager):
         decision = place_dit_for_sequence(dit, "cuda", video_tokens=0, reserve_gb=10.0)
@@ -803,15 +838,18 @@ def test_warm_resident_dit_that_no_longer_fits_offloads_then_places_fresh():
 def test_warm_resident_dit_that_no_longer_fits_can_still_degrade_to_partial():
     dit, calls = _dit(estimated_vram_gb=23.3)
     dit.device = "cuda"
-    # total_reserve = reserve_gb(10.0) + floor(0.5) = 10.5. Read 1 (the new
-    # infeasibility gate): 2.0+23.3=25.3 credited clears 10.5, proceeds. Read
-    # 2 (fast-path check): still 2.0GB free < 10.5 even credited -> doesn't
-    # fit -> offloads. Reads 3-4 (post-offload): 5.0GB free -> weight_budget
-    # = max(0, 5.0-10.5) = 0.0, still nowhere near 23.3 -> genuinely must
-    # degrade to partial, not force a resident placement it cannot back.
-    free_reads = iter([2.0, 2.0, 5.0, 5.0])
+    # total_reserve = reserve_gb(10.0) + floor(0.5) = 10.5. Effective read 1
+    # (the infeasibility gate): 2.0+23.3=25.3 credited clears 10.5, proceeds.
+    # Effective read 2 (fast-path check): still 2.0GB free < 10.5 even
+    # credited -> doesn't fit -> offloads. Effective read 3 (post-offload):
+    # 5.0GB free -> weight_budget = max(0, 5.0-10.5) = 0.0, still nowhere
+    # near 23.3 -> genuinely must degrade to partial, not force a resident
+    # placement it cannot back.
+    free_reads = iter([2.0, 5.0])
+    effective_reads = iter([2.0, 2.0, 5.0])
     manager = _FakeResidencyRegistry()
     with patch(f"{_MOD}.free_vram_gb", side_effect=lambda device: next(free_reads)), \
+         patch(f"{_MOD}.effective_free_vram_gb", side_effect=lambda device: next(effective_reads)), \
          patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
          patch(f"{_MOD}.get_residency_registry", return_value=manager):
         decision = place_dit_for_sequence(dit, "cuda", video_tokens=0, reserve_gb=10.0)
@@ -1029,3 +1067,108 @@ def test_warm_resident_fast_path_also_compiles(monkeypatch):
     assert calls["move_to"] == [] and calls["stream_to"] == []
     assert dit._compiled is not None and dit._compiled.active
     assert all(tc.is_compiled(b) for b in dit.module.blocks)
+
+
+# -- the caching allocator's idle reserved pool counts as free ----------------
+# `torch.cuda.mem_get_info` reports blocks our own allocator reserved but no
+# longer has allocated (the previous phase's activation buffers) as USED, so a
+# gate that judges fit on the raw number refuses clips the card can hold: the
+# maintainer's 14s MiniMax-H3 clip, 26.8GB of activations refused against
+# "21.1GB free" on a 32.6GB card whose idle usage is ~5GB.
+
+_POOL_RAW_FREE_GB = 21.1
+_POOL_IDLE_RESERVED_GB = 8.0
+_POOL_EFFECTIVE_FREE_GB = _POOL_RAW_FREE_GB + _POOL_IDLE_RESERVED_GB
+_POOL_VIDEO_TOKENS = 92_000  # ~26.8GB reserve at H3's attention/FFN widths
+
+
+def _pool_reserve_gb() -> float:
+    return estimate_activation_reserve_gb(
+        _POOL_VIDEO_TOKENS, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+    )
+
+
+def test_the_scenario_is_the_reported_one_reserve_between_raw_and_effective_free():
+    # Guards the three tests below: the reserve must genuinely sit ABOVE raw
+    # free and BELOW effective free, or they would prove nothing.
+    assert _POOL_RAW_FREE_GB < _pool_reserve_gb() < _POOL_EFFECTIVE_FREE_GB
+
+
+def test_idle_reserved_pool_is_credited_so_a_fitting_clip_is_not_refused():
+    dit, calls = _dit(estimated_vram_gb=15.65)
+    patches, manager = _patched(
+        free_gb=_POOL_RAW_FREE_GB, effective_gb=_POOL_EFFECTIVE_FREE_GB,
+    )
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=_POOL_VIDEO_TOKENS,
+            inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+        )
+    # Streams its weights (only ~2.3GB of budget is left over the reserve),
+    # which is exactly what "used to run" meant -- not a refusal.
+    assert decision.mode == "partial"
+    assert len(calls["stream_to"]) == 1
+
+
+def test_gate_still_refuses_when_the_allocator_pool_is_empty():
+    # Same clip, same card, but nothing cached: raw == effective, so there is
+    # no hidden headroom to credit and the refusal is correct.
+    dit, calls = _dit(estimated_vram_gb=15.65)
+    patches, manager = _patched(free_gb=_POOL_RAW_FREE_GB)
+    with patches[0], patches[1], patches[2]:
+        with pytest.raises(DitPlacementInfeasible) as exc_info:
+            place_dit_for_sequence(
+                dit, "cuda", video_tokens=_POOL_VIDEO_TOKENS,
+                inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+            )
+    assert exc_info.value.free_gb == pytest.approx(_POOL_RAW_FREE_GB)
+    assert calls["move_to"] == []
+    assert calls["stream_to"] == []
+
+
+def test_refusal_detail_reports_both_the_raw_and_the_effective_free_number():
+    # So a refusal in the log says how much of the shortfall was the
+    # allocator holding on, rather than the card being genuinely full.
+    dit, _calls = _dit(estimated_vram_gb=15.65)
+    patches, manager = _patched(free_gb=4.0, effective_gb=6.0)
+    with patches[0], patches[1], patches[2]:
+        with pytest.raises(DitPlacementInfeasible) as exc_info:
+            place_dit_for_sequence(
+                dit, "cuda", video_tokens=_POOL_VIDEO_TOKENS,
+                inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+            )
+    detail = exc_info.value.detail
+    assert "free_raw_gb=4.00" in detail
+    assert "free_effective_gb=6.00" in detail
+    assert exc_info.value.free_gb == pytest.approx(6.0)
+
+
+def test_warm_resident_dit_fits_once_the_idle_pool_is_credited():
+    # The warm fast path reads free VRAM a second time; crediting only the
+    # DiT's own weight there (and not the pool) would offload and re-stream a
+    # DiT that is already resident and already fits.
+    dit, calls = _dit(estimated_vram_gb=19.6)
+    dit.device = "cuda"
+    patches, manager = _patched(free_gb=2.0, effective_gb=10.0)  # 8GB idle pool
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=0, reserve_gb=5.0)
+    assert decision.mode == "resident"
+    assert decision.kept_resident is True
+    assert calls["move_to"] == []
+    assert calls["stream_to"] == []
+    assert calls["offload"] == 0
+
+
+def test_cold_placement_weight_budget_credits_the_idle_pool():
+    # The post-eviction measurement that sizes `weight_budget` reads the same
+    # way: on the raw number this 23.3GB DiT would be streamed instead of
+    # pinned, for room that is actually there.
+    dit, calls = _dit(estimated_vram_gb=23.3)
+    tokens = _video_tokens_for(5)
+    reserve = estimate_activation_reserve_gb(tokens)
+    patches, manager = _patched(free_gb=20.0, effective_gb=23.3 + reserve + 0.5)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=tokens)
+    assert decision.mode == "resident"
+    assert calls["move_to"] == ["cuda"]
+    assert calls["stream_to"] == []

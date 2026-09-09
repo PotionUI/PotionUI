@@ -43,9 +43,8 @@
 	async function handleAddToCollection(collectionId: string): Promise<boolean> {
 		if (selectedIds.length === 0) return false;
 		try {
-			const response = await api.addToModelCollection(collectionId, selectedIds);
+			const response = await modelLibraryStore.addMembers(collectionId, selectedIds);
 			if (response.success) {
-				await modelLibraryStore.load();
 				const added = response.data?.added ?? selectedIds.length;
 				onClearSelection();
 				flash(`Added ${added} to collection`);

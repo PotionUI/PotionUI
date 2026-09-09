@@ -28,8 +28,7 @@
 	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
 	import { ensureSubscribed, releaseSubscription, clearSubscriptionOwner } from '$lib/generation/restore/subscriptions';
 	import { retireConfirmedCancellations, applyConfirmedCancellations } from '$lib/generation/cancelRetirement';
-	import { toggleFloatingForm } from '$lib/generation/floatingForm';
-	import { toggleFloatingWorkbench } from '$lib/generation/floatingWorkbench';
+	import { pressFloatingForm, pressFloatingWorkbench } from '$lib/generation/floatingOverlays';
 	let generationPanelRef: GenerationPanel | undefined;
 	import { normalizeFileType } from '$lib/utils/fileType';
 	import { galleryTotal } from '$lib/components/workbench/workbenchGallery';
@@ -730,10 +729,10 @@
 			generationPanelRef?.toggleDrawer('lastGenerations');
 		});
 		keybindingsStore.registerHandler('toggle_floating_form', () => {
-			tabsStore.updateTab(activeTabId, toggleFloatingForm(currentTab));
+			tabsStore.updateTab(activeTabId, pressFloatingForm(currentTab));
 		});
 		keybindingsStore.registerHandler('toggle_floating_workbench', () => {
-			tabsStore.updateTab(activeTabId, toggleFloatingWorkbench(currentTab));
+			tabsStore.updateTab(activeTabId, pressFloatingWorkbench(currentTab));
 		});
 
 		// Load presets
@@ -2054,6 +2053,7 @@
 			tabId={currentTab.id}
 			presetVersion={currentTabPresetVersion}
 			availableModes={activeTabModes}
+			workbenchFloating={!!currentTab.workbenchFloating}
 			on:generationcomplete={() => lastGenerationsRefreshSignal++}
 		>
 			<GenerationSettingsPanel

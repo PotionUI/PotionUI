@@ -15,9 +15,10 @@
 	// Generate. Mounted only while `tab.workbenchFloating` is true, at which
 	// point the inline pane renders a placeholder instead — so there is never
 	// more than one live Workbench instance for a tab to diverge from. z-30,
-	// below the Generation Panel's own drawers (z-40/z-50) so H / the
-	// settings drawer still open above it. Not modal and no focus trap: the
-	// panel below stays part of the keyboard flow, that is the whole point.
+	// same layer as the Generation Panel's drawers — GenerationPanel disables
+	// its drawer toggles and force-closes any open drawer while this overlay
+	// is up instead of letting the two stack. Not modal and no focus trap:
+	// the panel below stays part of the keyboard flow, that is the whole point.
 	//
 	// The window's size is the workbench's own settings, not something this
 	// overlay invents: height comes from `tab.workbenchMaxHeight` (the same

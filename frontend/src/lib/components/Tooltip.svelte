@@ -2,6 +2,7 @@
 	import { onMount, setContext } from 'svelte';
 	import { Kbd } from '$lib/components/ui';
 	import { INSIDE_TOOLTIP_CONTEXT_KEY } from './tooltipContext';
+	import portal from '$lib/actions/portal';
 
 	// Lets descendants drop their own native `title` fallback rather than
 	// rendering a second, unstyled tooltip beside this one.
@@ -107,10 +108,13 @@
 	</div>
 </div>
 
-<!-- Tooltip rendered fixed to escape overflow containers -->
+<!-- Tooltip rendered fixed to escape overflow containers; portaled to <body> so a
+     `backdrop-filter` ancestor (e.g. the docked generation panel) can't trap it
+     in its own stacking context, below overlays like the floating workbench. -->
 {#if showTooltip && text}
 	<div
 		bind:this={tooltipElement}
+		use:portal
 		aria-hidden="true"
 		style="min-width: max-content; max-width: 300px; {tooltipStyle}"
 		class="fixed z-[9999] px-2 py-1 text-xs font-medium text-fg bg-surface-3 rounded-md shadow-lg pointer-events-none animate-in fade-in duration-150 break-words flex items-center gap-1.5"

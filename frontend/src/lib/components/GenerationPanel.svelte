@@ -50,6 +50,10 @@
 	export let tabId: string = '';
 	export let presetVersion: string | undefined = undefined;
 	export let availableModes: Array<{ id: string; variants?: PresetModeVariant[] }> = [];
+	// While the floating workbench (`W`) is open, its window sits above this
+	// panel's own drawers (both z-30, whichever mounted later wins) — block
+	// opening a second overlay on top of it instead of letting them stack.
+	export let workbenchFloating: boolean = false;
 
 	// Backend generation queue: everything this tab has enqueued (pending or running).
 	$: queueEntries = generation.queue || [];
@@ -70,6 +74,7 @@
 
 	// Toggle drawer open/closed - exported so the page's keybinding handler can drive it
 	export function toggleDrawer(drawer: DrawerType) {
+		if (workbenchFloating) return;
 		if (activeDrawer === drawer) {
 			activeDrawer = null;
 		} else {
@@ -86,6 +91,13 @@
 	function closeDrawer() {
 		activeDrawer = null;
 		storage.remove(STORAGE_KEY_DRAWER);
+	}
+
+	// Force-close without touching storage: the user's last-chosen drawer
+	// still comes back on the next mount, the workbench going floating only
+	// hides it for now.
+	$: if (workbenchFloating && activeDrawer) {
+		activeDrawer = null;
 	}
 
 	// Generation mode state
@@ -531,37 +543,50 @@
 					Tooltip computes its own fixed position from the trigger's
 					live bounding rect, so it's correct regardless of the
 					strip's own stacking context. -->
-				<Tooltip text="Generation settings" position="top" delay={150}>
+				<Tooltip
+					text={workbenchFloating ? 'Unavailable while the workbench is floating' : 'Generation settings'}
+					position="top"
+					delay={150}
+				>
 					<button
 						type="button"
 						class="icon-button"
 						aria-label="Generation settings"
 						aria-expanded={activeDrawer === 'settings'}
-						disabled={!$$slots.settings}
+						disabled={!$$slots.settings || workbenchFloating}
 						on:click={() => toggleDrawer('settings')}
 					>
 						<svg class="icon"><use href="#i-sliders" /></svg>
 					</button>
 				</Tooltip>
-				<Tooltip text="Last generations" position="top" delay={150}>
+				<Tooltip
+					text={workbenchFloating ? 'Unavailable while the workbench is floating' : 'Last generations'}
+					position="top"
+					delay={150}
+				>
 					<button
 						type="button"
 						class="icon-button"
 						aria-label="Last generations"
 						aria-expanded={activeDrawer === 'lastGenerations'}
-						disabled={!$$slots.lastGenerations}
+						disabled={!$$slots.lastGenerations || workbenchFloating}
 						on:click={() => toggleDrawer('lastGenerations')}
 					>
 						<svg class="icon"><use href="#i-history" /></svg>
 					</button>
 				</Tooltip>
 				{#each $panelModeContributions as modeContrib (pluginDrawerId(modeContrib))}
-					<Tooltip text={modeContrib.label || modeContrib.component} position="top" delay={150}>
+					<Tooltip
+						text={workbenchFloating ? 'Unavailable while the workbench is floating' : (modeContrib.label || modeContrib.component)}
+						position="top"
+						delay={150}
+					>
 						<button
 							type="button"
 							class="icon-button"
 							aria-label={modeContrib.label || modeContrib.component}
 							aria-expanded={activeDrawer === pluginDrawerId(modeContrib)}
+							disabled={workbenchFloating}
 							on:click={() => toggleDrawer(pluginDrawerId(modeContrib))}
 						>
 							<svg class="icon"><use href="#i-extension" /></svg>

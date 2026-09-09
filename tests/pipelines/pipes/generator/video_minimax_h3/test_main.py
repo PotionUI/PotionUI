@@ -2698,6 +2698,38 @@ def test_sampling_oom_raises_with_the_fit_hint_appended():
     assert err.audio_tokens == 1_150
 
 
+def test_h3_hands_its_fit_hint_to_the_pre_flight_placement_too():
+    """The over-commit WARNING gets the same hint the OOM error does, so a
+    clip that over-commits says what would fit in the log before it ever
+    reaches sampling."""
+    seen = {}
+    placement = DitPlacementDecision(
+        "partial", 19.52, 30.35, 0.0, 102_869, 1_150, 4.21, True, 1.4,
+    )
+
+    def spy(*_args, **kwargs):
+        seen["fit_hint"] = kwargs.get("fit_hint")
+        return placement
+
+    with patch(f"{_MAIN}.place_dit_for_sequence", side_effect=spy), \
+         patch(f"{_MAIN}._MiniMaxH3Forward", _OomForward), \
+         patch(f"{_PLACEMENT}.free_vram_gb", return_value=28.0), \
+         patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=31.0):
+        with pytest.raises(SamplingOutOfMemory):
+            _run_generate_one({}, ctx_overrides={"height": 768, "width": 1344, "num_latent_frames": 107})
+
+    hint = seen["fit_hint"]
+    assert hint is not None, "placement was called without H3's fit hint"
+    # It is H3's real hint, not a stub: rendering it reproduces what
+    # _fit_hint/_format_fit_hint produce for the same numbers.
+    text = hint(31.0, activation_reserve_gb=30.35, extra_reserve_gb=4.21, tokens=104_019)
+    expected = _format_fit_hint(
+        _fit_hint(31.0, 4.21, 30.35, 104_019, 107, FPS, 1344, 768), 1344, 768,
+    )
+    assert text == expected
+    assert text  # and it actually says something for these numbers
+
+
 def test_the_fit_hint_is_built_from_the_free_vram_measured_at_failure():
     # Not from the pre-flight estimate: two different free readings must give
     # two different hints for the same clip.

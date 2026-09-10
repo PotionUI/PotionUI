@@ -218,20 +218,23 @@ class TestListModels:
 class TestGetModelTypes:
     """Tests for get_model_types, in particular the include_empty zero-count injection."""
 
-    def _stub_scanner_mapping(self, collaborators):
+    def _stub_scanner_mapping(self, collaborators, tmp_path):
         # The `collaborators` fixture replaces the catalog's scanner with a bare
         # MagicMock; MODEL_TYPE_MAPPING must be stubbed explicitly to the real
         # class attribute so get_model_types can read the known-types superset.
         # `models_dir` must be a real Path too - `_type_directory` joins it with
         # `TYPE_DIR_MAP`, and a bare MagicMock's `__truediv__` would silently
-        # return another MagicMock instead of a real path.
+        # return another MagicMock instead of a real path. A `tmp_path`-rooted
+        # directory, not the literal 'models' string: relative to the repo's
+        # own CWD that resolves to the real (symlinked-into-/mnt/ssd2) models
+        # depot, and `_type_subdirectories` now actually lists it.
         collaborators.catalog.scanner.MODEL_TYPE_MAPPING = ModelScanner.MODEL_TYPE_MAPPING
-        collaborators.catalog.scanner.models_dir = Path('models')
+        collaborators.catalog.scanner.models_dir = tmp_path / 'models'
 
     async def test_admin_include_empty_adds_zero_count_types(
-        self, collaborators, mock_model_repository, mock_admin_user
+        self, collaborators, mock_model_repository, mock_admin_user, tmp_path
     ):
-        self._stub_scanner_mapping(collaborators)
+        self._stub_scanner_mapping(collaborators, tmp_path)
         mock_model_repository.count_by_type.return_value = {'checkpoint': 3, 'lora': 5}
         mock_model_repository.get_total_size_by_type.return_value = {'checkpoint': 1000, 'lora': 2000}
 
@@ -248,16 +251,17 @@ class TestGetModelTypes:
             assert entry['size_bytes'] == 0
             assert entry['size_mb'] == 0
             assert entry['size_gb'] == 0
-            assert entry['directory'] == str(Path('models') / TYPE_DIR_MAP.get(model_type, model_type))
+            assert entry['directory'] == str(tmp_path / 'models' / TYPE_DIR_MAP.get(model_type, model_type))
+            assert entry['subdirectories'] == []
 
         # Existing non-empty types are untouched.
         assert types_by_name['checkpoint']['count'] == 3
         assert types_by_name['lora']['count'] == 5
 
     async def test_admin_include_empty_false_is_unchanged(
-        self, collaborators, mock_model_repository, mock_admin_user
+        self, collaborators, mock_model_repository, mock_admin_user, tmp_path
     ):
-        self._stub_scanner_mapping(collaborators)
+        self._stub_scanner_mapping(collaborators, tmp_path)
         mock_model_repository.count_by_type.return_value = {'checkpoint': 3}
         mock_model_repository.get_total_size_by_type.return_value = {'checkpoint': 1000}
 
@@ -271,9 +275,9 @@ class TestGetModelTypes:
         assert [t['type'] for t in result_default['types']] == ['checkpoint']
 
     async def test_admin_user_scoped_ignores_include_empty(
-        self, collaborators, mock_model_repository, mock_admin_user
+        self, collaborators, mock_model_repository, mock_admin_user, tmp_path
     ):
-        self._stub_scanner_mapping(collaborators)
+        self._stub_scanner_mapping(collaborators, tmp_path)
         mock_model_repository.get_available_model_ids_for_user.return_value = ['model-1']
         mock_model_repository.count_by_type.return_value = {'checkpoint': 1}
         mock_model_repository.get_total_size_by_type.return_value = {'checkpoint': 500}
@@ -284,9 +288,9 @@ class TestGetModelTypes:
         assert result['total_types'] == 1
 
     async def test_regular_user_ignores_include_empty(
-        self, collaborators, mock_model_repository, mock_regular_user
+        self, collaborators, mock_model_repository, mock_regular_user, tmp_path
     ):
-        self._stub_scanner_mapping(collaborators)
+        self._stub_scanner_mapping(collaborators, tmp_path)
         mock_model_repository.get_available_model_ids_for_user.return_value = ['model-1']
         mock_model_repository.count_by_type.return_value = {'lora': 2}
         mock_model_repository.get_total_size_by_type.return_value = {'lora': 200}
@@ -297,9 +301,9 @@ class TestGetModelTypes:
         assert result['total_types'] == 1
 
     async def test_total_types_matches_returned_list_length(
-        self, collaborators, mock_model_repository, mock_admin_user
+        self, collaborators, mock_model_repository, mock_admin_user, tmp_path
     ):
-        self._stub_scanner_mapping(collaborators)
+        self._stub_scanner_mapping(collaborators, tmp_path)
         mock_model_repository.count_by_type.return_value = {}
         mock_model_repository.get_total_size_by_type.return_value = {}
 
@@ -307,6 +311,36 @@ class TestGetModelTypes:
 
         assert result['total_types'] == len(result['types'])
         assert result['total_types'] == len(set(ModelScanner.MODEL_TYPE_MAPPING.values()))
+
+    async def test_subdirectories_lists_immediate_child_dirs_sorted_excluding_hidden(
+        self, collaborators, mock_model_repository, mock_admin_user, tmp_path
+    ):
+        self._stub_scanner_mapping(collaborators, tmp_path)
+        lora_dir = tmp_path / 'models' / TYPE_DIR_MAP['lora']
+        lora_dir.mkdir(parents=True)
+        (lora_dir / 'sdxl').mkdir()
+        (lora_dir / 'flux').mkdir()
+        (lora_dir / '.cache').mkdir()
+        (lora_dir / 'a-file.safetensors').touch()
+        mock_model_repository.count_by_type.return_value = {'lora': 2}
+        mock_model_repository.get_total_size_by_type.return_value = {'lora': 200}
+
+        result = await operations.get_model_types(collaborators, mock_admin_user, user_scoped=False)
+
+        entry = next(t for t in result['types'] if t['type'] == 'lora')
+        assert entry['subdirectories'] == ['flux', 'sdxl']
+
+    async def test_subdirectories_empty_when_type_dir_does_not_exist(
+        self, collaborators, mock_model_repository, mock_admin_user, tmp_path
+    ):
+        self._stub_scanner_mapping(collaborators, tmp_path)
+        mock_model_repository.count_by_type.return_value = {'lora': 1}
+        mock_model_repository.get_total_size_by_type.return_value = {'lora': 100}
+
+        result = await operations.get_model_types(collaborators, mock_admin_user, user_scoped=False)
+
+        entry = next(t for t in result['types'] if t['type'] == 'lora')
+        assert entry['subdirectories'] == []
 
 
 class TestGetModel:

@@ -113,6 +113,7 @@ def build_router(container: "AppContainer") -> APIRouter:
                 url=request.url,
                 destination_dir=request.destination_dir,
                 model_type=request.model_type,
+                subdir=request.subdir,
                 filename=request.filename,
                 tags=request.tags,
                 checksum_sha256=request.checksum_sha256,

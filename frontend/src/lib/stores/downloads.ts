@@ -110,6 +110,7 @@ export function modelTypeFromPath(destinationPath: string): string | null {
 export interface QueueModelDownloadOptions {
 	destination_dir?: string;
 	model_type?: string;
+	subdir?: string;
 	filename?: string;
 	tags?: string[];
 	checksum_sha256?: string;

@@ -195,6 +195,23 @@ class ModelCatalog:
         subdir = TYPE_DIR_MAP.get(model_type, model_type)
         return str(self.scanner.models_dir / subdir)
 
+    def _type_subdirectories(self, model_type: str) -> List[str]:
+        """Immediate child directories of `model_type`'s depot directory,
+        relative names, sorted, hidden/dot directories excluded. Empty when
+        the directory doesn't exist (a type with nothing downloaded yet).
+
+        Lets a downloader (e.g. "Add Download") offer the base-model
+        subfolders a depot already organizes a type into (`models/loras/<base>/`)
+        without the caller having to walk the filesystem itself.
+        """
+        type_dir = self.scanner.models_dir / TYPE_DIR_MAP.get(model_type, model_type)
+        if not type_dir.is_dir():
+            return []
+        return sorted(
+            entry.name for entry in type_dir.iterdir()
+            if entry.is_dir() and not entry.name.startswith('.')
+        )
+
     def get_model_types(
         self,
         user: User,
@@ -229,6 +246,7 @@ class ModelCatalog:
             types.append({
                 "type": model_type,
                 "directory": self._type_directory(model_type),
+                "subdirectories": self._type_subdirectories(model_type),
                 "count": count,
                 "size_bytes": size_bytes,
                 "size_mb": round(size_bytes / (1024 * 1024), 2) if size_bytes > 0 else 0,
@@ -241,6 +259,7 @@ class ModelCatalog:
                 types.append({
                     "type": model_type,
                     "directory": self._type_directory(model_type),
+                    "subdirectories": self._type_subdirectories(model_type),
                     "count": 0,
                     "size_bytes": 0,
                     "size_mb": 0,

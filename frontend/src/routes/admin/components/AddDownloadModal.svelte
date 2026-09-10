@@ -12,6 +12,7 @@
 		type: string;
 		directory?: string;
 		count?: number;
+		subdirectories?: string[];
 	}
 
 	interface ApiProviderItem {
@@ -28,6 +29,7 @@
 
 	let url = '';
 	let destinationType = '';
+	let destinationSubdir = '';
 	let filename = '';
 	let selectedTags: string[] = [];
 	let selectedProviderId = '';
@@ -38,7 +40,7 @@
 	let advancedOpen = false;
 
 	// Loaded data
-	let modelTypes: { type: string; directory: string; count: number }[] = [];
+	let modelTypes: { type: string; directory: string; count: number; subdirectories: string[] }[] = [];
 	let providers: { id: string; name: string }[] = [];
 	let availableTags: { id: string; name: string }[] = [];
 	let loadingData = true;
@@ -55,6 +57,16 @@
 		...$remoteBackends.map((b) => ({ id: b.id, label: b.name, icon: 'server' }))
 	];
 	$: useSegmentedDestination = destinationItems.length <= 4;
+	$: selectedTypeEntry = modelTypes.find((t) => t.type === destinationType);
+	$: availableSubdirs = selectedTypeEntry?.subdirectories ?? [];
+	$: selectedDirectory = selectedTypeEntry
+		? destinationSubdir
+			? `${selectedTypeEntry.directory}/${destinationSubdir}`
+			: selectedTypeEntry.directory
+		: 'models';
+	// Reset to the type's root whenever the chosen type changes, including
+	// when a previously picked subfolder doesn't exist under the new type.
+	$: if (destinationType) destinationSubdir = '';
 
 	onMount(async () => {
 		await loadInitialData();
@@ -74,7 +86,8 @@
 				modelTypes = (typesRes.data.types as ApiModelTypeItem[]).map((t) => ({
 					type: t.type,
 					directory: t.directory || `models/${t.type}`,
-					count: t.count || 0
+					count: t.count || 0,
+					subdirectories: t.subdirectories || []
 				}));
 				// Set default selection to checkpoint if available
 				if (modelTypes.length > 0) {
@@ -156,11 +169,6 @@
 		return availableTags.find((t) => t.id === tagId)?.name || tagId;
 	}
 
-	function getSelectedDirectory(): string {
-		const selected = modelTypes.find((t) => t.type === destinationType);
-		return selected?.directory || 'models';
-	}
-
 	async function handleSubmit() {
 		if (!url.trim()) {
 			errorMessage = 'URL is required';
@@ -177,6 +185,7 @@
 			const options: QueueModelDownloadOptions = {
 				model_type: destinationType
 			};
+			if (destinationSubdir) options.subdir = destinationSubdir;
 			if (filename.trim()) options.filename = filename.trim();
 			// Convert tag IDs to tag names for the download service
 			if (selectedTags.length > 0) {
@@ -308,8 +317,21 @@
 							<option value={modelType.type}>{modelType.type}</option>
 						{/each}
 					</select>
+
+					{#if availableSubdirs.length > 0}
+						<label for="destination-subdir" class="block text-xs font-mono uppercase tracking-[0.06em] text-fg-subtle mb-1.5 mt-3">
+							Subfolder
+						</label>
+						<select id="destination-subdir" bind:value={destinationSubdir} class="input">
+							<option value="">(root)</option>
+							{#each availableSubdirs as sub}
+								<option value={sub}>{sub}</option>
+							{/each}
+						</select>
+					{/if}
+
 					<p class="text-xs text-fg-subtle mt-1">
-						Downloads to <code class="bg-surface-3 px-1 py-0.5 rounded font-mono">{getSelectedDirectory()}</code>
+						Downloads to <code class="bg-surface-3 px-1 py-0.5 rounded font-mono">{selectedDirectory}</code>
 					</p>
 				</div>
 			</div>

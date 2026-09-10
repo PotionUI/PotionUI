@@ -477,6 +477,75 @@ class TestQueueModelDownloadSymlinkedTypeDir:
             await self._queue(manager, model_type='/etc/cron.d')
 
 
+class TestQueueModelDownloadSubdir:
+    """`subdir` (the Add Download modal's "Subfolder" picker) joins onto the
+    `model_type`-resolved directory - depot/<type dir>/<subdir> - and is
+    ignored when no `model_type` is given."""
+
+    @pytest.fixture
+    def manager_with_depot(self, mock_repository, mock_plugin_registry, tmp_path):
+        depot = tmp_path / "custom-depot"
+        manager = DownloadQueue(
+            download_repository=mock_repository,
+            plugin_registry=mock_plugin_registry,
+            settings=_settings(models_dir=str(depot)),
+            connection_hub=AsyncMock(),
+        )
+        manager.worker = AsyncMock()
+        manager.worker.get_queue_position.return_value = 0
+        mock_repository.create.side_effect = lambda d: d
+        return manager, depot
+
+    async def _queue(self, manager, **kwargs):
+        with patch.object(manager, 'conn', AsyncMock()):
+            return await manager.queue_model_download(
+                url='https://example.com/model.safetensors',
+                filename='model.safetensors',
+                **kwargs,
+            )
+
+    @pytest.mark.asyncio
+    async def test_subdir_joins_under_the_type_directory(self, manager_with_depot):
+        manager, depot = manager_with_depot
+        result = await self._queue(manager, model_type='lora', subdir='sdxl')
+
+        assert Path(result.destination_path).resolve() == (
+            depot / 'loras' / 'sdxl' / 'model.safetensors'
+        ).resolve()
+
+    @pytest.mark.asyncio
+    async def test_nested_subdir_is_accepted(self, manager_with_depot):
+        manager, depot = manager_with_depot
+        result = await self._queue(manager, model_type='lora', subdir='sdxl/style')
+
+        assert Path(result.destination_path).resolve() == (
+            depot / 'loras' / 'sdxl' / 'style' / 'model.safetensors'
+        ).resolve()
+
+    @pytest.mark.asyncio
+    async def test_traversal_subdir_is_rejected(self, manager_with_depot):
+        manager, _depot = manager_with_depot
+        with pytest.raises(DownloadQueueException):
+            await self._queue(manager, model_type='lora', subdir='../../etc')
+
+    @pytest.mark.asyncio
+    async def test_absolute_subdir_is_rejected(self, manager_with_depot):
+        manager, _depot = manager_with_depot
+        with pytest.raises(DownloadQueueException):
+            await self._queue(manager, model_type='lora', subdir='/etc/cron.d')
+
+    @pytest.mark.asyncio
+    async def test_subdir_without_model_type_is_ignored(self, manager_with_depot):
+        """`subdir` only has meaning relative to a `model_type`-resolved
+        directory; given without one, it does not affect the destination."""
+        manager, depot = manager_with_depot
+        result = await self._queue(manager, subdir='sdxl')
+
+        assert Path(result.destination_path).resolve() == (
+            depot / 'model.safetensors'
+        ).resolve()
+
+
 class TestQueueModelDownloadFilenameFromUrl:
     """A filename derived from the URL when none is given, guarded against an
     encoded traversal segment (`unquote` must run before `os.path.basename`

@@ -11,6 +11,7 @@ class QueueModelDownloadRequest(BaseModel):
     url: str
     destination_dir: Optional[str] = None
     model_type: Optional[str] = None
+    subdir: Optional[str] = None
     filename: Optional[str] = None
     tags: Optional[List[str]] = None
     checksum_sha256: Optional[str] = None

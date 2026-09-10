@@ -423,6 +423,7 @@ class DownloadQueue:
         provider_id: Optional[str] = None,
         created_by: Optional[str] = None,
         model_type: Optional[str] = None,
+        subdir: Optional[str] = None,
         destination_backend_id: Optional[str] = None,
     ) -> Download:
         """Queue a model file for download.
@@ -447,6 +448,13 @@ class DownloadQueue:
                 the destination via `TYPE_DIR_MAP` - the same mapping the
                 indexer scans by - so the file lands where it will actually
                 be found.
+            subdir: Optional subfolder under the resolved `model_type`
+                directory (e.g. a base-model subfolder under `models/loras`).
+                Untrusted - from HTTP - and only applied when `model_type` is
+                also given; ignored otherwise. Rejected outright when it is
+                absolute or carries a `..` segment; the joined result is still
+                verified by `_verify_contained_dir` like every other
+                destination this method resolves.
             destination_backend_id: When given, the file is fetched straight
                 onto that `native.remote` backend's worker depot instead of
                 this host's disk - the backend must exist, be a `native.remote`
@@ -496,6 +504,13 @@ class DownloadQueue:
             from src.features.models.jobs import TYPE_DIR_MAP
 
             trusted_subdir = TYPE_DIR_MAP.get(model_type, model_type)
+
+            if subdir:
+                if os.path.isabs(subdir) or any(part == '..' for part in Path(subdir).parts):
+                    raise DownloadQueueException(
+                        f"Subfolder '{subdir}' must be a relative path with no '..' segments"
+                    )
+                trusted_subdir = f"{trusted_subdir}/{subdir}"
 
         destination_dir = str(self._resolve_contained_dir(
             self.settings.default_model_directory,

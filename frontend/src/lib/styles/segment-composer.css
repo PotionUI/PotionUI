@@ -5,8 +5,6 @@
 
 @keyframes auto-border-reminder { 0% { opacity: 0; transform: rotate(0); } 16%, 72% { opacity: .85; } 100% { opacity: 0; transform: rotate(1turn); } }
 
-@keyframes shuffle-flash { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--fg) 14%, transparent); } }
-
 .segment-composer {
 button, input, textarea { font: inherit; color: inherit; }
 
@@ -221,23 +219,25 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 /* The conic sweep (::before) paints in the border area too: the border goes transparent and the resting ring moves to a
    box-shadow outside the box, so the animation is a 2px band (border + 1px rim) instead of a 1px rim hidden under a solid border. */
-.chip.shuffle-enabled { isolation: isolate; overflow: clip; overflow-clip-margin: 1px; border-color: transparent; box-shadow: inset 0 1px rgba(255,255,255,.025), 0 0 0 1px color-mix(in srgb, rgb(var(--fg)) 52%, rgb(var(--line))); }
+.chip:is(.shuffle-enabled, .shuffling) { isolation: isolate; overflow: clip; overflow-clip-margin: 1px; }
 
-.chip.shuffle-enabled::before { content: ""; position: absolute; z-index: 0; inset: -180%; opacity: 0; background: conic-gradient(from 0deg, transparent 0 70%, color-mix(in srgb, rgb(var(--signal)) 28%, transparent) 76%, rgb(var(--signal)) 80%, color-mix(in srgb, rgb(var(--signal)) 28%, transparent) 84%, transparent 90%); }
+.chip.shuffle-enabled { border-color: transparent; box-shadow: inset 0 1px rgba(255,255,255,.025), 0 0 0 1px color-mix(in srgb, rgb(var(--fg)) 52%, rgb(var(--line))); }
 
-.chip.shuffle-enabled.border-sweep::before { animation: auto-border-sweep 1.35s ease-out 1; }
+.chip:is(.shuffle-enabled, .shuffling)::before { content: ""; position: absolute; z-index: 0; inset: -180%; opacity: 0; background: conic-gradient(from 0deg, transparent 0 70%, color-mix(in srgb, rgb(var(--signal)) 28%, transparent) 76%, rgb(var(--signal)) 80%, color-mix(in srgb, rgb(var(--signal)) 28%, transparent) 84%, transparent 90%); }
+
+.chip.shuffling::before { animation: auto-border-sweep 1.35s ease-out 1; }
 
 .chip.shuffle-enabled:hover::before, .chip.shuffle-enabled:focus-within::before { animation: auto-border-reminder 1.15s ease-out 1; }
 
-.chip.shuffle-enabled::after { content: ""; position: absolute; z-index: 0; inset: 1px; background: rgb(var(--surface-3)); border-radius: 4px; }
+.chip:is(.shuffle-enabled, .shuffling)::after { content: ""; position: absolute; z-index: 0; inset: 1px; background: rgb(var(--surface-3)); border-radius: 4px; }
 
-.chip.shuffle-enabled:hover::after, .chip.shuffle-enabled.active::after { background: rgb(var(--surface-2)); }
+.chip:is(.shuffle-enabled, .shuffling):hover::after, .chip:is(.shuffle-enabled, .shuffling).active::after { background: rgb(var(--surface-2)); }
 
 /* Focus/active on a shuffle chip: no outline (it sat on top of the sweep); the resting ring brightens instead, and the
    focus-within reminder sweep above is the motion cue. */
 .chip.shuffle-enabled.active, .chip.shuffle-enabled:focus-within { outline: 0; box-shadow: inset 0 1px rgba(255,255,255,.025), 0 0 0 1px color-mix(in srgb, rgb(var(--fg)) 85%, rgb(var(--line))); }
 
-.chip.shuffle-enabled > * { position: relative; z-index: 1; }
+.chip:is(.shuffle-enabled, .shuffling) > * { position: relative; z-index: 1; }
 
 .chip.shuffle-enabled .chip-config { color: rgb(var(--fg)); }
 
@@ -250,8 +250,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 .chip-config:hover, .chip-config:focus-visible { color: rgb(var(--fg)); background: color-mix(in srgb, rgb(var(--fg)) 8%, rgb(var(--surface-2))); }
 
 .chip-config .icon { width: 11px; height: 11px; margin: 0; }
-
-.chip.shuffling { animation: shuffle-flash .45s ease; }
 
 .break-row { display: flex; align-items: center; gap: 9px; min-height: 40px; padding: 0 5px; color: rgb(var(--fg-subtle)); }
 

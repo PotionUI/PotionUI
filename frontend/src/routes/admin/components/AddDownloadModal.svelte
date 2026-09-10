@@ -30,6 +30,8 @@
 	let url = '';
 	let destinationType = '';
 	let destinationSubdir = '';
+	let customSubdir = '';
+	const NEW_SUBDIR = '__new__';
 	let filename = '';
 	let selectedTags: string[] = [];
 	let selectedProviderId = '';
@@ -59,14 +61,23 @@
 	$: useSegmentedDestination = destinationItems.length <= 4;
 	$: selectedTypeEntry = modelTypes.find((t) => t.type === destinationType);
 	$: availableSubdirs = selectedTypeEntry?.subdirectories ?? [];
+	// The relative subfolder actually sent: a listed one, or the typed path
+	// with stray slashes trimmed (the server rejects `..` and absolute paths).
+	$: effectiveSubdir =
+		destinationSubdir === NEW_SUBDIR
+			? customSubdir.trim().replace(/^\/+|\/+$/g, '')
+			: destinationSubdir;
 	$: selectedDirectory = selectedTypeEntry
-		? destinationSubdir
-			? `${selectedTypeEntry.directory}/${destinationSubdir}`
+		? effectiveSubdir
+			? `${selectedTypeEntry.directory}/${effectiveSubdir}`
 			: selectedTypeEntry.directory
 		: 'models';
 	// Reset to the type's root whenever the chosen type changes, including
 	// when a previously picked subfolder doesn't exist under the new type.
-	$: if (destinationType) destinationSubdir = '';
+	$: if (destinationType) {
+		destinationSubdir = '';
+		customSubdir = '';
+	}
 
 	onMount(async () => {
 		await loadInitialData();
@@ -185,7 +196,7 @@
 			const options: QueueModelDownloadOptions = {
 				model_type: destinationType
 			};
-			if (destinationSubdir) options.subdir = destinationSubdir;
+			if (effectiveSubdir) options.subdir = effectiveSubdir;
 			if (filename.trim()) options.filename = filename.trim();
 			// Convert tag IDs to tag names for the download service
 			if (selectedTags.length > 0) {
@@ -318,16 +329,24 @@
 						{/each}
 					</select>
 
-					{#if availableSubdirs.length > 0}
-						<label for="destination-subdir" class="block text-xs font-mono uppercase tracking-[0.06em] text-fg-subtle mb-1.5 mt-3">
-							Subfolder
-						</label>
-						<select id="destination-subdir" bind:value={destinationSubdir} class="input">
-							<option value="">(root)</option>
-							{#each availableSubdirs as sub}
-								<option value={sub}>{sub}</option>
-							{/each}
-						</select>
+					<label for="destination-subdir" class="block text-xs font-mono uppercase tracking-[0.06em] text-fg-subtle mb-1.5 mt-3">
+						Subfolder
+					</label>
+					<select id="destination-subdir" bind:value={destinationSubdir} class="input">
+						<option value="">(root)</option>
+						{#each availableSubdirs as sub}
+							<option value={sub}>{sub.split('/').join(' / ')}</option>
+						{/each}
+						<option value={NEW_SUBDIR}>New subfolder…</option>
+					</select>
+					{#if destinationSubdir === NEW_SUBDIR}
+						<input
+							type="text"
+							class="input mt-2"
+							placeholder="e.g. sdxl/characters"
+							bind:value={customSubdir}
+							aria-label="New subfolder path"
+						/>
 					{/if}
 
 					<p class="text-xs text-fg-subtle mt-1">

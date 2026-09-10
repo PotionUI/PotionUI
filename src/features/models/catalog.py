@@ -4,6 +4,7 @@ Every method here is a query with access control applied; none of them mutate a
 model. Writes live in the metadata, assignment, indexing and job role classes.
 """
 
+from pathlib import Path
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -195,22 +196,30 @@ class ModelCatalog:
         subdir = TYPE_DIR_MAP.get(model_type, model_type)
         return str(self.scanner.models_dir / subdir)
 
-    def _type_subdirectories(self, model_type: str) -> List[str]:
-        """Immediate child directories of `model_type`'s depot directory,
-        relative names, sorted, hidden/dot directories excluded. Empty when
-        the directory doesn't exist (a type with nothing downloaded yet).
+    def _type_subdirectories(self, model_type: str, max_depth: int = 4) -> List[str]:
+        """Directories under `model_type`'s depot directory, as sorted
+        depot-relative POSIX paths (`sdxl`, `sdxl/characters`, ...), nested up to
+        `max_depth` levels; hidden/dot directories and everything beneath them
+        are skipped. Empty when the directory doesn't exist.
 
-        Lets a downloader (e.g. "Add Download") offer the base-model
-        subfolders a depot already organizes a type into (`models/loras/<base>/`)
-        without the caller having to walk the filesystem itself.
+        Lets a downloader (e.g. "Add Download") offer the folders a depot
+        already organizes a type into without walking the filesystem itself.
         """
         type_dir = self.scanner.models_dir / TYPE_DIR_MAP.get(model_type, model_type)
         if not type_dir.is_dir():
             return []
-        return sorted(
-            entry.name for entry in type_dir.iterdir()
-            if entry.is_dir() and not entry.name.startswith('.')
-        )
+        found: List[str] = []
+
+        def walk(directory: Path, depth: int) -> None:
+            for entry in sorted(directory.iterdir(), key=lambda e: e.name):
+                if not entry.is_dir() or entry.name.startswith('.'):
+                    continue
+                found.append(entry.relative_to(type_dir).as_posix())
+                if depth < max_depth:
+                    walk(entry, depth + 1)
+
+        walk(type_dir, 1)
+        return found
 
     def get_model_types(
         self,

@@ -312,15 +312,15 @@ class TestGetModelTypes:
         assert result['total_types'] == len(result['types'])
         assert result['total_types'] == len(set(ModelScanner.MODEL_TYPE_MAPPING.values()))
 
-    async def test_subdirectories_lists_immediate_child_dirs_sorted_excluding_hidden(
+    async def test_subdirectories_lists_nested_dirs_sorted_excluding_hidden(
         self, collaborators, mock_model_repository, mock_admin_user, tmp_path
     ):
         self._stub_scanner_mapping(collaborators, tmp_path)
         lora_dir = tmp_path / 'models' / TYPE_DIR_MAP['lora']
         lora_dir.mkdir(parents=True)
-        (lora_dir / 'sdxl').mkdir()
+        (lora_dir / 'sdxl' / 'characters').mkdir(parents=True)
         (lora_dir / 'flux').mkdir()
-        (lora_dir / '.cache').mkdir()
+        (lora_dir / '.cache' / 'blobs').mkdir(parents=True)
         (lora_dir / 'a-file.safetensors').touch()
         mock_model_repository.count_by_type.return_value = {'lora': 2}
         mock_model_repository.get_total_size_by_type.return_value = {'lora': 200}
@@ -328,7 +328,7 @@ class TestGetModelTypes:
         result = await operations.get_model_types(collaborators, mock_admin_user, user_scoped=False)
 
         entry = next(t for t in result['types'] if t['type'] == 'lora')
-        assert entry['subdirectories'] == ['flux', 'sdxl']
+        assert entry['subdirectories'] == ['flux', 'sdxl', 'sdxl/characters']
 
     async def test_subdirectories_empty_when_type_dir_does_not_exist(
         self, collaborators, mock_model_repository, mock_admin_user, tmp_path

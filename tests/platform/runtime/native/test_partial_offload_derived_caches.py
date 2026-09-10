@@ -353,7 +353,7 @@ def test_h3_streamed_offload_releases_pe_cache():
     m = _build_h3()
     model, _streamer = _h3_streamed_model(m)
     position_ids = torch.rand(7, 3, dtype=torch.float64)
-    m._prepare_positional_embeddings(position_ids)
+    m._prepare_positional_embeddings(position_ids, torch.float32)
     assert m._pe_cache is not None
     cache_ref = weakref.ref(m._pe_cache[0])
 
@@ -371,7 +371,7 @@ def test_h3_stale_cache_key_misses_after_streamed_offload():
     match -- must not be silently served from a torn-down cache."""
     m = _build_h3()
     position_ids = torch.rand(7, 3, dtype=torch.float64)
-    old_result = m._prepare_positional_embeddings(position_ids)
+    old_result = m._prepare_positional_embeddings(position_ids, torch.float32)
     old_key = m._pe_cache_key
 
     model, _streamer = _h3_streamed_model(m)
@@ -381,7 +381,7 @@ def test_h3_stale_cache_key_misses_after_streamed_offload():
     assert m._pe_cache_key != old_key
     # Recomputing with the identical tensor object must rebuild, not reuse the
     # released tuple, since the cache holding it is gone.
-    new_result = m._prepare_positional_embeddings(position_ids)
+    new_result = m._prepare_positional_embeddings(position_ids, torch.float32)
     assert new_result is not old_result
     assert m._pe_cache_key == old_key  # id/version/shape/device do match again
 
@@ -391,7 +391,7 @@ def test_h3_normal_offload_control_clears_cache_via_apply_as_before():
     which already clears the cache via `_apply` -- untouched by the fix."""
     m = _build_h3()
     position_ids = torch.rand(7, 3, dtype=torch.float64)
-    m._prepare_positional_embeddings(position_ids)
+    m._prepare_positional_embeddings(position_ids, torch.float32)
     model = NativeModel("diffusion_model", m, estimated_vram_gb=23.3)
 
     model.offload()
@@ -403,7 +403,7 @@ def test_h3_normal_offload_control_clears_cache_via_apply_as_before():
 def test_h3_release_derived_caches_direct_call_is_idempotent():
     m = _build_h3()
     position_ids = torch.rand(7, 3, dtype=torch.float64)
-    m._prepare_positional_embeddings(position_ids)
+    m._prepare_positional_embeddings(position_ids, torch.float32)
 
     released = release_derived_caches(m)
 

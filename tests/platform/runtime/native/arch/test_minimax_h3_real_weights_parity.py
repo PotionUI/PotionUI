@@ -387,7 +387,7 @@ def test_full_block0_forward_matches_independent_reference(real_sd, loaded_modul
     temb_ours = m._prepare_timestep(t_vals)
     torch.testing.assert_close(temb_ours.float(), t_emb_ref.float(), atol=1e-4, rtol=1e-4)  # table-lookup stage
 
-    cos_ours, sin_ours = m._prepare_positional_embeddings(layout["position_ids"])
+    cos_ours, sin_ours = m._prepare_positional_embeddings(layout["position_ids"], torch.float32)
     angle_check = torch.atan2(sin_ours[:, :ROPE_FREQ_DIM * 3].float(), cos_ours[:, :ROPE_FREQ_DIM * 3].float())
     ref_angle_wrapped = torch.atan2(torch.sin(angles_ref[:, :ROPE_FREQ_DIM * 3]), torch.cos(angles_ref[:, :ROPE_FREQ_DIM * 3]))
     torch.testing.assert_close(angle_check, ref_angle_wrapped, atol=1e-4, rtol=1e-4)  # rope-angle stage

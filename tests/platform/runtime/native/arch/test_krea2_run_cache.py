@@ -337,3 +337,158 @@ def test_without_a_run_cache_the_forward_is_unchanged():
     out = module(x, torch.tensor([0.5]), te_hidden)
     assert out.shape == x.shape
     assert torch.isfinite(out).all()
+
+
+# --- (f) rotary tables -----------------------------------------------------
+
+class _Rotary:
+    """Counts rotary constructions and keeps the branch stores they landed in."""
+
+    def __init__(self, module: Krea2) -> None:
+        self.built = 0
+        self.branches: list = []
+        real_posemb, real_branch = module.posemb.forward, module._branch_inputs
+
+        def posemb(*args, **kwargs):
+            self.built += 1
+            return real_posemb(*args, **kwargs)
+
+        def branch_inputs(*args, **kwargs):
+            branch = real_branch(*args, **kwargs)
+            if not any(b is branch for b in self.branches):
+                self.branches.append(branch)
+            return branch
+
+        module.posemb.forward = posemb
+        module._branch_inputs = branch_inputs
+
+    @property
+    def stores(self) -> list[dict]:
+        return [b.rotary for b in self.branches]
+
+
+CPU_F32 = (torch.float32, torch.device("cpu"))
+
+
+def test_the_rotary_table_is_built_once_per_run_instead_of_once_per_step():
+    module = _build_ready()
+    x, te_hidden, _ = _inputs(seed=41)
+
+    without = _Rotary(module)
+    for s in SIGMAS:
+        module(x * s, torch.tensor([s]), te_hidden)
+    assert without.built == len(SIGMAS)
+
+    module = _build_ready()
+    with_cache = _Rotary(module)
+    _, scope = _run_scope(module)
+    with scope:
+        for s in SIGMAS:
+            module(x * s, torch.tensor([s]), te_hidden)
+    assert with_cache.built == 1
+
+
+def test_nag_builds_one_extra_rotary_table_per_branch():
+    module = _build_ready()
+    x, te_hidden, neg_hidden = _inputs(seed=43, neg_txt_len=3)
+    nag = {"scale": 2.0, "tau": 3.5, "alpha": 0.5}
+
+    without = _Rotary(module)
+    for s in SIGMAS:
+        module(x * s, torch.tensor([s]), te_hidden, nag_context=neg_hidden, nag=nag)
+    assert without.built == 2 * len(SIGMAS)
+
+    module = _build_ready()
+    with_cache = _Rotary(module)
+    _, scope = _run_scope(module)
+    with scope:
+        for s in SIGMAS:
+            module(x * s, torch.tensor([s]), te_hidden, nag_context=neg_hidden, nag=nag)
+    assert with_cache.built == 2
+    (store,) = with_cache.stores
+    assert sorted(kind for kind, _, _ in store) == ["img", "nag"]
+
+
+def test_the_rotary_key_carries_the_compute_dtype_and_device():
+    module = _build_ready()
+    x, te_hidden, _ = _inputs(seed=47)
+    counts = _Rotary(module)
+
+    _, scope = _run_scope(module)
+    with scope:
+        module(x, torch.tensor([0.5]), te_hidden)
+
+    (store,) = counts.stores
+    assert set(store) == {("img", *CPU_F32)}
+
+
+def test_two_guidance_branches_get_their_own_rotary_tables():
+    """A CFG run's prompts tokenize to different lengths; one table cannot serve both."""
+    module = _build_ready()
+    x, cond, uncond = _inputs(seed=53, neg_txt_len=2)
+
+    plain = [(module(x * s, torch.tensor([s]), cond),
+              module(x * s, torch.tensor([s]), uncond)) for s in SIGMAS]
+
+    module_c = _build_ready()
+    counts = _Rotary(module_c)
+    _, scope = _run_scope(module_c)
+    with scope:
+        cached = [(module_c(x * s, torch.tensor([s]), cond),
+                   module_c(x * s, torch.tensor([s]), uncond)) for s in SIGMAS]
+        assert counts.built == 2
+        positive, negative = (store[("img", *CPU_F32)] for store in counts.stores)
+        assert positive.shape != negative.shape
+
+    for (got_c, got_u), (want_c, want_u) in zip(cached, plain):
+        assert torch.equal(got_c, want_c)
+        assert torch.equal(got_u, want_u)
+
+
+def test_a_changed_reference_grid_gets_its_own_rotary_table():
+    module = _build_ready()
+    x, te_hidden, _ = _inputs(seed=59)
+    g = torch.Generator().manual_seed(61)
+    big = torch.randn(1, 4, 8, 8, generator=g)
+    small = torch.randn(1, 4, 4, 4, generator=g)
+    t = torch.tensor([0.5])
+
+    want_big = module(x, t, te_hidden, ref_latents=big)
+    want_small = module(x, t, te_hidden, ref_latents=small)
+
+    counts = _Rotary(module)
+    _, scope = _run_scope(module)
+    with scope:
+        assert torch.equal(module(x, t, te_hidden, ref_latents=big), want_big)
+        assert torch.equal(module(x, t, te_hidden, ref_latents=small), want_small)
+        assert counts.built == 2
+        with_big, with_small = (store[("img", *CPU_F32)] for store in counts.stores)
+        assert with_big.shape != with_small.shape
+
+
+def test_a_cached_rotary_table_cannot_survive_a_lora_window_edge():
+    """The table is weight-independent, but the entry holding it is not: it must
+    be rebuilt rather than read out of a store keyed under superseded weights."""
+    module = _build_ready()
+    x, te_hidden, _ = _inputs(seed=67)
+    t = torch.tensor([0.5])
+
+    dit, scope = _run_scope(module)
+    hook = LoraStepWindowHook(dit, [(_txtmlp_lora(), 1.0, LoraStepWindow(3, 4))])
+    counts = _Rotary(module)
+    try:
+        with scope:
+            hook.on_start(6)
+            module(x, t, te_hidden)
+            module(x, t, te_hidden)
+            assert counts.built == 1
+
+            hook.on_step(1, 6, None, 0.0, None)  # entering step 2 (0-based): window opens
+            module(x, t, te_hidden)
+            assert counts.built == 2, "the window applied: the stale store must not answer"
+
+            hook.on_step(3, 6, None, 0.0, None)  # entering step 4: window closes
+            module(x, t, te_hidden)
+            assert counts.built == 3
+    finally:
+        hook.close()

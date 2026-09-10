@@ -102,12 +102,18 @@ class _BranchInputs(NamedTuple):
     freed tensor's address can be handed to a new allocation, whose version
     counter starts over. While an entry lives its sources cannot be freed, so no
     later tensor can occupy one of those addresses and be mistaken for it.
+
+    ``rotary`` is this branch's store for the cast rotary tables built from
+    ``pos`` (see :meth:`Krea2._rotary`). It lives and dies with the entry, so a
+    table can never be seen by another branch or survive a key it was not built
+    under.
     """
 
     pos: Tensor
     mask: Tensor | None
     fused: Tensor
     nag_fused: Tensor | None
+    rotary: dict
     context: Tensor
     txt_mask: Tensor | None
     nag_context: Tensor | None
@@ -332,7 +338,8 @@ class Krea2(NativeArchModule):
         reused; without one every forward builds its own, exactly as before.
         A cached ``pos``/``mask``/``fused`` is handed to every step as the same
         tensor object, which is byte-for-byte the recompute because nothing
-        downstream writes to any of them.
+        downstream writes to any of them. The same holds for the rotary tables
+        :meth:`run_blocks` builds from ``pos`` into ``rotary``.
         """
         cache = getattr(self, "run_cache", None)
         nag_on = nag_context is not None and _nag_active(nag)
@@ -363,7 +370,7 @@ class Krea2(NativeArchModule):
             # tokenizer mask), so coerce it here the same way.
             nag_bool = nag_txt_mask.to(torch.bool) if nag_txt_mask is not None else None
             nag_fused = self.prepare_context(nag_context, nag_bool)
-        branch = _BranchInputs(pos, mask, fused, nag_fused, context, txt_mask,
+        branch = _BranchInputs(pos, mask, fused, nag_fused, {}, context, txt_mask,
                                nag_context, nag_txt_mask)
         if key is not None:
             cache.put(key, branch)
@@ -406,13 +413,30 @@ class Krea2(NativeArchModule):
         fused = self.txtfusion(te_hidden, mask=txtmask)
         return self.txtmlp(fused)
 
+    def _rotary(self, memo: dict | None, key: tuple, pos: Tensor, dtype: torch.dtype) -> Tensor:
+        """Build the final cast rotary table for ``pos`` and record it in ``memo``.
+
+        ``posemb`` is a pure function of the position ids -- no parameters, no
+        state -- so within one guidance branch the table is fixed for the whole
+        run: ``pos`` comes from the branch's cached geometry and the only other
+        input is the compute dtype. ``memo`` is that branch's own
+        :attr:`_BranchInputs.rotary`, so a stored table inherits the branch
+        entry's key, the live weight revision included, and is dropped with it.
+        ``None`` (no run cache attached) rebuilds per forward, as before.
+        """
+        table = self.posemb(pos).to(dtype)
+        if memo is not None:
+            memo[key] = table
+        return table
+
     # -- forward ------------------------------------------------------------
 
     def run_blocks(self, img: Tensor, context: Tensor, t: Tensor, tvec: Tensor,
                    pos: Tensor, mask: Tensor | None = None, step_cache=None,
                    ref_len: int = 0, attn_bias: Tensor | None = None,
                    nag_fused: Tensor | None = None, nag: dict | None = None,
-                   nag_attention_mask: Tensor | None = None) -> Tensor:
+                   nag_attention_mask: Tensor | None = None,
+                   rotary: dict | None = None) -> Tensor:
         """Core DiT pass: image projection + concat + rotary embed + block
         loop + text-prefix slice + final layer — matches diffusers'
         ``self.img_in(...)``, ``cat([encoder_hidden_states, hidden_states])``,
@@ -454,11 +478,19 @@ class Krea2(NativeArchModule):
         are built ONCE here (mirroring how ``freqs``/``attn_mask`` are built
         once for the positive path) and passed to every block unchanged.
         ``None`` (the default) is BYTE-IDENTICAL to the plain path.
+
+        ``rotary`` is the caller's per-branch store for the cast rotary tables
+        (``freqs``, ``nag_freqs``): they depend only on ``pos`` and the compute
+        dtype, so a run keeps them across steps instead of rebuilding them every
+        forward. ``None`` (the default) rebuilds them here, as before.
         """
         img = self.first(img)
         txtlen, imglen = context.shape[1], img.shape[1]
         combined = torch.cat([context, img], dim=1)
-        freqs = self.posemb(pos).to(combined.dtype)
+        rotary_key = (combined.dtype, combined.device)
+        freqs = rotary.get(("img", *rotary_key)) if rotary is not None else None
+        if freqs is None:
+            freqs = self._rotary(rotary, ("img", *rotary_key), pos, combined.dtype)
         attn_mask = None if mask is None else mask[:, None, None, :]
         if attn_bias is not None:
             attn_bias = attn_bias.to(combined.dtype)
@@ -472,9 +504,11 @@ class Krea2(NativeArchModule):
         nag_mask = None
         if nag_fused is not None and _nag_active(nag):
             b = pos.shape[0]
-            nag_txtpos = torch.zeros(b, nag_fused.shape[1], 3, device=pos.device, dtype=pos.dtype)
-            nag_pos = torch.cat([nag_txtpos, pos[:, txtlen:]], dim=1)
-            nag_freqs = self.posemb(nag_pos).to(combined.dtype)
+            nag_freqs = rotary.get(("nag", *rotary_key)) if rotary is not None else None
+            if nag_freqs is None:
+                nag_txtpos = torch.zeros(b, nag_fused.shape[1], 3, device=pos.device, dtype=pos.dtype)
+                nag_pos = torch.cat([nag_txtpos, pos[:, txtlen:]], dim=1)
+                nag_freqs = self._rotary(rotary, ("nag", *rotary_key), nag_pos, combined.dtype)
             if nag_attention_mask is not None:
                 nag_txt_mask = nag_attention_mask.to(torch.bool)
                 if not nag_txt_mask.all():
@@ -595,6 +629,6 @@ class Krea2(NativeArchModule):
         out = self.run_blocks(img_tokens, branch.fused, t_emb, tvec, branch.pos, branch.mask,
                                step_cache=kwargs.get("step_cache"), ref_len=ref_len,
                                attn_bias=attn_bias, nag_fused=branch.nag_fused, nag=nag,
-                               nag_attention_mask=nag_attention_mask)
+                               nag_attention_mask=nag_attention_mask, rotary=branch.rotary)
         latent = self.unpatchify(out, h // self.config.patch, w // self.config.patch)
         return latent.unsqueeze(2) if video_5d else latent

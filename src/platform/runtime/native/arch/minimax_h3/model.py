@@ -91,6 +91,11 @@ def _apply_rotary_emb(x: Tensor, cos: Tensor | None, sin: Tensor | None) -> Tens
 
     ``x``: ``(B, S, H, D)``. ``cos``/``sin``: ``(S, rotary_dim)`` or ``None`` (no-op,
     used by the token refiner, which carries no rotary embedding at all).
+
+    ``_prepare_positional_embeddings`` already returns the tables in the packed
+    stream's dtype, so the ``.to`` below returns them unchanged on the hot path;
+    it stays as the correct fallback for a caller whose activations arrive at
+    some other precision.
     """
     if cos is None:
         return x
@@ -585,6 +590,7 @@ class MiniMaxH3Model(NativeArchModule):
         # state-dict); _apply() drops them on any device/dtype move.
         self._pe_cache_key: tuple | None = None
         self._pe_cache: tuple[Tensor, Tensor] | None = None
+        self._pe_cache_sources: tuple[Tensor, Tensor] | None = None
 
     def release_derived_caches(self) -> int:
         """Drop the per-generation RoPE cos/sin cache; return its released byte count.
@@ -596,6 +602,7 @@ class MiniMaxH3Model(NativeArchModule):
         released = _cached_tensor_bytes(self._pe_cache)
         self._pe_cache_key = None
         self._pe_cache = None
+        self._pe_cache_sources = None
         return released
 
     def _apply(self, fn, recurse: bool = True):
@@ -675,20 +682,45 @@ class MiniMaxH3Model(NativeArchModule):
             return self._lookup_adaln_curve(timestep)
         return self.time_embedder(timestep)
 
-    def _prepare_positional_embeddings(self, position_ids: Tensor) -> tuple[Tensor, Tensor]:
-        device = position_ids.device
-        cache_key = (id(position_ids), int(position_ids._version), tuple(position_ids.shape), str(device))
-        if self._pe_cache_key == cache_key:
+    def _prepare_positional_embeddings(self, position_ids: Tensor, dtype: torch.dtype) -> tuple[Tensor, Tensor]:
+        """Build (or reuse) the ``(cos, sin)`` rotary tables for ``position_ids``,
+        returned in ``dtype`` -- the dtype the packed stream (and so every q/k
+        reaching ``_apply_rotary_emb``) is carried at.
+
+        The angles are always computed in fp32; only the cast to the consumed
+        dtype is cached. Handing the blocks an fp32 pair instead would push that
+        cast into ``_apply_rotary_emb``, which runs twice (q, k) per block per
+        step -- ~200 casts of the full tables per forward on the real model,
+        each re-materialising them. The values are unchanged either way: one
+        fp32->dtype rounding, hoisted.
+
+        ``rope.inv_freq`` is part of the key, not just ``position_ids``: an
+        in-place rewrite of the frequencies (``post_load`` after a reload)
+        leaves every component of a positions-only key untouched and would be
+        answered with tables built from the old frequencies. The source tensors
+        are pinned alongside the cache so a freed tensor's ``data_ptr`` cannot
+        be reused by a different one and read as a hit.
+        """
+        inv_freq_src = self.rope.inv_freq
+        position_identity = tensor_identity(position_ids)
+        freq_identity = tensor_identity(inv_freq_src)
+        cacheable = identity_usable(position_identity, freq_identity)
+        cache_key = (position_identity, freq_identity, dtype)
+        if cacheable and self._pe_cache_key == cache_key:
             return self._pe_cache
-        inv_freq = self.rope.inv_freq.to(device=device, dtype=torch.float32)
+        device = position_ids.device
+        inv_freq = inv_freq_src.to(device=device, dtype=torch.float32)
         pos = position_ids.to(torch.float32)
         freqs = pos.unsqueeze(-1) * inv_freq.view(1, 1, -1)          # (S, 3, rope_freq_dim)
         freqs_t, freqs_h, freqs_w = freqs.unbind(dim=1)
         freqs = torch.cat((freqs_t, freqs_h, freqs_w), dim=-1)       # (S, 3*rope_freq_dim)
         freqs = torch.cat((freqs, freqs), dim=-1)                    # (S, 2*3*rope_freq_dim)
-        result = (freqs.cos(), freqs.sin())
-        self._pe_cache_key = cache_key
-        self._pe_cache = result
+        result = (freqs.cos().to(dtype), freqs.sin().to(dtype))
+        self.release_derived_caches()
+        if cacheable:
+            self._pe_cache_key = cache_key
+            self._pe_cache = result
+            self._pe_cache_sources = (position_ids, inv_freq_src)
         return result
 
     def _process_transformer_blocks(self, hidden_states: Tensor, temb: Tensor, adaln_indices: Tensor,
@@ -869,8 +901,6 @@ class MiniMaxH3Model(NativeArchModule):
                 f"for seq_len={seq_len}"
             )
 
-        rotary_emb = self._prepare_positional_embeddings(position_ids)
-
         video_embeds, audio_embeds = self._process_input(hidden_states, audio_hidden_states)
         prepared_context: PreparedTextContext | None = kwargs.pop("prepared_context", None)
         weight_revision = kwargs.pop("weight_revision", None)
@@ -909,6 +939,7 @@ class MiniMaxH3Model(NativeArchModule):
         packed = packed.index_copy(1, text_indices, text_embeds)
         packed = packed.index_copy(1, video_indices, video_embeds.to(hidden_dtype))
         packed = packed.index_copy(1, audio_indices, audio_embeds.to(hidden_dtype))
+        rotary_emb = self._prepare_positional_embeddings(position_ids, hidden_dtype)
 
         temb = self._prepare_timestep(timestep)
         adaln_indices = timestep_indices * MINIMAX_H3_MODALITY_NUM + token_tags

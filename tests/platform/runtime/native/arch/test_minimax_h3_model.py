@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 import torch
 import torch.nn.functional as F
+from torch.utils._python_dispatch import TorchDispatchMode
 
 from src.platform.runtime.native.arch.minimax_h3.config import MiniMaxH3Config
 from src.platform.runtime.native.arch.minimax_h3.model import (
@@ -64,8 +65,12 @@ def _fp32_ops():
     return pick_operations(torch.float32, torch.float32)
 
 
-def _build_ready(config: dict) -> MiniMaxH3Model:
-    m = MiniMaxH3Model.from_config(config, _fp32_ops())
+def _build_ready(config: dict, dtype: torch.dtype = torch.float32) -> MiniMaxH3Model:
+    # Built through the constructor rather than from_config so the block stack's
+    # dtype can be chosen: from_config leaves it at torch's default (fp32),
+    # which would make the rotary tables' cast a no-op.
+    m = MiniMaxH3Model(MiniMaxH3Config.from_detect_config(config),
+                       pick_operations(dtype, dtype), dtype=dtype)
     sd = {}
     for k, v in m.state_dict().items():
         if not v.is_floating_point():
@@ -251,7 +256,7 @@ def test_forward_rejects_bad_position_ids_rank():
 def test_pe_cache_invalidated_by_apply():
     m = _build_ready(TINY_FULL)
     layout = _tiny_layout()
-    m._prepare_positional_embeddings(layout["position_ids"])
+    m._prepare_positional_embeddings(layout["position_ids"], torch.float32)
     assert m._pe_cache_key is not None
     m.float()  # any _apply call (dtype/device move) must drop the cache
     assert m._pe_cache_key is None
@@ -1145,3 +1150,169 @@ def test_sticky_rescue_output_still_matches_the_dense_reference(monkeypatch):
     assert boom.calls == []  # never touched
     # Tolerance rationale: see test_attention_oom_retries_query_chunked_sdpa.
     assert torch.allclose(out, dense, atol=1e-5, rtol=1e-4)
+
+
+# --- rotary tables cached in the consumed dtype ------------------------------
+
+class _TableCastCounter(TorchDispatchMode):
+    """Counts dtype copies of rotary-table-shaped tensors.
+
+    A dispatch mode sees the call before the eager no-op short-circuit does, so
+    a same-dtype ``.to`` shows up here too; only calls that actually change the
+    dtype -- the ones that re-materialise the tables -- are counted. The op a
+    cast lands on differs by mode (``aten.to.dtype`` under inference_mode,
+    ``aten._to_copy`` outside it), so both are watched.
+    """
+
+    _CAST_OPS = (torch.ops.aten.to.dtype, torch.ops.aten._to_copy.default)
+
+    def __init__(self, table_shape: tuple[int, int], target: torch.dtype) -> None:
+        self.rows, self.cols = table_shape
+        self.target = target
+        self.count = 0
+
+    def _is_table(self, t: torch.Tensor) -> bool:
+        # Row-chunked qkv slices the tables, so a per-chunk cast is a shorter
+        # tensor of the same width -- count those too.
+        return t.ndim == 2 and t.shape[1] == self.cols and t.shape[0] <= self.rows
+
+    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+        kwargs = kwargs or {}
+        if func in self._CAST_OPS and args and isinstance(args[0], torch.Tensor):
+            requested = kwargs.get("dtype", args[1] if len(args) > 1 else None)
+            if requested == self.target and args[0].dtype != requested and self._is_table(args[0]):
+                self.count += 1
+        return func(*args, **kwargs)
+
+
+def _table_shape(config: dict, layout: dict) -> tuple[int, int]:
+    return (layout["position_ids"].shape[0], 6 * config["rope_freq_dim"])
+
+
+def test_rotary_tables_are_cached_in_the_packed_stream_dtype():
+    m = _build_ready(TINY_FULL, dtype=torch.bfloat16)
+    layout = _tiny_layout()
+    torch.manual_seed(60)
+    _fbcache_forward(m, layout, _fbcache_inputs(TINY_FULL, layout), torch.tensor([0.2, 0.9]))
+
+    cos, sin = m._pe_cache
+    assert cos.dtype is torch.bfloat16 and sin.dtype is torch.bfloat16
+
+
+def test_bf16_forward_is_identical_to_the_per_call_cast_path():
+    """The hoist moves WHERE the fp32->bf16 cast happens, nothing else: the
+    same forward fed fp32 tables (so ``_apply_rotary_emb`` casts them itself,
+    once per q and per k of every block -- the pre-hoist path) must produce
+    bit-identical output."""
+    m = _build_ready(TINY_FULL, dtype=torch.bfloat16)
+    layout = _tiny_layout()
+    torch.manual_seed(61)
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    ts = torch.tensor([0.2, 0.9])
+
+    hoisted = _fbcache_forward(m, layout, inputs, ts)
+
+    real_prepare = m._prepare_positional_embeddings
+    m._prepare_positional_embeddings = lambda position_ids, dtype: real_prepare(position_ids, torch.float32)
+    try:
+        per_call_cast = _fbcache_forward(m, layout, inputs, ts)
+    finally:
+        del m._prepare_positional_embeddings
+
+    assert m._pe_cache[0].dtype is torch.float32  # the reference really did run fp32 tables
+    for a, b in zip(hoisted, per_call_cast):
+        assert torch.equal(a, b)
+
+
+def test_tables_are_cast_once_per_forward_not_once_per_block():
+    m = _build_ready(TINY_FULL, dtype=torch.bfloat16)
+    layout = _tiny_layout()
+    torch.manual_seed(62)
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    ts = torch.tensor([0.2, 0.9])
+    shape = _table_shape(TINY_FULL, layout)
+
+    with _TableCastCounter(shape, torch.bfloat16) as first:
+        _fbcache_forward(m, layout, inputs, ts)
+    with _TableCastCounter(shape, torch.bfloat16) as second:
+        _fbcache_forward(m, layout, inputs, ts)
+
+    # cos and sin, built once; every one of the 2 blocks' q and k reads them
+    # as they are (8 casts a forward on this tiny config, ~200 on the real one).
+    assert first.count == 2
+    assert second.count == 0
+
+
+def test_chunked_qkv_reads_the_same_cached_tables():
+    """The row-chunked qkv path slices cos/sin per chunk; it must slice the
+    cached cast tables, not rebuild them, and stay bit-exact against the
+    unchunked run."""
+    m = _build_ready(TINY_FULL, dtype=torch.bfloat16)
+    layout = _tiny_layout(text_n=2, video_n=13, audio_n=7)
+    torch.manual_seed(63)
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    ts = torch.tensor([0.2, 0.9])
+    shape = _table_shape(TINY_FULL, layout)
+
+    base = _fbcache_forward(m, layout, inputs, ts)
+    with _TableCastCounter(shape, torch.bfloat16) as counter:
+        chunked = _fbcache_forward(m, layout, inputs, ts, seq_chunk_rows=6)
+
+    assert counter.count == 0
+    for a, b in zip(base, chunked):
+        assert torch.equal(a, b)
+
+
+def test_rotary_cache_rebuilds_when_inv_freq_is_rewritten_in_place():
+    """``post_load`` assigns ``rope.inv_freq`` fresh, but an in-place rewrite of
+    the same tensor leaves a positions-only key completely unchanged -- and the
+    tables would then be served from the old frequencies."""
+    m = _build_ready(TINY_FULL)
+    layout = _tiny_layout()
+    position_ids = layout["position_ids"]
+
+    first_cos, _ = m._prepare_positional_embeddings(position_ids, torch.float32)
+    first_cos = first_cos.clone()
+    with torch.no_grad():
+        m.rope.inv_freq.mul_(2.0)
+    second_cos, _ = m._prepare_positional_embeddings(position_ids, torch.float32)
+
+    assert not torch.equal(first_cos, second_cos)
+
+
+def test_rotary_cache_accepts_positions_built_under_inference_mode():
+    """An inference tensor tracks no version counter -- reading ``_version``
+    raises -- yet PyTorch itself forbids writing it outside InferenceMode, so
+    it is cacheable."""
+    m = _build_ready(TINY_FULL)
+    with torch.inference_mode():
+        position_ids = torch.rand(7, 3, dtype=torch.float64)
+
+    first = m._prepare_positional_embeddings(position_ids, torch.float32)
+    second = m._prepare_positional_embeddings(position_ids, torch.float32)
+
+    assert second is first
+    expected = m._prepare_positional_embeddings(position_ids.clone(), torch.float32)
+    for cached, fresh in zip(first, expected):
+        assert torch.equal(cached, fresh)
+
+
+def test_release_derived_caches_reports_the_cast_table_bytes():
+    m = _build_ready(TINY_FULL, dtype=torch.bfloat16)
+    layout = _tiny_layout()
+    torch.manual_seed(64)
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    ts = torch.tensor([0.2, 0.9])
+    _fbcache_forward(m, layout, inputs, ts)
+    rows, cols = _table_shape(TINY_FULL, layout)
+
+    released = m.release_derived_caches()
+
+    assert released == 2 * rows * cols * 2  # cos + sin, 2 bytes a bf16 element
+    assert m._pe_cache is None and m._pe_cache_key is None and m._pe_cache_sources is None
+    assert m.release_derived_caches() == 0
+
+    with _TableCastCounter((rows, cols), torch.bfloat16) as counter:
+        _fbcache_forward(m, layout, inputs, ts)
+    assert counter.count == 2  # rebuilt from scratch after the release
+

@@ -1469,14 +1469,22 @@ class NativeGenerator:
         """
         te_device = self.device_plan.te_device
         self.te.to(te_device)
-        cond = self._normalize_te(self.te.encode([prompt]))
+        cond = self._normalize_te(self._encode_te(prompt))
         uncond = None
         # Only classic-CFG models consume a negative; embedded-guidance ignores it.
         if negative is not None and self.spec.sampling_settings.get("guidance") == "cfg":
-            uncond = self._normalize_te(self.te.encode([negative]))
+            uncond = self._normalize_te(self._encode_te(negative))
         # TE is phase-dead for the rest of the generation -> free it now.
         self._maybe_offload_te()
         return Conditioning(cond, uncond)
+
+    def _encode_te(self, text: str) -> dict[str, torch.Tensor]:
+        """One prompt through the TE with A1111 ``(word:1.3)`` weighting when the
+        encoder supports it (``NativeTextEncoder.encode_weighted``; a plain
+        prompt takes its bit-identical fast path). A composite/wrapper TE
+        without it encodes unweighted, same as the pipe adapters' fallback."""
+        weighted = getattr(self.te, "encode_weighted", None)
+        return weighted(text) if callable(weighted) else self.te.encode([text])
 
     @staticmethod
     def _normalize_te(raw: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:

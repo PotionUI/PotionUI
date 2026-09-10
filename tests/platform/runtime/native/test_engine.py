@@ -1302,6 +1302,28 @@ def test_guard_host_ram_noop_for_fully_resident_plan(monkeypatch):
 
 
 @pytest.mark.bf16_cpu_heavy
+def test_encode_prompt_goes_through_the_weighted_encode(dit_path, vae_path):
+    """`NativeGenerator.encode_prompt` (the manual smoke scripts' path) must
+    hand the RAW prompt to `encode_weighted` so `(word:1.5)` is honoured there
+    exactly like in the pipe adapters - not `encode([prompt])`, which would
+    silently keep the syntax as literal text."""
+    loader = NativeEngineLoader(device="cpu")
+    dit = loader.load(dit_path, "diffusion_model")
+    vae = loader.load(vae_path, "vae")
+
+    class _RecordingTE(_StubTE):
+        weighted_calls: list = []
+
+        def encode_weighted(self, prompt):
+            self.weighted_calls.append(prompt)
+            return self.encode([prompt])
+
+    te = _RecordingTE(context_dim=_FLUX1["context_in_dim"])
+    gen = NativeGenerator(dit, te, vae)
+    gen.encode_prompt("a (red:1.5) car")
+    assert te.weighted_calls == ["a (red:1.5) car"]
+
+
 def test_end_to_end_sample_and_decode(dit_path, vae_path):
     loader = NativeEngineLoader(device="cpu")
     dit = loader.load(dit_path, "diffusion_model")

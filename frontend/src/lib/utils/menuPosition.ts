@@ -4,6 +4,7 @@
 export const MENU_GAP = 4;
 export const MENU_HEIGHT_ESTIMATE = 440;
 export const MENU_EDGE_GUTTER = 8;
+export const MENU_MIN_HEIGHT = 120;
 
 export interface AnchoredMenuPosition {
 	top: number;
@@ -34,6 +35,11 @@ export interface FlippedMenuPosition {
 	left: number;
 	top?: number;
 	bottom?: number;
+	/** Room on the chosen (open up/down) side minus `gap` and `edgeGutter`,
+	 *  floored at `MENU_MIN_HEIGHT` — callers apply this as the panel's
+	 *  `max-height` so a panel taller than its side's room scrolls instead of
+	 *  running off the viewport. */
+	maxHeight: number;
 }
 
 /**
@@ -83,7 +89,12 @@ export function computeFlippedMenuPosition(
 	const otherSideBigger = preferUp ? spaceBelow > spaceAbove : spaceAbove > spaceBelow;
 	const openUpward = preferUp ? fitsPreferred || !otherSideBigger : !fitsPreferred && otherSideBigger;
 
-	return openUpward ? { left, bottom: window.innerHeight - rect.top + gap } : { left, top: rect.bottom + gap };
+	const room = openUpward ? spaceAbove : spaceBelow;
+	const maxHeight = Math.max(MENU_MIN_HEIGHT, room - gap - edgeGutter);
+
+	return openUpward
+		? { left, bottom: window.innerHeight - rect.top + gap, maxHeight }
+		: { left, top: rect.bottom + gap, maxHeight };
 }
 
 /** `right`/`top`-or-`bottom` inline style string, flipping upward when there's

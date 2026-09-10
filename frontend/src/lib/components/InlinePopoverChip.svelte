@@ -71,16 +71,16 @@
 		footer?: Snippet;
 	} = $props();
 
-	let chipRef = $state<HTMLSpanElement>();
-	let popoverRef = $state<HTMLDivElement>();
-	let popoverPos = $state<FlippedMenuPosition>({ left: 0, top: 0 });
-
 	// Matches the `w-72` popover width; the height is a rough pre-portal
 	// estimate refined once the popover has actually mounted and can be
 	// measured (its content — a few inputs or a short list — varies by chip).
 	const POPOVER_WIDTH = 288;
 	const POPOVER_HEIGHT_ESTIMATE = 220;
 	const POPOVER_GAP = 6;
+
+	let chipRef = $state<HTMLSpanElement>();
+	let popoverRef = $state<HTMLDivElement>();
+	let popoverPos = $state<FlippedMenuPosition>({ left: 0, top: 0, maxHeight: POPOVER_HEIGHT_ESTIMATE });
 
 	// Written as full literal strings so Tailwind's class scanner can see them.
 	const toneClasses: Record<ChipTone, string> = {
@@ -129,7 +129,12 @@
 
 	function updatePosition() {
 		if (!chipRef) return;
-		const heightEstimate = popoverRef?.getBoundingClientRect().height || POPOVER_HEIGHT_ESTIMATE;
+		// `scrollHeight`, not `getBoundingClientRect().height` — once a tall
+		// popover is clamped by the `maxHeight` below, its rendered height is
+		// the clamp itself, which would make it "fit" on the next reposition
+		// and flip back to the other side. `scrollHeight` keeps reporting the
+		// full (unclamped) content height regardless of overflow.
+		const heightEstimate = popoverRef?.scrollHeight || POPOVER_HEIGHT_ESTIMATE;
 		popoverPos = computeFlippedMenuPosition(chipRef, {
 			width: POPOVER_WIDTH,
 			heightEstimate,
@@ -144,7 +149,7 @@
 	// (with no explicit height) resolution. `position: fixed` likewise
 	// overrides `.floating`'s own `position: absolute`.
 	let popoverStyle = $derived(
-		`position: fixed; left: ${popoverPos.left}px; right: auto; ${
+		`position: fixed; left: ${popoverPos.left}px; right: auto; max-height: ${popoverPos.maxHeight}px; overflow-y: auto; ${
 			popoverPos.top !== undefined
 				? `top: ${popoverPos.top}px; bottom: auto;`
 				: `bottom: ${popoverPos.bottom}px; top: auto;`

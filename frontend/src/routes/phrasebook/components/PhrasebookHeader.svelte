@@ -145,7 +145,7 @@
 	let filtersOpen = $state(false);
 	let filtersTrigger: HTMLButtonElement | undefined = $state();
 	let filtersPopoverEl: HTMLDivElement | undefined = $state();
-	let popoverPos = $state<FlippedMenuPosition>({ left: 0, top: 0 });
+	let popoverPos = $state<FlippedMenuPosition>({ left: 0, top: 0, maxHeight: 0 });
 
 	const POPOVER_WIDTH = 288;
 	const POPOVER_HEIGHT_ESTIMATE = 340;
@@ -173,7 +173,7 @@
 	let importOpen = $state(false);
 	let importTrigger: HTMLButtonElement | undefined = $state();
 	let importPopoverEl: HTMLDivElement | undefined = $state();
-	let importPopoverPos = $state<FlippedMenuPosition>({ left: 0, top: 0 });
+	let importPopoverPos = $state<FlippedMenuPosition>({ left: 0, top: 0, maxHeight: 0 });
 
 	const IMPORT_POPOVER_WIDTH = 320;
 	const IMPORT_POPOVER_HEIGHT_ESTIMATE = 280;

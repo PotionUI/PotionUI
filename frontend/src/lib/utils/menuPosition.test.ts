@@ -7,7 +7,8 @@ import {
 	computeFlippedMenuPosition,
 	MENU_EDGE_GUTTER,
 	MENU_GAP,
-	MENU_HEIGHT_ESTIMATE
+	MENU_HEIGHT_ESTIMATE,
+	MENU_MIN_HEIGHT
 } from './menuPosition';
 
 function fakeTrigger(rect: { top: number; bottom: number; left: number; right: number }): HTMLElement {
@@ -83,7 +84,7 @@ describe('computeFlippedMenuPosition', () => {
 
 		const pos = computeFlippedMenuPosition(trigger, { width: 280 });
 
-		expect(pos).toEqual({ left: 200, top: 130 + MENU_GAP });
+		expect(pos).toEqual({ left: 200, top: 130 + MENU_GAP, maxHeight: 900 - 130 - MENU_GAP - MENU_EDGE_GUTTER });
 	});
 
 	it('flips upward when there is not enough room below but more room above', () => {
@@ -181,5 +182,41 @@ describe('computeFlippedMenuPosition', () => {
 
 		expect(pos.top).toBeUndefined();
 		expect(pos.bottom).toBe(900 - 600 + MENU_GAP);
+	});
+
+	it('caps maxHeight to the room below when opening down', () => {
+		stubViewport(1440, 900);
+		const trigger = fakeTrigger({ top: 100, bottom: 200, left: 200, right: 260 });
+
+		const pos = computeFlippedMenuPosition(trigger, { width: 280 });
+
+		// spaceBelow = 900 - 200 = 700
+		expect(pos.top).toBe(200 + MENU_GAP);
+		expect(pos.maxHeight).toBe(700 - MENU_GAP - MENU_EDGE_GUTTER);
+	});
+
+	it('caps maxHeight to the room above when opening up', () => {
+		stubViewport(1440, 900);
+		// 850..880: only 20px below, 850px above -- flips up.
+		const trigger = fakeTrigger({ top: 850, bottom: 880, left: 200, right: 260 });
+
+		const pos = computeFlippedMenuPosition(trigger, { width: 280, heightEstimate: 300 });
+
+		expect(pos.bottom).toBe(900 - 850 + MENU_GAP);
+		expect(pos.maxHeight).toBe(850 - MENU_GAP - MENU_EDGE_GUTTER);
+	});
+
+	it('never returns a maxHeight below the MENU_MIN_HEIGHT floor even when the chosen side is cramped', () => {
+		// A short viewport where neither side has real room: spaceAbove = 20,
+		// spaceBelow = 10 -- "up" wins (bigger of the two), but 20 - gap -
+		// edgeGutter would go negative without the floor.
+		stubViewport(1440, 40);
+		const trigger = fakeTrigger({ top: 20, bottom: 30, left: 200, right: 260 });
+
+		const pos = computeFlippedMenuPosition(trigger, { width: 280, heightEstimate: 300, preferred: 'up' });
+
+		expect(pos.top).toBeUndefined();
+		expect(pos.bottom).toBe(40 - 20 + MENU_GAP);
+		expect(pos.maxHeight).toBe(MENU_MIN_HEIGHT);
 	});
 });

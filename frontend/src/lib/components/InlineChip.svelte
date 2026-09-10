@@ -154,7 +154,7 @@
 	let configOpen = false;
 	let configTriggerRef: HTMLButtonElement;
 	let popoverRef: HTMLDivElement;
-	let configPos: FlippedMenuPosition = { left: 0 };
+	let configPos: FlippedMenuPosition = { left: 0, maxHeight: 0 };
 
 	function capitalize(part: string): string {
 		return part ? part.charAt(0).toUpperCase() + part.slice(1) : part;

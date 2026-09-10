@@ -113,6 +113,34 @@ describe('InlinePopoverChip portal popover', () => {
 		expect(document.querySelector('[role="dialog"]')).toBeNull();
 	});
 
+	it('clamps a popover taller than the viewport room to that room and scrolls the rest', () => {
+		// scrollHeight always reads 0 in jsdom's layout-less environment; stub it
+		// so the popover measures as "tall content" the way a long option list
+		// or long variable values would in a real browser.
+		const scrollHeightSpy = vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(900);
+		Object.defineProperty(window, 'innerHeight', { value: 400, configurable: true });
+
+		mountChip();
+		const chip = target.querySelector('.inline-popover-chip') as HTMLElement;
+		// Pinned low, with only 20px of room below and 350px above -- the
+		// popover has to flip up, and 350px of room is far short of the 900px
+		// of content, so it must clamp rather than run off the top.
+		chip.getBoundingClientRect = () =>
+			({ top: 350, bottom: 380, left: 200, right: 260, width: 60, height: 30, x: 200, y: 350, toJSON() {} }) as DOMRect;
+
+		openChip();
+
+		const popover = document.querySelector('[role="dialog"]') as HTMLElement;
+		expect(popover).not.toBeNull();
+		expect(popover.style.overflowY).toBe('auto');
+		const maxHeight = parseFloat(popover.style.maxHeight);
+		expect(maxHeight).toBeGreaterThan(0);
+		// Room above the trigger is 350px -- the clamp must fit inside it.
+		expect(maxHeight).toBeLessThanOrEqual(350);
+
+		scrollHeightSpy.mockRestore();
+	});
+
 	it('removes the portaled popover from the DOM when the chip unmounts while open', () => {
 		mountChip();
 		openChip();

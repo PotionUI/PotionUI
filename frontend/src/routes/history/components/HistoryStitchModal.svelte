@@ -10,6 +10,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { IconButton, Input, Spinner, Switch } from '$lib/components/ui';
 	import { api } from '$lib/services/api/index';
+	import { libraryStore } from '$lib/stores/library';
 	import { toasts } from '$lib/stores/toast';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import type { HistoryToolFile, HistoryToolModalProps } from '$lib/history/tools';
@@ -75,6 +76,7 @@
 	let availableKeys = $state<ParamKeyOption[]>([]);
 	let options = $state<StitchOptions>({ ...DEFAULT_STITCH_OPTIONS });
 	let saving = $state(false);
+	let savingToLibrary = $state(false);
 	let previewCanvas = $state<HTMLCanvasElement | null>(null);
 	let previewPane = $state<HTMLElement | null>(null);
 	let previewTimer: ReturnType<typeof setTimeout> | null = null;
@@ -356,27 +358,31 @@
 		options = { ...options, paramKeys: next };
 	}
 
+	/** The same full-size composition Download and Save to Library both encode. */
+	async function buildStitchBlob(): Promise<Blob> {
+		const canvas = document.createElement('canvas');
+		canvas.width = layout.width;
+		canvas.height = layout.height;
+		const ctx = canvas.getContext('2d');
+		if (!ctx) throw new Error('Could not get a 2D canvas context');
+		ctx.imageSmoothingQuality = 'high';
+		drawStitch(
+			ctx,
+			loaded.map((entry) => entry.bitmap),
+			layout,
+			lines,
+			options
+		);
+
+		const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+		if (!blob) throw new Error('Could not encode the stitched image');
+		return blob;
+	}
+
 	async function download() {
 		saving = true;
 		try {
-			const canvas = document.createElement('canvas');
-			canvas.width = layout.width;
-			canvas.height = layout.height;
-			const ctx = canvas.getContext('2d');
-			if (!ctx) throw new Error('Could not get a 2D canvas context');
-			ctx.imageSmoothingQuality = 'high';
-			drawStitch(
-				ctx,
-				loaded.map((entry) => entry.bitmap),
-				layout,
-				lines,
-				options
-			);
-
-			const blob = await new Promise<Blob | null>((resolve) =>
-				canvas.toBlob(resolve, 'image/png')
-			);
-			if (!blob) throw new Error('Could not encode the stitched image');
+			const blob = await buildStitchBlob();
 
 			const url = URL.createObjectURL(blob);
 			const anchor = document.createElement('a');
@@ -397,16 +403,38 @@
 		}
 	}
 
+	async function saveToLibrary() {
+		savingToLibrary = true;
+		try {
+			const blob = await buildStitchBlob();
+			const file = new File([blob], stitchFileName(new Date()), { type: 'image/png' });
+			const { uploaded } = await libraryStore.upload([file]);
+			if (uploaded === 0) throw new Error('Upload failed');
+
+			toasts.success('Saved to your Library');
+			onClose();
+		} catch (error) {
+			logger.error('Stitch: save to library failed', getErrorMessage(error));
+			toasts.error('Could not save to Library');
+		} finally {
+			savingToLibrary = false;
+		}
+	}
+
 	function handleCancel() {
 		settlementGate.settle(onClose);
 	}
 
 	function handleConfirm() {
-		settleIfEligible(settlementGate, loaded.length > 0 && !loading && !saving, download);
+		settleIfEligible(
+			settlementGate,
+			loaded.length > 0 && !loading && !saving && !savingToLibrary,
+			download
+		);
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		if (saving) return;
+		if (saving || savingToLibrary) return;
 		const { action, suppress } = getConfirmKeyboardAction(event);
 		if (action === 'cancel') handleCancel();
 		else if (action === 'confirm') handleConfirm();
@@ -421,7 +449,7 @@
 	title="Stitch"
 	subtitle="Combine the selected images into one"
 	size="xl"
-	closeable={!saving}
+	closeable={!saving && !savingToLibrary}
 	handleEscapeKey={false}
 	on:close={handleCancel}
 >
@@ -641,8 +669,13 @@
 			confirmLabel="Download PNG"
 			busy={saving}
 			confirmDisabled={loading || loaded.length === 0}
+			secondaryLabel="Save to Library"
+			secondaryIcon="photo"
+			secondaryBusy={savingToLibrary}
+			secondaryDisabled={loading || loaded.length === 0}
 			onCancel={handleCancel}
 			onConfirm={handleConfirm}
+			onSecondary={saveToLibrary}
 		/>
 	</svelte:fragment>
 </BaseModal>

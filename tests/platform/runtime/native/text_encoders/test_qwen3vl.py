@@ -219,6 +219,24 @@ def test_encode_weighted_still_works_after_trim_fix():
     assert torch.isfinite(out["context"]).all()
 
 
+def test_encode_weighted_changes_the_weighted_tokens_and_logs_it(caplog):
+    """A different weight must actually move the context (two weighted encodes
+    of the same segments are length-aligned, unlike a whole-sentence plain
+    encode - segment-wise BPE splits differently) and say so at INFO, so a
+    maintainer can confirm from the log that `(word:2)` reached the weighted
+    path."""
+    import logging
+    m = _tiny_module()
+    enc = Qwen3VLTextEncoder(m, Qwen3VLTokenizer(), device="cpu")
+    mild = enc.encode_weighted("a (red:1.2) car")["context"]
+    with caplog.at_level(logging.INFO, logger="src.platform.runtime.native.text_encoders.base"):
+        strong = enc.encode_weighted("a (red:2) car")["context"]
+    assert strong.shape == mild.shape
+    assert not torch.allclose(strong, mild)
+    line = [r.message for r in caplog.records if "prompt weighting applied" in r.message][-1]
+    assert "1 of" in line and "max 2.30" in line  # 2 ** 1.2 = 2.30 after the A1111 transform
+
+
 # --- vision-grounded instruction encode (Krea-2 edit mode) ---------
 
 _TINY_VISION_CFG = {

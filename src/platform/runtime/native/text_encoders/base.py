@@ -120,7 +120,15 @@ class NativeTextEncoder(ABC):
         baseline = self._encode_ids(e_ids, e_mask)
 
         seq = real["context"].shape[1]  # post-strip sequence length (weights already stripped to match)
-        real["context"] = apply_token_weights(real["context"], weights[:, :seq], baseline["context"])
+        w = weights[:, :seq]
+        weighted_tokens = w[w != 1.0]
+        logger.info(
+            "prompt weighting applied for text encoder %r: %d of %d token(s) weighted (min %.2f, max %.2f)",
+            self.role, int(weighted_tokens.numel()), int(w.numel()),
+            float(weighted_tokens.min()) if weighted_tokens.numel() else 1.0,
+            float(weighted_tokens.max()) if weighted_tokens.numel() else 1.0,
+        )
+        real["context"] = apply_token_weights(real["context"], w, baseline["context"])
         return self._post_encode(real)
 
     def _post_encode(self, result: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:

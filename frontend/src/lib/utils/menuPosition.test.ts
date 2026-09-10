@@ -139,4 +139,47 @@ describe('computeFlippedMenuPosition', () => {
 		expect(pos.left).toBe(1440 - 200 - MENU_EDGE_GUTTER);
 		expect(MENU_HEIGHT_ESTIMATE).toBeGreaterThan(0);
 	});
+
+	it('aligns the panel to the trigger right edge when align is "right"', () => {
+		stubViewport(1440, 900);
+		const trigger = fakeTrigger({ top: 100, bottom: 130, left: 1100, right: 1180 });
+
+		const pos = computeFlippedMenuPosition(trigger, { width: 320, align: 'right' });
+
+		expect(pos.left).toBe(1180 - 320);
+	});
+
+	it('stays on the preferred "up" side when it fits, even with room below too', () => {
+		stubViewport(1440, 900);
+		const trigger = fakeTrigger({ top: 500, bottom: 530, left: 200, right: 260 });
+
+		const pos = computeFlippedMenuPosition(trigger, { width: 280, heightEstimate: 300, preferred: 'up' });
+
+		expect(pos.top).toBeUndefined();
+		expect(pos.bottom).toBe(900 - 500 + MENU_GAP);
+	});
+
+	it('flips a preferred "up" panel down when there is no room above but room below', () => {
+		stubViewport(1440, 900);
+		// 20..50: only 20px above, 850px below -- the preferred side doesn't fit
+		// and the other side is bigger, so it flips down.
+		const trigger = fakeTrigger({ top: 20, bottom: 50, left: 200, right: 260 });
+
+		const pos = computeFlippedMenuPosition(trigger, { width: 280, heightEstimate: 300, preferred: 'up' });
+
+		expect(pos.bottom).toBeUndefined();
+		expect(pos.top).toBe(50 + MENU_GAP);
+	});
+
+	it('keeps a preferred "up" panel up when neither side fits but up still has more room', () => {
+		stubViewport(1440, 900);
+		// 600..630: 600px above, 270px below (900-630) -- neither fits the 1000
+		// estimate, but up is still the bigger side, so it stays up.
+		const trigger = fakeTrigger({ top: 600, bottom: 630, left: 200, right: 260 });
+
+		const pos = computeFlippedMenuPosition(trigger, { width: 280, heightEstimate: 1000, preferred: 'up' });
+
+		expect(pos.top).toBeUndefined();
+		expect(pos.bottom).toBe(900 - 600 + MENU_GAP);
+	});
 });

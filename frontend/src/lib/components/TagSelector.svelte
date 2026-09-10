@@ -24,7 +24,6 @@
 	export let listStyle: 'remove-on-select' | 'checklist' = 'remove-on-select';
 	/** Defers the tag fetch until the popover first opens, instead of loading on mount. */
 	export let loadOnOpen: boolean = false;
-	export let openUpward: boolean = false;
 	export let tagType: 'GENERATION' | 'MODEL' | 'UPLOAD' = 'GENERATION'; // Tag type to load and create
 
 	const dispatch = createEventDispatcher<{
@@ -165,7 +164,6 @@
 <SearchableMultiSelectPopover
 	bind:open={isOpen}
 	bind:searchValue={searchQuery}
-	placement={openUpward ? 'up' : 'down'}
 	align={triggerStyle === 'icon' ? 'right' : 'left'}
 	panelClass={compact ? 'w-72 max-h-96' : 'w-80 max-h-96'}
 	searchPlaceholder={allowCreate ? 'Search or create tags...' : 'Search tags...'}

@@ -1,11 +1,11 @@
 """A bundle whose TE weakref has died must report te_encoder=None, not crash.
 
-Regression for the inline-enhance crash: the base generator's
-_release_idle_te evicts the TE from the MODELS cache, the shared bundle's
-WeakModelRef goes dead, and a second generator instance in the same pipeline
-reads bundle.te_encoder while constructing its NativeGenerator. SeedVR2's
-bundle already returns None by contract, so downstream handles it; every other
-family's property must too.
+Regression for the inline-enhance crash: the TE's MODELS cache entry gets
+evicted (RAM-pressure LRU, a same-slot preset switch, or an explicit release
+such as the LTX idle-TE path), the shared bundle's WeakModelRef goes dead,
+and a second generator instance in the same pipeline reads bundle.te_encoder
+while constructing its NativeGenerator. SeedVR2's bundle already returns None
+by contract, so downstream handles it; every other family's property must too.
 """
 
 import gc

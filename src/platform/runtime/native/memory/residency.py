@@ -772,8 +772,8 @@ def _run_text_encode_uncached(
     The native text encoders are loaded on the CPU; without this, every prompt
     encode would run a multi-billion-parameter transformer on the CPU in fp32 — a
     big chunk of a native generation's first pass. This moves the encoder to the
-    GPU for the encode, then back to CPU, using ComfyUI's ``load_models_gpu``
-    policy: **co-reside first, evict only on pressure.**
+    GPU for the encode, using ComfyUI's ``load_models_gpu`` policy: **co-reside
+    first, evict only on pressure.**
 
       1. If the encoder's weights + a ``minimum_inference_memory`` reserve already
          fit in the **live** free VRAM (``mem_get_info`` — accounts for memory a
@@ -785,6 +785,16 @@ def _run_text_encode_uncached(
          LRU-resident components (the DiT) to RAM and retry on the GPU.
       3. If it STILL doesn't fit, fall back to a CPU encode — slow but correct,
          never a crash.
+
+    On success (paths 1 and 2) the encoder is left GPU-resident and registered
+    with the coordinator — never moved back to CPU here. A same-checkpoint
+    reuse (the next generation, or a retry within one batch window) then skips
+    the CPU<->GPU round trip entirely; a later phase that needs the VRAM back
+    (DiT placement making room) reclaims it itself via ``ensure_free``/
+    ``offload_all`` — see ``NativeGenerator._own_models``, which deliberately
+    excludes the TE so it stays LRU-evictable there. Only the CPU-fallback
+    path (3) explicitly moves the encoder back off the GPU, since it never
+    successfully ran there.
 
     Takes ``encode_fn`` (not a context manager) so it can retry the encode after
     freeing VRAM. On a CPU / no-CUDA device it just calls ``encode_fn()``.
@@ -852,19 +862,20 @@ def _run_text_encode_uncached(
     def _attempt_on_gpu() -> Any:
         nonlocal weights_gb
         _move(dev)
-        # Register with the coordinator for the window the weights are
-        # actually up: other components (the DiT) tracked here must see this
-        # encoder's real VRAM footprint, or a concurrent eviction decision
-        # would under-count what's resident. note_offloaded (in the finally)
-        # mirrors NativeModel.move_to's own resident/offloaded pairing.
+        # Register with the coordinator for as long as the weights are up:
+        # other components (the DiT) tracked here must see this encoder's
+        # real VRAM footprint, or a concurrent eviction decision would
+        # under-count what's resident. Deliberately left registered after a
+        # successful encode too (no offload-back-to-cpu here) -- the whole
+        # point of leaving the TE co-resident: a same-checkpoint reuse (next
+        # generation, or a same-window retry) skips the CPU<->GPU round trip
+        # entirely, and a later phase that needs the VRAM back reclaims it
+        # itself via ensure_free/offload_all (the TE is deliberately excluded
+        # from every family's "own models" set -- see NativeGenerator.
+        # _own_models -- specifically so it stays LRU-evictable there).
         manager.note_resident(encoder, dev, size_gb)
         weights_gb = _weights_gb_by_device(encoder)
-        try:
-            return encode_fn()
-        finally:
-            _move("cpu")
-            manager.note_offloaded(encoder)
-            torch.cuda.empty_cache()
+        return encode_fn()
 
     # 1) Co-residency: weights + reserve already fit -> no eviction, no ping-pong.
     free = free_vram_gb(dev)
@@ -897,6 +908,7 @@ def _run_text_encode_uncached(
         try:
             _move("cpu")
         finally:
+            manager.note_offloaded(encoder)
             torch.cuda.empty_cache()
         get_profiler().mark(
             "te.encode", device="cpu", size_gb=size_gb, path="cpu-fallback",

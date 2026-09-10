@@ -32,20 +32,6 @@ config every mode shares; edit mode declares no ``resolution`` field of its
 own, but a stray value on that shared key must not silently steer the resize
 anyway — ``_edit_target_size`` below hardcodes the area target instead).
 
-TE eviction: a real edit-mode GPU run OOM'd with the 8.35GB Qwen2.5-VL
-TE still resident alongside the 19.12GB edit DiT — by the time THIS pipe runs,
-``prompt_encoder`` has already produced the conditioning every mode needs, so
-the TE is dead weight regardless of mode (not edit-specific — txt2img/img2img
-carry the exact same waste, just hadn't OOM'd yet). ``build_context`` releases
-it via ``bundle.te_cache_key`` + ``models.evict_dead_weight`` — the same
-mechanism ``latent_upscaler/ltx/main.py``'s ``_unload_idle_te`` established,
-mirrored here rather than reinvented. Safe with the prompt-embed cache: a hit
-never touches the TE module at all; a miss just reloads it from disk
-(``MODELS.acquire`` cache-misses), the same accepted cost the LTX pattern
-already establishes. Qwen-specific (not lifted into the shared
-``FlowMatchGeneratorPipe``) because Krea-2 is mid-rebuild and Flux/Wan/etc.
-weren't part of this investigation — see the report for the case this
-should generalize to next.
 """
 
 from __future__ import annotations
@@ -130,8 +116,6 @@ class GeneratorQwenPipe(FlowMatchGeneratorPipe):
             PipeInputSpec("conditioning", IOType.CONDITIONING, True, "Encoded prompt conditioning (per image)", is_array=True),
             PipeInputSpec("seed", IOType.SEED, False, "Random seeds", is_array=True),
             cls.img2img_input_spec(),
-            PipeInputSpec("MODELS", IOType.SERVICE, False,
-                          "Model lifecycle service, to release the idle TE's VRAM", is_array=False),
         ]
 
     @classmethod
@@ -140,38 +124,10 @@ class GeneratorQwenPipe(FlowMatchGeneratorPipe):
             PipeOutputSpec("image", IOType.IMAGE, "Generated images", is_array=True),
         ]
 
-    # -- TE eviction -----------------------------------------------
-
     def build_context(self, pipe_input: PipeInput) -> GeneratorContext:
         ctx = super().build_context(pipe_input)
-        self._release_idle_te(pipe_input)
         apply_schedule_settings(ctx, self.config)
         return ctx
-
-    def _release_idle_te(self, pipe_input: PipeInput) -> None:
-        """Evict the TE's MODELS cache entry — see the module docstring's "TE
-        eviction" section for the full rationale; mirrors ``latent_upscaler/
-        ltx/main.py``'s ``_unload_idle_te`` (same ``bundle.te_cache_key`` +
-        ``models.evict_dead_weight`` mechanism).
-
-        Best-effort and silent: a missing ``te_cache_key`` (a bundle built
-        outside the MODELS cache, e.g. isolated pipe tests), a missing
-        ``MODELS`` service, or an eviction that raises are all treated as
-        "nothing to do" — this is a VRAM optimisation, never something a
-        generation should fail over.
-        """
-        bundle = pipe_input.input.get("model")
-        models = pipe_input.input.get("MODELS")
-        key = getattr(bundle, "te_cache_key", None)
-        if not key or models is None:
-            return
-        evict = getattr(models, "evict_dead_weight", None)
-        if not callable(evict):
-            return
-        try:
-            evict(key)
-        except Exception:  # pragma: no cover - best-effort; never fail the pipe over this
-            logger.debug("[%s] TE eviction failed for key=%r", self.family_tag, key, exc_info=True)
 
     # -- edit mode -----------------------------------------
 

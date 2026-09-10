@@ -44,8 +44,7 @@ only loaded/acquired the first time ``self.encoder`` is actually read (see the
 ``encoder`` property below and ``clip_batch.py``'s ``encoder_provider``). A
 generation whose whole batch is served from the prompt-embed cache never
 touches ``MODELS.acquire()`` for the TE at all — previously it was acquired
-unconditionally in ``model_loader`` and then unloaded, unused, by
-``generator/krea2``'s ``_release_idle_te``.
+unconditionally in ``model_loader`` even when never used.
 """
 
 from __future__ import annotations

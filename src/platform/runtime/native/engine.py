@@ -1244,9 +1244,13 @@ class NativeGenerator:
     def _own_models(self) -> list:
         """This generation's own NativeModels — never evicted to free room for it.
 
-        Excludes the TE: its module is moved directly (not via ``NativeModel.
-        move_to``) and offloaded after encode, so it is never in the residency
-        registry to begin with.
+        Deliberately excludes the TE: ``run_text_encode``/``_run_text_encode_
+        uncached`` (``memory/residency.py``) may leave it GPU-resident and
+        registered with the coordinator after its encode window (co-residency,
+        avoiding a reload from disk on the next generation), and this
+        generation's own DiT placement must still be able to evict it under
+        real VRAM pressure — the TE is foreign dead weight by sampling time
+        (see ``_maybe_offload_te``), not something worth protecting here.
         """
         return [self.dit, self.vae]
 

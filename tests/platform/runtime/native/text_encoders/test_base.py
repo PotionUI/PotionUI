@@ -9,7 +9,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from src.platform.runtime.native.text_encoders.base import _module_unload  # noqa: E402
+from src.platform.runtime.native.text_encoders.base import NativeTextEncoder, _module_unload  # noqa: E402
 
 
 def test_module_unload_releases_storage_in_place_without_a_host_copy():
@@ -41,3 +41,30 @@ def test_module_unload_releases_storage_in_place_without_a_host_copy():
 
 def test_module_unload_is_a_no_op_for_none():
     _module_unload(None)  # must not raise
+
+
+def test_offload_moves_to_cpu():
+    """``offload()`` is the duck-typed hook ``GpuResidencyRegistry`` calls
+    (``model.offload()``) to reclaim a GPU-resident component. A TE left
+    co-resident by ``run_text_encode`` (see ``memory/residency.py``) is
+    registered with that coordinator like any other component and must be
+    evictable the same way -- without this, an eviction attempt would raise
+    ``AttributeError`` (caught and logged, but the VRAM would never actually
+    be freed)."""
+
+    class _Encoder(NativeTextEncoder):
+        def __init__(self):
+            self.moves: list[str] = []
+
+        def encode(self, texts):
+            raise NotImplementedError
+
+        def to(self, device):
+            self.moves.append(str(device))
+            return self
+
+    enc = _Encoder()
+    enc.to("cuda:0")
+    enc.offload()
+
+    assert enc.moves == ["cuda:0", "cpu"]

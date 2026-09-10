@@ -143,6 +143,27 @@ def test_owned_models_are_never_evicted(monkeypatch):
     mgr.clear()
 
 
+def test_resident_te_from_encode_window_is_evicted_before_dit_move(monkeypatch):
+    # A TE left GPU-resident by run_text_encode's co-residency path (see
+    # memory/residency.py) is registered with the coordinator exactly like a
+    # foreign DiT would be, and _own_models() deliberately excludes it (only
+    # [dit, vae]) -- so DiT placement must be able to evict it under pressure
+    # instead of OOMing with a resident-but-unused TE still holding VRAM.
+    _fake_cuda(monkeypatch, free_gb=4.0)
+    mgr = residency.get_residency_registry()
+    mgr.clear()
+    te = _ForeignModel()
+    mgr.note_resident(te, "cuda:0", 24.5)
+
+    gen, dit, vae = _make_generator(dit_gb=4.0)
+    gen._move_dit_to_gpu("cuda:0")
+
+    assert te.offloaded is True                # resident TE evicted to make room
+    assert dit.moved_to == ["cuda:0"]
+    assert dit.offloaded is False
+    mgr.clear()
+
+
 def test_ensure_room_missing_estimate_evicts_all_foreign(monkeypatch):
     # need_gb <= 0 (no estimate) -> fall back to evicting ALL foreign residents.
     _fake_cuda(monkeypatch, free_gb=1.0)

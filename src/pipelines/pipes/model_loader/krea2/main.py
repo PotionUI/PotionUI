@@ -12,8 +12,7 @@ handed to ``Krea2ClipTextEncoder`` as a deferred ``te_loader`` thunk (see that
 module) — it only runs if ``prompt_encoder`` actually needs to encode
 something the prompt-embed cache doesn't already have. Acquiring it
 unconditionally here meant every generation loaded/cache-hit a multi-GB TE
-that ``generator/krea2``'s ``_release_idle_te`` then evicted moments later,
-whether or not `prompt_encoder` ever touched it.
+even when `prompt_encoder` never touched it that generation.
 
 LoRA uses the Krea-2 dialect map (``lora/key_mapping.build_krea2_lora_key_map``,
 selected by ``map_lora_keys`` from the arch class): kohya-underscore + bare-dotted
@@ -246,11 +245,8 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
         bundle = Krea2ModelBundle(
             # `te` stays unset (never acquired) unless/until the deferred
             # thunk below actually runs -- `bundle.te_cache_key` (a plain
-            # string) is what `generator/krea2`'s `_release_idle_te` evicts
-            # by, independent of whether this bundle ever saw a real
-            # `NativeModel` for it, and `evict_dead_weight` on an absent key
-            # is already a documented no-op (see
-            # ModelLifecycle.evict_dead_weight).
+            # string) names the MODELS cache slot independent of whether this
+            # bundle ever saw a real `NativeModel` for it.
             dit=dit_model, te=None, vae=vae_model, te_cache_key=te_key,
             windowed_loras=tuple(windowed_loras),
         )

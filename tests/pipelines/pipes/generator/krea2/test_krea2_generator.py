@@ -65,28 +65,12 @@ def _cond_model():
     return SimpleNamespace(embeds={"context": torch.ones(1, 4, 8)}, n_embeds={})
 
 
-def _bundle(te_cache_key=None):
+def _bundle():
     return SimpleNamespace(
         dit=SimpleNamespace(estimated_vram_gb=26.0),
         te_encoder=object(),
         vae=object(),
-        te_cache_key=te_cache_key,
     )
-
-
-class _FakeModelsService:
-    """Records evict_dead_weight(key) calls; returns True (evicted) by default."""
-
-    def __init__(self, evict_result=True, raise_on_evict=False):
-        self.evict_calls: list[str] = []
-        self._evict_result = evict_result
-        self._raise = raise_on_evict
-
-    def evict_dead_weight(self, key: str) -> bool:
-        self.evict_calls.append(key)
-        if self._raise:
-            raise RuntimeError("boom")
-        return self._evict_result
 
 
 def _make_pipe(**over):
@@ -95,14 +79,12 @@ def _make_pipe(**over):
     return GeneratorKrea2Pipe(config=cfg)
 
 
-def _pipe_input(quantity=1, seeds=(1,), te_cache_key=None, models=None, image=None):
+def _pipe_input(quantity=1, seeds=(1,), image=None):
     inp = {
-        "model": _bundle(te_cache_key=te_cache_key),
+        "model": _bundle(),
         "conditioning": [_cond_model() for _ in range(quantity)],
         "seed": list(seeds),
     }
-    if models is not None:
-        inp["MODELS"] = models
     if image is not None:
         inp["image"] = [image]
     return PipeInput(input=inp)
@@ -311,64 +293,6 @@ def test_preview_error_does_not_break_generation():
     assert any(isinstance(o, GalleryGenerationOutput) for o in emitted)  # generation completed
 
 
-# --- TE eviction before sampling ----------------------------------
-#
-# By generator time prompt_encoder has already produced the conditioning, so the
-# multi-GB Qwen3-VL TE is dead weight through sampling+decode. The generator
-# releases it via bundle.te_cache_key + MODELS.evict_dead_weight -- mirrors the
-# qwen / LTX idle-TE pattern. The krea2-edit plugin subclasses this
-# pipe and inherits the same release (its own coverage lives in the plugin test).
-
-
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
-def test_te_evicted_when_cache_key_and_models_present():
-    models = _FakeModelsService()
-    pipe = _make_pipe()
-    pipe.process(_pipe_input(te_cache_key="native/te/x.safetensors", models=models), lambda o: None)
-    assert models.evict_calls == ["native/te/x.safetensors"]
-
-
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
-def test_no_eviction_without_a_cache_key():
-    models = _FakeModelsService()
-    pipe = _make_pipe()
-    pipe.process(_pipe_input(te_cache_key=None, models=models), lambda o: None)
-    assert models.evict_calls == []
-
-
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
-def test_no_eviction_without_a_models_service():
-    pipe = _make_pipe()
-    # No "MODELS" key in pipe_input at all -- must not raise.
-    result = pipe.process(_pipe_input(te_cache_key="native/te/x.safetensors", models=None), lambda o: None)
-    assert result.output["image"]
-
-
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
-def test_eviction_failure_does_not_fail_the_generation():
-    models = _FakeModelsService(raise_on_evict=True)
-    pipe = _make_pipe()
-    result = pipe.process(_pipe_input(te_cache_key="native/te/x.safetensors", models=models), lambda o: None)
-    assert result.output["image"]                             # generation still completed
-    assert models.evict_calls == ["native/te/x.safetensors"]  # eviction was attempted
-
-
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
-def test_eviction_happens_once_per_generation_call_not_per_seed():
-    models = _FakeModelsService()
-    pipe = _make_pipe(quantity=3)
-    pipe.process(_pipe_input(quantity=3, seeds=(1, 2, 3), te_cache_key="native/te/x.safetensors", models=models), lambda o: None)
-    assert models.evict_calls == ["native/te/x.safetensors"]  # not 3x
-
-
-def test_generator_declares_the_models_service_input():
-    names = {s.name for s in GeneratorKrea2Pipe.inputs()}
-    assert "MODELS" in names
 
 
 # --- step_cache (FBCache) config --------------------------------
@@ -568,3 +492,12 @@ def test_refine_tail_off_emits_no_provenance_params():
     names = {o.name for o in emitted if isinstance(o, ParamGenerationOutput)}
     assert "refine_tail" not in names
     assert "refine_tail_sigmas" not in names
+
+
+def test_release_idle_te_removed():
+    """Unconditional TE eviction was removed -- the residency coordinator now
+    co-resides/evicts the TE under measured VRAM pressure instead of the pipe
+    unconditionally dropping it from the MODELS cache every generation (see
+    memory/residency.py's run_text_encode + NativeGenerator._own_models)."""
+    assert not hasattr(GeneratorKrea2Pipe, "_release_idle_te")
+    assert "MODELS" not in {s.name for s in GeneratorKrea2Pipe.inputs()}

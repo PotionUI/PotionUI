@@ -18,12 +18,6 @@ its ``forward``.
 ``build_context``/``generate_one`` (shared by every native flow-matching family)
 live in ``FlowMatchGeneratorPipe``; this module only carries Anima's own config
 schema/defaults plus the ``AnimaNativeGenerator`` subclass.
-
-TE eviction: by generator time ``prompt_encoder`` has already produced the
-conditioning every mode needs, so the Qwen3-0.6B TE is dead weight through
-sampling and decode. Released via ``bundle.te_cache_key`` +
-``models.evict_dead_weight`` -- mirrors ``generator/qwen``'s
-``_release_idle_te`` (see that module's docstring for the full rationale).
 """
 
 from __future__ import annotations
@@ -31,7 +25,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from src.platform.runtime.native.engine import NativeGenerator
-from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec, logger
+from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.pipes._shared.generation.flow_generator_pipe import FlowMatchGeneratorPipe
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
 from src.pipelines.pipes._shared.generation.guidance_options import (
@@ -81,33 +75,8 @@ class GeneratorAnimaPipe(FlowMatchGeneratorPipe):
 
     def build_context(self, pipe_input: PipeInput) -> GeneratorContext:
         ctx = super().build_context(pipe_input)
-        self._release_idle_te(pipe_input)
         apply_schedule_settings(ctx, self.config)
         return ctx
-
-    def _release_idle_te(self, pipe_input: PipeInput) -> None:
-        """Evict the TE's MODELS cache entry -- see the module docstring's "TE
-        eviction" section; mirrors ``generator/qwen``'s ``_release_idle_te``
-        (same ``bundle.te_cache_key`` + ``models.evict_dead_weight`` mechanism).
-
-        Best-effort and silent: a missing ``te_cache_key`` (a bundle built
-        outside the MODELS cache, e.g. isolated pipe tests), a missing
-        ``MODELS`` service, or an eviction that raises are all treated as
-        "nothing to do" -- this is a VRAM optimisation, never something a
-        generation should fail over.
-        """
-        bundle = pipe_input.input.get("model")
-        models = pipe_input.input.get("MODELS")
-        key = getattr(bundle, "te_cache_key", None)
-        if not key or models is None:
-            return
-        evict = getattr(models, "evict_dead_weight", None)
-        if not callable(evict):
-            return
-        try:
-            evict(key)
-        except Exception:  # pragma: no cover - best-effort; never fail the pipe over this
-            logger.debug("[%s] TE eviction failed for key=%r", self.family_tag, key, exc_info=True)
 
     @classmethod
     def get_default_config(cls) -> Dict[str, Any]:
@@ -168,8 +137,6 @@ class GeneratorAnimaPipe(FlowMatchGeneratorPipe):
             PipeInputSpec("conditioning", IOType.CONDITIONING, True, "Encoded prompt conditioning (per image)", is_array=True),
             PipeInputSpec("seed", IOType.SEED, False, "Random seeds", is_array=True),
             cls.img2img_input_spec(),
-            PipeInputSpec("MODELS", IOType.SERVICE, False,
-                          "Model lifecycle service, to release the idle TE's VRAM before sampling", is_array=False),
         ]
 
     @classmethod

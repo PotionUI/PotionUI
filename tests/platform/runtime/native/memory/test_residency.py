@@ -47,6 +47,9 @@ class _RecordingEncoder:
         self.devices.append(str(device))
         return self
 
+    def offload(self) -> None:
+        self.to("cpu")
+
 
 # --- device_index -------------------------------------------------------------
 
@@ -414,7 +417,7 @@ def test_encode_coresides_without_eviction_when_it_fits(monkeypatch):
     out = run_text_encode(enc, "cuda:0", lambda: calls.append(enc.devices[-1]) or "OK")
     assert out == "OK"
     assert calls == ["cuda:0"]                 # encode ran with the TE on the GPU
-    assert enc.devices == ["cuda:0", "cpu"]    # moved up then back down
+    assert enc.devices == ["cuda:0"]           # left resident -- no move back to cpu
     assert dit.offloaded is False              # DiT NOT evicted — it co-resided
     mgr.clear()
 
@@ -430,7 +433,7 @@ def test_encode_evicts_resident_when_it_does_not_fit(monkeypatch):
     enc = _RecordingEncoder()
     run_text_encode(enc, "cuda:0", lambda: "OK")
     assert dit.offloaded is True               # evicted to make room
-    assert enc.devices == ["cuda:0", "cpu"]
+    assert enc.devices == ["cuda:0"]           # TE left resident after the encode
     mgr.clear()
 
 
@@ -546,9 +549,9 @@ def test_wrapper_to_not_cascading_to_inner_module_is_still_moved(monkeypatch):
     out = run_text_encode(enc, "cuda:0", _encode)
 
     assert out == "OK"
-    assert enc.to_calls == ["cuda:0", "cpu"]          # wrapper's own (broken) .to() still called
+    assert enc.to_calls == ["cuda:0"]                  # wrapper's own (broken) .to() still called
     assert seen_devices == ["cuda:0"]                  # but the real module WAS moved during encode
-    assert inner.moves == ["cuda:0", "cpu"]             # discovery walk moved it there and back
+    assert inner.moves == ["cuda:0"]                   # discovery walk moved it -- left resident
     mgr.clear()
 
 
@@ -587,12 +590,16 @@ def test_composite_encoder_moves_every_inner_module(monkeypatch):
     run_text_encode(enc, "cuda:0", _encode)
 
     assert seen == [("cuda:0", "cuda:0")]
-    assert t5_inner.moves == ["cuda:0", "cpu"]
-    assert clip_inner.moves == ["cuda:0", "cpu"]
+    assert t5_inner.moves == ["cuda:0"]
+    assert clip_inner.moves == ["cuda:0"]
     mgr.clear()
 
 
-def test_finally_restores_to_cpu_even_when_encode_fn_raises(monkeypatch):
+def test_encoder_stays_resident_on_gpu_even_when_encode_fn_raises(monkeypatch):
+    # No offload-on-failure "finally" any more: an encoder whose weights are
+    # already up stays up (and registered) even when the encode itself raises
+    # -- there's nothing wrong with the placement, only with the caller's
+    # encode_fn, so there's no reason to pay a CPU round trip on the way out.
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=0.001)
     mgr = residency.get_residency_registry()
     mgr.clear()
@@ -618,7 +625,8 @@ def test_finally_restores_to_cpu_even_when_encode_fn_raises(monkeypatch):
     except RuntimeError:
         pass
 
-    assert inner.moves[-1] == "cpu"  # finally still ran despite the raise
+    assert inner.moves[-1] == "cuda:0"          # left resident, not moved back
+    assert mgr.resident_gb("cuda:0") > 0.0      # still registered with the coordinator
     mgr.clear()
 
 
@@ -682,7 +690,7 @@ def test_cache_hit_never_moves_encoder_to_gpu(monkeypatch):
 
     enc = _RecordingEncoder()
     run_text_encode(enc, "cuda:0", lambda: {"context": torch.ones(1, 2)}, cache_key="k2")
-    assert enc.devices == ["cuda:0", "cpu"]      # miss moved it up and back
+    assert enc.devices == ["cuda:0"]             # miss moved it up and left it resident
 
     enc.devices.clear()
     out = run_text_encode(enc, "cuda:0", lambda: {"context": torch.zeros(1, 2)}, cache_key="k2")
@@ -697,12 +705,12 @@ def test_cache_hit_never_moves_encoder_to_gpu(monkeypatch):
 
 
 def test_run_text_encode_registers_with_coordinator_during_the_gpu_window(monkeypatch):
-    """The coordinator must see the encoder's own VRAM footprint
-    while it's actually resident, not just the DiT/VAE that go through
-    NativeModel.move_to. Registering only inside the GPU window (and
-    deregistering before falling back to CPU) keeps resident_gb() honest for a
-    concurrent eviction decision, and leaves no residual entry once the encode
-    is done."""
+    """The coordinator must see the encoder's own VRAM footprint while it's
+    actually resident, not just the DiT/VAE that go through NativeModel.
+    move_to. Registration happens before the encode AND is deliberately left
+    in place afterwards (co-residency: no offload-back-to-cpu on success) so
+    resident_gb() keeps reporting the TE's footprint until a later phase
+    actually reclaims it under pressure."""
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=7.0)
     mgr = residency.get_residency_registry()
     mgr.clear()
@@ -717,7 +725,7 @@ def test_run_text_encode_registers_with_coordinator_during_the_gpu_window(monkey
     run_text_encode(enc, "cuda:0", _encode)
 
     assert seen_resident_gb == [7.0]           # resident DURING the encode
-    assert mgr.resident_gb("cuda:0") == 0.0    # deregistered once back on CPU
+    assert mgr.resident_gb("cuda:0") == 7.0    # still resident after -- left co-resident
     mgr.clear()
 
 
@@ -933,8 +941,8 @@ def test_distinct_keys_do_not_collide():
 
 
 def test_batch_all_miss_shares_one_gpu_window(monkeypatch):
-    """N misses must move the encoder to the GPU ONCE and back ONCE — not once
-    per request — while still calling every encode_fn, in order."""
+    """N misses must move the encoder to the GPU ONCE — not once per request —
+    while still calling every encode_fn, in order."""
     cache = _fresh_embed_cache()
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=5.0)
     mgr = residency.get_residency_registry()
@@ -955,7 +963,7 @@ def test_batch_all_miss_shares_one_gpu_window(monkeypatch):
 
     assert calls == [0, 1, 2]                    # every request encoded, in order
     assert results == ["cuda:0", "cuda:0", "cuda:0"]  # all ran while resident
-    assert enc.devices == ["cuda:0", "cpu"]       # ONE move up, ONE move back
+    assert enc.devices == ["cuda:0"]              # ONE move up, left resident after
     mgr.clear()
     cache.clear()
 
@@ -1041,7 +1049,7 @@ def test_batch_mixed_hit_miss_only_encodes_the_misses(monkeypatch):
     )
 
     assert calls == ["a", "b"]                    # only the two misses ran
-    assert enc.devices == ["cuda:0", "cpu"]        # ONE shared window for both
+    assert enc.devices == ["cuda:0"]               # ONE shared window for both
     assert torch.equal(results[1]["context"], torch.ones(1, 2))
     mgr.clear()
 

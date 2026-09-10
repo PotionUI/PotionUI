@@ -53,26 +53,10 @@ def _cond_model():
     return SimpleNamespace(embeds={"context": torch.ones(1, 4, 8)}, n_embeds={})
 
 
-def _bundle(te_cache_key=None):
+def _bundle():
     return SimpleNamespace(
         dit=SimpleNamespace(estimated_vram_gb=12.0), te_encoder=object(), vae=object(),
-        te_cache_key=te_cache_key,
     )
-
-
-class _FakeModelsService:
-    """Records evict_dead_weight(key) calls; returns True (evicted) by default."""
-
-    def __init__(self, evict_result=True, raise_on_evict=False):
-        self.evict_calls: list[str] = []
-        self._evict_result = evict_result
-        self._raise = raise_on_evict
-
-    def evict_dead_weight(self, key: str) -> bool:
-        self.evict_calls.append(key)
-        if self._raise:
-            raise RuntimeError("boom")
-        return self._evict_result
 
 
 def _make_pipe(**over):
@@ -81,14 +65,12 @@ def _make_pipe(**over):
     return GeneratorZImagePipe(config=cfg)
 
 
-def _pipe_input(quantity=1, seeds=(1,), te_cache_key=None, models=None):
+def _pipe_input(quantity=1, seeds=(1,)):
     inp = {
-        "model": _bundle(te_cache_key=te_cache_key),
+        "model": _bundle(),
         "conditioning": [_cond_model() for _ in range(quantity)],
         "seed": list(seeds),
     }
-    if models is not None:
-        inp["MODELS"] = models
     return PipeInput(input=inp)
 
 
@@ -173,62 +155,6 @@ def test_spectral_progressive_defaults_to_none():
     assert call["spectral_progressive"] is None
 
 
-# -- TE eviction before sampling ---------------------------------
-
-
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
-def test_te_evicted_when_cache_key_and_models_present():
-    models = _FakeModelsService()
-    pipe = _make_pipe()
-    pipe.process(_pipe_input(te_cache_key="native/te/x.safetensors|zimage", models=models), lambda o: None)
-    assert models.evict_calls == ["native/te/x.safetensors|zimage"]
-
-
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
-def test_no_eviction_without_a_cache_key():
-    models = _FakeModelsService()
-    pipe = _make_pipe()
-    pipe.process(_pipe_input(te_cache_key=None, models=models), lambda o: None)
-    assert models.evict_calls == []
-
-
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
-def test_no_eviction_without_a_models_service():
-    pipe = _make_pipe()
-    result = pipe.process(_pipe_input(te_cache_key="native/te/x.safetensors|zimage", models=None), lambda o: None)
-    assert result.output["image"]
-
-
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
-def test_eviction_failure_does_not_fail_the_generation():
-    models = _FakeModelsService(raise_on_evict=True)
-    pipe = _make_pipe()
-    result = pipe.process(_pipe_input(te_cache_key="native/te/x.safetensors|zimage", models=models), lambda o: None)
-    assert result.output["image"]
-    assert models.evict_calls == ["native/te/x.safetensors|zimage"]
-
-
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
-def test_eviction_happens_once_per_generation_call_not_per_seed():
-    models = _FakeModelsService()
-    pipe = _make_pipe(quantity=3)
-    pipe.process(
-        _pipe_input(quantity=3, seeds=(1, 2, 3), te_cache_key="native/te/x.safetensors|zimage", models=models),
-        lambda o: None,
-    )
-    assert models.evict_calls == ["native/te/x.safetensors|zimage"]  # not 3x
-
-
-def test_generator_declares_the_models_service_input():
-    names = {s.name for s in GeneratorZImagePipe.inputs()}
-    assert "MODELS" in names
-
-
 # -- schedule / schedule_options (flat sigma-schedule knobs) ---------------
 #
 # schedule_settings_config_specs()/schedule_settings_overrides()
@@ -268,3 +194,12 @@ def test_empty_schedule_leaves_schedule_settings_untouched():
     pipe = _make_pipe()
     ctx = pipe.build_context(_pipe_input())
     assert ctx.extra.get("schedule_settings") is None
+
+
+def test_release_idle_te_removed():
+    """Unconditional TE eviction was removed -- the residency coordinator now
+    co-resides/evicts the TE under measured VRAM pressure instead of the pipe
+    unconditionally dropping it from the MODELS cache every generation (see
+    memory/residency.py's run_text_encode + NativeGenerator._own_models)."""
+    assert not hasattr(GeneratorZImagePipe, "_release_idle_te")
+    assert "MODELS" not in {s.name for s in GeneratorZImagePipe.inputs()}

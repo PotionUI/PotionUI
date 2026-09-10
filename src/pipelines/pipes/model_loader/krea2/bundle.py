@@ -31,10 +31,7 @@ class Krea2ModelBundle:
     vae: NativeModel = field(default=WeakModelRef())
     # The MODELS cache key `te` was acquired under (``f"native/te/{te_path}"``,
     # see model_loader/krea2/main.py) -- a plain str lookup key, not a
-    # MODELS-cached object: `generator/krea2` and the krea2-edit plugin release
-    # the TE explicitly once prompt_encoder is done with it (same
-    # ``bundle.te_cache_key`` + ``models.evict_dead_weight`` mechanism the qwen
-    # and LTX idle-TE paths use). ``None`` for a bundle built without the MODELS
+    # MODELS-cached object. ``None`` for a bundle built without the MODELS
     # cache (isolated pipe tests).
     te_cache_key: Optional[str] = None
     # LoRA entries the preset asked to apply only inside a step window

@@ -42,10 +42,9 @@ vocoder (``bundle.audio_vae``/``bundle.vocoder``), not the TE. So the
 multi-GB Gemma3-12B TE is dead weight in RAM for the rest of the generation
 the moment either generator pipe starts -- :func:`release_idle_te` releases
 it via ``bundle.te_cache_key`` + ``models.evict_dead_weight``, the same
-mechanism ``generator/qwen``/``generator/krea2`` established first and
-``latent_upscaler/ltx/main.py``'s ``_unload_idle_te`` (standalone-upscale
-mode) already uses -- this module now owns the shared implementation both
-import.
+mechanism ``latent_upscaler/ltx/main.py``'s ``_unload_idle_te``
+(standalone-upscale mode) also uses -- this module now owns the shared
+implementation both import.
 """
 
 from __future__ import annotations

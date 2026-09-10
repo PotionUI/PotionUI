@@ -136,6 +136,15 @@ class NativeTextEncoder(ABC):
         """Move the underlying module(s) to ``device``. Default: no-op."""
         return self
 
+    def offload(self) -> None:
+        """Move to CPU — the ``GpuResidencyRegistry`` eviction contract
+        (``ensure_free``/``offload_all`` call ``model.offload()`` on whatever
+        they reclaim). A GPU-resident TE left co-resident by ``run_text_encode``
+        (``memory/residency.py``) is registered with the coordinator like any
+        other component and must be evictable the same way when a later phase
+        (DiT placement) needs the VRAM back."""
+        self.to("cpu")
+
     def unload(self) -> None:
         """Release GPU/CPU memory held by the underlying module(s)."""
         return None

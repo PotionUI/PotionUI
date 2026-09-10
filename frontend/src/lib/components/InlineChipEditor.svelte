@@ -931,11 +931,13 @@
 	// =====================
 
 	function handleChipChange(chipId: string, updatedData: ChipData) {
+		const valueChanged = chips[chipId]?.valueId !== updatedData.valueId;
 		const newChips = { ...chips, [chipId]: updatedData };
 		chips = newChips;
 
-		// Remount the specific chip with updated data
-		remountChip(chipId, updatedData);
+		// Remount the specific chip with updated data; flash it when the
+		// value itself changed (shuffle / pick), same as the external sync path.
+		remountChip(chipId, updatedData, valueChanged);
 
 		dispatch('change', { value, chips: newChips });
 	}

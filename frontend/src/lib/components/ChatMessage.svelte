@@ -9,6 +9,7 @@
 	} from '$lib/utils/markdown';
 	import type { ToolExecution, ResourceRef, TraceStep, ReplyContract } from '$lib/types/chat';
 	import { splitResourceTokens } from '$lib/utils/resourceTokens';
+	import { splitMarkerTokens } from '$lib/chat/previewTokens';
 	import { buildVariableChipTooltips } from '$lib/utils/variableSnapshot';
 	import type { VariablesMap, VariableRoll } from '$lib/utils/variableDefs';
 	import ChatBehaviorTrace from '$lib/components/chat/ChatBehaviorTrace.svelte';
@@ -140,26 +141,6 @@
 		} catch {
 			return 'image';
 		}
-	}
-
-	// Split proposed segment content into plain text and #phrasebook marker tokens
-	// (same pattern as chipParser.ts) so markers render as chips in the preview
-	function splitMarkerTokens(text: string): Array<{ text: string; isMarker: boolean }> {
-		const tokens: Array<{ text: string; isMarker: boolean }> = [];
-		const markerRegex = /#\[[^\]]+\]|#[\w][\w.]*/g;
-		let lastIndex = 0;
-		let match: RegExpExecArray | null;
-		while ((match = markerRegex.exec(text)) !== null) {
-			if (match.index > lastIndex) {
-				tokens.push({ text: text.slice(lastIndex, match.index), isMarker: false });
-			}
-			tokens.push({ text: match[0], isMarker: true });
-			lastIndex = match.index + match[0].length;
-		}
-		if (lastIndex < text.length) {
-			tokens.push({ text: text.slice(lastIndex), isMarker: false });
-		}
-		return tokens;
 	}
 
 	$: variableChips = buildVariableChipTooltips(variables, variableRolls);
@@ -327,7 +308,7 @@
 							</div>
 						{/if}
 						<div class="prompt-copy">
-							{#each splitMarkerTokens(action.content) as token}{#if token.isMarker}<span class="prompt-token">{token.text}</span>{:else}{token.text}{/if}{/each}
+							{#each splitMarkerTokens(action.content) as token}{#if token.kind === 'phrasebook'}<span class="prompt-token" title="Phrasebook: {token.label}"><span class="prompt-token-mark">#</span>{token.label}</span>{:else if token.kind === 'variable'}<span class="prompt-token variable" title={variableChips[token.label] ?? `Variable: ${token.label}`}><span class="prompt-token-mark">$</span>{token.label}</span>{:else}{token.text}{/if}{/each}
 						</div>
 					</div>
 				{/each}

@@ -987,10 +987,25 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
     }
 
 .prompt-token {
-      color: rgb(var(--signal));
-      background: rgb(rgb(var(--signal)) / 0.11);
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      margin: 0 1px;
+      padding: 1px 6px 1px 4px;
+      color: rgb(var(--fg));
+      background: rgb(var(--surface-3));
+      border: 1px solid rgb(var(--line-strong));
       border-radius: 4px;
-      padding: 1px 3px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+.prompt-token-mark {
+      color: rgb(var(--signal));
+    }
+
+.prompt-token.variable .prompt-token-mark {
+      color: rgb(var(--ai-1));
     }
 
 .message-actions {

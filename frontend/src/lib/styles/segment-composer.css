@@ -219,7 +219,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .phrase-chip, .variable-chip, .choice-chip { padding: 0; overflow: hidden; }
 
-.chip.shuffle-enabled { isolation: isolate; overflow: hidden; border-color: color-mix(in srgb, rgb(var(--fg)) 52%, rgb(var(--line))); }
+/* The conic sweep (::before) paints in the border area too: the border goes transparent and the resting ring moves to a
+   box-shadow outside the box, so the animation is a 2px band (border + 1px rim) instead of a 1px rim hidden under a solid border. */
+.chip.shuffle-enabled { isolation: isolate; overflow: clip; overflow-clip-margin: 1px; border-color: transparent; box-shadow: inset 0 1px rgba(255,255,255,.025), 0 0 0 1px color-mix(in srgb, rgb(var(--fg)) 52%, rgb(var(--line))); }
 
 .chip.shuffle-enabled::before { content: ""; position: absolute; z-index: 0; inset: -180%; opacity: 0; background: conic-gradient(from 0deg, transparent 0 70%, color-mix(in srgb, rgb(var(--signal)) 28%, transparent) 76%, rgb(var(--signal)) 80%, color-mix(in srgb, rgb(var(--signal)) 28%, transparent) 84%, transparent 90%); }
 

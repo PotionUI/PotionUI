@@ -887,6 +887,18 @@ export interface ModelDigestConflict {
 	backend_id: string;
 }
 
+/** A file whose bytes are already indexed under another name or type (a copy in a
+ *  second folder). `models.sha256` is unique, so the copy is skipped, not created. */
+export interface ModelDuplicateContent {
+	model_type: string;
+	filename: string;
+	ref: string;
+	sha256: string;
+	existing_model_type: string;
+	existing_filename: string;
+	existing_file_path: string | null;
+}
+
 export interface IndexModelsResult {
 	backend_id: string;
 	listed: number;
@@ -895,6 +907,7 @@ export interface IndexModelsResult {
 	removed: number;
 	size_conflicts: ModelSizeConflict[];
 	digest_conflicts: ModelDigestConflict[];
+	duplicates: ModelDuplicateContent[];
 	ambiguous: string[];
 }
 

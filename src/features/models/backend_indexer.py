@@ -64,6 +64,22 @@ class DigestConflict:
 
 
 @dataclass
+class DuplicateContent:
+    """A second file with the bytes of a model already indexed under another
+    name or type (a copy of a LoRA dropped into another folder, say).
+    `models.sha256` is unique, so the copy is reported and skipped rather than
+    failing the whole index."""
+
+    model_type: str
+    filename: str
+    ref: str
+    sha256: str
+    existing_model_type: str
+    existing_filename: str
+    existing_file_path: Optional[str]
+
+
+@dataclass
 class IndexResult:
     backend_id: str
     listed: int = 0
@@ -73,6 +89,7 @@ class IndexResult:
     orphans_removed: int = 0
     size_conflicts: List[SizeConflict] = field(default_factory=list)
     digest_conflicts: List[DigestConflict] = field(default_factory=list)
+    duplicates: List[DuplicateContent] = field(default_factory=list)
     ambiguous: List[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -85,6 +102,7 @@ class IndexResult:
             "orphans_removed": self.orphans_removed,
             "size_conflicts": [c.__dict__ for c in self.size_conflicts],
             "digest_conflicts": [c.__dict__ for c in self.digest_conflicts],
+            "duplicates": [d.__dict__ for d in self.duplicates],
             "ambiguous": self.ambiguous,
         }
 
@@ -123,6 +141,19 @@ class BackendModelIndexer:
             model = index.get(identity)
 
             if model is None:
+                existing = self._same_content(entry)
+                if existing is not None:
+                    result.duplicates.append(DuplicateContent(
+                        model_type=entry.model_type, filename=entry.filename, ref=entry.ref,
+                        sha256=entry.sha256, existing_model_type=existing.model_type,
+                        existing_filename=existing.filename, existing_file_path=existing.file_path,
+                    ))
+                    logger.warning(
+                        f"[BACKEND_INDEX] {backend.name}: skipping '{entry.ref}' ({entry.model_type}) - "
+                        f"same sha256 {entry.sha256[:12]}… as '{existing.filename}' ({existing.model_type}) "
+                        f"at {existing.file_path}"
+                    )
+                    continue
                 model = self._create_model(entry)
                 result.created += 1
                 confidence = entry.confidence
@@ -253,7 +284,13 @@ class BackendModelIndexer:
         models = self.models.get_all(include_providers=False, include_tags=False)
         return {(m.model_type, m.filename): m for m in models}
 
+    def _same_content(self, entry: BackendModel):
+        if not entry.sha256:
+            return None
+        return self.models.get_by_sha256(entry.sha256, include_providers=False)
+
     def _create_model(self, entry: BackendModel):
+        import sqlite3
         from src.features.models.records import Model
         from src.platform.util.ids import generate_ulid
 
@@ -265,7 +302,16 @@ class BackendModelIndexer:
             sha256=entry.sha256,
             model_type=entry.model_type,
         )
-        return self.models.create(model)
+        try:
+            return self.models.create(model)
+        except sqlite3.IntegrityError as exc:
+            existing = self._same_content(entry)
+            where = (f"'{existing.filename}' ({existing.model_type}) at {existing.file_path}"
+                     if existing is not None else "another row")
+            raise RuntimeError(
+                f"cannot index '{entry.ref}' ({entry.model_type}): sha256 "
+                f"{(entry.sha256 or '')[:12]}… already belongs to {where}"
+            ) from exc
 
     @staticmethod
     def _local_path(entry: BackendModel) -> Optional[str]:

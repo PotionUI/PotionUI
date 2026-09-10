@@ -638,7 +638,8 @@
 			if (response.success && response.data) {
 				indexResults = { ...indexResults, [backend.id]: response.data };
 				const r = response.data;
-				const warnings = r.size_conflicts.length + r.digest_conflicts.length + r.ambiguous.length;
+				const warnings =
+					r.size_conflicts.length + r.digest_conflicts.length + r.duplicates.length + r.ambiguous.length;
 				toasts.success(
 					`Indexed ${r.listed} models on "${backend.name}" — ${r.created} new, ${r.matched} matched, ${r.removed} removed` +
 						(warnings > 0 ? ` (${warnings} warning${warnings === 1 ? '' : 's'})` : '')
@@ -950,6 +951,7 @@
 										{@const warningCount =
 											result.size_conflicts.length +
 											result.digest_conflicts.length +
+											result.duplicates.length +
 											result.ambiguous.length}
 										{@const hasDigestConflicts = result.digest_conflicts.length > 0}
 										<div class="rounded border border-line bg-surface-1 px-3 py-2 space-y-2">
@@ -986,6 +988,16 @@
 																({conflict.model_type}) — known {conflict.known_size} bytes, this backend
 																reports {conflict.reported_size} bytes. Likely a different (e.g. quantised)
 																copy.
+															</li>
+														{/each}
+														{#each result.duplicates as dup}
+															<li class="font-mono">
+																Duplicate content: <span class="text-fg-muted">{dup.ref}</span>
+																({dup.model_type}) has the same sha256 as
+																<span class="text-fg-muted">{dup.existing_filename}</span>
+																({dup.existing_model_type}{dup.existing_file_path
+																	? `, ${dup.existing_file_path}`
+																	: ''}) and was skipped. Remove one copy.
 															</li>
 														{/each}
 														{#each result.ambiguous as note}

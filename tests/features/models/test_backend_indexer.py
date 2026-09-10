@@ -27,6 +27,9 @@ class FakeModelRepo:
     def get_all(self, **kwargs):
         return list(self.models)
 
+    def get_by_sha256(self, sha256, include_providers=True):
+        return next((m for m in self.models if m.sha256 == sha256), None)
+
     def create(self, model):
         self._next += 1
         model.id = model.id or f"m{self._next}"
@@ -330,3 +333,26 @@ async def test_directory_model_fingerprint_is_never_compared_as_a_digest():
 
     assert result.digest_conflicts == []
     assert avail.rows[("m1", "remote1")].confidence == "verified"
+
+
+@pytest.mark.asyncio
+async def test_copy_of_an_indexed_file_under_another_type_is_reported_and_skipped():
+    """`models.sha256` is unique: the same bytes in two folders must not abort the index."""
+    idx, models, avail = indexer(existing=[
+        FakeModel("m0", "lora", "identity_edit.safetensors", file_size=10, sha256="abc" * 20,
+                  file_path="/models/loras/identity_edit.safetensors"),
+    ])
+    copy = BackendModel("checkpoint", "identity_edit.safetensors", "identity_edit.safetensors",
+                        size=10, sha256="abc" * 20)
+    other = BackendModel("checkpoint", "flux.safetensors", "flux.safetensors", size=11, sha256="def" * 20)
+
+    result = await idx.index_backend(make_backend([copy, other]))
+
+    assert result.created == 1
+    assert [m.filename for m in models.models] == ["identity_edit.safetensors", "flux.safetensors"]
+    assert len(result.duplicates) == 1
+    dup = result.duplicates[0]
+    assert dup.filename == "identity_edit.safetensors" and dup.model_type == "checkpoint"
+    assert dup.existing_model_type == "lora"
+    assert dup.existing_file_path == "/models/loras/identity_edit.safetensors"
+    assert result.to_dict()["duplicates"][0]["sha256"] == "abc" * 20

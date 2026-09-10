@@ -233,6 +233,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .chip.shuffle-enabled:hover::after, .chip.shuffle-enabled.active::after { background: rgb(var(--surface-2)); }
 
+/* Focus/active on a shuffle chip: no outline (it sat on top of the sweep); the resting ring brightens instead, and the
+   focus-within reminder sweep above is the motion cue. */
+.chip.shuffle-enabled.active, .chip.shuffle-enabled:focus-within { outline: 0; box-shadow: inset 0 1px rgba(255,255,255,.025), 0 0 0 1px color-mix(in srgb, rgb(var(--fg)) 85%, rgb(var(--line))); }
+
 .chip.shuffle-enabled > * { position: relative; z-index: 1; }
 
 .chip.shuffle-enabled .chip-config { color: rgb(var(--fg)); }

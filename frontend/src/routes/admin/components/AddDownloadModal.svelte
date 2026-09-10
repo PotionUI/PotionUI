@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { logger, getErrorMessage } from '$lib/utils/logger';
-	import { createEventDispatcher, onMount } from 'svelte';
+	import { createEventDispatcher, onMount, tick } from 'svelte';
 	import { downloadStore, remoteBackends, type QueueModelDownloadOptions } from '$lib/stores/downloads';
 	import { api } from '$lib/services/api/index';
 	import { detectUrl } from '$lib/utils/downloadUrlDetect';
+	import { buildSubdirNodes } from '$lib/utils/subdirTree';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, Spinner, Alert, SegmentedControl } from '$lib/components/ui';
+	import { Button, Spinner, Alert, Badge, SegmentedControl } from '$lib/components/ui';
 
 	interface ApiModelTypeItem {
 		type: string;
@@ -31,6 +32,10 @@
 	let destinationType = '';
 	let destinationSubdir = '';
 	let customSubdir = '';
+	// UI-only: whether the "new folder" row is currently showing its input
+	// rather than its committed/idle state. Never sent to the server.
+	let editingSubdir = false;
+	let newSubdirInput: HTMLInputElement | undefined;
 	const NEW_SUBDIR = '__new__';
 	let filename = '';
 	let selectedTags: string[] = [];
@@ -61,6 +66,7 @@
 	$: useSegmentedDestination = destinationItems.length <= 4;
 	$: selectedTypeEntry = modelTypes.find((t) => t.type === destinationType);
 	$: availableSubdirs = selectedTypeEntry?.subdirectories ?? [];
+	$: subdirNodes = buildSubdirNodes(availableSubdirs);
 	// The relative subfolder actually sent: a listed one, or the typed path
 	// with stray slashes trimmed (the server rejects `..` and absolute paths).
 	$: effectiveSubdir =
@@ -72,11 +78,13 @@
 			? `${selectedTypeEntry.directory}/${effectiveSubdir}`
 			: selectedTypeEntry.directory
 		: 'models';
+	$: breadcrumbSegments = selectedDirectory.split('/').filter(Boolean);
 	// Reset to the type's root whenever the chosen type changes, including
 	// when a previously picked subfolder doesn't exist under the new type.
 	$: if (destinationType) {
 		destinationSubdir = '';
 		customSubdir = '';
+		editingSubdir = false;
 	}
 
 	onMount(async () => {
@@ -178,6 +186,48 @@
 
 	function getTagName(tagId: string): string {
 		return availableTags.find((t) => t.id === tagId)?.name || tagId;
+	}
+
+	function selectSubdir(path: string) {
+		destinationSubdir = path;
+		editingSubdir = false;
+	}
+
+	async function startNewSubdir() {
+		destinationSubdir = NEW_SUBDIR;
+		editingSubdir = true;
+		await tick();
+		newSubdirInput?.focus();
+	}
+
+	async function reopenSubdirEdit() {
+		editingSubdir = true;
+		await tick();
+		newSubdirInput?.focus();
+	}
+
+	function commitNewSubdir() {
+		if (!customSubdir.trim()) {
+			destinationSubdir = '';
+			customSubdir = '';
+		}
+		editingSubdir = false;
+	}
+
+	function cancelNewSubdir() {
+		destinationSubdir = '';
+		customSubdir = '';
+		editingSubdir = false;
+	}
+
+	function handleNewSubdirKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			commitNewSubdir();
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			cancelNewSubdir();
+		}
 	}
 
 	async function handleSubmit() {
@@ -320,37 +370,122 @@
 				{/if}
 
 				<div class={$remoteBackends.length > 0 ? '' : 'col-span-2'}>
-					<label for="destination" class="block text-xs font-mono uppercase tracking-[0.06em] text-fg-subtle mb-1.5">
+					<span class="block text-xs font-mono uppercase tracking-[0.06em] text-fg-subtle mb-1.5">
 						Model type
-					</label>
-					<select id="destination" bind:value={destinationType} class="input">
-						{#each modelTypes as modelType}
-							<option value={modelType.type}>{modelType.type}</option>
+					</span>
+					<div class="flex flex-wrap gap-1.5" role="group" aria-label="Model type">
+						{#each modelTypes as modelType (modelType.type)}
+							<button
+								type="button"
+								class="inline-flex items-center gap-1.5 rounded border px-2.5 py-1 font-mono text-xs uppercase tracking-wide transition-colors {destinationType ===
+								modelType.type
+									? 'border-signal/40 bg-signal/10 text-signal'
+									: modelType.count === 0
+										? 'border-line text-fg-subtle hover:bg-surface-2 hover:text-fg-muted'
+										: 'border-line text-fg-muted hover:bg-surface-2 hover:text-fg'}"
+								aria-pressed={destinationType === modelType.type}
+								onclick={() => (destinationType = modelType.type)}
+							>
+								{modelType.type}
+								<span class="text-2xs tabular-nums opacity-70">{modelType.count}</span>
+							</button>
 						{/each}
-					</select>
+					</div>
 
-					<label for="destination-subdir" class="block text-xs font-mono uppercase tracking-[0.06em] text-fg-subtle mb-1.5 mt-3">
+					<span class="block text-xs font-mono uppercase tracking-[0.06em] text-fg-subtle mb-1.5 mt-3">
 						Subfolder
-					</label>
-					<select id="destination-subdir" bind:value={destinationSubdir} class="input">
-						<option value="">(root)</option>
-						{#each availableSubdirs as sub}
-							<option value={sub}>{sub.split('/').join(' / ')}</option>
-						{/each}
-						<option value={NEW_SUBDIR}>New subfolder…</option>
-					</select>
-					{#if destinationSubdir === NEW_SUBDIR}
-						<input
-							type="text"
-							class="input mt-2"
-							placeholder="e.g. sdxl/characters"
-							bind:value={customSubdir}
-							aria-label="New subfolder path"
-						/>
-					{/if}
+					</span>
+					<div
+						class="max-h-[220px] overflow-y-auto rounded border border-line bg-surface-2"
+						role="listbox"
+						aria-label="Subfolder"
+					>
+						<button
+							type="button"
+							class="flex w-full items-center gap-1.5 border-l-2 py-1.5 pl-2.5 pr-2 text-left text-sm transition-colors {destinationSubdir ===
+							''
+								? 'border-signal bg-signal/6 text-signal'
+								: 'border-transparent text-fg-muted hover:bg-surface-3 hover:text-fg'}"
+							aria-pressed={destinationSubdir === ''}
+							onclick={() => selectSubdir('')}
+						>
+							<Icon
+								name="folder"
+								className="w-3.5 h-3.5 flex-shrink-0 {destinationSubdir === '' ? 'text-signal' : 'text-fg-subtle'}"
+							/>
+							<span class="font-mono">/</span>
+							<span class="ml-auto flex-shrink-0 text-xs text-fg-subtle">root</span>
+						</button>
 
-					<p class="text-xs text-fg-subtle mt-1">
-						Downloads to <code class="bg-surface-3 px-1 py-0.5 rounded font-mono">{selectedDirectory}</code>
+						{#each subdirNodes as node (node.path)}
+							<button
+								type="button"
+								class="flex w-full items-center gap-1.5 border-l-2 py-1.5 pr-2 text-left text-sm transition-colors {destinationSubdir ===
+								node.path
+									? 'border-signal bg-signal/6 text-signal'
+									: 'border-transparent text-fg-muted hover:bg-surface-3 hover:text-fg'}"
+								style="padding-left: {node.depth * 14 + 10}px"
+								aria-pressed={destinationSubdir === node.path}
+								onclick={() => selectSubdir(node.path)}
+							>
+								<Icon
+									name="folder"
+									className="w-3.5 h-3.5 flex-shrink-0 {destinationSubdir === node.path
+										? 'text-signal'
+										: 'text-fg-subtle'}"
+								/>
+								<span class="truncate">
+									{#if node.parentLabel}<span class="text-fg-subtle">{node.parentLabel} / </span>{/if}<span
+										class={destinationSubdir === node.path ? '' : 'font-medium'}>{node.leaf}</span
+									>
+								</span>
+							</button>
+						{/each}
+
+						{#if destinationSubdir === NEW_SUBDIR && !editingSubdir}
+							<button
+								type="button"
+								class="flex w-full items-center gap-1.5 border-l-2 border-signal bg-signal/6 py-1.5 pl-2.5 pr-2 text-left text-sm text-signal transition-colors"
+								aria-pressed="true"
+								onclick={reopenSubdirEdit}
+							>
+								<Icon name="folder-plus" className="w-3.5 h-3.5 flex-shrink-0 text-signal" />
+								<span class="truncate">{customSubdir}</span>
+								<Badge variant="signal" size="sm" class="ml-auto flex-shrink-0">new</Badge>
+							</button>
+						{/if}
+
+						{#if editingSubdir}
+							<div class="flex items-center gap-1.5 border-l-2 border-signal bg-signal/6 py-1.5 pl-2.5 pr-2">
+								<Icon name="folder-plus" className="w-3.5 h-3.5 flex-shrink-0 text-signal" />
+								<input
+									type="text"
+									bind:value={customSubdir}
+									bind:this={newSubdirInput}
+									placeholder="sdxl/characters"
+									class="input min-h-0 flex-1 bg-surface-1 px-1.5 py-0.5 font-mono text-xs"
+									aria-label="New subfolder path"
+									onkeydown={handleNewSubdirKeydown}
+									onblur={commitNewSubdir}
+								/>
+							</div>
+						{:else}
+							<button
+								type="button"
+								class="flex w-full items-center gap-1.5 border-t border-line py-1.5 pl-2.5 pr-2 text-left font-mono text-xs uppercase tracking-wide text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg-muted"
+								onclick={startNewSubdir}
+							>
+								<Icon name="plus" className="w-3.5 h-3.5 flex-shrink-0" />
+								New folder
+							</button>
+						{/if}
+					</div>
+
+					<p class="mt-1.5 flex items-center gap-1 overflow-x-auto font-mono text-xs text-fg-subtle">
+						{#each breadcrumbSegments as segment, i (i)}
+							{#if i > 0}<span class="text-line-hover">/</span>{/if}
+							<span class={i === breadcrumbSegments.length - 1 ? 'text-signal' : ''}>{segment}</span>
+						{/each}
 					</p>
 				</div>
 			</div>

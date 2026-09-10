@@ -10,10 +10,17 @@ import type { HousekeepingOverview, HousekeepingRun } from '$lib/services/admin-
 
 vi.mock('$lib/services/admin-api', () => ({
 	getHousekeeping: vi.fn(),
-	runHousekeeping: vi.fn()
+	runHousekeeping: vi.fn(),
+	previewHousekeepingGenerations: vi.fn(),
+	deleteHousekeepingGenerations: vi.fn()
+}));
+
+vi.mock('$lib/stores/confirm', () => ({
+	confirmDialog: vi.fn(async () => true)
 }));
 
 const adminApi = await import('$lib/services/admin-api');
+const { confirmDialog } = await import('$lib/stores/confirm');
 const { default: HousekeepingPanel } = await import('../../src/routes/admin/components/settings/HousekeepingPanel.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 
@@ -132,5 +139,45 @@ describe('HousekeepingPanel', () => {
 		await settle();
 
 		expect(adminApi.runHousekeeping).toHaveBeenCalledTimes(1);
+	});
+
+	it('previews and deletes generations once a criterion is set', async () => {
+		vi.mocked(adminApi.getHousekeeping).mockResolvedValue({ success: true, data: overview() });
+		vi.mocked(adminApi.previewHousekeepingGenerations).mockResolvedValue({ success: true, data: { count: 5 } });
+		vi.mocked(adminApi.deleteHousekeepingGenerations).mockResolvedValue({
+			success: true,
+			data: { deleted_count: 5, files_deleted: 12 }
+		});
+
+		mounted = mountPanel();
+		await settle();
+
+		const deleteButton = () => mounted!.button('Delete matching') as HTMLButtonElement;
+		expect(deleteButton().disabled).toBe(true);
+		expect(adminApi.previewHousekeepingGenerations).not.toHaveBeenCalled();
+
+		const input = mounted.input('housekeeping-gen-older-than');
+		expect(input).toBeTruthy();
+		input!.value = '30';
+		input!.dispatchEvent(new Event('input', { bubbles: true }));
+		await new Promise((resolve) => setTimeout(resolve, 350));
+
+		expect(adminApi.previewHousekeepingGenerations).toHaveBeenCalledWith({
+			older_than_days: 30,
+			without_media: false,
+			keep_favorites: true
+		});
+		expect(mounted.target.textContent).toContain('5 generation(s) match');
+		expect(deleteButton().disabled).toBe(false);
+
+		deleteButton().click();
+		await settle();
+
+		expect(confirmDialog).toHaveBeenCalledTimes(1);
+		expect(adminApi.deleteHousekeepingGenerations).toHaveBeenCalledWith({
+			older_than_days: 30,
+			without_media: false,
+			keep_favorites: true
+		});
 	});
 });

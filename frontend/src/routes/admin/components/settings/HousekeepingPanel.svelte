@@ -4,9 +4,15 @@
 	import * as adminApi from '$lib/services/admin-api';
 	import type { HousekeepingOverview, HousekeepingRun } from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
-	import { Button, Alert, Spinner, Input } from '$lib/components/ui';
+	import { confirmDialog } from '$lib/stores/confirm';
+	import { Button, Alert, Spinner, Input, Switch } from '$lib/components/ui';
 	import { DetailSection } from '$lib/components/detail';
 	import { formatBytes, formatCount } from '$lib/utils/format';
+	import {
+		buildGenerationDeleteParams,
+		hasGenerationDeleteCriteria,
+		type GenerationDeleteFormState
+	} from './housekeepingGenerations';
 
 	let {
 		settings,
@@ -100,6 +106,79 @@
 			if (status === 409) await load();
 		} finally {
 			runInFlight = false;
+		}
+	}
+
+	// --- Generations: delete by criteria, independent of the retention schedule above ---
+
+	let genOlderThanDays = $state<number | null>(null);
+	let genWithoutMedia = $state(false);
+	let genOnlyFailedOrCancelled = $state(false);
+	let genKeepFavorites = $state(true);
+	let genMatchCount = $state<number | null>(null);
+	let genPreviewLoading = $state(false);
+	let genDeleting = $state(false);
+	let genPreviewTimer: ReturnType<typeof setTimeout> | undefined;
+
+	let genFormState = $derived<GenerationDeleteFormState>({
+		olderThanDays: genOlderThanDays,
+		withoutMedia: genWithoutMedia,
+		onlyFailedOrCancelled: genOnlyFailedOrCancelled,
+		keepFavorites: genKeepFavorites
+	});
+	let genHasCriteria = $derived(hasGenerationDeleteCriteria(genFormState));
+
+	$effect(() => {
+		genFormState;
+		untrack(() => {
+			if (genPreviewTimer) clearTimeout(genPreviewTimer);
+			if (!genHasCriteria) {
+				genMatchCount = null;
+				return;
+			}
+			genPreviewTimer = setTimeout(loadGenerationPreview, 300);
+		});
+	});
+
+	async function loadGenerationPreview() {
+		genPreviewLoading = true;
+		try {
+			const response = await adminApi.previewHousekeepingGenerations(buildGenerationDeleteParams(genFormState));
+			genMatchCount = response.success && response.data ? response.data.count : null;
+		} catch (e: any) {
+			logger.error('Failed to preview generation deletion:', e);
+			genMatchCount = null;
+		} finally {
+			genPreviewLoading = false;
+		}
+	}
+
+	async function deleteMatchingGenerations() {
+		const confirmed = await confirmDialog({
+			title: 'Delete matching generations?',
+			message:
+				genMatchCount != null
+					? `${formatCount(genMatchCount)} generation(s) and their files will be permanently deleted, for every user. This cannot be undone.`
+					: 'These generations and their files will be permanently deleted, for every user. This cannot be undone.',
+			variant: 'danger'
+		});
+		if (!confirmed) return;
+
+		genDeleting = true;
+		try {
+			const response = await adminApi.deleteHousekeepingGenerations(buildGenerationDeleteParams(genFormState));
+			if (response.success && response.data) {
+				toasts.success(
+					`Deleted ${formatCount(response.data.deleted_count)} generation(s) · ${formatCount(response.data.files_deleted)} file(s)`
+				);
+				await loadGenerationPreview();
+			} else {
+				toasts.error(response.message ?? 'Failed to delete generations.');
+			}
+		} catch (e: any) {
+			toasts.error(e.response?.data?.message || e.message || 'Failed to delete generations.');
+		} finally {
+			genDeleting = false;
 		}
 	}
 </script>
@@ -203,6 +282,87 @@
 				<Button variant="secondary" size="sm" loading={runInFlight} disabled={runInFlight || overview.running} onclick={runNow}>
 					Run now
 				</Button>
+			</div>
+
+			<div class="px-4 sm:px-5 py-4 border-t border-line space-y-3">
+				<div>
+					<p class="text-sm font-medium text-fg mb-1">Generations</p>
+					<p class="text-sm text-fg-muted">
+						Delete generations across every user by criteria, on demand.
+					</p>
+				</div>
+
+				<div class="flex items-center justify-between gap-6">
+					<label for="housekeeping-gen-older-than" class="text-sm text-fg">Older than</label>
+					<div class="flex items-center gap-2">
+						<Input
+							id="housekeeping-gen-older-than"
+							type="number"
+							min="0"
+							max="3650"
+							placeholder="any age"
+							class="w-24 font-mono tabular-nums flex-shrink-0"
+							value={genOlderThanDays === null ? '' : String(genOlderThanDays)}
+							oninput={(e: Event) => {
+								const raw = (e.currentTarget as HTMLInputElement).value;
+								genOlderThanDays = raw === '' ? null : Math.max(0, Number(raw) || 0);
+							}}
+						/>
+						<span class="text-xs text-fg-subtle">days</span>
+					</div>
+				</div>
+
+				<div class="flex items-center justify-between gap-6">
+					<label for="housekeeping-gen-without-media" class="text-sm text-fg">Without media files</label>
+					<Switch
+						id="housekeeping-gen-without-media"
+						size="sm"
+						bind:checked={genWithoutMedia}
+						label="Toggle deleting generations without media files"
+					/>
+				</div>
+
+				<div class="flex items-center justify-between gap-6">
+					<label for="housekeeping-gen-failed" class="text-sm text-fg">Only failed / cancelled</label>
+					<Switch
+						id="housekeeping-gen-failed"
+						size="sm"
+						bind:checked={genOnlyFailedOrCancelled}
+						label="Toggle deleting only failed or cancelled generations"
+					/>
+				</div>
+
+				<div class="flex items-center justify-between gap-6">
+					<label for="housekeeping-gen-keep-favorites" class="text-sm text-fg">Keep favorites</label>
+					<Switch
+						id="housekeeping-gen-keep-favorites"
+						size="sm"
+						bind:checked={genKeepFavorites}
+						label="Toggle keeping favorited generations"
+					/>
+				</div>
+
+				{#if genHasCriteria}
+					<p class="font-mono text-2xs tabular-nums text-fg-subtle">
+						{#if genPreviewLoading}
+							checking…
+						{:else if genMatchCount !== null}
+							{formatCount(genMatchCount)} generation(s) match
+						{/if}
+					</p>
+				{/if}
+
+				<div class="flex justify-end">
+					<Button
+						variant="danger"
+						size="sm"
+						loading={genDeleting}
+						disabled={genDeleting || !genHasCriteria || !genMatchCount}
+						onclick={deleteMatchingGenerations}
+					>
+						Delete matching
+					</Button>
+				</div>
 			</div>
 		{/if}
 	{/if}

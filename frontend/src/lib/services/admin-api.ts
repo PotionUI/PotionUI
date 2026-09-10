@@ -152,6 +152,36 @@ export async function runHousekeeping(): Promise<APIResponse<HousekeepingRun>> {
 	return response.data;
 }
 
+export interface GenerationDeleteParams {
+	older_than_days?: number;
+	without_media?: boolean;
+	statuses?: string;
+	keep_favorites?: boolean;
+}
+
+export interface GenerationDeletePreview {
+	count: number;
+}
+
+export interface GenerationDeleteSummary {
+	deleted_count: number;
+	files_deleted: number;
+}
+
+export async function previewHousekeepingGenerations(
+	params: GenerationDeleteParams
+): Promise<APIResponse<GenerationDeletePreview>> {
+	const response = await api.getClient().get('/api/admin/housekeeping/generations/preview', { params });
+	return response.data;
+}
+
+export async function deleteHousekeepingGenerations(
+	params: GenerationDeleteParams
+): Promise<APIResponse<GenerationDeleteSummary>> {
+	const response = await api.getClient().delete('/api/admin/housekeeping/generations', { params });
+	return response.data;
+}
+
 // Admin API - Backups
 export type BackupTier = 'config' | 'media' | 'all';
 

@@ -2,7 +2,7 @@ import hashlib
 import json
 import re
 from typing import List, Optional, Dict, Any, Tuple
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from src.features.generation.records import Generation, File, GenerationFile
 from src.features.generation.history_revision_repository import (
     bump_history_revision,
@@ -703,6 +703,46 @@ class GenerationRepository:
             if deleted:
                 bump_history_revision(cursor, owner)
             return deleted
+
+    def find_for_housekeeping(
+        self,
+        older_than_days: Optional[int] = None,
+        without_media: bool = False,
+        statuses: Optional[List[str]] = None,
+        keep_favorites: bool = True,
+    ) -> List[Tuple[str, str]]:
+        """(id, user_id) pairs across every user matching the given criteria,
+        AND-ed. A generation still `pending` or `running` is never a candidate,
+        regardless of `statuses` (only terminal states match)."""
+        from src.features.generation.status_tracker import TERMINAL_STATES  # status_tracker imports this module
+        terminal = sorted(TERMINAL_STATES)
+        conditions = [f"g.status IN ({','.join('?' * len(terminal))})"]
+        params: List[Any] = list(terminal)
+
+        if older_than_days is not None:
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).strftime(_TIMESTAMP_FMT)
+            conditions.append("datetime(g.created_at) <= datetime(?)")
+            params.append(cutoff)
+
+        if without_media:
+            conditions.append(
+                "NOT EXISTS (SELECT 1 FROM generation_files gf WHERE gf.generation_id = g.id)"
+            )
+
+        if statuses:
+            placeholders = ','.join('?' * len(statuses))
+            conditions.append(f"g.status IN ({placeholders})")
+            params.extend(statuses)
+
+        if keep_favorites:
+            conditions.append("g.is_favorite = 0")
+
+        query = "SELECT g.id, g.user_id FROM generations g WHERE " + " AND ".join(conditions)
+
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(query, params)
+            return [(row[0], row[1]) for row in cursor.fetchall()]
 
     def add_file(self, generation_id: str, file: File) -> File:
         """Add a file to a generation (creates file and associates it)"""

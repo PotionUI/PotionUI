@@ -15,7 +15,7 @@
 	import { chatComposerDrafts } from '$lib/stores/chatComposerDrafts';
 	import { chatModes, resolveModeForRoute, resolveModeName, toolsForMode } from '$lib/stores/chatModes';
 	import { declaredMode, collectProvidedContext, dispatchToolApplied } from '$lib/chat/pageContext';
-	import { isGeneratePageContext } from '$lib/chat/activeFormContext';
+	import { isGeneratePageContext, isGenerationPresetContext } from '$lib/chat/activeFormContext';
 	import ChatHeader from '$lib/components/chat/ChatHeader.svelte';
 	import ChatMemoryPanel from '$lib/components/chat/ChatMemoryPanel.svelte';
 	import ChatToolPreferencesPanel from '$lib/components/chat/ChatToolPreferencesPanel.svelte';
@@ -903,19 +903,22 @@
 			});
 			// The shared Generate-page tab store (`tab`, above) describes whatever
 			// tab happens to be pinned/active there regardless of which page this
-			// chat is actually open on — only report its preset/checkpoint as the
-			// "active" one when the chat is itself scoped to the Generate page
-			// (see isGeneratePageContext), so a chat opened elsewhere doesn't leak
-			// a stale/unrelated preset into active-context resolution (memory
-			// scope included).
+			// chat is actually open on. `preset` follows the CHAT SESSION's own
+			// mode (see isGenerationPresetContext) so a generation-mode session
+			// stays tied to the Generate tab's active preset even when opened
+			// from History — the backend scopes memory reflection to it.
+			// `form_data` is live form content, so it stays gated on the page
+			// itself (see isGeneratePageContext): only meaningful while the chat
+			// is actually open on the Generate page.
 			const generatePageActive = isGeneratePageContext(currentPageMode);
+			const generationPresetActive = isGenerationPresetContext(currentMode);
 			const contextMetadata: Record<string, any> = {
 				segments: [
 					...activeSegments.map((seg, i) => mapSegment(seg, i, false)),
 					...negativeSegments.map((seg, i) => mapSegment(seg, activeSegments.length + i, true))
 				],
 				form_state: {
-					preset: generatePageActive ? tab?.selectedPreset || null : null,
+					preset: generationPresetActive ? tab?.selectedPreset || null : null,
 					mode: tab?.selectedMode || null,
 					variant: tab?.selectedVariant || null,
 					form_data: generatePageActive ? tab?.formData || {} : {},

@@ -29,12 +29,13 @@ from src.features.chat.exceptions import (
     PreChatActionError,
 )
 from src.features.chat.hooks import CHAT_MESSAGE_HOOKS, CHAT_RESPONSE_HOOKS
-from src.features.chat.modes import ChatMode
+from src.features.chat.modes import GENERATION_MODE_ID, ChatMode
 from src.features.chat.pre_chat_actions import PreChatActionResult
 from src.features.chat.reply_contract import TOOL_LOOP_CONTINUATION_NUDGE
 from src.features.llm import context_budget, trace_collector
 from src.features.llm.trace_repository import chat_call_trace_repository
 from src.features.llm.tools.base import ToolContext, ToolExecution, serialize_approval_preview
+from src.features.llm.tools.builtin.utils import resolve_active_preset_id
 from src.platform.plugins.hooks import await_hook_blocking_waits
 from src.platform.util.imaging import convert_image_to_base64
 
@@ -154,6 +155,10 @@ class ConversationRunner:
             user_metadata["image_url"] = context_metadata["image_url"]
         if resolved_resources:
             user_metadata["resources"] = self._m._context.resources_metadata(resolved_resources)
+        if session.mode == GENERATION_MODE_ID:
+            preset_id = resolve_active_preset_id((context_metadata or {}).get("form_state"))
+            if preset_id:
+                user_metadata["preset_id"] = preset_id
         user_message = self._m.chat_repository.add_message(
             session_id=session_id,
             role='user',
@@ -515,6 +520,10 @@ class ConversationRunner:
             user_metadata["image_url"] = context_metadata["image_url"]
         if resolved_resources:
             user_metadata["resources"] = self._m._context.resources_metadata(resolved_resources)
+        if session.mode == GENERATION_MODE_ID:
+            preset_id = resolve_active_preset_id((context_metadata or {}).get("form_state"))
+            if preset_id:
+                user_metadata["preset_id"] = preset_id
         user_message = self._m.chat_repository.add_message(
             session_id=session_id,
             role='user',

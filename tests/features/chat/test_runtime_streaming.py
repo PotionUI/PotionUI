@@ -582,6 +582,62 @@ class TestSendMessageStreamPersistence(BaseStreamingTest):
         )
 
     @pytest.mark.asyncio
+    async def test_preset_id_persisted_on_user_message_for_generation_session(self):
+        """A generation session's active preset (form_state.preset) is
+        stamped onto the streamed user message's metadata, mirroring the
+        buffered send path."""
+        session = self._make_active_session(mode="generation")
+        self.mock_repo.get_session.return_value = session
+        self.mock_repo.get_conversation_history.return_value = []
+
+        user_msg = make_message_response("msg-user", role="user", content="hello")
+        assistant_msg = make_message_response("msg-asst")
+        self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
+
+        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["ok"]))
+
+        await collect_stream(
+            self.manager.send_message_stream(
+                session_id="session-123",
+                user_id="user-123",
+                content="hello",
+                context_metadata={"form_state": {"preset": "preset-123", "form_data": {}}},
+            )
+        )
+
+        first_call = self.mock_repo.add_message.call_args_list[0][1]
+        assert first_call["metadata"]["preset_id"] == "preset-123"
+
+    @pytest.mark.asyncio
+    async def test_preset_id_not_persisted_for_non_generation_session(self):
+        """A plugin-mode session never gets a preset_id stamped, even with a
+        stray form_state carrying one."""
+        from src.platform.plugins.chat_modes import ChatMode
+
+        self.manager.chat_mode_registry.register(ChatMode(id="lora-dataset", name="LoRA Dataset"))
+        session = self._make_active_session(mode="lora-dataset")
+        self.mock_repo.get_session.return_value = session
+        self.mock_repo.get_conversation_history.return_value = []
+
+        user_msg = make_message_response("msg-user", role="user", content="hello")
+        assistant_msg = make_message_response("msg-asst")
+        self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
+
+        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["ok"]))
+
+        await collect_stream(
+            self.manager.send_message_stream(
+                session_id="session-123",
+                user_id="user-123",
+                content="hello",
+                context_metadata={"form_state": {"preset": "preset-123", "form_data": {}}},
+            )
+        )
+
+        first_call = self.mock_repo.add_message.call_args_list[0][1]
+        assert "preset_id" not in (first_call["metadata"] or {})
+
+    @pytest.mark.asyncio
     async def test_error_event_when_assistant_message_save_fails(self):
         """Should yield error event (not raise) when assistant message save returns None."""
         session = self._make_active_session()

@@ -30,20 +30,29 @@ def _mode_registry() -> ChatModeRegistry:
     return registry
 
 
-def _message(role: str, content: str, msg_id: str) -> Mock:
+def _message(role: str, content: str, msg_id: str, metadata: dict = None) -> Mock:
     msg = Mock()
     msg.id = msg_id
     msg.role = role
     msg.content = content
+    # Explicit `None` default (never an auto-generated Mock attribute) - a
+    # generation session's `_build_span` reads `m.metadata.get("preset_id")`
+    # on user turns.
+    msg.metadata = metadata
     return msg
 
 
-def _session(llm_config_id: str = "llm-1", metadata: dict = None) -> Mock:
+def _session(llm_config_id: str = "llm-1", metadata: dict = None, mode: str = None) -> Mock:
     session = Mock()
     session.id = "session-1"
     session.user_id = "user-1"
     session.llm_config_id = llm_config_id
     session.metadata = metadata or {}
+    # Explicit `None` default - these tests exercise span/budget mechanics
+    # with 'global'-scoped facts only, never preset/mode scoping, so this
+    # stays inert in `_resolve_active_context` the same way it does in
+    # `test_reflection.py`'s `_session()`.
+    session.mode = mode
     return session
 
 

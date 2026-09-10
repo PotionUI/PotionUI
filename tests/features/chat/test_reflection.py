@@ -10,11 +10,16 @@ from src.features.chat.reflection import (
 )
 
 
-def _message(role: str, content: str, msg_id: str = "m") -> Mock:
+def _message(role: str, content: str, msg_id: str = "m", metadata: dict = None) -> Mock:
     msg = Mock()
     msg.id = msg_id
     msg.role = role
     msg.content = content
+    # Explicit `None` default (never an auto-generated Mock attribute) -
+    # `_build_span` reads `m.metadata.get("preset_id")` on a generation
+    # session's user turns, and a Mock's implicit attribute would silently
+    # look like a real (bogus) preset id there.
+    msg.metadata = metadata
     return msg
 
 
@@ -37,9 +42,11 @@ def _session(llm_config_id="llm-1", metadata=None, mode=None) -> Mock:
     session.user_id = "user-1"
     session.llm_config_id = llm_config_id
     session.metadata = metadata or {}
-    # None unless a test opts in - keeps `active_mode` resolution inert
-    # (falls through `if mode_id:` in `_resolve_active_context`) for tests
-    # that aren't exercising mode scoping.
+    # None unless a test opts in - keeps offered-scope resolution inert
+    # (neither GENERATION_MODE_ID nor a truthy plugin-mode id) in
+    # `_resolve_active_context` for tests that aren't exercising preset/mode
+    # scoping. Pass mode="generation" to exercise preset scoping, or any
+    # other id to exercise plugin-mode scoping.
     session.mode = mode
     return session
 
@@ -464,9 +471,12 @@ class TestReflectExtractionQuality:
 
 
 class TestReflectScoping:
-    """Scope/scope_ref validation: only the exact id resolved from this turn's
-    active context is ever honored for a 'preset'/'model'/'mode' note - and a
-    mismatch is DROPPED, never rewritten to 'global'."""
+    """Scope/scope_ref validation, resolved by the session's own mode: a
+    generation session (``mode="generation"``) offers 'preset' scope, one
+    entry per preset id seen; any other mode offers only 'mode' scope,
+    scope_ref exactly the session's mode id. 'model' scope is never offered
+    or accepted by reflection any more. A mismatch, or a scope this pass
+    never offered, is DROPPED, never rewritten to 'global'."""
 
     def _setup(self, monkeypatch, response_content, mode=None):
         manager = _manager(monkeypatch)
@@ -503,7 +513,8 @@ class TestReflectScoping:
             monkeypatch,
             '[{"scope": "preset", "scope_ref": "preset-123", "key": "k", '
             '"content": "always uses this preset for portraits", '
-            '"kind": "recurring", "evidence": [1, 2]}]'
+            '"kind": "recurring", "evidence": [1, 2]}]',
+            mode="generation",
         )
 
         await generator.reflect("session-1", form_state={"preset": "preset-123", "form_data": {}})
@@ -516,25 +527,50 @@ class TestReflectScoping:
         )
 
     @pytest.mark.asyncio
-    async def test_valid_model_scope_ref_accepted(self, monkeypatch):
+    async def test_preset_from_earlier_turn_accepted(self, monkeypatch):
+        """A fact scoped to a preset that was active on an EARLIER unreflected
+        turn (recorded in that message's metadata) is accepted even though
+        the triggering turn's form_state names a different preset."""
+        manager, generator, messages = self._setup(
+            monkeypatch,
+            '[{"scope": "preset", "scope_ref": "preset-old", "key": "k", '
+            '"content": "always uses this preset for portraits", '
+            '"kind": "recurring", "evidence": [1, 2]}]',
+            mode="generation",
+        )
+        messages[0].metadata = {"preset_id": "preset-old"}
+
+        await generator.reflect("session-1", form_state={"preset": "preset-new", "form_data": {}})
+
+        sent = manager.llm_service.generate_with_history.await_args.kwargs["messages"][0]["content"]
+        assert "preset-old" in sent and "preset-new" in sent
+        manager.memory_ops.write_note.assert_called_once_with(
+            manager.llm_memory_repository,
+            user_id="user-1", key="k",
+            content="always uses this preset for portraits",
+            scope="preset", scope_ref="preset-old",
+        )
+
+    @pytest.mark.asyncio
+    async def test_model_scope_never_offered_is_dropped(self, monkeypatch):
+        """'model' scope is no longer offered or resolved by reflection at
+        all (it remains exclusive to the interactive write_memory tool) -
+        even a plausible model-shaped fact in a generation session is
+        dropped, never rewritten to 'global'."""
         manager, generator, messages = self._setup(
             monkeypatch,
             '[{"scope": "model", "scope_ref": "model-1", "key": "k", '
             '"content": "always adds a LoRA with this model", '
-            '"kind": "recurring", "evidence": [1, 2]}]'
+            '"kind": "recurring", "evidence": [1, 2]}]',
+            mode="generation",
         )
 
         await generator.reflect(
             "session-1",
-            form_state={"form_data": {"checkpoint": "model:model-1"}},
+            form_state={"preset": "preset-123", "form_data": {"checkpoint": "model:model-1"}},
         )
 
-        manager.memory_ops.write_note.assert_called_once_with(
-            manager.llm_memory_repository,
-            user_id="user-1", key="k",
-            content="always adds a LoRA with this model",
-            scope="model", scope_ref="model-1",
-        )
+        manager.memory_ops.write_note.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_valid_mode_scope_ref_accepted(self, monkeypatch):
@@ -578,7 +614,8 @@ class TestReflectScoping:
             monkeypatch,
             '[{"scope": "preset", "scope_ref": "preset-999", "key": "k", '
             '"content": "made up preference for a preset never active here", '
-            '"kind": "recurring", "evidence": [1, 2]}]'
+            '"kind": "recurring", "evidence": [1, 2]}]',
+            mode="generation",
         )
 
         await generator.reflect("session-1", form_state={"preset": "preset-123", "form_data": {}})
@@ -587,15 +624,17 @@ class TestReflectScoping:
 
     @pytest.mark.asyncio
     async def test_no_form_state_scoped_fact_dropped(self, monkeypatch):
-        """No active preset/model/mode for this turn: a fact reported as
-        'preset'/'model'/'mode' scope has nothing to validate against and is
-        dropped - it does NOT fall back to a global note either (zero preset
-        notes AND zero global notes derived from it)."""
+        """A generation session with no active preset for this turn (and no
+        preset seen anywhere in the span): a fact reported as 'preset' scope
+        has nothing to validate against and is dropped - it does NOT fall
+        back to a global note either (zero preset notes AND zero global
+        notes derived from it)."""
         manager, generator, messages = self._setup(
             monkeypatch,
             '[{"scope": "preset", "scope_ref": "preset-123", "key": "k", '
             '"content": "a preference reported with no active context at all", '
-            '"kind": "recurring", "evidence": [1, 2]}]'
+            '"kind": "recurring", "evidence": [1, 2]}]',
+            mode="generation",
         )
 
         await generator.reflect("session-1")
@@ -623,35 +662,38 @@ class TestReflectScoping:
 
 
 class TestValidateScope:
+    """Unit coverage for `_validate_scope(scope, scope_ref, offered_preset_ids,
+    offered_mode_id)` - see `_resolve_active_context` for how those two
+    offered-scope inputs are built per session mode."""
+
     def test_matching_preset_ref_kept(self):
-        assert ChatReflectionGenerator._validate_scope("preset", "p1", "p1", None) == ("preset", "p1")
+        assert ChatReflectionGenerator._validate_scope("preset", "p1", {"p1"}, None) == ("preset", "p1")
 
     def test_mismatched_preset_ref_dropped(self):
-        assert ChatReflectionGenerator._validate_scope("preset", "p2", "p1", None) is None
+        assert ChatReflectionGenerator._validate_scope("preset", "p2", {"p1"}, None) is None
 
-    def test_matching_model_ref_kept(self):
-        assert ChatReflectionGenerator._validate_scope("model", "m1", None, "m1") == ("model", "m1")
-
-    def test_mismatched_model_ref_dropped(self):
-        assert ChatReflectionGenerator._validate_scope("model", "m2", None, "m1") is None
+    def test_model_scope_never_valid_even_with_offered_presets(self):
+        """'model' is never a valid reflection scope any more, regardless of
+        what's offered - it's exclusive to the interactive write_memory tool."""
+        assert ChatReflectionGenerator._validate_scope("model", "m1", {"m1"}, None) is None
 
     def test_matching_mode_ref_kept(self):
-        assert ChatReflectionGenerator._validate_scope("mode", "md1", None, None, "md1") == ("mode", "md1")
+        assert ChatReflectionGenerator._validate_scope("mode", "md1", set(), "md1") == ("mode", "md1")
 
     def test_mismatched_mode_ref_dropped(self):
-        assert ChatReflectionGenerator._validate_scope("mode", "md2", None, None, "md1") is None
+        assert ChatReflectionGenerator._validate_scope("mode", "md2", set(), "md1") is None
 
-    def test_mode_ref_with_no_active_mode_dropped(self):
-        assert ChatReflectionGenerator._validate_scope("mode", "md1", None, None, None) is None
+    def test_mode_ref_with_no_offered_mode_dropped(self):
+        assert ChatReflectionGenerator._validate_scope("mode", "md1", set(), None) is None
 
-    def test_preset_scope_with_no_active_preset_dropped(self):
-        assert ChatReflectionGenerator._validate_scope("preset", "p1", None, None) is None
+    def test_preset_scope_with_no_offered_presets_dropped(self):
+        assert ChatReflectionGenerator._validate_scope("preset", "p1", set(), None) is None
 
     def test_invalid_scope_name_dropped(self):
-        assert ChatReflectionGenerator._validate_scope("banana", "p1", "p1", None) is None
+        assert ChatReflectionGenerator._validate_scope("banana", "p1", {"p1"}, None) is None
 
     def test_global_scope_always_kept(self):
-        assert ChatReflectionGenerator._validate_scope("global", None, "p1", "m1", "md1") == ("global", None)
+        assert ChatReflectionGenerator._validate_scope("global", None, {"p1"}, "md1") == ("global", None)
 
 
 class TestValidateFactGrounding:
@@ -796,6 +838,148 @@ class TestBuildSpanTurnNumbering:
         assert span.has_backlog is True
 
 
+class TestBuildSpanPresetAnnotation:
+    """A generation session's user turns are annotated with the preset that
+    was active when the message was sent (see `ConversationRunner`'s
+    per-message `preset_id` persistence)."""
+
+    def test_generation_session_annotates_turns(self, monkeypatch):
+        manager = _manager(monkeypatch)
+        generator = ChatReflectionGenerator(manager)
+        session = _session(mode="generation")
+        manager.preset_collaborators.get_preset.side_effect = lambda pid: {
+            "preset-A": {"name": "Krea-2"}, "preset-B": {"name": "SDXL"},
+        }[pid]
+        messages = [
+            _message("user", "question 0", "u0", metadata={"preset_id": "preset-A"}),
+            _message("assistant", "answer 0", "a0"),
+            _message("user", "question 1", "u1", metadata={"preset_id": "preset-B"}),
+            _message("assistant", "answer 1", "a1"),
+        ]
+
+        span = generator._build_span(session, messages, char_budget=10000)
+
+        assert "[1] User (preset: Krea-2): question 0" in span.transcript
+        assert "[2] User (preset: SDXL): question 1" in span.transcript
+
+    def test_generation_session_turn_without_preset_id_unannotated(self, monkeypatch):
+        """An older message predating per-message preset persistence carries
+        no metadata at all - it gets the plain, unannotated prefix."""
+        manager = _manager(monkeypatch)
+        generator = ChatReflectionGenerator(manager)
+        session = _session(mode="generation")
+        messages = [
+            _message("user", "question 0", "u0"),
+            _message("assistant", "answer 0", "a0"),
+        ]
+
+        span = generator._build_span(session, messages, char_budget=10000)
+
+        assert "[1] User: question 0" in span.transcript
+
+    def test_non_generation_session_never_annotates_even_with_preset_metadata(self, monkeypatch):
+        """A plugin-mode session's turns are never preset-annotated, even if
+        a message happens to carry preset_id metadata (it shouldn't, but the
+        annotation is gated on session.mode regardless)."""
+        manager = _manager(monkeypatch)
+        generator = ChatReflectionGenerator(manager)
+        session = _session(mode="lora-dataset")
+        messages = [
+            _message("user", "question 0", "u0", metadata={"preset_id": "preset-A"}),
+            _message("assistant", "answer 0", "a0"),
+        ]
+
+        span = generator._build_span(session, messages, char_budget=10000)
+
+        assert "[1] User: question 0" in span.transcript
+        assert "preset:" not in span.transcript
+
+
+class TestResolveActiveContext:
+    """Unit coverage for `_resolve_active_context`'s per-session-mode offered
+    scopes, independent of the full `reflect()` path above."""
+
+    def test_generation_session_offers_span_and_form_state_presets(self, monkeypatch):
+        manager = _manager(monkeypatch)
+        generator = ChatReflectionGenerator(manager)
+        session = _session(mode="generation")
+        manager.preset_collaborators.get_preset.side_effect = lambda pid: {
+            "preset-A": {"name": "Krea-2"}, "preset-B": {"name": "SDXL"},
+        }[pid]
+
+        offered_presets, offered_mode = generator._resolve_active_context(
+            session, {"preset": "preset-B", "form_data": {}}, frozenset({"preset-A"}),
+        )
+
+        assert offered_presets == {"preset-A": "Krea-2", "preset-B": "SDXL"}
+        assert offered_mode is None
+
+    def test_generation_session_with_no_span_or_form_state_preset_offers_nothing(self, monkeypatch):
+        manager = _manager(monkeypatch)
+        generator = ChatReflectionGenerator(manager)
+        session = _session(mode="generation")
+
+        offered_presets, offered_mode = generator._resolve_active_context(session, None, frozenset())
+
+        assert offered_presets == {}
+        assert offered_mode is None
+
+    def test_plugin_mode_session_offers_only_its_own_mode(self, monkeypatch):
+        manager = _manager(monkeypatch)
+        generator = ChatReflectionGenerator(manager)
+        session = _session(mode="lora-dataset")
+        chat_mode = Mock()
+        chat_mode.name = "LoRA Dataset"
+        manager.chat_mode_registry.get.return_value = chat_mode
+
+        # A stray preset id (span or form_state) must never be offered by a
+        # plugin-mode session - it has no Generate form open at all.
+        offered_presets, offered_mode = generator._resolve_active_context(
+            session, {"preset": "preset-A", "form_data": {}}, frozenset({"preset-B"}),
+        )
+
+        assert offered_presets == {}
+        assert offered_mode == ("lora-dataset", "LoRA Dataset")
+
+    def test_no_session_mode_offers_nothing(self, monkeypatch):
+        manager = _manager(monkeypatch)
+        generator = ChatReflectionGenerator(manager)
+        session = _session(mode=None)
+
+        offered_presets, offered_mode = generator._resolve_active_context(session, None, frozenset())
+
+        assert offered_presets == {}
+        assert offered_mode is None
+
+
+class TestBuildPromptPerSessionMode:
+    """The prompt's JSON 'scope' enum is built strictly from what this pass
+    actually offers (see `_resolve_active_context`) - it never lists a scope
+    that isn't offered, though the prose may still name a withheld scope to
+    tell the model not to use it."""
+
+    def test_generation_prompt_lists_offered_presets_enum_excludes_model_and_mode(self):
+        prompt = ChatReflectionGenerator._build_prompt(
+            {"preset-A": "Krea-2", "preset-B": "SDXL"}, None,
+        )
+
+        assert '"Krea-2" (id: preset-A)' in prompt
+        assert '"SDXL" (id: preset-B)' in prompt
+        assert '"scope": "global"|"preset"' in prompt
+
+    def test_plugin_mode_prompt_names_the_mode_enum_excludes_preset_and_model(self):
+        prompt = ChatReflectionGenerator._build_prompt({}, ("lora-dataset", "LoRA Dataset"))
+
+        assert "lora-dataset" in prompt
+        assert "LoRA Dataset" in prompt
+        assert '"scope": "global"|"mode"' in prompt
+
+    def test_no_offered_scope_prompt_enum_is_global_only(self):
+        prompt = ChatReflectionGenerator._build_prompt({}, None)
+
+        assert '{"scope": "global", "scope_ref":' in prompt
+
+
 class TestValidateScopeAndPersistIntegration:
     """`_persist_items` never rewrites a dropped scope to global - regression
     guard for the old fallback behavior at the persistence boundary itself,
@@ -811,7 +995,7 @@ class TestValidateScopeAndPersistIntegration:
         }]
 
         saved = generator._persist_items(
-            "user-1", items, active_preset_id="preset-123", active_model_id=None, active_mode_id=None,
+            "user-1", items, offered_preset_ids={"preset-123"}, offered_mode_id=None,
         )
 
         assert saved == []

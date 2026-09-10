@@ -431,6 +431,89 @@ class TestSendMessage:
         assert result.assistant_message.id == "msg-2"
 
     @pytest.mark.asyncio
+    async def test_preset_id_persisted_on_user_message_for_generation_session(self):
+        """A generation session's active preset (form_state.preset) is
+        stamped onto the user message's metadata, so a later reflection pass
+        can attribute a fact from this turn to the preset it was said under."""
+        from src.features.chat.dto import MessageResponse
+
+        mock_session = Mock()
+        mock_session.user_id = "user-123"
+        mock_session.status = "active"
+        mock_session.llm_config_id = "llm-123"
+        mock_session.mode = "generation"
+        mock_session.metadata = None
+        self.mock_repo.get_session.return_value = mock_session
+        self.mock_repo.get_conversation_history.return_value = []
+
+        user_msg = MessageResponse(id="msg-1", session_id="session-123", role="user", content="Hello")
+        assistant_msg = MessageResponse(
+            id="msg-2", session_id="session-123", role="assistant",
+            content="ok", parsed_content={"raw": "ok"},
+        )
+        self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
+
+        mock_llm_response = Mock()
+        mock_llm_response.content = "ok"
+        mock_llm_response.model = "test-model"
+        mock_llm_response.tokens_used = 1
+        mock_llm_response.prompt_tokens = 1
+        mock_llm_response.completion_tokens = 1
+        self.mock_llm.generate_with_history.return_value = mock_llm_response
+        self.mock_processor.process.return_value = ("ok", {"raw": "ok"})
+
+        await self.manager.send_message(
+            session_id="session-123", user_id="user-123", content="Hello",
+            context_metadata={"form_state": {"preset": "preset-123", "form_data": {}}},
+        )
+
+        user_call = self.mock_repo.add_message.call_args_list[0]
+        assert user_call.kwargs["metadata"]["preset_id"] == "preset-123"
+
+    @pytest.mark.asyncio
+    async def test_preset_id_not_persisted_for_non_generation_session(self):
+        """A plugin-mode session (e.g. lora-dataset) has no Generate form
+        open at all - its user messages never get a preset_id, even if a
+        stray form_state happened to carry one."""
+        from src.features.chat.dto import MessageResponse
+        from src.platform.plugins.chat_modes import ChatMode
+
+        self.manager.chat_mode_registry.register(ChatMode(id="lora-dataset", name="LoRA Dataset"))
+
+        mock_session = Mock()
+        mock_session.user_id = "user-123"
+        mock_session.status = "active"
+        mock_session.llm_config_id = "llm-123"
+        mock_session.mode = "lora-dataset"
+        mock_session.metadata = None
+        self.mock_repo.get_session.return_value = mock_session
+        self.mock_repo.get_conversation_history.return_value = []
+
+        user_msg = MessageResponse(id="msg-1", session_id="session-123", role="user", content="Hello")
+        assistant_msg = MessageResponse(
+            id="msg-2", session_id="session-123", role="assistant",
+            content="ok", parsed_content={"raw": "ok"},
+        )
+        self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
+
+        mock_llm_response = Mock()
+        mock_llm_response.content = "ok"
+        mock_llm_response.model = "test-model"
+        mock_llm_response.tokens_used = 1
+        mock_llm_response.prompt_tokens = 1
+        mock_llm_response.completion_tokens = 1
+        self.mock_llm.generate_with_history.return_value = mock_llm_response
+        self.mock_processor.process.return_value = ("ok", {"raw": "ok"})
+
+        await self.manager.send_message(
+            session_id="session-123", user_id="user-123", content="Hello",
+            context_metadata={"form_state": {"preset": "preset-123", "form_data": {}}},
+        )
+
+        user_call = self.mock_repo.add_message.call_args_list[0]
+        assert "preset_id" not in (user_call.kwargs["metadata"] or {})
+
+    @pytest.mark.asyncio
     async def test_send_message_session_not_found(self):
         """Should raise SessionNotFoundException."""
         self.mock_repo.get_session.return_value = None

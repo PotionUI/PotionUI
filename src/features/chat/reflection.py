@@ -39,6 +39,20 @@ model response and a call/persistence failure both claim no coverage (the
 span stays eligible for the next natural trigger, never retried
 immediately); a syntactically valid empty extraction (the model genuinely
 found nothing) still advances the cursor.
+
+Scope is resolved from the session's own mode (``session.mode``, immutable),
+not the live turn's Generate form: a GENERATION session (``mode ==
+GENERATION_MODE_ID``) offers 'preset' scope, one entry per preset id seen on
+an unreflected user turn plus the triggering turn's own (see ``_build_span``'s
+per-turn ``(preset: ...)`` annotation and ``_resolve_active_context``) — 'global' is
+reserved for a fact the user says applies everywhere, or that recurs under
+two different presets. Any OTHER session mode (a plugin mode, e.g.
+lora-dataset — it has no Generate form open at all) offers only 'mode',
+scope_ref exactly ``session.mode``. Neither session type ever offers
+'model' scope any more — that resolution and scope stay exclusive to the
+interactive ``write_memory`` tool (``src/features/llm/tools/builtin/
+memory_tool.py``). A reported scope outside what this pass actually offered
+is dropped, never rewritten to 'global' (see ``_validate_scope``).
 """
 
 import asyncio
@@ -47,12 +61,13 @@ import logging
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from src.features.chat.dto import SessionResponse
 from src.features.chat.memory_compaction import MemoryCompactor
+from src.features.chat.modes import GENERATION_MODE_ID
 from src.features.llm import context_budget, trace_collector
-from src.features.llm.tools.builtin.utils import resolve_active_model_id, resolve_active_preset_id
+from src.features.llm.tools.builtin.utils import resolve_active_preset_id
 from src.features.llm_memory import operations as memory_operations
 from src.features.llm_memory.operations import MAX_CONTENT_LENGTH
 
@@ -357,9 +372,16 @@ class ChatReflectionGenerator:
             return []
 
         # Prompt first: its own token cost has to come out of the budget
-        # before we know how much room is left for transcript text.
-        active_preset, active_model, active_mode = self._resolve_active_context(session, form_state)
-        prompt = self._build_prompt(active_preset, active_model, active_mode)
+        # before we know how much room is left for transcript text. The
+        # offered presets are every preset id seen on ANY unreflected user
+        # turn (a superset of what the span will include - harmless, each is
+        # a preset this session really used) plus the triggering turn's own.
+        seen_preset_ids = {
+            pid for _, m, _ in self._unreflected_entries(session, messages)
+            if m.role == "user" and (pid := (getattr(m, "metadata", None) or {}).get("preset_id"))
+        }
+        offered_presets, offered_mode = self._resolve_active_context(session, form_state, seen_preset_ids)
+        prompt = self._build_prompt(offered_presets, offered_mode)
 
         config = self._m.llm_service.repository.get_configuration(session.llm_config_id) if session.llm_config_id else None
 
@@ -431,9 +453,8 @@ class ChatReflectionGenerator:
 
         saved = self._persist_items(
             session.user_id, items,
-            active_preset_id=active_preset[0] if active_preset else None,
-            active_model_id=active_model[0] if active_model else None,
-            active_mode_id=active_mode[0] if active_mode else None,
+            offered_preset_ids=set(offered_presets),
+            offered_mode_id=offered_mode[0] if offered_mode else None,
             user_turn_texts=span.user_turn_texts,
         )
 
@@ -609,6 +630,19 @@ class ChatReflectionGenerator:
         except Exception:
             return None
 
+    def _preset_label(self, preset_id: str) -> str:
+        """Best-effort preset name for a prompt/transcript annotation - falls
+        back to the id itself on any lookup failure, since the id alone is
+        what ``_validate_scope`` actually checks a reported scope_ref
+        against."""
+        label = preset_id
+        if self._m.preset_collaborators:
+            try:
+                label = self._m.preset_collaborators.get_preset(preset_id).get("name") or preset_id
+            except Exception:
+                pass
+        return label
+
     def _build_span(self, session: SessionResponse, messages: List[Any], char_budget: int) -> "_ReflectionSpan":
         """Greedily gather whole unreflected messages up to ``char_budget``
         (see ``_resolve_span_budget``).
@@ -627,7 +661,16 @@ class ChatReflectionGenerator:
         unnumbered. The number is only consumed when the turn's text is
         actually appended, never for a turn deferred to backlog, so numbers
         stay dense within a span. See ``_ReflectionSpan.user_turn_texts``.
+
+        On a GENERATION session (``session.mode == GENERATION_MODE_ID``), a
+        user turn that carries a ``preset_id`` in its message metadata (see
+        ``ConversationRunner``'s user-message persistence) is annotated
+        ``"[3] User (preset: <label>): ..."`` instead of the plain form, so a
+        span covering turns made under different presets names an honest
+        home for each fact (see ``_resolve_active_context``). A plugin-mode session, or an older
+        message with no recorded preset id, never gets this annotation.
         """
+        is_generation = getattr(session, "mode", None) == GENERATION_MODE_ID
         entries = self._unreflected_entries(session, messages)
         parts: List[str] = []
         total = 0
@@ -644,7 +687,13 @@ class ChatReflectionGenerator:
                 end_seq, end_id, end_offset = seq, m.id, len(content)
                 continue
             is_user = m.role == "user"
-            prefix = f"[{next_turn_no}] User: " if is_user else "Assistant: "
+            preset_id = None
+            if is_user and is_generation:
+                preset_id = (getattr(m, "metadata", None) or {}).get("preset_id")
+            if preset_id:
+                prefix = f"[{next_turn_no}] User (preset: {self._preset_label(preset_id)}): "
+            else:
+                prefix = f"[{next_turn_no}] User: " if is_user else "Assistant: "
             line = f"{prefix}{text}"
             projected = total + (len(_LINE_SEP) if parts else 0) + len(line)
             if projected <= char_budget:
@@ -671,102 +720,95 @@ class ChatReflectionGenerator:
     # --- active context / prompt ---
 
     def _resolve_active_context(
-        self, session: SessionResponse, form_state: Optional[Dict[str, Any]]
-    ) -> Tuple[Optional[Tuple[str, str]], Optional[Tuple[str, str]], Optional[Tuple[str, str]]]:
-        """Resolve the turn's active preset/model/mode into (id, label) pairs
-        for the prompt.
+        self,
+        session: SessionResponse,
+        form_state: Optional[Dict[str, Any]],
+        seen_preset_ids: Set[str],
+    ) -> Tuple[Dict[str, str], Optional[Tuple[str, str]]]:
+        """Resolve this pass's OFFERED scopes, keyed by the session's mode
+        (immutable, set at session creation - see ``ChatMode.id``) rather
+        than by whatever the live turn's Generate form happens to have open.
 
-        Preset/model come from ``form_state`` (the live turn's Generate-page
-        context, only meaningful when that page is actually open). Mode
-        comes from ``session.mode`` instead - a stable, immutable field set
-        at session creation (``ChatMode.id``) - not from the frontend, since
-        a plugin-mode session (e.g. lora-dataset) has no Generate form open
-        at all and would otherwise have nothing to scope to but global.
+        A GENERATION session offers 'preset' scope: every preset id seen on
+        an unreflected user turn (``seen_preset_ids``, from message metadata)
+        plus the triggering turn's own ``form_state`` preset (so a session
+        with no per-message preset id yet, e.g. one predating this feature,
+        still gets that much) - returned as ``{preset_id: label}``. It never
+        offers 'model' or 'mode'. Any OTHER session mode (a plugin mode, e.g.
+        lora-dataset - it has no Generate form open at all) offers only
+        'mode', scope_ref exactly ``session.mode`` - returned as
+        ``(mode_id, label)`` - and never 'preset'. 'global' is always
+        available regardless and isn't represented here.
 
-        Best-effort: a label lookup failure still yields the id with itself as
-        the label rather than dropping the context entirely, since the id
+        Best-effort: a label lookup failure still yields the id with itself
+        as the label rather than dropping the offer entirely, since the id
         alone is what ``_validate_scope`` actually checks a reported
         scope_ref against.
         """
-        preset_id = resolve_active_preset_id(form_state)
-        active_preset = None
-        if preset_id:
-            label = preset_id
-            if self._m.preset_collaborators:
-                try:
-                    label = self._m.preset_collaborators.get_preset(preset_id).get("name") or preset_id
-                except Exception:
-                    pass
-            active_preset = (preset_id, label)
+        if getattr(session, "mode", None) == GENERATION_MODE_ID:
+            preset_ids = set(seen_preset_ids)
+            form_preset_id = resolve_active_preset_id(form_state)
+            if form_preset_id:
+                preset_ids.add(form_preset_id)
+            return {pid: self._preset_label(pid) for pid in preset_ids}, None
 
-        model_id = resolve_active_model_id(form_state, self._m.model_index_manager)
-        active_model = None
-        if model_id:
-            label = model_id
-            if self._m.model_index_manager:
-                try:
-                    model = self._m.model_index_manager.model_repo.get_by_id(
-                        model_id, include_providers=False, include_tags=False,
-                    )
-                    if model and model.filename:
-                        label = model.filename
-                except Exception:
-                    pass
-            active_model = (model_id, label)
-
-        active_mode = None
         mode_id = getattr(session, "mode", None)
-        if mode_id:
-            label = mode_id
-            registry = getattr(self._m, "chat_mode_registry", None)
-            if registry is not None:
-                try:
-                    mode = registry.get(mode_id)
-                    if mode is not None and getattr(mode, "name", None):
-                        label = mode.name
-                except Exception:
-                    pass
-            active_mode = (mode_id, label)
-
-        return active_preset, active_model, active_mode
+        if not mode_id:
+            return {}, None
+        label = mode_id
+        registry = getattr(self._m, "chat_mode_registry", None)
+        if registry is not None:
+            try:
+                mode = registry.get(mode_id)
+                if mode is not None and getattr(mode, "name", None):
+                    label = mode.name
+            except Exception:
+                pass
+        return {}, (mode_id, label)
 
     @staticmethod
     def _build_prompt(
-        active_preset: Optional[Tuple[str, str]],
-        active_model: Optional[Tuple[str, str]],
-        active_mode: Optional[Tuple[str, str]],
+        offered_presets: Dict[str, str],
+        offered_mode: Optional[Tuple[str, str]],
     ) -> str:
-        """Compose the reflection prompt with this turn's actual active ids.
+        """Compose the reflection prompt around this pass's offered scopes
+        (see ``_resolve_active_context``).
 
-        The model is given the real preset/model/mode id and told to reuse it
-        verbatim for a scoped fact; ``_validate_scope`` then checks the id it
-        reports against these same values, so a hallucinated id can never
-        make it into a persisted note.
+        The model is given the real preset ids (generation sessions) or the
+        real mode id (plugin-mode sessions) and told to reuse one verbatim
+        for a scoped fact; ``_validate_scope`` then checks the id it reports
+        against this same offered set, so a hallucinated id can never make
+        it into a persisted note. The JSON schema's 'scope' enum itself only
+        lists the scopes actually offered this pass.
         """
-        if active_preset:
-            preset_line = (
-                f'- Active preset: "{active_preset[1]}" (id: {active_preset[0]}) - use scope '
-                f'"preset" with scope_ref exactly "{active_preset[0]}" for facts tied only to it.'
+        if offered_presets:
+            preset_lines = "\n".join(
+                f'  - "{label}" (id: {pid})' for pid, label in sorted(offered_presets.items(), key=lambda kv: kv[1])
             )
-        else:
-            preset_line = '- No active preset in this conversation - never use scope "preset".'
-
-        if active_model:
-            model_line = (
-                f'- Active model: "{active_model[1]}" (id: {active_model[0]}) - use scope '
-                f'"model" with scope_ref exactly "{active_model[0]}" for facts tied only to it.'
+            scope_section = (
+                "This is a generation session. Each fact belongs to the PRESET it was "
+                "expressed under - use scope \"preset\" with scope_ref exactly that "
+                "turn's preset id (never invent one; only ever one of the ids below). "
+                "Use \"global\" ONLY when the user says a preference applies everywhere, "
+                "or the same fact recurs under two DIFFERENT presets listed below. "
+                "Presets active somewhere in this span:\n" + preset_lines + "\n\n"
+                "Never use scope \"model\" or \"mode\" - they aren't offered here."
             )
-        else:
-            model_line = '- No active model in this conversation - never use scope "model".'
-
-        if active_mode:
-            mode_line = (
-                f'- Active mode: "{active_mode[1]}" (id: {active_mode[0]}) - use scope '
-                f'"mode" with scope_ref exactly "{active_mode[0]}" for facts tied only to it '
-                "(e.g. a habit specific to this chat mode's own workflow, not the Generate form)."
+            scope_enum = '"global"|"preset"'
+        elif offered_mode:
+            mode_id, mode_label = offered_mode
+            scope_section = (
+                f"This is a \"{mode_label}\" session (a plugin mode, not the Generate "
+                f"form). Use scope \"mode\" with scope_ref exactly \"{mode_id}\" for a "
+                f"fact tied to this workflow specifically. Use \"global\" only when the "
+                f"user explicitly says it applies to everything, not just this "
+                f"{mode_label} workflow.\n\n"
+                "Never use scope \"preset\" or \"model\" - they aren't offered here."
             )
+            scope_enum = '"global"|"mode"'
         else:
-            mode_line = '- No active mode in this conversation - never use scope "mode".'
+            scope_section = "No active preset or mode context for this session - use scope \"global\" only."
+            scope_enum = '"global"'
 
         return (
             "Review this conversation and extract durable facts worth remembering for "
@@ -782,13 +824,11 @@ class ChatReflectionGenerator:
             "makes to your work, and requests repeated more than once. Ignore anything "
             "tied to a single generation - a seed, a one-off prompt, a result the user "
             "reacted to only once.\n\n"
-            f"{preset_line}\n{model_line}\n{mode_line}\n\n"
-            "Each user turn below is numbered, like '[3] User: ...' - use these numbers "
-            "as evidence.\n\n"
-            "For each fact, pick a scope: 'global' for something true everywhere, or "
-            "'preset'/'model'/'mode' for something tied ONLY to the active preset/model/"
-            "mode named above - never invent an id, only ever the exact one given "
-            "above.\n\n"
+            f"{scope_section}\n\n"
+            "Each user turn below is numbered, like '[3] User: ...' - a generation "
+            "session's turn may instead read '[3] User (preset: Krea-2): ...', naming "
+            "the preset active for THAT turn specifically; use these numbers as "
+            "evidence.\n\n"
             "For each fact, also set 'kind':\n"
             "- 'stated': the user said this outright, in their own words, in ONE turn. "
             "'evidence' is that turn's number as a one-item array, e.g. [3]. 'quote' is "
@@ -800,8 +840,8 @@ class ChatReflectionGenerator:
             "not durable - do not report it.\n\n"
             f"Keep each fact's content under {_TARGET_CONTENT_CHARS} characters.\n\n"
             "Reply with a JSON array only, no other text. Each item:\n"
-            '{"scope": "global"|"preset"|"model"|"mode", "scope_ref": "<the exact id '
-            'given above, or null for global>", "key": "<short snake_case identifier>", '
+            f'{{"scope": {scope_enum}, "scope_ref": "<the exact id given above, or '
+            'null for global>", "key": "<short snake_case identifier>", '
             '"content": "<the fact, written as a general statement>", '
             '"kind": "stated"|"recurring", "evidence": [<turn number>, ...], '
             '"quote": "<verbatim quote - only when kind is stated>"}\n\n'
@@ -847,12 +887,12 @@ class ChatReflectionGenerator:
         self,
         user_id: str,
         items: List[Dict[str, Any]],
-        active_preset_id: Optional[str] = None,
-        active_model_id: Optional[str] = None,
-        active_mode_id: Optional[str] = None,
+        offered_preset_ids: Optional[Set[str]] = None,
+        offered_mode_id: Optional[str] = None,
         user_turn_texts: Optional[Dict[int, str]] = None,
     ) -> List[Dict[str, Any]]:
         user_turn_texts = user_turn_texts or {}
+        offered_preset_ids = offered_preset_ids or set()
         saved: List[Dict[str, Any]] = []
         for item in items:
             key = item.get("key")
@@ -868,13 +908,13 @@ class ChatReflectionGenerator:
 
             scoped = self._validate_scope(
                 item.get("scope"), item.get("scope_ref"),
-                active_preset_id, active_model_id, active_mode_id,
+                offered_preset_ids, offered_mode_id,
             )
             if scoped is None:
                 logger.info(
                     f"Reflection item '{key}' dropped: scope '{item.get('scope')}' "
-                    f"(scope_ref '{item.get('scope_ref')}') does not match this turn's "
-                    "active preset/model/mode - never rewritten to global"
+                    f"(scope_ref '{item.get('scope_ref')}') does not match this pass's "
+                    "offered preset/mode scopes - never rewritten to global"
                 )
                 continue
             scope, scope_ref = scoped
@@ -908,26 +948,28 @@ class ChatReflectionGenerator:
     def _validate_scope(
         scope: Any,
         scope_ref: Any,
-        active_preset_id: Optional[str],
-        active_model_id: Optional[str],
-        active_mode_id: Optional[str] = None,
+        offered_preset_ids: Set[str],
+        offered_mode_id: Optional[str],
     ) -> Optional[Tuple[str, Optional[str]]]:
-        """Accept a 'preset'/'model'/'mode' scope only when scope_ref names
-        exactly the id this turn's actual context resolved for that scope.
-        Anything else - an invalid scope name, a mismatched or hallucinated
-        scope_ref, or no active id at all for that scope - is DROPPED
-        (returns ``None``), never silently rewritten to 'global': 'global' is
-        only ever what the model itself deliberately reported, since a
-        preset/model/mode-shaped fact with no honest home is not evidence the
-        fact is universally true."""
+        """Accept a 'preset' scope only when scope_ref names one of this
+        pass's offered preset ids, and a 'mode' scope only when scope_ref
+        names exactly the offered mode id (see ``_resolve_active_context`` -
+        a generation session offers preset ids, never a mode id, and vice
+        versa for a plugin-mode session, so at most one of the two checks
+        below can ever match). 'model' is never a valid scope any more -
+        reflection no longer offers or resolves one (it remains available to
+        the interactive ``write_memory`` tool). Anything else - an invalid
+        scope name, a mismatched or hallucinated scope_ref, or a scope this
+        pass never offered at all - is DROPPED (returns ``None``), never
+        silently rewritten to 'global': 'global' is only ever what the model
+        itself deliberately reported, since a scoped fact with no honest home
+        is not evidence the fact is universally true."""
         if scope == "global":
             return "global", None
-        if scope == "preset" and active_preset_id and scope_ref == active_preset_id:
-            return "preset", active_preset_id
-        if scope == "model" and active_model_id and scope_ref == active_model_id:
-            return "model", active_model_id
-        if scope == "mode" and active_mode_id and scope_ref == active_mode_id:
-            return "mode", active_mode_id
+        if scope == "preset" and scope_ref in offered_preset_ids:
+            return "preset", scope_ref
+        if scope == "mode" and offered_mode_id and scope_ref == offered_mode_id:
+            return "mode", offered_mode_id
         return None
 
     @staticmethod

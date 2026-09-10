@@ -23,6 +23,10 @@ def _message(role: str, content: str, msg_id: str) -> Mock:
     msg.id = msg_id
     msg.role = role
     msg.content = content
+    # Explicit `None` (never an auto-generated Mock attribute) - this
+    # session is mode="generation", so `_build_span` reads
+    # `m.metadata.get("preset_id")` on every user turn.
+    msg.metadata = None
     return msg
 
 

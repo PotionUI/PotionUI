@@ -736,3 +736,28 @@ def test_absmax_matches_abs_amax_without_the_full_size_temp():
     # `t.amax()` alone would get wrong.
     for t in (torch.randn(3, 5) * 100, -torch.rand(4, 4) - 5.0, torch.rand(2, 8) + 3.0):
         assert torch.equal(att._absmax(t), t.abs().amax())
+
+
+def test_aligned_mask_rehomes_odd_length_rows_in_16_aligned_storage():
+    mask = torch.randn(1, 1, 37, 37)
+    out = att._aligned_mask(mask)
+    assert out.shape == mask.shape
+    assert torch.equal(out, mask)
+    assert out.stride(-2) % att._MASK_ALIGN == 0
+    even = torch.randn(1, 1, 32, 32)
+    assert att._aligned_mask(even) is even
+    assert att._aligned_mask(None) is None
+
+
+def test_masked_grouped_sdpa_matches_expanded_reference():
+    torch.manual_seed(0)
+    q = torch.randn(1, 4, 37, 8)
+    k = torch.randn(1, 2, 37, 8)
+    v = torch.randn(1, 2, 37, 8)
+    mask = torch.zeros(1, 1, 37, 37)
+    mask[..., :5, 20:] = float("-inf")
+    out = att._sdpa(q, k, v, mask, grouped=True)
+    ref = torch.nn.functional.scaled_dot_product_attention(
+        q, k.repeat_interleave(2, dim=1), v.repeat_interleave(2, dim=1), attn_mask=mask,
+    )
+    assert torch.allclose(out, ref, atol=1e-6)

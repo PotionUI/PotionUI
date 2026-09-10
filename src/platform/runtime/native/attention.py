@@ -414,10 +414,41 @@ def _note_dispatch(key: str, fmt: str, *args) -> None:
     logger.info(fmt, *args)
 
 
+_MASK_ALIGN = 16
+
+
+def _aligned_mask(mask: Tensor | None) -> Tensor | None:
+    """Re-home a dense mask in storage whose row stride is a multiple of 16
+    elements. torch's memory-efficient SDPA kernel only accepts an ``attn_mask``
+    whose last-dim stride is 16-byte aligned; an odd sequence length (text +
+    image tokens) fails that check and silently drops to the math kernel, which
+    materialises the full ``H×L×L`` score matrix (12 GB at 8k tokens)."""
+    if mask is None or mask.ndim < 2:
+        return mask
+    length = mask.shape[-1]
+    pad = (-length) % _MASK_ALIGN
+    if pad == 0 and mask.stride(-1) == 1:
+        return mask
+    buf = torch.empty(*mask.shape[:-1], length + pad, dtype=mask.dtype, device=mask.device)
+    buf[..., :length] = mask
+    return buf[..., :length]
+
+
 def _sdpa(q: Tensor, k: Tensor, v: Tensor, mask: Tensor | None, grouped: bool = False) -> Tensor:
     # `enable_gqa` is only passed on the grouped path: the kwarg does not exist
     # on every torch this runs against, and `_supports_grouped_kv` is the only
     # thing that has established it does here.
+    if mask is not None:
+        mask = _aligned_mask(mask)
+        if grouped:
+            # The memory-efficient kernel does not take grouped K/V together with a
+            # dense mask; expand the heads so a masked call can still avoid the
+            # math kernel's L×L score matrix.
+            repeat = q.shape[1] // k.shape[1]
+            if repeat > 1:
+                k = k.repeat_interleave(repeat, dim=1)
+                v = v.repeat_interleave(repeat, dim=1)
+            grouped = False
     if grouped:
         return F.scaled_dot_product_attention(
             q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False, enable_gqa=True,

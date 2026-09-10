@@ -551,6 +551,15 @@ class ChatRepository:
         """Delete a session and all its messages"""
         return self.session_repo.delete(session_id)
 
+    def delete_all_sessions(self) -> int:
+        """Delete every chat session of every user (messages cascade). Returns
+        the number of sessions removed. Admin maintenance only - it does not
+        run the per-session delete hooks."""
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute("DELETE FROM chat_sessions")
+            return cursor.rowcount
+
     def get_message(self, message_id: str) -> Optional[MessageResponse]:
         """Get a single message by ID"""
         return self.message_repo.get_by_id(message_id)

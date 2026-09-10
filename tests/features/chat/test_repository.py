@@ -582,6 +582,20 @@ class TestChatRepository(PersistenceTestBase):
         retrieved = self.repo.get_session(session.id)
         self.assertEqual(retrieved.llm_config_id, 'llm-b')
 
+    def test_delete_all_sessions_wipes_every_user(self):
+        """Admin wipe removes every session (and, via CASCADE, its messages)
+        regardless of owner, and reports how many went."""
+        a = self.repo.create_session(user_id=self.test_user_id)
+        b = self.repo.create_session(user_id=self.test_user_id)
+        self.repo.add_message(a.id, 'user', 'Hello')
+
+        self.assertEqual(self.repo.delete_all_sessions(), 2)
+
+        self.assertIsNone(self.repo.get_session(a.id))
+        self.assertIsNone(self.repo.get_session(b.id))
+        self.assertEqual(len(self.repo.get_messages(a.id)), 0)
+        self.assertEqual(self.repo.delete_all_sessions(), 0)
+
     def test_delete_session(self):
         """Test deleting a session"""
         session = self.repo.create_session(user_id=self.test_user_id)

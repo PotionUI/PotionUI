@@ -1270,6 +1270,11 @@ export async function getAdminChatSessionDetail(
 	return response.data;
 }
 
+export async function clearAdminChatSessions(): Promise<APIResponse<{ deleted: number }>> {
+	const response = await api.getClient().delete('/api/chat/admin/sessions');
+	return response.data;
+}
+
 export async function clearChatCallTraces(
 	sessionId?: string
 ): Promise<APIResponse<{ deleted: number }>> {

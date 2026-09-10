@@ -44,7 +44,7 @@
 	// Which metadata sub-sections are expanded, keyed by `${messageId}:tools` / `${messageId}:trace`.
 	let expandedSections: Record<string, boolean> = {};
 
-	let clearingScope: 'session' | 'all' | null = null;
+	let clearingScope: 'session' | 'all' | 'sessions' | null = null;
 
 	onMount(async () => {
 		await loadSessions();
@@ -175,6 +175,32 @@
 		}
 	}
 
+	async function clearAllSessions() {
+		const confirmed = await confirmDialog({
+			title: 'Delete ALL chat sessions?',
+			message: `Every conversation of every user will be deleted. Memory notes stay. This cannot be undone.`,
+			variant: 'danger'
+		});
+		if (!confirmed) return;
+		clearingScope = 'sessions';
+		try {
+			const result = await adminApi.clearAdminChatSessions();
+			if (result.success) {
+				toasts.success(`Deleted ${result.data?.deleted ?? 0} session(s)`);
+				selectedSessionId = null;
+				detail = null;
+				await loadSessions();
+			} else {
+				toasts.error(result.message || 'Failed to clear chat sessions');
+			}
+		} catch (e: any) {
+			logger.error('Failed to clear chat sessions:', e);
+			toasts.error(e.response?.data?.message || e.message || 'Failed to clear chat sessions');
+		} finally {
+			clearingScope = null;
+		}
+	}
+
 	function pretty(value: unknown): string {
 		if (value === null || value === undefined) return '';
 		if (typeof value === 'string') return value;
@@ -213,6 +239,15 @@
 				onclick={clearAllTraces}
 			>
 				Clear all traces
+			</Button>
+			<Button
+				variant="danger"
+				size="sm"
+				loading={clearingScope === 'sessions'}
+				disabled={total === 0}
+				onclick={clearAllSessions}
+			>
+				Clear chat history
 			</Button>
 		{/snippet}
 	</AdminTabShell>

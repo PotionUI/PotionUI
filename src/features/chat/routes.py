@@ -799,6 +799,18 @@ class ChatController(BaseController):
                 message=f"Failed to get session detail: {str(e)}"
             )
 
+    def clear_sessions(self) -> APIResponse:
+        """Delete every chat session of every user (the whole chat history)."""
+        try:
+            deleted = self.chat_runtime.delete_all_sessions()
+            return self.success_response(data={"deleted": deleted})
+        except Exception as e:
+            logger.exception(f"Error clearing chat sessions: {e}")
+            return self.error_api_response(
+                error="clear_sessions_failed",
+                message=f"Failed to clear chat sessions: {str(e)}"
+            )
+
     def clear_traces(self, session_id: Optional[str] = None) -> APIResponse:
         """Delete LLM call traces for one session, or every session when omitted."""
         try:
@@ -1023,6 +1035,11 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """A session's messages plus every LLM call trace it produced."""
         return controller.get_admin_session_detail(session_id)
+
+    @router.delete("/admin/sessions", response_model=APIResponse, summary="[Admin] Delete every chat session")
+    async def clear_sessions(admin_user: User = Depends(get_current_admin_user)):
+        """Delete every chat session of every user - the whole chat history."""
+        return controller.clear_sessions()
 
     @router.delete("/admin/traces", response_model=APIResponse, summary="[Admin] Clear LLM call traces")
     async def clear_traces(

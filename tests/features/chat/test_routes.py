@@ -608,6 +608,15 @@ class TestChatController:
         assert result.success is True
         mock_chat_manager.delete_session.assert_called_once_with("session-123", "user-123")
 
+    def test_clear_sessions_reports_deleted_count(self, controller, mock_chat_manager):
+        mock_chat_manager.delete_all_sessions.return_value = 7
+
+        result = controller.clear_sessions()
+
+        assert result.success is True
+        assert result.data == {"deleted": 7}
+        mock_chat_manager.delete_all_sessions.assert_called_once_with()
+
     def test_delete_session_not_found(
         self, controller, mock_chat_manager, sample_user
     ):

@@ -127,6 +127,8 @@ def main() -> int:
                          "Qwen3-4B, which is identical to Klein's but uses the penultimate layer)")
     ap.add_argument("--vae", required=True)
     ap.add_argument("--prompt", default="")
+    ap.add_argument("--ref", action="append", default=[],
+                    help="repeatable reference image for edit-capable models (VAE-encoded, passed as ref_latents)")
     ap.add_argument("--negative", default=None)
     ap.add_argument("--steps", type=int, default=20)
     ap.add_argument("--seed", type=int, default=42)
@@ -188,6 +190,19 @@ def main() -> int:
             conditioning = _random_conditioning(gen, latents_shape[0], args.context_len, args.seed)
         else:
             conditioning = gen.encode_prompt(args.prompt, args.negative)
+    if args.ref:
+        from PIL import Image
+        import numpy as np
+
+        with _phase("encode-refs"):
+            refs = []
+            for path in args.ref:
+                img = Image.open(path).convert("RGB").resize((args.width, args.height), Image.LANCZOS)
+                refs.append(gen.encode_image(np.asarray(img, dtype="uint8")))
+        conditioning.cond["ref_latents"] = refs
+        if conditioning.uncond is not None:
+            conditioning.uncond["ref_latents"] = refs
+        print(f"  refs: {[tuple(r.shape) for r in refs]}", flush=True)
 
     # Initial noise: inject a saved tensor (golden compare) or draw it here so we
     # can also save it. Owning noise generation in the harness keeps save/inject

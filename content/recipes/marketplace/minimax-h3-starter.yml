@@ -1,0 +1,218 @@
+########
+## Setup recipe: MiniMax-H3 (video + audio) on the native engine
+##
+## WEIGHTS LICENSE: the MiniMax H3 Community License's Applicable Territory
+## EXCLUDES the European Union, the United Kingdom, the United States and the
+## Republic of Korea - and the exclusion covers the model's outputs as well
+## as the weights. See content/presets/marketplace/MiniMax-H3/description.md
+## and docs/models/minimax_h3.md before enabling this recipe for a user in
+## one of those territories.
+##
+## See src/features/recipes/schema.py for the schema this file is
+## validated against (scripts/recipe_lint.py) and
+## src/features/recipes/executors/ for what each step kind actually does.
+########
+schema_version: 1
+id: "minimax-h3-starter"
+version: 1
+name: "MiniMax-H3 Starter"
+engine: "native"
+category: "video"
+summary: "Get a working MiniMax-H3 video+audio setup on your local GPU and produce a first clip."
+description: >
+  Installs the bundled MiniMax-H3 preset on the native (in-process) engine,
+  makes sure its four component files (DiT, Qwen3-VL-32B text encoder, video
+  VAE, audio VAE) are available, and proves the pipeline is wired up
+  correctly before handing you a ready-to-use preset. H3 samples the picture
+  and its soundtrack as one packed sequence, so the audio VAE is required for
+  every run, not an optional extra - there is no "generate audio" toggle to
+  turn off (see docs/models/minimax_h3.md). This recipe uses the Turbo speed
+  profile (4 steps, no LoRA required - the base model is a capable few-step
+  generator on its own schedule) for a fast first clip. The four files
+  together are a real download (~40 GB).
+
+  WEIGHTS LICENSE: MiniMax H3 is published under the MiniMax H3 Community
+  License. Its Applicable Territory EXCLUDES the European Union, the United
+  Kingdom, the United States and the Republic of Korea, and that exclusion
+  extends to the model's outputs, not only the weights. The license also
+  carries a revenue threshold (over US$20M) and requires attribution ("MiniMax
+  H3") in a commercial UI. Read the full text before enabling this preset;
+  none of this is a Hugging Face access gate - the repo itself is ungated.
+
+plugins:
+  - id: "huggingface-provider"
+    reason: >
+      Resolves the diffusion model, text encoder and both VAEs from
+      HuggingFace (Comfy-Org's official single-file repack of MiniMax-H3) by
+      exact repo path. HuggingFace has no hash-lookup API, so each artifact
+      below names its file explicitly; the sha256 in each artifact's checksum
+      still verifies the download afterwards.
+
+backend:
+  engine: "native"
+
+artifacts:
+  - id: "minimax-h3-diffusion-model"
+    kind: "diffusion_model"
+    model_type: "diffusion_model"
+    filename: "minimax_h3_fl2va_pruned_fp8_scaled.safetensors"
+    display_name: "MiniMax-H3 DiT - first/last-frame to video+audio, pruned fp8-scaled"
+    required: true
+    size_bytes: 20958205608
+    checksum:
+      algorithm: "sha256"
+      value: "12944c1f7791637e7de12208aef04da82bd26b95271b1b47d817364315ade993"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/MiniMax-H3"
+      version_id: "main@diffusion_models/minimax_h3_fl2va_pruned_fp8_scaled.safetensors"
+
+  - id: "minimax-h3-text-encoder"
+    kind: "text_encoder"
+    model_type: "text_encoder"
+    filename: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+    display_name: "Qwen3-VL-32B text encoder (nvfp4 AWQ)"
+    required: true
+    size_bytes: 15687142551
+    checksum:
+      algorithm: "sha256"
+      value: "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/MiniMax-H3"
+      version_id: "main@text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+
+  - id: "minimax-h3-video-vae"
+    kind: "vae"
+    model_type: "vae"
+    filename: "minimax_h3_video_vae_fp16.safetensors"
+    display_name: "MiniMax-H3 video VAE (fp16)"
+    required: true
+    size_bytes: 5207808496
+    checksum:
+      algorithm: "sha256"
+      value: "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/MiniMax-H3"
+      version_id: "main@vae/minimax_h3_video_vae_fp16.safetensors"
+
+  - id: "minimax-h3-audio-vae"
+    kind: "vae"
+    model_type: "vae"
+    filename: "minimax_h3_audio_vae_fp32.safetensors"
+    display_name: "MiniMax-H3 audio VAE (fp32)"
+    required: true
+    size_bytes: 605254808
+    checksum:
+      algorithm: "sha256"
+      value: "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/MiniMax-H3"
+      version_id: "main@vae/minimax_h3_audio_vae_fp32.safetensors"
+
+presets:
+  - preset_id: "01KX47H3MINIMAX000000000VA"
+    path_hint: "marketplace/MiniMax-H3"
+    assign_to_owner: true
+
+smoke:
+  preset_id: "01KX47H3MINIMAX000000000VA"
+  mode: "video"
+  prompt: "a paper boat drifting down a rain-filled gutter, close-up, soft afternoon light, the sound of running water"
+  seed: 12345
+  # Matches content/presets/marketplace/MiniMax-H3/tests.yml's own
+  # "minimax-h3-turbo-fast" case verbatim (LoRA-free - the base model is a
+  # capable 4-step generator on its own): fastest canvas, shortest clip.
+  form:
+    resolution: "832x480"
+    frames: 124
+    speed_profile: "turbo"
+    steps: 4
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable required plugins"
+    params:
+      # huggingface-provider is needed so the download step can resolve each
+      # artifact's exact repo file.
+      plugin_ids: ["huggingface-provider"]
+
+  - key: "backend.ensure"
+    kind: "backend.ensure"
+    title: "Prepare the native backend"
+    params:
+      engine: "native"
+
+  # Index BEFORE planning downloads: on a fresh instance nothing is indexed
+  # yet, so without this pass artifacts.plan cannot see files the user
+  # already has and would ask to download them.
+  - key: "models.index"
+    kind: "models.index"
+    title: "Find models you already have"
+    params:
+      engine: "native"
+
+  - key: "artifacts.plan"
+    kind: "artifacts.plan"
+    title: "Plan required downloads"
+    params:
+      artifact_ids:
+        [
+          "minimax-h3-diffusion-model",
+          "minimax-h3-text-encoder",
+          "minimax-h3-video-vae",
+          "minimax-h3-audio-vae",
+        ]
+
+  - key: "artifacts.fetch"
+    kind: "artifacts.fetch"
+    title: "Download the MiniMax-H3 model files"
+    params:
+      artifact_ids:
+        [
+          "minimax-h3-diffusion-model",
+          "minimax-h3-text-encoder",
+          "minimax-h3-video-vae",
+          "minimax-h3-audio-vae",
+        ]
+
+  - key: "models.index.downloads"
+    kind: "models.index"
+    title: "Register downloaded models"
+    params:
+      engine: "native"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign the MiniMax-H3 preset"
+    params:
+      preset_id: "01KX47H3MINIMAX000000000VA"
+
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the pipeline"
+    params:
+      preset_id: "01KX47H3MINIMAX000000000VA"
+      mode: "video"
+
+  - key: "generation.smoke"
+    kind: "generation.smoke"
+    title: "Run a first real generation"
+    params:
+      preset_id: "01KX47H3MINIMAX000000000VA"
+      mode: "video"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    # Only meaningful during the first-run wizard - a run started from
+    # Admin -> Recipes skips it.
+    onboarding_only: true
+    params: {}

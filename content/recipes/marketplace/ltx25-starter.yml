@@ -1,0 +1,222 @@
+########
+## Setup recipe: LTX-2.5 (text-to-video) on the native engine
+##
+## GATED RECIPE: every artifact below lives in a gated Hugging Face repo
+## (Lightricks/LTX-2.5). Accept the LTX-2 license on Hugging Face and set a
+## token in Admin -> Plugins before running this recipe, or the download step
+## fails with an auth error. The tree API masks file hashes to anonymous
+## callers for a gated repo, so `checksum.value` is null below until a token
+## holder fills it in (see src/features/recipes/schema.py's `RecipeArtifact`
+## docstring - a null checksum value is legitimate when the author doesn't
+## know it yet).
+##
+## See src/features/recipes/schema.py for the schema this file is
+## validated against (scripts/recipe_lint.py) and
+## src/features/recipes/executors/ for what each step kind actually does.
+########
+schema_version: 1
+id: "ltx25-starter"
+version: 1
+name: "LTX-2.5 Starter"
+engine: "native"
+category: "video"
+summary: "Get a working LTX-2.5 text-to-video setup on your local GPU and produce a first clip."
+description: >
+  Installs the bundled LTX-2.5 preset on the native (in-process) engine,
+  makes sure its four separate component files (DiT, Gemma4-12B text
+  encoder, video VAE, audio VAE) are available, and proves the pipeline is
+  wired up correctly before handing you a ready-to-use preset. Unlike LTX-2 /
+  2.3, LTX-2.5 ships as split files rather than one all-in-one checkpoint -
+  see docs/models/ltx.md. This recipe fetches the distilled int8 ConvRot
+  tier, which pairs with the preset's Distilled speed profile (8 steps, CFG
+  1.0), plus the audio VAE so the smoke generation can also produce a
+  soundtrack. The four files together are a real download (~36 GB).
+
+  GATED: every file lives in Lightricks/LTX-2.5, a gated Hugging Face repo -
+  accept the license at https://huggingface.co/Lightricks/LTX-2.5 and add a
+  token in Admin -> Plugins before this recipe's download step can succeed.
+  Weights are published under the LTX-2.x Community License Agreement
+  (https://github.com/Lightricks/LTX-2/blob/main/LICENSE-2_x) - read it
+  before commercial use; the text encoder additionally carries Google's
+  Gemma Terms of Use.
+
+plugins:
+  - id: "huggingface-provider"
+    reason: >
+      Resolves every artifact from Lightricks' own gated repo by exact file
+      path. A configured Hugging Face token (Admin -> Plugins) that has
+      accepted the LTX-2.5 license is required for the download step to
+      succeed - an anonymous or unaccepted token gets a 401/403, which
+      artifacts.fetch reports as an auth failure rather than a generic error.
+
+backend:
+  engine: "native"
+
+artifacts:
+  - id: "ltx25-diffusion-model"
+    kind: "diffusion_model"
+    model_type: "diffusion_model"
+    filename: "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors"
+    display_name: "LTX-2.5 22B distilled transformer (int8 ConvRot)"
+    required: true
+    size_bytes: 21504034224
+    checksum:
+      algorithm: "sha256"
+      value: null
+    capability: "model-lookup"
+    gated: true
+    license_url: "https://huggingface.co/Lightricks/LTX-2.5"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Lightricks/LTX-2.5"
+      version_id: "main@diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors"
+
+  - id: "ltx25-text-encoder"
+    kind: "text_encoder"
+    model_type: "text_encoder"
+    filename: "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors"
+    display_name: "Gemma4-12B text encoder with projection (int8 ConvRot)"
+    required: true
+    size_bytes: 15372969374
+    checksum:
+      algorithm: "sha256"
+      value: null
+    capability: "model-lookup"
+    gated: true
+    license_url: "https://huggingface.co/Lightricks/LTX-2.5"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Lightricks/LTX-2.5"
+      version_id: "main@text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors"
+
+  - id: "ltx25-video-vae"
+    kind: "vae"
+    model_type: "vae"
+    filename: "ltx-2.5-video-vae-conv-bf16.safetensors"
+    display_name: "LTX-2.5 video VAE (conv decode)"
+    required: true
+    size_bytes: 1452269922
+    checksum:
+      algorithm: "sha256"
+      value: null
+    capability: "model-lookup"
+    gated: true
+    license_url: "https://huggingface.co/Lightricks/LTX-2.5"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Lightricks/LTX-2.5"
+      version_id: "main@vae/ltx-2.5-video-vae-conv-bf16.safetensors"
+
+  - id: "ltx25-audio-vae"
+    kind: "vae"
+    model_type: "vae"
+    filename: "ltx-2.5-audio-vae-bf16.safetensors"
+    display_name: "LTX-2.5 audio VAE + vocoder"
+    required: true
+    size_bytes: 364866540
+    checksum:
+      algorithm: "sha256"
+      value: null
+    capability: "model-lookup"
+    gated: true
+    license_url: "https://huggingface.co/Lightricks/LTX-2.5"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Lightricks/LTX-2.5"
+      version_id: "main@vae/ltx-2.5-audio-vae-bf16.safetensors"
+
+presets:
+  - preset_id: "01KX47LTX25VIDEO00000000TV"
+    path_hint: "marketplace/LTX-2.5"
+    assign_to_owner: true
+
+smoke:
+  preset_id: "01KX47LTX25VIDEO00000000TV"
+  mode: "video"
+  seed: 12345
+  # Matches content/presets/marketplace/LTX-2.5/tests.yml's own
+  # "ltx25-video-distilled-t2v-fast" case verbatim: the Distilled speed
+  # profile (8 steps, CFG 1.0, euler_ancestral - LTX-2.5's base pass samples
+  # ancestrally even when distilled) at the smallest SD portrait size,
+  # upscale off, audio on (needs the audio VAE artifact above).
+  form:
+    speed_profile: "distilled"
+    resolution: "480x832"
+    steps: 8
+    cfg: 1
+    sampler: "euler_ancestral"
+    upscale: "off"
+    refine_strength: "strong"
+    generate_audio: true
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable required plugins"
+    params:
+      # huggingface-provider is needed so the download step can resolve each
+      # artifact's exact repo file.
+      plugin_ids: ["huggingface-provider"]
+
+  - key: "backend.ensure"
+    kind: "backend.ensure"
+    title: "Prepare the native backend"
+    params:
+      engine: "native"
+
+  # Index BEFORE planning downloads: on a fresh instance nothing is indexed
+  # yet, so without this pass artifacts.plan cannot see files the user
+  # already has and would ask to download them.
+  - key: "models.index"
+    kind: "models.index"
+    title: "Find models you already have"
+    params:
+      engine: "native"
+
+  - key: "artifacts.plan"
+    kind: "artifacts.plan"
+    title: "Plan required downloads"
+    params:
+      artifact_ids:
+        ["ltx25-diffusion-model", "ltx25-text-encoder", "ltx25-video-vae", "ltx25-audio-vae"]
+
+  - key: "artifacts.fetch"
+    kind: "artifacts.fetch"
+    title: "Download the LTX-2.5 model files"
+    params:
+      artifact_ids:
+        ["ltx25-diffusion-model", "ltx25-text-encoder", "ltx25-video-vae", "ltx25-audio-vae"]
+
+  - key: "models.index.downloads"
+    kind: "models.index"
+    title: "Register downloaded models"
+    params:
+      engine: "native"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign the LTX-2.5 preset"
+    params:
+      preset_id: "01KX47LTX25VIDEO00000000TV"
+
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the pipeline"
+    params:
+      preset_id: "01KX47LTX25VIDEO00000000TV"
+      mode: "video"
+
+  - key: "generation.smoke"
+    kind: "generation.smoke"
+    title: "Run a first real generation"
+    params:
+      preset_id: "01KX47LTX25VIDEO00000000TV"
+      mode: "video"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    # Only meaningful during the first-run wizard - a run started from
+    # Admin -> Recipes skips it.
+    onboarding_only: true
+    params: {}

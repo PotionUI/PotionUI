@@ -1,0 +1,166 @@
+########
+## Setup recipe: LTX-2 / LTX-2.3 (text-to-video) on the native engine
+##
+## See src/features/recipes/schema.py for the schema this file is
+## validated against (scripts/recipe_lint.py) and
+## src/features/recipes/executors/ for what each step kind actually does.
+########
+schema_version: 1
+id: "ltx2-starter"
+version: 1
+name: "LTX-2 / 2.3 Starter"
+engine: "native"
+category: "video"
+summary: "Get a working LTX-2.3 text-to-video setup on your local GPU and produce a first clip."
+description: >
+  Installs the bundled LTX-2 / 2.3 preset on the native (in-process) engine,
+  makes sure its all-in-one checkpoint and Gemma3-12B text encoder are
+  available, and proves the pipeline is wired up correctly before handing you
+  a ready-to-use preset. The checkpoint bundles the DiT, text-embedding
+  projection and connectors in a single file (see docs/models/ltx.md); this
+  recipe fetches the distilled 22B fp8 checkpoint, which pairs with the
+  preset's Distilled speed profile (8 steps, CFG 1.0) for a fast first clip.
+  The two files together are a real download (~40 GB). Weights are published
+  under the LTX-2 Community License Agreement
+  (https://github.com/Lightricks/LTX-2/blob/main/LICENSE) - read it before
+  commercial use; the text encoder additionally carries Google's Gemma Terms
+  of Use (it derives from google/gemma-3-12b-it). Neither file requires
+  accepting a gate on Hugging Face.
+
+plugins:
+  - id: "huggingface-provider"
+    reason: >
+      Resolves the checkpoint from Lightricks' own repo and the text encoder
+      from Comfy-Org's split-file repack by exact repo path. HuggingFace has
+      no hash-lookup API, so each artifact below names its file explicitly;
+      the sha256 in each artifact's checksum still verifies the download
+      afterwards.
+
+backend:
+  engine: "native"
+
+artifacts:
+  - id: "ltx2-checkpoint"
+    kind: "checkpoint"
+    model_type: "checkpoint"
+    filename: "ltx-2.3-22b-distilled-fp8.safetensors"
+    display_name: "LTX-2.3 22B distilled checkpoint (fp8, all-in-one)"
+    required: true
+    size_bytes: 29531884062
+    checksum:
+      algorithm: "sha256"
+      value: "d9646b6f2d5c42d337b23671634c43bfeece6989644f51b4a3aa088465ccd3b2"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Lightricks/LTX-2.3-fp8"
+      version_id: "main@ltx-2.3-22b-distilled-fp8.safetensors"
+
+  - id: "ltx2-text-encoder"
+    kind: "text_encoder"
+    model_type: "text_encoder"
+    filename: "gemma_3_12B_it_fp8_scaled.safetensors"
+    display_name: "Gemma3-12B text encoder (fp8-scaled)"
+    required: true
+    size_bytes: 13205434827
+    checksum:
+      algorithm: "sha256"
+      value: "60216ce97c01c3a8753c2dfd0a89fc76e16fbe446d1a32ef8f1b528ac8bae466"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/ltx-2"
+      version_id: "main@split_files/text_encoders/gemma_3_12B_it_fp8_scaled.safetensors"
+
+presets:
+  - preset_id: "01KX47LTXVIDEO0000000000TV"
+    path_hint: "marketplace/LTX-2"
+    assign_to_owner: true
+
+smoke:
+  preset_id: "01KX47LTXVIDEO0000000000TV"
+  mode: "video"
+  seed: 12345
+  # Matches content/presets/marketplace/LTX-2/tests.yml's own
+  # "ltx-video-distilled-t2v-fast" case verbatim: Lightricks' own deterministic
+  # distilled-refine recipe (8 steps, CFG 1.0, euler_cfg_pp) at the smallest
+  # SD portrait size, upscale off.
+  form:
+    speed_profile: "distilled"
+    resolution: "480x832"
+    steps: 8
+    cfg: 1
+    sampler: "euler_cfg_pp"
+    upscale: "off"
+    refine_strength: "strong"
+    generate_audio: true
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable required plugins"
+    params:
+      # huggingface-provider is needed so the download step can resolve each
+      # artifact's exact repo file.
+      plugin_ids: ["huggingface-provider"]
+
+  - key: "backend.ensure"
+    kind: "backend.ensure"
+    title: "Prepare the native backend"
+    params:
+      engine: "native"
+
+  # Index BEFORE planning downloads: on a fresh instance nothing is indexed
+  # yet, so without this pass artifacts.plan cannot see files the user
+  # already has and would ask to download them.
+  - key: "models.index"
+    kind: "models.index"
+    title: "Find models you already have"
+    params:
+      engine: "native"
+
+  - key: "artifacts.plan"
+    kind: "artifacts.plan"
+    title: "Plan required downloads"
+    params:
+      artifact_ids: ["ltx2-checkpoint", "ltx2-text-encoder"]
+
+  - key: "artifacts.fetch"
+    kind: "artifacts.fetch"
+    title: "Download the LTX-2.3 model files"
+    params:
+      artifact_ids: ["ltx2-checkpoint", "ltx2-text-encoder"]
+
+  - key: "models.index.downloads"
+    kind: "models.index"
+    title: "Register downloaded models"
+    params:
+      engine: "native"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign the LTX-2 / 2.3 preset"
+    params:
+      preset_id: "01KX47LTXVIDEO0000000000TV"
+
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the pipeline"
+    params:
+      preset_id: "01KX47LTXVIDEO0000000000TV"
+      mode: "video"
+
+  - key: "generation.smoke"
+    kind: "generation.smoke"
+    title: "Run a first real generation"
+    params:
+      preset_id: "01KX47LTXVIDEO0000000000TV"
+      mode: "video"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    # Only meaningful during the first-run wizard - a run started from
+    # Admin -> Recipes skips it.
+    onboarding_only: true
+    params: {}

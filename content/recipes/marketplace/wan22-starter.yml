@@ -1,0 +1,194 @@
+########
+## Setup recipe: Wan 2.1 / 2.2 (text-to-video) on the native engine
+##
+## See src/features/recipes/schema.py for the schema this file is
+## validated against (scripts/recipe_lint.py) and
+## src/features/recipes/executors/ for what each step kind actually does.
+########
+schema_version: 1
+id: "wan22-starter"
+version: 1
+name: "Wan 2.1 / 2.2 Starter"
+engine: "native"
+category: "video"
+summary: "Get a working Wan 2.2 text-to-video setup on your local GPU and produce a first clip."
+description: >
+  Installs the bundled Wan 2.1 / 2.2 preset on the native (in-process) engine,
+  makes sure the 14B dual-expert t2v checkpoint pair, text encoder and VAE are
+  available, and proves the pipeline is wired up correctly before handing you
+  a ready-to-use preset. Wan 2.2's 14B model is a HIGH/LOW-noise expert pair:
+  both files are required together, the generator's expert router switches
+  between them at the sampling boundary (see docs/models/wan.md). This
+  recipe covers text-to-video only - the preset's separate I2V checkpoint
+  pair is not fetched here. The four files together are a real download
+  (~33 GB). Weights are Apache-2.0 (Wan-AI/Wan2.2-T2V-A14B); no license to
+  accept.
+
+plugins:
+  - id: "huggingface-provider"
+    reason: >
+      Resolves the diffusion models, text encoder and VAE from HuggingFace
+      (Comfy-Org's official split-file repack of Wan 2.2) by exact repo path.
+      HuggingFace has no hash-lookup API, so each artifact below names its
+      file explicitly; the sha256 in each artifact's checksum still verifies
+      the download afterwards.
+
+backend:
+  engine: "native"
+
+artifacts:
+  - id: "wan22-diffusion-model-high"
+    kind: "diffusion_model"
+    model_type: "diffusion_model"
+    filename: "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"
+    display_name: "Wan 2.2 14B t2v DiT - high-noise expert (fp8-scaled)"
+    required: true
+    size_bytes: 14293923632
+    checksum:
+      algorithm: "sha256"
+      value: "cad711ae211c8b23455ec68cd6a190a33a3d874234a77eb57266d73f8f0e6c9f"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+      version_id: "main@split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"
+
+  - id: "wan22-diffusion-model-low"
+    kind: "diffusion_model"
+    model_type: "diffusion_model"
+    filename: "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors"
+    display_name: "Wan 2.2 14B t2v DiT - low-noise expert (fp8-scaled)"
+    required: true
+    size_bytes: 14293923632
+    checksum:
+      algorithm: "sha256"
+      value: "e71b96d7c82e638694c5e7fb98fac4bfb0e4ddc5fbbb4b1df40da8f0f1278a97"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+      version_id: "main@split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors"
+
+  - id: "wan22-text-encoder"
+    kind: "text_encoder"
+    model_type: "text_encoder"
+    filename: "umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+    display_name: "UMT5-XXL text encoder (fp8-scaled)"
+    required: true
+    size_bytes: 6735906897
+    checksum:
+      algorithm: "sha256"
+      value: "c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+      version_id: "main@split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+
+  - id: "wan22-vae"
+    kind: "vae"
+    model_type: "vae"
+    filename: "wan_2.1_vae.safetensors"
+    display_name: "Wan VAE (2.1 / 2.2 14B)"
+    required: true
+    size_bytes: 253815318
+    checksum:
+      algorithm: "sha256"
+      value: "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+      version_id: "main@split_files/vae/wan_2.1_vae.safetensors"
+
+presets:
+  - preset_id: "01KX47WANVIDEO0000000000TV"
+    path_hint: "marketplace/Wan"
+    assign_to_owner: true
+
+smoke:
+  preset_id: "01KX47WANVIDEO0000000000TV"
+  mode: "video"
+  seed: 12345
+  # Matches content/presets/marketplace/Wan/tests.yml's own fast smoke case
+  # verbatim (a real maintainer Video Director session): the Balanced
+  # profile's official t2v expert boundary, at the smallest supported
+  # portrait size, 6 steps CFG 1.
+  form:
+    resolution: "480x832"
+    steps: 6
+    cfg: 1
+    sampler: "euler"
+    expert_boundary: 0.875
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable required plugins"
+    params:
+      # huggingface-provider is needed so the download step can resolve each
+      # artifact's exact repo file.
+      plugin_ids: ["huggingface-provider"]
+
+  - key: "backend.ensure"
+    kind: "backend.ensure"
+    title: "Prepare the native backend"
+    params:
+      engine: "native"
+
+  # Index BEFORE planning downloads: on a fresh instance nothing is indexed
+  # yet, so without this pass artifacts.plan cannot see files the user
+  # already has and would ask to download them.
+  - key: "models.index"
+    kind: "models.index"
+    title: "Find models you already have"
+    params:
+      engine: "native"
+
+  - key: "artifacts.plan"
+    kind: "artifacts.plan"
+    title: "Plan required downloads"
+    params:
+      artifact_ids:
+        ["wan22-diffusion-model-high", "wan22-diffusion-model-low", "wan22-text-encoder", "wan22-vae"]
+
+  - key: "artifacts.fetch"
+    kind: "artifacts.fetch"
+    title: "Download the Wan 2.2 model files"
+    params:
+      artifact_ids:
+        ["wan22-diffusion-model-high", "wan22-diffusion-model-low", "wan22-text-encoder", "wan22-vae"]
+
+  - key: "models.index.downloads"
+    kind: "models.index"
+    title: "Register downloaded models"
+    params:
+      engine: "native"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign the Wan 2.1 / 2.2 preset"
+    params:
+      preset_id: "01KX47WANVIDEO0000000000TV"
+
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the pipeline"
+    params:
+      preset_id: "01KX47WANVIDEO0000000000TV"
+      mode: "video"
+
+  - key: "generation.smoke"
+    kind: "generation.smoke"
+    title: "Run a first real generation"
+    params:
+      preset_id: "01KX47WANVIDEO0000000000TV"
+      mode: "video"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    # Only meaningful during the first-run wizard - a run started from
+    # Admin -> Recipes skips it.
+    onboarding_only: true
+    params: {}

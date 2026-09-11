@@ -3,7 +3,7 @@
 	import { tabsStore, activeTab, generatingTab, isActiveTabGenerating } from '$lib/stores/tabs';
 	import type { PromptTabData, DirectorRunState, Tab } from '$lib/types/tabs';
 	import { authStore } from '$lib/stores/auth';
-	import { api, type GenerationRequest, type PromptPair } from '$lib/services/api';
+	import { api, type GenerationRequest, type PromptPair, type PresetStyle } from '$lib/services/api';
 	import type { GenerationQueueSnapshot } from '$lib/types/api';
 	import { buildSegmentsPayload, buildVariablesPayload } from '$lib/utils/generationOrchestrator';
 	import { findUndefinedVariableUsages } from '$lib/utils/promptVariables';
@@ -522,6 +522,9 @@
 
 	// Preset vars cache for multi-prompt support
 	let presetVars: Record<string, Record<string, any>> = {};
+	// Preset-curated Styles, populated alongside presetVars from the same
+	// getPreset(id) response (see loadPresetVars) — the styles picker's data.
+	let presetStylesById: Record<string, PresetStyle[]> = {};
 	const presetVarsInFlight = new Map<string, Promise<void>>();
 	// Toast once per preset id on load failure, not on every retry — a preset
 	// that keeps failing would otherwise re-toast on every reactive tick (see
@@ -557,6 +560,9 @@
 		currentPresetVars.prompt,
 		currentTab.selectedMode
 	);
+	// Styles the tab's preset curates, from the same getPreset(id) response
+	// presetVars was populated from — see loadPresetVars.
+	$: presetStyles = presetStylesById[currentTab.selectedPreset || ''] || [];
 	$: negativePromptSupported =
 		currentPresetVars.supports_negative_prompt !== false &&
 		currentPresetVars.negative_prompt_supported !== false;
@@ -677,6 +683,8 @@
 				if (response.success && response.data) {
 					presetVars[presetId] = response.data.vars || {};
 					presetVars = { ...presetVars };
+					presetStylesById[presetId] = response.data.styles || [];
+					presetStylesById = { ...presetStylesById };
 				}
 			} catch (error) {
 				console.error('Failed to load preset vars:', error);
@@ -1959,6 +1967,7 @@
 						{musicDirectorActive}
 						{musicDirectorCaps}
 						{presetSegmentTemplates}
+						{presetStyles}
 						{numPrompts}
 						{negativePromptSupported}
 						{negativeInert}
@@ -2014,6 +2023,7 @@
 						{negativePromptSupported}
 						{negativeInert}
 						{presetSegmentTemplates}
+						{presetStyles}
 						promptless={promptlessActive}
 						{isActive}
 						{leftPanelWidth}

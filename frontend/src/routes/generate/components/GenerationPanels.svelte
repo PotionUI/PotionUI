@@ -23,7 +23,7 @@
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
-	import type { PresetInfo, PresetModeVariant } from '$lib/services/api/index';
+	import type { PresetInfo, PresetModeVariant, PresetStyle } from '$lib/services/api/index';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 
 	// Desktop panel layout for a single tab. Two modes, per-tab (toggle lives
@@ -53,6 +53,9 @@
 	/** Resolved on the page from the preset's `vars.prompt`; passed straight
 	 *  through to every PromptSection instance below. */
 	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
+	/** Resolved on the page from the preset detail's `styles`; passed straight
+	 *  through to every PromptSection instance below. */
+	export let presetStyles: PresetStyle[] = [];
 	// Promptless modes (upscale, slow-motion, …) hide the prompt pane entirely.
 	// In three-pane layout this degrades to the two-pane arrangement (form |
 	// workbench) with the workbench taking the freed space.
@@ -328,6 +331,7 @@
 					{negativePromptSupported}
 					{negativeInert}
 					{presetSegmentTemplates}
+					{presetStyles}
 					spacingClass=""
 				/>
 			</div>
@@ -429,6 +433,7 @@
 							{negativePromptSupported}
 							{negativeInert}
 							{presetSegmentTemplates}
+							{presetStyles}
 							spacingClass=""
 						/>
 					</div>
@@ -484,6 +489,7 @@
 							{negativePromptSupported}
 							{negativeInert}
 							{presetSegmentTemplates}
+							{presetStyles}
 							spacingClass="mt-6"
 						/>
 					{/if}

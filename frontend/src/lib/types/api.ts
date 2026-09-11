@@ -237,6 +237,22 @@ export interface PresetRequirementsSummary {
 	optional_missing: number;
 }
 
+/** A preset-curated style: wraps the current prompt with a `prepend`/`append` pair and
+ *  optionally extends the negative prompt, with a rendered `preview` (preset-relative
+ *  asset path, served through `getPresetAssetURL`) shown in the styles picker.
+ *  Present on the detail endpoint (`GET /api/presets/{id}`) only. */
+export interface PresetStyle {
+	id: string;
+	name: string;
+	category: string;
+	description?: string;
+	prepend: string;
+	append: string;
+	negative?: string;
+	example_prompt: string;
+	preview?: string;
+}
+
 export interface PresetInfo {
 	id: string;
 	name: string;
@@ -249,6 +265,8 @@ export interface PresetInfo {
 	media?: PresetMedia;
 	requires?: PresetRequirements;
 	requirements_summary?: PresetRequirementsSummary | null;
+	/** Present on the detail endpoint only — see `PresetStyle`. */
+	styles?: PresetStyle[];
 	// Admin-only fields (present when `listPresets(includeUninstalled = true)` is called).
 	installed?: boolean;
 	/** Database relationship ID for the installed preset (admin list only). */

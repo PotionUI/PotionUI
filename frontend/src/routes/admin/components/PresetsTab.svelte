@@ -52,6 +52,7 @@
 	let mutatingPresetId: string | null = null;
 	let mediaModalOpen = false;
 	let presetConfigEntries: PresetConfigurationEntry[] = [];
+	let renderingStyles = false;
 
 	const primaryCategoryOrder = ['image', 'video', 'audio', '3d', 'utility'];
 
@@ -225,6 +226,40 @@
 			detailError = error instanceof Error ? error.message : 'Could not load preset details';
 		} finally {
 			if (version === detailRequestVersion && id === selectedPresetId) detailLoading = false;
+		}
+	}
+
+	async function renderStylePreviews() {
+		if (!activePreset || renderingStyles) return;
+		const presetId = activePreset.id;
+		const styleCount = activePreset.styles?.length ?? 0;
+		if (
+			!(await confirmDialog({
+				title: 'Render style previews?',
+				message: `Renders a fresh preview image for each of this preset's ${styleCount} ${styleCount === 1 ? 'style' : 'styles'}. This can take a while.`,
+				variant: 'info'
+			}))
+		)
+			return;
+
+		renderingStyles = true;
+		try {
+			const response = await api.renderPresetStyles(presetId);
+			if (!response.success || !response.data) {
+				throw new Error(responseError(response, 'Could not render style previews'));
+			}
+			const { rendered, failed } = response.data;
+			if (failed.length === 0) {
+				toasts.success(`Rendered ${rendered.length} style ${rendered.length === 1 ? 'preview' : 'previews'}.`);
+			} else {
+				toasts.warning(`Rendered ${rendered.length}, failed ${failed.length}: ${failed.map((f) => f.error).join('; ')}`);
+			}
+			if (presetId === selectedPresetId) await loadPresetDetail(presetId);
+		} catch (error) {
+			logger.error('Failed to render style previews:', error);
+			toasts.error(error instanceof Error ? error.message : 'Could not render style previews');
+		} finally {
+			renderingStyles = false;
 		}
 	}
 
@@ -617,6 +652,33 @@
 											</div>
 										{/if}
 									</section>
+
+									{#if activePreset.styles?.length}
+										<section>
+											<div class="flex items-center gap-2 mb-3">
+												<div class="w-7 h-7 rounded bg-surface-1 border border-line flex items-center justify-center text-fg-muted"><Icon name="sparkles" className="w-3.5 h-3.5" /></div>
+												<h3 class="text-sm font-semibold text-fg">Styles</h3>
+												<span class="font-mono text-2xs text-fg-subtle">{activePreset.styles.length}</span>
+												<Button variant="ghost" size="xs" class="ml-auto" loading={renderingStyles} disabled={renderingStyles} onclick={renderStylePreviews}>
+													Render style previews
+												</Button>
+											</div>
+											<div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+												{#each activePreset.styles as presetStyle}
+													<div class="rounded-lg border border-line bg-surface-1 overflow-hidden">
+														<div class="relative aspect-square w-full bg-surface-2">
+															{#if presetStyle.preview}
+																<img src={api.getPresetAssetURL(activePreset.id, presetStyle.preview, 'small')} alt={presetStyle.name} class="w-full h-full object-cover" loading="lazy" />
+															{:else}
+																<div class="flex h-full w-full items-center justify-center text-lg font-semibold text-fg-subtle">{presetStyle.name.charAt(0).toUpperCase()}</div>
+															{/if}
+														</div>
+														<p class="px-2 py-1.5 truncate text-xs font-medium text-fg">{presetStyle.name}</p>
+													</div>
+												{/each}
+											</div>
+										</section>
+									{/if}
 								</div>
 							{:else if detailTab === 'configuration'}
 								<div class="p-5 sm:p-7">

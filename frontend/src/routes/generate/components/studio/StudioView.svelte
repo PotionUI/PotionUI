@@ -5,6 +5,7 @@
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
+	import type { PresetStyle } from '$lib/services/api/index';
 	import { representativeDirectorPrompt } from '$lib/utils/videoDirector';
 	import StudioCanvas from './StudioCanvas.svelte';
 	import StudioTopBar from './StudioTopBar.svelte';
@@ -41,6 +42,7 @@
 	export let musicDirectorActive: boolean;
 	export let musicDirectorCaps: MusicDirectorCapabilities | null;
 	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
+	export let presetStyles: PresetStyle[] = [];
 	export let numPrompts: number;
 	export let negativePromptSupported: boolean;
 	export let negativeInert: boolean;
@@ -108,6 +110,7 @@
 		{musicDirectorActive}
 		{musicDirectorCaps}
 		{presetSegmentTemplates}
+		{presetStyles}
 		{numPrompts}
 		{negativePromptSupported}
 		{negativeInert}

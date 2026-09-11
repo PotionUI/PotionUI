@@ -6,12 +6,15 @@
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import type { VariablesMap, VariableDef } from '$lib/utils/variableDefs';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
+	import type { PresetStyle } from '$lib/types/api';
+	import { appliedStyleTag, applyStyleToPrompt } from '$lib/prompt/styleSegments';
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
 	import MultiPromptEditor from '$lib/components/MultiPromptEditor.svelte';
 	import PromptRelayEditor from '$lib/components/PromptRelayEditor.svelte';
 	import VideoDirectorEditor from '$lib/components/video-director/VideoDirectorEditor.svelte';
 	import MusicDirectorEditor from '$lib/components/music-director/MusicDirectorEditor.svelte';
 	import VariableManagerModal from '$lib/components/VariableManagerModal.svelte';
+	import StylesPicker from '$lib/components/StylesPicker.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import ResolvedPromptPreview from './ResolvedPromptPreview.svelte';
 
@@ -45,10 +48,22 @@
 	/** Segment Templates the tab's preset declares for its selected mode --
 	 *  resolved on the page and merged into the apply picker here. */
 	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
+	/** Styles the tab's preset curates -- resolved on the page from the preset
+	 *  detail response and offered through the Styles picker below. Only the
+	 *  standard single-prompt segment editor supports styles today. */
+	export let presetStyles: PresetStyle[] = [];
 	export let spacingClass: string = 'mt-4';
 	let variablesModalOpen = false;
+	let stylesPickerOpen = false;
 
 	$: variableCount = Object.keys(tab.variables || {}).length;
+	// Derived from the tagged prepend/append segment pair, never tracked separately --
+	// see styleSegments.ts. Deleting either card through the ordinary segment delete
+	// action clears this with no extra bookkeeping.
+	$: appliedStyleTagValue = appliedStyleTag(tab.promptSegments || []);
+	$: appliedStyleId =
+		appliedStyleTagValue && appliedStyleTagValue.presetId === tab.selectedPreset ? appliedStyleTagValue.styleId : null;
+	$: appliedStyleName = appliedStyleId ? presetStyles.find((s) => s.id === appliedStyleId)?.name : null;
 	// LoRA trigger words for this tab's own lora_picker field(s) — highlighted
 	// inline in the segment editors below (see activeLoraTriggers.ts).
 	$: activeTriggerWordsStore = activeLoraTriggersForTab(tab.id);
@@ -67,6 +82,14 @@
 
 	function openVariableManager() {
 		variablesModalOpen = true;
+	}
+
+	function applyStyle(style: PresetStyle) {
+		if (!tab.selectedPreset) return;
+		const result = applyStyleToPrompt(tab.promptSegments || [], tab.negativePromptSegments || [], tab.selectedPreset, style);
+		tabHandlers.handlePromptSegmentsChange(result.promptSegments);
+		tabHandlers.handleNegativePromptSegmentsChange(result.negativeSegments);
+		stylesPickerOpen = false;
 	}
 </script>
 
@@ -138,6 +161,18 @@
 	{:else}
 		<!-- Single Prompt Mode (Default) -->
 		<div class="prompt-composer">
+			{#if presetStyles.length > 0}
+				<div class="flex justify-end mb-2">
+					<button
+						type="button"
+						class="inline-flex h-8 items-center gap-1.5 rounded border border-line px-2.5 text-xs font-medium text-fg-muted transition-colors hover:border-line-hover hover:bg-surface-2 hover:text-fg"
+						on:click={() => (stylesPickerOpen = true)}
+					>
+						<Icon name="sparkles" className="h-3.5 w-3.5" />
+						<span>{appliedStyleName ? `Style: ${appliedStyleName}` : 'Styles'}</span>
+					</button>
+				</div>
+			{/if}
 			<SegmentedPromptEditor
 				segments={tab.promptSegments || []}
 				isNegative={false}
@@ -167,6 +202,17 @@
 	on:close={() => (variablesModalOpen = false)}
 	on:change={(e) => handleVariablesChange(e.detail)}
 />
+
+{#if presetStyles.length > 0}
+	<StylesPicker
+		isOpen={stylesPickerOpen}
+		presetId={tab.selectedPreset || ''}
+		styles={presetStyles}
+		{appliedStyleId}
+		on:close={() => (stylesPickerOpen = false)}
+		on:apply={(e) => applyStyle(e.detail)}
+	/>
+{/if}
 
 <style>
 	.prompt-composer {

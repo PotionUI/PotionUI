@@ -1,0 +1,171 @@
+########
+## Setup recipe: SeedVR2 on the native engine
+##
+## See src/features/recipes/schema.py for the schema this file is
+## validated against (scripts/recipe_lint.py) and
+## src/features/recipes/executors/ for what each step kind actually does.
+########
+schema_version: 1
+id: "seedvr2-starter"
+version: 1
+name: "SeedVR2 Starter"
+engine: "native"
+category: "utility"
+summary: "Get a working SeedVR2 setup on your local GPU, ready to restore and upscale your first image."
+description: >
+  Installs the bundled SeedVR2 preset on the native (in-process) engine and
+  makes sure its three model files are available before handing you a
+  ready-to-use preset. SeedVR2 is a one-step diffusion restoration
+  transformer (NaDiT) plus a self-normalizing causal-video VAE - it has no
+  live text encoder; conditioning uses a fixed, precomputed prompt
+  embedding shipped as a raw tensor, so there is no sampler or CFG to
+  configure. The three files together are a real download (~6.8 GB).
+  Licence: Apache-2.0 throughout (ByteDance-Seed's own repositories and the
+  numz/SeedVR2_comfyUI repackage this recipe downloads from both carry it).
+
+plugins:
+  - id: "huggingface-provider"
+    reason: >
+      Resolves the diffusion model and VAE from numz/SeedVR2_comfyUI (a
+      single-file repackage of ByteDance-Seed's SeedVR2-3B weights) and the
+      fixed prompt embedding from ByteDance-Seed/SeedVR2-3B directly, by
+      exact repo path. HuggingFace has no hash-lookup API, so each artifact
+      below names its file explicitly; the sha256 in each artifact's
+      checksum still verifies the download afterwards.
+
+backend:
+  engine: "native"
+
+artifacts:
+  - id: "seedvr2-diffusion-model"
+    kind: "diffusion_model"
+    model_type: "diffusion_model"
+    filename: "seedvr2_ema_3b_fp16.safetensors"
+    display_name: "SeedVR2 3B restoration DiT (NaDiT, fp16)"
+    required: true
+    size_bytes: 6783018808
+    checksum:
+      algorithm: "sha256"
+      value: "2fd0e03a3dad24e07086750360727ca437de4ecd456f769856e960ae93e2b304"
+    # Declared by capability, never by a concrete plugin id - core resolves a
+    # download source through whichever enabled plugin advertises this
+    # capability (see plugin manifest `capabilities:`).
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "numz/SeedVR2_comfyUI"
+      version_id: "main@seedvr2_ema_3b_fp16.safetensors"
+
+  - id: "seedvr2-vae"
+    kind: "vae"
+    model_type: "vae"
+    filename: "ema_vae_fp16.safetensors"
+    display_name: "SeedVR2 self-normalizing causal-video VAE (fp16)"
+    required: true
+    size_bytes: 501324814
+    checksum:
+      algorithm: "sha256"
+      value: "20678548f420d98d26f11442d3528f8b8c94e57ee046ef93dbb7633da8612ca1"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "numz/SeedVR2_comfyUI"
+      version_id: "main@ema_vae_fp16.safetensors"
+
+  - id: "seedvr2-prompt-embedding"
+    kind: "text_encoder"
+    model_type: "text_encoder"
+    filename: "pos_emb.pt"
+    display_name: "SeedVR2 fixed prompt embedding"
+    required: true
+    size_bytes: 595100
+    checksum:
+      algorithm: "sha256"
+      value: "fa07a14844314772266b66c3b95deb0027696d8fe7065721263db5176f45d799"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "ByteDance-Seed/SeedVR2-3B"
+      version_id: "main@pos_emb.pt"
+
+presets:
+  - preset_id: "01KXB7C553THYMSMKY1QSYESFM"
+    path_hint: "marketplace/SeedVR2"
+    assign_to_owner: true
+
+# No `smoke:` block / `generation.smoke` step here on purpose - see the
+# comment above the "Validate the pipeline" step below for why.
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable required plugins"
+    params:
+      # huggingface-provider is needed so the download step can resolve each
+      # artifact's exact repo file.
+      plugin_ids: ["huggingface-provider"]
+
+  - key: "backend.ensure"
+    kind: "backend.ensure"
+    title: "Prepare the native backend"
+    params:
+      engine: "native"
+
+  # Index BEFORE planning downloads: on a fresh instance nothing is indexed
+  # yet, so without this pass artifacts.plan cannot see files the user
+  # already has and would ask to download them.
+  - key: "models.index"
+    kind: "models.index"
+    title: "Find models you already have"
+    params:
+      engine: "native"
+
+  - key: "artifacts.plan"
+    kind: "artifacts.plan"
+    title: "Plan required downloads"
+    params:
+      artifact_ids: ["seedvr2-diffusion-model", "seedvr2-vae", "seedvr2-prompt-embedding"]
+
+  - key: "artifacts.fetch"
+    kind: "artifacts.fetch"
+    title: "Download the SeedVR2 model files"
+    params:
+      artifact_ids: ["seedvr2-diffusion-model", "seedvr2-vae", "seedvr2-prompt-embedding"]
+
+  - key: "models.index.downloads"
+    kind: "models.index"
+    title: "Register downloaded models"
+    params:
+      engine: "native"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign the SeedVR2 preset"
+    params:
+      preset_id: "01KXB7C553THYMSMKY1QSYESFM"
+
+  # A `generation.smoke` step would need a real source image: the upscale
+  # mode's `input_image` field is `required: true` with no default, and
+  # `_fixture_form.py` only has a real-value seam for model-typed fields
+  # (`_resolve_model_fields`) - a required `image` field still gets the
+  # `/SETUP-CHECK/media/...` dry-run placeholder (`_inject_unresolvable_
+  # defaults`), which is fine for `pipeline.render`'s template-only dry run
+  # but would reach the real NaDiT loader here and fail. The preset's own
+  # tests.yml documents the identical gap ("Requires an input image the
+  # headless suite can't supply") and skips the case with `needs-model`
+  # instead of running it. `pipeline.render` (a dry run, no GPU) is the
+  # strongest validation this recipe can safely run without a real image.
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the pipeline"
+    params:
+      preset_id: "01KXB7C553THYMSMKY1QSYESFM"
+      mode: "upscale"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    # Only meaningful during the first-run wizard - a run started from
+    # Admin -> Recipes skips it.
+    onboarding_only: true
+    params: {}

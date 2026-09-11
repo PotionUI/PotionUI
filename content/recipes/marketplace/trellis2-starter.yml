@@ -1,0 +1,208 @@
+########
+## Setup recipe: TRELLIS.2 on the native engine
+##
+## See src/features/recipes/schema.py for the schema this file is
+## validated against (scripts/recipe_lint.py) and
+## src/features/recipes/executors/ for what each step kind actually does.
+########
+schema_version: 1
+id: "trellis2-starter"
+version: 1
+name: "TRELLIS.2 Starter"
+engine: "native"
+category: "3d"
+summary: "Get a working TRELLIS.2 setup on your local GPU, ready to reconstruct your first mesh."
+description: >
+  Installs the bundled TRELLIS.2 preset on the native (in-process) engine
+  and makes sure its four required model files are available before
+  handing you a ready-to-use preset. TRELLIS.2 reconstructs a single image
+  into a textured GLB mesh with PBR materials - a consolidated diffusion
+  transformer carries the sparse-structure, shape and texture flow models
+  in one file, two VAEs decode geometry and texture, and a DINOv3 image
+  encoder supplies the only conditioning signal (there is no text encoder).
+  The optional background-matting model (BiRefNet) is left out of this
+  recipe's minimal set - "Remove background" only needs it when the source
+  image is already opaque, and nothing forces the user to enable it. The
+  four files together are a real download (~12.7 GB).
+
+  LICENCE: TRELLIS.2 itself is MIT (Comfy-Org's repository, repackaging
+  microsoft/TRELLIS.2-4B, tags the whole repo MIT). The DINOv3 image
+  encoder file is the exception - it derives from Meta's DINOv3 weights
+  (facebook/dinov3-vitl16-pretrain-lvd1689m, gated on HuggingFace), which
+  Meta publishes under its own DINOv3 Licence, not MIT. This recipe
+  downloads DINOv3 from the ungated Comfy-Org repackage, so no licence
+  click-through is required to fetch it - but its use is still governed by
+  Meta's DINOv3 Licence, not TRELLIS.2's MIT terms.
+
+plugins:
+  - id: "huggingface-provider"
+    reason: >
+      Resolves the diffusion model, both VAEs and the image encoder from
+      HuggingFace (Comfy-Org's consolidated single-file release of
+      TRELLIS.2) by exact repo path. HuggingFace has no hash-lookup API, so
+      each artifact below names its file explicitly; the sha256 in each
+      artifact's checksum still verifies the download afterwards.
+
+backend:
+  engine: "native"
+
+artifacts:
+  - id: "trellis2-diffusion-model"
+    kind: "diffusion_model"
+    model_type: "diffusion_model"
+    filename: "trellis_2_bf16.safetensors"
+    display_name: "TRELLIS.2 transformer (sparse-structure + shape + texture flow, bf16)"
+    required: true
+    size_bytes: 10338297616
+    checksum:
+      algorithm: "sha256"
+      value: "bf8ebe29f2d73722ca8a17b7aa65ef07650eb26d04799ae600482058f96921b5"
+    # Declared by capability, never by a concrete plugin id - core resolves a
+    # download source through whichever enabled plugin advertises this
+    # capability (see plugin manifest `capabilities:`).
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/TRELLIS.2"
+      version_id: "main@diffusion_models/trellis_2_bf16.safetensors"
+
+  - id: "trellis2-shape-vae"
+    kind: "vae"
+    model_type: "vae"
+    filename: "trellis_2_shape_vae_bf16.safetensors"
+    display_name: "TRELLIS.2 shape VAE (sparse structure + shape latent, bf16)"
+    required: true
+    size_bytes: 1095844024
+    checksum:
+      algorithm: "sha256"
+      value: "de0cb4949a76c59ee5c091a995a69bcc8c51d5aeda939f0c641a50d2a72341f4"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/TRELLIS.2"
+      version_id: "main@vae/trellis_2_shape_vae_bf16.safetensors"
+
+  - id: "trellis2-texture-vae"
+    kind: "vae"
+    model_type: "vae"
+    filename: "trellis_2_texture_vae_bf16.safetensors"
+    display_name: "TRELLIS.2 texture VAE (PBR attributes, bf16)"
+    required: true
+    size_bytes: 948461364
+    checksum:
+      algorithm: "sha256"
+      value: "714e5ebf094a610e12a8e3b5175c18a62f37f6ea4218acb6073644456b73ab0e"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/TRELLIS.2"
+      version_id: "main@vae/trellis_2_texture_vae_bf16.safetensors"
+
+  - id: "trellis2-image-encoder"
+    kind: "text_encoder"
+    model_type: "text_encoder"
+    filename: "dino_v3_vit_l.safetensors"
+    display_name: "DINOv3 ViT-L/16 image encoder"
+    required: true
+    size_bytes: 1212559776
+    checksum:
+      algorithm: "sha256"
+      value: "5cb785e458de7c460579082418af81f5c62380c181599344bdc60898c63468ee"
+    capability: "model-lookup"
+    # See the top-level description's LICENCE note: this file derives from
+    # Meta's DINOv3 weights and is governed by Meta's DINOv3 Licence, not
+    # TRELLIS.2's MIT terms - the download itself needs no click-through
+    # because Comfy-Org repackaged it into an ungated repository.
+    gated: false
+    license_url: "https://ai.meta.com/resources/models-and-libraries/dinov3-license/"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/TRELLIS.2"
+      version_id: "main@clip_vision/dino_v3_vit_l.safetensors"
+
+presets:
+  - preset_id: "01M1ERSFQTVP21KDSRF81CXEZY"
+    path_hint: "marketplace/TRELLIS2"
+    assign_to_owner: true
+
+# No `smoke:` block / `generation.smoke` step here on purpose - see the
+# comment above the "Validate the pipeline" step below for why.
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable required plugins"
+    params:
+      # huggingface-provider is needed so the download step can resolve each
+      # artifact's exact repo file.
+      plugin_ids: ["huggingface-provider"]
+
+  - key: "backend.ensure"
+    kind: "backend.ensure"
+    title: "Prepare the native backend"
+    params:
+      engine: "native"
+
+  # Index BEFORE planning downloads: on a fresh instance nothing is indexed
+  # yet, so without this pass artifacts.plan cannot see files the user
+  # already has and would ask to download them.
+  - key: "models.index"
+    kind: "models.index"
+    title: "Find models you already have"
+    params:
+      engine: "native"
+
+  - key: "artifacts.plan"
+    kind: "artifacts.plan"
+    title: "Plan required downloads"
+    params:
+      artifact_ids:
+        ["trellis2-diffusion-model", "trellis2-shape-vae", "trellis2-texture-vae", "trellis2-image-encoder"]
+
+  - key: "artifacts.fetch"
+    kind: "artifacts.fetch"
+    title: "Download the TRELLIS.2 model files"
+    params:
+      artifact_ids:
+        ["trellis2-diffusion-model", "trellis2-shape-vae", "trellis2-texture-vae", "trellis2-image-encoder"]
+
+  - key: "models.index.downloads"
+    kind: "models.index"
+    title: "Register downloaded models"
+    params:
+      engine: "native"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign the TRELLIS.2 preset"
+    params:
+      preset_id: "01M1ERSFQTVP21KDSRF81CXEZY"
+
+  # A `generation.smoke` step would need a real source image: img2mesh's
+  # `source_image` field is `required: true` with no default, and
+  # `_fixture_form.py` only has a real-value seam for model-typed fields
+  # (`_resolve_model_fields`) - a required `image` field still gets the
+  # `/SETUP-CHECK/media/...` dry-run placeholder (`_inject_unresolvable_
+  # defaults`), which is fine for `pipeline.render`'s template-only dry run
+  # but would reach the real DINOv3/TRELLIS.2 loaders here and fail. Even
+  # with a real image, the step's own success check only counts
+  # ImageGenerationOutput/GalleryGenerationOutput (executors/
+  # generation_smoke.py `_collect`) and img2mesh produces a
+  # MeshGenerationOutput, so it would report failure regardless. This
+  # preset also ships no tests.yml case to mirror (unlike SeedVR2/
+  # MiniMax-Music3). `pipeline.render` (a dry run, no GPU) is the strongest
+  # validation this recipe can safely run.
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the pipeline"
+    params:
+      preset_id: "01M1ERSFQTVP21KDSRF81CXEZY"
+      mode: "img2mesh"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    # Only meaningful during the first-run wizard - a run started from
+    # Admin -> Recipes skips it.
+    onboarding_only: true
+    params: {}

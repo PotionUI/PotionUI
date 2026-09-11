@@ -8,6 +8,12 @@
 	import { libraryItemAspect } from '$lib/library/libraryItemMeta';
 	import type { LibraryItem } from '$lib/services/api/library';
 	import LibraryCard from './LibraryCard.svelte';
+	import {
+		classifyCardSelectEvent,
+		marqueeSelection,
+		resolveCardSelect,
+		type MarqueeVisualState
+	} from '$lib/selection/marquee';
 
 	// Self-contained: reads/writes libraryStore directly. Same justified layout
 	// as the history gallery, grouped by the day the item entered the library.
@@ -64,6 +70,11 @@
 		) as JustifiedRow<LibraryItem>[]
 	}));
 
+	// Row-major id order across every group, for shift-click range selection.
+	$: orderedIds = groupLayouts.flatMap((group) =>
+		group.rows.flatMap((row) => row.map((box) => box.item.id))
+	);
+
 	const SKELETON_ASPECTS = [1.5, 0.75, 1, 1.78, 1, 0.7, 1.33, 1, 0.75, 1.78, 1, 1.5];
 	$: skeletonRows = layoutJustifiedRows(
 		Array.from({ length: Math.min(state.itemsPerPage, 24) }, (_, i) => ({
@@ -89,10 +100,57 @@
 		libraryStore.clearFilters();
 		libraryStore.load();
 	}
+
+	// --- Multi-select: click, shift-range, ctrl/cmd-toggle, and marquee drag ---
+	// DOM wiring lives in `$lib/selection/marquee`; this just supplies the
+	// row-major order and applies the selection it computes.
+
+	let anchorId: string | null = null;
+	let gridRootEl: HTMLDivElement;
+	let marqueeState: MarqueeVisualState = { active: false, rect: null };
+
+	function handleCardSelect(item: LibraryItem, event?: MouseEvent) {
+		const { selection, nextAnchorId } = resolveCardSelect(
+			classifyCardSelectEvent(event),
+			orderedIds,
+			anchorId,
+			item.id,
+			state.selectedIds
+		);
+		anchorId = nextAnchorId;
+		libraryStore.setSelection(selection);
+	}
 </script>
 
 <div class="px-3 py-3 md:px-6 md:py-6">
-	<div bind:clientWidth={gridWidth}>
+	<div
+		bind:this={gridRootEl}
+		bind:clientWidth={gridWidth}
+		class="relative"
+		class:select-none={marqueeState.active}
+		role="listbox"
+		aria-multiselectable={state.selectionMode}
+		aria-label="Library"
+		tabindex="-1"
+		use:marqueeSelection={{
+			orderedIds,
+			selectedIds: state.selectedIds,
+			cardSelector: '[data-library-card]',
+			getCardId: (el) => el.dataset.libraryCard,
+			setSelection: (ids) => libraryStore.setSelection(ids),
+			onSelectAll: () => libraryStore.selectAll(),
+			onDragStart: () => (anchorId = null),
+			onChange: (nextState) => (marqueeState = nextState)
+		}}
+	>
+		{#if marqueeState.active && marqueeState.rect}
+			<div
+				class="fixed z-40 pointer-events-none rounded border border-signal bg-signal/10"
+				style="left: {marqueeState.rect.left}px; top: {marqueeState.rect.top}px; width: {marqueeState
+					.rect.right - marqueeState.rect.left}px; height: {marqueeState.rect.bottom -
+					marqueeState.rect.top}px"
+			></div>
+		{/if}
 		{#if state.loading}
 			{#if gridWidth > 0}
 				<div class="space-y-3">
@@ -124,16 +182,22 @@
 					{#each group.rows as row}
 						<div class="flex" style="gap: {GAP}px">
 							{#each row as box (box.item.id)}
-								<LibraryCard
-									item={box.item}
-									tile={{ width: box.width, height: box.height }}
-									showActions={!state.selectionMode}
-									selectable={state.selectionMode}
-									selected={state.selectedIds.includes(box.item.id)}
-									onSelect={(item) => libraryStore.toggleSelect(item.id)}
-									on:open={(e) => libraryStore.setSelectedItem(e.detail)}
-									on:delete={(e) => onDeleteRequest(e.detail)}
-								/>
+								<div
+									data-library-card={box.item.id}
+									role="option"
+									aria-selected={state.selectedIds.includes(box.item.id)}
+								>
+									<LibraryCard
+										item={box.item}
+										tile={{ width: box.width, height: box.height }}
+										showActions={!state.selectionMode}
+										selectable={state.selectionMode}
+										selected={state.selectedIds.includes(box.item.id)}
+										onSelect={handleCardSelect}
+										on:open={(e) => libraryStore.setSelectedItem(e.detail)}
+										on:delete={(e) => onDeleteRequest(e.detail)}
+									/>
+								</div>
 							{/each}
 						</div>
 					{/each}

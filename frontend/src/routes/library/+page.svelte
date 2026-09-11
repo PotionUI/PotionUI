@@ -17,6 +17,32 @@
 	import LibraryItemModal from './components/LibraryItemModal.svelte';
 	import { libraryItemDisplayName } from '$lib/library/libraryItemMeta';
 	import type { LibraryItem } from '$lib/services/api/library';
+	import ToolHost from '$lib/components/tools/ToolHost.svelte';
+	import { registerCoreHistoryTools } from '../history/tools/coreTools';
+	import { loadPluginMediaTools } from '$lib/tools/pluginTools';
+	import type { MediaTool, MediaToolContext } from '$lib/tools/tools';
+
+	registerCoreHistoryTools();
+
+	// The tool picked from the selection bar's Tools menu, with the selection
+	// snapshot it was picked for.
+	let activeTool: MediaTool | null = null;
+	let activeToolContext: MediaToolContext | null = null;
+
+	function handleToolSelect(tool: MediaTool, context: MediaToolContext) {
+		activeTool = tool;
+		activeToolContext = context;
+	}
+
+	function closeTool() {
+		activeTool = null;
+		activeToolContext = null;
+	}
+
+	function finishTool() {
+		closeTool();
+		libraryStore.clearSelection();
+	}
 
 	let sidebarOpen = true;
 	let itemToDelete: LibraryItem | null = null;
@@ -44,6 +70,7 @@
 		libraryStore.load().then(() => libraryStore.loadTags());
 		libraryStore.loadFacets();
 		collectionsStore.load();
+		void loadPluginMediaTools();
 	});
 
 	function pickFiles() {
@@ -143,7 +170,10 @@
 			<LibraryTagsBar />
 		</div>
 
-		<LibrarySelectionToolbar onBulkDeleteClick={() => (showBulkDeleteModal = true)} />
+		<LibrarySelectionToolbar
+			onBulkDeleteClick={() => (showBulkDeleteModal = true)}
+			onToolSelect={handleToolSelect}
+		/>
 
 		<LibraryGrid onDeleteRequest={(item) => (itemToDelete = item)} onUploadRequest={pickFiles} />
 	</div>
@@ -208,3 +238,6 @@
 		onClose={() => (showDeleteByCriteriaModal = false)}
 	/>
 {/if}
+
+<!-- The one mount point for whichever tool the Tools menu picked -->
+<ToolHost tool={activeTool} context={activeToolContext} onClose={closeTool} onDone={finishTool} />

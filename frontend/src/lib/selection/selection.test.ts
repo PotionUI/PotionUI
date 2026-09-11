@@ -7,7 +7,7 @@ import {
 	rectsIntersect,
 	toggleSelection,
 	type SelectionRect
-} from './historySelection';
+} from './selection';
 
 describe('rectFromPoints', () => {
 	it('normalizes corners given in any order', () => {

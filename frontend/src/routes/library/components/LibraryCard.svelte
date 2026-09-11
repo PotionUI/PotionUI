@@ -27,7 +27,10 @@
 	export let selectable = false;
 	export let showCheckbox = true;
 	export let showActions = true;
-	export let onSelect: ((item: LibraryItem) => void) | null = null;
+	/** The second argument is the originating pointer event (omitted for a
+	 *  keyboard activation), so a multi-select grid can read its modifier keys
+	 *  for shift-range / ctrl-toggle behavior. */
+	export let onSelect: ((item: LibraryItem, event?: MouseEvent) => void) | null = null;
 
 	const dispatch = createEventDispatcher<{ open: LibraryItem; delete: LibraryItem }>();
 
@@ -50,9 +53,14 @@
 	$: durationText =
 		typeof item.duration_seconds === 'number' ? formatSeconds(item.duration_seconds) : '';
 
-	function handleCardClick() {
-		if (selectable && onSelect) {
-			onSelect(item);
+	function handleCardClick(event?: MouseEvent) {
+		// Outside selection mode, a shift/ctrl/cmd-click still starts a
+		// selection (desktop-file-manager convention) rather than opening the
+		// preview; a plain click there falls through to the preview as usual.
+		const wantsSelection =
+			selectable || !!(event && (event.shiftKey || event.ctrlKey || event.metaKey));
+		if (wantsSelection && onSelect) {
+			onSelect(item, event);
 		} else {
 			dispatch('open', item);
 		}
@@ -96,7 +104,7 @@
 					? 'bg-accent text-accent-contrast'
 					: 'bg-black/45 backdrop-blur-sm ring-1 ring-white/60 text-transparent hover:bg-black/70'}"
 				style="width: {bucket.checkboxSize}px; height: {bucket.checkboxSize}px"
-				on:click|stopPropagation={() => onSelect?.(item)}
+				on:click|stopPropagation={(e) => onSelect?.(item, e)}
 				aria-label={selected ? 'Deselect item' : 'Select item'}
 				aria-pressed={selected}
 			>

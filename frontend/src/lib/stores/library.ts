@@ -237,6 +237,11 @@ function createLibraryStore() {
 			});
 		},
 
+		/** Replaces the selection outright - used by shift-range and marquee drag. */
+		setSelection(ids: string[]) {
+			update((state) => ({ ...state, selectedIds: ids, selectionMode: ids.length > 0 }));
+		},
+
 		clearSelection() {
 			update((state) => ({ ...state, selectedIds: [], selectionMode: false }));
 		},

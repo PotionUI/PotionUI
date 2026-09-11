@@ -6,17 +6,37 @@
 	import { createFlashMessage } from '$lib/utils/flashMessage';
 	import Icon from '$lib/components/Icon.svelte';
 	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
+	import ToolsMenu from '$lib/components/tools/ToolsMenu.svelte';
+	import {
+		buildLibraryToolContext,
+		listToolGroups,
+		type MediaTool,
+		type MediaToolContext,
+		type MediaToolGroup
+	} from '$lib/tools/tools';
+	import { mediaToolRegistrations } from '$lib/tools/pluginTools';
 
 	// Self-contained: reads/writes libraryStore directly. Only the bulk delete
 	// confirmation lives on the page (it needs shared modal state).
 	export let onBulkDeleteClick: () => void;
+	export let onToolSelect: (tool: MediaTool, context: MediaToolContext) => void;
 
 	$: state = $libraryStore;
 	$: selectedIds = state.selectedIds;
+	$: selectedItems = state.items.filter((item) => selectedIds.includes(item.id));
 	$: collections = $collectionsStore.collections;
 	$: activeCollectionId = state.filters.collectionId;
 
 	const { message: feedback, flash } = createFlashMessage();
+
+	$: toolContext = buildLibraryToolContext(selectedItems, activeCollectionId ?? null);
+	// The registry is a plain module map, so the plugin snapshot landing is the
+	// only signal that the menu has to be rebuilt.
+	$: toolGroups = groupsFor(toolContext, $mediaToolRegistrations);
+
+	function groupsFor(context: MediaToolContext, _registrations: number): MediaToolGroup[] {
+		return listToolGroups(context);
+	}
 
 	async function handleAddToCollection(collectionId: string): Promise<boolean> {
 		if (selectedIds.length === 0) return false;
@@ -87,7 +107,7 @@
 	onAddToCollection={handleAddToCollection}
 	onCreateAndAddToCollection={handleCreateAndAdd}
 >
-	<svelte:fragment slot="actionsAfterCollection">
+	<svelte:fragment slot="actionsAfterCollection" let:activeMenu let:toggleMenu let:closeMenus>
 		{#if activeCollectionId}
 			<button
 				class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
@@ -98,6 +118,15 @@
 				Remove from collection
 			</button>
 		{/if}
+
+		<ToolsMenu
+			open={activeMenu === 'tools'}
+			scope="library"
+			groups={toolGroups}
+			onToggle={() => toggleMenu('tools')}
+			onClose={closeMenus}
+			onPick={(tool) => onToolSelect(tool, toolContext)}
+		/>
 
 		<button
 			class="px-4 py-1.5 bg-danger-solid text-white text-sm rounded hover:bg-danger-solid/90 transition-colors flex items-center gap-2 font-medium"

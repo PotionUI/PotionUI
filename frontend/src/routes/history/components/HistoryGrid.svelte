@@ -15,13 +15,11 @@
 	import { nsfwFilterStore, selectableMediaFiles, isGenerationHiddenByNsfw } from '$lib/stores/nsfwFilter';
 	import { leadIndex } from '$lib/generation/leadFile';
 	import {
-		applyMarquee,
-		idsInMarquee,
-		rangeSelection,
-		rectFromPoints,
-		toggleSelection,
-		type SelectionRect
-	} from './historySelection';
+		classifyCardSelectEvent,
+		marqueeSelection,
+		resolveCardSelect,
+		type MarqueeVisualState
+	} from '$lib/selection/marquee';
 
 	// Self-contained: reads/writes historyStore directly. Renders the page's
 	// generations as a justified gallery (native aspect ratios, uniform row
@@ -157,140 +155,57 @@
 		currentState.filters.search !== '';
 
 	// --- Multi-select: click, shift-range, ctrl/cmd-toggle, and marquee drag ---
+	// DOM wiring lives in `$lib/selection/marquee`; this just supplies the
+	// row-major order and applies the selection it computes.
 
 	let anchorId: string | null = null;
 	let gridRootEl: HTMLDivElement;
-	let pointerOverGrid = false;
+	let marqueeState: MarqueeVisualState = { active: false, rect: null };
 
 	function handleCardSelect(
 		generation: GenerationHistoryItem,
 		_file: unknown,
 		event?: MouseEvent
 	) {
-		const id = generation.id;
-		if (event?.shiftKey) {
-			historyStore.setSelection(rangeSelection(orderedIds, anchorId, id, currentState.selectedGenerationIds));
-			return;
-		}
-		if (event?.ctrlKey || event?.metaKey) {
-			historyStore.setSelection(toggleSelection(currentState.selectedGenerationIds, id));
-			anchorId = id;
-			return;
-		}
-		historyStore.toggleSelect(id);
-		anchorId = id;
-	}
-
-	// Marquee (rubber-band) drag over the grid's background.
-	const MARQUEE_THRESHOLD_PX = 4;
-	let marqueeActive = false;
-	let marqueeRect: SelectionRect | null = null;
-	let marqueeMode: 'replace' | 'add' = 'replace';
-	let preDragSelection: string[] = [];
-	let dragCardRects = new Map<string, SelectionRect>();
-	let pointerDownAt: { x: number; y: number; additive: boolean } | null = null;
-
-	function measureCardRects(): Map<string, SelectionRect> {
-		const rects = new Map<string, SelectionRect>();
-		if (!gridRootEl) return rects;
-		gridRootEl.querySelectorAll<HTMLElement>('[data-history-card]').forEach((node) => {
-			const id = node.dataset.historyCard;
-			if (!id) return;
-			const r = node.getBoundingClientRect();
-			rects.set(id, { left: r.left, top: r.top, right: r.right, bottom: r.bottom });
-		});
-		return rects;
-	}
-
-	function cancelDrag() {
-		marqueeActive = false;
-		marqueeRect = null;
-		pointerDownAt = null;
-	}
-
-	function handlePointerDown(event: PointerEvent) {
-		if (event.button !== 0) return; // left button only
-		const target = event.target as HTMLElement;
-		const onCard = !!target.closest('[data-history-card]');
-		// A pointerdown on a card (plain, Shift or Ctrl) belongs to the card's
-		// own click/checkbox handler; only a background press begins a marquee.
-		if (onCard) return;
-		pointerDownAt = {
-			x: event.clientX,
-			y: event.clientY,
-			additive: event.shiftKey || event.ctrlKey || event.metaKey
-		};
-		gridRootEl?.setPointerCapture(event.pointerId);
-	}
-
-	function handlePointerMove(event: PointerEvent) {
-		if (!pointerDownAt) return;
-		if (!marqueeActive) {
-			const dx = event.clientX - pointerDownAt.x;
-			const dy = event.clientY - pointerDownAt.y;
-			if (Math.hypot(dx, dy) < MARQUEE_THRESHOLD_PX) return;
-			event.preventDefault();
-			marqueeActive = true;
-			marqueeMode = pointerDownAt.additive ? 'add' : 'replace';
-			preDragSelection = currentState.selectedGenerationIds;
-			dragCardRects = measureCardRects();
-			anchorId = null; // ambiguous once a rectangular selection has run
-		}
-		marqueeRect = rectFromPoints(pointerDownAt.x, pointerDownAt.y, event.clientX, event.clientY);
-		const intersecting = idsInMarquee(orderedIds, dragCardRects, marqueeRect);
-		historyStore.setSelection(applyMarquee(preDragSelection, intersecting, marqueeMode));
-	}
-
-	function handlePointerUp() {
-		cancelDrag();
-	}
-
-	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && marqueeActive) {
-			historyStore.setSelection(preDragSelection);
-			cancelDrag();
-			return;
-		}
-		if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
-			const withinGrid = pointerOverGrid || !!(gridRootEl && gridRootEl.contains(document.activeElement));
-			if (!withinGrid) return;
-			event.preventDefault();
-			historyStore.selectAll();
-		}
-	}
-
-	// Rects can drift out from under the marquee mid-drag if the page scrolls
-	// (viewport-relative coordinates), so re-measure while a drag is live.
-	function handleWindowScroll() {
-		if (!marqueeActive) return;
-		dragCardRects = measureCardRects();
+		const { selection, nextAnchorId } = resolveCardSelect(
+			classifyCardSelectEvent(event),
+			orderedIds,
+			anchorId,
+			generation.id,
+			currentState.selectedGenerationIds
+		);
+		anchorId = nextAnchorId;
+		historyStore.setSelection(selection);
 	}
 </script>
-
-<svelte:window on:keydown={handleWindowKeydown} on:scroll={handleWindowScroll} />
 
 <div class="px-3 py-3 md:px-6 md:py-6">
 	<div
 		bind:this={gridRootEl}
 		bind:clientWidth={gridWidth}
 		class="relative"
-		class:select-none={marqueeActive}
+		class:select-none={marqueeState.active}
 		role="listbox"
 		aria-multiselectable={currentState.selectionMode}
 		aria-label="Generation history"
 		tabindex="-1"
-		on:pointerdown={handlePointerDown}
-		on:pointermove={handlePointerMove}
-		on:pointerup={handlePointerUp}
-		on:pointercancel={handlePointerUp}
-		on:pointerenter={() => (pointerOverGrid = true)}
-		on:pointerleave={() => (pointerOverGrid = false)}
+		use:marqueeSelection={{
+			orderedIds,
+			selectedIds: currentState.selectedGenerationIds,
+			cardSelector: '[data-history-card]',
+			getCardId: (el) => el.dataset.historyCard,
+			setSelection: (ids) => historyStore.setSelection(ids),
+			onSelectAll: () => historyStore.selectAll(),
+			onDragStart: () => (anchorId = null),
+			onChange: (state) => (marqueeState = state)
+		}}
 	>
-		{#if marqueeActive && marqueeRect}
+		{#if marqueeState.active && marqueeState.rect}
 			<div
 				class="fixed z-40 pointer-events-none rounded border border-signal bg-signal/10"
-				style="left: {marqueeRect.left}px; top: {marqueeRect.top}px; width: {marqueeRect.right -
-					marqueeRect.left}px; height: {marqueeRect.bottom - marqueeRect.top}px"
+				style="left: {marqueeState.rect.left}px; top: {marqueeState.rect.top}px; width: {marqueeState
+					.rect.right - marqueeState.rect.left}px; height: {marqueeState.rect.bottom -
+					marqueeState.rect.top}px"
 			></div>
 		{/if}
 		{#if currentState.loading}

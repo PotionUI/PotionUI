@@ -1,8 +1,8 @@
 /**
- * Pure selection math for the history grid: shift-click ranges, ctrl/cmd
- * toggles, and marquee (rubber-band) drag selection. No DOM, no store — the
- * grid supplies row-major order and measured rects, this returns the next
- * selection.
+ * Pure selection math shared by the History and Library grids: shift-click
+ * ranges, ctrl/cmd toggles, and marquee (rubber-band) drag selection. No DOM,
+ * no store - a grid supplies row-major order and measured rects, this
+ * returns the next selection. DOM wiring lives in `./marquee`.
  */
 
 export interface SelectionRect {

@@ -498,7 +498,6 @@ Native Anima generator (flow matching, true CFG, LLMAdapter text fusion)
 | `conditioning` | `CONDITIONING` | yes | yes | Encoded prompt conditioning (per image) |
 | `seed` | `SEED` | no | yes | Random seeds |
 | `image` | `IMAGE` | no | yes | Input images for img2img mode |
-| `MODELS` | `SERVICE` | no | no | Model lifecycle service, to release the idle TE's VRAM before sampling |
 
 **Outputs**
 
@@ -690,7 +689,6 @@ Native Flux-family generator (flow matching, embedded guidance)
 | `conditioning` | `CONDITIONING` | yes | yes | Encoded prompt conditioning (per image) |
 | `seed` | `SEED` | no | yes | Random seeds |
 | `image` | `IMAGE` | no | yes | Input images for img2img mode |
-| `MODELS` | `SERVICE` | no | no | Model lifecycle service, to release the idle TE's VRAM |
 
 **Outputs**
 
@@ -799,7 +797,6 @@ Native Krea-2 generator (flow matching, true CFG; turbo defaults to cfg=1)
 | `conditioning` | `CONDITIONING` | yes | yes | Encoded prompt conditioning (per image) |
 | `seed` | `SEED` | no | yes | Random seeds |
 | `image` | `IMAGE` | no | yes | Input images for img2img mode |
-| `MODELS` | `SERVICE` | no | no | Model lifecycle service, to release the idle TE's VRAM before sampling |
 
 **Outputs**
 
@@ -882,7 +879,6 @@ Native Qwen-Image generator (flow matching, true CFG)
 | `conditioning` | `CONDITIONING` | yes | yes | Encoded prompt conditioning (per image) |
 | `seed` | `SEED` | no | yes | Random seeds |
 | `image` | `IMAGE` | no | yes | Input images for img2img mode |
-| `MODELS` | `SERVICE` | no | no | Model lifecycle service, to release the idle TE's VRAM |
 
 **Outputs**
 
@@ -1324,7 +1320,6 @@ Native Z-Image generator (flow matching, true CFG)
 | `conditioning` | `CONDITIONING` | yes | yes | Encoded prompt conditioning (per image) |
 | `seed` | `SEED` | no | yes | Random seeds |
 | `image` | `IMAGE` | no | yes | Input images for img2img mode |
-| `MODELS` | `SERVICE` | no | no | Model lifecycle service, to release the idle TE's VRAM before sampling |
 
 **Outputs**
 

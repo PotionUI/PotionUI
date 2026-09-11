@@ -6,7 +6,13 @@ class PresetStyle(BaseModel):
     """One curated style from a preset's `styles.yml` (see docs/presets.md
     "Styles"). Mirrors `PresetStyle` in schema.py; `preview` is the
     preset-relative asset path (e.g. "public/styles/<id>.webp"), served the
-    same way as `media.cover`/`media.gallery` - the frontend composes the URL."""
+    same way as `media.cover`/`media.gallery` - the frontend composes the URL.
+
+    `example_prompt` is always a resolved, non-authoritative string here even
+    though the underlying `styles.yml` entry may declare none: `file_
+    repository.preset_to_info` fills in the top-level `preview:` block's
+    default when the style itself has none, so the frontend never has to
+    reason about the fallback."""
 
     id: str
     name: str

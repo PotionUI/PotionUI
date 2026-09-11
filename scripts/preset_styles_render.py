@@ -7,14 +7,16 @@ client `scripts/preset_test_suite.py` uses
 per-run database and file storage, so the run never touches the maintainer's
 live database or gallery (see that module's docstring for the ephemeral-DB
 design). Each style's prompt is `styles.yml`'s optional top-level `preview:`
-block's `prompt_prefix` + the style's own `prepend` + `example_prompt` +
-`append`; the negative joins that block's `negative` and the style's own
-`negative` (see docs/presets/manifest.md "Styles") - a preset with its own
-prompting conventions (quality tags, a recommended negative) gets on-model
-previews without every style repeating that boilerplate. Downscales the
-first output image to `--long-edge` px, saves it as `public/styles/<id>.webp`
-inside the preset directory, and fills `preview:` in `styles.yml` for that
-style when it was unset.
+block's `prompt_prefix` + the style's own `prepend` + a resolved example
+prompt (the style's own `example_prompt`, else the `preview:` block's -
+so every style renders the same scene by default and only the style itself
+varies) + `append`; the negative joins that block's `negative` and the
+style's own `negative` (see docs/presets/manifest.md "Styles") - a preset
+with its own prompting conventions (quality tags, a recommended negative)
+gets on-model previews without every style repeating that boilerplate.
+Downscales the first output image to `--long-edge` px, saves it as
+`public/styles/<id>.webp` inside the preset directory, and fills `preview:`
+in `styles.yml` for that style when it was unset.
 
     python scripts/preset_styles_render.py content/presets/marketplace/Anima
     python scripts/preset_styles_render.py content/presets/marketplace/Anima --style retro-90s-cel

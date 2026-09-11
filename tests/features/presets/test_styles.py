@@ -59,10 +59,22 @@ class TestValidateStylesFile:
 
     def test_missing_required_field_rejected(self):
         style = _valid_style()
-        del style["example_prompt"]
+        del style["prepend"]
         parsed, errors = validate_styles_file({"styles": [style]})
         assert parsed is None
         assert errors
+
+    def test_example_prompt_is_optional(self):
+        """A style's own example_prompt may be omitted - the top-level
+        `preview:` block can supply a shared default instead (see
+        `PresetLinter._lint_styles`, which is what enforces at least one of
+        the two resolving to a non-empty string; the schema itself doesn't,
+        since it validates one style at a time)."""
+        style = _valid_style()
+        del style["example_prompt"]
+        parsed, errors = validate_styles_file({"styles": [style]})
+        assert errors == []
+        assert parsed.styles[0].example_prompt is None
 
     def test_unknown_field_rejected(self):
         parsed, errors = validate_styles_file({"styles": [_valid_style(extra="nope")]})
@@ -88,15 +100,21 @@ class TestValidateStylesFile:
         assert errors == []
         assert parsed.preview.prompt_prefix == ""
         assert parsed.preview.negative == ""
+        assert parsed.preview.example_prompt == ""
 
     def test_preview_block_loaded(self):
         parsed, errors = validate_styles_file({
-            "preview": {"prompt_prefix": "masterpiece, best quality, ", "negative": "worst quality"},
+            "preview": {
+                "prompt_prefix": "masterpiece, best quality, ",
+                "negative": "worst quality",
+                "example_prompt": "a glowing potion in tall grass",
+            },
             "styles": [_valid_style()],
         })
         assert errors == []
         assert parsed.preview.prompt_prefix == "masterpiece, best quality, "
         assert parsed.preview.negative == "worst quality"
+        assert parsed.preview.example_prompt == "a glowing potion in tall grass"
 
     def test_preview_block_unknown_field_rejected(self):
         parsed, errors = validate_styles_file({
@@ -137,7 +155,7 @@ class TestLoaderStyles:
         preset = loader.load_preset_by_id("01AAAAAAAAAAAAAAAAAAAAAAAAA")
         assert preset is not None
         assert preset.styles == []
-        assert preset.styles_preview == {"prompt_prefix": "", "negative": ""}
+        assert preset.styles_preview == {"prompt_prefix": "", "negative": "", "example_prompt": ""}
 
     def test_preview_block_loads_onto_styles_preview(self, tmp_path):
         preset_dir = tmp_path / "presets/native/Foo/std"
@@ -146,6 +164,7 @@ class TestLoaderStyles:
             """preview:
   prompt_prefix: "masterpiece, best quality, "
   negative: "worst quality, low quality"
+  example_prompt: "a glowing potion in tall grass"
 
 styles:
   - id: "retro-90s-cel"
@@ -164,6 +183,7 @@ styles:
         assert preset.styles_preview == {
             "prompt_prefix": "masterpiece, best quality, ",
             "negative": "worst quality, low quality",
+            "example_prompt": "a glowing potion in tall grass",
         }
 
     def test_malformed_styles_yml_defaults_styles_preview_too(self, tmp_path):
@@ -177,7 +197,30 @@ styles:
         loader.load_presets()
 
         preset = loader.load_preset_by_id("01FFFFFFFFFFFFFFFFFFFFFFFFF")
-        assert preset.styles_preview == {"prompt_prefix": "", "negative": ""}
+        assert preset.styles_preview == {"prompt_prefix": "", "negative": "", "example_prompt": ""}
+
+    def test_style_without_own_example_prompt_loads(self, tmp_path):
+        preset_dir = tmp_path / "presets/native/Foo/std"
+        _write_preset(preset_dir, "01GGGGGGGGGGGGGGGGGGGGGGGGG")
+        (preset_dir / "styles.yml").write_text(
+            """preview:
+  example_prompt: "a glowing potion in tall grass"
+
+styles:
+  - id: "retro-90s-cel"
+    name: "Retro 90s Anime Cel"
+    category: "Anime"
+    prepend: "old, "
+    append: ", retro."
+"""
+        )
+
+        loader = PresetTemplateLoader(str(tmp_path))
+        loader.load_presets()
+
+        preset = loader.load_preset_by_id("01GGGGGGGGGGGGGGGGGGGGGGGGG")
+        assert "example_prompt" not in preset.styles[0]
+        assert preset.styles_preview["example_prompt"] == "a glowing potion in tall grass"
 
     def test_valid_styles_yml_loads_onto_template(self, tmp_path):
         preset_dir = tmp_path / "presets/native/Foo/std"

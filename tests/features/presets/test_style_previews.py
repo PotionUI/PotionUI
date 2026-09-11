@@ -41,7 +41,7 @@ def _style(**overrides):
     return style
 
 
-_NO_DEFAULTS = {"prompt_prefix": "", "negative": ""}
+_NO_DEFAULTS = {"prompt_prefix": "", "negative": "", "example_prompt": ""}
 
 
 class TestBuildStylePrompt:
@@ -81,6 +81,28 @@ class TestBuildStylePrompt:
         style = _style(negative=None)
         _, negative = build_style_prompt(style, _NO_DEFAULTS)
         assert negative == ""
+
+    def test_own_example_prompt_wins_over_preview_default(self):
+        defaults = {"prompt_prefix": "", "negative": "", "example_prompt": "a glowing potion in tall grass"}
+        prompt, _ = build_style_prompt(_style(example_prompt="a cat"), defaults)
+        assert prompt == "old, a cat, retro."
+
+    def test_falls_back_to_preview_default_when_style_has_none(self):
+        style = _style(example_prompt=None)
+        defaults = {"prompt_prefix": "", "negative": "", "example_prompt": "a glowing potion in tall grass"}
+        prompt, _ = build_style_prompt(style, defaults)
+        assert prompt == "old, a glowing potion in tall grass, retro."
+
+    def test_falls_back_to_preview_default_when_style_example_prompt_absent(self):
+        style = {k: v for k, v in _style().items() if k != "example_prompt"}
+        defaults = {"prompt_prefix": "", "negative": "", "example_prompt": "a glowing potion in tall grass"}
+        prompt, _ = build_style_prompt(style, defaults)
+        assert prompt == "old, a glowing potion in tall grass, retro."
+
+    def test_both_example_prompts_empty_yields_no_scene_text(self):
+        style = _style(example_prompt=None)
+        prompt, _ = build_style_prompt(style, _NO_DEFAULTS)
+        assert prompt == "old, , retro."
 
 
 class TestPreviewRelPath:

@@ -26,15 +26,19 @@ STYLE_PREVIEW_QUANTITY_FIELD = "quantity"
 def build_style_prompt(style: Dict[str, Any], defaults: Dict[str, str]) -> Tuple[str, str]:
     """`(prompt, negative)` for one style.
 
-    `prompt` = `defaults["prompt_prefix"]` + `prepend` + `example_prompt` +
-    `append`. `negative` joins the non-empty parts of
+    `prompt` = `defaults["prompt_prefix"]` + `prepend` + the resolved example
+    prompt + `append`, where the resolved example prompt is the style's own
+    `example_prompt` when non-empty, else `defaults["example_prompt"]` - so
+    every style renders the same scene (only the style differs) unless it
+    declares its own. `negative` joins the non-empty parts of
     `[defaults["negative"], style["negative"]]` with `", "` - the preset's
     own recommended negative (e.g. Anima's quality-score exclusions) first,
     the style's own negative after. `defaults` is a preset's
     `styles.yml` `preview:` block (`PresetTemplate.styles_preview`); pass
-    `{"prompt_prefix": "", "negative": ""}` for none.
+    `{"prompt_prefix": "", "negative": "", "example_prompt": ""}` for none.
     """
-    prompt = f"{defaults.get('prompt_prefix', '')}{style.get('prepend', '')}{style['example_prompt']}{style.get('append', '')}"
+    example_prompt = style.get("example_prompt") or defaults.get("example_prompt", "")
+    prompt = f"{defaults.get('prompt_prefix', '')}{style.get('prepend', '')}{example_prompt}{style.get('append', '')}"
     parts = [defaults.get("negative") or "", style.get("negative") or ""]
     negative = ", ".join(p for p in parts if p)
     return prompt, negative

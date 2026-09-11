@@ -319,7 +319,7 @@ class PresetTemplateLoader:
     # Default `styles_preview` for a preset with no `styles.yml`, an
     # unparsable one, or one that fails schema validation - never applied to
     # a style's prompt/negative (see `StylesPreviewDefaults`'s docstring).
-    _NO_STYLES_PREVIEW: Dict[str, str] = {"prompt_prefix": "", "negative": ""}
+    _NO_STYLES_PREVIEW: Dict[str, str] = {"prompt_prefix": "", "negative": "", "example_prompt": ""}
 
     def _load_styles(self, preset_path: Path) -> Tuple[List[Dict], Dict[str, str]]:
         """Load and validate a preset's optional `styles.yml`, next to `preset.yml`.

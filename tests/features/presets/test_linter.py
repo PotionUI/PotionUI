@@ -530,6 +530,26 @@ class TestLintStyles:
         issues = PresetLinter([str(tmp_path)]).lint()
         assert any(i.level == "error" and "does not match" in i.message for i in issues)
 
+    def test_no_example_prompt_from_either_source_is_error(self, tmp_path):
+        preset_dir = _write_preset(tmp_path, "p", "styles_no_prompt", ["txt2img"])
+        (preset_dir / "styles.yml").write_text(self.STYLE.replace('    example_prompt: "a cat"\n', ""))
+
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "error" and "has no example_prompt" in i.message and "retro-90s-cel" in i.message
+            for i in issues
+        )
+
+    def test_example_prompt_from_preview_block_satisfies_the_requirement(self, tmp_path):
+        preset_dir = _write_preset(tmp_path, "p", "styles_shared_prompt", ["txt2img"])
+        styles_yml = 'preview:\n  example_prompt: "a glowing potion in tall grass"\n\n' + self.STYLE.replace(
+            '    example_prompt: "a cat"\n', ""
+        )
+        (preset_dir / "styles.yml").write_text(styles_yml)
+
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert not any("has no example_prompt" in i.message for i in issues)
+
 
 class TestLintEngineMatchesPipes:
     def test_comfyui_engine_without_comfyui_pipe_is_error(self, tmp_path):

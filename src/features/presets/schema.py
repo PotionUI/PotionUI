@@ -424,7 +424,14 @@ class PresetStyle(BaseModel):
     prepend: str
     append: str
     negative: Optional[str] = None
-    example_prompt: str
+    # Optional: `styles.yml`'s top-level `preview:` block can supply a shared
+    # `example_prompt` (see `StylesPreviewDefaults`) so every style renders
+    # the same scene and only the style differs - a style's own value, when
+    # given, overrides that default. At least one of the two must resolve to
+    # a non-empty string - a `PresetLinter._lint_styles` check, not a schema
+    # one, since the schema sees one style at a time and the default lives on
+    # the sibling `preview:` block.
+    example_prompt: Optional[str] = None
     # Preset-relative, e.g. "public/styles/<id>.webp" - existence is a lint
     # check (`PresetLinter._lint_styles`), not a schema check, same rationale
     # as `_validate_media_src`'s docstring.
@@ -451,6 +458,11 @@ class StylesPreviewDefaults(BaseModel):
 
     prompt_prefix: str = ""
     negative: str = ""
+    # Shared scene every style renders (only the style's prepend/append/
+    # negative should differ) - a style's own `example_prompt` overrides
+    # this when given. See `PresetStyle.example_prompt`'s docstring for the
+    # "at least one must resolve" rule.
+    example_prompt: str = ""
 
 
 class StylesFile(BaseModel):

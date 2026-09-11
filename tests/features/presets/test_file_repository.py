@@ -5,7 +5,10 @@ from src.features.presets.file_repository import FilePresetRepository
 from src.features.presets.templates import PresetTemplate, GenerationMode
 
 
-def _preset(vars=None, llm=None, styles=None):
+def _preset(vars=None, llm=None, styles=None, styles_preview=None):
+    kwargs = {}
+    if styles_preview is not None:
+        kwargs["styles_preview"] = styles_preview
     return PresetTemplate(
         id="test-preset",
         name="Test Preset",
@@ -15,6 +18,7 @@ def _preset(vars=None, llm=None, styles=None):
         vars=vars,
         llm=llm,
         styles=styles or [],
+        **kwargs,
     )
 
 
@@ -79,3 +83,24 @@ class TestPresetToInfoStyles:
         info = repo.preset_to_info(_preset(), include_styles=True)
 
         assert info.styles == []
+
+    def test_own_example_prompt_wins_over_preview_default(self):
+        repo = FilePresetRepository(preset_loader=None)
+        styles_preview = {"prompt_prefix": "", "negative": "", "example_prompt": "a glowing potion in tall grass"}
+
+        info = repo.preset_to_info(
+            _preset(styles=[self.STYLE], styles_preview=styles_preview), include_styles=True
+        )
+
+        assert info.styles[0].example_prompt == "a cat"
+
+    def test_missing_own_example_prompt_falls_back_to_preview_default(self):
+        repo = FilePresetRepository(preset_loader=None)
+        style_without_prompt = {k: v for k, v in self.STYLE.items() if k != "example_prompt"}
+        styles_preview = {"prompt_prefix": "", "negative": "", "example_prompt": "a glowing potion in tall grass"}
+
+        info = repo.preset_to_info(
+            _preset(styles=[style_without_prompt], styles_preview=styles_preview), include_styles=True
+        )
+
+        assert info.styles[0].example_prompt == "a glowing potion in tall grass"

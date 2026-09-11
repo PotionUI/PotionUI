@@ -407,6 +407,7 @@ preset root, next to `preset.yml`:
 preview:                                  # optional; see "Rendering previews" below
   prompt_prefix: "masterpiece, best quality, "
   negative: "worst quality, low quality, score_1, score_2, score_3, artist name"
+  example_prompt: "a glowing potion bottle in tall grass beside a forest path, mountains in the distance"
 
 styles:
   - id: "retro-90s-cel"                  # ^[a-z0-9-]+$, unique within the file
@@ -416,39 +417,46 @@ styles:
     prepend: "old, anime screenshot, "
     append: ", 1990s (style), retro artstyle, anime coloring, cel shading, film grain."
     negative: "3d, realistic, glossy"    # optional
-    example_prompt: "a cat sitting on a windowsill at sunset"
+    example_prompt: "a cat sitting on a windowsill at sunset"  # optional; overrides preview.example_prompt
     preview: "public/styles/retro-90s-cel.webp"  # optional; see "Rendering previews" below
 ```
 
 Applying a style prepends/appends its `prepend`/`append` to the user's prompt and substitutes
-its `negative` for the negative prompt; `example_prompt` is only used to render the style's own
-preview, never shown to the user.
+its `negative` for the negative prompt; `example_prompt` is only ever used to render the style's
+own preview, never shown to the user.
 
-The top-level `preview:` block (`prompt_prefix`, `negative`, both `""` when the block or either
-field is omitted) is a preset-author default applied **only** when rendering previews
-(`scripts/preset_styles_render.py`) — never by the picker, which applies a style's
-`prepend`/`append`/`negative` unchanged. It exists so a preset with its own prompting
-conventions (e.g. Anima's quality tags and recommended negative) gets on-model previews without
-every style repeating that boilerplate: the rendered prompt is `prompt_prefix + prepend +
-example_prompt + append`, and the rendered negative joins the non-empty parts of
-`[preview.negative, style.negative]` with `", "`.
+The top-level `preview:` block (`prompt_prefix`, `negative`, `example_prompt`, all `""` when the
+block or a field is omitted) is a preset-author default applied **only** when rendering previews
+(`scripts/preset_styles_render.py`) — never by the picker, which applies a style's own
+`prepend`/`append`/`negative`/`example_prompt` unchanged. It exists so a preset with its own
+prompting conventions (e.g. Anima's quality tags and recommended negative) gets on-model
+previews without every style repeating that boilerplate, and so every style can render the
+**same scene** by default (a `preview.example_prompt` describing an interesting background, not
+a bare product shot) so only the style itself varies across the gallery: the rendered prompt is
+`prompt_prefix + prepend + resolved_example_prompt + append`, where `resolved_example_prompt` is
+the style's own `example_prompt` when it has one, else `preview.example_prompt`; the rendered
+negative joins the non-empty parts of `[preview.negative, style.negative]` with `", "`.
 
 ### Rules
 
 - **Lenient loading.** Unlike `preset.yml`/`pipeline.yml`/`form.yml`, a missing `styles.yml`
-  loads as `styles: []` (and `preview: {prompt_prefix: "", negative: ""}`) and a malformed one
-  degrades the same way rather than failing the whole preset — styles are supplementary, not
-  load-bearing for generation. Schema errors (bad `id`, duplicate `id`, missing required field)
-  and a `preview:` naming a file that doesn't exist are `scripts/preset_lint.py` /
-  `GET /api/developer/presets/lint` **errors**, same rationale as [preset media](#preset-media)'s
-  file-existence checks.
+  loads as `styles: []` (and `preview: {prompt_prefix: "", negative: "", example_prompt: ""}`)
+  and a malformed one degrades the same way rather than failing the whole preset — styles are
+  supplementary, not load-bearing for generation. Schema errors (bad `id`, duplicate `id`,
+  missing required field), a style whose `example_prompt` resolves to empty from both itself and
+  `preview.example_prompt`, and a `preview:` naming a file that doesn't exist are
+  `scripts/preset_lint.py` / `GET /api/developer/presets/lint` **errors**, same rationale as
+  [preset media](#preset-media)'s file-existence checks.
 - **`preview` follows the same asset rules as `media`** — relative, under `public/`, one of the
   allowed extensions (see [Preset media](#preset-media) above); served the same way. (This is
   each style's own `preview:` field — the top-level `preview:` block is unrelated and never a
   file path.)
 - `GET /api/presets` returns `styles: []`; the full list comes from `GET /api/presets/{id}`, same
-  gating as `media.gallery`. The top-level `preview:` block is never sent to the frontend at
-  all — it lives on `PresetTemplate.styles_preview`, read only by the rendering script.
+  gating as `media.gallery`. The list's `example_prompt` is always the *resolved* value (the
+  style's own, or `preview.example_prompt` when it had none) — `file_repository.preset_to_info`
+  fills it in, so the frontend never reasons about the fallback. `prompt_prefix`/`negative` are
+  never sent to the frontend at all — they live only on `PresetTemplate.styles_preview`, read by
+  the rendering script.
 
 ### Rendering previews
 

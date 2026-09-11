@@ -98,6 +98,35 @@ def test_successful_generation_reports_generation_id_and_file():
     assert result.safe_output["file_path"] == "images/gen-1/out.png"
 
 
+class FakeMediaOrchestrator(FakeOrchestrator):
+    """Emits one final video, audio and mesh output - the shapes the video,
+    song and img2mesh presets produce - plus a temporary video that must not
+    count."""
+
+    async def start_generation(self, request, user_id, output_callback):
+        from pathlib import Path
+        from src.pipelines.outputs import AudioGenerationOutput, MeshGenerationOutput, VideoGenerationOutput
+
+        await output_callback("gen-1", VideoGenerationOutput(video_path=Path("v.mp4"), temporary=True))
+        await output_callback("gen-1", VideoGenerationOutput(video_path=Path("v.mp4"), temporary=False))
+        await output_callback("gen-1", AudioGenerationOutput(audio_path=Path("a.wav"), temporary=False))
+        await output_callback("gen-1", MeshGenerationOutput(mesh_path=Path("m.glb"), temporary=False))
+        await output_callback("gen-1", None)
+        return {"generation_id": "gen-1"}
+
+
+def test_video_audio_and_mesh_outputs_count_as_final_outputs():
+    template = FakePresetTemplate()
+    loader = FakePresetLoader(template)
+    file_repo = FakeFileRepository(files=[SimpleNamespace(file_path="videos/gen-1/v.mp4")])
+    executor = GenerationSmokeExecutor(loader, object(), FakeMediaOrchestrator(), file_repo)
+
+    result = executor.execute(_context(_recipe()))
+
+    assert result.success is True
+    assert result.safe_output["output_count"] == 3
+
+
 def test_generation_error_fails_with_plain_message_and_repair():
     template = FakePresetTemplate()
     loader = FakePresetLoader(template)

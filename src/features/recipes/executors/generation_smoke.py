@@ -186,7 +186,15 @@ class GenerationSmokeExecutor:
         negative_prompt: str,
     ) -> Dict[str, Any]:
         from src.features.generation.dto import GenerationRequest, PromptPair
-        from src.pipelines.outputs import ErrorGenerationOutput, GalleryGenerationOutput, ImageGenerationOutput
+        from src.pipelines.outputs import (
+            AudioGenerationOutput,
+            ErrorGenerationOutput,
+            GalleryGenerationOutput,
+            ImageGenerationOutput,
+            MeshGenerationOutput,
+            VideoGenerationOutput,
+        )
+        final_media = (ImageGenerationOutput, VideoGenerationOutput, AudioGenerationOutput, MeshGenerationOutput)
 
         output_count = 0
         error_box: Dict[str, str] = {}
@@ -202,7 +210,7 @@ class GenerationSmokeExecutor:
             if output is None:
                 done_event.set()
                 return
-            if isinstance(output, ImageGenerationOutput) and not output.temporary:
+            if isinstance(output, final_media) and not getattr(output, "temporary", False):
                 output_count += 1
             elif isinstance(output, GalleryGenerationOutput):
                 output_count += len(output.images)

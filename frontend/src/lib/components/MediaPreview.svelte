@@ -10,9 +10,13 @@
 	export let loadFullOnClick: boolean = true;
 	export let className: string = '';
 	export let showVideoControls: boolean = false;
+	/** `cover` (default, fills and crops) or `contain` (letterboxed, nothing cropped). */
+	export let fit: 'cover' | 'contain' = 'cover';
+	/** Skip the thumbnail entirely and render the full-resolution image right away. */
+	export let startFullLoaded: boolean = false;
 
 	let error = false;
-	let fullLoaded = false;
+	let fullLoaded = startFullLoaded;
 	let isHovering = false;
 	let activeFilePath = file.file_path;
 
@@ -46,9 +50,11 @@
 	$: if (file.file_path !== activeFilePath) {
 		activeFilePath = file.file_path;
 		error = false;
-		fullLoaded = false;
+		fullLoaded = startFullLoaded;
 		isHovering = false;
 	}
+
+	$: fitClass = fit === 'contain' ? 'object-contain' : 'object-cover';
 
 	function handleImageError() {
 		error = true;
@@ -131,7 +137,7 @@
 		<img
 			src={imageUrl}
 			alt="Video preview"
-			class="w-full h-full object-cover {shouldBlur ? 'blur-2xl scale-110' : ''} {loadFullOnClick ? 'cursor-pointer' : ''}"
+			class="w-full h-full {fitClass} {shouldBlur ? 'blur-2xl scale-110' : ''} {loadFullOnClick ? 'cursor-pointer' : ''}"
 			role={loadFullOnClick ? 'button' : undefined}
 			tabindex={loadFullOnClick && !shouldBlur ? 0 : undefined}
 			on:error={handleImageError}
@@ -202,7 +208,7 @@
 		<img
 			src={imageUrl}
 			alt="Generated content"
-			class="w-full h-full object-cover {shouldBlur ? 'blur-2xl scale-110' : ''} {loadFullOnClick && !fullLoaded ? 'cursor-pointer' : ''}"
+			class="w-full h-full {fitClass} {shouldBlur ? 'blur-2xl scale-110' : ''} {loadFullOnClick && !fullLoaded ? 'cursor-pointer' : ''}"
 			role={loadFullOnClick && !fullLoaded ? 'button' : undefined}
 			tabindex={loadFullOnClick && !fullLoaded && !shouldBlur ? 0 : undefined}
 			on:error={handleImageError}

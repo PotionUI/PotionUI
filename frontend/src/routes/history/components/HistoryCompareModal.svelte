@@ -5,7 +5,10 @@
 	import MediaPreview from '$lib/components/MediaPreview.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import Spinner from '$lib/components/ui/Spinner.svelte';
+	import { IconButton, SegmentedControl, Spinner } from '$lib/components/ui';
+	import CompareFrame from './CompareFrame.svelte';
+	import { COMPARE_DEFAULT, type CompareMode } from './compareFrame';
+	import portal from '$lib/actions/portal';
 	import type { GenerationHistoryItem, GenerationFile } from '$lib/types/history';
 	import type { GenerationParamModel } from '$lib/types/generation';
 	import { isImageFileType, isVideoFileType } from '$lib/utils/fileType';
@@ -16,6 +19,17 @@
 	export let context: HistoryToolContext;
 	export let onClose: () => void;
 	export let onDone: () => void;
+
+	const MODE_ITEMS = [
+		{ id: 'side-by-side', label: 'Side by side' },
+		{ id: 'overlay', label: 'Overlay' },
+		{ id: 'wipe', label: 'Wipe' }
+	];
+
+	let mode: CompareMode = 'side-by-side';
+	let compareValue = COMPARE_DEFAULT;
+	let viewerOpen = false;
+	let viewerTarget: 'left' | 'right' | 'composed' = 'composed';
 
 	$: left = context.generations[0];
 	$: right = context.generations[1];
@@ -38,6 +52,25 @@
 
 	$: leftFile = previewFile(left);
 	$: rightFile = previewFile(right);
+	$: bothImages = !!leftFile && !!rightFile && isImageFileType(leftFile.file_type) && isImageFileType(rightFile.file_type);
+	// Overlay/wipe only make sense for two images; fall back the moment either
+	// side isn't one (e.g. the tool host later allows a video generation).
+	$: if (!bothImages && mode !== 'side-by-side') mode = 'side-by-side';
+
+	function openViewer(target: 'left' | 'right' | 'composed') {
+		viewerTarget = target;
+		viewerOpen = true;
+	}
+
+	function handleWindowKeydown(e: KeyboardEvent) {
+		if (e.key !== 'Escape') return;
+		e.preventDefault();
+		if (viewerOpen) {
+			viewerOpen = false;
+		} else {
+			onClose();
+		}
+	}
 
 	function formatValue(value: unknown): string {
 		if (value === null || value === undefined || value === '') return '—';
@@ -128,37 +161,41 @@
 
 </script>
 
-<BaseModal isOpen={true} size="xl" on:close={onClose}>
+<svelte:window on:keydown={handleWindowKeydown} />
+
+<BaseModal isOpen={true} size="xl" handleEscapeKey={false} on:close={onClose}>
 	<svelte:fragment slot="headerIcon">
 		<Icon name="layers" className="w-4 h-4 text-signal" />
 	</svelte:fragment>
 	<svelte:fragment slot="header">
 		<h3 class="text-sm font-semibold text-fg">Compare generations</h3>
+		{#if bothImages}
+			<SegmentedControl
+				items={MODE_ITEMS}
+				selected={mode}
+				onSelect={(id) => (mode = id as CompareMode)}
+				ariaLabel="Compare mode"
+			/>
+		{/if}
 	</svelte:fragment>
 
 	<!-- Image panes -->
-	<div class="grid grid-cols-2 gap-3 p-4">
-		<div class="flex flex-col gap-2">
-			<div class="rounded-lg overflow-hidden bg-surface-2 aspect-square flex items-center justify-center">
-				{#if leftFile}
-					<MediaPreview file={leftFile} generationId={left.id} thumbnailSize="large" className="w-full h-full" />
-				{:else}
-					<span class="text-xs text-fg-subtle">No preview</span>
-				{/if}
-			</div>
-			<div class="text-2xs font-mono uppercase tracking-[0.07em] text-fg-subtle truncate">
+	<div class="p-4">
+		<CompareFrame
+			{mode}
+			{leftFile}
+			{rightFile}
+			leftGenerationId={left.id}
+			rightGenerationId={right.id}
+			value={compareValue}
+			on:valuechange={(e) => (compareValue = e.detail)}
+			on:expand={(e) => openViewer(e.detail)}
+		/>
+		<div class="grid grid-cols-2 gap-3 mt-2">
+			<div class="text-2xs font-mono uppercase tracking-[0.07em] text-fg-subtle truncate text-center">
 				A · {left.preset_name ?? left.id.slice(0, 8)}
 			</div>
-		</div>
-		<div class="flex flex-col gap-2">
-			<div class="rounded-lg overflow-hidden bg-surface-2 aspect-square flex items-center justify-center">
-				{#if rightFile}
-					<MediaPreview file={rightFile} generationId={right.id} thumbnailSize="large" className="w-full h-full" />
-				{:else}
-					<span class="text-xs text-fg-subtle">No preview</span>
-				{/if}
-			</div>
-			<div class="text-2xs font-mono uppercase tracking-[0.07em] text-fg-subtle truncate">
+			<div class="text-2xs font-mono uppercase tracking-[0.07em] text-fg-subtle truncate text-center">
 				B · {right.preset_name ?? right.id.slice(0, 8)}
 			</div>
 		</div>
@@ -214,3 +251,49 @@
 		{/if}
 	</div>
 </BaseModal>
+
+{#if viewerOpen}
+	<!-- Full-size viewer. Portaled above BaseModal's own backdrop; the modal
+	     stays mounted underneath so closing the viewer returns to it. -->
+	<div
+		use:portal
+		class="fixed inset-0 z-[10000] bg-black flex items-center justify-center"
+		role="button"
+		tabindex="-1"
+		aria-label="Close full size view"
+		on:click={() => (viewerOpen = false)}
+		on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); viewerOpen = false; } }}
+	>
+		<div class="absolute top-4 right-4">
+			<IconButton icon="close" label="Close full size" variant="secondary" onclick={() => (viewerOpen = false)} />
+		</div>
+		<div class="w-full h-full p-6 md:p-10 flex items-center justify-center" on:click|stopPropagation on:keydown|stopPropagation role="presentation">
+			{#if viewerTarget === 'composed'}
+				<CompareFrame
+					{mode}
+					{leftFile}
+					{rightFile}
+					leftGenerationId={left.id}
+					rightGenerationId={right.id}
+					value={compareValue}
+					boxClass="w-[min(92vw,1400px)] h-[min(76vh,1000px)]"
+					showExpand={false}
+					on:valuechange={(e) => (compareValue = e.detail)}
+				/>
+			{:else}
+				{@const soloFile = viewerTarget === 'left' ? leftFile : rightFile}
+				{#if soloFile}
+					<MediaPreview
+						file={soloFile}
+						generationId={viewerTarget === 'left' ? left.id : right.id}
+						thumbnailSize="large"
+						loadFullOnClick={false}
+						startFullLoaded
+						fit="contain"
+						className="w-full h-full"
+					/>
+				{/if}
+			{/if}
+		</div>
+	</div>
+{/if}

@@ -152,7 +152,6 @@ export type {
 	RecipeStepKind
 } from './recipes';
 export type { McpToken, McpTokenCreated, McpStatus } from './mcp';
-export type { RenderPresetStylesRequest, RenderPresetStylesResponse } from './presets';
 export type {
 	InspirationAuthor,
 	InspirationMedia,

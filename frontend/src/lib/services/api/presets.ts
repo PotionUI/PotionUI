@@ -9,17 +9,6 @@ import type {
 	PresetRequirementsResponse
 } from '$lib/types/api';
 
-export interface RenderPresetStylesRequest {
-	style_ids?: string[];
-	long_edge?: number;
-	seed?: number;
-}
-
-export interface RenderPresetStylesResponse {
-	rendered: string[];
-	failed: { id: string; error: string }[];
-}
-
 export function createPresetsApi(client: AxiosInstance) {
 	return {
 		async listPresets(includeUninstalled: boolean = false): Promise<APIResponse<PresetInfo[]>> {
@@ -108,14 +97,6 @@ export function createPresetsApi(client: AxiosInstance) {
 			if (options.refresh) params.set('refresh', '1');
 			const query = params.toString();
 			const response = await client.get(`/api/presets/${presetId}/requirements${query ? `?${query}` : ''}`);
-			return response.data;
-		},
-
-		async renderPresetStyles(
-			presetId: string,
-			body: RenderPresetStylesRequest = {}
-		): Promise<APIResponse<RenderPresetStylesResponse>> {
-			const response = await client.post(`/api/developer/presets/${presetId}/styles/render`, body);
 			return response.data;
 		}
 	};

@@ -9,10 +9,9 @@ tests/features/user_groups/test_routes.py for the established pattern)."""
 from types import SimpleNamespace
 
 import pytest
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 from src.features.developer import routes as routes_module
-from src.features.developer.dto import RenderPresetStylesRequest
 from src.features.developer.routes import DeveloperController, build_router
 from src.platform.security.user import User, AccountType
 
@@ -39,7 +38,7 @@ class TestDeveloperController:
     @pytest.fixture
     def controller(self, mock_template_functions_documenter):
         """Create a DeveloperController with a mock documenter."""
-        return DeveloperController(mock_template_functions_documenter, Mock(), Mock())
+        return DeveloperController(mock_template_functions_documenter, Mock())
 
     @pytest.fixture
     def admin_user(self):
@@ -58,7 +57,7 @@ class TestDeveloperController:
     def test_initialization(self, mock_template_functions_documenter):
         """Test controller initializes with its collaborators."""
         preset_loader = Mock()
-        controller = DeveloperController(mock_template_functions_documenter, preset_loader, Mock())
+        controller = DeveloperController(mock_template_functions_documenter, preset_loader)
         assert controller.template_functions_documenter == mock_template_functions_documenter
         assert controller.preset_loader == preset_loader
 
@@ -94,7 +93,7 @@ class TestRouteHandlers:
         documenter.generate_documentation.return_value = {
             'functions': [], 'total': 0, 'categories': []
         }
-        return DeveloperController(documenter, Mock(), Mock())
+        return DeveloperController(documenter, Mock())
 
     @pytest.fixture
     def handlers(self, mock_controller):
@@ -144,7 +143,7 @@ class TestDocsLint:
 
     @pytest.fixture
     def controller(self, mock_operations):
-        return DeveloperController(Mock(), Mock(), Mock())
+        return DeveloperController(Mock(), Mock())
 
     @pytest.mark.asyncio
     async def test_get_docs_lint_success(self, controller, mock_operations):
@@ -162,7 +161,7 @@ class TestDocsLint:
 
     @pytest.mark.asyncio
     async def test_docs_lint_route_admin(self, mock_operations):
-        handlers = _route_handlers(DeveloperController(Mock(), Mock(), Mock()))
+        handlers = _route_handlers(DeveloperController(Mock(), Mock()))
         user = Mock(spec=User)
         user.account_type = AccountType.ADMIN
         response = await handlers["get_docs_lint"](current_user=user)
@@ -172,76 +171,9 @@ class TestDocsLint:
     async def test_docs_lint_route_non_admin_403(self):
         from fastapi import HTTPException
 
-        handlers = _route_handlers(DeveloperController(Mock(), Mock(), Mock()))
+        handlers = _route_handlers(DeveloperController(Mock(), Mock()))
         user = Mock(spec=User)
         user.account_type = AccountType.USER
         with pytest.raises(HTTPException) as exc:
             await handlers["get_docs_lint"](current_user=user)
         assert exc.value.status_code == 403
-
-
-class TestRenderPresetStyles:
-    """POST /api/developer/presets/{preset_id}/styles/render -
-    DeveloperController.render_preset_styles delegates to `self.style_renderer`."""
-
-    @pytest.fixture
-    def mock_style_renderer(self):
-        renderer = Mock()
-        renderer.render_styles = AsyncMock(return_value={"rendered": ["retro-90s-cel"], "failed": []})
-        return renderer
-
-    @pytest.fixture
-    def controller(self, mock_style_renderer):
-        return DeveloperController(Mock(), Mock(), mock_style_renderer)
-
-    @pytest.mark.asyncio
-    async def test_render_success_delegates_with_request_fields(self, controller, mock_style_renderer):
-        request = RenderPresetStylesRequest(style_ids=["retro-90s-cel"], long_edge=512, seed=7)
-
-        response = await controller.render_preset_styles("Anima", request, "user-1")
-
-        assert response.success is True
-        assert response.data == {"rendered": ["retro-90s-cel"], "failed": []}
-        mock_style_renderer.render_styles.assert_awaited_once_with(
-            preset_id="Anima", user_id="user-1", style_ids=["retro-90s-cel"], long_edge=512, seed=7
-        )
-
-    @pytest.mark.asyncio
-    async def test_render_value_error_becomes_error_response(self, controller, mock_style_renderer):
-        mock_style_renderer.render_styles.side_effect = ValueError("Unknown style id(s): bogus")
-
-        response = await controller.render_preset_styles("Anima", RenderPresetStylesRequest(), "user-1")
-
-        assert response.success is False
-        assert response.error == "preset_styles_render_failed"
-        assert "bogus" in response.message
-
-    @pytest.mark.asyncio
-    async def test_render_route_non_admin_403(self):
-        from fastapi import HTTPException
-
-        handlers = _route_handlers(DeveloperController(Mock(), Mock(), Mock()))
-        user = Mock(spec=User)
-        user.account_type = AccountType.USER
-
-        with pytest.raises(HTTPException) as exc:
-            await handlers["render_preset_styles"](
-                preset_id="Anima", request=RenderPresetStylesRequest(), current_user=user
-            )
-        assert exc.value.status_code == 403
-
-    @pytest.mark.asyncio
-    async def test_render_route_admin_delegates(self, mock_style_renderer):
-        handlers = _route_handlers(DeveloperController(Mock(), Mock(), mock_style_renderer))
-        user = Mock(spec=User)
-        user.account_type = AccountType.ADMIN
-        user.id = "admin-1"
-
-        response = await handlers["render_preset_styles"](
-            preset_id="Anima", request=RenderPresetStylesRequest(), current_user=user
-        )
-
-        assert response.success is True
-        mock_style_renderer.render_styles.assert_awaited_once_with(
-            preset_id="Anima", user_id="admin-1", style_ids=None, long_edge=320, seed=1
-        )

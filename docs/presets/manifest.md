@@ -435,12 +435,20 @@ preview, never shown to the user.
 
 ### Rendering previews
 
-`POST /api/developer/presets/{preset_id}/styles/render` (admin-only) runs one real generation per
-style — using the preset's default mode/form defaults with the prompt/negative/seed overridden
-(and the output count forced to 1) — downscales the first output image so its long edge is
-`long_edge` px (default 320), saves it as `public/styles/<id>.webp`, and sets `preview:` in
-`styles.yml` for that style when it was unset. Body: `{style_ids?, long_edge?, seed?}` (all
-styles when `style_ids` is omitted). Response: `{rendered: [ids], failed: [{id, error}]}`.
+Previews are rendered by a script, not an app endpoint — `scripts/preset_styles_render.py` runs
+one real generation per style — using the preset's default mode/form defaults with the
+prompt/negative/seed overridden (and the output count forced to 1) — downscales the first output
+image so its long edge is `--long-edge` px (default 320), saves it as `public/styles/<id>.webp`,
+and sets `preview:` in `styles.yml` for that style when it was unset:
+
+```bash
+python scripts/preset_styles_render.py <preset-id-or-path> [--style id ...] [--long-edge 320] [--seed 1] [--force]
+```
+
+A style whose preview file already exists is skipped unless `--force`. The script runs through
+an ephemeral database and file storage, so it never touches the maintainer's live database or
+gallery, and it never reloads or restarts anything — the running app picks up the rendered files
+on its own next preset reload or restart.
 
 
 ## Hardware requirements

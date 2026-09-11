@@ -26,6 +26,7 @@ ALLOWED_BASENAMES = {
     "preset_new.py",
     "preset_render.py",
     "preset_test_suite.py",
+    "preset_styles_render.py",
     "recipe_lint.py",
     "docs_lint.py",
     "pipes_reference.py",

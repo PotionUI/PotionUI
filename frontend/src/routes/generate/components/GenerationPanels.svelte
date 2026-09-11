@@ -358,12 +358,13 @@
 			<Tooltip text="Expand workbench" kbd={$shortcutLabels['toggle_workbench_panel']} position="left" delay={150} wrapperClass="flex h-full flex-shrink-0">
 				<button
 					type="button"
-					class="group flex w-3 h-full flex-shrink-0 items-center justify-center border-l border-line bg-surface-3 transition-colors hover:bg-line-hover"
+					class="group flex w-8 h-full flex-shrink-0 flex-col items-center justify-between gap-2 border-l border-line bg-surface-2 py-3 transition-colors hover:bg-surface-3"
 					aria-label="Expand workbench"
 					aria-expanded="false"
 					data-testid="workbench-pane"
 					on:click={toggleWorkbenchCollapsed}
 				>
+					<span class="workbench-rail-label font-mono text-2xs uppercase tracking-wider text-fg-subtle">Workbench</span>
 					<Icon
 						name="chevron-left"
 						className="h-3 w-3 text-fg-subtle transition-colors group-hover:text-fg"
@@ -399,22 +400,24 @@
 		<!-- Right Panel: Workbench + Prompts -->
 		<div class="flex-1 min-w-0 flex flex-col overflow-hidden">
 			{#if tab.workbenchCollapsed}
-				<!-- Workbench Area: collapsed to a thin rail above the prompts -->
-				<Tooltip text="Expand workbench" kbd={$shortcutLabels['toggle_workbench_panel']} position="bottom" delay={150}>
-					<button
-						type="button"
-						class="group flex h-3 w-full flex-shrink-0 items-center justify-center border-b border-line bg-surface-3 transition-colors hover:bg-line-hover"
-						aria-label="Expand workbench"
-						aria-expanded="false"
-						data-testid="workbench-pane"
-						on:click={toggleWorkbenchCollapsed}
-					>
-						<Icon
-							name="chevron-down"
-							className="h-3 w-3 text-fg-subtle transition-colors group-hover:text-fg"
-						/>
-					</button>
-				</Tooltip>
+				<!-- Workbench Area: collapsed to a header-style rail above the prompts -->
+				<button
+					type="button"
+					class="group flex h-8 w-full flex-shrink-0 items-center justify-between border-b border-line bg-surface-2 px-3 transition-colors hover:bg-surface-3"
+					aria-label="Expand workbench"
+					aria-expanded="false"
+					data-testid="workbench-pane"
+					on:click={toggleWorkbenchCollapsed}
+				>
+					<span class="font-mono text-2xs uppercase tracking-wider text-fg-subtle">Workbench</span>
+					<span class="flex items-center gap-1.5 text-fg-subtle transition-colors group-hover:text-fg">
+						<Icon name="chevron-down" className="h-3 w-3" />
+						<span class="text-xs">Expand</span>
+						{#if $shortcutLabels['toggle_workbench_panel']}
+							<Kbd keys={$shortcutLabels['toggle_workbench_panel']} />
+						{/if}
+					</span>
+				</button>
 
 				{#if !promptless}
 					<div class="flex-1 min-h-0 overflow-y-auto p-4 pb-[var(--dock-height)]">
@@ -533,5 +536,9 @@
 	.resize-handle:hover,
 	.resize-handle:active {
 		background-color: rgb(var(--line-hover));
+	}
+
+	.workbench-rail-label {
+		writing-mode: vertical-rl;
 	}
 </style>

@@ -18,7 +18,9 @@ import { loginAsOwner, ownerToken } from './helpers';
 // the same way floating-workbench.spec.ts does.
 
 const JOURNEY = 'workbench-fold';
-const RAIL_MAX_WIDTH_PX = 16;
+// The collapsed rail is a header-style strip (w-8, 32px) with a label + chevron,
+// wide enough to click but still unambiguously a rail rather than an expanded pane.
+const RAIL_MAX_WIDTH_PX = 40;
 
 async function apiGet(page: Page, url: string, token: string) {
 	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });

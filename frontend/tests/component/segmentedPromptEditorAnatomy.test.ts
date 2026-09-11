@@ -131,6 +131,27 @@ describe('embedded (Video Director\'s stage beat)', () => {
 	});
 });
 
+describe('the Styles toolbar button', () => {
+	it('is absent when the call site has no styles to offer', () => {
+		const editor = mount();
+		expect(editor.byText('Styles')).toBeUndefined();
+	});
+
+	it('appears first in the main toolbar, before Library, when the call site sets onOpenStyles', () => {
+		const editor = mount({ onOpenStyles: () => {} });
+		const styles = editor.byText('Styles');
+		const library = editor.byText('Library');
+		expect(styles).toBeTruthy();
+		expect(library).toBeTruthy();
+		expect(styles!.compareDocumentPosition(library!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
+	it('shows the applied style name instead of the bare label', () => {
+		const editor = mount({ onOpenStyles: () => {}, appliedStyleName: '80s OVA Sci-Fi' });
+		expect(editor.byText('Style: 80s OVA Sci-Fi')).toBeTruthy();
+	});
+});
+
 describe('the resolved panel', () => {
 	it('is rendered when the call site asks for a preview', () => {
 		const editor = mount({ showPreview: true });

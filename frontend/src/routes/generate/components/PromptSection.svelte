@@ -63,7 +63,7 @@
 	$: appliedStyleTagValue = appliedStyleTag(tab.promptSegments || []);
 	$: appliedStyleId =
 		appliedStyleTagValue && appliedStyleTagValue.presetId === tab.selectedPreset ? appliedStyleTagValue.styleId : null;
-	$: appliedStyleName = appliedStyleId ? presetStyles.find((s) => s.id === appliedStyleId)?.name : null;
+	$: appliedStyleName = appliedStyleId ? presetStyles.find((s) => s.id === appliedStyleId)?.name ?? null : null;
 	// LoRA trigger words for this tab's own lora_picker field(s) — highlighted
 	// inline in the segment editors below (see activeLoraTriggers.ts).
 	$: activeTriggerWordsStore = activeLoraTriggersForTab(tab.id);
@@ -161,18 +161,6 @@
 	{:else}
 		<!-- Single Prompt Mode (Default) -->
 		<div class="prompt-composer">
-			{#if presetStyles.length > 0}
-				<div class="flex justify-end mb-2">
-					<button
-						type="button"
-						class="inline-flex h-8 items-center gap-1.5 rounded border border-line px-2.5 text-xs font-medium text-fg-muted transition-colors hover:border-line-hover hover:bg-surface-2 hover:text-fg"
-						on:click={() => (stylesPickerOpen = true)}
-					>
-						<Icon name="sparkles" className="h-3.5 w-3.5" />
-						<span>{appliedStyleName ? `Style: ${appliedStyleName}` : 'Styles'}</span>
-					</button>
-				</div>
-			{/if}
 			<SegmentedPromptEditor
 				segments={tab.promptSegments || []}
 				isNegative={false}
@@ -184,6 +172,8 @@
 				variableRolls={tab.variableRolls || {}}
 				onVariableDefChange={handleVariableDefChange}
 				onOpenVariableManager={openVariableManager}
+				onOpenStyles={presetStyles.length > 0 ? () => (stylesPickerOpen = true) : null}
+				{appliedStyleName}
 				{activeTriggerWords}
 				{presetSegmentTemplates}
 				on:segmentsChange={(e) => tabHandlers.handlePromptSegmentsChange(e.detail)}

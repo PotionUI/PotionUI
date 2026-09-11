@@ -1,7 +1,7 @@
 <!--
 	The mock's <symbol> sprite, trimmed to the glyphs the segment composer
-	actually uses (library/template/braces/more/grip/copy/eye/eye-off/pencil/
-	save/trash/break/chevrons/plus/info). Rendered once per SegmentedPromptEditor
+	actually uses (library/template/braces/sparkles/more/grip/copy/eye/eye-off/
+	pencil/save/trash/break/chevrons/plus/info). Rendered once per SegmentedPromptEditor
 	instance — a hidden, zero-size <svg> — and referenced everywhere else in this
 	surface as `<svg class="icon"><use href="#i-name"/></svg>`, exactly as the
 	mock does. Symbol ids can legitimately repeat across multiple editor
@@ -11,6 +11,7 @@
 -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
 	<symbol id="i-library" viewBox="0 0 24 24"><path d="M4 5h5v14H4ZM9 7h5v12H9ZM14 4h6v15h-6Z" /></symbol>
+	<symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2ZM6 14l.8 2.2L9 17l-2.2.8L6 20l-.8-2.2L3 17l2.2-.8Zm12-1 1 2.8 2.8 1-2.8 1-1 2.8-1-2.8-2.8-1 2.8-1Z" /></symbol>
 	<symbol id="i-template" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 10v10" /></symbol>
 	<symbol id="i-braces" viewBox="0 0 24 24"><path d="M9 3H7a2 2 0 0 0-2 2v4l-2 3 2 3v4a2 2 0 0 0 2 2h2M15 3h2a2 2 0 0 1 2 2v4l2 3-2 3v4a2 2 0 0 1-2 2h-2" /></symbol>
 	<symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" /></symbol>

@@ -101,11 +101,22 @@ export function applyStyleToPrompt(
 	const basePositive = baseList(promptSegments);
 	const baseNegative = baseList(negativeSegments);
 
-	const prependSegment = styleContentSegment(styleSegmentId(presetId, style.id, 'prepend'), style.prepend, style.name);
-	const appendSegment = styleContentSegment(styleSegmentId(presetId, style.id, 'append'), style.append, style.name);
+	const prependSegment = styleContentSegment(
+		styleSegmentId(presetId, style.id, 'prepend'),
+		style.prepend,
+		`${style.name} · start`
+	);
+	const appendSegment = styleContentSegment(
+		styleSegmentId(presetId, style.id, 'append'),
+		style.append,
+		`${style.name} · end`
+	);
 
 	const nextNegative = style.negative
-		? [...baseNegative, styleContentSegment(styleSegmentId(presetId, style.id, 'negative'), style.negative, style.name)]
+		? [
+				...baseNegative,
+				styleContentSegment(styleSegmentId(presetId, style.id, 'negative'), style.negative, `${style.name} · negative`)
+			]
 		: baseNegative;
 
 	return {

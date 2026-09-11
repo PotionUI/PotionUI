@@ -46,6 +46,11 @@ describe('applyStyleToPrompt', () => {
 		expect(result.promptSegments[1].id).toBe(styleSegmentId('preset-1', 'retro', 'append'));
 	});
 
+	it('names the prepend/append cards distinctly so they never read as duplicates', () => {
+		const result = applyStyleToPrompt([], [], 'preset-1', style('retro'));
+		expect(result.promptSegments.map((s) => s.name)).toEqual(['Style retro · start', 'Style retro · end']);
+	});
+
 	it('drops a pristine placeholder segment rather than keeping it between the pair', () => {
 		const placeholder = [editor('blank-1', '')];
 		const result = applyStyleToPrompt(placeholder, [], 'preset-1', style('retro'));
@@ -67,6 +72,7 @@ describe('applyStyleToPrompt', () => {
 		const result = applyStyleToPrompt([], [editor('n1', 'blurry')], 'preset-1', style('retro', { negative: 'oversaturated' }));
 		expect(result.negativeSegments.map((s) => s.content)).toEqual(['blurry', 'oversaturated']);
 		expect(result.negativeSegments[1].id).toBe(styleSegmentId('preset-1', 'retro', 'negative'));
+		expect(result.negativeSegments[1].name).toBe('Style retro · negative');
 	});
 
 	it('leaves the negative list untouched when the style has no negative', () => {

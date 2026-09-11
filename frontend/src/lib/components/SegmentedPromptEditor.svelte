@@ -59,6 +59,10 @@
 	export let variableRolls: Record<string, VariableRoll> = {};
 	export let onVariableDefChange: ((name: string, def: VariableDef) => void) | undefined = undefined;
 	export let onOpenVariableManager: (() => void) | undefined = undefined;
+	/** Renders a Styles toolbar button (main segments only) when set — see
+	 *  PromptSection.svelte's applyStyle/appliedStyleName. */
+	export let onOpenStyles: (() => void) | null = null;
+	export let appliedStyleName: string | null = null;
 	export let activeTriggerWords: string[] = [];
 	/** Segment Templates the selected preset declares, merged into the apply picker
 	 *  alongside the user's own library. */
@@ -479,6 +483,20 @@
 
 				<div class="toolbar-spacer"></div>
 
+				{#if onOpenStyles}
+					<Tooltip text="Apply a preset style" position="top">
+						<button
+							type="button"
+							class="toolbar-button"
+							class:styles-applied={!!appliedStyleName}
+							on:click={onOpenStyles}
+						>
+							<svg class="icon"><use href="#i-sparkles" /></svg>
+							{#if !compact}<span>{appliedStyleName ? `Style: ${appliedStyleName}` : 'Styles'}</span>{/if}
+						</button>
+					</Tooltip>
+				{/if}
+
 				{#if showLibraryActions}
 					<Tooltip text="Insert a saved Segment" position="top">
 						<button type="button" class="toolbar-button" on:click={() => openLibraryInsert('main')}>
@@ -804,5 +822,10 @@
 		font-size: 0.625rem;
 		font-weight: 500;
 		color: rgb(var(--warning));
+	}
+
+	.toolbar-button.styles-applied {
+		color: rgb(var(--signal));
+		border-color: rgb(var(--signal));
 	}
 </style>

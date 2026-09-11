@@ -10,6 +10,7 @@
 	import { registerComponent } from '$lib/plugin-api/componentRegistry';
 	import { initHostApi } from '$lib/plugin-api/host';
 	import { refreshPluginExtensions } from '$lib/plugin-api/extensionRefresh';
+	import { loadPresets } from '$lib/stores/presetsCatalog';
 	import { canInstall, initPwaInstall, promptInstall } from '$lib/stores/pwaInstall';
 	import ToastContainer from '$lib/components/ToastContainer.svelte';
 	import ConfirmHost from '$lib/components/modals/ConfirmHost.svelte';
@@ -49,6 +50,12 @@
 	async function initializeAuthenticatedRuntime() {
 		if (authenticatedRuntimeInitialized) return;
 		authenticatedRuntimeInitialized = true;
+
+		// Fire-and-forget so callers (Generate page, chat context lookups) find
+		// this already in flight or resolved; never awaited, so a slow presets
+		// fetch can't delay the shell, and the failure is swallowed here since
+		// each caller handles its own.
+		loadPresets().catch(() => {});
 
 		const [
 			sidebar,

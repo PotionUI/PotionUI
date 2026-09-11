@@ -17,7 +17,7 @@
 	} from '$lib/utils/sessionTabState';
 	import { WebSocketService, createGenerationSocket } from '$lib/services/websocket';
 	import type { WebSocketMessage } from '$lib/services/websocket';
-	import { dispatchGenerationMessage } from '$lib/stores/generation';
+	import { dispatchGenerationMessageCoalesced } from '$lib/stores/generation';
 	import GenerationPanel from '$lib/components/GenerationPanel.svelte';
 	import type DynamicForm from '$lib/components/DynamicForm.svelte';
 	import TabBar from './components/TabBar.svelte';
@@ -68,6 +68,7 @@
 	import { resolveDefaultModeSelection } from '$lib/utils/modeAutoSelect';
 	import { buildModeSwitchPatch, seedModeStateFromSessionData } from '$lib/utils/modeState';
 	import { describePresetsEmptyState } from '$lib/utils/presetsEmptyState';
+	import { loadPresets, invalidatePresets } from '$lib/stores/presetsCatalog';
 	import { resolveInstallModelsTarget } from '$lib/utils/installModelsTarget';
 	import { recipeCatalog, loadRecipeCatalog } from '$lib/stores/recipeCatalog';
 	import type { ReadinessReport } from '$lib/services/api/setup';
@@ -750,10 +751,12 @@
 			tabsStore.updateTab(activeTabId, pressFloatingWorkbench(currentTab));
 		});
 
-		// Load presets
+		// Load presets - shares the layout's boot-time fetch (already in flight,
+		// often resolved, by the time this page mounts) instead of firing a
+		// second request; see presetsCatalog.ts.
 		isLoading = true;
 		try {
-			const response = await api.listPresets();
+			const response = await loadPresets();
 			if (response.success && response.data) {
 				presets = response.data;
 			}
@@ -1184,6 +1187,8 @@
 			const response = await api.reloadPreset(presetId);
 
 			if (response.success) {
+				invalidatePresets();
+
 				// Force the DynamicForm to reload its schema
 				const formRef = dynamicFormRefs[tabId];
 				if (formRef) {
@@ -1718,7 +1723,7 @@
 	}
 
 	function handleGenerationMessage(message: WebSocketMessage) {
-		dispatchGenerationMessage(message, {
+		dispatchGenerationMessageCoalesced(message, {
 			unsubscribe: unsubscribeGeneration
 		});
 	}

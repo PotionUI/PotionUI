@@ -2,6 +2,7 @@ import { tabsStore } from './tabs';
 import type { WebSocketMessage } from '$lib/services/websocket';
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
 import { retireGeneration } from '$lib/generation/messages/generationOutputs';
+import { MessageCoalescer } from '$lib/generation/messageCoalescer';
 import '$lib/generation/messages';
 
 const TERMINAL_MESSAGE_TYPES = new Set(['generation_complete', 'generation_error', 'generation_cancelled']);
@@ -96,4 +97,20 @@ export function dispatchGenerationMessage(message: WebSocketMessage, deps: Dispa
 		generationId,
 		unsubscribe: deps.unsubscribe
 	});
+}
+
+// The backend emits an unthrottled `generation_status` per sampling step,
+// which would otherwise drive a tabsStore.updateTab -- and every subscriber's
+// reactive graph -- once per step; this buffers the WebSocket entry point's
+// traffic through MessageCoalescer and applies it at most once per frame.
+let latestDispatchDeps: DispatchDeps | null = null;
+const coalescer = new MessageCoalescer<WebSocketMessage>((message) => {
+	if (latestDispatchDeps) dispatchGenerationMessage(message, latestDispatchDeps);
+});
+
+// The entry point a WebSocket subscription should call for every generation
+// message (see handleGenerationMessage in generate/+page.svelte).
+export function dispatchGenerationMessageCoalesced(message: WebSocketMessage, deps: DispatchDeps): void {
+	latestDispatchDeps = deps;
+	coalescer.enqueue(message);
 }

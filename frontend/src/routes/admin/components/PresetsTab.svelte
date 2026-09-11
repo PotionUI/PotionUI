@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/services/api/index';
 	import * as adminApi from '$lib/services/admin-api';
+	import { invalidatePresets } from '$lib/stores/presetsCatalog';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { logger } from '$lib/utils/logger';
@@ -243,6 +244,7 @@
 				throw new Error(responseError(response, 'The preset could not be installed'));
 			}
 			toasts.success(`${preset.name} installed`);
+			invalidatePresets();
 			await loadPresets(true);
 			detailTab = 'access';
 			loadPresetConfigEntries(preset.id);
@@ -276,6 +278,7 @@
 			}
 			toasts.success(`${preset.name} uninstalled`);
 			detailTab = 'overview';
+			invalidatePresets();
 			await loadPresets(true);
 		} catch (error) {
 			logger.error('Failed to uninstall preset:', error);

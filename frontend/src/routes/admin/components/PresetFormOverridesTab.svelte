@@ -3,6 +3,7 @@
 	import { api } from '$lib/services/api/index';
 	import { toasts } from '$lib/stores/toast';
 	import { logger } from '$lib/utils/logger';
+	import { invalidatePresets } from '$lib/stores/presetsCatalog';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Alert, Button, Badge, Spinner, EmptyState, Switch } from '$lib/components/ui';
 	import FormField from '$lib/components/form-fields/FormField.svelte';
@@ -219,6 +220,7 @@
 			if (!savedGroups.some((group) => group.label === selectedGroup)) {
 				selectedGroup = savedGroups[0]?.label ?? '';
 			}
+			invalidatePresets();
 			toasts.success('Form overrides saved');
 		} catch (error) {
 			logger.error('Failed to save preset form overrides:', error);

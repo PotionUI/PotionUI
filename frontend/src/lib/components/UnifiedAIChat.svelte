@@ -4,6 +4,7 @@
 	import { browser } from '$app/environment';
 	import { storage } from '$lib/utils/storage';
 	import { api, type ChatSessionResponse } from '$lib/services/api/index';
+	import { loadPresets } from '$lib/stores/presetsCatalog';
 	import ChatMessage from '$lib/components/ChatMessage.svelte';
 	import Logo from '$lib/components/brand/Logo.svelte';
 	import ChatIconSprite from '$lib/components/chat/ChatIconSprite.svelte';
@@ -252,13 +253,13 @@
 		: $activeTab;
 
 	// Preset display names for the context strip / pin picker, resolved once
-	// (same lookup ChatMemoryPanel does per-preset via listPresets().find) and
+	// (same lookup ChatMemoryPanel does per-preset via loadPresets().find) and
 	// cached for every preset id at once since both surfaces need it for
 	// every open tab, not just the current one.
 	let presetNamesCache: Record<string, string> = {};
 	async function loadPresetNames() {
 		try {
-			const response = await api.listPresets();
+			const response = await loadPresets();
 			if (response.success) {
 				const map: Record<string, string> = {};
 				for (const p of response.data || []) map[p.id] = p.name;

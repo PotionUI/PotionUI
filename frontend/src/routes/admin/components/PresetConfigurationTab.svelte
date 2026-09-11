@@ -3,6 +3,7 @@
 	import { api } from '$lib/services/api/index';
 	import { toasts } from '$lib/stores/toast';
 	import { logger } from '$lib/utils/logger';
+	import { invalidatePresets } from '$lib/stores/presetsCatalog';
 	import TagSelector from '$lib/components/TagSelector.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Button, Spinner, EmptyState } from '$lib/components/ui';
@@ -65,6 +66,7 @@
 			}
 			entries = response.data.entries || entries;
 			pendingValues = valuesFrom(entries);
+			invalidatePresets();
 			toasts.success(`${entry.label} saved`);
 			savedKey = entry.key;
 			if (savedTimer) clearTimeout(savedTimer);

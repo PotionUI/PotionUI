@@ -7,6 +7,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { Badge, Button, Spinner } from '$lib/components/ui';
 	import { api } from '$lib/services/api/index';
+	import { loadPresets } from '$lib/stores/presetsCatalog';
 	import { authStore } from '$lib/stores/auth';
 	import { toasts } from '$lib/stores/toast';
 	import { inspirationsStore } from '$lib/stores/inspirations';
@@ -98,7 +99,7 @@
 			if (presetId) {
 				if (!availablePresets) {
 					try {
-						const presetsResponse = await api.listPresets();
+						const presetsResponse = await loadPresets();
 						availablePresets = presetsResponse.data ?? [];
 					} catch (e) {
 						logger.error('Failed to load presets for inspiration reuse:', getErrorMessage(e));

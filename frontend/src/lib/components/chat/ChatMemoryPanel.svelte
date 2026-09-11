@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
+	import { loadPresets } from '$lib/stores/presetsCatalog';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import type { MemoryNote, MemoryScope } from '$lib/types/chat';
 	import { buildMemoryGroups, memoryGroupTitle, notesForGroup } from '$lib/chat/memoryGroups';
@@ -148,7 +149,7 @@
 	async function resolveContext() {
 		try {
 			if (presetId) {
-				const response = await api.listPresets();
+				const response = await loadPresets();
 				if (response.success) {
 					const match = (response.data || []).find((p) => p.id === presetId);
 					presetName = match?.name || null;

@@ -73,10 +73,10 @@
 	);
 
 	// ---- Source: plugin-contributed actions ----
-	// Loaded via refreshPluginExtensions() (Sidebar.svelte's onMount),
-	// fed by GET /api/plugins/quick-actions - each plugin manifest's
-	// `quick_actions[]`. This is the plugin extension point; the palette
-	// itself is core.
+	// Loaded via refreshPluginExtensions() (the layout's boot-time refresh,
+	// re-run by Admin -> Plugins after any enable/disable), fed by GET
+	// /api/plugins/quick-actions - each plugin manifest's `quick_actions[]`.
+	// This is the plugin extension point; the palette itself is core.
 	$: visiblePluginActions = ($pluginQuickActions || []).filter(
 		(action) => !action.require_role || action.require_role === $authStore.user?.account_type
 	);

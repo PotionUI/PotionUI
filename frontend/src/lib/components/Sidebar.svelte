@@ -4,7 +4,6 @@
 	import { keybindingsStore, shortcutLabels } from '$lib/stores/keybindings';
 	import { chatPanelStore, isChatPanelOpen } from '$lib/stores/chatPanel';
 	import { pluginNavItems } from '$lib/stores/plugins';
-	import { onMount } from 'svelte';
 	import { iconPaths } from '$lib/utils/IconLibrary';
 	import Tooltip from './Tooltip.svelte';
 	import Logo from './brand/Logo.svelte';
@@ -12,7 +11,6 @@
 	import QuickActions from './QuickActions.svelte';
 	import UserMenu from './UserMenu.svelte';
 	import { contributionsForSlot } from '$lib/extensions/extensionSlots';
-	import { refreshPluginExtensions } from '$lib/plugin-api/extensionRefresh';
 	import { api } from '$lib/services/api/index';
 	import { setupCompletionPing } from '$lib/stores/setupCompletion';
 
@@ -59,10 +57,6 @@
 	$: visiblePluginNavItems = ($pluginNavItems || []).filter(item =>
 		!item.require_role || item.require_role === $authStore.user?.account_type
 	);
-
-	onMount(async () => {
-		await refreshPluginExtensions();
-	});
 
 	interface NavItem {
 		path: string;

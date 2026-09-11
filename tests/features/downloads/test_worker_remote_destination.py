@@ -57,6 +57,9 @@ class FakeModelRepository:
         self._by_id[model.id] = model
         return model
 
+    def get_by_sha256(self, sha256, include_providers=True):
+        return next((m for m in self._by_id.values() if getattr(m, "sha256", None) == sha256), None)
+
 
 class FakeAvailabilityRepository:
     def __init__(self):

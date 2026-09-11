@@ -47,8 +47,13 @@ def media_store(tmp_path):
 
 
 def _drain_synchronously(store, queue_obj):
-    """Run the worker loop inline so the test doesn't race a background thread."""
+    """Drain inline, then wait for the worker thread schedule_scan started -
+    it may still be mid-render on the item it took before the inline drain."""
     queue_obj._drain()
+    queue_obj._queue.join()
+    worker = queue_obj._worker
+    if worker is not None:
+        worker.join(timeout=10)
 
 
 class TestPresetMediaPrerenderQueue:

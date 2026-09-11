@@ -49,7 +49,7 @@ from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.sampling.algorithms import sample_euler
 from src.platform.runtime.native.sampling.cfg import GuidanceStrategy
 from src.platform.runtime.native.sampling.hooks import run_hooks
-from src.platform.runtime.native.sampling.registry import (
+from src.platform.plugins.sampling import (
     ANY_FAMILY,
     OptionSpec,
     SamplerDefinition,

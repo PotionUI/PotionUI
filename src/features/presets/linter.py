@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from src.features.media.image_processor import ImageProcessor
 
 from ..fields.camera_shot_taxonomy import CATEGORY_KEYS, valid_shot_keys
-from src.platform.runtime.native.sampling.registry import (
+from src.platform.plugins.sampling import (
     ANY_FAMILY,
     sampler_registry,
     schedule_registry,
@@ -2044,7 +2044,7 @@ class PresetLinter:
 
     def _lint_sampling_fields(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
         """Cross-check `sampler`/`schedule` field configuration against the
-        sampler/schedule registries (`src/platform/runtime/native/sampling/registry.py`):
+        sampler/schedule registries (`src/platform/plugins/sampling.py`):
         `configuration.family` must be a known family, every
         `configuration.include`/`exclude` key must be a registered key
         (error/warning respectively - include picks the field's whole option

@@ -347,7 +347,7 @@ Select with inline options:
 ```
 
 Sampler / schedule pickers (`type: "sampler"` / `type: "schedule"`) — dropdowns whose options come
-from the sampler/schedule registries (`src/platform/runtime/native/sampling/registry.py`), not a
+from the sampler/schedule registries (`src/platform/plugins/sampling.py`), not a
 preset-authored list. `configuration.family` narrows the catalog to one model family (`anima`,
 `flux`, `krea2`, `ltx`, `minimax_h3`, `qwen_image`, `wan`, `z_image`, `seedvr2`, `minimax_music3`,
 or another family a plugin registers); omitted/empty matches only family-agnostic entries.

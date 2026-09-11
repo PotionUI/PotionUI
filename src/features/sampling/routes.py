@@ -1,7 +1,7 @@
 """
 Sampling catalog controller.
 
-Exposes the sampler/schedule registries (`src/platform/runtime/native/sampling/registry.py`)
+Exposes the sampler/schedule registries (`src/platform/plugins/sampling.py`)
 as a catalog for form fields (the `sampler`/`schedule` field types,
 `src/features/fields/sampling_fields.py`) and any other consumer to read - the
 registries are the single source of truth for what samplers/schedules exist;
@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
-from src.platform.runtime.native.sampling.registry import (
+from src.platform.plugins.sampling import (
     SamplingRegistry,
     sampler_registry,
     schedule_registry,

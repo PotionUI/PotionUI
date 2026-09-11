@@ -2,7 +2,7 @@
 
 Both render as a plain dropdown (`core:SelectField` on the frontend, same
 component `select` uses) whose options come from the sampler/schedule
-registries (`src/platform/runtime/native/sampling/registry.py`) instead of a
+registries (`src/platform/plugins/sampling.py`) instead of a
 preset-authored list - the registry is the single source of truth for what
 samplers/schedules exist, populated by core at import time and by plugins
 through the `samplers:`/`schedules:` manifest roots. `family` narrows the
@@ -14,7 +14,7 @@ from typing import Any, Dict, List
 
 from .base_field import BaseField
 from .specs import FieldConfigSpec, FieldValidationSpec, FieldExampleSpec
-from src.platform.runtime.native.sampling.registry import sampler_registry, schedule_registry
+from src.platform.plugins.sampling import sampler_registry, schedule_registry
 
 
 def _configuration_specs() -> List[FieldConfigSpec]:

@@ -25,6 +25,15 @@ from src.platform.plugins.prompt_importers import PromptImporterRegistry
 from src.platform.plugins.phrasebook_ops import PhrasebookOperationRegistry
 from src.platform.plugins.recipe_steps import RecipeStepKindRegistry
 from src.platform.plugins.requirement_checkers import RequirementCheckerRegistry
+from src.platform.plugins.sampling import (
+    ANY_FAMILY,
+    DuplicateSamplingEntryError,
+    OptionSpec,
+    SamplerDefinition,
+    ScheduleDefinition,
+    sampler_registry,
+    schedule_registry,
+)
 from src.platform.plugins.automation_templates import (
     AutomationTemplateRegistrationError,
     AutomationTemplateRegistry,
@@ -764,23 +773,13 @@ class PluginRegistry:
         return None
 
     def _unregister_sampling_entries(self, plugin_id: str) -> None:
-        """Drop the plugin's samplers and schedules off the native sampling
-        registries. Imported lazily: those singletons live behind
-        `runtime.native.sampling`, whose package import pulls torch and the
-        whole inference stack, and the plugin registry itself must stay light.
-        """
-        from src.platform.runtime.native.sampling.registry import (
-            sampler_registry,
-            schedule_registry,
-        )
-
+        """Drop the plugin's samplers and schedules off the sampler/schedule
+        registries."""
         sampler_registry.unregister_source(plugin_id)
         schedule_registry.unregister_source(plugin_id)
 
     def _sampling_option_specs(self, entries) -> tuple:
         """Turn a manifest entry's `options:` list into `OptionSpec`s."""
-        from src.platform.runtime.native.sampling.registry import OptionSpec
-
         return tuple(
             OptionSpec(
                 name=o.get('name', ''),
@@ -801,13 +800,6 @@ class PluginRegistry:
         """
         if not manifest.samplers:
             return None
-
-        from src.platform.runtime.native.sampling.registry import (
-            ANY_FAMILY,
-            DuplicateSamplingEntryError,
-            SamplerDefinition,
-            sampler_registry,
-        )
 
         for entry in manifest.samplers:
             key = entry.get('key')
@@ -845,13 +837,6 @@ class PluginRegistry:
         """
         if not manifest.schedules:
             return None
-
-        from src.platform.runtime.native.sampling.registry import (
-            ANY_FAMILY,
-            DuplicateSamplingEntryError,
-            ScheduleDefinition,
-            schedule_registry,
-        )
 
         for entry in manifest.schedules:
             key = entry.get('key')

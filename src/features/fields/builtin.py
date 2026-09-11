@@ -91,7 +91,7 @@ def register_builtin_fields(registry: FieldTypeRegistry, template_processor: Opt
         FieldTypeDefinition("lora_picker", LoraPicker, frontend_component="core:LoraPickerField", shareable=True),
 
         # Sampler/schedule pickers - options come from the sampler/schedule
-        # registries (src/platform/runtime/native/sampling/registry.py), not
+        # registries (src/platform/plugins/sampling.py), not
         # preset-authored options. Renders as a plain SelectField, same as
         # `select`.
         FieldTypeDefinition("sampler", SamplerField, frontend_component="core:SelectField", shareable=True),

@@ -916,3 +916,12 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 	outline-offset: 2px;
 }
 }
+
+/* Readability (maintainer): the mock's 8px toolbar buttons, 6px badges and
+   7px segment count are unreadable on a real screen — they read at the
+   app's small text size. */
+.toolbar-button { height: 32px; padding: 0 10px; gap: 6px; font-size: 12px; }
+.toolbar-button .icon { width: 14px; height: 14px; }
+.more-button { width: 32px; }
+.badge { min-width: 18px; font-size: 10px; }
+.composer-count { font-size: 10px; }

@@ -18,7 +18,7 @@
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import { authStore } from '$lib/stores/auth';
-	import { Badge } from '$lib/components/ui';
+	import { Badge, Spinner } from '$lib/components/ui';
 	import Icon from '../Icon.svelte';
 	import ModelResultRow from './ModelResultRow.svelte';
 	import ModelCollectionBrowser from './ModelCollectionBrowser.svelte';
@@ -460,10 +460,11 @@
 						class="shrink-0 p-1.5 hover:bg-surface-3 rounded text-fg-muted disabled:opacity-50"
 						title={downloadState.phase === 'completed' ? 'Downloaded' : 'Download this model'}
 					>
-						<Icon
-							name={downloadState.phase === 'completed' ? 'check' : 'download'}
-							className="w-4 h-4 {downloadState.phase === 'polling' ? 'animate-spin' : ''}"
-						/>
+						{#if downloadState.phase === 'starting' || downloadState.phase === 'polling'}
+							<Spinner size="sm" />
+						{:else}
+							<Icon name={downloadState.phase === 'completed' ? 'check' : 'download'} className="w-4 h-4" />
+						{/if}
 					</button>
 				{/if}
 			</div>
@@ -491,18 +492,3 @@
 {:else}
 	<div class="p-3 text-center text-fg-muted text-sm">No models found</div>
 {/if}
-
-<style>
-	:global(.animate-spin) {
-		animation: spin 1s linear infinite;
-	}
-
-	@keyframes spin {
-		from {
-			transform: rotate(0deg);
-		}
-		to {
-			transform: rotate(360deg);
-		}
-	}
-</style>

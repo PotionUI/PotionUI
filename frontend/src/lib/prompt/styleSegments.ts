@@ -148,3 +148,15 @@ export function applyStyleToPrompt(
 		negativeSegments: nextNegative
 	};
 }
+
+/**
+ * Removes whichever style's tagged cards are present — the picker's "Remove
+ * style" action. Unlike `applyStyleToPrompt`'s `baseList`, this never touches
+ * a pristine placeholder segment; it only strips the tagged cards.
+ */
+export function clearStyle(promptSegments: readonly Segment[], negativeSegments: readonly Segment[]): StylePromptState {
+	return {
+		promptSegments: withoutStyleSegments(promptSegments),
+		negativeSegments: withoutStyleSegments(negativeSegments)
+	};
+}

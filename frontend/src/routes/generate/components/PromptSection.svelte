@@ -7,7 +7,7 @@
 	import type { VariablesMap, VariableDef } from '$lib/utils/variableDefs';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import type { PresetStyle } from '$lib/types/api';
-	import { appliedStyleTag, applyStyleToPrompt } from '$lib/prompt/styleSegments';
+	import { appliedStyleTag, applyStyleToPrompt, clearStyle } from '$lib/prompt/styleSegments';
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
 	import MultiPromptEditor from '$lib/components/MultiPromptEditor.svelte';
 	import PromptRelayEditor from '$lib/components/PromptRelayEditor.svelte';
@@ -89,7 +89,12 @@
 		const result = applyStyleToPrompt(tab.promptSegments || [], tab.negativePromptSegments || [], tab.selectedPreset, style);
 		tabHandlers.handlePromptSegmentsChange(result.promptSegments);
 		tabHandlers.handleNegativePromptSegmentsChange(result.negativeSegments);
-		stylesPickerOpen = false;
+	}
+
+	function clearAppliedStyle() {
+		const result = clearStyle(tab.promptSegments || [], tab.negativePromptSegments || []);
+		tabHandlers.handlePromptSegmentsChange(result.promptSegments);
+		tabHandlers.handleNegativePromptSegmentsChange(result.negativeSegments);
 	}
 </script>
 
@@ -199,8 +204,9 @@
 		presetId={tab.selectedPreset || ''}
 		styles={presetStyles}
 		{appliedStyleId}
-		on:close={() => (stylesPickerOpen = false)}
-		on:apply={(e) => applyStyle(e.detail)}
+		onClose={() => (stylesPickerOpen = false)}
+		onApply={applyStyle}
+		onClear={clearAppliedStyle}
 	/>
 {/if}
 

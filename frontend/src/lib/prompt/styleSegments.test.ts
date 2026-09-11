@@ -4,6 +4,7 @@ import type { Segment } from '$lib/types/segments';
 import {
 	appliedStyleTag,
 	applyStyleToPrompt,
+	clearStyle,
 	isStyleApplied,
 	parseStyleSegmentId,
 	styleSegmentId
@@ -143,5 +144,33 @@ describe('appliedStyleTag / isStyleApplied', () => {
 
 		const withoutAppend = applied.promptSegments.filter((s) => s.id !== styleSegmentId('preset-1', 'retro', 'append'));
 		expect(appliedStyleTag(withoutAppend)).toBeNull();
+	});
+});
+
+describe('clearStyle', () => {
+	it('removes the tagged prepend/append cards, keeping user segments', () => {
+		const applied = applyStyleToPrompt([editor('u1', 'a cat')], [], 'preset-1', style('retro'));
+		const cleared = clearStyle(applied.promptSegments, applied.negativeSegments);
+		expect(cleared.promptSegments.map((s) => s.id)).toEqual(['u1']);
+		expect(appliedStyleTag(cleared.promptSegments)).toBeNull();
+	});
+
+	it('removes the tagged negative card, keeping user negative segments', () => {
+		const applied = applyStyleToPrompt(
+			[],
+			[editor('n1', 'blurry')],
+			'preset-1',
+			style('retro', { negative: 'oversaturated' })
+		);
+		const cleared = clearStyle(applied.promptSegments, applied.negativeSegments);
+		expect(cleared.negativeSegments.map((s) => s.id)).toEqual(['n1']);
+	});
+
+	it('is a no-op on segments with no style applied', () => {
+		const positive = [editor('u1', 'a cat')];
+		const negative = [editor('n1', 'blurry')];
+		const cleared = clearStyle(positive, negative);
+		expect(cleared.promptSegments.map((s) => s.id)).toEqual(['u1']);
+		expect(cleared.negativeSegments.map((s) => s.id)).toEqual(['n1']);
 	});
 });

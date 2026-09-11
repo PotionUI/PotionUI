@@ -31,7 +31,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 - **Video and Music Directors** — compose shots and songs in sections instead
   of one giant prompt.
 
-*Alpha 0.0.5 · Linux x86_64 + NVIDIA · Windows via WSL2 or Docker ·
+*Alpha 0.0.6 · Linux x86_64 + NVIDIA · Windows via WSL2 or Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Ko-fi](https://ko-fi.com/A3B325D031)*
 
 ## 60 seconds to first image
@@ -217,7 +217,7 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Runs on Linux x86_64 with an NVIDIA GPU** — that's the tested 0.0.5
+> **Runs on Linux x86_64 with an NVIDIA GPU** — that's the tested 0.0.6
 > matrix. On Windows, use WSL2 or Docker Desktop (native Windows won't even
 > install yet). Details in [Supported platforms](#supported-platforms).
 
@@ -255,7 +255,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 | Platform                    | Status                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.5                                                              |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.6                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
 | Windows native              | No — the install pulls Linux-only packages (e.g. `uvloop`); use WSL2 or Docker Desktop      |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
@@ -324,6 +324,60 @@ Start with the in-app documentation browser, or read the Markdown directly:
 The two most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
 
+### 0.0.6 — 2026-09-11
+
+- Generate: presets can ship curated styles — a Styles button in the Prompt panel opens
+  a picker with category filters, a text filter and Small/Big previews, and applying a
+  style wraps the prompt with the style's opening and closing segments plus its negative,
+  with a second pick replacing the first; Anima ships fifty styles with rendered
+  previews; prompt weights like `(red hair:1.3)` are honored by the Qwen3, Qwen3-VL and
+  Qwen2.5-VL text encoders (Klein, Krea-2, Qwen-Image, Anima, Z-Image); phrasebook chips
+  animate when a value is shuffled or picked; the chat's Suggested change preview shows
+  phrasebook and variable references as chips.
+- Generate: the page stays smooth during a generation — status and preview updates are
+  applied once per frame instead of once per sampling step, the presets list and plugin
+  catalogs are fetched once at boot instead of twice, and the collapsed workbench is a
+  labelled rail in both layouts; the Prompt panel toolbar reads at the app's text size.
+- History and Library: drag a marquee, Shift-click a range, Ctrl-click to toggle and
+  Ctrl+A to select the page, on both grids; Delete by criteria replaces Delete by tags —
+  tags, older than N days or a date range, failed/cancelled only, without media files,
+  keep favorites — with a live count; Compare gets Overlay with an opacity slider and
+  Wipe with a draggable divider on full-resolution images plus a full-screen viewer;
+  Compare, Stitch and Download work from the Library too, plugins can scope their
+  tools to History, Library or both, and the Library can export a zip; Stitch results
+  can be saved to the Library; grids resize without remounting their thumbnails.
+- Chat: memory reflection saves to the preset a generation chat is about and to the
+  plugin mode a plugin chat runs in, and only to global when you ask; long sessions
+  open on their latest messages and load earlier ones as you scroll up, streamed
+  replies are applied once per frame, and the transcript only follows the reply while
+  you are at the bottom; Admin → Chat Sessions can clear every chat session.
+- Admin: Housekeeping deletes generations by criteria across all users with a
+  preview count; the Add Download modal picks the model type from a chip row and the
+  destination from your real depot subfolders, nested ones included, with an inline
+  New folder option, and the Downloads to hint follows the type; the model picker's
+  download shows a spinner; Hugging Face downloads carry the provider's token.
+- Recipes: starter recipes for Flux2 Klein, Krea-2, Qwen-Image, Anima, Wan 2.2, LTX-2,
+  LTX-2.5, MiniMax-H3, MiniMax-Music3, SeedVR2 and TRELLIS.2 with official repositories;
+  gated models are marked with their licence link; the first-generation step shows
+  sampling progress and the result inline (image, video, audio or mesh); an installed
+  model is recognised by hash even when it was filed under another type or folder.
+- Native engine: the text encoder stays on the GPU after encoding when it fits, so
+  back-to-back generations skip the reload; rotary tables are computed once per run
+  for MiniMax-H3 and Krea-2; Krea-2 gains ER-SDE, DPM++ 2M SDE, DPM++ 3M and RES
+  multistep samplers and a Beta schedule, and samplers and schedules are a plugin
+  extension point; long-prompt attention stays on the memory-efficient kernel instead
+  of running out of memory.
+- Fixes: the model scanner no longer stops on an indexed model without a file path or
+  when the models location is unset; a recipe download could land under a doubled
+  models folder and go unfound by the first-generation step; tag popovers inside
+  modals no longer stretch the modal; long option lists in chip popovers scroll; the
+  phrasebook preview poll pauses while the tab is hidden; superseded model searches
+  are cancelled instead of racing.
+- Upgrading: style previews are rendered with `python scripts/preset_styles_render.py
+  <preset directory>` — a preset's `styles.yml` declares the styles and a shared
+  preview scene, and the script writes the previews into the preset's `public/styles/`
+  folder.
+
 ### 0.0.5 — 2026-09-09
 
 - Native engine: LoRAs on fp8 checkpoints no longer slow sampling down — the adapter
@@ -387,77 +441,6 @@ The two most recent releases; older history lives in the
 - Upgrading: migration 024 adds prefix/suffix columns to the three segment tables; the
   server log moves to storage/logs/potionui.log (see README); the setup wizard's run
   responses gain a `mode` field.
-
-### 0.0.4 — 2026-09-08
-
-- ComfyUI: the `comfyui-backend` plugin ships in the marketplace with five image
-  presets (Qwen-Image, SDXL, Z-Image, Krea-2, Flux.2 Klein 9B) built on official
-  ComfyUI templates with built-in nodes only, and Admin → Presets gains a workflow
-  import wizard: paste an Export (API) workflow, design its form (tabs, rows,
-  sections; a LoRA chain becomes a LoRA picker), check node and model
-  requirements against your server, create the preset, and reopen, edit, reload
-  or delete it later. An admin-only chat mode proposes form changes for approval.
-- Chat becomes PotionAI: a floating shell with a history rail, mode, context and
-  model header, tool-run transcript and memory inspector; approval and question
-  docks share one anatomy; the Steps panel says why a tool was withheld; the
-  assistant creates and changes prompt variables with your approval; cancelling
-  a turn, closing the tab mid-stream or reloading never leaves a reply stuck; a
-  model-aware context budget and a bounded memory reflection keep long
-  conversations working, and a model without a declared context window is
-  never refused a turn; native LLM thinking mode is detected and reported.
-- Video Director shot console: a film runs as shots with per-shot prompt,
-  keyframes, audio, LoRAs and references; a shot knows when it depends on its
-  predecessor and can continue from that shot's last rendered frame; Wan, LTX
-  and MiniMax-H3 timelines compile to the exact frame geometry the engine
-  renders.
-- Generate: a docked generation panel with status, context rail and session
-  cluster; `Q` floats the form, `W` floats the workbench, `H` opens a Last
-  generations drawer, `S` saves the session; the prompt segments editor gets the
-  composer card with icon actions and a resolved-prompt panel; the running
-  status names the backend that took the generation and why.
-- Native engine: a run-scoped cache stops Flux, Krea-2, Qwen-Image, Z-Image and
-  Wan 2.2 recomputing unchanged work every step; text encoders load only on a
-  cache miss; fp8 weights take the fast scaled-matmul path even while streamed;
-  cancelling is safe mid-run for SDXL, TRELLIS.2, SeedVR2 and RIFE; a LoRA with
-  no effect is diagnosed instead of silently ignored; the host RAM reserve
-  scales with the machine; an experimental MiniMax-H3 VDN preset adds hybrid
-  attention.
-- Presets and templating: the authoring guide is split into `docs/presets/` with a
-  tutorial that walks the real eight-pipe Z-Image chain, and two pages generated
-  from code, `docs/pipes.md` (every pipe's name, inputs, outputs and configuration)
-  and `docs/preset-context.md` (the template context, filters and vocabularies),
-  kept in sync by `docs_lint`; `preset_new.py --family` scaffolds a family's real
-  pipe chain; the linter checks pipeline.yml (pipe names, configuration keys,
-  input wiring, per-variant fields, stale `| default()` literals) and
-  `preset_lint --render` renders every mode through the real processor; the
-  render context gains `generation.profile` and loses four unused roots; an
-  `@config:` typo is a load error; 866 dead form guards are gone from the
-  shipped presets; a `strip_model_dir` filter replaces the ComfyUI presets'
-  path-stripping chains; the Pipes and Output Types reference pages in Help →
-  Documentation are complete and grouped by family.
-- Fixes: generation history never records a model's internal path (existing rows
-  migrated); applying a chat change to a segment with a phrasebook chip no
-  longer shows the chip twice; the chained Wan video generator declares its NAG
-  keys.
-- Admin: presets declare requirements (nodes, model files, VRAM) that are
-  checked per backend; the backend that runs a generation is always the
-  router's decision, traceable in a Routing panel on each generation; per-backend
-  queue scheduling can be fair across users; a
-  backend's execution device comes from real hardware evidence; enabling a
-  plugin rolls back cleanly on failure and a local plugin shadowing a
-  marketplace one is flagged; plugin frontends ship minified.
-- History: faster listing and counting, streamed zip and bundle exports, bounded
-  run reports, and semantic search that shares one embedding client; bundle v2
-  records each model's type, filename, hash and path.
-- Reliability: session save and load, downloads, collections, WebSocket
-  reconnects and generation ownership all reject stale responses; request logs
-  redact secrets; the service worker precaches only the shell.
-- Logins ignore letter case for username and email.
-- Upgrading: default ports are now 7680 (backend), 7681 (frontend) and 7690
-  (worker); the ComfyUI import accepts Export (API) JSON only; the Qwen-Image
-  nunchaku variant, the Krea-2 enhancer and the Z-Image post-processing chain
-  were removed; migration 018 refuses to apply while two accounts differ only by
-  letter case.
 
 ## Contributing
 

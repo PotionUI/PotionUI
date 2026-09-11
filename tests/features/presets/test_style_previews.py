@@ -41,22 +41,66 @@ def _style(**overrides):
     return style
 
 
+_NO_DEFAULTS = {"prompt_prefix": "", "negative": ""}
+
+
 class TestBuildStylePrompt:
     def test_wraps_example_prompt(self):
-        prompt, negative = build_style_prompt(_style())
+        prompt, negative = build_style_prompt(_style(), _NO_DEFAULTS)
         assert prompt == "old, a cat, retro."
         assert negative == "3d"
 
     def test_missing_prepend_append_negative_default_empty(self):
         style = {"id": "x", "example_prompt": "a cat"}
-        prompt, negative = build_style_prompt(style)
+        prompt, negative = build_style_prompt(style, _NO_DEFAULTS)
         assert prompt == "a cat"
+        assert negative == ""
+
+    def test_prompt_prefix_goes_before_prepend(self):
+        defaults = {"prompt_prefix": "masterpiece, best quality, ", "negative": ""}
+        prompt, _ = build_style_prompt(_style(), defaults)
+        assert prompt == "masterpiece, best quality, old, a cat, retro."
+
+    def test_negatives_join_defaults_first_then_style(self):
+        defaults = {"prompt_prefix": "", "negative": "worst quality, low quality"}
+        _, negative = build_style_prompt(_style(), defaults)
+        assert negative == "worst quality, low quality, 3d"
+
+    def test_empty_default_negative_omits_join(self):
+        defaults = {"prompt_prefix": "", "negative": ""}
+        _, negative = build_style_prompt(_style(), defaults)
+        assert negative == "3d"
+
+    def test_empty_style_negative_omits_join(self):
+        style = _style(negative=None)
+        defaults = {"prompt_prefix": "", "negative": "worst quality"}
+        _, negative = build_style_prompt(style, defaults)
+        assert negative == "worst quality"
+
+    def test_both_negatives_empty_yields_empty_string(self):
+        style = _style(negative=None)
+        _, negative = build_style_prompt(style, _NO_DEFAULTS)
         assert negative == ""
 
 
 class TestPreviewRelPath:
     def test_builds_canonical_path(self):
         assert preview_rel_path("retro-90s-cel") == "public/styles/retro-90s-cel.webp"
+
+
+def _preset_with_nested_tab_field(field_name: str) -> PresetTemplate:
+    """A field buried the way Anima's real form nests it: tabs -> tab ->
+    section -> row -> field (see modes/txt2img/tabs/generation.yml, loaded
+    onto the form's top-level `fields:` as external `children:` fragments -
+    `PresetTemplateLoader._load_external_children_file`)."""
+    target = FieldTemplate(type="slider", name=field_name)
+    row = FieldTemplate(type="row", children=[FieldTemplate(type="seed", name="seed"), target])
+    section = FieldTemplate(type="section", children=[row])
+    tab = FieldTemplate(type="tab", children=[section])
+    tabs = FieldTemplate(type="tabs", children=[tab])
+    form = FormTemplate(name="custom", fields=[tabs], default=True)
+    mode = ModeTemplate(forms=[form], pipes=[])
+    return PresetTemplate(id="anima", name="Anima", version="1.0.0", path="/tmp/anima", modes={"txt2img": mode})
 
 
 class TestFormHasField:
@@ -71,6 +115,17 @@ class TestFormHasField:
     def test_false_for_unknown_mode(self):
         preset = _preset()
         assert form_has_field(preset, "img2img", "quantity") is False
+
+    def test_finds_field_nested_under_a_tab(self):
+        """Regression: `quantity`/`steps`/`resolution` on a real preset live
+        several levels under a tab (tabs -> tab -> section -> row), not as a
+        direct child of the form - the lookup must recurse that deep."""
+        preset = _preset_with_nested_tab_field("steps")
+        assert form_has_field(preset, "txt2img", "steps") is True
+
+    def test_false_for_field_not_present_even_nested(self):
+        preset = _preset_with_nested_tab_field("steps")
+        assert form_has_field(preset, "txt2img", "resolution") is False
 
 
 class TestSelectStyles:

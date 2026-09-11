@@ -83,6 +83,29 @@ class TestValidateStylesFile:
         assert errors == []
         assert parsed.styles[0].preview == "public/styles/retro-90s-cel.webp"
 
+    def test_missing_preview_block_defaults_to_empty(self):
+        parsed, errors = validate_styles_file({"styles": [_valid_style()]})
+        assert errors == []
+        assert parsed.preview.prompt_prefix == ""
+        assert parsed.preview.negative == ""
+
+    def test_preview_block_loaded(self):
+        parsed, errors = validate_styles_file({
+            "preview": {"prompt_prefix": "masterpiece, best quality, ", "negative": "worst quality"},
+            "styles": [_valid_style()],
+        })
+        assert errors == []
+        assert parsed.preview.prompt_prefix == "masterpiece, best quality, "
+        assert parsed.preview.negative == "worst quality"
+
+    def test_preview_block_unknown_field_rejected(self):
+        parsed, errors = validate_styles_file({
+            "preview": {"prompt_prefix": "x", "extra": "nope"},
+            "styles": [_valid_style()],
+        })
+        assert parsed is None
+        assert errors
+
 
 def _write_preset(preset_dir: Path, preset_id: str) -> None:
     preset_dir.mkdir(parents=True)
@@ -114,6 +137,47 @@ class TestLoaderStyles:
         preset = loader.load_preset_by_id("01AAAAAAAAAAAAAAAAAAAAAAAAA")
         assert preset is not None
         assert preset.styles == []
+        assert preset.styles_preview == {"prompt_prefix": "", "negative": ""}
+
+    def test_preview_block_loads_onto_styles_preview(self, tmp_path):
+        preset_dir = tmp_path / "presets/native/Foo/std"
+        _write_preset(preset_dir, "01EEEEEEEEEEEEEEEEEEEEEEEEE")
+        (preset_dir / "styles.yml").write_text(
+            """preview:
+  prompt_prefix: "masterpiece, best quality, "
+  negative: "worst quality, low quality"
+
+styles:
+  - id: "retro-90s-cel"
+    name: "Retro 90s Anime Cel"
+    category: "Anime"
+    prepend: "old, "
+    append: ", retro."
+    example_prompt: "a cat"
+"""
+        )
+
+        loader = PresetTemplateLoader(str(tmp_path))
+        loader.load_presets()
+
+        preset = loader.load_preset_by_id("01EEEEEEEEEEEEEEEEEEEEEEEEE")
+        assert preset.styles_preview == {
+            "prompt_prefix": "masterpiece, best quality, ",
+            "negative": "worst quality, low quality",
+        }
+
+    def test_malformed_styles_yml_defaults_styles_preview_too(self, tmp_path):
+        preset_dir = tmp_path / "presets/native/Foo/std"
+        _write_preset(preset_dir, "01FFFFFFFFFFFFFFFFFFFFFFFFF")
+        (preset_dir / "styles.yml").write_text(
+            "styles:\n  - id: \"Bad Id!\"\n    name: x\n"
+        )
+
+        loader = PresetTemplateLoader(str(tmp_path))
+        loader.load_presets()
+
+        preset = loader.load_preset_by_id("01FFFFFFFFFFFFFFFFFFFFFFFFF")
+        assert preset.styles_preview == {"prompt_prefix": "", "negative": ""}
 
     def test_valid_styles_yml_loads_onto_template(self, tmp_path):
         preset_dir = tmp_path / "presets/native/Foo/std"

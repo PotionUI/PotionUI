@@ -18,11 +18,17 @@ from src.features.preset_suite.resolver import ResolveResult
 from src.features.presets.templates import FieldTemplate, FormTemplate, ModeTemplate, PresetTemplate
 
 
-def _preset(preset_dir: Path, styles) -> PresetTemplate:
-    form = FormTemplate(name="custom", fields=[FieldTemplate(type="seed", name="seed")], default=True)
+def _preset(preset_dir: Path, styles, extra_fields=(), styles_preview=None) -> PresetTemplate:
+    fields = [FieldTemplate(type="seed", name="seed")]
+    fields += [FieldTemplate(type="slider", name=name) for name in extra_fields]
+    form = FormTemplate(name="custom", fields=fields, default=True)
     mode = ModeTemplate(forms=[form], pipes=[])
+    kwargs = {}
+    if styles_preview is not None:
+        kwargs["styles_preview"] = styles_preview
     return PresetTemplate(
-        id="anima", name="Anima", version="1.0.0", path=str(preset_dir), modes={"txt2img": mode}, styles=styles
+        id="anima", name="Anima", version="1.0.0", path=str(preset_dir), modes={"txt2img": mode}, styles=styles,
+        **kwargs,
     )
 
 
@@ -136,6 +142,69 @@ class TestRenderStyles:
         assert submitted["diffusion_model"] == "/models/dit.safetensors"
         assert submitted["text_encoder"] == "/models/te.safetensors"
         assert submitted["seed"] == 1
+
+    def test_styles_preview_defaults_applied_to_prompt_and_negative(self, tmp_path):
+        preset_dir = tmp_path / "preset"
+        preset_dir.mkdir()
+        _write_styles_yml(preset_dir, _style())
+        preset = _preset(
+            preset_dir, [_style()],
+            styles_preview={"prompt_prefix": "masterpiece, best quality, ", "negative": "worst quality"},
+        )
+        client = FakeClient(outcomes=[_completed_outcome()])
+
+        psr.render_styles(client, preset, None, long_edge=64, seed=1, force=False, model_form_data={})
+
+        call = client.run_case_calls[0]
+        assert call["prompt"] == "masterpiece, best quality, old, a cat, retro."
+        assert call["negative_prompt"] == "worst quality, 3d"
+
+    def test_steps_and_resolution_applied_when_fields_present(self, tmp_path, capsys):
+        preset_dir = tmp_path / "preset"
+        preset_dir.mkdir()
+        _write_styles_yml(preset_dir, _style())
+        preset = _preset(preset_dir, [_style()], extra_fields=["steps", "resolution"])
+        client = FakeClient(outcomes=[_completed_outcome()])
+
+        psr.render_styles(
+            client, preset, None, long_edge=64, seed=1, force=False, model_form_data={},
+            steps=30, resolution="1024x1024",
+        )
+
+        submitted = client.run_case_calls[0]["form_data"]
+        assert submitted["steps"] == 30
+        assert submitted["resolution"] == "1024x1024"
+        assert "steps: 30; resolution: 1024x1024" in capsys.readouterr().out
+
+    def test_steps_and_resolution_ignored_when_fields_absent(self, tmp_path, capsys):
+        preset_dir = tmp_path / "preset"
+        preset_dir.mkdir()
+        _write_styles_yml(preset_dir, _style())
+        preset = _preset(preset_dir, [_style()])  # no steps/resolution fields
+        client = FakeClient(outcomes=[_completed_outcome()])
+
+        psr.render_styles(
+            client, preset, None, long_edge=64, seed=1, force=False, model_form_data={},
+            steps=30, resolution="1024x1024",
+        )
+
+        submitted = client.run_case_calls[0]["form_data"]
+        assert "steps" not in submitted
+        assert "resolution" not in submitted
+        out = capsys.readouterr().out
+        assert "--steps ignored" in out
+        assert "--resolution ignored" in out
+
+    def test_steps_and_resolution_report_preset_default_when_omitted(self, tmp_path, capsys):
+        preset_dir = tmp_path / "preset"
+        preset_dir.mkdir()
+        _write_styles_yml(preset_dir, _style())
+        preset = _preset(preset_dir, [_style()], extra_fields=["steps", "resolution"])
+        client = FakeClient(outcomes=[_completed_outcome()])
+
+        psr.render_styles(client, preset, None, long_edge=64, seed=1, force=False, model_form_data={})
+
+        assert "steps: preset default; resolution: preset default" in capsys.readouterr().out
 
     def test_fills_preview_when_unset(self, tmp_path):
         preset_dir = tmp_path / "preset"
@@ -326,6 +395,25 @@ class TestMain:
 
         assert code == 0
         assert client.run_case_calls[0]["form_data"]["diffusion_model"] == "/models/dit.safetensors"
+
+    def test_steps_and_resolution_flags_reach_the_submitted_form(self, tmp_path, monkeypatch):
+        preset_dir = tmp_path / "preset"
+        preset_dir.mkdir()
+        _write_styles_yml(preset_dir, _style())
+        sha = "a" * 64
+        _write_tests_yml(preset_dir, {"diffusion_model": sha})
+        preset = _preset(preset_dir, [_style()], extra_fields=["steps", "resolution"])
+        client = FakeClient(outcomes=[_completed_outcome()])
+        resolver = FakeResolver({sha: "/models/dit.safetensors"})
+        monkeypatch.setattr(psr, "_boot_client", lambda run_dir: (client, _container_for(preset_dir, preset)))
+        monkeypatch.setattr(psr, "build_live_resolver", lambda allow_download=False: resolver)
+
+        code = psr.main([str(preset_dir), "--steps", "30", "--resolution", "1024x1024"])
+
+        assert code == 0
+        submitted = client.run_case_calls[0]["form_data"]
+        assert submitted["steps"] == 30
+        assert submitted["resolution"] == "1024x1024"
 
     def test_completed_run_removes_its_run_dir(self, tmp_path, monkeypatch):
         preset_dir = tmp_path / "preset"

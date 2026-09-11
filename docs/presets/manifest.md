@@ -404,6 +404,10 @@ own prompt, each with a rendered preview. They live in an optional `styles.yml` 
 preset root, next to `preset.yml`:
 
 ```yaml
+preview:                                  # optional; see "Rendering previews" below
+  prompt_prefix: "masterpiece, best quality, "
+  negative: "worst quality, low quality, score_1, score_2, score_3, artist name"
+
 styles:
   - id: "retro-90s-cel"                  # ^[a-z0-9-]+$, unique within the file
     name: "Retro 90s Anime Cel"
@@ -420,18 +424,31 @@ Applying a style prepends/appends its `prepend`/`append` to the user's prompt an
 its `negative` for the negative prompt; `example_prompt` is only used to render the style's own
 preview, never shown to the user.
 
+The top-level `preview:` block (`prompt_prefix`, `negative`, both `""` when the block or either
+field is omitted) is a preset-author default applied **only** when rendering previews
+(`scripts/preset_styles_render.py`) — never by the picker, which applies a style's
+`prepend`/`append`/`negative` unchanged. It exists so a preset with its own prompting
+conventions (e.g. Anima's quality tags and recommended negative) gets on-model previews without
+every style repeating that boilerplate: the rendered prompt is `prompt_prefix + prepend +
+example_prompt + append`, and the rendered negative joins the non-empty parts of
+`[preview.negative, style.negative]` with `", "`.
+
 ### Rules
 
 - **Lenient loading.** Unlike `preset.yml`/`pipeline.yml`/`form.yml`, a missing `styles.yml`
-  loads as `styles: []` and a malformed one degrades to `styles: []` rather than failing the
-  whole preset — styles are supplementary, not load-bearing for generation. Schema errors
-  (bad `id`, duplicate `id`, missing required field) and a `preview:` naming a file that doesn't
-  exist are `scripts/preset_lint.py` / `GET /api/developer/presets/lint` **errors**, same
-  rationale as [preset media](#preset-media)'s file-existence checks.
+  loads as `styles: []` (and `preview: {prompt_prefix: "", negative: ""}`) and a malformed one
+  degrades the same way rather than failing the whole preset — styles are supplementary, not
+  load-bearing for generation. Schema errors (bad `id`, duplicate `id`, missing required field)
+  and a `preview:` naming a file that doesn't exist are `scripts/preset_lint.py` /
+  `GET /api/developer/presets/lint` **errors**, same rationale as [preset media](#preset-media)'s
+  file-existence checks.
 - **`preview` follows the same asset rules as `media`** — relative, under `public/`, one of the
-  allowed extensions (see [Preset media](#preset-media) above); served the same way.
+  allowed extensions (see [Preset media](#preset-media) above); served the same way. (This is
+  each style's own `preview:` field — the top-level `preview:` block is unrelated and never a
+  file path.)
 - `GET /api/presets` returns `styles: []`; the full list comes from `GET /api/presets/{id}`, same
-  gating as `media.gallery`.
+  gating as `media.gallery`. The top-level `preview:` block is never sent to the frontend at
+  all — it lives on `PresetTemplate.styles_preview`, read only by the rendering script.
 
 ### Rendering previews
 
@@ -442,13 +459,19 @@ image so its long edge is `--long-edge` px (default 320), saves it as `public/st
 and sets `preview:` in `styles.yml` for that style when it was unset:
 
 ```bash
-python scripts/preset_styles_render.py <preset-id-or-path> [--style id ...] [--long-edge 320] [--seed 1] [--force]
+python scripts/preset_styles_render.py <preset-id-or-path> [--style id ...] [--long-edge 320] [--seed 1] [--force] [--steps N] [--resolution WxH]
 ```
 
 A style whose preview file already exists is skipped unless `--force`. The script runs through
 an ephemeral database and file storage, so it never touches the maintainer's live database or
 gallery, and it never reloads or restarts anything — the running app picks up the rendered files
 on its own next preset reload or restart.
+
+`--steps`/`--resolution` override the preset's own defaults, but only when its mode's form
+actually declares a field of that name (looked up through tabs/sections/rows, not just the top
+level — most presets' `steps`/`resolution`/`quantity` fields live several levels deep under a
+tab). The effective value used for each (the override, or `"preset default"` when the flag was
+omitted or the field doesn't exist) is printed once before any generation runs.
 
 The script has no form of its own to pick model weights from, so it resolves them from the
 preset's `tests.yml` (see `docs/presets/testing.md` "Testing presets"): the first case's

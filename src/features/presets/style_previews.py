@@ -23,11 +23,20 @@ STYLE_PREVIEW_WEBP_QUALITY = 80
 STYLE_PREVIEW_QUANTITY_FIELD = "quantity"
 
 
-def build_style_prompt(style: Dict[str, Any]) -> Tuple[str, str]:
-    """`(prompt, negative)` for one style: prepend + example_prompt + append,
-    and the style's own negative (empty string when unset)."""
-    prompt = f"{style.get('prepend', '')}{style['example_prompt']}{style.get('append', '')}"
-    negative = style.get("negative") or ""
+def build_style_prompt(style: Dict[str, Any], defaults: Dict[str, str]) -> Tuple[str, str]:
+    """`(prompt, negative)` for one style.
+
+    `prompt` = `defaults["prompt_prefix"]` + `prepend` + `example_prompt` +
+    `append`. `negative` joins the non-empty parts of
+    `[defaults["negative"], style["negative"]]` with `", "` - the preset's
+    own recommended negative (e.g. Anima's quality-score exclusions) first,
+    the style's own negative after. `defaults` is a preset's
+    `styles.yml` `preview:` block (`PresetTemplate.styles_preview`); pass
+    `{"prompt_prefix": "", "negative": ""}` for none.
+    """
+    prompt = f"{defaults.get('prompt_prefix', '')}{style.get('prepend', '')}{style['example_prompt']}{style.get('append', '')}"
+    parts = [defaults.get("negative") or "", style.get("negative") or ""]
+    negative = ", ".join(p for p in parts if p)
     return prompt, negative
 
 

@@ -1,3 +1,7 @@
+preview:
+  prompt_prefix: "masterpiece, best quality, "
+  negative: "worst quality, low quality, score_1, score_2, score_3, artist name, blurry, jpeg artifacts, chromatic aberration"
+
 styles:
   - id: "retro-90s-cel"
     name: "Retro 90s Anime Cel"

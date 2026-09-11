@@ -145,6 +145,12 @@ class PresetTemplate:
     # none), each dict shaped like `PresetStyle` in schema.py. See
     # docs/presets/manifest.md "Styles".
     styles: List[Dict[str, Any]] = field(default_factory=list)
+    # `styles.yml`'s optional top-level `preview:` block ({"prompt_prefix",
+    # "negative"}, both "" when absent/unset) - preset-author defaults applied
+    # ONLY by `scripts/preset_styles_render.py` when rendering style previews,
+    # never by the picker. Not part of the `PresetStyle`/DTO the frontend
+    # reads - see `StylesPreviewDefaults` in schema.py.
+    styles_preview: Dict[str, str] = field(default_factory=lambda: {"prompt_prefix": "", "negative": ""})
     # Declared schema for admin-set configuration (roadmap: preset configuration),
     # e.g. {"checkpoint_tags": {"type": "model_tags", "label": "...", "description": "..."}}.
     # Values themselves are admin-set state, not part of this template - see

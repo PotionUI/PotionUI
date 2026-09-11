@@ -6,17 +6,29 @@ client `scripts/preset_test_suite.py` uses
 (`src.features.preset_suite.runner.HeadlessGenerationClient`) - an ephemeral
 per-run database and file storage, so the run never touches the maintainer's
 live database or gallery (see that module's docstring for the ephemeral-DB
-design). Downscales the first output image to `--long-edge` px, saves it as
-`public/styles/<id>.webp` inside the preset directory, and fills `preview:`
-in `styles.yml` for that style when it was unset.
+design). Each style's prompt is `styles.yml`'s optional top-level `preview:`
+block's `prompt_prefix` + the style's own `prepend` + `example_prompt` +
+`append`; the negative joins that block's `negative` and the style's own
+`negative` (see docs/presets/manifest.md "Styles") - a preset with its own
+prompting conventions (quality tags, a recommended negative) gets on-model
+previews without every style repeating that boilerplate. Downscales the
+first output image to `--long-edge` px, saves it as `public/styles/<id>.webp`
+inside the preset directory, and fills `preview:` in `styles.yml` for that
+style when it was unset.
 
     python scripts/preset_styles_render.py content/presets/marketplace/Anima
     python scripts/preset_styles_render.py content/presets/marketplace/Anima --style retro-90s-cel
     python scripts/preset_styles_render.py 01KX5GRNWFC9S2F6T15155H41C --long-edge 512 --seed 7 --force
+    python scripts/preset_styles_render.py content/presets/marketplace/Anima --steps 30 --resolution 1024x1024
 
 The preset argument is either a preset id (its `preset.yml` `id:`) or the
 preset's directory (the one holding its `preset.yml`, e.g.
 `content/presets/marketplace/Anima`).
+
+`--steps`/`--resolution` override the preset's own defaults, but only when
+its form actually declares a field of that name (checked through tabs/
+sections/rows, not just the top level) - the effective value (or "preset
+default") for each is printed once before any generation runs.
 
 Style rendering has no form of its own to pick model weights from, so it
 borrows the preset's `tests.yml`: the first case's `models:` map (see
@@ -153,11 +165,16 @@ def render_styles(
     seed: int,
     force: bool,
     model_form_data: Dict[str, str],
+    steps: Optional[int] = None,
+    resolution: Optional[str] = None,
 ) -> List[str]:
     """Render `style_ids` (all of the preset's styles when omitted); returns
     the report lines, one per style (skips included). `model_form_data` is
     the preset's model fields, already resolved by `resolve_model_form_data`,
-    submitted unchanged with every generation."""
+    submitted unchanged with every generation. `steps`/`resolution` override
+    the preset's own defaults, but only when its form actually has a field of
+    that name - printed once, effective value or "preset default", before
+    any generation runs."""
     lines: List[str] = []
     targets = select_styles(preset.styles or [], style_ids)
 
@@ -177,6 +194,24 @@ def render_styles(
     if form_has_field(preset, mode, STYLE_PREVIEW_QUANTITY_FIELD):
         form_data[STYLE_PREVIEW_QUANTITY_FIELD] = 1
 
+    effective_steps: Any = "preset default"
+    if steps is not None:
+        if form_has_field(preset, mode, "steps"):
+            form_data["steps"] = steps
+            effective_steps = steps
+        else:
+            effective_steps = "preset default (--steps ignored, no 'steps' field)"
+
+    effective_resolution: Any = "preset default"
+    if resolution is not None:
+        if form_has_field(preset, mode, "resolution"):
+            form_data["resolution"] = resolution
+            effective_resolution = resolution
+        else:
+            effective_resolution = "preset default (--resolution ignored, no 'resolution' field)"
+
+    print(f"steps: {effective_steps}; resolution: {effective_resolution}")
+
     for style in targets:
         rel_preview = preview_rel_path(style["id"])
         dest = preset_dir / rel_preview
@@ -185,7 +220,7 @@ def render_styles(
             lines.append(f"skip {style['id']} (preview exists)")
             continue
 
-        prompt, negative = build_style_prompt(style)
+        prompt, negative = build_style_prompt(style, preset.styles_preview)
         outcome = client.run_case(preset.id, mode, dict(form_data), prompt=prompt, negative_prompt=negative)
 
         if outcome.status != "completed" or not outcome.images:
@@ -214,6 +249,10 @@ def main(argv=None) -> int:
                      help=f"Generation seed (default: {STYLE_PREVIEW_SEED_DEFAULT}).")
     ap.add_argument("--force", action="store_true",
                      help="Re-render a style even when its preview file already exists.")
+    ap.add_argument("--steps", type=int, default=None,
+                     help="Override the preset's steps, only if its form has a 'steps' field.")
+    ap.add_argument("--resolution", default=None, metavar="WxH",
+                     help="Override the preset's resolution, only if its form has a 'resolution' field.")
     args = ap.parse_args(argv)
 
     from src.features.preset_suite import ephemeral
@@ -244,7 +283,8 @@ def main(argv=None) -> int:
 
         try:
             lines = render_styles(
-                client, preset, args.style_ids, args.long_edge, args.seed, args.force, model_form_data
+                client, preset, args.style_ids, args.long_edge, args.seed, args.force, model_form_data,
+                steps=args.steps, resolution=args.resolution,
             )
         except ValueError as e:
             print(f"error: {e}")

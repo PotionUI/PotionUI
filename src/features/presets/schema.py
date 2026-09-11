@@ -438,9 +438,25 @@ class PresetStyle(BaseModel):
         return self
 
 
+class StylesPreviewDefaults(BaseModel):
+    """Optional top-level `preview:` block in `styles.yml`: preset-author
+    defaults applied ONLY when rendering style previews (`scripts/
+    preset_styles_render.py`) - never by the picker, which applies a style's
+    own `prepend`/`append`/`negative` unchanged. Lets a preset with its own
+    prompting conventions (e.g. Anima's quality-tag prefix and recommended
+    negative) get on-model previews without repeating that boilerplate in
+    every style entry."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    prompt_prefix: str = ""
+    negative: str = ""
+
+
 class StylesFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    preview: StylesPreviewDefaults = Field(default_factory=StylesPreviewDefaults)
     styles: List[PresetStyle] = Field(default_factory=list)
 
     @model_validator(mode="after")

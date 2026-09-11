@@ -75,6 +75,27 @@ describe('applyStyleToPrompt', () => {
 		expect(result.negativeSegments[1].name).toBe('Style retro · negative');
 	});
 
+	it('trims the separator the joiner would otherwise double up on the seam', () => {
+		const result = applyStyleToPrompt(
+			[],
+			[],
+			'preset-1',
+			style('retro', { prepend: 'old, anime screenshot, ', append: ', 1990s (style), retro' })
+		);
+		expect(result.promptSegments.map((s) => s.content)).toEqual(['old, anime screenshot', '1990s (style), retro']);
+	});
+
+	it('trims both ends of the negative card', () => {
+		const result = applyStyleToPrompt([], [], 'preset-1', style('retro', { negative: ', oversaturated, ' }));
+		expect(result.negativeSegments[0].content).toBe('oversaturated');
+	});
+
+	it('leaves already-clean prepend/append/negative content untouched', () => {
+		const result = applyStyleToPrompt([], [], 'preset-1', style('retro', { negative: 'oversaturated' }));
+		expect(result.promptSegments.map((s) => s.content)).toEqual(['retro prepend', 'retro append']);
+		expect(result.negativeSegments[0].content).toBe('oversaturated');
+	});
+
 	it('leaves the negative list untouched when the style has no negative', () => {
 		const result = applyStyleToPrompt([], [editor('n1', 'blurry')], 'preset-1', style('retro'));
 		expect(result.negativeSegments.map((s) => s.content)).toEqual(['blurry']);

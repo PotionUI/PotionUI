@@ -77,6 +77,26 @@ function styleContentSegment(id: string, content: string, name: string): Segment
 	};
 }
 
+// The segment joiner already inserts its own separator between cards — a
+// prepend/append/negative string ending or starting with one of its own
+// (author data, not something we control) doubles up as a visible ",," or
+// dangling ", " once wrapped. Trimming here only affects the card's own
+// content, never `style.prepend`/`append`/`negative` themselves.
+const LEADING_SEPARATORS = /^[\s,]+/;
+const TRAILING_SEPARATORS = /[\s,]+$/;
+
+function trimTrailingSeparators(text: string): string {
+	return text.replace(TRAILING_SEPARATORS, '');
+}
+
+function trimLeadingSeparators(text: string): string {
+	return text.replace(LEADING_SEPARATORS, '');
+}
+
+function trimSeparators(text: string): string {
+	return trimLeadingSeparators(trimTrailingSeparators(text));
+}
+
 export interface StylePromptState {
 	promptSegments: Segment[];
 	negativeSegments: Segment[];
@@ -103,19 +123,23 @@ export function applyStyleToPrompt(
 
 	const prependSegment = styleContentSegment(
 		styleSegmentId(presetId, style.id, 'prepend'),
-		style.prepend,
+		trimTrailingSeparators(style.prepend),
 		`${style.name} · start`
 	);
 	const appendSegment = styleContentSegment(
 		styleSegmentId(presetId, style.id, 'append'),
-		style.append,
+		trimLeadingSeparators(style.append),
 		`${style.name} · end`
 	);
 
 	const nextNegative = style.negative
 		? [
 				...baseNegative,
-				styleContentSegment(styleSegmentId(presetId, style.id, 'negative'), style.negative, `${style.name} · negative`)
+				styleContentSegment(
+					styleSegmentId(presetId, style.id, 'negative'),
+					trimSeparators(style.negative),
+					`${style.name} · negative`
+				)
 			]
 		: baseNegative;
 

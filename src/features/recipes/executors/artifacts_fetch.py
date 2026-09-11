@@ -28,6 +28,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.models.repository import ModelRepository
+from src.features.recipes.executors._artifact_lookup import find_artifact_model
 from src.features.recipes.executors._async_bridge import run_sync
 from src.features.recipes.executors._provider_credentials import (
     credential_prompt_for_provider,
@@ -82,7 +83,7 @@ class ArtifactsFetchExecutor:
                     "ARTIFACTS_FETCH_MISCONFIGURED",
                     f"This step references an artifact ('{artifact_id}') the recipe doesn't declare.",
                 )
-            if self.model_repository.get_by_identity(artifact.model_type, artifact.filename) is None:
+            if find_artifact_model(self.model_repository, artifact) is None:
                 to_fetch.append(artifact)
 
         if not to_fetch:

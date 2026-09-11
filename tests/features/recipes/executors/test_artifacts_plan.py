@@ -8,11 +8,20 @@ from src.features.recipes.records import RecipeRun, RecipeRunStatus
 
 
 class FakeModelRepository:
-    def __init__(self, present=()):
+    def __init__(self, present=(), by_sha256=None):
         self.present = set(present)  # set of (model_type, filename)
+        self.by_sha256 = dict(by_sha256 or {})  # sha256 -> row (SimpleNamespace)
+        self.updated = []
 
     def get_by_identity(self, model_type, filename, include_providers=True):
         return object() if (model_type, filename) in self.present else None
+
+    def get_by_sha256(self, sha256, include_providers=True):
+        return self.by_sha256.get(sha256)
+
+    def update(self, model):
+        self.updated.append(model)
+        return True
 
 
 class FakeProviderMetadata:
@@ -62,6 +71,7 @@ def _artifact(
     provider_hint=None,
     gated=False,
     license_url=None,
+    checksum=None,
 ):
     return RecipeArtifact(
         id=aid,
@@ -73,6 +83,7 @@ def _artifact(
         provider_hint=provider_hint or {},
         gated=gated,
         license_url=license_url,
+        checksum=checksum,
     )
 
 
@@ -258,3 +269,28 @@ def test_non_gated_artifact_without_credentials_has_no_warning():
     result = executor.execute(_context(recipe, ["ckpt"]))
 
     assert "warnings" not in result.consent_request
+
+
+def test_hash_matched_misfiled_row_is_adopted_instead_of_redownloaded():
+    """The same bytes already indexed under another folder/type (a download
+    that landed in models/models/<type>/ and was typed 'unknown') count as
+    present: the row is retyped to the artifact's model_type and no consent
+    is requested."""
+    from types import SimpleNamespace
+    from src.features.recipes.schema import RecipeChecksum
+
+    artifact = _artifact("ckpt", checksum=RecipeChecksum(algorithm="sha256", value="abc123"))
+    row = SimpleNamespace(
+        model_type="unknown", filename=artifact.filename,
+        file_path="models/models/checkpoints/" + artifact.filename, is_available=True,
+    )
+    repo = FakeModelRepository(by_sha256={"abc123": row})
+    recipe = _recipe([artifact])
+    executor = ArtifactsPlanExecutor(repo)
+
+    result = executor.execute(_context(recipe, [artifact.id]))
+
+    assert result.success is True
+    assert result.safe_output["already_present"][0]["id"] == artifact.id
+    assert row.model_type == artifact.model_type
+    assert repo.updated == [row]

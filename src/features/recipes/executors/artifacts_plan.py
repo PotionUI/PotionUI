@@ -33,6 +33,7 @@ from src.features.recipes.executors._provider_credentials import (
     credential_prompt_for_provider,
     resolve_provider_registry,
 )
+from src.features.recipes.executors._artifact_lookup import find_artifact_model
 from src.features.recipes.executors.base import StepContext, StepResult
 
 
@@ -63,7 +64,7 @@ class ArtifactsPlanExecutor:
                     "ARTIFACTS_PLAN_MISCONFIGURED",
                     f"This step references an artifact ('{artifact_id}') the recipe doesn't declare.",
                 )
-            existing = self.model_repository.get_by_identity(artifact.model_type, artifact.filename)
+            existing = find_artifact_model(self.model_repository, artifact)
             entry = {
                 "id": artifact.id,
                 "display_name": artifact.display_name or artifact.filename,
@@ -73,6 +74,9 @@ class ArtifactsPlanExecutor:
                 "license_url": artifact.license_url,
             }
             if existing is not None:
+                found_as = getattr(existing, "file_path", None)
+                if found_as and getattr(existing, "filename", None) != artifact.filename:
+                    entry["found_as"] = found_as
                 present.append(entry)
             else:
                 missing.append(entry)

@@ -24,6 +24,8 @@ failure rules.
 
 from __future__ import annotations
 
+from src.features.recipes.executors._artifact_lookup import find_artifact_model
+
 from typing import Any, Dict, List, Optional
 
 from src.features.forms.binding import bind_form
@@ -178,11 +180,7 @@ def _resolve_model_fields(
         if artifact is None:
             form_data[name] = ""
             continue
-        model = (
-            model_repository.get_by_identity(spec["model_type"], artifact.filename)
-            if model_repository is not None
-            else None
-        )
+        model = find_artifact_model(model_repository, artifact) if model_repository is not None else None
         if model is None or not getattr(model, "file_path", None):
             raise RequiredModelMissing(artifact.display_name or artifact.filename, artifact.filename)
         form_data[name] = model.file_path

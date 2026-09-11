@@ -755,6 +755,64 @@ class GenerationController(BaseController):
             logging.error(f"Failed to get history version: {str(e)}")
             return self.error_response(error="history_version_failed", message=str(e))
 
+    async def get_matching_generation_ids(
+        self,
+        current_user,
+        status: Optional[str] = None,
+        created_from: Optional[str] = None,
+        created_to: Optional[str] = None,
+        completed_from: Optional[str] = None,
+        completed_to: Optional[str] = None,
+        tag_ids: Optional[str] = None,
+        media_type: Optional[str] = None,
+        search: Optional[str] = None,
+        mode: Optional[str] = None,
+        preset_id: Optional[str] = None,
+        model_name: Optional[str] = None,
+        min_rating: Optional[int] = None,
+        favorites_only: bool = False,
+        collection_id: Optional[str] = None,
+        used_phrasebook_value_id: Optional[str] = None,
+        system_tag: Optional[str] = None,
+        semantic_query: Optional[str] = None,
+    ) -> APIResponse:
+        """Ids of every generation matching the current history filters (the
+        "select all N matching" bulk-selection action), not just the loaded page."""
+        try:
+            parsed_tag_ids = None
+            if tag_ids:
+                parsed_tag_ids = [tid.strip() for tid in tag_ids.split(',') if tid.strip()]
+
+            result = self.history_query.get_matching_ids(
+                user_id=current_user.id,
+                status=status,
+                created_from=created_from,
+                created_to=created_to,
+                completed_from=completed_from,
+                completed_to=completed_to,
+                tag_ids=parsed_tag_ids,
+                media_type=media_type,
+                search=search,
+                mode=mode,
+                preset_id=preset_id,
+                model_name=model_name,
+                min_rating=min_rating,
+                favorites_only=favorites_only,
+                collection_id=collection_id,
+                used_phrasebook_value_id=used_phrasebook_value_id,
+                system_tag=system_tag,
+                semantic_query=semantic_query,
+            )
+            return self.success_response(data=result)
+        except InvalidDateFilterException as e:
+            return self.error_response(error="invalid_date_format", message=str(e), status_code=400)
+        except Exception as e:
+            logging.error(f"Failed to get matching generation ids: {str(e)}")
+            return self.error_response(
+                error="matching_ids_fetch_failed",
+                message=f"Failed to fetch matching generation ids: {str(e)}"
+            )
+
     async def delete_generation_history(
         self,
         generation_id: str,
@@ -1489,6 +1547,42 @@ def build_router(container: "AppContainer") -> APIRouter:
         """A change-detection token for the caller's history. Clients poll this
         and refetch the list only when the token differs from the last one seen."""
         return await controller.get_history_version(current_user)
+
+    # Registered before "/history/{generation_id}" so "matching-ids" is not read as an id.
+    @router.get("/history/matching-ids", response_model=APIResponse, summary="Get Matching Generation Ids")
+    async def get_matching_generation_ids(status: str = None,
+                                   created_from: str = None, created_to: str = None,
+                                   completed_from: str = None, completed_to: str = None,
+                                   tag_ids: str = None, media_type: str = None,
+                                   search: str = None, mode: str = None, preset_id: str = None,
+                                   model_name: str = None, min_rating: int = None,
+                                   favorites_only: bool = False, collection_id: str = None,
+                                   used_phrasebook_value_id: str = None,
+                                   system_tag: str = None,
+                                   semantic_query: str = None,
+                                   current_user = Depends(get_current_active_user)):
+        """Ids of every generation matching the current history filters, for
+        "select all N matching" - not just the loaded page."""
+        return await controller.get_matching_generation_ids(
+            current_user,
+            status=status,
+            created_from=created_from,
+            created_to=created_to,
+            completed_from=completed_from,
+            completed_to=completed_to,
+            tag_ids=tag_ids,
+            media_type=media_type,
+            search=search,
+            mode=mode,
+            preset_id=preset_id,
+            model_name=model_name,
+            min_rating=min_rating,
+            favorites_only=favorites_only,
+            collection_id=collection_id,
+            used_phrasebook_value_id=used_phrasebook_value_id,
+            system_tag=system_tag,
+            semantic_query=semantic_query
+        )
 
     @router.get("/history/{generation_id}", response_model=APIResponse, summary="Get Generation by ID")
     async def get_generation_by_id(generation_id: str, include_files: bool = True, current_user = Depends(get_current_active_user)):

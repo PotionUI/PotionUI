@@ -149,6 +149,56 @@ export function createGenerationsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
+		// Ids of every generation matching the current history filters (not just
+		// the loaded page) - backs "Select all N matching". Same filter shape as
+		// getGenerationHistory, minus paging/sorting/includeTags.
+		async getMatchingGenerationIds(params?: {
+			status?: string;
+			createdFrom?: string;
+			createdTo?: string;
+			completedFrom?: string;
+			completedTo?: string;
+			tagIds?: string[];
+			mediaType?: 'image' | 'video' | 'audio' | 'mesh';
+			search?: string;
+			semanticQuery?: string;
+			mode?: string;
+			presetId?: string;
+			modelName?: string;
+			collectionId?: string;
+			usedPhrasebookValueId?: string;
+			systemTag?: string;
+			minRating?: number;
+			favoritesOnly?: boolean;
+		}): Promise<APIResponse<{ ids: string[]; total: number; truncated: boolean }>> {
+			const searchParams = new URLSearchParams();
+			if (params?.status) searchParams.append('status', params.status);
+			if (params?.createdFrom) searchParams.append('created_from', params.createdFrom);
+			if (params?.createdTo) searchParams.append('created_to', params.createdTo);
+			if (params?.completedFrom) searchParams.append('completed_from', params.completedFrom);
+			if (params?.completedTo) searchParams.append('completed_to', params.completedTo);
+			if (params?.tagIds && params.tagIds.length > 0)
+				searchParams.append('tag_ids', params.tagIds.join(','));
+			if (params?.mediaType) searchParams.append('media_type', params.mediaType);
+			if (params?.search) searchParams.append('search', params.search);
+			if (params?.semanticQuery) searchParams.append('semantic_query', params.semanticQuery);
+			if (params?.mode) searchParams.append('mode', params.mode);
+			if (params?.presetId) searchParams.append('preset_id', params.presetId);
+			if (params?.modelName) searchParams.append('model_name', params.modelName);
+			if (params?.collectionId) searchParams.append('collection_id', params.collectionId);
+			if (params?.usedPhrasebookValueId)
+				searchParams.append('used_phrasebook_value_id', params.usedPhrasebookValueId);
+			if (params?.systemTag) searchParams.append('system_tag', params.systemTag);
+			if (params?.minRating) searchParams.append('min_rating', params.minRating.toString());
+			if (params?.favoritesOnly) searchParams.append('favorites_only', 'true');
+
+			const queryString = searchParams.toString();
+			const response = await client.get(
+				`/api/generations/history/matching-ids${queryString ? `?${queryString}` : ''}`
+			);
+			return response.data;
+		},
+
 		async setGenerationRating(
 			generationId: string,
 			rating: number

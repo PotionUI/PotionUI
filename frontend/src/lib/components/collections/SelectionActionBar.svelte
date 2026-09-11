@@ -15,6 +15,12 @@
 	export let collections: T[];
 	export let onAddToCollection: (collectionId: string) => Promise<boolean>;
 	export let onCreateAndAddToCollection: (name: string) => Promise<boolean>;
+	/** "Select all N matching" - shown once every loaded item is already
+	 *  selected and more exist beyond the loaded page (Gmail's pattern).
+	 *  Optional: only the history grid currently supports it. */
+	export let matchingAll: { total: number; busy?: boolean; onSelectAll: () => void } | null = null;
+	/** Muted keyboard-shortcut hints for the selection gestures (shift-range,
+	 *  ctrl/cmd-toggle, marquee drag). Optional, hidden on narrow screens. */
 
 	// Which dropdown (if any) is open. Shared across the built-in collection
 	// menu and any domain menu rendered into the action slots, so opening one
@@ -49,6 +55,7 @@
 				<span class="text-fg-muted ml-1">selected</span>
 			</div>
 
+
 			{#if feedback}
 				<div class="px-2 text-xs text-signal whitespace-nowrap">{feedback}</div>
 			{/if}
@@ -64,6 +71,14 @@
 						on:click={onSelectAll}
 					>
 						Select All
+					</button>
+				{:else if matchingAll}
+					<button
+						class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+						disabled={matchingAll.busy}
+						on:click={matchingAll.onSelectAll}
+					>
+						{matchingAll.busy ? 'Selecting…' : `Select all ${matchingAll.total} matching`}
 					</button>
 				{/if}
 				{#if selectedCount > 0}

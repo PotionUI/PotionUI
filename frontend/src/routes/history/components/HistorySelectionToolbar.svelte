@@ -33,6 +33,36 @@
 	const { message: feedback, flash } = createFlashMessage();
 
 	let copyingToLibrary = false;
+	let selectingAllMatching = false;
+
+	// Gmail's pattern: once every loaded item is selected and the filtered
+	// history has more than the loaded page, offer to extend the selection to
+	// every matching id (not just what happens to be on this page).
+	$: allLoadedSelected = generations.length > 0 && generations.every((g) => selectedIds.includes(g.id));
+	$: matchingAll =
+		allLoadedSelected && currentState.totalCount > generations.length
+			? {
+					total: currentState.totalCount,
+					busy: selectingAllMatching,
+					onSelectAll: handleSelectAllMatching
+				}
+			: null;
+
+	async function handleSelectAllMatching(): Promise<void> {
+		selectingAllMatching = true;
+		try {
+			const result = await historyStore.selectAllMatching();
+			if (!result) {
+				flash('Failed to select all matching');
+			} else if (result.truncated) {
+				flash(`Selected ${result.count} of ${result.total} matching (capped)`);
+			} else {
+				flash(`Selected all ${result.total} matching`);
+			}
+		} finally {
+			selectingAllMatching = false;
+		}
+	}
 
 	$: toolContext = buildHistoryToolContext(generations, selectedIds, activeCollectionId ?? null);
 	// The registry is a plain module map, so the plugin snapshot landing is the
@@ -137,6 +167,7 @@
 	onClose={handleToggleSelectionMode}
 	feedback={$feedback}
 	{collections}
+	{matchingAll}
 	onAddToCollection={handleAddToCollection}
 	onCreateAndAddToCollection={handleCreateAndAdd}
 >

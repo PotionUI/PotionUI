@@ -42,9 +42,13 @@
 	 * carousel walks a filtered (`is_final`, nsfw) and re-ordered
 	 * (images→videos→audio→mesh) list, so a position in it does not address the
 	 * same element in the caller's `files` array. A hidden row is enough to make
-	 * an index resolve to the wrong file.
+	 * an index resolve to the wrong file. The third argument is the originating
+	 * pointer event (omitted for a keyboard activation), so a multi-select grid
+	 * can read its modifier keys for shift-range / ctrl-toggle behavior.
 	 */
-	export let onSelect: ((generation: GenerationHistoryItem, file: GenerationFile | null) => void) | null = null;
+	export let onSelect:
+		| ((generation: GenerationHistoryItem, file: GenerationFile | null, event?: MouseEvent) => void)
+		| null = null;
 	/** Opt-in "reuse this generation's settings" action, tile mode only (see
 	 *  the reuse block below) — omitted callers get no button at all. */
 	export let onReuse: ((generation: GenerationHistoryItem) => void) | null = null;
@@ -181,9 +185,14 @@
 		currentImageIndex = currentImageIndex < mediaFiles.length - 1 ? currentImageIndex + 1 : 0;
 	}
 
-	function handleCardClick() {
-		if (selectable && onSelect) {
-			onSelect(generation, currentMediaFile ?? null);
+	function handleCardClick(event?: MouseEvent) {
+		// Outside selection mode, a shift/ctrl/cmd-click still starts a
+		// selection (desktop-file-manager convention) rather than opening the
+		// preview; a plain click there falls through to the preview as usual.
+		const wantsSelection =
+			selectable || !!(event && (event.shiftKey || event.ctrlKey || event.metaKey));
+		if (wantsSelection && onSelect) {
+			onSelect(generation, currentMediaFile ?? null, event);
 		} else if (mediaFiles.length > 0) {
 			dispatch('imageClick', { files: generation.files, generationId: generation.id });
 		}
@@ -274,7 +283,7 @@
 				style={chromeBucket ? `width: ${chromeBucket.checkboxSize}px; height: ${chromeBucket.checkboxSize}px` : undefined}
 				class:w-5={!chromeBucket}
 				class:h-5={!chromeBucket}
-				on:click|stopPropagation={() => onSelect?.(generation, currentMediaFile ?? null)}
+				on:click|stopPropagation={(e) => onSelect?.(generation, currentMediaFile ?? null, e)}
 				aria-label={selected ? 'Deselect generation' : 'Select generation'}
 				aria-pressed={selected}
 			>

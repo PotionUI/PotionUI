@@ -41,7 +41,7 @@ class ModelScanner:
         if models_dir is None:
             setting_repo = SettingRepository()
             model_dir_setting = setting_repo.get_setting_by_key('models_dir')
-            models_dir = model_dir_setting.get_typed_value() if model_dir_setting else "models"
+            models_dir = (model_dir_setting.get_typed_value() if model_dir_setting else None) or "models"
 
         self.models_dir = Path(models_dir)
         self.progress_callback = None

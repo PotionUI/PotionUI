@@ -644,6 +644,55 @@ function createHistoryStore() {
 			});
 		},
 
+		// Replace the selection outright (range/marquee selection, which computes
+		// the next set itself rather than toggling one id at a time).
+		setSelection(ids: string[]) {
+			update((state) => ({
+				...state,
+				selectedGenerationIds: ids,
+				selectionMode: ids.length > 0
+			}));
+		},
+
+		// "Select all N matching": fetches every id matching the CURRENT filters
+		// (not just the loaded page) and replaces the selection with it. Returns
+		// null on failure, otherwise how many ids came back vs. the exact total
+		// (they differ only when the server-side cap truncated the id list).
+		async selectAllMatching(): Promise<{ count: number; total: number; truncated: boolean } | null> {
+			const snapshot = get(store);
+			const request = buildHistoryRequest(snapshot);
+			try {
+				const response = await api.getMatchingGenerationIds({
+					status: request.status,
+					createdFrom: request.createdFrom,
+					createdTo: request.createdTo,
+					tagIds: request.tagIds,
+					mediaType: request.mediaType,
+					search: request.search,
+					semanticQuery: request.semanticQuery,
+					mode: request.mode,
+					presetId: request.presetId,
+					modelName: request.modelName,
+					collectionId: request.collectionId,
+					usedPhrasebookValueId: request.usedPhrasebookValueId,
+					systemTag: request.systemTag,
+					minRating: request.minRating,
+					favoritesOnly: request.favoritesOnly
+				});
+				if (!response.success || !response.data) return null;
+				const { ids, total, truncated } = response.data;
+				update((state) => ({
+					...state,
+					selectedGenerationIds: ids,
+					selectionMode: ids.length > 0
+				}));
+				return { count: ids.length, total, truncated };
+			} catch (error) {
+				logger.error('Failed to select all matching generations:', error);
+				return null;
+			}
+		},
+
 		// Clear all selections
 		clearSelection() {
 			update((state) => ({

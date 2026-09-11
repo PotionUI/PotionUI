@@ -14,6 +14,14 @@
 	import { historyTileSize, TILE_SIZE_MULTIPLIER } from '$lib/stores/historyTileSize';
 	import { nsfwFilterStore, selectableMediaFiles, isGenerationHiddenByNsfw } from '$lib/stores/nsfwFilter';
 	import { leadIndex } from '$lib/generation/leadFile';
+	import {
+		applyMarquee,
+		idsInMarquee,
+		rangeSelection,
+		rectFromPoints,
+		toggleSelection,
+		type SelectionRect
+	} from './historySelection';
 
 	// Self-contained: reads/writes historyStore directly. Renders the page's
 	// generations as a justified gallery (native aspect ratios, uniform row
@@ -90,6 +98,11 @@
 		) as JustifiedRow<GenerationHistoryItem>[]
 	}));
 
+	// Row-major id order across every group, for shift-click range selection.
+	$: orderedIds = groupLayouts.flatMap((group) =>
+		group.rows.flatMap((row) => row.map((box) => box.item.id))
+	);
+
 	// Skeleton layout reuses the real packer with a fixed aspect pattern so the
 	// loading state already looks like a light table.
 	const SKELETON_ASPECTS = [1.5, 0.75, 1, 1.78, 1, 0.7, 1.33, 1, 0.75, 1.78, 1, 1.5];
@@ -142,10 +155,144 @@
 		currentState.filters.selectedTagIds.length > 0 ||
 		currentState.filters.mediaType !== 'all' ||
 		currentState.filters.search !== '';
+
+	// --- Multi-select: click, shift-range, ctrl/cmd-toggle, and marquee drag ---
+
+	let anchorId: string | null = null;
+	let gridRootEl: HTMLDivElement;
+	let pointerOverGrid = false;
+
+	function handleCardSelect(
+		generation: GenerationHistoryItem,
+		_file: unknown,
+		event?: MouseEvent
+	) {
+		const id = generation.id;
+		if (event?.shiftKey) {
+			historyStore.setSelection(rangeSelection(orderedIds, anchorId, id, currentState.selectedGenerationIds));
+			return;
+		}
+		if (event?.ctrlKey || event?.metaKey) {
+			historyStore.setSelection(toggleSelection(currentState.selectedGenerationIds, id));
+			anchorId = id;
+			return;
+		}
+		historyStore.toggleSelect(id);
+		anchorId = id;
+	}
+
+	// Marquee (rubber-band) drag over the grid's background.
+	const MARQUEE_THRESHOLD_PX = 4;
+	let marqueeActive = false;
+	let marqueeRect: SelectionRect | null = null;
+	let marqueeMode: 'replace' | 'add' = 'replace';
+	let preDragSelection: string[] = [];
+	let dragCardRects = new Map<string, SelectionRect>();
+	let pointerDownAt: { x: number; y: number; additive: boolean } | null = null;
+
+	function measureCardRects(): Map<string, SelectionRect> {
+		const rects = new Map<string, SelectionRect>();
+		if (!gridRootEl) return rects;
+		gridRootEl.querySelectorAll<HTMLElement>('[data-history-card]').forEach((node) => {
+			const id = node.dataset.historyCard;
+			if (!id) return;
+			const r = node.getBoundingClientRect();
+			rects.set(id, { left: r.left, top: r.top, right: r.right, bottom: r.bottom });
+		});
+		return rects;
+	}
+
+	function cancelDrag() {
+		marqueeActive = false;
+		marqueeRect = null;
+		pointerDownAt = null;
+	}
+
+	function handlePointerDown(event: PointerEvent) {
+		if (event.button !== 0) return; // left button only
+		const target = event.target as HTMLElement;
+		const onCard = !!target.closest('[data-history-card]');
+		// A pointerdown on a card (plain, Shift or Ctrl) belongs to the card's
+		// own click/checkbox handler; only a background press begins a marquee.
+		if (onCard) return;
+		pointerDownAt = {
+			x: event.clientX,
+			y: event.clientY,
+			additive: event.shiftKey || event.ctrlKey || event.metaKey
+		};
+		gridRootEl?.setPointerCapture(event.pointerId);
+	}
+
+	function handlePointerMove(event: PointerEvent) {
+		if (!pointerDownAt) return;
+		if (!marqueeActive) {
+			const dx = event.clientX - pointerDownAt.x;
+			const dy = event.clientY - pointerDownAt.y;
+			if (Math.hypot(dx, dy) < MARQUEE_THRESHOLD_PX) return;
+			event.preventDefault();
+			marqueeActive = true;
+			marqueeMode = pointerDownAt.additive ? 'add' : 'replace';
+			preDragSelection = currentState.selectedGenerationIds;
+			dragCardRects = measureCardRects();
+			anchorId = null; // ambiguous once a rectangular selection has run
+		}
+		marqueeRect = rectFromPoints(pointerDownAt.x, pointerDownAt.y, event.clientX, event.clientY);
+		const intersecting = idsInMarquee(orderedIds, dragCardRects, marqueeRect);
+		historyStore.setSelection(applyMarquee(preDragSelection, intersecting, marqueeMode));
+	}
+
+	function handlePointerUp() {
+		cancelDrag();
+	}
+
+	function handleWindowKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && marqueeActive) {
+			historyStore.setSelection(preDragSelection);
+			cancelDrag();
+			return;
+		}
+		if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+			const withinGrid = pointerOverGrid || !!(gridRootEl && gridRootEl.contains(document.activeElement));
+			if (!withinGrid) return;
+			event.preventDefault();
+			historyStore.selectAll();
+		}
+	}
+
+	// Rects can drift out from under the marquee mid-drag if the page scrolls
+	// (viewport-relative coordinates), so re-measure while a drag is live.
+	function handleWindowScroll() {
+		if (!marqueeActive) return;
+		dragCardRects = measureCardRects();
+	}
 </script>
 
+<svelte:window on:keydown={handleWindowKeydown} on:scroll={handleWindowScroll} />
+
 <div class="px-3 py-3 md:px-6 md:py-6">
-	<div bind:clientWidth={gridWidth}>
+	<div
+		bind:this={gridRootEl}
+		bind:clientWidth={gridWidth}
+		class="relative"
+		class:select-none={marqueeActive}
+		role="listbox"
+		aria-multiselectable={currentState.selectionMode}
+		aria-label="Generation history"
+		tabindex="-1"
+		on:pointerdown={handlePointerDown}
+		on:pointermove={handlePointerMove}
+		on:pointerup={handlePointerUp}
+		on:pointercancel={handlePointerUp}
+		on:pointerenter={() => (pointerOverGrid = true)}
+		on:pointerleave={() => (pointerOverGrid = false)}
+	>
+		{#if marqueeActive && marqueeRect}
+			<div
+				class="fixed z-40 pointer-events-none rounded border border-signal bg-signal/10"
+				style="left: {marqueeRect.left}px; top: {marqueeRect.top}px; width: {marqueeRect.right -
+					marqueeRect.left}px; height: {marqueeRect.bottom - marqueeRect.top}px"
+			></div>
+		{/if}
 		{#if currentState.loading}
 			{#if gridWidth > 0}
 				<div class="space-y-3">
@@ -181,19 +328,26 @@
 					{#each group.rows as row}
 						<div class="flex" style="gap: {GAP}px">
 							{#each row as box (box.item.id)}
-								<GenerationCard
-									generation={box.item}
-									tile={{ width: box.width, height: box.height }}
-									on:imageClick={handleImageClick}
-									on:viewClick={handleViewGeneration}
-									on:deleteClick={handleDeleteClick}
-									thumbnailSize="medium"
-									showActions={!currentState.selectionMode}
-									selectable={currentState.selectionMode}
-									showCheckbox={true}
-									selected={currentState.selectedGenerationIds.includes(box.item.id)}
-									onSelect={(gen) => historyStore.toggleSelect(gen.id)}
-								/>
+								<div
+									data-history-card={box.item.id}
+									style="width: {box.width}px"
+									role="option"
+									aria-selected={currentState.selectedGenerationIds.includes(box.item.id)}
+								>
+									<GenerationCard
+										generation={box.item}
+										tile={{ width: box.width, height: box.height }}
+										on:imageClick={handleImageClick}
+										on:viewClick={handleViewGeneration}
+										on:deleteClick={handleDeleteClick}
+										thumbnailSize="medium"
+										showActions={!currentState.selectionMode}
+										selectable={currentState.selectionMode}
+										showCheckbox={true}
+										selected={currentState.selectedGenerationIds.includes(box.item.id)}
+										onSelect={handleCardSelect}
+									/>
+								</div>
 							{/each}
 						</div>
 					{/each}

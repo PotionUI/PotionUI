@@ -363,6 +363,28 @@ class GenerationRepository:
             cursor.execute(query, params)
             return cursor.fetchone()[0]
 
+    def all_matching_ids(self, limit: Optional[int] = None, **filters: Any) -> List[str]:
+        """Every generation id matching the same filters as `count_by_status`,
+        most recent first, capped at `limit`.
+
+        For a bulk-selection action ("select all N matching") that needs a
+        bounded id set rather than a page of hydrated `Generation` rows.
+        """
+        conditions, params = self._build_filters('g', **filters)
+
+        query = "SELECT g.id FROM generations g"
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY g.created_at DESC"
+        if limit:
+            query += " LIMIT ?"
+            params.append(limit)
+
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(query, params)
+            return [row[0] for row in cursor.fetchall()]
+
     def matching_generation_ids(self, generation_ids: List[str], **filters: Any) -> List[str]:
         """Which of `generation_ids` pass the same filters as `count_by_status`.
 

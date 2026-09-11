@@ -761,3 +761,28 @@ def test_masked_grouped_sdpa_matches_expanded_reference():
         q, k.repeat_interleave(2, dim=1), v.repeat_interleave(2, dim=1), attn_mask=mask,
     )
     assert torch.allclose(out, ref, atol=1e-6)
+
+
+def test_small_masked_grouped_sdpa_keeps_kv_unexpanded(monkeypatch):
+    seen = []
+    real_repeat = torch.Tensor.repeat_interleave
+    monkeypatch.setattr(torch.Tensor, "repeat_interleave", lambda self, *a, **kw: (seen.append(tuple(self.shape)), real_repeat(self, *a, **kw))[1])
+    q = torch.randn(1, 4, 37, 8)
+    k = torch.randn(1, 2, 37, 8)
+    v = torch.randn(1, 2, 37, 8)
+    mask = torch.zeros(1, 1, 37, 37)
+    att._sdpa(q, k, v, mask, grouped=True)
+    assert seen == []
+
+
+def test_large_masked_grouped_sdpa_expands_kv(monkeypatch):
+    monkeypatch.setattr(att, "_MASKED_GROUPED_EXPAND_MIN_SCORES", 0)
+    seen = []
+    real_repeat = torch.Tensor.repeat_interleave
+    monkeypatch.setattr(torch.Tensor, "repeat_interleave", lambda self, *a, **kw: (seen.append(tuple(self.shape)), real_repeat(self, *a, **kw))[1])
+    q = torch.randn(1, 4, 37, 8)
+    k = torch.randn(1, 2, 37, 8)
+    v = torch.randn(1, 2, 37, 8)
+    mask = torch.zeros(1, 1, 37, 37)
+    att._sdpa(q, k, v, mask, grouped=True)
+    assert seen == [(1, 2, 37, 8), (1, 2, 37, 8)]

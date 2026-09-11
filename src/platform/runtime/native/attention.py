@@ -434,16 +434,28 @@ def _aligned_mask(mask: Tensor | None) -> Tensor | None:
     return buf[..., :length]
 
 
+# Score-matrix elements (B×H×Lq×Lk) above which a masked grouped call expands
+# its K/V heads to reach the memory-efficient kernel: 2^26 elements is 128 MB
+# of bf16 scores, past which the math kernel's materialisation starts to hurt.
+_MASKED_GROUPED_EXPAND_MIN_SCORES = 1 << 26
+
+
+def _masked_scores(q: Tensor, k: Tensor) -> int:
+    return q.shape[0] * q.shape[1] * q.shape[-2] * k.shape[-2]
+
+
 def _sdpa(q: Tensor, k: Tensor, v: Tensor, mask: Tensor | None, grouped: bool = False) -> Tensor:
     # `enable_gqa` is only passed on the grouped path: the kwarg does not exist
     # on every torch this runs against, and `_supports_grouped_kv` is the only
     # thing that has established it does here.
     if mask is not None:
         mask = _aligned_mask(mask)
-        if grouped:
+        if grouped and _masked_scores(q, k) > _MASKED_GROUPED_EXPAND_MIN_SCORES:
             # The memory-efficient kernel does not take grouped K/V together with a
             # dense mask; expand the heads so a masked call can still avoid the
-            # math kernel's L×L score matrix.
+            # math kernel's L×L score matrix. Only worth it once that matrix is
+            # big - a short grouped call (an LM prefill, a decode step) keeps its
+            # K/V unexpanded and lets the math kernel have its small scores.
             repeat = q.shape[1] // k.shape[1]
             if repeat > 1:
                 k = k.repeat_interleave(repeat, dim=1)

@@ -18,7 +18,6 @@
 	/** "Select all N matching" - shown once every loaded item is already
 	 *  selected and more exist beyond the loaded page (Gmail's pattern).
 	 *  Optional: only the history grid currently supports it. */
-	export let matchingAll: { total: number; busy?: boolean; onSelectAll: () => void } | null = null;
 	/** Muted keyboard-shortcut hints for the selection gestures (shift-range,
 	 *  ctrl/cmd-toggle, marquee drag). Optional, hidden on narrow screens. */
 
@@ -71,14 +70,6 @@
 						on:click={onSelectAll}
 					>
 						Select All
-					</button>
-				{:else if matchingAll}
-					<button
-						class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-						disabled={matchingAll.busy}
-						on:click={matchingAll.onSelectAll}
-					>
-						{matchingAll.busy ? 'Selecting…' : `Select all ${matchingAll.total} matching`}
 					</button>
 				{/if}
 				{#if selectedCount > 0}

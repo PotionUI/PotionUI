@@ -36,11 +36,6 @@ class GenerationHistoryQuery:
     # can never turn one get_params call into unbounded recursion.
     _MAX_PROVENANCE_DEPTH = 5
 
-    # Bound on `get_matching_ids` - a "select all N matching" bulk-selection
-    # action, not a page. Keeps the id list, and whatever gets bound into the
-    # bulk request built from it, bounded regardless of how large the
-    # filtered history is.
-    _MATCHING_IDS_CAP = 10000
 
     def __init__(
         self,
@@ -306,81 +301,6 @@ class GenerationHistoryQuery:
                 'completed_from': completed_from,
                 'completed_to': completed_to
             }
-        }
-
-    def get_matching_ids(
-        self,
-        user_id: Optional[str] = None,
-        status: Optional[str] = None,
-        created_from: Optional[str] = None,
-        created_to: Optional[str] = None,
-        completed_from: Optional[str] = None,
-        completed_to: Optional[str] = None,
-        tag_ids: Optional[List[str]] = None,
-        media_type: Optional[str] = None,
-        search: Optional[str] = None,
-        mode: Optional[str] = None,
-        preset_id: Optional[str] = None,
-        model_name: Optional[str] = None,
-        min_rating: Optional[int] = None,
-        favorites_only: bool = False,
-        collection_id: Optional[str] = None,
-        used_phrasebook_value_id: Optional[str] = None,
-        system_tag: Optional[str] = None,
-        semantic_query: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Ids of every generation matching the same filters as `get_history`,
-        capped at `_MATCHING_IDS_CAP`.
-
-        Backs the "select all N matching" bulk-selection action: the frontend
-        already holds a loaded page, so this answers "what's the rest of it"
-        without hydrating full generation rows. `total` is the exact filtered
-        count even when `ids` is truncated by the cap, so the caller can tell
-        the two apart.
-        """
-        self.validate_date_filters(created_from, created_to, completed_from, completed_to)
-
-        filter_kwargs = dict(
-            user_id=user_id,
-            status=status,
-            tag_ids=tag_ids,
-            created_from=created_from,
-            created_to=created_to,
-            completed_from=completed_from,
-            completed_to=completed_to,
-            media_type=media_type,
-            search=search,
-            mode=mode,
-            preset_id=preset_id,
-            model_name=model_name,
-            min_rating=min_rating,
-            favorites_only=favorites_only,
-            collection_id=collection_id,
-            used_phrasebook_value_id=used_phrasebook_value_id,
-            system_tag=system_tag,
-        )
-
-        if semantic_query and semantic_query.strip():
-            # Ranking, not filtering: the widened semantic pass already
-            # resolves to a filter-matching set, so reuse it rather than
-            # re-deriving membership here.
-            page = self._get_semantic_history(
-                semantic_query=semantic_query,
-                limit=self._MATCHING_IDS_CAP,
-                offset=0,
-                include_tags=False,
-                filter_kwargs=filter_kwargs,
-            )
-            ids = [gen['id'] for gen in page['generations']]
-            total = page['total']
-        else:
-            total = self.generation_repo.count_by_status(**filter_kwargs)
-            ids = self.generation_repo.all_matching_ids(limit=self._MATCHING_IDS_CAP, **filter_kwargs)
-
-        return {
-            'ids': ids,
-            'total': total,
-            'truncated': total > len(ids),
         }
 
     def _serialize_generations(

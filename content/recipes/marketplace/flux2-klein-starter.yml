@@ -1,61 +1,60 @@
 ########
-## Setup recipe: Z-Image on the native engine
+## Setup recipe: Flux2 (Klein-4B) on the native engine
 ##
 ## See src/features/recipes/schema.py for the schema this file is
 ## validated against (scripts/recipe_lint.py) and
 ## src/features/recipes/executors/ for what each step kind actually does.
 ########
 schema_version: 1
-id: "zimage-starter"
+id: "flux2-klein-starter"
 version: 1
-name: "Z-Image Starter"
+name: "Flux2 Klein-4B Starter"
 engine: "native"
 category: "image"
-summary: "Get a working Z-Image setup on your local GPU and produce a first image."
+summary: "Get a working Flux2 setup on your local GPU and produce a first image."
 description: >
-  Installs the bundled Z-Image preset on the native (in-process) engine,
-  makes sure its three model files are available, and proves the pipeline is
-  wired up correctly before handing you a ready-to-use preset. Z-Image is
-  the smallest native-engine diffusion transformer PotionUI ships (see
-  docs/models/z_image.md) - its turbo checkpoint runs in 8 distilled steps,
-  making it a fast first pick if you're short on VRAM. The three files
-  together are a real download (~19 GB, mostly the full-precision text
-  encoder), but the checkpoint itself is comfortably the smallest of the
-  native DiT families.
+  Installs the bundled Flux2 preset on the native (in-process) engine, makes
+  sure its three model files are available, and proves the pipeline is wired
+  up correctly before handing you a ready-to-use preset (see docs/models/flux.md).
+  Flux2's preset default points at the gated Klein-9B checkpoint, which needs
+  an accepted Hugging Face licence before it can be fetched; this recipe
+  instead pins the smaller Klein-4B DiT straight from the author's own
+  black-forest-labs/FLUX.2-klein-4B repository (Apache-2.0, no licence
+  gate), paired with the matching Qwen3-4B text encoder and the shared
+  Flux2 VAE. The three files together are a real download (~16 GB).
 
 plugins:
   - id: "huggingface-provider"
     reason: >
       Resolves the diffusion model, text encoder and VAE from HuggingFace
-      (Comfy-Org's official split-file release of Z-Image Turbo) by exact
-      repo path. HuggingFace has no hash-lookup API, so each artifact below
-      names its file explicitly; the sha256 in each artifact's checksum
-      still verifies the download afterwards.
+      by exact repo path. HuggingFace has no hash-lookup API, so each
+      artifact below names its file explicitly; the sha256 in each
+      artifact's checksum still verifies the download afterwards.
 
 backend:
   engine: "native"
 
 artifacts:
-  - id: "zimage-diffusion-model"
+  - id: "flux2-diffusion-model"
     kind: "diffusion_model"
     model_type: "diffusion_model"
-    filename: "z_image_turbo_bf16.safetensors"
-    display_name: "Z-Image Turbo (NextDiT diffusion model, bf16)"
+    filename: "flux-2-klein-4b.safetensors"
+    display_name: "Flux2 Klein-4B (DiT, bf16)"
     required: true
-    size_bytes: 12309866400
+    size_bytes: 7751105712
     checksum:
       algorithm: "sha256"
-      value: "2407613050b809ffdff18a4ac99af83ea6b95443ecebdf80e064a79c825574a6"
+      value: "ec3d4e733a771f61c052fb4856c48b336c55eaf2c65487c2a1faeb9bbda7a343"
     # Declared by capability, never by a concrete plugin id - core resolves a
     # download source through whichever enabled plugin advertises this
     # capability (see plugin manifest `capabilities:`).
     capability: "model-lookup"
     provider_hint:
       source: "huggingface"
-      model_id: "Comfy-Org/z_image_turbo"
-      version_id: "main@split_files/diffusion_models/z_image_turbo_bf16.safetensors"
+      model_id: "black-forest-labs/FLUX.2-klein-4B"
+      version_id: "main@flux-2-klein-4b.safetensors"
 
-  - id: "zimage-text-encoder"
+  - id: "flux2-text-encoder"
     kind: "text_encoder"
     model_type: "text_encoder"
     filename: "qwen_3_4b.safetensors"
@@ -68,45 +67,43 @@ artifacts:
     capability: "model-lookup"
     provider_hint:
       source: "huggingface"
-      model_id: "Comfy-Org/z_image_turbo"
+      model_id: "Comfy-Org/vae-text-encorder-for-flux-klein-4b"
       version_id: "main@split_files/text_encoders/qwen_3_4b.safetensors"
 
-  - id: "zimage-vae"
+  - id: "flux2-vae"
     kind: "vae"
     model_type: "vae"
-    filename: "ae.safetensors"
-    display_name: "Z-Image VAE (Flux-style 2D autoencoder)"
+    filename: "flux2-vae.safetensors"
+    display_name: "Flux2 VAE"
     required: true
-    size_bytes: 335304388
+    size_bytes: 336211292
     checksum:
       algorithm: "sha256"
-      value: "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38"
+      value: "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
     capability: "model-lookup"
     provider_hint:
       source: "huggingface"
-      model_id: "Comfy-Org/z_image_turbo"
-      version_id: "main@split_files/vae/ae.safetensors"
+      model_id: "Comfy-Org/vae-text-encorder-for-flux-klein-9b"
+      version_id: "main@split_files/vae/flux2-vae.safetensors"
 
 presets:
-  - preset_id: "01KX5GS4P8HHCB63FY8SA7QSBH"
-    path_hint: "marketplace/ZImage"
+  - preset_id: "01KX46YCC5RB5EGYY38SBMVKR5"
+    path_hint: "marketplace/Flux2"
     assign_to_owner: true
 
 smoke:
-  preset_id: "01KX5GS4P8HHCB63FY8SA7QSBH"
+  preset_id: "01KX46YCC5RB5EGYY38SBMVKR5"
   mode: "txt2img"
-  prompt: "a small wooden sailboat on a calm blue lake"
+  prompt: "a small red boat on a calm lake at sunset, photograph"
   seed: 12345
-  # Matches content/presets/marketplace/ZImage/tests.yml's own fast smoke
-  # case verbatim (a real maintainer txt2img session): the distilled turbo
-  # checkpoint's 8-step/cfg-1.0 operating point, smallest square resolution.
+  # Matches content/presets/marketplace/Flux2/tests.yml's "flux-klein-baseline-fast"
+  # case (the preset's generic fast smoke, not tied to a specific DiT size):
+  # low steps, guidance at the preset's own default, smallest square resolution.
   form:
-    speed_profile: "turbo"
-    resolution: "1024x1024"
-    steps: 8
-    cfg: 1
+    steps: 10
+    guidance: 3.5
     sampler: "euler"
-    shift: 3.1
+    resolution: "1024x1024"
 
 steps:
   - key: "plugins.ensure"
@@ -125,8 +122,7 @@ steps:
 
   # Index BEFORE planning downloads: on a fresh instance nothing is indexed
   # yet, so without this pass artifacts.plan cannot see files the user
-  # already has and would ask to download them (caught live in the Docker
-  # sandbox, where nothing pre-indexes the mounted models directory).
+  # already has and would ask to download them.
   - key: "models.index"
     kind: "models.index"
     title: "Find models you already have"
@@ -137,13 +133,13 @@ steps:
     kind: "artifacts.plan"
     title: "Plan required downloads"
     params:
-      artifact_ids: ["zimage-diffusion-model", "zimage-text-encoder", "zimage-vae"]
+      artifact_ids: ["flux2-diffusion-model", "flux2-text-encoder", "flux2-vae"]
 
   - key: "artifacts.fetch"
     kind: "artifacts.fetch"
-    title: "Download the Z-Image model files"
+    title: "Download the Flux2 model files"
     params:
-      artifact_ids: ["zimage-diffusion-model", "zimage-text-encoder", "zimage-vae"]
+      artifact_ids: ["flux2-diffusion-model", "flux2-text-encoder", "flux2-vae"]
 
   - key: "models.index.downloads"
     kind: "models.index"
@@ -153,22 +149,22 @@ steps:
 
   - key: "preset.ensure"
     kind: "preset.ensure"
-    title: "Install and assign the Z-Image preset"
+    title: "Install and assign the Flux2 preset"
     params:
-      preset_id: "01KX5GS4P8HHCB63FY8SA7QSBH"
+      preset_id: "01KX46YCC5RB5EGYY38SBMVKR5"
 
   - key: "pipeline.render"
     kind: "pipeline.render"
     title: "Validate the pipeline"
     params:
-      preset_id: "01KX5GS4P8HHCB63FY8SA7QSBH"
+      preset_id: "01KX46YCC5RB5EGYY38SBMVKR5"
       mode: "txt2img"
 
   - key: "generation.smoke"
     kind: "generation.smoke"
     title: "Run a first real generation"
     params:
-      preset_id: "01KX5GS4P8HHCB63FY8SA7QSBH"
+      preset_id: "01KX46YCC5RB5EGYY38SBMVKR5"
       mode: "txt2img"
 
   - key: "workspace.activate"

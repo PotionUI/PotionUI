@@ -1,0 +1,176 @@
+########
+## Setup recipe: Qwen-Image on the native engine
+##
+## See src/features/recipes/schema.py for the schema this file is
+## validated against (scripts/recipe_lint.py) and
+## src/features/recipes/executors/ for what each step kind actually does.
+########
+schema_version: 1
+id: "qwen-image-starter"
+version: 1
+name: "Qwen-Image Starter"
+engine: "native"
+category: "image"
+summary: "Get a working Qwen-Image setup on your local GPU and produce a first image."
+description: >
+  Installs the bundled Qwen-Image preset on the native (in-process) engine
+  in its txt2img mode, makes sure its three model files are available, and
+  proves the pipeline is wired up correctly before handing you a
+  ready-to-use preset (see docs/models/qwen_image.md). Fetches the 2512
+  MMDiT checkpoint at fp8, the matching Qwen2.5-VL-7B text encoder at fp8,
+  and the Wan 2.1 causal-3D VAE, all from Comfy-Org's official repack of
+  Qwen/Qwen-Image-2512 (Apache-2.0, ungated). The three files together are a
+  real download (~30 GB); `edit` mode is left for the owner to fetch
+  separately if they need it.
+
+plugins:
+  - id: "huggingface-provider"
+    reason: >
+      Resolves the diffusion model, text encoder and VAE from HuggingFace
+      by exact repo path. HuggingFace has no hash-lookup API, so each
+      artifact below names its file explicitly; the sha256 in each
+      artifact's checksum still verifies the download afterwards.
+
+backend:
+  engine: "native"
+
+artifacts:
+  - id: "qwenimage-diffusion-model"
+    kind: "diffusion_model"
+    model_type: "diffusion_model"
+    filename: "qwen_image_2512_fp8_e4m3fn.safetensors"
+    display_name: "Qwen-Image 2512 (MMDiT, fp8)"
+    required: true
+    size_bytes: 20430679144
+    checksum:
+      algorithm: "sha256"
+      value: "5dc80554d5d83390046a2f4a94ece06afb7700bf7b0aaf8bde9769793875876b"
+    # Declared by capability, never by a concrete plugin id - core resolves a
+    # download source through whichever enabled plugin advertises this
+    # capability (see plugin manifest `capabilities:`).
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Qwen-Image_ComfyUI"
+      version_id: "main@split_files/diffusion_models/qwen_image_2512_fp8_e4m3fn.safetensors"
+
+  - id: "qwenimage-text-encoder"
+    kind: "text_encoder"
+    model_type: "text_encoder"
+    filename: "qwen_2.5_vl_7b_fp8_scaled.safetensors"
+    display_name: "Qwen2.5-VL-7B text encoder (fp8-scaled)"
+    required: true
+    size_bytes: 9384670680
+    checksum:
+      algorithm: "sha256"
+      value: "cb5636d852a0ea6a9075ab1bef496c0db7aef13c02350571e388aea959c5c0b4"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Qwen-Image_ComfyUI"
+      version_id: "main@split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"
+
+  - id: "qwenimage-vae"
+    kind: "vae"
+    model_type: "vae"
+    filename: "qwen_image_vae.safetensors"
+    display_name: "Qwen-Image VAE (Wan 2.1 causal-3D)"
+    required: true
+    size_bytes: 253806246
+    checksum:
+      algorithm: "sha256"
+      value: "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Qwen-Image_ComfyUI"
+      version_id: "main@split_files/vae/qwen_image_vae.safetensors"
+
+presets:
+  - preset_id: "01K0W24A3RADXXABH16YQ7KF00"
+    path_hint: "marketplace/QwenImage"
+    assign_to_owner: true
+
+smoke:
+  preset_id: "01K0W24A3RADXXABH16YQ7KF00"
+  mode: "txt2img"
+  prompt: "a stack of ceramic bowls on a kitchen counter, soft daylight"
+  seed: 4242
+  # Matches content/presets/marketplace/QwenImage/tests.yml's
+  # "qwen-image-baseline-fast" case: low steps, cfg near the preset's own
+  # default, smallest square resolution.
+  form:
+    steps: 10
+    cfg: 3.0
+    sampler: "euler"
+    resolution: "1024x1024"
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable required plugins"
+    params:
+      # huggingface-provider is needed so the download step can resolve each
+      # artifact's exact repo file.
+      plugin_ids: ["huggingface-provider"]
+
+  - key: "backend.ensure"
+    kind: "backend.ensure"
+    title: "Prepare the native backend"
+    params:
+      engine: "native"
+
+  # Index BEFORE planning downloads: on a fresh instance nothing is indexed
+  # yet, so without this pass artifacts.plan cannot see files the user
+  # already has and would ask to download them.
+  - key: "models.index"
+    kind: "models.index"
+    title: "Find models you already have"
+    params:
+      engine: "native"
+
+  - key: "artifacts.plan"
+    kind: "artifacts.plan"
+    title: "Plan required downloads"
+    params:
+      artifact_ids: ["qwenimage-diffusion-model", "qwenimage-text-encoder", "qwenimage-vae"]
+
+  - key: "artifacts.fetch"
+    kind: "artifacts.fetch"
+    title: "Download the Qwen-Image model files"
+    params:
+      artifact_ids: ["qwenimage-diffusion-model", "qwenimage-text-encoder", "qwenimage-vae"]
+
+  - key: "models.index.downloads"
+    kind: "models.index"
+    title: "Register downloaded models"
+    params:
+      engine: "native"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign the Qwen-Image preset"
+    params:
+      preset_id: "01K0W24A3RADXXABH16YQ7KF00"
+
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the pipeline"
+    params:
+      preset_id: "01K0W24A3RADXXABH16YQ7KF00"
+      mode: "txt2img"
+
+  - key: "generation.smoke"
+    kind: "generation.smoke"
+    title: "Run a first real generation"
+    params:
+      preset_id: "01K0W24A3RADXXABH16YQ7KF00"
+      mode: "txt2img"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    # Only meaningful during the first-run wizard - a run started from
+    # Admin -> Recipes skips it.
+    onboarding_only: true
+    params: {}

@@ -1,0 +1,178 @@
+########
+## Setup recipe: Anima on the native engine
+##
+## See src/features/recipes/schema.py for the schema this file is
+## validated against (scripts/recipe_lint.py) and
+## src/features/recipes/executors/ for what each step kind actually does.
+########
+schema_version: 1
+id: "anima-starter"
+version: 1
+name: "Anima Starter"
+engine: "native"
+category: "image"
+summary: "Get a working Anima setup on your local GPU and produce a first image."
+description: >
+  Installs the bundled Anima preset on the native (in-process) engine, makes
+  sure its three model files are available, and proves the pipeline is
+  wired up correctly before handing you a ready-to-use preset (see
+  docs/models/anima.md). Anima is the smallest native-engine diffusion
+  transformer PotionUI ships by a wide margin: the aesthetic v1.1 DiT, the
+  Qwen3-0.6B text encoder and the shared Qwen-Image VAE together are only
+  ~5.6 GB. Anima's own weights (from the author's circlestone-labs/Anima
+  repository) are published under the circlestone-labs Non-Commercial
+  License - review it before using generated output commercially.
+
+plugins:
+  - id: "huggingface-provider"
+    reason: >
+      Resolves the diffusion model, text encoder and VAE from HuggingFace
+      by exact repo path. HuggingFace has no hash-lookup API, so each
+      artifact below names its file explicitly; the sha256 in each
+      artifact's checksum still verifies the download afterwards.
+
+backend:
+  engine: "native"
+
+artifacts:
+  - id: "anima-diffusion-model"
+    kind: "diffusion_model"
+    model_type: "diffusion_model"
+    filename: "anima-aesthetic-v1.1.safetensors"
+    display_name: "Anima Aesthetic v1.1 (DiT, bf16)"
+    required: true
+    size_bytes: 4182230656
+    checksum:
+      algorithm: "sha256"
+      value: "3c1868387a3a1ff504bbb87c33678321965ead381fcf87afbd0264daa600c082"
+    # Declared by capability, never by a concrete plugin id - core resolves a
+    # download source through whichever enabled plugin advertises this
+    # capability (see plugin manifest `capabilities:`).
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "circlestone-labs/Anima"
+      version_id: "main@split_files/diffusion_models/anima-aesthetic-v1.1.safetensors"
+
+  - id: "anima-text-encoder"
+    kind: "text_encoder"
+    model_type: "text_encoder"
+    filename: "qwen_3_06b_base.safetensors"
+    display_name: "Qwen3-0.6B text encoder"
+    required: true
+    size_bytes: 1192135096
+    checksum:
+      algorithm: "sha256"
+      value: "cd2a512003e2f9f3cd3c32a9c3573f820bb28c940f73c57b1ddaa983d9223eba"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "circlestone-labs/Anima"
+      version_id: "main@split_files/text_encoders/qwen_3_06b_base.safetensors"
+
+  - id: "anima-vae"
+    kind: "vae"
+    model_type: "vae"
+    filename: "qwen_image_vae.safetensors"
+    display_name: "Anima VAE (Wan 2.1 causal-3D, shared with Qwen-Image/Krea-2)"
+    required: true
+    size_bytes: 253806246
+    checksum:
+      algorithm: "sha256"
+      value: "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Qwen-Image_ComfyUI"
+      version_id: "main@split_files/vae/qwen_image_vae.safetensors"
+
+presets:
+  - preset_id: "01KX5GRNWFC9S2F6T15155H41C"
+    path_hint: "marketplace/Anima"
+    assign_to_owner: true
+
+smoke:
+  preset_id: "01KX5GRNWFC9S2F6T15155H41C"
+  mode: "txt2img"
+  prompt: "a young woman with braided hair standing in a garden"
+  negative_prompt: "worst quality, low quality, score_1, score_2, score_3, bad hands, bad fingers, watermark"
+  seed: 12345
+  # Matches content/presets/marketplace/Anima/tests.yml's
+  # "anima-draft-baseline-fast" case verbatim (a real maintainer txt2img
+  # session, steps cut from 25): smallest square resolution.
+  form:
+    steps: 10
+    cfg: 5
+    sampler: "euler"
+    shift: 3
+    resolution: "1024x1024"
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable required plugins"
+    params:
+      # huggingface-provider is needed so the download step can resolve each
+      # artifact's exact repo file.
+      plugin_ids: ["huggingface-provider"]
+
+  - key: "backend.ensure"
+    kind: "backend.ensure"
+    title: "Prepare the native backend"
+    params:
+      engine: "native"
+
+  # Index BEFORE planning downloads: on a fresh instance nothing is indexed
+  # yet, so without this pass artifacts.plan cannot see files the user
+  # already has and would ask to download them.
+  - key: "models.index"
+    kind: "models.index"
+    title: "Find models you already have"
+    params:
+      engine: "native"
+
+  - key: "artifacts.plan"
+    kind: "artifacts.plan"
+    title: "Plan required downloads"
+    params:
+      artifact_ids: ["anima-diffusion-model", "anima-text-encoder", "anima-vae"]
+
+  - key: "artifacts.fetch"
+    kind: "artifacts.fetch"
+    title: "Download the Anima model files"
+    params:
+      artifact_ids: ["anima-diffusion-model", "anima-text-encoder", "anima-vae"]
+
+  - key: "models.index.downloads"
+    kind: "models.index"
+    title: "Register downloaded models"
+    params:
+      engine: "native"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign the Anima preset"
+    params:
+      preset_id: "01KX5GRNWFC9S2F6T15155H41C"
+
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the pipeline"
+    params:
+      preset_id: "01KX5GRNWFC9S2F6T15155H41C"
+      mode: "txt2img"
+
+  - key: "generation.smoke"
+    kind: "generation.smoke"
+    title: "Run a first real generation"
+    params:
+      preset_id: "01KX5GRNWFC9S2F6T15155H41C"
+      mode: "txt2img"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    # Only meaningful during the first-run wizard - a run started from
+    # Admin -> Recipes skips it.
+    onboarding_only: true
+    params: {}

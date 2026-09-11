@@ -183,7 +183,7 @@ class ModelResolver:
     def _from_hash_walk(self, sha: str) -> Optional[str]:
         if not self.models_dir.is_dir():
             return None
-        files = [p for p in sorted(self.models_dir.rglob("*")) if p.is_file()]
+        files = sorted(self._walk_files(self.models_dir))
         total = len(files)
         # Log progress every ~25 files (and always the first) so a long walk on a
         # large models tree shows it is making progress rather than looking hung.
@@ -198,6 +198,34 @@ class ModelResolver:
             if digest == sha:
                 return str(path)
         return None
+
+    @staticmethod
+    def _walk_files(root: Path) -> list:
+        """Every regular file under `root`, following symlinked directories.
+
+        The models tree keeps its real subdirs (`checkpoints`/`vae`/
+        `diffusion_models`/`text_encoders`/`loras`/...) as symlinks into a
+        larger store (see the module docstring's "symlinked model stores"),
+        and `Path.rglob` does not descend into those - a hash-walk built on
+        it silently sees none of them. `os.walk(..., followlinks=True)` does
+        descend into them; a symlink cycle is guarded against by never
+        re-entering a directory whose *resolved* real path was already
+        visited (a directory reached a second time, via a different symlink
+        path, is skipped rather than re-walked - its files were already
+        collected the first time)."""
+        visited: set = set()
+        found: list = []
+        for dirpath, dirnames, filenames in os.walk(str(root), followlinks=True):
+            real = os.path.realpath(dirpath)
+            if real in visited:
+                dirnames[:] = []
+                continue
+            visited.add(real)
+            for name in filenames:
+                path = Path(dirpath) / name
+                if path.is_file():
+                    found.append(path)
+        return found
 
     def _cached_hash(self, path: Path) -> str:
         st = path.stat()

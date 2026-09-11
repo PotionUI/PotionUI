@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from src.features.preset_suite.resolver import ModelResolver
 
 
@@ -85,6 +87,48 @@ def test_hash_walk_finds_by_sha(tmp_path):
     sha = _write(f, b"vae-bytes")
     r = ModelResolver(tmp_path / "models", cache_path=tmp_path / "c.json")
     res = r.resolve(_ref(sha))
+    assert res.resolved and res.source == "hash-walk" and res.file_path == str(f)
+
+
+def test_hash_walk_follows_a_symlinked_subdirectory(tmp_path):
+    """The real depot layout keeps subdirs like `diffusion_models`/
+    `checkpoints`/`vae` as symlinks into a larger store (see the resolver
+    module's "symlinked model stores" note) - `Path.rglob` never descends
+    into those, so a real file living only behind one must still be found."""
+    real_store = tmp_path / "real_store" / "diffusion_models"
+    f = real_store / "model.safetensors"
+    sha = _write(f, b"diffusion-weights")
+
+    models_dir = tmp_path / "models"
+    models_dir.mkdir()
+    try:
+        (models_dir / "diffusion_models").symlink_to(real_store, target_is_directory=True)
+    except (OSError, NotImplementedError) as e:
+        pytest.skip(f"symlinks unsupported on this platform: {e}")
+
+    r = ModelResolver(models_dir, cache_path=tmp_path / "c.json")
+    res = r.resolve(_ref(sha))
+
+    assert res.resolved and res.source == "hash-walk"
+    assert Path(res.file_path).name == "model.safetensors"
+
+
+def test_hash_walk_does_not_hang_on_a_symlink_cycle(tmp_path):
+    """A symlinked subdir pointing back at an ancestor must not send the
+    walk into an infinite loop - it must still terminate and find a real
+    file that sits alongside the cycle."""
+    models_dir = tmp_path / "models"
+    f = models_dir / "checkpoints" / "sd.safetensors"
+    sha = _write(f, b"checkpoint-weights")
+
+    try:
+        (models_dir / "loop").symlink_to(models_dir, target_is_directory=True)
+    except (OSError, NotImplementedError) as e:
+        pytest.skip(f"symlinks unsupported on this platform: {e}")
+
+    r = ModelResolver(models_dir, cache_path=tmp_path / "c.json")
+    res = r.resolve(_ref(sha))
+
     assert res.resolved and res.source == "hash-walk" and res.file_path == str(f)
 
 

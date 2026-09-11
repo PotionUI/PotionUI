@@ -46,6 +46,7 @@ user's.
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -263,6 +264,11 @@ def main(argv=None) -> int:
             [run_dir / "suite.db", run_dir / "suite.db-wal", run_dir / "suite.db-shm", run_dir / "storage"],
             keep=False, failed=False,
         )
+        # `cleanup` only removes the listed ephemeral paths, leaving `run_dir`
+        # itself (holding just the marker) behind under /tmp. Same guard as
+        # `cleanup`'s own: only a marked, non-symlink directory is removable.
+        if ephemeral.is_marked(run_dir):
+            shutil.rmtree(run_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

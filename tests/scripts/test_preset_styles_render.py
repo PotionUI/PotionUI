@@ -327,6 +327,25 @@ class TestMain:
         assert code == 0
         assert client.run_case_calls[0]["form_data"]["diffusion_model"] == "/models/dit.safetensors"
 
+    def test_completed_run_removes_its_run_dir(self, tmp_path, monkeypatch):
+        preset_dir = tmp_path / "preset"
+        preset_dir.mkdir()
+        _write_styles_yml(preset_dir, _style())
+        sha = "a" * 64
+        _write_tests_yml(preset_dir, {"diffusion_model": sha})
+        preset = _preset(preset_dir, [_style()])
+        client = FakeClient(outcomes=[_completed_outcome()])
+        resolver = FakeResolver({sha: "/models/dit.safetensors"})
+        run_dir = tmp_path / "ephemeral-run"
+        monkeypatch.setattr(psr, "_boot_client", lambda run_dir: (client, _container_for(preset_dir, preset)))
+        monkeypatch.setattr(psr, "build_live_resolver", lambda allow_download=False: resolver)
+        monkeypatch.setattr(psr.tempfile, "mkdtemp", lambda prefix=None: str(run_dir))
+
+        code = psr.main([str(preset_dir)])
+
+        assert code == 0
+        assert not run_dir.exists()
+
     def test_unresolved_model_exits_nonzero_before_any_generation(self, tmp_path, monkeypatch):
         preset_dir = tmp_path / "preset"
         preset_dir.mkdir()

@@ -669,3 +669,211 @@ describe('reattachToTurn: real function against the real store', () => {
 		expect(state.isGenerating).toBe(false);
 	});
 });
+
+describe('item 4: streamed token coalescing and scroll-pin (createStreamEventHandler)', () => {
+	it('coalesces rapid token events into one deferred store update (last-wins), applied only once a frame elapses', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		let deliverEvent: ((e: { type: string; data: any }) => void | Promise<void>) | undefined;
+		void sendMessage(
+			{
+				store: chatSession,
+				api: makeFakeApi({
+					sendChatMessageStream: (_sid, _payload, onEvent) => {
+						deliverEvent = onEvent;
+						return new Promise<void>(() => {});
+					}
+				})
+			},
+			basicSendParams('hi')
+		);
+		await waitFor(() => !!deliverEvent);
+
+		await deliverEvent!({ type: 'token', data: { content: 'He' } });
+		await deliverEvent!({ type: 'token', data: { content: 'y' } });
+
+		// Still queued — not applied synchronously per token.
+		expect(get(chatSession).messages[1].content).toBe('');
+
+		// Real macrotask delay past the setTimeout(16) fallback (no
+		// requestAnimationFrame in this test environment).
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(get(chatSession).messages[1].content).toBe('Hey');
+	});
+
+	it('coalesces the follow-along scroll to once per batch, not once per token, and only via the pinned variant', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		let deliverEvent: ((e: { type: string; data: any }) => void | Promise<void>) | undefined;
+		let pinnedCalls = 0;
+		let jumpCalls = 0;
+		void sendMessage(
+			{
+				store: chatSession,
+				api: makeFakeApi({
+					sendChatMessageStream: (_sid, _payload, onEvent) => {
+						deliverEvent = onEvent;
+						return new Promise<void>(() => {});
+					}
+				}),
+				scrollToBottom: () => {
+					jumpCalls += 1;
+				},
+				scrollToBottomIfPinned: () => {
+					pinnedCalls += 1;
+				}
+			},
+			basicSendParams('hi')
+		);
+		await waitFor(() => !!deliverEvent);
+		const jumpCallsAfterSend = jumpCalls; // the explicit send-time jumps, unrelated to this assertion
+
+		await deliverEvent!({ type: 'token', data: { content: 'a' } });
+		await deliverEvent!({ type: 'token', data: { content: 'ab' } });
+		await deliverEvent!({ type: 'token', data: { content: 'abc' } });
+		expect(pinnedCalls).toBe(0); // nothing yet — still batched
+
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(pinnedCalls).toBe(1); // one scroll for the whole batch of three tokens
+		expect(jumpCalls).toBe(jumpCallsAfterSend); // the unconditional jump was never used for stream progress
+	});
+
+	it('flushes a pending token before applying a subsequent non-token event, so ordering holds', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		let deliverEvent: ((e: { type: string; data: any }) => void | Promise<void>) | undefined;
+		void sendMessage(
+			{
+				store: chatSession,
+				api: makeFakeApi({
+					sendChatMessageStream: (_sid, _payload, onEvent) => {
+						deliverEvent = onEvent;
+						return new Promise<void>(() => {});
+					}
+				})
+			},
+			basicSendParams('hi')
+		);
+		await waitFor(() => !!deliverEvent);
+
+		await deliverEvent!({ type: 'token', data: { content: 'narration before the tool call' } });
+		// No real delay at all — the very next event must still see the
+		// token's content already applied, not racing a still-pending frame.
+		await deliverEvent!({ type: 'tool_start', data: { tool_name: 'list_models' } });
+
+		const msg = get(chatSession).messages[get(chatSession).messages.length - 1];
+		expect(msg.content).toBe('narration before the tool call');
+		expect(msg.tool_executions).toHaveLength(1);
+	});
+
+	it('nothing is applied after done: a token scheduled just before it never resurrects after the message is finalized', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		await sendMessage(
+			{
+				store: chatSession,
+				api: makeFakeApi({
+					sendChatMessageStream: async (_sid, _payload, onEvent) => {
+						await onEvent!({ type: 'token', data: { content: 'partial' } });
+						await onEvent!({
+							type: 'done',
+							data: { assistant_message: { id: 'a1', content: 'final answer' } }
+						});
+					}
+				})
+			},
+			basicSendParams('hi')
+		);
+
+		expect(get(chatSession).messages[1].content).toBe('final answer');
+
+		// Even if a real browser's rAF for the token's push() were still
+		// pending, letting real time pass a frame must not resurrect the
+		// pre-done content over the finalized message.
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(get(chatSession).messages[1].content).toBe('final answer');
+	});
+
+	it('a pending token is flushed into recovery instead of being silently lost when the connection dies before another event arrives', async () => {
+		// Regression: recoverDurableMessage's settleUnrecoverable retains
+		// "whatever content is already showing" — that must be the token that
+		// really did arrive, not '' because it was still batched up when the
+		// connection broke with no further event to trigger a flush.
+		chatSession.patch({ sessionId: 'A' });
+		await sendMessage(
+			deps({
+				sendChatMessageStream: async (_sid, _payload, onEvent) => {
+					await onEvent!({ type: 'message_created', data: { user_message_id: 'u1' } });
+					await onEvent!({ type: 'token', data: { content: 'partial ' } });
+					throw new Error('network dropped');
+				},
+				reattachChatMessageStream: async () => {
+					throw new Error('reattach also failed');
+				},
+				getChatSession: async () => ({
+					success: true,
+					data: { messages: [{ id: 'u1', session_id: 's', role: 'user', content: 'hello', created_at: null }] } as any
+				})
+			}),
+			basicSendParams('hello')
+		);
+
+		const last = get(chatSession).messages[get(chatSession).messages.length - 1];
+		expect(last.content).toBe('partial ');
+		expect(last.isPartial).toBe(true);
+	});
+
+	it('sendMessage: the terminal settle scroll (after done) is pinned-only, not the unconditional jump — only the send-time placeholder adds use scrollToBottom', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		let jumpCalls = 0;
+		let pinnedCalls = 0;
+		await sendMessage(
+			{
+				store: chatSession,
+				api: makeFakeApi({
+					sendChatMessageStream: async (_sid, _payload, onEvent) => {
+						await onEvent!({ type: 'done', data: { assistant_message: { id: 'a1', content: 'answer' } } });
+					}
+				}),
+				scrollToBottom: () => {
+					jumpCalls += 1;
+				},
+				scrollToBottomIfPinned: () => {
+					pinnedCalls += 1;
+				}
+			},
+			basicSendParams('hi')
+		);
+
+		// The two explicit send-time adds (user message, streaming placeholder).
+		expect(jumpCalls).toBe(2);
+		// The settle-after-done scroll went through the pinned variant.
+		expect(pinnedCalls).toBe(1);
+	});
+
+	it('reattachToTurn: the terminal settle scroll is pinned-only — the initial reattach jump still uses the unconditional scroll', async () => {
+		chatSession.patch({ sessionId: 'A', messages: [userMsg('question')] });
+		let jumpCalls = 0;
+		let pinnedCalls = 0;
+		await reattachToTurn(
+			{
+				store: chatSession,
+				api: makeFakeApi({
+					reattachChatMessageStream: async (_sid, onEvent) => {
+						await onEvent!({ type: 'done', data: { assistant_message: { id: 'a1', content: 'answer' } } });
+					}
+				}),
+				scrollToBottom: () => {
+					jumpCalls += 1;
+				},
+				scrollToBottomIfPinned: () => {
+					pinnedCalls += 1;
+				}
+			},
+			{ sessionId: 'A' }
+		);
+
+		// The one explicit jump right after mounting the reattach placeholder.
+		expect(jumpCalls).toBe(1);
+		// The settle-after-done scroll went through the pinned variant.
+		expect(pinnedCalls).toBe(1);
+	});
+});

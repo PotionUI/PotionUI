@@ -5,7 +5,8 @@
 		processMarkdownWithActions,
 		injectToolCallChips,
 		truncateAtReplyContractMarker,
-		type ToolAction
+		type ToolAction,
+		type ToolCallSpan
 	} from '$lib/utils/markdown';
 	import type { ToolExecution, ResourceRef, TraceStep, ReplyContract } from '$lib/types/chat';
 	import { splitResourceTokens } from '$lib/utils/resourceTokens';
@@ -152,10 +153,30 @@
 	$: displayContent =
 		role === 'assistant' && isStreaming ? truncateAtReplyContractMarker(content) : content;
 
-	$: markdownResult =
-		role === 'assistant'
-			? processMarkdownWithActions(displayContent, { variableChips })
-			: { html: '', actions: [], toolCalls: [] };
+	// Memoized on (displayContent, variableChips) identity rather than left as
+	// a plain `$:` dependency, as a cheap, explicit guarantee that this
+	// component never re-runs `processMarkdownWithActions` (two regex passes
+	// plus a full markdown render) for a value it already parsed.
+	let markdownResult: { html: string; actions: ToolAction[]; toolCalls: ToolCallSpan[] } = {
+		html: '',
+		actions: [],
+		toolCalls: []
+	};
+	let memoizedContent: string | undefined;
+	let memoizedVariableChips: Record<string, string> | undefined;
+	$: {
+		if (role === 'assistant') {
+			if (displayContent !== memoizedContent || variableChips !== memoizedVariableChips) {
+				memoizedContent = displayContent;
+				memoizedVariableChips = variableChips;
+				markdownResult = processMarkdownWithActions(displayContent, { variableChips });
+			}
+		} else if (memoizedContent !== undefined) {
+			memoizedContent = undefined;
+			memoizedVariableChips = undefined;
+			markdownResult = { html: '', actions: [], toolCalls: [] };
+		}
+	}
 
 	$: replyContract = parsedContent?.reply_contract;
 

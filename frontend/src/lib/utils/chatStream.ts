@@ -19,6 +19,15 @@ import type { ChatMessageResponse } from '$lib/types/api';
 
 type Messages = UnifiedChatMessageData[];
 
+let clientKeySeq = 0;
+
+/** A stable per-message key for a message with no persisted `id` yet — see
+ * `UnifiedChatMessageData.clientKey`. Call once, at creation. */
+export function nextClientKey(): string {
+	clientKeySeq += 1;
+	return `ck-${clientKeySeq}`;
+}
+
 /** Next interleaving position for a new trace_steps/tool_executions entry on a message. */
 function nextSeq(message: UnifiedChatMessageData): number {
 	return (message.trace_steps?.length || 0) + (message.tool_executions?.length || 0);
@@ -308,6 +317,7 @@ export function applyDone(
 				: m.trace_steps || [];
 			return {
 				id: assistantMsg?.id,
+				clientKey: m.clientKey,
 				role: 'assistant' as const,
 				content: assistantMsg?.content || m.content,
 				timestamp: assistantMsg?.created_at
@@ -587,7 +597,7 @@ export function applyDurableRecovery(
 	if (lastIdx < 0 || messages[lastIdx].role !== 'assistant') return messages;
 	if (!persisted) return messages;
 	const msgs = [...messages];
-	msgs[lastIdx] = { ...persisted, isStreaming: false, isPartial: false };
+	msgs[lastIdx] = { ...persisted, clientKey: msgs[lastIdx].clientKey, isStreaming: false, isPartial: false };
 	return msgs;
 }
 

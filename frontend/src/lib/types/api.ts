@@ -658,6 +658,17 @@ export interface ChatSessionWithMessagesResponse extends ChatSessionResponse {
 	messages: ChatMessageResponse[];
 	/** Present when a turn is streaming for this session; the client reattaches to it. */
 	active_turn?: { turn_id: string; status: string } | null;
+	/** True when `?tail=N` was requested and older messages exist beyond what
+	 * `messages` holds — drives the "Load earlier messages" affordance.
+	 * Absent/false when the full conversation was returned. */
+	has_earlier?: boolean;
+}
+
+/** `GET /api/chat/sessions/{id}/messages?before=<id>&limit=N` — one older
+ * page of a windowed transcript, immediately preceding `before`. */
+export interface ChatMessagesPageResponse {
+	messages: ChatMessageResponse[];
+	has_earlier: boolean;
 }
 
 export interface SendChatMessageResponse {

@@ -2,6 +2,7 @@ import type { AxiosInstance } from 'axios';
 import type {
 	APIResponse,
 	ChatMessageResponse,
+	ChatMessagesPageResponse,
 	ChatSessionResponse,
 	ChatSessionWithMessagesResponse,
 	SendChatMessageResponse
@@ -146,10 +147,35 @@ export function createChatApi(client: AxiosInstance, getToken: () => string | nu
 			return response.data;
 		},
 
+		/**
+		 * `tail`, when given, asks the backend for only the last N messages of
+		 * the session (ascending) rather than the whole conversation — the
+		 * session payload's own `message_count`/`has_earlier` say how many
+		 * messages exist in total and whether more precede what's returned, for
+		 * `loadEarlier()` (`getChatMessagesBefore`) to page through. Omitted,
+		 * behavior is unchanged: every message, `has_earlier: false`.
+		 */
 		async getChatSession(
-			sessionId: string
+			sessionId: string,
+			options: { tail?: number } = {}
 		): Promise<APIResponse<ChatSessionWithMessagesResponse>> {
-			const response = await client.get(`/api/chat/sessions/${sessionId}`);
+			const query = typeof options.tail === 'number' ? `?tail=${options.tail}` : '';
+			const response = await client.get(`/api/chat/sessions/${sessionId}${query}`);
+			return response.data;
+		},
+
+		/** The page of up to `limit` messages immediately preceding `beforeMessageId`
+		 * (ascending) — used by `loadEarlier()` to page an already-windowed
+		 * transcript (`getChatSession(id, { tail })`) further back in history. */
+		async getChatMessagesBefore(
+			sessionId: string,
+			beforeMessageId: string,
+			limit: number = 60
+		): Promise<APIResponse<ChatMessagesPageResponse>> {
+			const params = new URLSearchParams();
+			params.append('before', beforeMessageId);
+			params.append('limit', String(limit));
+			const response = await client.get(`/api/chat/sessions/${sessionId}/messages?${params.toString()}`);
 			return response.data;
 		},
 

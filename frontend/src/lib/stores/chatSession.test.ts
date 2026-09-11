@@ -85,4 +85,86 @@ describe('chatSession store', () => {
 		chatSession.updateMessages((msgs) => msgs.map((m) => ({ ...m, content: 'b' })));
 		expect(get(chatSession).messages[0].content).toBe('b');
 	});
+
+	describe('clientKey assignment (keyed {#each} identity)', () => {
+		it('assigns a clientKey to a message added with neither id nor clientKey', () => {
+			chatSession.addMessage({ role: 'user', content: 'hi', timestamp: 1 });
+			const [msg] = get(chatSession).messages;
+			expect(msg.clientKey).toBeTruthy();
+		});
+
+		it('gives two messages added back to back distinct clientKeys', () => {
+			chatSession.addMessage({ role: 'user', content: 'a', timestamp: 1 });
+			chatSession.addMessage({ role: 'assistant', content: '', timestamp: 2, isStreaming: true });
+			const [first, second] = get(chatSession).messages;
+			expect(first.clientKey).not.toBe(second.clientKey);
+		});
+
+		it('never overwrites a caller-supplied id or clientKey', () => {
+			chatSession.addMessage({ id: 'server-id', role: 'user', content: 'hi', timestamp: 1 });
+			chatSession.addMessage({ clientKey: 'my-key', role: 'user', content: 'hi', timestamp: 2 });
+			const [withId, withKey] = get(chatSession).messages;
+			expect(withId.clientKey).toBeUndefined();
+			expect(withId.id).toBe('server-id');
+			expect(withKey.clientKey).toBe('my-key');
+		});
+	});
+
+	describe('windowed transcript', () => {
+		it('loadedSession without meta assumes the whole conversation was loaded', () => {
+			chatSession.loadedSession({ id: 's1', mode: 'generation' }, [
+				{ role: 'user', content: 'a', timestamp: 1 },
+				{ role: 'assistant', content: 'b', timestamp: 2 }
+			]);
+			const s = get(chatSession);
+			expect(s.messageCount).toBe(2);
+			expect(s.hasEarlier).toBe(false);
+		});
+
+		it('loadedSession with meta records a tail window short of the true total', () => {
+			chatSession.loadedSession(
+				{ id: 's1', mode: 'generation' },
+				[{ role: 'assistant', content: 'recent', timestamp: 2 }],
+				{ messageCount: 200, hasEarlier: true }
+			);
+			const s = get(chatSession);
+			expect(s.messages).toHaveLength(1);
+			expect(s.messageCount).toBe(200);
+			expect(s.hasEarlier).toBe(true);
+		});
+
+		it('prependMessages puts the older page before what was already loaded and updates hasEarlier', () => {
+			chatSession.loadedSession(
+				{ id: 's1', mode: 'generation' },
+				[{ id: 'm3', role: 'user', content: 'third', timestamp: 3 }],
+				{ messageCount: 3, hasEarlier: true }
+			);
+			chatSession.prependMessages(
+				[
+					{ id: 'm1', role: 'user', content: 'first', timestamp: 1 },
+					{ id: 'm2', role: 'assistant', content: 'second', timestamp: 2 }
+				],
+				false
+			);
+			const s = get(chatSession);
+			expect(s.messages.map((m) => m.id)).toEqual(['m1', 'm2', 'm3']);
+			expect(s.hasEarlier).toBe(false);
+			expect(s.loadingEarlier).toBe(false);
+		});
+
+		it('addMessage keeps messageCount in step with live growth', () => {
+			chatSession.loadedSession(
+				{ id: 's1', mode: 'generation' },
+				[{ id: 'm1', role: 'user', content: 'a', timestamp: 1 }],
+				{ messageCount: 1, hasEarlier: false }
+			);
+			chatSession.addMessage({ role: 'user', content: 'b', timestamp: 2 });
+			expect(get(chatSession).messageCount).toBe(2);
+		});
+
+		it('modeLocked is true for a loaded session whose window happens to be empty but has a real message count', () => {
+			chatSession.loadedSession({ id: 's1', mode: 'generation' }, [], { messageCount: 5, hasEarlier: true });
+			expect(get(modeLocked)).toBe(true);
+		});
+	});
 });

@@ -30,6 +30,7 @@ import {
 	type ChatSessionLikeStore,
 	type OwnedSessionController
 } from '$lib/utils/chatStream';
+import { createStreamCoalescer } from './streamCoalescer';
 
 type Messages = UnifiedChatMessageData[];
 
@@ -73,8 +74,16 @@ export interface ChatApiLike {
 export interface TurnControllerDeps {
 	store: ChatSessionLikeStore;
 	api: ChatApiLike;
-	/** Defaults to a no-op — a test doesn't need a real scroll. */
+	/** An explicit, unconditional jump to the bottom — used for actions the
+	 * user directly caused (sending a message, opening a session with an
+	 * in-flight turn). Defaults to a no-op — a test doesn't need a real scroll. */
 	scrollToBottom?: () => void;
+	/** The same jump, but only when the reader is already pinned to the
+	 * bottom — used for scroll follow-along DURING a stream (token/tool/status
+	 * progress), so a reader who scrolled up to read earlier messages is never
+	 * yanked back down by content still arriving elsewhere. Defaults to a
+	 * no-op. */
+	scrollToBottomIfPinned?: () => void;
 	/** Defaults to an immediately-resolved promise — a test doesn't need a real DOM tick. */
 	tick?: () => Promise<void>;
 	logError?: (message: string, err: unknown) => void;
@@ -92,10 +101,13 @@ function defaultTick(): Promise<void> {
 
 function noop(): void {}
 
-function withDefaults(deps: TurnControllerDeps): Required<Pick<TurnControllerDeps, 'scrollToBottom' | 'tick'>> & TurnControllerDeps {
+function withDefaults(
+	deps: TurnControllerDeps
+): Required<Pick<TurnControllerDeps, 'scrollToBottom' | 'scrollToBottomIfPinned' | 'tick'>> & TurnControllerDeps {
 	return {
 		...deps,
 		scrollToBottom: deps.scrollToBottom ?? noop,
+		scrollToBottomIfPinned: deps.scrollToBottomIfPinned ?? noop,
 		tick: deps.tick ?? defaultTick
 	};
 }
@@ -192,6 +204,16 @@ export function createStreamEventHandler(
 	let lastSeq: number | undefined;
 	let partial = false;
 	let recovered = false;
+	// Batches `token` events so the store is updated — and the message
+	// re-rendered/re-parsed, and the transcript re-scrolled — at most once
+	// per animation frame instead of once per token. `streamedContent` itself
+	// (above) is still updated synchronously on every token so recovery
+	// matching and the accumulator handed to a later event are never stale;
+	// only the STORE PUBLICATION is deferred and coalesced. See
+	// streamCoalescer.ts.
+	const tokenCoalescer = createStreamCoalescer((accumulated) => {
+		if (owned.applyStreamEvent({ type: 'token', data: {} }, { accumulated })) d.scrollToBottomIfPinned();
+	});
 	// The identity of the turn we're recovering FOR — the user message it
 	// answers. Seeded when already known (reattaching to a turn whose user
 	// message was already visible in the loaded session); otherwise learned
@@ -211,6 +233,12 @@ export function createStreamEventHandler(
 	async function recoverDurableMessage(): Promise<void> {
 		if (recovered) return;
 		recovered = true;
+		// A batched token can still be sitting unflushed if the connection
+		// broke between it and whatever would normally have flushed it (the
+		// next event, done/error) — apply it now so `settleUnrecoverable`'s
+		// "whatever content is already showing" doesn't discard a token that
+		// really did arrive just because it hadn't been batch-applied yet.
+		tokenCoalescer.flush();
 		if (!owned.isCurrent()) return; // don't even bother with a doomed fetch
 
 		let matched: ChatSessionWithMessagesResponse['messages'][number] | null = null;
@@ -259,20 +287,30 @@ export function createStreamEventHandler(
 		// applying/scrolling for a retired turn, or spending a recovery
 		// fetch on one, would only corrupt or waste effort on whatever now
 		// owns the UI. `owned`'s own methods would no-op anyway, but this
-		// also skips e.g. an unnecessary recoverDurableMessage() GET.
-		if (!owned.isCurrent()) return;
+		// also skips e.g. an unnecessary recoverDurableMessage() GET. Also
+		// drop whatever token content is still batched up — nothing must be
+		// applied for a turn control no longer owns.
+		if (!owned.isCurrent()) {
+			tokenCoalescer.cancel();
+			return;
+		}
+
+		// Every event EXCEPT another token flushes any batched token content
+		// first, so a tool_start/status/replay_snapshot/done/error reducer
+		// never runs ahead of text that arrived before it on the wire.
+		if (event.type !== 'token') tokenCoalescer.flush();
 
 		if (event.type === 'message_created') {
 			userMessageId = event.data?.user_message_id || userMessageId;
 		} else if (event.type === 'token') {
 			streamedContent += event.data.content;
-			if (owned.applyStreamEvent(event, { accumulated: streamedContent })) d.scrollToBottom();
+			tokenCoalescer.push(streamedContent);
 		} else if (event.type === 'tool_start') {
-			if (owned.applyStreamEvent(event)) d.scrollToBottom();
+			if (owned.applyStreamEvent(event)) d.scrollToBottomIfPinned();
 		} else if (event.type === 'tool_end') {
 			owned.applyStreamEvent(event);
 		} else if (event.type === 'status') {
-			if (owned.applyStreamEvent(event)) d.scrollToBottom();
+			if (owned.applyStreamEvent(event)) d.scrollToBottomIfPinned();
 		} else if (event.type === 'replay_snapshot') {
 			// This reconnect's expected prefix was compacted away; the
 			// snapshot's own bounded text replaces our accumulator so later
@@ -280,7 +318,7 @@ export function createStreamEventHandler(
 			// message is flagged partial until done/error/recovery settles it.
 			streamedContent = event.data?.text_so_far || '';
 			partial = true;
-			if (owned.applyStreamEvent(event)) d.scrollToBottom();
+			if (owned.applyStreamEvent(event)) d.scrollToBottomIfPinned();
 		} else if (event.type === 'overflow') {
 			// Some live events were dropped for this connection. Nothing is
 			// durably persisted yet for a still-running turn, so recovery
@@ -386,7 +424,10 @@ export async function reattachToTurn(deps: TurnControllerDeps, params: ReattachP
 		);
 		if (applied) {
 			await d.tick();
-			d.scrollToBottom();
+			// A settled turn is not an explicit user action — only follow if
+			// the reader was already at the bottom (see scrollToBottomIfPinned's
+			// doc comment above).
+			d.scrollToBottomIfPinned();
 			params.onSettled?.();
 		}
 	}
@@ -629,7 +670,10 @@ export async function sendMessage(deps: TurnControllerDeps, params: SendMessageP
 		const applied = finishTurnIfCurrent(d.store, owned.captured);
 		if (applied) {
 			await d.tick();
-			d.scrollToBottom();
+			// A settled turn is not an explicit user action — only follow if
+			// the reader was already at the bottom (see scrollToBottomIfPinned's
+			// doc comment above).
+			d.scrollToBottomIfPinned();
 			params.onSettled?.();
 		}
 	}

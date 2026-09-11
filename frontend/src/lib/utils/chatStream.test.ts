@@ -450,6 +450,14 @@ describe('applyDone', () => {
 		});
 		expect(out[1].metadata?.behavior_trace.completion).toEqual({ reason: 'length', raw: 'length' });
 	});
+
+	it('carries the placeholder\'s clientKey over onto the finalized message, for a keyed {#each} in the UI', () => {
+		const msgs = fixture();
+		msgs[1] = { ...msgs[1], clientKey: 'ck-42' };
+		const out = applyDone(msgs, { assistant_message: { id: 'a1', content: 'final answer' } });
+		expect(out[1].clientKey).toBe('ck-42');
+		expect(out[1].id).toBe('a1');
+	});
 });
 
 describe('mapPersistedMessage', () => {
@@ -646,6 +654,14 @@ describe('applyDurableRecovery', () => {
 	it('is a no-op when the last message is not an assistant message', () => {
 		const msgs: UnifiedChatMessageData[] = [{ role: 'user', content: 'a', timestamp: 1 }];
 		expect(applyDurableRecovery(msgs, persisted)).toBe(msgs);
+	});
+
+	it('carries the placeholder\'s clientKey over onto the recovered message, for a keyed {#each} in the UI', () => {
+		const msgs = fixture();
+		msgs[1] = { ...msgs[1], clientKey: 'ck-7' };
+		const out = applyDurableRecovery(msgs, persisted);
+		expect(out[1].clientKey).toBe('ck-7');
+		expect(out[1].id).toBe('a1');
 	});
 });
 

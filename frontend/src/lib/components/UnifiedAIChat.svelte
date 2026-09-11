@@ -6,6 +6,7 @@
 	import { api, type ChatSessionResponse } from '$lib/services/api/index';
 	import { loadPresets } from '$lib/stores/presetsCatalog';
 	import ChatMessage from '$lib/components/ChatMessage.svelte';
+	import Button from '$lib/components/ui/Button.svelte';
 	import Logo from '$lib/components/brand/Logo.svelte';
 	import ChatIconSprite from '$lib/components/chat/ChatIconSprite.svelte';
 	import { buildUploadedMediaItem } from '$lib/components/form-fields/mediaLoaderUpload';
@@ -48,6 +49,7 @@
 		type TurnControllerDeps,
 		type SendMessagePayload
 	} from '$lib/chat/turnController';
+	import { scheduleFrame, cancelFrame } from '$lib/chat/streamCoalescer';
 	import {
 		resolveDirectorCapabilities,
 		normalizeDirectorValue,
@@ -82,6 +84,10 @@
 	const STORAGE_KEY_ATTACH_IMAGE = 'unified-ai-chat-attach-image';
 	const STORAGE_KEY_PINNED_TAB = 'unified-ai-chat-pinned-tab';
 	const STORAGE_KEY_ENABLE_TOOLS = 'unified-ai-chat-enable-tools';
+
+	// Loading a session opens only its last TRANSCRIPT_TAIL messages (windowed
+	// transcript); loadEarlier() pages further back in the same size steps.
+	const TRANSCRIPT_TAIL = 60;
 
 	// Empty-state suggestion cards: clicking one hands its prompt straight to
 	// the composer (copy and icons ported verbatim from the mock's .suggestions).
@@ -660,6 +666,7 @@
 			store: chatSession,
 			api,
 			scrollToBottom,
+			scrollToBottomIfPinned,
 			tick,
 			logError: (message, err) => logger.error(message, err),
 			onTitle: (sessionId, name) => {
@@ -680,7 +687,7 @@
 		const requestId = ++sessionLoadRequestId;
 		loadingSessionId = id;
 		try {
-			const response = await api.getChatSession(id);
+			const response = await api.getChatSession(id, { tail: TRANSCRIPT_TAIL });
 			if (destroyed || requestId !== sessionLoadRequestId) return;
 
 			if (response.success && response.data) {
@@ -691,7 +698,8 @@
 						id: response.data.id,
 						mode: response.data.mode
 					},
-					loadedMessages
+					loadedMessages,
+					{ messageCount: response.data.message_count, hasEarlier: response.data.has_earlier ?? false }
 				);
 				applyStoredDisabledToolsForMode(response.data.mode);
 				saveCurrentSessionId();
@@ -730,11 +738,88 @@
 		}
 	}
 
+	// A same-tick re-entrancy guard independent of `$chatSession.loadingEarlier`
+	// — the IntersectionObserver callback below can fire again before a store
+	// subscription update has actually landed on this read.
+	let loadEarlierInFlight = false;
+
+	/** Pages the currently loaded window one `TRANSCRIPT_TAIL`-sized step
+	 * further back in history, prepending it and keeping the reader's eye on
+	 * the same message they were looking at (scrollTop shifts by exactly the
+	 * height the prepended content added). */
+	async function loadEarlier() {
+		const state = $chatSession;
+		if (!state.sessionId || !state.hasEarlier || state.loadingEarlier || loadEarlierInFlight) return;
+		const earliestLoaded = state.messages[0];
+		if (!earliestLoaded?.id) return; // nothing persisted to page before yet
+
+		loadEarlierInFlight = true;
+		chatSession.patch({ loadingEarlier: true });
+		const container = messagesContainerRef;
+		const previousScrollHeight = container?.scrollHeight ?? 0;
+
+		try {
+			const response = await api.getChatMessagesBefore(state.sessionId, earliestLoaded.id, TRANSCRIPT_TAIL);
+			if (destroyed || $chatSession.sessionId !== state.sessionId) return;
+
+			if (response.success && response.data) {
+				const olderMessages = response.data.messages.map(mapPersistedMessage);
+				chatSession.prependMessages(olderMessages, response.data.has_earlier);
+				// Every existing divider's position shifts by however many
+				// messages just landed in front of it.
+				if (olderMessages.length > 0) {
+					contextDividers = contextDividers.map((d) => ({
+						...d,
+						afterIndex: d.afterIndex + olderMessages.length
+					}));
+				}
+				await tick();
+				if (container) {
+					// Never animated: this is a silent position correction for
+					// content that just appeared above the fold, not a scroll the
+					// reader should see happen.
+					jumpTo(container, container.scrollTop + (container.scrollHeight - previousScrollHeight));
+				}
+			} else {
+				// Backend envelope failure (e.g. `message_not_found` if the
+				// earliest loaded message was itself since deleted) — leave the
+				// loaded window exactly as-is, no banner: surfacing `error` here
+				// would show the persistent chat-error-banner for what's a
+				// background pagination hiccup, not a turn failure, and the row
+				// stays visible/clickable to retry.
+				logger.error('Failed to load earlier messages:', response.error);
+				chatSession.patch({ loadingEarlier: false });
+			}
+		} catch (err) {
+			logger.error('Failed to load earlier messages:', err);
+			if (!destroyed && $chatSession.sessionId === state.sessionId) {
+				chatSession.patch({ loadingEarlier: false });
+			}
+		} finally {
+			loadEarlierInFlight = false;
+		}
+	}
+
+	/** Auto-triggers loadEarlier() once the "Load earlier messages" row
+	 * scrolls into view, so reading up to the top of the loaded window pages
+	 * further back without an explicit click. */
+	function loadEarlierOnIntersect(node: HTMLElement) {
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries[0]?.isIntersecting) void loadEarlier();
+			},
+			{ root: messagesContainerRef ?? null }
+		);
+		observer.observe(node);
+		return { destroy: () => observer.disconnect() };
+	}
+
 	onDestroy(() => {
 		destroyed = true;
 		sessionsRequestId += 1;
 		sessionLoadRequestId += 1;
 		if (stripFlashTimer) clearTimeout(stripFlashTimer);
+		if (pinnedScrollHandle !== null) cancelFrame(pinnedScrollHandle);
 	});
 
 	async function handleCommand(command: string): Promise<boolean> {
@@ -1296,11 +1381,17 @@
 	// name field of its own.
 	$: currentSessionRecord = sessionId ? recentSessions.find((s) => s.id === sessionId) : null;
 	$: conversationTitle = currentSessionRecord?.name || (sessionId ? 'Untitled conversation' : 'New conversation');
+	// Scoped to whatever's currently LOADED — with the transcript windowed to
+	// the last TRANSCRIPT_TAIL messages, an image attached further back than
+	// that isn't counted here. Cosmetic (a header subtitle), not corrected
+	// against `$chatSession.messageCount` the way the message count below is:
+	// doing so would need the backend to report an image count on the
+	// session summary, which is outside this contract.
 	$: threadImageCount = messages.filter((m) => m.role === 'user' && m.imageUrl).length;
 	$: headerSubtitle = threadImageCount > 0
 		? `${threadImageCount} image${threadImageCount === 1 ? '' : 's'} attached in thread`
 		: sessionId
-			? `${messages.filter((m) => !m.isSystem).length} messages`
+			? `${$chatSession.messageCount || messages.filter((m) => !m.isSystem).length} messages`
 			: '';
 
 	async function handleRenameConversation(newTitle: string) {
@@ -1317,9 +1408,24 @@
 		}
 	}
 
-	function handleExportTranscript() {
+	/** The loaded transcript is a windowed tail — exporting it as-is once
+	 * `hasEarlier` is true would silently drop everything before the window.
+	 * Fetch the whole conversation (no `tail`) just for this export rather
+	 * than changing what's loaded on screen. */
+	async function handleExportTranscript() {
+		let exportMessages = messages;
+		if ($chatSession.hasEarlier && sessionId) {
+			try {
+				const response = await api.getChatSession(sessionId);
+				if (response.success && response.data) {
+					exportMessages = response.data.messages.map(mapPersistedMessage);
+				}
+			} catch (err) {
+				logger.error('Failed to load the full conversation for export — exporting the loaded window instead:', err);
+			}
+		}
 		const lines: string[] = [`# ${conversationTitle}`, ''];
-		for (const message of messages) {
+		for (const message of exportMessages) {
 			if (message.isSystem || (!message.content && !message.tool_executions?.length)) continue;
 			const speaker = message.role === 'user' ? 'You' : 'PotionAI';
 			const when = message.timestamp ? new Date(message.timestamp).toLocaleString() : '';
@@ -1422,6 +1528,24 @@
 	let lastScrollTop = 0;
 	let wasPinnedToBottom = true;
 	let wasCollapsed = false;
+
+	// The follow-along scroll used DURING a stream (turnController's
+	// `scrollToBottomIfPinned`): only jumps while the reader is already
+	// pinned to the bottom, so a reader who scrolled up to read earlier
+	// messages is never yanked back down by content still arriving
+	// elsewhere — `scrollToBottom` above stays the unconditional jump for
+	// explicit actions (send, open session). Coalesced to at most once per
+	// frame on its own (independent of turnController's own per-frame token
+	// batching) so a burst of tool_start/status events in the same tick
+	// still only forces one layout read.
+	let pinnedScrollHandle: ReturnType<typeof scheduleFrame> | null = null;
+	function scrollToBottomIfPinned() {
+		if (!wasPinnedToBottom || pinnedScrollHandle !== null) return;
+		pinnedScrollHandle = scheduleFrame(() => {
+			pinnedScrollHandle = null;
+			if (wasPinnedToBottom) scrollToBottom();
+		});
+	}
 
 	function rememberScroll() {
 		if (!messagesContainerRef || messagesContainerRef.clientHeight === 0) return;
@@ -1530,7 +1654,20 @@
 		<!-- Chat messages area -->
 		<div class="messages" bind:this={messagesContainerRef} use:preserveScrollAcrossHiding on:scroll={rememberScroll}>
 			<div class="messages-inner" class:hidden={messages.length === 0}>
-				{#each messages as message, idx}
+				{#if $chatSession.hasEarlier}
+					<div class="flex justify-center py-3" use:loadEarlierOnIntersect>
+						<Button
+							variant="ghost"
+							size="sm"
+							class="text-fg-muted"
+							loading={$chatSession.loadingEarlier}
+							onclick={loadEarlier}
+						>
+							Load earlier messages
+						</Button>
+					</div>
+				{/if}
+				{#each messages as message, idx (message.id ?? message.clientKey ?? idx)}
 					{#if message.isStreaming && !message.content && !message.tool_executions?.length && !message.trace_steps?.length && idx === messages.length - 1}
 						<!-- Nothing has happened for this turn yet (no content, no tool call, no
 						     trace step) — a bare "thinking" placeholder covers that brief gap

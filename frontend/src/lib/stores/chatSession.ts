@@ -16,7 +16,8 @@ import {
 	applyDone,
 	applyError,
 	applyStatus,
-	applyReplaySnapshot
+	applyReplaySnapshot,
+	nextClientKey
 } from '$lib/utils/chatStream';
 
 export const DEFAULT_CHAT_MODE = 'generation';
@@ -36,6 +37,18 @@ export interface ChatConversationState {
 	 * (`isRecoveryStillCurrent` in chatStream.ts) to detect that a newer turn
 	 * has since taken over before publishing a delayed result. */
 	turnSeq: number;
+	/** How many messages this session has, as last reported by the backend
+	 * (`ChatSessionResponse.message_count`) — the true total, independent of
+	 * how many of them `messages` currently holds. A fresh, never-loaded
+	 * conversation keeps this in step with `messages.length` via `addMessage`
+	 * rather than leaving it at 0. */
+	messageCount: number;
+	/** Whether `messages` is a tail window (`GET .../{id}?tail=60`) with
+	 * older messages not yet loaded — drives the "Load earlier messages" row
+	 * and `loadEarlier()`'s guard. */
+	hasEarlier: boolean;
+	/** A `loadEarlier()` fetch is in flight. */
+	loadingEarlier: boolean;
 }
 
 function initialState(mode: string = DEFAULT_CHAT_MODE): ChatConversationState {
@@ -46,7 +59,10 @@ function initialState(mode: string = DEFAULT_CHAT_MODE): ChatConversationState {
 		disabledTools: [],
 		isGenerating: false,
 		error: '',
-		turnSeq: 0
+		turnSeq: 0,
+		messageCount: 0,
+		hasEarlier: false,
+		loadingEarlier: false
 	};
 }
 
@@ -88,8 +104,13 @@ function createChatSessionStore() {
 			update((s) => ({ ...s, messages: fn(s.messages) }));
 		},
 
+		/** A message with neither a persisted `id` nor a `clientKey` already
+		 * (the common case — an optimistic send, a fresh streaming placeholder)
+		 * gets one assigned here, so a keyed `{#each}` in the UI always has a
+		 * stable key to render it with, from its very first frame. */
 		addMessage(message: UnifiedChatMessageData) {
-			update((s) => ({ ...s, messages: [...s.messages, message] }));
+			const withKey = message.id || message.clientKey ? message : { ...message, clientKey: nextClientKey() };
+			update((s) => ({ ...s, messages: [...s.messages, withKey], messageCount: s.messageCount + 1 }));
 		},
 
 		/** Start a fresh conversation in the given mode (clears session + messages). */
@@ -97,10 +118,16 @@ function createChatSessionStore() {
 			set(initialState(mode));
 		},
 
-		/** Adopt a session loaded from the backend (keeps its persisted mode). */
+		/** Adopt a session loaded from the backend (keeps its persisted mode).
+		 * `messages` may be a tail window rather than the whole conversation —
+		 * `meta.messageCount`/`meta.hasEarlier` carry the backend's own
+		 * accounting of that (see `ChatSessionWithMessagesResponse`); omitted,
+		 * they default to "this IS the whole conversation" so callers that
+		 * still load everything (no `tail`) don't need to pass them. */
 		loadedSession(
 			session: { id: string; mode?: string },
-			messages: UnifiedChatMessageData[]
+			messages: UnifiedChatMessageData[],
+			meta: { messageCount?: number; hasEarlier?: boolean } = {}
 		) {
 			update((s) => ({
 				...s,
@@ -109,7 +136,22 @@ function createChatSessionStore() {
 				messages,
 				disabledTools: [],
 				isGenerating: false,
-				error: ''
+				error: '',
+				messageCount: meta.messageCount ?? messages.length,
+				hasEarlier: meta.hasEarlier ?? false,
+				loadingEarlier: false
+			}));
+		},
+
+		/** Prepend an older page of messages fetched by `loadEarlier()` (the
+		 * `before`-cursor page immediately preceding what's currently loaded),
+		 * and record whether there's still more before THAT. */
+		prependMessages(olderMessages: UnifiedChatMessageData[], hasEarlier: boolean) {
+			update((s) => ({
+				...s,
+				messages: [...olderMessages, ...s.messages],
+				hasEarlier,
+				loadingEarlier: false
 			}));
 		},
 
@@ -148,5 +190,7 @@ function createChatSessionStore() {
 
 export const chatSession = createChatSessionStore();
 
-/** Mode is fixed once the conversation has any messages. */
-export const modeLocked = derived(chatSession, ($s) => $s.messages.length > 0);
+/** Mode is fixed once the conversation has any messages — `messageCount` (the
+ * backend's own total) covers a loaded session whose tail window happens to
+ * be empty for some other reason `messages` alone wouldn't. */
+export const modeLocked = derived(chatSession, ($s) => $s.messages.length > 0 || $s.messageCount > 0);

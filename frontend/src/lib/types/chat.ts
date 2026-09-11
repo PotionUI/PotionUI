@@ -314,6 +314,14 @@ export interface ReplyContract {
  */
 export interface UnifiedChatMessageData {
 	id?: string;
+	/** A stable identity for a message that doesn't have a persisted `id` yet
+	 * (the optimistic user message, the streaming assistant placeholder) —
+	 * assigned once at creation (`chatSession.addMessage`) and kept across
+	 * every in-place reducer update, so a keyed `{#each}` never has to fall
+	 * back to array index. Superseded by `id` once the backend assigns one,
+	 * but not removed — a reducer that replaces the whole message object
+	 * (`applyDone`, `applyDurableRecovery`) must carry it over explicitly. */
+	clientKey?: string;
 	role: 'user' | 'assistant' | 'system';
 	content: string;
 	timestamp: number;

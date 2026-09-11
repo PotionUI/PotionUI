@@ -37,6 +37,7 @@ export type {
 	GeneratePreviewRequest,
 	GeneratePreviewResult,
 	ChatMessageResponse,
+	ChatMessagesPageResponse,
 	ChatSessionResponse,
 	ChatSessionWithMessagesResponse,
 	SendChatMessageResponse,

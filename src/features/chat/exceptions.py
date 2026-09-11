@@ -22,6 +22,11 @@ class AccessDeniedException(ChatException):
     pass
 
 
+class MessageNotFoundException(ChatException):
+    """Message not found in the given session."""
+    pass
+
+
 class SessionClosedException(ChatException):
     """Session is closed, cannot perform operation."""
     pass

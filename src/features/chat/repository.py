@@ -30,7 +30,8 @@ def _message_to_dto(message: ChatMessage) -> MessageResponse:
 def _session_to_dto(
     session: ChatSession,
     include_messages: bool = False,
-    message_count: Optional[int] = None
+    message_count: Optional[int] = None,
+    has_earlier: bool = False,
 ) -> SessionResponse:
     """Convert internal ChatSession to SessionResponse DTO"""
     messages = None
@@ -55,6 +56,7 @@ def _session_to_dto(
         message_count=message_count,
         messages=messages,
         metadata=session.metadata,
+        has_earlier=has_earlier,
     )
 
 
@@ -75,11 +77,17 @@ class ChatMessageRepository:
         return _message_to_dto(message) if message else None
 
     def _get_by_session_internal(self, session_id: str) -> List[ChatMessage]:
-        """Get all messages for a session (internal models)"""
+        """Get all messages for a session (internal models).
+
+        `created_at` alone is not a unique key - two messages can share a
+        timestamp at the sqlite text-datetime resolution - so every ordering
+        of chat_messages breaks ties on `rowid` (insertion order), not `id`:
+        ULIDs are not guaranteed monotonic within the same millisecond.
+        """
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
-                "SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC",
+                "SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC, rowid ASC",
                 (session_id,)
             )
             return [ChatMessage.from_row(row) for row in cursor.fetchall()]
@@ -88,6 +96,78 @@ class ChatMessageRepository:
         """Get all messages for a session ordered by creation time"""
         messages = self._get_by_session_internal(session_id)
         return [_message_to_dto(msg) for msg in messages]
+
+    def _get_page_internal(
+        self,
+        session_id: str,
+        limit: int,
+        anchor: Optional[Tuple[str, int]],
+    ) -> Tuple[List[ChatMessage], bool]:
+        """Fetch up to `limit` messages immediately before `anchor` (or the
+        tail of the session when `anchor` is None), ascending.
+
+        `anchor` is the (created_at, rowid) keyset cursor of the message to
+        page backwards from - exclusive. Fetches one extra row to detect
+        whether earlier messages remain without a separate COUNT query.
+        """
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            if anchor is None:
+                cursor.execute(
+                    """
+                    SELECT *, rowid AS _rk FROM chat_messages
+                    WHERE session_id = ?
+                    ORDER BY created_at DESC, rowid DESC
+                    LIMIT ?
+                    """,
+                    (session_id, limit + 1)
+                )
+            else:
+                anchor_created_at, anchor_rowid = anchor
+                cursor.execute(
+                    """
+                    SELECT *, rowid AS _rk FROM chat_messages
+                    WHERE session_id = ?
+                      AND (created_at < ? OR (created_at = ? AND rowid < ?))
+                    ORDER BY created_at DESC, rowid DESC
+                    LIMIT ?
+                    """,
+                    (session_id, anchor_created_at, anchor_created_at, anchor_rowid, limit + 1)
+                )
+            rows = cursor.fetchall()
+
+        has_earlier = len(rows) > limit
+        rows = rows[:limit]
+        messages = [ChatMessage.from_row(row) for row in reversed(rows)]
+        return messages, has_earlier
+
+    def get_tail(self, session_id: str, limit: int) -> Tuple[List[MessageResponse], bool]:
+        """Return the last `limit` messages of a session, ascending."""
+        messages, has_earlier = self._get_page_internal(session_id, limit, anchor=None)
+        return [_message_to_dto(msg) for msg in messages], has_earlier
+
+    def get_before(
+        self, session_id: str, before_id: str, limit: int
+    ) -> Optional[Tuple[List[MessageResponse], bool]]:
+        """Return the `limit` messages immediately preceding `before_id`, ascending.
+
+        Returns None when `before_id` doesn't belong to this session.
+        """
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT created_at, rowid FROM chat_messages WHERE id = ? AND session_id = ?",
+                (before_id, session_id)
+            )
+            anchor_row = cursor.fetchone()
+
+        if anchor_row is None:
+            return None
+
+        messages, has_earlier = self._get_page_internal(
+            session_id, limit, anchor=(anchor_row['created_at'], anchor_row['rowid'])
+        )
+        return [_message_to_dto(msg) for msg in messages], has_earlier
 
     def create(self, message: ChatMessage) -> Optional[MessageResponse]:
         """Create a new message, returns DTO"""
@@ -161,7 +241,23 @@ class ChatSessionRepository:
     def get_with_messages(self, session_id: str) -> Optional[SessionResponse]:
         """Get a session by ID with all messages"""
         session = self._get_with_messages_internal(session_id)
-        return _session_to_dto(session, include_messages=True) if session else None
+        if not session:
+            return None
+        return _session_to_dto(
+            session, include_messages=True, message_count=len(session.messages), has_earlier=False
+        )
+
+    def get_with_messages_tail(self, session_id: str, tail: int) -> Optional[SessionResponse]:
+        """Get a session by ID with only its last `tail` messages."""
+        session = self._get_by_id_internal(session_id)
+        if not session:
+            return None
+        total = self.message_repo.count_by_session(session_id)
+        messages, has_earlier = self.message_repo._get_page_internal(session_id, tail, anchor=None)
+        session.messages = messages
+        return _session_to_dto(
+            session, include_messages=True, message_count=total, has_earlier=has_earlier
+        )
 
     def list_sessions(
         self,
@@ -406,6 +502,23 @@ class ChatRepository:
     def get_session_with_messages(self, session_id: str) -> Optional[SessionResponse]:
         """Get a session by ID with all messages"""
         return self.session_repo.get_with_messages(session_id)
+
+    def get_session_with_messages_tail(self, session_id: str, tail: int) -> Optional[SessionResponse]:
+        """Get a session by ID with only its last `tail` messages."""
+        return self.session_repo.get_with_messages_tail(session_id, tail)
+
+    def get_message_tail(self, session_id: str, limit: int) -> Tuple[List[MessageResponse], bool]:
+        """Return the last `limit` messages of a session, ascending."""
+        return self.session_repo.message_repo.get_tail(session_id, limit)
+
+    def get_messages_before(
+        self, session_id: str, before_id: str, limit: int
+    ) -> Optional[Tuple[List[MessageResponse], bool]]:
+        """Return the `limit` messages immediately preceding `before_id`, ascending.
+
+        Returns None when `before_id` doesn't belong to this session.
+        """
+        return self.session_repo.message_repo.get_before(session_id, before_id, limit)
 
     def list_sessions(
         self,

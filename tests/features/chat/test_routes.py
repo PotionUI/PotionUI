@@ -22,6 +22,7 @@ from src.features.chat.exceptions import (
     AdminOnlyModeException,
     SessionNotFoundException,
     AccessDeniedException,
+    MessageNotFoundException,
     SessionClosedException,
     InvalidLLMConfigException,
     MessageCreationFailedException,
@@ -290,6 +291,72 @@ class TestChatController:
         mock_chat_manager.get_session.side_effect = AccessDeniedException("No access")
 
         result = controller.get_session("session-123", sample_user)
+
+        assert result.success is False
+        assert "access_denied" in result.error
+
+    def test_get_session_passes_tail_through(
+        self, controller, mock_chat_manager, sample_session_response, sample_user
+    ):
+        """The `tail` argument reaches ChatRuntime.get_session unchanged"""
+        mock_chat_manager.get_session.return_value = sample_session_response
+
+        controller.get_session("session-123", sample_user, tail=60)
+
+        mock_chat_manager.get_session.assert_called_once_with("session-123", "user-123", tail=60)
+
+    # Session messages paging tests
+
+    def test_get_session_messages_success(
+        self, controller, mock_chat_manager, sample_user
+    ):
+        """Test paging a session's messages"""
+        messages = [
+            MessageResponse(
+                id="msg-1",
+                session_id="session-123",
+                role="user",
+                content="Hello",
+                created_at=datetime.now().isoformat()
+            )
+        ]
+        mock_chat_manager.get_session_messages.return_value = (messages, True)
+
+        result = controller.get_session_messages("session-123", sample_user, before="msg-2", limit=3)
+
+        assert result.success is True
+        assert len(result.data["messages"]) == 1
+        assert result.data["has_earlier"] is True
+        mock_chat_manager.get_session_messages.assert_called_once_with(
+            "session-123", "user-123", before="msg-2", limit=3
+        )
+
+    def test_get_session_messages_session_not_found(
+        self, controller, mock_chat_manager, sample_user
+    ):
+        mock_chat_manager.get_session_messages.side_effect = SessionNotFoundException("Not found")
+
+        result = controller.get_session_messages("nonexistent", sample_user)
+
+        assert result.success is False
+        assert "session_not_found" in result.error
+
+    def test_get_session_messages_message_not_found(
+        self, controller, mock_chat_manager, sample_user
+    ):
+        mock_chat_manager.get_session_messages.side_effect = MessageNotFoundException("Not found")
+
+        result = controller.get_session_messages("session-123", sample_user, before="msg-elsewhere")
+
+        assert result.success is False
+        assert "message_not_found" in result.error
+
+    def test_get_session_messages_access_denied(
+        self, controller, mock_chat_manager, sample_user
+    ):
+        mock_chat_manager.get_session_messages.side_effect = AccessDeniedException("No access")
+
+        result = controller.get_session_messages("session-123", sample_user)
 
         assert result.success is False
         assert "access_denied" in result.error
@@ -1342,3 +1409,71 @@ class TestMemoryEndpoints:
 
         assert result.success is False
         assert result.error == "note_not_found"
+
+
+class TestSessionMessagesQueryBounds:
+    """Router-level wiring: `tail`/`limit` query bounds are FastAPI-validated (422)."""
+
+    def _client(self):
+        from types import SimpleNamespace
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from src.features.chat.routes import build_router
+        from src.platform.security.current_user import get_current_active_user
+
+        chat_runtime = Mock()
+        chat_runtime.get_session.return_value = SessionResponse(
+            id="session-123", user_id="user-1", mode="generation", status="active",
+        )
+        chat_runtime.get_session_messages.return_value = ([], False)
+        chat_runtime.chat_mode_registry.get.return_value = None
+        controller = ChatController(chat_runtime=chat_runtime, turn_registry=ChatTurnRegistry())
+
+        app = FastAPI()
+        container = SimpleNamespace(chat_controller=controller)
+        app.include_router(build_router(container))
+        app.dependency_overrides[get_current_active_user] = lambda: User(
+            id="user-1", username="u", email="u@example.com", password_hash="h",
+            account_type=AccountType.USER,
+        )
+        return TestClient(app), chat_runtime
+
+    def test_tail_zero_rejected(self):
+        client, _ = self._client()
+
+        response = client.get("/api/chat/sessions/session-123", params={"tail": 0})
+
+        assert response.status_code == 422
+
+    def test_tail_above_max_rejected(self):
+        client, _ = self._client()
+
+        response = client.get("/api/chat/sessions/session-123", params={"tail": 201})
+
+        assert response.status_code == 422
+
+    def test_messages_limit_zero_rejected(self):
+        client, _ = self._client()
+
+        response = client.get("/api/chat/sessions/session-123/messages", params={"limit": 0})
+
+        assert response.status_code == 422
+
+    def test_messages_limit_above_max_rejected(self):
+        client, _ = self._client()
+
+        response = client.get("/api/chat/sessions/session-123/messages", params={"limit": 201})
+
+        assert response.status_code == 422
+
+    def test_messages_defaults_to_last_60(self):
+        client, chat_runtime = self._client()
+
+        response = client.get("/api/chat/sessions/session-123/messages")
+
+        assert response.status_code == 200
+        chat_runtime.get_session_messages.assert_called_once_with(
+            "session-123", "user-1", before=None, limit=60
+        )

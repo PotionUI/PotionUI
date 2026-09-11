@@ -13,7 +13,7 @@ import json
 import logging
 from typing import Optional, TYPE_CHECKING
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from src.platform.http.base_controller import BaseController, APIResponse
@@ -31,6 +31,7 @@ from src.features.chat import (
     ChatRuntime,
     SessionNotFoundException,
     AccessDeniedException,
+    MessageNotFoundException,
     SessionClosedException,
     InvalidLLMConfigException,
     MessageCreationFailedException,
@@ -174,10 +175,13 @@ class ChatController(BaseController):
             return []
         return self.chat_runtime.tool_executor.tool_registry.get_for_mode(mode)
 
-    def get_session(self, session_id: str, user: User) -> APIResponse:
-        """Get a session with all messages."""
+    def get_session(self, session_id: str, user: User, tail: Optional[int] = None) -> APIResponse:
+        """Get a session with its messages.
+
+        `tail`, when given, returns only the session's last `tail` messages.
+        """
         try:
-            session = self.chat_runtime.get_session(session_id, user.id)
+            session = self.chat_runtime.get_session(session_id, user.id, tail=tail)
             # Surface an in-flight turn so the client can reattach to its live
             # stream on reload instead of dead-ending on a lost response.
             active = self.turn_registry.active(session_id)
@@ -202,6 +206,43 @@ class ChatController(BaseController):
             return self.error_api_response(
                 error="get_session_failed",
                 message=f"Failed to get session: {str(e)}"
+            )
+
+    def get_session_messages(
+        self, session_id: str, user: User, before: Optional[str] = None, limit: int = 60
+    ) -> APIResponse:
+        """Return the `limit` messages immediately preceding `before` (or the
+        session's tail when `before` is omitted), ascending."""
+        try:
+            messages, has_earlier = self.chat_runtime.get_session_messages(
+                session_id, user.id, before=before, limit=limit
+            )
+            return self.success_response(
+                data={
+                    "messages": [m.model_dump() for m in messages],
+                    "has_earlier": has_earlier,
+                }
+            )
+        except SessionNotFoundException:
+            return self.error_api_response(
+                error="session_not_found",
+                message="Session not found"
+            )
+        except MessageNotFoundException:
+            return self.error_api_response(
+                error="message_not_found",
+                message="Message not found in this session"
+            )
+        except AccessDeniedException:
+            return self.error_api_response(
+                error="access_denied",
+                message="You don't have access to this session"
+            )
+        except Exception as e:
+            logger.exception(f"Error getting session messages: {e}")
+            return self.error_api_response(
+                error="get_session_messages_failed",
+                message=f"Failed to get session messages: {str(e)}"
             )
 
     async def send_message(
@@ -857,10 +898,25 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("/sessions/{session_id}", response_model=APIResponse, summary="Get a chat session")
     async def get_session(
         session_id: str,
+        tail: Optional[int] = Query(None, ge=1, le=200),
         current_user: User = Depends(get_current_active_user)
     ):
-        """Get a session with all messages."""
-        return controller.get_session(session_id, current_user)
+        """Get a session with its messages.
+
+        `tail`, when given, returns only the session's last `tail` messages.
+        """
+        return controller.get_session(session_id, current_user, tail=tail)
+
+    @router.get("/sessions/{session_id}/messages", response_model=APIResponse, summary="Page a session's messages")
+    async def get_session_messages(
+        session_id: str,
+        before: Optional[str] = None,
+        limit: int = Query(60, ge=1, le=200),
+        current_user: User = Depends(get_current_active_user)
+    ):
+        """Return the `limit` messages immediately preceding `before` (or the
+        session's tail when `before` is omitted), ascending."""
+        return controller.get_session_messages(session_id, current_user, before=before, limit=limit)
 
     @router.post("/sessions/{session_id}/messages", response_model=APIResponse, summary="Send a chat message")
     async def send_message(

@@ -19,7 +19,7 @@ this once the rest of the process exists.
 import logging
 from typing import AsyncGenerator, Dict, List, Optional, Any, Tuple
 
-from src.features.chat.dto import SessionResponse, SendMessageResponse
+from src.features.chat.dto import MessageResponse, SessionResponse, SendMessageResponse
 from src.features.chat.modes import ChatModeRegistry
 from src.features.chat.response_processor import ResponseProcessor
 from src.features.chat.title_generator import ChatTitleGenerator
@@ -234,8 +234,13 @@ class ChatRuntime:
             user_id=user_id, mode=mode, search=search, limit=limit, offset=offset,
         )
 
-    def get_session(self, session_id: str, user_id: str) -> SessionResponse:
-        return self._sessions.get_session(session_id, user_id)
+    def get_session(self, session_id: str, user_id: str, tail: Optional[int] = None) -> SessionResponse:
+        return self._sessions.get_session(session_id, user_id, tail=tail)
+
+    def get_session_messages(
+        self, session_id: str, user_id: str, before: Optional[str] = None, limit: int = 60
+    ) -> Tuple[List[MessageResponse], bool]:
+        return self._sessions.get_messages_page(session_id, user_id, before, limit)
 
     def update_session(
         self,

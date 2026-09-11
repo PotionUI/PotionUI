@@ -44,6 +44,7 @@ class SessionResponse(BaseModel):
     updated_at: Optional[str] = None
     closed_at: Optional[str] = None
     message_count: int = 0
+    has_earlier: bool = False
     messages: Optional[List[MessageResponse]] = None
     metadata: Optional[Dict[str, Any]] = None
 

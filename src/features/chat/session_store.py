@@ -9,10 +9,11 @@ message/LLM orchestration.
 import logging
 from typing import List, Optional, Tuple
 
-from src.features.chat.dto import SessionResponse
+from src.features.chat.dto import MessageResponse, SessionResponse
 from src.features.chat.exceptions import (
     SessionNotFoundException,
     AccessDeniedException,
+    MessageNotFoundException,
     SessionCreationFailedException,
 )
 from src.features.chat.hooks import CHAT_SESSION_HOOKS
@@ -49,6 +50,39 @@ class ChatSessionStore:
         if not session:
             raise SessionNotFoundException(f"Session {session_id} not found")
         return session
+
+    def get_with_messages_tail_or_raise(self, session_id: str, tail: int) -> SessionResponse:
+        """Get session with only its last `tail` messages, or raise SessionNotFoundException.
+
+        Raises:
+            SessionNotFoundException: If session not found
+        """
+        session = self._m.chat_repository.get_session_with_messages_tail(session_id, tail)
+        if not session:
+            raise SessionNotFoundException(f"Session {session_id} not found")
+        return session
+
+    def get_messages_page(
+        self, session_id: str, user_id: str, before: Optional[str], limit: int
+    ) -> Tuple[List[MessageResponse], bool]:
+        """Return `limit` messages ending just before `before` (or the
+        session's tail when `before` is omitted), ascending.
+
+        Raises:
+            SessionNotFoundException: If the session doesn't exist
+            AccessDeniedException: If user doesn't own the session
+            MessageNotFoundException: If `before` doesn't belong to this session
+        """
+        session = self.get_or_raise(session_id)
+        self._m._verify_ownership(session, user_id)
+
+        if before is None:
+            return self._m.chat_repository.get_message_tail(session_id, limit)
+
+        page = self._m.chat_repository.get_messages_before(session_id, before, limit)
+        if page is None:
+            raise MessageNotFoundException(f"Message {before} not found in session {session_id}")
+        return page
 
     # --- CRUD ---
 
@@ -172,14 +206,20 @@ class ChatSessionStore:
             offset=offset,
         )
 
-    def get_session(self, session_id: str, user_id: str) -> SessionResponse:
-        """Get a session with all messages.
+    def get_session(self, session_id: str, user_id: str, tail: Optional[int] = None) -> SessionResponse:
+        """Get a session with its messages.
+
+        `tail`, when given, returns only the session's last `tail` messages
+        (ascending) instead of the full history.
 
         Raises:
             SessionNotFoundException: If session not found
             AccessDeniedException: If user doesn't own the session
         """
-        session = self.get_with_messages_or_raise(session_id)
+        if tail is not None:
+            session = self.get_with_messages_tail_or_raise(session_id, tail)
+        else:
+            session = self.get_with_messages_or_raise(session_id)
         self._m._verify_ownership(session, user_id)
         return session
 

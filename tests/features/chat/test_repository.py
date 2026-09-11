@@ -161,6 +161,99 @@ class TestChatMessageRepository(PersistenceTestBase):
         messages = self.repo.get_by_session(self.test_session.id)
         self.assertEqual(len(messages), 0)
 
+    def _create_messages(self, count):
+        ids = []
+        for i in range(count):
+            message = ChatMessage(
+                id=generate_ulid(),
+                session_id=self.test_session.id,
+                role='user',
+                content=f'Message {i}'
+            )
+            self.repo.create(message)
+            ids.append(message.id)
+        return ids
+
+    def test_get_tail(self):
+        """Tail returns only the last N messages, ascending"""
+        self._create_messages(5)
+
+        messages, has_earlier = self.repo.get_tail(self.test_session.id, 3)
+
+        self.assertEqual([m.content for m in messages], ['Message 2', 'Message 3', 'Message 4'])
+        self.assertTrue(has_earlier)
+
+    def test_get_tail_no_earlier_when_limit_covers_all(self):
+        """has_earlier is False once the window covers the whole session"""
+        self._create_messages(3)
+
+        messages, has_earlier = self.repo.get_tail(self.test_session.id, 5)
+
+        self.assertEqual(len(messages), 3)
+        self.assertFalse(has_earlier)
+
+    def test_get_before_pages_through_session(self):
+        """Paging with `before` in pages of 3 walks a 7-message session exactly"""
+        ids = self._create_messages(7)
+
+        page1, earlier1 = self.repo.get_before(self.test_session.id, ids[6], 3)
+        self.assertEqual([m.content for m in page1], ['Message 3', 'Message 4', 'Message 5'])
+        self.assertTrue(earlier1)
+
+        page2, earlier2 = self.repo.get_before(self.test_session.id, ids[3], 3)
+        self.assertEqual([m.content for m in page2], ['Message 0', 'Message 1', 'Message 2'])
+        self.assertFalse(earlier2)
+
+    def test_get_before_unknown_message_returns_none(self):
+        """`before` not belonging to this session yields None (caller 404s)"""
+        self._create_messages(2)
+
+        result = self.repo.get_before(self.test_session.id, 'not-a-real-id', 3)
+
+        self.assertIsNone(result)
+
+    def test_get_before_message_from_other_session_returns_none(self):
+        """`before` from a different session is also treated as not found"""
+        self._create_messages(2)
+        other_session = ChatSession(
+            id=generate_ulid(),
+            user_id=self.test_user_id,
+            mode='generation',
+            name='Other Session',
+            status='active',
+        )
+        self.session_repo.create(other_session)
+        other_message = ChatMessage(
+            id=generate_ulid(),
+            session_id=other_session.id,
+            role='user',
+            content='Elsewhere'
+        )
+        self.repo.create(other_message)
+
+        result = self.repo.get_before(self.test_session.id, other_message.id, 3)
+
+        self.assertIsNone(result)
+
+    def test_ordering_tie_breaks_on_insertion_order(self):
+        """Two messages sharing created_at still come back in insertion order"""
+        ids = self._create_messages(2)
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT created_at FROM chat_messages WHERE id = ?", (ids[0],)
+            )
+            shared_ts = cursor.fetchone()['created_at']
+            cursor.execute(
+                "UPDATE chat_messages SET created_at = ? WHERE id = ?", (shared_ts, ids[1])
+            )
+
+        messages = self.repo.get_by_session(self.test_session.id)
+
+        self.assertEqual([m.id for m in messages], ids)
+
+        tail_messages, _ = self.repo.get_tail(self.test_session.id, 2)
+        self.assertEqual([m.id for m in tail_messages], ids)
+
 
 class TestChatSessionRepository(PersistenceTestBase):
     """Tests for ChatSessionRepository"""
@@ -250,6 +343,39 @@ class TestChatSessionRepository(PersistenceTestBase):
         retrieved = self.repo.get_with_messages(session.id)
         self.assertIsNotNone(retrieved)
         self.assertEqual(len(retrieved.messages), 3)
+        self.assertEqual(retrieved.message_count, 3)
+        self.assertFalse(retrieved.has_earlier)
+
+    def test_get_with_messages_tail(self):
+        """Tail window on the session carries the true total and has_earlier"""
+        session = ChatSession(
+            id=generate_ulid(),
+            user_id=self.test_user_id,
+            mode='generation',
+            name='Test Session',
+            status='active'
+        )
+        self.repo.create(session)
+
+        message_repo = ChatMessageRepository()
+        for i in range(5):
+            message_repo.create(ChatMessage(
+                id=generate_ulid(),
+                session_id=session.id,
+                role='user',
+                content=f'Message {i}'
+            ))
+
+        retrieved = self.repo.get_with_messages_tail(session.id, 2)
+
+        self.assertIsNotNone(retrieved)
+        self.assertEqual([m.content for m in retrieved.messages], ['Message 3', 'Message 4'])
+        self.assertEqual(retrieved.message_count, 5)
+        self.assertTrue(retrieved.has_earlier)
+
+    def test_get_with_messages_tail_nonexistent(self):
+        """A tail lookup on a missing session returns None"""
+        self.assertIsNone(self.repo.get_with_messages_tail('nonexistent', 2))
 
     def test_list_sessions(self):
         """Test getting recent sessions for a user"""

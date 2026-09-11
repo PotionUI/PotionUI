@@ -450,6 +450,12 @@ an ephemeral database and file storage, so it never touches the maintainer's liv
 gallery, and it never reloads or restarts anything — the running app picks up the rendered files
 on its own next preset reload or restart.
 
+The script has no form of its own to pick model weights from, so it resolves them from the
+preset's `tests.yml` (see `docs/presets/testing.md` "Testing presets"): the first case's
+`models:` map, read-only against the live models table before anything else runs. A preset with
+no `tests.yml`, no cases, an empty `models:` map on its first case, or a model ref that isn't
+already present locally (the script never downloads) fails before rendering anything.
+
 
 ## Hardware requirements
 

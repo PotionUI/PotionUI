@@ -18,6 +18,15 @@ The preset argument is either a preset id (its `preset.yml` `id:`) or the
 preset's directory (the one holding its `preset.yml`, e.g.
 `content/presets/marketplace/Anima`).
 
+Style rendering has no form of its own to pick model weights from, so it
+borrows the preset's `tests.yml`: the first case's `models:` map (see
+docs/presets.md "Testing presets") is resolved, read-only, against the live
+models table before anything else runs, and the resolved file paths are
+submitted with every style's generation unchanged. A preset with no
+`tests.yml`, no cases, an empty `models:` map on the first case, or any ref
+that isn't already present locally (this script never downloads) exits 1
+before rendering anything, naming exactly what's missing.
+
 Prints one line per style (`ok <id> 23 KB` / `skip <id> (preview exists)` /
 `FAILED <id>: <error>`) and exits nonzero if any style failed (a skip does
 not fail the run).
@@ -55,6 +64,9 @@ from src.features.presets.style_previews import (  # noqa: E402
     select_styles,
     set_style_preview,
 )
+from src.features.preset_suite.resolver_factory import build_live_resolver  # noqa: E402
+from src.features.preset_suite.runner import _model_type_hint  # noqa: E402
+from src.features.presets.tests_schema import load_tests_yml  # noqa: E402
 
 
 def _boot_client(run_dir: Path):
@@ -94,6 +106,44 @@ def _resolve_preset(preset_loader, ref: str):
     return None
 
 
+def resolve_model_form_data(preset, resolver) -> Optional[Dict[str, str]]:
+    """The preset's model fields (e.g. `diffusion_model`, `text_encoder`),
+    resolved to local file paths - style rendering has no form of its own to
+    pick models from, so it borrows the preset's `tests.yml`: the first
+    case's `models:` map (see docs/presets.md "Testing presets"). Prints an
+    `error: ...` line and returns `None` - no rendering is attempted - when
+    the preset has no `tests.yml`/no cases, its first case declares no
+    `models:`, or any ref can't be resolved locally (no downloads here; the
+    caller never passes `allow_download`)."""
+    tests = load_tests_yml(Path(preset.path))
+    if tests is None or not tests.cases:
+        print(
+            f"error: preset '{preset.id}' has no tests.yml (or it declares no cases) - "
+            "style rendering resolves its model fields from the first case's models: map"
+        )
+        return None
+
+    models = tests.cases[0].models
+    if not models:
+        print(
+            f"error: preset '{preset.id}' tests.yml's first case declares no models: - "
+            "style rendering needs it to know which weights to use"
+        )
+        return None
+
+    resolved: Dict[str, str] = {}
+    ok = True
+    for field_name, ref in models.items():
+        result = resolver.resolve(ref, model_type=_model_type_hint(field_name))
+        if not result.resolved:
+            print(f"error: model '{field_name}': {result.reason}")
+            ok = False
+            continue
+        resolved[field_name] = result.file_path
+
+    return resolved if ok else None
+
+
 def render_styles(
     client,
     preset,
@@ -101,9 +151,12 @@ def render_styles(
     long_edge: int,
     seed: int,
     force: bool,
+    model_form_data: Dict[str, str],
 ) -> List[str]:
     """Render `style_ids` (all of the preset's styles when omitted); returns
-    the report lines, one per style (skips included)."""
+    the report lines, one per style (skips included). `model_form_data` is
+    the preset's model fields, already resolved by `resolve_model_form_data`,
+    submitted unchanged with every generation."""
     lines: List[str] = []
     targets = select_styles(preset.styles or [], style_ids)
 
@@ -119,7 +172,7 @@ def render_styles(
     preset_dir = Path(preset.path)
     styles_yml = preset_dir / "styles.yml"
 
-    form_data: Dict[str, Any] = {"seed": seed}
+    form_data: Dict[str, Any] = {"seed": seed, **model_form_data}
     if form_has_field(preset, mode, STYLE_PREVIEW_QUANTITY_FIELD):
         form_data[STYLE_PREVIEW_QUANTITY_FIELD] = 1
 
@@ -164,6 +217,12 @@ def main(argv=None) -> int:
 
     from src.features.preset_suite import ephemeral
 
+    # The resolver reads the REAL models table (read-only) to LOCATE model
+    # files on disk; this must happen BEFORE the client re-points the DB
+    # singleton at its ephemeral copy inside `_boot_client` - same ordering
+    # `scripts/preset_test_suite.py` uses (see `build_live_resolver`).
+    resolver = build_live_resolver(allow_download=False)
+
     run_dir = Path(tempfile.mkdtemp(prefix="potionui-style-preview-"))
     ephemeral.mark(run_dir)
 
@@ -178,8 +237,14 @@ def main(argv=None) -> int:
             print(f"error: preset '{preset.id}' has no styles.yml")
             return 1
 
+        model_form_data = resolve_model_form_data(preset, resolver)
+        if model_form_data is None:
+            return 1
+
         try:
-            lines = render_styles(client, preset, args.style_ids, args.long_edge, args.seed, args.force)
+            lines = render_styles(
+                client, preset, args.style_ids, args.long_edge, args.seed, args.force, model_form_data
+            )
         except ValueError as e:
             print(f"error: {e}")
             return 1

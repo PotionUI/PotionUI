@@ -113,6 +113,24 @@ class TestDownscaleAndSaveWebp:
         with Image.open(dest) as saved:
             assert saved.size == (100, 50)
 
+    def test_saved_file_carries_no_metadata(self, tmp_path):
+        """The source may carry EXIF/ICC/XMP in `.info` (e.g. round-tripped
+        through `.convert()`/`.resize()`, which copy it) - `.save()` is never
+        called with `exif=`/`icc_profile=`/`xmp=` kwargs, so none of it
+        should reach the written file."""
+        img = Image.new("RGB", (100, 50), "blue")
+        img.info["exif"] = b"Exif\x00\x00fake-exif-payload"
+        img.info["icc_profile"] = b"fake-icc-profile"
+        img.info["xmp"] = b"<x:xmpmeta>fake</x:xmpmeta>"
+        dest = tmp_path / "out.webp"
+
+        downscale_and_save_webp(img, dest, 200)
+
+        with Image.open(dest) as saved:
+            assert "exif" not in saved.info
+            assert "icc_profile" not in saved.info
+            assert "xmp" not in saved.info
+
 
 class TestWriteWebp:
     def test_reads_source_file_and_downscales(self, tmp_path):

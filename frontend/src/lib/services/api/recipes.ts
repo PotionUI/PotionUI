@@ -44,6 +44,9 @@ export interface RecipeArtifact {
 	display_name: string;
 	size_bytes: number | null;
 	required: boolean;
+	/** Requires an accepted licence / access token before the source will serve it. */
+	gated: boolean;
+	license_url: string | null;
 }
 
 export interface RecipePresetRef {

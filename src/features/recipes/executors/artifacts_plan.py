@@ -8,14 +8,18 @@ app.
 
 Nothing missing -> the step just succeeds ("nothing to download"). Anything
 missing -> the step parks in `awaiting_consent` carrying a `consent_request`
-(pinned contract: `{"artifacts": [...], "total_bytes", "providers"?}`)
+(pinned contract: `{"artifacts": [...], "total_bytes", "providers"?, "warnings"?}`)
 describing exactly what would be downloaded, for the owner to approve before
 any network access happens. `providers` is only present when at least one
 missing artifact resolves (by `provider_hint.source`) to a provider that
 takes a credential and doesn't have one configured yet - see
 `_provider_credentials.credential_prompt_for_provider` - so the consent gate
 can offer to collect it inline rather than the owner discovering the gap only
-after a download fails. `RecipeRunner.grant_consent` is what lets it
+after a download fails. `warnings` is only present when at least one missing
+artifact is `gated` and its resolved provider has no credential configured -
+see `_gated_warnings` - a non-fatal heads-up; the hard stop for an actually
+denied download is still `artifacts.fetch`'s own 401/403 message.
+`RecipeRunner.grant_consent` is what lets it
 proceed; the approved artifact list travels forward as `consent_request`
 inside that attempt's `safe_output`, which `artifacts.fetch` reads back out.
 """
@@ -65,6 +69,8 @@ class ArtifactsPlanExecutor:
                 "display_name": artifact.display_name or artifact.filename,
                 "size_bytes": artifact.size_bytes,
                 "kind": artifact.kind,
+                "gated": artifact.gated,
+                "license_url": artifact.license_url,
             }
             if existing is not None:
                 present.append(entry)
@@ -86,6 +92,9 @@ class ArtifactsPlanExecutor:
         providers = self._unconfigured_credential_providers(missing_artifacts)
         if providers:
             consent_request["providers"] = providers
+        warnings = self._gated_warnings(missing_artifacts)
+        if warnings:
+            consent_request["warnings"] = warnings
         return StepResult.awaiting(
             consent_request,
             safe_output={"already_present": present} if present else None,
@@ -107,3 +116,29 @@ class ArtifactsPlanExecutor:
             if info and not info["configured"]:
                 prompts.append(info)
         return prompts
+
+    def _gated_warnings(self, artifacts: List[Any]) -> List[str]:
+        """One plain-language warning per missing artifact that is `gated`
+        and whose resolved provider doesn't have a credential configured yet
+        - non-fatal (the plan still proceeds to `awaiting_consent`); the hard
+        stop for an actually-denied download is `artifacts.fetch`'s own
+        401/403 message (`src.features.downloads.worker._auth_failure_message`)."""
+        gated = [a for a in artifacts if a.gated]
+        if not gated:
+            return []
+        registry = self._get_provider_registry()
+        if registry is None:
+            return []
+        warnings: List[str] = []
+        for artifact in gated:
+            source = (artifact.provider_hint or {}).get("source")
+            info = credential_prompt_for_provider(registry, source)
+            if not info or info["configured"]:
+                continue
+            name = artifact.display_name or artifact.filename
+            sentence = f"{name} is gated on {info['name']}: accept the licence"
+            if artifact.license_url:
+                sentence += f" at {artifact.license_url}"
+            sentence += " and add your access token in Admin -> Plugins."
+            warnings.append(sentence)
+        return warnings

@@ -55,7 +55,14 @@ def _context(recipe, artifact_ids):
     return StepContext(run=run, recipe=recipe, step=step)
 
 
-def _artifact(aid, filename="model.safetensors", size_bytes=100, provider_hint=None):
+def _artifact(
+    aid,
+    filename="model.safetensors",
+    size_bytes=100,
+    provider_hint=None,
+    gated=False,
+    license_url=None,
+):
     return RecipeArtifact(
         id=aid,
         kind="checkpoint",
@@ -64,6 +71,8 @@ def _artifact(aid, filename="model.safetensors", size_bytes=100, provider_hint=N
         display_name=aid,
         size_bytes=size_bytes,
         provider_hint=provider_hint or {},
+        gated=gated,
+        license_url=license_url,
     )
 
 
@@ -92,7 +101,14 @@ def test_missing_artifact_parks_awaiting_consent_with_request_payload():
     assert result.awaiting_consent is True
     assert result.consent_request["total_bytes"] == 12345
     assert result.consent_request["artifacts"] == [
-        {"id": "ckpt", "display_name": "ckpt", "size_bytes": 12345, "kind": "checkpoint"}
+        {
+            "id": "ckpt",
+            "display_name": "ckpt",
+            "size_bytes": 12345,
+            "kind": "checkpoint",
+            "gated": False,
+            "license_url": None,
+        }
     ]
 
 
@@ -182,3 +198,63 @@ def test_consent_request_omits_providers_when_artifact_has_no_provider_hint():
     result = executor.execute(_context(recipe, ["ckpt"]))
 
     assert "providers" not in result.consent_request
+
+
+def _huggingface_registry(configured=False):
+    return FakeProviderRegistry(
+        {
+            "huggingface": {
+                "name": "Hugging Face",
+                "website": "https://huggingface.co",
+                "schema": {"properties": {"api_key": {"format": "password"}}},
+                "settings": {"api_key": "already-set"} if configured else {},
+            }
+        }
+    )
+
+
+def test_gated_artifact_without_credentials_carries_a_warning():
+    artifact = _artifact(
+        "ckpt",
+        provider_hint={"source": "huggingface"},
+        gated=True,
+        license_url="https://huggingface.co/some/model",
+    )
+    recipe = _recipe([artifact])
+    repo = FakeModelRepository(present=set())
+    executor = ArtifactsPlanExecutor(repo)
+    executor._get_provider_registry = lambda: _huggingface_registry(configured=False)
+
+    result = executor.execute(_context(recipe, ["ckpt"]))
+
+    assert result.awaiting_consent is True
+    warnings = result.consent_request["warnings"]
+    assert len(warnings) == 1
+    assert "ckpt" in warnings[0]
+    assert "Hugging Face" in warnings[0]
+    assert "https://huggingface.co/some/model" in warnings[0]
+    assert "Admin -> Plugins" in warnings[0]
+
+
+def test_gated_artifact_with_credentials_configured_has_no_warning():
+    artifact = _artifact("ckpt", provider_hint={"source": "huggingface"}, gated=True)
+    recipe = _recipe([artifact])
+    repo = FakeModelRepository(present=set())
+    executor = ArtifactsPlanExecutor(repo)
+    executor._get_provider_registry = lambda: _huggingface_registry(configured=True)
+
+    result = executor.execute(_context(recipe, ["ckpt"]))
+
+    assert "warnings" not in result.consent_request
+
+
+def test_non_gated_artifact_without_credentials_has_no_warning():
+    artifact = _artifact("ckpt", provider_hint={"source": "huggingface"}, gated=False)
+    recipe = _recipe([artifact])
+    repo = FakeModelRepository(present=set())
+    executor = ArtifactsPlanExecutor(repo)
+    executor._get_provider_registry = lambda: _huggingface_registry(configured=False)
+
+    result = executor.execute(_context(recipe, ["ckpt"]))
+
+    assert "warnings" not in result.consent_request

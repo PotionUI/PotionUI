@@ -354,6 +354,12 @@ A step that only makes sense during the first-run wizard is marked `onboarding_o
 true` and is skipped by a run started from Admin → Recipes. Core's `workspace.activate`
 (which closes onboarding out) is the one built-in step that carries the flag.
 
+An `artifacts[]` entry can mark itself `gated: true` with a `license_url:` when the
+source requires an accepted licence or access token before it will serve the file (a
+gated Hugging Face repo, say). `artifacts.plan` then adds a non-fatal warning to the
+run's consent request when that artifact's resolved provider has no credential
+configured yet, pointing the owner at the licence and Admin → Plugins.
+
 ### Contributing a step kind
 
 Every step names a `kind:`, and a plugin can add kinds of its own. Declare them under

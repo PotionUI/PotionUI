@@ -198,7 +198,22 @@
 			<ul class="space-y-1">
 				{#each consentRequest.artifacts as artifact (artifact.id)}
 					<li class="flex items-center justify-between gap-3 text-sm">
-						<span class="text-fg truncate">{artifact.display_name}</span>
+						<span class="min-w-0 flex items-center gap-1.5">
+							<span class="text-fg truncate">{artifact.display_name}</span>
+							{#if artifact.gated}
+								<Badge variant="warning" size="sm">gated</Badge>
+								{#if artifact.license_url}
+									<a
+										href={artifact.license_url}
+										target="_blank"
+										rel="noreferrer"
+										class="text-2xs text-signal hover:underline shrink-0"
+									>
+										licence
+									</a>
+								{/if}
+							{/if}
+						</span>
 						{#if artifact.size_bytes != null}
 							<span class="font-mono tabular-nums text-fg-subtle shrink-0">
 								{formatBytes(artifact.size_bytes)}
@@ -213,6 +228,14 @@
 					<span class="text-fg-muted">Total</span>
 					<span class="font-mono tabular-nums text-fg">{formatBytes(consentRequest.total_bytes)}</span>
 				</div>
+			{/if}
+
+			{#if consentRequest.warnings && consentRequest.warnings.length > 0}
+				<Alert variant="warning" density="compact">
+					{#each consentRequest.warnings as warning (warning)}
+						<p>{warning}</p>
+					{/each}
+				</Alert>
 			{/if}
 
 			{#each consentRequest.providers ?? [] as provider (provider.id)}

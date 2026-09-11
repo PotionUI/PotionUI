@@ -115,6 +115,13 @@ class RecipeArtifact:
     checksum: Optional[RecipeChecksum] = None
     capability: Optional[str] = None
     provider_hint: Dict[str, Any] = field(default_factory=dict)
+    #: Whether the source requires an accepted licence / access token before
+    #: it will serve this file (e.g. a gated Hugging Face repo). Purely
+    #: advisory - it changes what a recipe run tells the owner, never whether
+    #: the download is attempted.
+    gated: bool = False
+    #: Where to go accept that licence, shown alongside the `gated` warning.
+    license_url: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -344,6 +351,14 @@ def validate_recipe_dict(data: Any, extra_kinds: Optional[Iterable[str]] = None)
         if provider_hint is not None and not isinstance(provider_hint, dict):
             _err(issues, path, "'provider_hint' must be a mapping if given")
 
+        gated = entry.get("gated")
+        if gated is not None and not isinstance(gated, bool):
+            _err(issues, path, "'gated' must be a boolean if given")
+
+        license_url = entry.get("license_url")
+        if license_url is not None and (not isinstance(license_url, str) or not license_url.strip()):
+            _err(issues, path, "'license_url' must be a non-empty string if given")
+
     # --- presets ---
     preset_ids = set()
     presets = data.get("presets", [])
@@ -528,6 +543,8 @@ def parse_recipe(
                 checksum=checksum,
                 capability=a.get("capability"),
                 provider_hint=dict(a.get("provider_hint") or {}),
+                gated=bool(a.get("gated", False)),
+                license_url=a.get("license_url"),
             )
         )
 

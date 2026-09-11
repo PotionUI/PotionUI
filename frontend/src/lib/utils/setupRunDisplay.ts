@@ -491,7 +491,9 @@ export function extractConsentRequest(
 			id: a.id as string,
 			display_name: typeof a.display_name === 'string' ? a.display_name : (a.id as string),
 			size_bytes: typeof a.size_bytes === 'number' ? a.size_bytes : null,
-			kind: typeof a.kind === 'string' ? a.kind : ''
+			kind: typeof a.kind === 'string' ? a.kind : '',
+			gated: a.gated === true,
+			license_url: typeof a.license_url === 'string' ? a.license_url : null
 		}));
 
 	const totalBytes = typeof raw.total_bytes === 'number' ? raw.total_bytes : null;
@@ -512,7 +514,17 @@ export function extractConsentRequest(
 				}))
 		: undefined;
 
-	return { artifacts, total_bytes: totalBytes, ...(providers ? { providers } : {}) };
+	const warningsRaw = raw.warnings;
+	const warnings = Array.isArray(warningsRaw)
+		? warningsRaw.filter((w): w is string => typeof w === 'string')
+		: undefined;
+
+	return {
+		artifacts,
+		total_bytes: totalBytes,
+		...(providers ? { providers } : {}),
+		...(warnings && warnings.length > 0 ? { warnings } : {})
+	};
 }
 
 // --- first-generation handoff ----------------------------------

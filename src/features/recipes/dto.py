@@ -349,6 +349,8 @@ class RecipeArtifactView(BaseModel):
     display_name: str = ""
     size_bytes: Optional[int] = None
     required: bool = True
+    gated: bool = False
+    license_url: Optional[str] = None
 
 
 class RecipePresetView(BaseModel):
@@ -405,6 +407,8 @@ class RecipeDetail(RecipeSummary):
                     display_name=a.display_name,
                     size_bytes=a.size_bytes,
                     required=a.required,
+                    gated=a.gated,
+                    license_url=a.license_url,
                 )
                 for a in recipe.artifacts
             ],

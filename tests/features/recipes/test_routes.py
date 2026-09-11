@@ -97,6 +97,8 @@ def _recipe(recipe_id="demo"):
                 filename="demo.safetensors",
                 display_name="Demo checkpoint",
                 size_bytes=17,
+                gated=True,
+                license_url="https://huggingface.co/demo/model",
             )
         ],
         presets=[RecipePresetRef(preset_id="PRESET1", path_hint="marketplace/Demo")],
@@ -222,6 +224,8 @@ def test_detail_lists_steps_artifacts_presets_and_smoke(file_db):
         ("workspace.activate", True),
     ]
     assert body["artifacts"][0]["filename"] == "demo.safetensors"
+    assert body["artifacts"][0]["gated"] is True
+    assert body["artifacts"][0]["license_url"] == "https://huggingface.co/demo/model"
     assert body["presets"] == [{"preset_id": "PRESET1", "path_hint": "marketplace/Demo"}]
     assert body["smoke"] == {"preset_id": "PRESET1", "mode": "txt2img"}
     assert body["load_errors"] == ["something odd"]

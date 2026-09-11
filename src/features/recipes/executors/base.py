@@ -113,10 +113,10 @@ class StepResult:
     ) -> "StepResult":
         """The step is parked pending an explicit owner go-ahead.
         `consent_request` is `{"artifacts": [{"id", "display_name",
-        "size_bytes", "kind"}], "total_bytes", "providers"?}` (pinned contract
-        #3; `providers` is optional - see `artifacts_plan.
-        ArtifactsPlanExecutor`) - what the UI shows before the owner
-        approves."""
+        "size_bytes", "kind", "gated", "license_url"}], "total_bytes",
+        "providers"?, "warnings"?}` (pinned contract #3; `providers` and
+        `warnings` are optional - see `artifacts_plan.ArtifactsPlanExecutor`)
+        - what the UI shows before the owner approves."""
         return cls(
             success=False,
             safe_output=dict(safe_output or {}),

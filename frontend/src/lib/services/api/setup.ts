@@ -132,6 +132,8 @@ export interface SetupConsentArtifact {
 	display_name: string;
 	size_bytes: number | null;
 	kind: string;
+	gated: boolean;
+	license_url: string | null;
 }
 
 /** A provider that would serve one or more of the pending downloads and
@@ -153,6 +155,10 @@ export interface SetupConsentRequest {
 	/** Present only when at least one pending download's provider takes a
 	 * credential and doesn't have one configured yet. */
 	providers?: SetupConsentProvider[];
+	/** Plain-language heads-up per gated artifact whose provider has no
+	 * credential configured yet — see `ArtifactsPlanExecutor._gated_warnings`.
+	 * Non-fatal: the run still proceeds once approved. */
+	warnings?: string[];
 }
 
 export function createSetupApi(client: AxiosInstance) {

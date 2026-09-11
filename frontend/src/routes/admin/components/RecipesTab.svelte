@@ -634,7 +634,24 @@
 												<tbody>
 													{#each detail.artifacts as artifact (artifact.id)}
 														<tr class="border-t border-line">
-															<td class="py-1.5 pr-3 text-fg">{artifact.display_name}</td>
+															<td class="py-1.5 pr-3 text-fg">
+																<span class="flex items-center gap-1.5">
+																	<span class="truncate">{artifact.display_name}</span>
+																	{#if artifact.gated}
+																		<Badge variant="warning" size="sm">gated</Badge>
+																		{#if artifact.license_url}
+																			<a
+																				href={artifact.license_url}
+																				target="_blank"
+																				rel="noreferrer"
+																				class="text-2xs text-signal hover:underline shrink-0"
+																			>
+																				licence
+																			</a>
+																		{/if}
+																	{/if}
+																</span>
+															</td>
 															<td class="py-1.5 pr-3 font-mono text-2xs text-fg-muted">
 																{artifact.model_type}
 															</td>

@@ -178,6 +178,65 @@ def test_checksum_value_may_be_null():
     assert validate_recipe_dict(data) == []
 
 
+def test_artifact_gated_must_be_boolean():
+    data = _valid_recipe(
+        artifacts=[
+            {
+                "id": "a",
+                "kind": "checkpoint",
+                "model_type": "checkpoint",
+                "filename": "x.safetensors",
+                "gated": "yes",
+            }
+        ]
+    )
+    issues = validate_recipe_dict(data)
+    assert any("gated" in issue for issue in issues)
+
+
+def test_artifact_license_url_must_be_non_empty_string():
+    data = _valid_recipe(
+        artifacts=[
+            {
+                "id": "a",
+                "kind": "checkpoint",
+                "model_type": "checkpoint",
+                "filename": "x.safetensors",
+                "license_url": "",
+            }
+        ]
+    )
+    issues = validate_recipe_dict(data)
+    assert any("license_url" in issue for issue in issues)
+
+
+def test_gated_artifact_with_license_url_round_trips():
+    data = _valid_recipe(
+        artifacts=[
+            {
+                "id": "a",
+                "kind": "checkpoint",
+                "model_type": "checkpoint",
+                "filename": "x.safetensors",
+                "gated": True,
+                "license_url": "https://huggingface.co/some/model",
+            }
+        ]
+    )
+    assert validate_recipe_dict(data) == []
+    recipe = parse_recipe(data)
+    artifact = recipe.get_artifact("a")
+    assert artifact.gated is True
+    assert artifact.license_url == "https://huggingface.co/some/model"
+
+
+def test_artifact_gated_and_license_url_default_when_omitted():
+    recipe = parse_recipe(_valid_recipe())
+    artifact = recipe.get_artifact("sdxl-checkpoint")
+    assert artifact.gated is False
+    assert artifact.license_url is None
+
+
 def test_presets_must_be_non_empty():
     data = _valid_recipe(presets=[])
     issues = validate_recipe_dict(data)

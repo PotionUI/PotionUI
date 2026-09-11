@@ -524,7 +524,16 @@ describe('extractConsentRequest', () => {
 			})
 		);
 		expect(result).toEqual({
-			artifacts: [{ id: 'a1', display_name: 'SDXL checkpoint', size_bytes: 123, kind: 'checkpoint' }],
+			artifacts: [
+				{
+					id: 'a1',
+					display_name: 'SDXL checkpoint',
+					size_bytes: 123,
+					kind: 'checkpoint',
+					gated: false,
+					license_url: null
+				}
+			],
 			total_bytes: 123
 		});
 	});
@@ -556,7 +565,9 @@ describe('extractConsentRequest', () => {
 				}
 			})
 		);
-		expect(result?.artifacts).toEqual([{ id: 'ok', display_name: 'Fine', size_bytes: null, kind: '' }]);
+		expect(result?.artifacts).toEqual([
+			{ id: 'ok', display_name: 'Fine', size_bytes: null, kind: '', gated: false, license_url: null }
+		]);
 	});
 
 	it('falls back to id as display_name when display_name is missing', () => {
@@ -592,6 +603,54 @@ describe('extractConsentRequest', () => {
 			})
 		);
 		expect(result?.providers).toBeUndefined();
+	});
+
+	it('parses a gated artifact with its licence url', () => {
+		const result = extractConsentRequest(
+			attempt({
+				safe_output: {
+					consent_request: {
+						artifacts: [
+							{
+								id: 'a1',
+								display_name: 'Gated checkpoint',
+								gated: true,
+								license_url: 'https://huggingface.co/some/model'
+							}
+						],
+						total_bytes: null
+					}
+				}
+			})
+		);
+		expect(result?.artifacts[0].gated).toBe(true);
+		expect(result?.artifacts[0].license_url).toBe('https://huggingface.co/some/model');
+	});
+
+	it('parses gated-artifact warnings when the plan step sends them', () => {
+		const result = extractConsentRequest(
+			attempt({
+				safe_output: {
+					consent_request: {
+						artifacts: [{ id: 'a1' }],
+						total_bytes: null,
+						warnings: ['Gated checkpoint is gated on Hugging Face: accept the licence and add a token.']
+					}
+				}
+			})
+		);
+		expect(result?.warnings).toEqual([
+			'Gated checkpoint is gated on Hugging Face: accept the licence and add a token.'
+		]);
+	});
+
+	it('omits warnings entirely when the plan step did not send any', () => {
+		const result = extractConsentRequest(
+			attempt({
+				safe_output: { consent_request: { artifacts: [{ id: 'a1' }], total_bytes: null } }
+			})
+		);
+		expect(result?.warnings).toBeUndefined();
 	});
 });
 

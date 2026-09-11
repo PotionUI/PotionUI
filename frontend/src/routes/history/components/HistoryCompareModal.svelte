@@ -12,11 +12,12 @@
 	import type { GenerationHistoryItem, GenerationFile } from '$lib/types/history';
 	import type { GenerationParamModel } from '$lib/types/generation';
 	import { isImageFileType, isVideoFileType } from '$lib/utils/fileType';
-	import type { HistoryToolContext } from '$lib/history/tools';
+	import type { MediaToolContext } from '$lib/tools/tools';
 
-	// Mounted by the History Tools host as the `compare` tool, which only
-	// offers it when exactly two generations are selected.
-	export let context: HistoryToolContext;
+	// Mounted by the media tools host as the `compare` tool, which only offers
+	// it when exactly two generations (history) or two items (library) are
+	// selected.
+	export let context: MediaToolContext;
 	export let onClose: () => void;
 	export let onDone: () => void;
 
@@ -31,8 +32,14 @@
 	let viewerOpen = false;
 	let viewerTarget: 'left' | 'right' | 'composed' = 'composed';
 
+	// A library item carries no generation, so there's no param diff and no
+	// wipe/overlay compositing (both are `CompareFrame`'s, which is built on
+	// generation-scoped `MediaPreview`) - just the two urls, side by side.
+	$: isLibrary = context.scope === 'library';
 	$: left = context.generations[0];
 	$: right = context.generations[1];
+	$: leftItem = context.items[0];
+	$: rightItem = context.items[1];
 
 	interface ParamsResult {
 		parameters: Record<string, unknown>;
@@ -50,12 +57,14 @@
 		return gen.files.find((f) => f.is_final && isMedia(f)) ?? gen.files.find(isMedia) ?? gen.files[0] ?? null;
 	}
 
-	$: leftFile = previewFile(left);
-	$: rightFile = previewFile(right);
-	$: bothImages = !!leftFile && !!rightFile && isImageFileType(leftFile.file_type) && isImageFileType(rightFile.file_type);
-	// Overlay/wipe only make sense for two images; fall back the moment either
-	// side isn't one (e.g. the tool host later allows a video generation).
-	$: if (!bothImages && mode !== 'side-by-side') mode = 'side-by-side';
+	$: leftFile = !isLibrary && left ? previewFile(left) : null;
+	$: rightFile = !isLibrary && right ? previewFile(right) : null;
+	$: bothImages = isLibrary
+		? !!leftItem && !!rightItem && leftItem.kind === 'image' && rightItem.kind === 'image'
+		: !!leftFile && !!rightFile && isImageFileType(leftFile.file_type) && isImageFileType(rightFile.file_type);
+	// Overlay/wipe only make sense for two images through CompareFrame, which
+	// the library scope never uses.
+	$: if ((isLibrary || !bothImages) && mode !== 'side-by-side') mode = 'side-by-side';
 
 	function openViewer(target: 'left' | 'right' | 'composed') {
 		viewerTarget = target;
@@ -141,6 +150,12 @@
 	}
 
 	onMount(async () => {
+		// A library item has no generation to fetch params for - the diff
+		// table is skipped entirely, not shown empty.
+		if (isLibrary || !left || !right) {
+			loading = false;
+			return;
+		}
 		try {
 			const [lRes, rRes] = await Promise.all([
 				api.getGenerationParams(left.id, 0),
@@ -168,8 +183,8 @@
 		<Icon name="layers" className="w-4 h-4 text-signal" />
 	</svelte:fragment>
 	<svelte:fragment slot="header">
-		<h3 class="text-sm font-semibold text-fg">Compare generations</h3>
-		{#if bothImages}
+		<h3 class="text-sm font-semibold text-fg">Compare {isLibrary ? 'items' : 'generations'}</h3>
+		{#if bothImages && !isLibrary}
 			<SegmentedControl
 				items={MODE_ITEMS}
 				selected={mode}
@@ -181,29 +196,58 @@
 
 	<!-- Image panes -->
 	<div class="p-4">
-		<CompareFrame
-			{mode}
-			{leftFile}
-			{rightFile}
-			leftGenerationId={left.id}
-			rightGenerationId={right.id}
-			value={compareValue}
-			on:valuechange={(e) => (compareValue = e.detail)}
-			on:expand={(e) => openViewer(e.detail)}
-		/>
+		{#if isLibrary}
+			<div class="grid grid-cols-2 gap-3">
+				{#each [leftItem, rightItem] as item (item?.id ?? 'empty')}
+					<div class="relative aspect-square w-full rounded-lg overflow-hidden bg-black flex items-center justify-center">
+						{#if item?.kind === 'video'}
+							<!-- svelte-ignore a11y-media-has-caption -->
+							<video src={item.url} class="w-full h-full object-contain" controls muted></video>
+						{:else if item?.kind === 'audio'}
+							<audio src={item.url} class="w-full px-3" controls></audio>
+						{:else if item}
+							<img src={item.url} alt={item.filename} class="w-full h-full object-contain" />
+						{:else}
+							<span class="text-xs text-fg-subtle">No preview</span>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{:else if left && right}
+			<CompareFrame
+				{mode}
+				{leftFile}
+				{rightFile}
+				leftGenerationId={left.id}
+				rightGenerationId={right.id}
+				value={compareValue}
+				on:valuechange={(e) => (compareValue = e.detail)}
+				on:expand={(e) => openViewer(e.detail)}
+			/>
+		{/if}
 		<div class="grid grid-cols-2 gap-3 mt-2">
 			<div class="text-2xs font-mono uppercase tracking-[0.07em] text-fg-subtle truncate text-center">
-				A · {left.preset_name ?? left.id.slice(0, 8)}
+				{#if isLibrary}
+					A · {leftItem?.filename ?? '—'}
+				{:else if left}
+					A · {left.preset_name ?? left.id.slice(0, 8)}
+				{/if}
 			</div>
 			<div class="text-2xs font-mono uppercase tracking-[0.07em] text-fg-subtle truncate text-center">
-				B · {right.preset_name ?? right.id.slice(0, 8)}
+				{#if isLibrary}
+					B · {rightItem?.filename ?? '—'}
+				{:else if right}
+					B · {right.preset_name ?? right.id.slice(0, 8)}
+				{/if}
 			</div>
 		</div>
 	</div>
 
 	<!-- Parameter diff -->
 	<div class="px-4 pb-4">
-		{#if loading}
+		{#if isLibrary}
+			<p class="py-8 text-center text-sm text-fg-subtle">No generation data for library items.</p>
+		{:else if loading}
 			<div class="flex items-center justify-center gap-2 py-10 text-fg-muted">
 				<Spinner size="sm" />
 				<span class="text-sm">Loading parameters…</span>
@@ -268,7 +312,7 @@
 			<IconButton icon="close" label="Close full size" variant="secondary" onclick={() => (viewerOpen = false)} />
 		</div>
 		<div class="w-full h-full p-6 md:p-10 flex items-center justify-center" on:click|stopPropagation on:keydown|stopPropagation role="presentation">
-			{#if viewerTarget === 'composed'}
+			{#if viewerTarget === 'composed' && left && right}
 				<CompareFrame
 					{mode}
 					{leftFile}
@@ -285,7 +329,7 @@
 				{#if soloFile}
 					<MediaPreview
 						file={soloFile}
-						generationId={viewerTarget === 'left' ? left.id : right.id}
+						generationId={viewerTarget === 'left' ? (left?.id ?? '') : (right?.id ?? '')}
 						thumbnailSize="large"
 						loadFullOnClick={false}
 						startFullLoaded

@@ -618,6 +618,7 @@ def test_get_active_history_tools_from_enabled_plugin(mock_plugin_repo, mock_plu
         "category": "compose",
         "component": "plugin:test-plugin-1:ContactSheetModal.svelte",
         "applies_to": {"min_selection": 2, "max_selection": 12, "media_kinds": ["image"]},
+        "scopes": ["history"],
     }]
 
 
@@ -660,6 +661,37 @@ def test_get_active_history_tools_defaults_applies_to(mock_plugin_repo, mock_plu
 
     # Assert
     assert result[0]["applies_to"] == {"min_selection": None, "max_selection": None, "media_kinds": []}
+    assert result[0]["scopes"] == ["history"]
+
+
+def test_get_active_history_tools_carries_explicit_scopes(mock_plugin_repo, mock_plugin_registry, sample_plugin):
+    """A tool declaring `scopes` in the manifest serves them as given, not the default."""
+    # Arrange
+    mock_plugin_repo.get_enabled_plugins.return_value = [sample_plugin]
+    manifest = PluginManifest(
+        id="test-plugin-1",
+        name="Test Plugin",
+        version="1.0.0",
+        description="A test plugin",
+        author="Test Author",
+        plugin_type="full-stack",
+        history_tools=[{
+            "id": "thing",
+            "label": "Thing",
+            "description": "",
+            "icon": "extension",
+            "category": "analyze",
+            "component": "Thing.svelte",
+            "scopes": ["history", "library"],
+        }],
+    )
+    mock_plugin_registry.get_plugin.return_value = manifest
+
+    # Act
+    result = operations.get_active_history_tools(mock_plugin_repo, mock_plugin_registry)
+
+    # Assert
+    assert result[0]["scopes"] == ["history", "library"]
 
 
 # ========== preset/pipe rescan on enable/disable/delete ==========

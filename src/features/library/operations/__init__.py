@@ -25,6 +25,7 @@ from src.features.library.operations.mutations import (
     copy_generation_file,
     delete_item,
 )
+from src.features.library.operations.export import export_zip
 
 __all__ = [
     "list_items",
@@ -34,4 +35,5 @@ __all__ = [
     "set_tags",
     "delete_item",
     "copy_generation_file",
+    "export_zip",
 ]

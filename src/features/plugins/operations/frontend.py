@@ -55,11 +55,12 @@ def get_active_quick_actions(repo: PluginRepository, registry: PluginRegistry) -
 
 def get_active_history_tools(repo: PluginRepository, registry: PluginRegistry) -> List[Dict[str, Any]]:
     """
-    Get History page selection-bar tools from enabled plugins.
+    Get media tools from enabled plugins (History and/or Library page,
+    per each tool's `scopes`).
 
     Returns:
         List of `{id, plugin_id, label, description, icon, category,
-        component, applies_to}` dicts, in plugin order. `id` is
+        component, applies_to, scopes}` dicts, in plugin order. `id` is
         `"<plugin_id>:<tool_id>"` and `component` is `"plugin:<plugin_id>:<asset>"`,
         the same convention `phrasebook_ops` uses for its plugin-hosted modal.
     """
@@ -86,6 +87,7 @@ def get_active_history_tools(repo: PluginRepository, registry: PluginRegistry) -
                     "max_selection": applies_to.get("max_selection"),
                     "media_kinds": applies_to.get("media_kinds", []),
                 },
+                "scopes": tool_def.get("scopes") or ["history"],
             })
 
     return tools

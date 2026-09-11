@@ -2,7 +2,7 @@ import { writable, derived } from 'svelte/store';
 import { browser } from '$app/environment';
 import { logger, getErrorMessage } from '$lib/utils/logger';
 import { api } from '$lib/services/api/index';
-import type { LibraryItem } from '$lib/services/api/library';
+import type { BulkDeleteLibraryByCriteriaRequest, LibraryItem } from '$lib/services/api/library';
 import type { Tag } from '$lib/types/history';
 import {
 	DEFAULT_LIBRARY_FILTERS,
@@ -288,6 +288,16 @@ function createLibraryStore() {
 			await reloadAfterRemoval(deleted);
 			await this.loadFacets();
 			return { deleted, failed };
+		},
+
+		/** Deletes every library item matching criteria, AND-ed. */
+		async bulkDeleteByCriteria(criteria: BulkDeleteLibraryByCriteriaRequest) {
+			const response = await api.bulkDeleteLibraryItemsByCriteria(criteria);
+			if (response.success && response.data) {
+				await reloadAfterRemoval(response.data.deleted_count);
+				await this.loadFacets();
+			}
+			return response;
 		},
 
 		/** Replaces one item's tags, keeping the loaded page and open preview in step. */

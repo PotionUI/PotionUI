@@ -65,7 +65,7 @@ const { default: HistoryStitchModal } = await import(
 	'../../src/routes/history/components/HistoryStitchModal.svelte'
 );
 const { stitchFileName } = await import('../../src/lib/history/stitch');
-import type { HistoryToolContext } from '../../src/lib/history/tools';
+import type { MediaToolContext } from '../../src/lib/tools/tools';
 import type { GenerationHistoryItem, GenerationFile } from '../../src/lib/types/history';
 
 const GENERATION = {
@@ -83,10 +83,23 @@ const FILE = {
 	height: 64
 } as unknown as GenerationFile;
 
-const CONTEXT: HistoryToolContext = {
+const CONTEXT: MediaToolContext = {
+	scope: 'history',
 	generations: [GENERATION],
 	generationIds: ['gen-1'],
 	files: [{ generation: GENERATION, file: FILE, index: 0, kind: 'image' }],
+	items: [
+		{
+			id: 'gen-1:0',
+			kind: 'image',
+			url: '/api/media/generations/gen-1/a.png',
+			filename: 'a.png',
+			width: 64,
+			height: 64,
+			generationId: 'gen-1',
+			paramIndex: 0
+		}
+	],
 	kinds: new Set(['image']),
 	collectionId: null
 };

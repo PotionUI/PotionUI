@@ -16,11 +16,17 @@ queries as a page of 200.
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
 from src.features.media.records import Upload
 
 logger = logging.getLogger(__name__)
+
+# Same format `generations.created_at` is compared against
+# (`GenerationRepository.find_by_criteria`) so `datetime(...)` comparisons
+# against 'YYYY-MM-DD HH:MM:SS' stay correct.
+_TIMESTAMP_FMT = '%Y-%m-%d %H:%M:%S'
 
 
 class LibraryRepository:
@@ -110,6 +116,44 @@ class LibraryRepository:
             cursor.execute(f"SELECT COUNT(*) as count FROM uploads u WHERE {where}", params)
             row = cursor.fetchone()
             return row['count'] if row else 0
+
+    def find_ids_by_criteria(
+        self,
+        user_id: str,
+        tag_ids: Optional[List[str]] = None,
+        older_than_days: Optional[int] = None,
+        created_from: Optional[str] = None,
+        created_to: Optional[str] = None,
+        media_type: Optional[str] = None,
+    ) -> List[str]:
+        """Ids of `user_id`'s library items matching the given criteria,
+        AND-ed - the "Delete by criteria" flow's candidate set. Always scoped
+        to one owner; unlike generation history there is no cross-user
+        housekeeping mode."""
+        where, params = self._filters(user_id, media_type=media_type, tag_ids=tag_ids)
+        conditions = [where]
+
+        if older_than_days is not None:
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).strftime(_TIMESTAMP_FMT)
+            conditions.append("datetime(u.created_at) <= datetime(?)")
+            params.append(cutoff)
+
+        def _date_cond(value, op, day_suffix):
+            if not value:
+                return
+            bound = value + day_suffix if len(value) == 10 else value
+            conditions.append(f"datetime(u.created_at) {op} datetime(?)")
+            params.append(bound)
+
+        _date_cond(created_from, '>=', ' 00:00:00')
+        _date_cond(created_to, '<=', ' 23:59:59')
+
+        query = "SELECT u.id FROM uploads u WHERE " + " AND ".join(conditions)
+
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(query, params)
+            return [row['id'] for row in cursor.fetchall()]
 
     def media_type_counts(self, user_id: str) -> dict:
         """How many items of each media type the user's library holds."""

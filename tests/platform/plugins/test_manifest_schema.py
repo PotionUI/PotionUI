@@ -388,6 +388,31 @@ class TestPluginManifestSchema(unittest.TestCase):
         with self.assertRaises(ValidationError):
             PluginManifestSchema.model_validate(self._minimal(history_tools=[entry]))
 
+    def test_history_tool_defaults_scopes_to_history_only(self):
+        schema = PluginManifestSchema.model_validate(self._minimal(history_tools=[
+            {'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte'},
+        ]))
+
+        self.assertEqual(schema.history_tools[0].scopes, ['history'])
+
+    def test_history_tool_accepts_explicit_scopes(self):
+        schema = PluginManifestSchema.model_validate(self._minimal(history_tools=[
+            {
+                'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte',
+                'scopes': ['history', 'library'],
+            },
+        ]))
+
+        self.assertEqual(schema.history_tools[0].scopes, ['history', 'library'])
+
+    def test_history_tool_rejects_unknown_scope(self):
+        entry = {
+            'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte',
+            'scopes': ['sidebar'],
+        }
+        with self.assertRaises(ValidationError):
+            PluginManifestSchema.model_validate(self._minimal(history_tools=[entry]))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -6,6 +6,9 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import CreateTagModal from '$lib/components/modals/CreateTagModal.svelte';
+	import DeleteByCriteriaModal from '$lib/components/modals/DeleteByCriteriaModal.svelte';
+	import type { DeleteByCriteriaCriteriaConfig } from '$lib/components/modals/deleteByCriteria';
+	import { api } from '$lib/services/api/index';
 	import LibraryToolbar from './components/LibraryToolbar.svelte';
 	import LibraryTagsBar from './components/LibraryTagsBar.svelte';
 	import LibrarySidebar from './components/LibrarySidebar.svelte';
@@ -19,8 +22,20 @@
 	let itemToDelete: LibraryItem | null = null;
 	let showBulkDeleteModal = false;
 	let showAddTagModal = false;
+	let showDeleteByCriteriaModal = false;
 	let deleting = false;
 	let fileInput: HTMLInputElement;
+
+	const LIBRARY_DELETE_CRITERIA_CONFIG: DeleteByCriteriaCriteriaConfig = {
+		tags: true,
+		age: true,
+		mediaType: true
+	};
+	const LIBRARY_MEDIA_TYPE_OPTIONS = [
+		{ value: 'image', label: 'Images' },
+		{ value: 'video', label: 'Videos' },
+		{ value: 'audio', label: 'Audio' }
+	];
 
 	$: state = $libraryStore;
 
@@ -123,6 +138,7 @@
 			<LibraryToolbar
 				onOpenAddTag={() => (showAddTagModal = true)}
 				onPickFiles={pickFiles}
+				onOpenDeleteByCriteria={() => (showDeleteByCriteriaModal = true)}
 			/>
 			<LibraryTagsBar />
 		</div>
@@ -170,5 +186,25 @@
 		onClose={() => (showAddTagModal = false)}
 		onCreate={(name) => libraryStore.createTag(name)}
 		description="Tags help you organize and filter your library. You can add multiple tags to each item."
+	/>
+{/if}
+
+{#if showDeleteByCriteriaModal}
+	<DeleteByCriteriaModal
+		title="Delete Library Items by Criteria"
+		itemLabel="item"
+		criteria={LIBRARY_DELETE_CRITERIA_CONFIG}
+		availableTags={state.availableTags}
+		mediaTypeOptions={LIBRARY_MEDIA_TYPE_OPTIONS}
+		count={async (request) => {
+			const response = await api.countLibraryItemsByCriteria(request);
+			return response.success && response.data ? response.data.count : 0;
+		}}
+		remove={async (request) => {
+			const response = await libraryStore.bulkDeleteByCriteria(request);
+			if (!response.success) throw new Error(response.message || 'Failed to delete library items by criteria');
+			return response.data ?? { deleted_count: 0, files_deleted: 0 };
+		}}
+		onClose={() => (showDeleteByCriteriaModal = false)}
 	/>
 {/if}

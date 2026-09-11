@@ -425,11 +425,13 @@ class HistoryToolAppliesTo(BaseModel):
 
 
 class HistoryToolSpec(BaseModel):
-    """A plugin-provided History page selection-bar tool: `history_tools[]`.
+    """A plugin-provided media tool: `history_tools[]` (the manifest key
+    stayed `history_tools` even though a tool can now also run on the
+    Library page - renaming it would break every plugin already shipping one).
 
     Served as `<plugin_id>:<id>` by `GET /api/plugins/history-tools`.
     `component` is the plugin frontend asset mounted in a modal over the
-    selected generations, the same convention as `phrasebook_ops[].component`.
+    selected media, the same convention as `phrasebook_ops[].component`.
     `category` groups the tool alongside core's own `analyze`/`compose`/`export`
     groups, or creates a new plugin-owned group under any other value.
     """
@@ -443,6 +445,9 @@ class HistoryToolSpec(BaseModel):
     category: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9_-]*$")
     component: str = Field(min_length=1)
     applies_to: HistoryToolAppliesTo = Field(default_factory=HistoryToolAppliesTo)
+    # Which page's Tools menu offers this tool. Absent/omitted keeps every
+    # tool shipped before scopes existed on the History page only.
+    scopes: List[Literal["history", "library"]] = Field(default_factory=lambda: ["history"])
 
 
 class DocEntry(BaseModel):

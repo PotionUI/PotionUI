@@ -29,14 +29,23 @@
 	import HistoryDeleteModal from './components/HistoryDeleteModal.svelte';
 	import HistoryAddTagModal from './components/HistoryAddTagModal.svelte';
 	import HistoryBulkDeleteModal from './components/HistoryBulkDeleteModal.svelte';
-	import HistoryDeleteByCriteriaModal from './components/HistoryDeleteByCriteriaModal.svelte';
-	import HistoryToolHost from './components/HistoryToolHost.svelte';
+	import DeleteByCriteriaModal from '$lib/components/modals/DeleteByCriteriaModal.svelte';
+	import type { DeleteByCriteriaCriteriaConfig } from '$lib/components/modals/deleteByCriteria';
+	import ToolHost from '$lib/components/tools/ToolHost.svelte';
 	import { registerCoreHistoryTools } from './tools/coreTools';
-	import { loadPluginHistoryTools } from '$lib/history/pluginTools';
-	import type { HistoryTool, HistoryToolContext } from '$lib/history/tools';
+	import { loadPluginMediaTools } from '$lib/tools/pluginTools';
+	import type { MediaTool, MediaToolContext } from '$lib/tools/tools';
 	import type { GenerationHistoryItem } from '$lib/types/history';
 
 	registerCoreHistoryTools();
+
+	const HISTORY_DELETE_CRITERIA_CONFIG: DeleteByCriteriaCriteriaConfig = {
+		tags: true,
+		age: true,
+		status: true,
+		withoutMedia: true,
+		keepFavorites: true
+	};
 
 	let showDeleteModal = false;
 	let generationToDelete: GenerationHistoryItem | null = null;
@@ -48,13 +57,13 @@
 
 	// The tool picked from the selection bar's Tools menu, with the selection
 	// snapshot it was picked for.
-	let activeTool: HistoryTool | null = null;
-	let activeToolContext: HistoryToolContext | null = null;
+	let activeTool: MediaTool | null = null;
+	let activeToolContext: MediaToolContext | null = null;
 
 	$: currentState = $historyStore;
 	$: availableTags = currentState.availableTags;
 
-	function handleToolSelect(tool: HistoryTool, context: HistoryToolContext) {
+	function handleToolSelect(tool: MediaTool, context: MediaToolContext) {
 		activeTool = tool;
 		activeToolContext = context;
 	}
@@ -157,7 +166,7 @@
 		historyStore.loadGenerations().then(() => historyStore.loadTags());
 		historyStore.loadFacets();
 		collectionsStore.load();
-		void loadPluginHistoryTools();
+		void loadPluginMediaTools();
 
 		versionWatcher = createHistoryVersionWatcher({
 			fetchVersion: async () => {
@@ -324,11 +333,26 @@
 
 <!-- Delete by Criteria Modal -->
 {#if showDeleteByCriteriaModal}
-	<HistoryDeleteByCriteriaModal onClose={() => (showDeleteByCriteriaModal = false)} />
+	<DeleteByCriteriaModal
+		title="Delete Generations by Criteria"
+		itemLabel="generation"
+		criteria={HISTORY_DELETE_CRITERIA_CONFIG}
+		availableTags={$historyStore.availableTags}
+		count={async (request) => {
+			const response = await api.countGenerationsByCriteria(request);
+			return response.success && response.data ? response.data.count : 0;
+		}}
+		remove={async (request) => {
+			const response = await historyStore.bulkDeleteByCriteria(request);
+			if (!response.success) throw new Error(response.message || 'Failed to delete generations by criteria');
+			return response.data ?? { deleted_count: 0, files_deleted: 0 };
+		}}
+		onClose={() => (showDeleteByCriteriaModal = false)}
+	/>
 {/if}
 
 <!-- The one mount point for whichever tool the Tools menu picked -->
-<HistoryToolHost
+<ToolHost
 	tool={activeTool}
 	context={activeToolContext}
 	onClose={closeTool}

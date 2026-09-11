@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildHistoryToolContext, listHistoryToolGroups } from '$lib/history/tools';
+import { buildHistoryToolContext, listToolGroups } from '$lib/tools/tools';
 import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 
 // The modals are leaves here: only the registrations and their `applies()`
@@ -35,7 +35,7 @@ function generation(id: string): GenerationHistoryItem {
 }
 
 function groupsFor(ids: string[]) {
-	return listHistoryToolGroups(buildHistoryToolContext(ids.map(generation), ids, null));
+	return listToolGroups(buildHistoryToolContext(ids.map(generation), ids, null));
 }
 
 function entryFor(toolId: string, ids: string[]) {

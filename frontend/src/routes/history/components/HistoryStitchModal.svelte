@@ -13,7 +13,7 @@
 	import { libraryStore } from '$lib/stores/library';
 	import { toasts } from '$lib/stores/toast';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
-	import type { HistoryToolFile, HistoryToolModalProps } from '$lib/history/tools';
+	import type { MediaToolItem, MediaToolModalProps } from '$lib/tools/tools';
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import {
 		DEFAULT_STITCH_OPTIONS,
@@ -43,7 +43,7 @@
 
 	// No `onDone`: stitching reads the selection and writes nothing, so a
 	// finished download closes without asking the page to reload or clear.
-	let { context, onClose }: HistoryToolModalProps = $props();
+	let { context, onClose }: MediaToolModalProps = $props();
 
 	interface LoadedImage {
 		item: StitchItem;
@@ -88,7 +88,7 @@
 
 	const settlementGate = createConfirmSettlementGate();
 
-	let imageFiles = $derived(context.files.filter((entry) => entry.kind === 'image'));
+	let imageItems = $derived(context.items.filter((item) => item.kind === 'image'));
 	let lines = $derived(
 		loaded.map((entry) =>
 			options.showParams ? paramLinesFor(entry.item, options.paramKeys) : ([] as ParamLine[])
@@ -123,30 +123,34 @@
 		return segments.map((segment) => segment.text.trim()).join(', ');
 	}
 
-	async function loadOne(entry: HistoryToolFile): Promise<LoadedImage> {
-		const filename = entry.file.file_path.split('/').pop() || entry.file.file_path;
-		const url = api.getGenerationImageURL(entry.generation.id, filename);
+	async function loadOne(item: MediaToolItem): Promise<LoadedImage> {
+		// A library item carries no generation - no params to diff, no prompt
+		// to caption with, just the bytes at its own url.
+		const generation = item.generationId
+			? context.generations.find((candidate) => candidate.id === item.generationId)
+			: undefined;
+
 		const [media, params] = await Promise.all([
-			api.getClient().get(url, { responseType: 'blob' }),
-			api
-				.getGenerationParams(entry.generation.id, entry.index)
-				.catch(() => null)
+			api.getClient().get(item.url, { responseType: 'blob' }),
+			item.generationId && item.paramIndex !== undefined
+				? api.getGenerationParams(item.generationId, item.paramIndex).catch(() => null)
+				: Promise.resolve(null)
 		]);
 
 		const bitmap = await createImageBitmap(media.data as Blob);
 		return {
 			bitmap,
 			item: {
-				id: `${entry.generation.id}:${entry.index}`,
-				width: entry.file.width || bitmap.width,
-				height: entry.file.height || bitmap.height,
+				id: item.id,
+				width: item.width || bitmap.width,
+				height: item.height || bitmap.height,
 				parameters: params?.success ? (params.data?.parameters ?? {}) : {},
-				prompt: positivePrompt(entry.generation)
+				prompt: generation ? positivePrompt(generation) : ''
 			}
 		};
 	}
 
-	async function loadAll(entries: HistoryToolFile[]) {
+	async function loadAll(entries: MediaToolItem[]) {
 		const results = await Promise.all(
 			entries.map((entry) =>
 				loadOne(entry).catch((error) => {
@@ -169,7 +173,7 @@
 	}
 
 	$effect(() => {
-		const entries = imageFiles;
+		const entries = imageItems;
 		untrack(() => {
 			loading = true;
 			settlementGate.reset();

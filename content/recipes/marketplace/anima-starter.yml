@@ -101,7 +101,7 @@ smoke:
   # "anima-draft-baseline-fast" case verbatim (a real maintainer txt2img
   # session, steps cut from 25): smallest square resolution.
   form:
-    steps: 10
+    steps: 25
     cfg: 5
     sampler: "euler"
     shift: 3

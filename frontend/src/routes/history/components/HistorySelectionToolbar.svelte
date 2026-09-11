@@ -8,21 +8,21 @@
 	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
 	import { libraryStore } from '$lib/stores/library';
 	import { summarizeCopyOutcome } from '$lib/library/copyToLibrary';
-	import HistoryToolsMenu from './HistoryToolsMenu.svelte';
+	import ToolsMenu from '$lib/components/tools/ToolsMenu.svelte';
 	import {
 		buildHistoryToolContext,
-		listHistoryToolGroups,
-		type HistoryTool,
-		type HistoryToolContext,
-		type HistoryToolGroup
-	} from '$lib/history/tools';
-	import { historyToolRegistrations } from '$lib/history/pluginTools';
+		listToolGroups,
+		type MediaTool,
+		type MediaToolContext,
+		type MediaToolGroup
+	} from '$lib/tools/tools';
+	import { mediaToolRegistrations } from '$lib/tools/pluginTools';
 
 	// Self-contained: reads/writes historyStore directly. Only the bulk delete
 	// confirmation modal and the picked tool's modal live on the page (need
 	// shared state).
 	export let onBulkDeleteClick: () => void;
-	export let onToolSelect: (tool: HistoryTool, context: HistoryToolContext) => void;
+	export let onToolSelect: (tool: MediaTool, context: MediaToolContext) => void;
 
 	$: currentState = $historyStore;
 	$: generations = $filteredGenerations;
@@ -37,10 +37,10 @@
 	$: toolContext = buildHistoryToolContext(generations, selectedIds, activeCollectionId ?? null);
 	// The registry is a plain module map, so the plugin snapshot landing is the
 	// only signal that the menu has to be rebuilt.
-	$: toolGroups = groupsFor(toolContext, $historyToolRegistrations);
+	$: toolGroups = groupsFor(toolContext, $mediaToolRegistrations);
 
-	function groupsFor(context: HistoryToolContext, _registrations: number): HistoryToolGroup[] {
-		return listHistoryToolGroups(context);
+	function groupsFor(context: MediaToolContext, _registrations: number): MediaToolGroup[] {
+		return listToolGroups(context);
 	}
 
 	// Copy, not move: the generations stay in history untouched and the copies
@@ -166,8 +166,9 @@
 			</button>
 		{/if}
 
-		<HistoryToolsMenu
+		<ToolsMenu
 			open={activeMenu === 'tools'}
+			scope="history"
 			groups={toolGroups}
 			onToggle={() => toggleMenu('tools')}
 			onClose={closeMenus}

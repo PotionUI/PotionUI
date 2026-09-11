@@ -4,7 +4,7 @@
 	import { parseComponentRef } from '$lib/plugin-api/componentRef';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 	import { toasts } from '$lib/stores/toast';
-	import type { HistoryTool, HistoryToolContext } from '$lib/history/tools';
+	import type { MediaTool, MediaToolContext } from '$lib/tools/tools';
 
 	// The single mount point for whichever tool the Tools menu picked. The
 	// context is a snapshot taken when the tool was picked, so `onDone`
@@ -15,8 +15,8 @@
 		onClose,
 		onDone
 	}: {
-		tool: HistoryTool | null;
-		context: HistoryToolContext | null;
+		tool: MediaTool | null;
+		context: MediaToolContext | null;
 		onClose: () => void;
 		onDone: () => void;
 	} = $props();

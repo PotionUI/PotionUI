@@ -656,13 +656,15 @@ Three hooks bracket the path (full payloads in `GET /api/plugins/hooks/catalog`)
 
 Disabling the plugin removes its tools from `GET /api/phrasebook/batch-ops` immediately.
 
-## Contributing a history tool
+## Contributing a media tool
 
-The History page's selection bar has a **Tools** menu that runs one action over the
-selected generations. Core owns three groups — **Compare** (`analyze`), **Stitch**
-(`compose`) and **Download .zip** (`export`) — and a plugin tool joins one of them, or
-opens a new plugin-owned group under any other `category` string. Declare each tool in
-`manifest.yml`:
+The History page's selection bar (and, for a tool that opts in, the Library page's) has
+a **Tools** menu that runs one action over the selected media. Core owns three groups —
+**Compare** (`analyze`), **Stitch** (`compose`) and **Download .zip** (`export`) — and a
+plugin tool joins one of them, or opens a new plugin-owned group under any other
+`category` string. Declare each tool in `manifest.yml` under the `history_tools` root —
+the key stayed `history_tools` even though a tool can now run on the Library page too,
+since renaming it would break every plugin already shipping one:
 
 ```yaml
 history_tools:
@@ -672,8 +674,9 @@ history_tools:
     icon: "grid"                          # optional, an Icon name; default "extension"
     category: "compose"                   # core: analyze | compose | export; any other string = a plugin-owned group
     component: "ContactSheetModal.svelte" # your plugin frontend asset, same build as any other
+    scopes: ["history"]                   # optional; history | library; default ["history"] (every tool declared before scopes existed)
     applies_to:                           # optional; every key optional
-      min_selection: 2                    # selected generations
+      min_selection: 2                    # selected generations (history) or items (library)
       max_selection: 12
       media_kinds: ["image"]              # image | video | audio | mesh - selection must contain at least one file of one of these kinds
 ```
@@ -690,7 +693,8 @@ tools, in plugin order, each as:
   "icon": "grid",
   "category": "compose",
   "component": "plugin:my-plugin:ContactSheetModal.svelte",
-  "applies_to": {"min_selection": 2, "max_selection": 12, "media_kinds": ["image"]}
+  "applies_to": {"min_selection": 2, "max_selection": 12, "media_kinds": ["image"]},
+  "scopes": ["history"]
 }
 ```
 
@@ -699,9 +703,10 @@ resolves to. Your `component` is mounted in a modal with props `{ generationIds:
 generations: GenerationHistoryItem[], onClose(), onDone() }`: it owns its own UI and runs the
 tool itself, and calls `onDone()` once it has finished successfully — the page clears the
 current selection. `onClose()` just closes the modal without touching the selection. There is
-no backend registration and no separate run endpoint — a history tool is a UI contribution
+no backend registration and no separate run endpoint — a media tool is a UI contribution
 only; if it needs to call the backend, it does so through its own plugin API route like any
-other plugin frontend component.
+other plugin frontend component. A tool scoped to `library` still receives the same props;
+`generationIds`/`generations` are empty there since a library item carries no generation.
 
 Disabling the plugin removes its tools from `GET /api/plugins/history-tools` immediately.
 

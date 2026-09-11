@@ -49,6 +49,15 @@ export interface LibraryFacets {
 	media_types: Record<string, number>;
 }
 
+/** Mirrors `BulkDeleteLibraryByCriteriaRequest` (src/features/library/dto.py). */
+export interface BulkDeleteLibraryByCriteriaRequest {
+	tag_ids?: string[];
+	older_than_days?: number;
+	created_from?: string;
+	created_to?: string;
+	media_type?: string;
+}
+
 export function createLibraryApi(client: AxiosInstance) {
 	return {
 		/**
@@ -75,6 +84,20 @@ export function createLibraryApi(client: AxiosInstance) {
 			itemId: string
 		): Promise<APIResponse<{ id: string; deleted: boolean }>> {
 			const response = await client.delete(`/api/library/items/${itemId}`);
+			return response.data;
+		},
+
+		async countLibraryItemsByCriteria(
+			criteria: BulkDeleteLibraryByCriteriaRequest
+		): Promise<APIResponse<{ count: number }>> {
+			const response = await client.post('/api/library/count-by-criteria', criteria);
+			return response.data;
+		},
+
+		async bulkDeleteLibraryItemsByCriteria(
+			criteria: BulkDeleteLibraryByCriteriaRequest
+		): Promise<APIResponse<{ deleted_count: number; files_deleted: number }>> {
+			const response = await client.post('/api/library/bulk-delete-by-criteria', criteria);
 			return response.data;
 		},
 
@@ -113,6 +136,28 @@ export function createLibraryApi(client: AxiosInstance) {
 				headers: { 'Content-Type': 'multipart/form-data' }
 			});
 			return response.data;
+		},
+
+		// Export selected library items as a zip. The endpoint returns a BINARY
+		// zip stream (not the JSON envelope); fetch it as a blob via the
+		// authenticated axios client and trigger a browser download - same
+		// pattern as `exportGenerations` (generations.ts).
+		async exportLibraryItems(itemIds: string[]): Promise<void> {
+			const response = await client.post(
+				'/api/library/export',
+				{ item_ids: itemIds },
+				{ responseType: 'blob' }
+			);
+
+			const blob = response.data as Blob;
+			const url = URL.createObjectURL(blob);
+			const anchor = document.createElement('a');
+			anchor.href = url;
+			anchor.download = 'potionui-library-export.zip';
+			document.body.appendChild(anchor);
+			anchor.click();
+			anchor.remove();
+			URL.revokeObjectURL(url);
 		}
 	};
 }

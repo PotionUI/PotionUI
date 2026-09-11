@@ -55,6 +55,10 @@ class LibraryRepositoryTestBase(PersistenceTestBase):
             )
         return collection_id
 
+    def _set_created_at(self, upload_id, value):
+        with self.db.get_cursor() as cursor:
+            cursor.execute("UPDATE uploads SET created_at = ? WHERE id = ?", (value, upload_id))
+
     def _add_to_collection(self, collection_id, upload_id):
         with self.db.get_cursor() as cursor:
             cursor.execute(
@@ -156,6 +160,75 @@ class TestLibraryRepositoryScoping(LibraryRepositoryTestBase):
         self._upload(filename="theirs.png", media_type="image", user_id=self.other_user_id)
 
         self.assertEqual(self.repo.media_type_counts(self.user_id), {"image": 2, "video": 1})
+
+
+class TestFindIdsByCriteria(LibraryRepositoryTestBase):
+    """`find_ids_by_criteria` - the "Delete by criteria" candidate set,
+    always scoped to one owner."""
+
+    def test_matches_only_the_given_owner(self):
+        mine = self._upload(filename="mine.png")
+        self._upload(filename="theirs.png", user_id=self.other_user_id)
+
+        ids = self.repo.find_ids_by_criteria(self.user_id)
+
+        self.assertEqual(ids, [mine.id])
+
+    def test_media_type_filters(self):
+        pic = self._upload(filename="pic.png", media_type="image")
+        self._upload(filename="clip.mp4", media_type="video")
+
+        ids = self.repo.find_ids_by_criteria(self.user_id, media_type="image")
+
+        self.assertEqual(ids, [pic.id])
+
+    def test_tag_ids_requires_all_of_them(self):
+        both = self._upload(filename="both.png")
+        one = self._upload(filename="one.png")
+        cats = self._tag("cats")
+        dogs = self._tag("dogs")
+        self._tag_upload(both.id, cats.id)
+        self._tag_upload(both.id, dogs.id)
+        self._tag_upload(one.id, cats.id)
+
+        ids = self.repo.find_ids_by_criteria(self.user_id, tag_ids=[cats.id, dogs.id])
+
+        self.assertEqual(ids, [both.id])
+
+    def test_older_than_days_excludes_recent_rows(self):
+        old = self._upload(filename="old.png")
+        self._set_created_at(old.id, "2020-01-01 00:00:00")
+        recent = self._upload(filename="recent.png")
+
+        ids = self.repo.find_ids_by_criteria(self.user_id, older_than_days=30)
+
+        self.assertEqual(ids, [old.id])
+
+    def test_created_date_range_is_inclusive_of_both_bounds(self):
+        before = self._upload(filename="before.png")
+        self._set_created_at(before.id, "2020-01-01 00:00:00")
+        within = self._upload(filename="within.png")
+        self._set_created_at(within.id, "2020-06-15 12:00:00")
+        after = self._upload(filename="after.png")
+        self._set_created_at(after.id, "2020-12-31 00:00:00")
+
+        ids = self.repo.find_ids_by_criteria(
+            self.user_id, created_from="2020-06-01", created_to="2020-06-30"
+        )
+
+        self.assertEqual(ids, [within.id])
+
+    def test_criteria_are_and_ed_together(self):
+        target = self._upload(filename="target.png", media_type="image")
+        tag = self._tag("keep")
+        self._tag_upload(target.id, tag.id)
+        self._upload(filename="untagged.png", media_type="image")
+        other_media = self._upload(filename="clip.mp4", media_type="video")
+        self._tag_upload(other_media.id, tag.id)
+
+        ids = self.repo.find_ids_by_criteria(self.user_id, media_type="image", tag_ids=[tag.id])
+
+        self.assertEqual(ids, [target.id])
 
 
 if __name__ == '__main__':

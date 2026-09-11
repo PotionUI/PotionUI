@@ -9,6 +9,7 @@
 	// callbacks stay as props since modal state lives on the page.
 	export let onOpenAddTag: () => void;
 	export let onPickFiles: () => void;
+	export let onOpenDeleteByCriteria: () => void;
 
 	$: state = $libraryStore;
 	$: counts = state.mediaTypeCounts;
@@ -163,6 +164,18 @@
 						>
 							<Icon name="plus" className="w-3.5 h-3.5" />
 							Add tag
+						</button>
+						<div class="my-1 h-px bg-line"></div>
+						<button
+							class="w-full px-3 py-2 text-left text-xs hover:bg-danger/10 transition-colors flex items-center gap-2 text-danger"
+							role="menuitem"
+							on:click={() => {
+								isMoreMenuOpen = false;
+								onOpenDeleteByCriteria();
+							}}
+						>
+							<Icon name="trash" className="w-3.5 h-3.5" />
+							Delete by criteria
 						</button>
 					</div>
 				{/if}

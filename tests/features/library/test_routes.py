@@ -154,5 +154,66 @@ class TestLibraryRoutes(LibraryRoutesTestBase):
         self.assertEqual(response.json()["data"]["media_types"], {"image": 1, "video": 1})
 
 
+class TestLibraryDeleteByCriteriaRoutes(LibraryRoutesTestBase):
+
+    def test_count_matches_scoped_to_the_current_user(self):
+        self._upload(filename="mine.mp4", media_type="video")
+        self._upload(filename="theirs.mp4", media_type="video", user_id=self.other_user_id)
+
+        response = self.client.post("/api/library/count-by-criteria", json={"media_type": "video"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["count"], 1)
+
+    def test_count_rejects_an_unknown_media_type(self):
+        response = self.client.post("/api/library/count-by-criteria", json={"media_type": "mesh"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"]["error"], "validation_error")
+
+    def test_count_rejects_a_tag_owned_by_someone_else(self):
+        theirs = self._tag("private", user_id=self.other_user_id)
+
+        response = self.client.post("/api/library/count-by-criteria", json={"tag_ids": [theirs.id]})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"]["error"], "validation_error")
+
+    def test_delete_with_no_criteria_is_refused(self):
+        response = self.client.post("/api/library/bulk-delete-by-criteria", json={})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"]["error"], "no_criteria")
+
+    def test_delete_removes_only_matches_scoped_to_the_current_user(self):
+        doomed = self._upload(filename="doomed.mp4", media_type="video")
+        kept_media_type = self._upload(filename="kept.png", media_type="image")
+        theirs = self._upload(filename="theirs.mp4", media_type="video", user_id=self.other_user_id)
+
+        response = self.client.post("/api/library/bulk-delete-by-criteria", json={"media_type": "video"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"], {"deleted_count": 1, "files_deleted": 1})
+        self.assertIsNone(self.upload_repo.get_by_id(doomed.id, self.user_id))
+        self.assertIsNotNone(self.upload_repo.get_by_id(kept_media_type.id, self.user_id))
+        self.assertIsNotNone(self.upload_repo.get_by_id(theirs.id, self.other_user_id))
+
+    def test_delete_by_tag_requires_all_of_them(self):
+        both = self._upload(filename="both.png")
+        one = self._upload(filename="one.png")
+        cats = self._tag("cats")
+        dogs = self._tag("dogs")
+        operations.set_tags(self.collaborators, both.id, [cats.id, dogs.id], self.user_id)
+        operations.set_tags(self.collaborators, one.id, [cats.id], self.user_id)
+
+        response = self.client.post(
+            "/api/library/bulk-delete-by-criteria", json={"tag_ids": [cats.id, dogs.id]}
+        )
+
+        self.assertEqual(response.json()["data"]["deleted_count"], 1)
+        self.assertIsNone(self.upload_repo.get_by_id(both.id, self.user_id))
+        self.assertIsNotNone(self.upload_repo.get_by_id(one.id, self.user_id))
+
+
 if __name__ == '__main__':
     unittest.main()

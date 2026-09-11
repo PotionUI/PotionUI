@@ -57,3 +57,20 @@ class SetLibraryTagsRequest(BaseModel):
     """Request model for replacing a library item's tags."""
 
     tag_ids: List[str]
+
+
+class LibraryExportRequest(BaseModel):
+    """Request model for exporting library items as a zip."""
+
+    item_ids: List[str]
+
+
+class BulkDeleteLibraryByCriteriaRequest(BaseModel):
+    """Request to count/delete the current user's library items matching
+    criteria, AND-ed: tags (all of them), age, a created date range, and
+    media type."""
+    tag_ids: Optional[List[str]] = None
+    older_than_days: Optional[int] = None
+    created_from: Optional[str] = None
+    created_to: Optional[str] = None
+    media_type: Optional[str] = None

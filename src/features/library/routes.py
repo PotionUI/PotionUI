@@ -18,9 +18,16 @@ from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, Depends, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.spooled_zip import stream_spooled_zip
 from src.platform.security.current_user import get_current_active_user
 from src.features.library.collaborators import LibraryCollaborators
-from src.features.library.dto import CopyFromGenerationRequest, SetLibraryTagsRequest
+from src.features.library.criteria_delete import delete_items, owner_criteria, preview_items
+from src.features.library.dto import (
+    BulkDeleteLibraryByCriteriaRequest,
+    CopyFromGenerationRequest,
+    LibraryExportRequest,
+    SetLibraryTagsRequest,
+)
 from src.features.library import operations
 
 if TYPE_CHECKING:
@@ -136,6 +143,78 @@ class LibraryController(BaseController):
             self.logger.error(f"Failed to copy file into library: {e}")
             return self.error_response(error="copy_failed", message="Failed to copy file into library")
 
+    async def count_items_by_criteria(
+        self,
+        request: BulkDeleteLibraryByCriteriaRequest,
+        current_user
+    ) -> APIResponse:
+        """Count the current user's library items matching criteria, AND-ed (for preview)."""
+        try:
+            criteria = owner_criteria(self.collaborators, request, current_user.id)
+            count = preview_items(self.collaborators, criteria)
+            return self.success_response(
+                message=f"Found {count} item(s) matching the given criteria",
+                data={"count": count}
+            )
+        except ValueError as e:
+            return self.error_response(error="validation_error", message=str(e), status_code=400)
+        except Exception as e:
+            self.logger.error(f"Failed to count library items by criteria: {e}")
+            return self.error_response(
+                error="count_failed", message="Failed to count library items by criteria"
+            )
+
+    async def bulk_delete_by_criteria(
+        self,
+        request: BulkDeleteLibraryByCriteriaRequest,
+        current_user
+    ) -> APIResponse:
+        """Delete every library item of the current user matching criteria, AND-ed."""
+        try:
+            criteria = owner_criteria(self.collaborators, request, current_user.id)
+        except ValueError as e:
+            return self.error_response(error="validation_error", message=str(e), status_code=400)
+
+        if criteria.is_empty():
+            return self.error_response(
+                error="no_criteria",
+                message="Choose at least one criterion before deleting library items",
+                status_code=400
+            )
+
+        try:
+            summary = delete_items(self.collaborators, criteria)
+            return self.success_response(
+                message=f"Successfully deleted {summary['deleted_count']} item(s).",
+                data=summary
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to delete library items by criteria: {e}")
+            return self.error_response(
+                error="delete_failed", message="Failed to delete library items by criteria"
+            )
+
+    async def export_items(self, request: LibraryExportRequest, current_user):
+        """Export the given library items as a downloadable zip.
+
+        Unlike the other endpoints this returns the binary zip directly (via
+        a streamed response) instead of an APIResponse JSON envelope.
+        """
+        if not request.item_ids:
+            return self.error_response(
+                error="invalid_request", message="No item IDs provided", status_code=400
+            )
+        try:
+            zip_file, filename = operations.export_zip(
+                self.collaborators, request.item_ids, current_user.id
+            )
+            return stream_spooled_zip(zip_file, filename)
+        except ValueError as e:
+            return self.error_response(error="not_found", message=str(e), status_code=404)
+        except Exception as e:
+            self.logger.error(f"Failed to export library items: {e}")
+            return self.error_response(error="export_failed", message="Failed to export library items")
+
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.library_controller
@@ -170,6 +249,33 @@ def build_router(container: "AppContainer") -> APIRouter:
     ) -> APIResponse:
         """Copy a generated file into the library as a standalone resource."""
         return await controller.copy_from_generation(request, current_user)
+
+    @router.post("/export", summary="Export Library Items as Zip")
+    async def export_items(
+        request: LibraryExportRequest,
+        current_user=Depends(get_current_active_user)
+    ):
+        """Export the given library items as a single zip.
+
+        Returns the binary zip directly (not an APIResponse envelope).
+        """
+        return await controller.export_items(request, current_user)
+
+    @router.post("/count-by-criteria", response_model=APIResponse, summary="Count Library Items by Criteria")
+    async def count_items_by_criteria(
+        request: BulkDeleteLibraryByCriteriaRequest,
+        current_user=Depends(get_current_active_user)
+    ) -> APIResponse:
+        """Count the current user's library items matching criteria, AND-ed (for confirmation preview)."""
+        return await controller.count_items_by_criteria(request, current_user)
+
+    @router.post("/bulk-delete-by-criteria", response_model=APIResponse, summary="Bulk Delete Library Items by Criteria")
+    async def bulk_delete_by_criteria(
+        request: BulkDeleteLibraryByCriteriaRequest,
+        current_user=Depends(get_current_active_user)
+    ) -> APIResponse:
+        """Delete every library item of the current user matching criteria, AND-ed."""
+        return await controller.bulk_delete_by_criteria(request, current_user)
 
     @router.get("/items/{item_id}", response_model=APIResponse, summary="Get Library Item")
     async def get_item(

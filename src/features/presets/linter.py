@@ -28,6 +28,7 @@ from .schema import (
     validate_manifest,
     validate_form_file,
     validate_field_list,
+    validate_styles_file,
     _format_errors,
 )
 from .tests_schema import NEEDS_MODEL_TAG, PLACEHOLDER_SHA256, validate_tests_yml
@@ -477,6 +478,8 @@ class PresetLinter:
             issues.extend(self._lint_guard_default_mismatch(preset_file, mode_dir, mode_name))
 
         issues.extend(self._lint_media_refs(preset_file, manifest))
+
+        issues.extend(self._lint_styles(preset_file))
 
         issues.extend(self._lint_engine_matches_pipes(preset_file, manifest))
 
@@ -2516,6 +2519,52 @@ class PresetLinter:
                         preset_str,
                         f"{label}: {src} is {width}x{height}, "
                         f"longest side over {_MEDIA_MAX_DIMENSION}px",
+                    )
+                )
+
+        return issues
+
+    def _lint_styles(self, preset_file: Path) -> List[LintIssue]:
+        """Validate the optional `styles.yml` next to `preset.yml`.
+
+        Re-parses the file independently of `PresetTemplateLoader` (which
+        loads styles leniently - see `PresetTemplateLoader._load_styles`),
+        so schema errors (bad id, duplicate id, unknown field) and missing
+        `preview:` files surface here even though they never block the
+        preset from loading.
+        """
+        issues: List[LintIssue] = []
+        styles_file = preset_file.with_name("styles.yml")
+        if not styles_file.exists():
+            return issues
+
+        preset_str = str(preset_file)
+
+        try:
+            with open(styles_file, "r") as f:
+                data = yaml.load(f, Loader=yaml.FullLoader) or {}
+        except Exception as e:
+            issues.append(LintIssue("error", preset_str, f"styles.yml: failed to parse: {e}"))
+            return issues
+
+        parsed, errors = validate_styles_file(data)
+        for err in errors:
+            issues.append(LintIssue("error", preset_str, err))
+
+        if parsed is None:
+            return issues
+
+        preset_dir = preset_file.parent
+        for style in parsed.styles:
+            if not style.preview:
+                continue
+            path = preset_dir / style.preview
+            if not path.exists():
+                issues.append(
+                    LintIssue(
+                        "error",
+                        preset_str,
+                        f"styles.yml: style '{style.id}' preview file not found: {style.preview}",
                     )
                 )
 

@@ -407,6 +407,53 @@ class PresetMedia(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Preset styles (styles.yml) - curated style presets a preset ships, each
+# rendering a preview through `example_prompt`. See docs/presets/manifest.md "Styles".
+# ---------------------------------------------------------------------------
+
+STYLE_ID_RE = re.compile(r"^[a-z0-9-]+$")
+
+
+class PresetStyle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    category: str
+    description: Optional[str] = None
+    prepend: str
+    append: str
+    negative: Optional[str] = None
+    example_prompt: str
+    # Preset-relative, e.g. "public/styles/<id>.webp" - existence is a lint
+    # check (`PresetLinter._lint_styles`), not a schema check, same rationale
+    # as `_validate_media_src`'s docstring.
+    preview: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _validate_style(self) -> "PresetStyle":
+        if not STYLE_ID_RE.match(self.id):
+            raise ValueError(f"style id '{self.id}' does not match ^[a-z0-9-]+$")
+        _validate_media_src(self.preview)
+        return self
+
+
+class StylesFile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    styles: List[PresetStyle] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_unique_ids(self) -> "StylesFile":
+        seen: set = set()
+        for style in self.styles:
+            if style.id in seen:
+                raise ValueError(f"duplicate style id: '{style.id}'")
+            seen.add(style.id)
+        return self
+
+
+# ---------------------------------------------------------------------------
 # Hardware requirements: optional, author-supplied VRAM/RAM guidance surfaced
 # to the frontend at preset-choice time (see docs/presets.md "Hardware
 # requirements" and docs/user/hardware-requirements.md, the measured-numbers
@@ -675,5 +722,12 @@ def validate_field_list(data: list, prefix: str = "fields") -> Tuple[Optional[Li
     the same `FieldSpec` schema used for `form.yml`'s own `fields:`."""
     try:
         return [FieldSpec.model_validate(item) for item in data], []
+    except ValidationError as exc:
+        return None, _format_errors(prefix, exc)
+
+
+def validate_styles_file(data: dict, prefix: str = "styles.yml") -> Tuple[Optional[StylesFile], List[str]]:
+    try:
+        return StylesFile.model_validate(data), []
     except ValidationError as exc:
         return None, _format_errors(prefix, exc)

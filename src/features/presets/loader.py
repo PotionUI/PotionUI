@@ -37,6 +37,7 @@ from .schema import (
     validate_pipeline_file,
     validate_form_file,
     validate_field_list,
+    validate_styles_file,
 )
 
 # The only variable ever used in an external `children:` fragment path today
@@ -291,6 +292,7 @@ class PresetTemplateLoader:
         llm = manifest.llm.model_dump(exclude_none=True) if manifest.llm else None
         requires = manifest.requires.model_dump(exclude_none=True) if manifest.requires else None
         requirements = [entry.model_dump(exclude_none=True) for entry in manifest.requirements]
+        styles = self._load_styles(preset_path)
 
         return PresetTemplate(
             id=manifest.id,
@@ -306,11 +308,42 @@ class PresetTemplateLoader:
             base_path=str(base_path),
             engine=manifest.engine,
             media=manifest.media.model_dump(exclude_none=True) if manifest.media else None,
+            styles=styles,
             configuration=configuration,
             llm=llm,
             requires=requires,
             requirements=requirements,
         )
+
+    def _load_styles(self, preset_path: Path) -> List[Dict]:
+        """Load and validate a preset's optional `styles.yml`, next to `preset.yml`.
+
+        Lenient by design (unlike `preset.yml`/`pipeline.yml`/`form.yml`): a
+        missing file yields `[]`, and a malformed one is logged and also
+        yields `[]` rather than failing the whole preset load - styles are
+        supplementary, curated content, not load-bearing for generation.
+        `PresetLinter._lint_styles` re-validates the same file independently
+        so schema/duplicate-id/missing-preview problems still surface via
+        `preset_lint`/the developer lint endpoint.
+        """
+        styles_file = preset_path.with_name('styles.yml')
+        if not styles_file.exists():
+            return []
+
+        try:
+            with open(styles_file, 'r') as f:
+                data = yaml.safe_load(f) or {}
+        except Exception as e:
+            logger.error(f"Error loading styles for preset {preset_path}: failed to parse styles.yml: {e}")
+            return []
+
+        parsed, errors = validate_styles_file(data)
+        if errors:
+            for err in errors:
+                logger.error(f"Preset styles validation error [{styles_file}] {err}")
+            return []
+
+        return [style.model_dump(exclude_none=True) for style in parsed.styles]
 
     def _load_mode(self, preset_path: Path, mode_name: str) -> Tuple[Optional[ModeTemplate], List[str]]:
         """Load a single mode (pipeline.yml + form variants) from its directory.

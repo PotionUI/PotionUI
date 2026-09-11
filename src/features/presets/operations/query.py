@@ -125,7 +125,7 @@ def get_preset(collaborators: PresetCollaborators, preset_id: str) -> Dict[str, 
 
     # Detail view: include the full gallery. `vars`/`llm` reach the response
     # through the PresetInfo constructor (see file_repository.preset_to_info).
-    preset_info = collaborators.file_repo.preset_to_info(found_preset, include_gallery=True)
+    preset_info = collaborators.file_repo.preset_to_info(found_preset, include_gallery=True, include_styles=True)
     data = preset_info.dict()
 
     data['requirements_summary'] = _peek_requirements_summary(collaborators, preset_id)
@@ -439,5 +439,5 @@ def reload_preset(collaborators: PresetCollaborators, preset_id: str) -> Dict[st
         raise PresetNotFoundException(preset_id)
 
     # Convert to PresetInfo (detail view: include the full gallery)
-    preset_info = collaborators.file_repo.preset_to_info(found_preset, include_gallery=True)
+    preset_info = collaborators.file_repo.preset_to_info(found_preset, include_gallery=True, include_styles=True)
     return preset_info.dict()

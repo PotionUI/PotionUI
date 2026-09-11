@@ -141,6 +141,10 @@ class PresetTemplate:
     base_path: str = None  # Base directory where this preset was loaded from (e.g., "content/presets/marketplace" or "content/presets/local")
     engine: str = None  # Engine this preset's pipes speak (e.g. "native", "comfyui")
     media: Optional[dict] = None  # {cover, gallery: [...]} - see PresetMedia in schema.py
+    # Curated styles from `styles.yml` (optional; empty when the preset ships
+    # none), each dict shaped like `PresetStyle` in schema.py. See
+    # docs/presets/manifest.md "Styles".
+    styles: List[Dict[str, Any]] = field(default_factory=list)
     # Declared schema for admin-set configuration (roadmap: preset configuration),
     # e.g. {"checkpoint_tags": {"type": "model_tags", "label": "...", "description": "..."}}.
     # Values themselves are admin-set state, not part of this template - see

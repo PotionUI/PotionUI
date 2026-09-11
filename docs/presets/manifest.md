@@ -397,6 +397,52 @@ both the cache entry and the `ETag`. An unknown `size` is a `400`.
 `GET /api/presets/{id}`, so the list payload stays small.
 
 
+## Styles
+
+A preset can ship a curated set of **styles** — reusable prompt fragments that wrap the user's
+own prompt, each with a rendered preview. They live in an optional `styles.yml` file at the
+preset root, next to `preset.yml`:
+
+```yaml
+styles:
+  - id: "retro-90s-cel"                  # ^[a-z0-9-]+$, unique within the file
+    name: "Retro 90s Anime Cel"
+    category: "Anime"
+    description: "Hand-painted cel animation look, muted colors, soft grain."  # optional
+    prepend: "old, anime screenshot, "
+    append: ", 1990s (style), retro artstyle, anime coloring, cel shading, film grain."
+    negative: "3d, realistic, glossy"    # optional
+    example_prompt: "a cat sitting on a windowsill at sunset"
+    preview: "public/styles/retro-90s-cel.webp"  # optional; see "Rendering previews" below
+```
+
+Applying a style prepends/appends its `prepend`/`append` to the user's prompt and substitutes
+its `negative` for the negative prompt; `example_prompt` is only used to render the style's own
+preview, never shown to the user.
+
+### Rules
+
+- **Lenient loading.** Unlike `preset.yml`/`pipeline.yml`/`form.yml`, a missing `styles.yml`
+  loads as `styles: []` and a malformed one degrades to `styles: []` rather than failing the
+  whole preset — styles are supplementary, not load-bearing for generation. Schema errors
+  (bad `id`, duplicate `id`, missing required field) and a `preview:` naming a file that doesn't
+  exist are `scripts/preset_lint.py` / `GET /api/developer/presets/lint` **errors**, same
+  rationale as [preset media](#preset-media)'s file-existence checks.
+- **`preview` follows the same asset rules as `media`** — relative, under `public/`, one of the
+  allowed extensions (see [Preset media](#preset-media) above); served the same way.
+- `GET /api/presets` returns `styles: []`; the full list comes from `GET /api/presets/{id}`, same
+  gating as `media.gallery`.
+
+### Rendering previews
+
+`POST /api/developer/presets/{preset_id}/styles/render` (admin-only) runs one real generation per
+style — using the preset's default mode/form defaults with the prompt/negative/seed overridden
+(and the output count forced to 1) — downscales the first output image so its long edge is
+`long_edge` px (default 320), saves it as `public/styles/<id>.webp`, and sets `preview:` in
+`styles.yml` for that style when it was unset. Body: `{style_ids?, long_edge?, seed?}` (all
+styles when `style_ids` is omitted). Response: `{rendered: [ids], failed: [{id, error}]}`.
+
+
 ## Hardware requirements
 
 `requires:` is an optional top-level `preset.yml` mapping that surfaces hardware guidance in the

@@ -464,6 +464,73 @@ media:
         assert PresetLinter([str(tmp_path)]).lint() == []
 
 
+class TestLintStyles:
+    """`styles.yml` re-validated independently of the loader (see
+    `PresetLinter._lint_styles`'s docstring) - schema errors and missing
+    `preview:` files surface here even though the loader never blocks a
+    preset over a broken styles.yml."""
+
+    STYLE = """styles:
+  - id: "retro-90s-cel"
+    name: "Retro 90s Anime Cel"
+    category: "Anime"
+    prepend: "old, "
+    append: ", retro."
+    example_prompt: "a cat"
+"""
+
+    def test_preset_without_styles_yml_is_unaffected(self, tmp_path):
+        _write_preset(tmp_path, "p", "no_styles", ["txt2img"])
+        assert PresetLinter([str(tmp_path)]).lint() == []
+
+    def test_styles_without_preview_is_clean(self, tmp_path):
+        preset_dir = _write_preset(tmp_path, "p", "styles_ok", ["txt2img"])
+        (preset_dir / "styles.yml").write_text(self.STYLE)
+
+        assert PresetLinter([str(tmp_path)]).lint() == []
+
+    def test_styles_with_existing_preview_is_clean(self, tmp_path):
+        from PIL import Image
+
+        preset_dir = _write_preset(tmp_path, "p", "styles_preview_ok", ["txt2img"])
+        (preset_dir / "styles.yml").write_text(
+            self.STYLE.replace('example_prompt: "a cat"', 'example_prompt: "a cat"\n    preview: "public/styles/retro-90s-cel.webp"')
+        )
+        preview_path = preset_dir / "public" / "styles" / "retro-90s-cel.webp"
+        preview_path.parent.mkdir(parents=True)
+        Image.new("RGB", (32, 32), "red").save(preview_path)
+
+        assert PresetLinter([str(tmp_path)]).lint() == []
+
+    def test_missing_preview_file_is_error(self, tmp_path):
+        preset_dir = _write_preset(tmp_path, "p", "styles_missing_preview", ["txt2img"])
+        (preset_dir / "styles.yml").write_text(
+            self.STYLE.replace('example_prompt: "a cat"', 'example_prompt: "a cat"\n    preview: "public/styles/retro-90s-cel.webp"')
+        )
+
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "error" and "preview file not found" in i.message and "retro-90s-cel" in i.message
+            for i in issues
+        )
+
+    def test_duplicate_style_id_is_error(self, tmp_path):
+        preset_dir = _write_preset(tmp_path, "p", "styles_dupe", ["txt2img"])
+        (preset_dir / "styles.yml").write_text(self.STYLE + self.STYLE.replace("styles:\n", ""))
+
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(i.level == "error" and "duplicate style id" in i.message for i in issues)
+        # A broken styles.yml must never make the preset itself unloadable.
+        assert not any("modes/txt2img" in i.message for i in issues)
+
+    def test_bad_style_id_is_error(self, tmp_path):
+        preset_dir = _write_preset(tmp_path, "p", "styles_bad_id", ["txt2img"])
+        (preset_dir / "styles.yml").write_text(self.STYLE.replace('id: "retro-90s-cel"', 'id: "Bad Id!"'))
+
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(i.level == "error" and "does not match" in i.message for i in issues)
+
+
 class TestLintEngineMatchesPipes:
     def test_comfyui_engine_without_comfyui_pipe_is_error(self, tmp_path):
         preset_dir = tmp_path / "presets/comfyui/Foo/std"

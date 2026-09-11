@@ -897,8 +897,8 @@ def build_container() -> AppContainer:
     pipes_documenter = PipesDocumenter(pipe_catalog)
     output_types_documenter = OutputTypesDocumenter(output_type_registry)
     template_functions_documenter = TemplateFunctionsDocumenter()
-    from src.features.developer.routes import DeveloperController
-    developer_controller = DeveloperController(template_functions_documenter, preset_template_loader)
+    # `developer_controller` itself is built further down, once
+    # `generation_orchestrator` exists (its style-preview render route needs it).
 
     # Docs components (in-app Documentation feature - aggregates repo
     # markdown, plugin-manifest `docs:` entries, and live-reference APIs
@@ -1046,6 +1046,16 @@ def build_container() -> AppContainer:
         gpu_monitor=gpu_monitor,
         router=None,  # Will be set after model_index_manager is created - see docs/generation-routing.md
         scheduling_policy_for=_scheduling_policy_for,
+    )
+
+    # Developer controller (deferred until here - its preset-styles render
+    # route needs `generation_orchestrator`, see the "Developer components"
+    # block above for its other collaborators).
+    from src.features.developer.routes import DeveloperController
+    from src.features.presets.style_renderer import PresetStyleRenderer
+    preset_style_renderer = PresetStyleRenderer(preset_template_loader, generation_orchestrator, settings)
+    developer_controller = DeveloperController(
+        template_functions_documenter, preset_template_loader, preset_style_renderer
     )
 
     # Initialize generation history manager

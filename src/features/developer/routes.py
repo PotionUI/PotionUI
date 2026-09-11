@@ -11,7 +11,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.features.developer import operations
+from src.features.developer.dto import RenderPresetStylesRequest
 from src.features.developer.template_functions_documenter import TemplateFunctionsDocumenter
+from src.features.presets.style_renderer import PresetStyleRenderer
 from src.platform.security.user import User, AccountType
 
 if TYPE_CHECKING:
@@ -29,10 +31,16 @@ class DeveloperController(BaseController):
     this controller no longer exposes them as standalone HTTP routes.
     """
 
-    def __init__(self, template_functions_documenter: TemplateFunctionsDocumenter, preset_loader):
+    def __init__(
+        self,
+        template_functions_documenter: TemplateFunctionsDocumenter,
+        preset_loader,
+        style_renderer: PresetStyleRenderer,
+    ):
         super().__init__()
         self.template_functions_documenter = template_functions_documenter
         self.preset_loader = preset_loader
+        self.style_renderer = style_renderer
 
     async def get_template_functions_documentation(self) -> APIResponse:
         """Get documentation for all template functions available in pipeline.yml files."""
@@ -66,6 +74,31 @@ class DeveloperController(BaseController):
             return self.error_api_response(
                 error="presets_lint_failed",
                 message="Failed to lint presets"
+            )
+
+    async def render_preset_styles(
+        self, preset_id: str, request: RenderPresetStylesRequest, user_id: str
+    ) -> APIResponse:
+        """Render (or re-render) one or more of a preset's `styles.yml` previews."""
+        try:
+            data = await self.style_renderer.render_styles(
+                preset_id=preset_id,
+                user_id=user_id,
+                style_ids=request.style_ids,
+                long_edge=request.long_edge,
+                seed=request.seed,
+            )
+            return self.success_response(data=data)
+        except ValueError as e:
+            return self.error_api_response(
+                error="preset_styles_render_failed",
+                message=str(e)
+            )
+        except Exception as e:
+            self.logger.exception(f"Failed to render styles for preset {preset_id}: {e}")
+            return self.error_api_response(
+                error="preset_styles_render_failed",
+                message="Failed to render preset styles"
             )
 
     async def get_docs_lint(self) -> APIResponse:
@@ -135,6 +168,32 @@ def build_router(container: "AppContainer") -> APIRouter:
             raise HTTPException(status_code=403, detail="Admin access required")
 
         return await controller.get_presets_lint()
+
+    @router.post(
+        "/presets/{preset_id}/styles/render",
+        response_model=APIResponse,
+        summary="Render one or more of a preset's style previews",
+    )
+    async def render_preset_styles(
+        preset_id: str,
+        request: RenderPresetStylesRequest,
+        current_user: User = Depends(get_current_active_user),
+    ) -> APIResponse:
+        """Render (or re-render) `styles.yml` previews for a preset.
+
+        Runs one generation per style (prompt = style.prepend + example_prompt +
+        style.append, negative = style.negative, seed/output-count overridden,
+        the preset's other form defaults left as-is), downscales the first
+        output image so its long edge is `long_edge` px, saves it as
+        `public/styles/<id>.webp` inside the preset directory, sets `preview:`
+        in styles.yml when it was unset, and reloads the preset catalogue.
+
+        Requires: Admin authentication
+        """
+        if current_user.account_type != AccountType.ADMIN:
+            raise HTTPException(status_code=403, detail="Admin access required")
+
+        return await controller.render_preset_styles(preset_id, request, current_user.id)
 
     @router.get(
         "/docs/lint",

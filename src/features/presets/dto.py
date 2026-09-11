@@ -1,6 +1,24 @@
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel
 
+
+class PresetStyle(BaseModel):
+    """One curated style from a preset's `styles.yml` (see docs/presets.md
+    "Styles"). Mirrors `PresetStyle` in schema.py; `preview` is the
+    preset-relative asset path (e.g. "public/styles/<id>.webp"), served the
+    same way as `media.cover`/`media.gallery` - the frontend composes the URL."""
+
+    id: str
+    name: str
+    category: str
+    description: Optional[str] = None
+    prepend: str
+    append: str
+    negative: Optional[str] = None
+    example_prompt: str
+    preview: Optional[str] = None
+
+
 class PresetInfo(BaseModel):
     id: str
     name: str
@@ -11,6 +29,10 @@ class PresetInfo(BaseModel):
     source: Optional[str] = None
     engine: Optional[str] = None
     media: Optional[dict] = None
+    # Curated styles from `styles.yml` (docs/presets/manifest.md "Styles"); [] when the
+    # preset ships none. See `file_repository.preset_to_info`'s
+    # `include_styles` for when the list endpoint vs. detail endpoint fills this.
+    styles: List[PresetStyle] = []
     # Preset-declared `vars:` (preset.yml), the raw dict a pipeline's Jinja
     # context resolves `preset.vars` against. See docs/presets.md.
     vars: Optional[Dict[str, Any]] = None

@@ -1,6 +1,6 @@
 from typing import Dict, Any, Optional, List
 from src.features.presets import PresetTemplateLoader
-from src.features.presets.dto import PresetInfo
+from src.features.presets.dto import PresetInfo, PresetStyle
 
 class FilePresetRepository:
     """
@@ -32,7 +32,9 @@ class FilePresetRepository:
                 return preset_template
         return None
 
-    def preset_to_info(self, preset_template, include_gallery: bool = False) -> PresetInfo:
+    def preset_to_info(
+        self, preset_template, include_gallery: bool = False, include_styles: bool = False
+    ) -> PresetInfo:
         """
         Convert a preset template to a PresetInfo object.
 
@@ -42,6 +44,10 @@ class FilePresetRepository:
                 Defaults to False so the list endpoint stays cover-only; the
                 detail endpoint (`operations.get_preset`) passes True.
                 `src` values are emitted raw/relative - the frontend composes URLs.
+            include_styles: Whether to include the full `styles` list, same
+                rationale as `include_gallery` (styles.yml can carry dozens
+                of entries with long prompts) - the list endpoint stays [],
+                the detail endpoint passes True.
 
         Returns:
             A PresetInfo object with the preset's data
@@ -53,6 +59,12 @@ class FilePresetRepository:
         if media and not include_gallery:
             media = {k: v for k, v in media.items() if k != "gallery"}
 
+        styles = (
+            [PresetStyle(**style) for style in preset_template.styles]
+            if include_styles
+            else []
+        )
+
         return PresetInfo(
             id=preset_template.id,
             name=preset_template.name,
@@ -63,6 +75,7 @@ class FilePresetRepository:
             source=source,
             engine=preset_template.engine,
             media=media,
+            styles=styles,
             vars=preset_template.vars or {},
             llm=preset_template.llm or {},
             requires=preset_template.requires,

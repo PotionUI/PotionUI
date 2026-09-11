@@ -600,3 +600,43 @@ export function extractSmokeGeneration(
 		typeof rawFilename === 'string' && rawFilename ? rawFilename.split('/').pop() || null : null;
 	return { generationId, filename };
 }
+
+// --- generation.smoke result media -----------------------------------
+//
+// `generation.smoke` records the generation it produced (`generation_id`,
+// `filename` — see generation_smoke.py's safe_output) so the run panel can
+// show the first real output inline instead of a bare "Succeeded" badge.
+
+export type SmokeMediaKind = 'image' | 'video' | 'audio' | 'mesh' | 'other';
+
+export interface SmokeResultMedia {
+	generationId: string;
+	filename: string;
+	kind: SmokeMediaKind;
+}
+
+const IMAGE_EXT = /\.(png|jpe?g|webp|gif|avif)$/i;
+const VIDEO_EXT = /\.(mp4|webm|mov|m4v)$/i;
+const AUDIO_EXT = /\.(wav|mp3|flac|ogg|m4a)$/i;
+const MESH_EXT = /\.(glb|gltf|obj|ply)$/i;
+
+/** The media a succeeded `generation.smoke` attempt produced, or null when
+ * the attempt recorded no file. Kind is derived from the filename. */
+export function smokeResultMedia(
+	attempt: Pick<SetupStepAttempt, 'safe_output'> | null | undefined
+): SmokeResultMedia | null {
+	const out = attempt?.safe_output;
+	const generationId = out?.generation_id;
+	const filename = out?.filename;
+	if (typeof generationId !== 'string' || !generationId || typeof filename !== 'string' || !filename) return null;
+	const kind: SmokeMediaKind = IMAGE_EXT.test(filename)
+		? 'image'
+		: VIDEO_EXT.test(filename)
+			? 'video'
+			: AUDIO_EXT.test(filename)
+				? 'audio'
+				: MESH_EXT.test(filename)
+					? 'mesh'
+					: 'other';
+	return { generationId, filename, kind };
+}

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+	smokeResultMedia,
 	isRunTerminal,
 	shouldPollRun,
 	canRetryRun,
@@ -776,5 +777,25 @@ describe('extractSmokeGeneration', () => {
 
 	it('is null when there is no smoke step at all', () => {
 		expect(extractSmokeGeneration(run())).toBeNull();
+	});
+});
+
+describe('smokeResultMedia', () => {
+	it('is null without a recorded generation and file', () => {
+		expect(smokeResultMedia(attempt())).toBeNull();
+		expect(smokeResultMedia(attempt({ safe_output: { generation_id: 'g1' } }))).toBeNull();
+		expect(smokeResultMedia(null)).toBeNull();
+	});
+
+	it('derives the media kind from the filename', () => {
+		expect(smokeResultMedia(attempt({ safe_output: { generation_id: 'g1', filename: 'out.png' } }))).toEqual({
+			generationId: 'g1',
+			filename: 'out.png',
+			kind: 'image'
+		});
+		expect(smokeResultMedia(attempt({ safe_output: { generation_id: 'g1', filename: 'clip.mp4' } }))?.kind).toBe('video');
+		expect(smokeResultMedia(attempt({ safe_output: { generation_id: 'g1', filename: 'song.wav' } }))?.kind).toBe('audio');
+		expect(smokeResultMedia(attempt({ safe_output: { generation_id: 'g1', filename: 'mesh.glb' } }))?.kind).toBe('mesh');
+		expect(smokeResultMedia(attempt({ safe_output: { generation_id: 'g1', filename: 'notes.txt' } }))?.kind).toBe('other');
 	});
 });

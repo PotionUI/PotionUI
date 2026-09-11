@@ -11,6 +11,7 @@
 		resolveStepGroups,
 		runManifestProgressSummary,
 		stepDuration,
+		smokeResultMedia,
 		stepProgressLabel,
 		stepProgressPercent,
 		isConsentStatus,
@@ -22,6 +23,7 @@
 	} from '$lib/utils/setupRunDisplay';
 	import { formatBytes, formatDuration } from '$lib/utils/format';
 	import { Alert, Badge, Button, Input } from '$lib/components/ui';
+	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
 
 	/**
 	 * The live view of one recipe run: progress summary, consent gate, failure
@@ -397,6 +399,41 @@
 							>
 								View in Downloads
 							</a>
+						{/if}
+					{/if}
+
+					{#if group.kind === 'generation.smoke' && group.latest?.status === 'succeeded'}
+						{@const media = smokeResultMedia(group.latest)}
+						{#if media}
+							<div class="mt-2 flex flex-col gap-1.5">
+								{#if media.kind === 'image'}
+									<a href={api.getGenerationImageURL(media.generationId, media.filename)} target="_blank" rel="noreferrer" class="inline-block w-fit">
+										<img
+											src={api.getGenerationImageURL(media.generationId, media.filename)}
+											alt="Your first generation"
+											class="max-h-64 w-auto rounded border border-line bg-black"
+											loading="lazy"
+										/>
+									</a>
+								{:else if media.kind === 'video'}
+									<video
+										src={api.getGenerationImageURL(media.generationId, media.filename)}
+										class="max-h-64 w-auto rounded border border-line bg-black"
+										controls
+										muted
+										loop
+										playsinline
+									></video>
+								{:else if media.kind === 'audio'}
+									<audio src={api.getGenerationImageURL(media.generationId, media.filename)} controls class="w-full max-w-md"></audio>
+								{:else if media.kind === 'mesh'}
+									{@const meshUrl = api.getGenerationImageURL(media.generationId, media.filename)}
+									<div class="h-64 w-full max-w-md rounded border border-line bg-black overflow-hidden">
+										<MeshPreview file={{ url: meshUrl, originalUrl: meshUrl }} />
+									</div>
+								{/if}
+								<span class="text-2xs font-mono text-fg-subtle truncate">{media.filename}</span>
+							</div>
 						{/if}
 					{/if}
 

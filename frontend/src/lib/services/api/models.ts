@@ -50,7 +50,7 @@ export function createModelsApi(client: AxiosInstance) {
 			favorites_only?: boolean;
 			collection_id?: string;
 			in_any_collection?: boolean;
-		}): Promise<APIResponse<{ models: any[]; total: number; availability_indexed: boolean }>> {
+		}, signal?: AbortSignal): Promise<APIResponse<{ models: any[]; total: number; availability_indexed: boolean }>> {
 			const searchParams = new URLSearchParams();
 			if (params?.model_type) searchParams.append('model_type', params.model_type);
 			if (params?.search) searchParams.append('search', params.search);
@@ -73,7 +73,7 @@ export function createModelsApi(client: AxiosInstance) {
 			if (params?.in_any_collection) searchParams.append('in_any_collection', 'true');
 
 			const queryString = searchParams.toString();
-			const response = await client.get(`/api/models${queryString ? `?${queryString}` : ''}`);
+			const response = await client.get(`/api/models${queryString ? `?${queryString}` : ''}`, { signal });
 			return response.data;
 		},
 
@@ -91,7 +91,8 @@ export function createModelsApi(client: AxiosInstance) {
 				tagIds?: string;
 				anyTagIds?: string;
 				favoritesOnly?: boolean;
-			}
+			},
+			signal?: AbortSignal
 		): Promise<APIResponse<{ engine: string; models: any[]; total: number; indexed: boolean }>> {
 			const searchParams = new URLSearchParams();
 			if (modelType) searchParams.append('model_type', modelType);
@@ -103,7 +104,8 @@ export function createModelsApi(client: AxiosInstance) {
 			if (opts?.favoritesOnly) searchParams.append('favorites_only', 'true');
 			const queryString = searchParams.toString();
 			const response = await client.get(
-				`/api/presets/${presetId}/models${queryString ? `?${queryString}` : ''}`
+				`/api/presets/${presetId}/models${queryString ? `?${queryString}` : ''}`,
+				{ signal }
 			);
 			return response.data;
 		},
@@ -120,9 +122,9 @@ export function createModelsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async getTags(type?: 'MODEL' | 'GENERATION' | 'UPLOAD'): Promise<APIResponse<{ tags: any[] }>> {
+		async getTags(type?: 'MODEL' | 'GENERATION' | 'UPLOAD', signal?: AbortSignal): Promise<APIResponse<{ tags: any[] }>> {
 			const params = type ? `?type=${type}` : '';
-			const response = await client.get(`/api/tags${params}`);
+			const response = await client.get(`/api/tags${params}`, { signal });
 			return response.data;
 		},
 

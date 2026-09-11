@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { libraryStore, libraryTotalPages, LIBRARY_ITEMS_PER_PAGE_OPTIONS } from '$lib/stores/library';
 	import { Button, EmptyState, Pagination } from '$lib/components/ui';
-	import { layoutJustifiedRows, type JustifiedRow } from '$lib/utils/justifiedLayout';
+	import {
+		layoutJustifiedRows,
+		flattenJustifiedRows,
+		type FlatJustifiedBox
+	} from '$lib/utils/justifiedLayout';
 	import { dayKey, dayLabel } from '$lib/utils/relativeTime';
 	import { historyTileSize, TILE_SIZE_MULTIPLIER } from '$lib/stores/historyTileSize';
 	import { hasActiveLibraryFilters } from '$lib/library/libraryQuery';
@@ -60,20 +64,23 @@
 		return groups;
 	}
 
+	// One flat keyed list per group: flex-wrap reproduces the packer's rows from
+	// the boxes' own widths, so a card keeps its DOM identity when a gridWidth
+	// reflow moves it across a row boundary (see flattenJustifiedRows).
 	$: groupLayouts = buildGroups(items).map((group) => ({
 		...group,
-		rows: layoutJustifiedRows(
-			group.items.map((item) => ({ item, aspect: libraryItemAspect(item) })),
-			gridWidth,
-			targetRowHeight,
-			GAP
-		) as JustifiedRow<LibraryItem>[]
+		boxes: flattenJustifiedRows(
+			layoutJustifiedRows(
+				group.items.map((item) => ({ item, aspect: libraryItemAspect(item) })),
+				gridWidth,
+				targetRowHeight,
+				GAP
+			)
+		) as FlatJustifiedBox<LibraryItem>[]
 	}));
 
 	// Row-major id order across every group, for shift-click range selection.
-	$: orderedIds = groupLayouts.flatMap((group) =>
-		group.rows.flatMap((row) => row.map((box) => box.item.id))
-	);
+	$: orderedIds = groupLayouts.flatMap((group) => group.boxes.map((box) => box.item.id));
 
 	const SKELETON_ASPECTS = [1.5, 0.75, 1, 1.78, 1, 0.7, 1.33, 1, 0.75, 1.78, 1, 1.5];
 	$: skeletonRows = layoutJustifiedRows(
@@ -178,27 +185,30 @@
 					<div class="flex-1 h-px bg-line self-center"></div>
 				</div>
 
-				<div class="space-y-3">
-					{#each group.rows as row}
-						<div class="flex" style="gap: {GAP}px">
-							{#each row as box (box.item.id)}
-								<div
-									data-library-card={box.item.id}
-									role="option"
-									aria-selected={state.selectedIds.includes(box.item.id)}
-								>
-									<LibraryCard
-										item={box.item}
-										tile={{ width: box.width, height: box.height }}
-										showActions={!state.selectionMode}
-										selectable={state.selectionMode}
-										selected={state.selectedIds.includes(box.item.id)}
-										onSelect={handleCardSelect}
-										on:open={(e) => libraryStore.setSelectedItem(e.detail)}
-										on:delete={(e) => onDeleteRequest(e.detail)}
-									/>
-								</div>
-							{/each}
+				<!-- Justified grid: flex-wrap lays out each box's already-computed
+				     width into the same rows the packer chose, from one flat keyed
+				     {#each} so a card keeps its identity across a reflow. Only the
+				     row-end box grows, absorbing the sub-pixel remainder
+				     `flattenJustifiedRows` floored away - see its docstring. -->
+				<div class="flex flex-wrap" style="gap: {GAP}px">
+					{#each group.boxes as box (box.item.id)}
+						<div
+							data-library-card={box.item.id}
+							data-row-end={box.rowEnd}
+							style="flex: {box.rowEnd ? '1 1' : '0 0'} {box.width}px"
+							role="option"
+							aria-selected={state.selectedIds.includes(box.item.id)}
+						>
+							<LibraryCard
+								item={box.item}
+								tile={{ width: box.width, height: box.height }}
+								showActions={!state.selectionMode}
+								selectable={state.selectionMode}
+								selected={state.selectedIds.includes(box.item.id)}
+								onSelect={handleCardSelect}
+								on:open={(e) => libraryStore.setSelectedItem(e.detail)}
+								on:delete={(e) => onDeleteRequest(e.detail)}
+							/>
 						</div>
 					{/each}
 				</div>

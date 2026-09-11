@@ -14,6 +14,7 @@
 -->
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import axios from 'axios';
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import { authStore } from '$lib/stores/auth';
@@ -64,15 +65,16 @@
 		? buildModelPickerEntries(visibleModels, recommendations)
 		: visibleModels.map((model) => ({ kind: 'model' as const, model }));
 
-	async function resolveTagIds(names: string[]): Promise<string[]> {
+	async function resolveTagIds(names: string[], signal: AbortSignal): Promise<string[]> {
 		if (names.length === 0) return [];
 		try {
-			const response = await api.getTags('MODEL');
+			const response = await api.getTags('MODEL', signal);
 			if (response.success && response.data?.tags) {
 				const allTags = response.data.tags;
 				return names.map((n) => allTags.find((t: any) => t.name === n)?.id).filter(Boolean);
 			}
 		} catch (error) {
+			if (axios.isCancel(error)) throw error;
 			logger.error('[ModelBrowserPanel] Failed to resolve tag filters:', error);
 		}
 		return [];
@@ -94,9 +96,16 @@
 	// state under a scope the user has already left.
 	let disposed = false;
 	let fetchSeq = 0;
+	// One AbortController per fetch - a new call aborts whatever request (tag
+	// resolution or the model search itself) the previous call left in flight,
+	// rather than just ignoring its eventual response.
+	let abortController: AbortController | null = null;
 
 	async function fetchModels() {
 		const seq = ++fetchSeq;
+		abortController?.abort();
+		const controller = new AbortController();
+		abortController = controller;
 		// Snapshot the full request scope now, before any await - props can
 		// change while `resolveTagIds`/the search request are in flight. Array
 		// fields are copied, not referenced, so a later in-place mutation of
@@ -115,7 +124,7 @@
 
 		loading = true;
 		try {
-			const tagIds = await resolveTagIds(scope.tagFilters);
+			const tagIds = await resolveTagIds(scope.tagFilters, controller.signal);
 			if (!isCurrent()) return;
 			const request = buildModelSearchRequest({
 				modelType: scope.modelType,
@@ -128,13 +137,21 @@
 			});
 			const response =
 				request.kind === 'preset'
-					? await api.getPresetModels(request.presetId, request.modelType, request.search, request.opts)
-					: await api.getModels(request.params);
+					? await api.getPresetModels(
+							request.presetId,
+							request.modelType,
+							request.search,
+							request.opts,
+							controller.signal
+						)
+					: await api.getModels(request.params, controller.signal);
 			if (!isCurrent()) return;
 			if (response.success && response.data?.models) {
 				models = response.data.models;
 			}
 		} catch (error) {
+			// A superseded fetch's own abort - not a failure worth surfacing.
+			if (axios.isCancel(error)) return;
 			if (!isCurrent()) return;
 			logger.error('[ModelBrowserPanel] Failed to fetch models:', error);
 		} finally {
@@ -272,6 +289,7 @@
 
 	onDestroy(() => {
 		disposed = true;
+		abortController?.abort();
 		if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
 		Object.values(pollTimeouts).forEach(clearTimeout);
 		pollTimeouts = {};

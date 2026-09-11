@@ -9,7 +9,12 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { Button, EmptyState, Pagination } from '$lib/components/ui';
 	import type { GenerationHistoryItem } from '$lib/types/history';
-	import { layoutJustifiedRows, clampAspect, type JustifiedRow } from '$lib/utils/justifiedLayout';
+	import {
+		layoutJustifiedRows,
+		flattenJustifiedRows,
+		clampAspect,
+		type FlatJustifiedBox
+	} from '$lib/utils/justifiedLayout';
 	import { dayKey, dayLabel } from '$lib/utils/relativeTime';
 	import { historyTileSize, TILE_SIZE_MULTIPLIER } from '$lib/stores/historyTileSize';
 	import { nsfwFilterStore, selectableMediaFiles, isGenerationHiddenByNsfw } from '$lib/stores/nsfwFilter';
@@ -86,20 +91,23 @@
 		: generations.length > 0
 			? [{ key: '__flat__', label: '', items: generations }]
 			: [];
+	// One flat keyed list per group: flex-wrap reproduces the packer's rows from
+	// the boxes' own widths, so a card keeps its DOM identity when a gridWidth
+	// reflow moves it across a row boundary (see flattenJustifiedRows).
 	$: groupLayouts = groups.map((group) => ({
 		...group,
-		rows: layoutJustifiedRows(
-			group.items.map((item) => ({ item, aspect: aspectOf(item) })),
-			gridWidth,
-			targetRowHeight,
-			GAP
-		) as JustifiedRow<GenerationHistoryItem>[]
+		boxes: flattenJustifiedRows(
+			layoutJustifiedRows(
+				group.items.map((item) => ({ item, aspect: aspectOf(item) })),
+				gridWidth,
+				targetRowHeight,
+				GAP
+			)
+		) as FlatJustifiedBox<GenerationHistoryItem>[]
 	}));
 
 	// Row-major id order across every group, for shift-click range selection.
-	$: orderedIds = groupLayouts.flatMap((group) =>
-		group.rows.flatMap((row) => row.map((box) => box.item.id))
-	);
+	$: orderedIds = groupLayouts.flatMap((group) => group.boxes.map((box) => box.item.id));
 
 	// Skeleton layout reuses the real packer with a fixed aspect pattern so the
 	// loading state already looks like a light table.
@@ -238,32 +246,33 @@
 					</div>
 				{/if}
 
-				<!-- Justified rows -->
-				<div class="space-y-3">
-					{#each group.rows as row}
-						<div class="flex" style="gap: {GAP}px">
-							{#each row as box (box.item.id)}
-								<div
-									data-history-card={box.item.id}
-									style="width: {box.width}px"
-									role="option"
-									aria-selected={currentState.selectedGenerationIds.includes(box.item.id)}
-								>
-									<GenerationCard
-										generation={box.item}
-										tile={{ width: box.width, height: box.height }}
-										on:imageClick={handleImageClick}
-										on:viewClick={handleViewGeneration}
-										on:deleteClick={handleDeleteClick}
-										thumbnailSize="medium"
-										showActions={!currentState.selectionMode}
-										selectable={currentState.selectionMode}
-										showCheckbox={true}
-										selected={currentState.selectedGenerationIds.includes(box.item.id)}
-										onSelect={handleCardSelect}
-									/>
-								</div>
-							{/each}
+				<!-- Justified grid: flex-wrap lays out each box's already-computed
+				     width into the same rows the packer chose, from one flat keyed
+				     {#each} so a card keeps its identity across a reflow. Only the
+				     row-end box grows, absorbing the sub-pixel remainder
+				     `flattenJustifiedRows` floored away - see its docstring. -->
+				<div class="flex flex-wrap" style="gap: {GAP}px">
+					{#each group.boxes as box (box.item.id)}
+						<div
+							data-history-card={box.item.id}
+							data-row-end={box.rowEnd}
+							style="flex: {box.rowEnd ? '1 1' : '0 0'} {box.width}px"
+							role="option"
+							aria-selected={currentState.selectedGenerationIds.includes(box.item.id)}
+						>
+							<GenerationCard
+								generation={box.item}
+								tile={{ width: box.width, height: box.height }}
+								on:imageClick={handleImageClick}
+								on:viewClick={handleViewGeneration}
+								on:deleteClick={handleDeleteClick}
+								thumbnailSize="medium"
+								showActions={!currentState.selectionMode}
+								selectable={currentState.selectionMode}
+								showCheckbox={true}
+								selected={currentState.selectedGenerationIds.includes(box.item.id)}
+								onSelect={handleCardSelect}
+							/>
 						</div>
 					{/each}
 				</div>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { layoutJustifiedRows, clampAspect } from './justifiedLayout';
+import { layoutJustifiedRows, clampAspect, flattenJustifiedRows } from './justifiedLayout';
 
 describe('clampAspect', () => {
 	it('passes normal aspects through', () => {
@@ -58,5 +58,46 @@ describe('layoutJustifiedRows', () => {
 		const rows = layoutJustifiedRows(items([1, 1, 1, 1, 1, 1, 1]), 600, 220, 12);
 		const flat = rows.flat().map((box) => box.item);
 		expect(flat).toEqual([0, 1, 2, 3, 4, 5, 6]);
+	});
+});
+
+describe('flattenJustifiedRows', () => {
+	const items = (aspects: number[]) => aspects.map((aspect, i) => ({ item: i, aspect }));
+
+	it('floors every width to a whole pixel and flags only the last box of a single row', () => {
+		const rows = layoutJustifiedRows(items([1.78, 1, 0.75]), 900, 220, 12);
+		expect(rows).toHaveLength(1);
+
+		const flat = flattenJustifiedRows(rows);
+		expect(flat).toHaveLength(3);
+		for (const box of flat) {
+			expect(Number.isInteger(box.width)).toBe(true);
+			expect(box.width).toBeLessThanOrEqual(rows[0].find((b) => b.item === box.item)!.width);
+		}
+		expect(flat.map((box) => box.rowEnd)).toEqual([false, false, true]);
+	});
+
+	it('flags the last box of every row, not just the very last box overall', () => {
+		const rows = layoutJustifiedRows(items([1, 1, 1, 1, 1, 1, 1]), 600, 220, 12);
+		expect(rows.length).toBeGreaterThan(1);
+
+		const flat = flattenJustifiedRows(rows);
+		expect(flat.filter((box) => box.rowEnd)).toHaveLength(rows.length);
+		// Row-end boxes land exactly where each packer row ends.
+		let cursor = 0;
+		for (const row of rows) {
+			cursor += row.length;
+			expect(flat[cursor - 1].rowEnd).toBe(true);
+			for (let i = 0; i < row.length - 1; i++) {
+				expect(flat[cursor - row.length + i].rowEnd).toBe(false);
+			}
+		}
+	});
+
+	it('preserves row-major item order and heights', () => {
+		const rows = layoutJustifiedRows(items([1.5, 0.8, 1.2, 0.6, 1, 1.4]), 800, 220, 12);
+		const flat = flattenJustifiedRows(rows);
+		expect(flat.map((box) => box.item)).toEqual(rows.flat().map((box) => box.item));
+		expect(flat.map((box) => box.height)).toEqual(rows.flat().map((box) => box.height));
 	});
 });

@@ -78,6 +78,7 @@ let activeGenerationIds: Set<string> = new Set();
 let completedCount = 0;
 let totalGenerations = 0;
 let pollingInterval: ReturnType<typeof setInterval> | null = null;
+let visibilityHandler: (() => void) | null = null;
 
 function createPreviewGenerationStore() {
 	const { subscribe, set, update } = writable<PreviewGenerationState>(initialState);
@@ -132,6 +133,10 @@ function createPreviewGenerationStore() {
 			clearInterval(pollingInterval);
 			pollingInterval = null;
 		}
+		if (visibilityHandler) {
+			document.removeEventListener('visibilitychange', visibilityHandler);
+			visibilityHandler = null;
+		}
 	}
 
 	function startPollingForUpdates(categoryId: string, selectedValueIds: Set<string>) {
@@ -143,7 +148,12 @@ function createPreviewGenerationStore() {
 
 		update((s) => ({ ...s, previewBatchProgress: { done: 0, total: selectedIdsAtStart.size } }));
 
-		pollingInterval = setInterval(async () => {
+		// A background tab still fires every 3s tick, but each one is a wasted
+		// request nobody is watching - skip the fetch and don't burn a poll
+		// against maxPolls while hidden, then pick back up as soon as the tab
+		// is visible again instead of waiting for the next scheduled tick.
+		const tick = async () => {
+			if (document.hidden) return;
 			pollCount++;
 
 			await phrasebookStore.loadCategoryValues(categoryId);
@@ -178,7 +188,13 @@ function createPreviewGenerationStore() {
 					previewBatchProgress: null
 				}));
 			}
-		}, 3000);
+		};
+
+		pollingInterval = setInterval(tick, 3000);
+		visibilityHandler = () => {
+			if (!document.hidden) tick();
+		};
+		document.addEventListener('visibilitychange', visibilityHandler);
 	}
 
 	function handlePreviewGenerationMessage(message: WebSocketMessage, generationId: string, categoryId: string) {

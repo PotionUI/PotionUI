@@ -72,3 +72,44 @@ export function layoutJustifiedRows<T>(
 
 	return rows;
 }
+
+export interface FlatJustifiedBox<T> extends JustifiedBox<T> {
+	/** Last box of its packer row. */
+	rowEnd: boolean;
+}
+
+/**
+ * Flattens the packer's rows into one row-major list, integer-width and
+ * row-end-flagged so a `display:flex; flex-wrap:wrap` container can render
+ * every box from a single flat keyed `{#each}` (one card, one stable DOM
+ * identity for its whole lifetime, however a reflow reshuffles rows) while
+ * still breaking onto exactly the rows the packer chose.
+ *
+ * A row's float widths sum to *exactly* `containerWidth - gaps` by
+ * construction (see `flush` above) - but flex-wrap decides a line break on
+ * each item's own hypothetical width before any shrink/grow, and the
+ * browser's internal layout units aren't bit-identical to this module's
+ * doubles (Chromium's `LayoutUnit` rounds to 1/64px). Even a
+ * fraction-of-a-pixel rounding difference in that comparison can push a row
+ * over the container's width and wrap its last card onto a line of its own.
+ * Flooring every width to a whole pixel guarantees each box the browser lays
+ * out is never wider than our math promised; giving only the last box of
+ * each row `flex-grow` (the caller's job - this just flags which box that
+ * is) lets that one box alone absorb the sub-pixel remainder the floor left
+ * behind, invisible on a single card and never enough to tip the row's total
+ * past the container width.
+ */
+export function flattenJustifiedRows<T>(rows: JustifiedRow<T>[]): FlatJustifiedBox<T>[] {
+	const flat: FlatJustifiedBox<T>[] = [];
+	for (const row of rows) {
+		row.forEach((box, i) => {
+			flat.push({
+				item: box.item,
+				width: Math.floor(box.width),
+				height: box.height,
+				rowEnd: i === row.length - 1
+			});
+		});
+	}
+	return flat;
+}

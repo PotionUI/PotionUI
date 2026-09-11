@@ -2529,10 +2529,9 @@ class PresetLinter:
 
         Re-parses the file independently of `PresetTemplateLoader` (which
         loads styles leniently - see `PresetTemplateLoader._load_styles`),
-        so schema errors (bad id, duplicate id, unknown field), a style with
-        no `example_prompt` from itself or the top-level `preview:` block's
-        default, and missing `preview:` files surface here even though they
-        never block the preset from loading.
+        so schema errors, a style missing `example_prompt` on both itself and
+        the top-level `preview:` default, and missing `preview:` files
+        surface here even though they never block the preset from loading.
         """
         issues: List[LintIssue] = []
         styles_file = preset_file.with_name("styles.yml")

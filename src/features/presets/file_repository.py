@@ -59,10 +59,6 @@ class FilePresetRepository:
         if media and not include_gallery:
             media = {k: v for k, v in media.items() if k != "gallery"}
 
-        # A style's `example_prompt` is optional in styles.yml (the top-level
-        # `preview:` block can supply a shared default - see
-        # `StylesPreviewDefaults`); resolve it here so the DTO field stays a
-        # plain, always-present string for the frontend.
         default_example_prompt = (preset_template.styles_preview or {}).get("example_prompt", "")
         styles = (
             [

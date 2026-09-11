@@ -145,14 +145,8 @@ class PresetTemplate:
     # none), each dict shaped like `PresetStyle` in schema.py. See
     # docs/presets/manifest.md "Styles".
     styles: List[Dict[str, Any]] = field(default_factory=list)
-    # `styles.yml`'s optional top-level `preview:` block ({"prompt_prefix",
-    # "negative", "example_prompt"}, all "" when absent/unset) - preset-author
-    # defaults applied ONLY by `scripts/preset_styles_render.py` when
-    # rendering style previews, never by the picker. `prompt_prefix`/
-    # `negative` are not part of the `PresetStyle` DTO the frontend reads;
-    # `example_prompt` IS - `file_repository.preset_to_info` resolves each
-    # style's own value or this default into the DTO so it stays a plain
-    # string there - see `StylesPreviewDefaults` in schema.py.
+    # `styles.yml`'s top-level `preview:` block (see StylesPreviewDefaults);
+    # read only by scripts/preset_styles_render.py, never by the picker.
     styles_preview: Dict[str, str] = field(
         default_factory=lambda: {"prompt_prefix": "", "negative": "", "example_prompt": ""}
     )

@@ -1,11 +1,4 @@
-"""Pure helpers for rendering a preset's `styles.yml` previews.
-
-Rendering itself is a script (`scripts/preset_styles_render.py`), not an app
-endpoint - it drives a real generation through the same headless orchestrator
-client `scripts/preset_test_suite.py` uses. This module holds only the parts
-that don't need a running generation: prompt assembly, the downscale + WebP
-encode, and the `styles.yml` `preview:` field fill.
-"""
+"""Pure helpers for rendering `styles.yml` previews (scripts/preset_styles_render.py)."""
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -17,26 +10,11 @@ from src.features.presets.templates import default_form_name
 STYLE_PREVIEW_LONG_EDGE_DEFAULT = 320
 STYLE_PREVIEW_SEED_DEFAULT = 1
 STYLE_PREVIEW_WEBP_QUALITY = 80
-# The field name presets use for their output-count control (see e.g.
-# content/presets/marketplace/Anima/modes/txt2img/tabs/generation.yml) -
-# forced to 1 so "take the first output image" is well-defined.
 STYLE_PREVIEW_QUANTITY_FIELD = "quantity"
 
 
 def build_style_prompt(style: Dict[str, Any], defaults: Dict[str, str]) -> Tuple[str, str]:
-    """`(prompt, negative)` for one style.
-
-    `prompt` = `defaults["prompt_prefix"]` + `prepend` + the resolved example
-    prompt + `append`, where the resolved example prompt is the style's own
-    `example_prompt` when non-empty, else `defaults["example_prompt"]` - so
-    every style renders the same scene (only the style differs) unless it
-    declares its own. `negative` joins the non-empty parts of
-    `[defaults["negative"], style["negative"]]` with `", "` - the preset's
-    own recommended negative (e.g. Anima's quality-score exclusions) first,
-    the style's own negative after. `defaults` is a preset's
-    `styles.yml` `preview:` block (`PresetTemplate.styles_preview`); pass
-    `{"prompt_prefix": "", "negative": "", "example_prompt": ""}` for none.
-    """
+    """`defaults` is a preset's `styles.yml` `preview:` block."""
     example_prompt = style.get("example_prompt") or defaults.get("example_prompt", "")
     prompt = f"{defaults.get('prompt_prefix', '')}{style.get('prepend', '')}{example_prompt}{style.get('append', '')}"
     parts = [defaults.get("negative") or "", style.get("negative") or ""]
@@ -90,13 +68,8 @@ _PREVIEW_LINE_RE = re.compile(r'^(\s*)preview:\s*.*$')
 
 
 def set_style_preview(styles_path: Path, style_id: str, preview_path: str) -> None:
-    """Round-trip `styles.yml` to set one style's `preview:` field in place.
-
-    A targeted text edit rather than a full YAML dump/reformat - this repo
-    has no `ruamel.yaml` dependency for a real comment/order-preserving
-    round-trip, so every other entry's formatting is left untouched by
-    editing only the lines belonging to `style_id`'s block.
-    """
+    # Targeted text edit, not a YAML dump/reformat - no ruamel.yaml here for a
+    # comment/order-preserving round-trip, so every other line must stay untouched.
     lines = styles_path.read_text().split("\n")
 
     entry_re = re.compile(_STYLE_ENTRY_RE_TEMPLATE.format(re.escape(style_id)))
@@ -123,11 +96,6 @@ def set_style_preview(styles_path: Path, style_id: str, preview_path: str) -> No
 
 
 def select_styles(styles: List[Dict[str, Any]], style_ids: List[str] = None) -> List[Dict[str, Any]]:
-    """`styles` filtered to `style_ids` (all of them when omitted).
-
-    Raises ValueError for an empty `styles` list or an unknown id in
-    `style_ids` - both are request errors, not per-style failures.
-    """
     styles_by_id = {style["id"]: style for style in styles}
     if not styles_by_id:
         raise ValueError("preset has no styles.yml")

@@ -424,13 +424,9 @@ class PresetStyle(BaseModel):
     prepend: str
     append: str
     negative: Optional[str] = None
-    # Optional: `styles.yml`'s top-level `preview:` block can supply a shared
-    # `example_prompt` (see `StylesPreviewDefaults`) so every style renders
-    # the same scene and only the style differs - a style's own value, when
-    # given, overrides that default. At least one of the two must resolve to
-    # a non-empty string - a `PresetLinter._lint_styles` check, not a schema
-    # one, since the schema sees one style at a time and the default lives on
-    # the sibling `preview:` block.
+    # Optional - falls back to the sibling `preview:` block's example_prompt
+    # (StylesPreviewDefaults); at least one must resolve, checked by
+    # PresetLinter._lint_styles, not here (schema sees one style at a time).
     example_prompt: Optional[str] = None
     # Preset-relative, e.g. "public/styles/<id>.webp" - existence is a lint
     # check (`PresetLinter._lint_styles`), not a schema check, same rationale
@@ -446,22 +442,13 @@ class PresetStyle(BaseModel):
 
 
 class StylesPreviewDefaults(BaseModel):
-    """Optional top-level `preview:` block in `styles.yml`: preset-author
-    defaults applied ONLY when rendering style previews (`scripts/
-    preset_styles_render.py`) - never by the picker, which applies a style's
-    own `prepend`/`append`/`negative` unchanged. Lets a preset with its own
-    prompting conventions (e.g. Anima's quality-tag prefix and recommended
-    negative) get on-model previews without repeating that boilerplate in
-    every style entry."""
+    """`styles.yml`'s top-level `preview:` block - defaults applied only when
+    rendering style previews (scripts/preset_styles_render.py), never by the picker."""
 
     model_config = ConfigDict(extra="forbid")
 
     prompt_prefix: str = ""
     negative: str = ""
-    # Shared scene every style renders (only the style's prepend/append/
-    # negative should differ) - a style's own `example_prompt` overrides
-    # this when given. See `PresetStyle.example_prompt`'s docstring for the
-    # "at least one must resolve" rule.
     example_prompt: str = ""
 
 

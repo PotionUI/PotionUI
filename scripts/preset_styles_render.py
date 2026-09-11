@@ -1,60 +1,22 @@
 #!/usr/bin/env python3
 """Render a preset's `styles.yml` previews.
 
-Runs one real generation per style through the same headless orchestrator
-client `scripts/preset_test_suite.py` uses
-(`src.features.preset_suite.runner.HeadlessGenerationClient`) - an ephemeral
-per-run database and file storage, so the run never touches the maintainer's
-live database or gallery (see that module's docstring for the ephemeral-DB
-design). Each style's prompt is `styles.yml`'s optional top-level `preview:`
-block's `prompt_prefix` + the style's own `prepend` + a resolved example
-prompt (the style's own `example_prompt`, else the `preview:` block's -
-so every style renders the same scene by default and only the style itself
-varies) + `append`; the negative joins that block's `negative` and the
-style's own `negative` (see docs/presets/manifest.md "Styles") - a preset
-with its own prompting conventions (quality tags, a recommended negative)
-gets on-model previews without every style repeating that boilerplate.
-Downscales the first output image to `--long-edge` px, saves it as
-`public/styles/<id>.webp` inside the preset directory, and fills `preview:`
-in `styles.yml` for that style when it was unset.
-
     python scripts/preset_styles_render.py content/presets/marketplace/Anima
     python scripts/preset_styles_render.py content/presets/marketplace/Anima --style retro-90s-cel
     python scripts/preset_styles_render.py 01KX5GRNWFC9S2F6T15155H41C --long-edge 512 --seed 7 --force
     python scripts/preset_styles_render.py content/presets/marketplace/Anima --steps 30 --resolution 1024x1024
 
-The preset argument is either a preset id (its `preset.yml` `id:`) or the
-preset's directory (the one holding its `preset.yml`, e.g.
-`content/presets/marketplace/Anima`).
+Resolves each style's model weights from the preset's `tests.yml` (first
+case's `models:` map), never downloads, runs through the same
+HeadlessGenerationClient as scripts/preset_test_suite.py (ephemeral DB and
+storage - never the maintainer's live database or gallery), downscales the
+first output image, writes public/styles/<id>.webp, and fills `preview:` in
+styles.yml when it was unset. Prints one line per style and exits nonzero if
+any failed. Never reloads or restarts the app.
 
-`--steps`/`--resolution` override the preset's own defaults, but only when
-its form actually declares a field of that name (checked through tabs/
-sections/rows, not just the top level) - the effective value (or "preset
-default") for each is printed once before any generation runs.
-
-Style rendering has no form of its own to pick model weights from, so it
-borrows the preset's `tests.yml`: the first case's `models:` map (see
-docs/presets.md "Testing presets") is resolved, read-only, against the live
-models table before anything else runs, and the resolved file paths are
-submitted with every style's generation unchanged. A preset with no
-`tests.yml`, no cases, an empty `models:` map on the first case, or any ref
-that isn't already present locally (this script never downloads) exits 1
-before rendering anything, naming exactly what's missing.
-
-Prints one line per style (`ok <id> 23 KB` / `skip <id> (preview exists)` /
-`FAILED <id>: <error>`) and exits nonzero if any style failed (a skip does
-not fail the run).
-
-This script never reloads or restarts anything - the running app picks up
-the rendered files (and any `preview:` fill) on its own next preset reload
-or restart.
-
-NOTE: a real run loads models and generates on the GPU. During development
-this is never invoked automatically; the prompt/downscale/`styles.yml` logic
-is unit-tested with a mocked generation client in
-`tests/features/presets/test_style_previews.py` and
-`tests/scripts/test_preset_styles_render.py` - the first real run is the
-user's.
+NOTE: a real run loads models and generates on the GPU, never invoked
+automatically in development - see tests/features/presets/test_style_previews.py
+and tests/scripts/test_preset_styles_render.py.
 """
 
 from __future__ import annotations
@@ -85,11 +47,6 @@ from src.features.presets.tests_schema import load_tests_yml  # noqa: E402
 
 
 def _boot_client(run_dir: Path):
-    """Build the headless generation client and force it to boot, returning
-    ``(client, container)``. The container is captured from the factory
-    closure rather than read off the client - `HeadlessGenerationClient`
-    only exposes its container as an implementation detail, and a closure
-    keeps this script from reaching into that."""
     from src.features.preset_suite.runner import HeadlessGenerationClient
 
     built: Dict[str, Any] = {}
@@ -101,15 +58,11 @@ def _boot_client(run_dir: Path):
         return built["container"]
 
     client = HeadlessGenerationClient(_factory, run_dir=run_dir)
-    # `can_run` boots the client as a side effect; the engine/preset_id here
-    # are placeholders only used by the native fast path, which ignores both.
     client.can_run("bootstrap", "native")
     return client, built["container"]
 
 
 def _resolve_preset(preset_loader, ref: str):
-    """A preset by its `preset.yml` id, or by its directory (matched against
-    each loaded preset's resolved `path`)."""
     preset = preset_loader.load_preset_by_id(ref)
     if preset is not None:
         return preset
@@ -122,14 +75,6 @@ def _resolve_preset(preset_loader, ref: str):
 
 
 def resolve_model_form_data(preset, resolver) -> Optional[Dict[str, str]]:
-    """The preset's model fields (e.g. `diffusion_model`, `text_encoder`),
-    resolved to local file paths - style rendering has no form of its own to
-    pick models from, so it borrows the preset's `tests.yml`: the first
-    case's `models:` map (see docs/presets.md "Testing presets"). Prints an
-    `error: ...` line and returns `None` - no rendering is attempted - when
-    the preset has no `tests.yml`/no cases, its first case declares no
-    `models:`, or any ref can't be resolved locally (no downloads here; the
-    caller never passes `allow_download`)."""
     tests = load_tests_yml(Path(preset.path))
     if tests is None or not tests.cases:
         print(
@@ -170,13 +115,6 @@ def render_styles(
     steps: Optional[int] = None,
     resolution: Optional[str] = None,
 ) -> List[str]:
-    """Render `style_ids` (all of the preset's styles when omitted); returns
-    the report lines, one per style (skips included). `model_form_data` is
-    the preset's model fields, already resolved by `resolve_model_form_data`,
-    submitted unchanged with every generation. `steps`/`resolution` override
-    the preset's own defaults, but only when its form actually has a field of
-    that name - printed once, effective value or "preset default", before
-    any generation runs."""
     lines: List[str] = []
     targets = select_styles(preset.styles or [], style_ids)
 
@@ -259,10 +197,7 @@ def main(argv=None) -> int:
 
     from src.features.preset_suite import ephemeral
 
-    # The resolver reads the REAL models table (read-only) to LOCATE model
-    # files on disk; this must happen BEFORE the client re-points the DB
-    # singleton at its ephemeral copy inside `_boot_client` - same ordering
-    # `scripts/preset_test_suite.py` uses (see `build_live_resolver`).
+    # Must run before _boot_client re-points the DB singleton at its ephemeral copy.
     resolver = build_live_resolver(allow_download=False)
 
     run_dir = Path(tempfile.mkdtemp(prefix="potionui-style-preview-"))
@@ -306,9 +241,7 @@ def main(argv=None) -> int:
             [run_dir / "suite.db", run_dir / "suite.db-wal", run_dir / "suite.db-shm", run_dir / "storage"],
             keep=False, failed=False,
         )
-        # `cleanup` only removes the listed ephemeral paths, leaving `run_dir`
-        # itself (holding just the marker) behind under /tmp. Same guard as
-        # `cleanup`'s own: only a marked, non-symlink directory is removable.
+        # cleanup() doesn't remove run_dir itself.
         if ephemeral.is_marked(run_dir):
             shutil.rmtree(run_dir, ignore_errors=True)
 

@@ -201,18 +201,10 @@ class ModelResolver:
 
     @staticmethod
     def _walk_files(root: Path) -> list:
-        """Every regular file under `root`, following symlinked directories.
-
-        The models tree keeps its real subdirs (`checkpoints`/`vae`/
-        `diffusion_models`/`text_encoders`/`loras`/...) as symlinks into a
-        larger store (see the module docstring's "symlinked model stores"),
-        and `Path.rglob` does not descend into those - a hash-walk built on
-        it silently sees none of them. `os.walk(..., followlinks=True)` does
-        descend into them; a symlink cycle is guarded against by never
-        re-entering a directory whose *resolved* real path was already
-        visited (a directory reached a second time, via a different symlink
-        path, is skipped rather than re-walked - its files were already
-        collected the first time)."""
+        # Model subdirs (checkpoints/vae/diffusion_models/...) are symlinks
+        # into the real store; Path.rglob does not follow them, so use
+        # os.walk(followlinks=True) instead, guarded against symlink cycles
+        # by never re-entering an already-visited resolved real path.
         visited: set = set()
         found: list = []
         for dirpath, dirnames, filenames in os.walk(str(root), followlinks=True):

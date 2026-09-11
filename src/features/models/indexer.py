@@ -530,6 +530,8 @@ class ModelScanner:
         for model in all_models:
             if not getattr(model, 'is_available', True):
                 continue  # already marked; avoid a redundant write + timestamp bump
+            if not model.file_path:
+                continue  # not file-backed (no path recorded) - nothing on disk to check
             if not Path(model.file_path).exists():
                 logger.debug(f"Marking model unavailable (file missing): {model.filename}")
                 model_repo.mark_unavailable(model.id)

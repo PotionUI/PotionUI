@@ -361,6 +361,22 @@ class TestModelScanner:
         mock_repo.mark_unavailable.assert_not_called()
 
     @patch('src.features.models.indexer.model_repo')
+    def test_cleanup_skips_a_row_with_no_file_path(self, mock_repo):
+        """A model row without a recorded path is not file-backed - there is
+        nothing on disk to check, and `Path(None)` used to abort the whole
+        scan ("argument should be a str or an os.PathLike object")."""
+        pathless = Mock(spec=Model)
+        pathless.file_path = None
+        pathless.id = "pathless-id"
+        pathless.is_available = True
+
+        mock_repo.get_all.return_value = [pathless]
+
+        self.indexer._cleanup_deleted_models()
+
+        mock_repo.mark_unavailable.assert_not_called()
+
+    @patch('src.features.models.indexer.model_repo')
     def test_index_models_revives_a_model_whose_file_reappears(self, mock_repo):
         """A model marked unavailable is excluded from `existing_paths`, so when its
         file is found on disk again (the models location switched back), the scan

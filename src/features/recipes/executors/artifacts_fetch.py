@@ -25,10 +25,8 @@ updating this attempt's progress fields as the download advances.
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.features.models.jobs import TYPE_DIR_MAP
 from src.features.models.repository import ModelRepository
 from src.features.recipes.executors._async_bridge import run_sync
 from src.features.recipes.executors._provider_credentials import (
@@ -97,7 +95,6 @@ class ArtifactsFetchExecutor:
                 "The download queue is not wired into this instance, so this file can't be fetched automatically.",
             )
 
-        models_dir = self._models_dir()
         fetched: List[Dict[str, Any]] = []
         for artifact in to_fetch:
             url, note = self._resolve_download_url(artifact)
@@ -112,7 +109,6 @@ class ArtifactsFetchExecutor:
                     ),
                 )
 
-            destination_dir = str(Path(models_dir) / TYPE_DIR_MAP.get(artifact.model_type, "checkpoints"))
             checksum = artifact.checksum.value if artifact.checksum else None
             provider_id = (artifact.provider_hint or {}).get("source")
 
@@ -120,7 +116,7 @@ class ArtifactsFetchExecutor:
                 download = run_sync(
                     service.queue_model_download(
                         url=url,
-                        destination_dir=destination_dir,
+                        model_type=artifact.model_type,
                         filename=artifact.filename,
                         checksum_sha256=checksum,
                         provider_id=provider_id,
@@ -213,13 +209,6 @@ class ArtifactsFetchExecutor:
                 return results[0].download_url, f"{source} (matched by search)"
 
         return None, "no checksum, direct source, or provider id/search match was available"
-
-    def _models_dir(self) -> str:
-        from src.platform.settings.repository import SettingRepository
-
-        setting_repo = SettingRepository()
-        model_dir_setting = setting_repo.get_setting_by_key("models_dir")
-        return str(model_dir_setting.get_typed_value()) if model_dir_setting else "models"
 
     # --- progress polling ----------------------------------------------------
 

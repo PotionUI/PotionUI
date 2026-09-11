@@ -101,7 +101,6 @@ def test_fetches_missing_artifact_via_explicit_download_url():
     recipe = Recipe(id="x", schema_version=1, version=1, name="X", engine="native", artifacts=[artifact])
     service = FakeDownloadService(terminal_status="completed")
     executor = ArtifactsFetchExecutor(service, FakeModelRepository())
-    executor._models_dir = lambda: "models"  # avoid a real settings-repo/DB round trip
 
     result = executor.execute(_context(recipe, ["ckpt"]))
 
@@ -109,6 +108,10 @@ def test_fetches_missing_artifact_via_explicit_download_url():
     assert result.safe_output["fetched"][0]["id"] == "ckpt"
     assert service.queued[0]["url"] == "https://example.test/model.safetensors"
     assert service.queued[0]["filename"] == "model.safetensors"
+    # The queue resolves the type directory itself under the depot root; a
+    # root-prefixed destination_dir here double-prefixed (models/models/...).
+    assert service.queued[0]["model_type"] == "checkpoint"
+    assert "destination_dir" not in service.queued[0]
 
 
 def test_failed_download_reports_plain_error():
@@ -116,7 +119,6 @@ def test_failed_download_reports_plain_error():
     recipe = Recipe(id="x", schema_version=1, version=1, name="X", engine="native", artifacts=[artifact])
     service = FakeDownloadService(terminal_status="failed")
     executor = ArtifactsFetchExecutor(service, FakeModelRepository())
-    executor._models_dir = lambda: "models"
 
     result = executor.execute(_context(recipe, ["ckpt"]))
 
@@ -131,7 +133,6 @@ def test_unresolvable_source_fails_with_plain_message():
     executor = ArtifactsFetchExecutor(
         service, FakeModelRepository(), provider_registry_factory=None
     )
-    executor._models_dir = lambda: "models"
     executor._get_provider_registry = lambda: None  # no provider plugin available either
 
     result = executor.execute(_context(recipe, ["ckpt"]))
@@ -155,7 +156,6 @@ def test_reports_bytes_progress_per_poll_tick(monkeypatch):
     recipe = Recipe(id="x", schema_version=1, version=1, name="X", engine="native", artifacts=[artifact])
     service = ProgressingDownloadService(terminal_status="completed", ticks=(2_000, 6_000))
     executor = ArtifactsFetchExecutor(service, FakeModelRepository())
-    executor._models_dir = lambda: "models"
 
     reports = []
     context = _context(recipe, ["ckpt"])
@@ -228,7 +228,6 @@ def test_stalled_download_fails_after_no_progress_deadline(monkeypatch):
     recipe = Recipe(id="x", schema_version=1, version=1, name="X", engine="native", artifacts=[artifact])
     service = StalledDownloadService()
     executor = ArtifactsFetchExecutor(service, FakeModelRepository())
-    executor._models_dir = lambda: "models"
 
     result = executor.execute(_context(recipe, ["ckpt"]))
 
@@ -256,7 +255,6 @@ def test_slow_but_steadily_advancing_download_never_hits_the_deadline(monkeypatc
     recipe = Recipe(id="x", schema_version=1, version=1, name="X", engine="native", artifacts=[artifact])
     service = ProgressingDownloadService(terminal_status="completed", ticks=(2_000, 4_000, 6_000, 8_000))
     executor = ArtifactsFetchExecutor(service, FakeModelRepository())
-    executor._models_dir = lambda: "models"
 
     result = executor.execute(_context(recipe, ["ckpt"]))
 
@@ -301,7 +299,6 @@ def test_auth_shaped_failure_gets_a_suggested_repair(monkeypatch):
             return {}
 
     executor = ArtifactsFetchExecutor(AuthFailingDownloadService(), FakeModelRepository())
-    executor._models_dir = lambda: "models"
     executor._get_provider_registry = lambda: FakeRegistry()
 
     result = executor.execute(_context(recipe, ["ckpt"]))
@@ -319,7 +316,6 @@ def test_non_auth_failure_gets_no_suggested_repair():
     recipe = Recipe(id="x", schema_version=1, version=1, name="X", engine="native", artifacts=[artifact])
     service = FakeDownloadService(terminal_status="failed")
     executor = ArtifactsFetchExecutor(service, FakeModelRepository())
-    executor._models_dir = lambda: "models"
 
     result = executor.execute(_context(recipe, ["ckpt"]))
 
@@ -335,7 +331,6 @@ def test_no_progress_report_when_download_exposes_no_byte_counts():
     recipe = Recipe(id="x", schema_version=1, version=1, name="X", engine="native", artifacts=[artifact])
     service = FakeDownloadService(terminal_status="completed")
     executor = ArtifactsFetchExecutor(service, FakeModelRepository())
-    executor._models_dir = lambda: "models"
 
     reports = []
     context = _context(recipe, ["ckpt"])

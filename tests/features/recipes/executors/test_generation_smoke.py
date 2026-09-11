@@ -115,6 +115,39 @@ class FakeMediaOrchestrator(FakeOrchestrator):
         return {"generation_id": "gen-1"}
 
 
+class FakeSamplingOrchestrator(FakeOrchestrator):
+    """Emits sampling progress before the final image, the way a real
+    generator does."""
+
+    async def start_generation(self, request, user_id, output_callback):
+        from src.pipelines.outputs import ImageGenerationOutput, Progress, ProgressGenerationOutput
+
+        for step in (1, 2, 3):
+            await output_callback("gen-1", ProgressGenerationOutput(state="sampling", progress=Progress(current=step, max=3)))
+        await output_callback("gen-1", ImageGenerationOutput(image=None, temporary=False))
+        await output_callback("gen-1", None)
+        return {"generation_id": "gen-1"}
+
+
+def test_sampling_progress_is_reported_as_step_progress():
+    """While the generation runs, the step row shows 'N of M steps' instead
+    of sitting silent until the image lands (first and last ticks always
+    reach the row)."""
+    template = FakePresetTemplate()
+    loader = FakePresetLoader(template)
+    file_repo = FakeFileRepository(files=[SimpleNamespace(file_path="images/gen-1/out.png")])
+    executor = GenerationSmokeExecutor(loader, object(), FakeSamplingOrchestrator(), file_repo)
+    reports = []
+    context = _context(_recipe())
+    context.report_progress = lambda **kwargs: reports.append(kwargs)
+
+    result = executor.execute(context)
+
+    assert result.success is True
+    assert reports[0] == {"progress_current": 1, "progress_total": 3, "progress_unit": "steps"}
+    assert reports[-1] == {"progress_current": 3, "progress_total": 3, "progress_unit": "steps"}
+
+
 def test_video_audio_and_mesh_outputs_count_as_final_outputs():
     template = FakePresetTemplate()
     loader = FakePresetLoader(template)

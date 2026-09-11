@@ -28,6 +28,7 @@ whose recipe artifact isn't indexed yet fails the step up front via
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Dict, List, Optional
 
 from src.features.presets.loader import PresetTemplateLoader
@@ -122,6 +123,7 @@ class GenerationSmokeExecutor:
                     user_id=context.owner_user_id,
                     prompt=smoke.prompt if smoke else "",
                     negative_prompt=smoke.negative_prompt if smoke else "",
+                    report_progress=context.report_progress,
                 )
             )
         except Exception as exc:
@@ -184,6 +186,7 @@ class GenerationSmokeExecutor:
         user_id: Optional[str],
         prompt: str,
         negative_prompt: str,
+        report_progress=None,
     ) -> Dict[str, Any]:
         from src.features.generation.dto import GenerationRequest, PromptPair
         from src.pipelines.outputs import (
@@ -192,6 +195,7 @@ class GenerationSmokeExecutor:
             GalleryGenerationOutput,
             ImageGenerationOutput,
             MeshGenerationOutput,
+            ProgressGenerationOutput,
             VideoGenerationOutput,
         )
         final_media = (ImageGenerationOutput, VideoGenerationOutput, AudioGenerationOutput, MeshGenerationOutput)
@@ -199,6 +203,7 @@ class GenerationSmokeExecutor:
         output_count = 0
         error_box: Dict[str, str] = {}
         done_event = asyncio.Event()
+        last_progress_at = {"t": 0.0}
 
         async def _collect(generation_id: str, output) -> None:
             nonlocal output_count
@@ -216,6 +221,21 @@ class GenerationSmokeExecutor:
                 output_count += len(output.images)
             elif isinstance(output, ErrorGenerationOutput):
                 error_box["error"] = getattr(output, "error", "generation error")
+            elif isinstance(output, ProgressGenerationOutput) and report_progress is not None:
+                # Sampling steps as the step's own progress ("3 of 8 steps"),
+                # throttled to about once a second; the first and last tick
+                # always get through so the row never shows a stale count.
+                progress = output.progress
+                if progress is not None and progress.max:
+                    now = time.monotonic()
+                    is_edge = progress.current <= 1 or progress.current >= progress.max
+                    if is_edge or now - last_progress_at["t"] >= 1.0:
+                        last_progress_at["t"] = now
+                        report_progress(
+                            progress_current=progress.current,
+                            progress_total=progress.max,
+                            progress_unit="steps",
+                        )
 
         prompts = None
         if prompt or negative_prompt:

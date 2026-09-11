@@ -704,25 +704,56 @@ class GenerationRepository:
                 bump_history_revision(cursor, owner)
             return deleted
 
-    def find_for_housekeeping(
+    def find_by_criteria(
         self,
+        user_id: Optional[str] = None,
+        tag_ids: Optional[List[str]] = None,
         older_than_days: Optional[int] = None,
+        created_from: Optional[str] = None,
+        created_to: Optional[str] = None,
         without_media: bool = False,
         statuses: Optional[List[str]] = None,
         keep_favorites: bool = True,
     ) -> List[Tuple[str, str]]:
-        """(id, user_id) pairs across every user matching the given criteria,
-        AND-ed. A generation still `pending` or `running` is never a candidate,
-        regardless of `statuses` (only terminal states match)."""
+        """(id, user_id) pairs matching the given criteria, AND-ed. `user_id`
+        scopes the search to one owner; left `None` it matches every user
+        (admin housekeeping). `tag_ids` requires ALL of them. A generation
+        still `pending` or `running` is never a candidate, regardless of
+        `statuses` (only terminal states match)."""
         from src.features.generation.status_tracker import TERMINAL_STATES  # status_tracker imports this module
         terminal = sorted(TERMINAL_STATES)
         conditions = [f"g.status IN ({','.join('?' * len(terminal))})"]
         params: List[Any] = list(terminal)
 
+        if user_id:
+            conditions.append("g.user_id = ?")
+            params.append(user_id)
+
+        if tag_ids:
+            placeholders = ','.join('?' * len(tag_ids))
+            conditions.append(f"""g.id IN (
+                SELECT gt.generation_id FROM generation_tags gt
+                WHERE gt.tag_id IN ({placeholders})
+                GROUP BY gt.generation_id
+                HAVING COUNT(DISTINCT gt.tag_id) = ?
+            )""")
+            params.extend(tag_ids)
+            params.append(len(tag_ids))
+
         if older_than_days is not None:
             cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).strftime(_TIMESTAMP_FMT)
             conditions.append("datetime(g.created_at) <= datetime(?)")
             params.append(cutoff)
+
+        def _date_cond(value, op, day_suffix):
+            if not value:
+                return
+            bound = value + day_suffix if len(value) == 10 else value
+            conditions.append(f"datetime(g.created_at) {op} datetime(?)")
+            params.append(bound)
+
+        _date_cond(created_from, '>=', ' 00:00:00')
+        _date_cond(created_to, '<=', ' 23:59:59')
 
         if without_media:
             conditions.append(

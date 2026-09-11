@@ -19,10 +19,15 @@ from src.features.generation.dto import (
     GenerationStatus,
     UpdateTagsRequest,
     BulkDeleteRequest,
-    BulkDeleteByTagsRequest,
+    BulkDeleteByCriteriaRequest,
     RatingRequest,
     FavoriteRequest,
     ExportRequest,
+)
+from src.features.generation.criteria_delete import (
+    GenerationDeleteCriteria,
+    delete_generations,
+    preview_generations,
 )
 from src.platform.websocket import ConnectionHub
 from src.features.generation.websocket_handler import WebSocketHandler
@@ -47,6 +52,7 @@ from src.features.generation import (
 )
 from src.features.generation.history_executor import HistoryExecutorSaturated
 from src.features.generation.repository import generation_repo
+from src.features.generation.status_tracker import TERMINAL_STATES
 from src.features.generation.file_repository import file_repo
 
 if TYPE_CHECKING:
@@ -939,26 +945,42 @@ class GenerationController(BaseController):
                 message=f"Failed to import generation bundle: {str(e)}"
             )
 
-    async def count_generations_by_tags(
+    def _owner_delete_criteria(self, request: BulkDeleteByCriteriaRequest, user_id: str) -> GenerationDeleteCriteria:
+        """Build a `GenerationDeleteCriteria` scoped to `user_id`, validating
+        tag ownership, date formats and status membership the same way the
+        request's siblings (history listing, admin housekeeping) do."""
+        if request.tag_ids:
+            self.history_query._validate_tag_ids(request.tag_ids, user_id)
+        self.history_query.validate_date_filters(request.created_from, request.created_to, None, None)
+        if request.older_than_days is not None and request.older_than_days < 0:
+            raise ValueError("older_than_days must not be negative")
+        if request.statuses:
+            invalid = [s for s in request.statuses if s not in TERMINAL_STATES]
+            if invalid:
+                raise ValueError(f"invalid status: {', '.join(invalid)}")
+
+        return GenerationDeleteCriteria(
+            user_id=user_id,
+            tag_ids=request.tag_ids or None,
+            older_than_days=request.older_than_days,
+            created_from=request.created_from,
+            created_to=request.created_to,
+            without_media=request.without_media,
+            statuses=request.statuses or None,
+            keep_favorites=request.keep_favorites,
+        )
+
+    async def count_generations_by_criteria(
         self,
-        tag_ids: List[str],
+        request: BulkDeleteByCriteriaRequest,
         current_user
     ) -> APIResponse:
-        """Count generations matching ALL specified tags (for preview)."""
-        if not tag_ids:
-            return self.error_response(
-                error="invalid_request",
-                message="No tag IDs provided",
-                status_code=400
-            )
-
+        """Count the current user's generations matching criteria, AND-ed (for preview)."""
         try:
-            count = self.history_query.count_generations_by_tags(
-                tag_ids=tag_ids,
-                user_id=current_user.id
-            )
+            criteria = self._owner_delete_criteria(request, current_user.id)
+            count = preview_generations(generation_repo, criteria)
             return self.success_response(
-                message=f"Found {count} generation(s) matching all specified tags",
+                message=f"Found {count} generation(s) matching the given criteria",
                 data={"count": count}
             )
         except InvalidTagException as e:
@@ -967,50 +989,64 @@ class GenerationController(BaseController):
                 message=str(e),
                 status_code=400
             )
-        except Exception as e:
-            logging.error(f"Failed to count generations by tags: {str(e)}")
+        except InvalidDateFilterException as e:
             return self.error_response(
-                error="count_failed",
-                message=f"Failed to count generations by tags: {str(e)}"
-            )
-
-    async def bulk_delete_by_tags(
-        self,
-        tag_ids: List[str],
-        current_user
-    ) -> APIResponse:
-        """Delete all generations matching ALL specified tags."""
-        if not tag_ids:
-            return self.error_response(
-                error="invalid_request",
-                message="No tag IDs provided",
+                error="invalid_date_format",
+                message=str(e),
                 status_code=400
             )
+        except ValueError as e:
+            return self.error_response(
+                error="validation_error",
+                message=str(e),
+                status_code=400
+            )
+        except Exception as e:
+            logging.error(f"Failed to count generations by criteria: {str(e)}")
+            return self.error_response(
+                error="count_failed",
+                message=f"Failed to count generations by criteria: {str(e)}"
+            )
 
+    async def bulk_delete_by_criteria(
+        self,
+        request: BulkDeleteByCriteriaRequest,
+        current_user
+    ) -> APIResponse:
+        """Delete every generation of the current user matching criteria, AND-ed."""
         try:
-            result = self.history_facade.bulk_delete_by_tags(
-                tag_ids=tag_ids,
-                user_id=current_user.id
-            )
-
-            message = f"Successfully deleted {result['deleted_count']} generation(s) matching all specified tags."
-            if result['failed_count'] > 0:
-                message += f" Failed to delete {result['failed_count']} generation(s)."
-
-            return self.success_response(
-                message=message,
-                data={
-                    "deleted_count": result['deleted_count'],
-                    "failed_count": result['failed_count'],
-                    "failed_ids": result.get('failed_ids', []),
-                    "total_files_deleted": result.get('total_files_deleted', 0)
-                }
-            )
+            criteria = self._owner_delete_criteria(request, current_user.id)
         except InvalidTagException as e:
             return self.error_response(
                 error="invalid_tag",
                 message=str(e),
                 status_code=400
+            )
+        except InvalidDateFilterException as e:
+            return self.error_response(
+                error="invalid_date_format",
+                message=str(e),
+                status_code=400
+            )
+        except ValueError as e:
+            return self.error_response(
+                error="validation_error",
+                message=str(e),
+                status_code=400
+            )
+
+        if criteria.is_empty():
+            return self.error_response(
+                error="no_criteria",
+                message="Choose at least one criterion before deleting generations",
+                status_code=400
+            )
+
+        try:
+            summary = delete_generations(generation_repo, self.history_facade, criteria)
+            return self.success_response(
+                message=f"Successfully deleted {summary['deleted_count']} generation(s).",
+                data=summary
             )
         except GenerationDeleteFailedException as e:
             return self.error_response(
@@ -1495,15 +1531,15 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Delete multiple generations from history including all associated files."""
         return await controller.bulk_delete_generations(request.generation_ids, current_user)
 
-    @router.post("/history/count-by-tags", response_model=APIResponse, summary="Count Generations by Tags")
-    async def count_generations_by_tags(request: BulkDeleteByTagsRequest, current_user = Depends(get_current_active_user)):
-        """Count generations matching ALL specified tags (for confirmation preview)."""
-        return await controller.count_generations_by_tags(request.tag_ids, current_user)
+    @router.post("/history/count-by-criteria", response_model=APIResponse, summary="Count Generations by Criteria")
+    async def count_generations_by_criteria(request: BulkDeleteByCriteriaRequest, current_user = Depends(get_current_active_user)):
+        """Count the current user's generations matching criteria, AND-ed (for confirmation preview)."""
+        return await controller.count_generations_by_criteria(request, current_user)
 
-    @router.post("/history/bulk-delete-by-tags", response_model=APIResponse, summary="Bulk Delete by Tags")
-    async def bulk_delete_by_tags(request: BulkDeleteByTagsRequest, current_user = Depends(get_current_active_user)):
-        """Delete all generations that have ALL specified tags."""
-        return await controller.bulk_delete_by_tags(request.tag_ids, current_user)
+    @router.post("/history/bulk-delete-by-criteria", response_model=APIResponse, summary="Bulk Delete by Criteria")
+    async def bulk_delete_by_criteria(request: BulkDeleteByCriteriaRequest, current_user = Depends(get_current_active_user)):
+        """Delete every generation of the current user matching criteria, AND-ed."""
+        return await controller.bulk_delete_by_criteria(request, current_user)
 
     @router.post("/export", summary="Export Generations as Zip")
     async def export_generations(request: ExportRequest, current_user = Depends(get_current_active_user)):

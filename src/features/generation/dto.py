@@ -107,9 +107,17 @@ class BulkDeleteRequest(BaseModel):
     generation_ids: List[str]
 
 
-class BulkDeleteByTagsRequest(BaseModel):
-    """Request to delete all generations matching ALL specified tags."""
-    tag_ids: List[str]
+class BulkDeleteByCriteriaRequest(BaseModel):
+    """Request to count/delete the current user's generations matching
+    criteria, AND-ed: tags (all of them), age, a created date range, status,
+    presence of media, with a favorites guard."""
+    tag_ids: Optional[List[str]] = None
+    older_than_days: Optional[int] = None
+    created_from: Optional[str] = None
+    created_to: Optional[str] = None
+    without_media: bool = False
+    statuses: Optional[List[str]] = None
+    keep_favorites: bool = True
 
 
 class UploadGenerationRequest(BaseModel):

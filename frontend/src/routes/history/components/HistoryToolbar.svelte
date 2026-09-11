@@ -19,7 +19,7 @@
 	// callbacks stay as props since modal state lives on the page.
 	export let onOpenUpload: () => void;
 	export let onOpenAddTag: () => void;
-	export let onOpenDeleteByTags: () => void;
+	export let onOpenDeleteByCriteria: () => void;
 
 	$: currentState = $historyStore;
 	$: facets = currentState.facets;
@@ -705,11 +705,11 @@
 								role="menuitem"
 								on:click={() => {
 									closeMoreMenu();
-									onOpenDeleteByTags();
+									onOpenDeleteByCriteria();
 								}}
 							>
 								<Icon name="trash" className="w-3.5 h-3.5" />
-								Delete by tags
+								Delete by criteria
 							</button>
 						</div>
 					{/if}

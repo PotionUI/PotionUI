@@ -117,7 +117,7 @@ class TestPreviewGenerations:
 
     def test_it_reports_how_many_generations_the_criteria_match(self):
         repository = Mock()
-        repository.find_for_housekeeping.return_value = [("g1", "u1"), ("g2", "u1")]
+        repository.find_by_criteria.return_value = [("g1", "u1"), ("g2", "u1")]
 
         response = _client(generation_repository=repository).get(
             "/api/admin/housekeeping/generations/preview",
@@ -126,8 +126,9 @@ class TestPreviewGenerations:
 
         assert response.status_code == 200
         assert response.json()["data"] == {"count": 2}
-        repository.find_for_housekeeping.assert_called_once_with(
-            older_than_days=30, without_media=False, statuses=None, keep_favorites=True,
+        repository.find_by_criteria.assert_called_once_with(
+            user_id=None, tag_ids=None, older_than_days=30, created_from=None, created_to=None,
+            without_media=False, statuses=None, keep_favorites=True,
         )
 
     def test_a_negative_age_is_refused(self):
@@ -155,7 +156,7 @@ class TestDeleteGenerations:
 
     def test_matching_generations_are_deleted_grouped_by_owner(self):
         repository = Mock()
-        repository.find_for_housekeeping.return_value = [("g1", "u1"), ("g2", "u2")]
+        repository.find_by_criteria.return_value = [("g1", "u1"), ("g2", "u2")]
         facade = Mock()
         facade.bulk_delete.side_effect = [
             {"deleted_count": 1, "total_files_deleted": 3},

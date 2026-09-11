@@ -337,41 +337,6 @@ class GenerationHistoryArchive:
             "files_failed_fs": files_failed_fs
         }
 
-    def bulk_delete_by_tags(self, tag_ids: List[str], user_id: str) -> Dict[str, Any]:
-        """Delete all generations that have ALL specified tags.
-
-        Composes get_generations_by_tags() with bulk_delete().
-
-        Args:
-            tag_ids: List of tag IDs (AND logic)
-            user_id: The user ID for ownership verification
-
-        Returns:
-            Dict with deletion stats
-        """
-        if not tag_ids:
-            return {
-                "deleted_count": 0,
-                "failed_count": 0,
-                "failed_ids": [],
-                "total_files_deleted": 0
-            }
-
-        self._query._validate_tag_ids(tag_ids, user_id)
-
-        from src.features.tags.repository import tag_repo
-        generation_ids = tag_repo.get_generations_by_tags(tag_ids, user_id)
-
-        if not generation_ids:
-            return {
-                "deleted_count": 0,
-                "failed_count": 0,
-                "failed_ids": [],
-                "total_files_deleted": 0
-            }
-
-        return self.bulk_delete(generation_ids, user_id)
-
     def bulk_delete(self, generation_ids: List[str], user_id: str) -> Dict[str, Any]:
         """Delete multiple generations and their files.
 

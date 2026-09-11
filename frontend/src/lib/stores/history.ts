@@ -11,6 +11,7 @@ import type {
 	SortDir
 } from '$lib/types/history';
 import { api } from '$lib/services/api/index';
+import type { BulkDeleteByCriteriaRequest } from '$lib/services/api/generations';
 
 export const HISTORY_ITEMS_PER_PAGE_OPTIONS = [6, 12, 24, 48, 96] as const;
 
@@ -701,9 +702,9 @@ function createHistoryStore() {
 			return response;
 		},
 
-		// Bulk delete generations matching all given tags
-		async bulkDeleteByTags(tagIds: string[]) {
-			const response = await api.bulkDeleteByTags(tagIds);
+		// Bulk delete generations matching criteria, AND-ed
+		async bulkDeleteByCriteria(criteria: BulkDeleteByCriteriaRequest) {
+			const response = await api.bulkDeleteByCriteria(criteria);
 			if (response.success) {
 				await this.loadGenerations();
 				await this.loadTags();

@@ -106,10 +106,9 @@ class GenerationHistoryFacade:
     # (src/features/llm/tools/builtin/organize_gallery_tool.py) reaches them
     # through `ToolContext.generation_history_facade`, which has no route to
     # a standalone `GenerationHistoryQuery`. The routes-only reads
-    # (`get_facets`/`get_params`/`count_generations_by_tags`) and the
-    # validation helpers below were removed - the routes controller and
-    # `GenerationHistoryFacade`'s own tests call `GenerationHistoryQuery`
-    # directly for those.
+    # (`get_facets`/`get_params`) and the validation helpers below were
+    # removed - the routes controller and `GenerationHistoryFacade`'s own
+    # tests call `GenerationHistoryQuery` directly for those.
 
     def get_history(
         self,
@@ -199,9 +198,6 @@ class GenerationHistoryFacade:
 
     def delete(self, generation_id: str, user_id: str) -> Dict[str, Any]:
         return self._archive.delete(generation_id, user_id)
-
-    def bulk_delete_by_tags(self, tag_ids: List[str], user_id: str) -> Dict[str, Any]:
-        return self._archive.bulk_delete_by_tags(tag_ids, user_id)
 
     def bulk_delete(self, generation_ids: List[str], user_id: str) -> Dict[str, Any]:
         return self._archive.bulk_delete(generation_ids, user_id)

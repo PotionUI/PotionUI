@@ -21,7 +21,8 @@ from src.pipelines.outputs import (
     GenerationOutput, ImageGenerationOutput, GalleryGenerationOutput,
     ProgressGenerationOutput
 )
-from src.features.generation import GenerationHistoryFacade
+from src.features.generation import GenerationHistoryFacade, GenerationDeleteFailedException, InvalidTagException
+from src.features.generation.dto import BulkDeleteByCriteriaRequest
 from src.features.generation.run_report_recorder import RunReportRecorder
 from PIL import Image
 from src.features.generation.handlers.image_handler import ImageGenerationOutputHandler
@@ -637,20 +638,6 @@ class TestGenerationController:
         )
 
     @pytest.mark.asyncio
-    async def test_count_generations_by_tags_delegates_to_history_query(self, controller, mock_current_user):
-        """`count_generations_by_tags` calls `history_query`, not `history_facade`."""
-        controller.history_query.count_generations_by_tags.return_value = 3
-
-        result = await controller.count_generations_by_tags(["tag-1"], mock_current_user)
-
-        assert isinstance(result, APIResponse)
-        assert result.success is True
-        assert result.data["count"] == 3
-        controller.history_query.count_generations_by_tags.assert_called_once_with(
-            tag_ids=["tag-1"], user_id=mock_current_user.id
-        )
-
-    @pytest.mark.asyncio
     async def test_delete_generation_history_success(self, controller, mock_current_user):
         """Test successful generation deletion"""
         # Arrange - delegate to history_facade
@@ -885,6 +872,115 @@ class TestGenerationController:
             controller.generation_orchestrator.status_tracker,
             mock_user
         )
+
+
+class TestGenerationControllerDeleteByCriteria:
+    """Tests for count_generations_by_criteria / bulk_delete_by_criteria."""
+
+    @pytest.fixture
+    def mock_generation_orchestrator(self):
+        mock = Mock(spec=GenerationOrchestrator)
+        mock.status_tracker = Mock()
+        return mock
+
+    @pytest.fixture
+    def mock_file_service(self):
+        return Mock(spec=FileStore)
+
+    @pytest.fixture
+    def mock_generation_history_manager(self):
+        return Mock(spec=GenerationHistoryFacade)
+
+    @pytest.fixture
+    def mock_run_report_recorder(self):
+        return Mock(spec=RunReportRecorder)
+
+    @pytest.fixture
+    def mock_current_user(self):
+        user = Mock()
+        user.id = "test-user-123"
+        return user
+
+    @pytest.fixture
+    def controller(self, mock_generation_orchestrator, mock_generation_history_manager, mock_file_service, mock_run_report_recorder):
+        return GenerationController(
+            mock_generation_orchestrator,
+            mock_generation_history_manager,
+            mock_file_service,
+            mock_run_report_recorder
+        )
+
+    @pytest.mark.asyncio
+    async def test_count_reports_the_repository_matches_scoped_to_the_current_user(self, controller, mock_current_user):
+        with patch('src.features.generation.routes.generation_repo') as mock_repo:
+            mock_repo.find_by_criteria.return_value = [("g1", "u"), ("g2", "u")]
+            request = BulkDeleteByCriteriaRequest(older_than_days=30)
+
+            result = await controller.count_generations_by_criteria(request, mock_current_user)
+
+            assert result.success is True
+            assert result.data == {"count": 2}
+            mock_repo.find_by_criteria.assert_called_once_with(
+                user_id=mock_current_user.id, tag_ids=None, older_than_days=30,
+                created_from=None, created_to=None, without_media=False, statuses=None, keep_favorites=True,
+            )
+
+    @pytest.mark.asyncio
+    async def test_count_rejects_an_unknown_status(self, controller, mock_current_user):
+        request = BulkDeleteByCriteriaRequest(statuses=["pending"])
+
+        with pytest.raises(HTTPException) as exc_info:
+            await controller.count_generations_by_criteria(request, mock_current_user)
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail['error'] == "validation_error"
+
+    @pytest.mark.asyncio
+    async def test_count_propagates_invalid_tag(self, controller, mock_current_user):
+        controller.history_query._validate_tag_ids.side_effect = InvalidTagException("bad tag")
+        request = BulkDeleteByCriteriaRequest(tag_ids=["bad"])
+
+        with pytest.raises(HTTPException) as exc_info:
+            await controller.count_generations_by_criteria(request, mock_current_user)
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail['error'] == "invalid_tag"
+        controller.history_query._validate_tag_ids.assert_called_once_with(["bad"], mock_current_user.id)
+
+    @pytest.mark.asyncio
+    async def test_delete_with_no_criteria_is_refused(self, controller, mock_current_user):
+        request = BulkDeleteByCriteriaRequest()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await controller.bulk_delete_by_criteria(request, mock_current_user)
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail['error'] == "no_criteria"
+
+    @pytest.mark.asyncio
+    async def test_delete_deletes_matches_scoped_to_the_current_user(self, controller, mock_current_user):
+        with patch('src.features.generation.routes.generation_repo') as mock_repo:
+            mock_repo.find_by_criteria.return_value = [("g1", mock_current_user.id)]
+            controller.history_facade.bulk_delete.return_value = {"deleted_count": 1, "total_files_deleted": 2}
+            request = BulkDeleteByCriteriaRequest(without_media=True)
+
+            result = await controller.bulk_delete_by_criteria(request, mock_current_user)
+
+            assert result.success is True
+            assert result.data == {"deleted_count": 1, "files_deleted": 2}
+            controller.history_facade.bulk_delete.assert_called_once_with(["g1"], mock_current_user.id)
+
+    @pytest.mark.asyncio
+    async def test_delete_propagates_bulk_delete_blocked(self, controller, mock_current_user):
+        with patch('src.features.generation.routes.generation_repo') as mock_repo:
+            mock_repo.find_by_criteria.return_value = [("g1", mock_current_user.id)]
+            controller.history_facade.bulk_delete.side_effect = GenerationDeleteFailedException("blocked")
+            request = BulkDeleteByCriteriaRequest(without_media=True)
+
+            with pytest.raises(HTTPException) as exc_info:
+                await controller.bulk_delete_by_criteria(request, mock_current_user)
+
+            assert exc_info.value.detail['error'] == "bulk_delete_blocked"
 
 
 class TestGenerationHistoryFilesIntegration:

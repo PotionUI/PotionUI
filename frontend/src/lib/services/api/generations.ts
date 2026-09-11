@@ -25,6 +25,16 @@ interface UploadedGenerationFile {
 	file_size?: number;
 }
 
+export interface BulkDeleteByCriteriaRequest {
+	tag_ids?: string[];
+	older_than_days?: number;
+	created_from?: string;
+	created_to?: string;
+	without_media?: boolean;
+	statuses?: string[];
+	keep_favorites?: boolean;
+}
+
 export function createGenerationsApi(client: AxiosInstance) {
 	return {
 		async startGeneration(
@@ -274,17 +284,17 @@ export function createGenerationsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async countGenerationsByTags(tagIds: string[]): Promise<APIResponse<{ count: number }>> {
-			const response = await client.post('/api/generations/history/count-by-tags', {
-				tag_ids: tagIds
-			});
+		async countGenerationsByCriteria(
+			criteria: BulkDeleteByCriteriaRequest
+		): Promise<APIResponse<{ count: number }>> {
+			const response = await client.post('/api/generations/history/count-by-criteria', criteria);
 			return response.data;
 		},
 
-		async bulkDeleteByTags(tagIds: string[]): Promise<APIResponse<any>> {
-			const response = await client.post('/api/generations/history/bulk-delete-by-tags', {
-				tag_ids: tagIds
-			});
+		async bulkDeleteByCriteria(
+			criteria: BulkDeleteByCriteriaRequest
+		): Promise<APIResponse<{ deleted_count: number; files_deleted: number }>> {
+			const response = await client.post('/api/generations/history/bulk-delete-by-criteria', criteria);
 			return response.data;
 		},
 

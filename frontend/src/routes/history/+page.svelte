@@ -29,7 +29,7 @@
 	import HistoryDeleteModal from './components/HistoryDeleteModal.svelte';
 	import HistoryAddTagModal from './components/HistoryAddTagModal.svelte';
 	import HistoryBulkDeleteModal from './components/HistoryBulkDeleteModal.svelte';
-	import HistoryDeleteByTagsModal from './components/HistoryDeleteByTagsModal.svelte';
+	import HistoryDeleteByCriteriaModal from './components/HistoryDeleteByCriteriaModal.svelte';
 	import HistoryToolHost from './components/HistoryToolHost.svelte';
 	import { registerCoreHistoryTools } from './tools/coreTools';
 	import { loadPluginHistoryTools } from '$lib/history/pluginTools';
@@ -43,7 +43,7 @@
 	let showAddTagModal = false;
 	let showBulkDeleteModal = false;
 	let showUploadModal = false;
-	let showDeleteByTagsModal = false;
+	let showDeleteByCriteriaModal = false;
 	let sidebarOpen = true;
 
 	// The tool picked from the selection bar's Tools menu, with the selection
@@ -273,7 +273,7 @@
 			<HistoryToolbar
 				onOpenUpload={() => (showUploadModal = true)}
 				onOpenAddTag={() => (showAddTagModal = true)}
-				onOpenDeleteByTags={() => (showDeleteByTagsModal = true)}
+				onOpenDeleteByCriteria={() => (showDeleteByCriteriaModal = true)}
 			/>
 			<HistoryTagsBar />
 		</div>
@@ -322,9 +322,9 @@
 	<HistoryBulkDeleteModal onClose={() => (showBulkDeleteModal = false)} />
 {/if}
 
-<!-- Delete by Tags Modal -->
-{#if showDeleteByTagsModal}
-	<HistoryDeleteByTagsModal onClose={() => (showDeleteByTagsModal = false)} />
+<!-- Delete by Criteria Modal -->
+{#if showDeleteByCriteriaModal}
+	<HistoryDeleteByCriteriaModal onClose={() => (showDeleteByCriteriaModal = false)} />
 {/if}
 
 <!-- The one mount point for whichever tool the Tools menu picked -->

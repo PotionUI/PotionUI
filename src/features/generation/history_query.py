@@ -734,23 +734,6 @@ class GenerationHistoryQuery:
 
         return merged_params, merged_models
 
-    def count_generations_by_tags(self, tag_ids: List[str], user_id: str) -> int:
-        """Count generations that have ALL specified tags (for confirmation UI).
-
-        Args:
-            tag_ids: List of tag IDs (AND logic)
-            user_id: The user ID for ownership verification
-
-        Returns:
-            Number of matching generations
-        """
-        if not tag_ids:
-            return 0
-        self._validate_tag_ids(tag_ids, user_id)
-        from src.features.tags.repository import tag_repo
-        generation_ids = tag_repo.get_generations_by_tags(tag_ids, user_id)
-        return len(generation_ids)
-
     def get_tags(self, generation_id: str, user_id: str) -> List[Dict[str, Any]]:
         """Get all tags for a generation.
 

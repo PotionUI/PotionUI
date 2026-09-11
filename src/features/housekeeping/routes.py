@@ -4,12 +4,12 @@ from typing import TYPE_CHECKING, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from src.features.generation.status_tracker import TERMINAL_STATES
-from src.features.housekeeping.generations import (
+from src.features.generation.criteria_delete import (
     GenerationDeleteCriteria,
     delete_generations,
     preview_generations,
 )
+from src.features.generation.status_tracker import TERMINAL_STATES
 from src.features.housekeeping.worker import HousekeepingRunning, HousekeepingWorker
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_admin_user

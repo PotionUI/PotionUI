@@ -125,10 +125,12 @@ jobs:
       # owner registration, a presets listing, `status`, `stop`, and confirm
       # the process tree is actually gone. This is the actual proof of a
       # native Windows boot - not just doctor's static checks.
+      # cmd.exe for the same reason as the pytest job's step: a harness
+      # warning on stderr must not end the step under pwsh's stop preference.
       - name: Install matrix (remote profile) - real boot on Windows
+        shell: cmd
         run: |
           python tests/install/run.py --profiles remote --from-git HEAD --root "${{ runner.temp }}\potionui-install-smoke" --json report.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload install-smoke report + logs (Windows)
         if: always()
@@ -183,25 +185,25 @@ jobs:
       # `if: always()`, so a red pytest here still ships its junit/log -
       # this job stays required (no continue-on-error) because the maintainer
       # needs the real signal, not a green badge.
+      # cmd.exe, not pwsh, on purpose: GitHub runs pwsh steps with
+      # $ErrorActionPreference = 'stop', and a native command's stderr piped
+      # through `2>&1 |` there can end the step on its first stderr line -
+      # the first run died silently at 19% with exit code 1 the moment a
+      # test logged to stderr. cmd's file redirection is byte-faithful and
+      # has no such semantics; the log is printed afterwards and uploaded
+      # below even when pytest fails.
       - name: pytest (Windows-sensitive subset, CPU-only, no GPU/model-file/gc-sensitive tests)
+        shell: cmd
         env:
           PYTHONUNBUFFERED: "1"
           OMP_NUM_THREADS: "1"
           MKL_NUM_THREADS: "1"
           OPENBLAS_NUM_THREADS: "1"
         run: |
-          $testPaths = "tests/architecture tests/scripts tests/platform/security tests/platform/filesystem tests/features/downloads tests/features/fields tests/features/settings tests/install/test_run.py".Split(" ")
-          python -m pytest $testPaths -v --timeout=120 -m "not requires_gpu and not requires_models and not gc_sensitive" --junitxml=junit-windows.xml 2>&1 | Tee-Object -FilePath pytest-windows.log
-          exit $LASTEXITCODE
-
-      # pytest-timeout on Windows can only use its thread method, which ends
-      # the process with os._exit after dumping every thread's stack, so a
-      # hang leaves no summary and no junit file; the verbose log above is
-      # then the only record of which test hung, and this tail puts it in
-      # the job view without opening the artifact.
-      - name: Tail of the pytest log (on failure)
-        if: failure()
-        run: Get-Content pytest-windows.log -Tail 150
+          python -m pytest tests/architecture tests/scripts tests/platform/security tests/platform/filesystem tests/features/downloads tests/features/fields tests/features/settings tests/install/test_run.py -v --timeout=120 -m "not requires_gpu and not requires_models and not gc_sensitive" --junitxml=junit-windows.xml > pytest-windows.log 2>&1
+          set PYTEST_EXIT=%ERRORLEVEL%
+          type pytest-windows.log
+          exit /b %PYTEST_EXIT%
 
       - name: Upload pytest results (Windows)
         if: always()

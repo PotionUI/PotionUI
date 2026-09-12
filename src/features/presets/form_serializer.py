@@ -294,7 +294,7 @@ class PresetFormSerializer:
             return []
 
         try:
-            with open(children_file, 'r') as f:
+            with open(children_file, 'r', encoding='utf-8') as f:
                 children_data = yaml.load(f, Loader=yaml.FullLoader)
 
             # Convert to FieldTemplate objects

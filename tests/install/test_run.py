@@ -12,12 +12,17 @@ import pytest
 from tests.install import run as install_run
 
 
+@pytest.fixture(autouse=True)
+def _posix_by_default(monkeypatch):
+    monkeypatch.setattr(install_run, "is_windows", lambda: False)
+
+
 # ---------------------------------------------------------------------------
 # potionui_launcher
 # ---------------------------------------------------------------------------
 
 def test_potionui_launcher_posix_uses_relative_bash_shim(monkeypatch, tmp_path):
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(install_run, "is_windows", lambda: False)
     assert install_run.potionui_launcher(tmp_path) == ["./potionui"]
 
 
@@ -26,7 +31,7 @@ def test_potionui_launcher_windows_routes_through_cmd_with_absolute_path(monkeyp
     # 193 — CreateProcess only runs PE binaries), and a bare relative name
     # would resolve against the *parent* process's cwd, not the `cwd=`
     # given to subprocess — both are why this isn't just ["potionui.cmd"].
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(install_run, "is_windows", lambda: True)
     checkout_dir = tmp_path / "checkout-remote"
     assert install_run.potionui_launcher(checkout_dir) == [
         "cmd", "/c", str(checkout_dir / "potionui.cmd"),
@@ -38,7 +43,7 @@ def test_potionui_launcher_windows_routes_through_cmd_with_absolute_path(monkeyp
 # ---------------------------------------------------------------------------
 
 def test_pid_alive_windows_dispatches_to_ctypes_probe_never_os_kill(monkeypatch):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(install_run, "is_windows", lambda: True)
 
     def boom(*_a, **_k):
         raise AssertionError("os.kill must never be called on Windows")
@@ -49,7 +54,7 @@ def test_pid_alive_windows_dispatches_to_ctypes_probe_never_os_kill(monkeypatch)
 
 
 def test_pid_alive_posix_still_uses_os_kill(monkeypatch):
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(install_run, "is_windows", lambda: False)
     assert install_run.pid_alive(2**30) is False  # astronomically unlikely to exist
 
 

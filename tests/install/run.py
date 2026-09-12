@@ -45,6 +45,10 @@ from typing import Callable, Optional
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def is_windows() -> bool:
+    return os.name == "nt"
+
+
 def potionui_launcher(checkout_dir: Path) -> list:
     """The `./potionui <args>` invocation for the current platform.
 
@@ -61,7 +65,7 @@ def potionui_launcher(checkout_dir: Path) -> list:
     relative "./potionui" resolves against the child's own post-fork cwd,
     and the kernel executes the interpreter named on its shebang line
     directly), so it keeps the existing relative, shell-less form."""
-    if os.name == "nt":
+    if is_windows():
         return ["cmd", "/c", str(checkout_dir / "potionui.cmd")]
     return ["./potionui"]
 
@@ -315,7 +319,7 @@ def _pid_alive_windows(pid: int) -> bool:
 
 
 def pid_alive(pid: int) -> bool:
-    if os.name == "nt":
+    if is_windows():
         return _pid_alive_windows(pid)
     try:
         os.kill(pid, 0)
@@ -341,7 +345,7 @@ def build_core_phases(profile: str, checkout_dir: Path, log_dir: Path, ports: tu
             materialize_from_dir(Path(args.from_dir).resolve(), checkout_dir)
         else:
             materialize_from_git(args.from_git, checkout_dir)
-        if os.name != "nt":
+        if not is_windows():
             (checkout_dir / "potionui").chmod(0o755)  # potionui.cmd needs no execute bit on Windows
         if args.reuse_venv:
             venv_src = Path(args.reuse_venv).resolve()
@@ -470,7 +474,7 @@ def build_worker_phases(checkout_dir: Path, log_dir: Path, port: int, env: dict,
             materialize_from_dir(Path(args.from_dir).resolve(), checkout_dir)
         else:
             materialize_from_git(args.from_git, checkout_dir)
-        if os.name != "nt":
+        if not is_windows():
             (checkout_dir / "potionui").chmod(0o755)  # potionui.cmd needs no execute bit on Windows
         if args.reuse_venv:
             venv_src = Path(args.reuse_venv).resolve()

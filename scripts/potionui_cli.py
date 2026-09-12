@@ -177,20 +177,26 @@ PYTHON_VERSION_PROBE_CODE = "import sys; print('%d.%d.%d' % sys.version_info[:3]
 # ---------------------------------------------------------------------------
 # Platform seam: every POSIX/Windows difference in venv layout, interpreter
 # discovery, and process supervision funnels through the handful of
-# functions below (keyed on `os.name`) instead of being checked ad hoc at
+# functions below (keyed on `is_windows()`) instead of being checked ad hoc at
 # each call site.
 # ---------------------------------------------------------------------------
+
+def is_windows() -> bool:
+    """The one platform switch. Tests patch this rather than `os.name`,
+    which pathlib's Path dispatch also reads."""
+    return os.name == "nt"
+
 
 def venv_python(repo_root: Path) -> Path:
     """Path to the venv's python interpreter. POSIX layout is
     venv/bin/python; a Windows venv is laid out venv\\Scripts\\python.exe."""
-    if os.name == "nt":
+    if is_windows():
         return repo_root / "venv" / "Scripts" / "python.exe"
     return repo_root / "venv" / "bin" / "python"
 
 
 def venv_pip(repo_root: Path) -> Path:
-    if os.name == "nt":
+    if is_windows():
         return repo_root / "venv" / "Scripts" / "pip.exe"
     return repo_root / "venv" / "bin" / "pip"
 
@@ -199,13 +205,13 @@ def activate_hint(repo_root: Optional[Path] = None) -> str:
     """The shell command a human would run to activate ./venv, for repair
     hints. cmd.exe accepts `&&` for chaining the same as POSIX shells, so
     callers can join this with a following command uniformly."""
-    if os.name == "nt":
+    if is_windows():
         return r"venv\Scripts\activate"
     return "source venv/bin/activate"
 
 
 def python_candidates_for_platform() -> tuple:
-    return WINDOWS_PYTHON_CANDIDATES if os.name == "nt" else PYTHON_CANDIDATES
+    return WINDOWS_PYTHON_CANDIDATES if is_windows() else PYTHON_CANDIDATES
 
 
 def python_argv(python_bin) -> list[str]:
@@ -346,7 +352,7 @@ def check_venv(probe, repo_root: Path) -> CheckResult:
     venv_python_path = venv_python(repo_root)
     if probe.path_exists(venv_python_path):
         return CheckResult("VENV", Severity.OK, f"Virtualenv present at {venv_python_path.parent.parent}.", blocking=False)
-    manual_create = "py -3.12 -m venv venv" if os.name == "nt" else "python3.12 -m venv venv"
+    manual_create = "py -3.12 -m venv venv" if is_windows() else "python3.12 -m venv venv"
     return CheckResult(
         "VENV",
         Severity.WARNING,
@@ -364,7 +370,7 @@ def backend_pip_install_args(repo_root: Path) -> list[str]:
     args = ["install", "-r", "requirements.txt"]
     if (repo_root / CONSTRAINTS_FILE).exists():
         args += ["-c", CONSTRAINTS_FILE]
-    if os.name == "nt":
+    if is_windows():
         # constraints.txt pins the nvidia-cu13-*/triton Linux CUDA closure,
         # which plain PyPI torch cannot satisfy on Windows — the CUDA 13.0
         # Windows wheels live on PyTorch's own index instead.
@@ -879,7 +885,7 @@ def run_streamed(cmd: list[str], cwd: Path, env: dict, label: str) -> bool:
 def spawn_process(cmd: list[str], cwd: Path, env: dict, log_path: Path) -> subprocess.Popen:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_file = open(log_path, "ab", buffering=0)
-    if os.name == "nt":
+    if is_windows():
         # Windows has no process groups à la POSIX start_new_session; a new
         # process group plus no attached console is what lets stop_process's
         # `taskkill /T` reach the whole tree (npm spawns vite as a child)
@@ -943,7 +949,7 @@ def _pid_alive_windows(pid: int) -> bool:
 
 
 def pid_alive(pid: int) -> bool:
-    if os.name == "nt":
+    if is_windows():
         return _pid_alive_windows(pid)
     try:
         os.kill(pid, 0)
@@ -972,7 +978,7 @@ def stop_process(pid: int, timeout: float = 10.0, sleeper: Callable[[float], Non
     """Terminate the process (tree) led by `pid`. Returns True once it's confirmed gone."""
     if not pid_alive(pid):
         return True
-    if os.name == "nt":
+    if is_windows():
         return _stop_process_windows(pid, timeout, sleeper, clock)
     try:
         os.killpg(pid, signal.SIGTERM)

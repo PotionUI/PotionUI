@@ -238,7 +238,7 @@ def load_tests_yml(preset_dir: Path) -> Optional[PresetTests]:
 
     prefix = str(tests_file)
     try:
-        with open(tests_file, "r") as f:
+        with open(tests_file, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
     except Exception as exc:  # noqa: BLE001
         raise TestsYmlError(f"{prefix}: failed to parse YAML: {exc}") from exc

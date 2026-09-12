@@ -80,7 +80,7 @@ class Resolution(BaseField):
             if not file_path_obj.exists():
                 print(f"Warning: Resolution file not found: {file_path}")
                 return []
-            with open(file_path_obj, 'r') as f:
+            with open(file_path_obj, 'r', encoding='utf-8') as f:
                 file_data = yaml.safe_load(f)
                 if isinstance(file_data, list):
                     return file_data

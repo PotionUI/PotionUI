@@ -5,6 +5,9 @@ rem - checks, process supervision, readiness polling - lives in
 rem scripts\potionui_cli.py so it stays unit-testable. See README.md's
 rem quickstart and CLAUDE.md for the project overview.
 setlocal
+rem UTF-8 for every Python this starts (the CLI, venv creation, pip, the
+rem backend): Windows otherwise reads text files in the legacy code page.
+set "PYTHONUTF8=1"
 
 set "SCRIPT_DIR=%~dp0"
 set "PYCHECK=import sys; sys.exit(0 if sys.version_info[:2] >= (3, 12) else 1)"

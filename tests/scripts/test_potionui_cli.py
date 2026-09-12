@@ -16,6 +16,14 @@ import pytest
 from scripts import potionui_cli as cli
 
 
+@pytest.fixture(autouse=True)
+def _posix_by_default(monkeypatch):
+    """Every test here describes POSIX behaviour unless it patches the
+    switch itself; without this pin the suite reads the host and the
+    Windows CI job takes the other branch of every seam."""
+    monkeypatch.setattr(cli, "is_windows", lambda: False)
+
+
 # ---------------------------------------------------------------------------
 # FakeProbe
 # ---------------------------------------------------------------------------
@@ -128,12 +136,12 @@ def test_check_python_prefers_newer_candidate_order():
 # ---------------------------------------------------------------------------
 
 def test_python_candidates_for_platform_posix_is_unchanged(monkeypatch):
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(cli, "is_windows", lambda: False)
     assert cli.python_candidates_for_platform() == cli.PYTHON_CANDIDATES
 
 
 def test_python_candidates_for_platform_windows_uses_py_launcher(monkeypatch):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
     assert cli.python_candidates_for_platform() == cli.WINDOWS_PYTHON_CANDIDATES
     assert cli.WINDOWS_PYTHON_CANDIDATES == (("py", "-3.13"), ("py", "-3.12"), "python")
 
@@ -171,7 +179,7 @@ def test_probe_python_candidates_falls_back_to_plain_python_on_windows():
 
 
 def test_check_python_windows_py_launcher_display_includes_flag(monkeypatch):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
     probe = FakeProbe(
         which={"py": "C:\\Windows\\py.exe"},
         run={
@@ -256,7 +264,7 @@ def test_backend_pip_install_args_no_gpu_uses_cpu_requirements_and_index():
 
 
 def test_backend_pip_install_args_windows_adds_cuda_index(monkeypatch, tmp_path):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
     (tmp_path / "constraints.txt").write_text("torch==2.12.1\n")
     assert cli.backend_pip_install_args(tmp_path) == [
         "install", "-r", "requirements.txt", "-c", "constraints.txt",
@@ -273,7 +281,7 @@ def test_backend_pip_install_args_posix_has_no_cuda_index(tmp_path):
 
 def test_backend_pip_install_args_no_gpu_unaffected_by_windows(monkeypatch):
     # the CPU index is the same wheel set regardless of host OS.
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
     assert cli.backend_pip_install_args_no_gpu() == [
         "install", "-r", "requirements-cpu.txt",
         "--extra-index-url", "https://download.pytorch.org/whl/cpu",
@@ -289,7 +297,7 @@ def test_venv_python_posix_layout(tmp_path):
 
 
 def test_venv_python_windows_layout(monkeypatch, tmp_path):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
     assert cli.venv_python(tmp_path) == tmp_path / "venv" / "Scripts" / "python.exe"
 
 
@@ -298,7 +306,7 @@ def test_venv_pip_posix_layout(tmp_path):
 
 
 def test_venv_pip_windows_layout(monkeypatch, tmp_path):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
     assert cli.venv_pip(tmp_path) == tmp_path / "venv" / "Scripts" / "pip.exe"
 
 
@@ -307,24 +315,20 @@ def test_activate_hint_posix():
 
 
 def test_activate_hint_windows(monkeypatch):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
     assert cli.activate_hint() == r"venv\Scripts\activate"
 
 
 def test_check_venv_repair_is_platform_specific(monkeypatch, tmp_path):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
     result = cli.check_venv(FakeProbe(), tmp_path)
     assert "py -3.12 -m venv venv" in result.repair
     assert "python3.12 -m venv venv" not in result.repair
 
 
 def test_check_backend_deps_repair_uses_windows_activation(monkeypatch, tmp_path):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
     venv_python_path = tmp_path / "venv" / "Scripts" / "python.exe"
-    # FakeProbe.path_exists's `Path(path) in self._exists` re-derives a
-    # WindowsPath once os.name reads "nt" (pathlib.Path.__new__ dispatches
-    # on it dynamically) — incomparable to the PosixPath this test's own
-    # `tmp_path` produces, so match by string instead of by Path identity.
     probe = FakeProbe(exists={str(venv_python_path)}, run={str(venv_python_path): cp(returncode=1)})
     result = cli.check_backend_deps(probe, tmp_path)
     assert result.repair.startswith(r"venv\Scripts\activate &&")
@@ -743,21 +747,21 @@ def _forbid_os_kill(monkeypatch):
 
 
 def test_pid_alive_windows_dispatches_to_ctypes_probe(monkeypatch):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
     _forbid_os_kill(monkeypatch)
     monkeypatch.setattr(cli, "_pid_alive_windows", lambda pid: True)
     assert cli.pid_alive(4242) is True
 
 
 def test_pid_alive_windows_false_from_ctypes_probe(monkeypatch):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
     _forbid_os_kill(monkeypatch)
     monkeypatch.setattr(cli, "_pid_alive_windows", lambda pid: False)
     assert cli.pid_alive(4242) is False
 
 
 def test_stop_process_windows_dispatches_to_taskkill_never_os_kill(monkeypatch):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
     _forbid_os_kill(monkeypatch)
 
     run_calls = []
@@ -788,7 +792,7 @@ def test_stop_process_windows_dispatches_to_taskkill_never_os_kill(monkeypatch):
 
 
 def test_stop_process_windows_returns_true_once_loop_detects_death(monkeypatch):
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
     _forbid_os_kill(monkeypatch)
 
     run_calls = []
@@ -819,7 +823,7 @@ def test_stop_process_windows_returns_true_once_loop_detects_death(monkeypatch):
 
 def test_spawn_process_posix_uses_start_new_session(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "LOG_DIR", tmp_path / "logs")
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(cli, "is_windows", lambda: False)
     captured = {}
 
     class FakePopen2:
@@ -835,7 +839,7 @@ def test_spawn_process_posix_uses_start_new_session(monkeypatch, tmp_path):
 
 def test_spawn_process_windows_uses_creationflags_not_start_new_session(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "LOG_DIR", tmp_path / "logs")
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
     monkeypatch.setattr(cli.subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200, raising=False)
     monkeypatch.setattr(cli.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
     captured = {}
@@ -856,7 +860,7 @@ def test_spawn_process_windows_creationflags_default_zero_when_constants_absent(
     # interpreter) has neither constant — proves the getattr(..., 0) guards
     # keep this importable/runnable on Linux instead of raising AttributeError.
     monkeypatch.setattr(cli, "LOG_DIR", tmp_path / "logs")
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
     monkeypatch.delattr(cli.subprocess, "CREATE_NEW_PROCESS_GROUP", raising=False)
     monkeypatch.delattr(cli.subprocess, "CREATE_NO_WINDOW", raising=False)
     captured = {}

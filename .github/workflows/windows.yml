@@ -185,13 +185,23 @@ jobs:
       # needs the real signal, not a green badge.
       - name: pytest (Windows-sensitive subset, CPU-only, no GPU/model-file/gc-sensitive tests)
         env:
+          PYTHONUNBUFFERED: "1"
           OMP_NUM_THREADS: "1"
           MKL_NUM_THREADS: "1"
           OPENBLAS_NUM_THREADS: "1"
         run: |
           $testPaths = "tests/architecture tests/scripts tests/platform/security tests/platform/filesystem tests/features/downloads tests/features/fields tests/features/settings tests/install/test_run.py".Split(" ")
-          python -m pytest $testPaths -q --timeout=300 -m "not requires_gpu and not requires_models and not gc_sensitive" --junitxml=junit-windows.xml 2>&1 | Tee-Object -FilePath pytest-windows.log
+          python -m pytest $testPaths -v --timeout=120 -m "not requires_gpu and not requires_models and not gc_sensitive" --junitxml=junit-windows.xml 2>&1 | Tee-Object -FilePath pytest-windows.log
           exit $LASTEXITCODE
+
+      # pytest-timeout on Windows can only use its thread method, which ends
+      # the process with os._exit after dumping every thread's stack, so a
+      # hang leaves no summary and no junit file; the verbose log above is
+      # then the only record of which test hung, and this tail puts it in
+      # the job view without opening the artifact.
+      - name: Tail of the pytest log (on failure)
+        if: failure()
+        run: Get-Content pytest-windows.log -Tail 150
 
       - name: Upload pytest results (Windows)
         if: always()

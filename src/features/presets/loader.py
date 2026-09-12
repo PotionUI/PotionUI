@@ -238,7 +238,7 @@ class PresetTemplateLoader:
         errors: List[str] = []
 
         try:
-            with open(preset_path, 'r') as f:
+            with open(preset_path, 'r', encoding='utf-8') as f:
                 data = yaml.safe_load(f) or {}
         except Exception as e:
             errors.append(f"preset.yml: failed to read/parse: {e}")
@@ -272,7 +272,7 @@ class PresetTemplateLoader:
         if description is None:
             description_file = preset_path.with_name('description.md')
             if description_file.exists():
-                with open(description_file, 'r') as df:
+                with open(description_file, 'r', encoding='utf-8') as df:
                     description = df.read()
 
         speed_profiles = None
@@ -334,7 +334,7 @@ class PresetTemplateLoader:
             return [], dict(self._NO_STYLES_PREVIEW)
 
         try:
-            with open(styles_file, 'r') as f:
+            with open(styles_file, 'r', encoding='utf-8') as f:
                 data = yaml.safe_load(f) or {}
         except Exception as e:
             logger.error(f"Error loading styles for preset {preset_path}: failed to parse styles.yml: {e}")
@@ -366,7 +366,7 @@ class PresetTemplateLoader:
             return None, [f"modes/{mode_name}/pipeline.yml: file not found"]
 
         try:
-            with open(pipeline_file, 'r') as pf:
+            with open(pipeline_file, 'r', encoding='utf-8') as pf:
                 pipeline_data = yaml.safe_load(pf) or {}
         except Exception as e:
             return None, [f"modes/{mode_name}/pipeline.yml: failed to parse: {e}"]
@@ -417,7 +417,7 @@ class PresetTemplateLoader:
             form_file = form_dir / 'form.yml'
 
             try:
-                with open(form_file, 'r') as ff:
+                with open(form_file, 'r', encoding='utf-8') as ff:
                     form_data = yaml.safe_load(ff) or {}
             except Exception as e:
                 errors.append(f"modes/{mode_name}/{loc}form.yml: failed to parse: {e}")
@@ -564,7 +564,9 @@ class PresetTemplateLoader:
 
         children = field_data.get('children')
         if isinstance(children, str):
-            resolved_path = _CHILDREN_PATH_VAR_RE.sub(str(preset_root), children)
+            # A replacement callable keeps the path literal: as a template
+            # string, a Windows root's backslashes would be parsed as escapes.
+            resolved_path = _CHILDREN_PATH_VAR_RE.sub(lambda _m: str(preset_root), children)
             external_fields = self._load_external_children_file(Path(resolved_path), prefix)
             field_data['children'] = [
                 self._build_field_template(c, preset_root, prefix) for c in external_fields
@@ -587,7 +589,7 @@ class PresetTemplateLoader:
         if not children_file.exists():
             raise ValueError(f"external children file not found: {children_file}")
 
-        with open(children_file, 'r') as f:
+        with open(children_file, 'r', encoding='utf-8') as f:
             children_data = yaml.safe_load(f) or {}
 
         raw_fields = children_data.get('fields', [])

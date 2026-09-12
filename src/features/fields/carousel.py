@@ -377,7 +377,7 @@ configuration:
         try:
             file_path_obj = Path(resolved_path)
             if file_path_obj.exists():
-                with open(file_path_obj, 'r') as f:
+                with open(file_path_obj, 'r', encoding='utf-8') as f:
                     file_data = yaml.safe_load(f)
                     items.extend(self._parse_yaml_items(file_data))
         except Exception as e:

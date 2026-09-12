@@ -62,6 +62,54 @@ first's for the whole session. Locally:
 PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/plugins/run_suites.py -q --no-cov
 ```
 
+## Windows CI
+
+`.github/workflows/windows.yml` runs on `windows-latest` — this is the
+**only** Windows test bed PotionUI has; there is no Windows development
+machine behind the project. Treat a red run here as real signal, not flake:
+nothing in this repo has ever been proven to work on Windows outside of it.
+
+What it proves:
+
+- `doctor` — `potionui.cmd doctor` (human-readable and `--json`) sees a
+  healthy toolchain on a fresh Windows checkout.
+- `install-smoke-remote` — a real end-to-end boot of the `remote` install
+  profile (CPU-only PyTorch) via `tests/install/run.py`: install, backend
+  start, `/health`, owner registration, a presets listing, `status`, `stop`,
+  and that the process tree is actually gone. This is the actual proof of a
+  native Windows boot, not just static checks.
+- `backend-tests` — a **named subset** of the pytest suite (not the full
+  tree — that stays `ubuntu-only` via `backend-tests.yml`) covering the
+  Windows-sensitive areas: `tests/architecture`, `tests/scripts`,
+  `tests/platform/security`, `tests/platform/filesystem`,
+  `tests/features/downloads`, `tests/features/fields`,
+  `tests/features/settings`, and `tests/install/test_run.py`. It runs
+  sequentially (no `xdist`) since this is the first Windows run ever and a
+  plain pass gives the most honest signal. A failing run still uploads its
+  `junit-windows.xml`/log as an artifact — the job is intentionally not
+  `continue-on-error`, because the maintainer needs the failure, not a green
+  badge.
+
+What it does **not** prove:
+
+- GPU generation. `windows-latest` has no NVIDIA GPU, so the `doctor` job's
+  GPU row is an expected non-blocking warning, and no preset ever actually
+  renders here. Real GPU validation on Windows needs a maintainer or
+  community report from real hardware.
+- The full backend suite. The subset above was picked for Windows-specific
+  risk (path handling, file permissions, the install harness); most of
+  `tests/` is still Linux-only signal.
+
+POSIX-only assertions in the subset are gated, not skipped wholesale:
+`tests/platform/security/test_config.py`, `test_secrets.py` and
+`test_claim_token.py` assert the `0o600` mode bits of generated secret files
+only when `os.name != "nt"` (Windows `chmod` only toggles the read-only
+attribute, so there is no equivalent bit pattern), and
+`tests/scripts/test_potionui_cli_backup.py::test_backup_exits_one_when_the_storage_tree_is_unusable`
+is skipped on Windows because `Path.chmod(0o500)` does not make a directory
+unwritable there. A new Windows-only failure in this subset is therefore a
+real portability bug until proven otherwise.
+
 ## Backend: known environment noise
 
 These are container/environment artefacts, not regressions caused by your change.

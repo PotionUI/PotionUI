@@ -31,7 +31,8 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 - **Video and Music Directors** — compose shots and songs in sections instead
   of one giant prompt.
 
-*Alpha 0.0.7 · Linux x86_64 + NVIDIA · Windows via WSL2 or Docker ·
+*Alpha 0.0.7 · Linux x86_64 + NVIDIA · Windows via WSL2 or Docker (native
+experimental) ·
 [Discord](https://discord.gg/avR4trp3b8) · [Ko-fi](https://ko-fi.com/A3B325D031)*
 
 ## 60 seconds to first image
@@ -218,8 +219,12 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 
 > [!IMPORTANT]
 > **Runs on Linux x86_64 with an NVIDIA GPU** — that's the tested 0.0.7
-> matrix. On Windows, use WSL2 or Docker Desktop (native Windows won't even
-> install yet). Details in [Supported platforms](#supported-platforms).
+> matrix. Native Windows is experimental as of 0.0.8: the remote/CPU install
+> profile is verified in CI on `windows-latest`, but the GPU generation path
+> is untested on real Windows hardware — see
+> [Windows (native)](#windows-native) below. WSL2 and Docker Desktop remain
+> the safer Windows options today. Details in
+> [Supported platforms](#supported-platforms).
 
 PotionUI can generate on this machine's GPU, dispatch to a remote worker, or
 both — the `./potionui` CLI has an install preset for each.
@@ -257,10 +262,51 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 | --------------------------- | ------------------------------------------------------------------------------------------- |
 | Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.7                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
-| Windows native              | No — the install pulls Linux-only packages (e.g. `uvloop`); use WSL2 or Docker Desktop      |
+| Windows native               | Experimental (0.0.8) — CPU/remote profile verified in CI on `windows-latest`; GPU path untested, reports wanted; see [Windows (native)](#windows-native) |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
 | AMD GPU (ROCm)              | No — the pinned dependency stack is CUDA-only                                               |
 | Docker                      | Supported — see below (on Windows, Docker Desktop runs this via WSL2)                       |
+
+### Windows (native)
+
+Experimental as of 0.0.8. There's no Windows development machine behind
+PotionUI, so a `windows-latest` GitHub Actions job
+([`.github/workflows/windows.yml`](.github/workflows/windows.yml)) is the
+only thing that has ever run this on Windows — treat it as early and
+under-tested rather than production-ready.
+
+**Prerequisites:**
+
+- Python 3.12+ from [python.org](https://www.python.org/downloads/windows/)
+  (the `py` launcher works too).
+- Node.js 20.
+- Git.
+- For GPU generation: an NVIDIA driver version 580 or newer (the floor the
+  CUDA 13 torch build in `constraints.txt` needs — see
+  [Hardware Requirements](docs/user/hardware-requirements.md)).
+
+```powershell
+git clone https://github.com/PotionUI/PotionUI.git potionui
+cd potionui
+.\potionui.cmd start
+```
+
+**Verified in CI:** the `remote` install profile (CPU-only PyTorch, no CUDA)
+boots end to end — `doctor`, install, backend start, health check, owner
+registration, preset listing, stop — on a fresh `windows-latest` checkout.
+
+**Not yet verified on real Windows hardware:** GPU generation. Triton and
+`torch.compile` have no Windows wheels, so attention falls back to plain
+SDPA — a graceful, by-design degradation, not a crash, but nobody has
+confirmed a real image/video generation on a Windows GPU box yet.
+
+**Call for testers:** if you try this on a Windows machine with an NVIDIA
+GPU, please open a GitHub issue with:
+
+- The output of `potionui.cmd doctor --json`.
+- The files under `logs/`.
+- The output of `nvidia-smi`.
+- What happened when you generated with the smallest available preset.
 
 ```bash
 docker run --gpus all -p 7680:7680 ghcr.io/potionui/potionui:latest
@@ -279,7 +325,7 @@ setup:
 ```bash
 # Backend
 python -m venv venv
-source venv/bin/activate          # Windows: run inside WSL2 (native isn't supported yet)
+source venv/bin/activate          # Windows (native, experimental): venv\Scripts\activate
 pip install -r requirements.txt -c constraints.txt
 python api.py                     # serves on http://localhost:7680
 

@@ -83,7 +83,7 @@ CONTAINER_NAME="potionui-onboarding-sandbox-$(date +%s)-$$"
 
 # The models depot is a runtime VOLUME - it must never end up in the image.
 # Weight files (*.safetensors etc.) are excluded from the build context by
-# docker/.dockerignore wherever they live, but warn loudly if the depot sits
+# .dockerignore (repo root) wherever they live, but warn loudly if the depot sits
 # inside the repo so a surprise multi-GB "transferring context" is explained.
 case "$MODELS_DIR" in
     "$REPO_ROOT"/*)

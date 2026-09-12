@@ -1,0 +1,204 @@
+name: Windows
+
+# First-generation native-Windows signal. The maintainer has no Windows
+# machine, so this workflow on windows-latest is the ONLY Windows test bed
+# for PotionUI - treat a red run here as real signal, not CI flake, since
+# nothing has ever exercised this path before. It deliberately does not
+# attempt the full pytest suite (see the `backend-tests` job below); this is
+# a first version, expanded once the initial run establishes a baseline.
+#
+# Mirrors the shape of onboarding-smoke.yml / backend-tests.yml (same jobs,
+# same install steps) but on `windows-latest` instead of `ubuntu-latest`, and
+# assumes two things landed as part of the same native-Windows effort:
+#   - `potionui.cmd` exists at the repo root (the Windows counterpart to the
+#     `./potionui` bash launcher).
+#   - `tests/install/run.py` knows to invoke `potionui.cmd` instead of
+#     `./potionui` when running on Windows.
+# If either isn't true yet, every job here fails immediately and loudly
+# rather than silently no-op'ing.
+#
+# GitHub Actions' `pwsh` shell does not fail a step on a nonzero exit code
+# from a native command by default (unlike bash's implicit `-e`) - every
+# step below that runs `potionui.cmd`/`python`/`pip` checks `$LASTEXITCODE`
+# explicitly and re-exits with it, so a real failure fails the step.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  doctor:
+    name: potionui doctor (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Human-readable report in the job log. cmd_doctor's own exit code is
+      # 1 iff any row is severity=error (see scripts/potionui_cli.py); on a
+      # GPU-less windows-latest runner the GPU row is a non-blocking WARNING
+      # (not an error), so this is expected to pass without a GPU present.
+      - name: potionui doctor
+        run: |
+          .\potionui.cmd doctor
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Machine-readable form, asserted the same way (nothing here swallows
+      # the exit code; Tee-Object is a cmdlet and does not reset $LASTEXITCODE).
+      - name: potionui doctor --json
+        run: |
+          .\potionui.cmd doctor --json | Tee-Object -FilePath doctor.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload doctor report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: potionui-doctor-report-windows
+          path: doctor.json
+          retention-days: 14
+
+  install-smoke-remote:
+    name: install smoke (remote profile, Windows real boot)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # tests/install/run.py only needs `requests` importable in this
+      # (invoking) interpreter - the throwaway checkout it materializes
+      # builds its own venv and installs the backend's real dependencies
+      # there, isolated from this one.
+      - name: Install harness dependency (requests)
+        run: |
+          pip install requests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Same reasoning as onboarding-smoke.yml's Linux job: the harness
+      # forces PIP_CACHE_DIR to <root>/pip-cache inside the throwaway
+      # checkout, so actions/setup-python's built-in pip cache would target
+      # the wrong directory. Cache the real one, keyed on requirements-cpu.txt.
+      - name: Cache pip downloads for the throwaway checkout
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\potionui-install-smoke\pip-cache
+          key: install-smoke-remote-windows-pip-${{ hashFiles('requirements-cpu.txt') }}
+          restore-keys: |
+            install-smoke-remote-windows-pip-
+
+      # Real boot, end to end, of the `remote` install profile on Windows:
+      # materialize a throwaway checkout via `git archive` (never this
+      # checkout, its venv, frontend/, or ports 7681/7680), doctor --json,
+      # `potionui.cmd start`, /health, the unclaimed-instance claim token,
+      # owner registration, a presets listing, `status`, `stop`, and confirm
+      # the process tree is actually gone. This is the actual proof of a
+      # native Windows boot - not just doctor's static checks.
+      - name: Install matrix (remote profile) - real boot on Windows
+        run: |
+          python tests/install/run.py --profiles remote --from-git HEAD --root "${{ runner.temp }}\potionui-install-smoke" --json report.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload install-smoke report + logs (Windows)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-smoke-remote-windows-report
+          path: |
+            report.json
+            ${{ runner.temp }}\potionui-install-smoke\logs-remote\
+          retention-days: 14
+
+  backend-tests:
+    # NOT the full suite (that's ubuntu-only via backend-tests.yml) - a named
+    # subset that exercises the Windows-sensitive code: path handling, file
+    # permissions/ownership, downloads, fields, settings, and the install
+    # harness's own pure logic. Grown incrementally once this baseline is
+    # green (or once known-red items are triaged - see docs/testing-notes.md's
+    # "Windows CI" section for two tests in this subset that assert POSIX
+    # file-mode bits and are expected to behave differently here).
+    name: backend pytest (Windows, named subset)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-ci.txt
+            requirements-dev.txt
+
+      # Same CPU-only torch index as backend-tests.yml's Linux job.
+      - name: Install backend dependencies (CPU-only torch)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pip install -r requirements-dev.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pip install pytest-timeout
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # No xdist here (unlike backend-tests.yml's Linux shards): this is the
+      # first Windows run ever, so a plain sequential pass is the simplest
+      # thing that gives an honest signal, with no pooling behaviour to
+      # second-guess on an unproven platform. The upload step below runs
+      # `if: always()`, so a red pytest here still ships its junit/log -
+      # this job stays required (no continue-on-error) because the maintainer
+      # needs the real signal, not a green badge.
+      - name: pytest (Windows-sensitive subset, CPU-only, no GPU/model-file/gc-sensitive tests)
+        env:
+          OMP_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+        run: |
+          $testPaths = "tests/architecture tests/scripts tests/platform/security tests/platform/filesystem tests/features/downloads tests/features/fields tests/features/settings tests/install/test_run.py".Split(" ")
+          python -m pytest $testPaths -q --timeout=300 -m "not requires_gpu and not requires_models and not gc_sensitive" --junitxml=junit-windows.xml 2>&1 | Tee-Object -FilePath pytest-windows.log
+          exit $LASTEXITCODE
+
+      - name: Upload pytest results (Windows)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-tests-windows-report
+          path: |
+            junit-windows.xml
+            pytest-windows.log
+          retention-days: 14

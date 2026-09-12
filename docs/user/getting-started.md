@@ -26,6 +26,10 @@ worker doctor`/`worker start`). See the README's [Install](../../README.md#insta
 section for the full table and commands, and [Remote Native](../remote-native.md)
 for how a worker is wired to the instance that dispatches to it.
 
+Running natively on Windows is experimental as of 0.0.8 — see the README's
+[Windows (native)](../../README.md#windows-native) section for prerequisites,
+what's verified, and what isn't yet.
+
 ## First run: claiming the instance
 
 A freshly installed PotionUI has no accounts at all. The **first** account ever created on it automatically becomes its **owner** — an Administrator account, with no separate setup step. There is no default password to change and nothing to "unlock": you *are* the administrator your instance is waiting for.

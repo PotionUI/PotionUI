@@ -55,7 +55,15 @@ def test_pid_alive_windows_dispatches_to_ctypes_probe_never_os_kill(monkeypatch)
 
 def test_pid_alive_posix_still_uses_os_kill(monkeypatch):
     monkeypatch.setattr(install_run, "is_windows", lambda: False)
-    assert install_run.pid_alive(2**30) is False  # astronomically unlikely to exist
+    probed = {}
+
+    def gone(pid, sig):
+        probed["args"] = (pid, sig)
+        raise ProcessLookupError
+
+    monkeypatch.setattr(os, "kill", gone)
+    assert install_run.pid_alive(2**30) is False
+    assert probed["args"] == (2**30, 0)
 
 
 # ---------------------------------------------------------------------------

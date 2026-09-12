@@ -125,7 +125,7 @@ class StorageSettings:
             return
         if not configured.exists() and default.is_dir():
             logger.warning(
-                "file_storage_directory is set to %r, which does not exist yet, "
+                "file_storage_directory is set to '%s', which does not exist yet, "
                 "while the default './storage' directory does. Every existing "
                 "generation/upload will 404 until this is corrected - check "
                 "Admin -> Settings -> file_storage_directory.",

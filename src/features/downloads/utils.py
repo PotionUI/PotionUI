@@ -36,6 +36,7 @@ write is not defeated by it.
 
 import logging
 import os
+import posixpath
 import re
 from typing import Optional
 from urllib.parse import urlparse, parse_qs, unquote
@@ -180,7 +181,8 @@ def extract_filename_from_url(url: str) -> Optional[str]:
     - response-content-disposition query parameter (used by CDNs like Cloudflare)
     - Path basename
 
-    `unquote` must run BEFORE `os.path.basename`: an encoded segment like
+    `unquote` must run BEFORE `posixpath.basename` (a URL path is POSIX on
+    every host): an encoded segment like
     `..%2F..%2Fetc%2Fcron` carries no raw slash, so basename on the still
     encoded path leaves it whole and decoding afterwards hands back
     `../../etc/cron`. Decoding first makes basename split on the real
@@ -207,7 +209,7 @@ def extract_filename_from_url(url: str) -> Optional[str]:
             return filename
 
     # Fall back to path basename
-    path_filename = os.path.basename(unquote(parsed.path))
+    path_filename = posixpath.basename(unquote(parsed.path))
     if path_filename and '.' in path_filename:
         return derived_download_name(path_filename)
 

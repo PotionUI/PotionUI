@@ -15,6 +15,7 @@ import asyncio
 import fnmatch
 import logging
 import os
+import posixpath
 import threading
 import time
 from datetime import datetime
@@ -122,10 +123,11 @@ class DownloadQueue:
         """Load settings from database."""
         try:
             # Normalised because the stored value may carry a leading "./"
-            # that would otherwise reach destination_path via os.path.join.
+            # that would otherwise reach destination_path via os.path.join;
+            # POSIX form because it is persisted into every destination_path.
             model_dir = self.app_settings.get_setting('models_dir')
             if model_dir:
-                self.settings.default_model_directory = str(Path(model_dir))
+                self.settings.default_model_directory = Path(model_dir).as_posix()
 
             file_storage = self.app_settings.get_setting('file_storage_directory')
             if file_storage:
@@ -394,7 +396,7 @@ class DownloadQueue:
         The decode-then-basename order the two share is what keeps an encoded
         `..%2F..%2Fetc%2Fcron` from walking out of the depot.
         """
-        name = derived_download_name(os.path.basename(unquote(urlparse(url).path)))
+        name = derived_download_name(posixpath.basename(unquote(urlparse(url).path)))
         if not name:
             name = f"{fallback_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         return name
@@ -1100,7 +1102,7 @@ class DownloadQueue:
     ) -> Path:
         """`AssetFetcher.ensure_asset_file` - see `src/platform/assets/fetcher.py`."""
         target_dir = self._asset_dir(subdir)
-        name = filename or unquote(os.path.basename(urlparse(url).path))
+        name = filename or unquote(posixpath.basename(urlparse(url).path))
         if not name:
             raise AssetFetchError(
                 f"No filename could be derived from '{url}'; pass filename= explicitly"

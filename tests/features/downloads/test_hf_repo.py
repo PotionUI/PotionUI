@@ -544,7 +544,7 @@ class TestEnsureLocalHfRepo:
             )
             result = manager.ensure_local_hf_repo("org/tiny", "/tmp/target", poll_interval=0.01)
 
-        assert str(result) == "/tmp/target"
+        assert Path(result) == Path("/tmp/target")
 
     def test_failed_download_raises(self, manager, repo):
         parent = repo.create(Download(

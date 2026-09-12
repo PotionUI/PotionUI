@@ -173,7 +173,7 @@ def _module_level_db_aliases(path: Path) -> list[int]:
 def test_no_module_level_db_import_outside_allowlist():
     violations: list[str] = []
     for f in _scanned_files():
-        rel = str(f.relative_to(ROOT))
+        rel = f.relative_to(ROOT).as_posix()
         if rel in ALLOWLIST:
             continue
         for lineno in _module_level_db_imports(f):

@@ -719,17 +719,22 @@ def test_wait_for_ready_times_out():
 # pid_alive / stop_process
 # ---------------------------------------------------------------------------
 
-def test_pid_alive_true_for_self():
-    import os
+# These three run the REAL platform branch (the autouse POSIX pin is lifted):
+# on Windows, signal 0 is CTRL_C_EVENT, so the POSIX `os.kill(pid, 0)` probe
+# would send a Ctrl-C to the console running pytest instead of probing.
+def test_pid_alive_true_for_self(monkeypatch):
+    monkeypatch.setattr(cli, "is_windows", lambda: os.name == "nt")
     assert cli.pid_alive(os.getpid()) is True
 
 
-def test_pid_alive_false_for_nonexistent_pid():
+def test_pid_alive_false_for_nonexistent_pid(monkeypatch):
+    monkeypatch.setattr(cli, "is_windows", lambda: os.name == "nt")
     # PID 2**30 is astronomically unlikely to exist on any real system.
     assert cli.pid_alive(2**30) is False
 
 
-def test_stop_process_noop_if_already_dead():
+def test_stop_process_noop_if_already_dead(monkeypatch):
+    monkeypatch.setattr(cli, "is_windows", lambda: os.name == "nt")
     assert cli.stop_process(2**30) is True
 
 

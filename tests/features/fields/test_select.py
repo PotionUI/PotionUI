@@ -246,7 +246,27 @@ class TestSelectField(unittest.TestCase):
         self.assertEqual(options[1]['value'], 'subfolder/model2.safetensors')
         self.assertEqual(options[2]['label'], 'deep/nested/model3')
         self.assertEqual(options[2]['value'], 'deep/nested/model3.safetensors')
-    
+
+    @patch('glob.glob')
+    def test_get_filesystem_options_recursive_normalizes_windows_separators(self, mock_glob):
+        """The recursive `value` is persisted as the field's stored value, so
+        a Windows-shaped relpath (backslashes) must come out with "/" -
+        simulated here since relpath only emits backslashes on a real Windows
+        host (os.sep there is "\\", which is what the fix's
+        `.replace(os.sep, ...)` keys off)."""
+        self.select_field.template_processor = Mock()
+        self.select_field.template_processor.process_template.return_value = '/resolved/models/path'
+        mock_glob.return_value = ['/resolved/models/path/subfolder/model2.safetensors']
+
+        config = {'files': {'in': '/models/path', 'recursive': True}}
+        with patch('os.sep', '\\'), \
+             patch('os.path.relpath', return_value='subfolder\\model2.safetensors'):
+            options = self.select_field._get_filesystem_options(config, 'test_preset_id')
+
+        self.assertEqual(len(options), 1)
+        self.assertEqual(options[0]['value'], 'subfolder/model2.safetensors')
+        self.assertNotIn('\\', options[0]['value'])
+
     def test_parse_yaml_options_list(self):
         """Test parsing YAML options from list format"""
         yaml_data = [

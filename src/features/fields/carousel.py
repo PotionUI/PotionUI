@@ -431,7 +431,9 @@ configuration:
 
                 # Get relative path from preset directory for the image URL
                 preset_path = context['paths']['preset']
-                rel_path = os.path.relpath(file_path, preset_path)
+                # Stored/served as a URL-shaped path, so it must stay POSIX
+                # ("/") even on Windows, where relpath uses "\\".
+                rel_path = os.path.relpath(file_path, preset_path).replace(os.sep, "/")
 
                 items.append({
                     'label': name_without_ext.replace('_', ' ').title(),

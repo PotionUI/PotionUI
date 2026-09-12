@@ -34,20 +34,46 @@ def restart_argv() -> list:
     return [sys.executable] + sys.argv
 
 
+def _restart_process(argv: list) -> None:
+    """Replace this process with `argv`, or the closest Windows equivalent.
+
+    `execv` replaces the process image and never returns on POSIX. Windows has
+    no such syscall: Python's `os.execv` there is emulated by spawning a child
+    and *blocking this process* until the child exits, so the old process would
+    still hold the listening socket while the new one tries to bind it -- a
+    guaranteed port conflict. So on Windows, spawn a detached child instead and
+    terminate this process immediately with `os._exit` (skipping normal
+    interpreter shutdown -- the same abruptness `execv` itself has) so the
+    socket is released before the child starts serving.
+    """
+    if sys.platform == "win32":
+        import subprocess
+
+        # These flags only exist in the subprocess module built for Windows;
+        # getattr keeps this branch importable (though never taken) when
+        # exercised from a non-Windows test process.
+        creationflags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+            subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+        )
+        subprocess.Popen(argv, close_fds=True, creationflags=creationflags)
+        os._exit(0)
+        return
+    os.execv(argv[0], argv)
+
+
 def schedule_app_restart(delay: float = 0.5) -> None:
     """Replace the running process image in place after `delay` seconds.
 
     Scheduled on the running event loop (rather than executed inline) so the
     initiating HTTP response - or automation node result - is flushed before
-    `os.execv` swaps the image. `execv` replaces the image rather than forking,
-    so this works for `python api.py`, `python -m uvicorn api:app` (the
-    `./potionui start` flow -- see :func:`restart_argv`), and under a
-    container's PID 1.
+    the process image is swapped. This works for `python api.py`,
+    `python -m uvicorn api:app` (the `./potionui start` flow -- see
+    :func:`restart_argv`), and under a container's PID 1 -- see
+    :func:`_restart_process` for the Windows exception.
 
     Must be called from within a running event loop.
     """
     def _do_restart():
-        argv = restart_argv()
-        os.execv(argv[0], argv)
+        _restart_process(restart_argv())
 
     asyncio.get_running_loop().call_later(delay, _do_restart)

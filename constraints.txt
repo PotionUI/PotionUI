@@ -257,7 +257,7 @@ ultralytics==8.4.90
 ultralytics-thop==2.0.20
 urllib3==2.7.0
 uvicorn==0.51.0
-uvloop==0.22.1
+uvloop==0.22.1; sys_platform != "win32"
 vocos==0.1.0
 watchdog==6.0.0
 watchfiles==1.2.0

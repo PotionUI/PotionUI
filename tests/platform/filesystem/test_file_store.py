@@ -347,6 +347,20 @@ class TestFileService:
         assert list(gen_dir.glob("*.mp4")) == []
         assert list(gen_dir.glob("*.part")) == []
 
+    def test_get_relative_path_normalizes_windows_separators(self):
+        """The result is stored as the DB file_path and used to build URLs,
+        so it must stay POSIX ("/") even on a real Windows host, where
+        Path.relative_to yields a WindowsPath whose str() uses "\\"."""
+        from pathlib import PureWindowsPath
+
+        windows_relative = PureWindowsPath("generations", "abc", "out.png")
+        with patch.object(Path, "relative_to", return_value=windows_relative):
+            result = self.file_service.get_relative_path(
+                r"C:\storage\generations\abc\out.png"
+            )
+        assert result == "generations/abc/out.png"
+        assert "\\" not in result
+
     def test_delete_generation_outputs_success(self):
         """Deletion takes an explicit key list - the caller's DB-known
         file_path plus thumbnail paths - and removes each through the

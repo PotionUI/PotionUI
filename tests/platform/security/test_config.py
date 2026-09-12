@@ -183,7 +183,26 @@ class TestPersistedSecretKey:
             key = config.secret_key
         assert path.exists()
         assert path.read_text().strip() == key
-        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        # 0600 is a POSIX permission; Windows chmod only toggles the
+        # read-only attribute, so there is no equivalent bit pattern to
+        # assert there - existence and content are checked above regardless.
+        if os.name != "nt":
+            assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+    def test_generates_and_persists_without_fchmod(self, settings, tmp_path, monkeypatch):
+        """First boot still writes a usable, owner-only key file on a platform
+        (Windows) with no os.fchmod - the persist path must fall back to
+        chmod-by-path instead of raising AttributeError."""
+        monkeypatch.delattr(os, "fchmod", raising=False)
+        path = tmp_path / SECRET_KEY_FILENAME
+        with patch.dict(os.environ, {}, clear=True):
+            config = AuthConfig(settings)
+            key = config.secret_key
+        assert path.exists()
+        assert path.read_text().strip() == key
+        # See test_generates_and_persists_with_0600: POSIX-only mode check.
+        if os.name != "nt":
+            assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
     def test_generated_key_is_stable_across_instances(self, settings, tmp_path):
         """A second process (new instance) reads back the same persisted key."""

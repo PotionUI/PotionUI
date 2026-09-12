@@ -158,8 +158,26 @@ def test_key_file_is_generated_beside_the_database(clean_env):
 
 def test_generated_key_file_is_owner_only(clean_env):
     resolve_secret_keys()
-    mode = stat.S_IMODE((clean_env / "secret.key").stat().st_mode)
-    assert mode & (stat.S_IRWXG | stat.S_IRWXO) == 0
+    # Windows' stat() emulation mirrors owner bits onto group/other (there is
+    # no POSIX permission model to check there), so this is a POSIX-only
+    # assertion; existence and content are already covered elsewhere.
+    if os.name != "nt":
+        mode = stat.S_IMODE((clean_env / "secret.key").stat().st_mode)
+        assert mode & (stat.S_IRWXG | stat.S_IRWXO) == 0
+
+
+def test_generation_without_fchmod(clean_env, monkeypatch):
+    """A platform (Windows) with no os.fchmod must still produce a readable,
+    owner-only key file rather than raising AttributeError."""
+    monkeypatch.delattr(os, "fchmod", raising=False)
+    keys = resolve_secret_keys()
+    path = clean_env / "secret.key"
+    assert path.exists()
+    assert read_key_file(path) == keys
+    # See test_generated_key_file_is_owner_only: POSIX-only mode check.
+    if os.name != "nt":
+        mode = stat.S_IMODE(path.stat().st_mode)
+        assert mode & (stat.S_IRWXG | stat.S_IRWXO) == 0
 
 
 def test_generation_is_stable_across_calls(clean_env):

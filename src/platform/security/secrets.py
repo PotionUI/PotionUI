@@ -179,7 +179,14 @@ def _write_key_file(path: Path, keys: Sequence[bytes]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
     try:
-        os.fchmod(fd, _KEY_FILE_MODE)
+        # fchmod does not exist on Windows; chmod-by-path on the still-open
+        # temp file achieves the same restriction there before any reader can
+        # observe it (Windows chmod only toggles the read-only bit, but that
+        # is the closest equivalent this platform offers).
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, _KEY_FILE_MODE)
+        else:
+            os.chmod(tmp_name, _KEY_FILE_MODE)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(body)
     except BaseException:

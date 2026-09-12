@@ -5,6 +5,7 @@ Tests for DownloadWorker async download handling.
 import pytest
 from unittest.mock import Mock, MagicMock, AsyncMock, patch
 import asyncio
+from pathlib import Path
 
 from src.features.downloads.exceptions import DownloadAuthenticationException
 from src.features.downloads.worker import DownloadWorker
@@ -466,3 +467,68 @@ class TestDownloadFileAuthStatus:
         assert "401" in str(exc_info.value)
         assert "huggingface.co" in str(exc_info.value)
         assert "tokenizer.json" in str(exc_info.value)
+
+
+class TestDownloadFileFinalMove:
+    """`_download_file` moves the finished `.part` file onto the destination
+    with `Path.replace`, not `Path.rename` - on Windows, `rename` raises
+    `FileExistsError` when the destination already exists (a re-download),
+    while `replace` overwrites atomically like POSIX `rename` does."""
+
+    class _FakeContent:
+        def __init__(self, data: bytes):
+            self._data = data
+
+        async def iter_chunked(self, chunk_size):
+            yield self._data
+
+    class _FakeResponse:
+        def __init__(self, data: bytes):
+            self.status = 200
+            self.reason = "OK"
+            self.headers = {"Content-Length": str(len(data))}
+            self.content = TestDownloadFileFinalMove._FakeContent(data)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    @pytest.mark.asyncio
+    async def test_completes_when_destination_already_exists(self, worker, tmp_path, monkeypatch):
+        """Reproduces the Windows failure mode on Linux: a pre-existing
+        destination file makes `Path.rename` raise `FileExistsError`, so the
+        final move must go through `Path.replace` instead."""
+        dest_path = tmp_path / "model.safetensors"
+        dest_path.write_bytes(b"stale-content-from-a-previous-download")
+
+        data = b"fresh-bytes"
+        response = self._FakeResponse(data)
+
+        class _Session:
+            def get(self, url, headers=None):
+                return response
+
+        worker.session = _Session()
+
+        real_rename = Path.rename
+
+        def _rename_like_windows(self_path, target):
+            if Path(target).exists():
+                raise FileExistsError(17, "File exists", str(target))
+            return real_rename(self_path, target)
+
+        monkeypatch.setattr(Path, "rename", _rename_like_windows)
+
+        download = Download(
+            filename="model.safetensors",
+            url="https://example.com/model.safetensors",
+            destination_path=str(dest_path),
+        )
+
+        result = await worker._download_file(download)
+
+        assert result is True
+        assert dest_path.read_bytes() == data
+        assert not Path(str(dest_path) + ".part").exists()

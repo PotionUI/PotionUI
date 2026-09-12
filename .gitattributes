@@ -1,0 +1,6 @@
+# Windows clones default to core.autocrlf=true; shell scripts must stay LF
+# (bash rejects CRLF, and Docker Desktop builds read them from the checkout),
+# while the batch launcher is happiest with CRLF.
+potionui text eol=lf
+*.sh text eol=lf
+potionui.cmd text eol=crlf

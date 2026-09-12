@@ -233,6 +233,40 @@ class TestCarouselField(unittest.TestCase):
             self.assertIn('Grain Medium', labels)
             self.assertIn('Grain Heavy', labels)
 
+    def test_output_directory_scanning_normalizes_windows_separators(self):
+        """The `image` value is served as a URL, so a Windows-shaped relpath
+        (backslashes) must come out with "/" - simulated here since relpath
+        only emits backslashes on a real Windows host (os.sep there is "\\",
+        which is what the fix's `.replace(os.sep, ...)` keys off)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            subdir = Path(temp_dir, 'grain')
+            subdir.mkdir()
+            Path(subdir, 'fine.png').touch()
+
+            field = {
+                'type': 'carousel',
+                'name': 'grain_preset',
+                'label': 'Grain Preset',
+                'configuration': {
+                    'images': {
+                        'in': temp_dir,
+                        'pattern': '*.png',
+                        'recursive': True,
+                    }
+                }
+            }
+
+            self.preset_loader.preset_files_path = temp_dir
+            self.mock_preset.path = temp_dir
+
+            with patch('os.sep', '\\'), \
+                 patch('os.path.relpath', return_value='grain\\fine.png'):
+                schema = self.carousel_field.output(field, 'test_preset_id')
+
+            options = schema['options']
+            self.assertEqual(len(options), 1)
+            self.assertEqual(options[0]['image'], 'grain/fine.png')
+
     def test_get_static_items(self):
         """Test _get_static_items helper method"""
         configuration = {

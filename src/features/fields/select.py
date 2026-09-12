@@ -391,7 +391,9 @@ configuration:
 
                 # If recursive, include relative path from base directory for context
                 if recursive:
-                    rel_path = os.path.relpath(file_path, resolved_directory)
+                    # Persisted as the preset-relative field value, so it must
+                    # stay POSIX ("/") even on Windows, where relpath uses "\\".
+                    rel_path = os.path.relpath(file_path, resolved_directory).replace(os.sep, "/")
                     label = os.path.splitext(rel_path)[0]  # Remove extension but keep path
                     options.append({
                         'label': label,

@@ -127,7 +127,14 @@ class ClaimTokenStore:
                 prefix=f".{CLAIM_TOKEN_FILENAME}.", dir=str(path.parent)
             )
             try:
-                os.fchmod(fd, _TOKEN_FILE_MODE)
+                # fchmod does not exist on Windows; chmod-by-path on the still-open
+                # temp file achieves the same restriction there before any reader
+                # can observe it (Windows chmod only toggles the read-only bit, but
+                # that is the closest equivalent this platform offers).
+                if hasattr(os, "fchmod"):
+                    os.fchmod(fd, _TOKEN_FILE_MODE)
+                else:
+                    os.chmod(tmp_name, _TOKEN_FILE_MODE)
                 with os.fdopen(fd, "w", encoding="utf-8") as handle:
                     handle.write(token)
             except BaseException:

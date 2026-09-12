@@ -68,7 +68,7 @@ omegaconf>=2.3.0
 pyyaml>=6.0.1
 
 uvicorn>=0.27.0
-uvloop>=0.20.0
+uvloop>=0.20.0; sys_platform != "win32"
 httptools>=0.6.0
 websockets>=12.0
 aiohttp>=3.9.0

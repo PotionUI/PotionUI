@@ -68,7 +68,7 @@ mediapipe>=0.10.0   # For ADetailer face detection
 
 # API and networking
 uvicorn>=0.27.0  # ASGI server for FastAPI
-uvloop>=0.20.0  # High performance event loop
+uvloop>=0.20.0; sys_platform != "win32"  # High performance event loop; no Windows wheels
 httptools>=0.6.0  # Fast HTTP parser for uvicorn
 websockets>=12.0  # For WebSocket client connections
 aiohttp>=3.14.3

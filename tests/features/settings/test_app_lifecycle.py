@@ -9,10 +9,12 @@ import -- with no supervisor to revive it, the in-app restart just kills
 the backend.
 """
 
+import os
 import sys
 from types import ModuleType, SimpleNamespace
+from unittest.mock import Mock
 
-from src.features.settings.app_lifecycle import restart_argv
+from src.features.settings.app_lifecycle import _restart_process, restart_argv
 
 
 def _with_main(monkeypatch, spec, argv):
@@ -49,3 +51,38 @@ def test_plain_module_launch_keeps_its_own_name(monkeypatch):
 def test_spec_without_a_name_falls_back_to_argv(monkeypatch):
     _with_main(monkeypatch, SimpleNamespace(name=None), ["api.py"])
     assert restart_argv() == [sys.executable, "api.py"]
+
+
+def test_posix_restart_execs_in_place(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    mock_execv = Mock()
+    monkeypatch.setattr(os, "execv", mock_execv)
+    argv = [sys.executable, "api.py"]
+
+    _restart_process(argv)
+
+    mock_execv.assert_called_once_with(argv[0], argv)
+
+
+def test_windows_restart_spawns_detached_child_and_exits(monkeypatch):
+    """execv on Windows blocks this process until the child exits instead of
+    replacing it, which would leave the old process holding the listening
+    socket -- so Windows must spawn a detached child and terminate this
+    process itself instead."""
+    import subprocess
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    mock_execv = Mock()
+    monkeypatch.setattr(os, "execv", mock_execv)
+    mock_exit = Mock()
+    monkeypatch.setattr(os, "_exit", mock_exit)
+    mock_popen = Mock()
+    monkeypatch.setattr(subprocess, "Popen", mock_popen)
+    argv = [sys.executable, "api.py"]
+
+    _restart_process(argv)
+
+    mock_execv.assert_not_called()
+    mock_popen.assert_called_once()
+    assert mock_popen.call_args.args[0] == argv
+    mock_exit.assert_called_once_with(0)

@@ -19,6 +19,7 @@ load_dotenv()
 import uvicorn
 
 from src.bootstrap.app import create_app
+from src.bootstrap.asgi import resolve_asgi_loop
 from src.platform.observability.logger import configure_logging
 
 configure_logging()
@@ -58,5 +59,5 @@ if __name__ == "__main__":
         timeout_graceful_shutdown=30,  # Allow time for graceful shutdown
         # Enable HTTP/1.1 pipelining for better performance
         http="httptools",
-        loop="uvloop" if hasattr(__import__('uvloop'), 'install') else "asyncio"
+        loop=resolve_asgi_loop()
     )

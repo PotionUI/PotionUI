@@ -647,7 +647,11 @@ class DownloadWorker:
                 # Range not satisfiable - file may be complete
                 if temp_path.exists():
                     self._verify_write_targets(dest_path, temp_path)
-                    temp_path.rename(dest_path)
+                    # Path.replace, not rename: on Windows, rename() raises
+                    # FileExistsError when dest_path already exists (a
+                    # re-download); replace() atomically overwrites on both
+                    # platforms, matching POSIX rename's behaviour.
+                    temp_path.replace(dest_path)
                     return True
                 raise Exception("Invalid range request")
 
@@ -742,7 +746,10 @@ class DownloadWorker:
         # Rename temp file to final destination
         logger.debug(f"Download loop finished. Downloaded {downloaded} bytes, total_bytes={download.total_bytes}")
         self._verify_write_targets(dest_path, temp_path)
-        temp_path.rename(dest_path)
+        # Path.replace, not rename: on Windows, rename() raises FileExistsError
+        # when dest_path already exists (a re-download); replace() atomically
+        # overwrites on both platforms, matching POSIX rename's behaviour.
+        temp_path.replace(dest_path)
 
         # Final progress update
         self.repo.update_progress(download.id, 1.0, download.total_bytes or downloaded, speed)

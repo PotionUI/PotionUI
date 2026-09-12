@@ -103,7 +103,9 @@ class FileStore:
         """
         path = Path(full_path)
         try:
-            return str(path.relative_to(self.base_storage_dir))
+            # Stored as the DB file_path and used to build URLs, so it must
+            # stay POSIX ("/") even on Windows, where str(Path) uses "\\".
+            return path.relative_to(self.base_storage_dir).as_posix()
         except ValueError:
             # Path is not relative to base storage dir, return as-is
             return str(path)

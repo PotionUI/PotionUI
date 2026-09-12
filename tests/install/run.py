@@ -82,6 +82,7 @@ ALL_PROFILES = CORE_PROFILES + ("worker",)
 DEFAULT_START_TIMEOUT = 180.0
 DEFAULT_INSTALL_TIMEOUT = 1800.0  # ceiling on top of --timeout for pip/npm installs
 CLI_INVOKE_TIMEOUT = 60.0  # doctor / status / stop are cheap, non-installing calls
+HEALTH_SETTLE_TIMEOUT = 60.0  # /health may lag behind `start` while boot-time work settles
 
 # Directory names never copied into a throwaway checkout. `frontend/build` is
 # deliberately NOT excluded - `--from-dir` keeps it when present, so
@@ -387,9 +388,14 @@ def build_core_phases(profile: str, checkout_dir: Path, log_dir: Path, ports: tu
             raise PhaseError(f"`./potionui start` exited {code} - see {log_path}")
 
     def p_health():
+        # Polled, not a single shot: right after `start` returns, boot-time
+        # work (the preset media prerender thread, the Vite dev server) can
+        # hold a small runner busy for longer than one request's timeout.
         url = f"http://127.0.0.1:{backend_port}/health"
-        if not http_get_ok(url):
-            raise PhaseError(f"{url} did not return 2xx/3xx after start reported success")
+        if not wait_for(lambda: http_get_ok(url), timeout=HEALTH_SETTLE_TIMEOUT):
+            raise PhaseError(
+                f"{url} did not return 2xx/3xx within {HEALTH_SETTLE_TIMEOUT:g}s after start reported success"
+            )
 
     def p_claim_token():
         token_path = checkout_dir / "storage" / "setup_claim_token"

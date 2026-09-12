@@ -29,6 +29,7 @@ from src.features.backup.paths import (
 )
 from src.features.backup.verify import VerifyReport, verify_media
 from src.platform.database.migration_runner import MigrationRunner
+from src.platform.util.process import pid_alive
 
 RESTORE_TIMESTAMP = "%Y%m%d-%H%M%S"
 STATE_FILE_RELATIVE = Path(".runtime") / "state.json"
@@ -89,11 +90,8 @@ def detect_running_app(repo_root: Path) -> List[str]:
         pid = info.get("pid")
         if not isinstance(pid, int):
             continue
-        try:
-            os.kill(pid, 0)
-        except OSError as exc:
-            if exc.errno != errno.EPERM:
-                continue
+        if not pid_alive(pid):
+            continue
         alive.append(f"{name} (pid {pid})")
     return alive
 

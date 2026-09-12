@@ -123,6 +123,67 @@ def test_check_python_prefers_newer_candidate_order():
 
 
 # ---------------------------------------------------------------------------
+# python_argv / python_candidates_for_platform / probe_python_candidates
+# on Windows (the `py` launcher's version flag is a separate argv token)
+# ---------------------------------------------------------------------------
+
+def test_python_candidates_for_platform_posix_is_unchanged(monkeypatch):
+    monkeypatch.setattr(os, "name", "posix")
+    assert cli.python_candidates_for_platform() == cli.PYTHON_CANDIDATES
+
+
+def test_python_candidates_for_platform_windows_uses_py_launcher(monkeypatch):
+    monkeypatch.setattr(os, "name", "nt")
+    assert cli.python_candidates_for_platform() == cli.WINDOWS_PYTHON_CANDIDATES
+    assert cli.WINDOWS_PYTHON_CANDIDATES == (("py", "-3.13"), ("py", "-3.12"), "python")
+
+
+def test_python_argv_normalizes_bare_string():
+    assert cli.python_argv("python3.12") == ["python3.12"]
+
+
+def test_python_argv_passes_through_argv_list():
+    assert cli.python_argv(["py", "-3.12"]) == ["py", "-3.12"]
+
+
+def test_probe_python_candidates_resolves_py_launcher_with_version_flag():
+    # `py` only exists once on PATH, but each `-3.X` attempt is a distinct
+    # invocation the FakeProbe must be able to tell apart — so it's keyed by
+    # the full resolved argv, not just the launcher's path.
+    probe = FakeProbe(
+        which={"py": "C:\\Windows\\py.exe"},
+        run={
+            ("C:\\Windows\\py.exe", "-3.13", "-c", cli.PYTHON_VERSION_PROBE_CODE): cp(returncode=1),
+            ("C:\\Windows\\py.exe", "-3.12", "-c", cli.PYTHON_VERSION_PROBE_CODE): cp(stdout="3.12.7\n"),
+        },
+    )
+    found = cli.probe_python_candidates(probe, candidates=cli.WINDOWS_PYTHON_CANDIDATES)
+    assert found == (["C:\\Windows\\py.exe", "-3.12"], "3.12.7")
+
+
+def test_probe_python_candidates_falls_back_to_plain_python_on_windows():
+    probe = FakeProbe(
+        which={"python": "C:\\Python312\\python.exe"},
+        run={"C:\\Python312\\python.exe": cp(stdout="3.12.1\n")},
+    )
+    found = cli.probe_python_candidates(probe, candidates=cli.WINDOWS_PYTHON_CANDIDATES)
+    assert found == ("C:\\Python312\\python.exe", "3.12.1")
+
+
+def test_check_python_windows_py_launcher_display_includes_flag(monkeypatch):
+    monkeypatch.setattr(os, "name", "nt")
+    probe = FakeProbe(
+        which={"py": "C:\\Windows\\py.exe"},
+        run={
+            ("C:\\Windows\\py.exe", "-3.13", "-c", cli.PYTHON_VERSION_PROBE_CODE): cp(stdout="3.13.1\n"),
+        },
+    )
+    result = cli.check_python(probe)
+    assert result.severity == cli.Severity.OK
+    assert "py.exe -3.13" in result.message
+
+
+# ---------------------------------------------------------------------------
 # check_venv / check_backend_deps
 # ---------------------------------------------------------------------------
 
@@ -192,6 +253,81 @@ def test_backend_pip_install_args_no_gpu_uses_cpu_requirements_and_index():
     # never constraints.txt — its CUDA-13 transitive pins are unsatisfiable
     # without CUDA.
     assert "constraints.txt" not in cli.backend_pip_install_args_no_gpu()
+
+
+def test_backend_pip_install_args_windows_adds_cuda_index(monkeypatch, tmp_path):
+    monkeypatch.setattr(os, "name", "nt")
+    (tmp_path / "constraints.txt").write_text("torch==2.12.1\n")
+    assert cli.backend_pip_install_args(tmp_path) == [
+        "install", "-r", "requirements.txt", "-c", "constraints.txt",
+        "--extra-index-url", cli.PYTORCH_CUDA_INDEX_WINDOWS,
+    ]
+
+
+def test_backend_pip_install_args_posix_has_no_cuda_index(tmp_path):
+    # documents the default (no monkeypatch): plain PyPI torch wheels
+    # already carry their CUDA deps on Linux, per constraints.txt's header.
+    (tmp_path / "constraints.txt").write_text("torch==2.12.1\n")
+    assert "--extra-index-url" not in cli.backend_pip_install_args(tmp_path)
+
+
+def test_backend_pip_install_args_no_gpu_unaffected_by_windows(monkeypatch):
+    # the CPU index is the same wheel set regardless of host OS.
+    monkeypatch.setattr(os, "name", "nt")
+    assert cli.backend_pip_install_args_no_gpu() == [
+        "install", "-r", "requirements-cpu.txt",
+        "--extra-index-url", "https://download.pytorch.org/whl/cpu",
+    ]
+
+
+# ---------------------------------------------------------------------------
+# venv_python / venv_pip / activate_hint — the venv-layout platform seam
+# ---------------------------------------------------------------------------
+
+def test_venv_python_posix_layout(tmp_path):
+    assert cli.venv_python(tmp_path) == tmp_path / "venv" / "bin" / "python"
+
+
+def test_venv_python_windows_layout(monkeypatch, tmp_path):
+    monkeypatch.setattr(os, "name", "nt")
+    assert cli.venv_python(tmp_path) == tmp_path / "venv" / "Scripts" / "python.exe"
+
+
+def test_venv_pip_posix_layout(tmp_path):
+    assert cli.venv_pip(tmp_path) == tmp_path / "venv" / "bin" / "pip"
+
+
+def test_venv_pip_windows_layout(monkeypatch, tmp_path):
+    monkeypatch.setattr(os, "name", "nt")
+    assert cli.venv_pip(tmp_path) == tmp_path / "venv" / "Scripts" / "pip.exe"
+
+
+def test_activate_hint_posix():
+    assert cli.activate_hint() == "source venv/bin/activate"
+
+
+def test_activate_hint_windows(monkeypatch):
+    monkeypatch.setattr(os, "name", "nt")
+    assert cli.activate_hint() == r"venv\Scripts\activate"
+
+
+def test_check_venv_repair_is_platform_specific(monkeypatch, tmp_path):
+    monkeypatch.setattr(os, "name", "nt")
+    result = cli.check_venv(FakeProbe(), tmp_path)
+    assert "py -3.12 -m venv venv" in result.repair
+    assert "python3.12 -m venv venv" not in result.repair
+
+
+def test_check_backend_deps_repair_uses_windows_activation(monkeypatch, tmp_path):
+    monkeypatch.setattr(os, "name", "nt")
+    venv_python_path = tmp_path / "venv" / "Scripts" / "python.exe"
+    # FakeProbe.path_exists's `Path(path) in self._exists` re-derives a
+    # WindowsPath once os.name reads "nt" (pathlib.Path.__new__ dispatches
+    # on it dynamically) — incomparable to the PosixPath this test's own
+    # `tmp_path` produces, so match by string instead of by Path identity.
+    probe = FakeProbe(exists={str(venv_python_path)}, run={str(venv_python_path): cp(returncode=1)})
+    result = cli.check_backend_deps(probe, tmp_path)
+    assert result.repair.startswith(r"venv\Scripts\activate &&")
 
 
 # ---------------------------------------------------------------------------
@@ -591,6 +727,148 @@ def test_pid_alive_false_for_nonexistent_pid():
 
 def test_stop_process_noop_if_already_dead():
     assert cli.stop_process(2**30) is True
+
+
+# ---------------------------------------------------------------------------
+# pid_alive / stop_process / spawn_process on Windows — os.kill(pid, 0) is
+# not a liveness probe there (Python maps it to TerminateProcess), so the
+# Windows path must never reach it.
+# ---------------------------------------------------------------------------
+
+def _forbid_os_kill(monkeypatch):
+    def boom(*_a, **_k):
+        raise AssertionError("os.kill must never be called on Windows")
+
+    monkeypatch.setattr(os, "kill", boom)
+
+
+def test_pid_alive_windows_dispatches_to_ctypes_probe(monkeypatch):
+    monkeypatch.setattr(os, "name", "nt")
+    _forbid_os_kill(monkeypatch)
+    monkeypatch.setattr(cli, "_pid_alive_windows", lambda pid: True)
+    assert cli.pid_alive(4242) is True
+
+
+def test_pid_alive_windows_false_from_ctypes_probe(monkeypatch):
+    monkeypatch.setattr(os, "name", "nt")
+    _forbid_os_kill(monkeypatch)
+    monkeypatch.setattr(cli, "_pid_alive_windows", lambda pid: False)
+    assert cli.pid_alive(4242) is False
+
+
+def test_stop_process_windows_dispatches_to_taskkill_never_os_kill(monkeypatch):
+    monkeypatch.setattr(os, "name", "nt")
+    _forbid_os_kill(monkeypatch)
+
+    run_calls = []
+
+    def fake_run(cmd, **kwargs):
+        run_calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+
+    # First pid_alive() call (stop_process's own "already dead?" guard)
+    # reports alive; the second (inside the timeout loop, which the fake
+    # clock below skips straight past) reports dead, so the /F kill fires
+    # and the function returns True without ever looping.
+    alive_answers = iter([True, False])
+    monkeypatch.setattr(cli, "pid_alive", lambda pid: next(alive_answers))
+
+    clock_answers = iter([0.0, 5.0])  # deadline = 0.0 + timeout(1.0); loop check 5.0 >= deadline -> skip loop
+    result = cli.stop_process(
+        4321, timeout=1.0, sleeper=lambda s: None, clock=lambda: next(clock_answers)
+    )
+
+    assert result is True
+    assert run_calls == [
+        ["taskkill", "/PID", "4321", "/T"],
+        ["taskkill", "/PID", "4321", "/T", "/F"],
+    ]
+
+
+def test_stop_process_windows_returns_true_once_loop_detects_death(monkeypatch):
+    monkeypatch.setattr(os, "name", "nt")
+    _forbid_os_kill(monkeypatch)
+
+    run_calls = []
+
+    def fake_run(cmd, **kwargs):
+        run_calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+
+    # alive for the initial guard, then dead by the loop's first check —
+    # proving the loop itself (not just the final /F kill) can report success.
+    alive_answers = iter([True, False])
+    monkeypatch.setattr(cli, "pid_alive", lambda pid: next(alive_answers))
+    clock_answers = iter([0.0, 0.5])  # 0.5 < deadline(10.0) -> loop body runs once
+    sleeps = []
+
+    result = cli.stop_process(
+        99, timeout=10.0, sleeper=lambda s: sleeps.append(s), clock=lambda: next(clock_answers)
+    )
+
+    assert result is True
+    assert sleeps == []  # pid_alive turned False on the loop's first check, before any sleep
+    # proves the Windows taskkill path actually ran (not e.g. a POSIX
+    # os.killpg raising ProcessLookupError and returning True by accident).
+    assert run_calls == [["taskkill", "/PID", "99", "/T"]]
+
+
+def test_spawn_process_posix_uses_start_new_session(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(os, "name", "posix")
+    captured = {}
+
+    class FakePopen2:
+        def __init__(self, *args, **kwargs):
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(cli.subprocess, "Popen", FakePopen2)
+    cli.spawn_process(["echo", "hi"], tmp_path, {}, tmp_path / "x.log")
+
+    assert captured["kwargs"]["start_new_session"] is True
+    assert "creationflags" not in captured["kwargs"]
+
+
+def test_spawn_process_windows_uses_creationflags_not_start_new_session(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(cli.subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200, raising=False)
+    monkeypatch.setattr(cli.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    captured = {}
+
+    class FakePopen2:
+        def __init__(self, *args, **kwargs):
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(cli.subprocess, "Popen", FakePopen2)
+    cli.spawn_process(["cmd", "/c", "echo hi"], tmp_path, {}, tmp_path / "x.log")
+
+    assert captured["kwargs"]["creationflags"] == 0x200 | 0x08000000
+    assert "start_new_session" not in captured["kwargs"]
+
+
+def test_spawn_process_windows_creationflags_default_zero_when_constants_absent(monkeypatch, tmp_path):
+    # The real POSIX-built subprocess module (this test suite's own
+    # interpreter) has neither constant — proves the getattr(..., 0) guards
+    # keep this importable/runnable on Linux instead of raising AttributeError.
+    monkeypatch.setattr(cli, "LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.delattr(cli.subprocess, "CREATE_NEW_PROCESS_GROUP", raising=False)
+    monkeypatch.delattr(cli.subprocess, "CREATE_NO_WINDOW", raising=False)
+    captured = {}
+
+    class FakePopen2:
+        def __init__(self, *args, **kwargs):
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(cli.subprocess, "Popen", FakePopen2)
+    cli.spawn_process(["cmd"], tmp_path, {}, tmp_path / "x.log")
+
+    assert captured["kwargs"]["creationflags"] == 0
 
 
 # ---------------------------------------------------------------------------

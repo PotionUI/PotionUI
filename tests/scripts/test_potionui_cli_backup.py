@@ -119,6 +119,7 @@ def test_backup_exits_one_when_refused(install, tmp_path, capsys):
     assert "no database" in capsys.readouterr().out
 
 
+@pytest.mark.skipif(os.name == "nt", reason="directory mode bits do not make a directory unwritable on Windows")
 def test_backup_exits_one_when_the_storage_tree_is_unusable(tmp_path, monkeypatch, capsys):
     root = tmp_path / "bare"
     root.mkdir()

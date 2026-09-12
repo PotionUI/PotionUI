@@ -162,7 +162,59 @@ INSTALL_PROFILES = ("local", "hybrid", "remote")
 FRONTEND_BIND_HOST = "127.0.0.1"
 MIN_NODE_MAJOR = 18
 PYTHON_CANDIDATES = ("python3.13", "python3.12", "python3")
+# Each entry is either a bare executable name (POSIX, and Windows's plain
+# `python`) or a (name, *extra_args) tuple for the Windows `py` launcher,
+# whose version selector is a separate argv token (`py -3.12`), not part of
+# an executable path. `python3` is deliberately absent here: on Windows it
+# usually resolves to the Microsoft Store stub, which prints a store-install
+# nag instead of a version and must not be treated as a real interpreter.
+WINDOWS_PYTHON_CANDIDATES = (("py", "-3.13"), ("py", "-3.12"), "python")
 BACKEND_MARKER_IMPORT = "import fastapi, torch"
+PYTORCH_CUDA_INDEX_WINDOWS = "https://download.pytorch.org/whl/cu130"
+PYTHON_VERSION_PROBE_CODE = "import sys; print('%d.%d.%d' % sys.version_info[:3])"
+
+
+# ---------------------------------------------------------------------------
+# Platform seam: every POSIX/Windows difference in venv layout, interpreter
+# discovery, and process supervision funnels through the handful of
+# functions below (keyed on `os.name`) instead of being checked ad hoc at
+# each call site.
+# ---------------------------------------------------------------------------
+
+def venv_python(repo_root: Path) -> Path:
+    """Path to the venv's python interpreter. POSIX layout is
+    venv/bin/python; a Windows venv is laid out venv\\Scripts\\python.exe."""
+    if os.name == "nt":
+        return repo_root / "venv" / "Scripts" / "python.exe"
+    return repo_root / "venv" / "bin" / "python"
+
+
+def venv_pip(repo_root: Path) -> Path:
+    if os.name == "nt":
+        return repo_root / "venv" / "Scripts" / "pip.exe"
+    return repo_root / "venv" / "bin" / "pip"
+
+
+def activate_hint(repo_root: Optional[Path] = None) -> str:
+    """The shell command a human would run to activate ./venv, for repair
+    hints. cmd.exe accepts `&&` for chaining the same as POSIX shells, so
+    callers can join this with a following command uniformly."""
+    if os.name == "nt":
+        return r"venv\Scripts\activate"
+    return "source venv/bin/activate"
+
+
+def python_candidates_for_platform() -> tuple:
+    return WINDOWS_PYTHON_CANDIDATES if os.name == "nt" else PYTHON_CANDIDATES
+
+
+def python_argv(python_bin) -> list[str]:
+    """Normalize a probe_python_candidates() result into a full argv prefix.
+    A bare path (POSIX candidates, and Windows's plain `python`) becomes a
+    single-element list; an argv-list result (the Windows `py` launcher's
+    [py_path, "-3.12"]) passes through unchanged, since `-3.12` is a
+    separate token the shell/launcher needs, not part of the executable."""
+    return list(python_bin) if isinstance(python_bin, (list, tuple)) else [python_bin]
 
 
 # ---------------------------------------------------------------------------
@@ -238,16 +290,24 @@ class RealProbe:
 # Individual checks (pure aside from the probe calls they make)
 # ---------------------------------------------------------------------------
 
-def probe_python_candidates(probe) -> Optional[tuple[str, str]]:
-    """Return (interpreter_path, "major.minor.micro") for the first
-    PYTHON_CANDIDATES entry that resolves to a >= MIN_PYTHON interpreter."""
-    for name in PYTHON_CANDIDATES:
+def probe_python_candidates(probe, candidates: Optional[Sequence] = None) -> Optional[tuple[object, str]]:
+    """Return (python_bin, "major.minor.micro") for the first candidate
+    (default: python_candidates_for_platform()) that resolves to a >=
+    MIN_PYTHON interpreter. `python_bin` is a bare path for a single-token
+    candidate, or an argv-list like [py_path, "-3.12"] for a multi-token one
+    (the Windows `py` launcher) — normalize either shape with python_argv()
+    before spawning it."""
+    if candidates is None:
+        candidates = python_candidates_for_platform()
+    for candidate in candidates:
+        parts = (candidate,) if isinstance(candidate, str) else tuple(candidate)
+        name, extra_args = parts[0], list(parts[1:])
         path = probe.which(name)
         if not path:
             continue
         try:
             result = probe.run(
-                [path, "-c", "import sys; print('%d.%d.%d' % sys.version_info[:3])"],
+                [path, *extra_args, "-c", PYTHON_VERSION_PROBE_CODE],
                 timeout=10.0,
             )
         except Exception:
@@ -260,15 +320,16 @@ def probe_python_candidates(probe) -> Optional[tuple[str, str]]:
         except ValueError:
             continue
         if (major, minor) >= MIN_PYTHON:
-            return path, version_str
+            return ([path, *extra_args] if extra_args else path), version_str
     return None
 
 
 def check_python(probe) -> CheckResult:
     found = probe_python_candidates(probe)
     if found:
-        path, version_str = found
-        return CheckResult("PY312", Severity.OK, f"Python {version_str} found at {path}.", blocking=True)
+        python_bin, version_str = found
+        display = " ".join(python_argv(python_bin))
+        return CheckResult("PY312", Severity.OK, f"Python {version_str} found at {display}.", blocking=True)
     return CheckResult(
         "PY312",
         Severity.ERROR,
@@ -282,14 +343,15 @@ def check_python(probe) -> CheckResult:
 
 
 def check_venv(probe, repo_root: Path) -> CheckResult:
-    venv_python = repo_root / "venv" / "bin" / "python"
-    if probe.path_exists(venv_python):
-        return CheckResult("VENV", Severity.OK, f"Virtualenv present at {venv_python.parent.parent}.", blocking=False)
+    venv_python_path = venv_python(repo_root)
+    if probe.path_exists(venv_python_path):
+        return CheckResult("VENV", Severity.OK, f"Virtualenv present at {venv_python_path.parent.parent}.", blocking=False)
+    manual_create = "py -3.12 -m venv venv" if os.name == "nt" else "python3.12 -m venv venv"
     return CheckResult(
         "VENV",
         Severity.WARNING,
         "No virtualenv found at ./venv.",
-        repair="`./potionui start` creates it automatically, or manually: `python3.12 -m venv venv`.",
+        repair=f"`./potionui start` creates it automatically, or manually: `{manual_create}`.",
         blocking=False,
     )
 
@@ -302,6 +364,11 @@ def backend_pip_install_args(repo_root: Path) -> list[str]:
     args = ["install", "-r", "requirements.txt"]
     if (repo_root / CONSTRAINTS_FILE).exists():
         args += ["-c", CONSTRAINTS_FILE]
+    if os.name == "nt":
+        # constraints.txt pins the nvidia-cu13-*/triton Linux CUDA closure,
+        # which plain PyPI torch cannot satisfy on Windows — the CUDA 13.0
+        # Windows wheels live on PyTorch's own index instead.
+        args += ["--extra-index-url", PYTORCH_CUDA_INDEX_WINDOWS]
     return args
 
 
@@ -316,12 +383,12 @@ def backend_pip_install_args_no_gpu() -> list[str]:
 
 def check_backend_deps(probe, repo_root: Path, no_gpu: bool = False) -> CheckResult:
     pip_repair = (
-        f"source venv/bin/activate && pip install -r {NO_GPU_REQUIREMENTS_FILE} --extra-index-url {PYTORCH_CPU_INDEX}"
+        f"{activate_hint(repo_root)} && pip install -r {NO_GPU_REQUIREMENTS_FILE} --extra-index-url {PYTORCH_CPU_INDEX}"
         if no_gpu
-        else "source venv/bin/activate && pip install -r requirements.txt -c constraints.txt"
+        else f"{activate_hint(repo_root)} && pip install -r requirements.txt -c constraints.txt"
     )
-    venv_python = repo_root / "venv" / "bin" / "python"
-    if not probe.path_exists(venv_python):
+    venv_python_path = venv_python(repo_root)
+    if not probe.path_exists(venv_python_path):
         return CheckResult(
             "BACKEND_DEPS",
             Severity.WARNING,
@@ -330,7 +397,7 @@ def check_backend_deps(probe, repo_root: Path, no_gpu: bool = False) -> CheckRes
             blocking=False,
         )
     try:
-        result = probe.run([str(venv_python), "-c", BACKEND_MARKER_IMPORT], timeout=20.0)
+        result = probe.run([str(venv_python_path), "-c", BACKEND_MARKER_IMPORT], timeout=20.0)
     except Exception as exc:
         return CheckResult(
             "BACKEND_DEPS",
@@ -812,6 +879,21 @@ def run_streamed(cmd: list[str], cwd: Path, env: dict, label: str) -> bool:
 def spawn_process(cmd: list[str], cwd: Path, env: dict, log_path: Path) -> subprocess.Popen:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_file = open(log_path, "ab", buffering=0)
+    if os.name == "nt":
+        # Windows has no process groups à la POSIX start_new_session; a new
+        # process group plus no attached console is what lets stop_process's
+        # `taskkill /T` reach the whole tree (npm spawns vite as a child)
+        # without popping a console window per child. getattr(...) guards
+        # these Windows-only subprocess constants so this still evaluates
+        # (and is mockable) on a POSIX interpreter running the test suite.
+        spawn_kwargs = {
+            "creationflags": (
+                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            )
+        }
+    else:
+        spawn_kwargs = {"start_new_session": True}  # own process group -> we can kill the whole tree (npm spawns vite as a child)
     try:
         return subprocess.Popen(
             cmd,
@@ -820,7 +902,7 @@ def spawn_process(cmd: list[str], cwd: Path, env: dict, log_path: Path) -> subpr
             stdout=log_file,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
-            start_new_session=True,  # own process group -> we can kill the whole tree (npm spawns vite as a child)
+            **spawn_kwargs,
         )
     finally:
         log_file.close()  # child holds its own dup'd fd
@@ -838,7 +920,31 @@ def start_supervised(name: str, cmd: list[str], cwd: Path, env: dict, port: int,
     }
 
 
+def _pid_alive_windows(pid: int) -> bool:
+    """Windows has no signal-0 liveness probe: `os.kill(pid, 0)` is NOT a
+    check there — it calls TerminateProcess and actually kills the process.
+    Ask the OS directly via OpenProcess + GetExitCodeProcess instead."""
+    import ctypes
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    STILL_ACTIVE = 259
+
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return False
+    try:
+        exit_code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return False
+        return exit_code.value == STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        return _pid_alive_windows(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -848,10 +954,26 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
+def _stop_process_windows(pid: int, timeout: float, sleeper: Callable[[float], None], clock: Callable[[], float]) -> bool:
+    """`taskkill /T` walks the process tree, which a bare TerminateProcess
+    on `pid` alone would not — needed because `npm run dev` spawns vite as a
+    child. First without /F for a graceful shutdown window, then with /F."""
+    subprocess.run(["taskkill", "/PID", str(pid), "/T"], capture_output=True)
+    deadline = clock() + timeout
+    while clock() < deadline:
+        if not pid_alive(pid):
+            return True
+        sleeper(0.2)
+    subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+    return not pid_alive(pid)
+
+
 def stop_process(pid: int, timeout: float = 10.0, sleeper: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> bool:
-    """Terminate the process group led by `pid`. Returns True once it's confirmed gone."""
+    """Terminate the process (tree) led by `pid`. Returns True once it's confirmed gone."""
     if not pid_alive(pid):
         return True
+    if os.name == "nt":
+        return _stop_process_windows(pid, timeout, sleeper, clock)
     try:
         os.killpg(pid, signal.SIGTERM)
     except ProcessLookupError:
@@ -1149,20 +1271,21 @@ def cmd_start(args) -> int:
     python_found = probe_python_candidates(probe)
     assert python_found is not None  # doctor already confirmed PY312 passed
     python_bin, _ = python_found
+    python_bin_argv = python_argv(python_bin)
 
-    venv_python = REPO_ROOT / "venv" / "bin" / "python"
-    if not venv_python.exists():
-        print(f"Creating virtualenv with {python_bin} ...")
-        if not run_streamed([python_bin, "-m", "venv", "venv"], REPO_ROOT, os.environ.copy(), "venv creation"):
+    venv_python_path = venv_python(REPO_ROOT)
+    if not venv_python_path.exists():
+        print(f"Creating virtualenv with {' '.join(python_bin_argv)} ...")
+        if not run_streamed([*python_bin_argv, "-m", "venv", "venv"], REPO_ROOT, os.environ.copy(), "venv creation"):
             return 1
 
     try:
-        deps_ok = probe.run([str(venv_python), "-c", BACKEND_MARKER_IMPORT], timeout=20.0).returncode == 0
+        deps_ok = probe.run([str(venv_python_path), "-c", BACKEND_MARKER_IMPORT], timeout=20.0).returncode == 0
     except Exception:
         deps_ok = False
     if not deps_ok:
         print("Installing backend dependencies (this can take a while)...")
-        pip_bin = REPO_ROOT / "venv" / "bin" / "pip"
+        pip_bin = venv_pip(REPO_ROOT)
         pip_cmd = [str(pip_bin), *backend_pip_install_args_for_profile(profile, REPO_ROOT)]
         if not run_streamed(pip_cmd, REPO_ROOT, os.environ.copy(), "pip install"):
             print("Backend dependency install failed. Fix the issue above and re-run `./potionui start`.")
@@ -1171,7 +1294,7 @@ def cmd_start(args) -> int:
     backend_env = os.environ.copy()
 
     backend_cmd = [
-        str(venv_python), "-m", "uvicorn", "api:app",
+        str(venv_python_path), "-m", "uvicorn", "api:app",
         "--host", "127.0.0.1", "--port", str(args.backend_port),
         "--workers", "1", "--log-level", "info",
         "--limit-concurrency", "1000", "--limit-max-requests", "10000",
@@ -1348,20 +1471,21 @@ def cmd_worker_start(args) -> int:
     python_found = probe_python_candidates(probe)
     assert python_found is not None  # doctor already confirmed PY312 passed
     python_bin, _ = python_found
+    python_bin_argv = python_argv(python_bin)
 
-    venv_python = REPO_ROOT / "venv" / "bin" / "python"
-    if not venv_python.exists():
-        print(f"Creating virtualenv with {python_bin} ...")
-        if not run_streamed([python_bin, "-m", "venv", "venv"], REPO_ROOT, os.environ.copy(), "venv creation"):
+    venv_python_path = venv_python(REPO_ROOT)
+    if not venv_python_path.exists():
+        print(f"Creating virtualenv with {' '.join(python_bin_argv)} ...")
+        if not run_streamed([*python_bin_argv, "-m", "venv", "venv"], REPO_ROOT, os.environ.copy(), "venv creation"):
             return 1
 
     try:
-        deps_ok = probe.run([str(venv_python), "-c", BACKEND_MARKER_IMPORT], timeout=20.0).returncode == 0
+        deps_ok = probe.run([str(venv_python_path), "-c", BACKEND_MARKER_IMPORT], timeout=20.0).returncode == 0
     except Exception:
         deps_ok = False
     if not deps_ok:
         print("Installing worker dependencies (full CUDA stack, this can take a while)...")
-        pip_bin = REPO_ROOT / "venv" / "bin" / "pip"
+        pip_bin = venv_pip(REPO_ROOT)
         pip_cmd = [str(pip_bin), *backend_pip_install_args(REPO_ROOT)]
         if not run_streamed(pip_cmd, REPO_ROOT, os.environ.copy(), "pip install"):
             print("Worker dependency install failed. Fix the issue above and re-run `./potionui worker start`.")
@@ -1371,7 +1495,7 @@ def cmd_worker_start(args) -> int:
     worker_env["POTIONUI_WORKER_HOST"] = args.host
     worker_env["POTIONUI_WORKER_PORT"] = str(args.port)
 
-    worker_cmd = [str(venv_python), "worker.py"]
+    worker_cmd = [str(venv_python_path), "worker.py"]
     print(f"\nStarting the Remote Native worker on http://{args.host}:{args.port} ...")
     print(
         "Put the same POTIONUI_WORKER_TOKEN into the Native (Remote Worker) backend on the "

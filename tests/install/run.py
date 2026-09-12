@@ -44,6 +44,27 @@ from typing import Callable, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+
+def potionui_launcher(checkout_dir: Path) -> list:
+    """The `./potionui <args>` invocation for the current platform.
+
+    On Windows this routes through `cmd /c` on an absolute path into
+    `checkout_dir`: CreateProcess (what subprocess uses with shell=False)
+    can only launch PE binaries, not a .cmd/.bat file directly - it fails
+    with WinError 193 unless a shell resolves the batch-file association,
+    which is why an interactive `run:` step in CI (itself a shell) can
+    invoke `potionui.cmd` directly while this subprocess call cannot. The
+    absolute path also sidesteps a second gotcha: CreateProcess resolves a
+    path-less relative filename against the *parent* process's current
+    directory, not the child's assigned `cwd=`, so a bare name here would
+    silently search the wrong tree. POSIX exec has neither gotcha (a
+    relative "./potionui" resolves against the child's own post-fork cwd,
+    and the kernel executes the interpreter named on its shebang line
+    directly), so it keeps the existing relative, shell-less form."""
+    if os.name == "nt":
+        return ["cmd", "/c", str(checkout_dir / "potionui.cmd")]
+    return ["./potionui"]
+
 try:
     import requests
 except ImportError:  # pragma: no cover - requests ships in requirements.txt
@@ -228,7 +249,7 @@ def run_cli_capture(checkout_dir: Path, cli_args: list, backend_port: int, front
     """Run `./potionui <cli_args>` to completion, streaming stdout+stderr to
     log_path. Global --backend-port/--frontend-port must precede the
     subcommand (argparse: they belong to the parent parser)."""
-    cmd = ["./potionui", "--backend-port", str(backend_port), "--frontend-port", str(frontend_port), *cli_args]
+    cmd = [*potionui_launcher(checkout_dir), "--backend-port", str(backend_port), "--frontend-port", str(frontend_port), *cli_args]
     with open(log_path, "wb") as fh:
         fh.write((" ".join(cmd) + "\n").encode())
         fh.flush()
@@ -269,7 +290,33 @@ def read_pids_from_state(checkout_dir: Path) -> list:
     return pids
 
 
+def _pid_alive_windows(pid: int) -> bool:
+    """`os.kill(pid, 0)` does not probe liveness on Windows - CPython maps a
+    signal number it doesn't special-case there to TerminateProcess, so
+    passing 0 would actually kill the target instead of checking it. This
+    harness verifies `./potionui stop` independently of the CLI's own
+    process bookkeeping, so it reimplements the OpenProcess /
+    GetExitCodeProcess probe here rather than importing scripts.potionui_cli."""
+    import ctypes
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    STILL_ACTIVE = 259
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return False
+    try:
+        exit_code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return False
+        return exit_code.value == STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        return _pid_alive_windows(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -294,7 +341,8 @@ def build_core_phases(profile: str, checkout_dir: Path, log_dir: Path, ports: tu
             materialize_from_dir(Path(args.from_dir).resolve(), checkout_dir)
         else:
             materialize_from_git(args.from_git, checkout_dir)
-        (checkout_dir / "potionui").chmod(0o755)
+        if os.name != "nt":
+            (checkout_dir / "potionui").chmod(0o755)  # potionui.cmd needs no execute bit on Windows
         if args.reuse_venv:
             venv_src = Path(args.reuse_venv).resolve()
             if not venv_src.is_dir():
@@ -422,7 +470,8 @@ def build_worker_phases(checkout_dir: Path, log_dir: Path, port: int, env: dict,
             materialize_from_dir(Path(args.from_dir).resolve(), checkout_dir)
         else:
             materialize_from_git(args.from_git, checkout_dir)
-        (checkout_dir / "potionui").chmod(0o755)
+        if os.name != "nt":
+            (checkout_dir / "potionui").chmod(0o755)  # potionui.cmd needs no execute bit on Windows
         if args.reuse_venv:
             venv_src = Path(args.reuse_venv).resolve()
             if not venv_src.is_dir():
@@ -431,7 +480,7 @@ def build_worker_phases(checkout_dir: Path, log_dir: Path, port: int, env: dict,
 
     def p_worker_doctor():
         log_path = log_dir / "worker-doctor.json"
-        cmd = ["./potionui", "worker", "doctor", "--json", "--port", str(port)]
+        cmd = [*potionui_launcher(checkout_dir), "worker", "doctor", "--json", "--port", str(port)]
         with open(log_path, "wb") as fh:
             fh.write((" ".join(cmd) + "\n").encode())
             fh.flush()
@@ -449,7 +498,7 @@ def build_worker_phases(checkout_dir: Path, log_dir: Path, port: int, env: dict,
             )
 
     def p_worker_start():
-        cmd = ["./potionui", "worker", "start", "--port", str(port)]
+        cmd = [*potionui_launcher(checkout_dir), "worker", "start", "--port", str(port)]
         log_path = log_dir / "worker-start.log"
         log_fh = open(log_path, "wb")
         proc = subprocess.Popen(cmd, cwd=str(checkout_dir), env=worker_env, stdout=log_fh, stderr=subprocess.STDOUT, start_new_session=True)

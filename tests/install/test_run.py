@@ -5,10 +5,52 @@ happens when a maintainer runs `python tests/install/run.py` directly (see
 its docstring and docs/testing-notes.md's "Install matrix" section).
 """
 import json
+import os
 
 import pytest
 
 from tests.install import run as install_run
+
+
+# ---------------------------------------------------------------------------
+# potionui_launcher
+# ---------------------------------------------------------------------------
+
+def test_potionui_launcher_posix_uses_relative_bash_shim(monkeypatch, tmp_path):
+    monkeypatch.setattr(os, "name", "posix")
+    assert install_run.potionui_launcher(tmp_path) == ["./potionui"]
+
+
+def test_potionui_launcher_windows_routes_through_cmd_with_absolute_path(monkeypatch, tmp_path):
+    # subprocess with shell=False can't launch a .cmd directly (WinError
+    # 193 — CreateProcess only runs PE binaries), and a bare relative name
+    # would resolve against the *parent* process's cwd, not the `cwd=`
+    # given to subprocess — both are why this isn't just ["potionui.cmd"].
+    monkeypatch.setattr(os, "name", "nt")
+    checkout_dir = tmp_path / "checkout-remote"
+    assert install_run.potionui_launcher(checkout_dir) == [
+        "cmd", "/c", str(checkout_dir / "potionui.cmd"),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# pid_alive on Windows — os.kill(pid, 0) is not a liveness probe there
+# ---------------------------------------------------------------------------
+
+def test_pid_alive_windows_dispatches_to_ctypes_probe_never_os_kill(monkeypatch):
+    monkeypatch.setattr(os, "name", "nt")
+
+    def boom(*_a, **_k):
+        raise AssertionError("os.kill must never be called on Windows")
+
+    monkeypatch.setattr(os, "kill", boom)
+    monkeypatch.setattr(install_run, "_pid_alive_windows", lambda pid: True)
+    assert install_run.pid_alive(1234) is True
+
+
+def test_pid_alive_posix_still_uses_os_kill(monkeypatch):
+    monkeypatch.setattr(os, "name", "posix")
+    assert install_run.pid_alive(2**30) is False  # astronomically unlikely to exist
 
 
 # ---------------------------------------------------------------------------

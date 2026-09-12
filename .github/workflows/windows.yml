@@ -125,8 +125,6 @@ jobs:
       # owner registration, a presets listing, `status`, `stop`, and confirm
       # the process tree is actually gone. This is the actual proof of a
       # native Windows boot - not just doctor's static checks.
-      # cmd.exe for the same reason as the pytest job's step: a harness
-      # warning on stderr must not end the step under pwsh's stop preference.
       - name: Install matrix (remote profile) - real boot on Windows
         shell: cmd
         run: |
@@ -185,13 +183,7 @@ jobs:
       # `if: always()`, so a red pytest here still ships its junit/log -
       # this job stays required (no continue-on-error) because the maintainer
       # needs the real signal, not a green badge.
-      # cmd.exe, not pwsh, on purpose: GitHub runs pwsh steps with
-      # $ErrorActionPreference = 'stop', and a native command's stderr piped
-      # through `2>&1 |` there can end the step on its first stderr line -
-      # the first run died silently at 19% with exit code 1 the moment a
-      # test logged to stderr. cmd's file redirection is byte-faithful and
-      # has no such semantics; the log is printed afterwards and uploaded
-      # below even when pytest fails.
+      # cmd, not pwsh: pwsh's stop preference ends the step on the first stderr line.
       - name: pytest (Windows-sensitive subset, CPU-only, no GPU/model-file/gc-sensitive tests)
         shell: cmd
         env:

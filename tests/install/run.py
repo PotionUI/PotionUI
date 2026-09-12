@@ -388,9 +388,6 @@ def build_core_phases(profile: str, checkout_dir: Path, log_dir: Path, ports: tu
             raise PhaseError(f"`./potionui start` exited {code} - see {log_path}")
 
     def p_health():
-        # Polled, not a single shot: right after `start` returns, boot-time
-        # work (the preset media prerender thread, the Vite dev server) can
-        # hold a small runner busy for longer than one request's timeout.
         url = f"http://127.0.0.1:{backend_port}/health"
         if not wait_for(lambda: http_get_ok(url), timeout=HEALTH_SETTLE_TIMEOUT):
             raise PhaseError(

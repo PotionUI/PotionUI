@@ -182,8 +182,6 @@ PYTHON_VERSION_PROBE_CODE = "import sys; print('%d.%d.%d' % sys.version_info[:3]
 # ---------------------------------------------------------------------------
 
 def is_windows() -> bool:
-    """The one platform switch. Tests patch this rather than `os.name`,
-    which pathlib's Path dispatch also reads."""
     return os.name == "nt"
 
 

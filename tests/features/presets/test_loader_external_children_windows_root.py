@@ -1,11 +1,3 @@
-"""External `children:` fragments resolve against a Windows-shaped preset root.
-
-The loader and the linter substitute `{{ paths.preset }}` with the preset
-directory through `re.sub`. Given as a template string, a Windows path such
-as `D:\\a\\_temp\\potionui` is parsed for escapes and `\\p` raises
-`re.error: bad escape` - which dropped every shipped preset on the first
-Windows CI run, since each one loads its tabs from external files.
-"""
 from pathlib import Path
 
 import pytest

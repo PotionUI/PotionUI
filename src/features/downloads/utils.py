@@ -181,8 +181,7 @@ def extract_filename_from_url(url: str) -> Optional[str]:
     - response-content-disposition query parameter (used by CDNs like Cloudflare)
     - Path basename
 
-    `unquote` must run BEFORE `posixpath.basename` (a URL path is POSIX on
-    every host): an encoded segment like
+    `unquote` must run BEFORE `posixpath.basename`: an encoded segment like
     `..%2F..%2Fetc%2Fcron` carries no raw slash, so basename on the still
     encoded path leaves it whole and decoding afterwards hands back
     `../../etc/cron`. Decoding first makes basename split on the real

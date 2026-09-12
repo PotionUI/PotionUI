@@ -1,5 +1,3 @@
-"""Process liveness that is safe on every platform."""
-
 from __future__ import annotations
 
 import errno
@@ -26,12 +24,7 @@ def _pid_alive_windows(pid: int) -> bool:
 
 
 def pid_alive(pid: int) -> bool:
-    """True when a process with this id exists (even one we may not signal).
-
-    The POSIX signal-0 probe must never run on Windows: there signal 0 is
-    CTRL_C_EVENT, so `os.kill(pid, 0)` delivers a Ctrl-C to the process
-    group `pid` instead of probing it.
-    """
+    # on Windows signal 0 is CTRL_C_EVENT: os.kill(pid, 0) sends a Ctrl-C, it does not probe
     if os.name == "nt":
         return _pid_alive_windows(pid)
     try:

@@ -18,9 +18,6 @@ from scripts import potionui_cli as cli
 
 @pytest.fixture(autouse=True)
 def _posix_by_default(monkeypatch):
-    """Every test here describes POSIX behaviour unless it patches the
-    switch itself; without this pin the suite reads the host and the
-    Windows CI job takes the other branch of every seam."""
     monkeypatch.setattr(cli, "is_windows", lambda: False)
 
 
@@ -719,9 +716,7 @@ def test_wait_for_ready_times_out():
 # pid_alive / stop_process
 # ---------------------------------------------------------------------------
 
-# These three run the REAL platform branch (the autouse POSIX pin is lifted):
-# on Windows, signal 0 is CTRL_C_EVENT, so the POSIX `os.kill(pid, 0)` probe
-# would send a Ctrl-C to the console running pytest instead of probing.
+# real platform branch: on Windows signal 0 is CTRL_C_EVENT, so the POSIX probe must never run there
 def test_pid_alive_true_for_self(monkeypatch):
     monkeypatch.setattr(cli, "is_windows", lambda: os.name == "nt")
     assert cli.pid_alive(os.getpid()) is True

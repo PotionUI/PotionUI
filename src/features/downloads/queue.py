@@ -123,8 +123,7 @@ class DownloadQueue:
         """Load settings from database."""
         try:
             # Normalised because the stored value may carry a leading "./"
-            # that would otherwise reach destination_path via os.path.join;
-            # POSIX form because it is persisted into every destination_path.
+            # that would otherwise reach destination_path via os.path.join.
             model_dir = self.app_settings.get_setting('models_dir')
             if model_dir:
                 self.settings.default_model_directory = Path(model_dir).as_posix()

@@ -564,8 +564,7 @@ class PresetTemplateLoader:
 
         children = field_data.get('children')
         if isinstance(children, str):
-            # A replacement callable keeps the path literal: as a template
-            # string, a Windows root's backslashes would be parsed as escapes.
+            # callable, not a template string: a Windows root's backslashes would be parsed as escapes
             resolved_path = _CHILDREN_PATH_VAR_RE.sub(lambda _m: str(preset_root), children)
             external_fields = self._load_external_children_file(Path(resolved_path), prefix)
             field_data['children'] = [

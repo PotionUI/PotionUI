@@ -279,6 +279,27 @@ def wait_for(check_fn: Callable[[], bool], timeout: float, interval: float = 1.0
     return check_fn()
 
 
+def describe_supervised_processes(checkout_dir: Path, tail_lines: int = 40) -> str:
+    """Liveness of the pids `start` recorded plus the backend log tail, for a failure message."""
+    state_path = checkout_dir / ".runtime" / "state.json"
+    try:
+        state = json.loads(state_path.read_text())
+    except (OSError, ValueError):
+        return f"; no readable {state_path}"
+    parts = []
+    for name in ("backend", "frontend"):
+        info = state.get(name) or {}
+        pid = info.get("pid")
+        if isinstance(pid, int):
+            parts.append(f"{name} pid {pid} {'alive' if pid_alive(pid) else 'GONE'}")
+    log_path = checkout_dir / ".runtime" / "logs" / "backend.log"
+    try:
+        tail = log_path.read_text(errors="replace").splitlines()[-tail_lines:]
+    except OSError:
+        tail = [f"(no {log_path})"]
+    return "; " + ", ".join(parts) + "\n--- backend.log tail ---\n" + "\n".join(tail)
+
+
 def read_pids_from_state(checkout_dir: Path) -> list:
     state_path = checkout_dir / ".runtime" / "state.json"
     if not state_path.exists():
@@ -392,6 +413,7 @@ def build_core_phases(profile: str, checkout_dir: Path, log_dir: Path, ports: tu
         if not wait_for(lambda: http_get_ok(url), timeout=HEALTH_SETTLE_TIMEOUT):
             raise PhaseError(
                 f"{url} did not return 2xx/3xx within {HEALTH_SETTLE_TIMEOUT:g}s after start reported success"
+                + describe_supervised_processes(checkout_dir)
             )
 
     def p_claim_token():

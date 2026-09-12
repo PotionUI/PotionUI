@@ -115,7 +115,7 @@ def test_check_python_none_on_path():
     assert result.blocking is True
 
 
-def test_check_python_prefers_newer_candidate_order():
+def test_check_python_prefers_the_pinned_minor_over_a_newer_one():
     probe = FakeProbe(
         which={"python3.13": "/usr/bin/python3.13", "python3.12": "/usr/bin/python3.12"},
         run={
@@ -124,7 +124,18 @@ def test_check_python_prefers_newer_candidate_order():
         },
     )
     result = cli.check_python(probe)
-    assert "3.13.0" in result.message
+    assert result.severity == cli.Severity.OK
+    assert "3.12.2" in result.message
+
+
+def test_check_python_warns_when_only_a_newer_minor_exists():
+    probe = FakeProbe(
+        which={"python3.13": "/usr/bin/python3.13"},
+        run={"/usr/bin/python3.13": cp(stdout="3.13.0\n")},
+    )
+    result = cli.check_python(probe)
+    assert result.severity == cli.Severity.WARNING
+    assert "3.13.0" in result.message and "3.12" in result.repair
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +151,7 @@ def test_python_candidates_for_platform_posix_is_unchanged(monkeypatch):
 def test_python_candidates_for_platform_windows_uses_py_launcher(monkeypatch):
     monkeypatch.setattr(cli, "is_windows", lambda: True)
     assert cli.python_candidates_for_platform() == cli.WINDOWS_PYTHON_CANDIDATES
-    assert cli.WINDOWS_PYTHON_CANDIDATES == (("py", "-3.13"), ("py", "-3.12"), "python")
+    assert cli.WINDOWS_PYTHON_CANDIDATES == (("py", "-3.12"), ("py", "-3.13"), "python")
 
 
 def test_python_argv_normalizes_bare_string():
@@ -184,7 +195,7 @@ def test_check_python_windows_py_launcher_display_includes_flag(monkeypatch):
         },
     )
     result = cli.check_python(probe)
-    assert result.severity == cli.Severity.OK
+    assert result.severity == cli.Severity.WARNING
     assert "py.exe -3.13" in result.message
 
 

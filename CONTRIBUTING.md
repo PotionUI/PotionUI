@@ -6,7 +6,7 @@ architecture itself, see `CLAUDE.md`.
 
 ## Dev setup
 
-You need Python 3.12+ and Node.js 18+.
+You need Python 3.12 (3.13 compiles numpy from source) and Node.js 18+.
 
 ```bash
 git clone https://github.com/PotionUI/PotionUI.git potionui

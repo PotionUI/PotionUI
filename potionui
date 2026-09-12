@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 find_python() {
     local candidate version major minor
-    for candidate in python3.13 python3.12 python3; do
+    for candidate in python3.12 python3.13 python3; do
         if command -v "$candidate" >/dev/null 2>&1; then
             version="$("$candidate" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
             if [[ -n "$version" ]]; then

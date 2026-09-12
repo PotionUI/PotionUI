@@ -12,15 +12,10 @@ set "PYCHECK=import sys; sys.exit(0 if sys.version_info[:2] >= (3, 12) else 1)"
 
 where py >nul 2>nul
 if not errorlevel 1 (
-    py -3.13 -c "%PYCHECK%" >nul 2>nul
-    if not errorlevel 1 (
-        py -3.13 "%SCRIPT_DIR%scripts\potionui_cli.py" %*
-        exit /b %ERRORLEVEL%
-    )
     py -3.12 -c "%PYCHECK%" >nul 2>nul
     if not errorlevel 1 (
         py -3.12 "%SCRIPT_DIR%scripts\potionui_cli.py" %*
-        exit /b %ERRORLEVEL%
+        exit /b
     )
 )
 
@@ -29,7 +24,16 @@ if not errorlevel 1 (
     python -c "%PYCHECK%" >nul 2>nul
     if not errorlevel 1 (
         python "%SCRIPT_DIR%scripts\potionui_cli.py" %*
-        exit /b %ERRORLEVEL%
+        exit /b
+    )
+)
+
+where py >nul 2>nul
+if not errorlevel 1 (
+    py -3.13 -c "%PYCHECK%" >nul 2>nul
+    if not errorlevel 1 (
+        py -3.13 "%SCRIPT_DIR%scripts\potionui_cli.py" %*
+        exit /b
     )
 )
 

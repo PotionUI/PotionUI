@@ -612,6 +612,9 @@ def run_profile(profile: str, root: Path, port_start: int, args) -> ProfileRepor
                     checkout_dir, ["stop"], backend_port, frontend_port, env,
                     log_dir / "cleanup-stop.log", timeout=CLI_INVOKE_TIMEOUT,
                 )
+        for runtime_log in (checkout_dir / ".runtime" / "logs").glob("*.log"):
+            with contextlib.suppress(OSError):
+                shutil.copy2(runtime_log, log_dir / f"runtime-{runtime_log.name}")
 
     if not args.keep and checkout_dir.exists():
         shutil.rmtree(checkout_dir, ignore_errors=True)

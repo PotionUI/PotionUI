@@ -149,6 +149,7 @@ PYTORCH_CPU_INDEX = "https://download.pytorch.org/whl/cpu"
 DOCKER_COMPOSE_FILE = "docker/docker-compose.yml"
 DEFAULT_START_TIMEOUT = 180.0
 MIN_PYTHON = (3, 12)
+PINNED_PYTHON = (3, 12)  # the dependency pins are resolved for this minor; numpy 1.26 has no 3.13 wheels
 GB = 1024 ** 3
 DISK_FAIL_THRESHOLD_GB = 5
 DISK_WARN_THRESHOLD_GB = 25
@@ -161,14 +162,14 @@ INSTALL_PROFILES = ("local", "hybrid", "remote")
 # both readiness probes target it, so bind and probe can never diverge.
 FRONTEND_BIND_HOST = "127.0.0.1"
 MIN_NODE_MAJOR = 18
-PYTHON_CANDIDATES = ("python3.13", "python3.12", "python3")
+PYTHON_CANDIDATES = ("python3.12", "python3.13", "python3")
 # Each entry is either a bare executable name (POSIX, and Windows's plain
 # `python`) or a (name, *extra_args) tuple for the Windows `py` launcher,
 # whose version selector is a separate argv token (`py -3.12`), not part of
 # an executable path. `python3` is deliberately absent here: on Windows it
 # usually resolves to the Microsoft Store stub, which prints a store-install
 # nag instead of a version and must not be treated as a real interpreter.
-WINDOWS_PYTHON_CANDIDATES = (("py", "-3.13"), ("py", "-3.12"), "python")
+WINDOWS_PYTHON_CANDIDATES = (("py", "-3.12"), ("py", "-3.13"), "python")
 BACKEND_MARKER_IMPORT = "import fastapi, torch"
 PYTORCH_CUDA_INDEX_WINDOWS = "https://download.pytorch.org/whl/cu130"
 PYTHON_VERSION_PROBE_CODE = "import sys; print('%d.%d.%d' % sys.version_info[:3])"
@@ -333,6 +334,15 @@ def check_python(probe) -> CheckResult:
     if found:
         python_bin, version_str = found
         display = " ".join(python_argv(python_bin))
+        major, minor = (int(x) for x in version_str.split(".")[:2])
+        if (major, minor) > PINNED_PYTHON:
+            return CheckResult(
+                "PY312", Severity.WARNING,
+                f"Python {version_str} found at {display}; the pinned dependency stack targets "
+                f"{PINNED_PYTHON[0]}.{PINNED_PYTHON[1]} (numpy 1.26 has no wheels for newer interpreters and is compiled from source).",
+                repair=f"Install Python {PINNED_PYTHON[0]}.{PINNED_PYTHON[1]} alongside; `./potionui` prefers it when present.",
+                blocking=True,
+            )
         return CheckResult("PY312", Severity.OK, f"Python {version_str} found at {display}.", blocking=True)
     return CheckResult(
         "PY312",

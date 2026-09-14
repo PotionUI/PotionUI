@@ -113,7 +113,7 @@ async function settle() {
 // re-derives an empty prompt and `deriveShotLabel` falls back to "Shot N" --
 // seg-b is the film's 2nd segment, hence "Expand Shot 2".
 function expandShotB(target: HTMLDivElement) {
-	const shotB = target.querySelector('button[aria-label="Expand Shot 2"]') as HTMLButtonElement | null;
+	const shotB = target.querySelector('[role="button"][aria-label="Expand Shot 2"]') as HTMLButtonElement | null;
 	expect(shotB).toBeTruthy();
 	shotB!.click();
 }

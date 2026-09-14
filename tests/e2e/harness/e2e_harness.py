@@ -84,6 +84,37 @@ def stage_log(stage: str, message: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def is_windows() -> bool:
+    return os.name == "nt"
+
+
+def popen_group_kwargs() -> Dict[str, Any]:
+    """Spawn kwargs so a whole process tree (backend, preview, npx, ...) can
+    be torn down as a unit instead of leaking children behind a killed
+    parent."""
+    if is_windows():
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)}
+    return {"start_new_session": True}
+
+
+def kill_group(proc: subprocess.Popen, *, force: bool) -> None:
+    """Counterpart to popen_group_kwargs: stop the process group/tree
+    `proc` roots. `force=False` asks nicely (SIGTERM / taskkill), `force=True`
+    is the follow-up after a timeout (SIGKILL / taskkill /F)."""
+    if is_windows():
+        subprocess.run(
+            ["taskkill", "/PID", str(proc.pid), "/T"] + (["/F"] if force else []),
+            capture_output=True,
+        )
+        return
+    sig = signal.SIGKILL if force else signal.SIGTERM
+    try:
+        os.killpg(os.getpgid(proc.pid), sig)
+    except (ProcessLookupError, PermissionError):
+        with contextlib.suppress(Exception):
+            proc.kill() if force else proc.terminate()
+
+
 def find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
@@ -124,33 +155,61 @@ def pick_free_port(start: int = DEFAULT_PORT) -> int:
 
 
 def find_venv_site_packages(repo_root: Path) -> Optional[Path]:
-    """The project's `venv/lib/pythonX.Y/site-packages`, or None if no venv
-    has been created yet. Mirrors the convention CLAUDE.md documents for
-    running pytest in this environment (`PYTHONPATH=./venv/lib/python3.12/
+    """The project's `venv/lib/pythonX.Y/site-packages` (POSIX) or
+    `venv/Lib/site-packages` (Windows), or None if no venv has been created
+    yet. On POSIX this mirrors the convention CLAUDE.md documents for running
+    pytest in this environment (`PYTHONPATH=./venv/lib/python3.12/
     site-packages:.`) rather than assuming `venv/bin/python` is itself a
     working interpreter - it is a symlink into a pyenv install that may not
     exist on this machine even when the venv's installed packages are fine."""
-    lib_dir = repo_root / "venv" / "lib"
+    venv_dir = repo_root / "venv"
+    if is_windows():
+        site_packages = venv_dir / "Lib" / "site-packages"
+        return site_packages if site_packages.is_dir() else None
+    lib_dir = venv_dir / "lib"
     if not lib_dir.is_dir():
         return None
     candidates = sorted(lib_dir.glob("python3.*/site-packages"))
     return candidates[0] if candidates else None
 
 
-def resolve_backend_launch(repo_root: Path) -> Tuple[str, Path]:
+def resolve_backend_launch(repo_root: Path) -> Tuple[str, Optional[Path]]:
     """Pick (interpreter, site_packages) for launching the backend
-    subprocess: an interpreter on PATH matching the venv's own Python minor
-    version (compiled extensions like torch are ABI-specific to it), falling
-    back to whatever `python3`/`python` resolves to. Raises StageError with a
-    clear repair hint if no venv exists at all."""
+    subprocess.
+
+    No `venv/` at all: use `sys.executable` with no site-packages to inject -
+    this is the CI shape, where dependencies are installed into the running
+    interpreter rather than a repo-local venv.
+
+    A `venv/` exists: on Windows, launch its own `venv/Scripts/python.exe`
+    directly (no PYTHONPATH injection needed - it already sees its own
+    site-packages). On POSIX, prefer an interpreter on PATH matching the
+    venv's own Python minor version (compiled extensions like torch are
+    ABI-specific to it), falling back to whatever `python3`/`python` resolves
+    to, and inject the venv's site-packages via PYTHONPATH - `venv/bin/python`
+    is a symlink into a pyenv install that may not exist on this machine even
+    when the venv's installed packages are fine.
+
+    Raises StageError only when a venv directory exists but is unusable."""
+    venv_dir = repo_root / "venv"
+    if not venv_dir.is_dir():
+        return sys.executable, None
+
     site_packages = find_venv_site_packages(repo_root)
     if site_packages is None:
         raise StageError(
             "subprocess-boot",
-            f"No virtualenv found at {repo_root / 'venv'}. Create one first: "
-            "python3.12 -m venv venv && venv/bin/pip install -r requirements.txt "
-            "-c constraints.txt (or run `./potionui start` once).",
+            f"venv exists at {venv_dir} but no usable site-packages directory was found "
+            "(expected venv/Lib/site-packages on Windows, venv/lib/pythonX.Y/site-packages "
+            "elsewhere).",
         )
+
+    if is_windows():
+        venv_python = venv_dir / "Scripts" / "python.exe"
+        if not venv_python.is_file():
+            raise StageError("subprocess-boot", f"venv exists at {venv_dir} but {venv_python} was not found.")
+        return str(venv_python), None
+
     py_minor_name = site_packages.parent.name  # e.g. "python3.12"
     for candidate in (py_minor_name, "python3", "python"):
         found = shutil.which(candidate)
@@ -396,7 +455,7 @@ class EphemeralInstance:
 
 def build_backend_env(
     instance: EphemeralInstance,
-    site_packages: Path,
+    site_packages: Optional[Path],
     repo_root: Path,
     extra_env: Optional[Dict[str, str]] = None,
 ) -> Dict[str, str]:
@@ -405,12 +464,16 @@ def build_backend_env(
     src/platform/filesystem/file_store.py (POTIONUI_STORAGE_PATH),
     and src/bootstrap/app.py's apply_startup_env_overrides /
     src/bootstrap/container.py's RecipeCatalog construction for
-    POTIONUI_MODELS_DIR / POTIONUI_RECIPES_DIR (see .env.example)."""
+    POTIONUI_MODELS_DIR / POTIONUI_RECIPES_DIR (see .env.example).
+
+    `site_packages` is None when the backend interpreter already sees its own
+    dependencies (no repo venv, or a Windows venv launched by its own
+    python.exe) - nothing is injected onto PYTHONPATH for it in that case."""
     env = dict(os.environ)
     existing_pythonpath = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = os.pathsep.join(
-        p for p in (str(site_packages), str(repo_root), existing_pythonpath) if p
-    )
+    parts = [str(site_packages)] if site_packages is not None else []
+    parts += [str(repo_root), existing_pythonpath]
+    env["PYTHONPATH"] = os.pathsep.join(p for p in parts if p)
     env["POTIONUI_DB_PATH"] = str(instance.db_path)
     env["POTIONUI_STORAGE_PATH"] = str(instance.storage_dir)
     env["POTIONUI_MODELS_DIR"] = str(instance.models_dir)
@@ -458,7 +521,7 @@ def spawn_backend(
         stdout=log_file,
         stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL,
-        start_new_session=True,
+        **popen_group_kwargs(),
     )
     log_file.close()  # child holds its own dup'd fd
     instance.process = proc
@@ -468,17 +531,12 @@ def spawn_backend(
 def teardown_backend(instance: EphemeralInstance, *, keep: bool) -> None:
     if instance.process is not None and instance.process.poll() is None:
         stage_log("teardown", f"Stopping backend subprocess (pid={instance.process.pid})")
-        try:
-            os.killpg(os.getpgid(instance.process.pid), signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            with contextlib.suppress(Exception):
-                instance.process.terminate()
+        kill_group(instance.process, force=False)
         try:
             instance.process.wait(timeout=15)
         except subprocess.TimeoutExpired:
             stage_log("teardown", "Backend didn't exit after SIGTERM within 15s - sending SIGKILL")
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(os.getpgid(instance.process.pid), signal.SIGKILL)
+            kill_group(instance.process, force=True)
             with contextlib.suppress(Exception):
                 instance.process.wait(timeout=10)
 

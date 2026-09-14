@@ -170,7 +170,11 @@ class TestBuildBackendEnv:
 
 
 class TestResolveBackendLaunch:
-    def test_raises_a_clear_error_when_no_venv_exists(self, tmp_path):
+    def test_no_venv_means_the_current_interpreter_and_no_site_packages(self, tmp_path):
+        assert e2e_harness.resolve_backend_launch(tmp_path) == (sys.executable, None)
+
+    def test_raises_a_clear_error_when_the_venv_is_unusable(self, tmp_path):
+        (tmp_path / "venv" / "lib").mkdir(parents=True)
         with pytest.raises(e2e.StageError) as exc:
             e2e_harness.resolve_backend_launch(tmp_path)
         assert exc.value.stage == "subprocess-boot"

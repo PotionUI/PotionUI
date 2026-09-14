@@ -69,7 +69,14 @@ HARNESS_DIR = REPO_ROOT / "tests" / "e2e" / "harness"
 if str(HARNESS_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESS_DIR))
 
-from e2e_harness import StageError, ThrowawayApp, log, pick_free_port  # noqa: E402
+from e2e_harness import (  # noqa: E402
+    StageError,
+    ThrowawayApp,
+    kill_group,
+    log,
+    pick_free_port,
+    popen_group_kwargs,
+)
 
 try:
     import requests
@@ -79,6 +86,8 @@ except ImportError:  # pragma: no cover - requests ships in requirements.txt
 
 FRONTEND_DIR = REPO_ROOT / "frontend"
 SPECS_DIR = FRONTEND_DIR / "tests" / "e2e"
+NPX = shutil.which("npx") or "npx"
+NPM = shutil.which("npm") or "npm"
 PLAYWRIGHT_OUTPUT_DIR = SPECS_DIR / ".playwright-artifacts"
 ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
 
@@ -151,7 +160,7 @@ def run_build() -> None:
     a concurrent agent and fail transiently."""
     for attempt in (1, 2):
         log(f"Building frontend (npm run build, attempt {attempt})...")
-        proc = subprocess.run(["npm", "run", "build"], cwd=str(FRONTEND_DIR))
+        proc = subprocess.run([NPM, "run", "build"], cwd=str(FRONTEND_DIR))
         if proc.returncode == 0:
             log("Frontend build OK")
             return
@@ -165,13 +174,13 @@ def start_preview(backend_port: int, preview_port: int, log_path: Path) -> subpr
     env = dict(os.environ)
     env["E2E_BACKEND_PORT"] = str(backend_port)
     env["E2E_PREVIEW_PORT"] = str(preview_port)
-    cmd = ["npx", "vite", "preview", "--port", str(preview_port), "--host", "127.0.0.1"]
+    cmd = [NPX, "vite", "preview", "--port", str(preview_port), "--host", "127.0.0.1"]
     log(f"Starting preview: {' '.join(cmd)} (backend proxy -> :{backend_port}, log: {log_path.name})")
     log_file = open(log_path, "wb", buffering=0)
     proc = subprocess.Popen(
         cmd, cwd=str(FRONTEND_DIR), env=env,
         stdout=log_file, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-        start_new_session=True,
+        **popen_group_kwargs(),
     )
     log_file.close()
     return proc
@@ -199,15 +208,11 @@ def stop_preview(proc: subprocess.Popen) -> Optional[int]:
     and not itself evidence of anything."""
     if proc.poll() is not None:
         return proc.returncode
-    try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        proc.terminate()
+    kill_group(proc, force=False)
     try:
         proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
-        with contextlib.suppress(Exception):
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        kill_group(proc, force=True)
         with contextlib.suppress(Exception):
             proc.wait(timeout=10)
     return proc.returncode
@@ -256,7 +261,7 @@ def run_playwright_watched(cmd: List[str], cwd: str, env: dict, monitor: Preview
     each time out against a connection that's no longer accepted. Returns
     Playwright's own return code, or None if we aborted it early because the
     preview died underneath it."""
-    proc = subprocess.Popen(cmd, cwd=cwd, env=env, start_new_session=True)
+    proc = subprocess.Popen(cmd, cwd=cwd, env=env, **popen_group_kwargs())
     while True:
         try:
             return proc.wait(timeout=1.0)
@@ -267,13 +272,11 @@ def run_playwright_watched(cmd: List[str], cwd: str, env: dict, monitor: Preview
                     "aborting this chunk's Playwright run now instead of waiting "
                     "out a connection-refused cascade."
                 )
-                with contextlib.suppress(ProcessLookupError, PermissionError):
-                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                kill_group(proc, force=False)
                 try:
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
-                    with contextlib.suppress(ProcessLookupError, PermissionError):
-                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    kill_group(proc, force=True)
                     with contextlib.suppress(Exception):
                         proc.wait(timeout=10)
                 return None
@@ -346,7 +349,7 @@ def run_chunk(
             env["E2E_ARTIFACTS_DIR"] = str(ARTIFACTS_DIR)
             env["E2E_DB_PATH"] = str(app.instance.db_path)
 
-            cmd = ["npx", "playwright", "test", *chunk_names]
+            cmd = [NPX, "playwright", "test", *chunk_names]
             if args.headed:
                 cmd.append("--headed")
             log(f"Running: {' '.join(cmd)}")

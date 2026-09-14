@@ -59,7 +59,7 @@ def _target_python() -> str:
 
         torch_path = Path(torch.__file__).resolve()
         repo_root = Path(__file__).resolve().parents[4]
-        venv_python = repo_root / "venv" / "bin" / "python"
+        venv_python = repo_root / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         if venv_python.exists() and "venv" in torch_path.parts:
             return str(venv_python)
     except Exception:  # noqa: BLE001 — fall through to sys.executable

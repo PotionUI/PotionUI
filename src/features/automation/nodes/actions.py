@@ -496,7 +496,7 @@ def _resolve_scanned_model(model_repo, models_root: Optional[str], path: Path):
     if model is not None or not models_root:
         return model
     try:
-        rel = str(path.relative_to(models_root))
+        rel = path.relative_to(models_root).as_posix()
     except ValueError:
         return None
     return model_repo.get_by_file_path(rel)

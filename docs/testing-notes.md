@@ -13,7 +13,7 @@ three categories of test behind explicit env vars, so a plain
 - `@pytest.mark.requires_gpu` — needs a real CUDA device. Skipped unless
   `POTIONUI_GPU_TESTS=1` is set **and** `torch.cuda.is_available()` is true.
   The env var is required even on a CUDA box, because the GPU here is shared
-  with the maintainer's own generations (see "Shared GPU etiquette").
+  with live generations (see "Shared GPU etiquette").
 - `@pytest.mark.requires_models` — reads a real model checkpoint/header off
   disk. Skipped unless `POTIONUI_MODEL_TESTS=1` is set. **No test may read a
   real model file without this marker** — `models/checkpoints`, `models/vae`,
@@ -43,7 +43,7 @@ POTIONUI_GPU_TESTS=1 python -m pytest tests/ -m requires_gpu -q --no-cov
 `frontend`'s `npm run test:unit`, on every push to `master` and every PR.
 `requirements-ci.txt` is a trimmed copy of `requirements.txt` for the
 CPU-only runner (see its own header for what's excluded and why);
-`constraints.txt` is not used there since it pins the maintainer's
+`constraints.txt` is not used there since it pins a
 CUDA-specific transitive closure. This is separate from
 `.github/workflows/onboarding-smoke.yml`, which only dry-run resolves
 dependencies and runs the architecture/setup-feature suites, not the full
@@ -64,10 +64,7 @@ PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/plugins/run_suites
 
 ## Windows CI
 
-`.github/workflows/windows.yml` runs on `windows-latest` — this is the
-**only** Windows test bed PotionUI has; there is no Windows development
-machine behind the project. Treat a red run here as real signal, not flake:
-nothing in this repo has ever been proven to work on Windows outside of it.
+`.github/workflows/windows.yml` runs on `windows-latest`. Treat a red run here as real signal, not flake.
 
 What it proves:
 
@@ -78,27 +75,43 @@ What it proves:
   start, `/health`, owner registration, a presets listing, `status`, `stop`,
   and that the process tree is actually gone. This is the actual proof of a
   native Windows boot, not just static checks.
-- `backend-tests` — a **named subset** of the pytest suite (not the full
-  tree — that stays `ubuntu-only` via `backend-tests.yml`) covering the
-  Windows-sensitive areas: `tests/architecture`, `tests/scripts`,
-  `tests/platform/security`, `tests/platform/filesystem`,
-  `tests/features/downloads`, `tests/features/fields`,
-  `tests/features/settings`, and `tests/install/test_run.py`. It runs
-  sequentially (no `xdist`) since this is the first Windows run ever and a
-  plain pass gives the most honest signal. A failing run still uploads its
-  `junit-windows.xml`/log as an artifact — the job is intentionally not
-  `continue-on-error`, because the maintainer needs the failure, not a green
-  badge.
+- `backend-tests` — the **full** pytest tree in the same two shards as
+  `backend-tests.yml` (`tests/platform` / the rest), `-n 2`, under the same
+  `not requires_gpu and not requires_models and not gc_sensitive` marker
+  filter. A failing shard still uploads its junit/log as an artifact — the
+  job is intentionally not `continue-on-error`: the failure is the signal,
+  not a green badge.
+- `plugin-suites` — `tests/plugins/run_suites.py`, one pytest subprocess per
+  marketplace plugin, as on Linux.
+- `release-gate` — `tests/release/release_gate.py --skip-gpu` (recipe lint,
+  layering, setup/recipes suites, preset lint budget).
+- `frontend` — `npm run check`, `test:unit`, `test:component`, `build`, then
+  `build:plugins` with a `git diff --exit-code` over the committed
+  `frontend/dist/` trees: a plugin bundle that builds differently on Windows
+  is drift, not noise.
+- `e2e` — the HTTP journeys (`tests/e2e/journeys/run.py`) and the Playwright
+  UI journeys (`tests/e2e/ui/run.py`, Chromium) against a throwaway backend.
+  Linux CI does not run these; Windows is the only place they run unattended.
+  Both harnesses spawn with `CREATE_NEW_PROCESS_GROUP` and stop with
+  `taskkill /T` on nt (`popen_group_kwargs` / `kill_group` in
+  `tests/e2e/harness/e2e_harness.py`), and resolve `npm`/`npx` through
+  `shutil.which` because the bare names are `.cmd` shims on Windows.
+
+Every native command in this workflow runs under `shell: cmd`, never `pwsh`:
+pwsh's `$ErrorActionPreference = 'stop'` turns a native process's first
+stderr line into a step failure, and console-signal quirks kill a pwsh step
+silently. Long outputs go to a log file and are `type`d back so a killed
+step still uploads what it had.
 
 What it does **not** prove:
 
 - GPU generation. `windows-latest` has no NVIDIA GPU, so the `doctor` job's
   GPU row is an expected non-blocking warning, and no preset ever actually
-  renders here. Real GPU validation on Windows needs a maintainer or
-  community report from real hardware.
-- The full backend suite. The subset above was picked for Windows-specific
-  risk (path handling, file permissions, the install harness); most of
-  `tests/` is still Linux-only signal.
+  renders here. Real GPU validation on Windows needs a report from
+  real hardware.
+- Anything a real driver changes: triton/`torch.compile` absence, the
+  Optimizations panel probe, safetensors mmap file locks while a model is
+  loaded. Those need a Windows box with an NVIDIA card.
 
 POSIX-only assertions in the subset are gated, not skipped wholesale:
 `tests/platform/security/test_config.py`, `test_secrets.py` and
@@ -146,10 +159,9 @@ These are container/environment artefacts, not regressions caused by your change
   generation and there is no runtime fallback when the kernel fails to load —
   the generation dies mid-sampling (observed 2026-07-28). Until the libstdc++
   issue is resolved, run headless/scripted generations with
-  `NATIVE_ATTENTION=sdpa`. **Scope: THIS DEV CONTAINER ONLY** — the
-  maintainer's own server runtime has a working sage2 install (confirmed
-  2026-08-11); never tell the maintainer to set `NATIVE_ATTENTION=sdpa` for
-  their real generations.
+  `NATIVE_ATTENTION=sdpa`. **Scope: THIS DEV CONTAINER ONLY** — a
+  production runtime with a working sage2 install must not be switched to
+  `NATIVE_ATTENTION=sdpa`.
 - `tests/platform/observability/profiling/test_profiler.py::test_census_group_dedups_views_of_one_storage`
   is a known **full-suite-only flake**: it snapshots every live `torch.Tensor`
   in the process via `gc.get_objects()`, so its exact counts can be perturbed by

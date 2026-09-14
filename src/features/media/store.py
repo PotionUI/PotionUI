@@ -21,6 +21,7 @@ from PIL import Image
 from src.features.media.file_resolver import FilePathResolver
 from src.features.media.image_processor import ImageProcessor
 from src.features.media.media_types import MediaTypeResolver
+from src.platform.database.rows import dt_iso
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import execute_hook
 from src.features.media.hooks import MEDIA_HOOKS
@@ -767,7 +768,7 @@ class MediaStore:
                     duration_seconds=u.duration_seconds,
                     fps=u.fps,
                     size=u.file_size,
-                    created_at=u.created_at.isoformat() if u.created_at else None,
+                    created_at=dt_iso(u.created_at),
                 )
                 for u in uploads
             ],
@@ -1243,14 +1244,14 @@ class MediaStore:
             file_path=file.file_path,
             file_type=file.file_type,
             mime_type=file.mime_type,
-            created_at=file.created_at.isoformat() if file.created_at else None,
+            created_at=dt_iso(file.created_at),
             generation={
                 "preset_id": generation.preset_id,
                 "preset_version": generation.preset_version,
                 "form_data": generation.form_data,
                 "status": generation.status,
-                "created_at": generation.created_at.isoformat() if generation.created_at else None,
-                "completed_at": generation.completed_at.isoformat() if generation.completed_at else None
+                "created_at": dt_iso(generation.created_at),
+                "completed_at": dt_iso(generation.completed_at)
             },
             parameters=[
                 {

@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 import json
 
+from src.platform.database.rows import dt_iso
+
 
 @dataclass
 class Workspace:
@@ -21,8 +23,8 @@ class Workspace:
             'user_id': self.user_id,
             'name': self.name,
             'data': self.data,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'created_at': dt_iso(self.created_at),
+            'updated_at': dt_iso(self.updated_at)
         }
 
     def to_db_dict(self) -> dict:

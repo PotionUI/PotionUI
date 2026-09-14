@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any
-from datetime import datetime
 
+from src.platform.database.rows import dt_column, now_utc
 from src.platform.settings.records import Setting, UserSetting, SettingType, SettingValueType
 from src.platform.util.ids import generate_ulid
 
@@ -16,8 +16,8 @@ def _setting_from_row(row) -> Setting:
         value_type=SettingValueType(row[3]),
         description=row[4],
         type=SettingType(row[5]),
-        created_at=datetime.fromisoformat(row[6]),
-        updated_at=datetime.fromisoformat(row[7])
+        created_at=dt_column(row[6]),
+        updated_at=dt_column(row[7])
     )
 
 
@@ -27,8 +27,8 @@ def _user_setting_from_row(row) -> UserSetting:
         user_id=row[1],
         setting_id=row[2],
         value=row[3],
-        created_at=datetime.fromisoformat(row[4]),
-        updated_at=datetime.fromisoformat(row[5])
+        created_at=dt_column(row[4]),
+        updated_at=dt_column(row[5])
     )
 
 
@@ -91,7 +91,7 @@ class SettingRepository:
     ) -> Setting:
         """Create a new setting"""
         setting_id = generate_ulid()
-        now = datetime.utcnow()
+        now = now_utc()
 
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
@@ -179,7 +179,7 @@ class SettingRepository:
         whole batch back if any statement raises - a bulk settings update can
         never leave earlier keys persisted while a later one fails.
         """
-        now = datetime.utcnow()
+        now = now_utc()
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             for setting_id, value in system_updates:

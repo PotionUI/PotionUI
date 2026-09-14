@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from src.features.inspirations.records import Inspiration, InspirationComment, InspirationCollection
+from src.platform.database.rows import dt_iso
 
 
 class PublishInspirationRequest(BaseModel):
@@ -68,7 +69,7 @@ def inspiration_to_dto(insp: Inspiration) -> Dict[str, Any]:
         ],
         "params_preview": insp.params_snapshot.get("preview", []),
         "technique": insp.technique,
-        "created_at": insp.created_at.isoformat() if insp.created_at else None,
+        "created_at": dt_iso(insp.created_at),
         "comment_count": insp.comment_count,
         "save_count": insp.save_count,
         "saved_by_me": insp.saved_by_me,
@@ -85,7 +86,7 @@ def comment_to_dto(comment: InspirationComment) -> Dict[str, Any]:
             "avatar_url": _avatar_url(comment.author_avatar_filename),
         },
         "body": comment.body,
-        "created_at": comment.created_at.isoformat() if comment.created_at else None,
+        "created_at": dt_iso(comment.created_at),
     }
 
 

@@ -13,7 +13,6 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
 
@@ -29,6 +28,7 @@ from src.features.generation.thumbnail_profile import (
     profile_hash,
 )
 from src.features.media.upload_repository import UploadRepository
+from src.platform.database.rows import now_iso
 from src.platform.filesystem.storage_driver import FileStorageDriver, local_copy
 from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
@@ -74,7 +74,7 @@ class ThumbnailJob:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return now_iso()
 
 
 class ThumbnailRegeneration:

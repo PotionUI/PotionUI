@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
+	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { onDestroy, tick } from 'svelte';
 	import { browser } from '$app/environment';
 	import { storage } from '$lib/utils/storage';
@@ -1267,7 +1268,7 @@
 				id: am.id,
 				role: am.role || 'assistant',
 				content,
-				timestamp: am.created_at ? new Date(am.created_at).getTime() : Date.now(),
+				timestamp: am.created_at ? (parseServerDate(am.created_at)?.getTime() ?? Date.now()) : Date.now(),
 				tokens_used: am.tokens_used,
 				prompt_tokens: am.prompt_tokens,
 				completion_tokens: am.completion_tokens,

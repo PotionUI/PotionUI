@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import { logger } from '$lib/utils/logger';
+	import { parseServerDate } from '$lib/utils/relativeTime';
 	import * as adminApi from '$lib/services/admin-api';
 	import type { HousekeepingOverview, HousekeepingRun } from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
@@ -84,7 +85,7 @@
 
 	function lastRunLabel(run: HousekeepingRun | null): string {
 		if (!run) return 'Never run';
-		const started = new Date(run.started_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
+		const started = parseServerDate(run.started_at)?.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' }) ?? 'Unknown';
 		const rows = run.tasks.run_reports.rows_removed + run.tasks.llm_traces.rows_removed;
 		return `Last run: ${started} · freed ${formatBytes(run.tasks.tmp.bytes_freed)} · ${formatCount(rows)} rows`;
 	}

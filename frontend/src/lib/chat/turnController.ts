@@ -16,6 +16,7 @@
  * for all of it.
  */
 import { get } from 'svelte/store';
+import { parseServerDate } from '$lib/utils/relativeTime';
 import type { UnifiedChatMessageData } from '$lib/types/chat';
 import type { APIResponse, ChatSessionResponse, ChatSessionWithMessagesResponse, SendChatMessageResponse } from '$lib/types/api';
 import {
@@ -624,7 +625,7 @@ export async function sendMessage(deps: TurnControllerDeps, params: SendMessageP
 									id: userMsg.id,
 									role: userMsg.role as 'user',
 									content: params.instruction,
-									timestamp: userMsg.created_at ? new Date(userMsg.created_at).getTime() : Date.now(),
+									timestamp: userMsg.created_at ? (parseServerDate(userMsg.created_at)?.getTime() ?? Date.now()) : Date.now(),
 									metadata: (userMsg as any).metadata || m.metadata
 								};
 							}
@@ -637,7 +638,7 @@ export async function sendMessage(deps: TurnControllerDeps, params: SendMessageP
 								role: assistantMsg.role as 'assistant',
 								content: assistantMsg.content,
 								timestamp: assistantMsg.created_at
-									? new Date(assistantMsg.created_at).getTime()
+									? (parseServerDate(assistantMsg.created_at)?.getTime() ?? Date.now())
 									: Date.now(),
 								tokens_used: assistantMsg.tokens_used,
 								prompt_tokens: assistantMsg.prompt_tokens,

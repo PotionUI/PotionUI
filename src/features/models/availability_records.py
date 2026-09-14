@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+from src.platform.database.rows import dt_column, dt_iso
+
 
 @dataclass
 class ModelAvailability:
@@ -28,12 +30,7 @@ class ModelAvailability:
 
     @classmethod
     def from_row(cls, row) -> "ModelAvailability":
-        indexed_at = row["indexed_at"]
-        if isinstance(indexed_at, str):
-            try:
-                indexed_at = datetime.fromisoformat(indexed_at)
-            except ValueError:
-                indexed_at = None
+        indexed_at = dt_column(row["indexed_at"])
 
         row_keys = row.keys()
         return cls(
@@ -57,5 +54,5 @@ class ModelAvailability:
             "size": self.size,
             "confidence": self.confidence,
             "digest": self.digest,
-            "indexed_at": self.indexed_at.isoformat() if self.indexed_at else None,
+            "indexed_at": dt_iso(self.indexed_at),
         }

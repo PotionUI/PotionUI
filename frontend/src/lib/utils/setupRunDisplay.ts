@@ -7,6 +7,7 @@ import type {
 	SetupStepStatus
 } from '$lib/services/api/setup';
 import { formatBytes, formatCount, formatDuration } from './format';
+import { parseServerDate } from './relativeTime';
 
 /** Badge variants the shared `Badge` component accepts. */
 export type BadgeVariant = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'signal';
@@ -171,8 +172,8 @@ export function groupStepAttempts(attempts: SetupStepAttempt[]): SetupStepGroup[
 	}
 
 	groups.sort((a, b) => {
-		const aTime = a.attempts[0]?.started_at ? Date.parse(a.attempts[0].started_at) : null;
-		const bTime = b.attempts[0]?.started_at ? Date.parse(b.attempts[0].started_at) : null;
+		const aTime = a.attempts[0]?.started_at ? (parseServerDate(a.attempts[0].started_at)?.getTime() ?? null) : null;
+		const bTime = b.attempts[0]?.started_at ? (parseServerDate(b.attempts[0].started_at)?.getTime() ?? null) : null;
 		if (aTime !== null && bTime !== null) return aTime - bTime;
 		if (aTime !== null) return -1;
 		if (bTime !== null) return 1;
@@ -189,9 +190,9 @@ export function stepDuration(
 	now: () => number = Date.now
 ): string | null {
 	if (!attempt.started_at) return null;
-	const start = Date.parse(attempt.started_at);
+	const start = parseServerDate(attempt.started_at)?.getTime() ?? NaN;
 	if (Number.isNaN(start)) return null;
-	const end = attempt.finished_at ? Date.parse(attempt.finished_at) : now();
+	const end = attempt.finished_at ? (parseServerDate(attempt.finished_at)?.getTime() ?? NaN) : now();
 	if (Number.isNaN(end) || end < start) return null;
 	return formatDuration(end - start);
 }

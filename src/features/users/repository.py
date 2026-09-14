@@ -1,7 +1,7 @@
 import logging
 import sqlite3
 from typing import List, Optional, Tuple
-from datetime import datetime
+from src.platform.database.rows import now_iso
 from src.platform.security.user import User, AccountType
 from src.platform.util.ids import generate_ulid
 from src.features.segments.repository import DEFAULT_SEGMENT_CATEGORIES
@@ -167,7 +167,7 @@ class UserRepository:
     
     def update_last_login(self, user_id: str) -> Optional[User]:
         """Update user's last login timestamp"""
-        return self.update(user_id, last_login=datetime.utcnow().isoformat())
+        return self.update(user_id, last_login=now_iso())
 
     def update_password(self, user_id: str, password_hash: str) -> Optional[User]:
         """Update user's password hash (used by the auth change-password flow)"""

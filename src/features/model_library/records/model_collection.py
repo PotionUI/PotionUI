@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-from src.platform.database.rows import row_get
+from src.platform.database.rows import dt_column, dt_iso, row_get
 
 
 @dataclass
@@ -23,7 +23,7 @@ class ModelCollection:
             name=row['name'],
             user_id=row['user_id'],
             parent_id=row_get(row, 'parent_id'),
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
+            created_at=dt_column(row['created_at']),
             item_count=row_get(row, 'item_count')
         )
 
@@ -34,6 +34,6 @@ class ModelCollection:
             'name': self.name,
             'user_id': self.user_id,
             'parent_id': self.parent_id,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'created_at': dt_iso(self.created_at),
             'item_count': self.item_count,
         }

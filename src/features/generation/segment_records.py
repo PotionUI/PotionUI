@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, List
 
+from src.platform.database.rows import dt_column, dt_iso
+
 
 @dataclass
 class GenerationSegmentPhrasebook:
@@ -24,7 +26,7 @@ class GenerationSegmentPhrasebook:
             phrasebook_value_id=row['phrasebook_value_id'],
             category_path=row['category_path'],
             value=row['value'],
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None
+            created_at=dt_column(row['created_at'])
         )
 
     def to_dict(self) -> dict:
@@ -36,7 +38,7 @@ class GenerationSegmentPhrasebook:
             'phrasebook_value_id': self.phrasebook_value_id,
             'category_path': self.category_path,
             'value': self.value,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'created_at': dt_iso(self.created_at)
         }
 
 
@@ -72,7 +74,7 @@ class GenerationSegment:
             color=row['color'],
             description=row['description'],
             is_disabled=bool(row['is_disabled']),
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None
+            created_at=dt_column(row['created_at'])
         )
 
     def to_dict(self) -> dict:
@@ -89,6 +91,6 @@ class GenerationSegment:
             'color': self.color,
             'description': self.description,
             'is_disabled': self.is_disabled,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'created_at': dt_iso(self.created_at),
             'phrasebooks': [a.to_dict() for a in self.phrasebooks]
         }

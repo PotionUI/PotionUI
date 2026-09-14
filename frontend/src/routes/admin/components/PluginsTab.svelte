@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { pluginStore, plugins, frontendHooks, loading, error, pendingPluginIds, type Plugin, type PluginSettingSchema } from '$lib/stores/plugins';
 	import { authStore } from '$lib/stores/auth';
 	import { Button, Badge, Spinner, Input, Kbd, EmptyState, Switch, Alert, IconButton } from '$lib/components/ui';
@@ -480,7 +481,7 @@
 												<KVItem label="Author">{liveSelected.author}</KVItem>
 											{/if}
 											{#if liveSelected.installed_at}
-												<KVItem label="Installed" mono>{new Date(liveSelected.installed_at).toLocaleDateString()}</KVItem>
+												<KVItem label="Installed" mono>{parseServerDate(liveSelected.installed_at)?.toLocaleDateString() ?? 'Unknown'}</KVItem>
 											{/if}
 											{#if liveSelected.homepage}
 												<KVItem label="Homepage">

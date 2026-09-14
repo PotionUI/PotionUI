@@ -4,7 +4,7 @@
 	import type { AdminGenerationDetailResult, AdminGenerationListItem } from '$lib/services/admin-api';
 	import type { User } from '$lib/stores/auth';
 	import { debounce } from '$lib/stores/tabPersistence';
-	import { timeAgo } from '$lib/utils/relativeTime';
+	import { timeAgo, parseServerDate } from '$lib/utils/relativeTime';
 	import { formatDurationMs } from '$lib/components/generation-panel/barState';
 	import { Badge, EmptyState, Input, Spinner } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
@@ -137,7 +137,9 @@
 
 	function durationFor(row: AdminGenerationListItem): string {
 		if (!row.completed_at) return row.status === 'running' ? 'running' : '-';
-		const ms = new Date(row.completed_at).getTime() - new Date(row.created_at).getTime();
+		const completed = parseServerDate(row.completed_at)?.getTime();
+		const created = parseServerDate(row.created_at)?.getTime();
+		const ms = completed != null && created != null ? completed - created : NaN;
 		return Number.isFinite(ms) && ms >= 0 ? formatDurationMs(ms) : '-';
 	}
 </script>

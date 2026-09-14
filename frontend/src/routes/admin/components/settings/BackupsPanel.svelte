@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import { logger } from '$lib/utils/logger';
+	import { parseServerDate } from '$lib/utils/relativeTime';
 	import * as adminApi from '$lib/services/admin-api';
 	import type { BackupArchive, BackupJob, BackupOverview, BackupTier } from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
@@ -81,7 +82,7 @@
 
 	let elapsed = $derived.by(() => {
 		if (!job?.started_at) return '';
-		const started = Date.parse(job.started_at);
+		const started = parseServerDate(job.started_at)?.getTime() ?? NaN;
 		if (!Number.isFinite(started)) return '';
 		const seconds = Math.max(0, Math.round((now - started) / 1000));
 		if (seconds < 60) return `${seconds}s`;
@@ -210,9 +211,9 @@
 
 	function formatTime(value: string | null): string {
 		if (!value) return 'unknown';
-		const parsed = Date.parse(value);
-		if (!Number.isFinite(parsed)) return value;
-		return new Date(parsed).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+		const parsed = parseServerDate(value);
+		if (!parsed) return value;
+		return parsed.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 	}
 
 	function lastBackupLabel(o: BackupOverview): string {

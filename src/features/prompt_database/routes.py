@@ -7,6 +7,7 @@ from fastapi import APIRouter, Body, Depends, Form, Query, UploadFile
 from fastapi import File as FastAPIFile
 from fastapi.responses import PlainTextResponse
 
+from src.platform.database.rows import dt_iso
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.prompt_database import operations
@@ -314,7 +315,7 @@ def build_router(container: "AppContainer") -> APIRouter:
                 "id": generation.id,
                 "preset_id": generation.preset_id,
                 "preset_name": names.get(generation.preset_id, generation.preset_id) if generation.preset_id else None,
-                "created_at": generation.created_at.isoformat() if generation.created_at else None,
+                "created_at": dt_iso(generation.created_at),
                 "files": [file.to_dict() for file in generation.files],
             }
             for generation in generations

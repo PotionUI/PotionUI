@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-from src.platform.database.rows import row_get
+from src.platform.database.rows import dt_column, row_get
 
 
 @dataclass
@@ -63,7 +63,7 @@ class Upload:
             duration_seconds=row_get(row, 'duration_seconds'),
             fps=row_get(row, 'fps'),
             file_size=row_get(row, 'file_size'),
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
+            created_at=dt_column(row['created_at']),
             purpose=row_get(row, 'purpose') or "user_upload",
             thumbnail_small=row_get(row, 'thumbnail_small'),
             thumbnail_medium=row_get(row, 'thumbnail_medium'),

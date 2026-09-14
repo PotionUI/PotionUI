@@ -36,7 +36,7 @@ class TestAutomationModel(unittest.TestCase):
         d = automation.to_dict()
 
         self.assertEqual(d["id"], "a1")
-        self.assertEqual(d["created_at"], "2026-01-01T00:00:00")
+        self.assertEqual(d["created_at"], "2026-01-01T00:00:00+00:00")
 
 
 class TestAutomationRunModel(unittest.TestCase):

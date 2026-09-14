@@ -2,6 +2,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from src.features.automation.records import Automation, AutomationRun, AutomationRunNode
+from src.platform.database.rows import dt_iso
 from src.platform.util.ids import generate_ulid
 
 
@@ -178,7 +179,7 @@ class AutomationRepository:
             before_run = self.get_run(before)
             if before_run and before_run.started_at:
                 query += " AND started_at < ?"
-                params.append(before_run.started_at.isoformat())
+                params.append(dt_iso(before_run.started_at))
 
         query += " ORDER BY started_at DESC LIMIT ?"
         params.append(limit)

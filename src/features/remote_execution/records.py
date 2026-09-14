@@ -15,7 +15,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from src.platform.database.rows import dt_column
+from src.platform.database.rows import dt_column, dt_iso
 from src.platform.worker_protocol.job_event import JobEventKind
 
 
@@ -259,13 +259,9 @@ class RemoteExecution:
             "error_code": self.error_code,
             "error_message": self.error_message,
             "metadata": self.metadata,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "dispatched_at": (
-                self.dispatched_at.isoformat() if self.dispatched_at else None
-            ),
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": (
-                self.completed_at.isoformat() if self.completed_at else None
-            ),
+            "created_at": dt_iso(self.created_at),
+            "updated_at": dt_iso(self.updated_at),
+            "dispatched_at": dt_iso(self.dispatched_at),
+            "started_at": dt_iso(self.started_at),
+            "completed_at": dt_iso(self.completed_at),
         }

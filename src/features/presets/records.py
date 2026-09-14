@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 import json
 
+from src.platform.database.rows import dt_column, dt_iso
+
 @dataclass
 class Preset:
     preset_id: str  # The ID from the YAML file
@@ -33,8 +35,8 @@ class Preset:
         return cls(
             id=row['id'],
             preset_id=row['preset_id'],
-            installed_at=datetime.fromisoformat(row['installed_at']) if row['installed_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None,
+            installed_at=dt_column(row['installed_at']),
+            updated_at=dt_column(row['updated_at']),
             configuration=json.loads(raw_configuration) if raw_configuration else {},
             form_overrides=json.loads(raw_form_overrides) if raw_form_overrides else {},
         )
@@ -44,8 +46,8 @@ class Preset:
         return {
             'id': self.id,
             'preset_id': self.preset_id,
-            'installed_at': self.installed_at.isoformat() if self.installed_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'installed_at': dt_iso(self.installed_at),
+            'updated_at': dt_iso(self.updated_at),
             'configuration': self.configuration,
             'form_overrides': self.form_overrides,
         }
@@ -65,16 +67,16 @@ class UserPreset:
             id=row['id'],
             user_id=row['user_id'],
             preset_id=row['preset_id'],
-            assigned_at=datetime.fromisoformat(row['assigned_at']) if row['assigned_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
+            assigned_at=dt_column(row['assigned_at']),
+            updated_at=dt_column(row['updated_at'])
         )
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary for API responses"""
         return {
             'id': self.id,
             'user_id': self.user_id,
             'preset_id': self.preset_id,
-            'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'assigned_at': dt_iso(self.assigned_at),
+            'updated_at': dt_iso(self.updated_at)
         }

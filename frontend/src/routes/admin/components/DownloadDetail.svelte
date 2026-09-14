@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { parseServerDate } from '$lib/utils/relativeTime';
 	import {
 		downloadStore,
 		statusBadgeVariant,
@@ -303,7 +304,7 @@
 					{/if}
 				</div>
 				{#if download.started_at && download.completed_at}
-					{@const durationMs = new Date(download.completed_at).getTime() - new Date(download.started_at).getTime()}
+					{@const durationMs = (parseServerDate(download.completed_at)?.getTime() ?? NaN) - (parseServerDate(download.started_at)?.getTime() ?? NaN)}
 					{#if durationMs > 0}
 						<p class="text-xs text-fg-subtle mt-2">
 							Transfer took <span class="font-mono text-fg-muted">{Math.round(durationMs / 1000)}s</span>

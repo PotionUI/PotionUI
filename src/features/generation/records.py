@@ -5,7 +5,7 @@ import json
 import base64
 from copy import deepcopy
 
-from src.platform.database.rows import row_get
+from src.platform.database.rows import dt_column, dt_iso, row_get
 
 @dataclass
 class File:
@@ -51,7 +51,7 @@ class File:
             pipe_name=row['pipe_name'],
             is_final=bool(row['is_final']),
             is_derived=bool(row_get(row, 'is_derived') or 0),
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
+            created_at=dt_column(row['created_at']),
             thumbnail_small=row_get(row, 'thumbnail_small'),
             thumbnail_medium=row_get(row, 'thumbnail_medium'),
             thumbnail_large=row_get(row, 'thumbnail_large'),
@@ -74,7 +74,7 @@ class File:
             'pipe_name': self.pipe_name,
             'is_final': self.is_final,
             'is_derived': self.is_derived,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'created_at': dt_iso(self.created_at),
             'thumbnail_small': self.thumbnail_small,
             'thumbnail_medium': self.thumbnail_medium,
             'thumbnail_large': self.thumbnail_large,
@@ -100,7 +100,7 @@ class GenerationFile:
             id=row['id'],
             generation_id=row['generation_id'],
             file_id=row['file_id'],
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None
+            created_at=dt_column(row['created_at'])
         )
     
     def to_dict(self) -> dict:
@@ -109,7 +109,7 @@ class GenerationFile:
             'id': self.id,
             'generation_id': self.generation_id,
             'file_id': self.file_id,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'created_at': dt_iso(self.created_at)
         }
 
 @dataclass
@@ -183,10 +183,10 @@ class Generation:
             is_favorite=bool(row_get(row, 'is_favorite', 0)),
             duration_ms=row_get(row, 'duration_ms'),
             error_message=row_get(row, 'error_message'),
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-            started_at=datetime.fromisoformat(row_get(row, 'started_at')) if row_get(row, 'started_at') else None,
-            completed_at=datetime.fromisoformat(row['completed_at']) if row['completed_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
+            created_at=dt_column(row['created_at']),
+            started_at=dt_column(row_get(row, 'started_at')),
+            completed_at=dt_column(row['completed_at']),
+            updated_at=dt_column(row['updated_at'])
         )
     
     def to_dict(self, include_files: bool = False, include_tags: bool = False) -> dict:
@@ -213,10 +213,10 @@ class Generation:
             'is_favorite': self.is_favorite,
             'duration_ms': self.duration_ms,
             'error_message': self.error_message,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'started_at': self.started_at.isoformat() if self.started_at else None,
-            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'created_at': dt_iso(self.created_at),
+            'started_at': dt_iso(self.started_at),
+            'completed_at': dt_iso(self.completed_at),
+            'updated_at': dt_iso(self.updated_at)
         }
 
         if include_files:
@@ -287,7 +287,7 @@ class GenerationParameter:
             parameter_name=row['parameter_name'],
             parameter_value=row['parameter_value'],
             parameter_index=row['parameter_index'],
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None
+            created_at=dt_column(row['created_at'])
         )
 
     def to_dict(self) -> dict:
@@ -306,7 +306,7 @@ class GenerationParameter:
             'parameter_name': self.parameter_name,
             'parameter_value': value,
             'parameter_index': self.parameter_index,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'created_at': dt_iso(self.created_at)
         }
 
 @dataclass
@@ -324,7 +324,7 @@ class GenerationModel:
             id=row['id'],
             generation_id=row['generation_id'],
             model_id=row['model_id'],
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None
+            created_at=dt_column(row['created_at'])
         )
 
     def to_dict(self) -> dict:
@@ -333,5 +333,5 @@ class GenerationModel:
             'id': self.id,
             'generation_id': self.generation_id,
             'model_id': self.model_id,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'created_at': dt_iso(self.created_at)
         }

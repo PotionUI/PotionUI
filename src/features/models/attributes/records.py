@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from src.platform.database.rows import dt_column
+
 
 @dataclass
 class ModelAttributeDefinition:
@@ -42,8 +44,8 @@ class ModelAttributeDefinition:
             admin_only=bool(row["admin_only"]),
             system=bool(row["system"]),
             source=row["source"],
-            created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
-            updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None,
+            created_at=dt_column(row["created_at"]),
+            updated_at=dt_column(row["updated_at"]),
         )
 
     def to_dict(self) -> Dict[str, Any]:

@@ -5,10 +5,10 @@ plain-repository shape as ``src.features.llm.repository.LLMConfigurationReposito
 """
 
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
-from src.platform.database.rows import json_column
+from src.platform.database.rows import dt_iso, json_column, now_iso, now_utc
 from src.platform.util.ids import generate_ulid
 
 
@@ -35,7 +35,7 @@ def _row_to_dict(row) -> Dict[str, Any]:
         "prompt_tokens": row["prompt_tokens"],
         "completion_tokens": row["completion_tokens"],
         "duration_ms": row["duration_ms"],
-        "created_at": row["created_at"],
+        "created_at": dt_iso(row["created_at"]),
     }
 
 
@@ -78,7 +78,7 @@ class ChatCallTraceRepository:
                 provider, model, request_system, _dumps(request_messages),
                 _dumps(request_params), _dumps(request_tools), response_text,
                 _dumps(response_tool_calls), prompt_tokens, completion_tokens,
-                duration_ms, datetime.now().isoformat(),
+                duration_ms, now_iso(),
             ))
         return trace_id
 
@@ -124,9 +124,9 @@ class ChatCallTraceRepository:
 
     @staticmethod
     def _cutoff(days: int) -> str:
-        """The ``created_at`` value rows must fall below, in the same local
+        """The ``created_at`` value rows must fall below, in the same UTC
         ISO format ``create`` writes."""
-        return (datetime.now() - timedelta(days=days)).isoformat()
+        return (now_utc() - timedelta(days=days)).isoformat()
 
     def prune_older_than(self, days: int) -> int:
         """Delete rows created before ``days`` ago. Returns the row count deleted."""

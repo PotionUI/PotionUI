@@ -8,9 +8,9 @@ the `sessions` table itself stays the "current" state.
 from typing import List, Optional
 import json
 import uuid
-from datetime import datetime, timezone
 
 from src.platform.database import get_database_connection
+from src.platform.database.rows import dt_column, now_utc
 from src.features.sessions.dto import SessionVersion
 
 # Maximum historical versions retained per session. The oldest version beyond
@@ -32,7 +32,7 @@ class SessionVersionRepository:
             version_number=row['version_number'],
             data=payload,
             summary=row['summary'],
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else datetime.now(timezone.utc),
+            created_at=dt_column(row['created_at']) or now_utc(),
         )
 
     def get_latest(self, session_id: str) -> Optional[SessionVersion]:
@@ -69,7 +69,7 @@ class SessionVersionRepository:
             next_version = cursor.fetchone()[0] + 1
 
             version_id = str(uuid.uuid4())
-            created_at = datetime.now(timezone.utc)
+            created_at = now_utc()
 
             cursor.execute(
                 """
@@ -139,7 +139,7 @@ class SessionVersionRepository:
                     version_number=row['version_number'],
                     data={},
                     summary=row['summary'],
-                    created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else datetime.now(timezone.utc),
+                    created_at=dt_column(row['created_at']) or now_utc(),
                 )
                 for row in rows
             ]

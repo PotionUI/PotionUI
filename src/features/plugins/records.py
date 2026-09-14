@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Optional, Any, List
 import json
 
+from src.platform.database.rows import dt_column, dt_iso
+
 
 @dataclass
 class Plugin:
@@ -29,8 +31,8 @@ class Plugin:
             manifest_path=row['manifest_path'],
             description=row['description'],
             author=row['author'],
-            installed_at=datetime.fromisoformat(row['installed_at']) if row['installed_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
+            installed_at=dt_column(row['installed_at']),
+            updated_at=dt_column(row['updated_at'])
         )
 
     def to_dict(self) -> dict:
@@ -44,8 +46,8 @@ class Plugin:
             'manifest_path': self.manifest_path,
             'description': self.description,
             'author': self.author,
-            'installed_at': self.installed_at.isoformat() if self.installed_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'installed_at': dt_iso(self.installed_at),
+            'updated_at': dt_iso(self.updated_at)
         }
 
 
@@ -218,7 +220,7 @@ class PluginPage:
             sidebar_order=int(row['sidebar_order']) if row['sidebar_order'] is not None else 100,
             show_in_sidebar=bool(row['show_in_sidebar']),
             require_role=require_role,
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None
+            created_at=dt_column(row['created_at'])
         )
 
     def to_dict(self) -> dict:
@@ -233,5 +235,5 @@ class PluginPage:
             'sidebar_order': self.sidebar_order,
             'show_in_sidebar': self.show_in_sidebar,
             'require_role': self.require_role,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'created_at': dt_iso(self.created_at)
         }

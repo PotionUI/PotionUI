@@ -8,6 +8,7 @@ from typing import Any, List
 
 from src.features.library.dto import LibraryItem
 from src.features.media.records import Upload
+from src.platform.database.rows import dt_iso
 from src.platform.filesystem.storage_driver import StorageKeyError, uploads_key
 
 
@@ -41,6 +42,6 @@ def upload_to_item(upload: Upload, tags: List[Any]) -> LibraryItem:
         duration_seconds=upload.duration_seconds,
         fps=upload.fps,
         size=upload.file_size,
-        created_at=upload.created_at.isoformat() if upload.created_at else None,
+        created_at=dt_iso(upload.created_at),
         tags=[tag.model_dump() for tag in tags],
     )

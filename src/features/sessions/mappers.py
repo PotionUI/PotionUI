@@ -7,6 +7,7 @@ response dicts. No class, no state.
 from typing import Any, Dict
 
 from src.features.sessions.dto import Session, SessionVersion
+from src.platform.database.rows import dt_iso
 
 
 def session_to_response_dict(session: Session) -> Dict[str, Any]:
@@ -24,8 +25,8 @@ def session_to_response_dict(session: Session) -> Dict[str, Any]:
         'preset_id': session.preset_id,
         'name': session.name,
         'data': session.data,
-        'created_at': session.created_at.isoformat() if session.created_at else None,
-        'updated_at': session.updated_at.isoformat() if session.updated_at else None
+        'created_at': dt_iso(session.created_at),
+        'updated_at': dt_iso(session.updated_at)
     }
 
 
@@ -41,7 +42,7 @@ def session_version_summary_to_dict(version: SessionVersion) -> Dict[str, Any]:
     """
     return {
         "version_number": version.version_number,
-        "created_at": version.created_at.isoformat() if version.created_at else None,
+        "created_at": dt_iso(version.created_at),
         "summary": version.summary,
     }
 
@@ -58,7 +59,7 @@ def session_version_to_dict(version: SessionVersion) -> Dict[str, Any]:
     """
     return {
         "version_number": version.version_number,
-        "created_at": version.created_at.isoformat() if version.created_at else None,
+        "created_at": dt_iso(version.created_at),
         "summary": version.summary,
         "data": version.data,
     }

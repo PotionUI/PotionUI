@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from croniter import croniter
 
 from src.features.automation.triggers.base import TriggerSource
+from src.platform.database.rows import now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class ScheduleTrigger(TriggerSource):
                 await asyncio.sleep(max(0.1, sleep_s))
                 if self._stopped.is_set():
                     return
-                self.fire({"fired_at": datetime.now().isoformat(), "mode": mode})
+                self.fire({"fired_at": now_iso(), "mode": mode})
         except asyncio.CancelledError:
             raise
         except Exception:

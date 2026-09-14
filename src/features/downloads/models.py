@@ -5,6 +5,8 @@ from typing import Optional, List
 from enum import Enum
 import json
 
+from src.platform.database.rows import dt_column, dt_iso
+
 
 class DownloadType(str, Enum):
     """Type of download"""
@@ -79,9 +81,9 @@ class Download:
             repo_id=row['repo_id'],
             revision=row['revision'],
             destination_backend_id=row['destination_backend_id'],
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-            started_at=datetime.fromisoformat(row['started_at']) if row['started_at'] else None,
-            completed_at=datetime.fromisoformat(row['completed_at']) if row['completed_at'] else None,
+            created_at=dt_column(row['created_at']),
+            started_at=dt_column(row['started_at']),
+            completed_at=dt_column(row['completed_at']),
             created_by=row['created_by']
         )
 
@@ -107,9 +109,9 @@ class Download:
             'repo_id': self.repo_id,
             'revision': self.revision,
             'destination_backend_id': self.destination_backend_id,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'started_at': self.started_at.isoformat() if self.started_at else None,
-            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'created_at': dt_iso(self.created_at),
+            'started_at': dt_iso(self.started_at),
+            'completed_at': dt_iso(self.completed_at),
             'created_by': self.created_by
         }
 

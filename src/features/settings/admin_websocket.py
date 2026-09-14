@@ -6,11 +6,11 @@ Handles WebSocket connections and message routing for admin operations.
 import json
 import logging
 import asyncio
-from datetime import datetime
 from typing import TYPE_CHECKING
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from uuid import uuid4
 
+from src.platform.database.rows import now_iso
 from src.platform.security.current_user import authenticate_websocket_token
 from src.platform.security.user import AccountType
 from src.platform.websocket.admin_connection_hub import admin_connection_hub
@@ -108,7 +108,7 @@ async def send_heartbeat(websocket: WebSocket, client_id: str):
                 try:
                     await websocket.send_json({
                         'type': 'heartbeat',
-                        'timestamp': datetime.now().isoformat()
+                        'timestamp': now_iso()
                     })
                 except Exception as e:
                     logger.error(f"Failed to send heartbeat to {client_id}: {e}")
@@ -127,7 +127,7 @@ async def handle_message(client_id: str, message: dict):
         # Respond to ping with pong
         await admin_connection_hub.send_to_client(client_id, {
             'type': 'pong',
-            'timestamp': datetime.now().isoformat()
+            'timestamp': now_iso()
         })
 
     else:

@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+from src.platform.database.rows import dt_column, dt_iso
+
 
 @dataclass
 class LLMMemoryNote:
@@ -25,8 +27,8 @@ class LLMMemoryNote:
             content=row['content'],
             scope=row['scope'],
             scope_ref=row['scope_ref'],
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None,
+            created_at=dt_column(row['created_at']),
+            updated_at=dt_column(row['updated_at']),
         )
 
     def to_dict(self) -> dict:
@@ -38,6 +40,6 @@ class LLMMemoryNote:
             'content': self.content,
             'scope': self.scope,
             'scope_ref': self.scope_ref,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'created_at': dt_iso(self.created_at),
+            'updated_at': dt_iso(self.updated_at),
         }

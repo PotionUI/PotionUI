@@ -1,6 +1,7 @@
 <script lang="ts">
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { parseServerDate } from '$lib/utils/relativeTime';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import TagSelector from '$lib/components/TagSelector.svelte';
 	import { Badge, Button } from '$lib/components/ui';
@@ -41,7 +42,7 @@
 			? { label: 'Size', value: formatBytes(item.size) }
 			: null,
 		item.created_at
-			? { label: 'Added', value: new Date(item.created_at).toLocaleString() }
+			? { label: 'Added', value: parseServerDate(item.created_at)?.toLocaleString() ?? 'Unknown' }
 			: null,
 		item.mime_type ? { label: 'Type', value: item.mime_type } : null
 	].filter((entry): entry is { label: string; value: string } => entry !== null);

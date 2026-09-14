@@ -1,6 +1,7 @@
 import logging
 from typing import Any, Dict, List, Optional
 from src.features.plugins.records import Plugin, PluginSetting, PluginHook, PluginPage
+from src.platform.database.rows import dt_iso
 from src.platform.security.redaction import SECRET_MASK
 from src.platform.security.secrets import get_secret_cipher, SecretDecryptionError
 from src.platform.util.ids import generate_ulid
@@ -84,8 +85,8 @@ class PluginRepository:
                 plugin.manifest_path,
                 plugin.description,
                 plugin.author,
-                plugin.installed_at.isoformat() if plugin.installed_at else None,
-                plugin.updated_at.isoformat() if plugin.updated_at else None
+                dt_iso(plugin.installed_at),
+                dt_iso(plugin.updated_at)
             ))
 
         return self.get_plugin_by_id(plugin.id)
@@ -107,7 +108,7 @@ class PluginRepository:
                 plugin.manifest_path,
                 plugin.description,
                 plugin.author,
-                plugin.updated_at.isoformat() if plugin.updated_at else None,
+                dt_iso(plugin.updated_at),
                 plugin_id
             ))
 

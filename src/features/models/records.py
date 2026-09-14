@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 import json
 
+from src.platform.database.rows import dt_column, dt_iso
+
 @dataclass
 class ModelInfo:
     """Generic model metadata from various providers"""
@@ -33,8 +35,8 @@ class ModelInfo:
             tags=json.loads(row['tags']) if row['tags'] else [],
             nsfw=bool(row['nsfw']),
             download_url=row['download_url'],
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
+            created_at=dt_column(row['created_at']),
+            updated_at=dt_column(row['updated_at'])
         )
     
     def to_dict(self) -> dict:
@@ -54,8 +56,8 @@ class ModelInfo:
             'tags': self.tags,  # Provider tags
             'nsfw': self.nsfw,
             'download_url': self.download_url,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'created_at': dt_iso(self.created_at),
+            'updated_at': dt_iso(self.updated_at),
         }
 
 
@@ -101,9 +103,9 @@ class Model:
             file_size=row['file_size'],
             sha256=row['sha256'],
             model_type=row['model_type'],
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None,
-            indexed_at=datetime.fromisoformat(row['indexed_at']) if row['indexed_at'] else None,
+            created_at=dt_column(row['created_at']),
+            updated_at=dt_column(row['updated_at']),
+            indexed_at=dt_column(row['indexed_at']),
             # Handle backward compatibility - use user_notes as description if description doesn't exist
             description=row['description'] if 'description' in row_keys else (row['user_notes'] if 'user_notes' in row_keys else None),
             prompting_guidance=row['prompting_guidance'] if 'prompting_guidance' in row_keys else None,
@@ -115,8 +117,8 @@ class Model:
             is_directory=bool(row['is_directory']) if 'is_directory' in row_keys else False,
             is_available=bool(row['is_available']) if 'is_available' in row_keys else True,
             unavailable_at=(
-                datetime.fromisoformat(row['unavailable_at'])
-                if ('unavailable_at' in row_keys and row['unavailable_at']) else None
+                dt_column(row['unavailable_at'])
+                if 'unavailable_at' in row_keys else None
             ),
         )
 
@@ -164,7 +166,7 @@ class Model:
             'filename': self.filename,
             'name': self.display_name,
             'model_type': self.model_type,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'created_at': dt_iso(self.created_at),
             'description': self.description,
             'custom_name': self.custom_name,
             'is_favorite': self.is_favorite,
@@ -181,12 +183,12 @@ class Model:
                 'file_path': self.file_path,
                 'file_size': self.file_size,
                 'sha256': self.sha256,
-                'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-                'indexed_at': self.indexed_at.isoformat() if self.indexed_at else None,
+                'updated_at': dt_iso(self.updated_at),
+                'indexed_at': dt_iso(self.indexed_at),
                 'prompting_guidance': self.prompting_guidance,
                 'is_directory': self.is_directory,
                 'is_available': self.is_available,
-                'unavailable_at': self.unavailable_at.isoformat() if self.unavailable_at else None,
+                'unavailable_at': dt_iso(self.unavailable_at),
             })
 
         if include_providers:
@@ -253,8 +255,8 @@ class UserModel:
             id=row['id'],
             user_id=row['user_id'],
             model_id=row['model_id'],
-            assigned_at=datetime.fromisoformat(row['assigned_at']) if row['assigned_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
+            assigned_at=dt_column(row['assigned_at']),
+            updated_at=dt_column(row['updated_at'])
         )
 
     def to_dict(self) -> dict:
@@ -263,8 +265,8 @@ class UserModel:
             'id': self.id,
             'user_id': self.user_id,
             'model_id': self.model_id,
-            'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'assigned_at': dt_iso(self.assigned_at),
+            'updated_at': dt_iso(self.updated_at)
         }
 
 @dataclass
@@ -284,7 +286,7 @@ class ModelFile:
             model_id=row['model_id'],
             file_id=row['file_id'],
             file_type=row['file_type'],
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None
+            created_at=dt_column(row['created_at'])
         )
     
     def to_dict(self) -> dict:
@@ -294,5 +296,5 @@ class ModelFile:
             'model_id': self.model_id,
             'file_id': self.file_id,
             'file_type': self.file_type,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'created_at': dt_iso(self.created_at)
         }

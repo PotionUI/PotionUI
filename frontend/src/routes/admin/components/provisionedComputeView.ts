@@ -1,4 +1,5 @@
 import type { ProvisionProgressEntry } from '$lib/services/admin-api';
+import { parseServerDate } from '$lib/utils/relativeTime';
 
 const STAGE_LABELS: Record<string, string> = {
 	preparing: 'Preparing',
@@ -57,16 +58,16 @@ function pad2(n: number): string {
 
 /** Local `HH:MM:SS`, 24h, zero-padded — '' for an unparsable timestamp. */
 export function formatClockTime(iso: string): string {
-	const date = new Date(iso);
-	if (Number.isNaN(date.getTime())) return '';
+	const date = parseServerDate(iso);
+	if (!date) return '';
 	return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
 }
 
 /** null for a null/unparsable `iso` (never checked yet); otherwise "checked ... ago". */
 export function checkedAgo(iso: string | null, now: number = Date.now()): string | null {
 	if (!iso) return null;
-	const then = new Date(iso).getTime();
-	if (Number.isNaN(then)) return null;
+	const then = parseServerDate(iso)?.getTime();
+	if (then == null) return null;
 	const deltaSeconds = Math.max(0, Math.floor((now - then) / 1000));
 	if (deltaSeconds < 5) return 'checked just now';
 	if (deltaSeconds < 60) return `checked ${deltaSeconds}s ago`;

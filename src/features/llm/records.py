@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Dict, Any
 
-from src.platform.database.rows import json_column
+from src.platform.database.rows import dt_column, dt_iso, json_column
 
 @dataclass
 class LLMConfiguration:
@@ -52,8 +52,8 @@ class LLMConfiguration:
             disable_system_prompt=bool(row['disable_system_prompt']) if 'disable_system_prompt' in row.keys() else False,
             memory_reflection=bool(row['memory_reflection']) if 'memory_reflection' in row.keys() else True,
             provider_options=provider_options,
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
+            created_at=dt_column(row['created_at']),
+            updated_at=dt_column(row['updated_at'])
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -74,6 +74,6 @@ class LLMConfiguration:
             'disable_system_prompt': self.disable_system_prompt,
             'memory_reflection': self.memory_reflection,
             'provider_options': self.provider_options,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'created_at': dt_iso(self.created_at),
+            'updated_at': dt_iso(self.updated_at)
         }

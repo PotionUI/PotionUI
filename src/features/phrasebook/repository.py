@@ -4,8 +4,8 @@ Returns Pydantic DTOs directly, encapsulating all DB concerns.
 """
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime
 
+from src.platform.database.rows import dt_column, now_iso, now_utc
 from src.features.phrasebook.dto import (
     PhrasebookCategory,
     PhrasebookValue,
@@ -62,8 +62,8 @@ class PhrasebookCategoryRepository:
             parent_id=row['parent_id'],
             description=row['description'] or "",
             is_active=bool(row['is_active']) if 'is_active' in row.keys() else True,
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else datetime.now(),
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else datetime.now()
+            created_at=dt_column(row['created_at']) or now_utc(),
+            updated_at=dt_column(row['updated_at']) or now_utc()
         )
 
     def _build_state_filter_clause(self, state_filter: PhrasebookStateFilter) -> str:
@@ -169,7 +169,7 @@ class PhrasebookCategoryRepository:
         """Create new phrasebook category."""
         from src.platform.database.database import db
         try:
-            now = datetime.now()
+            now = now_utc()
             with db.get_cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO phrasebook_categories
@@ -189,7 +189,7 @@ class PhrasebookCategoryRepository:
         """Update existing phrasebook category."""
         from src.platform.database.database import db
         try:
-            now = datetime.now()
+            now = now_utc()
             with db.get_cursor() as cursor:
                 cursor.execute("""
                     UPDATE phrasebook_categories
@@ -231,7 +231,7 @@ class PhrasebookCategoryRepository:
                     SET is_active = ?, updated_at = ?
                     WHERE id = ? AND user_id = ?
                     """,
-                    (1 if is_active else 0, datetime.now().isoformat(), category_id, user_id)
+                    (1 if is_active else 0, now_iso(), category_id, user_id)
                 )
                 return cursor.rowcount > 0
         except Exception as e:
@@ -261,8 +261,8 @@ class PhrasebookValueRepository:
             is_active=bool(row['is_active']) if 'is_active' in row.keys() else True,
             preview_file_id=row['preview_file_id'] if 'preview_file_id' in row.keys() else None,
             preview_generation_id=row['preview_generation_id'] if 'preview_generation_id' in row.keys() else None,
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else datetime.now(),
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else datetime.now()
+            created_at=dt_column(row['created_at']) or now_utc(),
+            updated_at=dt_column(row['updated_at']) or now_utc()
         )
 
     def _build_state_filter_clause(self, state_filter: PhrasebookStateFilter) -> str:
@@ -455,7 +455,7 @@ class PhrasebookValueRepository:
         any row that isn't the user's aborts and rolls back the whole batch."""
         if not rows:
             return
-        now = datetime.now().isoformat()
+        now = now_iso()
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             for value_id, label, text in rows:
@@ -468,7 +468,7 @@ class PhrasebookValueRepository:
     def update_active_state_bulk(self, value_ids: List[str], user_id: str, is_active: bool) -> None:
         if not value_ids:
             return
-        now = datetime.now().isoformat()
+        now = now_iso()
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             for value_id in value_ids:
@@ -482,7 +482,7 @@ class PhrasebookValueRepository:
         """Re-parent each `(id, category_id, sort_order)` in one transaction."""
         if not moves:
             return
-        now = datetime.now().isoformat()
+        now = now_iso()
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             for value_id, category_id, sort_order in moves:
@@ -508,7 +508,7 @@ class PhrasebookValueRepository:
         """Create new phrasebook value."""
         from src.platform.database.database import db
         try:
-            now = datetime.now()
+            now = now_utc()
             with db.get_cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO phrasebook_values
@@ -531,7 +531,7 @@ class PhrasebookValueRepository:
 
         from src.platform.database.database import db
         try:
-            now = datetime.now()
+            now = now_utc()
             with db.get_cursor() as cursor:
                 data = [
                     (v.id, v.category_id, v.label, v.value, v.sort_order,
@@ -552,7 +552,7 @@ class PhrasebookValueRepository:
         """Update existing phrasebook value."""
         from src.platform.database.database import db
         try:
-            now = datetime.now()
+            now = now_utc()
             with db.get_cursor() as cursor:
                 cursor.execute("""
                     UPDATE phrasebook_values
@@ -594,7 +594,7 @@ class PhrasebookValueRepository:
                     SET is_active = ?, updated_at = ?
                     WHERE id = ? AND user_id = ?
                     """,
-                    (1 if is_active else 0, datetime.now().isoformat(), value_id, user_id)
+                    (1 if is_active else 0, now_iso(), value_id, user_id)
                 )
                 return cursor.rowcount > 0
         except Exception as e:
@@ -618,7 +618,7 @@ class PhrasebookValueRepository:
                     SET preview_file_id = ?, preview_generation_id = ?, updated_at = ?
                     WHERE id = ? AND user_id = ?
                     """,
-                    (file_id, generation_id, datetime.now().isoformat(), value_id, user_id)
+                    (file_id, generation_id, now_iso(), value_id, user_id)
                 )
                 return cursor.rowcount > 0
         except Exception as e:

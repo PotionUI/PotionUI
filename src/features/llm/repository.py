@@ -1,10 +1,10 @@
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime
 from pydantic import BaseModel
 import json
 from src.features.llm.records import LLMConfiguration
 from src.features.llm.ttl_cache import TTLCache
+from src.platform.database.rows import now_utc
 from src.platform.security.secrets import get_secret_cipher, SecretDecryptionError
 from src.platform.settings.repository import SettingRepository
 from src.platform.util.ids import generate_ulid
@@ -102,7 +102,7 @@ class LLMConfigurationRepository:
     def create(self, config: LLMConfiguration) -> bool:
         """Create new LLM configuration"""
         try:
-            now = datetime.now()
+            now = now_utc()
             # Serialize provider_options to JSON string
             provider_options_json = json.dumps(config.provider_options) if config.provider_options else None
             from src.platform.database.database import db
@@ -127,7 +127,7 @@ class LLMConfigurationRepository:
     def update(self, config_id: str, config: LLMConfiguration) -> bool:
         """Update existing LLM configuration"""
         try:
-            now = datetime.now()
+            now = now_utc()
             # Serialize provider_options to JSON string
             provider_options_json = json.dumps(config.provider_options) if config.provider_options else None
             from src.platform.database.database import db

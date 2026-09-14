@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+from src.platform.database.rows import dt_column, dt_iso
+
 @dataclass
 class UserGroup:
     name: str
@@ -21,8 +23,8 @@ class UserGroup:
             id=row['id'],
             name=row['name'],
             description=row['description'],
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None,
+            created_at=dt_column(row['created_at']),
+            updated_at=dt_column(row['updated_at']),
             is_system=bool(row['is_system']) if 'is_system' in row.keys() else False,
         )
 
@@ -32,8 +34,8 @@ class UserGroup:
             'id': self.id,
             'name': self.name,
             'description': self.description,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'created_at': dt_iso(self.created_at),
+            'updated_at': dt_iso(self.updated_at),
             'is_system': self.is_system,
         }
 
@@ -52,8 +54,8 @@ class UserGroupMember:
             id=row['id'],
             group_id=row['group_id'],
             user_id=row['user_id'],
-            assigned_at=datetime.fromisoformat(row['assigned_at']) if row['assigned_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
+            assigned_at=dt_column(row['assigned_at']),
+            updated_at=dt_column(row['updated_at'])
         )
 
     def to_dict(self) -> dict:
@@ -62,8 +64,8 @@ class UserGroupMember:
             'id': self.id,
             'group_id': self.group_id,
             'user_id': self.user_id,
-            'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'assigned_at': dt_iso(self.assigned_at),
+            'updated_at': dt_iso(self.updated_at)
         }
 
 @dataclass
@@ -81,8 +83,8 @@ class UserGroupPreset:
             id=row['id'],
             group_id=row['group_id'],
             preset_id=row['preset_id'],
-            assigned_at=datetime.fromisoformat(row['assigned_at']) if row['assigned_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
+            assigned_at=dt_column(row['assigned_at']),
+            updated_at=dt_column(row['updated_at'])
         )
 
     def to_dict(self) -> dict:
@@ -91,8 +93,8 @@ class UserGroupPreset:
             'id': self.id,
             'group_id': self.group_id,
             'preset_id': self.preset_id,
-            'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'assigned_at': dt_iso(self.assigned_at),
+            'updated_at': dt_iso(self.updated_at)
         }
 
 @dataclass
@@ -110,8 +112,8 @@ class UserGroupLLM:
             id=row['id'],
             group_id=row['group_id'],
             llm_config_id=row['llm_config_id'],
-            assigned_at=datetime.fromisoformat(row['assigned_at']) if row['assigned_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
+            assigned_at=dt_column(row['assigned_at']),
+            updated_at=dt_column(row['updated_at'])
         )
 
     def to_dict(self) -> dict:
@@ -120,8 +122,8 @@ class UserGroupLLM:
             'id': self.id,
             'group_id': self.group_id,
             'llm_config_id': self.llm_config_id,
-            'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'assigned_at': dt_iso(self.assigned_at),
+            'updated_at': dt_iso(self.updated_at)
         }
 
 @dataclass
@@ -139,8 +141,8 @@ class UserGroupModel:
             id=row['id'],
             group_id=row['group_id'],
             model_id=row['model_id'],
-            assigned_at=datetime.fromisoformat(row['assigned_at']) if row['assigned_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
+            assigned_at=dt_column(row['assigned_at']),
+            updated_at=dt_column(row['updated_at'])
         )
 
     def to_dict(self) -> dict:
@@ -149,6 +151,6 @@ class UserGroupModel:
             'id': self.id,
             'group_id': self.group_id,
             'model_id': self.model_id,
-            'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'assigned_at': dt_iso(self.assigned_at),
+            'updated_at': dt_iso(self.updated_at)
         }

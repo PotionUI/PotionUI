@@ -9,6 +9,7 @@ import json
 from datetime import datetime, timezone
 
 from src.platform.database import get_database_connection
+from src.platform.database.rows import dt_column, now_utc
 from src.features.sessions.dto import Session
 
 
@@ -28,8 +29,8 @@ class SessionRepository:
             preset_id=row['preset_id'],
             name=row['name'],
             data=data,
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else datetime.now(timezone.utc),
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
+            created_at=dt_column(row['created_at']) or now_utc(),
+            updated_at=dt_column(row['updated_at'])
         )
 
     def create(self, session: Session) -> Session:

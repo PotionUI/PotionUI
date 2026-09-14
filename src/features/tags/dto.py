@@ -6,6 +6,8 @@ from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
 
+from src.platform.database.rows import now_utc
+
 
 # ========== Enums ==========
 
@@ -38,7 +40,7 @@ class Tag(BaseModel):
     name: str
     type: TagType
     user_id: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=now_utc)
 
     class Config:
         use_enum_values = True
@@ -50,7 +52,7 @@ class TagWithCount(BaseModel):
     name: str
     type: TagType
     user_id: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=now_utc)
     usage_count: int = 0
     # For untyped queries that return both counts
     model_count: Optional[int] = None

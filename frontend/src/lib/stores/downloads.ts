@@ -1,4 +1,5 @@
 import { logger, getErrorMessage } from '$lib/utils/logger';
+import { parseServerDate } from '$lib/utils/relativeTime';
 /**
  * Downloads Store
  *
@@ -170,8 +171,8 @@ function formatSpeed(bytesPerSec: number | null): string {
 
 function formatTimestamp(value: string | null | undefined): string {
 	if (!value) return '-';
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return '-';
+	const date = parseServerDate(value);
+	if (!date) return '-';
 	return date.toLocaleTimeString(undefined, { hour12: false });
 }
 

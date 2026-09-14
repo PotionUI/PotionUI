@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+from src.platform.database.rows import dt_column, dt_iso
+
 
 @dataclass
 class EnhancementFeedback:
@@ -33,7 +35,7 @@ class EnhancementFeedback:
             reason=row['reason'],
             prompt_id=row['prompt_id'],
             mode=(row['mode'] if 'mode' in keys else None) or 'generation',
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
+            created_at=dt_column(row['created_at']),
         )
 
     def to_dict(self) -> dict:
@@ -49,5 +51,5 @@ class EnhancementFeedback:
             'reason': self.reason,
             'prompt_id': self.prompt_id,
             'mode': self.mode,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'created_at': dt_iso(self.created_at),
         }

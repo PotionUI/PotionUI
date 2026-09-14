@@ -3,6 +3,7 @@
  */
 
 import type { ParsedContent } from '$lib/types/chat';
+import { parseServerDate } from '$lib/utils/relativeTime';
 
 /**
  * Format a token count with a 'k' suffix for values >= 1000.
@@ -79,8 +80,8 @@ export function groupSessionsByDate<T extends { updated_at?: string; created_at?
 
 	for (const session of sessions) {
 		const raw = session.updated_at || session.created_at;
-		const date = raw ? new Date(raw) : null;
-		if (!date || Number.isNaN(date.getTime())) {
+		const date = raw ? parseServerDate(raw) : null;
+		if (!date) {
 			buckets.Older.push(session);
 			continue;
 		}

@@ -1,8 +1,8 @@
 """Repository for managing download records in the database."""
 from typing import List, Optional, Dict, Tuple
-from datetime import datetime
 import json
 
+from src.platform.database.rows import dt_iso, now_utc
 from src.platform.util.ids import generate_ulid
 
 from src.features.downloads.models import Download, DownloadStatus, DownloadType
@@ -17,7 +17,7 @@ class DownloadRepository:
             download.id = generate_ulid()
 
         if not download.created_at:
-            download.created_at = datetime.now()
+            download.created_at = now_utc()
 
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
@@ -48,9 +48,9 @@ class DownloadRepository:
                 download.group_id,
                 download.repo_id,
                 download.revision,
-                download.created_at.isoformat() if download.created_at else None,
-                download.started_at.isoformat() if download.started_at else None,
-                download.completed_at.isoformat() if download.completed_at else None,
+                dt_iso(download.created_at),
+                dt_iso(download.started_at),
+                dt_iso(download.completed_at),
                 download.created_by,
                 download.destination_backend_id
             ))
@@ -196,8 +196,8 @@ class DownloadRepository:
                 download.group_id,
                 download.repo_id,
                 download.revision,
-                download.started_at.isoformat() if download.started_at else None,
-                download.completed_at.isoformat() if download.completed_at else None,
+                dt_iso(download.started_at),
+                dt_iso(download.completed_at),
                 download.id
             ))
             return cursor.rowcount > 0

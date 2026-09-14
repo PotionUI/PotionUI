@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from src.features.generation.records import Generation, File, GenerationFile
 
@@ -101,10 +101,10 @@ class TestGenerationModel(unittest.TestCase):
         self.assertEqual(generation.rating, 4)
         self.assertTrue(generation.is_favorite)
         self.assertEqual(generation.duration_ms, 2500)
-        self.assertEqual(generation.created_at, datetime(2024, 1, 1, 12, 0, 0))
-        self.assertEqual(generation.started_at, datetime(2024, 1, 1, 12, 1, 0))
+        self.assertEqual(generation.created_at, datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc))
+        self.assertEqual(generation.started_at, datetime(2024, 1, 1, 12, 1, 0, tzinfo=timezone.utc))
         self.assertIsNone(generation.completed_at)
-        self.assertEqual(generation.updated_at, datetime(2024, 1, 1, 12, 2, 0))
+        self.assertEqual(generation.updated_at, datetime(2024, 1, 1, 12, 2, 0, tzinfo=timezone.utc))
 
     def test_to_dict_without_files(self):
         """Test converting Generation to dictionary without files"""
@@ -129,14 +129,14 @@ class TestGenerationModel(unittest.TestCase):
             'is_favorite': True,
             'duration_ms': 1500,
             'error_message': None,
-            'created_at': '2024-01-01T12:00:00',
-            'started_at': '2024-01-01T12:01:00',
+            'created_at': '2024-01-01T12:00:00+00:00',
+            'started_at': '2024-01-01T12:01:00+00:00',
             'completed_at': None,
-            'updated_at': '2024-01-01T12:02:00'
+            'updated_at': '2024-01-01T12:02:00+00:00'
         }
 
         self.assertEqual(result, expected)
-    
+
     def test_to_dict_with_files(self):
         """Test converting Generation to dictionary with files"""
         test_file = File(
@@ -439,7 +439,7 @@ class TestFileModel(unittest.TestCase):
         self.assertTrue(file.is_final)
         # Row predates migration 104 (no is_derived column) - reads as False.
         self.assertFalse(file.is_derived)
-        self.assertEqual(file.created_at, datetime(2024, 1, 1, 12, 0, 0))
+        self.assertEqual(file.created_at, datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc))
 
     def test_from_row_is_derived(self):
         mock_row = {
@@ -483,7 +483,7 @@ class TestFileModel(unittest.TestCase):
             'pipe_name': 'generator',
             'is_final': True,
             'is_derived': False,
-            'created_at': '2024-01-01T12:00:00',
+            'created_at': '2024-01-01T12:00:00+00:00',
             'thumbnail_small': None,
             'thumbnail_medium': None,
             'thumbnail_large': None,
@@ -525,7 +525,7 @@ class TestGenerationFileModel(unittest.TestCase):
         self.assertEqual(gen_file.id, 'genfile_123')
         self.assertEqual(gen_file.generation_id, 'gen_456')
         self.assertEqual(gen_file.file_id, 'file_789')
-        self.assertEqual(gen_file.created_at, datetime(2024, 1, 1, 12, 0, 0))
+        self.assertEqual(gen_file.created_at, datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc))
     
     def test_to_dict(self):
         """Test converting GenerationFile to dictionary"""
@@ -542,9 +542,9 @@ class TestGenerationFileModel(unittest.TestCase):
             'id': 'genfile_123',
             'generation_id': 'gen_456',
             'file_id': 'file_789',
-            'created_at': '2024-01-01T12:00:00'
+            'created_at': '2024-01-01T12:00:00+00:00'
         }
-        
+
         self.assertEqual(result, expected)
 
 

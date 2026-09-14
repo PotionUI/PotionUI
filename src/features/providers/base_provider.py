@@ -11,6 +11,8 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, TypedDict
 
+from src.platform.database.rows import dt_iso
+
 
 class ProviderCapability(Enum):
     """Capabilities that a marketplace provider can support."""
@@ -111,8 +113,8 @@ class ProviderModelInfo:
             'media_urls': self.media_urls,
             'model_type': self.model_type,
             'base_model': self.base_model,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'created_at': dt_iso(self.created_at),
+            'updated_at': dt_iso(self.updated_at),
             'extra_data': self.extra_data,
         }
 

@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 import json
 
+from src.platform.database.rows import dt_column, dt_iso
+
 
 @dataclass
 class Automation:
@@ -29,9 +31,9 @@ class Automation:
             graph=json.loads(row['graph']),
             version=row['version'],
             user_id=row['user_id'],
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None,
-            last_run_at=datetime.fromisoformat(row['last_run_at']) if row['last_run_at'] else None,
+            created_at=dt_column(row['created_at']),
+            updated_at=dt_column(row['updated_at']),
+            last_run_at=dt_column(row['last_run_at']),
             last_run_status=row['last_run_status'],
         )
 
@@ -44,9 +46,9 @@ class Automation:
             'graph': self.graph,
             'version': self.version,
             'user_id': self.user_id,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-            'last_run_at': self.last_run_at.isoformat() if self.last_run_at else None,
+            'created_at': dt_iso(self.created_at),
+            'updated_at': dt_iso(self.updated_at),
+            'last_run_at': dt_iso(self.last_run_at),
             'last_run_status': self.last_run_status,
         }
 
@@ -78,8 +80,8 @@ class AutomationRun:
             status=row['status'],
             event_payload=json.loads(row['event_payload']) if row['event_payload'] else None,
             error=row['error'],
-            started_at=datetime.fromisoformat(row['started_at']) if row['started_at'] else None,
-            finished_at=datetime.fromisoformat(row['finished_at']) if row['finished_at'] else None,
+            started_at=dt_column(row['started_at']),
+            finished_at=dt_column(row['finished_at']),
             duration_ms=row['duration_ms'],
         )
 
@@ -92,8 +94,8 @@ class AutomationRun:
             'status': self.status,
             'event_payload': self.event_payload,
             'error': self.error,
-            'started_at': self.started_at.isoformat() if self.started_at else None,
-            'finished_at': self.finished_at.isoformat() if self.finished_at else None,
+            'started_at': dt_iso(self.started_at),
+            'finished_at': dt_iso(self.finished_at),
             'duration_ms': self.duration_ms,
         }
 
@@ -127,8 +129,8 @@ class AutomationRunNode:
             input=json.loads(row['input']) if row['input'] else None,
             output=json.loads(row['output']) if row['output'] else None,
             error=row['error'],
-            started_at=datetime.fromisoformat(row['started_at']) if row['started_at'] else None,
-            finished_at=datetime.fromisoformat(row['finished_at']) if row['finished_at'] else None,
+            started_at=dt_column(row['started_at']),
+            finished_at=dt_column(row['finished_at']),
             duration_ms=row['duration_ms'],
         )
 
@@ -142,8 +144,8 @@ class AutomationRunNode:
             'input': self.input,
             'output': self.output,
             'error': self.error,
-            'started_at': self.started_at.isoformat() if self.started_at else None,
-            'finished_at': self.finished_at.isoformat() if self.finished_at else None,
+            'started_at': dt_iso(self.started_at),
+            'finished_at': dt_iso(self.finished_at),
             'duration_ms': self.duration_ms,
         }
 

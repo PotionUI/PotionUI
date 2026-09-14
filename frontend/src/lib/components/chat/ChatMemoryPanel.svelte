@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { logger } from '$lib/utils/logger';
+	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { api } from '$lib/services/api/index';
 	import { loadPresets } from '$lib/stores/presetsCatalog';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
@@ -296,8 +297,8 @@
 
 	function formatTimestamp(iso: string | null): string {
 		if (!iso) return '';
-		const date = new Date(iso);
-		if (isNaN(date.getTime())) return '';
+		const date = parseServerDate(iso);
+		if (!date) return '';
 		return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 	}
 </script>

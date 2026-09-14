@@ -28,6 +28,7 @@ from typing import Optional, Tuple
 from src.features.mcp.records import McpToken
 from src.features.mcp.repository import McpTokenRepository
 from src.features.users.repository import UserRepository
+from src.platform.database.rows import dt_column
 from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
 
@@ -90,10 +91,7 @@ def record_use(token_repository: McpTokenRepository, token: McpToken) -> None:
     already fresher than `_LAST_USED_THROTTLE`, so a busy MCP client doesn't
     write this row on every single request."""
     if token.last_used_at:
-        try:
-            last = datetime.fromisoformat(token.last_used_at)
-            if datetime.now(timezone.utc) - last < _LAST_USED_THROTTLE:
-                return
-        except ValueError:
-            pass
+        last = dt_column(token.last_used_at)
+        if last and datetime.now(timezone.utc) - last < _LAST_USED_THROTTLE:
+            return
     token_repository.touch_last_used(token.id)

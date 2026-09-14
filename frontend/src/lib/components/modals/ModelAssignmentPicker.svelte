@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
+	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { onMount } from 'svelte';
 	import { api } from '$lib/services/api/index';
 	import { authStore } from '$lib/stores/auth';
@@ -179,12 +180,9 @@
 
 	function formatDate(isoString: string | null | undefined): string {
 		if (!isoString) return '';
-		try {
-			const d = new Date(isoString);
-			return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-		} catch {
-			return '';
-		}
+		const d = parseServerDate(isoString);
+		if (!d) return '';
+		return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 	}
 
 

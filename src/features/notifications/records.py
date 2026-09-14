@@ -10,6 +10,8 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel, Field
 
+from src.platform.database.rows import now_utc
+
 
 class NotificationLevel(str, Enum):
     """Severity/level of a notification."""
@@ -31,7 +33,7 @@ class Notification(BaseModel):
     source: str = "core"
     type: str = ""
     read: bool = False
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=now_utc)
 
     class Config:
         use_enum_values = True

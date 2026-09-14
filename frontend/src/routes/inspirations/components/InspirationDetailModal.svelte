@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
+	import { parseServerDate } from '$lib/utils/relativeTime';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -224,7 +225,7 @@
 
 	function formatDate(dateString?: string) {
 		if (!dateString) return 'N/A';
-		return new Date(dateString).toLocaleString();
+		return parseServerDate(dateString)?.toLocaleString() ?? 'N/A';
 	}
 </script>
 

@@ -7,9 +7,9 @@ holds them together. Framework-agnostic - uses ``ValueError`` for
 "not found"/"blocked" (the controller converts that to an HTTP response).
 """
 import logging
-from datetime import datetime
 from typing import Optional
 
+from src.platform.database.rows import now_utc
 from src.features.phrasebook.dto import PhrasebookValue, PhrasebookValueRequest
 from src.features.phrasebook.hooks import PHRASEBOOK_HOOKS
 from src.features.phrasebook.operations.reads import get_category, get_value
@@ -118,7 +118,7 @@ def update_value(
         sort_order=request.sort_order,
         user_id=user_id,
         created_at=existing.created_at,
-        updated_at=datetime.now(),
+        updated_at=now_utc(),
     )
 
     success = value_repository.update(value_id, value)

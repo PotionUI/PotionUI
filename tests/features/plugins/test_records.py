@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from src.features.plugins.records import Plugin, PluginSetting, PluginHook
 
@@ -46,8 +46,30 @@ class TestPluginModel(unittest.TestCase):
         self.assertEqual(plugin.manifest_path, '/plugins/another/manifest.json')
         self.assertEqual(plugin.description, 'Another test plugin')
         self.assertEqual(plugin.author, 'Another Author')
-        self.assertEqual(plugin.installed_at, datetime(2024, 2, 1, 10, 0, 0))
-        self.assertEqual(plugin.updated_at, datetime(2024, 2, 1, 11, 0, 0))
+        self.assertEqual(plugin.installed_at, datetime(2024, 2, 1, 10, 0, 0, tzinfo=timezone.utc))
+        self.assertEqual(plugin.updated_at, datetime(2024, 2, 1, 11, 0, 0, tzinfo=timezone.utc))
+
+    def test_from_row_offset_less_string_reads_as_utc(self):
+        """A stored timestamp with no offset (legacy rows, sqlite CURRENT_TIMESTAMP)
+        is read as UTC and re-emitted with an explicit +00:00 offset - not the
+        server's local time."""
+        mock_row = {
+            'id': 'plugin_456',
+            'name': 'Another Plugin',
+            'version': '3.1.0',
+            'type': 'frontend-only',
+            'enabled': 1,
+            'manifest_path': '/plugins/another/manifest.json',
+            'description': 'Another test plugin',
+            'author': 'Another Author',
+            'installed_at': '2024-02-01T10:00:00',
+            'updated_at': '2024-02-01T11:00:00'
+        }
+
+        plugin = Plugin.from_row(mock_row)
+
+        self.assertTrue(plugin.to_dict()['installed_at'].endswith('+00:00'))
+        self.assertTrue(plugin.to_dict()['updated_at'].endswith('+00:00'))
 
     def test_from_row_with_null_dates(self):
         """Test creating Plugin from database row with null dates"""
@@ -86,8 +108,8 @@ class TestPluginModel(unittest.TestCase):
             'manifest_path': '/plugins/test-plugin/manifest.json',
             'description': 'A test plugin',
             'author': 'Test Author',
-            'installed_at': '2024-01-01T12:00:00',
-            'updated_at': '2024-01-01T12:30:00'
+            'installed_at': '2024-01-01T12:00:00+00:00',
+            'updated_at': '2024-01-01T12:30:00+00:00'
         }
 
         self.assertEqual(result, expected)

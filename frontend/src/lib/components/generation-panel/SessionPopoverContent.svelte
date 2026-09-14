@@ -15,7 +15,7 @@
 	// picker) rather than invented from scratch.
 	import type { Session, SessionVersionSummary } from '$lib/types/api';
 	import { Spinner } from '$lib/components/ui';
-	import { timeAgo } from '$lib/utils/relativeTime';
+	import { timeAgo, parseServerDate } from '$lib/utils/relativeTime';
 
 	export let sessions: Session[] = [];
 	export let currentSession: Session | null = null;
@@ -108,7 +108,7 @@
 						<span class="row-icon"><svg class="icon"><use href="#i-session" /></svg></span>
 						<span class="row-copy">
 							<span class="row-title">{session.name}</span>
-							<span class="row-meta">Updated {new Date(session.updated_at).toLocaleDateString()}</span>
+							<span class="row-meta">Updated {parseServerDate(session.updated_at)?.toLocaleDateString() ?? 'Unknown'}</span>
 						</span>
 						{#if session.id === selectedSessionId}<span class="row-status live">current</span>{/if}
 					</button>

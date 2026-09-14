@@ -1,5 +1,7 @@
 // Small formatting helpers shared by the model-details modal pieces (user + admin).
 
+import { parseServerDate } from '$lib/utils/relativeTime';
+
 export function formatBytes(bytes?: number | null): string {
 	if (!bytes) return 'Unknown';
 	if (bytes < 1024) return `${bytes} B`;
@@ -10,5 +12,5 @@ export function formatBytes(bytes?: number | null): string {
 
 export function formatDate(dateString?: string | null): string {
 	if (!dateString) return 'N/A';
-	return new Date(dateString).toLocaleString();
+	return parseServerDate(dateString)?.toLocaleString() ?? 'N/A';
 }

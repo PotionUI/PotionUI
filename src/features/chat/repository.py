@@ -4,6 +4,7 @@ import json
 import logging
 from src.features.chat.records import ChatSession, ChatMessage
 from src.features.chat.dto import SessionResponse, MessageResponse
+from src.platform.database.rows import dt_iso, now_utc
 from src.platform.util.ids import generate_ulid
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ def _message_to_dto(message: ChatMessage) -> MessageResponse:
         role=message.role,
         content=message.content,
         parsed_content=message.parsed_content,
-        created_at=message.created_at.isoformat() if message.created_at else None,
+        created_at=dt_iso(message.created_at),
         tokens_used=metadata.get('tokens_used'),
         prompt_tokens=metadata.get('prompt_tokens'),
         completion_tokens=metadata.get('completion_tokens'),
@@ -50,9 +51,9 @@ def _session_to_dto(
         llm_config_id=session.llm_config_id,
         original_text=session.original_text,
         title_generated=session.title_generated,
-        created_at=session.created_at.isoformat() if session.created_at else None,
-        updated_at=session.updated_at.isoformat() if session.updated_at else None,
-        closed_at=session.closed_at.isoformat() if session.closed_at else None,
+        created_at=dt_iso(session.created_at),
+        updated_at=dt_iso(session.updated_at),
+        closed_at=dt_iso(session.closed_at),
         message_count=message_count,
         messages=messages,
         metadata=session.metadata,
@@ -172,7 +173,7 @@ class ChatMessageRepository:
     def create(self, message: ChatMessage) -> Optional[MessageResponse]:
         """Create a new message, returns DTO"""
         try:
-            now = datetime.now()
+            now = now_utc()
             message.created_at = now
             parsed_content_json = json.dumps(message.parsed_content) if message.parsed_content else None
             metadata_json = json.dumps(message.metadata) if message.metadata else None
@@ -365,7 +366,7 @@ class ChatSessionRepository:
     def create(self, session: ChatSession) -> Optional[SessionResponse]:
         """Create a new session, returns DTO"""
         try:
-            now = datetime.now()
+            now = now_utc()
             session.created_at = now
             session.updated_at = now
             metadata_json = json.dumps(session.metadata) if session.metadata else None
@@ -382,7 +383,7 @@ class ChatSessionRepository:
                     session.status, session.llm_config_id,
                     session.original_text, int(session.title_generated), metadata_json,
                     now.isoformat(), now.isoformat(),
-                    session.closed_at.isoformat() if session.closed_at else None
+                    dt_iso(session.closed_at)
                 ))
             return _session_to_dto(session)
         except Exception:
@@ -403,14 +404,14 @@ class ChatSessionRepository:
             values = []
 
             # Always update updated_at
-            kwargs['updated_at'] = datetime.now()
+            kwargs['updated_at'] = now_utc()
 
             for field, value in kwargs.items():
                 if field in allowed_fields:
                     if field == 'metadata' and value is not None:
                         value = json.dumps(value)
                     elif field in ('closed_at', 'updated_at') and value is not None and isinstance(value, datetime):
-                        value = value.isoformat()
+                        value = dt_iso(value)
                     update_parts.append(f"{field} = ?")
                     values.append(value)
 
@@ -431,7 +432,7 @@ class ChatSessionRepository:
     def update_status(self, session_id: str, status: str, close: bool = False) -> bool:
         """Update session status and optionally close it"""
         if close:
-            return self.update(session_id, status=status, closed_at=datetime.now())
+            return self.update(session_id, status=status, closed_at=now_utc())
         return self.update(session_id, status=status)
 
     def update_name(self, session_id: str, name: str) -> Optional[SessionResponse]:
@@ -703,7 +704,7 @@ class ChatRepository:
             if len(original_text) > 50:
                 name += "..."
             return name
-        return f"Chat {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        return f"Chat {now_utc().strftime('%Y-%m-%d %H:%M')}"
 
 
 # Global repository instances

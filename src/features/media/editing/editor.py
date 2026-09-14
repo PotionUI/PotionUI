@@ -39,6 +39,7 @@ from src.features.media.editing.operations import (
     split_audio,
 )
 from src.features.media.records import Upload
+from src.platform.database.rows import dt_iso
 from src.platform.filesystem.storage_driver import StorageKeyError, local_copy, uploads_key
 
 if TYPE_CHECKING:
@@ -389,5 +390,5 @@ class MediaEditor:
             duration_seconds=upload.duration_seconds,
             fps=upload.fps,
             size=upload.file_size,
-            created_at=upload.created_at.isoformat() if upload.created_at else None,
+            created_at=dt_iso(upload.created_at),
         )

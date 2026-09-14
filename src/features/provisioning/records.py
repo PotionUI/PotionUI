@@ -3,11 +3,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from src.platform.database.rows import row_get
-
-
-def _parse_timestamp(value) -> Optional[datetime]:
-    return datetime.fromisoformat(value) if value else None
+from src.platform.database.rows import dt_column, dt_iso, row_get
 
 
 @dataclass
@@ -46,10 +42,10 @@ class ProvisionedCompute:
             region=row_get(row, "region"),
             created_by=row_get(row, "created_by"),
             status_detail=row_get(row, "status_detail"),
-            status_checked_at=_parse_timestamp(row_get(row, "status_checked_at")),
+            status_checked_at=dt_column(row_get(row, "status_checked_at")),
             progress=json.loads(raw_progress) if raw_progress else [],
-            created_at=_parse_timestamp(row_get(row, "created_at")),
-            updated_at=_parse_timestamp(row_get(row, "updated_at")),
+            created_at=dt_column(row_get(row, "created_at")),
+            updated_at=dt_column(row_get(row, "updated_at")),
         )
 
     def to_dict(self) -> dict:
@@ -65,8 +61,8 @@ class ProvisionedCompute:
             "region": self.region,
             "created_by": self.created_by,
             "status_detail": self.status_detail,
-            "status_checked_at": self.status_checked_at.isoformat() if self.status_checked_at else None,
+            "status_checked_at": dt_iso(self.status_checked_at),
             "progress": list(self.progress),
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": dt_iso(self.created_at),
+            "updated_at": dt_iso(self.updated_at),
         }

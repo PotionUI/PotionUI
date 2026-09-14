@@ -1,5 +1,6 @@
 import type { SetupRun } from '$lib/services/api/setup';
 import { formatDuration } from '$lib/utils/format';
+import { parseServerDate } from '$lib/utils/relativeTime';
 
 /** How long a run took, or has been going. `null` when it never started, or
  * when the timestamps are unusable (unparseable, or finishing before it
@@ -9,9 +10,9 @@ export function runDuration(
 	now: () => number = Date.now
 ): string | null {
 	if (!run.created_at) return null;
-	const start = Date.parse(run.created_at);
+	const start = parseServerDate(run.created_at)?.getTime() ?? NaN;
 	if (Number.isNaN(start)) return null;
-	const end = run.completed_at ? Date.parse(run.completed_at) : now();
+	const end = run.completed_at ? (parseServerDate(run.completed_at)?.getTime() ?? NaN) : now();
 	if (Number.isNaN(end) || end < start) return null;
 	return formatDuration(end - start);
 }
@@ -20,8 +21,8 @@ export function runDuration(
  * Mono/tabular-nums-ready — no weekday names, no relative phrasing. */
 export function runStartedLabel(run: Pick<SetupRun, 'created_at'>): string {
 	if (!run.created_at) return '—';
-	const parsed = new Date(run.created_at);
-	if (Number.isNaN(parsed.getTime())) return '—';
+	const parsed = parseServerDate(run.created_at);
+	if (!parsed) return '—';
 	return parsed.toLocaleString(undefined, {
 		year: 'numeric',
 		month: '2-digit',

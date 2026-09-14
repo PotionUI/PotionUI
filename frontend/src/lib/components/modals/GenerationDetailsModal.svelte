@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
+	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	import type { GenerationHistoryItem, Tag } from '$lib/types/history';
@@ -388,7 +389,7 @@
 
 	function formatDate(dateString?: string) {
 		if (!dateString) return 'N/A';
-		return new Date(dateString).toLocaleString();
+		return parseServerDate(dateString)?.toLocaleString() ?? 'N/A';
 	}
 
 	type BadgeVariant = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'signal';

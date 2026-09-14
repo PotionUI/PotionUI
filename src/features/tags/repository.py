@@ -4,8 +4,8 @@ Tag Repository
 Handles database operations for tags. Returns DTOs, not database models.
 """
 from typing import List, Optional, Dict
-from datetime import datetime
 from src.features.tags.dto import Tag, TagWithCount, TagType
+from src.platform.database.rows import dt_column, now_utc
 from src.platform.util.ids import generate_ulid
 import logging
 
@@ -23,15 +23,7 @@ class TagRepository:
         if not row:
             return None
 
-        created_at = None
-        if row['created_at']:
-            try:
-                if isinstance(row['created_at'], str):
-                    created_at = datetime.fromisoformat(row['created_at'].replace('Z', '+00:00'))
-                else:
-                    created_at = row['created_at']
-            except (ValueError, TypeError):
-                created_at = datetime.now()
+        created_at = dt_column(row['created_at'])
 
         # Handle optional type field
         try:
@@ -50,7 +42,7 @@ class TagRepository:
             name=row['name'],
             type=tag_type,
             user_id=user_id,
-            created_at=created_at or datetime.now()
+            created_at=created_at or now_utc()
         )
 
     def _row_to_tag_with_count(self, row, count_type: Optional[str] = None) -> Optional[TagWithCount]:
@@ -97,7 +89,7 @@ class TagRepository:
         Returns the created tag directly from the INSERT to avoid a second DB connection.
         """
         tag_id = generate_ulid()
-        now = datetime.now()
+        now = now_utc()
 
         from src.platform.database.database import db
         with db.get_cursor() as cursor:

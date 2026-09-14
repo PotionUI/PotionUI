@@ -16,6 +16,7 @@ import json
 import time
 from typing import List, Optional
 
+from src.platform.database.rows import dt_iso
 from src.platform.util.ids import generate_ulid
 from src.platform.worker_protocol import JobEventV1
 
@@ -427,7 +428,7 @@ class RemoteExecutionRepository:
                     event.cursor,
                     event.kind,
                     event.pipe_id,
-                    event.emitted_at.isoformat(),
+                    dt_iso(event.emitted_at),
                     json.dumps(event.model_dump(mode="json")),
                 ),
             )

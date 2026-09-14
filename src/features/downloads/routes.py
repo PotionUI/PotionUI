@@ -9,12 +9,12 @@ administrators) before accepting.
 import asyncio
 import json
 import logging
-from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
+from src.platform.database.rows import now_iso
 from src.platform.security.current_user import authenticate_websocket_token, get_current_admin_user
 from src.platform.security.user import AccountType, User
 
@@ -376,7 +376,7 @@ async def _send_heartbeat(connection_hub, websocket: WebSocket, client_id: str) 
                 try:
                     await websocket.send_json({
                         "type": "heartbeat",
-                        "timestamp": datetime.now().isoformat(),
+                        "timestamp": now_iso(),
                     })
                 except Exception as e:
                     logger.error("Failed to send heartbeat to %s: %s", client_id, e)
@@ -427,7 +427,7 @@ async def _handle_ws_message(connection_hub, client_id: str, message: dict) -> N
     elif message_type == "ping":
         await connection_hub.send_to_client(client_id, {
             "type": "pong",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now_iso(),
         })
 
     else:

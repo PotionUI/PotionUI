@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
 
+from src.platform.database.rows import now_utc
+
 
 # ========== Enums ==========
 
@@ -41,8 +43,8 @@ class PhrasebookCategory(BaseModel):
     parent_id: Optional[str] = None
     description: str = ""
     is_active: bool = True
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
     user_id: Optional[str] = None
 
 
@@ -56,8 +58,8 @@ class PhrasebookValue(BaseModel):
     is_active: bool = True
     preview_file_id: Optional[str] = None
     preview_generation_id: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
     user_id: Optional[str] = None
 
 

@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
-from src.platform.database.rows import json_column
+from src.platform.database.rows import dt_column, dt_iso, json_column
 
 
 @dataclass
@@ -29,7 +29,7 @@ class ChatMessage:
             content=row['content'],
             parsed_content=parsed_content,
             metadata=metadata,
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None
+            created_at=dt_column(row['created_at'])
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -41,7 +41,7 @@ class ChatMessage:
             'content': self.content,
             'parsed_content': self.parsed_content,
             'metadata': self.metadata,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'created_at': dt_iso(self.created_at)
         }
 
 
@@ -77,9 +77,9 @@ class ChatSession:
             original_text=row['original_text'],
             title_generated=bool(row['title_generated']) if 'title_generated' in row.keys() else False,
             metadata=metadata,
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None,
-            closed_at=datetime.fromisoformat(row['closed_at']) if row['closed_at'] else None,
+            created_at=dt_column(row['created_at']),
+            updated_at=dt_column(row['updated_at']),
+            closed_at=dt_column(row['closed_at']),
             messages=messages or []
         )
 
@@ -95,9 +95,9 @@ class ChatSession:
             'original_text': self.original_text,
             'title_generated': self.title_generated,
             'metadata': self.metadata,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-            'closed_at': self.closed_at.isoformat() if self.closed_at else None
+            'created_at': dt_iso(self.created_at),
+            'updated_at': dt_iso(self.updated_at),
+            'closed_at': dt_iso(self.closed_at)
         }
         if include_messages:
             result['messages'] = [msg.to_dict() for msg in self.messages]

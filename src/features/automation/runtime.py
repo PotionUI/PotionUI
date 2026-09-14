@@ -10,10 +10,10 @@ graph once triggered - this is what decides *when* to walk it.
 
 import logging
 import os
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from src.features.automation.engine import AutomationEngine
+from src.platform.database.rows import now_iso
 from src.platform.plugins.automation_nodes import NodeTypeRegistry, node_type_registry, resolve_dynamic_ports
 from src.platform.plugins.automation_templates import (
     AutomationEnvelopeError,
@@ -247,7 +247,7 @@ class AutomationRuntime:
             "schema": EXPORT_SCHEMA,
             "schema_version": EXPORT_SCHEMA_VERSION,
             "kind": "automation",
-            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "exported_at": now_iso(),
             "automation": {
                 "name": automation.name,
                 "description": automation.description,

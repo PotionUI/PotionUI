@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from src.platform.database.rows import row_get as _safe_get
+from src.platform.database.rows import dt_column, row_get as _safe_get
 
 
 @dataclass
@@ -54,8 +54,8 @@ class Inspiration:
             preset_name=_safe_get(row, "preset_name"),
             technique=_safe_get(row, "technique"),
             source_generation_id=_safe_get(row, "source_generation_id"),
-            created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
-            updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None,
+            created_at=dt_column(row["created_at"]),
+            updated_at=dt_column(row["updated_at"]),
             comment_count=_safe_get(row, "comment_count", 0) or 0,
             save_count=_safe_get(row, "save_count", 0) or 0,
             saved_by_me=bool(_safe_get(row, "saved_by_me", 0)),
@@ -82,8 +82,8 @@ class InspirationComment:
             inspiration_id=row["inspiration_id"],
             user_id=row["user_id"],
             body=row["body"],
-            created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
-            updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None,
+            created_at=dt_column(row["created_at"]),
+            updated_at=dt_column(row["updated_at"]),
             author_username=_safe_get(row, "author_username"),
             author_avatar_filename=_safe_get(row, "author_avatar_filename"),
         )
@@ -105,6 +105,6 @@ class InspirationCollection:
             user_id=row["user_id"],
             name=row["name"],
             parent_id=_safe_get(row, "parent_id"),
-            created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+            created_at=dt_column(row["created_at"]),
             item_count=_safe_get(row, "item_count", 0) or 0,
         )

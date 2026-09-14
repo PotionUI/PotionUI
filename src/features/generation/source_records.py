@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+from src.platform.database.rows import dt_column, dt_iso
+
 
 @dataclass
 class GenerationSource:
@@ -24,7 +26,7 @@ class GenerationSource:
             field_name=row['field_name'],
             source_generation_id=row['source_generation_id'],
             source_file_index=row['source_file_index'],
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
+            created_at=dt_column(row['created_at']),
         )
 
     def to_dict(self) -> dict:
@@ -35,5 +37,5 @@ class GenerationSource:
             'field_name': self.field_name,
             'source_generation_id': self.source_generation_id,
             'source_file_index': self.source_file_index,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'created_at': dt_iso(self.created_at),
         }

@@ -4,6 +4,7 @@
 	// `buildPipeTimeline` (runReport.ts) so it's unit-testable without
 	// mounting; this component only lays the numbers out as CSS percentages.
 	import type { RunReport } from '$lib/services/admin-api';
+	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { buildPipeTimeline, type GroupedStatusEntry } from './runReport';
 	import { formatDurationMs } from '$lib/components/generation-panel/barState';
 	import { DetailSection } from '$lib/components/detail';
@@ -23,7 +24,7 @@
 	} = $props();
 
 	let timeline = $derived(buildPipeTimeline(report.pipe_timers ?? {}, groupedEntries, runStart, runEnd, { failedPipeKey }));
-	let runStartMs = $derived(new Date(runStart).getTime());
+	let runStartMs = $derived(parseServerDate(runStart)?.getTime() ?? NaN);
 
 	function absolute(atMs: number): string {
 		const date = new Date(atMs);

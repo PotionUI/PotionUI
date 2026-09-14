@@ -1,5 +1,6 @@
 """Tests for TagRepository's batched generation-tag lookup."""
 import importlib
+import json
 import os
 import sys
 from contextlib import contextmanager
@@ -111,6 +112,40 @@ class TestTagRepositoryGenerationTagsBulk(PersistenceTestBase):
 
         self.assertEqual(small_query_count, large_query_count)
         self.assertEqual(small_query_count, 1)
+
+
+class TestTagRepositoryTimestampContract(PersistenceTestBase):
+    """A tag's `created_at` must carry a UTC offset wherever it leaves the
+    backend - a naive value is parsed as local time by the browser and shows
+    a fresh generation as hours old for anyone not in UTC."""
+
+    def setUp(self):
+        super().setUp()
+        self.tags_module = importlib.import_module("src.features.tags.repository")
+        self.tags_module.db = self.db
+        self.repo = TagRepository()
+        self.test_user_id = self.create_test_user()
+
+    def test_create_tag_returns_offset_aware_created_at(self):
+        tag = self.repo.create_tag("regression-tag", type="GENERATION", user_id=self.test_user_id)
+
+        self.assertIsNotNone(tag.created_at.tzinfo)
+        wire_value = json.loads(tag.model_dump_json())["created_at"]
+        self.assertTrue(wire_value.endswith("+00:00") or wire_value.endswith("Z"))
+
+    def test_row_with_offset_less_stored_timestamp_reads_as_utc(self):
+        """A legacy row written before this contract (or via sqlite
+        CURRENT_TIMESTAMP) has no offset in `created_at`; it must still be
+        read as UTC and re-emitted with an explicit +00:00."""
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO tags (id, name, type, user_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                ("tag_legacy", "legacy-tag", "GENERATION", self.test_user_id, "2024-01-01T12:00:00"),
+            )
+
+        tag = self.repo.get_tag_by_id("tag_legacy")
+
+        self.assertEqual(tag.created_at.isoformat(), "2024-01-01T12:00:00+00:00")
 
 
 if __name__ == '__main__':

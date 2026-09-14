@@ -86,6 +86,7 @@ import type { Readable } from 'svelte/store';
 import type { Tab, GenerationState, QueuedGeneration } from '$lib/types/tabs';
 import type { APIResponse, GenerationStatus } from '$lib/types/api';
 import { mapGenerationFiles, type RestoredGenerationData } from '$lib/utils/generationOrchestrator';
+import { parseServerDate } from '$lib/utils/relativeTime';
 import { leadIndex } from '$lib/generation/leadFile';
 import {
 	directorShotIdsFor,
@@ -182,8 +183,7 @@ export function generationTimestampMs(value?: string | number | null): number | 
 	if (value === undefined || value === null) return null;
 	const numeric = Number(value);
 	if (Number.isFinite(numeric)) return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
-	const parsed = Date.parse(String(value));
-	return Number.isNaN(parsed) ? null : parsed;
+	return parseServerDate(String(value))?.getTime() ?? null;
 }
 
 /** Every generation id this tab has persisted as still in flight -- the set

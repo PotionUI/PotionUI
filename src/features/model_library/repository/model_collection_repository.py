@@ -8,8 +8,8 @@ CollectionRepository (generation collections) with `model_collections` /
 `collection_generations` / `generation_id`.
 """
 from typing import List, Optional
-from datetime import datetime
 from src.features.model_library.records.model_collection import ModelCollection
+from src.platform.database.rows import now_utc
 from src.platform.util.ids import generate_ulid
 import logging
 
@@ -22,7 +22,7 @@ class ModelCollectionRepository:
     def create(self, name: str, user_id: str, parent_id: Optional[str] = None) -> ModelCollection:
         """Create a new model collection owned by the given user, optionally nested."""
         collection_id = generate_ulid()
-        now = datetime.now()
+        now = now_utc()
 
         from src.platform.database.database import db
         with db.get_cursor() as cursor:

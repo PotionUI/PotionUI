@@ -7,6 +7,7 @@
  * (never mutates), matching Svelte's reassignment-based reactivity.
  */
 import { get, type Readable } from 'svelte/store';
+import { parseServerDate } from '$lib/utils/relativeTime';
 import type {
 	UnifiedChatMessageData,
 	ToolExecution,
@@ -304,7 +305,7 @@ export function applyDone(
 			return {
 				...m,
 				id: userMsg?.id,
-				timestamp: userMsg?.created_at ? new Date(userMsg.created_at).getTime() : m.timestamp
+				timestamp: userMsg?.created_at ? (parseServerDate(userMsg.created_at)?.getTime() ?? m.timestamp) : m.timestamp
 			};
 		}
 		if (isLastAssistant(messages, idx)) {
@@ -321,7 +322,7 @@ export function applyDone(
 				role: 'assistant' as const,
 				content: assistantMsg?.content || m.content,
 				timestamp: assistantMsg?.created_at
-					? new Date(assistantMsg.created_at).getTime()
+					? (parseServerDate(assistantMsg.created_at)?.getTime() ?? Date.now())
 					: Date.now(),
 				tokens_used: assistantMsg?.tokens_used,
 				prompt_tokens: assistantMsg?.prompt_tokens,
@@ -426,7 +427,7 @@ export function mapPersistedMessage(msg: ChatMessageResponse): UnifiedChatMessag
 		id: msg.id,
 		role: msg.role,
 		content: msg.content,
-		timestamp: msg.created_at ? new Date(msg.created_at).getTime() : Date.now(),
+		timestamp: msg.created_at ? (parseServerDate(msg.created_at)?.getTime() ?? Date.now()) : Date.now(),
 		imageUrl: metadata.image_url || null,
 		tokens_used: msg.tokens_used,
 		prompt_tokens: msg.prompt_tokens,

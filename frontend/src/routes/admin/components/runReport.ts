@@ -5,7 +5,14 @@
  *  of `timestamp`). */
 import { extractPipeName } from '$lib/utils/templateProcessor';
 import { formatDurationMs } from '$lib/components/generation-panel/barState';
+import { parseServerDate } from '$lib/utils/relativeTime';
 import type { RunReportArtifact, RunReportPipeTimer, RunReportStatusEntry } from '$lib/services/admin-api';
+
+/** `NaN` for an unparsable/missing timestamp, matching what `new Date(x).getTime()`
+ *  gave callers here before — they already guard with `Number.isFinite`. */
+function toMs(value: string | null | undefined): number {
+	return parseServerDate(value)?.getTime() ?? NaN;
+}
 
 export interface GroupedStatusEntry {
 	type: 'single' | 'progress_group';
@@ -92,7 +99,7 @@ export function groupStatusHistory(entries: RunReportStatusEntry[]): GroupedStat
 	}
 	active.forEach((items, key) => flush(key, items));
 
-	return grouped.sort((a, b) => new Date(a.firstAt).getTime() - new Date(b.firstAt).getTime());
+	return grouped.sort((a, b) => toMs(a.firstAt) - toMs(b.firstAt));
 }
 
 /** `GroupedStatusEntry[]` bucketed by pipe, in first-seen order - the order
@@ -118,7 +125,7 @@ export function artifactsForPipe(artifacts: RunReportArtifact[], pipeKey: string
  *  no timer or is still missing an end (never actually finished). */
 export function formatPipeTiming(timer: RunReportPipeTimer | undefined): string {
 	if (!timer?.started_at || !timer?.ended_at) return '-';
-	const ms = new Date(timer.ended_at).getTime() - new Date(timer.started_at).getTime();
+	const ms = toMs(timer.ended_at) - toMs(timer.started_at);
 	if (!Number.isFinite(ms) || ms < 0) return '-';
 	return formatDurationMs(ms);
 }
@@ -192,8 +199,8 @@ export function buildPipeTimeline(
 	runEnd: string,
 	options: { failedPipeKey?: string | null } = {}
 ): Timeline {
-	const startMs = new Date(runStart).getTime();
-	const endMs = new Date(runEnd).getTime();
+	const startMs = toMs(runStart);
+	const endMs = toMs(runEnd);
 	const spanMs = Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs ? endMs - startMs : 0;
 
 	const pctOf = (ms: number): number => {
@@ -207,12 +214,12 @@ export function buildPipeTimeline(
 
 	for (const [key, timer] of Object.entries(pipeTimers)) {
 		if (!timer.started_at) continue;
-		const ms = new Date(timer.started_at).getTime();
+		const ms = toMs(timer.started_at);
 		if (!Number.isFinite(ms)) continue;
 		firstSeenMs.set(key, Math.min(firstSeenMs.get(key) ?? Infinity, ms));
 	}
 	for (const group of groupedEntries) {
-		const ms = new Date(group.firstAt).getTime();
+		const ms = toMs(group.firstAt);
 		labelByKey.set(group.pipeKey, group.pipeLabel);
 		if (!Number.isFinite(ms)) continue;
 		firstSeenMs.set(group.pipeKey, Math.min(firstSeenMs.get(group.pipeKey) ?? Infinity, ms));
@@ -225,9 +232,9 @@ export function buildPipeTimeline(
 	const bars: TimelineBar[] = pipeKeys.map((pipeKey) => {
 		const timer = pipeTimers[pipeKey];
 		const hasStart = !!timer?.started_at;
-		const startAtMs = hasStart ? new Date(timer!.started_at as string).getTime() : NaN;
+		const startAtMs = hasStart ? toMs(timer!.started_at as string) : NaN;
 		const hasEnd = !!timer?.ended_at;
-		const endAtMs = hasEnd ? new Date(timer!.ended_at as string).getTime() : NaN;
+		const endAtMs = hasEnd ? toMs(timer!.ended_at as string) : NaN;
 		const running = hasStart && Number.isFinite(startAtMs) && !hasEnd;
 
 		let startPct = 0;

@@ -13,7 +13,7 @@ import os
 import tempfile
 import zipfile
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 
@@ -32,6 +32,7 @@ from src.features.generation.thumbnail_profile import (
     load_thumbnail_profile,
     profile_hash,
 )
+from src.platform.database.rows import now_iso, now_utc
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import execute_hook
 from src.features.generation.hooks import GENERATION_HOOKS
@@ -659,7 +660,7 @@ class GenerationHistoryArchive:
             "schema": GENERATION_BUNDLE_SCHEMA,
             "schema_version": GENERATION_BUNDLE_SCHEMA_VERSION,
             "kind": "generation",
-            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "exported_at": now_iso(),
             "generation": {
                 "preset_id": generation.preset_id,
                 "preset_version": generation.preset_version,
@@ -1131,7 +1132,7 @@ class GenerationHistoryArchive:
             user_id=user_id,
             status='completed',
             progress=1.0,
-            completed_at=datetime.now(timezone.utc)
+            completed_at=now_utc()
         )
         self.generation_repo.create(generation)
 

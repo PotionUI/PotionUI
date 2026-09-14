@@ -2,12 +2,12 @@
 Discover plugins on disk and sync them into the database.
 """
 import logging
-from datetime import datetime
 
 from src.features.plugins.dto import PluginScanResult
 from src.features.plugins.mappers import plugin_to_response
 from src.features.plugins.repository import PluginRepository
 from src.features.plugins.records import Plugin, PluginHook, PluginPage
+from src.platform.database.rows import now_utc
 from src.platform.plugins.registry import PluginDiscoveryChanges, PluginRegistry, PluginState
 
 logger = logging.getLogger(__name__)
@@ -217,8 +217,8 @@ def scan_plugins(repo: PluginRepository, registry: PluginRegistry) -> PluginScan
                 manifest_path=str(manifest.manifest_path),
                 description=manifest.description,
                 author=manifest.author,
-                installed_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                installed_at=now_utc(),
+                updated_at=now_utc()
             )
             created_plugin = repo.create_plugin(plugin)
             new_plugins.append(plugin_to_response(created_plugin, registry))
@@ -236,7 +236,7 @@ def scan_plugins(repo: PluginRepository, registry: PluginRegistry) -> PluginScan
                 db_plugin.version = manifest.version
                 db_plugin.description = manifest.description
                 db_plugin.author = manifest.author
-                db_plugin.updated_at = datetime.utcnow()
+                db_plugin.updated_at = now_utc()
 
                 updated_plugin = repo.update_plugin(manifest.id, db_plugin)
                 updated_plugins.append(plugin_to_response(updated_plugin, registry))

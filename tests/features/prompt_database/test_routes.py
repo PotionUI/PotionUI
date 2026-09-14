@@ -422,7 +422,7 @@ def test_get_prompt_generations_delegates_with_user_scope_and_pagination(
     assert data["offset"] == 10
     assert data["items"][0]["id"] == "gen-1"
     assert data["items"][0]["preset_id"] == "preset-1"
-    assert data["items"][0]["created_at"] == "2026-01-05T00:00:00"
+    assert data["items"][0]["created_at"] == "2026-01-05T00:00:00+00:00"
     assert data["items"][0]["files"][0]["thumbnail_small"] == "generations/x_thumb.png"
     generation_repo_mock.get_by_source_prompt.assert_called_once_with(
         "prompt-1", "user-1", limit=5, offset=10

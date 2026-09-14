@@ -11,6 +11,8 @@ from datetime import datetime
 from typing import Optional
 from enum import Enum
 
+from src.platform.database.rows import dt_column, dt_iso
+
 class AccountType(Enum):
     USER = "USER"
     ADMIN = "ADMIN"
@@ -37,9 +39,9 @@ class User:
             email=row['email'],
             password_hash=row['password_hash'],
             account_type=AccountType(row['account_type']),
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None,
-            last_login=datetime.fromisoformat(row['last_login']) if row['last_login'] else None,
+            created_at=dt_column(row['created_at']),
+            updated_at=dt_column(row['updated_at']),
+            last_login=dt_column(row['last_login']),
             avatar_filename=row['avatar_filename'] if 'avatar_filename' in row_keys else None
         )
 
@@ -50,9 +52,9 @@ class User:
             'username': self.username,
             'email': self.email,
             'account_type': self.account_type.value,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-            'last_login': self.last_login.isoformat() if self.last_login else None,
+            'created_at': dt_iso(self.created_at),
+            'updated_at': dt_iso(self.updated_at),
+            'last_login': dt_iso(self.last_login),
             'avatar_url': f'/api/users/avatars/{self.avatar_filename}' if self.avatar_filename else None
         }
         if not exclude_password:

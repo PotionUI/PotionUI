@@ -19,7 +19,6 @@ import aiohttp
 import hashlib
 import logging
 import os
-from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional, Dict, List, TYPE_CHECKING
 from urllib.parse import urlparse
@@ -27,6 +26,7 @@ from urllib.parse import urlparse
 from src.features.downloads.exceptions import DownloadAuthenticationException
 from src.features.downloads.models import Download, DownloadStatus, DownloadType, DownloadSettings
 from src.features.downloads.repository import DownloadRepository
+from src.platform.database.rows import now_utc
 from src.features.downloads.utils import (
     extract_filename_from_url,
     safe_download_name,
@@ -399,7 +399,7 @@ class DownloadWorker:
             # Update status to downloading
             self.repo.update_status(download_id, DownloadStatus.DOWNLOADING)
             download.status = DownloadStatus.DOWNLOADING
-            download.started_at = datetime.now()
+            download.started_at = now_utc()
 
             # Notify via WebSocket
             await self.conn.send_download_status(

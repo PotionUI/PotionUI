@@ -10,7 +10,7 @@
 	 */
 	import type { AdminGenerationListItem, RunReport } from '$lib/services/admin-api';
 	import { groupStatusHistory, groupByPipe, findRunningPipeKey, resolveRunEnd } from './runReport';
-	import { timeAgo } from '$lib/utils/relativeTime';
+	import { timeAgo, parseServerDate } from '$lib/utils/relativeTime';
 	import { formatDurationMs } from '$lib/components/generation-panel/barState';
 	import { Alert, Badge, EmptyState } from '$lib/components/ui';
 	import { DetailHeader, DetailBody, DetailSection, KVGrid, KVItem } from '$lib/components/detail';
@@ -59,7 +59,9 @@
 	let title = $derived(generation.preset_name || generation.mode || 'Untitled generation');
 	let durationMs = $derived.by(() => {
 		if (!generation.completed_at) return null;
-		const ms = new Date(generation.completed_at).getTime() - new Date(generation.created_at).getTime();
+		const completed = parseServerDate(generation.completed_at)?.getTime();
+		const created = parseServerDate(generation.created_at)?.getTime();
+		const ms = completed != null && created != null ? completed - created : NaN;
 		return Number.isFinite(ms) && ms >= 0 ? ms : null;
 	});
 	let durationLabel = $derived.by(() => {
@@ -89,8 +91,8 @@
 
 	function absolute(iso: string | undefined): string {
 		if (!iso) return '—';
-		const date = new Date(iso);
-		if (Number.isNaN(date.getTime())) return '—';
+		const date = parseServerDate(iso);
+		if (!date) return '—';
 		return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
 	}
 

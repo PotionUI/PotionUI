@@ -14,8 +14,8 @@ for a given row, since scope determines which one a collection can accept,
 but the expression stays a sum of all three for safety).
 """
 from typing import List, Optional
-from datetime import datetime
 from src.features.collections.records import Collection
+from src.platform.database.rows import now_utc
 from src.platform.util.ids import generate_ulid
 import logging
 
@@ -45,7 +45,7 @@ class CollectionRepository:
         'library' folders (see migration 137).
         """
         collection_id = generate_ulid()
-        now = datetime.now()
+        now = now_utc()
 
         from src.platform.database.database import db
         with db.get_cursor() as cursor:

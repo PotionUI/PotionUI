@@ -7,9 +7,9 @@ database models.
 import json
 import logging
 from typing import List, Optional
-from datetime import datetime
 
 from src.features.notifications.records import Notification, NotificationLevel
+from src.platform.database.rows import dt_column, now_utc
 from src.platform.util.ids import generate_ulid
 
 logger = logging.getLogger(__name__)
@@ -30,12 +30,7 @@ class NotificationRepository:
             except (ValueError, TypeError):
                 metadata = None
 
-        created_at = row['created_at']
-        if isinstance(created_at, str):
-            try:
-                created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-            except (ValueError, TypeError):
-                created_at = datetime.now()
+        created_at = dt_column(row['created_at']) or now_utc()
 
         try:
             row_type = row['type'] or ''
@@ -53,7 +48,7 @@ class NotificationRepository:
             source=row['source'],
             type=row_type,
             read=bool(row['read']),
-            created_at=created_at or datetime.now()
+            created_at=created_at
         )
 
     def create(
@@ -71,7 +66,7 @@ class NotificationRepository:
         """Create a new notification row and return it."""
         notification_id = generate_ulid()
         metadata_json = json.dumps(metadata) if metadata is not None else None
-        now = datetime.now()
+        now = now_utc()
 
         from src.platform.database.database import db
         with db.get_cursor() as cursor:

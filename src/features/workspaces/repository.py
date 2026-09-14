@@ -5,9 +5,10 @@ Handles database operations for workspaces (tab layout configurations).
 """
 from typing import List, Optional
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 
 from src.features.workspaces.records import Workspace
+from src.platform.database.rows import dt_column, dt_iso, now_utc
 from src.platform.util.ids import generate_ulid
 
 
@@ -23,15 +24,15 @@ class WorkspaceRepository:
             user_id=row['user_id'],
             name=row['name'],
             data=data,
-            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else datetime.now(timezone.utc),
-            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
+            created_at=dt_column(row['created_at']) or now_utc(),
+            updated_at=dt_column(row['updated_at'])
         )
 
     def create(self, workspace: Workspace) -> Workspace:
         """Create a new workspace."""
         workspace_id = workspace.id if workspace.id else generate_ulid()
-        created_at = workspace.created_at if workspace.created_at else datetime.now(timezone.utc)
-        updated_at = datetime.now(timezone.utc)
+        created_at = workspace.created_at if workspace.created_at else now_utc()
+        updated_at = now_utc()
 
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
@@ -43,8 +44,8 @@ class WorkspaceRepository:
                 workspace.user_id,
                 workspace.name,
                 json.dumps(workspace.data),
-                created_at.isoformat() if isinstance(created_at, datetime) else created_at,
-                updated_at.isoformat() if isinstance(updated_at, datetime) else updated_at
+                dt_iso(created_at) if isinstance(created_at, datetime) else created_at,
+                dt_iso(updated_at) if isinstance(updated_at, datetime) else updated_at
             ))
 
         return Workspace(
@@ -82,7 +83,7 @@ class WorkspaceRepository:
 
     def update(self, workspace: Workspace) -> Workspace:
         """Update an existing workspace."""
-        updated_at = datetime.now(timezone.utc)
+        updated_at = now_utc()
 
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
@@ -93,7 +94,7 @@ class WorkspaceRepository:
             """, (
                 workspace.name,
                 json.dumps(workspace.data),
-                updated_at.isoformat(),
+                dt_iso(updated_at),
                 workspace.id
             ))
 

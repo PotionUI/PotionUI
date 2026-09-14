@@ -64,7 +64,7 @@ import type { GenerationLayoutMode } from '$lib/stores/generationLayout';
 import { resolveVariant } from '$lib/utils/variants';
 import { buildSessionRestoreTabPatch } from '$lib/utils/sessionRestore';
 import { seedModeStateFromSessionData } from '$lib/utils/modeState';
-import { timeAgo } from '$lib/utils/relativeTime';
+import { timeAgo, parseServerDate } from '$lib/utils/relativeTime';
 import {
 	collectTabSessionData,
 	isSessionGoneError,
@@ -512,7 +512,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			setSelectedSessionId(currentTabData.selectedSessionId);
 			savedSessionSignature = currentTabData.savedSessionSignature ?? null;
 			currentSession = sessions.find((session) => session.id === selectedSessionId) ?? null;
-			lastSavedTime = currentSession ? new Date(currentSession.updated_at) : null;
+			lastSavedTime = currentSession ? parseServerDate(currentSession.updated_at) : null;
 			hasUnsavedChanges = sessionIsDirty(
 				!!currentSession,
 				savedSessionSignature,
@@ -951,7 +951,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		setSelectedSessionId(sessionId);
 		currentSession = sessionMeta;
 		if (options.markSaved) savedSessionSignature = restoredBaseline;
-		lastSavedTime = new Date(sessionMeta.updated_at);
+		lastSavedTime = parseServerDate(sessionMeta.updated_at);
 		applySessionLayout(modeBasedData, ctx.currentMode);
 		warnIfPresetVersionDrifted(modeBasedData, ctx.currentMode);
 		publish();
@@ -998,7 +998,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 					response.data.find((session) => session.id === selectedSessionId) ?? null;
 				if (sessionForTab && lastAppliedSeq === appliedSeqAtIssue) {
 					currentSession = sessionForTab;
-					lastSavedTime = new Date(sessionForTab.updated_at);
+					lastSavedTime = parseServerDate(sessionForTab.updated_at);
 					hasUnsavedChanges = sessionIsDirty(true, savedSessionSignature, currentSessionSignature);
 				}
 			}

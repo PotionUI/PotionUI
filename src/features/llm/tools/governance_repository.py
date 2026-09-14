@@ -4,8 +4,9 @@ See src.features.llm.tools.governance for the composition rules this data
 feeds.
 """
 
-from datetime import datetime
 from typing import Dict, Iterable, Optional, Set, Tuple
+
+from src.platform.database.rows import now_iso
 
 
 class ToolGovernanceRepository:
@@ -75,7 +76,7 @@ class ToolGovernanceRepository:
         existing = self.get_config(llm_config_id, tool_name) or {"enabled": True, "locked": False}
         merged_enabled = existing["enabled"] if enabled is None else enabled
         merged_locked = existing["locked"] if locked is None else locked
-        now = datetime.now().isoformat()
+        now = now_iso()
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
@@ -112,7 +113,7 @@ class ToolGovernanceRepository:
                 cursor.execute(
                     "INSERT OR IGNORE INTO user_disabled_tools (user_id, tool_name, created_at) "
                     "VALUES (?, ?, ?)",
-                    (user_id, tool_name, datetime.now().isoformat()),
+                    (user_id, tool_name, now_iso()),
                 )
             else:
                 cursor.execute(

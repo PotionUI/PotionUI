@@ -19,7 +19,7 @@ from src.features.segments.dto import (
 )
 from src.platform.util.ids import generate_ulid
 
-from src.platform.database.rows import json_column
+from src.platform.database.rows import dt_column, json_column, now_utc
 
 
 DEFAULT_SEGMENT_CATEGORIES = (
@@ -37,9 +37,7 @@ DEFAULT_SEGMENT_CATEGORIES = (
 def _datetime(value: Any, default: Optional[datetime] = None) -> Optional[datetime]:
     if value is None:
         return default
-    if isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(value)
+    return dt_column(value)
 
 
 def _json_dumps(value: Any) -> str:
@@ -89,7 +87,7 @@ class SegmentCategoryRepository:
             description=row["description"] or "",
             color=row["color"] or "#3B82F6",
             user_id=row["user_id"],
-            created_at=_datetime(row["created_at"], datetime.now()),
+            created_at=_datetime(row["created_at"], now_utc()),
             updated_at=_datetime(row["updated_at"]),
         )
 
@@ -215,8 +213,8 @@ class SavedSegmentRepository:
             prefix=row["prefix"],
             suffix=row["suffix"],
             tags=json_column(row["tags"], []),
-            created_at=_datetime(row["created_at"], datetime.now()),
-            updated_at=_datetime(row["updated_at"], datetime.now()),
+            created_at=_datetime(row["created_at"], now_utc()),
+            updated_at=_datetime(row["updated_at"], now_utc()),
         )
 
     @staticmethod
@@ -388,8 +386,8 @@ class SegmentTemplateRepository:
             description=row["description"] or "",
             tags=json_column(row["tags"], []),
             segments=self._children(cursor, row["id"]),
-            created_at=_datetime(row["created_at"], datetime.now()),
-            updated_at=_datetime(row["updated_at"], datetime.now()),
+            created_at=_datetime(row["created_at"], now_utc()),
+            updated_at=_datetime(row["updated_at"], now_utc()),
         )
 
     def get_all(self, user_id: str) -> List[SegmentTemplate]:

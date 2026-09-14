@@ -4,7 +4,7 @@ Tests for plugin pages, sidebar items, and API routes extension.
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.platform.plugins.loader import PluginManifest, PluginLoader
 from src.features.plugins.operations import scan as scan_ops
@@ -257,7 +257,7 @@ class TestPluginPageModel:
         assert page.sidebar_order == 50
         assert page.show_in_sidebar is True
         assert page.require_role == 'ADMIN'
-        assert page.created_at == datetime(2024, 1, 1, 12, 0, 0)
+        assert page.created_at == datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
     def test_plugin_page_from_row_without_require_role(self):
         """Test creating PluginPage from row without require_role column (legacy rows)"""
@@ -319,7 +319,7 @@ class TestPluginPageModel:
         assert result['sidebar_order'] == 50
         assert result['show_in_sidebar'] is True
         assert result['require_role'] is None
-        assert result['created_at'] == '2024-01-01T12:00:00'
+        assert result['created_at'] == '2024-01-01T12:00:00+00:00'
 
     def test_plugin_page_to_dict_with_require_role(self):
         """Test converting PluginPage with require_role to dictionary"""

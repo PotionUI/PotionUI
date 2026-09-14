@@ -6,6 +6,7 @@ No class, no state.
 """
 from src.features.workspaces.dto import WorkspaceResponse
 from src.features.workspaces.records import Workspace
+from src.platform.database.rows import dt_iso
 
 
 def workspace_to_response(workspace: Workspace) -> WorkspaceResponse:
@@ -22,6 +23,6 @@ def workspace_to_response(workspace: Workspace) -> WorkspaceResponse:
         id=workspace.id,
         name=workspace.name,
         data=workspace.data,
-        created_at=workspace.created_at.isoformat() if workspace.created_at else None,
-        updated_at=workspace.updated_at.isoformat() if workspace.updated_at else None
+        created_at=dt_iso(workspace.created_at),
+        updated_at=dt_iso(workspace.updated_at)
     )

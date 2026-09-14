@@ -79,7 +79,7 @@ class ModelIndexingCoordinator:
         deleted_count = 0
 
         for model in all_models:
-            if not Path(model.file_path).exists():
+            if model.file_path and not Path(model.file_path).exists():
                 self.model_repo.delete(model.id)
                 deleted_count += 1
                 logger.debug(f"Removed deleted model from index: {model.filename}")

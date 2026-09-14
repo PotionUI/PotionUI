@@ -226,7 +226,6 @@ class TestGetModelTypes:
         # `TYPE_DIR_MAP`, and a bare MagicMock's `__truediv__` would silently
         # return another MagicMock instead of a real path. A `tmp_path`-rooted
         # directory, not the literal 'models' string: relative to the repo's
-        # own CWD that resolves to the real (symlinked-into-/mnt/ssd2) models
         # depot, and `_type_subdirectories` now actually lists it.
         collaborators.catalog.scanner.MODEL_TYPE_MAPPING = ModelScanner.MODEL_TYPE_MAPPING
         collaborators.catalog.scanner.models_dir = tmp_path / 'models'
@@ -843,6 +842,26 @@ class TestCleanupDeletedModels:
         assert result['deleted_from_index'] == 1
         assert result['total_checked'] == 2
         mock_model_repository.delete.assert_called_once_with('model-2')
+
+    def test_backend_reported_rows_without_a_local_path_are_left_alone(self, collaborators, mock_model_repository):
+        """A ComfyUI-reported model has `file_path IS NULL` by design (see
+        `ModelRepository.delete_unclaimed_orphans`); cleanup must skip it, not
+        crash on `Path(None)` and abort the whole run."""
+        remote = Mock()
+        remote.id = 'remote-1'
+        remote.file_path = None
+
+        gone = Mock()
+        gone.id = 'gone-1'
+        gone.file_path = '/deleted/path.safetensors'
+
+        mock_model_repository.get_all.return_value = [remote, gone]
+
+        result = operations.cleanup_deleted_models(collaborators)
+
+        assert result['deleted_from_index'] == 1
+        assert result['total_checked'] == 2
+        mock_model_repository.delete.assert_called_once_with('gone-1')
 
 
 class TestAssignmentFailureIsExplained:

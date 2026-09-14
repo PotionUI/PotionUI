@@ -159,6 +159,10 @@
 			e.stopPropagation();
 			if (showPreview) {
 				showPreview = false;
+			} else if (variant === 'segment-composer') {
+				// The footer advertises Esc as Cancel, so it cancels from the
+				// search field too instead of only dropping focus.
+				handleClose();
 			} else {
 				searchInput?.blur();
 			}
@@ -315,10 +319,19 @@
 				</div>
 				<footer class="modal-foot">
 					<span class="helper" style="margin: 0 auto 0 0">Value selection is separate from shuffle behavior.</span>
-					<button type="button" class="small-button" on:click={handleClose}>Cancel</button>
-					<button type="button" class="small-button primary" disabled={!filteredItems.length} on:click={commitSelected}
-						>Use selected value</button
+					<button type="button" class="small-button" on:click={handleClose}>
+						Cancel
+						<Kbd keys="Esc" />
+					</button>
+					<button
+						type="button"
+						class="small-button primary"
+						disabled={!filteredItems.length}
+						on:click={commitSelected}
 					>
+						Use selected value
+						<Kbd keys="Enter" />
+					</button>
 				</footer>
 			</section>
 		</div>

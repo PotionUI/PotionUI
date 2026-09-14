@@ -582,7 +582,9 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 	font-weight: 650;
 }
 .primary:hover {
+	color: rgb(var(--accent-contrast));
 	background: rgb(var(--accent-hover));
+	border-color: rgb(var(--accent-hover));
 }
 
 /* The mock's `.picker-breadcrumb` is plain text; a real "jump to this

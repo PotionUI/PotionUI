@@ -269,11 +269,10 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 ### Windows (native)
 
-Experimental as of 0.0.8. There's no Windows development machine behind
-PotionUI, so a `windows-latest` GitHub Actions job
+Experimental as of 0.0.8. A `windows-latest` GitHub Actions job
 ([`.github/workflows/windows.yml`](.github/workflows/windows.yml)) is the
-only thing that has ever run this on Windows — treat it as early and
-under-tested rather than production-ready.
+only automated Windows run — treat it as early and under-tested rather
+than production-ready.
 
 **Prerequisites:**
 

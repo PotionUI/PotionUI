@@ -21,7 +21,7 @@ Commands:
     scaffold <ClassType> [--object-info FILE | --comfyui-src DIR] [--category CAT]
         Print a `node_catalog.yml` entry skeleton for one node class, read
         from a saved `/object_info` dump (--object-info) or ComfyUI's own
-        source (--comfyui-src, default /home/jtyszkiew/projects/ComfyUI) -
+        source (--comfyui-src, default $COMFYUI_SRC or ../ComfyUI next to this checkout) -
         never by importing or running ComfyUI code. `# TODO` markers show
         where a human must confirm a guess.
 
@@ -39,6 +39,7 @@ the output into `node_catalog.yml`, resolve the `# TODO`s, and `check`.
 
 from __future__ import annotations
 
+import os
 import argparse
 import json
 import sys
@@ -56,7 +57,7 @@ from backend.preset_import.parser import WorkflowFormatError, parse_api_workflow
 from backend.preset_import.schema import ImportForm  # noqa: E402
 from backend.preset_import.suggest import suggest_fields  # noqa: E402
 
-_DEFAULT_COMFYUI_SRC = Path("/home/jtyszkiew/projects/ComfyUI")
+_DEFAULT_COMFYUI_SRC = Path(os.environ.get("COMFYUI_SRC") or Path(__file__).resolve().parents[5] / "ComfyUI")
 
 
 def _load_json(path: str) -> Dict[str, Any]:

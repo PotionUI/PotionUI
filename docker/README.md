@@ -37,7 +37,7 @@ potionui .` from the repo root.
 ## Rig-simulation harness — `Dockerfile.dev` + `docker-compose.yml`
 
 Supported, and the current entry point into this directory. It exists to let
-a machine with plenty of RAM/VRAM (the maintainer's box: 96GB RAM / RTX 5090)
+a machine with plenty of RAM/VRAM
 exercise onboarding and generation the way a weaker machine actually
 experiences them, under real resource caps instead of guesswork — and it
 doubles as the head start for a future Docker distribution image.

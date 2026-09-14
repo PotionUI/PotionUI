@@ -344,7 +344,7 @@ class DownloadQueue:
         symlink) and compared with `os.path.commonpath` - deliberately not
         `Path.resolve()`. A depot's type directories are routinely symlinks
         into shared storage on real installs (e.g. `models/diffusion_models ->
-        /mnt/ssd2/models/diffusion_models`); realpath-resolving the candidate
+        /srv/weights/diffusion_models`); realpath-resolving the candidate
         would follow that symlink to a target outside the depot's own root and
         reject a layout the admin deliberately configured. Nothing reachable
         from here can plant a symlink itself - `requested`/`trusted_subdir` are

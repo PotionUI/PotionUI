@@ -28,7 +28,7 @@ generated name.
 and must not be symlinks resolving outside it. The approved directory is the
 destination this process already contained against the configured depot, not a
 re-resolved depot root, so an admin's symlinked type directory
-(`models/diffusion_models -> /mnt/ssd2/models/diffusion_models`) stays valid.
+(`models/diffusion_models -> /srv/weights/diffusion_models`) stays valid.
 The guarantee is lexical containment plus a symlink check taken at open and
 rename time. It is NOT atomic: a symlink planted between the check and the
 write is not defeated by it.

@@ -30,7 +30,6 @@ class TestConstructionWithoutADriver:
         monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)
         # A real CPU-only host has no CUDA either - torch.cuda.is_available()
         # would be False there too. This process may genuinely have a CUDA
-        # device (e.g. these tests running on the maintainer's GPU box), so
         # pin it here to reproduce the true CPU-only case rather than a
         # partial (no-NVML, yes-CUDA) state that can't occur on real hardware.
         monkeypatch.setattr("torch.cuda.is_available", lambda: False)

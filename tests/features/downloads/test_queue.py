@@ -418,7 +418,7 @@ class TestQueueModelDownloadDestinationBackend:
 class TestQueueModelDownloadSymlinkedTypeDir:
     """The bug this card fixes: on real installs a depot type directory is a
     symlink into shared storage (e.g. `models/diffusion_models ->
-    /mnt/ssd2/models/diffusion_models`). `model_type="diffusion_models"` has
+    /srv/weights/diffusion_models`). `model_type="diffusion_models"` has
     no entry in `TYPE_DIR_MAP` and falls through as its own literal name
     (`TYPE_DIR_MAP.get(model_type, model_type)`), which used to be
     realpath-resolved and rejected as escaping the depot even though the

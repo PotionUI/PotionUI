@@ -332,8 +332,8 @@ class SageAttention3(Optimization):
     Its CUDA extension is built with family-specific (``...a``-suffixed) arch
     flags for EXACTLY three capabilities — (10,0)/(12,0)/(12,1) — not a
     ``>=`` range, so a card outside that exact set (including a hypothetical
-    future sm130) cannot run it without its own rebuild. The user's dev GPU
-    (RTX 5090) is sm120, matching. Also hard-requires CUDA runtime >= 12.8.
+    future sm130) cannot run it without its own rebuild. An RTX 5090
+    is sm120, matching. Also hard-requires CUDA runtime >= 12.8.
 
     Python: the README states ``python>=3.13`` as the required/tested
     interpreter. ``setup.py``'s own ``python_requires`` is the permissive

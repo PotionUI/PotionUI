@@ -420,7 +420,7 @@ class TestWorkerWriteTargets:
 
     @pytest.mark.asyncio
     async def test_a_symlinked_destination_directory_is_accepted(self, worker, tmp_path):
-        """`models/diffusion_models -> /mnt/ssd2/models/diffusion_models` is a
+        """`models/diffusion_models -> /srv/weights/diffusion_models` is a
         real install's layout, not an escape."""
         shared = tmp_path / "shared-storage" / "diffusion_models"
         shared.mkdir(parents=True)

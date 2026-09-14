@@ -48,7 +48,7 @@ architecture-specific ``compute_XXXa``/``sm_XXXa`` flags (the trailing ``a``
 means "family-specific PTX", not forward/backward compatible the way plain
 ``sm_90``-style flags are) for exactly three capabilities: ``(10, 0)``
 (datacenter Blackwell, B100/B200), ``(12, 0)`` (consumer Blackwell, RTX 50
-series — the user's dev GPU is a 5090), and ``(12, 1)`` (Blackwell Ultra/GB20x
+series, e.g. RTX 5090), and ``(12, 1)`` (Blackwell Ultra/GB20x
 variants). So the gate is exact-capability membership in that set, never a
 ``>=`` range like sage2's sm80+. The upstream build also hard-requires CUDA
 runtime >= 12.8 (checked separately, since a stale nvcc/driver combo would

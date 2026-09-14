@@ -9,7 +9,7 @@ name: Backend + frontend tests
 #
 # requirements-ci.txt is a trimmed copy of requirements.txt (see its own
 # header for what's excluded and why); constraints.txt is NOT used here, as
-# it pins the maintainer's CUDA-specific transitive closure, which has no
+# it pins a CUDA-specific transitive closure, which has no
 # CPU-only equivalent.
 
 on:

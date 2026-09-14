@@ -1,6 +1,6 @@
 # PotionUI rig-simulation harness.
 #
-# Two profiles that squeeze the maintainer's 96GB/RTX 5090 box down to what a
+# Two profiles that squeeze a large host down to what a
 # weaker machine actually has, so onboarding + generation can be exercised
 # under real constraints instead of guessed at:
 #
@@ -19,7 +19,7 @@
 # same failure mode a genuinely RAM-constrained box hits), enforced by the
 # kernel cgroup, and read correctly from inside the container via
 # src/platform/runtime/system_memory.py (cgroup-v2-aware; without it,
-# psutil.virtual_memory() would report the HOST's 96GB and every RAM-budgeted
+# psutil.virtual_memory() would report the HOST's full RAM and every RAM-budgeted
 # admission decision would overshoot the container's real ceiling).
 #
 # Usage (from the repo root):

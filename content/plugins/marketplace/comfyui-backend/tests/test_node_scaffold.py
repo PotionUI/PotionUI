@@ -3,11 +3,12 @@ class extraction that backs the `comfyui_nodes.py scaffold` CLI command."""
 
 from pathlib import Path
 
+import os
 import pytest
 
 from backend.preset_import import node_scaffold as ns
 
-_COMFYUI_SRC = Path("/home/jtyszkiew/projects/ComfyUI")
+_COMFYUI_SRC = Path(os.environ.get("COMFYUI_SRC") or Path(__file__).resolve().parents[5] / "ComfyUI")
 
 _LEGACY_SOURCE = '''
 import comfy.samplers

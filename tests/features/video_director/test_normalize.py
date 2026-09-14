@@ -523,16 +523,15 @@ def test_fps_bound_matches_generator_cap_of_60(storage_dir):
     assert "fps" in str(excinfo.value)
 
 
-def test_duration_fps_combination_exceeding_generator_frame_cap_rejected(storage_dir):
+def test_duration_fps_combination_exceeding_generator_frame_cap_clamped(storage_dir):
     # generator/video_ltx + generator/txt2vid_ltx cap `frames` at 1001; LTX's
     # own preset declares limits.max_frames=1001 to opt into this check.
     caps = copy.deepcopy(LTX_CAPS)
     caps["limits"]["max_frames"] = 1001
     doc = _base_doc("t2v", settings={"fps": 60, "duration": 30, "resolution": "", "seed": -1})
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, caps, str(storage_dir))
-    assert "1001" in str(excinfo.value)
-    assert "frames" in str(excinfo.value)
+    out = normalize_video_director(doc, caps, str(storage_dir))
+    assert out["settings"]["duration"] == pytest.approx(1001 / 60)
+    assert out["settings"]["frame_count"] == 1001
 
 
 def test_duration_fps_within_frame_cap_reports_snapped_frame_count(storage_dir):
@@ -675,19 +674,24 @@ def test_video_typed_last_rejected(storage_dir):
     assert "video" in str(excinfo.value)
 
 
-def test_duration_exceeds_max(storage_dir):
+def test_duration_exceeding_max_is_clamped(storage_dir):
     doc = _base_doc("t2v")
     doc["settings"]["duration"] = 60
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-    assert "duration" in str(excinfo.value)
+    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+    assert out["settings"]["duration"] == LTX_CAPS["limits"]["max_duration"]
 
 
-def test_director_chain_frames_exceeds_max_frames_per_segment(storage_dir):
+def test_director_chain_frames_exceeding_max_frames_per_segment_is_clamped(storage_dir):
     doc = _base_doc("director", segments=[{"id": "seg-1", "prompt": "a", "frames": 200}])
+    document = normalize_video_director(doc, WAN_CAPS, str(storage_dir))
+    assert document["segments"][0]["frames"] == 81
+
+
+def test_director_chain_frames_below_one_rejected(storage_dir):
+    doc = _base_doc("director", segments=[{"id": "seg-1", "prompt": "a", "frames": 0}])
     with pytest.raises(VideoDirectorValidationError) as excinfo:
         normalize_video_director(doc, WAN_CAPS, str(storage_dir))
-    assert "between 1 and 81" in str(excinfo.value)
+    assert "positive int" in str(excinfo.value)
 
 
 def test_director_chain_declared_cap_overrides_the_wan_hard_cap(storage_dir):

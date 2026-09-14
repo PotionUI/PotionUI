@@ -468,31 +468,19 @@ def _normalize_settings(
         if not duration_valid:
             errors.append(f"settings.duration must be > 0, got {duration!r}")
         elif max_duration is not None and duration > max_duration:
-            errors.append(f"settings.duration {duration} exceeds the allowed maximum {max_duration}")
-            duration_valid = False
+            duration = max_duration
 
         max_frames = limits.get("max_frames")
         if duration_valid and fps_valid and max_frames is not None:
             raw_frames = round_half_up_common(duration * fps)
             if raw_frames > max_frames:
-                max_seconds = max_frames / fps
-                errors.append(
-                    f"settings.duration {duration} at settings.fps {fps} needs {raw_frames} frames, "
-                    f"exceeding this preset's generator cap of {max_frames} frames "
-                    f"(use a duration of {max_seconds:.2f}s or less at this fps, or lower fps)"
-                )
-            else:
-                # The generator itself snaps to this same 1 + k*8 lattice
-                # (with a log warning) before it ever runs -- computing it
-                # here lets the caller show the ACTUAL frame count/duration
-                # the generation will use, before submitting. Imported at the
-                # use site: the module rides the boot import chain and
-                # src.platform.runtime.native's package init pulls torch.
-                from src.platform.runtime.native.resolution import snap_frame_count
+                duration = max_frames / fps
+                raw_frames = max_frames
+            from src.platform.runtime.native.resolution import snap_frame_count
 
-                frame_count = snap_frame_count(raw_frames, _LTX_TEMPORAL_DOWNSCALE)
-                out["frame_count"] = frame_count
-                out["effective_duration"] = frame_count / fps
+            frame_count = snap_frame_count(raw_frames, _LTX_TEMPORAL_DOWNSCALE)
+            out["frame_count"] = frame_count
+            out["effective_duration"] = frame_count / fps
     out["duration"] = duration
 
     out["resolution"] = settings.get("resolution") or ""
@@ -652,8 +640,10 @@ def _normalize_segments(
             # ceiling outright (H3 windows legitimately run past Wan's 257);
             # the Wan-derived hard cap only bounds modes that declare nothing.
             frames_cap = max_frames_per_segment if max_frames_per_segment is not None else _CHAIN_MAX_FRAMES_HARD_CAP
-            if not isinstance(frames, int) or not (1 <= frames <= frames_cap):
-                errors.append(f"{context}: frames must be an int between 1 and {frames_cap}, got {frames!r}")
+            if not isinstance(frames, int) or frames < 1:
+                errors.append(f"{context}: frames must be a positive int, got {frames!r}")
+            elif frames > frames_cap:
+                normalized["frames"] = frames_cap
 
             steps = segment.get("steps")
             if steps is not None and (not isinstance(steps, int) or not (_CHAIN_STEPS_RANGE[0] <= steps <= _CHAIN_STEPS_RANGE[1])):

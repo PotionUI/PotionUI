@@ -148,12 +148,12 @@
 	}
 
 	// ─── Console-only state ────────────────────────────────────────────────
-	let activeShotId: string | null = $state(null);
+	let activeShotId: string | null | undefined = $state(undefined);
 	let selection: ConsoleSelection = $state(null);
 	let checked: Set<string> = $state(new Set());
 
 	let generationContext = $derived({ presetId: presetId || null, variant: selectedVariant, mode: selectedMode });
-	let model = $derived(deriveConsoleModel(doc, capabilities, { activeShotId }, formData, runs, checked, generationContext));
+	let model = $derived(deriveConsoleModel(doc, capabilities, { activeShotId: activeShotId ?? null }, formData, runs, checked, generationContext));
 	// The MAX affordance's target -- null hides it entirely (no cap of either
 	// kind); shared by every shot card since it depends only on the doc/caps,
 	// not on which shot is active.
@@ -163,7 +163,9 @@
 	// expansion. Reading this everywhere instead of the raw `activeShotId`
 	// state avoids a one-tick flash on mount where nothing is expanded yet.
 	let effectiveActiveShotId = $derived(
-		model.shots.some((s) => s.id === activeShotId) ? activeShotId : (model.shots[0]?.id ?? null)
+		activeShotId === null || model.shots.some((s) => s.id === activeShotId)
+			? activeShotId
+			: (model.shots[0]?.id ?? null)
 	);
 	$effect(() => {
 		if (effectiveActiveShotId !== activeShotId) activeShotId = effectiveActiveShotId;
@@ -209,6 +211,10 @@
 
 	function activateShot(shotId: string) {
 		activeShotId = shotId;
+	}
+
+	function collapseShot() {
+		activeShotId = null;
 	}
 
 	function toggleChecked(shotId: string) {
@@ -331,6 +337,14 @@
 		doc = withTimelineSegmentEdge(doc, shotId, id, edge, clamped);
 	}
 
+	function handleSetStitch(stitch: boolean) {
+		doc = applyDirectorOperations(doc, [{ op: 'set_continuation', continuation: { stitch } }], capabilities);
+	}
+
+	function handleSetOverlap(frames: number) {
+		doc = applyDirectorOperations(doc, [{ op: 'set_continuation', continuation: { overlap_frames: frames } }], capabilities);
+	}
+
 	function handleSetJoin(afterShotId: string, kind: 'continue' | 'cut') {
 		if (capabilities.segmentRouting) {
 			const rail = deriveRailModel(doc, capabilities);
@@ -446,6 +460,7 @@
 					onFrames={handleFrames}
 					onFps={handleFps}
 					onSetMax={handleSetMax}
+					onCollapse={collapseShot}
 				>
 					<ShotRail
 						shotId={shot.id}
@@ -479,6 +494,11 @@
 					<JoinConnector
 						{join}
 						onSetJoin={handleSetJoin}
+						onSetOverlap={handleSetOverlap}
+						onSetStitch={handleSetStitch}
+						maxOverlapFrames={capabilities.modes.director?.maxOverlapFrames ?? null}
+						stitch={doc.chain.continuation.stitch}
+						source={capabilities.modes.director?.continuation?.source ?? null}
 						onGeneratePreviousAndThis={handleGeneratePreviousAndThis}
 						onConvertToFreshCut={handleConvertToFreshCut}
 					/>

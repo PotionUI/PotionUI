@@ -826,8 +826,8 @@ describe('deriveStageModel — H3 refs merged profile', () => {
 describe('withShotDuration', () => {
 	it('chain routing: writes the segment duration directly, rounded to 0.1s, leaving siblings untouched', () => {
 		const doc = wanDoc();
-		const next = withShotDuration(doc, wanCaps(), 'chain-2', 6.28);
-		expect(next.chain.segments.find((s) => s.id === 'chain-2')?.duration).toBeCloseTo(6.3, 6);
+		const next = withShotDuration(doc, wanCaps(), 'chain-2', 4.28);
+		expect(next.chain.segments.find((s) => s.id === 'chain-2')?.duration).toBeCloseTo(4.3, 6);
 		expect(next.chain.segments.find((s) => s.id === 'chain-1')?.duration).toBeCloseTo(49 / 16, 6);
 	});
 
@@ -841,6 +841,13 @@ describe('withShotDuration', () => {
 		const caps: DirectorCapabilities = { ...wanCaps(), maxFrames: 32 };
 		const next = withShotDuration(wanDoc(), caps, 'chain-2', 10);
 		expect(next.chain.segments.find((s) => s.id === 'chain-2')?.duration).toBe(2);
+	});
+
+	it('chain routing: clamps to the per-segment frame cap exactly (H3: 345 frames at the doc fps, 345 frames on serialise)', () => {
+		const next = withShotDuration(h3Doc(), h3Caps(), 'h3-1', 20);
+		const seg = next.chain.segments.find((s) => s.id === 'h3-1');
+		expect(seg?.duration).toBeCloseTo(345 / next.chain.fps, 9);
+		expect(Math.round((seg?.duration ?? 0) * next.chain.fps)).toBe(345);
 	});
 
 	it('timeline routing: writes the shot duration via set_settings\' per-shot destination', () => {
@@ -900,9 +907,8 @@ describe('withShotDuration', () => {
 
 describe('withShotFrames', () => {
 	it('chain routing: writes duration = frames / fps through withShotDuration (same clamps, same rounding)', () => {
-		// wanDoc() chain fps is 16 -> 96 frames = 6.0s
-		const next = withShotFrames(wanDoc(), wanCaps(), 'chain-2', 96);
-		expect(next.chain.segments.find((s) => s.id === 'chain-2')?.duration).toBe(6);
+		const next = withShotFrames(wanDoc(), wanCaps(), 'chain-2', 64);
+		expect(next.chain.segments.find((s) => s.id === 'chain-2')?.duration).toBe(4);
 	});
 
 	it('chain routing: clamps to the frames cap the same way withShotDuration does', () => {

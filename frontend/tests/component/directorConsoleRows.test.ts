@@ -99,7 +99,7 @@ describe('ShotRow', () => {
 		expect(mounted.target.textContent).toContain('01');
 		expect(mounted.target.textContent).toContain('Artisan at work');
 		// no thumb url -> the dashed empty-slate variant, not a background-image well
-		const thumb = mounted.target.querySelector('button[aria-label="Expand Artisan at work"]') as HTMLElement;
+		const thumb = mounted.target.querySelector('[role="button"][aria-label="Expand Artisan at work"]') as HTMLElement;
 		expect(thumb.style.backgroundImage).toBe('');
 
 		const checkbox = mounted.target.querySelector('button[aria-label="Select for generation"]') as HTMLButtonElement;
@@ -115,7 +115,7 @@ describe('ShotRow', () => {
 			onToggleChecked: () => {},
 			onActivate: () => {}
 		});
-		const thumb = mounted.target.querySelector('button[aria-label="Expand Artisan at work"]') as HTMLElement;
+		const thumb = mounted.target.querySelector('[role="button"] > .bg-cover') as HTMLElement;
 		expect(thumb.style.backgroundImage).toContain('blob:abc');
 	});
 
@@ -156,6 +156,32 @@ describe('JoinConnector', () => {
 		mounted = mount(JoinConnector, { join: join(), onSetJoin: () => {} });
 		expect(mounted.target.textContent).toContain('Independent');
 		expect(mounted.target.querySelector('button')).toBeNull();
+	});
+
+	it('unfolds join settings on a continuing join, clamps overlap to the cap and emits the new value', async () => {
+		let received: number | null = null;
+		mounted = mount(JoinConnector, {
+			join: join({ kind: 'continue', overlapFrames: 8, control: { kind: 'toggle', value: 'continue' } }),
+			onSetJoin: () => {},
+			onSetOverlap: (frames: number) => (received = frames),
+			maxOverlapFrames: 34
+		});
+		expect(mounted.target.querySelector('input[aria-label="Overlap frames"]')).toBeNull();
+		(mounted.target.querySelector('button[aria-label="Show join settings"]') as HTMLElement).click();
+		await tick();
+		const input = mounted.target.querySelector('input[aria-label="Overlap frames"]') as HTMLInputElement;
+		expect(input.value).toBe('8');
+		input.value = '99';
+		input.dispatchEvent(new Event('change', { bubbles: true }));
+		expect(received).toBe(34);
+	});
+
+	it('renders no join settings disclosure on a fresh cut', () => {
+		mounted = mount(JoinConnector, {
+			join: join({ kind: 'cut', overlapFrames: null, control: { kind: 'toggle', value: 'cut' } }),
+			onSetJoin: () => {}
+		});
+		expect(mounted.target.querySelector('button[aria-label="Show join settings"]')).toBeNull();
 	});
 
 	it('emits the toggled value when the inactive side of a Continue/Fresh cut toggle is clicked', () => {

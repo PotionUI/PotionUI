@@ -35,6 +35,7 @@
 		onFrames,
 		onFps,
 		onSetMax,
+		onCollapse,
 		children
 	}: {
 		shot: ConsoleShot;
@@ -48,6 +49,7 @@
 		onRetry?: (shotId: string) => void;
 		onDuration: (shotId: string, seconds: number) => void;
 		onFrames: (shotId: string, frames: number) => void;
+		onCollapse: (shotId: string) => void;
 		onFps: (shotId: string, fps: number) => void;
 		onSetMax: (shotId: string) => void;
 		children?: Snippet;
@@ -140,14 +142,30 @@
 <svelte:window onclick={handleWindowClick} />
 
 <div class="rounded-md border bg-surface-1" style="border-color: rgb(var(--signal) / 0.35)">
-	<div class="flex flex-wrap items-center gap-2.5 border-b border-line px-3.5 py-2.5">
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="flex cursor-pointer flex-wrap items-center gap-2.5 border-b border-line px-3.5 py-2.5"
+		role="button"
+		tabindex="0"
+		aria-label="Collapse {shot.title}"
+		onclick={() => onCollapse(shot.id)}
+		onkeydown={(e) => {
+			if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+				e.preventDefault();
+				onCollapse(shot.id);
+			}
+		}}
+	>
 		<button
 			type="button"
 			class="flex h-4 w-4 flex-none items-center justify-center rounded-[3px] border {checked
 				? 'border-fg-muted bg-surface-3'
 				: 'border-line-strong bg-surface-2'}"
 			aria-label={checked ? 'Selected for generation' : 'Select for generation'}
-			onclick={() => onToggleChecked(shot.id)}
+			onclick={(e) => {
+				e.stopPropagation();
+				onToggleChecked(shot.id);
+			}}
 		>
 			{#if checked}
 				<ConsoleIcon name="check" class="h-2.5 w-2.5 text-fg" />
@@ -191,7 +209,10 @@
 					<button
 						type="button"
 						class="cursor-pointer border-none bg-none p-0 font-mono text-[10px] normal-case text-fg-muted underline"
-						onclick={() => onRetry?.(shot.id)}
+						onclick={(e) => {
+							e.stopPropagation();
+							onRetry?.(shot.id);
+						}}
 					>
 						Retry
 					</button>
@@ -241,7 +262,10 @@
 						class="ml-2 border-none bg-none p-0 font-mono text-[10px] uppercase tracking-[0.04em] text-fg-subtle hover:text-fg disabled:cursor-not-allowed disabled:text-fg-disabled"
 						disabled={atMax}
 						title={`Set to the maximum this generator allows (${maxFrames} frames)`}
-						onclick={() => onSetMax(shot.id)}
+						onclick={(e) => {
+							e.stopPropagation();
+							onSetMax(shot.id);
+						}}
 					>
 						Max
 					</button>
@@ -267,7 +291,8 @@
 				{/if}
 			</div>
 
-			<div class="relative" bind:this={menuRoot}>
+			<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+			<div class="relative" bind:this={menuRoot} onclick={(e) => e.stopPropagation()}>
 				<button
 					type="button"
 					class="flex h-[26px] w-[26px] items-center justify-center rounded text-fg-subtle hover:bg-surface-2 hover:text-fg"

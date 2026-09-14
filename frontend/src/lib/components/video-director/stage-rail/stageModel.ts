@@ -1336,11 +1336,13 @@ export function withShotDuration(doc: VideoDirectorValue, caps: DirectorCapabili
 	if (!Number.isFinite(seconds) || seconds <= 0) return doc;
 	let clamped = Math.round(seconds * 10) / 10;
 	if (caps.maxDuration != null) clamped = Math.min(clamped, caps.maxDuration);
+	const fps = (caps.segmentRouting ? doc.chain.fps : doc.timeline.fps) || 1;
 	if (caps.maxFrames != null) {
-		const fps = (caps.segmentRouting ? doc.chain.fps : doc.timeline.fps) || 1;
 		const timing = evaluateDirectorTiming(clamped, fps, { maxDuration: null, maxFrames: caps.maxFrames });
 		if (timing.fieldErrors.duration) clamped = Math.floor((caps.maxFrames / fps) * 10) / 10;
 	}
+	const segmentCapFrames = caps.segmentRouting ? (caps.modes.director?.maxFramesPerSegment ?? null) : null;
+	if (segmentCapFrames != null) clamped = Math.min(clamped, segmentCapFrames / fps);
 	if (!caps.segmentRouting) {
 		const shot = doc.timeline.shots.find((s) => s.id === shotId);
 		if (shot) clamped = Math.max(clamped, timelineShotContentEnd(shot));

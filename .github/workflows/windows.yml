@@ -257,6 +257,8 @@ jobs:
     name: HTTP journeys + Playwright UI (Windows)
     runs-on: windows-latest
     timeout-minutes: 90
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -285,7 +287,7 @@ jobs:
         working-directory: frontend
         run: |
           npm ci || exit /b
-          npx playwright install chromium
+          npx playwright install chromium chromium-headless-shell
 
       - name: HTTP journeys (throwaway backend)
         shell: cmd

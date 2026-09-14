@@ -118,6 +118,7 @@ from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorP
 from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.reference_order import pack_references
+from src.pipelines.pipes._shared.generation.refmods import RefMod, load_refmods
 from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
 from src.pipelines.pipes._shared.vae.minimax_h3_decode import TILE_PX_CHOICES, decode_video
 from src.pipelines.pipes._shared.media.video_encode import AudioInput, AudioTrack, encode_frames_to_mp4
@@ -990,6 +991,18 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "against the 'reference_audios' input.",
                 required=False,
             ),
+            PipeConfigSpec(
+                "reference_mods", list, [],
+                "RefMod bundles (`_shared.generation.refmods`, ported from the community "
+                "ComfyUI-MiniMaxH3Mod project): a list of `{file_path, strength}` dicts, each a "
+                "`.safetensors` file of one or more PRE-ENCODED reference latents (image, video "
+                "and/or audio members). Loaded and strength-mixed here, then packed by "
+                "`pack_references` AFTER every native reference of a mod's own kind -- an image mod "
+                "numbers after every 'reference_images' entry, and so on -- so 'references'/"
+                "'reference_videos'/'reference_audios' above never see or count them. A mod needs no "
+                "loaded image/video/audio input at all: it can be the request's ONLY reference.",
+                required=False,
+            ),
         ]
 
     @classmethod
@@ -1097,7 +1110,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         # Every reference kind falls under the SAME mutual exclusion as
         # images did: ref2va's reference prefix and fl2va's keyframe overlay
         # are two different packed layouts, not two features of one request.
-        packed = pack_references(reference_images, reference_videos, reference_audios)
+        reference_mods = load_refmods(self.config.get("reference_mods"))
+        packed = pack_references(reference_images, reference_videos, reference_audios, mods=reference_mods)
         if packed and (images or configured_anchors):
             raise ValueError(
                 "generator/video_minimax_h3: 'reference_images'/'reference_videos'/'reference_audios' "
@@ -1421,11 +1435,17 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         PATHS, so the two file kinds are decoded here; `normalize_references`
         then puts every one of them on H3's own resolutions and rates in ONE
         pass, which is also where the released checkpoint's per-modality and
-        total reference rules are enforced (`validate_references`).
+        total reference rules are enforced (`validate_references`). A packed
+        entry whose `media` is a `RefMod` (`_shared.generation.refmods`) is
+        already an encoded latent -- carried straight into `ReferenceMedia.
+        latent`, never touched by `_load_reference_video`/`_load_reference_
+        audio` or the file-decode/resample path those exist for.
         """
         loaded: List[ReferenceMedia] = []
         for kind, media in packed:
-            if kind == "image":
+            if isinstance(media, RefMod):
+                loaded.append(ReferenceMedia(kind=media.kind, latent=media.latent))
+            elif kind == "image":
                 loaded.append(ReferenceMedia(kind="image", image=media))
             elif kind == "video":
                 loaded.append(_load_reference_video(media))

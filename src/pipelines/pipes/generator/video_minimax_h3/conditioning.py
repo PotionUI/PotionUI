@@ -70,6 +70,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.audio import (
     AUDIO_CHANNELS,
     AUDIO_SAMPLE_RATE,
     encode_audio_condition,
+    normalize_and_pack_audio_latent,
     normalize_condition_waveform,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
@@ -297,6 +298,19 @@ def _encode_dtype(vae_module: Any) -> torch.dtype:
     return torch.float32
 
 
+def normalize_visual_latent(latent: Tensor, *, latents_mean: Any, latents_std: Any) -> Tensor:
+    """Per-channel normalize an already VAE-encoded `(1, latent_channels, F,
+    H, W)` RAW-space latent with the video VAE's own `latents_mean`/
+    `latents_std` -- the tail of :func:`encode_keyframe_condition` split out
+    so a PRE-ENCODED latent (a RefMod's own stored latent, `_shared.
+    generation.refmods`) can reuse it without an actual `vae_module.encode()`
+    call."""
+    device = latent.device
+    lmean = torch.as_tensor(latents_mean, device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)
+    lstd = torch.as_tensor(latents_std, device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)
+    return (latent.to(torch.float32) - lmean) / lstd
+
+
 def encode_keyframe_condition(
     vae_module: Any, pixels_uint8: Tensor, *, latents_mean: Any, latents_std: Any,
 ) -> Tensor:
@@ -308,8 +322,8 @@ def encode_keyframe_condition(
     1` branch) with the posterior SAMPLED (not the mode) under a fresh
     `KEYFRAME_ENCODE_SEED`-seeded CPU generator, rounds the sample to
     float16 precision (reference's own quantization step, independent of the
-    sampling itself), then per-channel normalizes with the VAE's own
-    `latents_mean`/`latents_std`.
+    sampling itself), then hands off to :func:`normalize_visual_latent` for
+    the per-channel normalize.
     """
     device = pixels_uint8.device
     pixel_mean = torch.tensor(PIXEL_MEAN, device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)
@@ -323,10 +337,7 @@ def encode_keyframe_condition(
             sample_posterior=True, generator=generator,
         )
     latent = latent.to(torch.float16).float()
-
-    lmean = torch.as_tensor(latents_mean, device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)
-    lstd = torch.as_tensor(latents_std, device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)
-    return (latent - lmean) / lstd
+    return normalize_visual_latent(latent, latents_mean=latents_mean, latents_std=latents_std)
 
 
 # Bytes budget for the request-local `VisualLatentCache` below. Sized to hold a
@@ -704,6 +715,25 @@ def _empty_condition_rows(patch_size: tuple[int, int, int], device: Any, dtype: 
     )
 
 
+def _noise_and_patchify_visual(
+    latent: Tensor, *, patch_size: tuple[int, int, int], device: Any, dtype: torch.dtype,
+    generator: torch.Generator,
+) -> Tensor:
+    """A CLEAN, already-normalized visual condition latent -> its noised
+    (`t = KEYFRAME_NOISE_AUG`), patchified rows -- the tail of
+    :func:`_encode_and_pack_visual_reference` split out so a PRE-ENCODED
+    latent (a RefMod's own stored latent, already normalized by
+    :func:`normalize_visual_latent`) can reuse it without an actual encode.
+
+    ONE draw off `generator`, whatever the reference's frame count -- see
+    `_encode_and_pack_visual_reference`'s own docstring for the "one
+    generator, three draws, in order" contract this preserves.
+    """
+    noise = torch.randn(latent.shape, generator=generator, device=device, dtype=torch.float32)
+    noised = scale_noise(latent, KEYFRAME_NOISE_AUG, noise)
+    return patchify_video_latents(noised.to(dtype), patch_size)
+
+
 def _encode_and_pack_visual_reference(
     vae_module: Any, pixels: Tensor, *, patch_size: tuple[int, int, int], device: Any, dtype: torch.dtype,
     latents_mean: Any, latents_std: Any, generator: torch.Generator,
@@ -722,9 +752,8 @@ def _encode_and_pack_visual_reference(
     latent = _encode_visual_latent(
         cache, cache_key, vae_module, pixels, latents_mean=latents_mean, latents_std=latents_std,
     )
-    noise = torch.randn(latent.shape, generator=generator, device=device, dtype=torch.float32)
-    noised = scale_noise(latent, KEYFRAME_NOISE_AUG, noise)
-    return latent, patchify_video_latents(noised.to(dtype), patch_size)
+    packed = _noise_and_patchify_visual(latent, patch_size=patch_size, device=device, dtype=dtype, generator=generator)
+    return latent, packed
 
 
 @dataclass(frozen=True)
@@ -742,9 +771,21 @@ class ReferenceMedia:
     a `(channels, samples)` waveform at `sample_rate`, and there is no visual
     media at all.
 
-    `has_audio` is `audio is not None`, which reproduces all three reference
-    classes at once: an audio reference always has one, an image reference
-    never does, and a video reference's is optional.
+    `latent` is a fourth, alternative source: a PRE-ENCODED, already
+    strength-mixed condition latent (a RefMod's own stored latent,
+    `_shared.generation.refmods.RefMod.latent`) in the same RAW (un-
+    normalized) space `vae_module.encode()` returns. When set, `image`/
+    `frames`/`audio` are unused -- `normalize_references` passes such a
+    reference through untouched (nothing to fit or resample) and
+    `prepare_reference_conditioning` skips straight to the post-VAE tail
+    (normalize, noise, patchify for a visual `kind`; normalize and pack for
+    `kind="audio"`).
+
+    `has_audio` is `audio is not None`, OR (`kind == "audio"` and `latent` is
+    set) -- a RefMod audio member carries no waveform, only its own
+    pre-encoded latent, but it is still "this reference has a soundtrack" for
+    every purpose `has_audio` gates (`validate_references`, the audio-VAE
+    placement gate, `ReferenceBlock.has_audio`).
     """
 
     kind: str
@@ -753,10 +794,11 @@ class ReferenceMedia:
     fps: float | None = None
     audio: Tensor | None = None
     sample_rate: int | None = None
+    latent: Tensor | None = None
 
     @property
     def has_audio(self) -> bool:
-        return self.audio is not None
+        return self.audio is not None or (self.kind == "audio" and self.latent is not None)
 
 
 @dataclass(frozen=True)
@@ -836,11 +878,19 @@ def normalize_references(
     `num_frames` is the request's ALREADY-ALIGNED (`17 * n + 5`) frame count
     -- `geometry.resolve_request_geometry` resolves it; references never bind
     the generated geometry, so nothing here can change it.
+
+    A `latent`-carrying reference (a RefMod, `ReferenceMedia`'s own
+    docstring) has no pixels or waveform to fit or resample -- it passes
+    through UNCHANGED, still validated by the same `validate_references`
+    call every other reference is.
     """
     validate_references(references)
 
     normalized: list[ReferenceMedia] = []
     for reference in references:
+        if reference.latent is not None:
+            normalized.append(reference)
+            continue
         waveform = None
         if reference.has_audio:
             waveform = normalize_condition_waveform(
@@ -882,7 +932,13 @@ def _reference_fit_signature(reference: ReferenceMedia) -> Optional[tuple[str, n
     pre-check so the two can never disagree about which references are
     misses -- `prepare_reference_conditioning`'s own loop calls this too
     rather than re-deriving the same fields inline.
+
+    `None` for a `latent`-carrying reference too (a RefMod, `ReferenceMedia`'s
+    own docstring): it has no `image`/`frames` to hash, and never reaches the
+    VAE at all, so it fits this function's contract exactly.
     """
+    if reference.latent is not None:
+        return None
     if reference.kind == "image":
         pixels = np.array(reference.image.convert("RGB"))
         return "reference:image", pixels, (reference.image.height, reference.image.width), ()
@@ -921,10 +977,12 @@ def visual_references_need_encode(
     Used by main.py's `_build_ref2va_layout` to decide whether the video VAE
     has to be placed on device before `prepare_reference_conditioning` runs
     -- extends that placement gate: a reference set that hits in full needs
-    the video VAE no more than an audio-only one does.
+    the video VAE no more than an audio-only one does. A `latent`-carrying
+    visual reference (a RefMod) needs it no more than an audio one does
+    either -- it never reaches `vae_module.encode()` at all.
     """
     for reference in references:
-        if reference.kind == "audio":
+        if reference.kind == "audio" or reference.latent is not None:
             continue
         if cache is None:
             return True
@@ -975,27 +1033,39 @@ def prepare_reference_conditioning(
     packed_rows: list[Tensor] = []
 
     for reference in references:
-        signature = _reference_fit_signature(reference)
-        if signature is not None:
-            fit_role, fitted_pixels, target_size, frame_selection = signature
-            pixels_tensor = (
-                _pixels_from_array(fitted_pixels, device) if reference.kind == "image"
-                else _pixels_from_frames(fitted_pixels, device)
+        if reference.latent is not None and reference.kind in ("image", "video"):
+            latent = normalize_visual_latent(
+                reference.latent.to(device=device), latents_mean=latents_mean, latents_std=latents_std,
             )
-            cache_key = None
-            if cache is not None:
-                cache_key = visual_latent_cache_key(
-                    fitted_pixels, fit_role=fit_role, target_size=target_size, frame_selection=frame_selection,
-                    vae_module=vae_module, weight_revision=weight_revision,
-                    latents_mean=latents_mean, latents_std=latents_std, device=device,
-                )
-            latent, packed = _encode_and_pack_visual_reference(
-                vae_module, pixels_tensor, patch_size=patch_size, device=device,
-                dtype=dtype, latents_mean=latents_mean, latents_std=latents_std, generator=generator,
-                cache=cache, cache_key=cache_key,
+            packed = _noise_and_patchify_visual(
+                latent, patch_size=patch_size, device=device, dtype=dtype, generator=generator,
             )
             condition_latents.append(latent)
             packed_rows.append(packed)
+        elif reference.latent is None:
+            signature = _reference_fit_signature(reference)
+            if signature is not None:
+                fit_role, fitted_pixels, target_size, frame_selection = signature
+                pixels_tensor = (
+                    _pixels_from_array(fitted_pixels, device) if reference.kind == "image"
+                    else _pixels_from_frames(fitted_pixels, device)
+                )
+                cache_key = None
+                if cache is not None:
+                    cache_key = visual_latent_cache_key(
+                        fitted_pixels, fit_role=fit_role, target_size=target_size, frame_selection=frame_selection,
+                        vae_module=vae_module, weight_revision=weight_revision,
+                        latents_mean=latents_mean, latents_std=latents_std, device=device,
+                    )
+                latent, packed = _encode_and_pack_visual_reference(
+                    vae_module, pixels_tensor, patch_size=patch_size, device=device,
+                    dtype=dtype, latents_mean=latents_mean, latents_std=latents_std, generator=generator,
+                    cache=cache, cache_key=cache_key,
+                )
+                condition_latents.append(latent)
+                packed_rows.append(packed)
+            elif reference.kind != "audio":
+                raise ValueError(f"a reference must be 'image', 'video' or 'audio', got {reference.kind!r}")
         elif reference.kind != "audio":
             raise ValueError(f"a reference must be 'image', 'video' or 'audio', got {reference.kind!r}")
 
@@ -1004,10 +1074,17 @@ def prepare_reference_conditioning(
                 raise ValueError(
                     "a ref2va reference carries a soundtrack, so prepare_reference_conditioning needs the audio VAE"
                 )
-            audio_condition_latents.append(encode_audio_condition(
-                audio_vae_module, reference.audio, sample_rate=AUDIO_SAMPLE_RATE,
-                audio_channels=audio_channels, device=device, dtype=dtype,
-            ))
+            if reference.kind == "audio" and reference.latent is not None:
+                audio_condition_latents.append(normalize_and_pack_audio_latent(
+                    reference.latent.to(device=device),
+                    latents_mean=audio_vae_module.latents_mean, latents_std=audio_vae_module.latents_std,
+                    audio_channels=audio_channels, dtype=dtype,
+                ))
+            else:
+                audio_condition_latents.append(encode_audio_condition(
+                    audio_vae_module, reference.audio, sample_rate=AUDIO_SAMPLE_RATE,
+                    audio_channels=audio_channels, device=device, dtype=dtype,
+                ))
         blocks.append(ReferenceBlock(kind=reference.kind, has_audio=reference.has_audio))
 
     return ReferenceConditioning(

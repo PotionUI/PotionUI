@@ -2,13 +2,11 @@
 # is: each list is fed to the text encoder's vision tower AND VAE-encoded
 # into reference rows, from the SAME loader node per kind, so the order the
 # user sees here is the order the model is told about.
-#
 # The three pickers are ONE packed sequence, in this order: every image
 # first, then every video, then every audio track. That is the order the
 # generator packs its reference rows in and the order the encoder numbers
 # its labels in, so the numbering a prompt is written against is each
 # picker's own array position.
-#
 # At least one reference of some kind is required -- the generator refuses
 # an empty ref2va request rather than falling back to text-only, which on
 # the reference partition would return plausible video that ignores the
@@ -38,6 +36,21 @@ fields:
     configuration:
       multi: true
       max_items: 3
+
+  - name: "reference_mods"
+    type: "lora_picker"
+    label: "RefMods"
+    ai_hint: "A RefMod is a tiny, already-VAE-encoded bundle of H3 reference latents -- image, video and/or audio members -- built outside PotionUI (ComfyUI with ComfyUI-MiniMaxH3Mod, or that repo's extract_mod.py) and dropped in models/refmods/. It skips the VAE-encode cost of an ordinary reference, so it is cheap to add even in bulk. Each member is packed AFTER the native references of its own kind: with two Reference images and one RefMod carrying an image member, that member is <Picture 3>, not <Picture 1> -- count the native pickers above before numbering a RefMod member in subject_definitions. Strength runs 0 to 1: 1 keeps the member at full conditioning, a lower value BLURS/weakens it (never adds noise), and 0 drops the member from the packed sequence entirely, same as unchecking it. A RefMod satisfies the \"at least one reference\" rule on its own -- it does not need to be paired with a native image or video."
+    configuration:
+      model_type: "refmod"
+      max_items: 6
+      strength_min: 0
+      strength_max: 1
+      strength_step: 0.05
+      strength_default: 1
+      show_triggers: false
+      allow_info_modal: false
+      placeholder: "Select a RefMod..."
 
   - name: "reference_pixel_budget"
     type: "select"

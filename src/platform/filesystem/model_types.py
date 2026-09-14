@@ -35,6 +35,7 @@ DIRECTORY_TO_MODEL_TYPE = {
     'mediapipe': 'mediapipe',
     'llm': 'llm',
     'vfi': 'vfi',
+    'refmods': 'refmod',
 }
 
 MODEL_TYPE_TO_DIRECTORY = {model_type: directory for directory, model_type in DIRECTORY_TO_MODEL_TYPE.items()}

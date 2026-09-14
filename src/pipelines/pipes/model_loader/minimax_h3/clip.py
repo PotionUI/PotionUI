@@ -79,6 +79,7 @@ built from `_encoder_role` -- a constructor argument, not `self.encoder.role`
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -109,7 +110,7 @@ def _to_hwc_float01(image: Any) -> Tensor:
     return tensor / 255.0 if tensor.max() > 1.5 else tensor
 
 
-def _to_fhwc_float01(video_path: Any, num_frames: Optional[int]) -> Tensor:
+def _to_fhwc_float01(video: Any, num_frames: Optional[int]) -> Tensor:
     """A reference video's file path -> `(F, H, W, 3)` float32 tensor in
     `[0, 1]` on MiniMax-H3's own 24 fps and canvas.
 
@@ -119,7 +120,19 @@ def _to_fhwc_float01(video_path: Any, num_frames: Optional[int]) -> Tensor:
     twelfth frame) than the video VAE does, but it has to read the same
     frames: the `<t seconds>` timestamps it labels its vision blocks with are
     derived from position in this sequence.
+
+    `video` not a `str`/`Path` -- a RefMod's own VAE-decoded frames
+    (`prompt_encoder`'s `_decode_refmod_media`) -- is ALREADY on MiniMax-H3's
+    own 24 fps (the video VAE's own temporal upsampling rate) and is passed
+    through untouched: a RefMod's latent is never truncated to `num_frames`
+    on the generator side either (`conditioning.normalize_references`'s
+    pass-through for a `latent`-carrying reference), so re-truncating it here
+    would describe a different, shorter video than what actually conditions
+    generation.
     """
+    if not isinstance(video, (str, Path)):
+        tensor = torch.as_tensor(video, dtype=torch.float32)
+        return tensor / 255.0 if tensor.max() > 1.5 else tensor
     if num_frames is None:
         raise ValueError(
             "minimax_h3 text encoder: a ref2va request carries a reference video but no "
@@ -127,7 +140,7 @@ def _to_fhwc_float01(video_path: Any, num_frames: Optional[int]) -> Tensor:
             "then truncate it at different frames. Set prompt_encoder's 'reference_video_frames' "
             "to the generated clip's frame count"
         )
-    frames, fps = read_video_frames(video_path)
+    frames, fps = read_video_frames(video)
     normalized = normalize_reference_video(frames, fps=fps, num_frames=align_num_frames(int(num_frames)))
     return torch.from_numpy(normalized.copy()).float() / 255.0
 

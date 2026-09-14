@@ -43,6 +43,58 @@ def test_pack_references_preserves_each_group_s_own_order():
 def test_pack_references_treats_missing_and_empty_groups_alike():
     assert pack_references() == []
     assert pack_references(None, [], None) == []
+
+
+
+
+class _Mod:
+    """A minimal stand-in for `refmods.RefMod` -- only `.kind` matters to
+    `pack_references`."""
+
+    def __init__(self, kind: str, tag: str):
+        self.kind = kind
+        self.tag = tag
+
+    def __repr__(self):
+        return f"mod:{self.tag}"
+
+
+def test_mods_are_appended_after_the_native_references_of_their_own_kind():
+    image_mod = _Mod("image", "im")
+    video_mod = _Mod("video", "vm")
+    audio_mod = _Mod("audio", "am")
+    got = pack_references(
+        ["i1", "i2"], ["v1"], ["a1"], mods=[image_mod, video_mod, audio_mod],
+    )
+    assert got == [
+        ("image", "i1"), ("image", "i2"), ("image", image_mod),
+        ("video", "v1"), ("video", video_mod),
+        ("audio", "a1"), ("audio", audio_mod),
+    ]
+
+
+def test_mods_preserve_their_own_relative_order_within_a_kind():
+    first = _Mod("image", "first")
+    second = _Mod("image", "second")
+    got = pack_references(mods=[first, second])
+    assert [media for _kind, media in got] == [first, second]
+
+
+def test_a_mod_can_be_the_only_reference_of_its_kind():
+    mod = _Mod("audio", "solo")
+    assert pack_references(mods=[mod]) == [("audio", mod)]
+
+
+def test_mods_of_different_kinds_are_routed_to_the_right_group_regardless_of_input_order():
+    audio_mod = _Mod("audio", "a")
+    image_mod = _Mod("image", "i")
+    got = pack_references(mods=[audio_mod, image_mod])
+    assert got == [("image", image_mod), ("audio", audio_mod)]
+
+
+def test_no_mods_is_identical_to_the_pre_refmod_behavior():
+    assert pack_references(["i"], ["v"], ["a"], mods=None) == pack_references(["i"], ["v"], ["a"])
+    assert pack_references(["i"], ["v"], ["a"], mods=[]) == pack_references(["i"], ["v"], ["a"])
     assert pack_references(images=["i"]) == [("image", "i")]
 
 

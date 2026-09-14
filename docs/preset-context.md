@@ -99,7 +99,7 @@ Runtime-injected documents that arrive as ordinary keys of the `form` context ro
 
 ## `model_type` values
 
-The 18 model types a `model`/`lora_picker` field's `configuration.model_type` may select, and the depot directory each maps to (`src/platform/filesystem/model_types.py`):
+The 19 model types a `model`/`lora_picker` field's `configuration.model_type` may select, and the depot directory each maps to (`src/platform/filesystem/model_types.py`):
 
 | `model_type` | Directory |
 |---|---|
@@ -116,6 +116,7 @@ The 18 model types a `model`/`lora_picker` field's `configuration.model_type` ma
 | `llm` | `llm/` |
 | `lora` | `loras/` |
 | `mediapipe` | `mediapipe/` |
+| `refmod` | `refmods/` |
 | `text_encoder` | `text_encoders/` |
 | `unet` | `unet/` |
 | `upscaler` | `upscalers/` |

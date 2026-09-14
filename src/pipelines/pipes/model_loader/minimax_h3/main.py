@@ -141,6 +141,11 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
         return [
             PipeOutputSpec("model", IOType.MODEL, "MiniMax-H3 model bundle (DiT + TE + video VAE + audio VAE)", is_array=False),
             PipeOutputSpec("text_encoder", IOType.TEXT_ENCODER, "MiniMax-H3 Qwen3-VL-32B text encoder (ClipTextEncoder ABC)", is_array=False),
+            PipeOutputSpec("video_vae", IOType.VAE, "The SAME video VAE component already embedded in "
+                           "'model' (bundle.video_vae), exposed standalone so a pipe that only needs the "
+                           "VAE -- e.g. prompt_encoder, to decode a RefMod's stored latent for the text "
+                           "encoder's own presentation -- does not have to take the whole bundle",
+                           is_array=False),
         ]
 
     def progress_message(self) -> str:
@@ -278,7 +283,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             # clip.py's "Lazy TE acquisition").
             encoder_role=MiniMaxH3TextEncoder.role,
         )
-        return PipeOutput(output={"model": bundle, "text_encoder": clip})
+        return PipeOutput(output={"model": bundle, "text_encoder": clip, "video_vae": video_vae_model})
 
     def _vram_budget(self, pipe_input: PipeInput) -> Optional[float]:
         return _vram_budget_fn(pipe_input, self.config.get("vram_limit_gb", None), "MODEL LOADER MINIMAX-H3")

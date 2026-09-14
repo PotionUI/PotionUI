@@ -14,6 +14,10 @@ describe('modelPresentation', () => {
 			purpose: 'Main generation model'
 		});
 		expect(modelTypePresentation('lora').purpose).toBe('Style or concept adapter');
+		expect(modelTypePresentation('refmod')).toEqual({
+			label: 'RefMod',
+			purpose: 'Pre-encoded reference latents'
+		});
 	});
 
 	it('normalizes provider names and deduplicates tags', () => {

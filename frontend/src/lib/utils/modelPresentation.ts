@@ -12,7 +12,8 @@ const MODEL_TYPES: Record<string, ModelTypePresentation> = {
 	vae: { label: 'VAE', purpose: 'Image encoder and decoder' },
 	controlnet: { label: 'ControlNet', purpose: 'Structure and composition guidance' },
 	adetailer: { label: 'Detailer', purpose: 'Automatic detail refinement' },
-	text_encoder: { label: 'Text encoder', purpose: 'Converts prompts into guidance' }
+	text_encoder: { label: 'Text encoder', purpose: 'Converts prompts into guidance' },
+	refmod: { label: 'RefMod', purpose: 'Pre-encoded reference latents' }
 };
 
 export function modelTypePresentation(modelType?: string | null): ModelTypePresentation {

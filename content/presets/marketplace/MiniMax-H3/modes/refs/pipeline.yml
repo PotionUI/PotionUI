@@ -152,6 +152,7 @@ pipeline:
       - ["reference_image", "references", "image"]
       - ["reference_video", "reference_videos", "video"]
       - ["reference_audio", "reference_audios", "audio"]
+      - ["vae", "model_loader/minimax_h3", "video_vae"]
     enabled: true
     configuration:
       p_prompt:
@@ -178,6 +179,12 @@ pipeline:
       # `mode != 'director'`) still carries the shot's own duration here, and
       # the Clip length slider is not synced from it (see form.yml's header).
       reference_video_frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (((form.duration) * preset.vars.fps) | round(0, 'floor') | int if form.duration is defined else preset.vars.default_frames) }}"
+      reference_mods:
+        "@loop":
+          items: "{{ form.reference_mods | default([], true) }}"
+          template:
+            file_path: "{{ item.model }}"
+            strength: "{{ item.strength }}"
 
   #############
   ## Prompt encoder, director mode: ONE conditioning per shot, presenting the
@@ -199,6 +206,7 @@ pipeline:
       - ["reference_image", "references", "image"]
       - ["reference_video", "reference_videos", "video"]
       - ["reference_audio", "reference_audios", "audio"]
+      - ["vae", "model_loader/minimax_h3", "video_vae"]
     enabled: "{{ form.video_director is defined and form.video_director.mode == 'director' }}"
     configuration:
       p_prompt:
@@ -224,6 +232,12 @@ pipeline:
       image_pixel_budget: "{{ form.reference_pixel_budget }}"
       output_resolution: "{{ form.resolution }}"
       reference_video_frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (((form.duration) * preset.vars.fps) | round(0, 'floor') | int if form.duration is defined else preset.vars.default_frames) }}"
+      reference_mods:
+        "@loop":
+          items: "{{ form.reference_mods | default([], true) }}"
+          template:
+            file_path: "{{ item.model }}"
+            strength: "{{ item.strength }}"
 
   #############
   ## Seed generator
@@ -328,6 +342,12 @@ pipeline:
       references: "{{ form.references | default([], true) }}"
       reference_videos: "{{ form.reference_videos | default([], true) }}"
       reference_audios: "{{ form.reference_audios | default([], true) }}"
+      reference_mods:
+        "@loop":
+          items: "{{ form.reference_mods | default([], true) }}"
+          template:
+            file_path: "{{ item.model }}"
+            strength: "{{ item.strength }}"
       # The profile supplies the baseline; the visible Steps slider (baked to
       # the profile's exact value by the reactions in tabs/generation.yml) is
       # what actually wins once a profile is selected.

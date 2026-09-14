@@ -18,7 +18,50 @@ from src.pipelines.contracts import (
 )
 from src.pipelines.pipes._shared.generation.prompt_diff import word_diff
 from src.pipelines.pipes._shared.generation.reference_order import pack_references
+from src.pipelines.pipes._shared.generation.refmods import RefMod, load_refmods
+from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
+from src.pipelines.pipes._shared.vae.minimax_h3_decode import decode_video
 from src.platform.observability.profiling import get_profiler
+
+_H3_REFMOD_PIXEL_MEAN = (0.485, 0.456, 0.406)
+_H3_REFMOD_PIXEL_STD = (0.229, 0.224, 0.225)
+
+
+def _decode_refmod_media(mod: RefMod, *, vae: Any) -> Any:
+    """One image/video RefMod's own stored latent -> the pixels
+    `MiniMaxH3ClipTextEncoder`'s `_to_hwc_float01`/`_to_fhwc_float01` accept:
+    an image's first frame `(H, W, 3)`, a video's full decoded frame stack
+    `(F, H, W, 3)` -- both uint8, already on MiniMax-H3's own 24 fps/canvas
+    (the video VAE's own temporal upsampling rate), so the video case needs
+    no further truncation or resample: the generator's own `ref2va` layout
+    for a RefMod likewise takes the mod's latent (and hence its decoded
+    frame count) as-is, never trimming it to the generated clip's length
+    (`conditioning.normalize_references`'s pass-through for a `latent`-
+    carrying reference) -- the two sides have to agree on the SAME frame
+    count, and neither truncates.
+
+    The stored latent is already in the VAE's RAW (un-normalized) space
+    (`refmods.py`'s module docstring), so unlike `main.py`'s own
+    `_decode_video` this skips the `* latents_std + latents_mean`
+    denormalize -- there is no mean/std-normalized latent here to invert.
+    """
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    vae_module = vae.module
+    vae.move_to(device)
+    try:
+        z = mod.latent.to(device=device, dtype=torch.float32)
+        with torch.no_grad():
+            video = decode_video(
+                vae_module, z.to(dtype=vae.compute_dtype), device,
+                log_prefix="[PROMPT ENCODER MINIMAX-H3 REFMOD]",
+            )
+        pixel_mean = torch.tensor(_H3_REFMOD_PIXEL_MEAN, device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)
+        pixel_std = torch.tensor(_H3_REFMOD_PIXEL_STD, device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)
+        video = (video.float() * pixel_std + pixel_mean).clamp(0.0, 1.0)
+    finally:
+        vae.offload()
+    frames = pixels_3thw_to_uint8_frames(video[0], value_range="unit")
+    return frames[0] if mod.kind == "image" else frames
 
 
 def _image_fingerprint(image: Any) -> str:
@@ -46,7 +89,15 @@ def _media_fingerprint(media: Any) -> str:
     weaker than a content hash (an in-place rewrite keeping both would alias),
     and stronger than the path alone, which would reuse a stale conditioning
     for a re-uploaded file at the same name.
+
+    A RefMod (`_shared.generation.refmods.RefMod`) is neither -- it fingerprints
+    off its own bundle file (same path/size/mtime scheme, recursed into the
+    `str`/`Path` branch below) plus its kind, member name and strength, since
+    two entries loading the SAME file at a DIFFERENT strength (or addressing a
+    different member) must not alias to the same cached conditioning.
     """
+    if isinstance(media, RefMod):
+        return f"{_media_fingerprint(media.source)}|{media.kind}|{media.name}|{media.strength}"
     if isinstance(media, (str, Path)):
         try:
             stat = Path(media).stat()
@@ -121,6 +172,15 @@ class PromptEncoderPipe(BasePipe):
                           "handed, so a selection RE-LABELS that output's subset from 1 rather than "
                           "keeping the packed set's own numbering. Inert without 'references'",
                           required=False),
+            PipeConfigSpec("reference_mods", list, [], "MiniMax-H3 RefMod bundles (`_shared.generation."
+                          "refmods`), mirrored from the generator pipe's own 'reference_mods' -- a list of "
+                          "`{file_path, strength}` dicts. Packed by the SAME `pack_references` call, after "
+                          "every native reference of a mod's own kind, so its presentation label numbers "
+                          "the same as the generator's reference block. An image or video mod is VAE-"
+                          "decoded to pixels via the 'vae' input before being presented; an audio mod "
+                          "contributes no media, only its own '<Audio j>: ' label, same as a native audio "
+                          "reference. Inert without 'reference_image'/'reference_video'/'reference_audio' "
+                          "or a mod entry of its own", required=False),
         ]
 
     def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
@@ -182,10 +242,12 @@ class PromptEncoderPipe(BasePipe):
         # modality inputs are collapsed into ONE packed order here, by the
         # same `pack_references` the generator pipe derives its reference
         # blocks from — see that module for why both sides must share it.
+        reference_mods = load_refmods(self.config.get("reference_mods"))
         references = pack_references(
             pipe_input.input.get("reference_image"),
             pipe_input.input.get("reference_video"),
             pipe_input.input.get("reference_audio"),
+            mods=reference_mods,
         )
         if images and references:
             raise ValueError(
@@ -193,11 +255,12 @@ class PromptEncoderPipe(BasePipe):
                 "mutually exclusive with 'image' (fl2va keyframes) — a request is one or the other, "
                 "never both"
             )
+        vae = pipe_input.input.get("vae")
 
         def _encode() -> List[ConditioningModel]:
             return self._encode_conditionings(
                 clip, p_prompt_input, p_prompt_output, n_prompt_input, n_prompt_output,
-                quantity, pairs, generation_outputs, images, do_cfg, references,
+                quantity, pairs, generation_outputs, images, do_cfg, references, vae,
             )
 
         if models is not None:
@@ -416,9 +479,28 @@ class PromptEncoderPipe(BasePipe):
             or self.config.get("nag_scale", 1.0) > 1.0
         )
 
+    @staticmethod
+    def _resolve_reference_media(kind: str, media: Any, *, vae: Any) -> Any:
+        """A packed reference's own media, unchanged -- UNLESS `media` is a
+        RefMod (`_shared.generation.refmods.RefMod`), in which case this
+        VAE-decodes its stored latent into the pixels `_build_references`
+        (`model_loader/minimax_h3/clip.py`) already knows how to present: an
+        audio mod contributes `None` (a native audio reference carries no
+        media through here either, only its own label)."""
+        if not isinstance(media, RefMod):
+            return media
+        if kind == "audio":
+            return None
+        if vae is None:
+            raise ValueError(
+                "prompt_encoder: 'reference_mods' carries an image or video RefMod, but no 'vae' input "
+                "was connected to decode it"
+            )
+        return _decode_refmod_media(media, vae=vae)
+
     def _encode_conditionings(
         self, clip, p_prompt_input, p_prompt_output, n_prompt_input, n_prompt_output,
-        quantity, pairs, generation_outputs, images=None, do_cfg=True, references=None,
+        quantity, pairs, generation_outputs, images=None, do_cfg=True, references=None, vae=None,
     ) -> List[ConditioningModel]:
         # Build every image's request FIRST, then encode the whole batch in ONE
         # clip.encode_prompts() call: a per-image encode loop turns an N-image
@@ -525,7 +607,10 @@ class PromptEncoderPipe(BasePipe):
                     selected_references = [references[i] for i in selection]
                 else:
                     selected_references = references
-                request["references"] = [{"kind": kind, "media": media} for kind, media in selected_references]
+                request["references"] = [
+                    {"kind": kind, "media": self._resolve_reference_media(kind, media, vae=vae)}
+                    for kind, media in selected_references
+                ]
                 request["grounding_px"] = int(self.config.get("grounding_px", 768))
                 request["system_prompt"] = self.config.get("system_prompt")
                 if image_max_pixels is not None:
@@ -663,6 +748,11 @@ class PromptEncoderPipe(BasePipe):
             PipeInputSpec("reference_audio", IOType.AUDIO, False,
                           "ref2va reference audio track(s), packed after every video reference",
                           is_array=True),
+            PipeInputSpec("vae", IOType.VAE, False,
+                          "MiniMax-H3 video VAE, needed only to VAE-decode an image or video "
+                          "'reference_mods' entry to pixels for this encoder's own presentation -- "
+                          "inert without one. From model_loader/minimax_h3's own 'video_vae' output",
+                          is_array=False),
         ]
 
     @classmethod

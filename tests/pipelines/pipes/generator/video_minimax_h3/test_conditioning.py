@@ -304,9 +304,11 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     ReferenceMedia,
     normalize_reference_video,
     normalize_references,
+    normalize_visual_latent,
     prepare_reference_conditioning,
     snap_reference_video_frames,
     validate_references,
+    visual_references_need_encode,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import video_latent_num_frames
 from src.pipelines.pipes.generator.video_minimax_h3.layout import ReferenceBlock, build_ref2va_packed_sequence
@@ -678,6 +680,102 @@ def test_a_soundtrack_does_not_shift_the_generator_state_the_video_noise_reads()
     assert torch.equal(
         torch.randn(4, generator=without), torch.randn(4, generator=with_audio),
     )
+
+
+
+
+class _ExplodingVideoVae(_FakeVideoVae):
+    """Proves a latent-carrying reference never reaches the VAE at all."""
+
+    def encode(self, *args, **kwargs):
+        raise AssertionError("a latent-carrying reference must not call vae_module.encode()")
+
+
+class _ExplodingAudioVae(_FakeAudioVae):
+    def encode(self, *args, **kwargs):
+        raise AssertionError("a latent-carrying audio reference must not call audio_vae_module.encode()")
+
+
+def test_normalize_references_passes_a_latent_carrying_reference_through_unchanged():
+    raw = torch.zeros(1, LATENT_CHANNELS, 1, 8, 8)
+    reference = ReferenceMedia(kind="video", latent=raw)
+    got = normalize_references([reference], num_frames=24)
+    assert got == [reference]
+    assert got[0].latent is raw
+
+
+def test_visual_references_need_encode_skips_a_latent_carrying_reference():
+    raw = torch.zeros(1, LATENT_CHANNELS, 1, 8, 8)
+    assert visual_references_need_encode(
+        [ReferenceMedia(kind="image", latent=raw)],
+        cache=None, vae_module=_FakeVideoVae(), weight_revision=None,
+        latents_mean=[0.0] * LATENT_CHANNELS, latents_std=[1.0] * LATENT_CHANNELS, device="cpu",
+    ) is False
+
+
+def test_a_latent_carrying_image_reference_skips_the_vae_and_is_normalized_noised_patchified():
+    torch.manual_seed(0)
+    raw = torch.rand(1, LATENT_CHANNELS, 1, 8, 8)
+    latents_mean = [0.1] * LATENT_CHANNELS
+    latents_std = [2.0] * LATENT_CHANNELS
+    got = prepare_reference_conditioning(
+        [ReferenceMedia(kind="image", latent=raw)],
+        vae_module=_ExplodingVideoVae(), **_encode_kwargs(latents_mean=latents_mean, latents_std=latents_std),
+    )
+    assert len(got.condition_latents) == 1
+    torch.testing.assert_close(
+        got.condition_latents[0], normalize_visual_latent(raw, latents_mean=latents_mean, latents_std=latents_std),
+        rtol=0, atol=0,
+    )
+    assert got.condition_rows.shape == (1 * 4 * 4, LATENT_CHANNELS * 1 * 2 * 2)
+    assert got.blocks == (ReferenceBlock(kind="image", has_audio=False),)
+    assert got.condition_audio_rows is None
+
+
+def test_a_latent_carrying_video_reference_draws_exactly_one_noise_sample():
+    raw = torch.zeros(1, LATENT_CHANNELS, 3, 4, 4)
+    gen_a = torch.Generator().manual_seed(3)
+    gen_b = torch.Generator().manual_seed(3)
+    prepare_reference_conditioning(
+        [ReferenceMedia(kind="video", latent=raw)],
+        vae_module=_ExplodingVideoVae(), **_encode_kwargs(generator=gen_a),
+    )
+    torch.randn(raw.shape, generator=gen_b)  # the one draw a real call would make
+    remaining_a = torch.randn(4, generator=gen_a)
+    remaining_b = torch.randn(4, generator=gen_b)
+    assert torch.equal(remaining_a, remaining_b)
+
+
+def test_a_latent_carrying_audio_reference_skips_the_audio_vae_and_is_normalized_and_packed():
+    raw = torch.arange(AUDIO_LATENT_CHANNELS * 2 * 5, dtype=torch.float32).reshape(2, AUDIO_LATENT_CHANNELS, 5)
+    audio_vae = _ExplodingAudioVae()
+    audio_vae.latents_mean = torch.full((AUDIO_LATENT_CHANNELS,), 0.5)
+    audio_vae.latents_std = torch.full((AUDIO_LATENT_CHANNELS,), 2.0)
+    reference = ReferenceMedia(kind="audio", latent=raw)
+    assert reference.has_audio is True
+    got = prepare_reference_conditioning(
+        [reference], vae_module=_FakeVideoVae(), audio_vae_module=audio_vae, **_encode_kwargs(),
+    )
+    assert len(got.condition_latents) == 0  # no visual latent at all
+    assert len(got.audio_condition_latents) == 1
+    expected = pack_audio_rows((raw - 0.5) / 2.0)
+    torch.testing.assert_close(got.audio_condition_latents[0], expected, rtol=0, atol=0)
+    assert got.blocks == (ReferenceBlock(kind="audio", has_audio=True),)
+
+
+def test_mixed_latent_and_pixel_references_keep_packed_order():
+    raw = torch.zeros(1, LATENT_CHANNELS, 1, 4, 4)
+    references = [
+        ReferenceMedia(kind="image", image=Image.new("RGB", (32, 32))),
+        ReferenceMedia(kind="image", latent=raw),
+    ]
+    got = prepare_reference_conditioning(
+        references, vae_module=_FakeVideoVae(), **_encode_kwargs(),
+    )
+    assert got.blocks == (
+        ReferenceBlock(kind="image", has_audio=False), ReferenceBlock(kind="image", has_audio=False),
+    )
+    assert len(got.condition_latents) == 2
 
 
 # -- VisualLatentCache: request-local memoization of the clean encode -------

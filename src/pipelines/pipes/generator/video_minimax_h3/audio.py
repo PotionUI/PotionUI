@@ -127,6 +127,35 @@ def _fit_condition_latents(latents: Tensor, num_condition_audio_latents: int) ->
     return torch.cat([padding, latents], dim=-1)
 
 
+def normalize_and_pack_audio_latent(
+    latents: Tensor, *, latents_mean: Any, latents_std: Any,
+    num_condition_audio_latents: int | None = None, audio_channels: int = AUDIO_CHANNELS,
+    dtype: torch.dtype | None = None,
+) -> Tensor:
+    """Already-encoded `(audio_channels, latent_channels, n)` latents -> the
+    clean, channel-major condition rows -- the tail of
+    :func:`encode_audio_condition` split out so a PRE-ENCODED latent (a
+    RefMod's own stored latent, `_shared.generation.refmods`) can reuse the
+    normalize/trim/pack recipe without a waveform or the audio VAE's
+    `encode()` to run it through.
+
+    `latents_mean`/`latents_std` are the audio VAE's own per-channel buffers
+    (`audio_vae_module.latents_mean`/`.latents_std`) -- still required even
+    when `encode()` itself is skipped, since a RefMod's stored latent is in
+    the VAE's RAW space (refmods.py's module docstring) and needs the SAME
+    normalization every other audio condition gets.
+    """
+    latents_mean_t = torch.as_tensor(latents_mean, device=latents.device, dtype=torch.float32).view(1, -1, 1)
+    latents_std_t = torch.as_tensor(latents_std, device=latents.device, dtype=torch.float32).view(1, -1, 1)
+    latents = (latents.to(torch.float32) - latents_mean_t) / latents_std_t
+
+    if num_condition_audio_latents is not None:
+        latents = _fit_condition_latents(latents, num_condition_audio_latents)
+
+    rows = pack_audio_rows(latents, audio_channels=audio_channels)
+    return rows if dtype is None else rows.to(dtype)
+
+
 def encode_audio_condition(
     audio_vae_module: Any, waveform: Tensor, *, sample_rate: int,
     num_condition_audio_latents: int | None = None, max_duration: float | None = None,
@@ -136,11 +165,10 @@ def encode_audio_condition(
     rows `build_packed_sequence(..., num_condition_audio_latents=n)` reserves.
 
     Resamples/upmixes to `audio_channels` at the VAE's 32 kHz, encodes the
-    channels as `audio_channels` BATCH items of the mono VAE, normalizes with
-    the VAE's own `latents_mean`/`latents_std`, and packs channel-major.
-    `num_condition_audio_latents` (default: whatever the audio encodes to)
-    trims or pads to an exact count -- see :func:`_fit_condition_latents` for
-    which end each does and why.
+    channels as `audio_channels` BATCH items of the mono VAE, then hands off
+    to :func:`normalize_and_pack_audio_latent` for the normalize/trim/pack
+    tail -- see :func:`_fit_condition_latents` for which end trim/pad affects
+    and why.
 
     Draws no noise: `MiniMaxH3AudioVAE.encode` returns the posterior mean.
     """
@@ -153,15 +181,10 @@ def encode_audio_condition(
     with torch.no_grad():
         latents = audio_vae_module.encode(waveform[:, None])  # (channels, latent_channels, n), fp32
 
-    latents_mean = audio_vae_module.latents_mean.to(device=latents.device, dtype=torch.float32).view(1, -1, 1)
-    latents_std = audio_vae_module.latents_std.to(device=latents.device, dtype=torch.float32).view(1, -1, 1)
-    latents = (latents.to(torch.float32) - latents_mean) / latents_std
-
-    if num_condition_audio_latents is not None:
-        latents = _fit_condition_latents(latents, num_condition_audio_latents)
-
-    rows = pack_audio_rows(latents, audio_channels=audio_channels)
-    return rows if dtype is None else rows.to(dtype)
+    return normalize_and_pack_audio_latent(
+        latents, latents_mean=audio_vae_module.latents_mean, latents_std=audio_vae_module.latents_std,
+        num_condition_audio_latents=num_condition_audio_latents, audio_channels=audio_channels, dtype=dtype,
+    )
 
 
 def decode_generated_audio(

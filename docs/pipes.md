@@ -1307,6 +1307,7 @@ Native MiniMax-H3 t2va/fl2va video+audio generator
 | `references` | `list` | `[]` | no | — | — | — | The ref2va references form field's own value, passed through untouched (a list of `{path, relative_path?, label?, ...}` dicts, one per entry, in the SAME order as the 'reference_images' input's loaded array -- same idiom as 'document' above. Used ONLY to cross-validate that the loaded 'reference_images' array actually has as many entries as the preset's references field declared, the same guard 'document'/'director_image' get for Video Director; nothing here reaches the layout or the presentation, both of which read the LOADED images' own order. A per-item 'label' is a display/LLM handle (reaches the model via the chat context, not this pipe) -- never the `<Picture N>` text, which is always pipe-computed from position (see 'reference_images' below). |
 | `reference_videos` | `list` | `[]` | no | — | — | — | The ref2va reference-VIDEOS form field's own value, passed through untouched -- the video counterpart of 'references' above, and used for the same count cross-check against the 'reference_videos' input. |
 | `reference_audios` | `list` | `[]` | no | — | — | — | The ref2va reference-AUDIO form field's own value, passed through untouched -- the audio counterpart of 'references' above, and used for the same count cross-check against the 'reference_audios' input. |
+| `reference_mods` | `list` | `[]` | no | — | — | — | RefMod bundles (`_shared.generation.refmods`, ported from the community ComfyUI-MiniMaxH3Mod project): a list of `{file_path, strength}` dicts, each a `.safetensors` file of one or more PRE-ENCODED reference latents (image, video and/or audio members). Loaded and strength-mixed here, then packed by `pack_references` AFTER every native reference of a mod's own kind -- an image mod numbers after every 'reference_images' entry, and so on -- so 'references'/'reference_videos'/'reference_audios' above never see or count them. A mod needs no loaded image/video/audio input at all: it can be the request's ONLY reference. |
 
 ### <a id="pipe-generator-z-image"></a>`generator/z_image`
 
@@ -1725,6 +1726,7 @@ Load a native MiniMax-H3 checkpoint set (DiT + Qwen3-VL-32B TE + video VAE + aud
 |---|---|---|---|
 | `model` | `MODEL` | no | MiniMax-H3 model bundle (DiT + TE + video VAE + audio VAE) |
 | `text_encoder` | `TEXT_ENCODER` | no | MiniMax-H3 Qwen3-VL-32B text encoder (ClipTextEncoder ABC) |
+| `video_vae` | `VAE` | no | The SAME video VAE component already embedded in 'model' (bundle.video_vae), exposed standalone so a pipe that only needs the VAE -- e.g. prompt_encoder, to decode a RefMod's stored latent for the text encoder's own presentation -- does not have to take the whole bundle |
 
 **Configuration**
 
@@ -1991,6 +1993,7 @@ Encodes prompts using CLIP text encoders for SDXL
 | `reference_image` | `IMAGE` | no | yes | ref2va reference image(s), in packed order |
 | `reference_video` | `VIDEO` | no | yes | ref2va reference video(s), packed after every image reference |
 | `reference_audio` | `AUDIO` | no | yes | ref2va reference audio track(s), packed after every video reference |
+| `vae` | `VAE` | no | no | MiniMax-H3 video VAE, needed only to VAE-decode an image or video 'reference_mods' entry to pixels for this encoder's own presentation -- inert without one. From model_loader/minimax_h3's own 'video_vae' output |
 
 **Outputs**
 
@@ -2018,6 +2021,7 @@ Encodes prompts using CLIP text encoders for SDXL
 | `output_resolution` | `str` | — | no | — | — | — | Output canvas as WxH — the area `image_pixel_budget` multiplies. Inert without it |
 | `reference_video_frames` | `int` | `0` | no | — | 0 | — | Frame count of the clip being generated; a reference video is truncated to it before being presented, so that the encoder and the generator's own condition-encode cut it at the same frame. 0 (default) leaves a reference video untruncated. Inert without a `reference_video` input |
 | `reference_selections` | `list` | `[]` | no | — | — | — | Per-request reference SUBSET, index-aligned with 'pairs' -- entry i is a list of indices into the packed 'reference_image'/'reference_video'/'reference_audio' order for output i. An absent or empty entry presents every packed reference (the default, and the only shape a non-Director ref2va request uses). The H3 adapter numbers '<Picture i>'/'<Video k>'/'<Audio j>' against whichever list it is actually handed, so a selection RE-LABELS that output's subset from 1 rather than keeping the packed set's own numbering. Inert without 'references' |
+| `reference_mods` | `list` | `[]` | no | — | — | — | MiniMax-H3 RefMod bundles (`_shared.generation.refmods`), mirrored from the generator pipe's own 'reference_mods' -- a list of `{file_path, strength}` dicts. Packed by the SAME `pack_references` call, after every native reference of a mod's own kind, so its presentation label numbers the same as the generator's reference block. An image or video mod is VAE-decoded to pixels via the 'vae' input before being presented; an audio mod contributes no media, only its own '<Audio j>: ' label, same as a native audio reference. Inert without 'reference_image'/'reference_video'/'reference_audio' or a mod entry of its own |
 
 ## prompt_expander
 

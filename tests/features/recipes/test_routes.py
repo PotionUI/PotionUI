@@ -25,7 +25,7 @@ from src.features.recipes.schema import (
     RecipeStep,
 )
 from src.platform.database.database import db as global_db
-from src.platform.database.migration_runner import MigrationRunner
+from tests.fixtures.db_template import copy_template_db
 from src.platform.plugins.recipe_steps import (
     RecipeStepKindRegistration,
     RecipeStepKindRegistry,
@@ -39,7 +39,7 @@ def file_db(tmp_path):
     original_path = global_db.db_path
     global_db.db_path = tmp_path / "recipe_routes.db"
     try:
-        MigrationRunner().run_migrations()
+        copy_template_db(global_db.db_path)
         yield global_db
     finally:
         global_db.db_path = original_path

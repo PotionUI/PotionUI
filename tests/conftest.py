@@ -103,6 +103,15 @@ class TestDatabase:
             self._connection.close()
             self._connection = None
 
+    @classmethod
+    def from_template(cls) -> "TestDatabase":
+        from tests.fixtures.db_template import load_template_into_connection
+
+        instance = cls.__new__(cls)
+        instance.db_path = ":memory:"
+        instance._connection = load_template_into_connection()
+        return instance
+
 
 @pytest.fixture(scope="session", autouse=True)
 def ephemeral_credential_key():
@@ -149,36 +158,14 @@ def test_db():
     Create a fresh in-memory test database for each test.
 
     This fixture provides an isolated database instance for each test,
-    with the full schema created by running all migrations.
+    with the full schema loaded from the shared migration template (see
+    tests/fixtures/db_template.py) instead of replaying migrations.
 
     Yields:
         TestDatabase: Fresh database instance with schema
     """
-    test_database = TestDatabase()
+    test_database = TestDatabase.from_template()
 
-    # Patch both database references to ensure migrations use test database
-    with patch('src.platform.database.database.db', test_database), \
-         patch('src.platform.database.migration_runner.db', test_database):
-        # Run all migrations to create the schema
-        from src.platform.database.migration_runner import MigrationRunner
-        migration_runner = MigrationRunner()
-
-        # Run migrations silently (suppress print statements)
-        import io
-        import sys
-        old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
-        try:
-            migration_runner.run_migrations()
-        except Exception as e:
-            # Restore stdout and re-raise
-            sys.stdout = old_stdout
-            print(f"Migration error: {e}")
-            raise
-        finally:
-            sys.stdout = old_stdout
-
-    # Now yield with the database fully migrated
     yield test_database
 
     # Clean up
@@ -205,13 +192,14 @@ def mock_db():
     Mock the global db instance to use test database.
 
     This fixture patches the global database instance so that all
-    code using the global db will use the test database instead.
-    Also runs all migrations to ensure schema is up to date.
+    code using the global db will use the test database instead, with the
+    full schema loaded from the shared migration template (see
+    tests/fixtures/db_template.py) instead of replaying migrations.
 
     Yields:
         TestDatabase: Test database patched into global scope
     """
-    test_database = TestDatabase()
+    test_database = TestDatabase.from_template()
 
     # Patch the database for the entire test duration. `database.db` and
     # `migration_runner.db` cover the two names that resolve `db` fresh on
@@ -220,24 +208,6 @@ def mock_db():
     # is enough to reach it.
     with patch('src.platform.database.database.db', test_database), \
          patch('src.platform.database.migration_runner.db', test_database):
-        # Create a new migration manager instance with patched db
-        from src.platform.database.migration_runner import MigrationRunner
-        migration_runner = MigrationRunner()
-
-        # Run migrations silently
-        import io
-        import sys
-        old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
-        try:
-            migration_runner.run_migrations()
-        except Exception as e:
-            sys.stdout = old_stdout
-            print(f"Migration error: {e}")
-            raise
-        finally:
-            sys.stdout = old_stdout
-
         # Yield with patch still active
         yield test_database
 

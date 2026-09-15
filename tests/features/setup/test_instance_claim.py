@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from src.platform.database.database import db as global_db
-from src.platform.database.migration_runner import MigrationRunner
+from tests.fixtures.db_template import copy_template_db
 from src.platform.security.user import AccountType
 from src.features.users.repository import UserRepository
 from src.features.setup.repository import InstanceClaimRepository
@@ -29,7 +29,7 @@ def file_db(tmp_path):
     original_path = global_db.db_path
     global_db.db_path = tmp_path / "instance_claim.db"
     try:
-        MigrationRunner().run_migrations()
+        copy_template_db(global_db.db_path)
         yield global_db
     finally:
         global_db.db_path = original_path

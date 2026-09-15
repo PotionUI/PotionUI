@@ -5,6 +5,7 @@ container. A real end-to-end decode is covered separately, skipped where
 ffmpeg is absent - see `needs_ffmpeg` below.
 """
 
+import os
 import shutil
 import subprocess
 from unittest.mock import Mock, patch
@@ -52,6 +53,20 @@ class TestRenderPosterFrame:
             result = render_poster_frame("/tmp/clip.mp4", width=480)
 
         assert result == b"jpeg-bytes"
+
+    def test_output_path_is_not_held_open_while_ffmpeg_writes(self):
+        ok = Mock(returncode=0, stderr=b"")
+        seen = {}
+
+        def fake_run(command, capture_output, timeout):
+            seen["existed_before_write"] = os.path.exists(command[-1])
+            with open(command[-1], "wb") as f:
+                f.write(b"jpeg-bytes")
+            return ok
+
+        with patch("subprocess.run", side_effect=fake_run):
+            assert render_poster_frame("/tmp/clip.mp4", width=480) == b"jpeg-bytes"
+        assert seen["existed_before_write"] is False
 
     @needs_ffmpeg
     def test_real_decode_of_a_generated_clip(self, tmp_path):

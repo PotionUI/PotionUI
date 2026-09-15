@@ -55,7 +55,8 @@ def render_poster_frame(video_path: str, width: int, timeout: int = 10) -> Optio
     Returns None on any failure (missing ffmpeg binary, corrupt video,
     timeout) - callers treat that as "no poster available", not an error.
     """
-    with tempfile.NamedTemporaryFile(suffix=".jpg") as tmp:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        poster_path = os.path.join(tmp_dir, "poster.jpg")
         command = [
             'ffmpeg', '-y', '-nostdin',
             '-i', video_path,
@@ -63,7 +64,7 @@ def render_poster_frame(video_path: str, width: int, timeout: int = 10) -> Optio
             '-vframes', '1',
             '-q:v', '8',
             '-an',
-            tmp.name,
+            poster_path,
         ]
         try:
             result = subprocess.run(command, capture_output=True, timeout=timeout)
@@ -78,7 +79,7 @@ def render_poster_frame(video_path: str, width: int, timeout: int = 10) -> Optio
             )
             return None
 
-        return Path(tmp.name).read_bytes()
+        return Path(poster_path).read_bytes()
 
 
 def generate_video_thumbnails(

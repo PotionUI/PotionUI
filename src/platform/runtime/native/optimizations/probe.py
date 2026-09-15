@@ -140,9 +140,10 @@ def _find_venv_nvcc(major: Optional[int]) -> Optional[Path]:
         return None
 
     for location in spec.submodule_search_locations:
-        candidate = Path(location) / "bin" / "nvcc"
-        if candidate.exists():
-            return candidate
+        for name in ("nvcc", "nvcc.exe"):
+            candidate = Path(location) / "bin" / name
+            if candidate.exists():
+                return candidate
     return None
 
 

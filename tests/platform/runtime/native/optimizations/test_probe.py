@@ -244,6 +244,17 @@ class TestFindVenvNvcc:
         monkeypatch.setattr(probe_mod.importlib.util, "find_spec", lambda name: _Spec())
         assert probe_mod._find_venv_nvcc(12) is None
 
+    def test_package_with_windows_nvcc_binary_is_found(self, monkeypatch, tmp_path):
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "nvcc.exe").write_text("")
+
+        class _Spec:
+            submodule_search_locations = [str(tmp_path)]
+
+        monkeypatch.setattr(probe_mod.importlib.util, "find_spec", lambda name: _Spec())
+        assert probe_mod._find_venv_nvcc(13) == bin_dir / "nvcc.exe"
+
     def test_package_with_nvcc_binary_is_found(self, monkeypatch, tmp_path):
         """CUDA 13.x+ reality: nvidia-cuda-nvcc ships a real nvcc under nvidia/cu{major}/bin/."""
         bin_dir = tmp_path / "bin"

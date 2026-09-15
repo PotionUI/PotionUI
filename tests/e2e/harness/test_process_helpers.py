@@ -34,14 +34,28 @@ class TestPopenGroupKwargs:
 
 
 class TestKillGroup:
-    def test_windows_calls_taskkill_without_force(self, monkeypatch):
+    def test_windows_sends_ctrl_break_event_without_force(self, monkeypatch):
         monkeypatch.setattr(e2e_harness, "is_windows", lambda: True)
         calls = []
-        monkeypatch.setattr(e2e_harness.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+        monkeypatch.setattr(e2e_harness.os, "kill", lambda pid, sig: calls.append((pid, sig)))
+        run_calls = []
+        monkeypatch.setattr(e2e_harness.subprocess, "run", lambda cmd, **kw: run_calls.append(cmd))
 
         e2e_harness.kill_group(MagicMock(pid=1234), force=False)
 
-        assert calls == [["taskkill", "/PID", "1234", "/T"]]
+        expected_sig = getattr(e2e_harness.signal, "CTRL_BREAK_EVENT", 1)
+        assert calls == [(1234, expected_sig)]
+        assert run_calls == []
+
+    def test_windows_swallows_oserror_from_ctrl_break_event(self, monkeypatch):
+        monkeypatch.setattr(e2e_harness, "is_windows", lambda: True)
+
+        def raise_oserror(pid, sig):
+            raise OSError("no such process")
+
+        monkeypatch.setattr(e2e_harness.os, "kill", raise_oserror)
+
+        e2e_harness.kill_group(MagicMock(pid=1234), force=False)
 
     def test_windows_calls_taskkill_with_force(self, monkeypatch):
         monkeypatch.setattr(e2e_harness, "is_windows", lambda: True)

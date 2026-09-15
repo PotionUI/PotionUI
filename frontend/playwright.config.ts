@@ -17,14 +17,9 @@ export default defineConfig({
 	reporter: [['list']],
 	use: {
 		baseURL,
-		// Screenshots retained on both pass and failure — the maintainer reviews
-		// them as evidence. Specs also save labeled screenshots of decisive states
-		// into E2E_ARTIFACTS_DIR via page.screenshot().
-		screenshot: 'on',
+		screenshot: process.env.CI ? 'only-on-failure' : 'on',
 		trace: 'retain-on-failure',
-		// Video for every test (pass, fail, or skip) — the run.py bridge renames
-		// each clip to artifacts/<journey>/<journey>.webm as reviewable evidence.
-		video: 'on'
+		video: process.env.CI ? 'retain-on-failure' : 'on'
 	},
 	projects: [
 		{

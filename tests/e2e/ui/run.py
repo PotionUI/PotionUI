@@ -23,12 +23,11 @@ never settle) that an HTTP assertion can't see. Each run:
 
 Why chunk + fresh backend/preview per chunk: passing ~10+ specs to a single
 invocation has reliably killed the `vite preview` process partway through
-(see tests/e2e/ui/README.md). Batches of 3 run as separate `run.py`
-invocations - which restart backend, preview, and the Playwright process each
-time - were reproduced healthy three times running for the same total spec
-count that killed a single big invocation. Chunking internalizes that
-known-good pattern literally (fresh everything per chunk) instead of asking
-every caller to remember to split their command line.
+(see tests/e2e/ui/README.md). A fresh backend + preview per chunk is the
+isolation unit - it keeps one chunk's leftover server/DB state from bleeding
+into the next - while the PreviewMonitor below makes a chunk's preview dying
+cheap to detect and abort, rather than something only a small chunk size
+could contain.
 
 If the preview process dies anyway mid-chunk, the runner does not let the
 resulting connection-refused cascade masquerade as ordinary spec failures: it
@@ -98,11 +97,7 @@ OWNER_PASSWORD = "e2e-owner-pw-2f1a9c"
 
 PREVIEW_START_PORT = 4173
 
-# Empirically safe: three separate run.py invocations of 3 specs each stayed
-# healthy for the same total (9) that killed one big invocation. Overridable
-# via --chunk-size; see the docstring above for why fresh-backend-per-chunk is
-# the chosen unit rather than just fresh-Playwright-process-per-chunk.
-DEFAULT_CHUNK_SIZE = 3
+DEFAULT_CHUNK_SIZE = 8
 
 # How often the background thread polls the preview subprocess while
 # Playwright is running against it.

@@ -99,13 +99,26 @@ def popen_group_kwargs() -> Dict[str, Any]:
 
 def kill_group(proc: subprocess.Popen, *, force: bool) -> None:
     """Counterpart to popen_group_kwargs: stop the process group/tree
-    `proc` roots. `force=False` asks nicely (SIGTERM / taskkill), `force=True`
-    is the follow-up after a timeout (SIGKILL / taskkill /F)."""
+    `proc` roots. `force=False` asks nicely (CTRL_BREAK_EVENT / SIGTERM),
+    `force=True` is the follow-up after a timeout (taskkill /F / SIGKILL).
+
+    On Windows, `taskkill /PID ... /T` without `/F` is a silent no-op against
+    a console process (uvicorn, node) - it never delivers anything the
+    process reacts to, so a "graceful" teardown always sat out the full
+    timeout before force-killing. CTRL_BREAK_EVENT is what uvicorn/node treat
+    as a real shutdown signal, and only reaches `proc`'s own group because it
+    was spawned with CREATE_NEW_PROCESS_GROUP (see popen_group_kwargs)."""
     if is_windows():
-        subprocess.run(
-            ["taskkill", "/PID", str(proc.pid), "/T"] + (["/F"] if force else []),
-            capture_output=True,
-        )
+        if force:
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                capture_output=True,
+            )
+            return
+        try:
+            os.kill(proc.pid, getattr(signal, "CTRL_BREAK_EVENT", 1))
+        except OSError:
+            pass
         return
     sig = signal.SIGKILL if force else signal.SIGTERM
     try:

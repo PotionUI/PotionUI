@@ -15,24 +15,14 @@
 		onRemove: (id: string) => void;
 	} = $props();
 
-	// Per-level token colours + iconography (semantic tokens only).
-	const levelStyles: Record<AppNotification['level'], { color: string; path: string }> = {
-		success: { color: 'text-success', path: 'M5 13l4 4L19 7' },
-		error: {
-			color: 'text-danger',
-			path: 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
-		},
-		warning: {
-			color: 'text-warning',
-			path: 'M12 9v2m0 4h.01M5.07 19h13.86a2 2 0 001.74-2.99L13.73 4a2 2 0 00-3.46 0L3.33 16.01A2 2 0 005.07 19z'
-		},
-		info: {
-			color: 'text-info',
-			path: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
-		}
+	const levelDot: Record<AppNotification['level'], string> = {
+		success: 'bg-success',
+		error: 'bg-danger',
+		warning: 'bg-warning',
+		info: 'bg-info'
 	};
 
-	let style = $derived(levelStyles[notification.level] ?? levelStyles.info);
+	let dotClass = $derived(levelDot[notification.level] ?? levelDot.info);
 
 	let detail = $derived(
 		typeof notification.metadata?.detail === 'string' && notification.metadata.detail.trim()
@@ -58,23 +48,16 @@
 </script>
 
 <div
-	class="group relative flex items-start gap-3 px-4 py-3 border-b border-line transition-colors cursor-default
-		{notification.read ? 'bg-transparent hover:bg-surface-2/50' : 'bg-surface-2 hover:bg-surface-3'}"
+	class="group relative flex items-start gap-2.5 pl-4 pr-9 py-2.5 border-b border-line hover:bg-surface-2/50 transition-colors cursor-default"
 	role="button"
 	tabindex="0"
 	onclick={handleClick}
 	onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && handleClick()}
 >
-	<!-- Level icon -->
-	<div class="flex-shrink-0 mt-0.5 {style.color}">
-		<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={style.path} />
-		</svg>
-	</div>
+	<span class="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 {dotClass}" aria-hidden="true"></span>
 
-	<!-- Body -->
 	<div class="flex-1 min-w-0">
-		<div class="flex items-center gap-2">
+		<div class="flex items-baseline gap-1.5">
 			{#if !notification.read}
 				<span class="w-1.5 h-1.5 rounded-full bg-signal flex-shrink-0" aria-hidden="true"></span>
 			{/if}
@@ -109,13 +92,15 @@
 				</div>
 			</details>
 		{/if}
-		<p class="text-2xs text-fg-subtle mt-1 font-mono tabular-nums uppercase tracking-wide">
-			{timeAgo(notification.created_at)}
-		</p>
 	</div>
 
-	<!-- Dismiss -->
-	<div class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+	<span
+		class="flex-shrink-0 font-mono text-2xs text-fg-subtle tabular-nums uppercase tracking-wide group-hover:opacity-0 transition-opacity"
+	>
+		{timeAgo(notification.created_at)}
+	</span>
+
+	<div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
 		<IconButton
 			icon="close"
 			label="Dismiss notification"

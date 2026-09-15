@@ -4,6 +4,7 @@
 	import { keybindingsStore, shortcutLabels } from '$lib/stores/keybindings';
 	import { chatPanelStore, isChatPanelOpen } from '$lib/stores/chatPanel';
 	import { chatUnread } from '$lib/stores/chatUnread';
+	import { notifications, bellIndicator } from '$lib/stores/notifications';
 	import { pluginNavItems } from '$lib/stores/plugins';
 	import { iconPaths } from '$lib/utils/IconLibrary';
 	import Tooltip from './Tooltip.svelte';
@@ -53,6 +54,8 @@
 	// `notifySetupCompleted`), rather than waiting on the next full page
 	// load, so the nudge clears itself as soon as it's stale.
 	$: if (showAdminSection && readinessChecked && $setupCompletionPing > 0) checkReadiness();
+
+	$: bell = bellIndicator($notifications);
 
 	// Filter plugin nav items by require_role
 	$: visiblePluginNavItems = ($pluginNavItems || []).filter(item =>
@@ -269,6 +272,35 @@
 			</Tooltip>
 		</div>
 
+		<div class="flex flex-col items-center">
+			<Tooltip text="Notifications" position="right">
+				<button
+					type="button"
+					on:click={() => notifications.togglePanel()}
+					class="relative w-8 h-8 flex items-center justify-center rounded-lg transition-all
+						{$notifications.panelOpen
+							? 'bg-surface-2 text-fg'
+							: 'text-fg-muted hover:text-fg hover:bg-surface-2'}"
+					aria-label={bell.kind !== 'idle' ? 'Notifications, unread' : 'Notifications'}
+					aria-pressed={$notifications.panelOpen}
+				>
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={iconPath('bell')} />
+					</svg>
+					{#if bell.kind === 'count'}
+						<span
+							class="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded bg-signal-solid text-white text-2xs font-mono font-semibold tabular-nums flex items-center justify-center leading-none"
+							aria-hidden="true"
+						>
+							{bell.count}
+						</span>
+					{:else if bell.kind === 'dot'}
+						<span class="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-signal" aria-hidden="true"></span>
+					{/if}
+				</button>
+			</Tooltip>
+		</div>
+
 		<!-- Keyboard Shortcuts -->
 		<div class="flex flex-col items-center">
 			<Tooltip text="Keyboard shortcuts" kbd={$shortcutLabels['show_help']} position="right">
@@ -290,7 +322,6 @@
 		<!-- Quick Actions (core palette; plugins are one contributing source) -->
 		<QuickActions />
 
-		<!-- User Section: avatar folds notifications + logout into one menu -->
 		{#if $authStore.user}
 			<div class="flex flex-col items-center pt-2 border-t border-line">
 				<UserMenu />

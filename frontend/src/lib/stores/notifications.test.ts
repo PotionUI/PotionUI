@@ -22,6 +22,9 @@ import {
 	setTypeEnabledInState,
 	initialState,
 	NOTIFICATION_CAP,
+	bucketForDate,
+	groupByDay,
+	bellIndicator,
 	type NotificationsState
 } from './notifications';
 import type {
@@ -365,5 +368,86 @@ describe('notifications store — preferences', () => {
 		mockedApi.updateNotificationPreferences.mockResolvedValueOnce({ success: false });
 		await notifications.setChatSound(true);
 		expect(get(notifications).chat_sound).toBe(false);
+	});
+});
+
+describe('bucketForDate / groupByDay', () => {
+	const now = new Date('2026-09-15T12:00:00Z');
+
+	it('same calendar day buckets as Today', () => {
+		expect(bucketForDate('2026-09-15T01:00:00Z', now)).toBe('Today');
+	});
+
+	it('previous calendar day buckets as Yesterday', () => {
+		expect(bucketForDate('2026-09-14T23:00:00Z', now)).toBe('Yesterday');
+	});
+
+	it('anything older buckets as Earlier', () => {
+		expect(bucketForDate('2026-09-10T12:00:00Z', now)).toBe('Earlier');
+	});
+
+	it('an unparseable date buckets as Earlier', () => {
+		expect(bucketForDate('not-a-date', now)).toBe('Earlier');
+	});
+
+	it('groups into Today/Yesterday/Earlier in order, dropping empty groups', () => {
+		const items = [
+			makeNotification({ id: 'a', created_at: '2026-09-15T01:00:00Z' }),
+			makeNotification({ id: 'b', created_at: '2026-09-14T23:00:00Z' }),
+			makeNotification({ id: 'c', created_at: '2026-09-01T12:00:00Z' })
+		];
+		const groups = groupByDay(items, now);
+		expect(groups.map((g) => g.bucket)).toEqual(['Today', 'Yesterday', 'Earlier']);
+		expect(groups[0].items.map((i) => i.id)).toEqual(['a']);
+	});
+
+	it('omits a bucket with no items', () => {
+		const items = [makeNotification({ id: 'a', created_at: '2026-09-15T01:00:00Z' })];
+		const groups = groupByDay(items, now);
+		expect(groups).toHaveLength(1);
+		expect(groups[0].bucket).toBe('Today');
+	});
+});
+
+describe('bellIndicator', () => {
+	const now = new Date('2026-09-15T12:00:00Z');
+
+	it('is idle with no unread and no lastSeenAt', () => {
+		expect(bellIndicator(initialState(), now)).toEqual({ kind: 'idle' });
+	});
+
+	it('shows the numeral count once unreadCount is known', () => {
+		const state = { ...initialState(), unreadCount: 3 };
+		expect(bellIndicator(state, now)).toEqual({ kind: 'count', count: 3 });
+	});
+
+	it('shows a dot for an item newer than lastSeenAt even when unreadCount is 0', () => {
+		const state: NotificationsState = {
+			...initialState(),
+			lastSeenAt: now.getTime() - 60_000,
+			items: [
+				makeNotification({
+					id: 'a',
+					created_at: new Date(now.getTime() - 30_000).toISOString(),
+					read: true
+				})
+			]
+		};
+		expect(bellIndicator(state, now)).toEqual({ kind: 'dot' });
+	});
+
+	it('stays idle when the newest item predates lastSeenAt', () => {
+		const state: NotificationsState = {
+			...initialState(),
+			lastSeenAt: now.getTime(),
+			items: [
+				makeNotification({
+					id: 'a',
+					created_at: new Date(now.getTime() - 60_000).toISOString(),
+					read: true
+				})
+			]
+		};
+		expect(bellIndicator(state, now)).toEqual({ kind: 'idle' });
 	});
 });

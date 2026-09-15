@@ -2,7 +2,6 @@
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/auth';
-	import { notifications } from '$lib/stores/notifications';
 	import { nsfwFilterStore, type NsfwFilterMode } from '$lib/stores/nsfwFilter';
 	import Icon from './Icon.svelte';
 
@@ -11,7 +10,6 @@
 	let avatarBroken = false;
 
 	$: user = $authStore.user;
-	$: unreadCount = $notifications.unreadCount;
 	// Reset the broken-image fallback whenever the avatar URL itself changes
 	// (upload/remove mint a new filename, so a stale broken flag never sticks).
 	$: if (user?.avatar_url) avatarBroken = false;
@@ -31,11 +29,6 @@
 
 	function close() {
 		open = false;
-	}
-
-	function openNotifications() {
-		notifications.openPanel();
-		close();
 	}
 
 	function openSettings() {
@@ -90,12 +83,6 @@
 					{user.username.charAt(0).toUpperCase()}
 				{/if}
 			</span>
-			{#if unreadCount > 0}
-				<span
-					class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-signal ring-2 ring-canvas"
-					aria-hidden="true"
-				></span>
-			{/if}
 		</button>
 
 		<!-- Popover menu -->
@@ -134,23 +121,6 @@
 
 				<!-- Items -->
 				<div class="p-1">
-					<button
-						type="button"
-						role="menuitem"
-						on:click={openNotifications}
-						class="{itemClass} text-fg-muted hover:text-fg hover:bg-surface-3"
-					>
-						<Icon name="bell" className="w-4 h-4 shrink-0" strokeWidth={1.5} />
-						<span>Notifications</span>
-						{#if unreadCount > 0}
-							<span
-								class="ml-auto text-2xs font-mono tabular-nums px-1.5 py-0.5 rounded-full bg-signal/15 text-signal"
-							>
-								{unreadCount}
-							</span>
-						{/if}
-					</button>
-
 					<button
 						type="button"
 						role="menuitem"

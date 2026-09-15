@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
 import { api } from '$lib/services/api';
 import { logger } from '$lib/utils/logger';
+import { parseServerDate } from '$lib/utils/relativeTime';
 import type {
 	AppNotification,
 	NotificationPreferences,
@@ -15,6 +16,7 @@ export interface NotificationsState {
 	unreadCount: number;
 	loaded: boolean;
 	panelOpen: boolean;
+	lastSeenAt: number | null;
 	prefTypes: NotificationTypePref[];
 	sound: boolean;
 	chat_sound: boolean;
@@ -27,11 +29,53 @@ export function initialState(): NotificationsState {
 		unreadCount: 0,
 		loaded: false,
 		panelOpen: false,
+		lastSeenAt: null,
 		prefTypes: [],
 		sound: false,
 		chat_sound: false,
 		prefsLoaded: false
 	};
+}
+
+export type DayBucket = 'Today' | 'Yesterday' | 'Earlier';
+
+const DAY_MS = 86_400_000;
+
+export function bucketForDate(dateString: string, now: Date = new Date()): DayBucket {
+	const date = parseServerDate(dateString);
+	if (!date) return 'Earlier';
+	const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+	const dayDiff = Math.round((startOfDay(now) - startOfDay(date)) / DAY_MS);
+	if (dayDiff <= 0) return 'Today';
+	if (dayDiff === 1) return 'Yesterday';
+	return 'Earlier';
+}
+
+export function groupByDay(
+	items: AppNotification[],
+	now: Date = new Date()
+): { bucket: DayBucket; items: AppNotification[] }[] {
+	const order: DayBucket[] = ['Today', 'Yesterday', 'Earlier'];
+	const byBucket = new Map<DayBucket, AppNotification[]>();
+	for (const item of items) {
+		const bucket = bucketForDate(item.created_at, now);
+		(byBucket.get(bucket) ?? byBucket.set(bucket, []).get(bucket)!).push(item);
+	}
+	return order.filter((b) => byBucket.has(b)).map((bucket) => ({ bucket, items: byBucket.get(bucket)! }));
+}
+
+export type BellIndicator = { kind: 'idle' } | { kind: 'dot' } | { kind: 'count'; count: number };
+
+export function bellIndicator(state: NotificationsState, now: Date = new Date()): BellIndicator {
+	if (state.unreadCount > 0) return { kind: 'count', count: state.unreadCount };
+	if (state.lastSeenAt != null) {
+		const hasNew = state.items.some((i) => {
+			const created = parseServerDate(i.created_at);
+			return created ? created.getTime() > state.lastSeenAt! : false;
+		});
+		if (hasNew) return { kind: 'dot' };
+	}
+	return { kind: 'idle' };
 }
 
 /** Merge a preferences payload into store state (pure). */
@@ -280,7 +324,7 @@ function createNotificationsStore() {
 	}
 
 	function openPanel(): void {
-		update((s) => ({ ...s, panelOpen: true }));
+		update((s) => ({ ...s, panelOpen: true, lastSeenAt: Date.now() }));
 	}
 
 	function closePanel(): void {
@@ -288,7 +332,10 @@ function createNotificationsStore() {
 	}
 
 	function togglePanel(): void {
-		update((s) => ({ ...s, panelOpen: !s.panelOpen }));
+		update((s) => {
+			const panelOpen = !s.panelOpen;
+			return { ...s, panelOpen, lastSeenAt: panelOpen ? Date.now() : s.lastSeenAt };
+		});
 	}
 
 	function reset(): void {

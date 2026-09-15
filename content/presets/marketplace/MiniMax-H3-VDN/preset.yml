@@ -91,6 +91,26 @@ vars:
   fps: 24
   default_frames: 124
 
+  prompt:
+    segment_join: "paragraph"
+    segment_templates:
+      - name: "H3 prompt document"
+        description: "The three labeled fields MiniMax-H3 was trained on, in order."
+        tags: ["minimax-h3"]
+        segments:
+          - name: "Multimodal description"
+            prefix: "integrated_multimodal_description: "
+            content: ""
+            description: "[Shot 1] style and opening composition, then the whole timeline: cuts with timestamps, camera motion, speakers with (S1)/(S2) IDs and <d> dialogue, in-scene sound."
+          - name: "Soundscape"
+            prefix: "overall_soundscape: "
+            content: ""
+            description: "Ambient, physical and non-verbal human sounds for the whole video. No dialogue or music. N/A only for total silence."
+          - name: "Music"
+            prefix: "non_diegetic_music: "
+            content: ""
+            description: "Background score by instrumentation, tempo, rhythm and dynamics. N/A when there is no score."
+
   # Video Director capabilities. Read by normalize_video_director()
   # (src/features/video_director/normalize.py) via
   # `preset_template.vars.video_director` in

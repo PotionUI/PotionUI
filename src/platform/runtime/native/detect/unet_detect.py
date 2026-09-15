@@ -96,6 +96,8 @@ _MINIMAX_H3_SIG2 = "audio_patch_proj.weight"
 _MINIMAX_MUSIC3_SIG = "cond_layer_logits"
 _MINIMAX_MUSIC3_SIG2 = "latent_conditioners.0.weight"
 _MINIMAX_MUSIC3_SIG3 = "diffusion_transformer.transformer.layers.0.self_attn.to_qkv.weight"
+_YUE2_SIG = "vae2llm.weight"
+_YUE2_SIG2 = "model.layers.0.nar_self_attn.q_proj.weight"
 # TRELLIS.2 (Comfy-Org unified file). Unlike every other family here this is not
 # one DiT: four flow models sit side by side under four prefixes, so the config
 # returned below describes the BUNDLE, and ``arch/trellis2/load.py`` — not
@@ -158,6 +160,9 @@ def detect_unet_config(sd: dict[str, torch.Tensor], metadata: dict[str, str] | N
 
     if _MINIMAX_MUSIC3_SIG in sd and _MINIMAX_MUSIC3_SIG2 in sd and _MINIMAX_MUSIC3_SIG3 in sd:
         return _detect_minimax_music3(sd)
+
+    if _YUE2_SIG in sd and _YUE2_SIG2 in sd:
+        return _detect_yue2(sd)
 
     if _FLUX_SIG not in sd:
         return None
@@ -886,5 +891,50 @@ def _detect_minimax_music3(sd: dict[str, torch.Tensor]) -> dict:
         "in_ch=%d cond_dim=%d cond_hidden=%d cond_layers=%d",
         hidden_size, config["num_attention_heads"], config["attention_head_dim"], num_layers,
         ffn_inner_dim, in_channels, condition_dim, condition_hidden_dim, num_condition_layers,
+    )
+    return config
+
+
+_YUE2_ROPE_THETA = 1_000_000.0
+_YUE2_RMS_NORM_EPS = 1e-6
+_YUE2_MAX_POSITION_EMBEDDINGS = 24576
+_YUE2_MAX_LATENT_FRAMES = 24576
+_YUE2_TIMESTEP_SHIFT = 1.0
+
+
+def _detect_yue2(sd: dict[str, torch.Tensor]) -> dict:
+    """Config for the YuE2 checkpoint-native ``model.safetensors`` state dict (``YuE2ForCausalLM`` in upstream's ``modeling_yue2.py``): an AR causal LM whose ``DecoderLayer`` carries a SECOND, NAR-only set of attention/MLP projections trained for non-autoregressive flow-matching over VAE latents; ``llm2vae``/``vae2llm`` are the two Linear bridges between the LM's hidden state and the audio VAE's latent space."""
+    embed = sd["model.embed_tokens.weight"]
+    vocab_size = int(embed.shape[0])
+    hidden_size = int(embed.shape[1])
+    num_layers = count_blocks(sd, "model.layers.{}.")
+    head_dim = int(sd["model.layers.0.self_attn.q_norm.weight"].shape[0])
+    num_attention_heads = linear_in_features(sd, "model.layers.0.self_attn.o_proj.weight") // head_dim
+    num_key_value_heads = int(sd["model.layers.0.self_attn.k_proj.weight"].shape[0]) // head_dim
+    intermediate_size = linear_in_features(sd, "model.layers.0.mlp.down_proj.weight")
+    latent_dim = int(sd["vae2llm.weight"].shape[1])
+
+    config: dict = {
+        "image_model": "yue2",
+        "arch_type": "yue2",
+        "hidden_size": hidden_size,
+        "num_hidden_layers": num_layers,
+        "num_attention_heads": num_attention_heads,
+        "num_key_value_heads": num_key_value_heads,
+        "head_dim": head_dim,
+        "intermediate_size": intermediate_size,
+        "vocab_size": vocab_size,
+        "latent_dim": latent_dim,
+        "rms_norm_eps": _YUE2_RMS_NORM_EPS,
+        "rope_theta": _YUE2_ROPE_THETA,
+        "max_position_embeddings": _YUE2_MAX_POSITION_EMBEDDINGS,
+        "max_latent_frames": _YUE2_MAX_LATENT_FRAMES,
+        "timestep_shift": _YUE2_TIMESTEP_SHIFT,
+    }
+    logger.debug(
+        "detected yue2 LM: hidden=%d layers=%d heads=%d kv_heads=%d headdim=%d "
+        "ffn=%d vocab=%d latent_dim=%d",
+        hidden_size, num_layers, num_attention_heads, num_key_value_heads,
+        head_dim, intermediate_size, vocab_size, latent_dim,
     )
     return config

@@ -578,6 +578,19 @@ _VENDORED_SPECS: list[ModelSpec] = [
         memory_cost_gb=5.0,                 # fp16 DiT + fused condition encoder only
     ),
     ModelSpec(
+        family="yue2",
+        variant="yue2_3b",
+        signature={"image_model": "yue2"},
+        model_class="src.platform.runtime.native.arch.yue2.model:YuE2Model",
+        sampling_settings={
+            "prediction": "const",
+            "guidance": "none",
+        },
+        latent_format={"latent_channels": 64, "format": "yue2", "temporal": True},
+        expected_unexpected_keys=set(_SIDECAR_GLOBS),
+        memory_cost_gb=7.0,
+    ),
+    ModelSpec(
         family="seedvr2",
         variant="seedvr2_7b",
         signature={"image_model": "seedvr2", "seedvr2_variant": "7b"},

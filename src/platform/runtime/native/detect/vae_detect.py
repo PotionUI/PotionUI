@@ -709,3 +709,26 @@ def detect_minimax_music3_dav_config(
         latent_channels, decoder_hidden_dim,
     )
     return config
+
+
+def detect_yue2_vae_config(sd: dict[str, torch.Tensor]) -> dict | None:
+    """Config for the YuE2 Oobleck decoder state dict (``YuE2VAE`` in upstream's ``modeling_vae.py`` -- decode-only; an ``encoder.*`` prefix, if also present in the checkpoint, is not read here)."""
+    if "decoder.layers.0.weight_v" not in sd or "decoder.layers.8.weight_v" not in sd:
+        return None
+
+    conv_in = sd["decoder.layers.0.weight_v"]
+    conv_out = sd["decoder.layers.8.weight_v"]
+    latent_dim = int(conv_in.shape[1])
+    out_channels = int(conv_out.shape[0])
+
+    config = {
+        "latent_dim": latent_dim,
+        "out_channels": out_channels,
+        "sample_rate": 48000,
+        "downsampling_ratio": 1920,
+    }
+    logger.debug(
+        "detected yue2 VAE: latent_dim=%d out_channels=%d",
+        latent_dim, out_channels,
+    )
+    return config

@@ -256,7 +256,7 @@ class TestNotificationController:
 
     @pytest.mark.asyncio
     async def test_update_preferences_success(self, controller, monkeypatch, sample_user):
-        updated = {"types": [], "sound": True}
+        updated = {"types": [], "sound": True, "chat_sound": False}
         mock_update_preferences = Mock(return_value=updated)
         monkeypatch.setattr(operations, "update_preferences", mock_update_preferences)
 
@@ -266,18 +266,34 @@ class TestNotificationController:
         assert result.success is True
         assert result.data == updated
         mock_update_preferences.assert_called_once_with(
-            controller.collaborators, "user-123", types={"generation.completed": False}, sound=True
+            controller.collaborators, "user-123", types={"generation.completed": False}, sound=True, chat_sound=None
         )
 
     @pytest.mark.asyncio
     async def test_update_preferences_partial_body(self, controller, monkeypatch, sample_user):
-        mock_update_preferences = Mock(return_value={"types": [], "sound": False})
+        mock_update_preferences = Mock(return_value={"types": [], "sound": False, "chat_sound": False})
         monkeypatch.setattr(operations, "update_preferences", mock_update_preferences)
 
         request = UpdateNotificationPreferencesRequest(sound=False)
         await controller.update_preferences(request, sample_user)
 
-        mock_update_preferences.assert_called_once_with(controller.collaborators, "user-123", types=None, sound=False)
+        mock_update_preferences.assert_called_once_with(
+            controller.collaborators, "user-123", types=None, sound=False, chat_sound=None
+        )
+
+    @pytest.mark.asyncio
+    async def test_update_preferences_chat_sound_only(self, controller, monkeypatch, sample_user):
+        mock_update_preferences = Mock(return_value={"types": [], "sound": False, "chat_sound": True})
+        monkeypatch.setattr(operations, "update_preferences", mock_update_preferences)
+
+        request = UpdateNotificationPreferencesRequest(chat_sound=True)
+        result = await controller.update_preferences(request, sample_user)
+
+        assert result.success is True
+        assert result.data["chat_sound"] is True
+        mock_update_preferences.assert_called_once_with(
+            controller.collaborators, "user-123", types=None, sound=None, chat_sound=True
+        )
 
     @pytest.mark.asyncio
     async def test_update_preferences_unknown_type_error(self, controller, monkeypatch, sample_user):

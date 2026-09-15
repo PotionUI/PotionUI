@@ -17,6 +17,7 @@ export interface NotificationsState {
 	panelOpen: boolean;
 	prefTypes: NotificationTypePref[];
 	sound: boolean;
+	chat_sound: boolean;
 	prefsLoaded: boolean;
 }
 
@@ -28,6 +29,7 @@ export function initialState(): NotificationsState {
 		panelOpen: false,
 		prefTypes: [],
 		sound: false,
+		chat_sound: false,
 		prefsLoaded: false
 	};
 }
@@ -37,7 +39,13 @@ export function applyPrefs(
 	state: NotificationsState,
 	prefs: NotificationPreferences
 ): NotificationsState {
-	return { ...state, prefTypes: prefs.types, sound: prefs.sound, prefsLoaded: true };
+	return {
+		...state,
+		prefTypes: prefs.types,
+		sound: prefs.sound,
+		chat_sound: prefs.chat_sound,
+		prefsLoaded: true
+	};
 }
 
 /** Optimistically flip one type's `enabled` flag (pure). */
@@ -267,6 +275,10 @@ function createNotificationsStore() {
 		await persistPrefs((s) => ({ ...s, sound: enabled }), { sound: enabled });
 	}
 
+	async function setChatSound(enabled: boolean): Promise<void> {
+		await persistPrefs((s) => ({ ...s, chat_sound: enabled }), { chat_sound: enabled });
+	}
+
 	function openPanel(): void {
 		update((s) => ({ ...s, panelOpen: true }));
 	}
@@ -296,6 +308,7 @@ function createNotificationsStore() {
 		loadPrefs,
 		setTypeEnabled,
 		setSound,
+		setChatSound,
 		openPanel,
 		closePanel,
 		togglePanel,

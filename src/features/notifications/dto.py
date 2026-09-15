@@ -23,3 +23,4 @@ class UpdateNotificationPreferencesRequest(BaseModel):
     """Request model for updating a user's notification preferences (partial merge)."""
     types: Optional[Dict[str, bool]] = None
     sound: Optional[bool] = None
+    chat_sound: Optional[bool] = None

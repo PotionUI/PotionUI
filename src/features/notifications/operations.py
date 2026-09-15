@@ -233,6 +233,7 @@ def get_preferences(collaborators: NotificationCollaborators, user_id: str) -> D
     raw = _get_preferences_raw(collaborators, user_id)
     user_types = raw.get("types") if isinstance(raw.get("types"), dict) else {}
     sound = bool(raw.get("sound", False))
+    chat_sound = bool(raw.get("chat_sound", False))
     is_admin = _is_admin(collaborators, user_id)
 
     types = []
@@ -249,17 +250,18 @@ def get_preferences(collaborators: NotificationCollaborators, user_id: str) -> D
             "enabled": enabled,
         })
 
-    return {"types": types, "sound": sound}
+    return {"types": types, "sound": sound, "chat_sound": chat_sound}
 
 
 def update_preferences(
     collaborators: NotificationCollaborators,
     user_id: str,
     types: Optional[Dict[str, bool]] = None,
-    sound: Optional[bool] = None
+    sound: Optional[bool] = None,
+    chat_sound: Optional[bool] = None
 ) -> Dict[str, Any]:
     """
-    Partially merge `types`/`sound` into the user's stored preferences.
+    Partially merge `types`/`sound`/`chat_sound` into the user's stored preferences.
 
     Raises:
         ValueError: If `types` references a key not in the notification
@@ -271,6 +273,7 @@ def update_preferences(
     raw = _get_preferences_raw(collaborators, user_id)
     stored_types = dict(raw.get("types")) if isinstance(raw.get("types"), dict) else {}
     stored_sound = bool(raw.get("sound", False))
+    stored_chat_sound = bool(raw.get("chat_sound", False))
 
     if types is not None:
         for key, value in types.items():
@@ -281,9 +284,12 @@ def update_preferences(
     if sound is not None:
         stored_sound = bool(sound)
 
+    if chat_sound is not None:
+        stored_chat_sound = bool(chat_sound)
+
     collaborators.settings.set_setting(
         PREFERENCES_SETTING_KEY,
-        {"types": stored_types, "sound": stored_sound},
+        {"types": stored_types, "sound": stored_sound, "chat_sound": stored_chat_sound},
         user_id=user_id
     )
 

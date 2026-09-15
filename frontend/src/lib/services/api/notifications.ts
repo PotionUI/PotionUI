@@ -29,11 +29,13 @@ export interface NotificationTypePref {
 export interface NotificationPreferences {
 	types: NotificationTypePref[];
 	sound: boolean;
+	chat_sound: boolean;
 }
 
 export interface UpdateNotificationPreferencesInput {
 	types?: Record<string, boolean>;
 	sound?: boolean;
+	chat_sound?: boolean;
 }
 
 export interface NotificationListResult {

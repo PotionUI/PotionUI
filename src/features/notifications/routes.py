@@ -140,7 +140,7 @@ class NotificationController(BaseController):
         """Partially update the current user's notification preferences (types and/or sound)."""
         try:
             preferences = operations.update_preferences(
-                self.collaborators, user.id, types=request.types, sound=request.sound
+                self.collaborators, user.id, types=request.types, sound=request.sound, chat_sound=request.chat_sound
             )
             return self.success_response(data=preferences)
         except ValueError as e:

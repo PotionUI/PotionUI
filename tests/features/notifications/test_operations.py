@@ -423,6 +423,7 @@ class TestNotificationOperations:
         prefs = operations.get_preferences(collaborators, "user-1")
 
         assert prefs["sound"] is False
+        assert prefs["chat_sound"] is False
         keys = {t["key"] for t in prefs["types"]}
         assert "generation.completed" in keys
         assert "generation.failed" in keys
@@ -433,22 +434,23 @@ class TestNotificationOperations:
 
     def test_get_preferences_reflects_stored_overrides_and_sound(self, collaborators, mock_settings):
         mock_settings.get_setting.return_value = {
-            "types": {"generation.completed": False}, "sound": True
+            "types": {"generation.completed": False}, "sound": True, "chat_sound": True
         }
 
         prefs = operations.get_preferences(collaborators, "user-1")
 
         assert prefs["sound"] is True
+        assert prefs["chat_sound"] is True
         by_key = {t["key"]: t for t in prefs["types"]}
         assert by_key["generation.completed"]["enabled"] is False
 
     def test_update_preferences_merges_types_and_sound(self, collaborators, mock_settings):
         mock_settings.get_setting.return_value = {
-            "types": {"generation.completed": False}, "sound": False
+            "types": {"generation.completed": False}, "sound": False, "chat_sound": False
         }
 
-        result = operations.update_preferences(collaborators, 
-            "user-1", types={"generation.failed": False}, sound=True
+        result = operations.update_preferences(collaborators,
+            "user-1", types={"generation.failed": False}, sound=True, chat_sound=True
         )
 
         mock_settings.set_setting.assert_called_once()
@@ -457,18 +459,30 @@ class TestNotificationOperations:
         stored = args[1]
         assert stored["types"] == {"generation.completed": False, "generation.failed": False}
         assert stored["sound"] is True
+        assert stored["chat_sound"] is True
         assert kwargs["user_id"] == "user-1"
 
         # Result is the fresh get_preferences() shape.
-        assert "types" in result and "sound" in result
+        assert "types" in result and "sound" in result and "chat_sound" in result
 
     def test_update_preferences_partial_leaves_other_field_untouched(self, collaborators, mock_settings):
-        mock_settings.get_setting.return_value = {"types": {}, "sound": True}
+        mock_settings.get_setting.return_value = {"types": {}, "sound": True, "chat_sound": True}
 
         operations.update_preferences(collaborators, "user-1", types={"generation.completed": False})
 
         args, _ = mock_settings.set_setting.call_args
         assert args[1]["sound"] is True
+        assert args[1]["chat_sound"] is True
+
+    def test_update_preferences_chat_sound_only(self, collaborators, mock_settings):
+        mock_settings.get_setting.return_value = {"types": {}, "sound": False, "chat_sound": False}
+
+        result = operations.update_preferences(collaborators, "user-1", chat_sound=True)
+
+        args, _ = mock_settings.set_setting.call_args
+        assert args[1]["chat_sound"] is True
+        assert args[1]["sound"] is False
+        assert "chat_sound" in result
 
     def test_update_preferences_unknown_type_raises(self, collaborators, mock_settings):
         mock_settings.get_setting.return_value = {}

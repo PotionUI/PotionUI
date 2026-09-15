@@ -60,7 +60,7 @@ function makePref(overrides: Partial<NotificationTypePref> = {}): NotificationTy
 }
 
 function makePrefs(overrides: Partial<NotificationPreferences> = {}): NotificationPreferences {
-	return { types: [makePref()], sound: false, ...overrides };
+	return { types: [makePref()], sound: false, chat_sound: false, ...overrides };
 }
 
 const mockedApi = api as unknown as {
@@ -270,10 +270,16 @@ describe('prefs pure helpers', () => {
 		expect(next.prefsLoaded).toBe(true);
 	});
 
+	it('applyPrefs merges chat_sound', () => {
+		const next = applyPrefs(initialState(), makePrefs({ chat_sound: true }));
+		expect(next.chat_sound).toBe(true);
+	});
+
 	it('setTypeEnabledInState flips only the matching key', () => {
 		const state = applyPrefs(initialState(), {
 			types: [makePref({ key: 'a', enabled: true }), makePref({ key: 'b', enabled: true })],
-			sound: false
+			sound: false,
+			chat_sound: false
 		});
 		const next = setTypeEnabledInState(state, 'a', false);
 		expect(next.prefTypes.find((t) => t.key === 'a')?.enabled).toBe(false);
@@ -341,5 +347,23 @@ describe('notifications store — preferences', () => {
 		mockedApi.updateNotificationPreferences.mockResolvedValueOnce({ success: false });
 		await notifications.setSound(true);
 		expect(get(notifications).sound).toBe(false);
+	});
+
+	it('setChatSound optimistically updates and PUTs the partial', async () => {
+		await seedPrefs(makePrefs({ chat_sound: false }));
+		mockedApi.updateNotificationPreferences.mockResolvedValueOnce({
+			success: true,
+			data: makePrefs({ chat_sound: true })
+		});
+		await notifications.setChatSound(true);
+		expect(mockedApi.updateNotificationPreferences).toHaveBeenCalledWith({ chat_sound: true });
+		expect(get(notifications).chat_sound).toBe(true);
+	});
+
+	it('setChatSound reverts when the API responds unsuccessfully', async () => {
+		await seedPrefs(makePrefs({ chat_sound: false }));
+		mockedApi.updateNotificationPreferences.mockResolvedValueOnce({ success: false });
+		await notifications.setChatSound(true);
+		expect(get(notifications).chat_sound).toBe(false);
 	});
 });

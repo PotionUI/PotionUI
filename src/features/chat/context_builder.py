@@ -2,9 +2,10 @@
 
 Builds everything that surrounds the raw conversation before it reaches the
 model: the effective system prompt (mode prompt or explicit override) together
-with the allowed tool set, and the system context blocks injected right before
-the last user message (@resource snapshots, the mode's context contributor and
-recalled persistent memory). Also serves @resource autocomplete suggestions.
+with the allowed tool set, and the per-turn context blocks folded into the
+current user turn (@resource snapshots, the mode's context contributor and
+recalled persistent memory) via ``context_budget.attach_context_block``. Also
+serves @resource autocomplete suggestions.
 
 Split out of the ChatRuntime coordinator; it reads its collaborators (resource
 registry, memory manager, model/preset managers, chat-mode registry, tool
@@ -20,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.chat.modes import ChatMode
 from src.features.chat.reply_contract import REPLY_CONTRACT_REMINDER
+from src.features.llm import context_budget
 from src.features.llm.tools.governance import ToolGovernanceRepository, compute_allowed_tool_names
 from src.features.llm.ttl_cache import TTLCache
 from src.features.llm_memory import operations as memory_operations
@@ -409,15 +411,14 @@ class ChatContextBuilder:
         conversation_history: List[Dict[str, Any]],
         resolved: List[ResolvedResource],
     ) -> None:
-        """Insert one system context block immediately before the last user message."""
+        """Fold the resource snapshot into the current user turn."""
         if not resolved:
             return
         block = (
             "The user attached these resources (snapshot at send time):\n\n"
             + "\n\n---\n\n".join(r.content for r in resolved)
         )
-        insert_at = max(len(conversation_history) - 1, 0)
-        conversation_history.insert(insert_at, {"role": "system", "content": block})
+        context_budget.attach_context_block(conversation_history, block)
 
     async def inject_contributor_block(
         self,
@@ -426,7 +427,7 @@ class ChatContextBuilder:
         context_metadata: Optional[Dict[str, Any]],
         user_id: str,
     ) -> None:
-        """Insert the mode's context-contributor block immediately before the last user message.
+        """Fold the mode's context-contributor block into the current user turn.
 
         Contributor failures are logged and never break the send.
         """
@@ -444,28 +445,26 @@ class ChatContextBuilder:
             return
         if not isinstance(result, str) or not result.strip():
             return
-        insert_at = max(len(conversation_history) - 1, 0)
-        conversation_history.insert(insert_at, {"role": "system", "content": result})
+        context_budget.attach_context_block(conversation_history, result)
 
     @staticmethod
     def inject_reply_contract_reminder_block(
         conversation_history: List[Dict[str, Any]],
         mode: Optional[ChatMode],
     ) -> None:
-        """Insert a short reply-contract reminder immediately before the last user message.
+        """Fold a short reply-contract reminder into the current user turn.
 
         A rule stated once near the top of a long system prompt loses to recency;
         this restates it right next to the turn it governs, every send. Composes
         with the mode's context-contributor block rather than replacing it — both
-        follow the same "insert immediately before the last message" idiom, so
-        calling this after ``inject_contributor_block`` just adds a second system
-        block, closer to the user message. No-op for modes with
-        ``structured_reply`` off.
+        fold into the same user turn, so calling this after
+        ``inject_contributor_block`` just adds a second block, closer to the
+        end of the user's content. No-op for modes with ``structured_reply``
+        off.
         """
         if not mode or not mode.structured_reply:
             return
-        insert_at = max(len(conversation_history) - 1, 0)
-        conversation_history.insert(insert_at, {"role": "system", "content": REPLY_CONTRACT_REMINDER})
+        context_budget.attach_context_block(conversation_history, REPLY_CONTRACT_REMINDER)
 
     @staticmethod
     def inject_tool_availability_block(
@@ -473,8 +472,8 @@ class ChatContextBuilder:
         offered: Optional[List[str]],
         withheld: Dict[str, str],
     ) -> None:
-        """Insert a system block, immediately before the last user message, warning
-        the model about tools it cannot call this turn.
+        """Fold a block into the current user turn warning the model about
+        tools it cannot call this turn.
 
         Without this the mode's own prompt (written for the tool-driven case) is
         the model's only guidance, and a model told nothing about a missing tool
@@ -485,7 +484,6 @@ class ChatContextBuilder:
         """
         if not withheld:
             return
-        insert_at = max(len(conversation_history) - 1, 0)
         if not offered:
             reasons = sorted({_TOOL_UNAVAILABLE_LABELS.get(r, r) for r in withheld.values()})
             hints = sorted({h for r in withheld.values() if (h := TOOL_WITHHELD_HINTS.get(r))})
@@ -506,7 +504,7 @@ class ChatContextBuilder:
                 "Some tools your instructions describe are unavailable this turn — "
                 "do not call them or tell the user you did:\n" + "\n".join(lines)
             )
-        conversation_history.insert(insert_at, {"role": "system", "content": text})
+        context_budget.attach_context_block(conversation_history, text)
 
     def inject_memory_block(
         self,
@@ -516,7 +514,7 @@ class ChatContextBuilder:
         write_memory_available: bool = True,
         mode_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Insert eagerly-recalled memory notes immediately before the last user message.
+        """Fold eagerly-recalled memory notes into the current user turn.
 
         Reads global notes plus notes scoped to the active preset/model (resolved from
         `context_metadata['form_state']`) and to the active mode (``mode_id`` — the
@@ -630,8 +628,7 @@ class ChatContextBuilder:
                     lines.append(f"  (+{overflow} older notes not shown — consolidate or prune in the memory panel)")
 
             block = "\n".join(lines)
-            insert_at = max(len(conversation_history) - 1, 0)
-            conversation_history.insert(insert_at, {"role": "system", "content": block})
+            context_budget.attach_context_block(conversation_history, block)
 
             return {
                 "note_ids": note_ids,
@@ -649,7 +646,7 @@ class ChatContextBuilder:
         conversation_history: List[Dict[str, Any]],
         context_metadata: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """Insert a snapshot of the active Generate-form workspace before the last user message.
+        """Fold a snapshot of the active Generate-form workspace into the current user turn.
 
         Reads the CURRENT turn's ``context_metadata['form_state']`` and emits one
         compact system block: the active preset (by name)/mode/variant, the selected
@@ -810,8 +807,7 @@ class ChatContextBuilder:
                 lines.extend(self._render_form_context(preset_id, mode, variant, form_context_mode))
 
             block = "\n".join(lines)
-            insert_at = max(len(conversation_history) - 1, 0)
-            conversation_history.insert(insert_at, {"role": "system", "content": block})
+            context_budget.attach_context_block(conversation_history, block)
 
             return {
                 "preset": preset_id,
@@ -958,7 +954,7 @@ class ChatContextBuilder:
         conversation_history: List[Dict[str, Any]],
         context_metadata: Optional[Dict[str, Any]],
     ) -> None:
-        """Insert a compact structural snapshot of the current prompt editor before the last user message.
+        """Fold a compact structural snapshot of the current prompt editor into the current user turn.
 
         Reads the CURRENT turn's ``context_metadata['segments']`` (index/id/content/
         name/type/enabled, plus optional ``template`` provenance and a ``negative``
@@ -1029,8 +1025,7 @@ class ChatContextBuilder:
                 block[:_PROMPT_STATE_MAX_BLOCK_CHARS].rstrip()
                 + "\n…(truncated — call get_current_segments for full segment text)"
             )
-        insert_at = max(len(conversation_history) - 1, 0)
-        conversation_history.insert(insert_at, {"role": "system", "content": block})
+        context_budget.attach_context_block(conversation_history, block)
 
     async def suggest_resources(
         self,

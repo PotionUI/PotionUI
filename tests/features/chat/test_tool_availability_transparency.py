@@ -177,9 +177,9 @@ class TestInjectToolAvailabilityBlock:
         ChatContextBuilder.inject_tool_availability_block(
             history, [], {"propose_caption_update": "off_by_toggle"}
         )
-        assert len(history) == 2
+        assert len(history) == 1
         block = history[0]
-        assert block["role"] == "system"
+        assert block["role"] == "user"
         assert "Tools are unavailable in this conversation" in block["content"]
         assert "You cannot call any tool" in block["content"]
         assert "turn on Tools in the chat header" in block["content"]
@@ -190,7 +190,7 @@ class TestInjectToolAvailabilityBlock:
         ChatContextBuilder.inject_tool_availability_block(
             history, ["get_form_state"], {"get_active_models": "disabled_in_mode"}
         )
-        assert len(history) == 2
+        assert len(history) == 1
         block = history[0]["content"]
         assert "get_active_models" in block
         assert "disabled for this mode" in block
@@ -198,15 +198,18 @@ class TestInjectToolAvailabilityBlock:
         # A partially-withheld block must not claim no tools can be called at all.
         assert "You cannot call any tool" not in block
 
-    def test_inserted_immediately_before_last_message(self):
+    def test_folded_into_the_last_user_message(self):
         history = [
             {"role": "user", "content": "earlier"},
             {"role": "assistant", "content": "ok"},
             {"role": "user", "content": "latest"},
         ]
         ChatContextBuilder.inject_tool_availability_block(history, [], {"t": "unavailable"})
-        assert history[3]["content"] == "latest"
-        assert history[2]["role"] == "system"
+        assert len(history) == 3
+        assert history[0] == {"role": "user", "content": "earlier"}
+        assert history[1] == {"role": "assistant", "content": "ok"}
+        assert history[2]["role"] == "user"
+        assert history[2]["content"].startswith("latest\n\n<context>\n")
 
 
 def _tool_session(tools_enabled=True, disabled_tools=None):
@@ -291,8 +294,9 @@ class TestSendMessageToolAvailabilityTransparency:
         await manager.send_message(session_id="session-123", user_id="user-123", content="Hello")
 
         sent_history = mock_llm.generate_with_history.call_args.kwargs["messages"]
-        system_blocks = [m["content"] for m in sent_history if m["role"] == "system"]
-        assert any("Tools are unavailable in this conversation" in b for b in system_blocks)
+        assert not any(m["role"] == "system" for m in sent_history)
+        blocks = [m["content"] for m in sent_history]
+        assert any("Tools are unavailable in this conversation" in b for b in blocks)
 
         second_call = mock_repo.add_message.call_args_list[1][1]
         trace = second_call["metadata"]["behavior_trace"]
@@ -308,8 +312,8 @@ class TestSendMessageToolAvailabilityTransparency:
 
         kwargs = manager.tool_executor.execute_with_tools.call_args.kwargs
         sent_history = kwargs["messages"]
-        system_blocks = [m["content"] for m in sent_history if m["role"] == "system"]
-        assert not any("Tools are unavailable" in b or "unavailable this turn" in b for b in system_blocks)
+        blocks = [m["content"] for m in sent_history]
+        assert not any("Tools are unavailable" in b or "unavailable this turn" in b for b in blocks)
 
         second_call = mock_repo.add_message.call_args_list[1][1]
         trace = second_call["metadata"]["behavior_trace"]

@@ -202,10 +202,6 @@ class ConversationRunner:
         if withheld_tools:
             step_records.append({"step": "tools", "duration_ms": 0})
 
-        # Recalled memory is injected before the history budget runs so it is
-        # counted against the budget instead of escaping it unbounded; the
-        # budget call below protects it explicitly (min_protected=2) rather
-        # than relying on the trim walk happening to keep it.
         _memory_start = time.monotonic()
         memory_result = self._m._context.inject_memory_block(
             conversation_history, context_metadata, user_id,
@@ -216,9 +212,7 @@ class ConversationRunner:
 
         # Cap what actually goes to the LLM to a token budget (repo/UI keep the
         # full history regardless — see get_conversation_history's docstring).
-        history_info = self._apply_history_budget(
-            conversation_history, min_protected=2 if memory_result.get("injected_chars") else 1,
-        )
+        history_info = self._apply_history_budget(conversation_history)
 
         # Inject mode context + @resource snapshot right before the last user
         # message (contributor, resource, workspace, prompt state, then the
@@ -574,10 +568,6 @@ class ConversationRunner:
                 },
             }
 
-        # Recalled memory is injected before the history budget runs so it is
-        # counted against the budget instead of escaping it unbounded; the
-        # budget call below protects it explicitly (min_protected=2) rather
-        # than relying on the trim walk happening to keep it.
         _memory_start = time.monotonic()
         yield {"event": "status", "data": {"step": "loading_memory", "state": "started"}}
         memory_result = self._m._context.inject_memory_block(
@@ -605,9 +595,7 @@ class ConversationRunner:
 
         # Cap what actually goes to the LLM to a token budget (repo/UI keep the
         # full history regardless — see get_conversation_history's docstring).
-        history_info = self._apply_history_budget(
-            conversation_history, min_protected=2 if memory_result.get("injected_chars") else 1,
-        )
+        history_info = self._apply_history_budget(conversation_history)
 
         # Inject mode context + @resource snapshot right before the last user
         # message (contributor, resource, workspace, prompt state, then the
@@ -1006,11 +994,7 @@ class ConversationRunner:
         Uses a chars/4 heuristic per message. Whole messages only, oldest
         dropped first. The last ``min_protected`` messages are always kept
         regardless of their combined size — normally just the current (last)
-        message, but a caller that has already inserted a system block right
-        before it (e.g. the recalled-memory block) passes ``min_protected=2``
-        so that block can never be a trim casualty even if it alone would
-        blow the budget, instead of relying on the backward walk happening to
-        keep it. This only affects what's sent to the LLM for this turn — the
+        message. This only affects what's sent to the LLM for this turn — the
         stored conversation in the repository/UI is untouched.
 
         Returns the manifest entry recorded into the behavior trace:

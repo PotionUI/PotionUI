@@ -1349,14 +1349,12 @@ class TestSendMessageStreamResources(BaseStreamingTest):
         user_call = self.mock_repo.add_message.call_args_list[0]
         assert user_call.kwargs["metadata"]["resources"][0]["content"] == "KNOWN CONTENT"
         history = self.mock_llm.stream_with_history.call_args.kwargs["messages"]
+        assert len(history) == 1
         assert history[-1]["role"] == "user"
-        # -2 is the per-send reply-contract reminder, injected last so it
-        # lands closest to the user message; the resource block it displaces
-        # sits one slot further back.
-        assert history[-2]["role"] == "system"
-        assert "Reply format reminder" in history[-2]["content"]
-        assert history[-3]["role"] == "system"
-        assert "KNOWN CONTENT" in history[-3]["content"]
+        content = history[-1]["content"]
+        assert "KNOWN CONTENT" in content
+        assert "Reply format reminder" in content
+        assert content.index("KNOWN CONTENT") < content.index("Reply format reminder")
 
     @pytest.mark.asyncio
     async def test_stream_unknown_resource_does_not_break(self):
@@ -1374,7 +1372,7 @@ class TestSendMessageStreamResources(BaseStreamingTest):
         assert not [e for e in events if e["event"] == "error"]
         assert [e for e in events if e["event"] == "done"]
         history = self.mock_llm.stream_with_history.call_args.kwargs["messages"]
-        assert "could not be resolved" in history[-3]["content"]
+        assert "could not be resolved" in history[-1]["content"]
 
 
 # ---------------------------------------------------------------------------
@@ -1430,12 +1428,10 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
         ))
 
         history = self.mock_llm.stream_with_history.call_args.kwargs["messages"]
+        assert len(history) == 1
         assert history[-1]["role"] == "user"
-        # -2 is the per-send reply-contract reminder (structured_reply
-        # defaults on); the contributor block it displaces sits one slot
-        # further back.
-        assert history[-2]["content"] == REPLY_CONTRACT_REMINDER
-        assert history[-3] == {"role": "system", "content": "PLUGIN CONTEXT BLOCK"}
+        content = history[-1]["content"]
+        assert content.index("PLUGIN CONTEXT BLOCK") < content.index(REPLY_CONTRACT_REMINDER)
 
     @pytest.mark.asyncio
     async def test_async_contributor_supported(self):
@@ -1451,7 +1447,7 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
         ))
 
         history = self.mock_llm.stream_with_history.call_args.kwargs["messages"]
-        assert history[-3] == {"role": "system", "content": "ASYNC bar user-123"}
+        assert "ASYNC bar user-123" in history[-1]["content"]
 
     @pytest.mark.asyncio
     async def test_contributor_exception_never_breaks_send(self):
@@ -1468,10 +1464,9 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
         assert not [e for e in events if e["event"] == "error"]
         assert [e for e in events if e["event"] == "done"]
         history = self.mock_llm.stream_with_history.call_args.kwargs["messages"]
-        # The failed contributor left no trace -- the only system message is
-        # the per-send reply-contract reminder.
         assert not any("boom" in (m.get("content") or "") for m in history)
-        assert [m["content"] for m in history if m["role"] == "system"] == [REPLY_CONTRACT_REMINDER]
+        assert not any(m["role"] == "system" for m in history)
+        assert history[-1]["content"] == f"hello\n\n<context>\n{REPLY_CONTRACT_REMINDER}\n</context>"
 
     @pytest.mark.asyncio
     async def test_empty_contributor_result_not_inserted(self):
@@ -1483,9 +1478,8 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
         ))
 
         history = self.mock_llm.stream_with_history.call_args.kwargs["messages"]
-        # The blank contributor result was skipped -- the only system message
-        # is the per-send reply-contract reminder.
-        assert [m["content"] for m in history if m["role"] == "system"] == [REPLY_CONTRACT_REMINDER]
+        assert not any(m["role"] == "system" for m in history)
+        assert history[-1]["content"] == f"hello\n\n<context>\n{REPLY_CONTRACT_REMINDER}\n</context>"
 
     @pytest.mark.asyncio
     async def test_contributor_block_precedes_resource_block(self):
@@ -1506,10 +1500,10 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
         ))
 
         history = self.mock_llm.stream_with_history.call_args.kwargs["messages"]
+        assert len(history) == 1
         assert history[-1]["role"] == "user"
-        assert history[-2]["content"] == REPLY_CONTRACT_REMINDER
-        assert "RESOURCE" in history[-3]["content"]
-        assert history[-4]["content"] == "CONTRIB"
+        content = history[-1]["content"]
+        assert content.index("CONTRIB") < content.index("RESOURCE") < content.index(REPLY_CONTRACT_REMINDER)
 
     @pytest.mark.asyncio
     async def test_llm_options_reach_stream_with_history(self):

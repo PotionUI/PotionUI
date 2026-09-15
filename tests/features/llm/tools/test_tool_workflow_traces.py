@@ -411,10 +411,12 @@ class TestNonStreamTraces:
             ("tool_end", "echo", True, False, None, None),
             ("final", "done twice", None, None, False),
         ]
-        nudge = ("system", "wrap up", None, None)
-        assert out["calls"][0]["messages"][-1] != nudge
-        assert out["calls"][1]["messages"][-1] == nudge
-        assert out["calls"][2]["messages"][-1] == nudge
+        nudge_question = ("user", "hi\n\n<context>\nwrap up\n</context>", None, None)
+        assert USER in out["calls"][0]["messages"]
+        assert not any(m[0] == "system" for m in out["calls"][1]["messages"])
+        assert not any(m[0] == "system" for m in out["calls"][2]["messages"])
+        assert nudge_question in out["calls"][1]["messages"]
+        assert nudge_question in out["calls"][2]["messages"]
 
     @pytest.mark.asyncio
     async def test_tool_failure(self):
@@ -536,8 +538,9 @@ class TestLegacyStreamTraces:
             ("done", "wrapped up", False, None, None),
         ]
         final_messages = out["calls"][2]["messages"]
-        assert final_messages[-1][0] == "system"
-        assert "Tool budget for this turn is exhausted" in final_messages[-1][1]
+        assert not any(m[0] == "system" for m in final_messages)
+        question = next(m for m in final_messages if m[0] == "user")
+        assert "Tool budget for this turn is exhausted" in question[1]
         assert out["calls"][2]["tools_offered"] == 0
 
 
@@ -612,8 +615,9 @@ class TestLiveStreamTraces:
             ("done", "wrapped up", False, None, None),
         ]
         final_messages = out["calls"][2]["messages"]
-        assert final_messages[-1][0] == "system"
-        assert "Tool budget for this turn is exhausted" in final_messages[-1][1]
+        assert not any(m[0] == "system" for m in final_messages)
+        question = next(m for m in final_messages if m[0] == "user")
+        assert "Tool budget for this turn is exhausted" in question[1]
         assert out["calls"][2]["tools_offered"] is None
 
     @pytest.mark.asyncio
@@ -703,4 +707,17 @@ class TestPathsAgree:
 
         without_status = [e for e in decisions(legacy["trace"]) if e[0] != "status"]
         assert decisions(non_stream["trace"]) == without_status
-        assert len(non_stream["calls"][2]["messages"]) + 1 == len(legacy["calls"][2]["messages"])
+
+        from src.features.llm.tools.workflow import ToolWorkflow
+
+        non_stream_final = non_stream["calls"][2]["messages"]
+        legacy_final = legacy["calls"][2]["messages"]
+        assert len(non_stream_final) == len(legacy_final)
+        for plain, wrapped_up in zip(non_stream_final, legacy_final):
+            if plain[0] == "user":
+                assert wrapped_up == (
+                    "user", f"{plain[1]}\n\n<context>\n{ToolWorkflow.TOOL_BUDGET_EXHAUSTED_MESSAGE}\n</context>",
+                    plain[2], plain[3],
+                )
+            else:
+                assert plain == wrapped_up

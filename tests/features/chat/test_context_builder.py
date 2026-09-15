@@ -2,6 +2,9 @@
 
 from src.features.chat.context_builder import ChatContextBuilder
 
+_PREFIX = "hi\n\n<context>\n"
+_SUFFIX = "\n</context>"
+
 
 def _inject(segments):
     history = [{"role": "user", "content": "hi"}]
@@ -11,9 +14,11 @@ def _inject(segments):
 
 def _block(segments):
     history = _inject(segments)
-    if len(history) == 1:
+    content = history[0]["content"]
+    if content == "hi":
         return None
-    return history[0]["content"]
+    assert content.startswith(_PREFIX) and content.endswith(_SUFFIX)
+    return content[len(_PREFIX):-len(_SUFFIX)]
 
 
 def test_renders_positive_negative_break_and_template_slot():
@@ -105,9 +110,9 @@ def test_absent_or_empty_segments_injects_nothing():
     assert _block([]) is None
     history = [{"role": "user", "content": "hi"}]
     ChatContextBuilder.inject_prompt_state_block(history, {})
-    assert len(history) == 1
+    assert history == [{"role": "user", "content": "hi"}]
     ChatContextBuilder.inject_prompt_state_block(history, None)
-    assert len(history) == 1
+    assert history == [{"role": "user", "content": "hi"}]
 
 
 def test_determinism():
@@ -121,7 +126,7 @@ def test_determinism():
     assert _block(segments) == _block([dict(s) for s in segments])
 
 
-def test_inserted_before_last_user_message():
+def test_folded_into_last_user_message():
     history = [
         {"role": "user", "content": "earlier"},
         {"role": "assistant", "content": "reply"},
@@ -130,9 +135,11 @@ def test_inserted_before_last_user_message():
     ChatContextBuilder.inject_prompt_state_block(
         history, {"segments": [{"index": 0, "id": "a", "type": "content", "enabled": True, "content": "x"}]}
     )
-    assert history[-1]["content"] == "current"
-    assert history[-2]["role"] == "system"
-    assert history[-2]["content"].startswith("PROMPT STATE")
+    assert len(history) == 3
+    assert history[0] == {"role": "user", "content": "earlier"}
+    assert history[1] == {"role": "assistant", "content": "reply"}
+    assert history[-1]["role"] == "user"
+    assert history[-1]["content"].startswith("current\n\n<context>\nPROMPT STATE")
 
 
 def test_skipped_when_video_director_active():
@@ -143,7 +150,7 @@ def test_skipped_when_video_director_active():
     history = _inject_with_form_state(
         segments, {"video_director": {"active": True, "doc": {}, "capabilities": {}}}
     )
-    assert len(history) == 1
+    assert history == [{"role": "user", "content": "hi"}]
 
 
 def test_not_skipped_when_video_director_inactive():
@@ -151,8 +158,8 @@ def test_not_skipped_when_video_director_inactive():
     history = _inject_with_form_state(
         segments, {"video_director": {"active": False, "doc": None, "capabilities": None}}
     )
-    assert len(history) == 2
-    assert history[0]["content"].startswith("PROMPT STATE")
+    assert len(history) == 1
+    assert "PROMPT STATE" in history[0]["content"]
 
 
 def _inject_with_form_state(segments, form_state):

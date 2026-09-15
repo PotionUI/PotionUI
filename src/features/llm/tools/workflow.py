@@ -27,6 +27,7 @@ from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Dict, List, Optional, Protocol
 
+from src.features.llm import context_budget
 from src.features.llm.tools import tool_call_rescue
 from src.features.llm.tools.base import ToolContext, ToolExecution
 
@@ -382,17 +383,16 @@ class ToolWorkflow:
         self._tool_image_data = None
         messages = self.working_messages
         if self.iteration_nudge and self._any_tool_round_completed:
-            # Synthesized fresh per call rather than stored in
-            # `working_messages`, so it is always the most recent message
-            # without ever needing to be removed or deduplicated.
-            messages = self.working_messages + [{"role": "system", "content": self.iteration_nudge}]
+            messages = list(self.working_messages)
+            context_budget.attach_context_block(messages, self.iteration_nudge)
         self._inline_assistant_msg = None
         return TurnRequest(messages=messages, image_data=image_data)
 
     def _final_request(self) -> TurnRequest:
         messages = self.working_messages
         if self.wrap_up_on_limit:
-            messages = messages + [{"role": "system", "content": self.TOOL_BUDGET_EXHAUSTED_MESSAGE}]
+            messages = list(self.working_messages)
+            context_budget.attach_context_block(messages, self.TOOL_BUDGET_EXHAUSTED_MESSAGE)
         return TurnRequest(messages=messages, image_data=None, final=True)
 
     def reset_inline(self) -> None:
@@ -438,7 +438,7 @@ class ToolWorkflow:
         the model, spending one of the turn's bounded rescue retries."""
         self._rescue_retries += 1
         self.working_messages.append({"role": "assistant", "content": cleaned})
-        self.working_messages.append({"role": "system", "content": nudge})
+        context_budget.attach_context_block(self.working_messages, nudge)
 
     # -- dispatch ------------------------------------------------------------
 

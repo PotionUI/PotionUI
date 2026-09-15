@@ -2141,11 +2141,13 @@ class TestToolExecutorIterationNudge:
         calls = llm_service.generate_with_tools.call_args_list
         first, second, third = (c.kwargs["messages"] for c in calls)
 
-        assert not any(m.get("content") == _NUDGE for m in first)
-        assert second[-1] == {"role": "system", "content": _NUDGE}
-        assert third[-1] == {"role": "system", "content": _NUDGE}
-        # Never stacked — exactly one nudge message even after two rounds.
-        assert sum(1 for m in third if m.get("content") == _NUDGE) == 1
+        assert not any(_NUDGE in (m.get("content") or "") for m in first)
+        assert not any(m["role"] == "system" for m in second + third)
+        second_question = next(m for m in second if m["role"] == "user")
+        third_question = next(m for m in third if m["role"] == "user")
+        assert second_question["content"] == f"go\n\n<context>\n{_NUDGE}\n</context>"
+        assert third_question["content"] == f"go\n\n<context>\n{_NUDGE}\n</context>"
+        assert sum(1 for m in third if _NUDGE in (m.get("content") or "")) == 1
 
     @pytest.mark.asyncio
     async def test_buffered_nudge_absent_when_none(self):
@@ -2192,10 +2194,13 @@ class TestToolExecutorIterationNudge:
         ))
 
         first, second, third = captured
-        assert not any(m.get("content") == _NUDGE for m in first)
-        assert second[-1] == {"role": "system", "content": _NUDGE}
-        assert third[-1] == {"role": "system", "content": _NUDGE}
-        assert sum(1 for m in third if m.get("content") == _NUDGE) == 1
+        assert not any(_NUDGE in (m.get("content") or "") for m in first)
+        assert not any(m["role"] == "system" for m in second + third)
+        second_question = next(m for m in second if m["role"] == "user")
+        third_question = next(m for m in third if m["role"] == "user")
+        assert second_question["content"] == f"go\n\n<context>\n{_NUDGE}\n</context>"
+        assert third_question["content"] == f"go\n\n<context>\n{_NUDGE}\n</context>"
+        assert sum(1 for m in third if _NUDGE in (m.get("content") or "")) == 1
 
     @pytest.mark.asyncio
     async def test_legacy_stream_nudge_absent_first_call_then_last_each_round_after(self):
@@ -2224,10 +2229,13 @@ class TestToolExecutorIterationNudge:
 
         calls = llm_service.generate_with_tools.call_args_list
         first, second, third = (c.kwargs["messages"] for c in calls)
-        assert not any(m.get("content") == _NUDGE for m in first)
-        assert second[-1] == {"role": "system", "content": _NUDGE}
-        assert third[-1] == {"role": "system", "content": _NUDGE}
-        assert sum(1 for m in third if m.get("content") == _NUDGE) == 1
+        assert not any(_NUDGE in (m.get("content") or "") for m in first)
+        assert not any(m["role"] == "system" for m in second + third)
+        second_question = next(m for m in second if m["role"] == "user")
+        third_question = next(m for m in third if m["role"] == "user")
+        assert second_question["content"] == f"go\n\n<context>\n{_NUDGE}\n</context>"
+        assert third_question["content"] == f"go\n\n<context>\n{_NUDGE}\n</context>"
+        assert sum(1 for m in third if _NUDGE in (m.get("content") or "")) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -2277,10 +2285,9 @@ class TestToolExecutorCapExhaustionSignal:
         assert len(status_events) == 1
 
         final_call_messages = captured[-1]
-        assert final_call_messages[-1] == {
-            "role": "system",
-            "content": ToolWorkflow.TOOL_BUDGET_EXHAUSTED_MESSAGE,
-        }
+        assert not any(m["role"] == "system" for m in final_call_messages)
+        question = next(m for m in final_call_messages if m["role"] == "user")
+        assert question["content"] == f"go\n\n<context>\n{ToolWorkflow.TOOL_BUDGET_EXHAUSTED_MESSAGE}\n</context>"
 
     @pytest.mark.asyncio
     async def test_legacy_stream_emits_status_and_injects_wrapup_message(self):
@@ -2309,10 +2316,9 @@ class TestToolExecutorCapExhaustionSignal:
         assert len(status_events) == 1
 
         last_call_messages = llm_service.generate_with_tools.call_args_list[-1].kwargs["messages"]
-        assert last_call_messages[-1] == {
-            "role": "system",
-            "content": ToolWorkflow.TOOL_BUDGET_EXHAUSTED_MESSAGE,
-        }
+        assert not any(m["role"] == "system" for m in last_call_messages)
+        question = next(m for m in last_call_messages if m["role"] == "user")
+        assert question["content"] == f"go\n\n<context>\n{ToolWorkflow.TOOL_BUDGET_EXHAUSTED_MESSAGE}\n</context>"
 
 
 # ---------------------------------------------------------------------------
@@ -2919,10 +2925,10 @@ class TestToolExecutorRescue:
         assert response.content == "ok, what should I echo?"
         assert executions == []
         assert response.rescues is None
-        # A corrective system nudge was appended before the second call.
         second_messages = llm_service.generate_with_tools.call_args_list[1].kwargs["messages"]
+        assert not any(m["role"] == "system" for m in second_messages)
         assert any(
-            m["role"] == "system" and "<tool_call>" in m["content"] for m in second_messages
+            m["role"] == "user" and "<tool_call>" in m["content"] for m in second_messages
         )
 
     @pytest.mark.asyncio
@@ -3034,9 +3040,10 @@ class TestToolExecutorTruncatedToolCall:
         assert executions == []
         assert llm_service.generate_with_tools.call_count == 2
         second_messages = llm_service.generate_with_tools.call_args_list[1].kwargs["messages"]
+        assert not any(m["role"] == "system" for m in second_messages)
         nudges = [
             m["content"] for m in second_messages
-            if m["role"] == "system" and "cut off" in m["content"]
+            if m["role"] == "user" and "cut off" in m["content"]
         ]
         assert len(nudges) == 1
         assert "echo" in nudges[0]
@@ -3162,9 +3169,10 @@ class TestToolExecutorMalformedClosedToolCall:
         assert "<tool_call>" not in response.content
         assert executions == []
         second_messages = llm_service.generate_with_tools.call_args_list[1].kwargs["messages"]
+        assert not any(m["role"] == "system" for m in second_messages)
         nudges = [
             m["content"] for m in second_messages
-            if m["role"] == "system" and "did not parse" in m["content"]
+            if m["role"] == "user" and "did not parse" in m["content"]
         ]
         assert len(nudges) == 1
         assert "echo" in nudges[0]

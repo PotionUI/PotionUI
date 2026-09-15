@@ -991,14 +991,14 @@ class TestMemoryCountedInHistoryBudget:
         # All six old turns were dropped -- the memory block alone already
         # exceeds the 40-char budget, so nothing before it fits.
         assert not any("old turn" in (m.get("content") or "") for m in sent)
-        assert sent[-1]["content"] == "current question"
+        assert len(sent) == 1
+        assert sent[-1]["role"] == "user"
+        assert sent[-1]["content"].startswith("current question\n\n<context>\n")
         assert any("a distinctive recalled fact" in (m.get("content") or "") for m in sent)
-        # memory block + current question + the per-send reply-contract reminder
-        assert len(sent) == 3
 
         trace = self.mock_repo.add_message.call_args_list[1][1]["metadata"]["behavior_trace"]
         assert trace["history"]["truncated"] is True
-        assert trace["history"]["messages_total"] == 8  # 6 old turns + memory block + current
+        assert trace["history"]["messages_total"] == 7
         assert trace["memory"]["injected_chars"] > 0
 
     @pytest.mark.asyncio
@@ -1013,10 +1013,8 @@ class TestMemoryCountedInHistoryBudget:
         for key in ("system_prompt", "tool_schemas", "memory", "history"):
             assert ledger[key]["chars"] >= 0
             assert ledger[key]["est_tokens"] == ledger[key]["chars"] // 4
-        # The messages actually sent (memory block + current question + the
-        # per-send reply-contract reminder) account for the history entry's size.
         assert ledger["history"]["chars"] > 0
-        assert ledger["history"]["message_count"] == 3
+        assert ledger["history"]["message_count"] == 1
         assert ledger["memory"]["chars"] > 0
         assert isinstance(ledger["total_est_tokens"], int)
 
@@ -1301,21 +1299,19 @@ class TestSendMessageResources:
         }]
 
     @pytest.mark.asyncio
-    async def test_resource_block_inserted_before_last_user_message(self):
+    async def test_resource_block_folded_into_the_user_message(self):
         await self.manager.send_message(
             session_id="s1", user_id="user-123",
             content="check @fake.known", resources=["fake.known"],
         )
         history = self.mock_llm.generate_with_history.call_args.kwargs["messages"]
-        assert history[-1] == {"role": "user", "content": "check @fake.known"}
-        # -2 is the per-send reply-contract reminder (structured_reply is on
-        # by default) -- it's injected last so it lands closest to the user
-        # message; the resource block it displaces sits one slot further back.
-        assert history[-2]["role"] == "system"
-        assert "Reply format reminder" in history[-2]["content"]
-        assert history[-3]["role"] == "system"
-        assert "snapshot at send time" in history[-3]["content"]
-        assert "KNOWN CONTENT" in history[-3]["content"]
+        assert history[-1]["role"] == "user"
+        content = history[-1]["content"]
+        assert content.startswith("check @fake.known\n\n<context>\n")
+        assert "snapshot at send time" in content
+        assert "KNOWN CONTENT" in content
+        assert "Reply format reminder" in content
+        assert content.index("snapshot at send time") < content.index("Reply format reminder")
 
     @pytest.mark.asyncio
     async def test_unknown_resource_becomes_error_note_and_send_succeeds(self):
@@ -1328,7 +1324,7 @@ class TestSendMessageResources:
         metadata = user_call.kwargs["metadata"]
         assert metadata["resources"][0]["kind"] == "error"
         history = self.mock_llm.generate_with_history.call_args.kwargs["messages"]
-        assert "could not be resolved" in history[-3]["content"]
+        assert "could not be resolved" in history[-1]["content"]
 
     @pytest.mark.asyncio
     async def test_no_resources_no_block(self):
@@ -1392,11 +1388,11 @@ class TestInjectMemoryBlock:
 
         self.manager._inject_memory_block(history, context_metadata=None, user_id="user-1")
 
-        assert len(history) == 2
-        assert history[0]["role"] == "system"
+        assert len(history) == 1
+        assert history[0]["role"] == "user"
+        assert history[0]["content"].startswith("hello\n\n<context>\n")
         assert "pref" in history[0]["content"]
         assert "likes cinematic lighting" in history[0]["content"]
-        assert history[1]["content"] == "hello"
 
     def test_inserts_nothing_when_empty(self):
         self.mock_memory_ops.read_notes.return_value = []
@@ -1517,7 +1513,10 @@ class TestInjectMemoryBlock:
 
         result = self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
 
-        assert result["injected_chars"] == len(history[0]["content"])
+        prefix, suffix = "hello\n\n<context>\n", "\n</context>"
+        content = history[0]["content"]
+        assert content.startswith(prefix) and content.endswith(suffix)
+        assert result["injected_chars"] == len(content) - len(prefix) - len(suffix)
         assert result["injected_chars"] > 0
 
     def test_no_notes_reports_zero_injected_chars(self):
@@ -1595,9 +1594,10 @@ class TestInjectWorkspaceBlock:
 
         summary = self.manager._context.inject_workspace_block(history, context_metadata)
 
-        assert len(history) == 2
+        assert len(history) == 1
+        assert history[0]["role"] == "user"
         block = history[0]["content"]
-        assert history[0]["role"] == "system"
+        assert block.startswith("hello\n\n<context>\n")
         assert "Preset: native/SDXL · Mode: image" in block
         assert "Checkpoint: sdxl.safetensors" in block
         assert "lora_a.safetensors" in block

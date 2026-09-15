@@ -193,19 +193,24 @@ class TestFitMessages:
         assert result.messages == messages
         assert result.fits is False
 
-    def test_protects_trailing_system_blocks_stacked_before_the_user_message(self):
-        # Mirrors ChatContextBuilder's injection order: several single system
-        # messages immediately followed by the current user turn.
+    def test_protects_a_leading_system_message_directly_preceding_the_anchor(self):
         messages = [
-            _msg("user", "ancient " + "a" * 300),
-            _msg("system", "memory block"),
-            _msg("system", "contributor block"),
+            _msg("system", "caller-prepended system turn"),
             _msg("user", "current question"),
         ]
         result = fit_messages(messages, available_tokens=1, counter=len)
         assert [m["content"] for m in result.messages] == [
-            "memory block", "contributor block", "current question",
+            "caller-prepended system turn", "current question",
         ]
+
+    def test_leading_system_message_not_protected_across_an_old_turn(self):
+        messages = [
+            _msg("system", "caller-prepended system turn"),
+            _msg("user", "ancient " + "a" * 300),
+            _msg("user", "current question"),
+        ]
+        result = fit_messages(messages, available_tokens=1, counter=len)
+        assert [m["content"] for m in result.messages] == ["current question"]
 
     def test_empty_messages_fits_trivially(self):
         result = fit_messages([], available_tokens=0, counter=None)
@@ -537,8 +542,8 @@ class TestCurrentTurnProtectionAcrossWorkflowCalls:
         {"role": "assistant", "content": "an old unrelated answer " + "x" * 300},
     ]
     CONTEXT_BLOCKS = [
-        {"role": "system", "content": "recalled memory: the user prefers dark mode"},
-        {"role": "system", "content": "contributor: active preset is SDXL-Anime"},
+        "recalled memory: the user prefers dark mode",
+        "contributor: active preset is SDXL-Anime",
     ]
     QUESTION = {"role": "user", "content": "What resolution does the Anime preset render at?"}
     TOOL_CALL = {
@@ -553,7 +558,18 @@ class TestCurrentTurnProtectionAcrossWorkflowCalls:
     BUDGET_TOKENS = 400
 
     def _base_messages(self):
-        return list(self.OLD_HISTORY) + list(self.CONTEXT_BLOCKS) + [dict(self.QUESTION)]
+        messages = list(self.OLD_HISTORY) + [dict(self.QUESTION)]
+        for block in self.CONTEXT_BLOCKS:
+            context_budget.attach_context_block(messages, block)
+        return messages
+
+    def _folded_question(self):
+        """The QUESTION message as it looks once every CONTEXT_BLOCKS entry
+        has folded into it, matching what `_base_messages` builds."""
+        messages = [dict(self.QUESTION)]
+        for block in self.CONTEXT_BLOCKS:
+            context_budget.attach_context_block(messages, block)
+        return messages[0]
 
     def _assert_current_turn_survived(self, sent):
         contents = [m.get("content") or "" for m in sent]
@@ -570,7 +586,7 @@ class TestCurrentTurnProtectionAcrossWorkflowCalls:
             system_message=None, messages=messages, counter=len,
         )
         self._assert_current_turn_survived(outcome.messages)
-        assert outcome.messages[-1] == self.QUESTION
+        assert outcome.messages[-1] == self._folded_question()
 
     def test_next_call_with_the_iteration_nudge(self):
         """A tool round has completed; the workflow's own `_next_request`
@@ -591,7 +607,11 @@ class TestCurrentTurnProtectionAcrossWorkflowCalls:
         self._assert_current_turn_survived(outcome.messages)
         sent_roles = [m["role"] for m in outcome.messages]
         assert "tool" in sent_roles  # the completed round's result must survive
-        assert outcome.messages[-1] == {"role": "system", "content": nudge}
+        assert not any(m["role"] == "system" for m in outcome.messages)
+        question = next(m for m in outcome.messages if m["content"].startswith(self.QUESTION["content"]))
+        expected = [self._folded_question()]
+        context_budget.attach_context_block(expected, nudge)
+        assert question["content"] == expected[0]["content"]
 
     def test_final_call_with_the_budget_exhausted_message(self):
         """The tool-iteration budget ran out; `_final_request` appends the
@@ -608,9 +628,11 @@ class TestCurrentTurnProtectionAcrossWorkflowCalls:
             system_message=None, messages=request.messages, counter=len,
         )
         self._assert_current_turn_survived(outcome.messages)
-        assert outcome.messages[-1] == {
-            "role": "system", "content": workflow.TOOL_BUDGET_EXHAUSTED_MESSAGE,
-        }
+        assert not any(m["role"] == "system" for m in outcome.messages)
+        question = next(m for m in outcome.messages if m["content"].startswith(self.QUESTION["content"]))
+        expected = [self._folded_question()]
+        context_budget.attach_context_block(expected, workflow.TOOL_BUDGET_EXHAUSTED_MESSAGE)
+        assert question["content"] == expected[0]["content"]
 
     def test_irreducible_current_turn_raises_rather_than_trimming_into_it(self):
         """When the current turn's own stack alone doesn't fit, the request

@@ -337,6 +337,17 @@ def multimodal_allowance(image_data: Optional[str], *, per_image_tokens: Optiona
     return per_image_tokens if per_image_tokens is not None else DEFAULT_IMAGE_TOKEN_ESTIMATE
 
 
+def attach_context_block(conversation_history: List[Dict[str, Any]], block: str) -> None:
+    """Append a delimited context block to the current user turn."""
+    wrapped = f"\n\n<context>\n{block}\n</context>"
+    for i in range(len(conversation_history) - 1, -1, -1):
+        message = conversation_history[i]
+        if message.get("role") == "user":
+            conversation_history[i] = {**message, "content": (message.get("content") or "") + wrapped}
+            return
+    conversation_history.append({"role": "user", "content": block})
+
+
 def _atomic_units(messages: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
     """Group *messages* into the smallest units that must be dropped whole.
 
@@ -390,21 +401,24 @@ def _protected_unit_count(units: List[List[Dict[str, Any]]]) -> int:
     The current turn is not simply "the last unit": once a tool loop is
     running, the workflow appends more units AFTER the user message that
     started the turn — the tool-call/result group(s) each round produces,
-    and a trailing system nudge appended fresh on the next/final request
-    (see ``ToolWorkflow._next_request``/``_final_request``). Protecting only
-    the physically-last unit would let the budget silently trim the user's
-    own question (and its injected context blocks) out from under a
-    still-running tool loop, while reporting the request as fitting.
+    and a trailing nudge folded into that same user message on the
+    next/final request (see ``ToolWorkflow._next_request``/
+    ``_final_request``, ``attach_context_block``). Protecting only the
+    physically-last unit would let the budget silently trim the user's own
+    question (and its per-turn context, now folded into that same message)
+    out from under a still-running tool loop, while reporting the request as
+    fitting.
 
     Protected, in full — everything from the current-turn anchor (see
-    ``_current_turn_anchor``) to the end of the list, PLUS, walking backward
-    from the anchor, every immediately preceding single system-role
-    message: the per-turn context blocks (memory/contributor/resource/
-    workspace/prompt state/reply-contract) always stack directly before the
-    user message that triggered them, so this protects that whole stack
-    structurally without the caller having to say how many blocks there
-    are. No user-role unit found at all (should not happen in practice)
-    degrades to protecting just the last unit.
+    ``_current_turn_anchor``) to the end of the list, plus a system-role
+    message at index 0 when it directly precedes the anchor (``anchor ==
+    1``): a caller-prepended system turn (this module never produces one
+    itself — every per-turn injection instead folds into the anchor's own
+    content via ``attach_context_block``). Narrower than protecting any
+    system unit preceding the anchor — an old turn sitting between index 0
+    and the anchor must still be trimmable. No user-role unit found at all
+    (should not happen in practice) degrades to protecting just the last
+    unit.
     """
     if not units:
         return 0
@@ -412,14 +426,8 @@ def _protected_unit_count(units: List[List[Dict[str, Any]]]) -> int:
     if anchor is None:
         return 1
     protected_from = anchor
-    i = anchor - 1
-    while i >= 0:
-        unit = units[i]
-        if len(unit) == 1 and unit[0].get("role") == "system":
-            protected_from = i
-            i -= 1
-        else:
-            break
+    if anchor == 1 and len(units[0]) == 1 and units[0][0].get("role") == "system":
+        protected_from = 0
     return len(units) - protected_from
 
 

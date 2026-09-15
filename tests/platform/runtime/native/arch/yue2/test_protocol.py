@@ -94,6 +94,18 @@ class TestGuidanceScale:
     def test_explicit_override_wins(self):
         assert guidance_scale("off", cfg_scale=3.0) == 3.0
 
+    def test_rejects_scale_above_twenty(self):
+        with pytest.raises(ValueError):
+            guidance_scale("full", cfg_scale=20.1)
+
+    def test_rejects_negative_scale(self):
+        with pytest.raises(ValueError):
+            guidance_scale("full", cfg_scale=-0.1)
+
+    def test_boundary_values_are_accepted(self):
+        assert guidance_scale("full", cfg_scale=0.0) == 0.0
+        assert guidance_scale("full", cfg_scale=20.0) == 20.0
+
 
 class TestEnsurePromptFits:
     def test_passes_when_within_context(self):

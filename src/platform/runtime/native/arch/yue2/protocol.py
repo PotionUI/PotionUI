@@ -57,12 +57,14 @@ SEMANTIC_SAMPLING_DEFAULTS = Sampling()
 
 
 def guidance_scale(cot: str, cfg_scale: float | None = None) -> float:
-    """The semantic-stage CFG default: 1.01 for ``cot="off"``, else 1.0 — overridable."""
+    """The semantic-stage CFG default: 1.01 for ``cot="off"``, else 1.0 — overridable in ``[0, 20]``."""
     if cot not in INSTRUCTIONS:
         raise ValueError("cot must be off, melody or full")
-    if cfg_scale is not None:
-        return cfg_scale
-    return 1.01 if cot == "off" else 1.0
+    if cfg_scale is None:
+        return 1.01 if cot == "off" else 1.0
+    if not math.isfinite(cfg_scale) or not 0 <= cfg_scale <= 20:
+        raise ValueError("cfg_scale must be finite and in [0, 20]")
+    return cfg_scale
 
 
 def _validate_abc_ids(abc_ids: Sequence[int]) -> list[int]:

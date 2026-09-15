@@ -1,5 +1,6 @@
 """Setup status, loopback detection, and the one-time claim token."""
 
+import os
 from unittest.mock import Mock
 
 import pytest
@@ -39,8 +40,9 @@ def test_ensure_token_persists_0600(tmp_path):
     token_file = tmp_path / CLAIM_TOKEN_FILENAME
     assert token_file.exists()
     assert token_file.read_text().strip() == token
-    mode = stat.S_IMODE(token_file.stat().st_mode)
-    assert mode & (stat.S_IRWXG | stat.S_IRWXO) == 0  # no group/other access
+    if os.name != "nt":
+        mode = stat.S_IMODE(token_file.stat().st_mode)
+        assert mode & (stat.S_IRWXG | stat.S_IRWXO) == 0  # no group/other access
 
 
 def test_ensure_token_is_stable(tmp_path):

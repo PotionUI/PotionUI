@@ -101,6 +101,7 @@ from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutput
 from src.pipelines.outputs import Icon
 from src.platform.runtime.device import clear_gpu_memory
 from src.platform.runtime.native.errors import SamplingCancelled
+from src.platform.runtime.native.memory.residency import effective_free_vram_gb, minimum_inference_memory_gb
 from src.platform.runtime.native.sampling.hooks import ProgressHook, run_hooks
 from src.platform.runtime.native.sampling.preview import make_preview_hook
 from src.platform.runtime.native.sampling.step_cache import FirstBlockCache, normalize_options
@@ -572,6 +573,16 @@ def _require_h3_video_vae(module):
             "and cannot run here."
         )
     return module
+
+
+def _place_vae(c: "_MiniMaxH3Ctx", vae) -> None:
+    """Offload a GPU-resident DiT first when `vae` would not otherwise fit, then move `vae` in."""
+    free_gb = effective_free_vram_gb(c.device)
+    if free_gb is not None:
+        need_gb = (getattr(vae, "estimated_vram_gb", None) or 0.0) + minimum_inference_memory_gb()
+        if free_gb < need_gb:
+            c.bundle.dit.offload()
+    vae.move_to(c.device)
 
 
 def _trim_audio_head(track: AudioInput, overlap_frames: int) -> AudioInput:
@@ -1491,9 +1502,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         )
         needs_audio_vae = any(reference.has_audio for reference in references)
         if needs_video_vae:
-            c.bundle.video_vae.move_to(c.device)
+            _place_vae(c, c.bundle.video_vae)
         if needs_audio_vae:
-            c.bundle.audio_vae.move_to(c.device)
+            _place_vae(c, c.bundle.audio_vae)
         try:
             reference_conditioning = prepare_reference_conditioning(
                 references, vae_module=video_vae_module,
@@ -1604,7 +1615,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 device=c.device,
             )
             if needs_video_encode:
-                c.bundle.video_vae.move_to(c.device)
+                _place_vae(c, c.bundle.video_vae)
             try:
                 condition_rows = prepare_keyframe_condition_rows(
                     c.keyframe_images, c.keyframe_anchors, vae_module=video_vae_module,
@@ -1980,7 +1991,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         previous window's soundtrack to this window's track.
         """
         if c.audio_source == "generate":
-            c.bundle.audio_vae.move_to(c.device)
+            _place_vae(c, c.bundle.audio_vae)
             try:
                 return decode_generated_audio(
                     c.bundle.audio_vae.module, generated_audio_rows.float(),
@@ -2179,7 +2190,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 latents_std=video_vae_module.latents_std, device=c.device,
             )
             if needs_video_encode:
-                c.bundle.video_vae.move_to(c.device)
+                _place_vae(c, c.bundle.video_vae)
             try:
                 rows.append(prepare_keyframe_condition_rows(
                     images, image_anchors, vae_module=video_vae_module,
@@ -2234,7 +2245,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         vae = c.bundle.video_vae
         vae_module = _require_h3_video_vae(vae.module)
         device = c.device
-        vae.move_to(device)
+        _place_vae(c, vae)
         try:
             latents_mean = vae_module.latents_mean.to(device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)
             latents_std = vae_module.latents_std.to(device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)

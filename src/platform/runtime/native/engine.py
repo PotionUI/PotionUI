@@ -84,6 +84,7 @@ from .detect.vae_detect import (
     detect_minimax_music3_dav_config,
     detect_seedvr2_vae_config,
     detect_vae_config,
+    detect_yue2_vae_config,
 )
 from .vae.ae_2d import AutoEncoder2D
 from .vae.loader import (
@@ -99,6 +100,7 @@ from .vae.loader import (
     load_minimax_music3_dav,
     load_seedvr2_vae,
     load_vae,
+    load_yue2_vae,
 )
 from .vae.tiling import (
     auto_tile_size,
@@ -959,6 +961,8 @@ class NativeEngineLoader:
             module = load_minimax_h3_audio_vae(path, ops, device="cpu", sd=sd, metadata=metadata)
         elif detect_minimax_music3_dav_config(sd, metadata) is not None:
             module = load_minimax_music3_dav(path, ops, device="cpu", sd=sd, metadata=metadata)
+        elif detect_yue2_vae_config(sd) is not None:
+            module = load_yue2_vae(path, device="cpu", sd=sd, metadata=metadata)
         else:
             module = load_ltx_audio_vae(path, ops, device="cpu", sd=sd, metadata=metadata)
         get_profiler().mark("load.audio_vae.built", est_gb=est_gb, quant_format=quant_format)

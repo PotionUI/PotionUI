@@ -249,6 +249,45 @@ def test_loader_vocoder_slices_ltx_all_in_one_checkpoint_before_sizing(tmp_path)
     assert model.estimated_vram_gb < dit_only_gb / 10
 
 
+def test_loader_audio_vae_dispatches_bare_keyed_yue2_checkpoint(tmp_path):
+    """A standalone bare-keyed YuE2 VAE file routes to load_yue2_vae."""
+    import copy
+
+    from torch.nn.utils import weight_norm
+
+    from src.platform.runtime.native.arch.yue2.vae import YuE2VAEDecoder
+
+    tiny_kwargs = dict(latent_dim=4, out_channels=2)
+
+    def _wrap_with_weight_norm(module):
+        for name, child in list(module.named_children()):
+            if isinstance(child, (torch.nn.Conv1d, torch.nn.ConvTranspose1d)):
+                setattr(module, name, weight_norm(child))
+            else:
+                _wrap_with_weight_norm(child)
+
+    torch.manual_seed(0)
+    reference = YuE2VAEDecoder(**tiny_kwargs)
+    wrapped = copy.deepcopy(reference)
+    _wrap_with_weight_norm(wrapped)
+    yue2_sd = {f"decoder.{k}": v.detach().clone() for k, v in wrapped.state_dict().items()}
+
+    path = tmp_path / "yue2_vae.safetensors"
+    save_file(yue2_sd, str(path))
+
+    loader = NativeEngineLoader(device="cpu")
+    model = loader.load(path, "audio_vae")
+
+    assert model.kind == "audio_vae"
+    assert isinstance(model.module, YuE2VAEDecoder)
+
+    latents = torch.randn(1, tiny_kwargs["latent_dim"], 5)
+    with torch.no_grad():
+        expected = reference.decode(latents)
+        actual = model.module.decode(latents)
+    assert torch.allclose(expected, actual, atol=1e-5)
+
+
 def test_loader_vae_never_materializes_dit_tensor_from_all_in_one(tmp_path, monkeypatch):
     """Fix 1 regression guard: ``_load_vae`` must read the ``vae.*`` slice off
     disk directly (``load_torch_file_prefixed``) rather than reading the whole

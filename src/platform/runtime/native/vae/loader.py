@@ -26,6 +26,7 @@ from typing import Any
 
 import torch
 
+from ..arch.yue2 import vae as yue2_vae
 from ..base import load_into_module
 from ..detect.vae_detect import (
     detect_causal3d_v2_vae_config,
@@ -40,6 +41,7 @@ from ..detect.vae_detect import (
     detect_minimax_music3_dav_config,
     detect_seedvr2_vae_config,
     detect_vae_config,
+    detect_yue2_vae_config,
 )
 from ..errors import NativeEngineUnsupportedError
 from ..io.safetensors_loader import load_torch_file
@@ -581,5 +583,35 @@ def load_minimax_music3_dav(
     logger.debug(
         "loaded MiniMax-Music3 DAV vocoder from %s (latent_channels=%d, sample_rate=%d)",
         path.name, config["latent_channels"], config["sample_rate"],
+    )
+    return module
+
+
+def load_yue2_vae(
+    path: str | Path,
+    device: str | torch.device = "cpu",
+    sd: dict[str, torch.Tensor] | None = None,
+    metadata: dict[str, str] | None = None,
+) -> yue2_vae.YuE2VAEDecoder:
+    """Load the YuE2 Oobleck decoder from its standalone checkpoint (bare/unprefixed keys)."""
+    path = Path(path)
+    if sd is None or metadata is None:
+        sd, metadata = load_torch_file(path, device=device)
+
+    config = detect_yue2_vae_config(sd)
+    if config is None:
+        raise NativeEngineUnsupportedError(
+            f"'{path.name}' does not look like a YuE2 VAE "
+            "(missing decoder.layers.0.weight_v / decoder.layers.8.weight_v)"
+        )
+
+    module = yue2_vae.load(
+        sd, latent_dim=config["latent_dim"], out_channels=config["out_channels"],
+        sample_rate=config["sample_rate"],
+    )
+
+    logger.debug(
+        "loaded YuE2 VAE from %s (latent_dim=%d, sample_rate=%d)",
+        path.name, config["latent_dim"], config["sample_rate"],
     )
     return module

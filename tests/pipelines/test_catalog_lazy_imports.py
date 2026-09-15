@@ -192,3 +192,17 @@ def test_catalog_construction_alone_imports_nothing():
     assert leaked_line is not None, result.stdout
     leaked = leaked_line[len("LEAKED="):]
     assert leaked == "", f"constructing the catalog must not import anything: {leaked}"
+
+
+def test_catalog_discovers_yue2_loader_and_generator_pipes():
+    catalog = PipeCatalog("src/pipelines/pipes", "pipes/custom")
+
+    loader_class = catalog.get_pipe("model_loader/yue2")
+    assert loader_class is not None
+    assert loader_class.__name__ == "ModelLoaderYuE2Pipe"
+    assert loader_class.name == "model_loader"
+
+    generator_class = catalog.get_pipe("generator/audio_yue2")
+    assert generator_class is not None
+    assert generator_class.__name__ == "GeneratorAudioYuE2Pipe"
+    assert generator_class.name == "generator"

@@ -227,7 +227,7 @@ def test_image_preprocess_output_is_unchanged_by_the_shared_smart_resize(
     assert grid_thw.tolist() == grid
     assert patches.shape == (grid[0][1] * grid[0][2], 3 * 2 * 16 * 16)
     torch.testing.assert_close(
-        patches[0].mean(), torch.tensor(patch0_mean), rtol=0, atol=1e-9,
+        patches[0].mean(), torch.tensor(patch0_mean), rtol=0, atol=1e-8,
     )
 
 

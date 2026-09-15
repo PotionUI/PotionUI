@@ -166,7 +166,7 @@ def test_unwritable_directory_warns_on_the_console_and_carries_on(
     assert "not writable" in warnings[0].getMessage()
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root ignores directory permissions")
 def test_permission_denied_directory_warns_and_carries_on(
     root_logger, tmp_path, monkeypatch, caplog
 ):

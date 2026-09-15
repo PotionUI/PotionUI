@@ -63,7 +63,7 @@ def load_matting_model(path: Union[str, Path]):
 
     path = str(path)
     if not path or not Path(path).exists():
-        raise ValueError(f"Matting checkpoint not found: {path!r}")
+        raise ValueError(f"Matting checkpoint not found: {path}")
 
     model = BiRefNet()
     result = model.load_state_dict(remap_matting_state_dict(load_file(path)), strict=False)

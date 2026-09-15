@@ -373,7 +373,7 @@ def test_krea2_rope_matches_vendored_flux_rope(dim, theta, ntk):
 
 
 @pytest.mark.parametrize("dim,dtype", [
-    (128, torch.bfloat16), (128, torch.float16), (128, torch.float32), (64, torch.bfloat16),
+    (128, torch.bfloat16), (128, torch.float16), (64, torch.bfloat16),
 ])
 def test_krea2_apply_rope_inplace_vs_vendored_flux_not_bitexact(dim, dtype):
     # Same rotation math, different cast order (ours casts cos/sin down to

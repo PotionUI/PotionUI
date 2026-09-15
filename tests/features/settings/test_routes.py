@@ -455,6 +455,44 @@ class TestSettingsController:
         assert exc_info.value.status_code == 400
         assert exc_info.value.detail['error'] == 'settings_update_failed'
 
+class TestSettingsDeadModelDirectoryRoutesRemoved:
+    """`/system/info` and `/models/types` called `ModelDirectories.get_all_models()`
+    / `.get_model_types()`, which don't exist on that class - every call hit the
+    `except Exception` branch and returned a 400 unconditionally. Deleted outright
+    (route, controller method, and the now-unused `SystemInfo` DTO) rather than
+    left as unreachable dead code, mirroring how `/api/settings/models/list` was
+    removed for the same reason."""
+
+    def test_router_no_longer_declares_the_dead_routes(self):
+        from types import SimpleNamespace
+        from src.features.settings.routes import build_router
+
+        container = SimpleNamespace(
+            settings=Mock(spec=Settings),
+            setting_repository=Mock(spec=SettingRepository),
+            model_directories=Mock(spec=ModelDirectories),
+            gpu_monitor=Mock(spec=GpuMonitor),
+            backend_registry=MagicMock(spec=BackendRegistry),
+        )
+        router = build_router(container)
+        paths = {route.path for route in router.routes}
+
+        assert "/api/settings/system/info" not in paths
+        assert "/api/settings/models/types" not in paths
+        assert "/api/settings/models/rescan" not in paths
+
+    def test_controller_no_longer_exposes_the_dead_methods(self):
+        controller = SettingsController(
+            settings=Mock(spec=Settings),
+            setting_repository=Mock(spec=SettingRepository),
+            model_directories=Mock(spec=ModelDirectories),
+            gpu_monitor=Mock(spec=GpuMonitor),
+            backend_registry=MagicMock(spec=BackendRegistry),
+        )
+        assert not hasattr(controller, "get_system_info")
+        assert not hasattr(controller, "get_model_types")
+        assert not hasattr(controller, "rescan_models")
+
 class TestSettingsSecretMasking:
     """`auth_secret_key` and friends must never leave the settings API in the clear.
 

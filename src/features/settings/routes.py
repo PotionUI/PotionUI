@@ -390,23 +390,6 @@ class SettingsController(BaseController):
                 message=f"Failed to delete user setting: {str(e)}"
             )
 
-    async def rescan_models(self) -> APIResponse:
-        """Rescan models directory"""
-        try:
-            # This would trigger a model rescan
-            models_found = self.model_directories.scan_models_directory()
-
-            return self.success_response(data={
-                'models_found': models_found,
-                'message': 'Models directory rescanned successfully'
-            })
-
-        except Exception as e:
-            return self.error_response(
-                error="model_rescan_failed",
-                message=f"Failed to rescan models: {str(e)}"
-            )
-
     async def restart_app(self, user: Optional[User] = None) -> APIResponse:
         """Restart the server process in place via os.execv (admin only).
 
@@ -480,11 +463,6 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def delete_user_setting(key: str, current_user = Depends(get_current_active_user)):
         """Delete a user setting override, reverting to system default."""
         return await controller.delete_user_setting(key, current_user)
-
-    @router.post("/models/rescan", response_model=APIResponse, summary="Rescan Models Directory")
-    async def rescan_models(current_user = Depends(get_current_admin_user)):
-        """Rescan the models directory to detect newly added or removed models."""
-        return await controller.rescan_models()
 
     return router
 

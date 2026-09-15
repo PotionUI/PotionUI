@@ -121,12 +121,16 @@ def test_a_director_document_normalizes_against_the_declared_capabilities(capabi
 
 @pytest.mark.parametrize("kwargs,message", [
     ({"segment_count": 7}, "at most 6 segments"),
-    ({"frames": 400}, "between 1 and 345"),
     ({"overlap": 51}, "max_overlap_frames"),
 ])
 def test_the_declared_caps_are_enforced_by_the_normalizer(capabilities, tmp_path, kwargs, message):
     with pytest.raises(VideoDirectorValidationError, match=message):
         normalize_video_director(_raw_document(**kwargs), capabilities, str(tmp_path))
+
+
+def test_segment_frames_above_the_declared_cap_are_clamped(capabilities, tmp_path):
+    document = normalize_video_director(_raw_document(frames=400), capabilities, str(tmp_path))
+    assert [s["frames"] for s in document["segments"]] == [345, 345]
 
 
 def test_the_declared_caps_admit_a_keyframe_anywhere_on_the_timeline(capabilities, tmp_path):

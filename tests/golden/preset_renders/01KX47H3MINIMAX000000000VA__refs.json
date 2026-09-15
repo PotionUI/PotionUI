@@ -109,6 +109,10 @@
           "type": "int",
           "value": 1
         },
+        "reference_mods": {
+          "type": "list",
+          "value": []
+        },
         "reference_video_frames": {
           "type": "int",
           "value": 120
@@ -286,6 +290,10 @@
           "value": 1
         },
         "reference_audios": {
+          "type": "list",
+          "value": []
+        },
+        "reference_mods": {
           "type": "list",
           "value": []
         },

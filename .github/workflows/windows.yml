@@ -283,11 +283,13 @@ jobs:
           pip install requests
 
       - name: npm ci + Playwright Chromium
+        id: browsers
         shell: cmd
         working-directory: frontend
         run: |
           npm ci || exit /b
-          npx playwright install chromium chromium-headless-shell
+          npx playwright install chromium chromium-headless-shell || exit /b
+          npx playwright install --list
 
       - name: HTTP journeys (throwaway backend)
         shell: cmd
@@ -298,7 +300,7 @@ jobs:
           exit /b %RUN_EXIT%
 
       - name: Playwright UI journeys (throwaway backend + vite preview)
-        if: always()
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
         shell: cmd
         run: |
           python tests/e2e/ui/run.py > playwright-windows.log 2>&1

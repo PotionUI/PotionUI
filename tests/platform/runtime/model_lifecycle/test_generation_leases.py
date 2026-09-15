@@ -344,13 +344,13 @@ class TestLeaseHitMissLoadStats:
         import time as time_module
 
         def slow_loader():
-            time_module.sleep(0.02)
+            time_module.sleep(0.05)
             return FakeModel("dit")
 
         with manager.generation_lease("gen-1") as lease_stats:
             manager.acquire("dit", "fp", slow_loader)
 
-        assert lease_stats["load_ms"] >= 15  # allow scheduler slack below 20ms
+        assert lease_stats["load_ms"] >= 30
 
     def test_acquire_with_no_active_lease_does_not_crash_or_record(self, manager):
         """acquire() outside any lease still works and simply has no lease

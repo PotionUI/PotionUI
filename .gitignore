@@ -104,7 +104,6 @@ frontend/build/
 
 # Plugin frontends (unified build toolchain - see content/plugins/package.json)
 content/plugins/node_modules/
-content/plugins/package-lock.json
 # The generic `dist/` rule above (Python packaging) would otherwise also
 # match every plugin's frontend/dist/ - those ARE meant to be committed
 # (they're what plugin_controller serves as static assets at runtime).

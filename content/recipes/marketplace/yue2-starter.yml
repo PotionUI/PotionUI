@@ -1,0 +1,127 @@
+schema_version: 1
+id: "yue2-starter"
+version: 1
+name: "YuE2 Starter"
+engine: "native"
+category: "audio"
+summary: "Get a working YuE2-3B setup on your local GPU and produce a first song."
+description: >
+  Installs the bundled YuE2 preset on the native (in-process) engine, makes
+  sure its two model files are available, and proves the pipeline is wired
+  up correctly before handing you a ready-to-use preset (see
+  docs/models/yue2.md). YuE2-3B is a text-to-music family: an autoregressive
+  stage samples codec tokens from style tags and lyrics -- with an optional
+  chain-of-thought ABC-transcription pass -- and a flow-matching
+  non-autoregressive stage turns those into a latent an Oobleck VAE decodes
+  to a waveform. The two files together are a real download (~7.8 GB).
+
+  LICENCE: both files are published under CC BY-NC 4.0
+  (Attribution-NonCommercial) at `m-a-p/YuE2-3B` and `m-a-p/YuE2-Vae` on
+  Hugging Face -- reuse and adaptation are permitted with attribution, but
+  commercial use is not (see docs/models/yue2.md).
+
+plugins:
+  - id: "huggingface-provider"
+    reason: >
+      Resolves the AR/NAR backbone and the Oobleck VAE from HuggingFace by
+      exact repo path. HuggingFace has no hash-lookup API, so each artifact
+      below names its file explicitly; the sha256 in each artifact's
+      checksum still verifies the download afterwards.
+
+backend:
+  engine: "native"
+
+artifacts:
+  - id: "yue2-diffusion-model"
+    kind: "diffusion_model"
+    model_type: "diffusion_model"
+    filename: "yue2_3b_bf16.safetensors"
+    display_name: "YuE2-3B AR/NAR backbone (bf16)"
+    required: true
+    size_bytes: 7261441640
+    checksum:
+      algorithm: "sha256"
+      value: "1d55c42c1a9875c34f5d736e15078449992b044e807ce2a138e6cf289a1e59e9"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "m-a-p/YuE2-3B"
+      version_id: "main@model.safetensors"
+
+  - id: "yue2-vae"
+    kind: "vae"
+    model_type: "vae"
+    filename: "yue2_vae_fp32.safetensors"
+    display_name: "YuE2 Oobleck VAE decoder (fp32)"
+    required: true
+    size_bytes: 530512720
+    checksum:
+      algorithm: "sha256"
+      value: "807ce9d5149fa27c5ad3e6582058469852e908f6c5acc8c8aa338e7ab7751346"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "m-a-p/YuE2-Vae"
+      version_id: "main@model.safetensors"
+
+presets:
+  - preset_id: "01KX47YUE200000000000000YU"
+    path_hint: "marketplace/YuE2"
+    assign_to_owner: true
+
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable required plugins"
+    params:
+      plugin_ids: ["huggingface-provider"]
+
+  - key: "backend.ensure"
+    kind: "backend.ensure"
+    title: "Prepare the native backend"
+    params:
+      engine: "native"
+
+  - key: "models.index"
+    kind: "models.index"
+    title: "Find models you already have"
+    params:
+      engine: "native"
+
+  - key: "artifacts.plan"
+    kind: "artifacts.plan"
+    title: "Plan required downloads"
+    params:
+      artifact_ids: ["yue2-diffusion-model", "yue2-vae"]
+
+  - key: "artifacts.fetch"
+    kind: "artifacts.fetch"
+    title: "Download the YuE2 model files"
+    params:
+      artifact_ids: ["yue2-diffusion-model", "yue2-vae"]
+
+  - key: "models.index.downloads"
+    kind: "models.index"
+    title: "Register downloaded models"
+    params:
+      engine: "native"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign the YuE2 preset"
+    params:
+      preset_id: "01KX47YUE200000000000000YU"
+
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the pipeline"
+    params:
+      preset_id: "01KX47YUE200000000000000YU"
+      mode: "song"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    onboarding_only: true
+    params: {}

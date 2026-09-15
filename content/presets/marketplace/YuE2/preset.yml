@@ -1,0 +1,81 @@
+########
+## YuE2-3B text-to-music (native engine)
+##
+## Single-stage-per-song generation: an autoregressive stage samples a
+## semantic codec token per frame (25 fps) from style tags + lyrics -- with
+## an optional chain-of-thought pass that first writes an ABC transcription
+## the codec stage conditions on -- then a non-autoregressive flow-matching
+## pass turns those tokens into an Oobleck-VAE latent the decoder renders to
+## a waveform. One song per generation; there is no quantity knob, unlike
+## the image/video families.
+##
+## Text-to-music ONLY: the shipped checkpoint has no audio encoder, so there
+## is no style/reference, extend or repaint mode -- see description.md.
+##
+## WEIGHTS LICENSE: CC BY-NC 4.0 -- non-commercial use only, with
+## attribution required. See description.md.
+##
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01KX47YUE200000000000000YU"
+name: "YuE2"
+category: "audio"
+version: "1.0.0"
+engine: "native"
+tags: ["yue2", "audio", "music", "t2m", "flow-matching", "local"]
+
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the YuE2 AR/NAR backbone picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the Oobleck VAE picker."
+
+vars:
+  supports_negative_prompt: false
+  prompt:
+    segment_join: "paragraph"
+
+llm:
+  guide: |
+    There is no structured caption form -- the Generation tab's "Style tags"
+    field is the whole style signal, sent to the model verbatim as free text.
+    Write it as a short tag list, not prose: genre, instruments, vocal
+    character, language, tempo (e.g. "lo-fi hip hop, warm vinyl crackle,
+    female alto vocals, breathy, electric piano, brushed drums, bpm 85").
+    English and Mandarin both work.
+
+    Lyrics live in the standard Prompt box, not the Style tags field --
+    write them Suno-style, with section tags on their OWN line: [Verse],
+    [Chorus], [Bridge], [Outro] and similar are the model's vocabulary. A tag
+    sharing a line with lyric text gets that text dropped, so never inline
+    one. Leaving the Prompt box empty (or writing only tag lines with no
+    lyric text) produces an instrumental track -- there is no separate
+    instrumental toggle for this family. Segment templates and saved
+    segments are the reusable way to store a song structure across
+    generations -- one segment per section works well since each keeps its
+    own tag on its own line.
+
+    "Chain of thought" (the Generation tab's cot select) trades speed for
+    structure: Off samples codec tokens directly from the style/lyrics
+    prompt. Melody first writes a melody-only ABC transcription (no chord
+    symbols) and conditions the codec stage on it -- use it when the song's
+    melodic contour matters more than speed. Full writes a chord-annotated
+    ABC transcription instead -- use it for harmonically deliberate material
+    (ballads, jazz-leaning progressions) where chord structure should guide
+    the codec stage. Either cot mode accepts a hand-written ABC transcription
+    in the Advanced tab's ABC field instead of letting the model write its
+    own -- only meaningful once cot is not Off.
+
+    Max duration is a hard cap, not a target: 0 means auto (the model ends
+    the song itself, up to the family's 360-second ceiling); a cap below the
+    natural ending cuts the song mid-phrase. Song length is really steered by
+    how many lyric sections the Prompt box carries, the same as every other
+    text-to-music family this engine documents.
+
+modes:
+  - song

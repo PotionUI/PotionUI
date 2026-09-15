@@ -1,0 +1,74 @@
+fields:
+  - name: "style"
+    type: "string"
+    label: "Style tags"
+    required: true
+    configuration:
+      input_type: "textarea"
+      rows: 3
+      placeholder: "genre · instruments · vocal character · language · bpm"
+    ai_hint: "The generator's only style-conditioning signal besides lyrics -- an empty value fails generation outright. Write it as a short tag list (genre, instrumentation, vocal timbre, language, tempo), not prose -- see this preset's llm.guide for the full recipe."
+
+  - type: "section"
+    label: "Song"
+    children:
+      - type: "row"
+        children:
+          - name: "cot"
+            type: "select"
+            label: "Chain of thought"
+            default: "off"
+            configuration:
+              options:
+                - { value: "off", label: "Off" }
+                - { value: "melody", label: "Melody" }
+                - { value: "full", label: "Full" }
+            ai_hint: "Off samples codec tokens directly from style tags + lyrics -- the fastest path. Melody first writes a melody-only ABC transcription (no chord symbols) and conditions the codec stage on it. Full writes a chord-annotated ABC transcription instead. Either mode accepts a hand-written ABC transcription in the Advanced tab instead of letting the model write its own."
+            width: "1/2"
+
+          - name: "duration"
+            type: "integer"
+            label: "Max duration (seconds, 0 = auto)"
+            default: 60
+            configuration: {min: 0, max: 360}
+            ai_hint: "A hard CAP, not a target -- the AR stage ends a song with its own stop token when the lyrics run out; a cap below the natural ending cuts the song mid-phrase. 0 = auto: generate until the song ends (up to the 360s model max). Song length is really steered by how many sections the lyrics (the Prompt box) carry."
+            width: "1/2"
+
+      - name: "seed"
+        type: "seed"
+        label: "Seed"
+        default: -1
+        ai_hint: "Drives both the autoregressive codec-token sampling and the flow-matching synthesis stage -- one seed reproduces the whole song, same device only (sampled tokens are not reproducible across dtype/device)."
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "model"
+        type: "model"
+        label: "YuE2-3B AR/NAR Backbone"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "yue2_3b_bf16..."
+          filter_tags: "@config:checkpoint_tags"
+          recommendations:
+            - name: "yue2_3b_bf16.safetensors"
+              link: "https://huggingface.co/m-a-p/YuE2-3B/resolve/main/model.safetensors"
+              size: "7.26 GB"
+              sha256: "1d55c42c1a9875c34f5d736e15078449992b044e807ce2a138e6cf289a1e59e9"
+              description: "YuE2-3B autoregressive + non-autoregressive backbone, bf16 - the default."
+
+      - name: "vae"
+        type: "model"
+        label: "YuE2 Oobleck VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "yue2_vae_fp32..."
+          filter_tags: "@config:vae_tags"
+          recommendations:
+            - name: "yue2_vae_fp32.safetensors"
+              link: "https://huggingface.co/m-a-p/YuE2-Vae/resolve/main/model.safetensors"
+              size: "530 MB"
+              sha256: "807ce9d5149fa27c5ad3e6582058469852e908f6c5acc8c8aa338e7ab7751346"
+              description: "YuE2 Oobleck VAE decoder, fp32 - decode-only."

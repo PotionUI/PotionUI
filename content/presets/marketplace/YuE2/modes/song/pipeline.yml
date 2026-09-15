@@ -1,0 +1,42 @@
+pipeline:
+  - name: "model_loader/yue2"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["model", "{{ form.vae }}"]
+        - ["cot", "{{ form.cot }}"]
+        - ["cfg_scale", "{{ form.cfg_scale }}"]
+        - ["nar_steps", "{{ form.nar_steps }}"]
+        - ["duration", "{{ form.duration if form.duration is defined else 0 }}"]
+        - ["seed", "{{ form.seed }}"]
+
+  - name: "generator/audio_yue2"
+    input:
+      - ["model", "model_loader/yue2", "model"]
+    enabled: true
+    configuration:
+      style: "{{ form.style if form.style is defined else '' }}"
+      lyrics: "{{ generation.prompts.first.positive }}"
+      cot: "{{ form.cot if form.cot is defined else 'off' }}"
+      abc: "{{ form.abc if (form.cot is defined and form.cot != 'off' and form.abc is defined) else '' }}"
+      duration: "{{ form.duration if form.duration is defined else 0 }}"
+      seed: "{{ form.seed }}"
+      cfg_scale: "{{ form.cfg_scale }}"
+      nar_steps: "{{ form.nar_steps }}"
+      temperature: "{{ form.temperature }}"
+      top_p: "{{ form.top_p }}"
+      top_k: "{{ form.top_k }}"
+      repetition_penalty: "{{ form.repetition_penalty }}"

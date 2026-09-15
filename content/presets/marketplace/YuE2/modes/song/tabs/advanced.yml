@@ -1,0 +1,80 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    children:
+      - name: "cfg_scale"
+        type: "slider"
+        label: "CFG scale (codec stage)"
+        default: 1.01
+        audience: "advanced"
+        ai_hint: "Classifier-free guidance for the autoregressive codec-token sampling stage. The pipe's own default is 1.01 when Chain of thought is Off and 1.0 otherwise -- this field's reactions mirror that automatically when Chain of thought changes; override it only to A/B guidance strength directly."
+        configuration: {min: 0.0, max: 20.0, step: 0.01}
+        reactions:
+          - when: { field: "cot", equals: "off" }
+            then: { set_value: 1.01 }
+          - when: { field: "cot", not_equals: "off" }
+            then: { set_value: 1.0 }
+
+      - name: "nar_steps"
+        type: "slider"
+        label: "NAR steps"
+        default: 32
+        audience: "advanced"
+        ai_hint: "Flow-matching midpoint-Euler steps per acoustic window during the non-autoregressive synthesis stage. 32 is the reference count; lower trades fidelity for speed."
+        configuration: {min: 1, max: 100, step: 1}
+
+      - type: "row"
+        children:
+          - name: "temperature"
+            type: "slider"
+            label: "Temperature"
+            default: 1.0
+            audience: "advanced"
+            ai_hint: "Codec-stage sampling temperature. 1.0 is the reference default."
+            configuration: {min: 0.0, max: 5.0, step: 0.05}
+            width: "1/2"
+
+          - name: "top_p"
+            type: "slider"
+            label: "Top-p"
+            default: 0.95
+            audience: "advanced"
+            ai_hint: "Codec-stage nucleus sampling. 0.95 is the reference default."
+            configuration: {min: 0.0, max: 1.0, step: 0.01}
+            width: "1/2"
+
+      - type: "row"
+        children:
+          - name: "top_k"
+            type: "slider"
+            label: "Top-k"
+            default: 100
+            audience: "advanced"
+            ai_hint: "Restricts codec-stage sampling to the top-k most likely tokens before applying CFG. 100 is the reference default."
+            configuration: {min: 1, max: 1024, step: 1}
+            width: "1/2"
+
+          - name: "repetition_penalty"
+            type: "slider"
+            label: "Repetition penalty"
+            default: 1.2
+            audience: "advanced"
+            ai_hint: "Discourages the codec stage from repeating recent tokens. 1.2 is the reference default."
+            configuration: {min: 0.01, max: 2.0, step: 0.01}
+            width: "1/2"
+
+      - name: "abc"
+        type: "string"
+        label: "ABC transcription"
+        default: ""
+        audience: "advanced"
+        configuration:
+          input_type: "textarea"
+          rows: 6
+          placeholder: "Only used when Chain of thought (Generation tab) is Melody or Full"
+        ai_hint: "A hand-written ABC transcription to condition the codec stage on directly, skipping the model's own ABC-writing pass. Only meaningful when Chain of thought (Generation tab) is Melody or Full -- ignored, and hidden, when it's Off."
+        reactions:
+          - when: { field: "cot", equals: "off" }
+            then: { set_visibility: false }
+          - when: { field: "cot", not_equals: "off" }
+            then: { set_visibility: true }

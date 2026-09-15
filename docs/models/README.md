@@ -9,7 +9,7 @@ order: 60
 
 Reference pages for each model family PotionUI drives directly, one page per family: what the architecture is, what files/text-encoder/VAE it needs, and what a preset for it looks like. Each family page also lists which optimization and quality techniques apply to it — see [Techniques](../techniques/) for how each of those works and how to turn it on. This section is about the **models**, not preset-authoring mechanics ([Presets](../presets.md)) or how a downloaded file becomes a selectable, backend-loadable row ([Models and Backend Availability](../models.md)) — read those for the surrounding machinery this section assumes.
 
-Nine of the ten families below run on the native engine ([Native Engine v2](../native-engine.md)): a shared detection/loading/ops/attention/sampling stack that every native transformer family plugs into, so a technique landing once is a candidate for every family on that stack, subject to per-family eligibility. SDXL is the exception — it runs on a `diffusers`-based pipeline stack with its own, separate quality and performance techniques.
+Ten of the eleven families below run on the native engine ([Native Engine v2](../native-engine.md)): a shared detection/loading/ops/attention/sampling stack that every native transformer family plugs into, so a technique landing once is a candidate for every family on that stack, subject to per-family eligibility. SDXL is the exception — it runs on a `diffusers`-based pipeline stack with its own, separate quality and performance techniques.
 
 ## Families
 
@@ -22,6 +22,7 @@ Nine of the ten families below run on the native engine ([Native Engine v2](../n
 - [LTX-2 / 2.3](ltx.md) — text-to-video, video director (keyframes, audio)
 - [MiniMax-H3](minimax_h3.md) — text-to-video-and-audio, first/last keyframe anchoring (territorially restricted weights)
 - [MiniMax-Music3](minimax_music3.md) — text-to-music, structured caption + tagged lyrics
+- [YuE2](yue2.md) — text-to-music, style tags + tagged lyrics, optional chain-of-thought
 - [SDXL](sdxl.md) — text-to-image, image-to-image, inpaint (diffusers pipeline)
 - [SeedVR2](seedvr2.md) — image and video upscaling
 

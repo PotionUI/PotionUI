@@ -1,0 +1,138 @@
+{
+  "mode": "song",
+  "pipes": [
+    {
+      "config": {
+        "model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/vae.safetensors"
+        },
+        "vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/vae.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "model_loader/yue2"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/vae.safetensors"
+            ],
+            [
+              "cot",
+              "off"
+            ],
+            [
+              "cfg_scale",
+              1.01
+            ],
+            [
+              "nar_steps",
+              32
+            ],
+            [
+              "duration",
+              60
+            ],
+            [
+              "seed",
+              -1
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "abc": {
+          "type": "str",
+          "value": ""
+        },
+        "cfg_scale": {
+          "type": "float",
+          "value": 1.01
+        },
+        "cot": {
+          "type": "str",
+          "value": "off"
+        },
+        "duration": {
+          "type": "int",
+          "value": 60
+        },
+        "lyrics": {
+          "type": "str",
+          "value": "golden positive prompt"
+        },
+        "nar_steps": {
+          "type": "int",
+          "value": 32
+        },
+        "repetition_penalty": {
+          "type": "float",
+          "value": 1.2
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        },
+        "style": {
+          "type": "str",
+          "value": "GOLDEN placeholder text"
+        },
+        "temperature": {
+          "type": "float",
+          "value": 1.0
+        },
+        "top_k": {
+          "type": "int",
+          "value": 100
+        },
+        "top_p": {
+          "type": "float",
+          "value": 0.95
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "generator/audio_yue2"
+    }
+  ],
+  "preset_id": "01KX47YUE200000000000000YU",
+  "preset_name": "YuE2"
+}

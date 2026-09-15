@@ -1,0 +1,11 @@
+Generate a full song, vocals and instrumentation together, from a short style-tag list and lyrics — or an instrumental piece with the Prompt box left empty. One autoregressive stage samples the song's codec tokens frame by frame (25 fps) from the style tags and lyrics — optionally preceded by a chain-of-thought pass that writes an ABC transcription the codec stage conditions on — then a non-autoregressive flow-matching pass turns those tokens into a latent an Oobleck VAE decodes to a waveform. One song per generation; runtime is roughly proportional to the requested duration, not a fixed per-request cost.
+
+**Text-to-music only.** The shipped checkpoint set has no audio encoder, so there is no reference-audio, continuation or in-place-repaint mode — every song is generated from text.
+
+**Style tags are a short list, not a caption.** Genre, instrumentation, vocal character, language and tempo, written as a compact tag phrase rather than prose — see this preset's `llm.guide` for the full recipe.
+
+**Lyrics use bracket structure tags** — `[verse]`, `[chorus]`, `[bridge]`, and so on — one per line, on their own line; any text sharing a tag's line is dropped rather than sung. Leaving the Prompt box empty produces an instrumental track; there is no separate instrumental toggle.
+
+**Chain of thought (cot) is an optional planning stage**, not a quality slider that's always worth maxing: Off samples codec tokens directly; Melody and Full first write an ABC transcription (melody-only, or chord-annotated) the codec stage conditions on, trading extra compute for more structured output. A hand-written ABC transcription can be supplied directly in the Advanced tab instead of letting the model write its own, once cot is not Off.
+
+**Licensing of the model weights.** YuE2-3B's weights are published under the CC BY-NC 4.0 license (Creative Commons Attribution-NonCommercial 4.0): reuse and adaptation are permitted with attribution, but **commercial use is not** — this covers both the AR/NAR backbone and the Oobleck VAE, both hosted at `m-a-p/YuE2-3B` and `m-a-p/YuE2-Vae` on Hugging Face. PotionUI ships this preset; it does not ship or download the weights, and the license is between you and the model's authors.

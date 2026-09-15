@@ -1,0 +1,42 @@
+########
+## YuE2-3B: E2E test suite.
+## Authoring reference: docs/presets.md "Testing presets"
+##
+## KNOWN HARNESS GAP (same one MiniMax-Music3/tests.yml documents): `TestCase.kind`
+## (`src.features.presets.tests_schema`) is a strict `Literal["image", "video"]`
+## with no `"audio"` option, and the runner
+## (`src.features.preset_suite.runner.PresetSuiteRunner._run_generation`) only
+## ever collects `ImageGenerationOutput`/`GalleryGenerationOutput.images` into
+## `CaseOutcome.images` -- it has no code path for `AudioGenerationOutput`.
+## `min_outputs` MUST be 0 below for every case, or it fails unconditionally --
+## zero images will ever exist for this audio-only pipeline. These cases can
+## only assert "the generation completed without raising", not the actual
+## song length or audio content, until the harness grows an audio-shaped
+## outcome + check.
+##
+## ONE MODE. Lyrics are the standard prompt (a `prompt` key inside `form:`
+## maps to the top-level generation prompt, per docs/presets.md) -- no
+## Director document. `style`/`cot`/`duration`/`abc` are plain form fields
+## (modes/song/tabs/{generation,advanced}.yml).
+########
+schema: 1
+
+cases:
+  - name: "yue2-song-fast"
+    mode: "song"
+    kind: "image"  # no "audio" literal exists yet -- see harness-gap note above
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      style: "lo-fi hip hop, warm vinyl crackle, female alto vocals, breathy, electric piano, brushed drums, bpm 85"
+      cot: "off"
+      duration: 10
+      prompt: "[Verse]\nrain on the window, slow and low\nnowhere to be, nowhere to go"
+    models:
+      model:
+        sha256: "1d55c42c1a9875c34f5d736e15078449992b044e807ce2a138e6cf289a1e59e9"
+      vae:
+        sha256: "807ce9d5149fa27c5ad3e6582058469852e908f6c5acc8c8aa338e7ab7751346"
+    checks:
+      min_outputs: 0
+      not_black: false

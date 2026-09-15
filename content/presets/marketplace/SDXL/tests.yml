@@ -10,13 +10,7 @@ cases:
   # smallest square entry is 1024x1024), pinned seed. SDXL loads a single
   # checkpoint file (from_single_file()) so there is only one model field
   # to resolve, unlike Flux/QwenImage's split DiT+TE+VAE.
-  #
-  # `cyberrealisticPony_v180Coreshift.safetensors` matches this preset's own
-  # bundled loras/wildcards (CyberRealisticPony_POSV1, the ponyxlWildcards*
-  # files in preset.yml) and is present on this checkout's disk, so this
-  # case uses its REAL computed sha256 (via `sha256sum`) rather than a
-  # placeholder -- it is expected to actually run, not be skipped.
-  - name: "sdxl-cyberrealistic-pony-baseline-fast"
+  - name: "sdxl-juggernaut-baseline-fast"
     mode: "txt2img"
     seed: 999
     tags: ["fast"]
@@ -42,7 +36,7 @@ cases:
       # that exact bug class.
     models:
       model:
-        sha256: "1d580c1c3f3612fa4db88af65372255582d5509ca0b28f85387273368301941b"
+        sha256: "c9e3e68f89b8e38689e1097d4be4573cf308de4e3fd044c64ca697bdb4aa8bca"
     checks:
       min_outputs: 1
       resolution: "1024x1024"
@@ -66,7 +60,7 @@ cases:
   # can't catch it; this case exists as an explicit marker for a human/CI
   # diff review, and is picked up automatically if #46's runner grows a
   # config-echo/pipe-graph check).
-  - name: "sdxl-cyberrealistic-pony-sag-enabled"
+  - name: "sdxl-juggernaut-sag-enabled"
     mode: "txt2img"
     seed: 999
     tags: ["fast"]
@@ -78,7 +72,7 @@ cases:
       sag_enabled: true
     models:
       model:
-        sha256: "1d580c1c3f3612fa4db88af65372255582d5509ca0b28f85387273368301941b"
+        sha256: "c9e3e68f89b8e38689e1097d4be4573cf308de4e3fd044c64ca697bdb4aa8bca"
     checks:
       min_outputs: 1
       resolution: "1024x1024"

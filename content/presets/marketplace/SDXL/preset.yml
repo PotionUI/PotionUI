@@ -57,7 +57,7 @@ configuration:
 
 vars:
   # Model configuration
-  main_model: "cyberrealisticPony_v180Coreshift"
+  main_model: "Juggernaut-XL_v9_RunDiffusionPhoto_v2"
   model_base: "SDXL"
 
   # ControlNet configuration

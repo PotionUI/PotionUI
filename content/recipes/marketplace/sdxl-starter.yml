@@ -18,8 +18,8 @@ description: >
   correctly before handing you a ready-to-use preset.
 
 plugins:
-  - id: "civitai-provider"
-    reason: "Finds the checkpoint on CivitAI (by its checksum) when it needs downloading."
+  - id: "huggingface-provider"
+    reason: "Resolves the checkpoint from its Hugging Face repository when it needs downloading."
 
 backend:
   engine: "native"
@@ -28,19 +28,21 @@ artifacts:
   - id: "sdxl-checkpoint"
     kind: "checkpoint"
     model_type: "checkpoint"
-    filename: "cyberrealisticPony_v180Coreshift.safetensors"
-    display_name: "CyberRealistic Pony v18.0 Coreshift (SDXL checkpoint)"
+    filename: "Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors"
+    display_name: "Juggernaut XL v9 (SDXL checkpoint)"
     required: true
-    size_bytes: 6938041288
+    size_bytes: 7105348188
     checksum:
       algorithm: "sha256"
-      value: "1d580c1c3f3612fa4db88af65372255582d5509ca0b28f85387273368301941b"
+      value: "c9e3e68f89b8e38689e1097d4be4573cf308de4e3fd044c64ca697bdb4aa8bca"
     # Declared by capability, never by a concrete plugin id - core resolves a
     # download source through whichever enabled plugin advertises this
     # capability (see plugin manifest `capabilities:`).
     capability: "model-lookup"
     provider_hint:
-      source: "civitai"
+      source: "huggingface"
+      model_id: "RunDiffusion/Juggernaut-XL-v9"
+      version_id: "main@Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors"
 
 presets:
   - preset_id: "01K0W24A3RADXXABH16YQ7KE90"
@@ -72,9 +74,7 @@ steps:
     kind: "plugins.ensure"
     title: "Enable required plugins"
     params:
-      # civitai-provider is needed so the download step can resolve the
-      # checkpoint by its checksum when it isn't already present.
-      plugin_ids: ["civitai-provider"]
+      plugin_ids: ["huggingface-provider"]
 
   - key: "backend.ensure"
     kind: "backend.ensure"

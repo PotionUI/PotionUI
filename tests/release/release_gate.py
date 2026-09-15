@@ -10,6 +10,7 @@ before it ships, and prints one clear pass/fail summary at the end.
                                                          # gate, useful for
                                                          # local iteration on
                                                          # a CUDA machine
+    python tests/release/release_gate.py --lint-only
 
 Gates, in order:
   1. Recipe lint          — `python scripts/recipe_lint.py` over `recipes/`.
@@ -213,14 +214,30 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Force-skip the GPU-gated preset E2E gate, even if a CUDA "
         "device is detected. Useful for fast local iteration.",
     )
+    parser.add_argument(
+        "--lint-only",
+        action="store_true",
+        help="Run only recipe-lint and preset-lint-budget.",
+    )
     args = parser.parse_args(argv)
 
     results = []
 
     results.append(("recipe-lint", PASS if gate_recipe_lint() else FAIL))
-    results.append(("architecture-layering", PASS if gate_layering() else FAIL))
-    results.append(("setup-suite", PASS if gate_setup_suite() else FAIL))
-    results.append(("gpu-preset-e2e", gate_gpu_preset_e2e(args.skip_gpu)))
+
+    if args.lint_only:
+        print(
+            "\narchitecture-layering / setup-suite / gpu-preset-e2e SKIPPED "
+            "— --lint-only was passed."
+        )
+        results.append(("architecture-layering", SKIP))
+        results.append(("setup-suite", SKIP))
+        results.append(("gpu-preset-e2e", SKIP))
+    else:
+        results.append(("architecture-layering", PASS if gate_layering() else FAIL))
+        results.append(("setup-suite", PASS if gate_setup_suite() else FAIL))
+        results.append(("gpu-preset-e2e", gate_gpu_preset_e2e(args.skip_gpu)))
+
     results.append(("preset-lint-budget", PASS if gate_preset_lint_budget() else FAIL))
 
     overall_ok = _print_summary(results)

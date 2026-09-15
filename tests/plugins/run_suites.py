@@ -15,10 +15,23 @@ Any arguments are forwarded verbatim to each per-plugin pytest invocation.
 
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import List, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MARKETPLACE_ROOT = REPO_ROOT / "content" / "plugins" / "marketplace"
+
+
+def _run_one(test_dir: Path, pytest_args: List[str]) -> Tuple[str, int, str]:
+    plugin_name = test_dir.parent.name
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", str(test_dir), *pytest_args],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    return plugin_name, result.returncode, result.stdout + result.stderr
 
 
 def main() -> int:
@@ -30,18 +43,21 @@ def main() -> int:
         return 0
 
     failed = []
-    for test_dir in test_dirs:
-        plugin_name = test_dir.parent.name
-        print(f"\n=== {plugin_name} ({test_dir.relative_to(REPO_ROOT)}) ===")
-        result = subprocess.run(
-            [sys.executable, "-m", "pytest", str(test_dir), *pytest_args],
-            cwd=REPO_ROOT,
-        )
-        if result.returncode != 0:
-            failed.append(plugin_name)
+    with ThreadPoolExecutor(max_workers=len(test_dirs)) as pool:
+        futures = {
+            pool.submit(_run_one, test_dir, pytest_args): test_dir
+            for test_dir in test_dirs
+        }
+        for future in as_completed(futures):
+            test_dir = futures[future]
+            plugin_name, returncode, output = future.result()
+            print(f"\n=== {plugin_name} ({test_dir.relative_to(REPO_ROOT)}) ===")
+            print(output)
+            if returncode != 0:
+                failed.append(plugin_name)
 
     if failed:
-        print(f"\nFAILED plugin suites: {', '.join(failed)}")
+        print(f"\nFAILED plugin suites: {', '.join(sorted(failed))}")
         return 1
 
     print(f"\nAll {len(test_dirs)} plugin suite(s) passed.")

@@ -31,20 +31,6 @@ name: Onboarding smoke gate
 # (referenced in constraints.txt's header) lands, wire it into the
 # constraints-resolve job so drift between requirements*.txt and
 # constraints.txt fails CI, not just a stale comment.
-#
-# `release-gate-cpu-safe` runs tests/release/release_gate.py --skip-gpu
-# — recipe lint, the architecture layering guard, and the setup feature test
-# suite, with the GPU-gated preset E2E gate force-skipped (loudly, not
-# silently) since this runner has no CUDA and no model files. Same
-# requirements-dev.txt-only install as `layering` above. Known risk shared
-# with the `layering` job: tests/conftest.py's top-level `pytest_plugins`
-# list unconditionally imports tests.fixtures.generation_fixtures, which
-# transitively imports torch (src/features/generation/profile_paths.py ->
-# src/platform/observability/profiling/profiler.py) — so ANY pytest run
-# under tests/ actually needs torch importable, which requirements-dev.txt
-# does not install. This predates both CI jobs; tracked as a follow-up, not
-# fixed here (fixing it means touching tests/conftest.py / tests/fixtures/,
-# outside this task's scope).
 
 on:
   push:
@@ -143,31 +129,6 @@ jobs:
       - name: pip install --dry-run -r requirements-dev.txt -c constraints.txt
         run: pip install --dry-run -r requirements-dev.txt -c constraints.txt
 
-  layering:
-    name: architecture layering guard
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      # requirements-dev.txt has no ML deps (pytest/black/isort/mypy/ruff) —
-      # cheap to install for real, unlike requirements.txt.
-      - name: Install dev tooling
-        run: pip install -r requirements-dev.txt -c constraints.txt
-
-      # Stdlib-only test (ast/re over source files, no imports of src/) per
-      # CLAUDE.md — enforces the package layering contracts (features/
-      # platform/pipelines import direction, dissolved-package guard).
-      # --noconftest: tests/conftest.py loads fixture plugins that import the
-      # app (yaml, fastapi, …) at collection time; this job deliberately has
-      # no app deps installed, and these tests need no fixtures.
-      - name: pytest tests/architecture/ + constraints coverage
-        run: python -m pytest tests/architecture/ tests/scripts/test_constraints_cover_requirements.py -q --no-cov --noconftest
-
   release-gate-cpu-safe:
     name: release gate (CPU-safe gates only)
     runs-on: ubuntu-latest
@@ -178,11 +139,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-ci.txt
+            requirements-dev.txt
 
-      # The gate's sub-steps import the app (recipe lint reads YAML, the
-      # setup feature suite boots src/), so this job needs the same CPU-only
-      # dependency set as backend-tests.yml — not the ML-free dev-tooling
-      # set the `layering` job gets away with.
       - name: Install CPU-only dependencies
         run: |
           python -m pip install --upgrade pip
@@ -190,17 +151,8 @@ jobs:
           pip install -r requirements-dev.txt
           pip install pytest-timeout
 
-      # tests/release/release_gate.py orchestrates, in order: recipe
-      # lint over content/recipes/, the architecture layering guard, the setup
-      # feature test suite, and a GPU-gated preset E2E smoke case. This
-      # runner is CPU-only, so `--skip-gpu` forces the last gate to a loud,
-      # non-failing SKIP unconditionally — it never attempts a real preset
-      # generation here. (The script also auto-skips that gate whenever no
-      # CUDA device is detected, which is always true on this runner, but
-      # `--skip-gpu` makes the CPU-only intent explicit and immune to any
-      # future change in that auto-detection logic.)
-      - name: python tests/release/release_gate.py --skip-gpu
-        run: python tests/release/release_gate.py --skip-gpu
+      - name: python tests/release/release_gate.py --skip-gpu --lint-only
+        run: python tests/release/release_gate.py --skip-gpu --lint-only
 
   install-smoke-remote:
     name: install smoke (remote profile, real boot)

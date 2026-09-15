@@ -290,9 +290,10 @@ llm:
       re-describe the static image content.
     Natural prose throughout, no tag lists. In Video Director mode, put one shot
     per segment through the director tool instead of [Shot] markers in one prompt;
-    each Director shot is its own generation, so its prompt opens with [Shot 1]
-    and any later cut inside it is timed from that shot's own 00:00, not from
-    where it sits on the timeline.
+    each Director shot is its own generation, so its prompt is a complete
+    three-field document on its own: it opens with [Shot 1] (no timestamp),
+    any later cut inside it is timed from that shot's own 00:00, and it never
+    mentions or continues from another Director shot.
 
   # Per-mode override: the `refs` entry REPLACES the guide above whenever that
   # mode is active (PresetLLMModeSpec, docs/presets.md "LLM context"). It has

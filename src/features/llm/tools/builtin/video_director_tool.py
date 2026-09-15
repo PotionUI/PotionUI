@@ -534,8 +534,10 @@ _HOW_TO_EDIT = (
     "VERSIONS for one or more prompt segments: emit "
     '<tool_action type="update_director_segment" segment_index="N" segment_id="ID">'
     "proposed prompt text</tool_action> tags in your reply text, one per version, "
-    "plain replacement prompt text only -- no [Shot N]/[Scene N] markers, no JSON "
-    "-- using a segment's index/id from the segments list above (or the per-turn "
+    "plain replacement prompt text only, no JSON, written in the single-clip format "
+    "the preset's prompting guide prescribes: a shot's prompt describes that shot "
+    "alone, timed from its own 00:00, and never names, continues or refers to "
+    "another Director shot -- using a segment's index/id from the segments list above (or the per-turn "
     "Video Director summary). In 'timeline' style (a multi-shot film, e.g. LTX), "
     "a prompt segment belongs to exactly one shot: the tag MUST ALSO carry "
     'shot_id="ID", copied from that segment\'s own shot_id field in the segments '

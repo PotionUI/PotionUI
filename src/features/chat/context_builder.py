@@ -764,12 +764,14 @@ class ChatContextBuilder:
                 lines.append(
                     "Video Director: active — you may only suggest per-shot prompt "
                     "VERSIONS via the update_director_segment tag; shot count, durations, "
-                    "media, mode, and settings are user-only. Each shot is generated on its "
-                    "own: any timestamp or cut inside a shot's prompt counts from 00:00 of "
-                    "THAT shot and stays within its own duration, never from the timeline "
-                    "start; a continuation only carries the previous shot's last frames "
-                    "forward as the starting state, so the next shot's prompt begins at its "
-                    "own 00:00 from that state."
+                    "media, mode, and settings are user-only. Each shot is a SEPARATE "
+                    "generation: write every shot's prompt as a complete, standalone "
+                    "description of what is on screen during that shot only, timed from its "
+                    "own 00:00 to its own duration. Never mention another shot, never write "
+                    "that a shot continues, follows or picks up from the previous one, never "
+                    "carry a timestamp across shots. Joined shots already start from the "
+                    "previous shot's last frames on the backend; the prompt describes the new "
+                    "shot as if the scene simply began there."
                 )
                 lines.extend(self._render_video_director_summary(
                     video_director.get("doc") or {}, video_director.get("capabilities") or {},

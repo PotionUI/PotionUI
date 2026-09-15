@@ -2032,6 +2032,12 @@ def test_the_continuation_tail_is_the_last_real_frames_padded_with_the_final_fra
     assert markers[17:] == [real[-1]] * 5
 
 
+def test_a_director_timeline_longer_than_one_clip_builds_its_context_from_the_longest_window():
+    pipe, _, _, plan = _run_director(_director_document(2, frames=345), video_vae_module=_FakeKeyframeVae())
+    assert sum(window.frames for window in plan.windows) > 360
+    assert max(window.frames for window in plan.windows) <= 360
+
+
 def test_a_last_frame_overlap_re_encodes_exactly_one_pixel_frame():
     document = _director_document(2, overlap=1)
     document["settings"]["continuation"]["source"] = "last_frame"

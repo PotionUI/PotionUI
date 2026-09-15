@@ -1192,6 +1192,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 )
             audio_file = audio_files[0]
 
+        plan = build_director_plan(self.config.get("document"), default_seed=int(self.config.get("seed", -1)))
         if initial_latents:
             # A refine pass derives width/height/frames from the SEED
             # LATENT's own shape rather than 'resolution'/'frames' config --
@@ -1245,6 +1246,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             resolution = str(self.config.get("resolution", "1344x768")).split("x")
             width, height = int(resolution[0]), int(resolution[1])
             frames = int(self.config.get("frames", 124))
+            if plan is not None:
+                frames = max(window.frames for window in plan.windows)
             height, width, frames, num_latent_frames, latent_height, latent_width, num_audio_latents = (
                 resolve_request_geometry(height, width, frames)
             )
@@ -1256,7 +1259,6 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         decode = bool(self.config.get("decode", True))
         video_sigma_shift = float(self.config.get("video_sigma_shift", VIDEO_SHIFT))
 
-        plan = build_director_plan(self.config.get("document"), default_seed=int(self.config.get("seed", -1)))
         director_images = list(pipe_input.input.get("director_image") or [])
         if plan is not None:
             if not decode:

@@ -1,3 +1,5 @@
+import logging
+from pathlib import Path
 from typing import Dict, Any, List
 import torch
 
@@ -14,6 +16,8 @@ from src.pipelines.contracts import (
 from src.pipelines.pipes._shared.detection.detailer_helper import DetailerHelper
 from src.pipelines.pipes.detailer.sdxl.detection_processor import BaseDetectionProcessor
 from src.pipelines.pipes._shared.detection import FaceDetector, HandDetector, EyeDetector, TeethDetector, PersonDetector
+
+logger = logging.getLogger(__name__)
 
 
 class ADetailerSDXLPipe(BasePipe):
@@ -293,6 +297,12 @@ class ADetailerSDXLPipe(BasePipe):
 
         return detector_class(detector_config, self.helper)
 
+    def _missing_detector_model(self, detection_type: str):
+        model_path = (self.config.get("detections") or {}).get(detection_type, {}).get("model")
+        if not model_path or str(model_path).strip().lower() in ("none", "null"):
+            return "(unset)"
+        return None if Path(str(model_path)).exists() else model_path
+
     def _is_detection_enabled(self, detection_type: str) -> bool:
         """
         Check if a detection type is enabled.
@@ -352,6 +362,10 @@ class ADetailerSDXLPipe(BasePipe):
             # Apply each enabled detector sequentially
             for detection_type in detection_types:
                 if not self._is_detection_enabled(detection_type):
+                    continue
+                missing = self._missing_detector_model(detection_type)
+                if missing is not None:
+                    logger.warning(f"Skipping {detection_type} detailing: detector model {missing!s} is not available")
                     continue
 
                 # Create detector and processor

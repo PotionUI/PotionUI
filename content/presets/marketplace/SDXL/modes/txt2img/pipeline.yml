@@ -324,7 +324,7 @@ pipeline:
       detections:
         face:
           type: "{{ form.face_detector_type | default('yolo') }}"  # yolo or mediapipe
-          model: "{{ form.face_detector_model | default('models/detection_bbox/face_yolov12m.pt') }}"
+          model: "{{ form.face_detector_model | default('models/detection_bbox/face_yolov12m.pt', true) }}"
           enabled: "{{ form.face_detailer_enabled }}"
           strength: "{{ form.face_strength | default(preset.vars.face_fix_strength) }}"
           confidence: "{{ form.face_confidence | default(preset.vars.face_fix_confidence) }}"
@@ -338,7 +338,7 @@ pipeline:
           padding: "{{ form.face_padding }}"
         hand:
           type: "{{ form.hand_detector_type | default('yolo') }}"  # yolo or mediapipe
-          model: "{{ form.hand_detector_model | default('models/detection_bbox/hand_yolov8n.pt') }}"
+          model: "{{ form.hand_detector_model | default('models/detection_bbox/hand_yolov8n.pt', true) }}"
           enabled: "{{ form.hand_detailer_enabled }}"
           strength: "{{ form.hand_strength }}"
           confidence: "{{ form.hand_confidence }}"
@@ -350,7 +350,7 @@ pipeline:
           padding: "{{ form.hand_padding }}"
         eyes:
           type: "mediapipe"  # Eyes always use MediaPipe (no YOLO model available)
-          model: "{{ form.eyes_detector_model | default('models/mediapipe/face_landmarker.task') }}"
+          model: "{{ form.eyes_detector_model | default('models/mediapipe/face_landmarker.task', true) }}"
           enabled: "{{ form.eyes_detailer_enabled }}"
           confidence: "{{ form.eyes_confidence }}"
           strength: "{{ form.eyes_strength }}"
@@ -363,7 +363,7 @@ pipeline:
           scheduler: "{{ form.scheduler | default(preset.vars.default_scheduler) }}"
         teeth:
           type: "mediapipe"  # Teeth always use MediaPipe (no YOLO model available)
-          model: "{{ form.teeth_detector_model | default('models/mediapipe/face_landmarker.task') }}"
+          model: "{{ form.teeth_detector_model | default('models/mediapipe/face_landmarker.task', true) }}"
           enabled: "{{ form.teeth_detailer_enabled }}"
           confidence: "{{ form.teeth_confidence }}"
           strength: "{{ form.teeth_strength }}"
@@ -377,7 +377,7 @@ pipeline:
           scheduler: "{{ form.scheduler | default(preset.vars.default_scheduler) }}"
         person:
           type: "{{ form.person_detector_type | default('yolo') }}"  # Person uses YOLO detection with COCO model
-          model: "{{ form.person_detector_model | default('yolov8m.pt') }}"
+          model: "{{ form.person_detector_model | default('yolov8m.pt', true) }}"
           enabled: "{{ form.person_detailer_enabled }}"
           strength: "{{ form.person_strength }}"
           confidence: "{{ form.person_confidence }}"

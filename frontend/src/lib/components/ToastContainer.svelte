@@ -1,74 +1,110 @@
 <script lang="ts">
 	import { fly, fade } from 'svelte/transition';
-	import { toasts } from '$lib/stores/toast';
-	import type { Toast } from '$lib/stores/toast';
+	import { toasts, capToasts, toastDisplayTitle, toastsAriaLive } from '$lib/stores/toast';
+	import type { Toast, ToastType } from '$lib/stores/toast';
+	import Icon from '$lib/components/Icon.svelte';
 
-	function getColors(type: Toast['type']) {
-		switch (type) {
-			case 'success':
-				return 'bg-success/15 border border-success/30 text-success';
-			case 'error':
-				return 'bg-danger/15 border border-danger/30 text-danger';
-			case 'warning':
-				return 'bg-warning/15 border border-warning/30 text-warning';
-			case 'info':
-			default:
-				return 'bg-surface-2/90 border border-line-strong/50 text-fg';
-		}
+	const iconByType: Record<ToastType, string> = {
+		success: 'check',
+		error: 'close',
+		info: 'info',
+		warning: 'warning'
+	};
+
+	const ruleColorByType: Record<ToastType, string> = {
+		success: 'bg-success',
+		error: 'bg-danger',
+		info: 'bg-fg-muted',
+		warning: 'bg-fg-muted'
+	};
+
+	const iconColorByType: Record<ToastType, string> = {
+		success: 'text-success',
+		error: 'text-danger',
+		info: 'text-fg-muted',
+		warning: 'text-fg-muted'
+	};
+
+	const prefersReducedMotion =
+		typeof window !== 'undefined' &&
+		typeof window.matchMedia === 'function' &&
+		window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+	function progressFill(node: HTMLElement, duration: number) {
+		node.style.transitionProperty = 'width';
+		node.style.transitionTimingFunction = 'linear';
+		node.style.transitionDuration = prefersReducedMotion ? '0ms' : `${duration}ms`;
+		node.style.width = '100%';
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => {
+				node.style.width = '0%';
+			});
+		});
+		return { destroy() {} };
 	}
+
+	function showsMessage(toast: Toast) {
+		return Boolean(toast.title) || !toast.count || toast.count <= 1;
+	}
+
+	let capped = $derived(capToasts($toasts));
+	let ariaLive = $derived(toastsAriaLive($toasts));
 </script>
 
-<!--
-	Top-right stack (z above the notifications panel at z-9991 so toasts stay
-	readable when the panel is open). `top-6` clears the header bar; items stack
-	downward and enter from the top-right so the motion never feels inverted.
--->
-<div class="fixed top-6 right-6 z-[9998] flex flex-col gap-2 pointer-events-none">
-	{#each $toasts as toast (toast.id)}
+<div
+	class="fixed top-6 right-6 z-[9998] flex w-80 flex-col gap-2 pointer-events-none"
+	role="status"
+	aria-live={ariaLive}
+>
+	{#each capped.visible as toast (toast.id)}
 		<div
-			class="pointer-events-auto max-w-sm w-full rounded-lg px-4 py-3 flex items-start gap-3 shadow-lg backdrop-blur-sm {getColors(toast.type)}"
-			in:fly={{ y: -24, x: 24, duration: 250 }}
-			out:fade={{ duration: 200 }}
+			class="pointer-events-auto relative flex w-full items-start gap-2.5 rounded-lg border border-line-strong bg-surface-2 py-2.5 pl-3.5 pr-3 shadow-floating"
+			in:fly={{ y: prefersReducedMotion ? 0 : -24, x: prefersReducedMotion ? 0 : 24, duration: prefersReducedMotion ? 0 : 250 }}
+			out:fade={{ duration: prefersReducedMotion ? 0 : 200 }}
 		>
-			<!-- Icon -->
-			<div class="flex-shrink-0 mt-0.5">
-				{#if toast.type === 'success'}
-					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-					</svg>
-				{:else if toast.type === 'error'}
-					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-					</svg>
-				{:else if toast.type === 'warning'}
-					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5.07 19h13.86a2 2 0 001.74-2.99L13.73 4a2 2 0 00-3.46 0L3.33 16.01A2 2 0 005.07 19z" />
-					</svg>
-				{:else}
-					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-					</svg>
+			<span class="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-sm {ruleColorByType[toast.type]}"></span>
+
+			<Icon name={iconByType[toast.type]} className="mt-px h-[15px] w-[15px] flex-shrink-0 {iconColorByType[toast.type]}" />
+
+			<div class="min-w-0 flex-1">
+				{#if toastDisplayTitle(toast)}
+					<p class="text-[12.5px] font-medium leading-snug text-fg">{toastDisplayTitle(toast)}</p>
+				{/if}
+				{#if showsMessage(toast)}
+					<p class="mt-px text-xs leading-[1.4] text-fg-muted">{toast.message}</p>
+				{/if}
+				{#if toast.action}
+					<div class="mt-2 flex items-center gap-2">
+						<button
+							class="rounded px-[9px] py-[3px] text-[11px] font-medium bg-accent text-accent-contrast"
+							onclick={toast.action.onClick}
+						>
+							{toast.action.label}
+						</button>
+					</div>
+				{/if}
+				{#if toast.duration && toast.duration > 0}
+					<div class="toast-progress mt-2 h-0.5 overflow-hidden rounded-sm bg-surface-3">
+						<div class="h-full bg-fg-disabled" use:progressFill={toast.duration}></div>
+					</div>
 				{/if}
 			</div>
 
-			<!-- Message -->
-			<div class="flex-1 min-w-0">
-				{#if toast.title}
-					<p class="text-sm font-semibold leading-snug">{toast.title}</p>
-				{/if}
-				<p class="text-sm leading-snug {toast.title ? 'text-fg-muted' : ''}">{toast.message}</p>
-			</div>
-
-			<!-- Close button -->
 			<button
-				class="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity -mt-0.5 -mr-1"
-				on:click={() => toasts.remove(toast.id)}
-				aria-label="Dismiss notification"
+				class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-fg-subtle hover:bg-surface-3 hover:text-fg"
+				onclick={() => toasts.remove(toast.id)}
+				aria-label="Dismiss"
 			>
-				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-				</svg>
+				<Icon name="close" className="h-3 w-3" />
 			</button>
 		</div>
 	{/each}
+
+	{#if capped.overflowCount > 0}
+		<div
+			class="pointer-events-auto self-end rounded border border-line-strong bg-surface-1 px-2 py-[3px] font-mono text-[10px] tracking-[0.04em] text-fg-subtle"
+		>
+			+{capped.overflowCount} more
+		</div>
+	{/if}
 </div>

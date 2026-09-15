@@ -43,7 +43,7 @@ from src.features.presets.style_previews import (  # noqa: E402
 )
 from src.features.preset_suite.resolver_factory import build_live_resolver  # noqa: E402
 from src.features.preset_suite.runner import _model_type_hint  # noqa: E402
-from src.features.presets.tests_schema import load_tests_yml  # noqa: E402
+from src.features.presets.tests_schema import ModelRef, load_tests_yml  # noqa: E402
 
 
 def _boot_client(run_dir: Path):
@@ -74,7 +74,7 @@ def _resolve_preset(preset_loader, ref: str):
     return None
 
 
-def resolve_model_form_data(preset, resolver) -> Optional[Dict[str, str]]:
+def resolve_model_form_data(preset, resolver, overrides: Optional[Dict[str, str]] = None) -> Optional[Dict[str, str]]:
     tests = load_tests_yml(Path(preset.path))
     if tests is None or not tests.cases:
         print(
@@ -90,6 +90,11 @@ def resolve_model_form_data(preset, resolver) -> Optional[Dict[str, str]]:
             "style rendering needs it to know which weights to use"
         )
         return None
+
+    if overrides:
+        models = dict(models)
+        for field_name, sha256 in overrides.items():
+            models[field_name] = ModelRef(sha256=sha256)
 
     resolved: Dict[str, str] = {}
     ok = True
@@ -193,7 +198,16 @@ def main(argv=None) -> int:
                      help="Override the preset's steps, only if its form has a 'steps' field.")
     ap.add_argument("--resolution", default=None, metavar="WxH",
                      help="Override the preset's resolution, only if its form has a 'resolution' field.")
+    ap.add_argument("--model", action="append", default=[], metavar="FIELD=SHA256",
+                     help="Use this sha256 for a model field instead of the tests.yml pin (repeatable).")
     args = ap.parse_args(argv)
+    model_overrides: Dict[str, str] = {}
+    for item in args.model:
+        field_name, sep, sha256 = item.partition("=")
+        if not sep or not field_name or len(sha256) != 64:
+            print(f"error: --model expects FIELD=<64-hex sha256>, got '{item}'")
+            return 2
+        model_overrides[field_name] = sha256.lower()
 
     from src.features.preset_suite import ephemeral
 
@@ -214,7 +228,7 @@ def main(argv=None) -> int:
             print(f"error: preset '{preset.id}' has no styles.yml")
             return 1
 
-        model_form_data = resolve_model_form_data(preset, resolver)
+        model_form_data = resolve_model_form_data(preset, resolver, model_overrides)
         if model_form_data is None:
             return 1
 

@@ -20,7 +20,7 @@ cases:
       resolution: "1024x1024"
     models:
       diffusion_model:
-        sha256: "78bbf8f4165eda19cea3cb06c78089221932a39e2eed8af9da741f942c47ffb3"
+        sha256: "eb4dd8c612cfd10f64f25b057e6e6bbcb5737c94a7372177e456dbf7579502f1"
       text_encoder:
         sha256: "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094"
       vae:

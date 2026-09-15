@@ -296,6 +296,19 @@ class TestResolveModelFormData:
         assert result == {"diffusion_model": "/models/dit.safetensors", "text_encoder": "/models/te.safetensors"}
         assert {c["sha256"] for c in resolver.calls} == {sha_dit, sha_te}
 
+    def test_override_replaces_the_pinned_sha_for_that_field_only(self, tmp_path):
+        preset_dir = tmp_path / "preset"
+        preset_dir.mkdir()
+        sha_dit, sha_te, sha_local = "a" * 64, "b" * 64, "c" * 64
+        _write_tests_yml(preset_dir, {"diffusion_model": sha_dit, "text_encoder": sha_te})
+        preset = _preset(preset_dir, [_style()])
+        resolver = FakeResolver({sha_local: "/models/local.safetensors", sha_te: "/models/te.safetensors"})
+
+        result = psr.resolve_model_form_data(preset, resolver, {"diffusion_model": sha_local})
+
+        assert result == {"diffusion_model": "/models/local.safetensors", "text_encoder": "/models/te.safetensors"}
+        assert sha_dit not in {c["sha256"] for c in resolver.calls}
+
     def test_no_tests_yml_reports_and_returns_none(self, tmp_path, capsys):
         preset_dir = tmp_path / "preset"
         preset_dir.mkdir()

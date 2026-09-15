@@ -131,3 +131,19 @@ fields:
               size: "577.2 MB"
               sha256: "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48"
               description: "MiniMax-H3 audio VAE, fp32 - required for the audio track."
+
+  - type: "section"
+    label: "Keyframe encoding"
+    audience: "advanced"
+    children:
+      - name: "keyframe_pixel_budget"
+        type: "select"
+        label: "Keyframe detail budget"
+        default: "0"
+        ai_hint: "Only has any effect when the Video Director attaches a first/last frame. The keyframe reaches the model twice -- as condition frames (always at the picked Resolution) and as a picture the text encoder reads for style/content; only the second read is capped here. Uncapped reads up to 16MP and is paid for by area. '0' (uncapped) is the safest answer when the user cares about keyframe fidelity. Suggest 2x as the speed/fidelity compromise, or 1x when keyframe encoding is slow and the keyframe is a large photo. Values are multiples of the output canvas AREA, not edge length."
+        configuration:
+          options:
+            - { label: "Uncapped (model default)", value: "0" }
+            - { label: "1x output area (fastest)", value: "1" }
+            - { label: "2x output area", value: "2" }
+            - { label: "4x output area", value: "4" }

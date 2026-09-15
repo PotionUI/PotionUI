@@ -488,13 +488,15 @@
 				class:has-body={hasBody}
 			>
 				{#if prefixText}
-					<button
-						type="button"
-						class="segment-affix"
-						tabindex="-1"
-						title="Prefix — edit it in Segment details"
-						on:click={() => inlineEditor?.focusEditor()}
-					>{prefixText}</button>
+					<Tooltip text="Prefix, joined before your text. Edit it in Segment details." position="top" wrapperClass="segment-affix-slot">
+						<button
+							type="button"
+							class="segment-affix font-mono"
+							tabindex="-1"
+							aria-label="Prefix {prefixText.trim()}"
+							on:click={() => inlineEditor?.focusEditor()}
+						>{prefixText.trim()}</button>
+					</Tooltip>
 				{/if}
 				<InlineChipEditor
 					bind:this={inlineEditor}
@@ -514,13 +516,15 @@
 					variant="segment-composer"
 				/>
 				{#if suffixText}
-					<button
-						type="button"
-						class="segment-affix"
-						tabindex="-1"
-						title="Suffix — edit it in Segment details"
-						on:click={() => inlineEditor?.focusEditor()}
-					>{suffixText}</button>
+					<Tooltip text="Suffix, joined after your text. Edit it in Segment details." position="top" wrapperClass="segment-affix-slot">
+						<button
+							type="button"
+							class="segment-affix font-mono"
+							tabindex="-1"
+							aria-label="Suffix {suffixText.trim()}"
+							on:click={() => inlineEditor?.focusEditor()}
+						>{suffixText.trim()}</button>
+					</Tooltip>
 				{/if}
 			</div>
 
@@ -603,21 +607,11 @@
 		}
 	}
 
-	/* Affixes read as part of the prompt, so they sit on the body's own first
-	   line with nothing between them and the text — `--affix-pull` swallows the
-	   editor's horizontal padding (px-3, px-2.5 in compact) so the join on the
-	   card is the same zero-separator join flattenRichSegments performs. The
-	   editor only stops filling the row when an affix is present; without one
-	   this box keeps its plain block layout. */
 	.segment-content.with-affix {
-		--affix-pull: 0.75rem;
 		display: flex;
 		flex-wrap: wrap;
 		align-items: flex-start;
-	}
-
-	.compact .segment-content.with-affix {
-		--affix-pull: 0.625rem;
+		gap: 0 0.375rem;
 	}
 
 	.segment-content.with-affix > :global(.relative) {
@@ -631,24 +625,45 @@
 		width: max-content;
 	}
 
-	.segment-affix {
+	.segment-content.with-affix > :global(.segment-affix-slot) {
 		flex: 0 0 auto;
-		padding: 0.5rem 0;
-		background: transparent;
-		border: 0;
-		text-align: left;
-		color: rgb(var(--fg-subtle));
-		font: inherit;
-		white-space: pre;
+		padding: 0.4rem 0 0 0.75rem;
+	}
+
+	.segment-content.with-affix > :global(.segment-affix-slot:last-child) {
+		padding-left: 0;
+		padding-right: 0.75rem;
+	}
+
+	.compact .segment-content.with-affix > :global(.segment-affix-slot) {
+		padding-left: 0.625rem;
+	}
+
+	.compact .segment-content.with-affix > :global(.segment-affix-slot:last-child) {
+		padding-left: 0;
+		padding-right: 0.625rem;
+	}
+
+	.segment-affix {
+		display: inline-flex;
+		align-items: center;
+		max-width: 16rem;
+		padding: 0.1rem 0.4rem;
+		border: 1px solid rgb(var(--line-strong));
+		border-radius: 4px;
+		background: rgb(var(--surface-3) / 0.6);
+		color: rgb(var(--fg-muted));
+		font-size: 0.6875rem;
+		line-height: 1.4;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		cursor: text;
 		user-select: none;
 	}
 
-	.segment-affix:first-child {
-		margin-right: calc(-1 * var(--affix-pull));
-	}
-
-	.segment-affix:last-child {
-		margin-left: calc(-1 * var(--affix-pull));
+	.segment-affix:hover {
+		color: rgb(var(--fg));
+		border-color: rgb(var(--line-hover));
 	}
 </style>

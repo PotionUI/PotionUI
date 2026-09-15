@@ -299,14 +299,14 @@ def build_router(container: "AppContainer") -> APIRouter:
     router = APIRouter(prefix="/api/user-groups", tags=["user-groups"])
 
     # Group CRUD
-    @router.get("/", response_model=APIResponse, summary="List All Groups")
+    @router.get("", response_model=APIResponse, summary="List All Groups")
     async def get_all_groups(
         current_user: User = Depends(get_current_user)
     ) -> APIResponse:
         """Get all user groups (admin only)."""
         return await controller.get_all_groups(current_user)
 
-    @router.post("/", response_model=APIResponse, summary="Create Group")
+    @router.post("", response_model=APIResponse, summary="Create Group")
     async def create_group(
         data: GroupCreate,
         current_user: User = Depends(get_current_user)

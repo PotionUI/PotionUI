@@ -43,11 +43,3 @@ class SettingUpdateRequest(BaseModel):
 class UserSettingUpdateRequest(BaseModel):
     """Request model for updating user settings"""
     value: Any
-
-
-class SystemInfo(BaseModel):
-    gpu_info: Dict[str, Any]
-    memory_info: Dict[str, Any]
-    disk_info: Dict[str, Any]
-    models_count: int
-    presets_count: int

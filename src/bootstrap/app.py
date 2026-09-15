@@ -436,7 +436,8 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         lifespan=lifespan,
         docs_url="/docs",
         redoc_url="/redoc",
-        openapi_tags=tags_metadata
+        openapi_tags=tags_metadata,
+        redirect_slashes=False,
     )
 
     # Global exception handlers for better error reporting

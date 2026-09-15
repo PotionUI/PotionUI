@@ -382,7 +382,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     controller = container.user_controller
     router = APIRouter(prefix="/api/users", tags=["users"])
 
-    @router.get("/", response_model=APIResponse, summary="Get All Users")
+    @router.get("", response_model=APIResponse, summary="Get All Users")
     async def get_all_users(current_user: User = Depends(get_current_user)) -> APIResponse:
         """Get all users (admin only)."""
         return await controller.get_all_users(current_user)
@@ -392,7 +392,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Get user by ID."""
         return await controller.get_user(user_id, current_user)
 
-    @router.post("/", response_model=APIResponse, summary="Create User")
+    @router.post("", response_model=APIResponse, summary="Create User")
     async def create_user(
         user_data: UserCreate, current_user: User = Depends(get_current_user)
     ) -> APIResponse:

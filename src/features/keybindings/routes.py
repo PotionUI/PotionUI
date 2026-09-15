@@ -118,7 +118,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     controller = KeybindingController(keybinding_repo)
     router = APIRouter(prefix="/api/keybindings", tags=["Keybindings"])
 
-    @router.get("/", response_model=APIResponse, summary="Get Effective Keybindings")
+    @router.get("", response_model=APIResponse, summary="Get Effective Keybindings")
     async def get_keybindings(
         current_user: User = Depends(get_current_active_user)
     ) -> APIResponse:

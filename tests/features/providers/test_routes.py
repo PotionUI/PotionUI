@@ -81,7 +81,7 @@ class TestProviderController(unittest.TestCase):
         self.mock_service.get_all_provider_metadata.return_value = []
         self.mock_service.is_provider_initialized.return_value = False
 
-        response = self.client.get("/api/providers/")
+        response = self.client.get("/api/providers")
 
         self.assertEqual(response.status_code, 200)
         json_response = response.json()
@@ -93,7 +93,7 @@ class TestProviderController(unittest.TestCase):
         self.mock_service.get_all_provider_metadata.return_value = [self.mock_metadata]
         self.mock_service.is_provider_initialized.return_value = True
 
-        response = self.client.get("/api/providers/")
+        response = self.client.get("/api/providers")
 
         self.assertEqual(response.status_code, 200)
         json_response = response.json()

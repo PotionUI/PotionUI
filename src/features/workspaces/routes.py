@@ -146,7 +146,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     controller = container.workspace_controller
     router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
 
-    @router.get("/", response_model=APIResponse, summary="Get Workspaces")
+    @router.get("", response_model=APIResponse, summary="Get Workspaces")
     async def get_workspaces(current_user=Depends(get_current_active_user)):
         """Get all workspaces for the current user."""
         return await controller.get_workspaces(current_user.id)
@@ -156,7 +156,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Get a specific workspace by ID."""
         return await controller.get_workspace_by_id(workspace_id, current_user.id)
 
-    @router.post("/", response_model=APIResponse, summary="Save Workspace")
+    @router.post("", response_model=APIResponse, summary="Save Workspace")
     async def save_workspace(request: SaveWorkspaceRequest, current_user=Depends(get_current_active_user)):
         """Save a new workspace."""
         return await controller.save_workspace(current_user.id, request)

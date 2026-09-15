@@ -119,10 +119,11 @@ def test_no_build_dir_is_a_no_op(tmp_path):
 
 
 def _app_with_slash_routes() -> FastAPI:
-    """Routers registered with a prefix expose their root at `/prefix/` -
-    the frontend calls `/prefix` (no slash) and has always relied on
-    Starlette's 307 slash redirect to bridge the gap."""
-    app = FastAPI()
+    """Mirrors src.bootstrap.app.create_app()'s redirect_slashes=False: a
+    route registered at a prefix's root (trailing slash) must not silently
+    307-redirect a request that omits it - that redirect drops a POST body
+    behind some reverse proxies."""
+    app = FastAPI(redirect_slashes=False)
 
     @app.get("/api/keybindings/")
     async def list_bindings():
@@ -135,26 +136,26 @@ def _app_with_slash_routes() -> FastAPI:
     return app
 
 
-def test_get_near_miss_still_slash_redirects_with_frontend_mounted(build_dir):
+def test_get_near_miss_is_a_json_404_not_a_silent_redirect(build_dir):
     app = _app_with_slash_routes()
     mount_frontend(app, build_dir=build_dir)
     client = TestClient(app)
 
     resp = client.get("/api/keybindings", follow_redirects=False)
 
-    assert resp.status_code == 307
-    assert resp.headers["location"].endswith("/api/keybindings/")
+    assert resp.status_code == 404
+    assert resp.headers["content-type"].startswith("application/json")
+    assert "SPA shell" not in resp.text
 
 
-def test_post_near_miss_slash_redirects_instead_of_405(build_dir):
+def test_post_near_miss_is_a_404_not_a_silent_redirect(build_dir):
     app = _app_with_slash_routes()
     mount_frontend(app, build_dir=build_dir)
     client = TestClient(app)
 
     resp = client.post("/api/workspaces", follow_redirects=False)
 
-    assert resp.status_code == 307
-    assert resp.headers["location"].endswith("/api/workspaces/")
+    assert resp.status_code == 404
 
 
 def test_wrong_method_on_a_real_api_route_is_still_a_405(build_dir):

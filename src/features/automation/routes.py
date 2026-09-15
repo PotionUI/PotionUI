@@ -426,11 +426,11 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Validate a graph without persisting it (unknown types, cycles, dangling edges, missing config)."""
         return await controller.validate_graph(request, current_user)
 
-    @router.get("/", response_model=APIResponse, summary="List Automations")
+    @router.get("", response_model=APIResponse, summary="List Automations")
     async def list_automations(current_user: User = Depends(get_current_active_user)) -> APIResponse:
         return await controller.list_automations(current_user)
 
-    @router.post("/", response_model=APIResponse, summary="Create Automation")
+    @router.post("", response_model=APIResponse, summary="Create Automation")
     async def create_automation(
         request: CreateAutomationRequest,
         current_user: User = Depends(get_current_active_user)

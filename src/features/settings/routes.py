@@ -3,7 +3,6 @@ import os
 import sys
 from typing import Dict, Any, Optional, List, Union, TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException
-from pathlib import Path
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
@@ -16,7 +15,6 @@ from src.platform.runtime.gpu import GpuMonitor
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.settings.dto import (
     SettingsSchema,
-    SystemInfo,
     SettingResponse,
     UserSettingResponse,
     SettingUpdateRequest,
@@ -392,81 +390,6 @@ class SettingsController(BaseController):
                 message=f"Failed to delete user setting: {str(e)}"
             )
 
-    async def get_system_info(self) -> APIResponse:
-        """Get system information"""
-        try:
-            # GPU information
-            gpu_info = {
-                'total_vram': self.gpu_monitor.get_total_vram(),
-                'used_vram': self.gpu_monitor.get_used_vram(),
-                'available_vram': self.gpu_monitor.get_available_vram(),
-                'gpu_name': getattr(self.gpu_monitor, 'gpu_name', 'Unknown'),
-                'driver_version': getattr(self.gpu_monitor, 'driver_version', 'Unknown')
-            }
-
-            # Memory information (simplified)
-            import psutil
-            from src.platform.runtime.system_memory import get_system_memory
-
-            sys_mem = get_system_memory()
-            used = sys_mem.total - sys_mem.available
-            memory_info = {
-                'total': sys_mem.total,
-                'available': sys_mem.available,
-                'used': used,
-                'percent': (used / sys_mem.total * 100.0) if sys_mem.total > 0 else 0.0
-            }
-
-            # Disk information
-            models_dir = Path(self.settings.get_models_dir())
-            if models_dir.exists():
-                disk_usage = psutil.disk_usage(str(models_dir))
-                disk_info = {
-                    'total': disk_usage.total,
-                    'used': disk_usage.used,
-                    'free': disk_usage.free,
-                    'path': str(models_dir)
-                }
-            else:
-                disk_info = {'error': 'Models directory not found'}
-
-            # Model counts
-            models_count = len(self.model_directories.get_all_models())
-
-            # Preset counts (simplified)
-            presets_count = 0
-            presets_dir = Path('presets')
-            if presets_dir.exists():
-                presets_count = len(list(presets_dir.rglob('preset.yml')))
-
-            system_info = SystemInfo(
-                gpu_info=gpu_info,
-                memory_info=memory_info,
-                disk_info=disk_info,
-                models_count=models_count,
-                presets_count=presets_count
-            )
-
-            return self.success_response(data=system_info.dict())
-
-        except Exception as e:
-            return self.error_response(
-                error="system_info_failed",
-                message=f"Failed to get system info: {str(e)}"
-            )
-
-    async def get_model_types(self) -> APIResponse:
-        """Get available model types"""
-        try:
-            model_types = self.model_directories.get_model_types()
-            return self.success_response(data=model_types)
-
-        except Exception as e:
-            return self.error_response(
-                error="model_types_failed",
-                message=f"Failed to get model types: {str(e)}"
-            )
-
     async def rescan_models(self) -> APIResponse:
         """Rescan models directory"""
         try:
@@ -557,16 +480,6 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def delete_user_setting(key: str, current_user = Depends(get_current_active_user)):
         """Delete a user setting override, reverting to system default."""
         return await controller.delete_user_setting(key, current_user)
-
-    @router.get("/system/info", response_model=APIResponse, summary="Get System Information")
-    async def get_system_info(current_user = Depends(get_current_active_user)):
-        """Get detailed system information including hardware specifications."""
-        return await controller.get_system_info()
-
-    @router.get("/models/types", response_model=APIResponse, summary="Get Model Types")
-    async def get_model_types(current_user = Depends(get_current_active_user)):
-        """Get all available model types (checkpoints, LoRAs, embeddings, etc.)."""
-        return await controller.get_model_types()
 
     @router.post("/models/rescan", response_model=APIResponse, summary="Rescan Models Directory")
     async def rescan_models(current_user = Depends(get_current_admin_user)):

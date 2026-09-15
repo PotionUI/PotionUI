@@ -163,7 +163,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     controller = container.tag_controller
     router = APIRouter(prefix="/api/tags", tags=["Tags"])
 
-    @router.get("/", response_model=APIResponse, summary="List Tags")
+    @router.get("", response_model=APIResponse, summary="List Tags")
     async def list_tags(
         type: TagType = Query(..., description="Tag type: MODEL or GENERATION"),
         current_user: User = Depends(get_current_active_user)
@@ -171,7 +171,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """List all tags of specified type with usage counts."""
         return await controller.list_tags(type, current_user)
 
-    @router.post("/", response_model=APIResponse, summary="Create Tag")
+    @router.post("", response_model=APIResponse, summary="Create Tag")
     async def create_tag(
         request: CreateTagRequest,
         current_user: User = Depends(get_current_active_user)

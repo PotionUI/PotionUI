@@ -345,7 +345,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     controller = ProviderController(container.plugin_registry)
     router = APIRouter(prefix="/api/providers", tags=["Providers"])
 
-    @router.get("/", response_model=APIResponse, summary="List marketplace providers")
+    @router.get("", response_model=APIResponse, summary="List marketplace providers")
     async def list_providers(current_user=Depends(get_current_active_user)):
         """List all registered marketplace providers."""
         return await controller.list_providers(current_user)

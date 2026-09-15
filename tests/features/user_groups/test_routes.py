@@ -8,15 +8,20 @@ exactly like the previous manager mock, without the controller holding a
 stateful collaborator it doesn't need.
 """
 import pytest
+import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, MagicMock, patch, AsyncMock
 from datetime import datetime
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from src.features.user_groups import routes as routes_module
 from src.features.user_groups.routes import (
     UserGroupController,
     build_router,
 )
+from src.platform.security.current_user import get_current_user
 from src.features.user_groups.dto import (
     GroupCreate,
     GroupUpdate,
@@ -606,3 +611,59 @@ class TestUserGroupController:
         """Test ModelIds DTO"""
         data = ModelIds(model_ids=["m1", "m2"])
         assert len(data.model_ids) == 2
+
+
+class TestUserGroupRoutesHTTP(unittest.TestCase):
+    """The collection route must match what the frontend sends exactly (no
+    trailing slash) - a mismatch here means the reverse proxy 307-redirects
+    the POST and its body never arrives."""
+
+    def setUp(self):
+        self.mock_repository = Mock()
+        self.mock_plugins = Mock()
+        self.controller = UserGroupController(self.mock_repository, self.mock_plugins)
+
+        self.operations_patcher = patch.object(routes_module, "operations", Mock())
+        self.mock_operations = self.operations_patcher.start()
+
+        self.admin_user = User(
+            id="admin-user-123",
+            username="admin",
+            email="admin@example.com",
+            password_hash="$2b$12$admin.hash",
+            account_type=AccountType.ADMIN,
+            created_at=datetime.utcnow(),
+            last_login=None,
+        )
+
+        app = FastAPI(redirect_slashes=False)
+        app.dependency_overrides[get_current_user] = lambda: self.admin_user
+        app.include_router(build_router(SimpleNamespace(user_group_controller=self.controller)))
+        self.client = TestClient(app)
+        self.app = app
+
+    def tearDown(self):
+        self.operations_patcher.stop()
+        self.app.dependency_overrides.clear()
+
+    def test_create_group_no_trailing_slash_returns_success_directly(self):
+        created = UserGroupDTO(
+            id="group-123",
+            name="Test Group",
+            description="A test group",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        self.mock_operations.create_group.return_value = created
+
+        response = self.client.post(
+            "/api/user-groups",
+            json={"name": "Test Group", "description": "A test group"},
+            follow_redirects=False,
+        )
+
+        self.assertIn(response.status_code, (200, 201))
+        self.assertNotIn("location", response.headers)
+        body = response.json()
+        self.assertTrue(body["success"])
+        self.assertEqual(body["data"]["name"], "Test Group")

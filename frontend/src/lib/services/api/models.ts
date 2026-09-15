@@ -122,9 +122,8 @@ export function createModelsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async getTags(type?: 'MODEL' | 'GENERATION' | 'UPLOAD', signal?: AbortSignal): Promise<APIResponse<{ tags: any[] }>> {
-			const params = type ? `?type=${type}` : '';
-			const response = await client.get(`/api/tags${params}`, { signal });
+		async getTags(type: 'MODEL' | 'GENERATION' | 'UPLOAD', signal?: AbortSignal): Promise<APIResponse<{ tags: any[] }>> {
+			const response = await client.get(`/api/tags?type=${type}`, { signal });
 			return response.data;
 		},
 

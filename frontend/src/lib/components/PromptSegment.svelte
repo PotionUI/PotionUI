@@ -101,6 +101,7 @@
 	$: prefixText = segment.prefix || '';
 	$: suffixText = segment.suffix || '';
 	$: hasAffix = !!prefixText || !!suffixText;
+	$: hasBody = !!segment.content && segment.content.trim().length > 0;
 	$: footerActions = segmentFooterActions(segment);
 	$: charCount = segmentCharCount(segment);
 	$: dynamicTokenCount =
@@ -480,7 +481,12 @@
 				</div>
 			</header>
 
-			<div class="card-content segment-content" class:with-affix={hasAffix}>
+			<div
+				class="card-content segment-content"
+				class:with-affix={hasAffix}
+				class:with-suffix={!!suffixText}
+				class:has-body={hasBody}
+			>
 				{#if prefixText}
 					<button
 						type="button"
@@ -615,10 +621,14 @@
 	}
 
 	.segment-content.with-affix > :global(.relative) {
-		flex: 0 1 auto;
-		width: max-content;
+		flex: 1 1 auto;
 		min-width: 8rem;
 		max-width: 100%;
+	}
+
+	.segment-content.with-suffix.has-body > :global(.relative) {
+		flex: 0 1 auto;
+		width: max-content;
 	}
 
 	.segment-affix {

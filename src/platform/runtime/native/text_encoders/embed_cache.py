@@ -223,6 +223,55 @@ def image_content_fingerprint(image: torch.Tensor) -> str:
     return hashlib.sha256(header + cpu.numpy().tobytes()).hexdigest()
 
 
+class VisionEmbedCache:
+    """LRU cache of a vision tower's per-block output, keyed independently of prompt text."""
+
+    def __init__(self, max_entries: int = 16, max_bytes: int = 512 * 1024 * 1024) -> None:
+        self._store: "OrderedDict[str, tuple[torch.Tensor, list, int]]" = OrderedDict()
+        self._max_entries = max(1, int(max_entries))
+        self._max_bytes = max(1, int(max_bytes))
+        self._bytes = 0
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _tensor_bytes(tensor: torch.Tensor) -> int:
+        return tensor.numel() * tensor.element_size()
+
+    def get_on_device(self, key: str, device: "str | torch.device"):
+        """Return ``(merged, deepstack)`` as fresh copies on ``device``, or ``None`` on a miss."""
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            self._store.move_to_end(key)
+            merged, deepstack, _size = entry
+        return merged.to(device=device).clone(), [feat.to(device=device).clone() for feat in deepstack]
+
+    def put(self, key: str, merged: torch.Tensor, deepstack: list) -> None:
+        cpu_merged = merged.detach().to("cpu").clone()
+        cpu_deepstack = [feat.detach().to("cpu").clone() for feat in deepstack]
+        size = self._tensor_bytes(cpu_merged) + sum(self._tensor_bytes(feat) for feat in cpu_deepstack)
+        with self._lock:
+            existing = self._store.pop(key, None)
+            if existing is not None:
+                self._bytes -= existing[2]
+            self._store[key] = (cpu_merged, cpu_deepstack, size)
+            self._bytes += size
+            self._store.move_to_end(key)
+            while self._store and (len(self._store) > self._max_entries or self._bytes > self._max_bytes):
+                _, evicted = self._store.popitem(last=False)
+                self._bytes -= evicted[2]
+
+    def clear(self) -> None:
+        with self._lock:
+            self._store.clear()
+            self._bytes = 0
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._store)
+
+
 def prompt_embed_key(model_fingerprint: Optional[str], role: Optional[str], *parts: Any) -> Optional[str]:
     """Build a cache key from a text encoder's identity and encode inputs.
 

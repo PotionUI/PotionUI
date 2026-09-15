@@ -46,6 +46,7 @@ from src.platform.runtime.native.text_encoders.qwen3_vl_vision import (
     VISION_TEMPORAL_PATCH_SIZE,
     preprocess_qwen3_vl_image,
 )
+from src.platform.runtime.native.text_encoders.embed_cache import VisionEmbedCache
 from src.platform.runtime.native.text_encoders.tokenization import MiniMaxH3Tokenizer, Qwen3Tokenizer
 
 from .._nvfp4_ref import default_tensor_scale, quantize_nvfp4
@@ -1142,3 +1143,71 @@ def test_image_only_reference_request_is_unchanged_by_the_video_branch():
     )
     torch.testing.assert_close(via_request["context"], via_reference["context"], rtol=0, atol=0)
     assert torch.equal(via_request["token_tags"], via_reference["token_tags"])
+
+
+def _counting_forward(module):
+    calls = {"n": 0}
+    original = module.forward
+
+    def wrapped(*args, **kwargs):
+        calls["n"] += 1
+        return original(*args, **kwargs)
+
+    module.forward = wrapped
+    return calls
+
+
+def test_vision_cache_reuses_across_different_prompt_text_same_reference():
+    pytest.importorskip("transformers")
+    m = _tiny_h3_vl_module()
+    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    calls = _counting_forward(m.visual)
+
+    img = torch.rand(32, 32, 3)
+    references = [MiniMaxH3Reference(kind="image", media=img)]
+
+    out_first = enc.encode_reference_request("a red car", references)
+    assert calls["n"] == 1
+
+    out_second = enc.encode_reference_request("a red car", references)
+    assert calls["n"] == 1
+    assert torch.equal(out_first["context"], out_second["context"])
+
+    enc.encode_reference_request("a completely different shot description", references)
+    assert calls["n"] == 1
+
+
+def test_vision_cache_misses_on_a_different_pixel_budget():
+    pytest.importorskip("transformers")
+    m = _tiny_h3_vl_module()
+    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    calls = _counting_forward(m.visual)
+
+    img = torch.rand(128, 128, 3)
+    references = [MiniMaxH3Reference(kind="image", media=img)]
+
+    enc.encode_reference_request("a scene", references, max_pixels=1024)
+    assert calls["n"] == 1
+
+    enc.encode_reference_request("a scene", references, max_pixels=H3_VISION_MAX_PIXELS)
+    assert calls["n"] == 2
+
+    enc.encode_reference_request("a scene", references, max_pixels=1024)
+    assert calls["n"] == 2
+
+
+def test_vision_embed_cache_evicts_the_lru_entry_once_over_its_byte_limit():
+    merged_a = torch.zeros(1000, 8)
+    merged_b = torch.zeros(1000, 8)
+    entry_bytes = merged_a.numel() * merged_a.element_size()
+    cache = VisionEmbedCache(max_entries=10, max_bytes=int(entry_bytes * 1.5))
+
+    cache.put("a", merged_a, [])
+    assert cache.get_on_device("a", "cpu") is not None
+
+    cache.put("b", merged_b, [])
+    assert len(cache) == 1
+    assert cache.get_on_device("a", "cpu") is None
+    got_b = cache.get_on_device("b", "cpu")
+    assert got_b is not None
+    assert torch.equal(got_b[0], merged_b)

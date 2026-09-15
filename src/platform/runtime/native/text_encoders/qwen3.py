@@ -31,6 +31,7 @@ from ..base import NativeArchModule
 from ..errors import NativeEngineUnsupportedError
 from ._functional import optimized_attention, rms_norm
 from .base import NativeTextEncoder, _module_to, _module_unload
+from .embed_cache import VisionEmbedCache, image_content_fingerprint
 from .qwen_vl_vision import qwen25vl_mrope_position_ids
 from .qwen3_vl_vision import (
     H3_VISION_MAX_PIXELS,
@@ -925,6 +926,12 @@ class MiniMaxH3VisionRun:
     pad_token_id: int
 
 
+def _vision_run_fingerprint(run: "MiniMaxH3VisionRun") -> str:
+    """Content key for one vision run's tower output, independent of prompt text."""
+    grid = tuple(int(v) for v in run.grid_thw.flatten().tolist())
+    return f"{grid}|{image_content_fingerprint(run.patches)}"
+
+
 @dataclass
 class MiniMaxH3Reference:
     """One `ref2va` reference as the CONDITIONER sees it, in packed order —
@@ -986,12 +993,17 @@ class MiniMaxH3TextEncoder(NativeTextEncoder):
     role = "qwen3vl_32b"
 
     def __init__(self, module: Qwen3Model, tokenizer, variant: str = "qwen3vl_32b",
-                 device: str | torch.device = "cpu") -> None:
+                 device: str | torch.device = "cpu",
+                 vision_cache_max_entries: int = 16,
+                 vision_cache_max_bytes: int = 512 * 1024 * 1024) -> None:
         self.module = module
         self.tokenizer = tokenizer
         self.role = variant
         self._device = torch.device(device)
         self._has_vision = hasattr(module, "visual")
+        self._vision_cache = VisionEmbedCache(
+            max_entries=vision_cache_max_entries, max_bytes=vision_cache_max_bytes,
+        )
 
     def to(self, device: str | torch.device) -> "MiniMaxH3TextEncoder":
         self._device = torch.device(device)
@@ -999,6 +1011,7 @@ class MiniMaxH3TextEncoder(NativeTextEncoder):
         return self
 
     def unload(self) -> None:
+        self._vision_cache.clear()
         _module_unload(self.module)
 
     @torch.inference_mode()
@@ -1048,7 +1061,13 @@ class MiniMaxH3TextEncoder(NativeTextEncoder):
             # MiniMax-H3's presentation puts a `"<t seconds>"` text segment
             # between consecutive frame-groups. An image is `grid_t == 1` and
             # takes this loop exactly once.
-            merged, deepstack_feats = visual(run.patches.to(self._device, dtype=torch.float32), run.grid_thw)
+            cache_key = _vision_run_fingerprint(run)
+            cached = self._vision_cache.get_on_device(cache_key, self._device)
+            if cached is not None:
+                merged, deepstack_feats = cached
+            else:
+                merged, deepstack_feats = visual(run.patches.to(self._device, dtype=torch.float32), run.grid_thw)
+                self._vision_cache.put(cache_key, merged, deepstack_feats)
             num_blocks = int(run.grid_thw[0, 0])
             if merged.shape[0] % num_blocks:
                 raise ValueError(

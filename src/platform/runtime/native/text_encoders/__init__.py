@@ -10,7 +10,13 @@ from __future__ import annotations
 
 from .base import NativeTextEncoder
 from .clip_l import CLIPLModel, CLIPLTextEncoder
-from .embed_cache import PromptEmbedCache, get_prompt_embed_cache, image_content_fingerprint, prompt_embed_key
+from .embed_cache import (
+    PromptEmbedCache,
+    VisionEmbedCache,
+    get_prompt_embed_cache,
+    image_content_fingerprint,
+    prompt_embed_key,
+)
 from .gemma3 import Gemma3Model, Gemma3TextEncoder
 from .loader import FluxTextEncoder, TESpec, load_text_encoder
 from .qwen3 import KLEIN_LAYERS, Qwen3Model, Qwen3TextEncoder, ZImageTextEncoder
@@ -21,6 +27,7 @@ from .t5xxl import T5XXLModel, T5XXLTextEncoder, UMT5TextEncoder
 __all__ = [
     "NativeTextEncoder",
     "PromptEmbedCache",
+    "VisionEmbedCache",
     "get_prompt_embed_cache",
     "prompt_embed_key",
     "image_content_fingerprint",

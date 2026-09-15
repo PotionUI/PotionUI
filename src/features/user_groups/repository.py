@@ -1,6 +1,9 @@
+import logging
 from typing import List, Optional
 from src.features.user_groups.records import UserGroup, UserGroupMember, UserGroupPreset, UserGroupLLM, UserGroupModel
 from src.platform.util.ids import generate_ulid
+
+logger = logging.getLogger(__name__)
 
 
 class UserGroupRepository:
@@ -326,7 +329,10 @@ class UserGroupRepository:
                     (assignment_id, group_id, model_id)
                 )
             return self.get_group_model(assignment_id)
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                f"assign_model_to_group(group_id={group_id!r}, model_id={model_id!r}) failed: {e}"
+            )
             return None
 
     def get_group_model(self, assignment_id: str) -> Optional[UserGroupModel]:

@@ -312,6 +312,15 @@ class TestModelAssignmentReverseLookup(TestUserModelAccessControl):
         self.assertEqual(summary[group_only_model], {"assignment_count": 0, "group_count": 1})
         self.assertNotIn(unassigned_model, summary)
 
+    def test_assign_model_to_group_logs_a_failed_insert_instead_of_swallowing_it(self):
+        group_id = self.create_test_group("group_bad_insert")
+
+        with self.assertLogs("src.features.user_groups.repository", level="WARNING") as cm:
+            result = user_group_repo.assign_model_to_group(group_id, "does-not-exist")
+
+        self.assertIsNone(result)
+        self.assertTrue(any("assign_model_to_group" in message for message in cm.output))
+
 
 if __name__ == '__main__':
     unittest.main()

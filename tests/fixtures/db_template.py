@@ -1,5 +1,3 @@
-"""Migrated SQLite template built once per process and copied per test."""
-
 import importlib
 import io
 import shutil
@@ -15,6 +13,15 @@ from src.platform.database.migration_runner import MigrationRunner
 
 _lock = threading.Lock()
 _template_path: Optional[Path] = None
+
+
+def checkpoint_wal_and_drop_journal_sidecar(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.execute("PRAGMA journal_mode=DELETE")
+    finally:
+        conn.close()
 
 
 def _build_template(path: Path) -> None:
@@ -42,12 +49,7 @@ def _build_template(path: Path) -> None:
         database_module.db = previous_db
         migration_runner_module.db = previous_migration_db
 
-    conn = sqlite3.connect(path)
-    try:
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        conn.execute("PRAGMA journal_mode=DELETE")
-    finally:
-        conn.close()
+    checkpoint_wal_and_drop_journal_sidecar(path)
 
 
 def template_db_path() -> Path:

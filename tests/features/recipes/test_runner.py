@@ -34,10 +34,11 @@ from src.features.recipes.run_repository import RecipeRunRepository
 @pytest.fixture
 def file_db(tmp_path):
     """Redirect the shared DB singleton at a fresh migrated temp file."""
+    db_path = tmp_path / "setup_runs.db"
+    copy_template_db(db_path)
     original_path = global_db.db_path
-    global_db.db_path = tmp_path / "setup_runs.db"
+    global_db.db_path = db_path
     try:
-        copy_template_db(global_db.db_path)
         yield global_db
     finally:
         global_db.db_path = original_path

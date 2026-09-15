@@ -17,10 +17,11 @@ from tests.fixtures.db_template import copy_template_db
 
 @pytest.fixture
 def file_db(tmp_path):
+    db_path = tmp_path / "setup_executor_registry.db"
+    copy_template_db(db_path)
     original_path = global_db.db_path
-    global_db.db_path = tmp_path / "setup_executor_registry.db"
+    global_db.db_path = db_path
     try:
-        copy_template_db(global_db.db_path)
         yield global_db
     finally:
         global_db.db_path = original_path

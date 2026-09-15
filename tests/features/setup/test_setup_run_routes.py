@@ -32,10 +32,11 @@ from src.features.recipes.schema import Recipe, RecipeStep
 
 @pytest.fixture
 def file_db(tmp_path):
+    db_path = tmp_path / "setup_run_routes.db"
+    copy_template_db(db_path)
     original_path = global_db.db_path
-    global_db.db_path = tmp_path / "setup_run_routes.db"
+    global_db.db_path = db_path
     try:
-        copy_template_db(global_db.db_path)
         yield global_db
     finally:
         global_db.db_path = original_path

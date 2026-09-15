@@ -7,6 +7,7 @@ trivial stand-in, so the sampling wiring is exercised for real."""
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 import torch
 import torch.nn as nn
@@ -15,11 +16,13 @@ from PIL import Image
 from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     KEYFRAME_ENCODE_SEED,
     REFERENCE_IMAGE_SHORT_EDGE,
+    encode_continuation_condition,
     encode_keyframe_condition,
     fit_keyframe_to_canvas,
     normalize_reference_image,
     prepare_reference_condition_rows,
 )
+from src.pipelines.pipes.generator.video_minimax_h3.geometry import frames_to_encode_for_continuation
 from src.pipelines.pipes.generator.video_minimax_h3.schedule import KEYFRAME_NOISE_AUG
 
 LATENT_CHANNELS = 24
@@ -163,6 +166,90 @@ def test_bite_check_wrong_seed_would_not_reproduce_the_draw():
 
 def test_keyframe_encode_seed_is_42():
     assert KEYFRAME_ENCODE_SEED == 42
+
+
+def _tail_frames(num_frames: int, *, size: int = 8) -> np.ndarray:
+    return np.zeros((num_frames, size, size, 3), dtype=np.uint8)
+
+
+def test_continuation_encode_hands_the_vae_exactly_the_snapped_frame_count():
+    vae = _FakeVideoVae()
+    seen = {}
+    inner = vae.encode
+
+    def spy(x, **kwargs):
+        seen["frames"] = x.shape[2]
+        return inner(x, **kwargs)
+    vae.encode = spy
+
+    num_latents = 5
+    tail_frames = _tail_frames(frames_to_encode_for_continuation(num_latents))
+    got = encode_continuation_condition(
+        vae, tail_frames, num_latents=num_latents, device="cpu",
+        latents_mean=[0.0] * LATENT_CHANNELS, latents_std=[1.0] * LATENT_CHANNELS,
+    )
+
+    assert seen["frames"] == 22
+    assert got.shape[2] == num_latents
+
+
+def test_continuation_encode_the_last_frame_source_hands_the_vae_one_frame():
+    vae = _FakeVideoVae()
+    seen = {}
+    inner = vae.encode
+
+    def spy(x, **kwargs):
+        seen["frames"] = x.shape[2]
+        return inner(x, **kwargs)
+    vae.encode = spy
+
+    tail_frames = _tail_frames(frames_to_encode_for_continuation(1))
+    got = encode_continuation_condition(
+        vae, tail_frames, num_latents=1, device="cpu",
+        latents_mean=[0.0] * LATENT_CHANNELS, latents_std=[1.0] * LATENT_CHANNELS,
+    )
+
+    assert seen["frames"] == 1
+    assert got.shape[2] == 1
+
+
+def test_continuation_encode_returns_the_encoders_own_head_slice():
+    vae = _FakeVideoVae()
+    latents_mean = [0.0] * LATENT_CHANNELS
+    latents_std = [1.0] * LATENT_CHANNELS
+    tail_frames = _tail_frames(frames_to_encode_for_continuation(5))
+
+    got = encode_continuation_condition(
+        vae, tail_frames, num_latents=5, device="cpu", latents_mean=latents_mean, latents_std=latents_std,
+    )
+
+    pixels = torch.from_numpy(tail_frames.copy()).permute(3, 0, 1, 2)[None].contiguous()
+    full = encode_keyframe_condition(vae, pixels, latents_mean=latents_mean, latents_std=latents_std)
+    torch.testing.assert_close(got, full[:, :, :5], rtol=0, atol=0)
+
+
+class _ChunkedFakeVideoVae:
+
+    def parameters(self):
+        return iter([torch.zeros(1, dtype=torch.float32)])
+
+    def encode(self, x, *, sample_posterior=False, generator=None):
+        b, _c, f, h, w = x.shape
+        num_latents = 1 if f == 1 else max(5 * -(-f // 17) - 3, 0)
+        return torch.full((b, LATENT_CHANNELS, num_latents, h, w), 0.5)
+
+
+def test_bite_check_17_frames_would_starve_the_vae_of_two_clean_latents():
+    vae = _ChunkedFakeVideoVae()
+    latents_mean = [0.0] * LATENT_CHANNELS
+    latents_std = [1.0] * LATENT_CHANNELS
+    wrong_tail_frames = _tail_frames(17)
+
+    pixels = torch.from_numpy(wrong_tail_frames.copy()).permute(3, 0, 1, 2)[None].contiguous()
+    full = encode_keyframe_condition(vae, pixels, latents_mean=latents_mean, latents_std=latents_std)
+
+    assert full.shape[2] == 2
+    assert full.shape[2] < 5
 
 
 # -- canvas fit: stretch (geometry anchor) vs cover-crop (follower) ---------

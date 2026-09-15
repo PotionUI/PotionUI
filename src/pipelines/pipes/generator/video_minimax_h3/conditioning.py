@@ -340,6 +340,15 @@ def encode_keyframe_condition(
     return normalize_visual_latent(latent, latents_mean=latents_mean, latents_std=latents_std)
 
 
+def encode_continuation_condition(
+    vae_module: Any, tail_frames: np.ndarray, *, num_latents: int, device: Any, latents_mean: Any, latents_std: Any,
+) -> Tensor:
+    """Anchor tail for a continuation window, re-encoded from the previous window's decoded pixels."""
+    pixels = _pixels_from_frames(tail_frames, device)
+    latent = encode_keyframe_condition(vae_module, pixels, latents_mean=latents_mean, latents_std=latents_std)
+    return latent[:, :, :num_latents]
+
+
 # Bytes budget for the request-local `VisualLatentCache` below. Sized to hold a
 # full `MAX_REFERENCES` (12) reference set at `REFERENCE_IMAGE_SHORT_EDGE`'s
 # worst-case 1:4 aspect ratio in float32 with headroom left over for a handful

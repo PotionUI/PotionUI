@@ -157,6 +157,21 @@ def pixel_frames_for_latent_frames(
     return chunks * frames_per_chunk + latents_per_chunk
 
 
+def frames_to_encode_for_continuation(
+    num_latents: int, *, frames_per_chunk: int = FRAMES_PER_CHUNK, latents_per_chunk: int = LATENTS_PER_CHUNK,
+) -> int:
+    """Pixel frames to feed the video VAE so its encode yields at least `num_latents` clean latents."""
+    if num_latents < 1:
+        raise ValueError(f"num_latents must be >= 1, got {num_latents}")
+    if num_latents == 1:
+        return 1
+    chunks = -(-(num_latents - 2) // latents_per_chunk)
+    snapped = chunks * latents_per_chunk + 2
+    return pixel_frames_for_latent_frames(
+        snapped, frames_per_chunk=frames_per_chunk, latents_per_chunk=latents_per_chunk,
+    )
+
+
 def head_frames_for_latents(
     num_latents: int, *, spans: tuple[int, ...] = LATENT_FRAME_PIXEL_SPANS,
 ) -> int:

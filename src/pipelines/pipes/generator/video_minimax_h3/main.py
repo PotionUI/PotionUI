@@ -139,6 +139,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     MAX_VIDEO_REFERENCES,
     ReferenceMedia,
     VisualLatentCache,
+    encode_continuation_condition,
     keyframes_need_encode,
     normalize_references,
     prepare_keyframe_condition_rows,
@@ -152,6 +153,8 @@ from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     MAX_ASPECT_RATIO,
     MIN_ASPECT_RATIO,
     audio_latent_num_frames,
+    frames_to_encode_for_continuation,
+    head_frames_for_latents,
     pixel_frames_for_latent_frames,
     resolve_request_geometry,
     video_latent_num_frames,
@@ -2011,11 +2014,18 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         """Run the document's segments as a chain of windows and return the
         finished clip path(s).
 
-        Each window is a complete, independent H3 generation; continuity is
-        carried purely as tensors between them -- the previous window's video
-        latent tail becomes this window's leading condition rows, and a slice
-        of its audio latents becomes the clean condition-audio prefix. Nothing
-        is decoded and re-encoded to make that happen.
+        Each window is a complete, independent H3 generation. The audio side
+        carries continuity as a tensor -- a slice of the previous window's
+        audio latents becomes the clean condition-audio prefix, no VAE
+        round trip. The video side carries continuity as PIXELS instead: the
+        previous window's own decoded tail is re-encoded through
+        `conditioning.encode_continuation_condition`, the same recipe a
+        Director keyframe uses, because anchor 0 is always the video VAE's
+        phase-0 latent (one real frame of causal context) and only a fresh
+        encode of a real frame lands there correctly -- the previous
+        window's raw sampler latent ends on whatever phase its OWN length
+        happens to hit, which is a phase mismatch for most overlap
+        configurations (`geometry.LATENT_FRAME_PIXEL_SPANS`).
 
         A reference-conditioned run (`c.references` non-empty) takes a
         different branch per window: `_validate_refs_director_plan` has
@@ -2023,21 +2033,21 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         Director keyframe's OVERLAY condition rows, so every window here
         builds its own `ref2va` reference-block layout instead
         (`_build_ref2va_layout`, `_window_references` for the per-shot
-        subset) and `previous_latent`/`previous_audio_rows` are tracked but
-        never read back into one -- there is no continuation to feed them
-        into.
+        subset) and `previous_tail_frames`/`previous_audio_rows` are tracked
+        but never read back into one -- there is no continuation to feed
+        them into.
         """
         windows = plan.windows
         total_steps = sum(self._window_step_count(c, window) for window in windows)
         clips: List[str] = []
         tracks: List[Any] = []
         window_frames: List[np.ndarray] = []
-        previous_latent: Optional[Tensor] = None
+        previous_tail_frames: Optional[np.ndarray] = None
         previous_audio_rows: Optional[Tensor] = None
         previous_audio_latents = 0
         steps_done = 0
 
-        for window in windows:
+        for index, window in enumerate(windows):
             if is_cancelled is not None and is_cancelled():
                 raise SamplingCancelled()
 
@@ -2062,7 +2072,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 anchors: tuple = ()
             else:
                 ref2va_layout = None
-                anchors, condition_rows = self._window_condition_rows(c, window, previous_latent, generator)
+                anchors, condition_rows = self._window_condition_rows(c, window, previous_tail_frames, generator)
                 condition_audio_rows = self._window_condition_audio(
                     window, previous_audio_rows, previous_audio_latents, dtype=c.dtype,
                 )
@@ -2092,7 +2102,6 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 latent_height=c.latent_height, latent_width=c.latent_width,
                 channels=VIDEO_LATENT_CHANNELS, patch_size=PATCH_SIZE,
             )
-            previous_latent = latent
             previous_audio_rows = audio_rows[n_ca:]
             previous_audio_latents = window.num_audio_latents
 
@@ -2101,6 +2110,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             # "the shot resets to its first frame" class of bug; trim it off
             # both streams before this window joins the timeline.
             frames = self._decode_video(c, latent)[window.overlap_frames:]
+            next_window = windows[index + 1] if index + 1 < len(windows) else None
+            previous_tail_frames = self._continuation_tail_frames(frames, next_window)
             track = _trim_audio_head(
                 self._resolve_audio(
                     c, audio_rows, num_audio_latents=window.num_audio_latents,
@@ -2143,7 +2154,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         return int(video_schedule.timesteps.numel())
 
     def _window_condition_rows(
-        self, c: _MiniMaxH3Ctx, window: WindowPlan, previous_latent: Optional[Tensor],
+        self, c: _MiniMaxH3Ctx, window: WindowPlan, previous_tail_frames: Optional[np.ndarray],
         generator: torch.Generator,
     ) -> tuple[tuple, Tensor]:
         """This window's `(keyframe_anchors, condition_rows)`.
@@ -2154,21 +2165,35 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         because `build_packed_sequence` lays condition blocks out positionally
         against `keyframe_anchors`.
 
-        The tail latents skip `conditioning.encode_keyframe_condition`
-        entirely: they are already normalized latents straight off the
-        previous window's sampler, so encoding them would mean decoding to
-        pixels and re-encoding, losing a VAE round trip's worth of detail for
-        nothing. Everything downstream of the encode is shared -- the same
+        The continuation prefix goes through `conditioning.
+        encode_continuation_condition` -- the SAME VAE round trip a Director
+        keyframe takes, on `previous_tail_frames` (the previous window's own
+        decoded pixels, sized by `_continuation_tail_frames`) rather than the
+        previous window's raw sampler latent: anchor 0 is always the phase-0
+        (I-type) latent, and only a fresh single-frame-rooted encode lands
+        there correctly -- a raw latent splice hands it whatever phase the
+        previous window's own tail happened to end on instead
+        (`geometry.LATENT_FRAME_PIXEL_SPANS`). Everything downstream of the
+        encode is shared with a keyframe's own recipe -- the same
         `KEYFRAME_NOISE_AUG` noise augmentation, one noise draw per condition
         frame, the same patchify.
         """
         anchors: list = []
         rows: List[Tensor] = []
 
-        if window.overlap_latents and previous_latent is not None:
-            tail = previous_latent[:, :, previous_latent.shape[2] - window.overlap_latents:]
+        if window.overlap_latents and previous_tail_frames is not None:
+            video_vae_module = _require_h3_video_vae(c.bundle.video_vae.module)
+            _place_vae(c, c.bundle.video_vae)
+            try:
+                tail_latent = encode_continuation_condition(
+                    video_vae_module, previous_tail_frames, num_latents=window.overlap_latents,
+                    device=c.device, latents_mean=video_vae_module.latents_mean,
+                    latents_std=video_vae_module.latents_std,
+                )
+            finally:
+                c.bundle.video_vae.offload()
             for offset in range(window.overlap_latents):
-                frame = tail[:, :, offset: offset + 1].to(device=c.device, dtype=torch.float32)
+                frame = tail_latent[:, :, offset: offset + 1].to(device=c.device, dtype=torch.float32)
                 noise = torch.randn(frame.shape, generator=generator, device=c.device, dtype=torch.float32)
                 rows.append(patchify_video_latents(
                     scale_noise(frame, KEYFRAME_NOISE_AUG, noise).to(c.dtype), PATCH_SIZE,
@@ -2209,6 +2234,25 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 device=c.device, dtype=c.dtype,
             )
         return tuple(anchors), torch.cat(rows, dim=0)
+
+    @staticmethod
+    def _continuation_tail_frames(
+        frames: np.ndarray, next_window: Optional[WindowPlan],
+    ) -> Optional[np.ndarray]:
+        if next_window is None or not next_window.overlap_latents:
+            return None
+        real = head_frames_for_latents(next_window.overlap_latents)
+        if real > len(frames):
+            raise ValueError(
+                f"segment {next_window.index}: continuation needs {real} pixel frames of the previous "
+                f"window's own footage to re-encode its anchor tail, but that window only decoded "
+                f"{len(frames)} past its own overlap trim -- shorten the overlap or lengthen the segment"
+            )
+        tail = frames[-real:]
+        padding = frames_to_encode_for_continuation(next_window.overlap_latents) - real
+        if padding > 0:
+            tail = np.concatenate([tail, np.repeat(tail[-1:], padding, axis=0)], axis=0)
+        return tail.copy()
 
     @staticmethod
     def _window_condition_audio(

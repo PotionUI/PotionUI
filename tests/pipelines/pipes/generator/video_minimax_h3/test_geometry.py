@@ -8,6 +8,7 @@ import pytest
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     align_num_frames,
     audio_latent_num_frames,
+    frames_to_encode_for_continuation,
     pixel_frames_for_latent_frames,
     resolve_canvas_size,
     resolve_request_geometry,
@@ -119,6 +120,33 @@ def test_pixel_frames_for_latent_frames_rejects_a_count_below_the_minimum():
 def test_pixel_frames_for_latent_frames_rejects_a_count_off_the_5n_plus_2_grid():
     with pytest.raises(ValueError, match="not of the form"):
         pixel_frames_for_latent_frames(8)  # 8 - 2 = 6, not a multiple of 5
+
+
+def test_frames_to_encode_for_continuation_single_latent_is_one_real_frame():
+    assert frames_to_encode_for_continuation(1) == 1
+
+
+@pytest.mark.parametrize("num_latents,frames", [
+    (2, 5),
+    (5, 22),
+    (6, 22),
+    (7, 22),
+    (8, 39),
+    (10, 39),
+    (12, 39),
+])
+def test_frames_to_encode_for_continuation_snaps_to_the_5n_plus_2_boundary(num_latents, frames):
+    assert frames_to_encode_for_continuation(num_latents) == frames
+    assert video_latent_num_frames(frames) >= num_latents
+
+
+def test_frames_to_encode_for_continuation_rejects_nonpositive():
+    with pytest.raises(ValueError):
+        frames_to_encode_for_continuation(0)
+
+
+def test_bite_check_frames_to_encode_for_continuation_is_not_the_samplers_own_span():
+    assert frames_to_encode_for_continuation(5) != 17
 
 
 # -- audio latent count -------------------------------------------------------

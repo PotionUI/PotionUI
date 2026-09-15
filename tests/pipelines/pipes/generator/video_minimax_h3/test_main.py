@@ -1843,6 +1843,7 @@ def test_video_sigma_shift_reaches_the_loop_and_changes_the_refine_latent():
 from src.pipelines.pipes.generator.video_minimax_h3.audio import pack_audio_rows, unpack_audio_rows
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     audio_latent_num_frames,
+    frames_to_encode_for_continuation,
     head_frames_for_latents,
     video_latent_num_frames,
 )
@@ -1855,14 +1856,27 @@ DIRECTOR_LATENTS = video_latent_num_frames(DIRECTOR_FRAMES)   # 37
 DIRECTOR_AUDIO_LATENTS = audio_latent_num_frames(DIRECTOR_FRAMES)
 
 
-class _RecordingPipe(GeneratorMinimaxH3Pipe):
-    """Stands in for the two decoders so the window loop's own arithmetic --
-    what it splices in, what it trims off -- is what the assertions see.
+class _FakeKeyframeVae:
 
-    `_decode_video` returns one identifiable value per pixel frame (the frame's
-    own index within the window), so a trim is visible as the index the
-    surviving footage starts at rather than only as a count.
-    """
+    latents_mean = torch.zeros(24)
+    latents_std = torch.ones(24)
+
+    def __init__(self):
+        self.encode_frame_counts: list[int] = []
+        self.encoded_frame_markers: list[list[float]] = []
+
+    def parameters(self):
+        return iter([torch.zeros(1, dtype=torch.float32)])
+
+    def encode(self, pixels, sample_posterior=False, generator=None):
+        b, _, f, h, w = pixels.shape
+        self.encode_frame_counts.append(f)
+        self.encoded_frame_markers.append(pixels[0, 0, :, 0, 0].tolist())
+        num_latents = 1 if f == 1 else max(5 * -(-f // 17) - 3, 0)
+        return torch.full((b, 24, num_latents, h // 16, w // 16), 0.25)
+
+
+class _RecordingPipe(GeneratorMinimaxH3Pipe):
 
     def __init__(self, config):
         super().__init__(config)
@@ -1872,7 +1886,8 @@ class _RecordingPipe(GeneratorMinimaxH3Pipe):
     def _decode_video(self, c, latent):
         self.decoded_latents.append(latent.clone())
         frames = head_frames_for_latents(latent.shape[2])
-        return np.arange(frames, dtype=np.int32).reshape(frames, 1, 1).repeat(3, axis=2)
+        markers = np.arange(frames, dtype=np.uint8).reshape(frames, 1, 1, 1)
+        return markers.repeat(c.height, axis=1).repeat(c.width, axis=2).repeat(3, axis=3)
 
     def _resolve_audio(self, c, audio_rows, *, num_audio_latents=None, num_condition_audio_rows=0):
         latents = num_audio_latents if num_audio_latents is not None else c.num_audio_latents
@@ -1902,12 +1917,7 @@ def _director_document(count=2, *, overlap=17, stitch=True, sub_types=None, seed
     }
 
 
-def _run_director(document, *, steps=3, config_overrides=None, director_images=()):
-    """Run a whole Director document on fake modules.
-
-    Returns `(pipe, forward_inputs, encode_calls, plan)` where `forward_inputs`
-    holds the `(video_rows, audio_rows)` every transformer call saw, in order.
-    """
+def _run_director(document, *, steps=3, config_overrides=None, director_images=(), video_vae_module=None):
     video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
     forwards: list = []
 
@@ -1921,7 +1931,7 @@ def _run_director(document, *, steps=3, config_overrides=None, director_images=(
                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
         dit=SimpleNamespace(compute_dtype=torch.float32, estimated_vram_gb=0.0, module=dit_forward,
                             move_to=lambda d: None, offload=lambda: None),
-        video_vae=SimpleNamespace(module=None, compute_dtype=torch.float32,
+        video_vae=SimpleNamespace(module=video_vae_module or _FakeKeyframeVae(), compute_dtype=torch.float32,
                                   move_to=lambda d: None, offload=lambda: None),
         audio_vae=SimpleNamespace(module=None, move_to=lambda d: None, offload=lambda: None),
         te=None, te_cache_key=None,
@@ -1961,24 +1971,19 @@ def test_director_runs_one_window_per_segment():
 
 
 def test_the_documents_overlap_reaches_the_condition_rows_bit_for_bit():
-    """The load-bearing splice: window 1's leading condition rows must BE the
-    tail of window 0's sampled latent, noise-augmented under window 1's own
-    first noise draw -- not its head, and not a re-encode."""
     steps = 3
     pipe, forwards, _, plan = _run_director(_director_document(2), steps=steps)
     per_window = int(build_sigma_schedule(steps, VIDEO_SHIFT).timesteps.numel())
     window = plan.windows[1]
     assert window.overlap_latents == 5
 
-    first_latent = pipe.decoded_latents[0]
+    encoded_frame = torch.full((1, 24, 1, 2, 2), 0.25)
     generator = torch.Generator(device="cpu").manual_seed(window.seed)
     expected = []
-    for offset in range(window.overlap_latents):
-        index = first_latent.shape[2] - window.overlap_latents + offset
-        frame = first_latent[:, :, index:index + 1].to(torch.float32)
-        noise = torch.randn(frame.shape, generator=generator, device="cpu", dtype=torch.float32)
+    for _ in range(window.overlap_latents):
+        noise = torch.randn(encoded_frame.shape, generator=generator, device="cpu", dtype=torch.float32)
         expected.append(patchify_video_latents(
-            scale_noise(frame, KEYFRAME_NOISE_AUG, noise).to(torch.float32), PATCH,
+            scale_noise(encoded_frame, KEYFRAME_NOISE_AUG, noise).to(torch.float32), PATCH,
         ))
     expected_rows = torch.cat(expected, dim=0)
 
@@ -1986,10 +1991,7 @@ def test_the_documents_overlap_reaches_the_condition_rows_bit_for_bit():
     torch.testing.assert_close(video_rows_seen[:expected_rows.shape[0]], expected_rows, rtol=0, atol=0)
 
 
-def test_bite_check_the_splice_assertion_rejects_the_head_of_the_previous_window():
-    """BITE CHECK for the test above: building the same expectation from the
-    FIRST latents of the previous window instead of its last -- the classic
-    "the next shot restarts from the opening frame" bug -- must not match."""
+def test_bite_check_the_condition_rows_are_not_window_0s_raw_sampler_latent():
     steps = 3
     pipe, forwards, _, plan = _run_director(_director_document(2), steps=steps)
     per_window = int(build_sigma_schedule(steps, VIDEO_SHIFT).timesteps.numel())
@@ -1997,17 +1999,54 @@ def test_bite_check_the_splice_assertion_rejects_the_head_of_the_previous_window
 
     first_latent = pipe.decoded_latents[0]
     generator = torch.Generator(device="cpu").manual_seed(window.seed)
-    head = []
+    spliced = []
     for offset in range(window.overlap_latents):
-        frame = first_latent[:, :, offset:offset + 1].to(torch.float32)
+        index = first_latent.shape[2] - window.overlap_latents + offset
+        frame = first_latent[:, :, index:index + 1].to(torch.float32)
         noise = torch.randn(frame.shape, generator=generator, device="cpu", dtype=torch.float32)
-        head.append(patchify_video_latents(
+        spliced.append(patchify_video_latents(
             scale_noise(frame, KEYFRAME_NOISE_AUG, noise).to(torch.float32), PATCH,
         ))
-    head_rows = torch.cat(head, dim=0)
+    spliced_rows = torch.cat(spliced, dim=0)
 
     video_rows_seen = forwards[per_window][0]
-    assert not torch.allclose(video_rows_seen[:head_rows.shape[0]], head_rows)
+    assert not torch.allclose(video_rows_seen[:spliced_rows.shape[0]], spliced_rows)
+
+
+def test_a_five_latent_overlap_re_encodes_22_pixel_frames_not_17():
+    pipe, _, _, plan = _run_director(
+        _director_document(2), video_vae_module=(vae := _FakeKeyframeVae()),
+    )
+    window = plan.windows[1]
+    assert window.overlap_latents == 5
+    assert vae.encode_frame_counts == [22]
+
+
+def test_the_continuation_tail_is_the_last_real_frames_padded_with_the_final_frame():
+    pipe, _, _, plan = _run_director(
+        _director_document(2), video_vae_module=(vae := _FakeKeyframeVae()),
+    )
+    markers = vae.encoded_frame_markers[0]
+    real = markers[:17]
+    assert all(later > earlier for earlier, later in zip(real, real[1:]))
+    assert markers[17:] == [real[-1]] * 5
+
+
+def test_a_last_frame_overlap_re_encodes_exactly_one_pixel_frame():
+    document = _director_document(2, overlap=1)
+    document["settings"]["continuation"]["source"] = "last_frame"
+    pipe, _, _, plan = _run_director(document, video_vae_module=(vae := _FakeKeyframeVae()))
+    window = plan.windows[1]
+    assert window.overlap_latents == 1
+    assert vae.encode_frame_counts == [1]
+
+
+def test_a_ten_latent_overlap_re_encodes_39_pixel_frames():
+    document = _director_document(2, overlap=34)
+    pipe, _, _, plan = _run_director(document, video_vae_module=(vae := _FakeKeyframeVae()))
+    window = plan.windows[1]
+    assert window.overlap_latents == 10
+    assert vae.encode_frame_counts == [39]
 
 
 def test_the_audio_carry_is_a_row_exact_slice_of_the_previous_window():
@@ -2043,15 +2082,15 @@ def test_every_window_after_the_first_is_trimmed_by_exactly_its_overlap():
         frames = call.args[0]
         assert len(frames) == window.emitted_frames
         # The surviving footage starts where the replayed context ended.
-        assert int(frames[0][0][0]) == window.overlap_frames
+        assert int(frames[0][0][0][0]) == window.overlap_frames
 
 
 def test_the_stitched_clip_is_every_windows_contribution_end_to_end():
     pipe, _, encodes, plan = _run_director(_director_document(3))
     stitched = encodes[-1].args[0]
     assert len(stitched) == plan.total_frames == DIRECTOR_FRAMES * 3 - 34
-    assert int(stitched[0][0][0]) == 0                       # window 0 is not trimmed
-    assert int(stitched[DIRECTOR_FRAMES][0][0]) == 17        # window 1 opens past its overlap
+    assert int(stitched[0][0][0][0]) == 0
+    assert int(stitched[DIRECTOR_FRAMES][0][0][0]) == 17
 
 
 def test_bite_check_the_trim_assertion_fails_on_an_untrimmed_stitch():
@@ -2360,20 +2399,6 @@ def test_no_document_means_no_plan():
 
 
 # -- Director images inside a window ---------------------------------------------
-
-class _FakeKeyframeVae:
-    """Enough of the video VAE for `encode_keyframe_condition`: a float
-    parameter to pick an encode dtype from, and a deterministic encode."""
-
-    latents_mean = torch.zeros(24)
-    latents_std = torch.ones(24)
-
-    def parameters(self):
-        return iter([torch.zeros(1, dtype=torch.float32)])
-
-    def encode(self, pixels, sample_posterior=False, generator=None):
-        b, _, _, h, w = pixels.shape
-        return torch.full((b, 24, 1, h // 16, w // 16), 0.25)
 
 
 def _document_with_keyframe(at_frame, *, segment_count=2):

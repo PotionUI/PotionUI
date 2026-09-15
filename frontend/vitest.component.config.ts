@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Component-level tests MOUNT real Svelte components, which the default config
 // cannot do: without `resolve.conditions: ['browser']`, `svelte` resolves to its
@@ -12,7 +13,7 @@ import path from 'node:path';
 //
 // Tests live in tests/component/, deliberately outside `src/**` so the default
 // suite's include pattern cannot pick them up and fail them.
-const root = path.dirname(new URL(import.meta.url).pathname);
+const root = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
 	root,

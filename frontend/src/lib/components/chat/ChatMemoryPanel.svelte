@@ -8,6 +8,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import type { MemoryNote, MemoryScope } from '$lib/types/chat';
 	import { buildMemoryGroups, memoryGroupTitle, notesForGroup } from '$lib/chat/memoryGroups';
+	import { MODEL_REF_PREFIX } from '$lib/utils/modelRef';
 
 	// The panel resolves the preset name + active model itself from the chat's
 	// current tab context (see UnifiedAIChat). It needs the raw preset ULID and
@@ -165,13 +166,19 @@
 			const modelPath = findActiveModelPath(formData);
 			if (modelPath) {
 				const filename = modelPath.split('/').pop() || modelPath;
-				const response = await api.getModels({ search: filename, limit: 10 });
-				if (response.success && response.data?.models) {
-					const found = response.data.models.find((m: any) => m.file_path === modelPath);
-					if (found) {
-						modelId = found.id;
-						modelName = found.custom_name || found.providers?.[0]?.name || found.filename || filename;
+				let found: any = null;
+				if (modelPath.startsWith(MODEL_REF_PREFIX)) {
+					const response = await api.getModelById(modelPath.slice(MODEL_REF_PREFIX.length), true);
+					found = response.success && response.data?.model ? response.data.model : null;
+				} else {
+					const response = await api.getModels({ search: filename, limit: 10 });
+					if (response.success && response.data?.models) {
+						found = response.data.models.find((m: any) => m.file_path === modelPath) || null;
 					}
+				}
+				if (found) {
+					modelId = found.id;
+					modelName = found.custom_name || found.providers?.[0]?.name || found.filename || filename;
 				}
 			}
 		} catch (err) {

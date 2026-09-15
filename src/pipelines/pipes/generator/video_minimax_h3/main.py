@@ -810,11 +810,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                            required=False, min_value=2, max_value=100),
             PipeConfigSpec("resolution", str, "1344x768", "Resolution (WxH); snapped to the 32px canvas "
                            "grid and the [1:4, 4:1] aspect range", required=False),
-            PipeConfigSpec("frames", int, 124, "Number of frames at the fixed 24 fps (up to 15s; snapped up "
-                           "to the next 17*n+5 the video VAE can decode -- no enforced floor below that "
-                           "lattice's own minimum, 5 frames). The model's release notes suggest staying "
-                           "near 5-15s, but that is a recommendation, not a limit this pipe enforces",
-                           required=False, min_value=1, max_value=360),
+            PipeConfigSpec("frames", int, 124, "Number of frames at the fixed 24 fps, snapped up to the next "
+                           "17*n+5 the video VAE can decode; a Video Director document carries the whole "
+                           "timeline here and is cut into windows of at most max_frames_per_segment",
+                           required=False, min_value=1),
             PipeConfigSpec("quantity", int, 1, "Number of videos", required=False, min_value=1, max_value=4),
             PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
             PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),

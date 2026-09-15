@@ -7,6 +7,7 @@ test_list_models.py fakes ComfyUIBackend.list_models()'s HTTP calls.
 
 import asyncio
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Optional
 from unittest.mock import MagicMock, patch
 
@@ -269,7 +270,7 @@ class TestManifestRegistration:
     - see tests/architecture/test_layering.py rule 6)."""
 
     def test_manifest_declares_both_checkers(self):
-        manifest_path = req_mod.__spec__.origin.rsplit("backend/requirements.py", 1)[0] + "manifest.yml"
+        manifest_path = Path(req_mod.__file__).parents[1] / "manifest.yml"
         manifest = yaml.safe_load(open(manifest_path))
         entries = {e["type"]: e["backend"] for e in manifest["requirement_checkers"]}
         assert entries == {

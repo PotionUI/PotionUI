@@ -290,8 +290,8 @@ def _discoverable(dest_root: Path) -> dict:
     if not dest_root.exists():
         return {"presets": [], "dirs": []}
     return {
-        "presets": sorted(str(p.relative_to(dest_root)) for p in dest_root.rglob("preset.yml")),
-        "dirs": sorted(str(p.relative_to(dest_root)) for p in dest_root.rglob("*") if p.is_dir()),
+        "presets": sorted(p.relative_to(dest_root).as_posix() for p in dest_root.rglob("preset.yml")),
+        "dirs": sorted(p.relative_to(dest_root).as_posix() for p in dest_root.rglob("*") if p.is_dir()),
     }
 
 
@@ -374,7 +374,7 @@ class TestNothingIsDiscoverableWhileAnImportIsInFlight:
         def observe_then_replace(src, dst):
             observations.append({
                 **_discoverable(dest_root),
-                "scanned": [str(e.dir.relative_to(dest_root)) for e in api._scan_imported_presets()],
+                "scanned": [e.dir.relative_to(dest_root).as_posix() for e in api._scan_imported_presets()],
             })
             return original(src, dst)
 

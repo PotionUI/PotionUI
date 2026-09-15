@@ -634,6 +634,7 @@ class ComfyUIPipe(BasePipe):
                         try:
                             # Open as PIL Image
                             pil_image = Image.open(image_path)
+                            pil_image.load()
 
                             # Upload image to ComfyUI and get filename
                             filename = await self.upload_image_to_comfyui(pil_image, generation_outputs)

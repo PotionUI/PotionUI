@@ -5,6 +5,7 @@
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import Switch from '$lib/components/ui/Switch.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import type { UserToolPreference } from '$lib/types/llm';
 	import portal from '$lib/actions/portal';
 
@@ -98,14 +99,16 @@
 	<div class="flex items-center gap-2 px-4 py-3 border-b border-line flex-shrink-0">
 		<Icon name="shield" className="w-4 h-4 text-signal flex-shrink-0" />
 		<h2 class="text-sm font-semibold text-fg">My Tools</h2>
-		<button
-			type="button"
-			title="Close"
-			class="ml-auto p-1.5 text-fg-subtle hover:text-fg-muted hover:bg-surface-2 rounded transition-colors"
-			on:click={onClose}
-		>
-			<Icon name="close" className="w-4 h-4" />
-		</button>
+		<Tooltip text="Close" position="bottom" wrapperClass="inline-flex items-center ml-auto">
+			<button
+				type="button"
+				aria-label="Close"
+				class="p-1.5 text-fg-subtle hover:text-fg-muted hover:bg-surface-2 rounded transition-colors"
+				on:click={onClose}
+			>
+				<Icon name="close" className="w-4 h-4" />
+			</button>
+		</Tooltip>
 	</div>
 
 	<!-- Body -->
@@ -130,9 +133,9 @@
 						<div class="flex items-center gap-1.5 min-w-0">
 							<span class="text-xs font-medium text-fg-muted truncate">{toolLabel(tool)}</span>
 							{#if tool.locked}
-								<span title="Enabled for everyone by the administrator">
+								<Tooltip text="Enabled for everyone by the administrator">
 									<Icon name="shield" className="w-3 h-3 text-fg-subtle flex-shrink-0" />
-								</span>
+								</Tooltip>
 							{/if}
 						</div>
 						{#if tool.user_description}

@@ -29,6 +29,7 @@
 	import { Badge } from '$lib/components/ui';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import ApprovalArgTree from './approval/ApprovalArgTree.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 
 	export let messages: UnifiedChatMessageData[] = [];
 	export let sessionId: string = '';
@@ -360,17 +361,18 @@
 			</span>
 			<strong class="truncate {working ? 'text-fg-muted' : ''}">{toolLabel}</strong>
 			{#if detailExpanded}
-				<button
-					type="button"
-					class="w-6 h-6 rounded border border-line-strong flex items-center justify-center text-fg-subtle hover:text-fg-muted hover:border-line-hover transition-colors flex-shrink-0"
-					title="Expand to full view"
-					aria-label="Expand to full view"
-					on:click={() => (sheetOpen = true)}
-				>
-					<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H3v6M15 21h6v-6M21 3l-7 7M3 21l7-7" />
-					</svg>
-				</button>
+				<Tooltip text="Expand to full view" position="bottom">
+					<button
+						type="button"
+						class="w-6 h-6 rounded border border-line-strong flex items-center justify-center text-fg-subtle hover:text-fg-muted hover:border-line-hover transition-colors flex-shrink-0"
+						aria-label="Expand to full view"
+						on:click={() => (sheetOpen = true)}
+					>
+						<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H3v6M15 21h6v-6M21 3l-7 7M3 21l7-7" />
+						</svg>
+					</button>
+				</Tooltip>
 			{/if}
 			{#if queue.length > 1}
 				<span class="approval-progress">

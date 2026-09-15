@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import type { ChatMode } from '$lib/types/chat';
 	import { deriveModeScopeMismatch } from '$lib/chat/modeScopeNotice';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 
 	export let modes: ChatMode[] = [];
 	export let selected: string;
@@ -56,22 +57,23 @@
 </script>
 
 <div class="relative">
-	<button
-		bind:this={triggerEl}
-		type="button"
-		class="mode-chip"
-		title={locked ? 'Mode is fixed after the conversation starts' : 'Choose assistant mode'}
-		disabled={locked}
-		data-testid="chat-mode-selector-trigger"
-		aria-expanded={open}
-		on:click={toggleOpen}
-	>
-		<svg class="icon"><use href="#i-sparkles" /></svg>
-		<span>{selectedMode?.name || selected}</span>
-		{#if locked}
-			<svg class="icon lock"><use href="#i-lock" /></svg>
-		{/if}
-	</button>
+	<Tooltip text={locked ? 'Mode is fixed after the conversation starts' : 'Choose assistant mode'} position="bottom">
+		<button
+			bind:this={triggerEl}
+			type="button"
+			class="mode-chip"
+			disabled={locked}
+			data-testid="chat-mode-selector-trigger"
+			aria-expanded={open}
+			on:click={toggleOpen}
+		>
+			<svg class="icon"><use href="#i-sparkles" /></svg>
+			<span>{selectedMode?.name || selected}</span>
+			{#if locked}
+				<svg class="icon lock"><use href="#i-lock" /></svg>
+			{/if}
+		</button>
+	</Tooltip>
 	{#if scopeMismatch}
 		<p
 			class="absolute right-0 top-full mt-1 whitespace-nowrap text-2xs text-fg-subtle"

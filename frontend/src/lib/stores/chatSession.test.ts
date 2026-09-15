@@ -1,9 +1,30 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
+
+const notificationsState = vi.hoisted(() => ({ chat_sound: false }));
+
+vi.mock('$lib/stores/notifications', () => ({
+	notifications: {
+		subscribe: (fn: (v: { chat_sound: boolean }) => void) => {
+			fn(notificationsState);
+			return () => {};
+		}
+	}
+}));
+
+vi.mock('$lib/utils/notificationChime', () => ({
+	playNotificationChime: vi.fn()
+}));
+
 import { chatSession, modeLocked, DEFAULT_CHAT_MODE } from './chatSession';
+import { playNotificationChime } from '$lib/utils/notificationChime';
 
 describe('chatSession store', () => {
 	beforeEach(() => chatSession.reset());
+	beforeEach(() => {
+		notificationsState.chat_sound = false;
+		vi.clearAllMocks();
+	});
 
 	it('starts with the default mode', () => {
 		const s = get(chatSession);
@@ -165,6 +186,22 @@ describe('chatSession store', () => {
 		it('modeLocked is true for a loaded session whose window happens to be empty but has a real message count', () => {
 			chatSession.loadedSession({ id: 's1', mode: 'generation' }, [], { messageCount: 5, hasEarlier: true });
 			expect(get(modeLocked)).toBe(true);
+		});
+	});
+
+	describe('done event chime', () => {
+		it('plays the chime when chat_sound is enabled', () => {
+			notificationsState.chat_sound = true;
+			chatSession.addMessage({ role: 'assistant', content: '', timestamp: 1, isStreaming: true });
+			chatSession.applyStreamEvent({ type: 'done', data: {} });
+			expect(playNotificationChime).toHaveBeenCalledTimes(1);
+		});
+
+		it('does not play the chime when chat_sound is disabled', () => {
+			notificationsState.chat_sound = false;
+			chatSession.addMessage({ role: 'assistant', content: '', timestamp: 1, isStreaming: true });
+			chatSession.applyStreamEvent({ type: 'done', data: {} });
+			expect(playNotificationChime).not.toHaveBeenCalled();
 		});
 	});
 });

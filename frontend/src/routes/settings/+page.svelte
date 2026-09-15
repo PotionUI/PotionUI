@@ -166,6 +166,18 @@
 		}
 	}
 
+	$: chatSound = $notifications.chat_sound;
+	let chatSoundBusy = false;
+
+	async function toggleChatSound(next: boolean) {
+		chatSoundBusy = true;
+		try {
+			await notifications.setChatSound(next);
+		} finally {
+			chatSoundBusy = false;
+		}
+	}
+
 	$: groupedPrefs = prefTypes.reduce<Record<string, NotificationTypePref[]>>((acc, t) => {
 		(acc[t.category] ??= []).push(t);
 		return acc;
@@ -539,6 +551,19 @@
 							<p class="text-fg-subtle text-xs mt-0.5">Play a chime for new notifications.</p>
 						</div>
 						<Switch checked={sound} busy={soundBusy} onchange={toggleSound} label="Notification sound" />
+					</div>
+
+					<div class="flex items-center justify-between gap-4 py-3 border-b border-line">
+						<div>
+							<p class="text-fg text-sm font-medium">Assistant replies</p>
+							<p class="text-fg-subtle text-xs mt-0.5">Play a sound when the assistant finishes a reply.</p>
+						</div>
+						<Switch
+							checked={chatSound}
+							busy={chatSoundBusy}
+							onchange={toggleChatSound}
+							label="Assistant reply sound"
+						/>
 					</div>
 
 					<!-- Type toggles grouped by category -->

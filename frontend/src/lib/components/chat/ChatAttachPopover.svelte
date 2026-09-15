@@ -7,6 +7,7 @@
 	// inside .composer-wrap (its CSS), a plain sibling of .composer, no portal.
 	import { onMount } from 'svelte';
 	import MediaLoaderField from '$lib/components/form-fields/MediaLoaderField.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import type { FormImageEntry } from '$lib/chat/formMedia';
 
 	export let triggerEl: HTMLElement | undefined = undefined;
@@ -101,9 +102,11 @@
 			<span>One image can be sent with the next message</span>
 		</div>
 		<span class="capability-badge">VISION</span>
-		<button class="tiny-button" aria-label="Close image picker" title="Close" on:click={onClose}>
-			<svg class="icon"><use href="#i-close" /></svg>
-		</button>
+		<Tooltip text="Close" position="bottom">
+			<button class="tiny-button" aria-label="Close image picker" on:click={onClose}>
+				<svg class="icon"><use href="#i-close" /></svg>
+			</button>
+		</Tooltip>
 	</div>
 
 	<div class="media-body">
@@ -111,16 +114,17 @@
 			<div class="media-section-label">From current form</div>
 			<div class="form-images">
 				{#each formImageEntries as entry (entry.key)}
-					<button
-						type="button"
-						class="form-image"
-						class:selected={isSelected(entry)}
-						title={entry.label}
-						aria-label={entry.label}
-						on:click={() => pickFormImage(entry)}
-					>
-						<img src={entry.url} alt={entry.label} />
-					</button>
+					<Tooltip text={entry.label} wrapperClass="inline-flex items-center flex-shrink-0">
+						<button
+							type="button"
+							class="form-image"
+							class:selected={isSelected(entry)}
+							aria-label={entry.label}
+							on:click={() => pickFormImage(entry)}
+						>
+							<img src={entry.url} alt={entry.label} />
+						</button>
+					</Tooltip>
 				{/each}
 			</div>
 		{/if}

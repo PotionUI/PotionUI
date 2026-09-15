@@ -3,6 +3,7 @@
 	import { authStore } from '$lib/stores/auth';
 	import { keybindingsStore, shortcutLabels } from '$lib/stores/keybindings';
 	import { chatPanelStore, isChatPanelOpen } from '$lib/stores/chatPanel';
+	import { chatUnread } from '$lib/stores/chatUnread';
 	import { pluginNavItems } from '$lib/stores/plugins';
 	import { iconPaths } from '$lib/utils/IconLibrary';
 	import Tooltip from './Tooltip.svelte';
@@ -253,7 +254,7 @@
 						{$isChatPanelOpen
 							? 'ai-chat-trigger--open text-fg'
 							: 'text-fg-muted hover:text-fg'}"
-					aria-label="AI Chat"
+					aria-label={$chatUnread ? 'AI Chat, unread reply' : 'AI Chat'}
 					aria-pressed={$isChatPanelOpen}
 				>
 					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -261,6 +262,9 @@
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" {d} />
 						{/each}
 					</svg>
+					{#if $chatUnread}
+						<span class="absolute top-0 right-0 w-2 h-2 rounded-full bg-signal" aria-hidden="true"></span>
+					{/if}
 				</button>
 			</Tooltip>
 		</div>

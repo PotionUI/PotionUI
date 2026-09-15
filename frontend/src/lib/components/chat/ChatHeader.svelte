@@ -9,8 +9,8 @@
 	import { chatSession, modeLocked } from '$lib/stores/chatSession';
 	import ChatModeSelector from '$lib/components/chat/ChatModeSelector.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { formatTokenCount } from '$lib/utils/chat';
-	import { themeStore, resolvedTheme } from '$lib/stores/theme';
 
 	// Provider+Model (LLM config) selection
 	export let llmConfigs: any[] = [];
@@ -108,11 +108,6 @@
 		}
 	}
 
-	function toggleTheme() {
-		showMoreMenu = false;
-		themeStore.setPref($resolvedTheme === 'dark' ? 'light' : 'dark');
-	}
-
 	function handleExport() {
 		showMoreMenu = false;
 		onExportTranscript();
@@ -160,16 +155,25 @@
 </script>
 
 <header class="chat-header">
-	<button
-		type="button"
-		aria-pressed={!railCollapsed}
-		aria-label={railCollapsed ? 'Show history' : 'Hide history'}
-		title={railCollapsed ? 'Show history' : 'Hide history'}
-		class="icon-button"
-		on:click={onToggleRail}
-	>
-		<svg class="icon"><use href="#i-menu" /></svg>
-	</button>
+	<Tooltip text={railCollapsed ? 'Show history' : 'Hide history'} position="bottom">
+		<button
+			type="button"
+			aria-pressed={!railCollapsed}
+			aria-label={railCollapsed ? 'Show history' : 'Hide history'}
+			class="icon-button"
+			on:click={onToggleRail}
+		>
+			<svg class="icon"><use href="#i-menu" /></svg>
+		</button>
+	</Tooltip>
+
+	{#if onNewChat}
+		<Tooltip text="New chat" position="bottom">
+			<button type="button" aria-label="New chat" class="icon-button" on:click={onNewChat}>
+				<svg class="icon"><use href="#i-plus" /></svg>
+			</button>
+		</Tooltip>
+	{/if}
 
 	<div class="header-title">
 		{#if renaming}
@@ -201,49 +205,54 @@
 		{/if}
 
 		{#if currentContextSize > 0}
-			<button
-				type="button"
-				class="context-meter"
-				title={`Context: ${currentContextSize.toLocaleString()} tokens in the last request`}
+			<Tooltip
+				text={`Context: ${currentContextSize.toLocaleString()} tokens in the last request`}
+				position="bottom"
 			>
-				<span class="context-meter-ring"></span><span>{formatTokenCount(currentContextSize)}</span>
-			</button>
+				<button type="button" class="context-meter">
+					<span class="context-meter-ring"></span><span>{formatTokenCount(currentContextSize)}</span>
+				</button>
+			</Tooltip>
 		{/if}
 
 		{#if llmConfigs.length > 0}
-			<button
-				bind:this={modelTriggerEl}
-				type="button"
-				title="LLM Model"
-				class="model-button"
-				class:open={showModelDropdown}
-				aria-expanded={showModelDropdown}
-				data-testid="chat-header-model-trigger"
-				on:click={toggleModelDropdown}
-			>
-				<span class="model-dot"></span>
-				<span>{selectedModelName || 'Model'}</span>
-				<svg class="icon chevron"><use href="#i-chevron" /></svg>
-			</button>
+			<Tooltip text="LLM Model" position="bottom">
+				<button
+					bind:this={modelTriggerEl}
+					type="button"
+					class="model-button"
+					class:open={showModelDropdown}
+					aria-expanded={showModelDropdown}
+					data-testid="chat-header-model-trigger"
+					on:click={toggleModelDropdown}
+				>
+					<span class="model-dot"></span>
+					<span>{selectedModelName || 'Model'}</span>
+					<svg class="icon chevron"><use href="#i-chevron" /></svg>
+				</button>
+			</Tooltip>
 		{/if}
 
-		<button
-			bind:this={moreTriggerEl}
-			type="button"
-			aria-label="Conversation options"
-			title="Conversation options"
-			class="icon-button"
-			aria-expanded={showMoreMenu}
-			on:click={toggleMoreMenu}
-		>
-			<svg class="icon"><use href="#i-more" /></svg>
-		</button>
+		<Tooltip text="Conversation options" position="bottom">
+			<button
+				bind:this={moreTriggerEl}
+				type="button"
+				aria-label="Conversation options"
+				class="icon-button"
+				aria-expanded={showMoreMenu}
+				on:click={toggleMoreMenu}
+			>
+				<svg class="icon"><use href="#i-more" /></svg>
+			</button>
+		</Tooltip>
 
 		{#if onClose}
 			<div class="header-divider"></div>
-			<button type="button" title="Close (Esc)" aria-label="Close chat" class="icon-button" on:click={onClose}>
-				<svg class="icon"><use href="#i-close" /></svg>
-			</button>
+			<Tooltip text="Close" kbd="Esc" position="bottom">
+				<button type="button" aria-label="Close chat" class="icon-button" on:click={onClose}>
+					<svg class="icon"><use href="#i-close" /></svg>
+				</button>
+			</Tooltip>
 		{/if}
 	</div>
 
@@ -277,9 +286,6 @@
 		<div class="floating-menu conversation-menu" bind:this={moreMenuEl}>
 			<button type="button" disabled={!hasSession} on:click={startRename}>
 				<svg class="icon"><use href="#i-edit" /></svg>Rename conversation
-			</button>
-			<button type="button" on:click={toggleTheme}>
-				<svg class="icon"><use href="#i-sun" /></svg>Toggle light theme
 			</button>
 			<button type="button" disabled={!hasSession} on:click={handleExport}>
 				<svg class="icon"><use href="#i-file" /></svg>Export transcript

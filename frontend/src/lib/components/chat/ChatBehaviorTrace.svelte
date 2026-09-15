@@ -15,6 +15,7 @@
 	import { hydrateTraceSteps, formatContextLedgerSummary, sumMemoryDropped } from '$lib/utils/chatStream';
 	import ChatToolRun from './ChatToolRun.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 
 	export let executions: ToolExecution[] = [];
 	export let traceSteps: TraceStep[] = [];
@@ -155,7 +156,9 @@
 							{#if active}
 								<span class="tool-execution-spinner" role="status" aria-label="Active"></span>
 							{:else}
-								<span class="behavior-trace-dot" title="Completed"></span>
+								<Tooltip text="Completed">
+									<span class="behavior-trace-dot"></span>
+								</Tooltip>
 							{/if}
 							<Icon name={STEP_ICON[step.step] ?? FALLBACK_STEP_ICON} className="w-3 h-3 flex-shrink-0" />
 							<span class="flex-shrink-0">{stepLabel(step)}</span>

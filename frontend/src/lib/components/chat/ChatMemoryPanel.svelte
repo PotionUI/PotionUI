@@ -5,6 +5,7 @@
 	import { api } from '$lib/services/api/index';
 	import { loadPresets } from '$lib/stores/presetsCatalog';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import type { MemoryNote, MemoryScope } from '$lib/types/chat';
 	import { buildMemoryGroups, memoryGroupTitle, notesForGroup } from '$lib/chat/memoryGroups';
 
@@ -314,9 +315,11 @@
 			<strong>Memory</strong>
 			<span>What PotionAI carries into replies</span>
 		</div>
-		<button class="tiny-button" aria-label="Close" title="Close" on:click={onClose}>
-			<svg class="icon"><use href="#i-close" /></svg>
-		</button>
+		<Tooltip text="Close" position="bottom">
+			<button class="tiny-button" aria-label="Close" on:click={onClose}>
+				<svg class="icon"><use href="#i-close" /></svg>
+			</button>
+		</Tooltip>
 	</div>
 
 	<div class="memory-scroll" bind:this={scrollEl}>
@@ -331,9 +334,13 @@
 		{:else}
 			<div class="memory-summary">
 				<span>{activeNoteCount} active note{activeNoteCount === 1 ? '' : 's'}</span>
-				<span title="Injected into every chat message"
-					>~{totalFootprint.tokens.toLocaleString()} tokens in context</span
+				<Tooltip
+					text="Injected into every chat message"
+					position="bottom"
+					wrapperClass="inline-flex items-center text-fg-subtle font-mono text-[8px]"
 				>
+					<span>~{totalFootprint.tokens.toLocaleString()} tokens in context</span>
+				</Tooltip>
 			</div>
 
 			{#each groups as group (group.scope)}
@@ -407,42 +414,51 @@
 										<div class="memory-note-head">
 											<strong>{note.key}</strong>
 											{#if note.updated_at}<span>{formatTimestamp(note.updated_at)}</span>{/if}
-											{#if notInjected}<span title="Over the injection cap for this group">not injected</span>{/if}
+											{#if notInjected}
+												<Tooltip text="Over the injection cap for this group">
+													<span>not injected</span>
+												</Tooltip>
+											{/if}
 											<div class="memory-note-actions">
 												{#if confirmDeleteId === note.id}
-													<button
-														type="button"
-														class="danger"
-														title="Confirm delete"
-														aria-label="Confirm delete"
-														on:click={() => deleteNote(note.id)}
-													>
-														<svg class="icon"><use href="#i-check" /></svg>
-													</button>
-													<button
-														type="button"
-														title="Cancel"
-														aria-label="Cancel"
-														on:click={() => (confirmDeleteId = null)}
-													>
-														<svg class="icon"><use href="#i-close" /></svg>
-													</button>
+													<Tooltip text="Confirm delete">
+														<button
+															type="button"
+															class="danger"
+															aria-label="Confirm delete"
+															on:click={() => deleteNote(note.id)}
+														>
+															<svg class="icon"><use href="#i-check" /></svg>
+														</button>
+													</Tooltip>
+													<Tooltip text="Cancel">
+														<button
+															type="button"
+															aria-label="Cancel"
+															on:click={() => (confirmDeleteId = null)}
+														>
+															<svg class="icon"><use href="#i-close" /></svg>
+														</button>
+													</Tooltip>
 												{:else}
-													<button type="button" title="Edit" aria-label="Edit" on:click={() => startEdit(note)}>
-														<svg class="icon"><use href="#i-edit" /></svg>
-													</button>
-													<button
-														type="button"
-														class="danger"
-														title="Delete"
-														aria-label="Delete"
-														on:click={() => {
-															cancelEdit();
-															confirmDeleteId = note.id;
-														}}
-													>
-														<svg class="icon"><use href="#i-trash" /></svg>
-													</button>
+													<Tooltip text="Edit">
+														<button type="button" aria-label="Edit" on:click={() => startEdit(note)}>
+															<svg class="icon"><use href="#i-edit" /></svg>
+														</button>
+													</Tooltip>
+													<Tooltip text="Delete">
+														<button
+															type="button"
+															class="danger"
+															aria-label="Delete"
+															on:click={() => {
+																cancelEdit();
+																confirmDeleteId = note.id;
+															}}
+														>
+															<svg class="icon"><use href="#i-trash" /></svg>
+														</button>
+													</Tooltip>
 												{/if}
 											</div>
 										</div>

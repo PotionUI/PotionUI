@@ -8,6 +8,7 @@
 	import { onMount } from 'svelte';
 	import ChatChipInput from './ChatChipInput.svelte';
 	import ChatAttachPopover from './ChatAttachPopover.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { fade } from 'svelte/transition';
 	import type { ResourceChipData, ChatToolInfo } from '$lib/types/chat';
 	import type { UserToolPreference } from '$lib/types/llm';
@@ -242,20 +243,19 @@
 							<span>{drillGroup}</span>
 						</button>
 						{#each activeGroupTools as tool (tool.name)}
-							<label
-								class="tool-row"
-								data-testid="tool-row"
-								data-tool={tool.name}
-								title={tool.user_description || undefined}
-							>
-								<input
-									type="checkbox"
-									checked={!disabledTools.includes(tool.name)}
-									on:change={() => onToggleTool?.(tool.name)}
-								/>
-								<span>{toolLabel(tool)}</span>
-								{#if !tool.mode}<small title="Available in every mode">GLOBAL</small>{/if}
-							</label>
+							<Tooltip text={tool.user_description || ''} wrapperClass="block">
+								<label class="tool-row" data-testid="tool-row" data-tool={tool.name}>
+									<input
+										type="checkbox"
+										checked={!disabledTools.includes(tool.name)}
+										on:change={() => onToggleTool?.(tool.name)}
+									/>
+									<span>{toolLabel(tool)}</span>
+									{#if !tool.mode}
+										<Tooltip text="Available in every mode"><small>GLOBAL</small></Tooltip>
+									{/if}
+								</label>
+							</Tooltip>
 						{/each}
 					</div>
 				{/if}
@@ -334,78 +334,83 @@
 		<div class="composer-actions">
 			<div class="composer-tools">
 				{#if supportsVision}
-					<button
-						bind:this={attachTriggerEl}
-						type="button"
-						class="composer-tool"
-						class:active={showAttachPopover}
-						title="Add image or resource"
-						aria-expanded={showAttachPopover}
-						on:click={toggleAttachPopover}
-					>
-						<svg class="icon"><use href="#i-plus" /></svg><span>Add</span>
-					</button>
-					<button
-						type="button"
-						class="composer-tool auto-image-tool"
-						class:active={alwaysAttachLastImage}
-						aria-pressed={alwaysAttachLastImage}
-						title="Auto-attach last generated image: {alwaysAttachLastImage
-							? 'ON'
-							: 'OFF'}"
-						on:click={onToggleAttachImage}
-					>
-						<svg class="icon"><use href="#i-image" /></svg>
-						<span class="auto-label-full">Auto-attach last image</span>
-						<span class="auto-label-short">Auto image</span>
-						<span class="auto-state">{alwaysAttachLastImage ? 'ON' : 'OFF'}</span>
-					</button>
+					<Tooltip text="Add image or resource">
+						<button
+							bind:this={attachTriggerEl}
+							type="button"
+							class="composer-tool"
+							class:active={showAttachPopover}
+							aria-expanded={showAttachPopover}
+							on:click={toggleAttachPopover}
+						>
+							<svg class="icon"><use href="#i-plus" /></svg><span>Add</span>
+						</button>
+					</Tooltip>
+					<Tooltip text="Auto-attach last generated image: {alwaysAttachLastImage ? 'ON' : 'OFF'}">
+						<button
+							type="button"
+							class="composer-tool auto-image-tool"
+							class:active={alwaysAttachLastImage}
+							aria-pressed={alwaysAttachLastImage}
+							on:click={onToggleAttachImage}
+						>
+							<svg class="icon"><use href="#i-image" /></svg>
+							<span class="auto-label-full">Auto-attach last image</span>
+							<span class="auto-label-short">Auto image</span>
+							<span class="auto-state">{alwaysAttachLastImage ? 'ON' : 'OFF'}</span>
+						</button>
+					</Tooltip>
 				{/if}
-				<button
-					bind:this={toolsTriggerEl}
-					type="button"
-					class="composer-tool"
-					class:active={showToolsDropdown || enableTools}
-					title="Tools {enableTools ? 'ON' : 'OFF'}"
-					aria-expanded={showToolsDropdown}
-					on:click={toggleToolsDropdown}
-				>
-					<svg class="icon"><use href="#i-tools" /></svg><span>Tools</span>
-					{#if totalToolCount > 0}<span class="tool-count">{enabledToolCount}</span>{/if}
-				</button>
-				{#if onOpenMemory}
+				<Tooltip text="Tools {enableTools ? 'ON' : 'OFF'}">
 					<button
+						bind:this={toolsTriggerEl}
 						type="button"
 						class="composer-tool"
-						class:active={memoryOpen}
-						title="Memory"
-						aria-pressed={memoryOpen}
-						on:click={onOpenMemory}
+						class:active={showToolsDropdown || enableTools}
+						aria-expanded={showToolsDropdown}
+						on:click={toggleToolsDropdown}
 					>
-						<svg class="icon"><use href="#i-memory" /></svg><span>Memory</span>
-						{#if memoryNoteCount != null}<span class="tool-count">{memoryNoteCount}</span>{/if}
+						<svg class="icon"><use href="#i-tools" /></svg><span>Tools</span>
+						{#if totalToolCount > 0}<span class="tool-count">{enabledToolCount}</span>{/if}
 					</button>
+				</Tooltip>
+				{#if onOpenMemory}
+					<Tooltip text="Memory">
+						<button
+							type="button"
+							class="composer-tool"
+							class:active={memoryOpen}
+							aria-pressed={memoryOpen}
+							on:click={onOpenMemory}
+						>
+							<svg class="icon"><use href="#i-memory" /></svg><span>Memory</span>
+							{#if memoryNoteCount != null}<span class="tool-count">{memoryNoteCount}</span>{/if}
+						</button>
+					</Tooltip>
 				{/if}
 			</div>
 			<div class="send-area">
 				<span class="send-hint">ENTER TO SEND · SHIFT+ENTER FOR LINE</span>
 				{#if isGenerating && onStop}
-					<button type="button" class="send-button" title="Stop generating" on:click={() => onStop?.()}>
-						<svg class="icon" fill="none" stroke="none" viewBox="0 0 24 24">
-							<rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" />
-						</svg>
-					</button>
+					<Tooltip text="Stop generating">
+						<button type="button" class="send-button" on:click={() => onStop?.()}>
+							<svg class="icon" fill="none" stroke="none" viewBox="0 0 24 24">
+								<rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" />
+							</svg>
+						</button>
+					</Tooltip>
 				{:else}
-					<button
-						type="button"
-						class="send-button"
-						title="Send (Enter)"
-						aria-label="Send message"
-						on:click={handleSubmit}
-						disabled={isGenerating || !value.trim() || disabled}
-					>
-						<svg class="icon"><use href="#i-arrow-up" /></svg>
-					</button>
+					<Tooltip text="Send" kbd="Enter">
+						<button
+							type="button"
+							class="send-button"
+							aria-label="Send message"
+							on:click={handleSubmit}
+							disabled={isGenerating || !value.trim() || disabled}
+						>
+							<svg class="icon"><use href="#i-arrow-up" /></svg>
+						</button>
+					</Tooltip>
 				{/if}
 			</div>
 		</div>

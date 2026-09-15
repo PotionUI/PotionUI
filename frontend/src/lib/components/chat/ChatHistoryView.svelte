@@ -13,6 +13,7 @@
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import Logo from '$lib/components/brand/Logo.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { logger } from '$lib/utils/logger';
 	import type { ChatSessionResponse } from '$lib/types/api';
 
@@ -113,15 +114,16 @@
 	<div class="rail-head">
 		<div class="brand-orb"><Logo size={20} /></div>
 		<div class="brand-name">PotionAI</div>
-		<button
-			class="tiny-button"
-			class:active={searchOpen}
-			aria-label="Search conversations"
-			title="Search conversations"
-			on:click={toggleSearch}
-		>
-			<svg class="icon"><use href="#i-search" /></svg>
-		</button>
+		<Tooltip text="Search conversations" position="bottom">
+			<button
+				class="tiny-button"
+				class:active={searchOpen}
+				aria-label="Search conversations"
+				on:click={toggleSearch}
+			>
+				<svg class="icon"><use href="#i-search" /></svg>
+			</button>
+		</Tooltip>
 	</div>
 
 	{#if searchOpen}
@@ -149,11 +151,13 @@
 		</div>
 	{/if}
 
-	<button class="new-chat-button" title="New chat" on:click={onNewChat}>
-		<span style="display:flex;align-items:center;gap:8px"
-			><svg class="icon"><use href="#i-plus" /></svg>New conversation</span
-		>
-	</button>
+	<Tooltip text="New chat" position="bottom" wrapperClass="block w-full">
+		<button class="new-chat-button" on:click={onNewChat}>
+			<span style="display:flex;align-items:center;gap:8px"
+				><svg class="icon"><use href="#i-plus" /></svg>New conversation</span
+			>
+		</button>
+	</Tooltip>
 
 	<div class="history-scroll">
 		{#if loading}
@@ -189,14 +193,16 @@
 							<span class="session-mode">{modeName(session.mode)}</span>
 							<span>{timeAgo(session.updated_at || session.created_at)}</span>
 						</span>
-						<button
-							type="button"
-							class="session-delete"
-							title="Delete conversation"
-							on:click={(e) => handleDelete(session.id, e)}
-						>
-							<svg class="icon"><use href="#i-trash" /></svg>
-						</button>
+						<Tooltip text="Delete conversation">
+							<button
+								type="button"
+								class="session-delete"
+								aria-label="Delete conversation"
+								on:click={(e) => handleDelete(session.id, e)}
+							>
+								<svg class="icon"><use href="#i-trash" /></svg>
+							</button>
+						</Tooltip>
 					</div>
 				{/each}
 			{/each}

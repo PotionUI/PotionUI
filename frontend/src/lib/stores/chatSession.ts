@@ -7,7 +7,7 @@
  * sibling chat components (header, history rail, input) share it without
  * prop drilling.
  */
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import type { UnifiedChatMessageData } from '$lib/types/chat';
 import {
 	applyToken,
@@ -19,6 +19,9 @@ import {
 	applyReplaySnapshot,
 	nextClientKey
 } from '$lib/utils/chatStream';
+import { markAssistantReplied } from '$lib/stores/chatUnread';
+import { notifications } from '$lib/stores/notifications';
+import { playNotificationChime } from '$lib/utils/notificationChime';
 
 export const DEFAULT_CHAT_MODE = 'generation';
 
@@ -160,6 +163,10 @@ function createChatSessionStore() {
 		 * caller-maintained full streamed text (required for `token` events).
 		 */
 		applyStreamEvent(event: ChatStreamEvent, opts: { accumulated?: string } = {}) {
+			if (event.type === 'done') {
+				markAssistantReplied();
+				if (get(notifications).chat_sound) playNotificationChime();
+			}
 			update((s) => {
 				switch (event.type) {
 					case 'token':

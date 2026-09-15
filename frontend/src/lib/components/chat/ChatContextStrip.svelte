@@ -13,6 +13,7 @@
 	import type { ContextStripModel } from '$lib/chat/contextStrip';
 	import portal from '$lib/actions/portal';
 	import { computeFlippedMenuPosition } from '$lib/utils/menuPosition';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 
 	export let model: ContextStripModel;
 	/** Transient signal-blue highlight right after a followed tab switch (~1.2s, caller owns the timer). */
@@ -142,15 +143,16 @@
 			{model.tabName}{#if model.presetLabel} · {model.presetLabel}{/if}
 		</button>
 		<span class="resource-state">{pinned ? 'pinned · active' : 'following'}</span>
-		<button
-			type="button"
-			title={pinned ? `Unpin from ${model.tabName}` : `Pin to ${model.tabName}`}
-			aria-pressed={pinned}
-			class="chip-remove"
-			on:click={() => selectTab(pinned ? null : activeTabId)}
-		>
-			<svg class="icon"><use href="#i-pin" /></svg>
-		</button>
+		<Tooltip text={pinned ? `Unpin from ${model.tabName}` : `Pin to ${model.tabName}`}>
+			<button
+				type="button"
+				aria-pressed={pinned}
+				class="chip-remove"
+				on:click={() => selectTab(pinned ? null : activeTabId)}
+			>
+				<svg class="icon"><use href="#i-pin" /></svg>
+			</button>
+		</Tooltip>
 	</span>
 {/if}
 

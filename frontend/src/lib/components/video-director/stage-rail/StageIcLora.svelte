@@ -126,19 +126,21 @@
 	}
 	.icl-item {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: flex-start;
 		gap: 12px;
 	}
 	.icl-well {
-		width: 96px;
-		min-height: 54px;
+		flex: 1 1 220px;
+		min-width: 200px;
+		max-width: 320px;
+		aspect-ratio: 16 / 9;
 		border-radius: 4px;
-		flex: none;
 		border: 1px solid rgb(var(--line-strong));
 		overflow: hidden;
 	}
 	.icl-lora {
-		flex: 1;
+		flex: 1 1 260px;
 		min-width: 0;
 	}
 	.icl-strength {

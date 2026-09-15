@@ -17,8 +17,14 @@
 	import { withShotPromptSegments } from '../stage-rail/stageModel';
 	import { resizeTimelineBlockEdge, withTimelineSegmentEdge } from '../stage-rail/railModel';
 	import { applyDirectorOperations } from '$lib/utils/videoDirector';
+	import { getContext } from 'svelte';
+	import { readable, type Readable } from 'svelte/store';
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
+	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import type { Segment } from '$lib/types/segments';
+
+	const presetSegmentTemplates =
+		getContext<Readable<PresetSegmentTemplate[]>>('presetSegmentTemplates') ?? readable<PresetSegmentTemplate[]>([]);
 
 	let {
 		model,
@@ -78,6 +84,7 @@
 	{/if}
 	<SegmentedPromptEditor
 		segments={model.promptSegments}
+		presetSegmentTemplates={$presetSegmentTemplates}
 		label="Prompt"
 		showPreview={false}
 		compact

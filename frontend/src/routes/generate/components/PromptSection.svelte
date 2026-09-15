@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { setContext } from 'svelte';
+	import { writable } from 'svelte/store';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { activeLoraTriggersForTab } from '$lib/stores/activeLoraTriggers';
 	import type { Tab, DirectorRunState } from '$lib/types/tabs';
@@ -48,6 +50,9 @@
 	/** Segment Templates the tab's preset declares for its selected mode --
 	 *  resolved on the page and merged into the apply picker here. */
 	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
+	const presetSegmentTemplatesContext = writable<PresetSegmentTemplate[]>([]);
+	setContext('presetSegmentTemplates', presetSegmentTemplatesContext);
+	$: presetSegmentTemplatesContext.set(presetSegmentTemplates);
 	/** Styles the tab's preset curates -- resolved on the page from the preset
 	 *  detail response and offered through the Styles picker below. Only the
 	 *  standard single-prompt segment editor supports styles today. */

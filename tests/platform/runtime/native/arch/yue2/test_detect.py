@@ -6,18 +6,30 @@ import pytest
 
 from src.platform.runtime.native.arch.yue2.detect import (
     LM,
+    LM_COMFY_REPACK,
     VAE,
     detect_yue2_role,
     detect_yue2_role_from_filename,
 )
 
 LM_KEYS = ["vae2llm.weight", "model.layers.0.nar_self_attn.q_proj.weight", "lm_head.weight"]
+LM_COMFY_REPACK_KEYS = ["vae2llm.weight", "llm2vae.weight", "model.layers.0.self_attn.qkv_proj.weight"]
 VAE_KEYS = ["decoder.layers.0.weight_v", "decoder.layers.8.weight_v", "decoder.layers.7.alpha"]
 
 
-@pytest.mark.parametrize("keys,role", [(LM_KEYS, LM), (VAE_KEYS, VAE)])
+@pytest.mark.parametrize("keys,role", [(LM_KEYS, LM), (LM_COMFY_REPACK_KEYS, LM_COMFY_REPACK), (VAE_KEYS, VAE)])
 def test_each_file_is_classified_from_its_key_space(keys, role):
     assert detect_yue2_role(keys) == role
+
+
+def test_the_raw_checkpoint_is_not_mistaken_for_the_comfy_repack():
+    """The raw checkpoint carries BOTH `nar_self_attn.q_proj` and, per its
+    separate un-fused q/k/v Linears, no `self_attn.qkv_proj` at all -- the
+    real discriminator is the ABSENCE of `nar_self_attn` in the repack, which
+    a signature keyed only on presence can't test directly; this instead
+    proves the raw layout's own keys never satisfy the repack's signature."""
+    assert "model.layers.0.self_attn.qkv_proj.weight" not in LM_KEYS
+    assert detect_yue2_role(LM_KEYS) == LM
 
 
 @pytest.mark.parametrize("keys", [

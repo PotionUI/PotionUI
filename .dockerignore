@@ -8,6 +8,9 @@ venv/
 env/
 ENV/
 .venv
+.env
+.env.*
+!.env.example
 .pytest_cache/
 .coverage
 htmlcov/

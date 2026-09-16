@@ -411,7 +411,7 @@ def test_check_frontend_deps_present(tmp_path):
 def test_check_ffmpeg_missing():
     probe = FakeProbe()
     result = cli.check_ffmpeg(probe)
-    assert result.severity == cli.Severity.ERROR
+    assert result.severity == cli.Severity.WARNING
     assert result.blocking is False
     assert "apt install ffmpeg" in result.repair
     assert "brew install ffmpeg" in result.repair

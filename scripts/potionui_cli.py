@@ -43,7 +43,7 @@ BACKEND_DEPS          warning   no        fastapi/torch importable from ./venv
 NODE                  error     yes       node on PATH, major version >= 18
 NPM                   error     yes       npm on PATH
 FRONTEND_DEPS         warning   no        frontend/node_modules/.bin/vite present
-FFMPEG                error     no        ffmpeg on PATH
+FFMPEG                warning   no        ffmpeg on PATH
 GPU                   warning   no        nvidia-smi present and reports a GPU
                                            (info, not warning, once the remote
                                            profile is active; error+blocking
@@ -64,7 +64,7 @@ code                  severity  blocking  what it checks
 PY312                 error     yes       a Python 3.12+ interpreter is on PATH
 VENV                  warning   no        ./venv exists (created by `worker start` if not)
 BACKEND_DEPS          warning   no        fastapi/torch importable from ./venv (GPU profile)
-FFMPEG                error     no        ffmpeg on PATH
+FFMPEG                warning   no        ffmpeg on PATH
 GPU                   error     yes       nvidia-smi present and reports a GPU — a
                                            worker with no GPU can't execute anything
 DISK                  error     yes       free disk space on the repo's filesystem
@@ -513,8 +513,8 @@ def check_ffmpeg(probe) -> CheckResult:
     if not path:
         return CheckResult(
             "FFMPEG",
-            Severity.ERROR,
-            "ffmpeg not found on PATH -- required to encode video output, generate thumbnails, and use the video editor.",
+            Severity.WARNING,
+            "ffmpeg not found on PATH -- needed to encode video output, generate thumbnails, and use the video editor.",
             repair=FFMPEG_INSTALL_HINT,
             blocking=False,
         )

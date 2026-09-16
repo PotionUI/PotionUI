@@ -83,7 +83,7 @@ def _load_zimage_txt2img():
     loader = PresetTemplateLoader([str(PRESETS_ROOT)])
     loader.load_presets()
     assert not loader.load_errors, loader.load_errors
-    preset = next(p for p in loader.presets if p.path.endswith("/ZImage"))
+    preset = next(p for p in loader.presets if Path(p.path).name == "ZImage")
     return preset
 
 
@@ -320,7 +320,7 @@ class TestNoReactionsRegressionGuard:
     def test_binding_a_real_preset_with_empty_payload_matches_static_defaults(self, preset_dirname):
         loader = PresetTemplateLoader([str(PRESETS_ROOT)])
         loader.load_presets()
-        preset = next(p for p in loader.presets if p.path.endswith(f"/{preset_dirname}"))
+        preset = next(p for p in loader.presets if Path(p.path).name == preset_dirname)
 
         mode_name = next(iter(preset.modes))
         mode_data = preset.modes[mode_name]

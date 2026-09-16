@@ -235,10 +235,11 @@ class TestInpaintHeadLoader:
 class TestInpaintHeadPath:
     """The fetch destination and the load path derive from one place."""
 
-    def test_path_is_under_the_given_depot(self):
-        path = inpaint_head_path("/depot")
+    def test_path_is_under_the_given_depot(self, tmp_path):
+        depot = tmp_path / "depot"
+        path = inpaint_head_path(depot)
 
-        assert path == Path("/depot/inpaint/fooocus_inpaint_head.pth")
+        assert path == (depot / "inpaint" / "fooocus_inpaint_head.pth").resolve()
 
     def test_path_components_match_the_fetch_coordinates(self):
         """`generator/sdxl` fetches with (subdir, filename) and the k-diffusion

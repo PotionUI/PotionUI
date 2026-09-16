@@ -180,7 +180,8 @@ class TestResolveBackendLaunch:
         assert exc.value.stage == "subprocess-boot"
         assert "venv" in exc.value.message
 
-    def test_finds_site_packages_when_venv_exists(self, tmp_path):
+    def test_finds_site_packages_when_venv_exists(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(e2e_harness, "is_windows", lambda: False)
         site_packages = tmp_path / "venv" / "lib" / "python3.12" / "site-packages"
         site_packages.mkdir(parents=True)
         found = e2e_harness.find_venv_site_packages(tmp_path)

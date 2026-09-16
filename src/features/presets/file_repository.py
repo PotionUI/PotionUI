@@ -1,3 +1,4 @@
+from pathlib import PurePath
 from typing import Dict, Any, Optional, List
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.dto import PresetInfo, PresetStyle
@@ -53,7 +54,7 @@ class FilePresetRepository:
             A PresetInfo object with the preset's data
         """
         base_path = preset_template.base_path or ""
-        source = "custom" if "presets/local" in base_path else "official"
+        source = "custom" if "presets/local" in PurePath(base_path).as_posix() else "official"
 
         media = preset_template.media
         if media and not include_gallery:

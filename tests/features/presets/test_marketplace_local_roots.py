@@ -81,4 +81,4 @@ class TestMarketplaceLocalRootSplit:
         local = tmp_path / "presets" / "local"
         marketplace = tmp_path / "presets" / "marketplace"
         loader = PresetTemplateLoader([str(local), str(marketplace)])
-        assert str(loader.shared_path) == "content/presets/_shared"
+        assert loader.shared_path.as_posix() == "content/presets/_shared"

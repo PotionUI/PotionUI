@@ -238,7 +238,7 @@ def test_no_tab_body_file_is_orphaned():
     reachable if ANY form root in the same preset names it.
     """
     import glob
-    import os
+    import posixpath
     import re
 
     # A plugin id can exist in both content/plugins/marketplace and
@@ -253,14 +253,14 @@ def test_no_tab_body_file_is_orphaned():
         id_match = re.search(r'^id:\s*"?([\w.-]+)"?\s*$', text, re.MULTILINE)
         if not id_match:
             continue
-        plugin_dir = os.path.dirname(manifest)
+        plugin_dir = Path(manifest).parent.as_posix()
         if id_match.group(1) not in best_root_by_id or "/local/" in plugin_dir:
             best_root_by_id[id_match.group(1)] = plugin_dir
 
     roots = ["content/presets", *best_root_by_id.values()]
 
     tab_files = [
-        f for root in roots
+        Path(f).as_posix() for root in roots
         for f in glob.glob(f"{root}/**/tabs/*.yml", recursive=True)
         if "node_modules" not in f
     ]
@@ -276,8 +276,8 @@ def test_no_tab_body_file_is_orphaned():
             # `children:` is a Jinja path; only `{{ paths.preset }}` is
             # substituted, and textually (see docs/presets.md).
             for ref in re.findall(r'children:\s*"([^"]+)"', Path(form).read_text()):
-                composed.add(os.path.normpath(ref.replace("{{ paths.preset }}", preset_dir)))
-        if os.path.normpath(tab_file) not in composed:
+                composed.add(posixpath.normpath(ref.replace("{{ paths.preset }}", preset_dir)))
+        if posixpath.normpath(tab_file) not in composed:
             orphans.append(tab_file)
 
     assert orphans == [], f"tab bodies no form.yml composes: {orphans}"

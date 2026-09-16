@@ -677,7 +677,7 @@ class PresetTemplateLoader:
                 continue
 
             logger.info(f"Loading presets from: {base_path}")
-            for preset_file in base_path.rglob("preset.yml"):
+            for preset_file in sorted(base_path.rglob("preset.yml")):
                 logger.debug(f"Loading preset file: {preset_file}")
                 preset = self._load_preset_file(preset_file, base_path, errors)
                 if preset:

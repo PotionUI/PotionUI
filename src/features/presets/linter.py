@@ -1963,7 +1963,7 @@ class PresetLinter:
             except Exception:
                 continue
 
-            rel = form_file.relative_to(mode_dir)
+            rel = form_file.relative_to(mode_dir).as_posix()
             for key in self._extract_config_refs(form_data):
                 if key not in declared_keys:
                     issues.append(

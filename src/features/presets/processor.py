@@ -417,7 +417,7 @@ class PresetProcessor:
         # Process all pipes configurations recursively
         processed_pipes = []
         pipe_templates = mode_data.pipes
-        source_file = str(Path(preset_template.path) / 'modes' / mode / 'pipeline.yml')
+        source_file = (Path(preset_template.path) / 'modes' / mode / 'pipeline.yml').as_posix()
 
         for pipe in pipe_templates:
             try:

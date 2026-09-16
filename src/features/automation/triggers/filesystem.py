@@ -65,7 +65,7 @@ def list_app_directories(settings: Optional[Any] = None) -> List[Dict[str, str]]
     try:
         for entry in sorted(Path(models_dir).iterdir(), key=lambda p: p.name):
             if entry.is_dir():
-                sub_path = f"{models_dir}/{entry.name}"
+                sub_path = os.path.join(models_dir, entry.name)
                 options.append(
                     {"value": sub_path, "label": f"Models › {entry.name}", "description": sub_path}
                 )
@@ -231,7 +231,7 @@ def build_event_payload(directory: str, src_path: str, event_type: str) -> Dict[
     """
     path = Path(src_path)
     try:
-        rel_parts = list(path.relative_to(Path(directory).resolve()).parts)
+        rel_parts = list(path.relative_to(Path(directory)).parts)
     except ValueError:
         rel_parts = list(path.parts)
     size = None

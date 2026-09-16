@@ -184,7 +184,7 @@ class TestPhrasebookPreviewGenerator:
         """Test getting preview storage path."""
         result = generator.get_preview_storage_path("cat-123")
 
-        assert result == "/tmp/test_storage/phrasebook/cat-123"
+        assert result == os.path.join("/tmp/test_storage", "phrasebook", "cat-123")
         mock_settings.get_setting.assert_called_once_with(
             "file_storage_directory", "storage"
         )
@@ -195,7 +195,7 @@ class TestPhrasebookPreviewGenerator:
 
         result = generator.get_preview_storage_path("cat-456")
 
-        assert result == "storage/phrasebook/cat-456"
+        assert result == os.path.join("storage", "phrasebook", "cat-456")
 
     # ========== Build Generation Request Tests ==========
 

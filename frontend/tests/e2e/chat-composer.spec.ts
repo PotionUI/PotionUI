@@ -40,7 +40,7 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
 
-	const composer = page.locator('.composer:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.composer:has(button[aria-label="Send message"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 	await page.waitForTimeout(BEAT);
 
@@ -57,9 +57,8 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	await expect(commandButton).toHaveCount(0);
 
 	// --- 1. Tools popover (opens upward) ---
-	const toolsButton = composer.locator('button[title^="Tools"]');
+	const toolsButton = composer.locator('button.composer-tool').filter({ hasText: 'Tools' });
 	await expect(toolsButton).toBeVisible();
-	const toolsTitleBefore = await toolsButton.getAttribute('title');
 	await toolsButton.click();
 
 	// The menu is portaled to <body> with computed fixed positioning (see
@@ -154,11 +153,13 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	await page.waitForTimeout(BEAT);
 
 	// Toggle the master "Enable tools" checkbox and show the state change (the
-	// button title flips ON <-> OFF). Per-tool rows may be absent on a fresh
-	// instance, so drive the always-present master toggle.
-	await toolsPopover.locator('input[type="checkbox"]').first().click();
-	const flipped = toolsTitleBefore?.includes('ON') ? /Tools OFF/ : /Tools ON/;
-	await expect(toolsButton).toHaveAttribute('title', flipped);
+	// checkbox itself reflects ON <-> OFF, not a button title). Per-tool rows
+	// may be absent on a fresh instance, so drive the always-present master
+	// toggle.
+	const masterToggle = toolsPopover.locator('input[type="checkbox"]').first();
+	const enabledBeforeFlip = await masterToggle.isChecked();
+	await masterToggle.click();
+	await expect(masterToggle).toHaveJSProperty('checked', !enabledBeforeFlip);
 	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'tools-toggled');
 
@@ -170,7 +171,7 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	await page.waitForTimeout(BEAT);
 
 	// --- 2. Memory panel (docked inspector beside the transcript) ---
-	await composer.locator('button[title="Memory"]').click();
+	await composer.locator('button.composer-tool').filter({ hasText: 'Memory' }).click();
 	const memoryPanel = page.locator('[aria-label="Memory"]');
 	await expect(memoryPanel).toBeVisible();
 	await expect(memoryPanel.getByText('Memory', { exact: true })).toBeVisible();
@@ -183,12 +184,14 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	await page.waitForTimeout(BEAT);
 
 	// --- 3. Pin toggle (the picker itself lives in the context strip now) ---
-	await composer.locator('button[title^="Pin to"]').click();
-	await expect(page.locator('button[title^="Unpin from"]')).toBeVisible();
+	const pinToggle = page.locator('[data-testid="chat-context-strip"] button[aria-pressed]');
+	await pinToggle.click();
+	await expect(pinToggle).toHaveAttribute('aria-pressed', 'true');
 	await expect(page.locator('[data-testid="chat-context-strip"]')).toHaveAttribute('data-strip-state', 'pinned-active');
 	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'pin-toggle-pinned');
-	await composer.locator('button[title^="Unpin from"]').click();
+	await pinToggle.click();
+	await expect(pinToggle).toHaveAttribute('aria-pressed', 'false');
 	await expect(page.locator('[data-testid="chat-context-strip"]')).toHaveAttribute('data-strip-state', 'following');
 	await page.waitForTimeout(BEAT);
 

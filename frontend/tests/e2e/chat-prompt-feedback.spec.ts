@@ -37,7 +37,7 @@ test('thumbs-up on a proposed prompt reflects immediately and survives reload', 
 	const fab = page.getByRole('button', { name: 'AI Chat' });
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
-	const composer = page.locator('.composer:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.composer:has(button[aria-label="Send message"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 
 	fake.enqueue({
@@ -50,7 +50,7 @@ test('thumbs-up on a proposed prompt reflects immediately and survives reload', 
 	const chipInput = composer.locator('[role="textbox"][aria-placeholder]');
 	await chipInput.click();
 	await page.keyboard.type('Improve my prompt please');
-	await composer.locator('button[title="Send (Enter)"]').click();
+	await composer.locator('button[aria-label="Send message"]').click();
 
 	const segmentHeader = page.getByText('Update Segment #1');
 	await expect(segmentHeader).toBeVisible({ timeout: 30000 });

@@ -63,15 +63,15 @@ test('images stepper — SDXL batch count renders and steps as a compact control
 	await expect(tablist).toBeVisible({ timeout: 20000 });
 	await page.waitForTimeout(BEAT);
 
-	// The Images stepper lives on the "Generation" tab (first tab, icon-only).
+	// The Quantity stepper lives on the "Generation" tab (first tab, icon-only).
 	const generationTab = page.locator('[role="tab"]').first();
 	await generationTab.click();
 	await page.waitForTimeout(BEAT);
 
-	const imagesLabel = page.getByText('Images', { exact: true }).first();
-	await expect(imagesLabel).toBeVisible({ timeout: 10000 });
+	const quantityLabel = page.getByText('Quantity', { exact: true }).first();
+	await expect(quantityLabel).toBeVisible({ timeout: 10000 });
 
-	const stepperCard = imagesLabel.locator('xpath=ancestor::*[contains(@class, "field-card")][1]');
+	const stepperCard = quantityLabel.locator('xpath=ancestor::*[contains(@class, "field-card")][1]');
 	await expect(stepperCard).toBeVisible();
 
 	const valueInput = stepperCard.locator('input[type="number"]').first();
@@ -93,5 +93,5 @@ test('images stepper — SDXL batch count renders and steps as a compact control
 	await screenshot(page, JOURNEY, '03-stepper-after-increment');
 	await stepperCard.screenshot({ path: shotPath(JOURNEY, '04-stepper-card-value-3') });
 
-	console.log(`[${JOURNEY}] Images stepper bumped 1 -> 3 on ${sdxlPreset.id}`);
+	console.log(`[${JOURNEY}] Quantity stepper bumped 1 -> 3 on ${sdxlPreset.id}`);
 });

@@ -67,7 +67,7 @@ test('camera orbit — drag direction, face visibility, live caption', async ({ 
 	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
 	await page.waitForTimeout(1000);
 
-	await page.getByRole('tab', { name: 'Camera' }).click();
+	await page.getByRole('tab', { name: 'Enhance' }).click();
 	await page.getByRole('button', { name: '3D' }).click();
 
 	const stage = page.locator('.orbit .stage');

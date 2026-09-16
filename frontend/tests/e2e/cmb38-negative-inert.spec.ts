@@ -80,10 +80,11 @@ test('negative editor marks itself inert at guidance <= 1', async ({ page }) => 
 	// so the negative IS encoded and the notice must disappear.
 	const speedTrigger = page
 		.getByRole('button')
-		.filter({ hasText: /Turbo \(8 steps/ })
+		.filter({ hasText: 'Turbo' })
+		.filter({ hasText: '8 steps' })
 		.first();
 	await speedTrigger.click();
-	await page.getByRole('option', { name: /Base \(30 steps\)/ }).click();
+	await page.getByRole('option').filter({ hasText: 'Base' }).filter({ hasText: '30 steps' }).click();
 	await page.waitForTimeout(600);
 
 	await expect(page.getByText(INERT_NOTICE, { exact: true })).toHaveCount(0);

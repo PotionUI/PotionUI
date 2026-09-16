@@ -32,7 +32,7 @@ async function openChatPanel(page: Page) {
 	const fab = page.getByRole('button', { name: 'AI Chat' });
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
-	const composer = page.locator('.composer:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.composer:has(button[aria-label="Send message"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 	return composer;
 }
@@ -41,7 +41,7 @@ async function sendMessage(page: Page, composer: ReturnType<Page['locator']>, te
 	const chipInput = composer.locator('[role="textbox"][aria-placeholder]');
 	await chipInput.click();
 	await page.keyboard.type(text);
-	await composer.locator('button[title="Send (Enter)"]').click();
+	await composer.locator('button[aria-label="Send message"]').click();
 }
 
 test('approval-gated tool docks above the composer; approve and reject both continue the conversation', async ({
@@ -70,7 +70,7 @@ test('approval-gated tool docks above the composer; approve and reject both cont
 	});
 	await sendMessage(page, composer, 'Save camera angles as a phrasebook category');
 
-	const card = page.locator('div.border-warning\\/35');
+	const card = page.locator('.question-dock');
 	await expect(card).toBeVisible({ timeout: 30000 });
 
 	// The dock states intent: tool label + action + target + items + explicit actions.
@@ -114,7 +114,7 @@ test('approval-gated tool docks above the composer; approve and reject both cont
 	expect(categoriesText, 'camera.angles exists after approve').toContain('camera.angles');
 
 	// --- Pass 2: Deny (fresh session) ---
-	await page.locator('button[title="New chat"]').click();
+	await page.locator('button[aria-label="New chat"]').click();
 	await page.waitForTimeout(BEAT);
 
 	fake.enqueue({

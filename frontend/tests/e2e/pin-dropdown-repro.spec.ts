@@ -40,7 +40,7 @@ async function openChat(page: Page): Promise<Locator> {
 	const fab = page.getByRole('button', { name: 'AI Chat' });
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
-	const composer = page.locator('.composer:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.composer:has(button[aria-label="Send message"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 	return composer;
 }
@@ -61,13 +61,12 @@ test.describe('desktop', () => {
 		await seedFakeLlmConfig(page.request, BACKEND, token, fake.url);
 		await openChat(page);
 
-		const pinToggle = page.locator('button[title^="Pin to "], button[title^="Unpin from "]');
+		const pinToggle = page.locator('[data-testid="chat-context-strip"] button[aria-pressed]');
 		await expect(pinToggle).toBeVisible({ timeout: 15000 });
-		await expect(pinToggle).toHaveAttribute('title', 'Pin to Generation 1');
+		await expect(page.locator('[data-testid="chat-context-strip"]')).toContainText('Generation 1');
 		await expect(pinToggle).toHaveAttribute('aria-pressed', 'false');
 
 		await pinToggle.click();
-		await expect(pinToggle).toHaveAttribute('title', 'Unpin from Generation 1');
 		await expect(pinToggle).toHaveAttribute('aria-pressed', 'true');
 		await expect(page.locator('[data-testid="chat-context-strip"]')).toHaveAttribute(
 			'data-strip-state',
@@ -75,7 +74,6 @@ test.describe('desktop', () => {
 		);
 
 		await pinToggle.click();
-		await expect(pinToggle).toHaveAttribute('title', 'Pin to Generation 1');
 		await expect(pinToggle).toHaveAttribute('aria-pressed', 'false');
 		await expect(page.locator('[data-testid="chat-context-strip"]')).toHaveAttribute(
 			'data-strip-state',

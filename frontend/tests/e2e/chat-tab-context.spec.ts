@@ -75,7 +75,7 @@ test('strip follows the active tab, and its picker resolves pinned-active and pi
 	const fab = page.getByRole('button', { name: 'AI Chat' });
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
-	const composer = page.locator('.composer:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.composer:has(button[aria-label="Send message"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 
 	const contextStrip = strip(page);
@@ -133,13 +133,14 @@ test('strip follows the active tab, and its picker resolves pinned-active and pi
 
 	// --- Composer's own pin toggle pins/unpins the tab the strip is reading
 	// (Generation 1, since we're following again), with no dropdown at all.
-	const pinToggle = page.locator('button[title^="Pin to "], button[title^="Unpin from "]');
-	await expect(pinToggle).toHaveAttribute('title', 'Pin to Generation 1');
+	const pinToggle = page.locator('[data-testid="chat-context-strip"] button[aria-pressed]');
+	await expect(pinToggle).toHaveAttribute('aria-pressed', 'false');
+	await expect(contextStrip).toContainText('Generation 1');
 	await pinToggle.click();
-	await expect(pinToggle).toHaveAttribute('title', 'Unpin from Generation 1');
+	await expect(pinToggle).toHaveAttribute('aria-pressed', 'true');
 	await expect(contextStrip).toHaveAttribute('data-strip-state', 'pinned-active');
 	await screenshot(page, JOURNEY, '06-composer-toggle-pinned');
 	await pinToggle.click();
-	await expect(pinToggle).toHaveAttribute('title', 'Pin to Generation 1');
+	await expect(pinToggle).toHaveAttribute('aria-pressed', 'false');
 	await expect(contextStrip).toHaveAttribute('data-strip-state', 'following');
 });

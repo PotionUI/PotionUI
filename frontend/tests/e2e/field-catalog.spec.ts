@@ -83,11 +83,15 @@ test('field catalog restyle — visual capture on a native image preset', async 
 		// to a genuinely fractional value through the real UI so the panel
 		// screenshot shows the thumb aligned with a fractional fill position,
 		// not just the round default.
-		if (label.includes('generation')) {
-			const cfgValueButton = page.locator('button[title="Click to type a value"]', { hasText: '4' }).first();
+		if (label.includes('advanced')) {
+			const activePanel = page.locator('[role="tabpanel"][aria-hidden="false"]');
+			const cfgValueButton = activePanel
+				.locator('button[title="Click to type a value"]')
+				.filter({ hasText: '4' })
+				.first();
 			if ((await cfgValueButton.count()) > 0) {
 				await cfgValueButton.click();
-				const editInput = page.locator('input[type="text"]').first();
+				const editInput = activePanel.locator('input[type="text"]').first();
 				await editInput.fill('12.5');
 				await editInput.press('Enter');
 				await page.waitForTimeout(BEAT);

@@ -44,7 +44,7 @@ async function openGlobalChat(page: Page): Promise<Locator> {
 	const fab = page.getByRole('button', { name: 'AI Chat' });
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
-	const composer = page.locator('.composer:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.composer:has(button[aria-label="Send message"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 	const chipInput = composer.locator('.chat-chip-input[role="textbox"]');
 	await expect(chipInput).toBeVisible();
@@ -201,7 +201,7 @@ test.describe('ChatChipInput browser interactions', () => {
 		// mount(): ResourceChip renders with its '@' + label + remove button.
 		const chip = chipInput.locator('.inline-chip').first();
 		await expect(chip).toBeVisible();
-		await expect(chip.locator('button[title="Remove resource"]')).toBeVisible();
+		await expect(chip.locator('button')).toBeVisible();
 		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'resource-chip-mounted');
 
@@ -210,7 +210,7 @@ test.describe('ChatChipInput browser interactions', () => {
 		// inventory — its only external-sync path is the whole-value
 		// syncDOMWithValue rebuild), so there is no analogous "remount on stale
 		// props" scenario to exercise here; this only covers mount + unmount.
-		await chip.locator('button[title="Remove resource"]').click();
+		await chip.locator('button').click();
 		await expect(chipInput.locator('.inline-chip-container')).toHaveCount(0);
 		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'resource-chip-unmounted');

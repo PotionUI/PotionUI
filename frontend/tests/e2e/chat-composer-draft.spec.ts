@@ -36,7 +36,7 @@ test('a composer draft survives closing the chat drawer and is restored on reope
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
 
-	const composer = page.locator('.composer:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.composer:has(button[aria-label="Send message"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 	const chipInput = composer.locator('[role="textbox"][aria-placeholder]');
 	await chipInput.click();
@@ -45,16 +45,16 @@ test('a composer draft survives closing the chat drawer and is restored on reope
 	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, '00-drafted-before-close');
 
-	// Close via the header's X button (title="Close (Esc)") — the path that
+	// Close via the header's X button (aria-label="Close chat") — the path that
 	// used to reset userInput itself, on top of the unmount.
-	await page.locator('button[title="Close (Esc)"]').click();
+	await page.locator('button[aria-label="Close chat"]').click();
 	await expect(composer).toBeHidden();
 	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, '01-drawer-closed');
 
 	// Reopen via the sidebar AI Chat button — a fresh UnifiedAIChat instance.
 	await fab.click();
-	const reopenedComposer = page.locator('.composer:has(button[title="Send (Enter)"])');
+	const reopenedComposer = page.locator('.composer:has(button[aria-label="Send message"])');
 	await expect(reopenedComposer).toBeVisible({ timeout: 15000 });
 	const reopenedChipInput = reopenedComposer.locator('[role="textbox"][aria-placeholder]');
 	await expect(reopenedChipInput).toContainText('Draft I do not want to lose');
@@ -64,16 +64,16 @@ test('a composer draft survives closing the chat drawer and is restored on reope
 	// Sending clears the draft — closing and reopening again must not bring
 	// back the message just sent.
 	fake.enqueue({ kind: 'text', text: 'Acknowledged.' });
-	await reopenedComposer.locator('button[title="Send (Enter)"]').click();
+	await reopenedComposer.locator('button[aria-label="Send message"]').click();
 	await expect(page.getByText('Acknowledged.')).toBeVisible({ timeout: 30000 });
 	await expect(reopenedChipInput).toHaveText('');
 	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, '03-sent-composer-empty');
 
-	await page.locator('button[title="Close (Esc)"]').click();
+	await page.locator('button[aria-label="Close chat"]').click();
 	await expect(reopenedComposer).toBeHidden();
 	await fab.click();
-	const finalComposer = page.locator('.composer:has(button[title="Send (Enter)"])');
+	const finalComposer = page.locator('.composer:has(button[aria-label="Send message"])');
 	await expect(finalComposer).toBeVisible({ timeout: 15000 });
 	const finalChipInput = finalComposer.locator('[role="textbox"][aria-placeholder]');
 	await expect(finalChipInput).toHaveText('');

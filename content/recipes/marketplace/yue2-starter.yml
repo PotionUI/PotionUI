@@ -70,6 +70,18 @@ presets:
     assign_to_owner: true
 
 
+smoke:
+  preset_id: "01KX47YUE200000000000000YU"
+  mode: "song"
+  prompt: "[Verse]\nrain on the window, slow and low\nnowhere to be, nowhere to go"
+  seed: 12345
+  # Matches content/presets/marketplace/YuE2/tests.yml's "yue2-song-fast"
+  # case: no chain-of-thought pass, ten seconds of audio.
+  form:
+    style: "lo-fi hip hop, warm vinyl crackle, female alto vocals, breathy, electric piano, brushed drums, bpm 85"
+    cot: "off"
+    duration: 10
+
 steps:
   - key: "plugins.ensure"
     kind: "plugins.ensure"
@@ -116,6 +128,13 @@ steps:
   - key: "pipeline.render"
     kind: "pipeline.render"
     title: "Validate the pipeline"
+    params:
+      preset_id: "01KX47YUE200000000000000YU"
+      mode: "song"
+
+  - key: "generation.smoke"
+    kind: "generation.smoke"
+    title: "Run a first real generation"
     params:
       preset_id: "01KX47YUE200000000000000YU"
       mode: "song"

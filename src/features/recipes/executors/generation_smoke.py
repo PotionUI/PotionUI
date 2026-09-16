@@ -219,6 +219,10 @@ class GenerationSmokeExecutor:
                 output_count += 1
             elif isinstance(output, GalleryGenerationOutput):
                 output_count += len(output.images)
+                output_count += sum(
+                    1 for item in (*output.videos, *output.audios)
+                    if not getattr(item, "temporary", False)
+                )
             elif isinstance(output, ErrorGenerationOutput):
                 error_box["error"] = getattr(output, "error", "generation error")
             elif isinstance(output, ProgressGenerationOutput) and report_progress is not None:

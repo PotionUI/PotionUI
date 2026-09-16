@@ -115,6 +115,35 @@ class FakeMediaOrchestrator(FakeOrchestrator):
         return {"generation_id": "gen-1"}
 
 
+class FakeAudioGalleryOrchestrator(FakeOrchestrator):
+
+    async def start_generation(self, request, user_id, output_callback):
+        from pathlib import Path
+        from src.pipelines.outputs import AudioGenerationOutput, GalleryGenerationOutput
+
+        await output_callback("gen-1", GalleryGenerationOutput(
+            images=[],
+            audios=[
+                AudioGenerationOutput(audio_path=Path("preview.wav"), temporary=True),
+                AudioGenerationOutput(audio_path=Path("a.wav"), temporary=False),
+            ],
+        ))
+        await output_callback("gen-1", None)
+        return {"generation_id": "gen-1"}
+
+
+def test_audio_inside_a_gallery_counts_as_output():
+    template = FakePresetTemplate()
+    loader = FakePresetLoader(template)
+    file_repo = FakeFileRepository(files=[SimpleNamespace(file_path="audio/gen-1/a.wav")])
+    executor = GenerationSmokeExecutor(loader, object(), FakeAudioGalleryOrchestrator(), file_repo)
+
+    result = executor.execute(_context(_recipe()))
+
+    assert result.success is True
+    assert result.safe_output["output_count"] == 1
+
+
 class FakeSamplingOrchestrator(FakeOrchestrator):
     """Emits sampling progress before the final image, the way a real
     generator does."""

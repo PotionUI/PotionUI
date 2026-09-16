@@ -131,7 +131,7 @@ class TestGetPresetRequirements:
 
         item = data["results"][0]
         assert item["type"] == "platform"
-        assert item["name"] == "linux"  # PlatformRequirementChecker.describe()
+        assert item["name"] == HOST_OS
         assert item["optional"] is True
 
     @pytest.mark.asyncio

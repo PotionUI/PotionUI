@@ -54,30 +54,39 @@
 	});
 
 	$effect(() => {
-		tick().then(() => panelEl?.querySelector('input')?.focus());
+		tick().then(focusSearch);
 	});
 
 	function isSelected(tag: string): boolean {
 		return selected.includes(tag);
 	}
 
+	function focusSearch() {
+		panelEl?.querySelector('input')?.focus();
+	}
+
 	function activate(option: PickerOption) {
 		if (option.kind === 'tag') {
 			if (!isSelected(option.tag) && !canAddMore) return;
 			onToggle(option.tag);
+			focusSearch();
 			return;
 		}
 		if (!canAddMore) return;
 		onAddCustom(option.text);
 		searchValue = '';
+		focusSearch();
+	}
+
+	function handleWindowKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Escape') return;
+		event.preventDefault();
+		event.stopPropagation();
+		onClose();
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
 		switch (event.key) {
-			case 'Escape':
-				event.preventDefault();
-				onClose();
-				break;
 			case 'ArrowDown':
 				event.preventDefault();
 				if (options.length) activeIndex = (activeIndex + 1) % options.length;
@@ -110,7 +119,7 @@
 	);
 </script>
 
-<svelte:window onpointerdown={handleWindowPointerDown} />
+<svelte:window onpointerdown={handleWindowPointerDown} onkeydowncapture={handleWindowKeydown} />
 
 <div use:portal style="display: contents;">
 	<div

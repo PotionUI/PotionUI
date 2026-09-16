@@ -405,6 +405,51 @@ def test_check_frontend_deps_present(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# check_ffmpeg
+# ---------------------------------------------------------------------------
+
+def test_check_ffmpeg_missing():
+    probe = FakeProbe()
+    result = cli.check_ffmpeg(probe)
+    assert result.severity == cli.Severity.ERROR
+    assert result.blocking is False
+    assert "apt install ffmpeg" in result.repair
+    assert "brew install ffmpeg" in result.repair
+    assert "winget install Gyan.FFmpeg" in result.repair
+
+
+def test_check_ffmpeg_ok():
+    probe = FakeProbe(
+        which={"ffmpeg": "/usr/bin/ffmpeg"},
+        run={"/usr/bin/ffmpeg": cp(stdout="ffmpeg version 6.1.1 Copyright (c) 2000-2023\nbuilt with gcc\n")},
+    )
+    result = cli.check_ffmpeg(probe)
+    assert result.severity == cli.Severity.OK
+    assert "ffmpeg version 6.1.1" in result.message
+
+
+def test_check_ffmpeg_version_probe_fails_still_ok():
+    probe = FakeProbe(
+        which={"ffmpeg": "/usr/bin/ffmpeg"},
+        run={"/usr/bin/ffmpeg": cp(returncode=1, stdout="", stderr="boom")},
+    )
+    result = cli.check_ffmpeg(probe)
+    assert result.severity == cli.Severity.OK
+    assert "version unknown" in result.message
+
+
+def test_check_ffmpeg_version_probe_raises_still_ok(monkeypatch):
+    class _RaisingProbe(FakeProbe):
+        def run(self, cmd, timeout=10.0):
+            raise OSError("no such file")
+
+    probe = _RaisingProbe(which={"ffmpeg": "/usr/bin/ffmpeg"})
+    result = cli.check_ffmpeg(probe)
+    assert result.severity == cli.Severity.OK
+    assert "version unknown" in result.message
+
+
+# ---------------------------------------------------------------------------
 # check_gpu
 # ---------------------------------------------------------------------------
 
@@ -624,7 +669,7 @@ def test_run_worker_doctor_returns_expected_codes_no_node_npm_frontend(tmp_path)
         probe, tmp_path, 8100, tmp_path / "worker_data", env={"POTIONUI_WORKER_TOKEN": "x"}
     )
     codes = {r.code for r in results}
-    assert codes == {"PY312", "VENV", "BACKEND_DEPS", "GPU", "DISK", "PORT_WORKER", "WORKER_DIR", "WORKER_TOKEN"}
+    assert codes == {"PY312", "VENV", "BACKEND_DEPS", "FFMPEG", "GPU", "DISK", "PORT_WORKER", "WORKER_DIR", "WORKER_TOKEN"}
     assert "NODE" not in codes
     assert "NPM" not in codes
     assert "FRONTEND_DEPS" not in codes
@@ -649,7 +694,7 @@ def test_run_doctor_returns_all_codes_with_expected_blocking(tmp_path):
     results = cli.run_doctor(probe, tmp_path, 8005, 3001)
     codes = {r.code: r for r in results}
     assert set(codes) == {
-        "PY312", "VENV", "BACKEND_DEPS", "NODE", "NPM", "FRONTEND_DEPS",
+        "PY312", "VENV", "BACKEND_DEPS", "NODE", "NPM", "FRONTEND_DEPS", "FFMPEG",
         "GPU", "DISK", "PORT_BACKEND", "PORT_FRONTEND", "STORAGE", "ENV_FILE",
     }
     blocking_codes = {code for code, r in codes.items() if r.blocking}
@@ -1852,10 +1897,15 @@ def test_run_foreground_forwards_env(monkeypatch, tmp_path):
 def _worker_ok_probe(port=None, worker_dir=None):
     port = port if port is not None else cli.DEFAULT_WORKER_PORT
     return FakeProbe(
-        which={"nvidia-smi": "/usr/bin/nvidia-smi", "python3.12": "/usr/bin/python3.12"},
+        which={
+            "nvidia-smi": "/usr/bin/nvidia-smi",
+            "python3.12": "/usr/bin/python3.12",
+            "ffmpeg": "/usr/bin/ffmpeg",
+        },
         run={
             "/usr/bin/nvidia-smi": cp(stdout="NVIDIA GeForce RTX 5090, 570.00\n"),
             "/usr/bin/python3.12": cp(stdout="3.12.2\n"),
+            "/usr/bin/ffmpeg": cp(stdout="ffmpeg version 6.1.1\n"),
         },
         ports_free={port: True},
         writable={str(worker_dir): True} if worker_dir else {},

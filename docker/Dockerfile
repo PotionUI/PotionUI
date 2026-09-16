@@ -55,6 +55,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3-pip \
         curl \
         ca-certificates \
+        ffmpeg \
         libgl1 \
         libglib2.0-0 \
         libsm6 \

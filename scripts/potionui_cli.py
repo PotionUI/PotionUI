@@ -43,6 +43,7 @@ BACKEND_DEPS          warning   no        fastapi/torch importable from ./venv
 NODE                  error     yes       node on PATH, major version >= 18
 NPM                   error     yes       npm on PATH
 FRONTEND_DEPS         warning   no        frontend/node_modules/.bin/vite present
+FFMPEG                error     no        ffmpeg on PATH
 GPU                   warning   no        nvidia-smi present and reports a GPU
                                            (info, not warning, once the remote
                                            profile is active; error+blocking
@@ -63,6 +64,7 @@ code                  severity  blocking  what it checks
 PY312                 error     yes       a Python 3.12+ interpreter is on PATH
 VENV                  warning   no        ./venv exists (created by `worker start` if not)
 BACKEND_DEPS          warning   no        fastapi/torch importable from ./venv (GPU profile)
+FFMPEG                error     no        ffmpeg on PATH
 GPU                   error     yes       nvidia-smi present and reports a GPU — a
                                            worker with no GPU can't execute anything
 DISK                  error     yes       free disk space on the repo's filesystem
@@ -499,6 +501,34 @@ def check_frontend_deps(probe, repo_root: Path) -> CheckResult:
     )
 
 
+FFMPEG_INSTALL_HINT = (
+    "Install ffmpeg: `apt install ffmpeg` (Debian/Ubuntu), `dnf install ffmpeg` (Fedora), "
+    "`pacman -S ffmpeg` (Arch), `brew install ffmpeg` (macOS), or `winget install Gyan.FFmpeg` "
+    "(Windows, or add an existing install to PATH)."
+)
+
+
+def check_ffmpeg(probe) -> CheckResult:
+    path = probe.which("ffmpeg")
+    if not path:
+        return CheckResult(
+            "FFMPEG",
+            Severity.ERROR,
+            "ffmpeg not found on PATH -- required to encode video output, generate thumbnails, and use the video editor.",
+            repair=FFMPEG_INSTALL_HINT,
+            blocking=False,
+        )
+    version_line = ""
+    try:
+        result = probe.run([path, "-version"], timeout=10.0)
+        version_line = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+    except Exception:
+        version_line = ""
+    if version_line:
+        return CheckResult("FFMPEG", Severity.OK, f"{version_line} found at {path}.", blocking=False)
+    return CheckResult("FFMPEG", Severity.OK, f"ffmpeg found at {path} (version unknown).", blocking=False)
+
+
 def check_gpu(probe, no_gpu: bool = False, required: bool = False) -> CheckResult:
     """`required=True` is the `worker doctor` variant: a worker with no GPU
     can't execute anything, so an absent/broken GPU is a blocking error there
@@ -782,6 +812,7 @@ def run_doctor(
         check_node(probe),
         check_npm(probe),
         check_frontend_deps(probe, repo_root),
+        check_ffmpeg(probe),
         check_gpu(probe, no_gpu=no_gpu),
         check_disk(probe, repo_root),
         check_port(probe, backend_port, "PORT_BACKEND", "backend"),
@@ -806,6 +837,7 @@ def run_worker_doctor(probe, repo_root: Path, port: int, worker_dir: Path, env: 
         check_python(probe),
         check_venv(probe, repo_root),
         check_backend_deps(probe, repo_root, no_gpu=False),
+        check_ffmpeg(probe),
         check_gpu(probe, required=True),
         check_disk(probe, repo_root),
         check_port(probe, port, "PORT_WORKER", "worker"),

@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         git \
         build-essential \
+        ffmpeg \
         libgl1 \
         libglib2.0-0 \
         libsm6 \

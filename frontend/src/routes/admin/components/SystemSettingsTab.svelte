@@ -21,6 +21,7 @@
 	import VisualSearchPanel from './settings/VisualSearchPanel.svelte';
 	import AiPanelFrame from './settings/AiPanelFrame.svelte';
 	import GenerationPanel from './settings/GenerationPanel.svelte';
+	import ExternalLoginPanel from './settings/ExternalLoginPanel.svelte';
 	import LogsPanel from './settings/LogsPanel.svelte';
 	import { SETTINGS_GROUPS, SETTINGS_KEY_GROUP, type SettingsGroupId } from './settings/settingsGroups';
 
@@ -125,6 +126,8 @@
 				return '3 models';
 			case 'generation':
 				return `single-result gallery ${settings.workbench_single_result_gallery ? 'on' : 'off'}`;
+			case 'external_login':
+				return `auto-create ${settings.external_login_auto_create === 'true' ? 'on' : 'off'}`;
 			case 'logs':
 				if (!logsSummary) return '…';
 				return logsSummary.file === null ? 'off' : `${formatBytes(logsSummary.size_bytes)} · ${logsSummary.lines} lines`;
@@ -132,10 +135,10 @@
 	}
 </script>
 
-<div class="flex h-[calc(100dvh-var(--header-h)-2rem)] min-h-[36rem] flex-col gap-4 sm:h-[calc(100dvh-var(--header-h)-3rem)]">
+<div class="flex min-h-[calc(100dvh-var(--header-h)-2rem)] flex-col gap-4 sm:min-h-[calc(100dvh-var(--header-h)-3rem)]">
 	<AdminTabShell title="System Settings" icon="settings" />
 
-	<section class="flex-1 min-h-0 rounded-lg border border-line bg-surface-1 overflow-hidden">
+	<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
 		{#if loading}
 			<div class="h-full flex flex-col items-center justify-center">
 				<Spinner size="lg" />
@@ -192,6 +195,8 @@
 							</AiPanelFrame>
 						{:else if activeGroup === 'generation'}
 							<GenerationPanel {settings} onSettingChange={handleSettingChange} />
+						{:else if activeGroup === 'external_login'}
+							<ExternalLoginPanel {settings} onSettingChange={handleSettingChange} />
 						{:else if activeGroup === 'logs'}
 							<LogsPanel />
 						{/if}

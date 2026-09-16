@@ -5,7 +5,14 @@
  * what drives per-group dirty tracking off one snapshot diff.
  */
 
-export type SettingsGroupId = 'access' | 'content_safety' | 'storage' | 'search_tagging' | 'generation' | 'logs';
+export type SettingsGroupId =
+	| 'access'
+	| 'content_safety'
+	| 'storage'
+	| 'search_tagging'
+	| 'generation'
+	| 'external_login'
+	| 'logs';
 
 export interface SettingsGroupDescriptor {
 	id: SettingsGroupId;
@@ -19,6 +26,7 @@ export const SETTINGS_GROUPS: SettingsGroupDescriptor[] = [
 	{ id: 'storage', label: 'Storage', icon: 'folder' },
 	{ id: 'search_tagging', label: 'Search & Tagging', icon: 'search' },
 	{ id: 'generation', label: 'Generation', icon: 'image' },
+	{ id: 'external_login', label: 'External Login', icon: 'globe' },
 	{ id: 'logs', label: 'Logs', icon: 'clipboard-list' }
 ];
 
@@ -57,5 +65,8 @@ export const SETTINGS_KEY_GROUP: Record<string, SettingsGroupId> = {
 	media_vision_device: 'search_tagging',
 	media_vision_auto_download: 'search_tagging',
 	mcp_enabled: 'access',
-	workbench_single_result_gallery: 'generation'
+	workbench_single_result_gallery: 'generation',
+	external_login_auto_create: 'external_login',
+	external_login_link_by_email: 'external_login',
+	external_login_default_group: 'external_login'
 };

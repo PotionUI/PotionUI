@@ -105,7 +105,7 @@ async def test_generate_pins_prompt_payload(monkeypatch, client):
             {"role": "user", "content": "say hi"},
         ],
         "temperature": 0.7,
-        "max_tokens": 512,
+        "max_completion_tokens": 512,
     }
 
 
@@ -140,14 +140,14 @@ async def test_generate_with_history_pins_payload_and_trace(monkeypatch, client)
         "model": "golden-model",
         "messages": PLAIN_MESSAGES,
         "temperature": 0.7,
-        "max_tokens": 512,
+        "max_completion_tokens": 512,
     }
     assert strip(capture.trace, "duration_ms") == {
         "provider": "openai",
         "model": "golden-model",
         "request_system": "SYS",
         "request_messages": PLAIN_MESSAGES,
-        "request_params": {"temperature": 0.7, "max_tokens": 512},
+        "request_params": {"temperature": 0.7, "max_completion_tokens": 512},
         "response_text": "canned reply",
         "prompt_tokens": 20,
         "completion_tokens": 10,
@@ -162,7 +162,7 @@ async def test_provider_options_and_override_merge_into_sampling_params(monkeypa
 
     assert strip(capture.body, "model", "messages") == {
         "temperature": 0.1,
-        "max_tokens": 64,
+        "max_completion_tokens": 64,
         "top_p": 0.5,
         "presence_penalty": 0.25,
         "frequency_penalty": 0.5,
@@ -191,7 +191,7 @@ async def test_stream_with_history_pins_payload_and_trace(monkeypatch, client):
         "model": "golden-model",
         "messages": PLAIN_MESSAGES,
         "temperature": 0.7,
-        "max_tokens": 512,
+        "max_completion_tokens": 512,
         "stream": True,
         "stream_options": {"include_usage": True},
     }
@@ -200,7 +200,7 @@ async def test_stream_with_history_pins_payload_and_trace(monkeypatch, client):
         "model": "golden-model",
         "request_system": "SYS",
         "request_messages": PLAIN_MESSAGES,
-        "request_params": {"temperature": 0.7, "max_tokens": 512},
+        "request_params": {"temperature": 0.7, "max_completion_tokens": 512},
         "response_text": "hello",
         "prompt_tokens": 20,
         "completion_tokens": 10,
@@ -218,7 +218,7 @@ async def test_generate_with_tools_pins_payload_and_trace(monkeypatch, client):
         "model": "golden-model",
         "messages": TOOL_MESSAGES,
         "temperature": 0.7,
-        "max_tokens": 512,
+        "max_completion_tokens": 512,
         "tools": tool_schemas(),
     }
     assert strip(capture.trace, "duration_ms") == {
@@ -226,7 +226,7 @@ async def test_generate_with_tools_pins_payload_and_trace(monkeypatch, client):
         "model": "golden-model",
         "request_system": "SYS",
         "request_messages": TOOL_MESSAGES,
-        "request_params": {"temperature": 0.7, "max_tokens": 512},
+        "request_params": {"temperature": 0.7, "max_completion_tokens": 512},
         "request_tools": ["get_form_state"],
         "response_text": "canned reply",
         "response_tool_calls": None,
@@ -291,7 +291,7 @@ async def test_stream_with_tools_pins_payload(monkeypatch, client):
         "model": "golden-model",
         "messages": TOOL_MESSAGES,
         "temperature": 0.7,
-        "max_tokens": 512,
+        "max_completion_tokens": 512,
         "stream": True,
         "stream_options": {"include_usage": True},
         "tools": tool_schemas(),
@@ -310,6 +310,71 @@ async def test_stream_and_buffered_history_send_the_same_request(monkeypatch, cl
     streamed = capture.body
 
     assert strip(streamed, "stream", "stream_options") == buffered
+
+
+async def test_seed_stop_reasoning_effort_and_parallel_tool_calls_are_sent_when_set(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OPENAI_REPLY)])
+    config = make_config(
+        "openai",
+        provider_options={
+            "seed": 42,
+            "stop": ["\n\n", "END"],
+            "reasoning_effort": "high",
+            "parallel_tool_calls": False,
+        },
+    )
+
+    await client.generate_with_history(HISTORY, config, "SYS")
+
+    assert strip(capture.body, "model", "messages", "temperature", "max_completion_tokens") == {
+        "seed": 42,
+        "stop": ["\n\n", "END"],
+        "reasoning_effort": "high",
+        "parallel_tool_calls": False,
+    }
+
+
+@pytest.mark.parametrize("key", ["top_p", "presence_penalty", "frequency_penalty", "seed", "stop", "reasoning_effort", "parallel_tool_calls"])
+async def test_exposed_option_is_omitted_when_unset(monkeypatch, client, key):
+    capture = install_wire_capture(monkeypatch, [json_response(OPENAI_REPLY)])
+
+    await client.generate_with_history(HISTORY, make_config("openai"), "SYS")
+
+    assert key not in capture.body
+
+
+@pytest.mark.parametrize("key", ["top_p", "presence_penalty", "frequency_penalty", "seed", "stop", "reasoning_effort", "parallel_tool_calls"])
+async def test_exposed_option_explicit_null_is_omitted_not_sent(monkeypatch, client, key):
+    capture = install_wire_capture(monkeypatch, [json_response(OPENAI_REPLY)])
+    config = make_config("openai", provider_options={key: None})
+
+    await client.generate_with_history(HISTORY, config, "SYS")
+
+    assert key not in capture.body
+
+
+async def test_non_openai_provider_option_keys_never_reach_the_wire(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OPENAI_REPLY)])
+    config = make_config(
+        "openai",
+        provider_options={
+            "top_k": 40,
+            "min_p": 0.05,
+            "repetition_penalty": 1.1,
+            "repeat_penalty": 1.1,
+            "num_ctx": 8192,
+            "think": False,
+        },
+    )
+
+    await client.generate_with_history(HISTORY, config, "SYS")
+
+    assert capture.body == {
+        "model": "golden-model",
+        "messages": PLAIN_MESSAGES,
+        "temperature": 0.7,
+        "max_completion_tokens": 512,
+    }
 
 
 async def test_stream_and_buffered_tools_send_the_same_request(monkeypatch, client):

@@ -121,6 +121,28 @@
 		repetition_penalty: { default: null, type: 'number', label: 'Repetition Penalty', description: 'Penalty applied to already-generated tokens (1.0 = no penalty). Leave blank to use the model default.' }
 	};
 
+	const openaiOptions = {
+		top_p: { default: null, type: 'number', label: 'Top-P', description: 'Nucleus sampling threshold (0-1). Leave blank to use the model default.' },
+		presence_penalty: { default: null, type: 'number', label: 'Presence Penalty', description: 'Penalizes tokens already present in the text so far (-2 to 2). Leave blank to use the model default.' },
+		frequency_penalty: { default: null, type: 'number', label: 'Frequency Penalty', description: 'Penalizes tokens by how often they already appear (-2 to 2). Leave blank to use the model default.' },
+		seed: { default: null, type: 'number', label: 'Seed', description: 'Best-effort deterministic sampling seed. Leave blank for non-deterministic output.' },
+		reasoning_effort: { default: null, type: 'select', label: 'Reasoning Effort', description: 'Constrains effort on reasoning for reasoning models. Ignored by models that don\'t support it.', options: [
+			{ value: null, label: 'Model default' },
+			{ value: 'none', label: 'None' },
+			{ value: 'minimal', label: 'Minimal' },
+			{ value: 'low', label: 'Low' },
+			{ value: 'medium', label: 'Medium' },
+			{ value: 'high', label: 'High' },
+			{ value: 'xhigh', label: 'X-High' },
+			{ value: 'max', label: 'Max' }
+		]},
+		parallel_tool_calls: { default: null, type: 'select', label: 'Parallel Tool Calls', description: 'Whether the model may call multiple tools in one turn. Only applies when tools are offered.', options: [
+			{ value: null, label: 'Model default' },
+			{ value: true, label: 'Enabled' },
+			{ value: false, label: 'Disabled' }
+		]}
+	};
+
 	const isPanel = $derived(layout === 'panel');
 	// Regular label in the wide pane; mono micro-label (`.label`, app.css) in the modal.
 	const labelClass = $derived(isPanel ? 'block text-sm font-medium text-fg-muted mb-1' : 'label');
@@ -431,6 +453,10 @@
 	{@render optionsFields(ollamaOptions, 'ollama')}
 {/snippet}
 
+{#snippet openaiFields()}
+	{@render optionsFields(openaiOptions, 'openai')}
+{/snippet}
+
 {#snippet nativeFields()}
 	{@render optionsFields(nativeOptions, 'native')}
 	<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
@@ -507,6 +533,9 @@
 	{@render section('Prompting', false, promptingFields, promptingHeaderExtra)}
 	{@render section('Sampling', false, samplingFields)}
 	{@render section('Capabilities', false, capabilityFields)}
+	{#if draft.type === 'openai'}
+		{@render section('OpenAI Options', false, openaiFields)}
+	{/if}
 	{#if draft.type === 'ollama'}
 		{@render section('Ollama Options', false, ollamaFields)}
 	{/if}

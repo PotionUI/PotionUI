@@ -16,6 +16,8 @@ _PROBABILITY_OPTION_KEYS = ("top_p", "min_p")
 # the model, not this layer.
 _OLLAMA_THINK_LEVELS = ("low", "medium", "high")
 
+_OPENAI_REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+
 
 # ============================================================================
 # LLM Configuration DTOs
@@ -124,6 +126,51 @@ class LLMConfigRequest(BaseModel):
             ):
                 raise ValueError(
                     f"provider_options.repetition_penalty must be a positive number, or omitted (null), got {value!r}"
+                )
+
+        return self
+
+    @model_validator(mode="after")
+    def _validate_openai_options(self) -> "LLMConfigRequest":
+        if self.type != "openai" or not self.provider_options:
+            return self
+        opts = self.provider_options
+
+        if "seed" in opts and opts["seed"] is not None:
+            value = opts["seed"]
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(
+                    "provider_options.seed must be an integer or omitted (null) "
+                    f"for an 'openai' config, got {value!r}"
+                )
+
+        if "reasoning_effort" in opts and opts["reasoning_effort"] is not None:
+            value = opts["reasoning_effort"]
+            if value not in _OPENAI_REASONING_EFFORTS:
+                raise ValueError(
+                    "provider_options.reasoning_effort must be one of "
+                    f"{_OPENAI_REASONING_EFFORTS!r}, or omitted (null) for an 'openai' config, got {value!r}"
+                )
+
+        if "parallel_tool_calls" in opts and opts["parallel_tool_calls"] is not None:
+            value = opts["parallel_tool_calls"]
+            if not isinstance(value, bool):
+                raise ValueError(
+                    "provider_options.parallel_tool_calls must be true, false, or omitted (null) "
+                    f"for an 'openai' config, got {value!r}"
+                )
+
+        if "stop" in opts and opts["stop"] is not None:
+            value = opts["stop"]
+            is_valid = isinstance(value, str) or (
+                isinstance(value, list)
+                and 1 <= len(value) <= 4
+                and all(isinstance(item, str) for item in value)
+            )
+            if not is_valid:
+                raise ValueError(
+                    "provider_options.stop must be a string, a list of up to 4 strings, or "
+                    f"omitted (null) for an 'openai' config, got {value!r}"
                 )
 
         return self

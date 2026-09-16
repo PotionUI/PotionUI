@@ -34,30 +34,37 @@ def auth_headers(config: LLMConfig) -> Dict[str, str]:
     return headers
 
 
+_PROVIDER_OPTION_KEYS = (
+    "top_p",
+    "presence_penalty",
+    "frequency_penalty",
+    "seed",
+    "stop",
+    "reasoning_effort",
+    "parallel_tool_calls",
+)
+
+
 def sampling_params(
     config: LLMConfig, options_override: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
-    """Build the sampling portion of the request payload.
-
-    Includes temperature/max_tokens from config, top_p/presence_penalty/frequency_penalty
-    from config.provider_options when present, with options_override merged last (only
-    OpenAI-valid keys are honored; top_k is not an OpenAI param and is ignored).
-    """
     provider_opts = config.provider_options or {}
     options_override = options_override or {}
 
     params: Dict[str, Any] = {
         "temperature": config.temperature,
-        "max_tokens": config.max_tokens,
+        "max_completion_tokens": config.max_tokens,
     }
 
-    for key in ("top_p", "presence_penalty", "frequency_penalty"):
-        if key in provider_opts:
+    for key in _PROVIDER_OPTION_KEYS:
+        if key in provider_opts and provider_opts[key] is not None:
             params[key] = provider_opts[key]
 
-    for key in ("temperature", "max_tokens", "top_p"):
-        if key in options_override:
+    for key in ("temperature", "top_p"):
+        if key in options_override and options_override[key] is not None:
             params[key] = options_override[key]
+    if "max_tokens" in options_override and options_override["max_tokens"] is not None:
+        params["max_completion_tokens"] = options_override["max_tokens"]
 
     return params
 

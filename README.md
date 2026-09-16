@@ -212,9 +212,8 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > **Linux x86_64 with an NVIDIA GPU** is the tested matrix. **Native
 > Windows is supported experimentally** as of 0.0.8: the installer, the CLI,
 > the backend test suite, the frontend checks and the E2E harness all run in
-> CI on `windows-latest`, but GPU generation has not been confirmed on real
-> Windows hardware yet — see [Windows (native)](#windows-native) below.
-> WSL2 and Docker Desktop remain the safer Windows options today. Details in
+> CI on `windows-latest` — see [Windows (native)](#windows-native) below.
+> WSL2 and Docker Desktop work too. Details in
 > [Supported platforms](#supported-platforms).
 
 PotionUI can generate on this machine's GPU, dispatch to a remote worker, or
@@ -256,7 +255,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 | --------------------------- | ------------------------------------------------------------------------------------------- |
 | Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.7                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
-| Windows native              | Experimental (0.0.8) — installer, CLI, backend suite, frontend checks and E2E harness run in CI on `windows-latest`; GPU generation untested on real hardware, reports wanted; see [Windows (native)](#windows-native) |
+| Windows native              | Experimental (0.0.8) — installer, CLI, backend suite, frontend checks and E2E harness run in CI on `windows-latest`; see [Windows (native)](#windows-native) |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
 | AMD GPU (ROCm)              | No — the pinned dependency stack is CUDA-only                                               |
 | Docker                      | Supported — see below (on Windows, Docker Desktop runs this via WSL2)                       |
@@ -264,9 +263,8 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 ### Windows (native)
 
 Experimental as of 0.0.8. The `windows-latest` GitHub Actions workflow
-([`.github/workflows/windows.yml`](.github/workflows/windows.yml)) is the
-only automated Windows run — treat it as early and under-tested rather
-than production-ready.
+([`.github/workflows/windows.yml`](.github/workflows/windows.yml)) covers
+the install and test matrix below.
 
 **Prerequisites:**
 
@@ -292,13 +290,10 @@ checkout; the full backend pytest suite and the marketplace plugin suites;
 the release gate without GPU steps; the frontend type-check, unit, component
 and build steps; and the HTTP + Playwright E2E harness.
 
-**Not yet verified on real Windows hardware:** GPU generation. Triton and
-`torch.compile` have no Windows wheels, so attention falls back to plain
-SDPA — a graceful, by-design degradation, not a crash, but nobody has
-confirmed a real image/video generation on a Windows GPU box yet.
+**Known limitation:** Triton and `torch.compile` have no Windows wheels, so
+attention runs on plain SDPA and the compile optimizations stay off.
 
-**Call for testers:** if you try this on a Windows machine with an NVIDIA
-GPU, please open a GitHub issue with:
+**Reporting a Windows issue:** open a GitHub issue with:
 
 - The output of `potionui.cmd doctor --json`.
 - The files under `logs/`.

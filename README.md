@@ -7,8 +7,7 @@
 
 **The self-hosted generation studio you can hand to other people.**
 
-Run Flux, Wan, LTX, Qwen-Image and MiniMax on one box — then give your team,
-your household, or your agents their own logins, presets, and limits. No node
+Run Krea-2, Anima, SDXL, Flux, Wan, LTX, Qwen-Image and MiniMax on one box — then give your team, your household, or your agents their own logins, presets, and limits. No node
 graphs. No per-model setup. Pick a model, type, watch it render live.
 
 ![The generate workspace: model tabs, a prompt built from colored segments, and the finished render](docs/media/potionui-generation-page.png)
@@ -28,8 +27,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
   and model access.
 - **Drive it from Claude Desktop or any MCP client** — per-user tokens; every
   write action needs your approval.
-- **Video and Music Directors** — compose shots and songs in sections instead
-  of one giant prompt.
+- **Video Director** — compose shots in sections instead of one giant prompt.
 
 *Alpha 0.0.7 · Linux x86_64 + NVIDIA · Windows via WSL2 or Docker (native
 experimental) ·
@@ -52,7 +50,7 @@ Floor: 8 GB VRAM + 16 GB RAM (SDXL). Full requirements below.
 - [AI assistant](#ai-assistant)
 - [The generate workspace](#the-generate-workspace)
 - [History, tags, and collections](#history-tags-and-collections)
-- [Video Director](#video-director) · [Music Director](#music-director)
+- [Video Director](#video-director)
 - [Prompt tooling](#prompt-tooling)
 - [Automations](#automations)
 - [Plugins](#plugins)
@@ -159,17 +157,6 @@ populated with 2-3 sections (e.g. global + two timed/chain sections).
   hand-managing separate prompt fields per segment.
 - Same segment-card editor as everywhere else in PotionUI, aimed at a
   timeline.
-
-## Music Director
-
-<!--
-SCREENSHOT SLOT — MUSIC DIRECTOR
-Music Director editor open on the MiniMax-Music3 preset, a few sections
-with lyrics/tags filled in.
--->
-
-- Write verses and choruses as sections; the compiler turns them into
-  MiniMax-Music3's tagged lyrics for you.
 
 ## Prompt tooling
 

@@ -302,6 +302,7 @@
 	// Filters tucked into the "Filters" popover — surfaced via the trigger's
 	// badge count and the active-filter chip row so their state is never hidden.
 	$: advancedActiveCount =
+		(currentState.filters.searchMode === 'semantic' ? 1 : 0) +
 		(currentState.filters.datePreset !== 'all' ? 1 : 0) +
 		(currentState.filters.status !== 'all' ? 1 : 0) +
 		(currentState.filters.mode ? 1 : 0) +
@@ -323,12 +324,7 @@
 
 <PageHeader wrap sticky={false}>
 	<div class="flex flex-col gap-2 w-full">
-		<!-- Primary row: never wraps from ~1280px up. Below md it wraps onto two
-			lines — title+actions, then the search bar spans the full width on its
-			own line — via `order-last` on the search block rather than reordering
-			the DOM, so the flex-wrap line break lands after title+actions instead
-			of splitting them across lines. -->
-		<div class="flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-4 w-full">
+		<div class="flex flex-wrap items-center gap-2 xl:gap-4 w-full">
 			<!-- Left: Title + count -->
 			<div class="flex items-baseline gap-3 flex-shrink-0">
 				<span class="text-sm font-semibold text-fg">History</span>
@@ -340,11 +336,7 @@
 			<!-- Divider -->
 			<div class="hidden md:block h-6 w-px bg-line-strong flex-shrink-0"></div>
 
-			<!-- Search - the anchor control. Full width of its own wrapped line on
-				mobile (the search-mode toggle's min-content width doesn't fit
-				alongside it in the flex-1/min-w-[12rem] box below md, which used to
-				overflow past the viewport and get silently clipped). -->
-			<div class="order-last md:order-none flex items-center gap-1.5 w-full md:w-auto md:flex-1 md:min-w-[12rem] md:max-w-md">
+			<div class="order-last xl:order-none flex items-center gap-1.5 w-full xl:w-auto xl:flex-1 xl:min-w-[12rem] xl:max-w-md">
 				<div class="relative flex-1 min-w-[8rem]">
 					<Icon
 						name="search"
@@ -359,25 +351,6 @@
 						value={currentState.filters.search}
 						on:input={handleSearchInput}
 					/>
-				</div>
-				<div
-					class="hidden md:flex items-center gap-0.5 bg-surface-2/50 rounded p-0.5"
-					role="radiogroup"
-					aria-label="Search mode"
-				>
-					{#each searchModes as searchMode}
-						<button
-							role="radio"
-							aria-checked={currentState.filters.searchMode === searchMode.value}
-							title={searchMode.title}
-							class="px-2 py-1 text-xs rounded-sm transition-colors duration-100 {currentState.filters.searchMode === searchMode.value
-								? 'bg-signal/10 text-signal'
-								: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
-							on:click={() => handleSearchModeChange(searchMode.value)}
-						>
-							{searchMode.label}
-						</button>
-					{/each}
 				</div>
 			</div>
 
@@ -491,6 +464,25 @@
 							aria-label="Advanced filters"
 						>
 							<div class="grid grid-cols-2 gap-2.5">
+								<div class="col-span-2">
+									<span class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1">Search mode</span>
+									<div class="flex items-center gap-0.5 bg-surface-3/50 rounded p-0.5" role="radiogroup" aria-label="Search mode">
+										{#each searchModes as searchMode}
+											<button
+												role="radio"
+												aria-checked={currentState.filters.searchMode === searchMode.value}
+												title={searchMode.title}
+												class="flex-1 px-2 py-1 text-xs rounded-sm transition-colors duration-100 {currentState.filters.searchMode === searchMode.value
+													? 'bg-signal/10 text-signal'
+													: 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
+												on:click={() => handleSearchModeChange(searchMode.value)}
+											>
+												{searchMode.label}
+											</button>
+										{/each}
+									</div>
+								</div>
+
 								<div class="col-span-2">
 									<span class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1">Date</span>
 									<div class="flex items-center gap-0.5 bg-surface-3/50 rounded p-0.5">
@@ -609,11 +601,8 @@
 				</div>
 			</div>
 
-			<!-- Spacer -->
-			<div class="flex-1 hidden md:block"></div>
-
 			<!-- Right: view controls + actions -->
-			<div class="flex items-center gap-2 ml-auto md:ml-0 flex-shrink-0">
+			<div class="flex items-center gap-2 ml-auto flex-shrink-0">
 				<!-- Sort -->
 				<select
 					class="hidden md:block input text-xs py-1.5 px-2 bg-surface-2/50 w-auto"
@@ -721,6 +710,17 @@
 		{#if advancedActiveCount > 0}
 			<div class="hidden md:flex items-center gap-1.5 flex-wrap">
 				<Icon name="filter" className="w-3 h-3 text-fg-subtle flex-shrink-0" />
+
+				{#if currentState.filters.searchMode === 'semantic'}
+					<button
+						class="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-dashed border-line bg-surface-2/50 text-xs text-fg-muted hover:text-fg transition-colors flex-shrink-0"
+						title="Back to keyword search"
+						on:click={() => handleSearchModeChange('keyword')}
+					>
+						<span>Semantic search</span>
+						<Icon name="close" className="w-3 h-3" />
+					</button>
+				{/if}
 
 				{#if currentState.filters.datePreset !== 'all'}
 					<button

@@ -381,10 +381,10 @@ button.session-row:hover, .session-row.is-current { background: rgb(var(--surfac
   padding: 0 18px;
   overflow: visible;
   border: 0;
-  border-top: 1px solid rgb(var(--line-strong));
+  border-top: 1px solid rgb(var(--line-hover));
   border-radius: 0;
   background: rgb(var(--surface-1));
-  box-shadow: none;
+  box-shadow: var(--shadow-dock);
   backdrop-filter: none;
 }
 

@@ -23,7 +23,7 @@ def _fetch_twice(app: ThrowawayApp, group_id: str, endpoint: str):
 
 
 def run(app: ThrowawayApp) -> JourneyResult:
-    create_resp = app.client.post("/api/user-groups/", json={"name": "e2e-empty-group", "description": None})
+    create_resp = app.client.post("/api/user-groups", json={"name": "e2e-empty-group", "description": None})
     create_body = raise_for_status("group-tabs", create_resp, "Create empty group")
     group = create_body.get("data") or {}
     group_id = group.get("id")

@@ -293,7 +293,7 @@ def _seed_preset_installs(app) -> None:
 def _seed_tags(app) -> Dict[str, str]:
     ids: Dict[str, str] = {}
     for name in ("showcase", "restoration"):
-        resp = app.client.post("/api/tags/", json={"name": name, "type": "GENERATION"})
+        resp = app.client.post("/api/tags", json={"name": name, "type": "GENERATION"})
         if resp.status_code == 200:
             ids[name] = resp.json()["data"]["tag"]["id"]
     return ids
@@ -371,7 +371,7 @@ def _seed_users_and_group(app) -> tuple[Dict[str, str], Optional[str]]:
     user_ids: Dict[str, str] = {}
     for username in ("art-lead", "reviewer"):
         resp = app.client.post(
-            "/api/users/",
+            "/api/users",
             json={
                 "username": username,
                 "email": f"{username}@example.com",
@@ -383,7 +383,7 @@ def _seed_users_and_group(app) -> tuple[Dict[str, str], Optional[str]]:
             user_ids[username] = resp.json()["data"]["id"]
 
     group_id = None
-    resp = app.client.post("/api/user-groups/", json={"name": "Creative Team", "description": "Illustration + video review"})
+    resp = app.client.post("/api/user-groups", json={"name": "Creative Team", "description": "Illustration + video review"})
     if resp.status_code == 200:
         group_id = resp.json()["data"]["id"]
         member_ids = list(user_ids.values())
@@ -433,7 +433,7 @@ def _seed_library_and_collections(
     # src/features/library/manager.py's set_tags rejects a GENERATION-typed
     # id with "Invalid tag ID", so this needs its own tag row.
     if library_item_ids:
-        upload_tag = app.client.post("/api/tags/", json={"name": "featured", "type": "UPLOAD"})
+        upload_tag = app.client.post("/api/tags", json={"name": "featured", "type": "UPLOAD"})
         if upload_tag.status_code == 200:
             upload_tag_id = upload_tag.json()["data"]["tag"]["id"]
             app.client.put(f"/api/library/items/{library_item_ids[0]}/tags", json={"tag_ids": [upload_tag_id]})

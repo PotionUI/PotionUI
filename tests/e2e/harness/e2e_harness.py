@@ -431,7 +431,7 @@ def create_second_user(
     password = password or secrets.token_urlsafe(18)
 
     resp = admin_client.post(
-        "/api/users/",
+        "/api/users",
         json={"username": username, "email": email, "password": password, "account_type": account_type},
     )
     raise_for_status(stage, resp, "Create second user")

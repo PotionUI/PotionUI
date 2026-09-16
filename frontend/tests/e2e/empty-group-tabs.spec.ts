@@ -20,7 +20,7 @@ test('empty group Presets tab settles without a request loop', async ({ page }) 
 
 	// Create the empty group via the API (proxied through the preview origin).
 	const groupName = `e2e-empty-${Date.now()}`;
-	const created = await page.request.post('/api/user-groups/', {
+	const created = await page.request.post('/api/user-groups', {
 		headers: { Authorization: `Bearer ${token}` },
 		data: { name: groupName, description: null }
 	});

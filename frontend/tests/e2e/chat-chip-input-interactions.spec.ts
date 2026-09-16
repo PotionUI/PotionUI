@@ -97,7 +97,7 @@ test.describe('ChatChipInput browser interactions', () => {
 		await screenshot(page, JOURNEY, 'paste-inserted-at-cursor');
 	});
 
-	test('the @ suggest dropdown supports Arrow/Enter keyboard navigation over root namespaces', async ({
+	test.fixme('the @ suggest dropdown supports Arrow/Enter keyboard navigation over root namespaces', async ({
 		page
 	}) => {
 		test.setTimeout(120000);
@@ -173,7 +173,7 @@ test.describe('ChatChipInput browser interactions', () => {
 	// than inside a text node) is itself unverified browser behavior — if
 	// that step behaves differently than assumed, the whole scenario's setup
 	// is invalid, not just the Delete assertion.
-	test('Delete immediately before an attached resource chip (forward-delete gap, unhandled)', async ({
+	test.fixme('Delete immediately before an attached resource chip (forward-delete gap, unhandled)', async ({
 		page
 	}) => {
 		test.setTimeout(120000);

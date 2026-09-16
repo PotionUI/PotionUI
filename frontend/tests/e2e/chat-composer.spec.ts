@@ -49,6 +49,7 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 
 	// --- Attach affordance + no command picker (core assertions) ---
 	const chipInput = composer.locator('[role="textbox"][aria-placeholder]');
+	await expect(chipInput).toHaveAttribute('contenteditable', 'true');
 	await expect(chipInput).toBeVisible();
 	await expect(chipInput).toHaveAttribute('aria-placeholder', /attach a resource/i);
 	const commandButton = composer.locator(

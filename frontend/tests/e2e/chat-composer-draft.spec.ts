@@ -39,6 +39,7 @@ test('a composer draft survives closing the chat drawer and is restored on reope
 	const composer = page.locator('.composer:has(button[aria-label="Send message"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 	const chipInput = composer.locator('[role="textbox"][aria-placeholder]');
+	await expect(chipInput).toHaveAttribute('contenteditable', 'true');
 	await chipInput.click();
 	await page.keyboard.type('Draft I do not want to lose');
 	await expect(chipInput).toContainText('Draft I do not want to lose');
@@ -57,6 +58,7 @@ test('a composer draft survives closing the chat drawer and is restored on reope
 	const reopenedComposer = page.locator('.composer:has(button[aria-label="Send message"])');
 	await expect(reopenedComposer).toBeVisible({ timeout: 15000 });
 	const reopenedChipInput = reopenedComposer.locator('[role="textbox"][aria-placeholder]');
+	await expect(reopenedChipInput).toHaveAttribute('contenteditable', 'true');
 	await expect(reopenedChipInput).toContainText('Draft I do not want to lose');
 	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, '02-draft-restored');
@@ -76,6 +78,7 @@ test('a composer draft survives closing the chat drawer and is restored on reope
 	const finalComposer = page.locator('.composer:has(button[aria-label="Send message"])');
 	await expect(finalComposer).toBeVisible({ timeout: 15000 });
 	const finalChipInput = finalComposer.locator('[role="textbox"][aria-placeholder]');
+	await expect(finalChipInput).toHaveAttribute('contenteditable', 'true');
 	await expect(finalChipInput).toHaveText('');
 	await screenshot(page, JOURNEY, '04-no-stale-draft-after-send');
 });

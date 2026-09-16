@@ -48,6 +48,7 @@ test('thumbs-up on a proposed prompt reflects immediately and survives reload', 
 	});
 
 	const chipInput = composer.locator('[role="textbox"][aria-placeholder]');
+	await expect(chipInput).toHaveAttribute('contenteditable', 'true');
 	await chipInput.click();
 	await page.keyboard.type('Improve my prompt please');
 	await composer.locator('button[aria-label="Send message"]').click();

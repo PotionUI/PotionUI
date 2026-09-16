@@ -82,6 +82,7 @@ test('known ${var} renders as a chip in chat, unknown stays literal', async ({ p
 	});
 
 	const chipInput = composer.locator('[role="textbox"][aria-placeholder]');
+	await expect(chipInput).toHaveAttribute('contenteditable', 'true');
 	await chipInput.click();
 	await page.keyboard.type('How should I use my variables?');
 	await composer.locator('button[aria-label="Send message"]').click();

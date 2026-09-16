@@ -34,6 +34,39 @@ configuration:
     type: "model_tags"
     label: "VAE tags"
     description: "Only models with any of these tags appear in the Oobleck VAE picker."
+  style_categories:
+    type: "tag_categories"
+    label: "Style tag categories"
+    description: "Category vocabulary offered by the Generation tab's Style tags field."
+    default:
+      - key: "language"
+        label: "Language"
+        multi: false
+        tags: ["English", "Mandarin", "Japanese", "Korean", "Ukrainian", "Russian", "French", "German", "Spanish", "Brazilian Portuguese", "Swedish", "Dutch", "Indonesian", "Tagalog", "Persian", "Bengali"]
+      - key: "genre"
+        label: "Genre"
+        multi: true
+        tags: ["pop", "rock", "electronic", "classical", "R&B", "folk", "rap", "hip-hop", "soundtrack", "country", "indie rock", "punk", "jazz", "experimental", "funk", "blues", "ambient", "new age", "classic rock", "alternative rock", "reggae", "electro pop", "K-pop", "dance", "80s", "dancehall", "disco", "house", "death metal", "thrash metal", "progressive rock", "hard rock", "lounge", "Latin", "hardcore", "metalcore", "soul", "grunge", "easy listening"]
+      - key: "instrumental"
+        label: "Instrumentation"
+        multi: true
+        tags: ["piano", "drums", "guitar", "electric guitar", "acoustic guitar", "synthesizer", "keyboard", "violin", "bass", "bass guitar", "saxophone", "drum machine", "cello", "harmonica", "fiddle", "percussion", "beatboxing", "harp", "flute", "brass", "trumpet", "strings", "banjo", "sitar", "charango"]
+      - key: "voice"
+        label: "Voice"
+        multi: true
+        tags: ["female", "male", "soprano", "mezzo-soprano", "tenor", "child", "rapping", "screamo", "bright vocal", "full vocal", "airy vocal", "clear vocal", "mellow vocal", "dark vocal", "rich vocal", "light vocal", "crisp vocal", "powerful vocal", "high-pitched vocal", "deep vocal", "baritone vocal", "vibrant vocal", "soft vocal", "husky vocal", "aggressive vocal", "gravelly vocal", "vocal fry vocal", "velvet vocal", "raspy vocal", "breathy vocal", "passionate vocal", "emotional vocal", "whimsical vocal"]
+      - key: "mood"
+        label: "Mood"
+        multi: true
+        tags: ["uplifting", "emotional", "happy", "inspiring", "romantic", "sad", "melancholic", "dark", "upbeat", "energetic", "nostalgic", "calm", "hopeful", "melodic", "relaxing", "dreamy", "rebellious", "introspective", "confident", "aggressive", "cool", "angry", "celebratory", "bold", "optimistic", "sentimental", "tough", "motivational", "heartfelt", "funky", "danceable", "heavy", "thoughtful", "fast-paced"]
+      - key: "tempo"
+        label: "Tempo"
+        multi: false
+        tags: ["60 BPM", "70 BPM", "80 BPM", "88 BPM", "95 BPM", "100 BPM", "110 BPM", "120 BPM", "128 BPM", "140 BPM", "160 BPM", "slow ballad", "uptempo"]
+      - key: "more"
+        label: "More"
+        multi: true
+        tags: []
 
 vars:
   supports_negative_prompt: false

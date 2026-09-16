@@ -1,13 +1,13 @@
 fields:
   - name: "style"
-    type: "string"
+    type: "tags"
     label: "Style tags"
     required: true
     configuration:
-      input_type: "textarea"
-      rows: 3
-      placeholder: "genre · instruments · vocal character · language · bpm"
-    ai_hint: "The generator's only style-conditioning signal besides lyrics -- an empty value fails generation outright. Write it as a short tag list (genre, instrumentation, vocal timbre, language, tempo), not prose -- see this preset's llm.guide for the full recipe."
+      separator: ", "
+      allow_custom: true
+      categories: "@config:style_categories"
+    ai_hint: "The generator's only style-conditioning signal besides lyrics -- an empty value fails generation outright. Pick a language, genre and tempo, then layer on instrumentation/voice/mood tags -- see this preset's llm.guide for the full recipe."
 
   - type: "section"
     label: "Song"

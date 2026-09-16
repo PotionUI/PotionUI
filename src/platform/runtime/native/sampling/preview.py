@@ -233,6 +233,8 @@ def resolve_preview_factors(spec: Any) -> Optional[PreviewFactors]:
     previews are silently skipped for it.
     """
     lf = getattr(spec, "latent_format", None) or {}
+    if lf.get("modality") == "audio":
+        return None
     fmt = lf.get("format")
     ch = lf.get("latent_channels")
     if fmt == "minimax_h3" or ch == 24:

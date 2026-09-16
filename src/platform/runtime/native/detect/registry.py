@@ -573,7 +573,7 @@ _VENDORED_SPECS: list[ModelSpec] = [
             "top_k": 50,
             "guidance": "cfg",
         },
-        latent_format={"latent_channels": 128, "format": "minimax_music3", "temporal": True},
+        latent_format={"latent_channels": 128, "format": "minimax_music3", "temporal": True, "modality": "audio"},
         expected_unexpected_keys={"*.comfy_quant", *_SIDECAR_GLOBS},
         memory_cost_gb=5.0,                 # fp16 DiT + fused condition encoder only
     ),
@@ -586,8 +586,8 @@ _VENDORED_SPECS: list[ModelSpec] = [
             "prediction": "const",
             "guidance": "none",
         },
-        latent_format={"latent_channels": 64, "format": "yue2", "temporal": True},
-        expected_unexpected_keys=set(_SIDECAR_GLOBS),
+        latent_format={"latent_channels": 64, "format": "yue2", "temporal": True, "modality": "audio"},
+        expected_unexpected_keys={"latent_pos_embed.pe", *_SIDECAR_GLOBS},
         memory_cost_gb=7.0,
     ),
     ModelSpec(

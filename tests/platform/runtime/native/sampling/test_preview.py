@@ -72,10 +72,18 @@ def test_max_size_scales_long_edge():
     assert img.mode == "RGB"
 
 
-def test_resolve_all_registered_specs_have_factors():
-    # Every native family the engine can load must resolve to a preview table.
+def test_resolve_all_registered_image_specs_have_factors():
     for spec in arch_registry.all():
+        if spec.latent_format.get("modality") == "audio":
+            continue
         assert resolve_preview_factors(spec) is not None, f"{spec.family}/{spec.variant}"
+
+
+def test_audio_specs_have_no_preview_table():
+    audio = [spec for spec in arch_registry.all() if spec.latent_format.get("modality") == "audio"]
+    assert {spec.family for spec in audio} == {"minimax_music3", "yue2"}
+    for spec in audio:
+        assert resolve_preview_factors(spec) is None, f"{spec.family}/{spec.variant}"
 
 
 def test_resolve_keys_by_format_and_channels():

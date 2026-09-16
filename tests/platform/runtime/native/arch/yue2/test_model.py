@@ -37,6 +37,22 @@ def _build_model(seed: int = 0, latent_dim: int = 4, dtype: torch.dtype = torch.
     return model
 
 
+class TestMetaConstruction:
+    def test_post_load_moves_every_derived_buffer_off_meta(self):
+        with torch.device("meta"):
+            meta_model = YuE2Model(_tiny_config(), disable_weight_init, dtype=torch.float32)
+        cpu_model = _build_model()
+        assert meta_model.latent_pos_embed.pe.device.type == "meta"
+
+        meta_model.requires_grad_(False)
+        meta_model.load_state_dict(cpu_model.state_dict(), strict=False, assign=True)
+        meta_model.post_load()
+
+        for name, tensor in list(meta_model.named_parameters()) + list(meta_model.named_buffers()):
+            assert tensor.device.type != "meta", name
+        torch.testing.assert_close(meta_model.latent_pos_embed.pe, cpu_model.latent_pos_embed.pe)
+
+
 class TestStateDictKeys:
     def test_matches_expected_checkpoint_naming(self):
         cfg = YuE2Config(
@@ -116,6 +132,14 @@ class TestNarVelocity:
         x_t = torch.randn(num_frames, 4)
         velocity = model.nar_velocity(context, x_t, t_value=0.3)
         assert velocity.shape == (num_frames, 4)
+
+    def test_bf16_weights_take_fp32_noise_without_dtype_promotion(self):
+        model = _build_model(seed=4, latent_dim=4, dtype=torch.bfloat16)
+        ar_ids = torch.randint(0, 64, (1, 6))
+        context = model.new_nar_context(ar_ids, num_latent_frames=5)
+        velocity = model.nar_velocity(context, torch.randn(5, 4), t_value=0.3)
+        assert velocity.dtype == torch.bfloat16
+        assert velocity.shape == (5, 4)
 
     def test_rejects_mismatched_latent_frame_count(self):
         model = _build_model(seed=5, latent_dim=4)

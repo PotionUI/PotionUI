@@ -17,6 +17,8 @@ from src.pipelines.pipes._shared.generation.seed_plan import plan_seeds
 from src.platform.runtime.native.arch.yue2 import ar_loop, nar, protocol
 from src.platform.runtime.native.errors import SamplingCancelled
 
+VAE_DECODE_CHUNK_LATENTS = 192
+VAE_DECODE_OVERLAP_LATENTS = 64
 FPS = 25.0
 MAX_DURATION = 360.0
 MAX_SEMANTIC_TOKENS = int(MAX_DURATION * FPS)
@@ -97,7 +99,7 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
             PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
             PipeConfigSpec("cfg_scale", float, None,
                            "Classifier-free guidance for the semantic (codec) AR stage. "
-                           "Default: 1.01 when cot='off', 1.0 otherwise",
+                           "None or 0 = auto: 1.01 when cot='off', 1.0 otherwise",
                            required=False, min_value=0.0, max_value=20.0),
             PipeConfigSpec("nar_steps", int, 32, "Flow-matching midpoint-Euler steps per acoustic window",
                            required=False, min_value=1, max_value=100),
@@ -178,7 +180,7 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
                 abc=str(self.config.get("abc") or ""),
                 max_tokens=max_tokens,
                 auto_duration=duration == 0,
-                cfg_scale=protocol.guidance_scale(cot, self.config.get("cfg_scale")),
+                cfg_scale=protocol.guidance_scale(cot, self.config.get("cfg_scale") or None),
                 nar_steps=int(self.config.get("nar_steps", 32)),
                 temperature=float(self.config.get("temperature", protocol.SEMANTIC_SAMPLING_DEFAULTS.temperature)),
                 top_p=float(self.config.get("top_p", protocol.SEMANTIC_SAMPLING_DEFAULTS.top_p)),
@@ -251,6 +253,7 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
                         "generator/audio_yue2: the ABC transcription stage hit its token budget "
                         "without reaching its end token -- no music was generated for this seed"
                     )
+                progress.step(len(abc_ids), len(abc_ids), state="transcribing")
                 semantic_prefix_ids = base_prompt_ids + abc_ids + [protocol.ABC_END, protocol.MUSIC_START]
                 negative_abc_ids = abc_ids
 
@@ -279,6 +282,7 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
                     "generator/audio_yue2: the AR stage hit its token budget without reaching its "
                     "end token -- the model never closed the song at duration=auto"
                 )
+            progress.step(len(codec_ids_offset), len(codec_ids_offset), state="composing")
             codec_ids = [token_id - protocol.CODEC_OFFSET for token_id in codec_ids_offset]
 
             def on_nar_step(step: int, total: int) -> None:
@@ -302,7 +306,7 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
         vae_model.move_to(c.device)
         try:
             channels_first = latents.permute(0, 2, 1).to(c.device)
-            waveform = vae_model.module.decode(channels_first)
+            waveform = vae_model.module.decode(channels_first, chunk_size=VAE_DECODE_CHUNK_LATENTS, overlap=VAE_DECODE_OVERLAP_LATENTS)
         finally:
             vae_model.offload()
 

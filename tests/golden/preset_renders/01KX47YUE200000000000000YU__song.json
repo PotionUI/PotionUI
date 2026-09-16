@@ -46,7 +46,7 @@
             ],
             [
               "cfg_scale",
-              1.01
+              0
             ],
             [
               "nar_steps",
@@ -81,8 +81,8 @@
           "value": ""
         },
         "cfg_scale": {
-          "type": "float",
-          "value": 1.01
+          "type": "int",
+          "value": 0
         },
         "cot": {
           "type": "str",

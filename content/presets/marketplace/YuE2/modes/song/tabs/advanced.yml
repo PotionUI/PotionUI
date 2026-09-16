@@ -4,16 +4,11 @@ fields:
     children:
       - name: "cfg_scale"
         type: "slider"
-        label: "CFG scale (codec stage)"
-        default: 1.01
+        label: "CFG scale (codec stage, 0 = auto)"
+        default: 0
         audience: "advanced"
-        ai_hint: "Classifier-free guidance for the autoregressive codec-token sampling stage. The pipe's own default is 1.01 when Chain of thought is Off and 1.0 otherwise -- this field's reactions mirror that automatically when Chain of thought changes; override it only to A/B guidance strength directly."
+        ai_hint: "Classifier-free guidance for the autoregressive codec-token sampling stage. 0 = the model's own default (1.01 when Chain of thought is Off, 1.0 otherwise). Raise to 2-3 to push the style tags harder; anything above 1.0 runs a second, unconditional pass and roughly doubles composing time."
         configuration: {min: 0.0, max: 20.0, step: 0.01}
-        reactions:
-          - when: { field: "cot", equals: "off" }
-            then: { set_value: 1.01 }
-          - when: { field: "cot", not_equals: "off" }
-            then: { set_value: 1.0 }
 
       - name: "nar_steps"
         type: "slider"

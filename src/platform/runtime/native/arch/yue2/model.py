@@ -203,8 +203,8 @@ class AudioPositionEmbedding(nn.Module):
         pe[:, 1::2] = torch.cos(position * div_term)
         return pe
 
-    def recompute(self) -> None:
-        self.pe = self._compute(self.max_frames, self.hidden_size, self.pe.device)
+    def recompute(self, device=None) -> None:
+        self.pe = self._compute(self.max_frames, self.hidden_size, device if device is not None else self.pe.device)
 
     def forward(self, position_ids: torch.Tensor) -> torch.Tensor:
         return self.pe[position_ids]
@@ -277,7 +277,7 @@ class YuE2Model(NativeArchModule):
 
     def post_load(self) -> None:
         self.model.recompute_inv_freq()
-        self.latent_pos_embed.recompute()
+        self.latent_pos_embed.recompute(self.lm_head.weight.device)
 
     def new_kv_cache(self, max_len: int, batch: int = 1, device=None, dtype: torch.dtype = torch.bfloat16) -> YuE2KVCache:
         device = device or _module_device(self)
@@ -323,7 +323,7 @@ class YuE2Model(NativeArchModule):
         dtype = next(self.parameters()).dtype
         cos, sin = self.model.rope_at(positions, dtype)
         local = torch.arange(nar_length, device=device).clamp(max=self.cfg.max_latent_frames - 1)
-        pos_emb = self.latent_pos_embed(local).unsqueeze(0)
+        pos_emb = self.latent_pos_embed(local).unsqueeze(0).to(dtype)
         return YuE2NarContext(ar_cache=ar_cache, cos=cos, sin=sin, pos_emb=pos_emb, nar_length=nar_length)
 
     def shift_timestep(self, t_value: float, device: torch.device, dtype: torch.dtype) -> torch.Tensor:

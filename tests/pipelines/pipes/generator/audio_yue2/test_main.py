@@ -106,6 +106,18 @@ def test_build_context_default_cfg_scale_depends_on_cot():
     assert pipe_full.build_context(PipeInput(input={"model": bundle})).extra.cfg_scale == 1.0
 
 
+def test_build_context_cfg_scale_zero_means_auto():
+    bundle = SimpleNamespace(spec=SimpleNamespace(family="yue2", variant="yue2_3b"))
+
+    def cfg_for(cot, cfg_scale):
+        pipe = GeneratorAudioYuE2Pipe({**GeneratorAudioYuE2Pipe.get_default_config(), "style": "x", "cot": cot, "cfg_scale": cfg_scale})
+        return pipe.build_context(PipeInput(input={"model": bundle})).extra.cfg_scale
+
+    assert cfg_for("off", 0.0) == 1.01
+    assert cfg_for("full", 0.0) == 1.0
+    assert cfg_for("off", 2.5) == 2.5
+
+
 class _FakeModel:
     """Duck-types NativeModel: `.module`, `.move_to`/`.offload` recording into
     a SHARED order list, tagged by component name."""
@@ -133,7 +145,7 @@ class _FakeModels:
         return True
 
 
-def _fake_vae_decode(latents):
+def _fake_vae_decode(latents, chunk_size=0, overlap=0):
     return torch.zeros(1, 2, latents.shape[-1] * 1920)
 
 
@@ -164,7 +176,7 @@ def _fake_ar_generate_factory(order, abc_frames=5, abc_stopped=True, semantic_fr
         order.append(("ar", phase))
         n = abc_frames if phase == "abc" else semantic_frames
         stopped = abc_stopped if phase == "abc" else semantic_stopped
-        total = n
+        total = sampling.max_tokens
         history = []
         for i in range(1, n + 1):
             if is_cancelled is not None and is_cancelled():
@@ -332,6 +344,19 @@ def test_ar_progress_is_throttled():
         if isinstance(o, ProgressGenerationOutput) and o.state == "composing"
     ]
     assert 1 <= len(composing) < 30
+
+
+def test_ar_progress_reaches_full_when_the_song_ends_before_the_token_cap():
+    order = []
+    bundle, lm, vae = _make_bundle(order)
+    pipe = _pipe(cot="full")
+    _result, _order, outputs = _run_generate_one(pipe, bundle, order, ar_kwargs={"semantic_frames": 30, "abc_frames": 5})
+    from src.pipelines.outputs import ProgressGenerationOutput
+    for state in ("transcribing", "composing"):
+        phase = [o for o in outputs if isinstance(o, ProgressGenerationOutput) and o.state == state]
+        assert phase, state
+        assert phase[-1].progress.current == phase[-1].progress.max
+        assert all(o.progress.current < o.progress.max for o in phase[:-1])
 
 
 def test_cancellation_mid_ar_raises_and_emits_no_audio():

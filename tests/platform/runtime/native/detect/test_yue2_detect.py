@@ -77,6 +77,14 @@ class TestLMDetection:
         assert config["vocab_size"] == 184704
         assert config["latent_dim"] == 64
 
+    def test_the_hf_export_sinusoidal_pe_buffer_is_tolerated_on_load(self):
+        from src.platform.runtime.native.detect.registry import match_model_spec
+
+        spec = match_model_spec(detect_unet_config(_yue2_lm_state_dict()))
+        assert spec.family == "yue2"
+        assert spec.key_is_expected_unexpected("latent_pos_embed.pe")
+        assert not spec.key_is_expected_unexpected("layers.0.self_attn.q_proj.weight")
+
     def test_layer_count_stops_at_the_first_gap(self):
         sd = _yue2_lm_state_dict(num_layers=5)
         config = detect_unet_config(sd)

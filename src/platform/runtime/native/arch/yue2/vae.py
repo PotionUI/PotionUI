@@ -100,13 +100,34 @@ class YuE2VAEDecoder(nn.Module):
         blocks.append(nn.Conv1d(full_mults[0] * channels, out_channels, kernel_size=7, padding=3, bias=False))
         self.layers = nn.Sequential(*blocks)
 
-    def decode(self, latents: torch.Tensor) -> torch.Tensor:
+    @torch.inference_mode()
+    def decode(self, latents: torch.Tensor, chunk_size: int = 0, overlap: int = 32) -> torch.Tensor:
         """``[B, latent_dim, T]`` fp32 latents -> ``[B, out_channels, N]`` fp32 waveform (no output clipping -- ``final_tanh=False`` in the released config)."""
         if latents.ndim != 3 or latents.shape[1] != self.latent_dim:
             raise NativeEngineUnsupportedError(
                 f"YuE2 VAE: expected [batch, {self.latent_dim}, length], got {tuple(latents.shape)}"
             )
-        return self.layers(latents.float())
+        latents = latents.float()
+        total = latents.shape[-1]
+        if chunk_size <= 0 or total <= chunk_size:
+            return self.layers(latents)
+        if not 0 <= overlap < chunk_size:
+            raise ValueError(f"overlap must be in [0, chunk_size), got overlap={overlap} chunk_size={chunk_size}")
+
+        starts = list(range(0, total - chunk_size + 1, chunk_size - overlap))
+        if starts[-1] != total - chunk_size:
+            starts.append(total - chunk_size)
+        chunks = [self.layers(latents[..., s:s + chunk_size]) for s in starts]
+
+        hop = self.hop_length
+        chunk_samples = chunks[0].shape[-1]
+        left_trim = (overlap // 2) * hop
+        out = latents.new_zeros(*chunks[0].shape[:-1], starts[-1] * hop + chunk_samples)
+        for i, (start, chunk) in enumerate(zip(starts, chunks)):
+            left = 0 if i == 0 else left_trim
+            right = chunk_samples if i == len(starts) - 1 else (starts[i + 1] - start) * hop + left_trim
+            out[..., start * hop + left:start * hop + right] = chunk[..., left:right]
+        return out
 
 
 def load(state_dict: dict[str, torch.Tensor], **config_overrides) -> YuE2VAEDecoder:

@@ -61,6 +61,30 @@ class TestDecoderShape:
             hop = 2 * 3
             assert abs(out_len - t * hop) <= hop
 
+    def test_chunked_decode_matches_the_full_decode_when_overlap_covers_the_receptive_field(self):
+        torch.manual_seed(0)
+        decoder = YuE2VAEDecoder(**_TINY_KWARGS).eval()
+        latents = torch.randn(1, 4, 200)
+        with torch.no_grad():
+            full = decoder.decode(latents)
+            chunked = decoder.decode(latents, chunk_size=80, overlap=64)
+            uneven = decoder.decode(latents, chunk_size=77, overlap=63)
+        assert chunked.shape == full.shape
+        torch.testing.assert_close(chunked, full, rtol=1e-4, atol=1e-4)
+        torch.testing.assert_close(uneven, full, rtol=1e-4, atol=1e-4)
+
+    def test_decode_never_builds_an_autograd_graph(self):
+        decoder = YuE2VAEDecoder(**_TINY_KWARGS)
+        out = decoder.decode(torch.randn(1, 4, 200), chunk_size=80, overlap=64)
+        assert torch.is_inference(out)
+        assert not out.requires_grad
+
+    def test_chunked_decode_is_a_no_op_for_a_signal_shorter_than_one_chunk(self):
+        decoder = YuE2VAEDecoder(**_TINY_KWARGS).eval()
+        latents = torch.randn(1, 4, 5)
+        with torch.no_grad():
+            torch.testing.assert_close(decoder.decode(latents, chunk_size=128), decoder.decode(latents))
+
     def test_wrong_latent_channel_count_is_rejected(self):
         decoder = YuE2VAEDecoder(**_TINY_KWARGS)
         with pytest.raises(NativeEngineUnsupportedError):

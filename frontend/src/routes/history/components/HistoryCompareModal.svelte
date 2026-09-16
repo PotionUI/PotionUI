@@ -31,6 +31,8 @@
 	let compareValue = COMPARE_DEFAULT;
 	let viewerOpen = false;
 	let viewerTarget: 'left' | 'right' | 'composed' = 'composed';
+	const LEFT_LABEL = 'Original';
+	const RIGHT_LABEL = 'Selected';
 
 	// A library item carries no generation, so there's no param diff and no
 	// wipe/overlay compositing (both are `CompareFrame`'s, which is built on
@@ -215,6 +217,8 @@
 			</div>
 		{:else if left && right}
 			<CompareFrame
+				leftLabel={LEFT_LABEL}
+				rightLabel={RIGHT_LABEL}
 				{mode}
 				{leftFile}
 				{rightFile}
@@ -228,16 +232,16 @@
 		<div class="grid grid-cols-2 gap-3 mt-2">
 			<div class="text-2xs font-mono uppercase tracking-[0.07em] text-fg-subtle truncate text-center">
 				{#if isLibrary}
-					A · {leftItem?.filename ?? '—'}
+					{LEFT_LABEL} · {leftItem?.filename ?? '—'}
 				{:else if left}
-					A · {left.preset_name ?? left.id.slice(0, 8)}
+					{LEFT_LABEL} · {left.preset_name ?? left.id.slice(0, 8)}
 				{/if}
 			</div>
 			<div class="text-2xs font-mono uppercase tracking-[0.07em] text-fg-subtle truncate text-center">
 				{#if isLibrary}
-					B · {rightItem?.filename ?? '—'}
+					{RIGHT_LABEL} · {rightItem?.filename ?? '—'}
 				{:else if right}
-					B · {right.preset_name ?? right.id.slice(0, 8)}
+					{RIGHT_LABEL} · {right.preset_name ?? right.id.slice(0, 8)}
 				{/if}
 			</div>
 		</div>
@@ -260,8 +264,8 @@
 					<thead>
 						<tr class="bg-surface-2 text-fg-subtle">
 							<th class="text-left font-medium px-3 py-2 w-1/4">Parameter</th>
-							<th class="text-left font-medium px-3 py-2">A</th>
-							<th class="text-left font-medium px-3 py-2">B</th>
+							<th class="text-left font-medium px-3 py-2">{LEFT_LABEL}</th>
+							<th class="text-left font-medium px-3 py-2">{RIGHT_LABEL}</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -314,6 +318,8 @@
 		<div class="w-full h-full p-6 md:p-10 flex items-center justify-center" on:click|stopPropagation on:keydown|stopPropagation role="presentation">
 			{#if viewerTarget === 'composed' && left && right}
 				<CompareFrame
+				leftLabel={LEFT_LABEL}
+				rightLabel={RIGHT_LABEL}
 					{mode}
 					{leftFile}
 					{rightFile}

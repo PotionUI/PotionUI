@@ -211,7 +211,7 @@
 					{value}
 					on:input={handleOverlayInput}
 					class="compare-range flex-1"
-					aria-label="Overlay blend from A to B"
+					aria-label="Overlay blend from {leftLabel} to {rightLabel}"
 				/>
 				<span class="font-mono text-2xs tabular-nums text-fg-subtle w-8 text-right">{value}</span>
 			</div>

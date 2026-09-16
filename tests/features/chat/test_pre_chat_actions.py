@@ -380,7 +380,32 @@ class TestExecuteActions:
         assert results[0].success is True
         assert results[0].message == "Executed successfully"
         assert results[0].error is None
-        assert results[0].duration_ms > 0
+        assert results[0].duration_ms >= 0
+
+    @pytest.mark.asyncio
+    async def test_execute_actions_duration_reflects_elapsed_time(self, manager, mock_llm_repository):
+        async def mock_execute():
+            return {"success": True}
+
+        action = PreChatAction(
+            id="slow_action",
+            name="Slow Action",
+            description="Takes measurable time",
+            plugin_id="plugin1",
+            execute=mock_execute,
+            default_enabled=True,
+        )
+        manager.register_action(action)
+
+        mock_config = Mock()
+        mock_config.provider_options = {}
+        mock_llm_repository.get_configuration.return_value = mock_config
+
+        with patch("src.features.chat.pre_chat_actions.time.perf_counter", side_effect=[1000.0, 1000.5]):
+            results = await manager.execute_actions("test_config")
+
+        assert len(results) == 1
+        assert results[0].duration_ms == pytest.approx(500.0)
 
     @pytest.mark.asyncio
     async def test_execute_actions_nonblocking_failure(self, manager, mock_llm_repository):
@@ -463,7 +488,7 @@ class TestExecuteActions:
         assert results[0].action_id == "exception_action"
         assert results[0].success is False
         assert "Unexpected error in action" in results[0].error
-        assert results[0].duration_ms > 0
+        assert results[0].duration_ms >= 0
 
     @pytest.mark.asyncio
     async def test_execute_actions_exception_blocking_raises(self, manager, mock_llm_repository):

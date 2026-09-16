@@ -145,10 +145,9 @@ def select_next(
             if by_user[user][0].model_key != state.loaded_model_key
         ]
         if foreign_heads:
-            rotation_rank = {user: index for index, user in enumerate(rotation_order)}
             chosen_item = min(
                 foreign_heads,
-                key=lambda item: (item.enqueued_at, rotation_rank[item.user_id]),
+                key=lambda item: (item.enqueued_at, item.enqueue_seq),
             )
 
     if chosen_item is None:

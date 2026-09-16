@@ -24,6 +24,7 @@ orchestrator calls `release`.
 """
 
 import asyncio
+import itertools
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
@@ -36,6 +37,8 @@ from src.features.generation.scheduling import (
 )
 from src.platform.observability.logger import logger
 
+_enqueue_sequence = itertools.count()
+
 
 @dataclass
 class QueuedGeneration:
@@ -46,6 +49,7 @@ class QueuedGeneration:
     user_id: Optional[str] = None
     tab_id: Optional[str] = None
     enqueued_at: float = field(default_factory=time.time)
+    enqueue_seq: int = field(default_factory=lambda: next(_enqueue_sequence))
     # The model this generation targets, for the "fair" policy's model
     # affinity - see GenerationOrchestrator._resolve_model_key. Opaque to the
     # queue beyond equality: it is never dereferenced, only compared to the

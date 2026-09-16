@@ -107,10 +107,10 @@ class PreChatActionRegistry:
         logger.debug(f"Executing {len(actions)} pre-chat actions for LLM config {llm_config_id}")
 
         async def _run_action(action: PreChatAction) -> PreChatActionResult:
-            start = time.monotonic()
+            start = time.perf_counter()
             try:
                 result = await action.execute()
-                duration = (time.monotonic() - start) * 1000
+                duration = (time.perf_counter() - start) * 1000
                 success = result.get("success", True)
                 message = result.get("message", "")
                 error = result.get("error") if not success else None
@@ -130,7 +130,7 @@ class PreChatActionRegistry:
                     error=error,
                 )
             except Exception as e:
-                duration = (time.monotonic() - start) * 1000
+                duration = (time.perf_counter() - start) * 1000
                 log_msg = f"Pre-chat action '{action.id}' raised exception: {e}"
                 if action.blocking:
                     logger.error(log_msg)

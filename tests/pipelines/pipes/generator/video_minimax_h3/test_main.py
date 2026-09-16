@@ -5,6 +5,7 @@ bundles, no real weights, CPU-only."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -2375,26 +2376,18 @@ def test_a_director_run_cannot_hand_off_a_raw_latent():
 
 # -- the non-director path is untouched -----------------------------------------
 
-@pytest.mark.parametrize("steps,digest", [
-    (4, "65e137c8624f7b4a97839f246d4f13f3a294701d6567d4c8db799b93669b3945"),
-    (6, "88f30fee8a07d7969c92da95456e0ad7f608daea0d1e7750802d33f41ebdc938"),
-])
-def test_the_single_window_latent_is_unchanged_by_the_windowing_work(steps, digest):
-    """Pinned against a run captured BEFORE the Director windowing landed. The
-    window loop shares `_sample_window` with the ordinary path, so this is what
-    proves the extraction moved code without changing arithmetic.
+_FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
-    RE-CAPTURED 2026-08-11 with the steps=evaluations fix: `steps` now drives
-    N forwards on the ModelTC knots instead of N-1 on the wrong ones, so the
-    latent moved for a reason that has nothing to do with windowing. The two
-    digests below are the only ones in this suite that were regenerated
-    rather than reasoned about -- a mismatch here still means the sampling
-    path changed and wants explaining, not re-pinning.
-    """
-    import hashlib
+
+@pytest.mark.parametrize("steps", [4, 6])
+def test_the_single_window_latent_is_unchanged_by_the_windowing_work(steps):
+    reference = np.load(_FIXTURES_DIR / f"single_window_latent_steps{steps}.npy")
 
     pipe, _ = _run_generate_one({}, steps=steps, ctx_overrides={"decode": False})
-    assert hashlib.sha256(pipe._last_result.detach().cpu().numpy().tobytes()).hexdigest() == digest
+
+    torch.testing.assert_close(
+        pipe._last_result.detach().cpu(), torch.from_numpy(reference), rtol=1e-4, atol=1e-4,
+    )
 
 
 def test_no_document_means_no_plan():

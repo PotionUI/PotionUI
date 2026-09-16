@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import { Button, Input, Alert } from '$lib/components/ui';
+	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
+	import {
+		createConfirmSettlementGate,
+		getConfirmKeyboardAction,
+		settleIfEligible
+	} from '$lib/components/modals/confirmKeyboard';
+	import { Input, Alert } from '$lib/components/ui';
 
 	export let isOpen: boolean = false;
 	/** 'rename' updates the current session in place; 'save-as' creates a new one. */
@@ -12,51 +18,61 @@
 	export let isSaving: boolean = false;
 
 	const dispatch = createEventDispatcher<{ close: void; confirm: void }>();
+	const settlementGate = createConfirmSettlementGate();
 
+	$: if (isOpen) settlementGate.reset();
 	$: title = mode === 'rename' ? 'Rename Session' : 'Save New Session';
-	$: confirmLabel = mode === 'rename'
-		? (isSaving ? 'Updating...' : 'Update')
-		: (isSaving ? 'Saving...' : 'Save');
+	$: confirmLabel = mode === 'rename' ? 'Update' : 'Save';
+	$: canConfirm = !!sessionName.trim() && !isSaving;
 
-	function close() {
-		dispatch('close');
+	function handleCancel() {
+		settlementGate.settle(() => dispatch('close'));
 	}
 
-	function confirm() {
-		dispatch('confirm');
+	function handleConfirm() {
+		settleIfEligible(settlementGate, canConfirm, () => dispatch('confirm'));
+	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (!isOpen || isSaving) return;
+		const { action, suppress } = getConfirmKeyboardAction(event);
+		if (action === 'cancel') handleCancel();
+		else if (action === 'confirm') handleConfirm();
+		if (suppress) event.preventDefault();
 	}
 </script>
 
-<BaseModal {isOpen} {title} size="sm" on:close={close}>
-	<div class="p-6">
-		<div class="mb-4">
-			<label for="session-save-name" class="block text-sm font-medium text-fg-muted mb-2">Session Name</label>
+<svelte:window on:keydown|capture={handleKeydown} />
+
+<BaseModal {isOpen} {title} size="sm" closeable={!isSaving} handleEscapeKey={false} on:close={handleCancel}>
+	<div class="space-y-4 p-4 sm:p-6">
+		<div>
+			<label class="mb-1.5 block text-sm font-medium text-fg" for="session-save-name">Name</label>
 			<Input
 				id="session-save-name"
 				type="text"
 				bind:value={sessionName}
-				placeholder="Enter session name"
+				placeholder="How you will find it later"
 				invalid={!!nameError}
+				data-autofocus
 			/>
 			{#if nameError}
-				<p class="mt-1 text-sm text-danger">{nameError}</p>
+				<p class="mt-1.5 text-xs text-danger">{nameError}</p>
 			{/if}
 		</div>
 
 		{#if error}
-			<Alert variant="danger" class="mb-4">{error}</Alert>
+			<Alert variant="danger">{error}</Alert>
 		{/if}
-
-		<div class="flex gap-2">
-			<Button variant="secondary" class="flex-1" onclick={close}>Cancel</Button>
-			<Button
-				variant="primary"
-				class="flex-1"
-				disabled={!sessionName.trim() || isSaving}
-				onclick={confirm}
-			>
-				{confirmLabel}
-			</Button>
-		</div>
 	</div>
+
+	<svelte:fragment slot="footer">
+		<ConfirmFooter
+			{confirmLabel}
+			busy={isSaving}
+			confirmDisabled={!sessionName.trim()}
+			onCancel={handleCancel}
+			onConfirm={handleConfirm}
+		/>
+	</svelte:fragment>
 </BaseModal>

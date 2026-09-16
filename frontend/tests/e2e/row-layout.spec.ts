@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
 
-// A "row" field group (e.g. Seed + Images) used to only render side-by-side
+// A "row" field group (e.g. Seed + Quantity) used to only render side-by-side
 // once the settings pane was dragged well past its default width - the
 // ResizeObserver-measured collapse boundary (480px, later drifted to an
 // unwired 640px in rowLayout.ts) sat above the pane's real default content
@@ -11,7 +11,7 @@ import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
 // per viewport tier (380/420/460px, see generationLayout.ts's
 // settingsPaneWidth), and the row-collapse boundary (rowLayout.ts's default
 // 300px) sits below all three tiers' content width (348/388/428px) on
-// purpose, so a default 2-column row like Seed + Images never folds at any
+// purpose, so a default 2-column row like Seed + Quantity never folds at any
 // reachable desktop viewport. This walk replaces the old drag-to-narrow
 // interaction with `page.setViewportSize` across the desktop tiers -
 // including the narrowest one, right above the mobile cutoff (768px) -
@@ -19,6 +19,7 @@ import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
 
 const JOURNEY = 'row-layout';
 const BEAT = 300;
+const SDXL_PRESET_ID = '01K0W24A3RADXXABH16YQ7KE90';
 
 const DESKTOP_VIEWPORTS = [
 	{ label: 'narrow-desktop', width: 800, height: 900 },
@@ -41,7 +42,7 @@ async function apiPost(page: Page, url: string, token: string, data?: unknown) {
 	return res.json();
 }
 
-test('row layout — Seed and Images share one line at every desktop viewport tier', async ({ page }) => {
+test('row layout — Seed and Quantity share one line at every desktop viewport tier', async ({ page }) => {
 	await page.setViewportSize({ width: DESKTOP_VIEWPORTS[0].width, height: DESKTOP_VIEWPORTS[0].height });
 	await loginAsOwner(page);
 	const token = await ownerToken(page);
@@ -57,7 +58,10 @@ test('row layout — Seed and Images share one line at every desktop viewport ti
 		category?: string;
 		installed?: boolean;
 	}>;
-	const preset = presets.find((p) => /sdxl/i.test(p.name)) || presets.find((p) => /flux/i.test(p.name));
+	const preset =
+		presets.find((p) => p.id === SDXL_PRESET_ID) ||
+		presets.find((p) => /sdxl/i.test(p.name)) ||
+		presets.find((p) => /flux/i.test(p.name));
 
 	if (!preset) {
 		test.skip(true, 'No SDXL or Flux preset available on this throwaway instance.');
@@ -80,12 +84,12 @@ test('row layout — Seed and Images share one line at every desktop viewport ti
 	}
 	await page.waitForTimeout(BEAT);
 
-	const seedLabel = page.locator('label', { hasText: 'Seed' }).first();
-	const imagesLabel = page.locator('label', { hasText: 'Images' }).first();
+	const seedLabel = page.locator('label', { hasText: /^Seed$/ }).first();
+	const quantityLabel = page.locator('label', { hasText: /^Quantity$/ }).first();
 	await expect(seedLabel).toBeVisible({ timeout: 20000 });
-	await expect(imagesLabel).toBeVisible();
+	await expect(quantityLabel).toBeVisible();
 
-	const rowGrid = page.locator('.row-grid').filter({ has: page.locator('label', { hasText: 'Seed' }) });
+	const rowGrid = page.locator('.row-grid').filter({ has: page.locator('label', { hasText: /^Seed$/ }) });
 	await expect(rowGrid).toBeVisible();
 
 	const sameLineTolerance = 4;
@@ -99,14 +103,14 @@ test('row layout — Seed and Images share one line at every desktop viewport ti
 		await rowGrid.screenshot({ path: shotPath(JOURNEY, `02-${viewport.label}-row`) });
 
 		const seedBox = await seedLabel.boundingBox();
-		const imagesBox = await imagesLabel.boundingBox();
+		const quantityBox = await quantityLabel.boundingBox();
 		expect(seedBox, `seed label bounding box at ${viewport.label}`).not.toBeNull();
-		expect(imagesBox, `images label bounding box at ${viewport.label}`).not.toBeNull();
+		expect(quantityBox, `images label bounding box at ${viewport.label}`).not.toBeNull();
 
-		const gap = Math.abs(seedBox!.y - imagesBox!.y);
+		const gap = Math.abs(seedBox!.y - quantityBox!.y);
 		expect(
 			gap,
-			`Seed and Images should share one line at ${viewport.label} (${viewport.width}px)`
+			`Seed and Quantity should share one line at ${viewport.label} (${viewport.width}px)`
 		).toBeLessThanOrEqual(sameLineTolerance);
 
 		console.log(`[${JOURNEY}] preset="${preset.name}" viewport=${viewport.label} gap=${gap.toFixed(1)}`);

@@ -52,7 +52,7 @@
 				id="session-save-name"
 				type="text"
 				bind:value={sessionName}
-				placeholder="How you will find it later"
+				placeholder="Enter session name"
 				invalid={!!nameError}
 				data-autofocus
 			/>

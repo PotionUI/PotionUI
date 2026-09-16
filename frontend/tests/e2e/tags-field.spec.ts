@@ -62,12 +62,12 @@ test('tags field: pick, type, remove, and the joined string reaches the form', a
 	const picker = page.getByRole('dialog', { name: 'Instrumentation picker' });
 	await expect(picker).toBeVisible();
 
-	await picker.getByRole('button', { name: 'acoustic piano', exact: true }).click();
-	await picker.getByRole('button', { name: 'brushed drums', exact: true }).click();
+	await picker.getByRole('button', { name: 'piano', exact: true }).click();
+	await picker.getByRole('button', { name: 'drums', exact: true }).click();
 
-	await expect(instrumentalSlot.getByText('acoustic piano', { exact: true })).toBeVisible();
-	await expect(instrumentalSlot.getByText('brushed drums', { exact: true })).toBeVisible();
-	await expect(picker.getByText('2 / 12', { exact: true })).toBeVisible();
+	await expect(instrumentalSlot.getByText('piano', { exact: true })).toBeVisible();
+	await expect(instrumentalSlot.getByText('drums', { exact: true })).toBeVisible();
+	await expect(picker.getByText('2 / 25', { exact: true })).toBeVisible();
 
 	await screenshot(page, JOURNEY, '02-two-tags-picked');
 
@@ -81,9 +81,9 @@ test('tags field: pick, type, remove, and the joined string reaches the form', a
 
 	await screenshot(page, JOURNEY, '03-custom-tag-added');
 
-	await instrumentalSlot.locator('button[aria-label="Remove acoustic piano"]').click();
+	await instrumentalSlot.locator('button[aria-label="Remove piano"]').click();
 	const previewLine = styleField.locator('span.flex-1.font-mono');
-	await expect(previewLine).toHaveText('brushed drums, glass harmonica solo');
+	await expect(previewLine).toHaveText('drums, glass harmonica solo');
 
 	await screenshot(page, JOURNEY, '04-after-remove');
 
@@ -91,9 +91,9 @@ test('tags field: pick, type, remove, and the joined string reaches the form', a
 	await expect(page.getByRole('dialog', { name: 'Instrumentation picker' })).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog', { name: 'Instrumentation picker' })).toHaveCount(0);
-	await expect(previewLine).toHaveText('brushed drums, glass harmonica solo');
+	await expect(previewLine).toHaveText('drums, glass harmonica solo');
 
 	await screenshot(page, JOURNEY, '05-after-escape-value-kept');
 
-	console.log(`[${JOURNEY}] style tags field verified through pick/type/remove/escape; joined preview = "brushed drums, glass harmonica solo"`);
+	console.log(`[${JOURNEY}] style tags field verified through pick/type/remove/escape; joined preview = "drums, glass harmonica solo"`);
 });

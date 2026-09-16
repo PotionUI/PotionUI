@@ -30,6 +30,17 @@ accepting the connection:
 Check `user.account_type == AccountType.ADMIN` to restrict a route to admins.
 """
 
+from typing import Any, Dict, Optional
+
+from src.features.auth.external_login import ExternalLoginError, ExternalSession
+from src.platform.plugins.login_providers import (
+    DuplicateLoginProviderError,
+    InvalidLoginProviderError,
+    LoginProviderDefinition,
+    login_provider_registry,
+    source_from_start_path,
+)
+from src.platform.plugins.runtime_registries import get_container
 from src.platform.security.current_user import (
     authenticate_websocket_token,
     get_current_active_user,
@@ -39,8 +50,38 @@ from src.platform.security.user import AccountType, User
 
 __all__ = [
     "AccountType",
+    "DuplicateLoginProviderError",
+    "ExternalLoginError",
+    "ExternalSession",
+    "InvalidLoginProviderError",
     "User",
     "authenticate_websocket_token",
     "get_current_active_user",
     "get_current_admin_user",
+    "register_login_provider",
+    "sign_in_external",
+    "unregister_login_provider",
 ]
+
+
+def register_login_provider(id: str, label: str, start_path: str) -> None:
+    login_provider_registry.register(
+        LoginProviderDefinition(
+            id=id,
+            label=label,
+            start_path=start_path,
+            source=source_from_start_path(start_path) or id,
+        )
+    )
+
+
+def unregister_login_provider(id: str) -> None:
+    login_provider_registry.unregister(id)
+
+
+def sign_in_external(
+    issuer: str,
+    sub: str,
+    claims: Optional[Dict[str, Any]] = None,
+) -> ExternalSession:
+    return get_container().external_login.sign_in_external(issuer, sub, claims)

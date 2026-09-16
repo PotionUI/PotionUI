@@ -24,10 +24,15 @@ it. See docs/plugin-api.md.
 # Who is calling - the identity every request carries.
 from src.plugin_api.identity import (
     AccountType,
+    ExternalLoginError,
+    ExternalSession,
     User,
     authenticate_websocket_token,
     get_current_active_user,
     get_current_admin_user,
+    register_login_provider,
+    sign_in_external,
+    unregister_login_provider,
 )
 
 # Hooking into the application, and reaching its wired-up managers.
@@ -202,10 +207,15 @@ from src.plugin_api.sampling import (
 __all__ = [
     # Identity
     "AccountType",
+    "ExternalLoginError",
+    "ExternalSession",
     "User",
     "authenticate_websocket_token",
     "get_current_active_user",
     "get_current_admin_user",
+    "register_login_provider",
+    "sign_in_external",
+    "unregister_login_provider",
     # Hooks and runtime
     "GenerationNotFoundException",
     "HookContext",

@@ -11,9 +11,19 @@ from fastapi.security import OAuth2PasswordRequestForm
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.origin import is_loopback_host
-from src.features.auth.dto import ChangePasswordRequest, UserCreate, Token, UserResponse, UserMeResponse
+from src.features.auth.dto import (
+    ChangePasswordRequest,
+    ExternalLoginExchange,
+    LoginProviderResponse,
+    Token,
+    UserCreate,
+    UserMeResponse,
+    UserResponse,
+)
+from src.platform.plugins.login_providers import login_provider_registry
 from src.platform.security.current_user import get_current_user
 from src.platform.security import Auth
+from src.platform.security.login_handoff import LoginHandoffStore
 from src.platform.security.user import User
 
 if TYPE_CHECKING:
@@ -58,13 +68,13 @@ class AuthController(BaseController):
     Uses Auth for all authentication logic.
     """
 
-    def __init__(self, auth: Auth):
+    def __init__(self, auth: Auth, login_handoff: LoginHandoffStore):
         super().__init__()
         self.auth = auth
+        self.login_handoff = login_handoff
         self.login_limiter = LoginAttemptLimiter()
-        # Same brute-force guard as login, keyed per user id instead of
-        # per (ip, username): a change-password attempt is already authenticated.
         self.change_password_limiter = LoginAttemptLimiter()
+        self.exchange_limiter = LoginAttemptLimiter()
 
     async def register(self, user_data: UserCreate, request: Request) -> APIResponse:
         """
@@ -148,6 +158,31 @@ class AuthController(BaseController):
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
+    async def list_login_providers(self) -> list:
+        return [
+            LoginProviderResponse(**entry)
+            for entry in login_provider_registry.manifest()
+        ]
+
+    async def exchange_external_code(
+        self, payload: ExternalLoginExchange, request: Request
+    ) -> Token:
+        ip_address = request.client.host if request.client else None
+        limiter_key = f"external-exchange:{ip_address or 'unknown'}"
+        self.exchange_limiter.check(limiter_key)
+
+        access_token = self.login_handoff.redeem(payload.code)
+        if access_token is None:
+            self.exchange_limiter.record_failure(limiter_key)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="This sign-in link has expired. Please try again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        self.exchange_limiter.reset(limiter_key)
+        return Token(access_token=access_token)
+
     async def get_me(self, current_user: User) -> APIResponse:
         """
         Get current user information.
@@ -201,7 +236,7 @@ class AuthController(BaseController):
 
 
 def build_router(container: "AppContainer") -> APIRouter:
-    controller = AuthController(container.auth)
+    controller = AuthController(container.auth, container.login_handoff)
     router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
     @router.post("/register", response_model=APIResponse, summary="Register a new user account")
@@ -217,6 +252,24 @@ def build_router(container: "AppContainer") -> APIRouter:
     ) -> Token:
         """Login with username and password."""
         return await controller.login(form_data, request, remember_me)
+
+    @router.get(
+        "/providers",
+        response_model=list[LoginProviderResponse],
+        summary="List the external login providers plugins have registered",
+    )
+    async def list_providers() -> list:
+        return await controller.list_login_providers()
+
+    @router.post(
+        "/external/exchange",
+        response_model=Token,
+        summary="Exchange a one-time external-login code for an access token",
+    )
+    async def exchange_external_login(
+        payload: ExternalLoginExchange, request: Request
+    ) -> Token:
+        return await controller.exchange_external_code(payload, request)
 
     @router.get("/me", response_model=APIResponse, summary="Get the current authenticated user")
     async def get_current_user_info(

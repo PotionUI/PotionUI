@@ -5,8 +5,9 @@
 	import { onMount } from 'svelte';
 	import { storage } from '$lib/utils/storage';
 	import { api } from '$lib/services/api/index';
-	import type { SetupStatus } from '$lib/services/api/setup';
+	import type { SetupStatus, LoginProvider } from '$lib/services/api/index';
 	import { shouldShowRegisterLink } from '$lib/utils/setupRouting';
+	import { normalizeLoginProviders } from './loginProviders';
 	import { Alert, Button } from '$lib/components/ui';
 	import AuthShell from '$lib/components/auth/AuthShell.svelte';
 
@@ -17,6 +18,7 @@
 	let rememberMe = false;
 	let showPassword = false;
 	let setupStatus: SetupStatus | null = null;
+	let loginProviders: LoginProvider[] = [];
 
 	$: ({ error: storeError } = $authStore);
 
@@ -31,7 +33,16 @@
 		} catch {
 			setupStatus = null;
 		}
+		try {
+			loginProviders = normalizeLoginProviders(await api.getLoginProviders());
+		} catch {
+			loginProviders = [];
+		}
 	});
+
+	function continueWithProvider(provider: LoginProvider) {
+		window.location.href = provider.start_path;
+	}
 
 	async function handleSubmit(event: Event) {
 		event.preventDefault();
@@ -164,6 +175,29 @@
 			</div>
 		</div>
 	</form>
+
+	{#if loginProviders.length > 0}
+		<div
+			class="mt-6 flex items-center gap-3 font-mono text-2xs uppercase tracking-[0.1em] text-fg-subtle"
+		>
+			<span class="h-px flex-1 bg-line"></span>
+			<span>or</span>
+			<span class="h-px flex-1 bg-line"></span>
+		</div>
+
+		<div class="mt-6 flex flex-col gap-3">
+			{#each loginProviders as provider (provider.id)}
+				<Button
+					variant="primary"
+					size="lg"
+					class="w-full"
+					onclick={() => continueWithProvider(provider)}
+				>
+					Continue with {provider.label}
+				</Button>
+			{/each}
+		</div>
+	{/if}
 
 	{#if showRegisterLink}
 		<p class="mt-8 text-base text-fg-subtle">

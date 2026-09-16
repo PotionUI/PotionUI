@@ -152,6 +152,31 @@ function createAuthStore() {
 		update((state) => ({ ...state, loading: false }));
 	}
 
+	async function establishAuthenticatedSession(token: string) {
+		api.setAuthHeader(token);
+		update((state) => ({
+			...state,
+			isAuthenticated: true,
+			token,
+			user: null,
+			loading: false,
+			error: null
+		}));
+
+		try {
+			const userResponse = await api.getCurrentUser();
+			if (userResponse.success && userResponse.data) {
+				applyIdentityGuard(userResponse.data.id);
+				update((state) => ({
+					...state,
+					user: userResponse.data ?? null
+				}));
+			}
+		} catch (err) {
+			logger.error('Failed to fetch user info:', err);
+		}
+	}
+
 	return {
 		subscribe,
 
@@ -162,29 +187,7 @@ function createAuthStore() {
 				const response = await api.login({ username, password, remember_me: rememberMe });
 
 				if (response.access_token) {
-					update((state) => ({
-						...state,
-						isAuthenticated: true,
-						token: response.access_token,
-						user: null,
-						loading: false,
-						error: null
-					}));
-
-					// Try to fetch user info
-					try {
-						const userResponse = await api.getCurrentUser();
-						if (userResponse.success && userResponse.data) {
-							applyIdentityGuard(userResponse.data.id);
-							update((state) => ({
-								...state,
-								user: userResponse.data ?? null
-							}));
-						}
-					} catch (err) {
-						logger.error('Failed to fetch user info:', err);
-					}
-
+					await establishAuthenticatedSession(response.access_token);
 					return { success: true };
 				}
 				return { success: false, error: 'Login did not return an access token.' };
@@ -239,6 +242,10 @@ function createAuthStore() {
 
 				return { success: false, error: errorMessage };
 			}
+		},
+
+		async adoptToken(token: string) {
+			await establishAuthenticatedSession(token);
 		},
 
 		logout() {

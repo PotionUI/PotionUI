@@ -52,7 +52,7 @@ import from those — the names are identical, so it is purely a matter of taste
 
 | Group | Module | Exports |
 |---|---|---|
-| **Identity** — who is calling | `.identity` | `User`, `AccountType`, `get_current_active_user` |
+| **Identity** — who is calling, and signing them in | `.identity` | `User`, `AccountType`, `get_current_active_user`, `register_login_provider`, `unregister_login_provider`, `sign_in_external`, `ExternalSession`, `ExternalLoginError` |
 | **Hooks and runtime** — reacting to the app, reaching its managers | `.hooks` | `HookContext`, `HookResult`, `HookSpec`, `hooks_registry`, `PluginRegistry`, `get_container`, `get_global_plugin_registry`, `get_global_tool_registry`, `ModelLifecycle` |
 | **Providers** — talking to a model marketplace | `.providers` | `MarketplaceProviderBase`, `ProviderCapability`, `ProviderMetadata`, `ProviderModelInfo`, `ProviderSearchResult`, `ProviderPromptItem`, `ProviderError`, `ProviderConnectionError`, `ProviderRateLimitError`, `ProviderNotFoundError`, `get_provider_registry`, `ModelInfo` |
 | **Chat** — extending the assistant | `.chat` | `BaseTool`, `ToolContext`, `ToolResult`, `ToolSource`, `PreChatAction` |
@@ -231,6 +231,141 @@ handler there must check `plugin_id` before assuming the event is about itself.
 A handler that raises is logged and skipped: one plugin's failing `boot` cannot abort
 startup, block another plugin's `boot`, or fail the enable that triggered it. None of the
 three can block the transition they report.
+
+## Login providers
+
+A login provider signs users in through an external identity source — an OIDC issuer, a
+company SSO, anything with a redirect and a verifiable answer. Core carries none of that
+protocol and takes no dependency for it. Your plugin owns the protocol and the two routes
+that drive it; core owns the mapping onto a real PotionUI user, so groups, model access,
+preset access and per-user resources all keep working exactly as they do for a local
+account.
+
+Two calls make it work:
+
+```python
+from src.plugin_api import register_login_provider, sign_in_external
+```
+
+### Putting the button on the login page
+
+`register_login_provider(id, label, start_path)` adds one entry to the list the login page
+renders under the local username/password form, as a button reading `Continue with {label}`.
+
+```python
+PLUGIN_ID = "acme-sso"
+
+def enable():
+    register_login_provider(PLUGIN_ID, "Acme SSO", f"/api/plugins/{PLUGIN_ID}/start")
+```
+
+`start_path` is a GET route on your own plugin router. It must live under
+`/api/plugins/<your plugin id>/`, because that prefix is what ties the entry to your
+plugin: disabling the plugin removes every provider registered under it, the same way it
+removes your field types and chat modes. A `start_path` outside that prefix still works,
+but core cannot tell whose it is and will not clean it up for you — call
+`unregister_login_provider(id)` yourself.
+
+Registering the same provider id twice raises `DuplicateLoginProviderError`; a missing
+label or a relative `start_path` raises `InvalidLoginProviderError`.
+
+`GET /api/auth/providers` serves the list, unauthenticated, as
+`[{"id": ..., "label": ..., "start_path": ...}]` in registration order. The login page
+renders nothing at all when it is empty.
+
+### Signing the user in
+
+`sign_in_external(issuer, sub, claims)` is the other half. **Core never verifies an
+external identity — you do.** Validate the provider's response (signature, audience,
+nonce, expiry, whatever your protocol requires) in your callback route, and only then hand
+core the result:
+
+| Argument | What it is |
+|---|---|
+| `issuer` | Stable identifier of the identity source, e.g. the OIDC `iss` value. |
+| `sub` | The provider's stable, non-reassignable subject id for this person. Never the email. |
+| `claims` | Dict carrying `email`, `email_verified`, `preferred_username` and `name`. All optional. |
+
+What core does with it:
+
+- An existing `(issuer, sub)` mapping signs that user in and stamps `last_login_at`.
+- No mapping, and the admin setting **Link by verified email** is on: a local user whose
+  email matches `claims["email"]` is adopted and the mapping recorded — but only when
+  `claims["email_verified"]` is true. An unverified email is ignored, because trusting one
+  would let anyone who can claim an address take over the account behind it.
+- No mapping and no link: a local user is created when the admin setting **Create accounts
+  on first external login** is on, and the sign-in is refused with `ExternalLoginError`
+  when it is off (the default). A created account is always an ordinary `USER`, never an
+  admin, gets the configured default group, and takes its username from
+  `preferred_username`, then the email's local part, then `sub` — normalized to the
+  username policy and de-duplicated against existing accounts.
+
+The session that comes back is the same one the password login issues, minted by the same
+code path.
+
+### The callback contract
+
+`sign_in_external` returns an `ExternalSession`:
+
+| Field | What it is |
+|---|---|
+| `user` | The `User` that was signed in. |
+| `access_token` | The bearer token. Never put this in a URL. |
+| `handoff_code` | Single-use code, valid for two minutes, that the browser trades for the token. |
+| `created` | True when this sign-in created the local account. |
+
+The browser must end up holding the access token the same way a password login leaves it
+holding one, and a backend route cannot write the frontend's storage. So your callback
+redirects to the login callback page carrying `handoff_code`, and the page exchanges it:
+
+```python
+from fastapi import APIRouter
+from fastapi.responses import RedirectResponse
+
+from src.plugin_api import ExternalLoginError, sign_in_external
+
+router = APIRouter(prefix=f"/api/plugins/{PLUGIN_ID}")
+
+@router.get("/callback")
+async def callback(code: str, state: str):
+    claims = verify_with_your_provider(code, state)
+    try:
+        session = sign_in_external(ISSUER, claims["sub"], claims)
+    except ExternalLoginError:
+        return RedirectResponse("/login?error=external_login", status_code=302)
+    return RedirectResponse(
+        f"/login/callback?code={session.handoff_code}", status_code=302
+    )
+```
+
+`/login/callback` POSTs the code to `POST /api/auth/external/exchange`, receives
+`{"access_token": ..., "token_type": "bearer"}` — byte-for-byte the shape
+`POST /api/auth/login` returns — establishes the session through the same store the
+password login uses, and routes to `/`.
+
+Send `handoff_code`, never `access_token`. A URL lands in browser history, in the
+`Referer` header of the next request, and in any proxy log on the way; the code is
+single-use and short-lived, so a copy of it is worthless by the time anyone reads it back.
+The exchange endpoint answers 401 for a code that is unknown, already spent, or expired,
+and the landing page shows a "this sign-in link has expired" message with a way back to
+the login page.
+
+### What an admin controls
+
+Three SYSTEM settings, in Administration → System Settings → External login:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `external_login_auto_create` | off | Whether an unmapped external identity may create a local user. |
+| `external_login_default_group` | none | Group a user created this way is added to. |
+| `external_login_link_by_email` | off | Whether an external identity may attach to an existing local user by verified email. |
+
+Local username/password login is untouched by all of this, and the owner account can
+always sign in locally — an identity provider outage never locks an instance out.
+
+The mappings live in the `external_identities` table (`issuer`, `subject` → `user_id`,
+`created_at`, `last_login_at`), unique on `(issuer, subject)`, and cascade away with the
+user.
 
 ## Contributing a chat mode
 

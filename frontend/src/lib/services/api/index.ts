@@ -68,6 +68,7 @@ import { createPipesApi } from './pipes';
 import { createNotificationsApi } from './notifications';
 import { createAutomationsApi } from './automations';
 import { createSetupApi } from './setup';
+import { createAuthProvidersApi } from './authProviders';
 import { createRecipesApi } from './recipes';
 import { createMcpApi } from './mcp';
 import { createInspirationsApi } from './inspirations';
@@ -116,6 +117,7 @@ export const api = {
 	...createNotificationsApi(apiClient.getClient()),
 	...createAutomationsApi(apiClient.getClient()),
 	...createSetupApi(apiClient.getClient()),
+	...createAuthProvidersApi(apiClient.getClient()),
 	...createRecipesApi(apiClient.getClient()),
 	...createMcpApi(apiClient.getClient()),
 	...createInspirationsApi(apiClient.getClient()),
@@ -139,6 +141,7 @@ export type {
 	SetupConsentArtifact,
 	SetupConsentRequest
 } from './setup';
+export type { LoginProvider, ExternalLoginToken } from './authProviders';
 export type {
 	RecipeSource,
 	RecipeRunMode,

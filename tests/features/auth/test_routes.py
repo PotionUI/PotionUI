@@ -18,7 +18,7 @@ from src.platform.security.current_user import (
 from src.platform.http.base_controller import APIResponse
 from src.features.auth.dto import ChangePasswordRequest, UserCreate, Token, UserResponse
 from src.platform.security.token import TokenData
-from src.platform.security import Auth, AuthConfig, PasswordHasher, TokenCodec
+from src.platform.security import Auth, AuthConfig, LoginHandoffStore, PasswordHasher, TokenCodec
 from src.platform.security.user import User, AccountType
 
 
@@ -43,7 +43,7 @@ class TestAuthController:
     @pytest.fixture
     def auth_controller(self, mock_auth_manager):
         """Create an AuthController with mock manager."""
-        controller = AuthController(mock_auth_manager)
+        controller = AuthController(mock_auth_manager, LoginHandoffStore())
         # Also set auth for dependencies
         set_auth(mock_auth_manager)
         return controller

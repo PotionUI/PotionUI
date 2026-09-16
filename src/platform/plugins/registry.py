@@ -21,6 +21,7 @@ from src.platform.plugins.router_mounter import (
     PluginRouterMounter,
 )
 from src.platform.plugins.field_types import FieldTypeDefinition, FieldTypeRegistry, DuplicateFieldTypeError
+from src.platform.plugins.login_providers import login_provider_registry
 from src.platform.plugins.prompt_importers import PromptImporterRegistry
 from src.platform.plugins.phrasebook_ops import PhrasebookOperationRegistry
 from src.platform.plugins.recipe_steps import RecipeStepKindRegistry
@@ -901,6 +902,7 @@ class PluginRegistry:
         if self.recipe_step_kind_registry is not None:
             self.recipe_step_kind_registry.unregister_source(plugin_id)
         self._unregister_sampling_entries(plugin_id)
+        login_provider_registry.unregister_source(plugin_id)
         if self.router_mounter is not None:
             self.router_mounter.unmount(plugin_id)
         # Drop this plugin's imported modules so a retry re-imports fresh code;

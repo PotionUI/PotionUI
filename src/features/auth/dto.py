@@ -50,6 +50,16 @@ class Token(BaseModel):
     token_type: str = "bearer"
 
 
+class LoginProviderResponse(BaseModel):
+    id: str
+    label: str
+    start_path: str
+
+
+class ExternalLoginExchange(BaseModel):
+    code: str
+
+
 class UserResponse(BaseModel):
     """Response model for user data (public information)."""
     id: str

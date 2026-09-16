@@ -1,0 +1,8 @@
+id: stub-login
+name: Stub Login
+version: 1.0.0
+description: A login provider used by the test suite to drive the plugin identity API.
+author: PotionUI
+api:
+  module: api
+  router: router

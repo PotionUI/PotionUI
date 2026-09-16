@@ -258,21 +258,31 @@ class Auth:
             logger.warning(f"Failed login attempt for username: {username}")
             raise ValueError("Incorrect username or password")
 
-        # Update last login
+        access_token = self.issue_session(
+            user, ip_address=ip_address, remember_me=remember_me
+        )
+
+        logger.info(f"User logged in successfully: {username}")
+
+        return user, access_token
+
+    def issue_session(
+        self,
+        user: User,
+        ip_address: Optional[str] = None,
+        remember_me: bool = False,
+    ) -> str:
         self.users.update_last_login(user.id)
 
-        # Use extended expiry for "remember me"
         expires_delta = None
         if remember_me:
             expires_delta = timedelta(days=self.config.remember_me_token_expire_days)
 
-        # Create token
         access_token = self.tokens.create_access_token(
             data={"sub": user.username, "user_id": user.id},
             expires_delta=expires_delta
         )
 
-        # Execute after_login hook
         self._execute_hook(
             AUTH_HOOKS.after_login,
             {
@@ -283,9 +293,7 @@ class Auth:
             }
         )
 
-        logger.info(f"User logged in successfully: {username}")
-
-        return user, access_token
+        return access_token
 
     def change_password(
         self,

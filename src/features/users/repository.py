@@ -27,6 +27,13 @@ class UserRepository:
             row = cursor.fetchone()
             return User.from_row(row) if row else None
     
+    def get_by_email(self, email: str) -> Optional[User]:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute("SELECT * FROM users WHERE email = ? COLLATE NOCASE", (email,))
+            row = cursor.fetchone()
+            return User.from_row(row) if row else None
+
     def get_all(self) -> List[User]:
         """Get all users"""
         from src.platform.database.database import db

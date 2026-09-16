@@ -52,7 +52,14 @@ from src.features.backends.backend_registry import BackendRegistry
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.router_mounter import PluginRouterMounter
 from src.features.generation.hooks import OUTPUT_TYPE_HOOKS
-from src.platform.security import AuthConfig, PasswordHasher, TokenCodec, Auth, ClaimTokenStore
+from src.platform.security import (
+    AuthConfig,
+    PasswordHasher,
+    TokenCodec,
+    Auth,
+    ClaimTokenStore,
+    LoginHandoffStore,
+)
 from src.features.setup import InstanceClaimRepository
 from src.features.recipes.runner import RecipeRunner
 from src.features.recipes.catalog import RecipeCatalog
@@ -161,6 +168,8 @@ if TYPE_CHECKING:
     from src.features.sessions.version_repository import SessionVersionRepository
     from src.features.workspaces.repository import WorkspaceRepository
     from src.features.user_groups.repository import UserGroupRepository
+    from src.features.auth.external_login import ExternalLoginManager
+    from src.features.auth.repository import ExternalIdentityRepository
     from src.features.system_monitor.routes import SystemMonitorController
     from src.features.provisioning.monitor import ComputeStatusMonitor
     from src.features.provisioning.operations import ComputeProvisioningJobs
@@ -275,6 +284,9 @@ class AppContainer:
     password_hasher: PasswordHasher
     token_codec: TokenCodec
     auth: Auth
+    login_handoff: LoginHandoffStore
+    external_identity_repository: "ExternalIdentityRepository"
+    external_login: "ExternalLoginManager"
     recipe_runner: RecipeRunner
     recipe_catalog: RecipeCatalog
     user_controller: "UserController"
@@ -691,6 +703,10 @@ def build_container() -> AppContainer:
         claim_tokens=claim_token_store,
         settings=settings,
     )
+    from src.features.auth.repository import ExternalIdentityRepository
+
+    login_handoff = LoginHandoffStore()
+    external_identity_repository = ExternalIdentityRepository()
     recipe_runner = RecipeRunner()
     # Recipe catalog (discovers/validates content/recipes/{marketplace,local}/*.yml).
     # The executor registry is wired further down (see "recipe executors")
@@ -1549,6 +1565,17 @@ def build_container() -> AppContainer:
     user_group_controller = UserGroupController(
         user_group_repository=user_group_repository,
         plugin_registry=plugin_registry,
+    )
+
+    from src.features.auth.external_login import ExternalLoginManager
+
+    external_login = ExternalLoginManager(
+        auth=auth,
+        users=user_repository,
+        external_identities=external_identity_repository,
+        user_groups=user_group_repository,
+        settings=settings,
+        handoff=login_handoff,
     )
 
     # Assemble the container. Migrated boundaries hand over a typed

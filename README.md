@@ -7,7 +7,7 @@
 
 **The self-hosted generation studio you can hand to other people.**
 
-Run Krea-2, Anima, SDXL, Flux, Wan, LTX, Qwen-Image and MiniMax on one box — then give your team, your household, or your agents their own logins, presets, and limits. No node
+Run Krea-2, Anima, SDXL, Flux, Wan, LTX, Qwen-Image, MiniMax and YuE2 on one box — then give your team, your household, or your agents their own logins, presets, and limits. No node
 graphs. No per-model setup. Pick a model, type, watch it render live.
 
 ![The generate workspace: model tabs, a prompt built from colored segments, and the finished render](docs/media/potionui-generation-page.png)
@@ -29,8 +29,8 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
   write action needs your approval.
 - **Video Director** — compose shots in sections instead of one giant prompt.
 
-*Alpha 0.0.7 · Linux x86_64 + NVIDIA · Windows via WSL2 or Docker (native
-experimental) ·
+*Alpha 0.0.7 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
+Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Ko-fi](https://ko-fi.com/A3B325D031)*
 
 ## 60 seconds to first image
@@ -40,6 +40,9 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 ./potionui doctor    # check prerequisites, with a repair command for anything missing
 ./potionui start     # create the venv, install deps, launch backend + frontend, print the URL
 ```
+
+Native Windows (experimental): `.\potionui.cmd doctor` and `.\potionui.cmd start`
+from PowerShell or cmd — see [Windows (native)](#windows-native).
 
 Floor: 8 GB VRAM + 16 GB RAM (SDXL). Full requirements below.
 
@@ -81,6 +84,7 @@ Floor: 8 GB VRAM + 16 GB RAM (SDXL). Full requirements below.
 | LTX-2 / 2.3 / 2.5  | Video (with audio), video upscale | [docs/models/ltx.md](docs/models/ltx.md)                       |
 | MiniMax-H3         | Video (with reference images)     | [docs/models/minimax_h3.md](docs/models/minimax_h3.md)         |
 | MiniMax-Music3     | Audio (song)                      | [docs/models/minimax_music3.md](docs/models/minimax_music3.md) |
+| YuE2               | Audio (song, lyrics + style tags) | [docs/models/yue2.md](docs/models/yue2.md)                     |
 | SeedVR2            | Image & video upscale / restore   | [docs/models/seedvr2.md](docs/models/seedvr2.md)               |
 
 ## Multi-user, with an admin panel
@@ -205,12 +209,12 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Runs on Linux x86_64 with an NVIDIA GPU** — that's the tested 0.0.7
-> matrix. Native Windows is experimental as of 0.0.8: the remote/CPU install
-> profile is verified in CI on `windows-latest`, but the GPU generation path
-> is untested on real Windows hardware — see
-> [Windows (native)](#windows-native) below. WSL2 and Docker Desktop remain
-> the safer Windows options today. Details in
+> **Linux x86_64 with an NVIDIA GPU** is the tested matrix. **Native
+> Windows is supported experimentally** as of 0.0.8: the installer, the CLI,
+> the backend test suite, the frontend checks and the E2E harness all run in
+> CI on `windows-latest`, but GPU generation has not been confirmed on real
+> Windows hardware yet — see [Windows (native)](#windows-native) below.
+> WSL2 and Docker Desktop remain the safer Windows options today. Details in
 > [Supported platforms](#supported-platforms).
 
 PotionUI can generate on this machine's GPU, dispatch to a remote worker, or
@@ -224,6 +228,9 @@ both — the `./potionui` CLI has an install preset for each.
 | A GPU here, plus room to add remote workers later      | Full CUDA stack                                                    | `./potionui start --profile hybrid`    |
 | No GPU here (a VPS or laptop) — dispatch to a worker    | CPU-only PyTorch, no CUDA libraries — **not** a CPU-generation mode | `./potionui start --profile remote`    |
 | A GPU box that only serves another PotionUI instance    | Full CUDA stack, no frontend                                       | `./potionui worker start`              |
+
+On native Windows every command reads `.\potionui.cmd …` instead of
+`./potionui …`; the profiles are the same.
 
 You need:
 
@@ -249,14 +256,14 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 | --------------------------- | ------------------------------------------------------------------------------------------- |
 | Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.7                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
-| Windows native               | Experimental (0.0.8) — CPU/remote profile verified in CI on `windows-latest`; GPU path untested, reports wanted; see [Windows (native)](#windows-native) |
+| Windows native              | Experimental (0.0.8) — installer, CLI, backend suite, frontend checks and E2E harness run in CI on `windows-latest`; GPU generation untested on real hardware, reports wanted; see [Windows (native)](#windows-native) |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
 | AMD GPU (ROCm)              | No — the pinned dependency stack is CUDA-only                                               |
 | Docker                      | Supported — see below (on Windows, Docker Desktop runs this via WSL2)                       |
 
 ### Windows (native)
 
-Experimental as of 0.0.8. A `windows-latest` GitHub Actions job
+Experimental as of 0.0.8. The `windows-latest` GitHub Actions workflow
 ([`.github/workflows/windows.yml`](.github/workflows/windows.yml)) is the
 only automated Windows run — treat it as early and under-tested rather
 than production-ready.
@@ -278,9 +285,12 @@ cd potionui
 .\potionui.cmd start
 ```
 
-**Verified in CI:** the `remote` install profile (CPU-only PyTorch, no CUDA)
-boots end to end — `doctor`, install, backend start, health check, owner
-registration, preset listing, stop — on a fresh `windows-latest` checkout.
+**Exercised in CI on `windows-latest`:** `doctor`; the `remote` install
+profile (CPU-only PyTorch, no CUDA) booting end to end — install, backend
+start, health check, owner registration, preset listing, stop — on a fresh
+checkout; the full backend pytest suite and the marketplace plugin suites;
+the release gate without GPU steps; the frontend type-check, unit, component
+and build steps; and the HTTP + Playwright E2E harness.
 
 **Not yet verified on real Windows hardware:** GPU generation. Triton and
 `torch.compile` have no Windows wheels, so attention falls back to plain

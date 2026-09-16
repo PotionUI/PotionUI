@@ -113,10 +113,15 @@ def discover_specs() -> List[str]:
     return sorted(p.name[: -len(".spec.ts")] for p in SPECS_DIR.glob("*.spec.ts"))
 
 
+FRESH_INSTANCE_SPECS = {"empty-group-tabs"}
+
+
 def chunked(items: List[str], size: int) -> List[List[str]]:
     if size <= 0:
         size = len(items) or 1
-    return [items[i : i + size] for i in range(0, len(items), size)]
+    solo = [[name] for name in items if name in FRESH_INSTANCE_SPECS]
+    shared = [name for name in items if name not in FRESH_INSTANCE_SPECS]
+    return solo + [shared[i : i + size] for i in range(0, len(shared), size)]
 
 
 def describe_exit_status(code: Optional[int]) -> str:

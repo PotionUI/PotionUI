@@ -18,6 +18,14 @@ fields:
             - { label: "2x", value: "2x", sub_label: "Default" }
             - { label: "4x", value: "4x", sub_label: "Heaviest upscale, most compute" }
 
+      - name: "enhance_keep_base"
+        type: "checkbox"
+        label: "Also save the un-enhanced image"
+        default: false
+        ai_hint: "Saves the base generation as a second gallery entry alongside the enhanced one, so both can be compared and kept."
+        configuration:
+          tooltip: "Keeps the image as it was before the enhance pass as an extra gallery entry. Useful when the enhance pass sometimes overcooks and you want the original to fall back to."
+
       - name: "enhance_detail"
         type: "select"
         label: "Enhance detail"
@@ -28,6 +36,252 @@ fields:
             - { label: "Subtle", value: "subtle", sub_label: "1 step · closest to the base image" }
             - { label: "Balanced", value: "balanced", sub_label: "2 steps · default" }
             - { label: "Strong", value: "strong", sub_label: "3 steps · most added detail" }
+
+  - name: "face_detailer_enabled"
+    type: "gate"
+    label: "Face Detailer"
+    default: false
+    configuration:
+      experimental: true
+      summary: "Detect each face, refine it with a mask-guided low-denoise pass, colour-match it, then feather it back in."
+    children:
+      - name: "face_detailer_denoise"
+        type: "slider"
+        label: "Face Denoise"
+        default: 0.3
+        ai_hint: "How much of each face crop is re-drawn. Low values sharpen without changing identity; higher values add more detail but drift further from the base face."
+        configuration:
+          min: 0.1
+          max: 0.75
+          step: 0.05
+          tooltip: "How much of the face is re-rendered. 0.2-0.35 keeps the identity and only fixes detail; above 0.5 the face starts becoming someone else."
+
+
+      - name: "face_detailer_keep_base"
+        type: "checkbox"
+        label: "Also save the image before face detailing"
+        default: false
+        ai_hint: "Saves the image as it was before any face was refined as a second gallery entry, alongside the detailed one."
+        configuration:
+          tooltip: "Keeps the image as it was before the faces were refined as an extra gallery entry, so the original faces stay available to compare against."
+
+      - name: "face_detailer_max_faces"
+        type: "slider"
+        label: "Max Faces"
+        default: 4
+        configuration: { min: 1, max: 10, step: 1 }
+
+      - name: "face_detailer_steps"
+        type: "slider"
+        label: "Face Steps"
+        audience: "advanced"
+        default: 12
+        configuration:
+          min: 1
+          max: 30
+          step: 1
+          tooltip: "How many denoising steps the face pass runs. More steps resolve finer detail and cost more time; below about 8 the face tends to come back soft."
+
+
+      - name: "face_detailer_loras"
+        type: "select"
+        label: "LoRAs on Faces"
+        default: "keep"
+        ai_hint: "A character LoRA active on the run will redraw every detected face as that character. Drop turns the run's LoRAs off for the face pass only; Select swaps in a different set (a skin or detail LoRA) for the faces."
+        configuration:
+          tooltip: "What happens to the run's LoRAs while faces are refined. Keep leaves them on. Drop turns them off for the face pass, which stops a character LoRA rewriting everyone's face. Select swaps in a different set just for the faces."
+          options:
+            - { label: "Keep", value: "keep", sub_label: "Same LoRAs as the run" }
+            - { label: "Drop", value: "drop", sub_label: "No LoRAs on faces" }
+            - { label: "Select", value: "select", sub_label: "Choose LoRAs for faces" }
+
+      - name: "face_detailer_lora_picker"
+        type: "lora_picker"
+        label: "Face LoRAs"
+        default: []
+        visible: false
+        ai_hint: "The LoRA stack applied to the face pass instead of the run's own. Only used when LoRAs on Faces is set to Select."
+        configuration:
+          model_type: "lora"
+          placeholder: "Select a LoRA for the face pass..."
+          allow_info_modal: true
+          strength_min: -10.0
+          strength_max: 10.0
+          strength_step: 0.1
+          strength_default: 1.0
+          max_items: 4
+          filter_tags: "@config:lora_tags"
+        reactions:
+          - when: { field: "face_detailer_loras", equals: "select" }
+            then: { set_visibility: true }
+          - when: { field: "face_detailer_loras", not_equals: "select" }
+            then: { set_visibility: false }
+
+      - name: "face_detailer_mask_mode"
+        type: "select"
+        label: "Mask Shape"
+        default: "oval"
+        ai_hint: "Oval follows the detected face contour, so hair, neck and background inside the crop are never re-drawn. Box is a rounded rectangle and is the only option the YOLO detector can produce."
+        configuration:
+          tooltip: "Which shape the refine is confined to. Face Oval follows the detected contour, so hair and background are never redrawn. Box is a rounded rectangle, and it is the only shape the YOLO detector can produce."
+          options:
+            - { label: "Face Oval", value: "oval", sub_label: "Follows the landmarks" }
+            - { label: "Box", value: "box", sub_label: "Rounded rectangle" }
+
+      - name: "face_detailer_latent_mask"
+        type: "checkbox"
+        label: "Mask-Guided Refine"
+        audience: "advanced"
+        default: true
+        ai_hint: "Holds everything outside the face mask on the original image at every sampling step, so the refine can only move the face itself. Turning this off falls back to refining the whole crop and hiding the difference with a feathered paste."
+        configuration:
+          tooltip: "Holds everything outside the face mask on the original image at every step, so only the face can change. Turn it off to refine the whole crop and blend the difference away instead."
+
+      - name: "face_detailer_overlay"
+        type: "checkbox"
+        label: "Detection Overlay"
+        audience: "advanced"
+        default: true
+        ai_hint: "Draws the detection brackets, the mask contour and a per-face label on the live workbench preview only. The saved image and the before/after comparison never carry it."
+        configuration:
+          tooltip: "Shows the detection brackets, mask outline and a per-face label while the faces are being refined. Turn it off to watch the plain image. The saved image never carries the overlay."
+
+      - name: "face_detailer_colour_match"
+        type: "checkbox"
+        label: "Colour Match"
+        audience: "advanced"
+        default: true
+        ai_hint: "Transfers the original face's brightness and colour spread onto the refined one, so a refined face cannot come back paler or warmer than the body it sits on."
+        configuration:
+          tooltip: "Matches the refined face's brightness and colour spread back to the original. Leave it on unless you want the face pass to set its own exposure."
+
+      - name: "face_detailer_mask_dilate"
+        type: "slider"
+        label: "Mask Growth"
+        audience: "advanced"
+        default: 0.12
+        ai_hint: "How far the mask grows past the detected face, as a fraction of the face's short side. Raise it if a jawline or hairline edge is being left behind."
+        configuration:
+          min: 0.0
+          max: 0.4
+          step: 0.01
+          tooltip: "How far the refined area reaches past the detected face, relative to the face's own size. Raise it if a jawline or hairline edge is left behind; lower it to keep the refine tight on the face."
+
+
+      - name: "face_detailer_crop_padding"
+        type: "slider"
+        label: "Crop Padding"
+        audience: "advanced"
+        default: 0.6
+        ai_hint: "How much context around the face the refine pass sees, as a fraction of the face box. More context gives the model the head and shoulders to reason about; less spends the working resolution on the face itself."
+        configuration:
+          min: 0.1
+          max: 1.5
+          step: 0.05
+          tooltip: "How much of the surrounding image the face pass sees. More gives the model the head and shoulders for context; less spends the working resolution on the face itself."
+
+
+      - name: "face_detailer_crop_size"
+        type: "slider"
+        label: "Face Working Resolution"
+        audience: "advanced"
+        default: 1536
+        ai_hint: "The resolution each face crop is refined at. Higher recovers more detail and costs more time and VRAM per face."
+        configuration:
+          min: 512
+          max: 2048
+          step: 128
+          tooltip: "The resolution each face is refined at. Higher recovers more skin and hair detail and costs more time and VRAM per face."
+
+
+      - name: "face_detailer_max_face_ratio"
+        type: "slider"
+        label: "Maximum Face Size"
+        audience: "advanced"
+        default: 0.6
+        ai_hint: "Skip faces wider than this fraction of the frame's short side. A close-up portrait is already rendered at full resolution, so refining it again only risks drift."
+        configuration:
+          min: 0.1
+          max: 1.0
+          step: 0.05
+          tooltip: "Faces wider than this share of the frame's short side are left alone. A close-up is already rendered at full resolution, so refining it again only risks drift."
+
+
+      - name: "face_detailer_confidence"
+        type: "slider"
+        label: "Face Detection Confidence"
+        audience: "advanced"
+        default: 0.5
+        configuration: { min: 0.1, max: 1.0, step: 0.05 }
+
+      - name: "face_detailer_min_face_ratio"
+        type: "slider"
+        label: "Minimum Face Size"
+        audience: "advanced"
+        default: 0.02
+        ai_hint: "Skip faces smaller than this fraction of the frame area."
+        configuration:
+          min: 0.0
+          max: 0.2
+          step: 0.005
+          tooltip: "Faces smaller than this share of the frame are left alone. Raise it to skip faces in the background; lower it to catch faces further back."
+
+
+      - name: "face_detailer_feather"
+        type: "slider"
+        label: "Feather"
+        audience: "advanced"
+        default: 24
+        ai_hint: "Blend width (in pixels) between the refined face and the rest of the image."
+        configuration:
+          min: 0
+          max: 96
+          step: 4
+          tooltip: "How wide the blend is between the refined face and the rest of the image. Wider hides the boundary better; narrower keeps the refined detail right up to the mask edge."
+
+
+      - name: "face_detailer_backend"
+        type: "select"
+        label: "Detection Backend"
+        audience: "advanced"
+        default: "mediapipe"
+        ai_hint: "MediaPipe (Apache-2.0) is the default. YOLO is opt-in (AGPL-3.0-licensed detector model)."
+        configuration:
+          tooltip: "Which detector finds the faces. MediaPipe is the default and the only one that returns landmarks, so the Face Oval mask needs it. YOLO is opt-in and its detector model is AGPL-3.0 licensed."
+          options:
+            - { label: "MediaPipe", value: "mediapipe", sub_label: "Default, Apache-2.0" }
+            - { label: "YOLO", value: "yolo", sub_label: "Opt-in, AGPL-3.0" }
+
+      - name: "face_detailer_mediapipe_model"
+        type: "model"
+        label: "Face Detection Model"
+        visible: true
+        configuration:
+          model_type: "mediapipe"
+          filter_tags: "@config:mediapipe_tags"
+          recommendations:
+            - name: "MediaPipe Face Landmarker"
+              link: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+              size: "3.58 MB"
+              description: "Locates facial landmarks so faces can be found precisely for refinement."
+        reactions:
+          - when: { field: "face_detailer_backend", equals: "mediapipe" }
+            then: { set_visibility: true }
+          - when: { field: "face_detailer_backend", not_equals: "mediapipe" }
+            then: { set_visibility: false }
+
+      - name: "face_detailer_yolo_model"
+        type: "model"
+        label: "Face Detection Model (YOLO, AGPL-3.0)"
+        visible: false
+        configuration:
+          model_type: "detection_bbox"
+          filter_tags: "@config:detection_bbox_tags"
+        reactions:
+          - when: { field: "face_detailer_backend", equals: "yolo" }
+            then: { set_visibility: true }
+          - when: { field: "face_detailer_backend", not_equals: "yolo" }
+            then: { set_visibility: false }
 
   - type: "gate"
     name: "nag_enabled"

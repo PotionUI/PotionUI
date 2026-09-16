@@ -31,7 +31,7 @@ from __future__ import annotations
 import torch
 
 from ..cfg import GuidanceStrategy
-from ..hooks import run_hooks
+from ..hooks import apply_latent_filters, run_hooks
 from ...errors import SamplingCancelled
 
 Tensor = torch.Tensor
@@ -105,6 +105,7 @@ def sample_dpmpp_3m(
 
             x0_2, x0_1 = x0_1, x0
             h_2, h_1 = h_1, h
+            x = apply_latent_filters(hooks, i, total_steps, x, float(sigma_next))
             run_hooks(hooks, "on_step", i, total_steps, x, float(sigma), x0)
     finally:
         run_hooks(hooks, "on_end")

@@ -33,7 +33,7 @@ import math
 import torch
 
 from ..cfg import GuidanceStrategy
-from ..hooks import run_hooks
+from ..hooks import apply_latent_filters, run_hooks
 from ...errors import SamplingCancelled, SamplingNumericsError
 
 Tensor = torch.Tensor
@@ -266,6 +266,7 @@ def sample_unipc(
 
             x = x_next
             try:
+                x = apply_latent_filters(hooks, i, total_steps, x, float(sigma_next))
                 run_hooks(hooks, "on_step", i, total_steps, x, float(sigma), x0)
             except SamplingNumericsError as err:
                 # Enrich with THIS solver's own state at the moment of

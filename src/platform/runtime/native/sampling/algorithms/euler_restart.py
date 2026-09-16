@@ -24,7 +24,7 @@ from __future__ import annotations
 import torch
 
 from ..cfg import GuidanceStrategy
-from ..hooks import run_hooks
+from ..hooks import apply_latent_filters, run_hooks
 from ...errors import SamplingCancelled
 
 Tensor = torch.Tensor
@@ -122,6 +122,7 @@ def sample_euler_restart(
             x0_est = x - sigma * v
             x = x + (sigma_next - sigma) * v
 
+            x = apply_latent_filters(hooks, step_counter, total_steps, x, float(sigma_next))
             run_hooks(hooks, "on_step", step_counter, total_steps, x, float(sigma), x0_est)
             step_counter += 1
 
@@ -150,6 +151,7 @@ def sample_euler_restart(
                     x0_est = x - seg_sigma * v
                     x = x + (seg_next - seg_sigma) * v
 
+                    x = apply_latent_filters(hooks, step_counter, total_steps, x, float(seg_next))
                     run_hooks(hooks, "on_step", step_counter, total_steps, x, float(seg_sigma), x0_est)
                     step_counter += 1
     finally:

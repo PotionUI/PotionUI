@@ -199,6 +199,10 @@
             []
           ]
         },
+        "passes": {
+          "type": "int",
+          "value": 1
+        },
         "quantity": {
           "type": "int",
           "value": 1
@@ -295,9 +299,45 @@
       "config": {},
       "enabled": {
         "type": "bool",
+        "value": false
+      },
+      "id": "face_detailer",
+      "name": "detailer/native"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "compare_faces",
+      "name": "artifact"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
         "value": true
       },
       "id": "gallery",
+      "name": "gallery"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "gallery_before_enhance",
+      "name": "gallery"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "gallery_before_faces",
       "name": "gallery"
     }
   ],

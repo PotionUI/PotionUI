@@ -32,7 +32,7 @@ import math
 import torch
 
 from ..cfg import GuidanceStrategy
-from ..hooks import run_hooks
+from ..hooks import apply_latent_filters, run_hooks
 from ...errors import SamplingCancelled
 
 Tensor = torch.Tensor
@@ -99,6 +99,7 @@ def sample_euler_sde(
                 eps_mix = kept * eps + eta * eps_fresh
                 x = (1.0 - sigma_next) * x0_est + sigma_next * eps_mix
 
+            x = apply_latent_filters(hooks, i, total_steps, x, float(sigma_next))
             run_hooks(hooks, "on_step", i, total_steps, x, float(sigma), x0_est)
     finally:
         run_hooks(hooks, "on_end")

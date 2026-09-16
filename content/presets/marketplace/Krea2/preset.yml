@@ -57,6 +57,14 @@ configuration:
     type: "model_tags"
     label: "LoRA tags"
     description: "Only LoRAs with any of these tags appear in the LoRA picker."
+  detection_bbox_tags:
+    type: "model_tags"
+    label: "Detection Bbox tags"
+    description: "Only models with any of these tags appear in the Detection Bbox picker."
+  mediapipe_tags:
+    type: "model_tags"
+    label: "Mediapipe tags"
+    description: "Only models with any of these tags appear in the Mediapipe picker."
 
 llm:
   guide: |

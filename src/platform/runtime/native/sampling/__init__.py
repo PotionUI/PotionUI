@@ -36,7 +36,15 @@ from .registry import (
     sampler_registry,
     schedule_registry,
 )
-from .hooks import BaseStepHook, PreviewHook, ProgressHook, StepHook, run_hooks
+from .hooks import (
+    BaseStepHook,
+    LatentFilter,
+    PreviewHook,
+    ProgressHook,
+    StepHook,
+    apply_latent_filters,
+    run_hooks,
+)
 from .preview import (
     PREVIEW_EVERY_N,
     PREVIEW_MAX_SIZE,
@@ -80,6 +88,8 @@ __all__ = [
     "ProgressHook",
     "PreviewHook",
     "run_hooks",
+    "LatentFilter",
+    "apply_latent_filters",
     "PREVIEW_EVERY_N",
     "PREVIEW_MAX_SIZE",
     "PreviewFactors",

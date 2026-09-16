@@ -178,6 +178,17 @@ def with_numerics_watchdog(hooks, sampler_name: str | None, sampler_options: dic
     return tuple(hooks) + (NumericsWatchdog(sampler_name, interval, switch_step),)
 
 
+@runtime_checkable
+class LatentFilter(Protocol):
+    def filter_latent(
+        self,
+        step_index: int,
+        total_steps: int,
+        x: Tensor,
+        sigma: float,
+    ) -> Tensor: ...
+
+
 def _ordered(hooks: Sequence[StepHook]) -> list[StepHook]:
     """Priority-descending, stable for equal priorities (input order kept)."""
     return sorted(hooks, key=lambda h: getattr(h, "priority", 0), reverse=True)
@@ -202,3 +213,21 @@ def run_hooks(hooks: Sequence[StepHook], method: str, *args) -> None:
             raise
         except Exception:  # noqa: BLE001 — hook isolation is the whole point
             logger.exception("step hook %r failed in %s; continuing", hook, method)
+
+
+def apply_latent_filters(hooks: Sequence[StepHook], step_index: int, total_steps: int,
+                         x: Tensor, sigma: float) -> Tensor:
+    for hook in _ordered(hooks):
+        fn = getattr(hook, "filter_latent", None)
+        if fn is None:
+            continue
+        try:
+            filtered = fn(step_index, total_steps, x, sigma)
+        except SamplingNumericsError:
+            raise
+        except Exception:
+            logger.exception("latent filter %r failed at step %d; continuing", hook, step_index)
+            continue
+        if filtered is not None:
+            x = filtered
+    return x

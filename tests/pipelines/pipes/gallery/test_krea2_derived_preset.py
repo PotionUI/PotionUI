@@ -1,16 +1,16 @@
 """
-Krea-2 txt2img saves exactly ONE gallery file per seed - the enhanced image
-when Enhance is ON, the base image when it's OFF. There is no second
-`gallery_enhanced` pipe (that design saved 2N files for N images, the back
-half with no matching param_emitter row). Renders the real pipeline.yml
-through the real TemplateProcessor, i.e. the exact node graph
-`PipelineBuilder` would build.
+Krea-2 txt2img saves one gallery file per seed by default - the enhanced image
+when Enhance is ON, the base image when it's OFF. The optional
+`enhance_keep_base` / `face_detailer_keep_base` knobs each add one more saved
+image per seed, and `param_emitter`'s `passes` counts the saves so every saved
+index keeps its per-image rows. Renders the real pipeline.yml through the real
+TemplateProcessor, i.e. the exact node graph `PipelineBuilder` would build.
 
-With Enhance ON, the single `gallery` node's `image` input resolves to
+With Enhance ON, the final `gallery` node's `image` input resolves to
 `compare_enhance` (the `artifact`/compare pipe that forwards the enhanced
 pass and, as a side effect, emits a before/after compare artifact) - never
-directly to `generator` (the base pass), which is the whole point: the base
-image is never wired to anything that saves it.
+directly to `generator` (the base pass): the base image is only ever saved
+when its own opt-in knob asks for it.
 """
 from pathlib import Path
 from unittest.mock import Mock
@@ -105,12 +105,61 @@ def _node_order():
     return [n.get("id") or n["name"] for n in _pipeline()]
 
 
-def test_only_one_gallery_pipe_declared():
-    """No `gallery_enhanced` (or any second `gallery` node) exists - at most N
-    files can ever be saved for N images, whatever Enhance is set to."""
+GALLERY_IDS = ("gallery", "gallery_before_enhance", "gallery_before_faces")
+
+
+def _passes(form_data):
+    raw = next(n for n in _pipeline() if n["name"] == "param_emitter")["configuration"]["passes"]
+    value = _deep_render(raw, TemplateProcessor(settings=Mock()), _context(_bound(form_data)))
+    if isinstance(value, dict):
+        value = value["value"]
+    return int(value)
+
+
+def _enabled_galleries(nodes):
+    return [gallery_id for gallery_id in GALLERY_IDS if nodes[gallery_id]["enabled"]]
+
+
+def test_the_declared_gallery_nodes_are_the_final_save_and_two_opt_in_saves():
     gallery_nodes = [n for n in _pipeline() if n["name"] == "gallery"]
-    assert len(gallery_nodes) == 1
-    assert gallery_nodes[0]["id"] == "gallery"
+    assert [n["id"] for n in gallery_nodes] == list(GALLERY_IDS)
+
+
+def test_only_the_final_gallery_saves_when_no_keep_base_knob_is_set():
+    form_data = {"enhance_enabled": True, "face_detailer_enabled": True, "quantity": 2}
+    assert _enabled_galleries(_rendered_nodes(form_data, {"gallery"})) == ["gallery"]
+    assert _passes(form_data) == 1
+
+
+def test_passes_always_matches_the_number_of_enabled_gallery_nodes():
+    combinations = (
+        {"enhance_enabled": True, "enhance_keep_base": True,
+         "face_detailer_enabled": True, "face_detailer_keep_base": True},
+        {"enhance_enabled": True, "enhance_keep_base": True,
+         "face_detailer_enabled": True, "face_detailer_keep_base": False},
+        {"enhance_enabled": False, "enhance_keep_base": True,
+         "face_detailer_enabled": True, "face_detailer_keep_base": True},
+        {"enhance_enabled": False, "enhance_keep_base": True,
+         "face_detailer_enabled": False, "face_detailer_keep_base": True},
+    )
+    expected = (3, 2, 2, 1)
+    for form_data, count in zip(combinations, expected):
+        form_data = {**form_data, "quantity": 2}
+        assert len(_enabled_galleries(_rendered_nodes(form_data, {"gallery"}))) == count, form_data
+        assert _passes(form_data) == count, form_data
+
+
+def test_a_keep_base_knob_alone_never_saves_without_its_feature():
+    form_data = {"enhance_enabled": False, "enhance_keep_base": True,
+                 "face_detailer_enabled": False, "face_detailer_keep_base": True, "quantity": 1}
+    assert _enabled_galleries(_rendered_nodes(form_data, {"gallery"})) == ["gallery"]
+    assert _passes(form_data) == 1
+
+
+def test_the_final_gallery_saves_first_so_the_finished_image_is_file_zero():
+    order = _node_order()
+    assert order.index("gallery") < order.index("gallery_before_enhance")
+    assert order.index("gallery") < order.index("gallery_before_faces")
 
 
 def test_pipes_are_declared_after_everything_they_read_from():

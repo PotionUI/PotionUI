@@ -23,8 +23,10 @@
 # `id: "generator"` so both `gallery` and the enhancer's image input can
 # reference it unambiguously.
 #
-# Product decision is ONE gallery file per seed - the enhanced image when
-# Enhance is ON, the base image when it's OFF. There is a single `gallery`
+# Product decision is ONE gallery file per seed by default - the enhanced image
+# when Enhance is ON, the base image when it's OFF. The optional
+# `enhance_keep_base` / `face_detailer_keep_base` knobs add one extra saved
+# image per seed each, ahead of that file. There is a final `gallery`
 # pipe (mirrors presets/native/SDXL/modes/txt2img/pipeline.yml, which
 # Jinja-selects its `image` input from whichever post-processing stage
 # actually ran instead of branching into parallel gallery pipes); `gallery`
@@ -125,6 +127,7 @@ pipeline:
       - ["seed", "from_iotype", "seed"]
     configuration:
       quantity: "{{ form.quantity }}"
+      passes: "{{ 1 + (1 if form.enhance_enabled and form.enhance_keep_base else 0) + (1 if form.face_detailer_enabled and form.face_detailer_keep_base else 0) }}"
       parameters:
         - ["model", "{{ form.diffusion_model }}"]
         - ["model", "{{ form.text_encoder }}"]
@@ -264,17 +267,87 @@ pipeline:
       right: "Enhanced"
       output: "right"
 
+  - name: "detailer/native"
+    id: "face_detailer"
+    enabled: "{{ form.face_detailer_enabled }}"
+    input:
+      - ["model", "model_loader/krea2", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "{% if form.enhance_enabled %}compare_enhance{% else %}generator{% endif %}", "image"]
+    configuration:
+      denoise: "{{ form.face_detailer_denoise }}"
+      steps: "{{ form.face_detailer_steps }}"
+      guidance: "{{ form.cfg | default(generation.profile.guidance) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      crop_padding: "{{ form.face_detailer_crop_padding }}"
+      crop_size: "{{ form.face_detailer_crop_size }}"
+      max_faces: "{{ form.face_detailer_max_faces }}"
+      min_face_ratio: "{{ form.face_detailer_min_face_ratio }}"
+      max_face_ratio: "{{ form.face_detailer_max_face_ratio }}"
+      feather: "{{ form.face_detailer_feather }}"
+      mask_mode: "{{ form.face_detailer_mask_mode }}"
+      mask_dilate: "{{ form.face_detailer_mask_dilate }}"
+      latent_mask: "{{ form.face_detailer_latent_mask }}"
+      colour_match: "{{ form.face_detailer_colour_match }}"
+      overlay: "{{ form.face_detailer_overlay }}"
+      loras_mode: "{{ form.face_detailer_loras }}"
+      loras:
+        "@loop":
+          items: "{{ form.face_detailer_lora_picker }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+      run_loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+            step_start: "{{ item.step_start | default(none) }}"
+            step_end: "{{ item.step_end | default(none) }}"
+      detection_backend: "{{ form.face_detailer_backend }}"
+      face_model: "{{ form.face_detailer_mediapipe_model }}"
+      yolo_model: "{{ form.face_detailer_yolo_model }}"
+
+  - name: "artifact"
+    id: "compare_faces"
+    enabled: "{{ form.face_detailer_enabled }}"
+    input:
+      - ["before_image", "{% if form.enhance_enabled %}compare_enhance{% else %}generator{% endif %}", "image"]
+      - ["after_image", "face_detailer", "image"]
+    configuration:
+      mode: "compare"
+      left: "Base"
+      right: "Faces"
+      output: "right"
+
   #############
   ## Gallery
-  ## Single save point. With Enhance ON the image comes from
+  ## Final save point. With Enhance ON the image comes from
   ## `compare_enhance` (the enhanced pass); with it OFF, straight from the
-  ## base `generator`. Either way exactly N files land at indices 0..N-1,
-  ## aligned with param_emitter's per-image rows (no derived, param-less
-  ## files anymore).
+  ## base `generator`. It saves first so the finished image is file 0 (the
+  ## history card); the two optional "keep base" galleries below save the
+  ## earlier states after it, and param_emitter's `passes` counts how many
+  ## times the batch is saved so every index keeps its per-image rows.
   ############
   - name: "gallery"
     id: "gallery"
     input:
-      - ["image", "{% if form.enhance_enabled %}compare_enhance{% else %}generator{% endif %}", "image"]
+      - ["image", "{% if form.face_detailer_enabled %}compare_faces{% elif form.enhance_enabled %}compare_enhance{% else %}generator{% endif %}", "image"]
       - ["seed", "seed_generator", "seed"]
     enabled: true
+
+  - name: "gallery"
+    id: "gallery_before_enhance"
+    input:
+      - ["image", "generator", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: "{{ form.enhance_enabled and form.enhance_keep_base }}"
+
+  - name: "gallery"
+    id: "gallery_before_faces"
+    input:
+      - ["image", "{% if form.enhance_enabled %}compare_enhance{% else %}generator{% endif %}", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: "{{ form.face_detailer_enabled and form.face_detailer_keep_base }}"

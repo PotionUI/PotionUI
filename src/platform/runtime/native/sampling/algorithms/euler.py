@@ -18,7 +18,7 @@ from __future__ import annotations
 import torch
 
 from ..cfg import GuidanceStrategy
-from ..hooks import run_hooks
+from ..hooks import apply_latent_filters, run_hooks
 from ...errors import SamplingCancelled
 
 Tensor = torch.Tensor
@@ -76,6 +76,7 @@ def sample_euler(
             x0_est = x - sigma * v
             x = x + (sigma_next - sigma) * v
 
+            x = apply_latent_filters(hooks, i, total_steps, x, float(sigma_next))
             run_hooks(hooks, "on_step", i, total_steps, x, float(sigma), x0_est)
     finally:
         run_hooks(hooks, "on_end")

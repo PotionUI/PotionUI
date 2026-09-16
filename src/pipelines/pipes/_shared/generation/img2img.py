@@ -45,6 +45,8 @@ def img2img_denoise(
     denoise: float = 0.5,
     hooks=(),
     is_cancelled=None,
+    init_latent=None,
+    noise=None,
     vram_free_gb: float | None = None,
     guidance_options: dict | None = None,
     sampler_options: dict | None = None,
@@ -72,7 +74,8 @@ def img2img_denoise(
     if denoise <= 0.0:
         return np.asarray(image)
 
-    init_latent = gen.encode_image(image, vram_free_gb=vram_free_gb)
+    if init_latent is None:
+        init_latent = gen.encode_image(image, vram_free_gb=vram_free_gb)
     latent = gen.sample(
         conditioning,
         init_latent.shape,
@@ -82,6 +85,7 @@ def img2img_denoise(
         sampler=sampler,
         denoise_strength=denoise,
         init_latent=init_latent,
+        noise=noise,
         hooks=hooks,
         is_cancelled=is_cancelled,
         guidance_options=guidance_options,

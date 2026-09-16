@@ -44,7 +44,7 @@ from __future__ import annotations
 import torch
 
 from ..cfg import GuidanceStrategy
-from ..hooks import run_hooks
+from ..hooks import apply_latent_filters, run_hooks
 from ...errors import SamplingCancelled
 
 Tensor = torch.Tensor
@@ -104,6 +104,7 @@ def sample_res_multistep(
                     x = x + (b / h_prev) * (x0 - old_x0)
 
             old_x0 = x0
+            x = apply_latent_filters(hooks, i, total_steps, x, float(sigma_next))
             run_hooks(hooks, "on_step", i, total_steps, x, float(sigma), x0)
     finally:
         run_hooks(hooks, "on_end")

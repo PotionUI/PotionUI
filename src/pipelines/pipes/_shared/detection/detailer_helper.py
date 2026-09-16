@@ -52,6 +52,9 @@ class DetailerHelper:
             dtype: Type of detection (face, hand, person)
             classes: Optional list of class IDs to filter (e.g., [0] for person in COCO)
         """
+        return [box for box, _ in self.detect_objects_scored(image, detector, dtype, classes)]
+
+    def detect_objects_scored(self, image: Image.Image, detector: YOLO, dtype: Literal["face", "hand", "person"], classes: List[int] = None):
         predict_kwargs = {
             "source": np.array(image),
             "conf": float(self.config["detections"][dtype]["confidence"]),
@@ -66,12 +69,16 @@ class DetailerHelper:
 
         results = detector.predict(**predict_kwargs)
 
-        boxes = []
+        scored = []
         for result in results:
-            for box in result.boxes.xyxy:
+            confidences = getattr(result.boxes, "conf", None)
+            for index, box in enumerate(result.boxes.xyxy):
                 x1, y1, x2, y2 = box.tolist()
-                boxes.append(np.array([x1, y1, x2, y2]))
-        return boxes
+                score = None
+                if confidences is not None and index < len(confidences):
+                    score = float(confidences[index])
+                scored.append((np.array([x1, y1, x2, y2]), score))
+        return scored
 
     def detect_mediapipe(self, image: Image.Image, model_path: str = None) -> List[np.ndarray]:
         """

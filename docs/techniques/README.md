@@ -39,6 +39,7 @@ complete index of every file in this directory.
 - [CFG-Zero*](cfg-zero-star.md) — a free correction to classifier-free guidance's early-step behavior.
 - [Detail Daemon Schedule Warp](detail-daemon-schedule.md) — bias the noise schedule toward more or less fine detail.
 - [FreeInit](freeinit.md) — reduce video flicker by iteratively refining the initial noise.
+- [Native Face Detailer](native-face-detailer.md) — crop, refine, and feather back each detected face at low denoise.
 - [Normalized Attention Guidance (NAG)](nag.md) — negative-prompt steering inside attention, without a second forward pass.
 - [Numerics Watchdog (NaN/Inf Guard)](nan-watchdog.md) — catch numerical corruption during sampling before it produces a black image.
 - [RIFLEx](riflex.md) — extend video length past a model's trained clip length without looping.

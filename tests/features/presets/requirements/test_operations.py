@@ -4,6 +4,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import sys
+
 import pytest
 
 from src.features.backends import native_backend as native_backend_module
@@ -22,6 +24,8 @@ from src.platform.plugins.requirement_checkers import (
 )
 from src.platform.runtime.gpu import DeviceIdentity
 
+
+HOST_OS = "windows" if sys.platform == "win32" else "darwin" if sys.platform == "darwin" else "linux"
 
 def _identity(tag: str) -> DeviceIdentity:
     return DeviceIdentity(uuid=f"GPU-{tag}")
@@ -78,7 +82,7 @@ class TestGetPresetRequirements:
 
     @pytest.mark.asyncio
     async def test_returns_results_and_summary(self):
-        preset = _preset(requirements=[{"type": "platform", "os": ["linux"]}])
+        preset = _preset(requirements=[{"type": "platform", "os": [HOST_OS]}])
         collaborators = _collaborators(
             file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
             backend_registry=None,
@@ -97,7 +101,7 @@ class TestGetPresetRequirements:
     @pytest.mark.asyncio
     async def test_optional_miss_counts_as_optional_missing_not_missing(self):
         preset = _preset(requirements=[
-            {"type": "platform", "os": ["linux"]},  # ok on this host
+            {"type": "platform", "os": [HOST_OS]},  # ok on this host
             {"type": "python_package", "name": "definitely-not-a-real-package-xyz", "optional": True},
             {"type": "python_package", "name": "also-not-a-real-package-xyz"},  # non-optional miss
         ])
@@ -116,7 +120,7 @@ class TestGetPresetRequirements:
     @pytest.mark.asyncio
     async def test_result_carries_type_name_and_optional(self):
         preset = _preset(requirements=[
-            {"type": "platform", "os": ["linux"], "optional": True},
+            {"type": "platform", "os": [HOST_OS], "optional": True},
         ])
         collaborators = _collaborators(
             file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
@@ -132,7 +136,7 @@ class TestGetPresetRequirements:
 
     @pytest.mark.asyncio
     async def test_optional_defaults_to_false(self):
-        preset = _preset(requirements=[{"type": "platform", "os": ["linux"]}])
+        preset = _preset(requirements=[{"type": "platform", "os": [HOST_OS]}])
         collaborators = _collaborators(
             file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
             requirements_cache=RequirementsCache(),
@@ -171,7 +175,7 @@ class TestGetPresetRequirements:
 
     @pytest.mark.asyncio
     async def test_no_cache_still_evaluates(self):
-        preset = _preset(requirements=[{"type": "platform", "os": ["linux"]}])
+        preset = _preset(requirements=[{"type": "platform", "os": [HOST_OS]}])
         collaborators = _collaborators(
             file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
             requirements_cache=None,
@@ -183,7 +187,7 @@ class TestGetPresetRequirements:
 
     @pytest.mark.asyncio
     async def test_refresh_flag_forces_reevaluation(self):
-        preset = _preset(requirements=[{"type": "platform", "os": ["linux"]}])
+        preset = _preset(requirements=[{"type": "platform", "os": [HOST_OS]}])
         cache = RequirementsCache()
         collaborators = _collaborators(
             file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
@@ -215,7 +219,7 @@ class TestRequirementsSummaryPeek:
 
     @pytest.mark.asyncio
     async def test_get_preset_summary_populated_after_evaluation(self):
-        preset = _preset(requirements=[{"type": "platform", "os": ["linux"]}])
+        preset = _preset(requirements=[{"type": "platform", "os": [HOST_OS]}])
         cache = RequirementsCache()
         collaborators = _collaborators(
             file_repo=MagicMock(

@@ -311,6 +311,8 @@ class TestDelete:
         assert runs.delete_archive("potionui-backup-20260101-000000.zip") is False
 
 
+READ_ONLY_DIRS_UNENFORCED = os.name == "nt" or getattr(os, "geteuid", lambda: -1)() == 0
+
 class TestOverview:
 
     def test_the_panel_gets_the_settings_the_destination_and_the_cron_line(self, install, tmp_path):
@@ -382,7 +384,7 @@ class TestOverview:
 
         assert runs.state() == (True, True)
 
-    @pytest.mark.skipif(getattr(os, "geteuid", lambda: -1)() == 0, reason="root writes into a read-only directory")
+    @pytest.mark.skipif(READ_ONLY_DIRS_UNENFORCED, reason="read-only directory bits are not enforced for root or on Windows")
     def test_a_destination_under_a_read_only_parent_is_not_writable(self, install, tmp_path):
         locked = tmp_path / "locked"
         locked.mkdir()
@@ -395,7 +397,7 @@ class TestOverview:
 
         assert state == (False, False)
 
-    @pytest.mark.skipif(getattr(os, "geteuid", lambda: -1)() == 0, reason="root writes into a read-only directory")
+    @pytest.mark.skipif(READ_ONLY_DIRS_UNENFORCED, reason="read-only directory bits are not enforced for root or on Windows")
     def test_an_existing_read_only_destination_is_not_writable(self, install, tmp_path):
         locked = tmp_path / "locked"
         locked.mkdir()
@@ -428,7 +430,7 @@ class TestSettingsValidation:
     def test_an_empty_destination_is_refused(self, install):
         assert validate_setting(SETTING_DESTINATION, "  ", install) == "must name a directory"
 
-    @pytest.mark.skipif(getattr(os, "geteuid", lambda: -1)() == 0, reason="root writes into a read-only directory")
+    @pytest.mark.skipif(READ_ONLY_DIRS_UNENFORCED, reason="read-only directory bits are not enforced for root or on Windows")
     def test_a_destination_that_cannot_be_created_is_refused(self, install, tmp_path):
         locked = tmp_path / "locked"
         locked.mkdir()
@@ -441,7 +443,7 @@ class TestSettingsValidation:
         assert reason is not None
         assert "could not be created" in reason
 
-    @pytest.mark.skipif(getattr(os, "geteuid", lambda: -1)() == 0, reason="root writes into a read-only directory")
+    @pytest.mark.skipif(READ_ONLY_DIRS_UNENFORCED, reason="read-only directory bits are not enforced for root or on Windows")
     def test_a_destination_that_exists_but_cannot_be_written_to_is_refused(self, install, tmp_path):
         locked = tmp_path / "locked"
         locked.mkdir()

@@ -39,10 +39,10 @@
 	$: selectedItem = state.selectedId ? findDocItem(state.sections, state.selectedId) : null;
 </script>
 
-<div class="flex h-[calc(100dvh-var(--header-h)-2rem)] min-h-[36rem] flex-col gap-4 sm:h-[calc(100dvh-var(--header-h)-3rem)]">
+<div class="flex min-h-[calc(100dvh-var(--header-h)-2rem)] flex-col gap-4 sm:min-h-[calc(100dvh-var(--header-h)-3rem)]">
 	<AdminTabShell title="Documentation" icon="document" counts={[{ label: docCount === 1 ? 'topic' : 'topics', value: docCount }]} />
 
-	<section class="flex-1 min-h-0 rounded-lg border border-line bg-surface-1 overflow-hidden">
+	<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
 		<MasterDetailLayout leftWidth={288} minWidth={240} maxWidth={420} storageKey="admin-docs-list-width">
 			<!-- DocsSidebar owns its own header (filter input) and scroll body, so
 			     it's mounted as-is rather than re-wrapped in a pane header. The

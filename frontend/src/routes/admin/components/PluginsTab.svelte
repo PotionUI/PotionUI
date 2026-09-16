@@ -256,7 +256,7 @@
 			: null;
 </script>
 
-<div class="flex h-[calc(100dvh-var(--header-h)-2rem)] min-h-[36rem] flex-col gap-4 sm:h-[calc(100dvh-var(--header-h)-3rem)]">
+<div class="flex min-h-[calc(100dvh-var(--header-h)-2rem)] flex-col gap-4 sm:min-h-[calc(100dvh-var(--header-h)-3rem)]">
 	<AdminTabShell
 		title="Plugin Management"
 		icon="extension"
@@ -343,7 +343,7 @@
 			onClear={clearFilters}
 		/>
 
-		<section class="flex-1 min-h-0 rounded-lg border border-line bg-surface-1 overflow-hidden">
+		<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
 			<MasterDetailLayout leftWidth={340} minWidth={280} maxWidth={480} storageKey="admin-plugins-width">
 				<div slot="list" class="h-full min-h-0">
 					<Pane

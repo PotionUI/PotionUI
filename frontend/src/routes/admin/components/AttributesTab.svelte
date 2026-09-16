@@ -216,7 +216,7 @@
 	}
 </script>
 
-<div class="flex h-[calc(100dvh-var(--header-h)-2rem)] min-h-[36rem] flex-col gap-4 sm:h-[calc(100dvh-var(--header-h)-3rem)]">
+<div class="flex min-h-[calc(100dvh-var(--header-h)-2rem)] flex-col gap-4 sm:min-h-[calc(100dvh-var(--header-h)-3rem)]">
 	<AdminTabShell
 		title="Attributes"
 		icon="sliders"
@@ -258,7 +258,7 @@
 		onClear={() => (searchQuery = '')}
 	/>
 
-	<section class="flex-1 min-h-0 rounded-lg border border-line bg-surface-1 overflow-hidden">
+	<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
 		{#if loading}
 			<div class="h-full flex flex-col items-center justify-center">
 				<Spinner size="lg" />

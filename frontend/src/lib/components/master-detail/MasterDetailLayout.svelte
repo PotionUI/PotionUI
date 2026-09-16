@@ -68,7 +68,7 @@
 	}
 </script>
 
-<div class="master-detail flex h-full overflow-hidden" bind:this={containerRef}>
+<div class="master-detail flex h-full flex-1 overflow-hidden" bind:this={containerRef}>
 	<!-- Left Pane (List) -->
 	<div
 		class="list-pane flex-shrink-0 border-r border-line overflow-hidden flex flex-col bg-surface-1/30"

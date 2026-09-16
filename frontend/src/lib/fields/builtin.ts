@@ -29,6 +29,7 @@ import SectionField from '$lib/components/form-fields/SectionField.svelte';
 import GateField from '$lib/components/form-fields/GateField.svelte';
 import PromptTimelineField from '$lib/components/form-fields/PromptTimelineField.svelte';
 import CameraShotField from '$lib/components/form-fields/CameraShotField.svelte';
+import TagsField from '$lib/components/form-fields/TagsField.svelte';
 
 let registered = false;
 
@@ -71,7 +72,8 @@ export function registerBuiltinFieldComponents(): void {
 		section: SectionField,
 		gate: GateField,
 		prompt_timeline: PromptTimelineField,
-		camera_shot: CameraShotField
+		camera_shot: CameraShotField,
+		tags: TagsField
 	};
 
 	for (const [type, component] of Object.entries(table)) {

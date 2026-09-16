@@ -180,7 +180,7 @@ in the [Preset Context Cheat Sheet](../preset-context.md#built-in-field-types)):
 | Text | `string`, `textbox` |
 | Numeric | `number`, `integer`, `slider`, `stepper`, `seed`, `resolution` |
 | Boolean | `boolean`, `checkbox` |
-| Options-backed | `select`, `checkbox_group`, `model` (alias `models`), `lora_picker`, `sampler`, `schedule` |
+| Options-backed | `select`, `checkbox_group`, `tags`, `model` (alias `models`), `lora_picker`, `sampler`, `schedule` |
 | Media | `image`, `video`, `audio`, `media`, `file` |
 | Widgets | `carousel`, `llm`, `alert`, `markdown`, `header`, `section`, `gate`, `prompt_timeline`, `camera_shot` |
 | Layout containers | `tabs`, `tab`, `row`, `group`, `accordion` |
@@ -313,6 +313,44 @@ The picker offers a tile grid (default) and a 3D orbit view (drag/scroll/arrow k
 the same selection and compose a combined phrase; the 3D pose quantizes to the nearest canonical
 shots. See `content/presets/marketplace/SDXL/modes/txt2img/tabs/camera.yml` for a minimal working example and
 `content/presets/marketplace/Krea2/modes/txt2img/tabs/camera.yml` for a fully-curated vocabulary.
+
+Categorized tag picker (`type: "tags"` — a `{category: [tags]}` structured value, e.g. YuE2's Style
+tags field: language/genre/tempo pick one, instrumentation/voice/mood/more layer on several):
+
+```yaml
+- name: "style"
+  type: "tags"
+  label: "Style tags"
+  required: true
+  configuration:
+    separator: ", "                            # default ", "
+    allow_custom: true                          # field-level default; a category's own
+                                                 # allow_custom overrides it
+    max_tags: 24                                # optional, across every category combined
+    categories: "@config:style_categories"      # or an inline list:
+    #  - { key: "language", label: "Language", multi: false, tags: ["English", "Japanese"] }
+    #  - { key: "instrumental", label: "Instr.", multi: true, tags: ["acoustic piano"] }
+    #  - { key: "more", label: "More", multi: true, tags: [] }   # free tail — see below
+```
+
+The wire value a client submits is either the structured map (`{"language": ["English"], ...}`) or
+a plain separator-joined string — the same shape older sessions/an LLM-authored `form_data`/a
+recipe's `smoke.form` already send for a free-text tags field. A string is split back into
+categories: each token is matched (case-insensitively) against the first category whose `tags`
+list contains it, respecting `multi: false` (a single-value category keeps its first match; any
+further token that would also match it overflows to the tail instead), and anything that matches
+no category's list lands in the **last declared category** — that's the "free tail" a `more`
+category conventionally provides. `bind_form` binds two values: `form.<name>` is every category's
+tags, in declared order, joined by `separator` (blank/duplicate tags dropped) — what `pipeline.yml`
+reads unchanged, `{{ form.style }}` — and `form.<name>_tags` is the structured map, for a pipe that
+wants per-category access.
+
+`required` means at least one non-blank tag anywhere, not that every category is filled.
+`allow_custom: false` (field-level, or per-category) rejects a tag outside that category's declared
+list. `categories` accepts the same `"@config:<key>"` indirection as a `model` field's
+`filter_tags` (see "Configuration (admin-set)" in `manifest.md`) — the admin-editable knob there is
+declared with `type: "tag_categories"`, which (unlike `model_tags`) also accepts a shipped
+`default:` so the field renders a real vocabulary before any admin ever touches it.
 
 Slider (with an optional `reactions:` block — see "Reactions"):
 

@@ -72,6 +72,13 @@ class Select(BaseField):
                 description="Allow empty/null selection option",
                 example=True
             ),
+            FieldConfigSpec(
+                name="tooltip",
+                param_type=str,
+                default=None,
+                description="Help text shown in an info tooltip next to the label",
+                example="Which sampler family drives the schedule"
+            ),
         ]
 
     @classmethod

@@ -64,6 +64,8 @@ from src.features.fields.image import Image
 from src.features.fields.video import Video
 from src.features.fields.audio import Audio
 from src.features.fields.media import Media
+from src.features.fields.tags import Tags
+from src.features.presets.configuration import resolve_field_tag_categories
 from src.features.models.form_refs import is_model_ref
 from src.platform.templating import TemplateProcessor
 from src.platform.util.path_resolution import resolve_within
@@ -133,6 +135,7 @@ _INPUT_VALIDATORS = {
     "video": Video(None),
     "audio": Audio(None),
     "media": Media(None),
+    "tags": Tags(None),
 }
 
 
@@ -293,11 +296,14 @@ def bind_form(
         value = values[name]
         value = _coerce_leniently(value, spec, name, coercions)
         _validate_field(name, value, spec, errors, field_errors)
-        value = _run_input_validator(name, value, spec, errors, field_errors)
-        if _is_media_path_field(spec) and not is_model_ref(value):
-            value = _check_media_containment(
-                value, storage_dir, name, errors, field_errors, configuration=spec.configuration
-            )
+        if spec.type == "tags" and not is_model_ref(value):
+            value = _bind_tags_field(name, value, spec, preset_template, errors, field_errors, values)
+        else:
+            value = _run_input_validator(name, value, spec, errors, field_errors)
+            if _is_media_path_field(spec) and not is_model_ref(value):
+                value = _check_media_containment(
+                    value, storage_dir, name, errors, field_errors, configuration=spec.configuration
+                )
         values[name] = value
 
     # Unknown keys are stripped, not silently forwarded - but never for
@@ -729,6 +735,11 @@ def _validate_field(
     if is_model_ref(value):
         return  # resolved later, per-backend; not this boundary's concern
 
+    if field.type == "tags":
+        if field.required and _tags_value_is_empty(value):
+            _fail("required field is missing")
+        return
+
     if field.required and (value is None or value == ""):
         _fail("required field is missing")
         return
@@ -789,6 +800,57 @@ def _run_input_validator(
         errors.append(f"{name}: {message}")
         field_errors.setdefault(name, []).append(message)
         return value
+
+
+def _tags_value_is_empty(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, dict):
+        return not any(
+            isinstance(tags, list) and any(isinstance(t, str) and t.strip() for t in tags)
+            for tags in value.values()
+        )
+    return True
+
+
+def _declared_tag_categories_default(preset_template: PresetTemplate, categories_raw: Any) -> Any:
+    if not isinstance(categories_raw, str) or not categories_raw.startswith("@config:"):
+        return None
+    key = categories_raw[len("@config:"):]
+    entry = (preset_template.configuration or {}).get(key)
+    return entry.get("default") if isinstance(entry, dict) else None
+
+
+def _bind_tags_field(
+    name: str,
+    value: Any,
+    field: FieldTemplate,
+    preset_template: PresetTemplate,
+    errors: List[str],
+    field_errors: Dict[str, List[str]],
+    values: Dict[str, Any],
+) -> str:
+    config = dict(field.configuration or {})
+    categories_raw = config.get("categories")
+    field_allow_custom = bool(config.get("allow_custom", True))
+    declared_default = _declared_tag_categories_default(preset_template, categories_raw)
+    config["categories"] = resolve_field_tag_categories(
+        categories_raw, preset_template.id, declared_default, field_allow_custom
+    )
+
+    validator = _INPUT_VALIDATORS["tags"]
+    try:
+        tags_map = validator.input(name, value, config)
+    except ValueError as e:
+        message = str(e)
+        errors.append(f"{name}: {message}")
+        field_errors.setdefault(name, []).append(message)
+        tags_map = {}
+
+    values[f"{name}_tags"] = tags_map
+    return Tags.join(tags_map, config)
 
 
 def _is_media_path_field(field: FieldTemplate) -> bool:

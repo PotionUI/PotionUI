@@ -12,7 +12,7 @@ See docs/presets.md "Configuration (admin-set)".
 
 from typing import Any, Dict, List, Optional
 
-from .schema import CONFIGURATION_TYPES
+from .schema import CONFIGURATION_TYPES, validate_tag_categories_shape
 
 
 def validate_configuration_value(config_type: str, value: Any, tag_repository) -> Optional[str]:
@@ -36,9 +36,9 @@ def validate_configuration_value(config_type: str, value: Any, tag_repository) -
                 return f"unknown tag id: {tag_id}"
         return None
 
-    # Unreachable while CONFIGURATION_TYPES only has one member, kept so a future
-    # type added to the set without a branch here fails loudly instead of silently
-    # accepting anything.
+    if config_type == "tag_categories":
+        return validate_tag_categories_shape(value)
+
     return f"no validator implemented for configuration type '{config_type}'"
 
 
@@ -122,6 +122,75 @@ def resolve_field_filter_tags(raw: Any, preset_id: Optional[str]) -> Optional[Li
             preset_configuration_values = {}
 
     return resolve_filter_tags(raw, preset_configuration_values)
+
+
+def normalize_tag_category(entry: Dict[str, Any], field_allow_custom: bool) -> Optional[Dict[str, Any]]:
+    if not isinstance(entry, dict):
+        return None
+    key = entry.get("key")
+    if not isinstance(key, str) or not key.strip():
+        return None
+    tags = entry.get("tags")
+    tags = [t for t in tags if isinstance(t, str)] if isinstance(tags, list) else []
+    allow_custom = entry.get("allow_custom")
+    return {
+        "key": key,
+        "label": entry.get("label") or key,
+        "multi": bool(entry.get("multi", False)),
+        "allow_custom": field_allow_custom if allow_custom is None else bool(allow_custom),
+        "tags": tags,
+    }
+
+
+def normalize_tag_categories(raw_categories: Any, field_allow_custom: bool = True) -> List[Dict[str, Any]]:
+    if not isinstance(raw_categories, list):
+        return []
+    normalized = [normalize_tag_category(entry, field_allow_custom) for entry in raw_categories]
+    return [c for c in normalized if c is not None]
+
+
+def resolve_tag_categories(
+    raw: Any,
+    preset_configuration_values: Dict[str, Any],
+    declared_default: Any = None,
+    field_allow_custom: bool = True,
+) -> List[Dict[str, Any]]:
+    if raw is None:
+        return []
+
+    if isinstance(raw, str):
+        if not raw.startswith("@config:"):
+            return []
+        key = raw[len("@config:"):]
+        value = preset_configuration_values.get(key)
+        if not value:
+            value = declared_default
+        return normalize_tag_categories(value, field_allow_custom)
+
+    if isinstance(raw, list):
+        return normalize_tag_categories(raw, field_allow_custom)
+
+    return []
+
+
+def resolve_field_tag_categories(
+    raw: Any,
+    preset_id: Optional[str],
+    declared_default: Any = None,
+    field_allow_custom: bool = True,
+) -> List[Dict[str, Any]]:
+    if raw is None:
+        return []
+
+    preset_configuration_values: Dict[str, Any] = {}
+    if isinstance(raw, str) and raw.startswith("@config:") and preset_id:
+        try:
+            from src.features.presets.repository import preset_repo
+            preset_configuration_values = preset_repo.get_preset_configuration(preset_id)
+        except Exception:
+            preset_configuration_values = {}
+
+    return resolve_tag_categories(raw, preset_configuration_values, declared_default, field_allow_custom)
 
 
 def resolve_reactions_filter_tags(

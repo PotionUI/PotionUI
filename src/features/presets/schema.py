@@ -560,21 +560,35 @@ class SpeedProfile(BaseModel):
     extra: Optional[Dict[str, Any]] = None
 
 
-# ---------------------------------------------------------------------------
-# Configuration (admin-set): preset.yml declares the schema of admin-tunable
-# knobs a preset exposes (currently only `model_tags`, used by the `model`
-# field's `filter_tags: "@config:<key>"` indirection - see docs/presets.md
-# "Configuration (admin-set)"). Values themselves are admin-set state, stored
-# per installed preset (src/features/presets/records.py's `configuration`
-# column), not part of the YAML - this only validates the declared shape.
-#
-# Extensible by design: a new admin-configurable knob type is added to
-# CONFIGURATION_TYPES (and given a validator in
-# src/features/presets/configuration.py) without touching every preset that
-# doesn't use it.
-# ---------------------------------------------------------------------------
+CONFIGURATION_TYPES = frozenset({"model_tags", "tag_categories"})
 
-CONFIGURATION_TYPES = frozenset({"model_tags"})
+
+def validate_tag_categories_shape(value: Any) -> Optional[str]:
+    if not isinstance(value, list):
+        return "value must be a list of category objects"
+
+    seen_keys = set()
+    for entry in value:
+        if not isinstance(entry, dict):
+            return "each category must be an object"
+        key = entry.get("key")
+        if not isinstance(key, str) or not key.strip():
+            return "each category must have a non-empty string 'key'"
+        if key in seen_keys:
+            return f"duplicate category key: {key}"
+        seen_keys.add(key)
+
+        tags = entry.get("tags", [])
+        if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+            return f"category '{key}': 'tags' must be a list of strings"
+        if "label" in entry and entry["label"] is not None and not isinstance(entry["label"], str):
+            return f"category '{key}': 'label' must be a string"
+        if "multi" in entry and not isinstance(entry["multi"], bool):
+            return f"category '{key}': 'multi' must be a boolean"
+        if "allow_custom" in entry and not isinstance(entry["allow_custom"], bool):
+            return f"category '{key}': 'allow_custom' must be a boolean"
+
+    return None
 
 
 class ConfigurationEntry(BaseModel):
@@ -583,6 +597,7 @@ class ConfigurationEntry(BaseModel):
     type: str
     label: Optional[str] = None
     description: Optional[str] = None
+    default: Optional[Any] = None
 
     @model_validator(mode="after")
     def _validate_type(self) -> "ConfigurationEntry":
@@ -590,6 +605,10 @@ class ConfigurationEntry(BaseModel):
             raise ValueError(
                 f"Unsupported configuration type '{self.type}'. Must be one of: {sorted(CONFIGURATION_TYPES)}"
             )
+        if self.type == "tag_categories" and self.default is not None:
+            error = validate_tag_categories_shape(self.default)
+            if error:
+                raise ValueError(f"configuration entry default ({self.type}): {error}")
         return self
 
 

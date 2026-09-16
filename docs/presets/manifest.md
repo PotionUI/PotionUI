@@ -284,10 +284,34 @@ configuration:
     description: "Only checkpoints tagged with one of these show up in the model picker"
 ```
 
-Currently one type is supported: `model_tags` (value: a list of admin `Tag` IDs). The type set is
-a small extensible registry (`CONFIGURATION_TYPES` in `src/features/presets/schema.py`) — an unknown
-`type:` is a schema error, same treatment as an unknown `speed_profiles` known-key mistake would
-get if it were typed instead of allowed.
+Two types are supported: `model_tags` (value: a list of admin `Tag` IDs) and `tag_categories`
+(value: a list of `{key, tags, label?, multi?, allow_custom?}` category objects, consumed by the
+`tags` field's `categories: "@config:<key>"` indirection — see "Form fields" in `forms.md`). The
+type set is a small extensible registry (`CONFIGURATION_TYPES` in `src/features/presets/schema.py`)
+— an unknown `type:` is a schema error, same treatment as an unknown `speed_profiles` known-key
+mistake would get if it were typed instead of allowed.
+
+Unlike `model_tags`, a `tag_categories` entry may also declare a `default:` — the shape-checked
+fallback used until an admin sets a real value (`resolve_field_tag_categories` in
+`src/features/presets/configuration.py`). An empty tag-ID list is a normal "no filtering" state for
+`model_tags`, but an empty category list would leave a `tags` field with nothing to render, so
+`tag_categories` ships a real vocabulary out of the box:
+
+```yaml
+configuration:
+  style_categories:
+    type: tag_categories
+    label: "Style tag categories"
+    default:
+      - key: "language"
+        label: "Language"
+        multi: false
+        tags: ["English", "Japanese"]
+      - key: "more"
+        label: "More"
+        multi: true
+        tags: []
+```
 
 ### Admin API
 
@@ -297,9 +321,9 @@ get if it were typed instead of allowed.
   preset that declares no `configuration:` block — not an error.
 - `PUT /api/presets/{preset_id}/configuration` body `{"values": {"<key>": <value>}}` — admin-only,
   requires the preset be installed. Rejects unknown keys and type-invalid values (for
-  `model_tags`: every ID must be an existing tag) as a single `invalid_configuration` error citing
-  every problem found. A successful PUT merges into (not replaces) previously-set keys, and
-  returns the same shape as the GET.
+  `model_tags`: every ID must be an existing tag; for `tag_categories`: unique `key`s, `tags` lists
+  of strings) as a single `invalid_configuration` error citing every problem found. A successful
+  PUT merges into (not replaces) previously-set keys, and returns the same shape as the GET.
 
 Values live in the `presets` table's `configuration` JSON column (migration `081`), keyed by the
 installed preset's YAML `preset_id` — see `src/features/presets/configuration.py` for the

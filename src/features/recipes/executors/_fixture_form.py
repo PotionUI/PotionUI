@@ -41,6 +41,8 @@ MODEL_FIELD_TYPES = frozenset({"model", "models"})
 LORA_PICKER_FIELD_TYPE = "lora_picker"
 MEDIA_FIELD_TYPES = frozenset({"image", "video", "audio", "media", "file"})
 MEDIA_EXTENSIONS = {"image": "png", "video": "mp4", "audio": "wav", "media": "png", "file": "bin"}
+TEXT_FIELD_TYPES = frozenset({"string", "textbox"})
+TEXT_FIELD_PLACEHOLDER = "SETUP-CHECK placeholder text"
 
 
 class RequiredModelMissing(Exception):
@@ -106,6 +108,8 @@ def _inject_unresolvable_defaults(fields: List[Any], form_data: Dict[str, Any]) 
                 configuration = _field_get(field_obj, "configuration") or {}
                 multi = bool(configuration.get("multi")) if isinstance(configuration, dict) else False
                 form_data[name] = [placeholder] if multi else placeholder
+            elif (field_type in TEXT_FIELD_TYPES or field_type == "tags") and _field_get(field_obj, "required"):
+                form_data[name] = TEXT_FIELD_PLACEHOLDER
         children = _field_get(field_obj, "children")
         if children and isinstance(children, list):
             _inject_unresolvable_defaults(children, form_data)

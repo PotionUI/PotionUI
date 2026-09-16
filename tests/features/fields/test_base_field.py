@@ -207,6 +207,18 @@ class TestBaseField(unittest.TestCase):
         # Default should not be included when None
         self.assertNotIn('default', schema)
 
+    def test_create_base_schema_required_flag(self):
+        base = {'type': 'test_type', 'name': 'test_name', 'label': 'L', 'description': '', 'default': None}
+        self.assertTrue(self.mock_field.create_base_schema({**base, 'required': True})['required'])
+        self.assertNotIn('required', self.mock_field.create_base_schema({**base, 'required': False}))
+        self.assertNotIn('required', self.mock_field.create_base_schema(base))
+
+    def test_create_base_schema_tooltip_from_configuration(self):
+        base = {'type': 'test_type', 'name': 'n', 'label': 'L', 'description': '', 'default': None}
+        with_tip = self.mock_field.create_base_schema({**base, 'configuration': {'tooltip': 'Why it matters'}})
+        self.assertEqual(with_tip['tooltip'], 'Why it matters')
+        self.assertNotIn('tooltip', self.mock_field.create_base_schema({**base, 'configuration': {}}))
+
     def test_get_field_info_audience_object_format(self):
         """Test that `audience` is extracted from an object-format field"""
         mock_field_obj = Mock()

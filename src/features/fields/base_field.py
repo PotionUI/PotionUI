@@ -171,6 +171,13 @@ class BaseField(ABC):
         if field_info['default'] is not None:
             schema['default'] = field_info['default']
 
+        if field_info.get('required'):
+            schema['required'] = True
+
+        tooltip = (field_info.get('configuration') or {}).get('tooltip')
+        if tooltip:
+            schema['tooltip'] = tooltip
+
         if field_info.get('ai_hint'):
             schema['ai_hint'] = field_info['ai_hint']
 

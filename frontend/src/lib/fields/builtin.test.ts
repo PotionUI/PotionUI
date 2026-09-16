@@ -8,6 +8,7 @@ vi.mock('$lib/plugin-api/componentResolver', () => ({
 import { registerBuiltinFieldComponents } from './builtin';
 import { resolveFieldComponent } from './registry';
 import SelectField from '$lib/components/form-fields/SelectField.svelte';
+import TagsField from '$lib/components/form-fields/TagsField.svelte';
 
 describe('fields/builtin', () => {
 	it('registers sampler and schedule onto the same component select uses', async () => {
@@ -23,5 +24,13 @@ describe('fields/builtin', () => {
 		expect(schedule).toBe(SelectField);
 		expect(sampler).toBe(select);
 		expect(schedule).toBe(select);
+	});
+
+	it('registers tags onto TagsField', async () => {
+		registerBuiltinFieldComponents();
+
+		const tags = await resolveFieldComponent('tags');
+
+		expect(tags).toBe(TagsField);
 	});
 });

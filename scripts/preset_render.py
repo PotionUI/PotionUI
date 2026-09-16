@@ -291,7 +291,7 @@ def _inject_unresolvable_defaults(fields: List[Any], form_data: Dict[str, Any]) 
                 configuration = _field_get(field, "configuration") or {}
                 multi = bool(configuration.get("multi")) if isinstance(configuration, dict) else False
                 form_data[name] = [placeholder] if multi else placeholder
-            elif field_type in _TEXT_FIELD_TYPES and _field_get(field, "required"):
+            elif (field_type in _TEXT_FIELD_TYPES or field_type == "tags") and _field_get(field, "required"):
                 form_data[name] = _TEXT_FIELD_PLACEHOLDER
             # Non-required image/video/audio/media/file/string fields with no
             # default: left omitted, as before.

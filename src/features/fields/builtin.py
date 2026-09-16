@@ -31,6 +31,7 @@ from src.features.fields.slider import Slider
 from src.features.fields.stepper import Stepper
 from src.features.fields.checkbox_group import CheckboxGroup
 from src.features.fields.checkbox import Checkbox
+from src.features.fields.tags import Tags
 from src.features.fields.container import Container
 from src.features.fields.image import Image
 from src.features.fields.video import Video
@@ -86,6 +87,7 @@ def register_builtin_fields(registry: FieldTypeRegistry, template_processor: Opt
         # values.
         FieldTypeDefinition("select", Select, options_provider=select_options, frontend_component="core:SelectField", shareable=True),
         FieldTypeDefinition("checkbox_group", CheckboxGroup, options_provider=checkbox_options, frontend_component="core:CheckboxGroupField", shareable=True),
+        FieldTypeDefinition("tags", Tags, frontend_component="core:TagsField", shareable=True),
         FieldTypeDefinition("model", Model, options_provider=model_options, frontend_component="core:ModelField", shareable=True),
         FieldTypeDefinition("models", Model, options_provider=model_options, frontend_component="core:ModelField", shareable=True),
         FieldTypeDefinition("lora_picker", LoraPicker, frontend_component="core:LoraPickerField", shareable=True),

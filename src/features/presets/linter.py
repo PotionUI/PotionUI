@@ -29,6 +29,7 @@ from .schema import (
     validate_form_file,
     validate_field_list,
     validate_styles_file,
+    validate_tag_categories_shape,
     _format_errors,
 )
 from .tests_schema import NEEDS_MODEL_TAG, PLACEHOLDER_SHA256, validate_tests_yml
@@ -468,6 +469,7 @@ class PresetLinter:
             issues.extend(self._lint_camera_shot_fields(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_pipeline_templates(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_field_config_keys(preset_file, mode_dir, mode_name))
+            issues.extend(self._lint_tags_categories(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_sampling_fields(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_alert_field_config(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_pipe_names(preset_file, mode_dir, mode_name))
@@ -573,6 +575,7 @@ class PresetLinter:
                 issues.extend(self._lint_field_defaults(synthetic_preset_file, mode_dir, mode_name))
                 issues.extend(self._lint_pipeline_templates(synthetic_preset_file, mode_dir, mode_name))
                 issues.extend(self._lint_field_config_keys(synthetic_preset_file, mode_dir, mode_name))
+                issues.extend(self._lint_tags_categories(synthetic_preset_file, mode_dir, mode_name))
                 issues.extend(self._lint_alert_field_config(synthetic_preset_file, mode_dir, mode_name))
 
         return issues
@@ -2037,6 +2040,39 @@ class PresetLinter:
                             f"modes/{mode_name}/{path}: type '{field_type}' configuration "
                             f"has key(s) not declared in its FieldConfigSpec: {unknown_keys} "
                             f"(declared: {sorted(allowed)})",
+                        )
+                    )
+
+        return issues
+
+    def _lint_tags_categories(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+
+        for form_file in self._iter_form_yaml_files(mode_dir):
+            try:
+                with open(form_file, 'r', encoding='utf-8') as f:
+                    form_data = yaml.load(f, Loader=yaml.FullLoader) or {}
+            except Exception:
+                continue
+
+            rel = form_file.relative_to(mode_dir)
+            for path, node in self._iter_nodes(form_data, str(rel)):
+                if not isinstance(node, dict) or node.get("type") != "tags":
+                    continue
+                config = node.get("configuration")
+                if not isinstance(config, dict):
+                    continue
+                categories = config.get("categories")
+                if not isinstance(categories, list):
+                    continue
+                shape_error = validate_tag_categories_shape(categories)
+                if shape_error:
+                    issues.append(
+                        LintIssue(
+                            "error",
+                            preset_str,
+                            f"modes/{mode_name}/{path}: configuration.categories: {shape_error}",
                         )
                     )
 

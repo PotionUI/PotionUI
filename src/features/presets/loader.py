@@ -38,6 +38,7 @@ from .schema import (
     validate_form_file,
     validate_field_list,
     validate_styles_file,
+    validate_tag_categories_shape,
 )
 
 # The only variable ever used in an external `children:` fragment path today
@@ -260,6 +261,9 @@ class PresetTemplateLoader:
             declared_config_keys = set((manifest.configuration or {}).keys())
             errors.extend(
                 self._validate_filter_tags_directives(manifest.id, declared_config_keys, modes_dict)
+            )
+            errors.extend(
+                self._validate_tags_categories(manifest.id, declared_config_keys, modes_dict)
             )
 
         if errors:
@@ -525,6 +529,40 @@ class PresetTemplateLoader:
             f"{loc} field '{field_name}' {where}: '{raw}' is not a recognized '@' "
             f"directive - only '@config:<key>' is valid here"
         ]
+
+    def _validate_tags_categories(
+        self, preset_id: str, declared_config_keys: set, modes_dict: Dict[str, ModeTemplate]
+    ) -> List[str]:
+        errors: List[str] = []
+        for mode_name, mode in modes_dict.items():
+            for form in mode.forms:
+                loc = f"modes/{mode_name}/form '{form.name}'"
+                errors.extend(
+                    self._check_fields_tags_categories(form.fields, declared_config_keys, loc)
+                )
+        return errors
+
+    def _check_fields_tags_categories(
+        self, fields: List[FieldTemplate], declared_config_keys: set, loc: str
+    ) -> List[str]:
+        errors: List[str] = []
+        for field in fields:
+            if field.type == "tags":
+                config = field.configuration or {}
+                categories = config.get("categories")
+                if isinstance(categories, str):
+                    errors.extend(self._check_one_filter_tags_directive(
+                        categories, declared_config_keys, loc, field.name, "configuration.categories"
+                    ))
+                elif isinstance(categories, list):
+                    shape_error = validate_tag_categories_shape(categories)
+                    if shape_error:
+                        errors.append(f"{loc} field '{field.name}' configuration.categories: {shape_error}")
+                elif categories is None:
+                    errors.append(f"{loc} field '{field.name}': tags field requires configuration.categories")
+            if isinstance(field.children, list):
+                errors.extend(self._check_fields_tags_categories(field.children, declared_config_keys, loc))
+        return errors
 
     def _build_field_template(self, field_data: dict, preset_root: Path, prefix: str) -> FieldTemplate:
         """Recursively convert a validated field dict into a FieldTemplate.

@@ -292,9 +292,10 @@ class TestADetailerSDXLPipe(unittest.TestCase):
             "models/detection_bbox/hand_yolov8n.pt",
         )
 
+    @patch('src.pipelines.pipes.detailer.sdxl.main.ADetailerSDXLPipe._missing_detector_model', return_value=None)
     @patch('src.pipelines.pipes.detailer.sdxl.detection_processor.BaseDetectionProcessor.process_detection')
     @patch('src.pipelines.pipes._shared.detection.face_detector.FaceDetector')
-    def test_process(self, mock_face_detector_class, mock_process_detection):
+    def test_process(self, mock_face_detector_class, mock_process_detection, mock_missing_detector_model):
         """Test process method integration"""
         # Create test data
         test_image = Image.new('RGB', (512, 512), color='red')

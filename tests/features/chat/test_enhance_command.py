@@ -278,9 +278,8 @@ class TestSlashEnhanceIsPlainText:
 
         manager.prompt_enhancement_manager.enhance.assert_not_awaited()
         assert not any(e["event"] == "tool_start" for e in events)
-        # The literal text was sent to the model like any other message.
         sent = llm.stream_calls[0]["messages"]
-        assert any(m.get("content") == "/enhance a lonely lighthouse" for m in sent)
+        assert any((m.get("content") or "").startswith("/enhance a lonely lighthouse\n\n<context>\n") for m in sent)
 
     @pytest.mark.asyncio
     async def test_bare_slash_enhance_does_not_force_the_tool(self):

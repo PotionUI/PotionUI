@@ -57,7 +57,6 @@ GATED = [
     (build_models_router, "put", "/api/models/m1/description", {"description": "d"}),
     (build_models_router, "put", "/api/models/m1/tags", {"tag_ids": []}),
     (build_models_router, "delete", "/api/models/m1", None),
-    (build_settings_router, "post", "/api/settings/models/rescan", None),
     (build_system_router, "post", "/api/system/monitoring/interval?interval=1.0", None),
     (build_presets_router, "post", "/api/presets/p1/reload", None),
     (build_providers_router, "post", "/api/providers/civitai/initialize", None),

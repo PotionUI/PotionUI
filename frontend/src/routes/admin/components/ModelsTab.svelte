@@ -11,8 +11,18 @@
 	import { formatTagUsageError } from '$lib/utils/tagUsage';
 	import type { TagUsageRef } from '$lib/types/api';
 	import type { ModelIndexResult, UnindexedModelsCount } from '$lib/services/api/models';
+	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import ModelCard from '$lib/components/ModelCard.svelte';
 	import AdminModelDetailsModal from '$lib/components/modals/AdminModelDetailsModal.svelte';
+	import BaseModal from '$lib/components/modals/BaseModal.svelte';
+	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
+	import AssignmentCard from '$lib/components/assignment/AssignmentCard.svelte';
+	import {
+		createModelAssignmentAdapter,
+		createBulkModelAssignmentAdapter
+	} from '$lib/components/assignment/modelAssignmentAdapter';
+	import type { AssignmentAdapter } from '$lib/components/assignment/types';
+	import { isModelUnassigned, applyAssignmentSummaryChange } from '$lib/components/assignment/assignmentSummary';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button, IconButton, Badge, Spinner, EmptyState, Pagination, SegmentedControl } from '$lib/components/ui';
@@ -106,6 +116,18 @@
 	// Modal states
 	let selectedModelId: string | null = null;
 	let isModelDetailsOpen = false;
+
+	let selectionMode = false;
+	let selectedModelIds: string[] = [];
+
+	let assigningModel: ModelListItem | null = null;
+	let isAssignModalOpen = false;
+
+	let bulkModelIds: string[] = [];
+	let bulkAdapter: AssignmentAdapter | null = null;
+	let isBulkAssignOpen = false;
+	let bulkProgress = { done: 0, total: 0 };
+	$: bulkBusy = bulkProgress.total > 0 && bulkProgress.done < bulkProgress.total;
 
 	let tagDropdownRef: HTMLElement;
 	let providerDropdownRef: HTMLElement;
@@ -367,6 +389,55 @@
 		// Edits made in the modal (preview, description, tags, assignments, ...) aren't
 		// pushed back into the list rows, so refetch to reflect them on the cards.
 		loadModels();
+		loadAssignmentSummary();
+	}
+
+	function toggleModelSelect(model: ModelListItem) {
+		const isSelected = selectedModelIds.includes(model.id);
+		selectedModelIds = isSelected
+			? selectedModelIds.filter((id) => id !== model.id)
+			: [...selectedModelIds, model.id];
+		selectionMode = selectedModelIds.length > 0;
+	}
+
+	function selectAllModelsOnPage() {
+		selectedModelIds = models.map((m) => m.id);
+		selectionMode = selectedModelIds.length > 0;
+	}
+
+	function clearModelSelection() {
+		selectedModelIds = [];
+		selectionMode = false;
+	}
+
+	function openAssignModal(model: ModelListItem) {
+		assigningModel = model;
+		isAssignModalOpen = true;
+	}
+
+	function closeAssignModal() {
+		isAssignModalOpen = false;
+		assigningModel = null;
+		loadAssignmentSummary();
+	}
+
+	function handleAssignmentChanged(modelId: string, event: CustomEvent<{ userCount: number; groupCount: number }>) {
+		assignmentSummary = applyAssignmentSummaryChange(assignmentSummary, modelId, event.detail);
+	}
+
+	function openBulkAssignModal() {
+		bulkModelIds = [...selectedModelIds];
+		bulkProgress = { done: 0, total: 0 };
+		bulkAdapter = createBulkModelAssignmentAdapter(bulkModelIds, (done, total) => {
+			bulkProgress = { done, total };
+		});
+		isBulkAssignOpen = true;
+	}
+
+	function closeBulkAssignModal() {
+		isBulkAssignOpen = false;
+		bulkAdapter = null;
+		clearModelSelection();
 		loadAssignmentSummary();
 	}
 
@@ -648,6 +719,21 @@
 			</div>
 		</div>
 
+		{#if selectionMode}
+			<div class="flex items-center gap-3 rounded-lg border border-line-strong bg-surface-2 px-4 py-2">
+				<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">
+					<span class="tabular-nums text-fg">{selectedModelIds.length}</span> selected
+				</span>
+				<Button variant="ghost" size="sm" onclick={selectAllModelsOnPage}>Select all on page</Button>
+				<div class="ml-auto flex items-center gap-1">
+					<Tooltip text="Assign access">
+						<IconButton icon="group" label="Assign access" onclick={openBulkAssignModal} />
+					</Tooltip>
+					<IconButton icon="close" label="Clear selection" onclick={clearModelSelection} />
+				</div>
+			</div>
+		{/if}
+
 		<!-- Models Grid -->
 		{#if loading}
 			<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
@@ -672,9 +758,14 @@
 						showManagementActions
 						{availabilityIndexed}
 						{backendNames}
-						unassigned={!(assignmentSummary[model.id]?.assignment_count || 0) && !(assignmentSummary[model.id]?.group_count || 0)}
+						selectable={selectionMode}
+						showCheckbox={true}
+						selected={selectedModelIds.includes(model.id)}
+						onSelect={toggleModelSelect}
+						unassigned={isModelUnassigned(assignmentSummary[model.id])}
 						on:view={(e) => openModelDetails(e.detail.id)}
 						on:delete={(e) => handleDeleteModel(e.detail.id, e.detail.name || e.detail.filename)}
+						on:assign={(e) => openAssignModal(e.detail)}
 					/>
 				{/each}
 			</div>
@@ -723,5 +814,55 @@
 		modelId={selectedModelId}
 		onClose={closeModelDetails}
 	/>
+
+	{#if isAssignModalOpen && assigningModel}
+		<BaseModal
+			isOpen={isAssignModalOpen}
+			title={`Assign access — ${modelDisplayName(assigningModel)}`}
+			size="lg"
+			on:close={closeAssignModal}
+		>
+			<div class="p-6">
+				{#key assigningModel.id}
+					<AssignmentCard
+						adapter={createModelAssignmentAdapter(assigningModel.id)}
+						resourceKey={assigningModel.id}
+						resourceName={modelDisplayName(assigningModel)}
+						on:changed={(e) => handleAssignmentChanged(assigningModel!.id, e)}
+					/>
+				{/key}
+			</div>
+			<svelte:fragment slot="footer">
+				<ConfirmFooter confirmLabel="Done" onCancel={closeAssignModal} onConfirm={closeAssignModal} />
+			</svelte:fragment>
+		</BaseModal>
+	{/if}
+
+	{#if isBulkAssignOpen && bulkAdapter}
+		<BaseModal
+			isOpen={isBulkAssignOpen}
+			title={`Assign access — ${bulkModelIds.length} model${bulkModelIds.length === 1 ? '' : 's'}`}
+			size="lg"
+			closeable={!bulkBusy}
+			on:close={closeBulkAssignModal}
+		>
+			<div class="p-6">
+				<AssignmentCard
+					adapter={bulkAdapter}
+					resourceKey={bulkModelIds.join(',')}
+					resourceName={`${bulkModelIds.length} selected model${bulkModelIds.length === 1 ? '' : 's'}`}
+				/>
+			</div>
+			<svelte:fragment slot="footer">
+				<ConfirmFooter
+					confirmLabel="Done"
+					confirmDisabled={bulkBusy}
+					summary={bulkBusy ? `${bulkProgress.done} / ${bulkProgress.total}` : undefined}
+					onCancel={closeBulkAssignModal}
+					onConfirm={closeBulkAssignModal}
+				/>
+			</svelte:fragment>
+		</BaseModal>
+	{/if}
 	{/if}
 </div>

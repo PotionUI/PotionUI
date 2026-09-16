@@ -24,8 +24,6 @@
 	import ModelFilesCard from './ModelFilesCard.svelte';
 	import ModelTechnicalDetailsCard from './ModelTechnicalDetailsCard.svelte';
 	import ModelAvailabilityCard from './ModelAvailabilityCard.svelte';
-	import AssignmentCard from '$lib/components/assignment/AssignmentCard.svelte';
-	import { createModelAssignmentAdapter } from '$lib/components/assignment/modelAssignmentAdapter';
 	import type { ModelDetailsCapabilities, ModelSummary, AdminModelDetails } from './modelDetailsController';
 	import type { ModelAvailabilityResponse } from '$lib/types/models';
 	import type { ModelPreviewMedia } from '$lib/utils/modelPreview';
@@ -142,20 +140,6 @@
 					emptyText="Click edit to teach the chat assistant how to write prompts for this model..."
 					onSave={onSavePromptingGuidance}
 				/>
-			{/if}
-
-			{#if capabilities.canManageAssignments && model}
-				<div>
-					<h3 class="text-sm font-semibold text-fg mb-1">Access</h3>
-					<p class="text-xs text-fg-muted mb-3">Assign this model directly to specific users or grant it to every member of a user group.</p>
-					{#key model.id}
-						<AssignmentCard
-							adapter={createModelAssignmentAdapter(model.id)}
-							resourceKey={model.id}
-							resourceName={displayName}
-						/>
-					{/key}
-				</div>
 			{/if}
 
 			{#if model}

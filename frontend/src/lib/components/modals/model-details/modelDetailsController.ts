@@ -33,7 +33,6 @@ export interface ModelDetailsCapabilities {
 	/** The admin's own multi-item preview upload/reorder gallery. */
 	canManagePreviewGallery: boolean;
 	/** Assign this model directly to users/groups. The endpoints 403 for non-admins. */
-	canManageAssignments: boolean;
 }
 
 export function resolveModelDetailsCapabilities(scope: ModelDetailsScope): ModelDetailsCapabilities {
@@ -46,7 +45,6 @@ export function resolveModelDetailsCapabilities(scope: ModelDetailsScope): Model
 			canViewOperationalDetails: true,
 			canViewAvailability: true,
 			canManagePreviewGallery: true,
-			canManageAssignments: true
 		};
 	}
 	return {
@@ -57,7 +55,6 @@ export function resolveModelDetailsCapabilities(scope: ModelDetailsScope): Model
 		canViewOperationalDetails: false,
 		canViewAvailability: false,
 		canManagePreviewGallery: false,
-		canManageAssignments: false
 	};
 }
 

@@ -46,7 +46,6 @@ describe('resolveModelDetailsCapabilities', () => {
 		expect(admin.canViewOperationalDetails).toBe(true);
 		expect(admin.canViewAvailability).toBe(true);
 		expect(admin.canManagePreviewGallery).toBe(true);
-		expect(admin.canManageAssignments).toBe(true);
 		expect(admin.canManageLibrary).toBe(false);
 	});
 
@@ -57,7 +56,6 @@ describe('resolveModelDetailsCapabilities', () => {
 		expect(library.canViewOperationalDetails).toBe(false);
 		expect(library.canViewAvailability).toBe(false);
 		expect(library.canManagePreviewGallery).toBe(false);
-		expect(library.canManageAssignments).toBe(false);
 		expect(library.canManageLibrary).toBe(true);
 	});
 });

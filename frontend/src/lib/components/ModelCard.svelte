@@ -110,6 +110,12 @@
 		dispatch('delete', model);
 	}
 
+	function handleAssignClick(event: Event) {
+		event.stopPropagation();
+		event.preventDefault();
+		dispatch('assign', model);
+	}
+
 	function goToPreviousMedia(event: Event) {
 		event.stopPropagation();
 		event.preventDefault();
@@ -219,6 +225,13 @@
 			{#if !selectable}
 				<div class="absolute top-2 right-2 z-40 flex items-center gap-1">
 					{#if showManagementActions}
+						<button
+							class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
+							on:click={handleAssignClick}
+							aria-label="Assign access"
+						>
+							<Icon name="group" className="h-3.5 w-3.5" />
+						</button>
 						<button
 							class="bg-black/60 hover:bg-danger-solid text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
 							on:click={handleDeleteClick}

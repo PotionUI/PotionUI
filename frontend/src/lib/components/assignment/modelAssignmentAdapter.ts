@@ -1,4 +1,5 @@
 import * as adminApi from '$lib/services/admin-api';
+import type { APIResponse } from '$lib/types/api';
 import type { AssignmentAdapter, AssignmentState } from './types';
 
 function responseError(response: { message?: string } | null | undefined, fallback: string) {
@@ -49,5 +50,33 @@ export function createModelAssignmentAdapter(modelId: string): AssignmentAdapter
 		unassignUser: (userId) => adminApi.unassignModelFromUser(userId, modelId),
 		assignGroup: (groupId) => adminApi.assignModelsToGroup(groupId, [modelId]),
 		unassignGroup: (groupId) => adminApi.unassignModelFromGroup(groupId, modelId)
+	};
+}
+
+export function createBulkModelAssignmentAdapter(
+	modelIds: string[],
+	onProgress: (done: number, total: number) => void
+): AssignmentAdapter {
+	async function loopAssign(call: (modelId: string) => Promise<APIResponse>): Promise<APIResponse> {
+		onProgress(0, modelIds.length);
+		for (let i = 0; i < modelIds.length; i++) {
+			const response = await call(modelIds[i]);
+			if (!response.success) return response;
+			onProgress(i + 1, modelIds.length);
+		}
+		return { success: true };
+	}
+
+	return {
+		resourceLabel: 'model',
+
+		async loadState(): Promise<AssignmentState> {
+			return { userIds: new Set(), groupIds: new Set() };
+		},
+
+		assignUser: (userId) => loopAssign((modelId) => adminApi.assignModelToUser(userId, modelId)),
+		unassignUser: (userId) => loopAssign((modelId) => adminApi.unassignModelFromUser(userId, modelId)),
+		assignGroup: (groupId) => loopAssign((modelId) => adminApi.assignModelsToGroup(groupId, [modelId])),
+		unassignGroup: (groupId) => loopAssign((modelId) => adminApi.unassignModelFromGroup(groupId, modelId))
 	};
 }

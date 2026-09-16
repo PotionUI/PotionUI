@@ -11,7 +11,7 @@ test('admin can assign a group to an LLM configuration from its detail pane', as
 	const token = await ownerToken(page);
 
 	const groupName = `e2e-assign-group-${Date.now()}`;
-	const groupCreate = await page.request.post('/api/user-groups/', {
+	const groupCreate = await page.request.post('/api/user-groups', {
 		headers: { Authorization: `Bearer ${token}` },
 		data: { name: groupName, description: null }
 	});

@@ -75,17 +75,17 @@ class TestVideoThumbnailService:
         # Create a test frame
         frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
 
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-            try:
-                result = self.service.create_thumbnail_from_frame(frame, tmp.name)
+        tmp = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+        tmp.close()
+        try:
+            result = self.service.create_thumbnail_from_frame(frame, tmp.name)
 
-                assert result is True
-                assert Path(tmp.name).exists()
-                assert Path(tmp.name).stat().st_size > 0
-            finally:
-                # Cleanup
-                if Path(tmp.name).exists():
-                    Path(tmp.name).unlink()
+            assert result is True
+            assert Path(tmp.name).exists()
+            assert Path(tmp.name).stat().st_size > 0
+        finally:
+            if Path(tmp.name).exists():
+                Path(tmp.name).unlink()
 
     def test_create_thumbnail_from_frame_invalid_path(self):
         """Test thumbnail creation with invalid output path"""

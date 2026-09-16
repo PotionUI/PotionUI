@@ -22,6 +22,10 @@ from src.features.models.location import (
 )
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="ModelsRelocator refuses to run on Windows; see test_apply_refuses_when_windows",
+)
 class TestModelsRelocator(PersistenceTestBase):
     def setUp(self):
         super().setUp()
@@ -193,6 +197,15 @@ class TestModelsRelocatorNoDb:
         manager = ModelsRelocator(tmp_path / "models", SettingRepository())
         monkeypatch.setattr(os, "name", "nt")
         assert manager._is_windows() is True
+
+    def test_apply_refuses_on_windows_before_touching_settings_or_disk(self, tmp_path, monkeypatch):
+        manager = ModelsRelocator(tmp_path / "models", SettingRepository())
+        monkeypatch.setattr(ModelsRelocator, "_is_windows", staticmethod(lambda: True))
+
+        with pytest.raises(ModelsLocationError) as ctx:
+            manager.apply(str(tmp_path / "external"))
+
+        assert "windows" in ctx.value.reason.lower()
 
     def test_generation_active_defaults_to_false(self, tmp_path):
         manager = ModelsRelocator(tmp_path / "models", SettingRepository())

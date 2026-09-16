@@ -117,6 +117,7 @@ def tail_log(path: Optional[Path], lines: int = DEFAULT_LINES, level: Optional[s
     if has_more_above and raw_lines:
         # The block's first line was very likely cut mid-line by the seek.
         raw_lines.pop(0)
+    raw_lines = [line[:-1] if line.endswith("\r") else line for line in raw_lines]
 
     entries = _parse_entries(raw_lines)
     truncated = has_more_above or len(entries) > wanted

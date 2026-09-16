@@ -81,23 +81,17 @@ def test_restore_keeps_the_previous_database_and_its_write_ahead_log(
     with conn:
         conn.execute("CREATE TABLE local_only (id INTEGER PRIMARY KEY)")
         conn.execute("INSERT INTO local_only (id) VALUES (1)")
-    # SQLite folds the log back in and deletes it when the last connection
-    # closes, so one has to stay open for there to be a -wal file at all.
-    keeper = connect(existing)
     conn.close()
+    existing.with_name("db.sqlite-wal").write_bytes(b"stale-wal")
     assert existing.with_name("db.sqlite-wal").exists()
 
-    try:
-        outcome = run_restore(result.archive_path, target)
+    outcome = run_restore(result.archive_path, target)
 
-        kept = [p for p in outcome.previous_paths if p.name.startswith("db.sqlite.pre-restore-")]
-        assert len(kept) == 1
-        assert kept[0].with_name(kept[0].name + "-wal").exists()
-        assert not existing.with_name("db.sqlite-wal").exists()
-        assert "local_only" not in table_row_counts(existing)
-    finally:
-        keeper.close()
-
+    kept = [p for p in outcome.previous_paths if p.name.startswith("db.sqlite.pre-restore-")]
+    assert len(kept) == 1
+    assert kept[0].with_name(kept[0].name + "-wal").exists()
+    assert not existing.with_name("db.sqlite-wal").exists()
+    assert "local_only" not in table_row_counts(existing)
     assert table_row_counts(kept[0])["local_only"] == 1
 
 

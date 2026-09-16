@@ -5,6 +5,8 @@ import os
 import time
 from pathlib import Path
 
+import pytest
+
 from src.features.housekeeping.tasks import prune_tmp, scan_tmp
 
 DAY = 86400
@@ -48,6 +50,10 @@ class TestPruneTmp:
         assert ancient.exists()
         assert result == {"removed": 0, "bytes_freed": 0, "errors": []}
 
+    @pytest.mark.skipif(
+        os.utime not in os.supports_follow_symlinks,
+        reason="os.utime(follow_symlinks=False) is not supported on this platform",
+    )
     def test_a_symlink_to_an_old_file_outside_the_root_is_left_alone(self, tmp_path):
         outside = _write(tmp_path / "outside" / "keepme.png", age_days=90)
         root = tmp_path / "tmp"

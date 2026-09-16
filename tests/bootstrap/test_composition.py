@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -85,10 +86,13 @@ def report(tmp_path_factory):
     workdir = tmp_path_factory.mktemp("composition")
     env = {
         "POTIONUI_DB_PATH": str(workdir / "db.sqlite"),
-        "PYTHONPATH": f"{ROOT / 'venv/lib/python3.12/site-packages'}:{ROOT}",
-        "PATH": "/usr/bin:/bin",
+        "PYTHONPATH": f"{ROOT / 'venv/lib/python3.12/site-packages'}{os.pathsep}{ROOT}",
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": str(workdir),
     }
+    for name in ("SYSTEMROOT", "TEMP", "TMP", "PATHEXT", "COMSPEC"):
+        if name in os.environ:
+            env[name] = os.environ[name]
     result = subprocess.run(
         [sys.executable, "-c", _PROBE],
         cwd=ROOT,

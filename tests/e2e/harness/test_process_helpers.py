@@ -69,8 +69,10 @@ class TestKillGroup:
     def test_posix_calls_killpg_with_sigterm(self, monkeypatch):
         monkeypatch.setattr(e2e_harness, "is_windows", lambda: False)
         calls = []
-        monkeypatch.setattr(e2e_harness.os, "getpgid", lambda pid: pid)
-        monkeypatch.setattr(e2e_harness.os, "killpg", lambda pgid, sig: calls.append((pgid, sig)))
+        monkeypatch.setattr(e2e_harness.os, "getpgid", lambda pid: pid, raising=False)
+        monkeypatch.setattr(
+            e2e_harness.os, "killpg", lambda pgid, sig: calls.append((pgid, sig)), raising=False
+        )
 
         e2e_harness.kill_group(MagicMock(pid=5678), force=False)
 
@@ -79,8 +81,11 @@ class TestKillGroup:
     def test_posix_calls_killpg_with_sigkill_when_forced(self, monkeypatch):
         monkeypatch.setattr(e2e_harness, "is_windows", lambda: False)
         calls = []
-        monkeypatch.setattr(e2e_harness.os, "getpgid", lambda pid: pid)
-        monkeypatch.setattr(e2e_harness.os, "killpg", lambda pgid, sig: calls.append((pgid, sig)))
+        monkeypatch.setattr(e2e_harness.os, "getpgid", lambda pid: pid, raising=False)
+        monkeypatch.setattr(
+            e2e_harness.os, "killpg", lambda pgid, sig: calls.append((pgid, sig)), raising=False
+        )
+        monkeypatch.setattr(e2e_harness.signal, "SIGKILL", 9, raising=False)
 
         e2e_harness.kill_group(MagicMock(pid=5678), force=True)
 

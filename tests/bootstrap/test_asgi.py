@@ -4,10 +4,13 @@ ModuleNotFoundError there before any fallback could run.
 """
 import sys
 
+import pytest
+
 from src.bootstrap.asgi import resolve_asgi_loop
 
 
 def test_uses_uvloop_when_installed():
+    pytest.importorskip("uvloop", reason="uvloop has no Windows wheels")
     assert resolve_asgi_loop() == "uvloop"
 
 

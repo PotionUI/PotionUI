@@ -34,6 +34,35 @@ only make `-p` dead) — scope exposure with the `-p` flag, e.g.
 Build locally instead of pulling: `docker build -f docker/Dockerfile -t
 potionui .` from the repo root.
 
+### Running ComfyUI alongside PotionUI
+
+The `comfyui-backend` plugin's host/port settings (Admin → Plugins →
+ComfyUI Backend, and each backend record under Admin → Backends) accept any
+hostname, IPv4/IPv6 literal, or full URL — not just an IP — so a ComfyUI
+container reachable by its Compose service name works with no local patch.
+Add it as a second service in your own `docker-compose.yml`:
+
+```yaml
+services:
+  potionui:
+    image: ghcr.io/potionui/potionui:latest
+    depends_on:
+      - comfyui
+    # ...
+
+  comfyui:
+    image: your-comfyui-image
+    command: ["--listen", "0.0.0.0"]
+    # ...
+```
+
+Then set the plugin's default host to `comfyui` (the service name — Docker's
+embedded DNS resolves it inside the compose network) and the port to
+whatever `--port` ComfyUI listens on (`8188` by default). ComfyUI's default
+`--listen 127.0.0.1` only accepts connections from inside its own container,
+so `--listen 0.0.0.0` is required for the PotionUI container to reach it at
+all, hostname or not.
+
 ## Rig-simulation harness — `Dockerfile.dev` + `docker-compose.yml`
 
 Supported, and the current entry point into this directory. It exists to let

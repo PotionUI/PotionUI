@@ -9,6 +9,33 @@ importer's own implementation internals: GGUF compatibility, crash-safe publicat
 integer transport for large literals, schema-consistency re-validation, and the node catalog
 CLI used to extend node coverage.
 
+## Connecting to a Dockerized ComfyUI
+
+The plugin's `default_host`/`default_port`/`default_secure` settings (Admin
+→ Plugins → ComfyUI Backend) and each backend record's `host`/`port`/`secure`
+fields (Admin → Backends) all resolve through the same URL builder
+(`backend/comfyui_config.py:resolve_comfyui_endpoint`), which accepts a bare
+hostname or IPv4 literal, an IPv6 literal with or without brackets, an
+already-combined `host:port`, or a full URL — not only an IP. Running
+PotionUI and ComfyUI as separate containers on the same Compose network
+needs no local patch: set the host to ComfyUI's service name (e.g.
+`comfyui`), point the port at whatever `--port` it listens on, and start
+that container with `--listen 0.0.0.0` (its default `127.0.0.1` only accepts
+connections from inside its own container). See
+[docker/README.md](../../../../docker/README.md#running-comfyui-alongside-potionui)
+for a compose example.
+
+`resolve_comfyui_endpoint` in `backend/comfyui_config.py` and
+`_resolve_comfyui_endpoint` in `backend/pipes/comfyui/main.py` are two
+independent implementations of the same host/port/secure rules, not one
+shared import: `src/pipelines/catalog.py`'s `_load_pipe_module` loads a
+pipe's `main.py` as a standalone module with no package context and no
+guaranteed `sys.path` onto this plugin's own `backend` package (several
+other plugins also name their package `backend`), so the pipe can't safely
+import a sibling module from it. Changing the host-resolution rules means
+changing both functions; `tests/test_comfyui_url_resolution.py` runs the
+same cases through both to catch drift between them.
+
 ## GGUF model folders
 
  This is compatibility with an already-configured ComfyUI server running

@@ -1,9 +1,34 @@
 """Configuration model for the ComfyUI engine's backends."""
 
-from typing import Any, ClassVar, Dict, Optional
+from typing import Any, ClassVar, Dict, Optional, Tuple
 from pydantic import Field, field_validator
 
 from src.plugin_api import BaseBackendConfig
+
+
+def resolve_comfyui_endpoint(host: str, port: int, secure: bool) -> Tuple[str, str]:
+    host = (host or "").strip()
+    protocol = "https" if secure else "http"
+    ws_protocol = "wss" if secure else "ws"
+
+    if "://" in host:
+        scheme, _, rest = host.partition("://")
+        rest = rest.rstrip("/")
+        ws_scheme = "wss" if scheme == "https" else "ws"
+        return f"{scheme}://{rest}", f"{ws_scheme}://{rest}"
+
+    if host.startswith("["):
+        hostport = host if "]:" in host else f"{host}:{port}"
+        return f"{protocol}://{hostport}", f"{ws_protocol}://{hostport}"
+
+    colon_count = host.count(":")
+    if colon_count == 1 and host.rsplit(":", 1)[1].isdigit():
+        return f"{protocol}://{host}", f"{ws_protocol}://{host}"
+
+    if colon_count >= 1:
+        host = f"[{host}]"
+
+    return f"{protocol}://{host}:{port}", f"{ws_protocol}://{host}:{port}"
 
 
 class ComfyUIBackendConfig(BaseBackendConfig):
@@ -62,13 +87,13 @@ class ComfyUIBackendConfig(BaseBackendConfig):
 
     def get_base_url(self) -> str:
         """Get the base HTTP URL for the ComfyUI server"""
-        protocol = "https" if self.secure else "http"
-        return f"{protocol}://{self.host}:{self.port}"
+        http_base, _ = resolve_comfyui_endpoint(self.host, self.port, self.secure)
+        return http_base
 
     def get_ws_url(self) -> str:
         """Get the WebSocket URL for the ComfyUI server"""
-        protocol = "wss" if self.secure else "ws"
-        return f"{protocol}://{self.host}:{self.port}/ws"
+        _, ws_base = resolve_comfyui_endpoint(self.host, self.port, self.secure)
+        return f"{ws_base}/ws"
 
     def to_connection_config(self) -> Dict[str, Any]:
         """Return connection config dict for use by ComfyUIPipe"""

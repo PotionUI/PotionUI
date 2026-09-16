@@ -32,6 +32,31 @@ from src.plugin_api import (
 logger = logging.getLogger(__name__)
 
 
+def _resolve_comfyui_endpoint(host: str, port: int, secure: bool) -> Tuple[str, str]:
+    host = (host or "").strip()
+    protocol = "https" if secure else "http"
+    ws_protocol = "wss" if secure else "ws"
+
+    if "://" in host:
+        scheme, _, rest = host.partition("://")
+        rest = rest.rstrip("/")
+        ws_scheme = "wss" if scheme == "https" else "ws"
+        return f"{scheme}://{rest}", f"{ws_scheme}://{rest}"
+
+    if host.startswith("["):
+        hostport = host if "]:" in host else f"{host}:{port}"
+        return f"{protocol}://{hostport}", f"{ws_protocol}://{hostport}"
+
+    colon_count = host.count(":")
+    if colon_count == 1 and host.rsplit(":", 1)[1].isdigit():
+        return f"{protocol}://{host}", f"{ws_protocol}://{host}"
+
+    if colon_count >= 1:
+        host = f"[{host}]"
+
+    return f"{protocol}://{host}:{port}", f"{ws_protocol}://{host}:{port}"
+
+
 class ComfyUIPipe(BasePipe):
     name = "comfyui"
     description = "Execute ComfyUI workflows with dynamic field mapping"
@@ -44,6 +69,11 @@ class ComfyUIPipe(BasePipe):
         self.total_nodes = 0
         self.executed_nodes = 0
         self.workflow_nodes = {}  # Store workflow node information
+
+    def _comfyui_urls(self) -> Tuple[str, str]:
+        return _resolve_comfyui_endpoint(
+            self.config['host'], self.config['port'], self.config.get('secure', False)
+        )
 
     @classmethod
     def get_default_config(cls) -> Dict[str, Any]:
@@ -431,8 +461,8 @@ class ComfyUIPipe(BasePipe):
             image.save(img_buffer, format='PNG')
             img_bytes = img_buffer.getvalue()
 
-            protocol = "https" if self.config.get("secure", False) else "http"
-            url = f"{protocol}://{self.config['host']}:{self.config['port']}/upload/image"
+            http_base, _ = self._comfyui_urls()
+            url = f"{http_base}/upload/image"
 
             # Create form data for the upload
             data = aiohttp.FormData()
@@ -475,8 +505,8 @@ class ComfyUIPipe(BasePipe):
                 '.mkv': 'video/x-matroska',
             }.get(suffix.lower(), 'video/mp4')
 
-            protocol = "https" if self.config.get("secure", False) else "http"
-            url = f"{protocol}://{self.config['host']}:{self.config['port']}/upload/image"
+            http_base, _ = self._comfyui_urls()
+            url = f"{http_base}/upload/image"
 
             data = aiohttp.FormData()
             data.add_field('image', video_bytes, filename=video_path.name, content_type=content_type)
@@ -519,8 +549,8 @@ class ComfyUIPipe(BasePipe):
                 '.aac': 'audio/aac',
             }.get(suffix.lower(), 'audio/mpeg')
 
-            protocol = "https" if self.config.get("secure", False) else "http"
-            url = f"{protocol}://{self.config['host']}:{self.config['port']}/upload/image"
+            http_base, _ = self._comfyui_urls()
+            url = f"{http_base}/upload/image"
 
             data = aiohttp.FormData()
             data.add_field('image', audio_bytes, filename=audio_path.name, content_type=content_type)
@@ -1206,8 +1236,8 @@ class ComfyUIPipe(BasePipe):
     async def connect_websocket(self, generation_outputs: callable) -> bool:
         """Connect to ComfyUI WebSocket"""
         try:
-            protocol = "wss" if self.config.get("secure", False) else "ws"
-            uri = f"{protocol}://{self.config['host']}:{self.config['port']}/ws"
+            _, ws_base = self._comfyui_urls()
+            uri = f"{ws_base}/ws"
             self.client_id = self.config.get('client_id') or str(uuid.uuid4())
 
             generation_outputs(ProgressGenerationOutput(
@@ -1239,8 +1269,8 @@ class ComfyUIPipe(BasePipe):
     async def submit_workflow(self, workflow: Dict[str, Any], generation_outputs: callable) -> Optional[str]:
         """Submit workflow to ComfyUI API"""
         try:
-            protocol = "https" if self.config.get("secure", False) else "http"
-            url = f"{protocol}://{self.config['host']}:{self.config['port']}/prompt"
+            http_base, _ = self._comfyui_urls()
+            url = f"{http_base}/prompt"
 
             # Count total nodes for progress tracking
             self.total_nodes = len(workflow)
@@ -1366,6 +1396,9 @@ class ComfyUIPipe(BasePipe):
                     logger.debug(f"Skipping non-JSON message ({len(message)} chars)")
                     continue
                 msg_type = data.get('type')
+                message_prompt = (data.get('data') or {}).get('prompt_id')
+                if message_prompt and message_prompt != prompt_id:
+                    continue
 
                 if msg_type == 'executing':
                     msg_data = data.get('data', {})
@@ -1552,8 +1585,8 @@ class ComfyUIPipe(BasePipe):
             subfolder = image_data.get('subfolder', '')
             image_type = image_data.get('type', 'output')
 
-            protocol = "https" if self.config.get("secure", False) else "http"
-            url = f"{protocol}://{self.config['host']}:{self.config['port']}/view"
+            http_base, _ = self._comfyui_urls()
+            url = f"{http_base}/view"
 
             params = {
                 'filename': filename,
@@ -1582,8 +1615,8 @@ class ComfyUIPipe(BasePipe):
             subfolder = file_data.get('subfolder', '')
             output_type = file_data.get('type', 'output')
 
-            protocol = "https" if self.config.get("secure", False) else "http"
-            url = f"{protocol}://{self.config['host']}:{self.config['port']}/view"
+            http_base, _ = self._comfyui_urls()
+            url = f"{http_base}/view"
 
             params = {
                 'filename': filename,

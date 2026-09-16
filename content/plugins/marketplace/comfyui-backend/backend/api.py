@@ -36,6 +36,7 @@ from .preset_import.parser import Workflow, WorkflowFormatError, parse_api_workf
 from .preset_import.schema import ImportForm, parse_form, parse_history
 from .preset_import.suggest import AnalyzeResult, classification_fingerprint, suggest_fields
 from .requirements import ComfyUIModelChecker, ComfyUINodeChecker, _fetch_object_info
+from .comfyui_config import resolve_comfyui_endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +48,7 @@ _IMPORTED_PRESETS_ROOT = Path("content/presets/local")
 _MARKETPLACE_PRESETS_ROOT = Path("content/presets/marketplace")
 
 
-def _get_comfyui_base_url() -> str:
-    """Build ComfyUI base URL from plugin settings."""
+def _read_comfyui_default_connection() -> Tuple[str, int, bool]:
     repo = PluginRepository()
     settings = repo.get_plugin_settings("comfyui-backend")
 
@@ -64,9 +64,16 @@ def _get_comfyui_base_url() -> str:
                 port = int(s.setting_value)
             except ValueError:
                 pass
+        elif s.setting_key == "default_secure" and s.setting_value is not None:
+            secure = str(s.setting_value).strip().lower() in ("1", "true", "yes", "on")
 
-    protocol = "https" if secure else "http"
-    return f"{protocol}://{host}:{port}"
+    return host, port, secure
+
+
+def _get_comfyui_base_url() -> str:
+    host, port, secure = _read_comfyui_default_connection()
+    http_base, _ = resolve_comfyui_endpoint(host, port, secure)
+    return http_base
 
 
 def _parse_workflow(raw_workflow: Dict[str, Any]) -> Workflow:

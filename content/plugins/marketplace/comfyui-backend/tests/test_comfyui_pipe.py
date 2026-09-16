@@ -385,6 +385,30 @@ class TestComfyUIPipe:
 
     @pytest.mark.asyncio
     @patch.object(ComfyUIPipe, 'load_image_from_comfy')
+    async def test_listen_for_updates_ignores_other_prompts(self, mock_load_image):
+        self.pipe.total_nodes = 1
+        mine = Image.new('RGB', (10, 10))
+        mock_load_image.return_value = mine
+        mock_ws = AsyncMock()
+        messages = [
+            json.dumps({"type": "executing", "data": {"prompt_id": "other-prompt", "node": "7"}}),
+            json.dumps({"type": "executed", "data": {"prompt_id": "other-prompt", "output": {"images": [{"filename": "theirs.png", "type": "output"}]}}}),
+            json.dumps({"type": "executing", "data": {"prompt_id": "other-prompt", "node": None}}),
+            json.dumps({"type": "executed", "data": {"prompt_id": "test-prompt", "output": {"images": [{"filename": "mine.png", "type": "output"}]}}}),
+            json.dumps({"type": "executing", "data": {"prompt_id": "test-prompt", "node": None}}),
+        ]
+        mock_ws.recv = AsyncMock(side_effect=messages)
+        self.pipe.ws = mock_ws
+
+        images, videos = await self.pipe.listen_for_updates("test-prompt", Mock())
+
+        assert images == [mine]
+        assert self.pipe.executed_nodes == 0
+        assert mock_load_image.call_count == 1
+        assert mock_load_image.call_args[0][0]["filename"] == "mine.png"
+
+    @pytest.mark.asyncio
+    @patch.object(ComfyUIPipe, 'load_image_from_comfy')
     async def test_listen_for_updates_with_images(self, mock_load_image):
         """Test handling executed messages with images"""
         self.pipe.total_nodes = 1

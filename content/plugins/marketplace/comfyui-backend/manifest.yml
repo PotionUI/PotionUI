@@ -136,6 +136,12 @@ settings:
     min: 1
     max: 65535
     required: false
+  - name: "default_secure"
+    type: "boolean"
+    label: "Default Uses HTTPS/WSS"
+    description: "Whether the default ComfyUI host is reached over TLS"
+    default: false
+    required: false
   - name: "connection_timeout"
     type: "number"
     label: "Connection Timeout (seconds)"

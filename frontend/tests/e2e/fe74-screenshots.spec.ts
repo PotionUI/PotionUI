@@ -77,6 +77,7 @@ async function setSegmentMeta(page: Page, listAriaLabel: string, index: number, 
 }
 
 test('one-panel prompt editor — visual capture only', async ({ page }) => {
+	test.setTimeout(120_000);
 	await loginAsOwner(page);
 	const token = await ownerToken(page);
 

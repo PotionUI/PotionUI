@@ -1,13 +1,4 @@
 // @vitest-environment jsdom
-//
-// Cancel is enabled while a save is still in flight, so the user can dismiss
-// the dialog and open a fresh one without ever submitting a second time. The
-// controller's command handle and its tab/preset/mode context are identical
-// across that cancel/reopen, so nothing but an explicit dialog identity can
-// tell the two openings apart: without one, the old completion's "you may
-// close" answer closes the dialog the user just opened, and an old failure
-// writes its message into it. Driven through the real presenter so the
-// close/reopen goes through the same handlers the user's clicks reach.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('$lib/services/api/index', () => ({
@@ -77,6 +68,10 @@ function mountPill(tabId: string) {
 			target.querySelector<HTMLButtonElement>('button[aria-label="Save as a new session"]')!.click();
 		},
 		clickDialog: (text: string) => clickIn(dialog()!, text),
+		dialogButton: (text: string) =>
+			Array.from(dialog()!.querySelectorAll<HTMLButtonElement>('button')).find((el) =>
+				el.textContent?.trim().startsWith(text)
+			)!,
 		type: (value: string) => {
 			const input = document.querySelector<HTMLInputElement>('#session-save-name')!;
 			input.value = value;
@@ -99,7 +94,7 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-describe('SessionPill save dialog identity', () => {
+describe('SessionPill save dialog while a save is in flight', () => {
 	beforeEach(() => {
 		tabId = tabsStore.addTabWithData('Dialog identity tab', {
 			selectedPreset: PRESET_ID,
@@ -108,7 +103,7 @@ describe('SessionPill save dialog identity', () => {
 		vi.mocked(api.getSessionsForPreset).mockResolvedValue({ success: true, data: [] } as never);
 	});
 
-	it('does not close a save dialog reopened after the previous attempt was cancelled', async () => {
+	it('locks Cancel until the save lands, then closes the dialog', async () => {
 		const pending = deferred<unknown>();
 		vi.mocked(api.saveSession).mockReturnValue(pending.promise as never);
 
@@ -122,22 +117,18 @@ describe('SessionPill save dialog identity', () => {
 		mounted.clickDialog('Save');
 		await settle();
 
+		expect(mounted.dialogButton('Cancel').disabled).toBe(true);
 		mounted.clickDialog('Cancel');
-		await settle();
-		expect(mounted.saveDialogOpen()).toBe(false);
-
-		// Reopened, with nothing submitted from it.
-		mounted.openSaveAs();
 		await settle();
 		expect(mounted.saveDialogOpen()).toBe(true);
 
 		pending.resolve({ success: true, data: makeSession('created', 'First attempt') });
 		await settle();
 
-		expect(mounted.saveDialogOpen()).toBe(true);
+		expect(mounted.saveDialogOpen()).toBe(false);
 	});
 
-	it('does not write a cancelled attempt failure into the reopened save dialog', async () => {
+	it('shows a rejected save in the dialog instead of closing it', async () => {
 		const pending = deferred<unknown>();
 		vi.mocked(api.saveSession).mockReturnValue(pending.promise as never);
 
@@ -151,15 +142,11 @@ describe('SessionPill save dialog identity', () => {
 		mounted.clickDialog('Save');
 		await settle();
 
-		mounted.clickDialog('Cancel');
-		await settle();
-		mounted.openSaveAs();
-		await settle();
-
 		pending.reject(new Error('server refused'));
 		await settle();
 
 		expect(mounted.saveDialogOpen()).toBe(true);
-		expect(mounted.nameError()).not.toContain('server refused');
+		expect(mounted.dialogButton('Cancel').disabled).toBe(false);
+		expect(mounted.nameError()).toContain('server refused');
 	});
 });

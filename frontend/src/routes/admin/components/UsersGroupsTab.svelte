@@ -827,7 +827,7 @@
 	}
 </script>
 
-<div class="flex h-[calc(100dvh-var(--header-h)-2rem)] min-h-[36rem] flex-col gap-4 sm:h-[calc(100dvh-var(--header-h)-3rem)]">
+<div class="flex min-h-[calc(100dvh-var(--header-h)-2rem)] flex-col gap-4 sm:min-h-[calc(100dvh-var(--header-h)-3rem)]">
 	<SegmentedControl
 		items={[
 			{ id: 'users', label: 'Users', icon: 'group', count: users.length },
@@ -880,7 +880,7 @@
 			onClear={clearUserFilters}
 		/>
 
-		<section class="flex-1 min-h-0 rounded-lg border border-line bg-surface-1 overflow-hidden">
+		<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
 			{#if loadingUsers || loadingMemberships}
 				<div class="h-full flex flex-col items-center justify-center">
 					<Spinner size="lg" />
@@ -1097,10 +1097,12 @@
 								</DetailBody>
 							{/if}
 
-							<DetailFooter dirtyCount={editUserDirty ? 1 : 0} dirtyLabel={editUserDirty ? 'Unsaved changes' : undefined}>
-								<Button variant="ghost" size="sm" disabled={!editUserDirty} onclick={discardUserEdit}>Discard</Button>
-								<Button variant="primary" size="sm" loading={editUserSaving} disabled={!editUserDirty} onclick={saveUserEdit}>Save</Button>
-							</DetailFooter>
+							{#if userDetailTab === 'overview'}
+								<DetailFooter dirtyCount={editUserDirty ? 1 : 0} dirtyLabel={editUserDirty ? 'Unsaved changes' : undefined}>
+									<Button variant="ghost" size="sm" disabled={!editUserDirty} onclick={discardUserEdit}>Discard</Button>
+									<Button variant="primary" size="sm" loading={editUserSaving} disabled={!editUserDirty} onclick={saveUserEdit}>Save</Button>
+								</DetailFooter>
+							{/if}
 						{:else}
 							<DetailEmptyState message="Select a user to view their details" icon="document" />
 						{/if}
@@ -1126,7 +1128,7 @@
 			onClear={() => (groupSearchQuery = '')}
 		/>
 
-		<section class="flex-1 min-h-0 rounded-lg border border-line bg-surface-1 overflow-hidden">
+		<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
 			{#if loadingGroups || loadingMemberships}
 				<div class="h-full flex flex-col items-center justify-center">
 					<Spinner size="lg" />
@@ -1310,10 +1312,12 @@
 								</DetailBody>
 							{/if}
 
-							<DetailFooter dirtyCount={editGroupDirty ? 1 : 0} dirtyLabel={editGroupDirty ? 'Unsaved changes' : undefined}>
-								<Button variant="ghost" size="sm" disabled={!editGroupDirty} onclick={discardGroupEdit}>Discard</Button>
-								<Button variant="primary" size="sm" loading={editGroupSaving} disabled={!editGroupDirty} onclick={saveGroupEdit}>Save</Button>
-							</DetailFooter>
+							{#if groupDetailTab === 'overview'}
+								<DetailFooter dirtyCount={editGroupDirty ? 1 : 0} dirtyLabel={editGroupDirty ? 'Unsaved changes' : undefined}>
+									<Button variant="ghost" size="sm" disabled={!editGroupDirty} onclick={discardGroupEdit}>Discard</Button>
+									<Button variant="primary" size="sm" loading={editGroupSaving} disabled={!editGroupDirty} onclick={saveGroupEdit}>Save</Button>
+								</DetailFooter>
+							{/if}
 						{:else}
 							<DetailEmptyState message="Select a group to view its details" icon="document" />
 						{/if}

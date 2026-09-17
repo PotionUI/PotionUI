@@ -84,6 +84,13 @@
 		scanning = false;
 		if (result) {
 			await refreshPluginExtensions();
+			if (selectedPluginId) {
+				const refreshed = await pluginStore.getPluginDetails(selectedPluginId);
+				if (refreshed) {
+					selectedPlugin = refreshed;
+					initSettingsValues(refreshed);
+				}
+			}
 			scanResult = result;
 			setTimeout(() => {
 				scanResult = null;

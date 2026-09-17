@@ -22,7 +22,7 @@ def build_live_resolver(allow_download: bool = False) -> ModelResolver:
 
     sha_index: dict = {}
     try:
-        for m in repo.get_all(include_providers=False, include_tags=False):
+        for m in repo.get_all(include_providers=False, include_tags=False, include_files=False):
             sha = (getattr(m, "sha256", None) or "").strip().lower()
             file_path = getattr(m, "file_path", None)
             if sha and file_path:

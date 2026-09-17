@@ -58,7 +58,9 @@ async def test_duplicate_detection_uses_normalized_flattened_text_without_pair_s
     first = make_prompt("first", "A   RED Fox", heart_count=5)
     second = make_prompt("second", "a red fox", heart_count=1)
     unrelated = make_prompt("other", "blue ocean")
-    repository.get_all.return_value = [first, second, unrelated]
+    repository.get_ids_and_text.return_value = [
+        (prompt.id, prompt.flattened_text) for prompt in (first, second, unrelated)
+    ]
     by_id = {prompt.id: prompt for prompt in (first, second, unrelated)}
     repository.get_by_ids.side_effect = lambda ids, _user_id: [by_id[item] for item in ids]
 

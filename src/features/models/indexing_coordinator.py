@@ -96,7 +96,7 @@ class ModelIndexingCoordinator:
 
     def cleanup_deleted_models(self) -> Dict[str, Any]:
         """Remove index rows whose backing file no longer exists on disk."""
-        all_models = self.model_repo.get_all(include_providers=False)
+        all_models = self.model_repo.get_all(include_providers=False, include_files=False)
         deleted_count = 0
 
         for model in all_models:

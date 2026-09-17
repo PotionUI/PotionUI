@@ -216,6 +216,7 @@ def get_model_database_options(config: Dict[str, Any]) -> List[Dict[str, Any]]:
         include_providers=include_providers,
         limit=limit,
         allowed_model_ids=allowed_model_ids,
+        include_files=False,
     )
 
     options = []

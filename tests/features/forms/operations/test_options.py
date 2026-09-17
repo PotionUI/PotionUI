@@ -79,7 +79,8 @@ class TestGetFieldOptions:
 
         assert result == []
         mock_get_all.assert_called_once_with(
-            model_type="checkpoint", include_providers=True, limit=None, allowed_model_ids=None
+            model_type="checkpoint", include_providers=True, limit=None, allowed_model_ids=None,
+            include_files=False,
         )
 
     def test_get_field_options_model_scoped_to_admin_is_unrestricted(self, wired_registry, plugin_registry):

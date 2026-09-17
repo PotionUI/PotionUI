@@ -281,7 +281,7 @@ class BackendModelIndexer:
         return CONFIDENCE_CONFLICT
 
     def _existing_by_identity(self) -> Dict[tuple, object]:
-        models = self.models.get_all(include_providers=False, include_tags=False)
+        models = self.models.get_all(include_providers=False, include_tags=False, include_files=False)
         return {(m.model_type, m.filename): m for m in models}
 
     def _same_content(self, entry: BackendModel):

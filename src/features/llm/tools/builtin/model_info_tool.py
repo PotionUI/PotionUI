@@ -126,6 +126,7 @@ class GetModelInfoTool(BaseTool):
                 search=filename, limit=1,
                 include_providers=True, include_tags=True,
                 allowed_model_ids=allowed,
+                include_files=False,
             )
             if models:
                 return ToolResult(

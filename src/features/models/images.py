@@ -65,7 +65,7 @@ async def generate_missing_thumbnails_from_videos(model_ids: Optional[List[str]]
         models = [m for m in models if m]  # Filter out None values
     else:
         # Get all models
-        models = model_repo.get_all(limit=None)
+        models = model_repo.get_all(limit=None, include_files=False)
 
     successful = 0
     failed = 0

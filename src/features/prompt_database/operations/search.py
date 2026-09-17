@@ -97,10 +97,10 @@ def _find_duplicates_by_embedding(collaborators, embeddings, user_id, threshold)
 
 def _find_duplicates_by_text(collaborators, user_id, model_id=None):
     id_groups = defaultdict(list)
-    for prompt in collaborators.repository.get_all(user_id, limit=5000, model_id=model_id):
-        key = " ".join(prompt.flattened_text.lower().split())
+    for prompt_id, flattened_text in collaborators.repository.get_ids_and_text(user_id, limit=5000, model_id=model_id):
+        key = " ".join(flattened_text.lower().split())
         if key:
-            id_groups[key].append(prompt.id)
+            id_groups[key].append(prompt_id)
     groups = [
         _build_duplicate_group(collaborators, user_id, ids, 1.0)
         for ids in id_groups.values()

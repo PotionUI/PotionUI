@@ -286,6 +286,29 @@ class TagRepository:
             """, (model_id,))
             return [self._row_to_tag(row) for row in cursor.fetchall()]
 
+    def get_model_tags_bulk(self, model_ids: List[str]) -> Dict[str, List[Tag]]:
+        result: Dict[str, List[Tag]] = {model_id: [] for model_id in model_ids}
+        if not model_ids:
+            return result
+
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            for start in range(0, len(model_ids), _SQLITE_IN_CHUNK_SIZE):
+                chunk = model_ids[start:start + _SQLITE_IN_CHUNK_SIZE]
+                placeholders = ','.join('?' * len(chunk))
+                cursor.execute(f"""
+                    SELECT t.id, t.name, t.type, t.user_id, t.created_at,
+                           mt.model_id AS _bulk_model_id
+                    FROM tags t
+                    JOIN model_tags mt ON t.id = mt.tag_id
+                    WHERE mt.model_id IN ({placeholders})
+                    ORDER BY t.name ASC
+                """, chunk)
+                for row in cursor.fetchall():
+                    result[row['_bulk_model_id']].append(self._row_to_tag(row))
+
+        return result
+
     def set_model_tags(self, model_id: str, tag_ids: List[str]) -> bool:
         """Replace all tags for a model"""
         from src.platform.database.database import db

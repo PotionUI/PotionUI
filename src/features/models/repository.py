@@ -6,6 +6,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+_SQLITE_IN_CHUNK_SIZE = 500
+
 class ModelRepository:
     def create(self, model: Model) -> Model:
         """Create a new model entry"""
@@ -165,6 +167,7 @@ class ModelRepository:
                 sort_order: str = "desc",
                 include_providers: bool = True,
                 include_tags: bool = True,
+                include_files: bool = True,
                 allowed_model_ids: Optional[List[str]] = None,
                 assignment_filter: Optional[str] = None,
                 assigned_user_id: Optional[str] = None,
@@ -342,21 +345,25 @@ class ModelRepository:
         with db.get_cursor() as cursor:
             cursor.execute(query, params)
             models = [Model.from_row(row) for row in cursor.fetchall()]
+            model_ids = [model.id for model in models]
 
-            # Load provider info, tags and files if requested
-            if include_providers or include_tags:
-                from src.features.tags.repository import tag_repo
+            if include_providers:
+                providers_by_model = self._providers_bulk(cursor, model_ids)
                 for model in models:
-                    if include_providers:
-                        model.providers = self.get_providers(model.id)
-                    if include_tags:
-                        model.tags = tag_repo.get_model_tags(model.id)
+                    model.providers = providers_by_model[model.id]
 
-            # Load associated files for all models
+            if include_files:
+                files_by_model = self._files_with_urls_bulk(cursor, model_ids)
+                for model in models:
+                    model.files = files_by_model[model.id]
+
+        if include_tags:
+            from src.features.tags.repository import tag_repo
+            tags_by_model = tag_repo.get_model_tags_bulk(model_ids)
             for model in models:
-                model.files = self._get_model_files_with_urls(model.id)
+                model.tags = tags_by_model[model.id]
 
-            return models
+        return models
 
     def update(self, model: Model) -> bool:
         """Update existing model.
@@ -954,32 +961,69 @@ class ModelRepository:
             return results
 
     def _get_model_files_with_urls(self, model_id: str) -> List[Dict[str, Any]]:
-        """Get model files with API URLs for serving"""
-        model_files = self.get_model_files(model_id)
-        files_with_urls = []
+        return [self._file_with_urls(file_data) for file_data in self.get_model_files(model_id)]
 
-        for file_data in model_files:
-            # Convert file path to API URL
-            file_url = f"/api/media/files/{file_data['file_id']}"
+    def _file_with_urls(self, file_data: Dict[str, Any]) -> Dict[str, Any]:
+        file_id = file_data['file_id']
+        return {
+            'id': file_id,
+            'file_type': file_data['file_type'],
+            'url': f"/api/media/files/{file_id}",
+            'file_size': file_data['file_size'],
+            'created_at': file_data['created_at'],
+            'thumbnail_small': f"/api/media/files/{file_id}?size=small" if file_data.get('thumbnail_small') else None,
+            'thumbnail_medium': f"/api/media/files/{file_id}?size=medium" if file_data.get('thumbnail_medium') else None,
+            'thumbnail_large': f"/api/media/files/{file_id}?size=large" if file_data.get('thumbnail_large') else None,
+            'display_order': file_data.get('display_order', 0),
+        }
 
-            # Generate thumbnail URLs if thumbnails exist
-            thumbnail_small_url = f"/api/media/files/{file_data['file_id']}?size=small" if file_data.get('thumbnail_small') else None
-            thumbnail_medium_url = f"/api/media/files/{file_data['file_id']}?size=medium" if file_data.get('thumbnail_medium') else None
-            thumbnail_large_url = f"/api/media/files/{file_data['file_id']}?size=large" if file_data.get('thumbnail_large') else None
+    def _providers_bulk(self, cursor, model_ids: List[str]) -> Dict[str, List[ModelInfo]]:
+        result: Dict[str, List[ModelInfo]] = {model_id: [] for model_id in model_ids}
+        for start in range(0, len(model_ids), _SQLITE_IN_CHUNK_SIZE):
+            chunk = model_ids[start:start + _SQLITE_IN_CHUNK_SIZE]
+            placeholders = ','.join('?' * len(chunk))
+            cursor.execute(
+                f"SELECT * FROM providers WHERE model_id IN ({placeholders}) ORDER BY model_id ASC, rowid ASC",
+                chunk,
+            )
+            for row in cursor.fetchall():
+                result[row['model_id']].append(ModelInfo.from_row(row))
+        return result
 
-            files_with_urls.append({
-                'id': file_data['file_id'],
-                'file_type': file_data['file_type'],
-                'url': file_url,
-                'file_size': file_data['file_size'],
-                'created_at': file_data['created_at'],
-                'thumbnail_small': thumbnail_small_url,
-                'thumbnail_medium': thumbnail_medium_url,
-                'thumbnail_large': thumbnail_large_url,
-                'display_order': file_data.get('display_order', 0)
-            })
+    def _model_files_bulk(self, cursor, model_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+        result: Dict[str, List[Dict[str, Any]]] = {model_id: [] for model_id in model_ids}
+        for start in range(0, len(model_ids), _SQLITE_IN_CHUNK_SIZE):
+            chunk = model_ids[start:start + _SQLITE_IN_CHUNK_SIZE]
+            placeholders = ','.join('?' * len(chunk))
+            cursor.execute(f"""
+                SELECT mf.*, f.file_path, f.file_size, f.created_at as file_created_at,
+                       f.thumbnail_small, f.thumbnail_medium, f.thumbnail_large
+                FROM model_files mf
+                JOIN files f ON mf.file_id = f.id
+                WHERE mf.model_id IN ({placeholders})
+                ORDER BY mf.model_id ASC, mf.created_at DESC, mf.rowid ASC
+            """, chunk)
+            for row in cursor.fetchall():
+                result[row['model_id']].append({
+                    'model_file_id': row['id'],
+                    'file_id': row['file_id'],
+                    'file_type': row['file_type'],
+                    'file_path': row['file_path'],
+                    'file_size': row['file_size'],
+                    'created_at': row['created_at'],
+                    'file_created_at': row['file_created_at'],
+                    'thumbnail_small': row['thumbnail_small'],
+                    'thumbnail_medium': row['thumbnail_medium'],
+                    'thumbnail_large': row['thumbnail_large'],
+                })
+        return result
 
-        return files_with_urls
+    def _files_with_urls_bulk(self, cursor, model_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+        files_by_model = self._model_files_bulk(cursor, model_ids)
+        return {
+            model_id: [self._file_with_urls(file_data) for file_data in files]
+            for model_id, files in files_by_model.items()
+        }
 
     # ===== User-Model Assignment =====
 

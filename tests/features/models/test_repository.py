@@ -1,4 +1,5 @@
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch, MagicMock
 import sys
 import os
@@ -12,7 +13,9 @@ from tests.fixtures.persistence_base import PersistenceTestBase
 from src.features.models.repository import ModelRepository
 from src.features.model_library.repository.model_collection_repository import ModelCollectionRepository
 from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
-from src.features.models.records import Model
+from src.features.models.records import Model, ModelInfo
+from src.features.tags.repository import tag_repo
+from src.platform.util.ids import generate_ulid
 
 
 class TestModelRepository(PersistenceTestBase):
@@ -34,6 +37,22 @@ class TestModelRepository(PersistenceTestBase):
             model_type=model_type,
         )
         return self.repository.create(model)
+
+    def _create_provider(self, model_id: str, provider: str = "civitai", name: str = "Provider") -> ModelInfo:
+        return self.repository.create_provider(
+            ModelInfo(model_id=model_id, provider=provider, name=name, description="desc")
+        )
+
+    def _create_model_file(self, model_id: str, file_id: str, thumbnail_small: str = None) -> None:
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO files (id, file_path, file_type, thumbnail_small) VALUES (?, ?, ?, ?)",
+                (file_id, f"/files/{file_id}.png", "image", thumbnail_small),
+            )
+            cursor.execute(
+                "INSERT INTO model_files (id, model_id, file_id, file_type) VALUES (?, ?, ?, ?)",
+                (generate_ulid(), model_id, file_id, "image"),
+            )
 
     def test_get_all_with_sorting_parameters(self):
         """Test that get_all method accepts and processes sorting parameters correctly."""
@@ -360,3 +379,99 @@ class TestModelRepository(PersistenceTestBase):
 
         self.assertEqual(removed, 0)
         self.assertIsNotNone(self.repository.get_by_id(orphan.id))
+
+    def test_get_all_bulk_hydration_matches_single_row_helpers(self):
+        model_a = self._create_model(file_path="/models/loras/a.safetensors", sha256="a" * 64)
+        model_b = self._create_model(file_path="/models/loras/b.safetensors", sha256="b" * 64)
+        model_c = self._create_model(file_path="/models/loras/c.safetensors", sha256="c" * 64)
+
+        self._create_provider(model_a.id, provider="civitai", name="A civitai")
+        self._create_provider(model_a.id, provider="huggingface", name="A hf")
+        self._create_provider(model_b.id, provider="civitai", name="B civitai")
+
+        tag_alpha = tag_repo.create_tag("alpha", type="MODEL")
+        tag_beta = tag_repo.create_tag("beta", type="MODEL")
+        tag_repo.set_model_tags(model_a.id, [tag_alpha.id, tag_beta.id])
+        tag_repo.set_model_tags(model_b.id, [tag_alpha.id])
+
+        self._create_model_file(model_a.id, "file_a1", thumbnail_small="/thumbs/a1.png")
+        self._create_model_file(model_a.id, "file_a2")
+        self._create_model_file(model_b.id, "file_b1")
+
+        results = self.repository.get_all(sort_by="filename", sort_order="asc")
+        by_id = {model.id: model for model in results}
+
+        for model in (model_a, model_b, model_c):
+            expected_providers = [p.to_dict() for p in self.repository.get_providers(model.id)]
+            expected_tags = [t.model_dump() for t in tag_repo.get_model_tags(model.id)]
+            expected_files = self.repository._get_model_files_with_urls(model.id)
+
+            actual = by_id[model.id]
+            self.assertEqual([p.to_dict() for p in actual.providers], expected_providers)
+            self.assertEqual([t.model_dump() for t in actual.tags], expected_tags)
+            self.assertEqual(actual.files, expected_files)
+
+    def test_get_all_include_files_false_skips_file_hydration(self):
+        model = self._create_model()
+        self._create_model_file(model.id, "file1")
+
+        results = self.repository.get_all(include_files=False)
+
+        self.assertEqual(results[0].files, [])
+
+    def test_get_all_bounded_cursor_count_with_all_relations(self):
+        for i in range(5):
+            model = self._create_model(file_path=f"/models/loras/m{i}.safetensors", sha256=str(i) * 64)
+            self._create_provider(model.id)
+            tag = tag_repo.create_tag(f"tag{i}", type="MODEL")
+            tag_repo.set_model_tags(model.id, [tag.id])
+            self._create_model_file(model.id, f"file{i}")
+
+        original_get_cursor = self.db.get_cursor
+        calls = {"count": 0}
+
+        @contextmanager
+        def counting_get_cursor():
+            calls["count"] += 1
+            with original_get_cursor() as cursor:
+                yield cursor
+
+        with patch.object(self.db, "get_cursor", counting_get_cursor):
+            results = self.repository.get_all(include_providers=True, include_tags=True, include_files=True)
+
+        self.assertEqual(len(results), 5)
+        self.assertLessEqual(calls["count"], 2)
+
+    def test_get_all_bounded_cursor_count_with_no_relations(self):
+        self._create_model()
+
+        original_get_cursor = self.db.get_cursor
+        calls = {"count": 0}
+
+        @contextmanager
+        def counting_get_cursor():
+            calls["count"] += 1
+            with original_get_cursor() as cursor:
+                yield cursor
+
+        with patch.object(self.db, "get_cursor", counting_get_cursor):
+            self.repository.get_all(
+                limit=None, include_providers=False, include_tags=False, include_files=False,
+            )
+
+        self.assertEqual(calls["count"], 1)
+
+    def test_bulk_helpers_chunk_over_sqlite_parameter_limit(self):
+        ids = [f"missing-{i}" for i in range(501)]
+
+        with self.db.get_cursor() as cursor:
+            providers = self.repository._providers_bulk(cursor, ids)
+            files = self.repository._model_files_bulk(cursor, ids)
+        tags = tag_repo.get_model_tags_bulk(ids)
+
+        self.assertEqual(len(providers), 501)
+        self.assertEqual(len(files), 501)
+        self.assertEqual(len(tags), 501)
+        self.assertTrue(all(value == [] for value in providers.values()))
+        self.assertTrue(all(value == [] for value in files.values()))
+        self.assertTrue(all(value == [] for value in tags.values()))

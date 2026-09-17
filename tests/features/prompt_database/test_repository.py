@@ -254,3 +254,130 @@ class TestPromptRepository(PersistenceTestBase):
         assert fetched is not None
         self.assertEqual(fetched.segments[0].prefix, "(")
         self.assertEqual(fetched.segments[0].suffix, ")")
+
+    def _create_prompt(self, *segments_content) -> Prompt:
+        return self.repository.create(
+            Prompt(
+                id=generate_ulid(),
+                user_id=self.user_1,
+                segments=[RichSegment(content=content) for content in segments_content],
+            )
+        )
+
+    def test_get_all_bulk_segments_match_single_row_helper(self):
+        multi = self._create_prompt("alpha", "beta")
+        single = self._create_prompt("gamma")
+
+        results = self.repository.get_all(user_id=self.user_1)
+        by_id = {prompt.id: prompt for prompt in results}
+
+        for prompt in (multi, single):
+            expected = self.repository.get_by_id(prompt.id, self.user_1)
+            actual = by_id[prompt.id]
+            self.assertEqual([s.model_dump() for s in actual.segments], [s.model_dump() for s in expected.segments])
+
+    def test_get_by_ids_bulk_segments_match_single_row_helper(self):
+        multi = self._create_prompt("alpha", "beta")
+        single = self._create_prompt("gamma")
+
+        results = self.repository.get_by_ids([multi.id, single.id], self.user_1)
+        by_id = {prompt.id: prompt for prompt in results}
+
+        for prompt in (multi, single):
+            expected = self.repository.get_by_id(prompt.id, self.user_1)
+            actual = by_id[prompt.id]
+            self.assertEqual([s.model_dump() for s in actual.segments], [s.model_dump() for s in expected.segments])
+
+    def test_text_search_bulk_segments_match_single_row_helper(self):
+        multi = self._create_prompt("findme alpha", "beta")
+
+        results = self.repository.text_search(self.user_1, "findme")
+        self.assertEqual(len(results), 1)
+
+        expected = self.repository.get_by_id(multi.id, self.user_1)
+        self.assertEqual(
+            [s.model_dump() for s in results[0].segments],
+            [s.model_dump() for s in expected.segments],
+        )
+
+    def test_get_all_bounded_cursor_count(self):
+        for i in range(5):
+            self._create_prompt(f"content {i}", f"more {i}")
+
+        original_get_cursor = self.db.get_cursor
+        calls = {"count": 0}
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def counting_get_cursor():
+            calls["count"] += 1
+            with original_get_cursor() as cursor:
+                yield cursor
+
+        with patch.object(self.db, "get_cursor", counting_get_cursor):
+            results = self.repository.get_all(user_id=self.user_1)
+
+        self.assertEqual(len(results), 5)
+        self.assertEqual(calls["count"], 1)
+
+    def test_get_all_bounded_select_count(self):
+        for i in range(5):
+            self._create_prompt(f"content {i}", f"more {i}")
+
+        original_get_cursor = self.db.get_cursor
+        statements = []
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def tracing_get_cursor():
+            with original_get_cursor() as cursor:
+                cursor.connection.set_trace_callback(statements.append)
+                try:
+                    yield cursor
+                finally:
+                    cursor.connection.set_trace_callback(None)
+
+        with patch.object(self.db, "get_cursor", tracing_get_cursor):
+            results = self.repository.get_all(user_id=self.user_1)
+
+        self.assertEqual(len(results), 5)
+        self.assertEqual(len(statements), 2)
+
+    def test_segments_bulk_chunks_over_sqlite_parameter_limit(self):
+        ids = [f"missing-{i}" for i in range(501)]
+
+        with self.db.get_cursor() as cursor:
+            segments = self.repository._segments_bulk(cursor, ids)
+
+        self.assertEqual(len(segments), 501)
+        self.assertTrue(all(value == [] for value in segments.values()))
+
+    def test_get_ids_and_text_returns_flattened_text_without_segments(self):
+        prompt = self._create_prompt("hello world")
+
+        rows = self.repository.get_ids_and_text(self.user_1)
+
+        self.assertIn((prompt.id, prompt.flattened_text), rows)
+
+    def test_get_ids_and_text_filters_by_model_id(self):
+        from src.features.models.repository import ModelRepository
+        from src.features.models.records import Model
+
+        models = ModelRepository()
+        model_a = models.create(Model(filename="a.safetensors", file_path="/models/a.safetensors", model_type="checkpoint"))
+        model_b = models.create(Model(filename="b.safetensors", file_path="/models/b.safetensors", model_type="checkpoint"))
+
+        matching = self.repository.create(
+            Prompt(id=generate_ulid(), user_id=self.user_1, model_id=model_a.id, segments=[RichSegment(content="x")])
+        )
+        other = self.repository.create(
+            Prompt(id=generate_ulid(), user_id=self.user_1, model_id=model_b.id, segments=[RichSegment(content="y")])
+        )
+
+        rows = self.repository.get_ids_and_text(self.user_1, model_id=model_a.id)
+
+        ids = [row[0] for row in rows]
+        self.assertIn(matching.id, ids)
+        self.assertNotIn(other.id, ids)

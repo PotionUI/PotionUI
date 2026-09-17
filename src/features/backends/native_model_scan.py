@@ -73,7 +73,7 @@ def _known_hashes() -> Dict[str, Tuple[str, Optional[int], Optional[float]]]:
         from src.features.models.repository import model_repo
 
         known = {}
-        for m in model_repo.get_all(include_providers=False, include_tags=False):
+        for m in model_repo.get_all(include_providers=False, include_tags=False, include_files=False):
             if not m.file_path or not m.sha256 or getattr(m, "is_directory", False):
                 continue
             known[m.file_path] = (

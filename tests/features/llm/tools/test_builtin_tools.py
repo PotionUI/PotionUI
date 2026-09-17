@@ -601,7 +601,7 @@ class TestGetModelInfoTool:
         repo.get_all.assert_called_once_with(
             search="sdxl.safetensors", limit=1,
             include_providers=True, include_tags=True,
-            allowed_model_ids=None,
+            allowed_model_ids=None, include_files=False,
         )
 
     @pytest.mark.asyncio

@@ -14,6 +14,8 @@ from src.platform.util.ids import generate_ulid
 
 _CHIP_MARKER = re.compile(r"#\[([^\]]+)\]|#([\w][\w.]*)")
 
+_SQLITE_IN_CHUNK_SIZE = 500
+
 
 def resolve_rich_segment_text(segment: RichSegment) -> str:
     """Resolve chip markers using their complete, persisted editor state."""
@@ -96,7 +98,7 @@ class PromptRepository:
             for row in cursor.fetchall()
         ]
 
-    def _from_row(self, cursor, row) -> Prompt:
+    def _prompt_from_row(self, row, segments: List[RichSegment]) -> Prompt:
         return Prompt(
             id=row["id"], user_id=row["user_id"], name=row["name"],
             flattened_text=row["flattened_text"] or "", usage_hint=row["usage_hint"],
@@ -109,8 +111,30 @@ class PromptRepository:
             comment_count=row["comment_count"] or 0, tags=json.loads(row["tags"] or "[]"),
             nsfw=bool(row["nsfw"]), metadata=json.loads(row["metadata"] or "{}"),
             embedded=bool(row["embedded"]), created_at=dt_column(row["created_at"]),
-            updated_at=dt_column(row["updated_at"]), segments=self._segments_for(cursor, row["id"]),
+            updated_at=dt_column(row["updated_at"]), segments=segments,
         )
+
+    def _from_row(self, cursor, row) -> Prompt:
+        return self._prompt_from_row(row, self._segments_for(cursor, row["id"]))
+
+    def _segments_bulk(self, cursor, prompt_ids: Sequence[str]) -> Dict[str, List[RichSegment]]:
+        result: Dict[str, List[RichSegment]] = {prompt_id: [] for prompt_id in prompt_ids}
+        for start in range(0, len(prompt_ids), _SQLITE_IN_CHUNK_SIZE):
+            chunk = prompt_ids[start:start + _SQLITE_IN_CHUNK_SIZE]
+            placeholders = ",".join("?" for _ in chunk)
+            cursor.execute(
+                f"SELECT * FROM prompt_segments WHERE prompt_id IN ({placeholders}) "
+                f"ORDER BY prompt_id ASC, position ASC",
+                chunk,
+            )
+            for row in cursor.fetchall():
+                result[row["prompt_id"]].append(RichSegment(
+                    id=row["id"], type=row["type"], content=row["content"] or "",
+                    chips=json.loads(row["chips"] or "{}"), enabled=bool(row["is_enabled"]),
+                    name=row["name"], color=row["color"], description=row["description"],
+                    prefix=row["prefix"], suffix=row["suffix"],
+                ))
+        return result
 
     def _insert_segments(self, cursor, prompt_id: str, segments: Sequence[RichSegment]) -> None:
         if not segments:
@@ -172,7 +196,10 @@ class PromptRepository:
                 f"SELECT * FROM prompts WHERE id IN ({placeholders}) AND user_id = ?",
                 (*ids, user_id),
             )
-            values = {row["id"]: self._from_row(cursor, row) for row in cursor.fetchall()}
+            rows = cursor.fetchall()
+            prompt_ids = [row["id"] for row in rows]
+            segments_by_prompt = self._segments_bulk(cursor, prompt_ids)
+            values = {row["id"]: self._prompt_from_row(row, segments_by_prompt[row["id"]]) for row in rows}
         return [values[prompt_id] for prompt_id in ids if prompt_id in values]
 
     def update(self, prompt_id: str, user_id: str, prompt: Prompt) -> Optional[Prompt]:
@@ -237,7 +264,22 @@ class PromptRepository:
         with db.get_cursor() as cursor:
             cursor.execute(query, (*params, limit, offset))
             rows = cursor.fetchall()
-            return [self._from_row(cursor, row) for row in rows]
+            prompt_ids = [row["id"] for row in rows]
+            segments_by_prompt = self._segments_bulk(cursor, prompt_ids)
+            return [self._prompt_from_row(row, segments_by_prompt[row["id"]]) for row in rows]
+
+    def get_ids_and_text(
+        self, user_id: str, limit: int = 5000, model_id: Optional[str] = None,
+    ) -> List[Tuple[str, str]]:
+        clauses, params = ["user_id = ?"], [user_id]
+        if model_id is not None:
+            clauses.append("model_id = ?")
+            params.append(model_id)
+        query = f"SELECT id, flattened_text FROM prompts WHERE {' AND '.join(clauses)} LIMIT ?"
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(query, (*params, limit))
+            return [(row["id"], row["flattened_text"] or "") for row in cursor.fetchall()]
 
     def text_search(
         self, user_id: str, query: str, limit: int = 20,
@@ -258,7 +300,9 @@ class PromptRepository:
                 (*params, limit),
             )
             rows = cursor.fetchall()
-            return [self._from_row(cursor, row) for row in rows]
+            prompt_ids = [row["id"] for row in rows]
+            segments_by_prompt = self._segments_bulk(cursor, prompt_ids)
+            return [self._prompt_from_row(row, segments_by_prompt[row["id"]]) for row in rows]
 
     def count(
         self, user_id: str, source_provider=None, model_id=None,

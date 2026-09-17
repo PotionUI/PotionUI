@@ -126,7 +126,7 @@ class ProviderInfoFetcher:
                 models = [self.model_repo.get_by_id(mid, include_providers=False) for mid in model_ids]
                 models = [m for m in models if m]
             elif force_refresh:
-                models = self.model_repo.get_all(include_providers=False, limit=None)
+                models = self.model_repo.get_all(include_providers=False, include_files=False, limit=None)
             else:
                 models = self.model_repo.get_models_without_provider_info(provider)
 

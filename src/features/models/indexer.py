@@ -375,7 +375,7 @@ class ModelScanner:
         # a file at that path again (the models location switched back, say), it is
         # treated as "new" and run back through index_single_model, which revives
         # the row.
-        existing_models = model_repo.get_all(include_providers=False, include_tags=False)
+        existing_models = model_repo.get_all(include_providers=False, include_tags=False, include_files=False)
         existing_paths = {
             model.file_path for model in existing_models
             if getattr(model, 'is_available', True)
@@ -524,7 +524,7 @@ class ModelScanner:
         """
         logger.info("Checking for models with missing files")
 
-        all_models = model_repo.get_all(include_providers=False)
+        all_models = model_repo.get_all(include_providers=False, include_files=False)
         marked_count = 0
 
         for model in all_models:

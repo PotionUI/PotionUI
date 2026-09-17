@@ -84,6 +84,7 @@ class ModelsResourceProvider(BaseResourceProvider):
             limit=limit,
             include_providers=True,
             include_tags=False,
+            include_files=False,
         )
         suggestions = []
         for model in models:
@@ -114,6 +115,7 @@ class ModelsResourceProvider(BaseResourceProvider):
             limit=10,
             include_providers=True,
             include_tags=False,
+            include_files=False,
         )
         if not candidates:
             return None

@@ -83,6 +83,7 @@ class ListModelsTool(BaseTool):
                 include_providers=False,
                 include_tags=True,
                 allowed_model_ids=allowed_model_ids(context),
+                include_files=False,
             )
 
             results = []

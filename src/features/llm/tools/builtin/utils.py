@@ -270,6 +270,7 @@ def lookup_model(model_index_manager: Any, model_path: str) -> Dict[str, Any]:
         models = repo.get_all(
             search=filename, limit=1,
             include_providers=True, include_tags=True,
+            include_files=False,
         )
         if models:
             return model_to_dict(

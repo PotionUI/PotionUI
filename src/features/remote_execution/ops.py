@@ -93,7 +93,7 @@ async def sync_view(
     worker_entries = {e["relative_path"]: e for e in depot["entries"]}
 
     rows = []
-    for model in model_repository.get_all(limit=None, include_providers=True, include_tags=False):
+    for model in model_repository.get_all(limit=None, include_providers=True, include_tags=False, include_files=False):
         if model.is_directory or not model.file_path:
             continue
         relative_path = _relative_path(model)

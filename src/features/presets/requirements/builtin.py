@@ -206,7 +206,7 @@ class ModelRequirementChecker:
             )
 
         matches = ctx.models.model_repo.get_all(
-            any_tag_ids=[tag.id], limit=1, include_providers=False, include_tags=False,
+            any_tag_ids=[tag.id], limit=1, include_providers=False, include_tags=False, include_files=False,
         )
         if any(m.is_available for m in matches):
             return RequirementResult(status="ok", detail=f"a model tagged '{parsed.tag}' is present")

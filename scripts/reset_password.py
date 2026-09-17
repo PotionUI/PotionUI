@@ -41,7 +41,7 @@ def main() -> int:
         print("Password must not be empty", file=sys.stderr)
         return 1
 
-    user_repo.update(user.id, password_hash=PasswordHasher().hash(password))
+    user_repo.update_password(user.id, PasswordHasher().hash(password))
     print(f"Password updated for {username} ({user.id})")
     return 0
 

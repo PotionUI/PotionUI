@@ -188,6 +188,7 @@ class ExternalLoginManager:
             email=email,
             password_hash=password_hash,
             account_type=AccountType.USER,
+            has_local_password=False,
         )
         self._assign_default_group(user)
         return user

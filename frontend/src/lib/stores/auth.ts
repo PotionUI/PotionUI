@@ -24,6 +24,7 @@ export interface User {
 	created_at: string | null;
 	last_login: string | null;
 	avatar_url: string | null;
+	has_local_password: boolean;
 }
 
 interface AuthState {

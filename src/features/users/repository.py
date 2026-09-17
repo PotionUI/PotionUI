@@ -42,7 +42,8 @@ class UserRepository:
             return [User.from_row(row) for row in cursor.fetchall()]
     
     def _insert_user(self, cursor, user_id: str, username: str, email: str,
-                     password_hash: str, account_type: AccountType) -> None:
+                     password_hash: str, account_type: AccountType,
+                     has_local_password: bool = True) -> None:
         """Insert a user row and seed its personal defaults, on the given cursor.
 
         Runs inside the caller's transaction so `create` and
@@ -52,9 +53,9 @@ class UserRepository:
         joined to the built-in groups (see `_join_builtin_groups`).
         """
         cursor.execute("""
-            INSERT INTO users (id, username, email, password_hash, account_type)
-            VALUES (?, ?, ?, ?, ?)
-        """, (user_id, username, email, password_hash, account_type.value))
+            INSERT INTO users (id, username, email, password_hash, account_type, has_local_password)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (user_id, username, email, password_hash, account_type.value, has_local_password))
 
         cursor.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='segment_categories'"
@@ -98,13 +99,14 @@ class UserRepository:
                 )
 
     def create(self, username: str, email: str, password_hash: str,
-               account_type: AccountType = AccountType.USER) -> User:
+               account_type: AccountType = AccountType.USER,
+               has_local_password: bool = True) -> User:
         """Create a new user"""
         user_id = generate_ulid()
 
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
-            self._insert_user(cursor, user_id, username, email, password_hash, account_type)
+            self._insert_user(cursor, user_id, username, email, password_hash, account_type, has_local_password)
 
         return self.get_by_id(user_id)
 
@@ -151,7 +153,7 @@ class UserRepository:
     
     def update(self, user_id: str, **kwargs) -> Optional[User]:
         """Update user fields"""
-        allowed_fields = {'username', 'email', 'password_hash', 'account_type', 'last_login', 'avatar_filename'}
+        allowed_fields = {'username', 'email', 'password_hash', 'account_type', 'last_login', 'avatar_filename', 'has_local_password'}
         update_fields = {k: v for k, v in kwargs.items() if k in allowed_fields}
         
         if not update_fields:
@@ -178,7 +180,7 @@ class UserRepository:
 
     def update_password(self, user_id: str, password_hash: str) -> Optional[User]:
         """Update user's password hash (used by the auth change-password flow)"""
-        return self.update(user_id, password_hash=password_hash)
+        return self.update(user_id, password_hash=password_hash, has_local_password=True)
     
     def delete(self, user_id: str) -> bool:
         """Delete user by ID"""

@@ -128,6 +128,7 @@ def update(
     # Prepare password update
     if password is not None:
         update_data["password_hash"] = passwords.hash(password)
+        update_data["has_local_password"] = True
 
     # Validate account type change (admin only)
     if account_type is not None:

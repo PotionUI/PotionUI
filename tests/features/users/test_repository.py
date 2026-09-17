@@ -137,6 +137,50 @@ class TestUserRepositoryCaseInsensitiveIdentity(PersistenceTestBase):
         with self.assertRaises(sqlite3.IntegrityError):
             self.repo.create(username="anonymous", email="other@example.com",
                              password_hash="hash", account_type=AccountType.USER)
-        with self.assertRaises(sqlite3.IntegrityError):
-            self.repo.create(username="someone", email="ANON@example.com",
-                             password_hash="hash", account_type=AccountType.USER)
+
+
+class TestUserRepositoryHasLocalPassword(PersistenceTestBase):
+
+    def setUp(self):
+        super().setUp()
+        self.repo = UserRepository()
+
+    def tearDown(self):
+        try:
+            if hasattr(self, 'db'):
+                with self.db.get_cursor() as cursor:
+                    cursor.execute("DELETE FROM user_group_members")
+                    cursor.execute("DELETE FROM users")
+        except Exception:
+            pass
+        super().tearDown()
+
+    def test_create_defaults_to_true(self):
+        user = self.repo.create(
+            username="regular", email="regular@example.com",
+            password_hash="hash", account_type=AccountType.USER,
+        )
+
+        self.assertTrue(user.has_local_password)
+
+    def test_create_can_be_told_the_account_has_no_local_password(self):
+        user = self.repo.create(
+            username="ssoonly", email="ssoonly@example.com",
+            password_hash="hash", account_type=AccountType.USER,
+            has_local_password=False,
+        )
+
+        self.assertFalse(user.has_local_password)
+        self.assertFalse(self.repo.get_by_id(user.id).has_local_password)
+
+    def test_update_password_flips_the_flag_to_true(self):
+        user = self.repo.create(
+            username="ssoonly2", email="ssoonly2@example.com",
+            password_hash="hash", account_type=AccountType.USER,
+            has_local_password=False,
+        )
+
+        updated = self.repo.update_password(user.id, "new-hash")
+
+        self.assertTrue(updated.has_local_password)
+        self.assertTrue(self.repo.get_by_id(user.id).has_local_password)

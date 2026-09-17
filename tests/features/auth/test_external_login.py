@@ -191,6 +191,16 @@ class TestExternalLoginManager(unittest.TestCase):
             self.identities.get(ISSUER, "sub-5").user_id, session.user.id
         )
 
+    def test_auto_created_account_has_no_local_password(self):
+        self._enable_auto_create()
+
+        session = self.manager.sign_in_external(
+            ISSUER, "sub-nolocal", {"preferred_username": "nolocal"}
+        )
+
+        self.assertFalse(session.user.has_local_password)
+        self.assertFalse(self.users.get_by_id(session.user.id).has_local_password)
+
     def test_auto_created_account_is_never_an_admin(self):
         self._enable_auto_create()
 
@@ -285,6 +295,19 @@ class TestExternalLoginManager(unittest.TestCase):
         self.assertEqual(session.user.id, existing.id)
         self.assertFalse(session.created)
         self.assertEqual(self.identities.get(ISSUER, "sub-14").user_id, existing.id)
+
+    def test_link_by_email_account_keeps_its_local_password(self):
+        self._set("external_login_link_by_email", "true")
+        existing = self._make_local_user("local", "kept@example.com")
+
+        session = self.manager.sign_in_external(
+            ISSUER,
+            "sub-keep",
+            {"email": "kept@example.com", "email_verified": True},
+        )
+
+        self.assertEqual(session.user.id, existing.id)
+        self.assertTrue(session.user.has_local_password)
 
     def test_an_unverified_email_is_never_stored_on_an_auto_created_account(self):
         self._enable_auto_create()

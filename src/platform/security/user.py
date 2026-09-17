@@ -28,6 +28,7 @@ class User:
     updated_at: Optional[datetime] = None
     last_login: Optional[datetime] = None
     avatar_filename: Optional[str] = None
+    has_local_password: bool = True
 
     @classmethod
     def from_row(cls, row) -> 'User':
@@ -42,7 +43,8 @@ class User:
             created_at=dt_column(row['created_at']),
             updated_at=dt_column(row['updated_at']),
             last_login=dt_column(row['last_login']),
-            avatar_filename=row['avatar_filename'] if 'avatar_filename' in row_keys else None
+            avatar_filename=row['avatar_filename'] if 'avatar_filename' in row_keys else None,
+            has_local_password=bool(row['has_local_password']) if 'has_local_password' in row_keys else True
         )
 
     def to_dict(self, exclude_password=True) -> dict:
@@ -55,7 +57,8 @@ class User:
             'created_at': dt_iso(self.created_at),
             'updated_at': dt_iso(self.updated_at),
             'last_login': dt_iso(self.last_login),
-            'avatar_url': f'/api/users/avatars/{self.avatar_filename}' if self.avatar_filename else None
+            'avatar_url': f'/api/users/avatars/{self.avatar_filename}' if self.avatar_filename else None,
+            'has_local_password': self.has_local_password
         }
         if not exclude_password:
             data['password_hash'] = self.password_hash

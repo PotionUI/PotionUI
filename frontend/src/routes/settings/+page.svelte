@@ -8,6 +8,7 @@
 	import { notifications } from '$lib/stores/notifications';
 	import type { NotificationTypePref } from '$lib/services/api/notifications';
 	import { Badge, Button, Card, Input, PageContainer, PageHeader, Spinner, Switch, Alert } from '$lib/components/ui';
+	import Icon from '$lib/components/Icon.svelte';
 	import MediaLoaderField from '$lib/components/form-fields/MediaLoaderField.svelte';
 	import { resolveAvatarFileFromMediaItem } from './avatarMediaPick';
 	import { validatePasswordChange, type PasswordChangeErrors } from '$lib/utils/passwordValidation';
@@ -17,6 +18,7 @@
 	import { toasts } from '$lib/stores/toast';
 
 	$: user = $authStore.user;
+	$: hasLocalPassword = user?.has_local_password ?? true;
 
 	// Unwraps the backend's error_response() detail shape (see auth store) so
 	// 400/429 responses surface their real message instead of "[object Object]".
@@ -413,6 +415,17 @@
 		{#if user}
 			<Card>
 				<h2 class="label mb-3">Password</h2>
+				{#if !hasLocalPassword}
+					<div class="rounded-lg border border-line bg-surface-2 p-4">
+						<div class="flex items-start gap-3">
+							<Icon name="info" className="mt-0.5 h-4 w-4 flex-shrink-0 text-fg-subtle" />
+							<div class="min-w-0 flex-1">
+								<p class="text-sm font-medium text-fg">Password managed by your identity provider</p>
+								<p class="mt-1 text-sm leading-relaxed text-fg-muted">This account signs in through single sign-on, so there is no PotionUI password to change. An administrator can set one if you also need to sign in with a username and password.</p>
+							</div>
+						</div>
+					</div>
+				{:else}
 				<form on:submit={handleChangePassword} class="space-y-3">
 					<div>
 						<label for="current-password" class="label">Current password</label>
@@ -476,6 +489,7 @@
 						Change password
 					</Button>
 				</form>
+				{/if}
 			</Card>
 		{/if}
 

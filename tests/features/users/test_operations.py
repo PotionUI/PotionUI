@@ -288,6 +288,15 @@ class TestUpdate:
         mock_password_hasher.hash.assert_called_once_with("new_password")
         mock_user_repository.update.assert_called_once()
 
+    def test_update_password_flips_has_local_password_true(self, mock_user_repository, mock_password_hasher, mock_plugin_registry, sample_user):
+        mock_user_repository.get_by_id.return_value = sample_user
+        mock_user_repository.update.return_value = sample_user
+
+        operations.update(mock_user_repository, mock_password_hasher, mock_plugin_registry, "user-123", password="new_password")
+
+        _, kwargs = mock_user_repository.update.call_args
+        assert kwargs["has_local_password"] is True
+
     def test_update_account_type_as_admin(self, mock_user_repository, mock_password_hasher, mock_plugin_registry, sample_user, sample_admin):
         """Should allow admin to update account type."""
         mock_user_repository.get_by_id.return_value = sample_user

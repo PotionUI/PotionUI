@@ -294,6 +294,14 @@ class TestAuthController:
         assert result.data["username"] == sample_user.username
         assert result.data["email"] == sample_user.email
 
+    @pytest.mark.asyncio
+    async def test_get_me_carries_has_local_password(self, auth_controller, sample_user):
+        sample_user.has_local_password = False
+
+        result = await auth_controller.get_me(sample_user)
+
+        assert result.data["has_local_password"] is False
+
     # get_current_user dependency tests
 
     @pytest.mark.asyncio

@@ -1125,6 +1125,7 @@ def build_container() -> AppContainer:
         storage_driver=storage_driver,
         attribute_definition_repository=attribute_definition_repository,
         user_attribute_repository=user_model_attribute_repository,
+        backend_registry=backend_registry,
     )
 
     # Model library components (favorites/custom names + model collections)

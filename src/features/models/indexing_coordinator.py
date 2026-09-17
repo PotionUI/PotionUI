@@ -7,12 +7,16 @@ plugin hooks around them, and prunes index rows whose files have vanished.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from src.features.models.exceptions import ModelIndexingException
 from src.platform.plugins.hooks import execute_hook
 from src.features.models.hooks import MODEL_INDEX_HOOKS
 from src.features.models.indexer import ModelScanner
+from src.features.models.native_availability_reconciler import (
+    NativeAvailabilityReconciler,
+    native_availability_reconciler as _default_native_availability_reconciler,
+)
 from src.features.models.repository import ModelRepository
 from src.platform.plugins import PluginRegistry
 
@@ -27,10 +31,16 @@ class ModelIndexingCoordinator:
         model_repository: ModelRepository,
         plugin_registry: PluginRegistry,
         scanner: ModelScanner,
+        backend_registry: Optional[Any] = None,
+        native_availability_reconciler: Optional[NativeAvailabilityReconciler] = None,
     ):
         self.model_repo = model_repository
         self.plugins = plugin_registry
         self.scanner = scanner
+        self.backend_registry = backend_registry
+        self.native_availability_reconciler = (
+            native_availability_reconciler or _default_native_availability_reconciler
+        )
 
     def start_indexing(self) -> Dict[str, Any]:
         """Announce a background index run, letting a plugin veto it first.
@@ -67,6 +77,17 @@ class ModelIndexingCoordinator:
             )
         except Exception as e:
             logger.error(f"Error during background indexing: {e}")
+            return
+
+        self._reconcile_native_availability()
+
+    def _reconcile_native_availability(self) -> None:
+        from src.features.recipes.executors._async_bridge import run_sync
+
+        try:
+            run_sync(self.native_availability_reconciler.reconcile(self.backend_registry))
+        except Exception as e:
+            logger.warning(f"Error reconciling native availability after indexing: {e}")
 
     def count_unindexed(self) -> Dict[str, Any]:
         """Cheap directory-walk + DB diff: how many files on disk await indexing,

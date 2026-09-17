@@ -1,6 +1,8 @@
 """`models.index` executor against a fake ModelScanner (no real filesystem
 scan or DB needed)."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 from src.features.recipes.executors.base import StepContext
 from src.features.recipes.executors.models_index import ModelsIndexExecutor
 from src.features.recipes.schema import Recipe, RecipeStep
@@ -129,3 +131,38 @@ def test_scanner_without_progress_support_still_works():
 
     assert result.success is True
     assert result.safe_output["indexed"] == 1
+
+
+# --- native availability reconcile -----------------------------------
+
+
+def test_reconciles_native_availability_after_a_successful_scan():
+    """The scanner only writes `models` rows - once a native backend has
+    been indexed, a model with no availability row is invisible on Generate
+    (see native_availability_reconciler.py). The step must re-run it."""
+    scanner = FakeScanner(result={"indexed": 1, "skipped": 0, "failed": 0, "total": 1})
+    reconciler = MagicMock()
+    reconciler.reconcile = AsyncMock()
+    backend_registry = MagicMock()
+    executor = ModelsIndexExecutor(
+        scanner, backend_registry=backend_registry, native_availability_reconciler=reconciler
+    )
+
+    result = executor.execute(_context())
+
+    assert result.success is True
+    reconciler.reconcile.assert_awaited_once_with(backend_registry)
+
+
+def test_reconcile_failure_does_not_fail_the_step():
+    """The scan already succeeded and its files are already on disk - a
+    reconcile hiccup must not turn that into a failed step."""
+    scanner = FakeScanner(result={"indexed": 1, "skipped": 0, "failed": 0, "total": 1})
+    reconciler = MagicMock()
+    reconciler.reconcile = AsyncMock(side_effect=RuntimeError("boom"))
+    executor = ModelsIndexExecutor(scanner, native_availability_reconciler=reconciler)
+
+    result = executor.execute(_context())
+
+    assert result.success is True
+    reconciler.reconcile.assert_awaited_once()

@@ -174,6 +174,18 @@ them:
 Native indexing yields verified identity. ComfyUI indexing yields hearsay — a claim by a server
 about its own disk, true when it was made.
 
+### Automatic reconcile (local native only)
+
+A few callers write `models` rows a different way — the filesystem `ModelScanner` (recipes'
+`models.index` step, the admin reindex action, a provider download-and-index job) and a local
+download completing on this host's disk — without going through a backend's own `list_models`.
+`src.features.models.native_availability_reconciler.NativeAvailabilityReconciler` re-indexes
+every enabled local native backend right after each of those, so `model_availability` never
+falls behind `models`. It never runs for `native.remote` or `comfyui` backends — those already
+reconcile themselves on their own completion path (a remote-destination download re-indexes its
+destination backend; a plugin backend reconciles however it chooses) — and it never raises: the
+scan or download that triggered it has already succeeded.
+
 ### Digest conflicts (native only)
 
 Remote execution mounts the model depot at the same path on a worker as on the dispatcher, so a

@@ -37,6 +37,7 @@ from src.platform.settings.repository import SettingRepository
 from src.platform.settings.settings import Settings
 
 if TYPE_CHECKING:
+    from src.features.backends.backend_registry import BackendRegistry
     from src.features.downloads import DownloadQueue
 
 
@@ -69,6 +70,7 @@ def build_model_index_collaborators(
     storage_driver: Optional[FileStorageDriver] = None,
     attribute_definition_repository: Optional[AttributeDefinitionRepository] = None,
     user_attribute_repository: Optional[UserModelAttributeRepository] = None,
+    backend_registry: Optional["BackendRegistry"] = None,
 ) -> ModelIndexCollaborators:
     """Build the eight role objects and bundle them - the constructor logic
     the old `ModelIndexManager.__init__` owned."""
@@ -84,7 +86,9 @@ def build_model_index_collaborators(
         plugins=plugin_registry,
         access=access,
         catalog=ModelCatalog(model_repository, access, model_scanner, user_attribute_repository),
-        indexing=ModelIndexingCoordinator(model_repository, plugin_registry, model_scanner),
+        indexing=ModelIndexingCoordinator(
+            model_repository, plugin_registry, model_scanner, backend_registry=backend_registry
+        ),
         metadata=metadata,
         provider_info=ProviderInfoFetcher(
             model_repository, plugin_registry,
@@ -92,7 +96,10 @@ def build_model_index_collaborators(
             storage_driver=storage_driver,
         ),
         assignments=ModelAssignmentService(model_repository, plugin_registry, access),
-        jobs=ModelJobs(model_repository, plugin_registry, model_scanner, download_queue),
+        jobs=ModelJobs(
+            model_repository, plugin_registry, model_scanner, download_queue,
+            backend_registry=backend_registry,
+        ),
         location=ModelsRelocator(
             models_root or Path(model_scanner.models_dir),
             SettingRepository(),

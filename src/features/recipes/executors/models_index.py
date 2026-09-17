@@ -22,9 +22,14 @@ library doesn't turn into one DB write per file.
 
 from __future__ import annotations
 
+import logging
 import time
+from typing import Optional
 
+from src.features.recipes.executors._async_bridge import run_sync
 from src.features.recipes.executors.base import StepContext, StepResult
+
+logger = logging.getLogger(__name__)
 
 # Once-a-second throttle for progress writes - `index_single_model` reports
 # per completed file, which for a huge library would otherwise be one DB
@@ -33,12 +38,20 @@ _PROGRESS_MIN_INTERVAL_SECONDS = 1.0
 
 
 class ModelsIndexExecutor:
-    def __init__(self, model_scanner=None):
+    def __init__(self, model_scanner=None, backend_registry: Optional[object] = None, native_availability_reconciler=None):
         if model_scanner is None:
             from src.features.models.indexer import model_scanner as _default_scanner
 
             model_scanner = _default_scanner
         self.model_scanner = model_scanner
+        self.backend_registry = backend_registry
+        if native_availability_reconciler is None:
+            from src.features.models.native_availability_reconciler import (
+                native_availability_reconciler as _default_reconciler,
+            )
+
+            native_availability_reconciler = _default_reconciler
+        self.native_availability_reconciler = native_availability_reconciler
 
     def execute(self, context: StepContext) -> StepResult:
         set_progress_callback = getattr(self.model_scanner, "set_progress_callback", None)
@@ -56,6 +69,11 @@ class ModelsIndexExecutor:
         finally:
             if callable(set_progress_callback):
                 set_progress_callback(None)
+
+        try:
+            run_sync(self.native_availability_reconciler.reconcile(self.backend_registry))
+        except Exception as exc:
+            logger.warning(f"models.index: native availability reconcile failed: {exc}")
 
         return StepResult.ok(
             {

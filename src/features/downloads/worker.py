@@ -445,6 +445,8 @@ class DownloadWorker:
 
                 if is_remote:
                     await self._index_remote_backend(download)
+                else:
+                    await self._reconcile_local_native_availability()
 
         except asyncio.CancelledError:
             # Download was cancelled
@@ -869,6 +871,13 @@ class DownloadWorker:
                 download.id, DownloadStatus.COMPLETED,
                 f"Downloaded, but the catalog could not be refreshed automatically: {exc}",
             )
+
+    async def _reconcile_local_native_availability(self) -> None:
+        from src.features.models.native_availability_reconciler import (
+            native_availability_reconciler,
+        )
+
+        await native_availability_reconciler.reconcile(self.backend_registry)
 
     # ========== Group aggregation ==========
 

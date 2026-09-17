@@ -17,11 +17,16 @@ from src.features.models.exceptions import ModelDownloadException
 from src.platform.plugins.hooks import execute_hook
 from src.features.models.hooks import MODEL_INDEX_HOOKS
 from src.features.models.indexer import ModelScanner
+from src.features.models.native_availability_reconciler import (
+    NativeAvailabilityReconciler,
+    native_availability_reconciler as _default_native_availability_reconciler,
+)
 from src.features.models.repository import ModelRepository
 from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
 from src.platform.plugins import PluginRegistry
 
 if TYPE_CHECKING:
+    from src.features.backends.backend_registry import BackendRegistry
     from src.features.downloads import DownloadQueue
 
 logger = logging.getLogger(__name__)
@@ -90,11 +95,17 @@ class ModelJobs:
         plugin_registry: PluginRegistry,
         scanner: ModelScanner,
         download_queue: "DownloadQueue",
+        backend_registry: Optional["BackendRegistry"] = None,
+        native_availability_reconciler: Optional[NativeAvailabilityReconciler] = None,
     ):
         self.model_repo = model_repository
         self.plugins = plugin_registry
         self.scanner = scanner
         self.downloads = download_queue
+        self.backend_registry = backend_registry
+        self.native_availability_reconciler = (
+            native_availability_reconciler or _default_native_availability_reconciler
+        )
 
     def start_thumbnail_generation(
         self,
@@ -228,6 +239,7 @@ class ModelJobs:
             model = self.scanner.index_single_model(str(file_path), model_type, file_size)
 
             if model:
+                await self.native_availability_reconciler.reconcile(self.backend_registry)
                 logger.info(f"Successfully downloaded and indexed {name}")
                 execute_hook(
                     self.plugins,

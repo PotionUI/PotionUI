@@ -516,6 +516,8 @@ def spawn_backend(
         str(instance.port),
         "--log-level",
         "info",
+        "--timeout-keep-alive",
+        "120",
     ]
     stage_log("subprocess-boot", f"Launching backend: {' '.join(cmd)} (cwd={repo_root})")
     stage_log("subprocess-boot", f"Backend log: {log_path}")

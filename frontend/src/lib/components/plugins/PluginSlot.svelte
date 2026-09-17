@@ -171,10 +171,10 @@
 {:else if loadedComponents.length > 0}
 	<div class="plugin-slot" data-hook={hookName} data-position={position}>
 		{#each loadedComponents as { hook, component }}
-			<div class="plugin-component" data-plugin={hook.plugin_id}>
+			<div class="plugin-component" class:inline-action={tooltips} data-plugin={hook.plugin_id}>
 				<!-- Svelte component (dynamically loaded) -->
 				{#if component.type === 'svelte-component'}
-					<div class="svelte-component-container">
+					<div class="svelte-component-container" class:inline-action={tooltips}>
 						{#if tooltips && hook.label}
 							<Tooltip text={hook.label}>
 								<svelte:component this={component.component} {context} {hookName} pluginId={hook.plugin_id} />
@@ -235,6 +235,11 @@
 	.plugin-slot {
 		display: flex;
 		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.inline-action {
+		display: flex;
 		align-items: center;
 	}
 

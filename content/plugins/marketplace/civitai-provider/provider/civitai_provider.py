@@ -9,6 +9,7 @@ import asyncio
 import aiohttp
 import logging
 import time
+from html.parser import HTMLParser
 from typing import Any, Dict, List, Optional
 
 from src.plugin_api import (
@@ -24,6 +25,51 @@ from src.plugin_api import (
 )
 
 logger = logging.getLogger(__name__)
+
+_BLOCK_TAGS = {'p', 'div', 'li', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'tr'}
+
+
+class _HTMLTextExtractor(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._parts: List[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in _BLOCK_TAGS:
+            self._parts.append('\n')
+
+    def handle_endtag(self, tag):
+        if tag in _BLOCK_TAGS:
+            self._parts.append('\n')
+
+    def handle_data(self, data):
+        self._parts.append(data)
+
+    def text(self) -> str:
+        lines = [line.strip() for line in ''.join(self._parts).splitlines()]
+        collapsed: List[str] = []
+        blank = True
+        for line in lines:
+            if line:
+                collapsed.append(line)
+                blank = False
+            elif not blank:
+                collapsed.append('')
+                blank = True
+        while collapsed and collapsed[-1] == '':
+            collapsed.pop()
+        while collapsed and collapsed[0] == '':
+            collapsed.pop(0)
+        return '\n'.join(collapsed)
+
+
+def _html_to_text(raw_html: Optional[str]) -> Optional[str]:
+    if not raw_html:
+        return raw_html
+    parser = _HTMLTextExtractor()
+    parser.feed(raw_html)
+    parser.close()
+    return parser.text() or None
 
 
 class CivitaiProvider(MarketplaceProviderBase):
@@ -151,10 +197,14 @@ class CivitaiProvider(MarketplaceProviderBase):
         try:
             logger.debug(f"Fetching CivitAI data for hash: {sha256}")
 
+            info: Optional[ProviderModelInfo] = None
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 if response.status == 200:
                     data = await response.json()
-                    return self._parse_model_version_response(data)
+                    if self._matching_file(data.get('files', []), sha256) is None:
+                        logger.debug(f"CivitAI by-hash response for {sha256} has no matching file")
+                        return None
+                    info = self._parse_model_version_response(data)
 
                 elif response.status == 404:
                     logger.debug(f"Model not found on CivitAI for hash: {sha256}")
@@ -172,10 +222,37 @@ class CivitaiProvider(MarketplaceProviderBase):
                     logger.warning(f"CivitAI API error {response.status}: {error_text}")
                     return None
 
+            if info is not None:
+                await self._enrich_model_details(info)
+            return info
+
         except asyncio.TimeoutError:
             raise ProviderConnectionError(f"Timeout fetching CivitAI data for hash: {sha256}")
         except aiohttp.ClientError as e:
             raise ProviderConnectionError(f"Connection error: {e}")
+
+    async def _enrich_model_details(self, info: ProviderModelInfo) -> None:
+        if not info.provider_model_id:
+            return
+        try:
+            model_data = await self._validate_model_id(info.provider_model_id)
+            if not model_data:
+                return
+
+            version_text = _html_to_text(info.description)
+            model_text = _html_to_text(model_data.get('description'))
+            info.description = version_text or model_text
+
+            model_tags = model_data.get('tags') or []
+            merged: List[str] = []
+            seen = set()
+            for tag in list(model_tags) + list(info.tags):
+                if tag not in seen:
+                    seen.add(tag)
+                    merged.append(tag)
+            info.tags = merged
+        except Exception as e:
+            logger.debug(f"CivitAI model-details enrichment failed for model {info.provider_model_id}: {e}")
 
     async def search_models(
         self,

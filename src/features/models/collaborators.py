@@ -73,6 +73,11 @@ def build_model_index_collaborators(
     """Build the eight role objects and bundle them - the constructor logic
     the old `ModelIndexManager.__init__` owned."""
     access = ModelAccessPolicy(model_repository)
+    metadata = ModelMetadataEditor(
+        model_repository, tag_repository, plugin_registry, settings,
+        storage_driver=storage_driver,
+        attribute_definition_repository=attribute_definition_repository,
+    )
     return ModelIndexCollaborators(
         model_repo=model_repository,
         tag_repo=tag_repository,
@@ -80,12 +85,12 @@ def build_model_index_collaborators(
         access=access,
         catalog=ModelCatalog(model_repository, access, model_scanner, user_attribute_repository),
         indexing=ModelIndexingCoordinator(model_repository, plugin_registry, model_scanner),
-        metadata=ModelMetadataEditor(
-            model_repository, tag_repository, plugin_registry, settings,
+        metadata=metadata,
+        provider_info=ProviderInfoFetcher(
+            model_repository, plugin_registry,
+            metadata_editor=metadata,
             storage_driver=storage_driver,
-            attribute_definition_repository=attribute_definition_repository,
         ),
-        provider_info=ProviderInfoFetcher(model_repository, plugin_registry),
         assignments=ModelAssignmentService(model_repository, plugin_registry, access),
         jobs=ModelJobs(model_repository, plugin_registry, model_scanner, download_queue),
         location=ModelsRelocator(

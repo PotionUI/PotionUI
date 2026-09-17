@@ -298,7 +298,10 @@ What core does with it:
   when it is off (the default). A created account is always an ordinary `USER`, never an
   admin, gets the configured default group, and takes its username from
   `preferred_username`, then the email's local part, then `sub` — normalized to the
-  username policy and de-duplicated against existing accounts.
+  username policy and de-duplicated against existing accounts. The account keeps
+  `claims["email"]` only when `claims["email_verified"]` is true; otherwise it gets a
+  placeholder address, so an unverified address can never be squatted and later matched by
+  **Link by verified email**.
 
 The session that comes back is the same one the password login issues, minted by the same
 code path.
@@ -844,6 +847,24 @@ other plugin frontend component. A tool scoped to `library` still receives the s
 `generationIds`/`generations` are empty there since a library item carries no generation.
 
 Disabling the plugin removes its tools from `GET /api/plugins/history-tools` immediately.
+
+## Contributing a model card action
+
+Admin -> Models cards can carry a plugin-contributed icon button, alongside the built-in
+assign/remove actions. Declare it under `contributions:` in `manifest.yml`:
+
+```yaml
+contributions:
+  - slot: "admin.models.card.actions"
+    component: "MyModelAction.svelte"
+    order: 100
+```
+
+It's mounted via `<PluginSlot hookName="admin.models.card.actions" context={{ model }}>` in
+`ModelCard.svelte`'s management-actions row, so your component receives the card's `model`
+object (as returned by `GET /api/models`) through its `context` prop - full payload in
+`GET /api/plugins/hooks/catalog`. The slot only renders in the admin management-actions
+context (`showManagementActions`), never on the Library/Generate model pickers.
 
 ## Contributing modes to an existing preset
 

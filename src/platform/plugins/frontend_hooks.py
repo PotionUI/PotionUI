@@ -110,7 +110,7 @@ RENDERER_HOOKS = hooks_registry.declare(
 # extension slots.
 EXTENSION_SLOT_HOOKS = hooks_registry.declare(
     "slot", "frontend",
-    "admin.tabs", "nav.primary", "generation.panel.modes",
+    "admin.tabs", "nav.primary", "generation.panel.modes", "admin.models.card.actions",
     specs={
         "admin.tabs": {
             "description": "Populated by a manifest's `contributions: [{slot: 'admin.tabs', component, label, order, require_role}]` entries. Read via `contributionsForSlot('admin.tabs')` and rendered as extra tabs in frontend/src/routes/admin/+page.svelte, alongside the core admin tabs.",
@@ -143,6 +143,13 @@ EXTENSION_SLOT_HOOKS = hooks_registry.declare(
                 "component": {"type": "string", "description": "Component asset path mounted in the drawer"},
             },
             "use_when": ["Adding a custom drawer/mode to the generation panel, alongside history/chat/settings"],
+        },
+        "admin.models.card.actions": {
+            "description": "Populated by a manifest's `contributions: [{slot: 'admin.models.card.actions', component, order}]` entries. Mounted via `<PluginSlot hookName=\"admin.models.card.actions\" context={{ model }}>` in ModelCard.svelte, inside the management-actions icon row (Admin -> Models cards only, next to the built-in assign/remove buttons) - unlike admin.tabs/nav.primary, each mounted component gets a live `context` payload rather than rendering from the static contribution fields alone.",
+            "payload": {
+                "model": {"type": "object", "description": "The model object for this card, as returned by GET /api/models"},
+            },
+            "use_when": ["Adding a per-model icon action to the Admin -> Models card, e.g. fetching provider metadata for that model"],
         },
     },
 )

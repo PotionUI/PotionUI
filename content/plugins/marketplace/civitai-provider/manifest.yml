@@ -24,6 +24,11 @@ hooks:
       position: "top-right"
       order: 100
 
+contributions:
+  - slot: "admin.models.card.actions"
+    component: "FetchCivitaiInfoButton.js"
+    order: 100
+
 settings:
   - name: "api_key"
     type: "string"

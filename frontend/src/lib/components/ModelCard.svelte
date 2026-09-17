@@ -12,6 +12,7 @@
 	} from '$lib/utils/modelPresentation';
 	import Icon from './Icon.svelte';
 	import FavoriteButton from './FavoriteButton.svelte';
+	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
 
 	export let model: any;
@@ -225,6 +226,9 @@
 			{#if !selectable}
 				<div class="absolute top-2 right-2 z-40 flex items-center gap-1">
 					{#if showManagementActions}
+						<PluginSlot hookName="admin.models.card.actions" context={{ model }}>
+							<svelte:fragment slot="loading" />
+						</PluginSlot>
 						<button
 							class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
 							on:click={handleAssignClick}

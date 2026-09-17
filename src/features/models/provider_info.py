@@ -1,16 +1,43 @@
 """Fetches marketplace metadata for indexed models via the provider registry."""
 
 import logging
-from typing import Any, Dict, List, Optional
+import uuid
+from pathlib import PurePosixPath
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 from src.features.models.exceptions import ProviderFetchException
 from src.platform.plugins.hooks import execute_hook
 from src.features.models.hooks import MODEL_INDEX_HOOKS
+from src.features.models.metadata_editor import ModelMetadataEditor
 from src.features.models.records import ModelInfo
 from src.features.models.repository import ModelRepository
+from src.platform.filesystem.storage_driver import FileStorageDriver, LocalFileStorageDriver
 from src.platform.plugins import PluginRegistry
 
 logger = logging.getLogger(__name__)
+
+MAX_PROVIDER_PREVIEW_MEDIA = 10
+
+_PREVIEW_MEDIA_TIMEOUT_SECONDS = 30
+_PREVIEW_MEDIA_MAX_BYTES = 25 * 1024 * 1024
+
+_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.bmp'}
+_VIDEO_EXTENSIONS = {'.mp4', '.webm', '.mov', '.m4v'}
+_DEFAULT_EXTENSION = {'image': '.jpg', 'video': '.mp4', 'audio': '.mp3'}
+
+
+def _infer_preview_type(url: str, content_type: Optional[str]) -> Optional[str]:
+    suffix = PurePosixPath(urlparse(url).path).suffix.lower()
+    if suffix in _IMAGE_EXTENSIONS:
+        return 'image'
+    if suffix in _VIDEO_EXTENSIONS:
+        return 'video'
+    if content_type:
+        head = content_type.split('/', 1)[0].strip().lower()
+        if head in ('image', 'video', 'audio'):
+            return head
+    return None
 
 
 class ProviderInfoFetcher:
@@ -20,9 +47,17 @@ class ProviderInfoFetcher:
     to resolve each model's hash to marketplace metadata and stores the result.
     """
 
-    def __init__(self, model_repository: ModelRepository, plugin_registry: PluginRegistry):
+    def __init__(
+        self,
+        model_repository: ModelRepository,
+        plugin_registry: PluginRegistry,
+        metadata_editor: Optional[ModelMetadataEditor] = None,
+        storage_driver: Optional[FileStorageDriver] = None,
+    ):
         self.model_repo = model_repository
         self.plugins = plugin_registry
+        self.metadata_editor = metadata_editor
+        self.storage_driver = storage_driver
 
     def fetch_provider_info(
         self,
@@ -129,6 +164,12 @@ class ProviderInfoFetcher:
                         )
                         self.model_repo.upsert_provider(model.id, db_model_info)
                         successful += 1
+                        if model_info.description and not model.description:
+                            self.model_repo.update_description(model.id, model_info.description)
+                        if model_info.media_urls:
+                            await self._attach_provider_previews(
+                                model.id, model_info.media_urls
+                            )
                     else:
                         failed += 1
                 except Exception as e:
@@ -149,3 +190,73 @@ class ProviderInfoFetcher:
 
         except Exception as e:
             logger.error(f"Error during background provider fetch: {e}")
+
+    def _resolve_storage_driver(self) -> Optional[FileStorageDriver]:
+        if self.storage_driver is not None:
+            return self.storage_driver
+        if self.metadata_editor is not None:
+            return LocalFileStorageDriver(self.metadata_editor.settings.get_file_storage_directory())
+        return None
+
+    async def _attach_provider_previews(
+        self, model_id: str, media_urls: List[str]
+    ) -> None:
+        if self.metadata_editor is None:
+            return
+        driver = self._resolve_storage_driver()
+        if driver is None:
+            return
+
+        if self.metadata_editor.list_model_previews(model_id):
+            return
+
+        for url in media_urls[:MAX_PROVIDER_PREVIEW_MEDIA]:
+            try:
+                await self._store_preview_from_url(model_id, url, driver)
+            except Exception as e:
+                logger.warning(f"Failed to store preview media for model {model_id} from {url}: {e}")
+
+    async def _store_preview_from_url(self, model_id: str, url: str, driver: FileStorageDriver) -> None:
+        fetched = await self._fetch_media_bytes(url)
+        if fetched is None:
+            return
+        data, content_type = fetched
+
+        media_type = _infer_preview_type(url, content_type)
+        if media_type is None:
+            logger.debug(f"Could not determine media type for preview URL {url}, skipping")
+            return
+
+        suffix = PurePosixPath(urlparse(url).path).suffix.lower()
+        if suffix not in _IMAGE_EXTENSIONS and suffix not in _VIDEO_EXTENSIONS:
+            suffix = _DEFAULT_EXTENSION.get(media_type, '')
+
+        key = f"models/previews/{model_id}/{uuid.uuid4().hex}{suffix}"
+        driver.put_bytes(key, data)
+        self.metadata_editor.add_model_preview(model_id, {'source_path': key, 'type': media_type})
+
+    async def _fetch_media_bytes(self, url: str) -> Optional[Tuple[bytes, Optional[str]]]:
+        import aiohttp
+
+        timeout = aiohttp.ClientTimeout(total=_PREVIEW_MEDIA_TIMEOUT_SECONDS)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    logger.debug(f"Preview media fetch got HTTP {response.status} for {url}")
+                    return None
+
+                content_length = response.headers.get('Content-Length')
+                if content_length and int(content_length) > _PREVIEW_MEDIA_MAX_BYTES:
+                    logger.debug(f"Preview media at {url} exceeds size cap, skipping")
+                    return None
+
+                chunks = []
+                total = 0
+                async for chunk in response.content.iter_chunked(65536):
+                    total += len(chunk)
+                    if total > _PREVIEW_MEDIA_MAX_BYTES:
+                        logger.debug(f"Preview media at {url} exceeded size cap mid-stream, skipping")
+                        return None
+                    chunks.append(chunk)
+
+                return b''.join(chunks), response.headers.get('Content-Type')

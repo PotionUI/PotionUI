@@ -23,6 +23,7 @@
 	$: ({ error: storeError } = $authStore);
 
 	$: sessionExpired = $page.url.searchParams.get('expired') === '1';
+	$: externalLoginFailed = $page.url.searchParams.get('error') === 'external_login';
 
 	$: showRegisterLink = shouldShowRegisterLink(setupStatus);
 
@@ -82,6 +83,12 @@
 
 	{#if sessionExpired}
 		<Alert variant="warning" class="mt-6">Your session has expired. Please sign in again.</Alert>
+	{/if}
+
+	{#if externalLoginFailed}
+		<Alert variant="danger" class="mt-6">
+			Single sign-on did not complete. Your account may not be allowed to sign in here yet. Ask an administrator.
+		</Alert>
 	{/if}
 
 	{#if error || storeError}

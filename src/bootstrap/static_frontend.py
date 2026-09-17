@@ -21,6 +21,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
+from starlette.middleware.gzip import GZipMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,15 @@ FRONTEND_BUILD_DIR = Path(__file__).resolve().parents[2] / "frontend" / "build"
 # websockets). A 404 under one of these stays a JSON 404 - never
 # index.html, which an API client can't tell apart from a real failure.
 _RESERVED_FIRST_SEGMENTS = ("api", "ws", "docs", "redoc", "openapi.json", "health")
+
+_IMMUTABLE_PREFIX = "_app/immutable/"
+_IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
+_REVALIDATE_CACHE = "no-cache"
+_COMPRESSIBLE_SUFFIXES = frozenset(
+    {".html", ".js", ".mjs", ".css", ".json", ".map", ".svg", ".txt", ".xml", ".webmanifest", ".wasm"}
+)
+_COMPRESS_MINIMUM_SIZE = 1000
+_COMPRESS_LEVEL = 6
 
 
 class _SpaFallback:
@@ -71,9 +81,17 @@ class _SpaFallback:
         # which os.path.join/resolve would otherwise walk out with.
         candidate = (self.build_dir / path).resolve()
         if path and candidate.is_file() and candidate.is_relative_to(self.resolved_build_dir):
-            response = FileResponse(candidate)
+            served = candidate
+            cache_control = _IMMUTABLE_CACHE if path.startswith(_IMMUTABLE_PREFIX) else _REVALIDATE_CACHE
         else:
-            response = FileResponse(self.index_file)
+            served = self.index_file
+            cache_control = _REVALIDATE_CACHE
+
+        response = FileResponse(served, headers={"Cache-Control": cache_control})
+        if served.suffix.lower() in _COMPRESSIBLE_SUFFIXES:
+            response = GZipMiddleware(
+                response, minimum_size=_COMPRESS_MINIMUM_SIZE, compresslevel=_COMPRESS_LEVEL
+            )
         await response(scope, receive, send)
 
 

@@ -166,3 +166,73 @@ def test_wrong_method_on_a_real_api_route_is_still_a_405(build_dir):
     resp = client.post("/api/keybindings/", follow_redirects=False)
 
     assert resp.status_code == 405
+
+
+def _big_js(build_dir: Path) -> None:
+    (build_dir / "_app" / "immutable" / "big.js").write_text("console.log('payload');\n" * 400)
+
+
+def test_hashed_assets_are_compressed_and_cached_forever(build_dir):
+    _big_js(build_dir)
+    app = _app_with_api_route()
+    mount_frontend(app, build_dir=build_dir)
+    client = TestClient(app)
+
+    resp = client.get("/_app/immutable/big.js", headers={"Accept-Encoding": "gzip"})
+
+    assert resp.status_code == 200
+    assert resp.headers["content-encoding"] == "gzip"
+    assert resp.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert "Accept-Encoding" in resp.headers["vary"]
+    assert resp.text.startswith("console.log('payload');")
+
+
+def test_a_client_that_does_not_accept_gzip_gets_the_plain_file(build_dir):
+    _big_js(build_dir)
+    app = _app_with_api_route()
+    mount_frontend(app, build_dir=build_dir)
+    client = TestClient(app)
+
+    resp = client.get("/_app/immutable/big.js", headers={"Accept-Encoding": "identity"})
+
+    assert resp.status_code == 200
+    assert "content-encoding" not in resp.headers
+    assert resp.text.startswith("console.log('payload');")
+
+
+def test_the_spa_shell_is_compressed_and_always_revalidated(build_dir):
+    (build_dir / "index.html").write_text("<html><body>SPA shell" + " " * 2000 + "</body></html>")
+    app = _app_with_api_route()
+    mount_frontend(app, build_dir=build_dir)
+    client = TestClient(app)
+
+    resp = client.get("/history", headers={"Accept-Encoding": "gzip"})
+
+    assert resp.status_code == 200
+    assert resp.headers["content-encoding"] == "gzip"
+    assert resp.headers["cache-control"] == "no-cache"
+    assert "SPA shell" in resp.text
+
+
+def test_unhashed_files_are_revalidated_not_cached_forever(build_dir):
+    (build_dir / "service-worker.js").write_text("self.addEventListener('install', () => {});")
+    app = _app_with_api_route()
+    mount_frontend(app, build_dir=build_dir)
+    client = TestClient(app)
+
+    resp = client.get("/service-worker.js")
+
+    assert resp.status_code == 200
+    assert resp.headers["cache-control"] == "no-cache"
+
+
+def test_already_compressed_media_is_not_gzipped(build_dir):
+    (build_dir / "logo.png").write_bytes(b"\x89PNG" + b"0" * 4000)
+    app = _app_with_api_route()
+    mount_frontend(app, build_dir=build_dir)
+    client = TestClient(app)
+
+    resp = client.get("/logo.png", headers={"Accept-Encoding": "gzip"})
+
+    assert resp.status_code == 200
+    assert "content-encoding" not in resp.headers

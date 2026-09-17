@@ -12,6 +12,8 @@ export interface ProviderInfo {
 	download_url?: string;
 	created_at?: string;
 	updated_at?: string;
+	page_url?: string | null;
+	provider_label?: string;
 }
 
 export interface Tag {

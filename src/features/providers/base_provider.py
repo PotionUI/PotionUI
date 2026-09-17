@@ -507,6 +507,11 @@ class MarketplaceProviderBase(ABC):
         """
         return False
 
+    def get_model_page_url(
+        self, provider_model_id: Optional[str], provider_version_id: Optional[str] = None
+    ) -> Optional[str]:
+        return None
+
     async def prepare_download(self, session, url: str, headers: Dict[str, str]) -> str:
         """
         Resolve the final URL to fetch for a download, applying whatever

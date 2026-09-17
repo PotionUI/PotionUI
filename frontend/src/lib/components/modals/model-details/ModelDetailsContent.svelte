@@ -24,6 +24,7 @@
 	import ModelFilesCard from './ModelFilesCard.svelte';
 	import ModelTechnicalDetailsCard from './ModelTechnicalDetailsCard.svelte';
 	import ModelAvailabilityCard from './ModelAvailabilityCard.svelte';
+	import ModelMirrorsCard from './ModelMirrorsCard.svelte';
 	import type { ModelDetailsCapabilities, ModelSummary, AdminModelDetails } from './modelDetailsController';
 	import type { ModelAvailabilityResponse } from '$lib/types/models';
 	import type { ModelPreviewMedia } from '$lib/utils/modelPreview';
@@ -172,6 +173,10 @@
 
 			{#if model}
 				<ModelInfoCard modelId={model.id} modelType={model.model_type} createdAt={model.created_at} />
+			{/if}
+
+			{#if capabilities.canViewMirrors && adminModel}
+				<ModelMirrorsCard providers={adminModel.providers} />
 			{/if}
 
 			{#if capabilities.canViewOperationalDetails && adminModel}

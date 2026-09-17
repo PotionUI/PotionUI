@@ -35,7 +35,8 @@ const RAW_MODEL = {
 	indexed_at: '2026-01-02T00:00:00Z',
 	updated_at: '2026-01-03T00:00:00Z',
 	prompting_guidance: 'write it like this',
-	is_directory: false
+	is_directory: false,
+	providers: [{ provider: 'x-provider', provider_model_id: '1', page_url: 'https://x.example/1', provider_label: 'X' }]
 };
 
 describe('resolveModelDetailsCapabilities', () => {
@@ -47,6 +48,7 @@ describe('resolveModelDetailsCapabilities', () => {
 		expect(admin.canViewAvailability).toBe(true);
 		expect(admin.canManagePreviewGallery).toBe(true);
 		expect(admin.canManageLibrary).toBe(false);
+		expect(admin.canViewMirrors).toBe(true);
 	});
 
 	it('grants only library actions to the library scope', () => {
@@ -57,6 +59,7 @@ describe('resolveModelDetailsCapabilities', () => {
 		expect(library.canViewAvailability).toBe(false);
 		expect(library.canManagePreviewGallery).toBe(false);
 		expect(library.canManageLibrary).toBe(true);
+		expect(library.canViewMirrors).toBe(false);
 	});
 });
 
@@ -97,7 +100,8 @@ describe('toAdminModelDetails', () => {
 			indexed_at: '2026-01-02T00:00:00Z',
 			updated_at: '2026-01-03T00:00:00Z',
 			prompting_guidance: 'write it like this',
-			is_directory: false
+			is_directory: false,
+			providers: [{ provider: 'x-provider', provider_model_id: '1', page_url: 'https://x.example/1', provider_label: 'X' }]
 		});
 	});
 
@@ -109,5 +113,6 @@ describe('toAdminModelDetails', () => {
 		expect(admin.indexed_at).toBeNull();
 		expect(admin.prompting_guidance).toBeNull();
 		expect(admin.is_directory).toBe(false);
+		expect(admin.providers).toEqual([]);
 	});
 });

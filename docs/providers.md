@@ -88,6 +88,12 @@ The methods that matter: `initialize(settings)`, `get_model_by_hash(sha256)`,
 `search_models(...)`, `get_download_url(...)`, `get_download_headers()`,
 `test_connection()`, and `get_settings_schema()`.
 
+Override `get_model_page_url(provider_model_id, provider_version_id)` to return this
+provider's own web page for a model — pure string construction, no network call. It
+backs the "Mirrors" section on a model's admin details page (`GET /api/models/{id}`
+resolves it per match at read time); the default returns `None`, and a non-`http(s)`
+result is dropped.
+
 ## Where providers are used
 
 - `operations.fetch_provider_info` / `run_provider_fetch`

@@ -9,7 +9,7 @@ import {
 	type ModelPreviewMedia,
 	type ModelPreviewMediaItem
 } from '$lib/utils/modelPreview';
-import type { ModelAvailabilityResponse } from '$lib/types/models';
+import type { ModelAvailabilityResponse, ProviderInfo } from '$lib/types/models';
 
 export type ModelDetailsScope = 'library' | 'admin';
 
@@ -32,6 +32,7 @@ export interface ModelDetailsCapabilities {
 	canViewAvailability: boolean;
 	/** The admin's own multi-item preview upload/reorder gallery. */
 	canManagePreviewGallery: boolean;
+	canViewMirrors: boolean;
 	/** Assign this model directly to users/groups. The endpoints 403 for non-admins. */
 }
 
@@ -45,6 +46,7 @@ export function resolveModelDetailsCapabilities(scope: ModelDetailsScope): Model
 			canViewOperationalDetails: true,
 			canViewAvailability: true,
 			canManagePreviewGallery: true,
+			canViewMirrors: true,
 		};
 	}
 	return {
@@ -55,6 +57,7 @@ export function resolveModelDetailsCapabilities(scope: ModelDetailsScope): Model
 		canViewOperationalDetails: false,
 		canViewAvailability: false,
 		canManagePreviewGallery: false,
+		canViewMirrors: false,
 	};
 }
 
@@ -87,6 +90,7 @@ export interface AdminModelDetails extends ModelSummary {
 	updated_at: string | null;
 	prompting_guidance: string | null;
 	is_directory: boolean;
+	providers: ProviderInfo[];
 }
 
 /**
@@ -125,7 +129,8 @@ export function toAdminModelDetails(raw: any): AdminModelDetails {
 		indexed_at: raw.indexed_at ?? null,
 		updated_at: raw.updated_at ?? null,
 		prompting_guidance: raw.prompting_guidance ?? null,
-		is_directory: !!raw.is_directory
+		is_directory: !!raw.is_directory,
+		providers: raw.providers ?? []
 	};
 }
 

@@ -8,6 +8,7 @@ from pathlib import Path
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from src.features.models.access_policy import ModelAccessPolicy
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
@@ -296,14 +297,30 @@ class ModelCatalog:
         caller's actual per-user state.
         """
         model = self.model_repo.get_by_id(
-            model_id, include_providers=False, library_user_id=user.id if user else None
+            model_id, include_providers=admin, library_user_id=user.id if user else None
         )
         if not model:
             raise ModelNotFoundException(f"Model '{model_id}' not found")
 
-        data = model.to_dict(include_providers=False, admin=admin)
+        data = model.to_dict(include_providers=admin, admin=admin)
         data["user_model_metadata"] = self.user_attributes.get_map(user.id, model_id) if user else {}
+        self._attach_provider_mirrors(data, model.providers)
         return {"model": data}
+
+    def _attach_provider_mirrors(self, data: Dict[str, Any], providers: List) -> None:
+        entries = data.get("providers")
+        if not entries:
+            return
+
+        from src.features.providers.registry import get_provider_registry
+
+        registry = get_provider_registry()
+        for entry, info in zip(entries, providers):
+            provider = registry.get_provider(info.provider)
+            page_url = provider.get_model_page_url(info.provider_model_id, info.provider_version_id) if provider else None
+            parsed = urlparse(page_url) if page_url else None
+            entry["provider_label"] = provider.provider_name if provider else info.provider
+            entry["page_url"] = page_url if parsed and parsed.scheme in ("http", "https") else None
 
     def get_model_generations(
         self,

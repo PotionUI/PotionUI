@@ -12,6 +12,8 @@
 		loading = false,
 		disabled = false,
 		href,
+		target,
+		rel,
 		type = 'button',
 		class: className = '',
 		onclick,
@@ -25,6 +27,8 @@
 		loading?: boolean;
 		disabled?: boolean;
 		href?: string;
+		target?: string;
+		rel?: string;
 		type?: 'button' | 'submit';
 		class?: string;
 		onclick?: (e: MouseEvent) => void;
@@ -61,7 +65,7 @@
 </script>
 
 {#if href && !isDisabled}
-	<a {href} class={classes} {title} role="button">
+	<a {href} {target} {rel} class={classes} {title} role="button">
 		{#if icon}<Icon name={icon} className={iconSizeClasses[size]} />{/if}
 		{@render children?.()}
 	</a>

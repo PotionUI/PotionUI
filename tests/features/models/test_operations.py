@@ -382,6 +382,90 @@ class TestGetModel:
             await operations.get_model_by_id(collaborators, 'nonexistent-id')
 
 
+class TestGetModelProviderMirrors:
+    """`get_model_by_id` enriches each providers[] entry with page_url/provider_label."""
+
+    def _mock_provider_info(self, provider='civitai-provider', provider_model_id='101055', provider_version_id='126601'):
+        info = Mock()
+        info.provider = provider
+        info.provider_model_id = provider_model_id
+        info.provider_version_id = provider_version_id
+        return info
+
+    async def test_registered_provider_with_http_url_gets_page_url_and_label(
+        self, collaborators, mock_model_repository
+    ):
+        mock_model = Mock()
+        mock_model.id = 'test-id'
+        mock_model.providers = [self._mock_provider_info()]
+        mock_model.to_dict.return_value = {
+            'id': 'test-id',
+            'providers': [
+                {'provider': 'civitai-provider', 'provider_model_id': '101055', 'provider_version_id': '126601'}
+            ],
+        }
+        mock_model_repository.get_by_id.return_value = mock_model
+
+        mock_provider = Mock()
+        mock_provider.provider_name = 'CivitAI'
+        mock_provider.get_model_page_url.return_value = 'https://civitai.com/models/101055?modelVersionId=126601'
+        mock_registry = Mock()
+        mock_registry.get_provider.return_value = mock_provider
+
+        with patch('src.features.providers.registry.get_provider_registry', return_value=mock_registry):
+            result = await operations.get_model_by_id(collaborators, 'test-id', admin=True)
+
+        entry = result['model']['providers'][0]
+        assert entry['page_url'] == 'https://civitai.com/models/101055?modelVersionId=126601'
+        assert entry['provider_label'] == 'CivitAI'
+        mock_provider.get_model_page_url.assert_called_once_with('101055', '126601')
+
+    async def test_unregistered_provider_falls_back_to_raw_id_and_null_url(
+        self, collaborators, mock_model_repository
+    ):
+        mock_model = Mock()
+        mock_model.id = 'test-id'
+        mock_model.providers = [self._mock_provider_info(provider='ghost-provider')]
+        mock_model.to_dict.return_value = {
+            'id': 'test-id',
+            'providers': [{'provider': 'ghost-provider', 'provider_model_id': '1', 'provider_version_id': None}],
+        }
+        mock_model_repository.get_by_id.return_value = mock_model
+
+        mock_registry = Mock()
+        mock_registry.get_provider.return_value = None
+
+        with patch('src.features.providers.registry.get_provider_registry', return_value=mock_registry):
+            result = await operations.get_model_by_id(collaborators, 'test-id', admin=True)
+
+        entry = result['model']['providers'][0]
+        assert entry['page_url'] is None
+        assert entry['provider_label'] == 'ghost-provider'
+
+    async def test_non_http_url_is_dropped(self, collaborators, mock_model_repository):
+        mock_model = Mock()
+        mock_model.id = 'test-id'
+        mock_model.providers = [self._mock_provider_info()]
+        mock_model.to_dict.return_value = {
+            'id': 'test-id',
+            'providers': [
+                {'provider': 'civitai-provider', 'provider_model_id': '101055', 'provider_version_id': None}
+            ],
+        }
+        mock_model_repository.get_by_id.return_value = mock_model
+
+        mock_provider = Mock()
+        mock_provider.provider_name = 'CivitAI'
+        mock_provider.get_model_page_url.return_value = 'civitai://models/101055'
+        mock_registry = Mock()
+        mock_registry.get_provider.return_value = mock_provider
+
+        with patch('src.features.providers.registry.get_provider_registry', return_value=mock_registry):
+            result = await operations.get_model_by_id(collaborators, 'test-id', admin=True)
+
+        assert result['model']['providers'][0]['page_url'] is None
+
+
 class TestGetModelByHash:
     """Tests for get_model_by_hash method."""
 
@@ -1075,3 +1159,14 @@ class TestGenerationsCarryTheirTags:
         mock_tag_repo.get_generation_tags.assert_called_once_with('gen-1')
         assert generation.tags == [tag]
         assert generation.to_dict.call_args.kwargs == {'include_files': True, 'include_tags': True}
+
+    async def test_non_admin_detail_read_carries_no_provider_data(self, collaborators, mock_model_repository):
+        mock_model = Mock()
+        mock_model.id = 'test-id'
+        mock_model.to_dict.return_value = {'id': 'test-id'}
+        mock_model_repository.get_by_id.return_value = mock_model
+
+        result = await operations.get_model_by_id(collaborators, 'test-id')
+
+        assert 'providers' not in result['model']
+        mock_model.to_dict.assert_called_once_with(include_providers=False, admin=False)

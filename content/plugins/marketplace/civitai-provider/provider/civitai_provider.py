@@ -821,6 +821,14 @@ class CivitaiProvider(MarketplaceProviderBase):
         """CivitAI owns civitai.com downloads."""
         return 'civitai.com' in url
 
+    def get_model_page_url(self, provider_model_id: Optional[str], provider_version_id: Optional[str] = None) -> Optional[str]:
+        if not provider_model_id:
+            return None
+        url = f"https://civitai.com/models/{provider_model_id}"
+        if provider_version_id:
+            url += f"?modelVersionId={provider_version_id}"
+        return url
+
     async def prepare_download(self, session, url: str, headers: Dict[str, str]) -> str:
         """
         Resolve a CivitAI download to the pre-signed CDN URL the worker

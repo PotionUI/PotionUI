@@ -62,7 +62,6 @@
     style:opacity={fetching ? 1 : undefined}
     disabled={fetching}
     aria-label="Fetch CivitAI data"
-    title="Fetch CivitAI data"
   >
     {#if fetching}
       <svg class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">

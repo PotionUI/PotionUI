@@ -13,6 +13,7 @@
 	import Icon from './Icon.svelte';
 	import FavoriteButton from './FavoriteButton.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
+	import Tooltip from './Tooltip.svelte';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
 
 	export let model: any;
@@ -227,23 +228,27 @@
 			{#if !selectable}
 				<div class="absolute top-2 right-2 z-40 flex items-center gap-1">
 					{#if showManagementActions}
-						<PluginSlot hookName="admin.models.card.actions" context={{ model, refresh: () => dispatch('refresh', model) }}>
+						<PluginSlot hookName="admin.models.card.actions" tooltips context={{ model, refresh: () => dispatch('refresh', model) }}>
 							<svelte:fragment slot="loading" />
 						</PluginSlot>
-						<button
-							class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
-							on:click={handleAssignClick}
-							aria-label="Assign access"
-						>
-							<Icon name="group" className="h-3.5 w-3.5" />
-						</button>
-						<button
-							class="bg-black/60 hover:bg-danger-solid text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
-							on:click={handleDeleteClick}
-							aria-label="Remove model"
-						>
-							<Icon name="trash" className="h-3.5 w-3.5" />
-						</button>
+						<Tooltip text="Assign access">
+							<button
+								class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
+								on:click={handleAssignClick}
+								aria-label="Assign access"
+							>
+								<Icon name="group" className="h-3.5 w-3.5" />
+							</button>
+						</Tooltip>
+						<Tooltip text="Remove model">
+							<button
+								class="bg-black/60 hover:bg-danger-solid text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
+								on:click={handleDeleteClick}
+								aria-label="Remove model"
+							>
+								<Icon name="trash" className="h-3.5 w-3.5" />
+							</button>
+						</Tooltip>
 					{:else}
 						<div
 							class="bg-black/60 hover:bg-black/80 rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 flex items-center {isFavorite
@@ -252,13 +257,15 @@
 						>
 							<FavoriteButton active={isFavorite} tone="onMedia" onToggle={toggleFavorite} />
 						</div>
-						<button
-							class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
-							on:click={handleViewClick}
-							aria-label="View model details"
-						>
-							<Icon name="eyes" className="h-3.5 w-3.5" />
-						</button>
+						<Tooltip text="View model details">
+							<button
+								class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
+								on:click={handleViewClick}
+								aria-label="View model details"
+							>
+								<Icon name="eyes" className="h-3.5 w-3.5" />
+							</button>
+						</Tooltip>
 					{/if}
 				</div>
 			{/if}
@@ -267,26 +274,32 @@
 			<div
 				class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent pt-10 pb-2 px-2.5 z-20"
 			>
-				<h4 class="text-sm font-semibold text-white truncate" title={displayName}>
-					{displayName}
-				</h4>
+				<Tooltip text={displayName} wrapperClass="block min-w-0">
+					<h4 class="text-sm font-semibold text-white truncate">
+						{displayName}
+					</h4>
+				</Tooltip>
 				{#if filenameStem}
-					<p class="truncate font-mono text-2xs text-white/65" title={model.filename}>
-						File · {filenameStem}
-					</p>
+					<Tooltip text={model.filename} wrapperClass="block min-w-0">
+						<p class="truncate font-mono text-2xs text-white/65">
+							File · {filenameStem}
+						</p>
+					</Tooltip>
 				{/if}
 				<div class="mt-1 flex min-w-0 items-center gap-1 overflow-hidden">
 					{#if unassigned}
-						<span
-							class="flex-shrink-0 rounded bg-warning/25 px-1.5 py-0.5 text-2xs font-medium text-warning backdrop-blur-sm"
-							title="Only admins can see this — assign users or groups"
-						>Unassigned</span>
+						<Tooltip text="Only admins can see this — assign users or groups" wrapperClass="inline-flex flex-shrink-0 items-center">
+							<span
+								class="flex-shrink-0 rounded bg-warning/25 px-1.5 py-0.5 text-2xs font-medium text-warning backdrop-blur-sm"
+							>Unassigned</span>
+						</Tooltip>
 					{/if}
 					{#each summaryParts as part, index}
-						<span
-							class="max-w-[7rem] flex-shrink truncate rounded bg-black/35 px-1.5 py-0.5 text-2xs text-white/80 backdrop-blur-sm"
-							title={index === 0 ? typePresentation.purpose : part}
-						>{part}</span>
+						<Tooltip text={index === 0 ? typePresentation.purpose : part} wrapperClass="inline-flex min-w-0 flex-shrink items-center">
+							<span
+								class="max-w-[7rem] flex-shrink truncate rounded bg-black/35 px-1.5 py-0.5 text-2xs text-white/80 backdrop-blur-sm"
+							>{part}</span>
+						</Tooltip>
 					{/each}
 					{#if showTechnical && model.file_size}
 						<span class="flex-shrink-0 rounded bg-black/35 px-1.5 py-0.5 font-mono text-2xs text-white/65">
@@ -296,17 +309,20 @@
 				</div>
 				{#if showTechnical && hasKnownAvailability}
 					{#if backendIds.length > 0}
-						<span
-							class="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-2xs font-mono text-white/80 bg-white/10"
-							title={`Available on: ${backendNamesList.join(', ')}`}
-						>
-							<Icon name="database" className="w-3 h-3" />
-							{backendIds.length} backend{backendIds.length === 1 ? '' : 's'}
-						</span>
+						<Tooltip text={`Available on: ${backendNamesList.join(', ')}`}>
+							<span
+								class="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-2xs font-mono text-white/80 bg-white/10"
+							>
+								<Icon name="database" className="w-3 h-3" />
+								{backendIds.length} backend{backendIds.length === 1 ? '' : 's'}
+							</span>
+						</Tooltip>
 					{:else}
-						<span class="inline-flex items-center gap-1 mt-1 text-2xs font-mono text-white/50" title="No indexed backend can currently load this model">
-							No backend
-						</span>
+						<Tooltip text="No indexed backend can currently load this model">
+							<span class="inline-flex items-center gap-1 mt-1 text-2xs font-mono text-white/50">
+								No backend
+							</span>
+						</Tooltip>
 					{/if}
 				{/if}
 			</div>

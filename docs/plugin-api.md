@@ -889,6 +889,9 @@ object (as returned by `GET /api/models`) through its `context` prop - full payl
 `GET /api/plugins/hooks/catalog`. The slot only renders in the admin management-actions
 context (`showManagementActions`), never on the Library/Generate model pickers.
 
+Give the contribution a `label`: the host wraps your component in the app's tooltip with that
+text, so your button must not set a native `title`.
+
 `context.refresh()` reloads the list in place after your action changed the model, so the
 card re-renders with the new previews, tags or description. For provider metadata,
 `POST /api/models/info/fetch` with `wait: true` and explicit `model_ids` runs the fetch before

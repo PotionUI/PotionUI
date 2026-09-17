@@ -5,11 +5,13 @@
 	import { api } from '$lib/services/api/index';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 	import { contributionsForSlot, type SlotContribution } from '$lib/extensions/extensionSlots';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 
 	// Props
 	export let hookName: string;
 	export let position: string | undefined = undefined;
 	export let context: Record<string, any> = {};
+	export let tooltips = false;
 
 	// State for loaded components
 	let loadedComponents: {
@@ -28,7 +30,8 @@
 			hook_type: 'frontend',
 			component_path: c.component,
 			position: undefined,
-			sort_order: c.order
+			sort_order: c.order,
+			label: c.label ?? undefined
 		};
 	}
 
@@ -172,7 +175,13 @@
 				<!-- Svelte component (dynamically loaded) -->
 				{#if component.type === 'svelte-component'}
 					<div class="svelte-component-container">
-						<svelte:component this={component.component} {context} {hookName} pluginId={hook.plugin_id} />
+						{#if tooltips && hook.label}
+							<Tooltip text={hook.label}>
+								<svelte:component this={component.component} {context} {hookName} pluginId={hook.plugin_id} />
+							</Tooltip>
+						{:else}
+							<svelte:component this={component.component} {context} {hookName} pluginId={hook.plugin_id} />
+						{/if}
 					</div>
 				{:else if component.type === 'action-button'}
 					<!-- For action buttons/simple components -->

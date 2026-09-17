@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { get } from 'svelte/store';
-import { tabsStore } from './tabs';
+import { tabsStore, activeTab } from './tabs';
 import { TABS_STORAGE_KEY } from '$lib/types/tabs';
 import {
 	setGenerationOutputs,
@@ -49,6 +49,154 @@ describe('tabsStore tab ids', () => {
 		expect(tab?.selectedPreset).toBe('native/SDXL/realistic');
 		expect(tab?.formData).toEqual({ steps: 30, seed: 123 });
 		expect(tab?.promptSegments).toEqual([{ id: 's1', content: 'a cat' }]);
+	});
+});
+
+describe('tabsStore notification fan-out', () => {
+	beforeEach(() => tabsStore.reset());
+
+	function countNotifications(store: { subscribe(run: (value: unknown) => void): () => void }) {
+		let count = 0;
+		const unsubscribe = store.subscribe(() => {
+			count++;
+		});
+		count = 0; // discard the synchronous call every subscribe() issues
+		return { get count() { return count; }, unsubscribe };
+	}
+
+	it('a no-op updateTab notifies neither tabsStore nor activeTab', () => {
+		const tab = get(tabsStore).tabs[0];
+		const root = countNotifications(tabsStore);
+		const active = countNotifications(activeTab);
+
+		tabsStore.updateTab(tab.id, { name: tab.name });
+
+		expect(root.count).toBe(0);
+		expect(active.count).toBe(0);
+		root.unsubscribe();
+		active.unsubscribe();
+	});
+
+	it('a background tab progress update notifies tabsStore but not activeTab', () => {
+		tabsStore.addTab();
+		const state = get(tabsStore);
+		const backgroundTab = state.tabs.find((t) => t.id !== state.activeTabId)!;
+		const root = countNotifications(tabsStore);
+		const active = countNotifications(activeTab);
+
+		tabsStore.updateTab(backgroundTab.id, {
+			generation: { ...backgroundTab.generation, isGenerating: true }
+		});
+
+		expect(root.count).toBe(1);
+		expect(active.count).toBe(0);
+		root.unsubscribe();
+		active.unsubscribe();
+	});
+
+	it('an active tab progress update notifies both tabsStore and activeTab', () => {
+		const state = get(tabsStore);
+		const activeTabData = state.tabs.find((t) => t.id === state.activeTabId)!;
+		const root = countNotifications(tabsStore);
+		const active = countNotifications(activeTab);
+
+		tabsStore.updateTab(activeTabData.id, {
+			generation: { ...activeTabData.generation, isGenerating: true }
+		});
+
+		expect(root.count).toBe(1);
+		expect(active.count).toBe(1);
+		root.unsubscribe();
+		active.unsubscribe();
+	});
+});
+
+describe('tabsStore persistence scheduling', () => {
+	beforeEach(() => {
+		const store = new Map<string, string>();
+		(globalThis as any).localStorage = {
+			getItem: (key: string) => store.get(key) ?? null,
+			setItem: (key: string, value: string) => void store.set(key, value),
+			removeItem: (key: string) => void store.delete(key),
+			clear: () => store.clear()
+		};
+		vi.useFakeTimers();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.doUnmock('$app/environment');
+		vi.resetModules();
+	});
+
+	async function freshBrowserTabsStore() {
+		vi.doMock('$app/environment', () => ({ browser: true }));
+		vi.resetModules();
+		const { tabsStore: freshTabsStore } = await import('./tabs');
+		const setItemSpy = vi.spyOn(localStorage, 'setItem');
+		vi.advanceTimersByTime(500);
+		setItemSpy.mockClear();
+		return { freshTabsStore, setItemSpy };
+	}
+
+	it('does not write to localStorage for a progress-only update', async () => {
+		const { freshTabsStore, setItemSpy } = await freshBrowserTabsStore();
+		const tab = get(freshTabsStore).tabs[0];
+
+		freshTabsStore.updateTab(tab.id, {
+			generation: { ...tab.generation, isGenerating: true, currentProgress: { percent: 10 } as never }
+		});
+		vi.advanceTimersByTime(600);
+
+		expect(setItemSpy).not.toHaveBeenCalled();
+	});
+
+	it('writes once for a persisted-field change', async () => {
+		const { freshTabsStore, setItemSpy } = await freshBrowserTabsStore();
+		const tab = get(freshTabsStore).tabs[0];
+
+		freshTabsStore.updateTab(tab.id, { name: 'Renamed' });
+		vi.advanceTimersByTime(600);
+
+		expect(setItemSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it('a burst of progress ticks does not delay a real change past its own debounce window', async () => {
+		const { freshTabsStore, setItemSpy } = await freshBrowserTabsStore();
+		const tab = get(freshTabsStore).tabs[0];
+
+		freshTabsStore.updateTab(tab.id, { name: 'Renamed' });
+		for (let i = 0; i < 10; i++) {
+			vi.advanceTimersByTime(100);
+			const live = get(freshTabsStore).tabs[0];
+			freshTabsStore.updateTab(tab.id, {
+				generation: { ...live.generation, currentProgress: { percent: i } as never }
+			});
+		}
+		vi.advanceTimersByTime(600);
+
+		expect(setItemSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it('still writes once on tab close and once on reorder', async () => {
+		const { freshTabsStore, setItemSpy } = await freshBrowserTabsStore();
+		freshTabsStore.addTab();
+		vi.advanceTimersByTime(600);
+		setItemSpy.mockClear();
+
+		const second = get(freshTabsStore).tabs[1];
+		freshTabsStore.removeTab(second.id);
+		vi.advanceTimersByTime(600);
+		expect(setItemSpy).toHaveBeenCalledTimes(1);
+		setItemSpy.mockClear();
+
+		freshTabsStore.addTab();
+		vi.advanceTimersByTime(600);
+		setItemSpy.mockClear();
+		const tabs = get(freshTabsStore).tabs;
+		freshTabsStore.reorderTabs(tabs[1].id, tabs[0].id, 'left');
+		vi.advanceTimersByTime(600);
+		expect(setItemSpy).toHaveBeenCalledTimes(1);
 	});
 });
 

@@ -1663,6 +1663,56 @@ describe('createSessionController', () => {
 	});
 });
 
+describe('createSessionController session derivation fan-out', () => {
+	it('does not derive for a progress-only tab change', async () => {
+		await bootWithDirtySession();
+		let notifications = 0;
+		const unsub = controller.state.subscribe(() => {
+			notifications++;
+		});
+		notifications = 0;
+
+		harness.tabs.edit({
+			generation: { ...harness.tabs.tab.generation, isGenerating: true, currentProgress: { percent: 42 } as never }
+		});
+		await settle();
+
+		expect(notifications).toBe(0);
+		unsub();
+	});
+
+	it('does derive when the live draft itself changes', async () => {
+		await bootWithDirtySession();
+		let notifications = 0;
+		const unsub = controller.state.subscribe(() => {
+			notifications++;
+		});
+		notifications = 0;
+
+		harness.tabs.edit(draft('a different edit'));
+		await settle();
+
+		expect(notifications).toBeGreaterThan(0);
+		unsub();
+	});
+
+	it('a burst of progress ticks does not disturb the dirty draft', async () => {
+		await bootWithDirtySession();
+		expect(get(controller.state).hasUnsavedChanges).toBe(true);
+
+		for (let i = 0; i < 5; i++) {
+			harness.tabs.edit({
+				generation: { ...harness.tabs.tab.generation, currentProgress: { percent: i * 20 } as never }
+			});
+			await settle();
+		}
+
+		const state = get(controller.state);
+		expect(state.hasUnsavedChanges).toBe(true);
+		expect(state.currentSession?.id).toBe(SESSION_A);
+	});
+});
+
 // The `save_session` keybinding (and both SessionPill's and SessionCluster's
 // own Save control) drive this one shared flow instead of each duplicating
 // the quickSave-or-prompt fallback.

@@ -1,4 +1,4 @@
-import { writable, derived } from 'svelte/store';
+import { writable, derived, type Readable } from 'svelte/store';
 import type { Tab, GenerationState } from '$lib/types/tabs';
 import { saveTabsToLocalStorage, loadTabsFromLocalStorage, debounce } from './tabPersistence';
 import { DEFAULT_PROMPT_PANEL_WIDTH } from './generationLayout';
@@ -71,6 +71,49 @@ function createDefaultTab(id: string, name: string): Tab {
 	};
 }
 
+interface TabsState {
+	tabs: Tab[];
+	activeTabId: string;
+}
+
+function createEqualityAwareStore(initialValue: TabsState) {
+	let current = initialValue;
+	const base = writable(initialValue);
+
+	function set(newValue: TabsState) {
+		if (newValue === current) return;
+		current = newValue;
+		base.set(newValue);
+	}
+
+	function update(fn: (value: TabsState) => TabsState) {
+		set(fn(current));
+	}
+
+	return { set, update, subscribe: base.subscribe };
+}
+
+function tabPersistenceFieldsChanged(a: Tab, b: Tab): boolean {
+	for (const key of new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof Tab>) {
+		if (key === 'generation') continue;
+		if (a[key] !== b[key]) return true;
+	}
+	return a.generation.queue !== b.generation.queue;
+}
+
+function tabsRelevantToPersistenceChanged(prev: TabsState, next: TabsState): boolean {
+	if (prev.activeTabId !== next.activeTabId) return true;
+	if (prev.tabs.length !== next.tabs.length) return true;
+	for (let i = 0; i < next.tabs.length; i++) {
+		const prevTab = prev.tabs[i];
+		const nextTab = next.tabs[i];
+		if (prevTab === nextTab) continue;
+		if (prevTab.id !== nextTab.id) return true;
+		if (tabPersistenceFieldsChanged(prevTab, nextTab)) return true;
+	}
+	return false;
+}
+
 function createTabsStore() {
 	// Try to load from localStorage, fallback to default tab
 	const persisted = loadTabsFromLocalStorage();
@@ -130,7 +173,7 @@ function createTabsStore() {
 		initialActiveTabId = initialTabs[0].id;
 	}
 
-	const { subscribe, set, update } = writable({
+	const { subscribe, set, update } = createEqualityAwareStore({
 		tabs: initialTabs,
 		activeTabId: initialActiveTabId
 	});
@@ -141,7 +184,10 @@ function createTabsStore() {
 	}, 500);
 
 	// Subscribe to changes and persist to localStorage
+	let lastPersistedState: TabsState | null = null;
 	subscribe((state) => {
+		if (lastPersistedState && !tabsRelevantToPersistenceChanged(lastPersistedState, state)) return;
+		lastPersistedState = state;
 		debouncedSave(state.tabs, state.activeTabId);
 	});
 
@@ -309,10 +355,20 @@ function createTabsStore() {
 
 export const tabsStore = createTabsStore();
 
+function selectorStore<T>(selector: (state: TabsState) => T): Readable<T> {
+	let last: T | undefined;
+	return derived(tabsStore, ($store, set) => {
+		const next = selector($store);
+		if (next === last) return;
+		last = next;
+		set(next);
+	});
+}
+
 // Derived stores for convenience
-export const activeTab = derived(tabsStore, ($store) => {
-	return $store.tabs.find((t) => t.id === $store.activeTabId) || $store.tabs[0];
-});
+export const activeTab = selectorStore(
+	($store) => $store.tabs.find((t) => t.id === $store.activeTabId) || $store.tabs[0]
+);
 
 // The generation queue lets many tabs have in-flight work simultaneously, so
 // there is no longer a single exclusive "generating tab" lock (the old
@@ -320,9 +376,7 @@ export const activeTab = derived(tabsStore, ($store) => {
 // `generation.isGenerating` flag instead of a separately-tracked id, so they
 // can never point at a tab that finished (or drop a tab that started) due to
 // a handler forgetting to clear/set a shared lock.
-export const generatingTab = derived(tabsStore, ($store) => {
-	return $store.tabs.find((t) => t.generation.isGenerating) || null;
-});
+export const generatingTab = selectorStore(($store) => $store.tabs.find((t) => t.generation.isGenerating) || null);
 
 export const isAnyTabGenerating = derived(tabsStore, ($store) => {
 	return $store.tabs.some((t) => t.generation.isGenerating);

@@ -327,6 +327,16 @@ const defaultTimers: SessionControllerTimers = {
 	clearTimeout: (id) => clearTimeout(id)
 };
 
+function tabDataUnchangedForDerivation(a: Tab | undefined, b: Tab | undefined): boolean {
+	if (a === b) return true;
+	if (!a || !b) return false;
+	for (const key of new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof Tab>) {
+		if (key === 'generation') continue;
+		if (a[key] !== b[key]) return false;
+	}
+	return true;
+}
+
 export function createSessionController(deps: SessionControllerDeps): SessionController {
 	const timers = deps.timers ?? defaultTimers;
 	const now = deps.now ?? (() => new Date());
@@ -499,7 +509,10 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 
 	const unsubscribeTabs = deps.tabs.subscribe((value) => {
 		tabs = value.tabs;
-		currentTabData = readTab();
+		const nextTabData = readTab();
+		const unchanged = tabDataUnchangedForDerivation(currentTabData, nextTabData);
+		currentTabData = nextTabData;
+		if (unchanged) return;
 		scheduleDerive();
 	});
 

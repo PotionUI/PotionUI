@@ -143,9 +143,9 @@ verification, and is flagged as such.
 
 ## Indexing is per backend
 
-Today "Index models" is a global action on the admin `/models` page that scans one directory.
-It becomes an action on **each backend**, because what a backend can load is a fact about that
-backend.
+Indexing is an action on **each backend** (Admin → Backends), because what a backend can load
+is a fact about that backend. The admin Models page has no index action of its own; when files
+sit on disk unindexed it shows a count that links to Backends.
 
 The seam is a new method on the backend contract, alongside `prepare_pipes`:
 

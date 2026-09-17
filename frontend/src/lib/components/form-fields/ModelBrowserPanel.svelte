@@ -487,7 +487,7 @@
 {:else if unindexedForType > 0}
 	<div class="p-3 text-center text-fg-muted text-sm">
 		{unindexedForType} file{unindexedForType === 1 ? '' : 's'} on disk not yet indexed — see
-		<a href="/admin?tab=models" class="text-signal hover:underline">Admin → Models</a>.
+		<a href="/admin?tab=backends" class="text-signal hover:underline">Admin → Backends</a>.
 	</div>
 {:else}
 	<div class="p-3 text-center text-fg-muted text-sm">No models found</div>

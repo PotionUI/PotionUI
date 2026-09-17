@@ -10,7 +10,7 @@
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { formatTagUsageError } from '$lib/utils/tagUsage';
 	import type { TagUsageRef } from '$lib/types/api';
-	import type { ModelIndexResult, UnindexedModelsCount } from '$lib/services/api/models';
+	import type { UnindexedModelsCount } from '$lib/services/api/models';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import ModelCard from '$lib/components/ModelCard.svelte';
 	import AdminModelDetailsModal from '$lib/components/modals/AdminModelDetailsModal.svelte';
@@ -88,10 +88,6 @@
 	let isTagDropdownOpen = false;
 	let sortBy = 'indexed_at';
 	let sortOrder = 'desc';
-	let indexing = false;
-	let indexingStats: ModelIndexResult | null = null;
-	// Files sitting in models/<type>/ that no admin has indexed yet - surfaced next
-	// to the Index Models button so a manual drop-in doesn't go unnoticed.
 	let unindexedCount: UnindexedModelsCount | null = null;
 	let currentPage = 1;
 	let pageSize = 30;
@@ -258,28 +254,6 @@
 			}
 		} catch (error) {
 			logger.error('Error loading unindexed models count:', error);
-		}
-	}
-
-	async function handleIndexModels() {
-		try {
-			indexing = true;
-			indexingStats = null;
-			const response = await api.indexModels();
-			if (response.success && response.data) {
-				indexingStats = response.data;
-				setTimeout(() => {
-					loadData();
-					indexing = false;
-					indexingStats = null;
-				}, 3000);
-			} else {
-				indexing = false;
-			}
-		} catch (error) {
-			logger.error('Error indexing models:', error);
-			indexing = false;
-			indexingStats = null;
 		}
 	}
 
@@ -453,20 +427,11 @@
 	{:else}
 	<AdminTabShell title="Models" icon="cube" counts={[{ label: totalCount === 1 ? 'model' : 'models', value: totalCount }]}>
 	{#snippet actions()}
-		<Button variant="secondary" size="sm" icon="refresh" onclick={handleIndexModels} disabled={indexing}>
-			{#if indexing}
-				{#if indexingStats}
-					Indexed {indexingStats.indexed}/{indexingStats.new_files} new ({indexingStats.failed} failed)
-				{:else}
-					Indexing...
-				{/if}
-			{:else}
-				Index Models
-			{/if}
-		</Button>
-		{#if !indexing && unindexedCount && unindexedCount.total > 0}
-			<Tooltip text={`${unindexedCount.total} file${unindexedCount.total === 1 ? '' : 's'} on disk not yet indexed`}>
-				<Badge variant="signal">{unindexedCount.total}</Badge>
+		{#if unindexedCount && unindexedCount.total > 0}
+			<Tooltip text="Files on disk that are not indexed yet. Index them from the backend that loads them.">
+				<Button variant="secondary" size="sm" icon="server" href="/admin?tab=backends">
+					{unindexedCount.total} not indexed
+				</Button>
 			</Tooltip>
 		{/if}
 
@@ -665,7 +630,7 @@
 					: 'No models indexed yet'}
 				description={searchQuery || selectedType !== 'all' || selectedTags.length > 0
 					? "Try adjusting your search criteria or filters to find what you're looking for."
-					: 'Index your models to get started. They will appear in this gallery once found.'}
+					: 'Index models from the backend that loads them. They will appear in this gallery once found.'}
 			>
 				{#snippet actions()}
 					{#if searchQuery || selectedType !== 'all' || selectedTags.length > 0}
@@ -681,8 +646,8 @@
 							Clear All Filters
 						</Button>
 					{:else}
-						<Button variant="primary" icon="refresh" onclick={handleIndexModels}>
-							Index Models
+						<Button variant="primary" icon="server" href="/admin?tab=backends">
+							Open Backends
 						</Button>
 					{/if}
 				{/snippet}

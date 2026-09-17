@@ -56,6 +56,8 @@ class Setting:
         if value_type == SettingValueType.JSON:
             return json.dumps(value)
         elif value_type == SettingValueType.BOOLEAN:
+            if isinstance(value, str):
+                value = _typed_value(value, value_type)
             return str(bool(value)).lower()
         else:
             return str(value)

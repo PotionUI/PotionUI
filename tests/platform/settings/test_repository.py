@@ -89,6 +89,8 @@ class TestSettingRepository:
         # Test boolean
         assert Setting.serialize_value(True, SettingValueType.BOOLEAN) == "true"
         assert Setting.serialize_value(False, SettingValueType.BOOLEAN) == "false"
+        assert Setting.serialize_value("false", SettingValueType.BOOLEAN) == "false"
+        assert Setting.serialize_value("true", SettingValueType.BOOLEAN) == "true"
         
         # Test JSON
         obj = {"key": "value", "list": [1, 2, 3]}

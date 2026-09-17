@@ -1,0 +1,55 @@
+id: "oidc-auth"
+name: "OpenID Connect Login"
+version: "1.0.0"
+description: "Generic OpenID Connect login provider - Authentik, Keycloak, Zitadel, Auth0, Entra ID or any other OIDC issuer, through discovery."
+author: "PotionUI Team"
+type: "backend-only"
+category: "system"
+
+capabilities:
+  - "login-provider"
+
+api:
+  module: "backend/api.py"
+
+hooks:
+  backend:
+    - hook: "plugin.lifecycle.boot"
+      handler: "backend.hooks.lifecycle_hooks.on_boot"
+    - hook: "plugin.lifecycle.disable"
+      handler: "backend.hooks.lifecycle_hooks.on_disable"
+
+settings:
+  - name: "issuer_url"
+    type: "string"
+    label: "Issuer URL"
+    description: "The OIDC issuer, e.g. https://auth.example.com/application/o/potionui/. Discovery is fetched from <issuer>/.well-known/openid-configuration and must report this exact issuer back. Must be https, unless the host is localhost/127.0.0.1/::1 for local testing."
+    required: false
+  - name: "client_id"
+    type: "string"
+    label: "Client ID"
+    description: "Client id PotionUI was registered with at the issuer."
+    required: false
+  - name: "client_secret"
+    type: "string"
+    label: "Client Secret"
+    description: "Client secret PotionUI was registered with at the issuer."
+    required: false
+    is_secret: true
+  - name: "scopes"
+    type: "string"
+    label: "Scopes"
+    description: "Space-separated OAuth2 scopes requested at the issuer."
+    default: "openid profile email"
+    required: false
+  - name: "label"
+    type: "string"
+    label: "Button Label"
+    description: "Text shown on the login page button, as \"Continue with <label>\"."
+    default: "SSO"
+    required: false
+  - name: "redirect_uri"
+    type: "string"
+    label: "Redirect URI Override"
+    description: "Overrides the callback URL PotionUI sends the issuer. Leave blank to derive it from the incoming request's scheme/host (honouring X-Forwarded-Proto/X-Forwarded-Host); set this explicitly in any deployment behind a reverse proxy. Must exactly match a redirect URI registered at the issuer with no wildcards, e.g. https://potionui.example.com/api/plugins/oidc-auth/callback."
+    required: false

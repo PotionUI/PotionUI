@@ -50,13 +50,6 @@
 		void goto(url, { keepFocus: true, noScroll: true });
 	}
 
-	interface Provider {
-		id: string;
-		name: string;
-		initialized: boolean;
-		capabilities: string[];
-	}
-
 	interface ModelListItem {
 		id: string;
 		filename: string;
@@ -86,8 +79,6 @@
 	let models: ModelListItem[] = [];
 	let modelTypes: ModelTypeInfo[] = [];
 	let availableModelTypes: string[] = []; // From dictionary endpoint
-	let providers: Provider[] = [];
-	let selectedProviderId: string | null = null;
 	let loading = true;
 	let selectedType = 'all';
 	let selectedTags: string[] = [];
@@ -102,8 +93,6 @@
 	// Files sitting in models/<type>/ that no admin has indexed yet - surfaced next
 	// to the Index Models button so a manual drop-in doesn't go unnoticed.
 	let unindexedCount: UnindexedModelsCount | null = null;
-	let fetchingProviderInfo = false;
-	let isProviderDropdownOpen = false;
 	let currentPage = 1;
 	let pageSize = 30;
 	let totalCount = 0;
@@ -130,19 +119,12 @@
 	$: bulkBusy = bulkProgress.total > 0 && bulkProgress.done < bulkProgress.total;
 
 	let tagDropdownRef: HTMLElement;
-	let providerDropdownRef: HTMLElement;
 
-	// Computed: get the selected provider object
-	$: selectedProvider = providers.find(p => p.id === selectedProviderId) || null;
-	$: hasInitializedProviders = providers.some(p => p.initialized);
 
 	onMount(() => {
 		const handleClickOutside = (event: MouseEvent) => {
 			if (tagDropdownRef && !tagDropdownRef.contains(event.target as Node)) {
 				isTagDropdownOpen = false;
-			}
-			if (providerDropdownRef && !providerDropdownRef.contains(event.target as Node)) {
-				isProviderDropdownOpen = false;
 			}
 		};
 
@@ -177,7 +159,6 @@
 			await Promise.all([
 				loadModels(),
 				loadModelTypes(),
-				loadProviders(),
 				loadAvailableTags(),
 				loadModelTypesDictionary(),
 				loadBackendNames(),
@@ -247,25 +228,6 @@
 		}
 	}
 
-	async function loadProviders() {
-		try {
-			const response = await api.getProviders();
-			if (response.success) {
-				providers = response.data || [];
-				// Auto-select first initialized provider if none selected
-				if (!selectedProviderId && providers.length > 0) {
-					const initializedProvider = providers.find(p => p.initialized);
-					selectedProviderId = initializedProvider?.id || providers[0]?.id || null;
-				}
-			} else {
-				providers = [];
-			}
-		} catch (error) {
-			logger.error('Error loading providers:', error);
-			providers = [];
-		}
-	}
-
 	async function loadAvailableTags() {
 		try {
 			const response = await api.getTags('MODEL');
@@ -318,29 +280,6 @@
 			logger.error('Error indexing models:', error);
 			indexing = false;
 			indexingStats = null;
-		}
-	}
-
-	async function handleFetchProviderInfo(providerId: string, forceRefresh: boolean = false) {
-		if (!providerId) return;
-
-		try {
-			fetchingProviderInfo = true;
-			isProviderDropdownOpen = false;
-			const response = await api.fetchProviderInfo(providerId, undefined, forceRefresh);
-			if (response.success) {
-				setTimeout(() => {
-					loadData();
-					fetchingProviderInfo = false;
-				}, 3000);
-			} else {
-				// Show error to user
-				logger.error('Error fetching provider info:', response.message);
-				fetchingProviderInfo = false;
-			}
-		} catch (error) {
-			logger.error('Error fetching provider info:', error);
-			fetchingProviderInfo = false;
 		}
 	}
 
@@ -529,58 +468,6 @@
 			<Tooltip text={`${unindexedCount.total} file${unindexedCount.total === 1 ? '' : 's'} on disk not yet indexed`}>
 				<Badge variant="signal">{unindexedCount.total}</Badge>
 			</Tooltip>
-		{/if}
-
-		<!-- Provider Selector and Fetch Button -->
-		{#if providers.length > 0}
-			<div bind:this={providerDropdownRef} class="relative inline-flex rounded overflow-hidden border border-line-strong">
-				<select
-					bind:value={selectedProviderId}
-					class="px-2.5 py-1.5 bg-surface-3 text-fg text-xs focus:outline-none cursor-pointer hover:bg-line-hover transition-colors disabled:opacity-50"
-					disabled={fetchingProviderInfo}
-				>
-					{#each providers as provider}
-						<option value={provider.id}>
-							{provider.name} {provider.initialized ? '' : '(not configured)'}
-						</option>
-					{/each}
-				</select>
-				<button
-					class="px-3 py-1.5 bg-surface-3 text-fg hover:bg-line-hover flex items-center gap-1.5 text-xs disabled:opacity-50 transition-colors border-l border-line-strong"
-					on:click={() => selectedProviderId && handleFetchProviderInfo(selectedProviderId, false)}
-					disabled={fetchingProviderInfo || !selectedProvider?.initialized}
-				>
-					<Icon name="refresh" className="w-3.5 h-3.5" />
-					{fetchingProviderInfo ? 'Fetching...' : 'Fetch'}
-				</button>
-				<button
-					class="px-1.5 py-1.5 bg-surface-3 text-fg hover:bg-line-hover border-l border-line-strong disabled:opacity-50 transition-colors"
-					on:click={() => (isProviderDropdownOpen = !isProviderDropdownOpen)}
-					disabled={fetchingProviderInfo || !selectedProvider?.initialized}
-				>
-					<Icon name="chevron-down" className="w-3.5 h-3.5" />
-				</button>
-				{#if isProviderDropdownOpen && selectedProviderId}
-					<div class="absolute top-full right-0 mt-1 bg-surface-1 border border-line-strong rounded-lg shadow-floating z-50 min-w-[180px]">
-						<button
-							class="w-full text-left px-3 py-2 text-xs hover:bg-surface-2 rounded-t-lg transition-colors"
-							on:click={() => selectedProviderId && handleFetchProviderInfo(selectedProviderId, false)}
-						>
-							<div class="font-medium text-fg">Fetch Missing Only</div>
-							<div class="text-2xs text-fg-subtle">Faster - only fetch missing info</div>
-						</button>
-						<button
-							class="w-full text-left px-3 py-2 text-xs hover:bg-surface-2 rounded-b-lg transition-colors"
-							on:click={() => selectedProviderId && handleFetchProviderInfo(selectedProviderId, true)}
-						>
-							<div class="font-medium text-fg">Force Refresh All</div>
-							<div class="text-2xs text-fg-subtle">Slower - refresh all models</div>
-						</button>
-					</div>
-				{/if}
-			</div>
-		{:else}
-			<span class="text-xs text-fg-subtle">No providers configured</span>
 		{/if}
 
 		<Button variant="secondary" size="sm" icon="trash" onclick={handleCleanup}>

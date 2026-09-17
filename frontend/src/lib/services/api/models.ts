@@ -316,19 +316,6 @@ export function createModelsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async fetchProviderInfo(
-			provider: string,
-			modelIds?: string[],
-			forceRefresh: boolean = false
-		): Promise<APIResponse> {
-			const response = await client.post('/api/models/info/fetch', {
-				model_ids: modelIds || null,
-				provider: provider,
-				force_refresh: forceRefresh
-			});
-			return response.data;
-		},
-
 		async cleanupDeletedModels(): Promise<APIResponse> {
 			const response = await client.post('/api/models/cleanup');
 			return response.data;

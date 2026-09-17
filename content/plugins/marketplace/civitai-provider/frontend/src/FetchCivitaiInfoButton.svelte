@@ -31,7 +31,8 @@
         body: JSON.stringify({
           provider: 'civitai',
           model_ids: [model.id],
-          force_refresh: false
+          force_refresh: false,
+          wait: true
         })
       });
 
@@ -39,7 +40,13 @@
         throw new Error(`Fetch failed (${response.status})`);
       }
 
-      notify('info', 'CivitAI fetch started. Reload the list to see the result.');
+      const result = await response.json();
+      if (result?.data?.successful > 0) {
+        notify('success', 'CivitAI data added');
+        context.refresh?.();
+      } else {
+        notify('warning', 'Not found on CivitAI');
+      }
     } catch (e) {
       notify('error', 'Fetching CivitAI data failed');
     } finally {
@@ -52,6 +59,7 @@
   <button
     class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100 disabled:opacity-50"
     on:click={handleFetch}
+    style:opacity={fetching ? 1 : undefined}
     disabled={fetching}
     aria-label="Fetch CivitAI data"
     title="Fetch CivitAI data"

@@ -193,7 +193,7 @@ async def run_provider_fetch(
     provider: str,
     model_ids: Optional[List[str]] = None,
     force_refresh: bool = False
-) -> None:
+) -> Dict[str, int]:
     return await collaborators.provider_info.run_provider_fetch(provider, model_ids, force_refresh)
 
 

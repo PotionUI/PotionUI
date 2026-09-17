@@ -31,6 +31,7 @@ class ModelInfoFetchRequest(BaseModel):
     model_ids: Optional[List[str]] = None
     provider: str  # Required - no default, must be specified
     force_refresh: Optional[bool] = False
+    wait: Optional[bool] = False
 
 
 class UpdateDescriptionRequest(BaseModel):

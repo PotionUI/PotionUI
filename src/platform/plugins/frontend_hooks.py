@@ -148,6 +148,7 @@ EXTENSION_SLOT_HOOKS = hooks_registry.declare(
             "description": "Populated by a manifest's `contributions: [{slot: 'admin.models.card.actions', component, order}]` entries. Mounted via `<PluginSlot hookName=\"admin.models.card.actions\" context={{ model }}>` in ModelCard.svelte, inside the management-actions icon row (Admin -> Models cards only, next to the built-in assign/remove buttons) - unlike admin.tabs/nav.primary, each mounted component gets a live `context` payload rather than rendering from the static contribution fields alone.",
             "payload": {
                 "model": {"type": "object", "description": "The model object for this card, as returned by GET /api/models"},
+                "refresh": {"type": "function", "description": "Call after changing the model; the list reloads in place and the card re-renders with the new data"},
             },
             "use_when": ["Adding a per-model icon action to the Admin -> Models card, e.g. fetching provider metadata for that model"],
         },

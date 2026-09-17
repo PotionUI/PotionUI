@@ -77,8 +77,9 @@
 
 	// Include images, thumbnails, and videos (for their thumbnails). An admin-set
 	// preview is folded in ahead of provider files.
-	const mediaFiles = filesWithPreview(model).filter((f: any) => f.file_type === 'image' || f.file_type === 'thumbnail' || f.file_type === 'video');
+	$: mediaFiles = filesWithPreview(model).filter((f: any) => f.file_type === 'image' || f.file_type === 'thumbnail' || f.file_type === 'video');
 
+	$: if (currentMediaIndex >= mediaFiles.length) currentMediaIndex = 0;
 	$: currentMedia = mediaFiles[currentMediaIndex];
 	// File size is operational. It appears only where the context asks for it, so an
 	// admin browsing the library sees the same card a user does.
@@ -226,7 +227,7 @@
 			{#if !selectable}
 				<div class="absolute top-2 right-2 z-40 flex items-center gap-1">
 					{#if showManagementActions}
-						<PluginSlot hookName="admin.models.card.actions" context={{ model }}>
+						<PluginSlot hookName="admin.models.card.actions" context={{ model, refresh: () => dispatch('refresh', model) }}>
 							<svelte:fragment slot="loading" />
 						</PluginSlot>
 						<button

@@ -280,3 +280,49 @@ class TestListModelsOffTheEventLoop:
         # Serialized behind one blocking call, two 0.5s reads would take ~1.0s;
         # served concurrently off the event loop, they finish in ~0.5s.
         assert elapsed < 0.9, f"requests were serialized: took {elapsed:.2f}s"
+
+
+class TestFetchModelInfoWait:
+    def _controller(self, result):
+        from unittest.mock import AsyncMock
+
+        provider_info = Mock()
+        provider_info.fetch_provider_info.return_value = {"status": "running", "provider": "fake"}
+        provider_info.run_provider_fetch = AsyncMock(return_value=result)
+        collaborators = Mock()
+        collaborators.provider_info = provider_info
+        return ModelController(collaborators, Mock(), Mock()), provider_info
+
+    def test_wait_runs_the_fetch_before_responding_and_returns_counts(self):
+        from fastapi import BackgroundTasks
+        from src.features.models.dto import ModelInfoFetchRequest
+
+        controller, provider_info = self._controller({"successful": 1, "failed": 0})
+        background = BackgroundTasks()
+
+        response = asyncio.run(controller.fetch_model_info(
+            background,
+            ModelInfoFetchRequest(provider="fake", model_ids=["m1"], wait=True),
+        ))
+
+        assert response.data["status"] == "completed"
+        assert response.data["successful"] == 1
+        assert response.data["failed"] == 0
+        provider_info.run_provider_fetch.assert_awaited_once()
+        assert background.tasks == []
+
+    def test_without_wait_the_fetch_is_queued_in_the_background(self):
+        from fastapi import BackgroundTasks
+        from src.features.models.dto import ModelInfoFetchRequest
+
+        controller, provider_info = self._controller({"successful": 1, "failed": 0})
+        background = BackgroundTasks()
+
+        response = asyncio.run(controller.fetch_model_info(
+            background,
+            ModelInfoFetchRequest(provider="fake", model_ids=["m1"]),
+        ))
+
+        assert response.data["status"] == "running"
+        provider_info.run_provider_fetch.assert_not_awaited()
+        assert len(background.tasks) == 1

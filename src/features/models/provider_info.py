@@ -113,7 +113,7 @@ class ProviderInfoFetcher:
         provider: str,
         model_ids: Optional[List[str]] = None,
         force_refresh: bool = False
-    ) -> None:
+    ) -> Dict[str, int]:
         """Execute the actual provider fetch (background task); fires after_fetch_info."""
         try:
             from src.features.providers.registry import get_provider_registry
@@ -187,9 +187,11 @@ class ProviderInfoFetcher:
                     "failed": failed
                 }
             )
+            return {"successful": successful, "failed": failed}
 
         except Exception as e:
             logger.error(f"Error during background provider fetch: {e}")
+            return {"successful": 0, "failed": len(model_ids or [])}
 
     def _resolve_storage_driver(self) -> Optional[FileStorageDriver]:
         if self.storage_driver is not None:

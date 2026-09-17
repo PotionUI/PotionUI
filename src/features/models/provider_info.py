@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from src.features.models.exceptions import ProviderFetchException
+from src.features.models.attributes.well_known import WellKnownModelAttribute
 from src.platform.plugins.hooks import execute_hook
 from src.features.models.hooks import MODEL_INDEX_HOOKS
 from src.features.models.metadata_editor import ModelMetadataEditor
@@ -166,6 +167,8 @@ class ProviderInfoFetcher:
                         successful += 1
                         if model_info.description and not model.description:
                             self.model_repo.update_description(model.id, model_info.description)
+                        if model_info.trigger_words:
+                            self._fill_trigger_words(model, model_info.trigger_words)
                         if model_info.media_urls:
                             await self._attach_provider_previews(
                                 model.id, model_info.media_urls
@@ -192,6 +195,19 @@ class ProviderInfoFetcher:
         except Exception as e:
             logger.error(f"Error during background provider fetch: {e}")
             return {"successful": 0, "failed": len(model_ids or [])}
+
+    def _fill_trigger_words(self, model: Any, trigger_words: List[str]) -> None:
+        if self.metadata_editor is None:
+            return
+        current = dict(model.model_metadata or {})
+        if current.get(WellKnownModelAttribute.TRIGGERS):
+            return
+        try:
+            self.metadata_editor.update_model_metadata(
+                model.id, {**current, WellKnownModelAttribute.TRIGGERS: list(trigger_words)}
+            )
+        except Exception as e:
+            logger.warning(f"Could not store trigger words for model {model.id}: {e}")
 
     def _resolve_storage_driver(self) -> Optional[FileStorageDriver]:
         if self.storage_driver is not None:

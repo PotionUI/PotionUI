@@ -90,6 +90,7 @@ class ProviderModelInfo:
     name: str = ""                        # Model name
     description: Optional[str] = None     # Model description
     tags: List[str] = field(default_factory=list)  # Tags/keywords
+    trigger_words: List[str] = field(default_factory=list)
     nsfw: bool = False                    # NSFW flag
     download_url: Optional[str] = None    # Primary download URL
     media_urls: List[str] = field(default_factory=list)  # Preview image/video URLs
@@ -108,6 +109,7 @@ class ProviderModelInfo:
             'name': self.name,
             'description': self.description,
             'tags': self.tags,
+            'trigger_words': self.trigger_words,
             'nsfw': self.nsfw,
             'download_url': self.download_url,
             'media_urls': self.media_urls,

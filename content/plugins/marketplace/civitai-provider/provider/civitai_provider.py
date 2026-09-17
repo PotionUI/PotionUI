@@ -243,14 +243,7 @@ class CivitaiProvider(MarketplaceProviderBase):
             model_text = _html_to_text(model_data.get('description'))
             info.description = version_text or model_text
 
-            model_tags = model_data.get('tags') or []
-            merged: List[str] = []
-            seen = set()
-            for tag in list(model_tags) + list(info.tags):
-                if tag not in seen:
-                    seen.add(tag)
-                    merged.append(tag)
-            info.tags = merged
+            info.tags = list(dict.fromkeys(model_data.get('tags') or []))
         except Exception as e:
             logger.debug(f"CivitAI model-details enrichment failed for model {info.provider_model_id}: {e}")
 
@@ -960,8 +953,9 @@ class CivitaiProvider(MarketplaceProviderBase):
             if image.get('meta') and image['meta'].get('video'):
                 media_urls.append(image['meta']['video'])
 
-        # Extract tags from trainedWords
-        tags = data.get('trainedWords', [])
+        trigger_words = list(dict.fromkeys(
+            word.strip() for word in data.get('trainedWords') or [] if isinstance(word, str) and word.strip()
+        ))
 
         # Extract download URL from primary file
         download_url = None
@@ -985,7 +979,8 @@ class CivitaiProvider(MarketplaceProviderBase):
             provider_version_id=str(data.get('id', '')),
             name=model_info.get('name', ''),
             description=description,
-            tags=tags,
+            tags=[],
+            trigger_words=trigger_words,
             nsfw=model_info.get('nsfw', False),
             download_url=download_url,
             media_urls=media_urls,

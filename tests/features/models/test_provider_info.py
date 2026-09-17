@@ -245,3 +245,42 @@ class TestProviderInfoPreviewMedia(PersistenceTestBase):
         self._fetch_with_description(model.id, "From the provider")
 
         assert self.repo.get_by_id(model.id).description == "Written by an admin"
+
+    def _fetch_with_trigger_words(self, model_id, words):
+        provider_info = ProviderModelInfo(
+            provider_id="fake-provider",
+            provider_model_id="123",
+            name="Fake Model",
+            trigger_words=words,
+        )
+        fake_registry = Mock()
+        fake_registry.get_model_by_hash = AsyncMock(return_value=provider_info)
+        with patch(
+            "src.features.providers.registry.get_provider_registry",
+            return_value=fake_registry,
+        ):
+            asyncio.run(self.fetcher.run_provider_fetch("fake-provider", model_ids=[model_id]))
+
+    def _seed_triggers_definition(self):
+        from src.features.models.attributes.repository import AttributeDefinitionRepository
+        from src.features.models.attributes.seeding import ensure_builtin_attribute_definitions
+        ensure_builtin_attribute_definitions(AttributeDefinitionRepository())
+
+    def test_provider_trigger_words_fill_the_empty_triggers_attribute(self):
+        self._seed_triggers_definition()
+        model = self._seed_model()
+
+        self._fetch_with_trigger_words(model.id, ["sks style", "detailed"])
+
+        assert self.repo.get_by_id(model.id).model_metadata.get("triggers") == ["sks style", "detailed"]
+
+    def test_provider_trigger_words_never_replace_existing_ones(self):
+        self._seed_triggers_definition()
+        model = self._seed_model()
+        self.repo.update_model_metadata(model.id, {"triggers": ["mine"], "strength": [0.5, 0.8]})
+
+        self._fetch_with_trigger_words(model.id, ["sks style"])
+
+        metadata = self.repo.get_by_id(model.id).model_metadata
+        assert metadata.get("triggers") == ["mine"]
+        assert metadata.get("strength") == [0.5, 0.8]

@@ -113,8 +113,8 @@ async def test_falls_back_to_model_description_when_version_description_is_empty
 
 
 @pytest.mark.asyncio
-async def test_tags_merge_model_tags_with_trained_words_deduped(provider):
-    by_hash = _by_hash_data(trained_words=["y", "z"])
+async def test_tags_come_from_the_model_and_trained_words_become_trigger_words(provider):
+    by_hash = _by_hash_data(trained_words=["y", " z ", "y", ""])
     model_data = {"id": 12345, "name": "Test Model", "description": None, "tags": ["x", "y"]}
 
     def dispatch(url, params=None, timeout=None):
@@ -126,7 +126,8 @@ async def test_tags_merge_model_tags_with_trained_words_deduped(provider):
         result = await provider.get_model_by_hash(SHA)
 
     assert result is not None
-    assert result.tags == ["x", "y", "z"]
+    assert result.tags == ["x", "y"]
+    assert result.trigger_words == ["y", "z"]
 
 
 @pytest.mark.asyncio
@@ -143,7 +144,8 @@ async def test_enrichment_failure_does_not_fail_the_lookup(provider):
 
     assert result is not None
     assert result.description is None
-    assert result.tags == ["a"]
+    assert result.tags == []
+    assert result.trigger_words == ["a"]
 
 
 class TestHtmlToText:

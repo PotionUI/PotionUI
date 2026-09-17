@@ -429,7 +429,7 @@ class TestExportCancellationDisposesOfSpooledFile:
             await pending
 
         deadline = time.perf_counter() + 2.0
-        while "file" not in produced and time.perf_counter() < deadline:
+        while not ("file" in produced and produced["file"].closed) and time.perf_counter() < deadline:
             await asyncio.sleep(0.01)
 
         assert produced["file"].closed is True
@@ -463,7 +463,7 @@ class TestExportCancellationDisposesOfSpooledFile:
             await pending
 
         deadline = time.perf_counter() + 2.0
-        while "file" not in produced and time.perf_counter() < deadline:
+        while not ("file" in produced and produced["file"].closed) and time.perf_counter() < deadline:
             await asyncio.sleep(0.01)
 
         assert produced["file"].closed is True

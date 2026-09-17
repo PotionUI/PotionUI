@@ -180,7 +180,7 @@ class TestExternalLoginManager(unittest.TestCase):
         session = self.manager.sign_in_external(
             ISSUER,
             "sub-5",
-            {"preferred_username": "newbie", "email": "newbie@example.com"},
+            {"preferred_username": "newbie", "email": "newbie@example.com", "email_verified": True},
         )
 
         self.assertTrue(session.created)
@@ -285,6 +285,34 @@ class TestExternalLoginManager(unittest.TestCase):
         self.assertEqual(session.user.id, existing.id)
         self.assertFalse(session.created)
         self.assertEqual(self.identities.get(ISSUER, "sub-14").user_id, existing.id)
+
+    def test_an_unverified_email_is_never_stored_on_an_auto_created_account(self):
+        self._enable_auto_create()
+
+        session = self.manager.sign_in_external(
+            ISSUER,
+            "sub-squat",
+            {"preferred_username": "squatter", "email": "victim@example.com"},
+        )
+
+        self.assertEqual(session.user.email, "squatter@external.invalid")
+
+    def test_an_unverified_email_cannot_capture_a_later_verified_sign_in(self):
+        self._enable_auto_create()
+        self._set("external_login_link_by_email", "true")
+        squatter = self.manager.sign_in_external(
+            ISSUER,
+            "sub-attacker",
+            {"preferred_username": "squatter", "email": "victim@example.com"},
+        )
+
+        victim = self.manager.sign_in_external(
+            ISSUER,
+            "sub-victim",
+            {"preferred_username": "victim", "email": "victim@example.com", "email_verified": True},
+        )
+
+        self.assertNotEqual(victim.user.id, squatter.user.id)
 
     def test_link_by_email_refuses_an_unverified_email(self):
         self._set("external_login_link_by_email", "true")

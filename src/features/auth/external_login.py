@@ -209,7 +209,12 @@ class ExternalLoginManager:
 
     def _account_email(self, sub: str, claims: Dict[str, Any], username: str) -> str:
         email = claims.get("email")
-        if isinstance(email, str) and email.strip() and not self.users.exists_by_email(email.strip()):
+        if (
+            _truthy(claims.get("email_verified"))
+            and isinstance(email, str)
+            and email.strip()
+            and not self.users.exists_by_email(email.strip())
+        ):
             return email.strip()
         return f"{username}@external.invalid"
 

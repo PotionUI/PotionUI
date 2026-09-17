@@ -99,26 +99,33 @@ class MediaIndexRepository:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
-                _QUEUE_ITEM_SELECT
-                + """
-                WHERE q.pass_type = ? AND q.status = 'pending' AND q.attempts < ?
-                ORDER BY q.created_at ASC
-                LIMIT ?
+                """
+                UPDATE media_index_queue
+                SET status = 'processing', updated_at = CURRENT_TIMESTAMP
+                WHERE status = 'pending' AND id IN (
+                    SELECT q.id FROM media_index_queue q
+                    JOIN files f ON f.id = q.file_id
+                    WHERE q.pass_type = ? AND q.status = 'pending' AND q.attempts < ?
+                    ORDER BY q.created_at ASC
+                    LIMIT ?
+                )
+                RETURNING id
                 """,
                 (pass_type, max_attempts, batch_size),
             )
-            items = [MediaIndexQueueItem.from_row(row) for row in cursor.fetchall()]
-            if items:
-                placeholders = ",".join("?" * len(items))
-                cursor.execute(
-                    f"""
-                    UPDATE media_index_queue
-                    SET status = 'processing', updated_at = CURRENT_TIMESTAMP
-                    WHERE id IN ({placeholders})
-                    """,
-                    [item.id for item in items],
-                )
-        return items
+            claimed_ids = [row[0] for row in cursor.fetchall()]
+            if not claimed_ids:
+                return []
+            placeholders = ",".join("?" * len(claimed_ids))
+            cursor.execute(
+                _QUEUE_ITEM_SELECT
+                + f"""
+                WHERE q.id IN ({placeholders})
+                ORDER BY q.created_at ASC
+                """,
+                claimed_ids,
+            )
+            return [MediaIndexQueueItem.from_row(row) for row in cursor.fetchall()]
 
     def mark_done(self, item_id: str) -> None:
         from src.platform.database.database import db

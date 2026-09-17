@@ -200,3 +200,76 @@ class TestSystemTags(MediaIndexTestBase):
 
         assert self.repo.get_for_files(["f1"]) == {}
         assert self._queue_row("f1") is None
+
+
+class TestConcurrentClaims(MediaIndexTestBase):
+    def _enqueue(self, count):
+        ids = [self._make_file(f"c{i}") for i in range(count)]
+        self.repo.enqueue_files(ids, "tags")
+        return ids
+
+    def test_overlapping_claimers_never_receive_the_same_item(self):
+        import threading
+
+        rounds = 15
+        claimers = 4
+        per_claim = 3
+        for round_index in range(rounds):
+            with self.db.get_cursor() as cursor:
+                cursor.execute("DELETE FROM media_index_queue")
+                cursor.execute("DELETE FROM files WHERE id LIKE 'c%'")
+            self._enqueue(claimers * per_claim)
+
+            barrier = threading.Barrier(claimers)
+            claimed = []
+            errors = []
+            guard = threading.Lock()
+
+            def claim():
+                try:
+                    barrier.wait(timeout=10)
+                    items = MediaIndexRepository().claim_batch("tags", per_claim, 3)
+                    with guard:
+                        claimed.extend(item.id for item in items)
+                except Exception as exc:
+                    with guard:
+                        errors.append(exc)
+
+            threads = [threading.Thread(target=claim) for _ in range(claimers)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=30)
+
+            assert not errors, f"round {round_index}: {errors}"
+            assert len(claimed) == len(set(claimed)), f"round {round_index}: item claimed twice"
+            assert len(claimed) == claimers * per_claim
+
+    def test_claims_come_oldest_first_and_respect_the_batch_size(self):
+        with self.db.get_cursor() as cursor:
+            for index, created in enumerate(("2026-01-03", "2026-01-01", "2026-01-02")):
+                file_id = f"o{index}"
+                cursor.execute(
+                    "INSERT INTO files (id, file_path, file_type, user_id, is_final) VALUES (?, ?, 'IMAGE', ?, 1)",
+                    (file_id, f"generations/g/{file_id}.png", self.user_id),
+                )
+                cursor.execute(
+                    "INSERT INTO media_index_queue (id, file_id, pass_type, status, attempts, created_at, updated_at) "
+                    "VALUES (?, ?, 'tags', 'pending', 0, ?, ?)",
+                    (f"q{index}", file_id, created, created),
+                )
+
+        first = self.repo.claim_batch("tags", 2, 3)
+        second = self.repo.claim_batch("tags", 2, 3)
+
+        assert [item.file_id for item in first] == ["o1", "o2"]
+        assert [item.file_id for item in second] == ["o0"]
+
+    def test_items_past_the_retry_limit_are_not_claimed(self):
+        self._make_file("r1")
+        self.repo.enqueue_files(["r1"], "tags")
+        with self.db.get_cursor() as cursor:
+            cursor.execute("UPDATE media_index_queue SET attempts = 3 WHERE file_id = 'r1'")
+
+        assert self.repo.claim_batch("tags", 10, 3) == []
+        assert self._queue_row("r1")["status"] == "pending"

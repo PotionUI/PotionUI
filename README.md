@@ -29,7 +29,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
   write action needs your approval.
 - **Video Director** — compose shots in sections instead of one giant prompt.
 
-*Alpha 0.0.7 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
+*Alpha 0.0.8 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
 Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Ko-fi](https://ko-fi.com/A3B325D031)*
 
@@ -209,7 +209,7 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Linux x86_64 with an NVIDIA GPU** is the tested matrix. **Native
+> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.8 matrix. **Native
 > Windows is supported experimentally** as of 0.0.8: the installer, the CLI,
 > the backend test suite, the frontend checks and the E2E harness all run in
 > CI on `windows-latest` — see [Windows (native)](#windows-native) below.
@@ -253,7 +253,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 | Platform                    | Status                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.7                                                              |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.8                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
 | Windows native              | Experimental (0.0.8) — installer, CLI, backend suite, frontend checks and E2E harness run in CI on `windows-latest`; see [Windows (native)](#windows-native) |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
@@ -361,6 +361,64 @@ Start with the in-app documentation browser, or read the Markdown directly:
 
 The two most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
+
+### 0.0.8 — 2026-09-17
+
+- Windows: PotionUI installs and runs natively on Windows as an experimental
+  platform; `potionui.cmd` mirrors the Linux launcher with the same `doctor`, `start`,
+  `stop` and install profiles; Python 3.12 is preferred when several versions are
+  installed and `doctor` warns when only a newer one exists; Triton and compile
+  optimizations are unavailable there, so attention runs on the standard path.
+- Models: YuE2-3B joins as a native song preset with style tags, tagged lyrics, a
+  chain-of-thought mode, duration and advanced sampling, plus a starter recipe that
+  fetches its weights from Hugging Face and finishes with a real smoke generation;
+  long songs decode in bounded memory.
+- Generate: a categorized tags field lets a preset offer a curated vocabulary per
+  category with search, keyboard picking and custom entries, first used by YuE2's
+  style field; SDXL and Krea-2 each ship fifty styles with rendered previews, Krea-2
+  adds six amateur photo looks; Krea-2 gains an optional native face detailer with
+  the choice to keep the base image; segment prefixes and suffixes render as labelled
+  chips; the generation dock has a clearer top edge.
+- Video Director: shot prompts get the preset's segment templates; durations and
+  segment frames clamp to the model's limit instead of being rejected; the whole row
+  expands a shot; MiniMax-H3 refs mode loads RefMod bundles, the 360-frame cap is
+  gone for directed timelines, continuation shots condition on re-encoded frames, and
+  a second generation no longer runs out of VRAM placing its VAEs.
+- Chat: a New chat button in the header, an unread-reply dot on the sidebar icon and
+  an optional chime when a reply finishes; tooltips replace native titles across the
+  chat window; context is attached to the current user turn instead of injected as
+  mid-conversation system messages; OpenAI configurations expose request options such
+  as top-p, penalties, seed, stop sequences and reasoning effort.
+- Admin: plugins can register external login providers, which appear as "Continue
+  with" buttons on the login page and get their own settings group; model access is
+  assigned in bulk from the Models tab; admin tabs grow with their content instead of
+  clipping; the Users and Groups save footer shows only where there is something to
+  save.
+- Notifications: a bell in the sidebar opens a notification center with category
+  filters and rows grouped by day; toasts stack to three, collapse bursts into one
+  counted card and show a progress line.
+- History: the keyword or semantic search mode moved into Filters with an active
+  chip, so the toolbar no longer overlaps at narrow widths; compare labels read
+  Original and Selected.
+- ComfyUI: a backend accepts a hostname, an IPv4 or IPv6 address, host and port, or a
+  full URL, with an HTTPS default setting; the Docker guide gains a Compose example
+  running ComfyUI alongside PotionUI.
+- Install: ffmpeg ships in every Docker image and `doctor` reports when it is
+  missing; local `.env` files stay out of Docker build contexts.
+- Reliability: every timestamp the API and websocket send carries its UTC offset;
+  the fair scheduler orders jobs that arrive in the same instant by arrival instead
+  of rotation; collection routes answer without a trailing slash and no longer
+  redirect; the log viewer handles Windows line endings.
+- Fixes: the tags picker closes on Escape wherever focus is; shortcut hints no longer
+  leak into button names read by assistive technology; local presets are labelled
+  custom on Windows; filesystem automation triggers report relative paths correctly;
+  the SDXL detailer skips a detection whose detector model is missing instead of
+  failing the generation; the chat memory panel resolves the active model; model
+  index cleanup no longer aborts on rows without a local path.
+- Upgrading: the SDXL starter recipe now installs Juggernaut XL v9 instead of the
+  Pony checkpoint; integrations that call collection routes with a trailing slash
+  must drop it, since the redirect is gone; a database migration adds external
+  identities on first start.
 
 ### 0.0.7 — 2026-09-11
 

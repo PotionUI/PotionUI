@@ -541,12 +541,24 @@
 										<form id="plugin-settings-form" on:submit|preventDefault={saveSettings} class="space-y-4">
 											{#each liveSelected.settings_schema as schema}
 												{#if schema.type === 'info'}
-													<Alert variant="info" icon title={schema.label}>
-														{schema.description}
-														{#if schema.href}
-															<a href={schema.href} class="text-signal hover:underline">{schema.link_label || 'Open'}</a>
-														{/if}
-													</Alert>
+													<div class="rounded-lg border border-line bg-surface-2 p-4">
+														<div class="flex items-start gap-3">
+															<Icon name="info" className="mt-0.5 h-4 w-4 flex-shrink-0 text-fg-subtle" />
+															<div class="min-w-0 flex-1">
+																<p class="text-sm font-medium text-fg">{schema.label}</p>
+																{#if schema.description}
+																	<p class="mt-1 text-sm leading-relaxed text-fg-muted">{schema.description}</p>
+																{/if}
+																{#if schema.href}
+																	<div class="mt-3">
+																		<Button variant="secondary" size="sm" href={schema.href} icon="arrow-right">
+																			{schema.link_label || 'Open'}
+																		</Button>
+																	</div>
+																{/if}
+															</div>
+														</div>
+													</div>
 												{:else}
 												<div>
 													<label for={schema.name} class="block text-sm font-medium text-fg-muted mb-1">

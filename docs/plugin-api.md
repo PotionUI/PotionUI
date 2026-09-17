@@ -246,8 +246,8 @@ Use it when the plugin depends on something configured elsewhere:
 settings:
   - name: "account_creation_notice"
     type: "info"
-    label: "New users are refused until account creation is on"
-    description: "Turn on \"Create accounts on first external login\" to let first-time users in."
+    label: "First-time sign-ins need account creation"
+    description: "Someone signing in for the first time is turned away until \"Create accounts on first external login\" is on."
     href: "/admin?tab=settings&view=external_login"
     link_label: "Open External Login settings"
 ```

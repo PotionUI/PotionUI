@@ -22,8 +22,8 @@ hooks:
 settings:
   - name: "account_creation_notice"
     type: "info"
-    label: "New users are refused until account creation is on"
-    description: "A person signing in for the first time has no PotionUI account yet. To create one automatically, turn on \"Create accounts on first external login\" in Admin → Settings → External Login. While it is off, only identities already linked to an account can sign in."
+    label: "First-time sign-ins need account creation"
+    description: "Someone signing in through SSO for the first time has no PotionUI account yet and is turned away. Turn on \"Create accounts on first external login\" to let them in."
     href: "/admin?tab=settings&view=external_login"
     link_label: "Open External Login settings"
   - name: "issuer_url"

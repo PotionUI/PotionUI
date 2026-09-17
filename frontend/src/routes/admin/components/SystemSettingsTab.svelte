@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { onMount } from 'svelte';
+	import { get } from 'svelte/store';
+	import { page } from '$app/stores';
 	import * as adminApi from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
 	import { formatBytes } from '$lib/utils/format';
@@ -36,7 +38,10 @@
 	let snapshot = $state('{}');
 	let loading = $state(true);
 	let saving = $state(false);
-	let activeGroup = $state<SettingsGroupId>('access');
+	const requestedGroup = get(page).url.searchParams.get('view');
+	let activeGroup = $state<SettingsGroupId>(
+		SETTINGS_GROUPS.find((g) => g.id === requestedGroup)?.id ?? 'access'
+	);
 	// The Logs row's subtitle needs a live read from the log file, which is
 	// not part of `settings` - fetched once alongside it, not folded into the
 	// shared save-bar snapshot.

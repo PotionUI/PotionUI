@@ -533,6 +533,14 @@
 									{#if liveSelected.settings_schema && liveSelected.settings_schema.length > 0}
 										<form id="plugin-settings-form" on:submit|preventDefault={saveSettings} class="space-y-4">
 											{#each liveSelected.settings_schema as schema}
+												{#if schema.type === 'info'}
+													<Alert variant="info" icon title={schema.label}>
+														{schema.description}
+														{#if schema.href}
+															<a href={schema.href} class="text-signal hover:underline">{schema.link_label || 'Open'}</a>
+														{/if}
+													</Alert>
+												{:else}
 												<div>
 													<label for={schema.name} class="block text-sm font-medium text-fg-muted mb-1">
 														{schema.label}
@@ -559,6 +567,7 @@
 														/>
 													{/if}
 												</div>
+												{/if}
 											{/each}
 										</form>
 									{:else}

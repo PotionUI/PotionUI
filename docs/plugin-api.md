@@ -232,6 +232,29 @@ A handler that raises is logged and skipped: one plugin's failing `boot` cannot 
 startup, block another plugin's `boot`, or fail the enable that triggered it. None of the
 three can block the transition they report.
 
+## Settings form
+
+A manifest's `settings:` list renders as the plugin's form in **Admin → Plugins → Settings**.
+Each entry has `name`, `type` (`string`, `number`, `boolean`), `label`, and optionally
+`description`, `required`, `default` and `is_secret` (encrypted at rest, masked in every
+response, rendered as a password field).
+
+An entry with `type: info` renders as a notice instead of an input and is never stored.
+Use it when the plugin depends on something configured elsewhere:
+
+```yaml
+settings:
+  - name: "account_creation_notice"
+    type: "info"
+    label: "New users are refused until account creation is on"
+    description: "Turn on \"Create accounts on first external login\" to let first-time users in."
+    href: "/admin?tab=settings&view=external_login"
+    link_label: "Open External Login settings"
+```
+
+`href` and `link_label` are optional. `/admin?tab=settings&view=<group>` opens Admin →
+Settings on that group.
+
 ## Login providers
 
 A login provider signs users in through an external identity source — an OIDC issuer, a

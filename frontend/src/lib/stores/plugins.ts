@@ -18,9 +18,11 @@ export interface PluginPage {
 // Types
 export interface PluginSettingSchema {
 	name: string;
-	type: 'string' | 'number' | 'boolean';
+	type: 'string' | 'number' | 'boolean' | 'info';
 	label: string;
 	description?: string;
+	href?: string;
+	link_label?: string;
 	required?: boolean;
 	default?: unknown;
 	is_secret?: boolean;

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Tooltip from './Tooltip.svelte';
+
 	// Favorite (heart) toggle. Filled signal heart when active, outline otherwise.
 	export let active: boolean = false;
 	export let size: 'sm' | 'md' | 'lg' = 'sm';
@@ -19,21 +21,22 @@
 	}
 </script>
 
-<button
-	type="button"
-	aria-pressed={active}
-	aria-label={active ? 'Remove from favorites' : 'Add to favorites'}
-	title={active ? 'Remove from favorites' : 'Add to favorites'}
-	class="transition-colors duration-100 {active ? 'text-signal' : inactiveClass}"
-	on:click={toggle}
->
-	<svg
-		class={dim}
-		viewBox="0 0 24 24"
-		fill={active ? 'currentColor' : 'none'}
-		stroke="currentColor"
-		stroke-width="2"
+<Tooltip text={active ? 'Remove from favorites' : 'Add to favorites'} position="bottom" delay={150}>
+	<button
+		type="button"
+		aria-pressed={active}
+		aria-label={active ? 'Remove from favorites' : 'Add to favorites'}
+		class="transition-colors duration-100 {active ? 'text-signal' : inactiveClass}"
+		on:click={toggle}
 	>
-		<path stroke-linecap="round" stroke-linejoin="round" d={HEART_PATH} />
-	</svg>
-</button>
+		<svg
+			class={dim}
+			viewBox="0 0 24 24"
+			fill={active ? 'currentColor' : 'none'}
+			stroke="currentColor"
+			stroke-width="2"
+		>
+			<path stroke-linecap="round" stroke-linejoin="round" d={HEART_PATH} />
+		</svg>
+	</button>
+</Tooltip>

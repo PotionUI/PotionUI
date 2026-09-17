@@ -401,42 +401,50 @@
 			<!-- Actions - top right on hover (favorite persists when set) -->
 			{#if showActions && !selectable}
 				{#if tile && chromeBucket}
-					<div
-						class="absolute top-2 right-2 z-30 flex items-center gap-0.5 bg-black/70 rounded-md p-1 backdrop-blur-sm ring-1 ring-inset ring-white/10 transition-opacity duration-100 {generation.is_favorite
-							? 'opacity-100'
-							: 'opacity-0 group-hover:opacity-100'}"
-					>
+					<div class="absolute top-2 right-2 z-30 flex items-center gap-1">
 						{#each chromeActions as action (action)}
 							{#if action === 'favorite'}
-								<FavoriteButton
-									active={generation.is_favorite}
-									tone="onMedia"
-									onToggle={handleFavoriteToggle}
-								/>
+								<div
+									class="bg-black/60 hover:bg-black/80 rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 flex items-center {generation.is_favorite
+										? 'opacity-100'
+										: 'opacity-0 group-hover:opacity-100'}"
+								>
+									<FavoriteButton
+										active={generation.is_favorite}
+										tone="onMedia"
+										onToggle={handleFavoriteToggle}
+									/>
+								</div>
 							{:else if action === 'view'}
-								<button
-									class="text-white hover:bg-white/10 rounded p-1 transition-colors duration-100"
-									on:click={handleViewClick}
-									aria-label="View generation details"
-								>
-									<Icon name="eyes" className="h-3.5 w-3.5" />
-								</button>
+								<Tooltip text="View generation details" position="bottom" delay={150}>
+									<button
+										class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
+										on:click={handleViewClick}
+										aria-label="View generation details"
+									>
+										<Icon name="eyes" className="h-3.5 w-3.5" />
+									</button>
+								</Tooltip>
 							{:else if action === 'download'}
-								<button
-									class="text-white hover:bg-white/10 rounded p-1 transition-colors duration-100"
-									on:click={handleDownloadClick}
-									aria-label="Download"
-								>
-									<Icon name="download" className="h-3.5 w-3.5" />
-								</button>
+								<Tooltip text="Download" position="bottom" delay={150}>
+									<button
+										class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
+										on:click={handleDownloadClick}
+										aria-label="Download"
+									>
+										<Icon name="download" className="h-3.5 w-3.5" />
+									</button>
+								</Tooltip>
 							{:else}
-								<button
-									class="text-white hover:bg-danger-solid rounded p-1 transition-colors duration-100"
-									on:click={handleDeleteClick}
-									aria-label="Delete generation"
-								>
-									<Icon name="trash" className="h-3.5 w-3.5" />
-								</button>
+								<Tooltip text="Delete generation" position="bottom" delay={150}>
+									<button
+										class="bg-black/60 hover:bg-danger-solid text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
+										on:click={handleDeleteClick}
+										aria-label="Delete generation"
+									>
+										<Icon name="trash" className="h-3.5 w-3.5" />
+									</button>
+								</Tooltip>
 							{/if}
 						{/each}
 					</div>

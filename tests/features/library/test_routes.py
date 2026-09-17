@@ -7,9 +7,14 @@ Asserting through the router is what catches a route wired to the wrong handler
 or a ValueError that never becomes a 404 - a controller called directly cannot.
 """
 
+import asyncio
+import time
 import unittest
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
-from fastapi import FastAPI
+import pytest
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from src.features.library import operations
@@ -213,6 +218,54 @@ class TestLibraryDeleteByCriteriaRoutes(LibraryRoutesTestBase):
         self.assertEqual(response.json()["data"]["deleted_count"], 1)
         self.assertIsNone(self.upload_repo.get_by_id(both.id, self.user_id))
         self.assertIsNotNone(self.upload_repo.get_by_id(one.id, self.user_id))
+
+
+class TestLibraryRoutesResponsiveness:
+
+    @pytest.fixture
+    def controller(self):
+        return LibraryController(library_collaborators=MagicMock())
+
+    @pytest.fixture
+    def user(self):
+        return User(
+            id="user-1", username="tester", email="tester@example.com",
+            password_hash="hash", account_type=AccountType.USER,
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_item_offloads_blocking_work_so_the_loop_keeps_serving(self, controller, user, monkeypatch):
+        def _slow_get_item(collaborators, item_id, user_id):
+            time.sleep(0.3)
+            return SimpleNamespace(model_dump=lambda: {"id": item_id})
+
+        monkeypatch.setattr(operations, "get_item", _slow_get_item)
+
+        tick_at = {}
+
+        async def _tick():
+            await asyncio.sleep(0.01)
+            tick_at['t'] = time.monotonic()
+
+        start = time.monotonic()
+        await asyncio.gather(controller.get_item("item-1", user), _tick())
+
+        assert tick_at['t'] - start < 0.2
+
+    @pytest.mark.asyncio
+    async def test_get_item_exception_inside_offloaded_call_maps_to_same_error_response(
+        self, controller, user, monkeypatch
+    ):
+        def _boom(collaborators, item_id, user_id):
+            raise RuntimeError("db is on fire")
+
+        monkeypatch.setattr(operations, "get_item", _boom)
+
+        with pytest.raises(HTTPException) as exc:
+            await controller.get_item("item-1", user)
+
+        assert exc.value.status_code == 400
+        assert exc.value.detail['error'] == 'get_failed'
 
 
 if __name__ == '__main__':

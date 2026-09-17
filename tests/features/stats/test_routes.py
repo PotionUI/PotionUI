@@ -1,3 +1,5 @@
+import asyncio
+import time
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -168,6 +170,27 @@ class TestStatsController:
             await controller.get_overview(user=admin)
         assert exc.value.status_code == 500
         assert exc.value.detail['error'] == 'stats_overview_failed'
+
+    @pytest.mark.asyncio
+    async def test_overview_offloads_blocking_work_so_the_loop_keeps_serving(
+        self, controller, admin, mock_stats_repository
+    ):
+        def _slow_overview(**kwargs):
+            time.sleep(0.3)
+            return {'total_generations': 42}
+
+        mock_stats_repository.overview.side_effect = _slow_overview
+
+        tick_at = {}
+
+        async def _tick():
+            await asyncio.sleep(0.01)
+            tick_at['t'] = time.monotonic()
+
+        start = time.monotonic()
+        await asyncio.gather(controller.get_overview(user=admin), _tick())
+
+        assert tick_at['t'] - start < 0.2
 
 
 class TestClosedQuerySets:

@@ -12,6 +12,7 @@ does not exist - 404, never 403 - so a caller cannot probe for another user's
 files (the `delete_upload` precedent in `src.features.media.routes`).
 """
 
+import asyncio
 import logging
 from typing import Optional, TYPE_CHECKING
 
@@ -56,7 +57,8 @@ class LibraryController(BaseController):
         """List the current user's library, newest first."""
         try:
             parsed_tag_ids = [t.strip() for t in tag_ids.split(',')] if tag_ids else None
-            result = operations.list_items(
+            result = await asyncio.to_thread(
+                operations.list_items,
                 self.collaborators,
                 current_user.id,
                 media_type=media_type,
@@ -76,7 +78,8 @@ class LibraryController(BaseController):
     async def get_facets(self, current_user) -> APIResponse:
         """Per-media-type counts for the current user's library."""
         try:
-            return self.success_response(data=operations.get_facets(self.collaborators, current_user.id).model_dump())
+            facets = await asyncio.to_thread(operations.get_facets, self.collaborators, current_user.id)
+            return self.success_response(data=facets.model_dump())
         except Exception as e:
             self.logger.error(f"Failed to get library facets: {e}")
             return self.error_response(error="facets_failed", message="Failed to get library facets")
@@ -84,7 +87,8 @@ class LibraryController(BaseController):
     async def get_item(self, item_id: str, current_user) -> APIResponse:
         """Get one library item owned by the current user."""
         try:
-            return self.success_response(data=operations.get_item(self.collaborators, item_id, current_user.id).model_dump())
+            item = await asyncio.to_thread(operations.get_item, self.collaborators, item_id, current_user.id)
+            return self.success_response(data=item.model_dump())
         except ValueError as e:
             return self.error_response(error="not_found", message=str(e), status_code=404)
         except Exception as e:
@@ -94,7 +98,7 @@ class LibraryController(BaseController):
     async def delete_item(self, item_id: str, current_user) -> APIResponse:
         """Delete one library item owned by the current user."""
         try:
-            operations.delete_item(self.collaborators, item_id, current_user.id)
+            await asyncio.to_thread(operations.delete_item, self.collaborators, item_id, current_user.id)
             return self.success_response(data={"id": item_id, "deleted": True})
         except ValueError as e:
             return self.error_response(error="not_found", message=str(e), status_code=404)
@@ -105,7 +109,8 @@ class LibraryController(BaseController):
     async def get_tags(self, item_id: str, current_user) -> APIResponse:
         """List a library item's tags."""
         try:
-            return self.success_response(data={"tags": operations.get_tags(self.collaborators, item_id, current_user.id)})
+            tags = await asyncio.to_thread(operations.get_tags, self.collaborators, item_id, current_user.id)
+            return self.success_response(data={"tags": tags})
         except ValueError as e:
             return self.error_response(error="not_found", message=str(e), status_code=404)
         except Exception as e:
@@ -120,7 +125,7 @@ class LibraryController(BaseController):
     ) -> APIResponse:
         """Replace a library item's tags."""
         try:
-            tags = operations.set_tags(self.collaborators, item_id, request.tag_ids, current_user.id)
+            tags = await asyncio.to_thread(operations.set_tags, self.collaborators, item_id, request.tag_ids, current_user.id)
             return self.success_response(data={"tags": tags})
         except ValueError as e:
             return self.error_response(error="not_found", message=str(e), status_code=404)
@@ -135,7 +140,9 @@ class LibraryController(BaseController):
     ) -> APIResponse:
         """Copy one of the user's generated files into their library."""
         try:
-            item = operations.copy_generation_file(self.collaborators, request.file_id, current_user.id)
+            item = await asyncio.to_thread(
+                operations.copy_generation_file, self.collaborators, request.file_id, current_user.id
+            )
             return self.success_response(data={"item": item.model_dump()})
         except ValueError as e:
             return self.error_response(error="not_found", message=str(e), status_code=404)
@@ -149,9 +156,12 @@ class LibraryController(BaseController):
         current_user
     ) -> APIResponse:
         """Count the current user's library items matching criteria, AND-ed (for preview)."""
-        try:
+        def _count() -> int:
             criteria = owner_criteria(self.collaborators, request, current_user.id)
-            count = preview_items(self.collaborators, criteria)
+            return preview_items(self.collaborators, criteria)
+
+        try:
+            count = await asyncio.to_thread(_count)
             return self.success_response(
                 message=f"Found {count} item(s) matching the given criteria",
                 data={"count": count}
@@ -171,7 +181,7 @@ class LibraryController(BaseController):
     ) -> APIResponse:
         """Delete every library item of the current user matching criteria, AND-ed."""
         try:
-            criteria = owner_criteria(self.collaborators, request, current_user.id)
+            criteria = await asyncio.to_thread(owner_criteria, self.collaborators, request, current_user.id)
         except ValueError as e:
             return self.error_response(error="validation_error", message=str(e), status_code=400)
 
@@ -183,7 +193,7 @@ class LibraryController(BaseController):
             )
 
         try:
-            summary = delete_items(self.collaborators, criteria)
+            summary = await asyncio.to_thread(delete_items, self.collaborators, criteria)
             return self.success_response(
                 message=f"Successfully deleted {summary['deleted_count']} item(s).",
                 data=summary
@@ -205,8 +215,8 @@ class LibraryController(BaseController):
                 error="invalid_request", message="No item IDs provided", status_code=400
             )
         try:
-            zip_file, filename = operations.export_zip(
-                self.collaborators, request.item_ids, current_user.id
+            zip_file, filename = await asyncio.to_thread(
+                operations.export_zip, self.collaborators, request.item_ids, current_user.id
             )
             return stream_spooled_zip(zip_file, filename)
         except ValueError as e:

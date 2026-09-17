@@ -1,4 +1,6 @@
 """Tests for src.features.sessions.operations."""
+import asyncio
+import time
 import pytest
 from unittest.mock import Mock
 from datetime import datetime
@@ -99,6 +101,41 @@ class TestSessionControllerRead:
 
         assert response.success is False
         assert response.error == "session_access_denied"
+
+    @pytest.mark.asyncio
+    async def test_get_session_by_id_offloads_blocking_work_so_the_loop_keeps_serving(
+        self, controller, mock_session_repo, sample_session
+    ):
+        def _slow_get_by_id(session_id):
+            time.sleep(0.3)
+            return sample_session
+
+        mock_session_repo.get_by_id.side_effect = _slow_get_by_id
+
+        tick_at = {}
+
+        async def _tick():
+            await asyncio.sleep(0.01)
+            tick_at['t'] = time.monotonic()
+
+        start = time.monotonic()
+        await asyncio.gather(controller.get_session_by_id("user-123", "session-123"), _tick())
+
+        assert tick_at['t'] - start < 0.2
+
+    @pytest.mark.asyncio
+    async def test_get_session_by_id_exception_inside_offloaded_call_maps_to_same_error_response(
+        self, controller, mock_session_repo
+    ):
+        def _boom(session_id):
+            raise RuntimeError("db is on fire")
+
+        mock_session_repo.get_by_id.side_effect = _boom
+
+        response = await controller.get_session_by_id("user-123", "session-123")
+
+        assert response.success is False
+        assert response.error == "get_session_failed"
 
 
 class TestSaveSessionCreate:

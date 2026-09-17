@@ -4,6 +4,7 @@ Session Controller
 Handles CRUD operations for user sessions (saved preset configurations).
 Delegates mutations to `src.features.sessions.operations`.
 """
+import asyncio
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from fastapi import APIRouter, Depends
 
@@ -45,7 +46,7 @@ class SessionController(BaseController):
     async def get_sessions_for_preset(self, user_id: str, preset_id: str) -> APIResponse:
         """Get all sessions for a user and preset."""
         try:
-            sessions = self.repository.get_by_user_and_preset(user_id, preset_id)
+            sessions = await asyncio.to_thread(self.repository.get_by_user_and_preset, user_id, preset_id)
             return self.success_response(data=[session_to_response_dict(s) for s in sessions])
         except ValueError as e:
             return self.error_api_response(error="get_sessions_failed", message=str(e))
@@ -81,7 +82,7 @@ class SessionController(BaseController):
     async def get_session_by_id(self, user_id: str, session_id: str) -> APIResponse:
         """Get a specific session by ID."""
         try:
-            session = self._get_owned_session_record(user_id, session_id)
+            session = await asyncio.to_thread(self._get_owned_session_record, user_id, session_id)
             return self.success_response(data=session_to_response_dict(session))
         except ValueError as e:
             error_msg = str(e)
@@ -105,7 +106,8 @@ class SessionController(BaseController):
     async def save_session(self, user_id: str, request: SaveSessionRequest) -> APIResponse:
         """Save a new session or update existing one with same name."""
         try:
-            session_data, message = operations.save_session(
+            session_data, message = await asyncio.to_thread(
+                operations.save_session,
                 self.repository, self.plugins, self.version_repository, self.file_preset_repository, user_id, request
             )
             return self.success_response(data=session_data, message=message)
@@ -125,7 +127,8 @@ class SessionController(BaseController):
     ) -> APIResponse:
         """Update an existing session."""
         try:
-            session_data = operations.update_session(
+            session_data = await asyncio.to_thread(
+                operations.update_session,
                 self.repository, self.plugins, self.version_repository, self.file_preset_repository,
                 user_id, session_id, request
             )
@@ -156,16 +159,17 @@ class SessionController(BaseController):
 
     async def list_session_versions(self, user_id: str, session_id: str) -> APIResponse:
         """List a session's version history (newest first, no payloads)."""
-        try:
+        def _list_versions() -> List[Dict[str, Any]]:
             self._get_session_or_404(user_id, session_id)
-
             if not self.version_repository:
-                versions: List[Dict[str, Any]] = []
-            else:
-                versions = [
-                    session_version_summary_to_dict(v)
-                    for v in self.version_repository.list_for_session(session_id)
-                ]
+                return []
+            return [
+                session_version_summary_to_dict(v)
+                for v in self.version_repository.list_for_session(session_id)
+            ]
+
+        try:
+            versions = await asyncio.to_thread(_list_versions)
             return self.success_response(data=versions)
         except ValueError as e:
             # House 404-not-403 idiom: missing session and "belongs to someone
@@ -180,16 +184,17 @@ class SessionController(BaseController):
 
     async def get_session_version(self, user_id: str, session_id: str, version_number: int) -> APIResponse:
         """Get a single version's full payload."""
-        try:
+        def _get_version():
             self._get_session_or_404(user_id, session_id)
-
             if not self.version_repository:
                 raise ValueError("Version not found")
-
             version = self.version_repository.get(session_id, version_number)
             if not version:
                 raise ValueError("Version not found")
+            return version
 
+        try:
+            version = await asyncio.to_thread(_get_version)
             return self.success_response(data=session_version_to_dict(version))
         except ValueError as e:
             error_msg = str(e)
@@ -204,7 +209,7 @@ class SessionController(BaseController):
     async def delete_session(self, user_id: str, session_id: str) -> APIResponse:
         """Delete a session."""
         try:
-            message = operations.delete_session(self.repository, self.plugins, user_id, session_id)
+            message = await asyncio.to_thread(operations.delete_session, self.repository, self.plugins, user_id, session_id)
             return self.success_response(message=message)
         except ValueError as e:
             error_msg = str(e)

@@ -6,6 +6,7 @@ all use `Depends(get_current_active_user)` and check `account_type` inside the c
 mechanism.
 """
 
+import asyncio
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
 
@@ -59,7 +60,8 @@ class StatsController(BaseController):
     async def get_overview(self, date_from=None, date_to=None, user=None) -> APIResponse:
         self._require_admin(user)
         try:
-            return self.success_response(self.stats_repository.overview(date_from=date_from, date_to=date_to))
+            overview = await asyncio.to_thread(self.stats_repository.overview, date_from=date_from, date_to=date_to)
+            return self.success_response(overview)
         except Exception as e:
             return self.handle_exception(e, "stats_overview_failed")
 
@@ -67,9 +69,10 @@ class StatsController(BaseController):
                              user=None) -> APIResponse:
         self._require_admin(user)
         try:
-            return self.success_response(
-                operations.timeseries(self.stats_repository, metric, bucket, date_from, date_to)
+            result = await asyncio.to_thread(
+                operations.timeseries, self.stats_repository, metric, bucket, date_from, date_to
             )
+            return self.success_response(result)
         except Exception as e:
             return self.handle_exception(e, "stats_timeseries_failed")
 
@@ -77,25 +80,27 @@ class StatsController(BaseController):
                             user=None) -> APIResponse:
         self._require_admin(user)
         try:
-            return self.success_response(
-                operations.breakdown(
-                    self.stats_repository, self.file_preset_repository, dimension, limit, date_from, date_to
-                )
+            result = await asyncio.to_thread(
+                operations.breakdown,
+                self.stats_repository, self.file_preset_repository, dimension, limit, date_from, date_to
             )
+            return self.success_response(result)
         except Exception as e:
             return self.handle_exception(e, "stats_breakdown_failed")
 
     async def get_durations(self, date_from=None, date_to=None, user=None) -> APIResponse:
         self._require_admin(user)
         try:
-            return self.success_response(self.stats_repository.durations(date_from=date_from, date_to=date_to))
+            durations = await asyncio.to_thread(self.stats_repository.durations, date_from=date_from, date_to=date_to)
+            return self.success_response(durations)
         except Exception as e:
             return self.handle_exception(e, "stats_durations_failed")
 
     async def get_storage(self, date_from=None, date_to=None, bucket: str = 'day', limit=30, user=None) -> APIResponse:
         self._require_admin(user)
         try:
-            return self.success_response(operations.storage(self.stats_repository, date_from, date_to, bucket, limit))
+            result = await asyncio.to_thread(operations.storage, self.stats_repository, date_from, date_to, bucket, limit)
+            return self.success_response(result)
         except Exception as e:
             return self.handle_exception(e, "stats_storage_failed")
 
@@ -111,7 +116,8 @@ class StatsController(BaseController):
         if self.generation_stats_repository is None:
             return self.success_response({'items': []})
         try:
-            return self.success_response({'items': self.generation_stats_repository.preset_timing(limit)})
+            items = await asyncio.to_thread(self.generation_stats_repository.preset_timing, limit)
+            return self.success_response({'items': items})
         except Exception as e:
             return self.handle_exception(e, "stats_preset_timing_failed")
 
@@ -121,7 +127,8 @@ class StatsController(BaseController):
         if self.generation_stats_repository is None:
             return self.success_response({'items': []})
         try:
-            return self.success_response({'items': self.generation_stats_repository.preset_resources(limit)})
+            items = await asyncio.to_thread(self.generation_stats_repository.preset_resources, limit)
+            return self.success_response({'items': items})
         except Exception as e:
             return self.handle_exception(e, "stats_preset_resources_failed")
 

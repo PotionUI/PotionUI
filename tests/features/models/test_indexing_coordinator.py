@@ -1,28 +1,16 @@
-"""`ModelIndexingCoordinator.run_indexing` drives the filesystem `ModelScanner`,
-which writes `models` rows only. Once a native backend has been indexed, a
-model with no `model_availability` row is invisible on Generate - this pins
-that a successful scan reconciles native availability afterwards, and that a
-scanner failure never reaches (or needs) that reconcile step.
-"""
 
 from unittest.mock import AsyncMock, MagicMock
 
 from src.features.models.indexing_coordinator import ModelIndexingCoordinator
 
-
 class FakeHookContext:
     def __init__(self):
         self.data = {}
 
-
 class FakePluginRegistry:
-    """`execute_hook` unpacks `plugins.execute_hook(...)` as `(context, _)`
-    with `context.data` a dict - a bare MagicMock returns a Mock that fails
-    that unpack, so the coordinator needs a fake, not a Mock, here."""
 
     def execute_hook(self, hook, initial_data):
         return FakeHookContext(), False
-
 
 def _coordinator(scanner_result=None, scanner_raises=None, reconciler=None, backend_registry=None):
     scanner = MagicMock()
@@ -39,7 +27,6 @@ def _coordinator(scanner_result=None, scanner_raises=None, reconciler=None, back
         native_availability_reconciler=reconciler,
     )
 
-
 def test_run_indexing_reconciles_native_availability_after_a_successful_scan():
     reconciler = MagicMock()
     reconciler.reconcile = AsyncMock()
@@ -50,7 +37,6 @@ def test_run_indexing_reconciles_native_availability_after_a_successful_scan():
 
     reconciler.reconcile.assert_awaited_once_with(backend_registry)
 
-
 def test_run_indexing_skips_reconcile_when_the_scan_fails():
     reconciler = MagicMock()
     reconciler.reconcile = AsyncMock()
@@ -60,11 +46,7 @@ def test_run_indexing_skips_reconcile_when_the_scan_fails():
 
     reconciler.reconcile.assert_not_awaited()
 
-
 def test_reconcile_failure_does_not_raise():
-    """The scan already succeeded and its files are already indexed - a
-    reconcile hiccup must not surface as an exception out of the background
-    task (there is no caller left to catch it)."""
     reconciler = MagicMock()
     reconciler.reconcile = AsyncMock(side_effect=RuntimeError("boom"))
     coordinator = _coordinator(reconciler=reconciler)

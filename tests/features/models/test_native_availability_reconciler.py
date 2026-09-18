@@ -1,9 +1,3 @@
-"""`NativeAvailabilityReconciler` re-indexes local native backends only,
-never remote-native or comfyui, swallows per-backend failures, and
-serialises concurrent calls against the same backend so they cannot race
-inside `BackendModelIndexer.index_backend`'s own
-`delete_for_backend(keep_model_ids=...)` step.
-"""
 
 import asyncio
 from dataclasses import dataclass
@@ -14,11 +8,9 @@ import pytest
 from src.features.backends.backend_config import NATIVE_ENGINE, NATIVE_LOCAL_DRIVER, NATIVE_REMOTE_DRIVER
 from src.features.models.native_availability_reconciler import NativeAvailabilityReconciler
 
-
 @dataclass
 class FakeConfig:
     driver: str
-
 
 class FakeBackend:
     def __init__(self, backend_id, driver, listing_supported=True):
@@ -29,7 +21,6 @@ class FakeBackend:
     def supports_model_listing(self):
         return self._listing_supported
 
-
 class FakeBackendRegistry:
     def __init__(self, backends):
         self._backends = backends
@@ -38,13 +29,11 @@ class FakeBackendRegistry:
         assert engine == NATIVE_ENGINE
         return list(self._backends)
 
-
 class FakeIndexResult:
     def __init__(self, created=0, matched=0, removed=0):
         self.created = created
         self.matched = matched
         self.removed = removed
-
 
 class FakeIndexer:
     def __init__(self):
@@ -57,7 +46,6 @@ class FakeIndexer:
         if backend.backend_id in self.raises:
             raise self.raises[backend.backend_id]
         return self.results.get(backend.backend_id, FakeIndexResult())
-
 
 def test_reconciles_only_local_native_backends():
     local = FakeBackend("local-1", NATIVE_LOCAL_DRIVER)
@@ -73,7 +61,6 @@ def test_reconciles_only_local_native_backends():
     assert summary.created == 1
     assert summary.matched == 2
 
-
 def test_skips_backends_that_do_not_support_listing():
     local = FakeBackend("local-1", NATIVE_LOCAL_DRIVER, listing_supported=False)
     indexer = FakeIndexer()
@@ -83,7 +70,6 @@ def test_skips_backends_that_do_not_support_listing():
 
     assert indexer.calls == []
     assert summary.backend_ids == []
-
 
 def test_per_backend_failure_is_swallowed_and_reported():
     ok = FakeBackend("local-ok", NATIVE_LOCAL_DRIVER)
@@ -98,7 +84,6 @@ def test_per_backend_failure_is_swallowed_and_reported():
     assert summary.backend_ids == ["local-ok"]
     assert summary.failed_backend_ids == ["local-broken"]
 
-
 def test_no_backend_registry_is_a_no_op():
     indexer = FakeIndexer()
     reconciler = NativeAvailabilityReconciler(indexer=indexer)
@@ -108,11 +93,7 @@ def test_no_backend_registry_is_a_no_op():
     assert indexer.calls == []
     assert summary.backend_ids == []
 
-
 def test_concurrent_calls_for_the_same_backend_are_serialised():
-    """Two reconciles racing for the same backend must not overlap inside
-    `index_backend` - overlapping runs could each compute a different
-    `seen_model_ids` and delete rows the other just wrote."""
     local = FakeBackend("local-1", NATIVE_LOCAL_DRIVER)
     reconciler = NativeAvailabilityReconciler(indexer=FakeIndexer())
 
@@ -143,7 +124,6 @@ def test_concurrent_calls_for_the_same_backend_are_serialised():
     asyncio.run(_run())
 
     assert max_in_flight == 1
-
 
 def test_reconcile_works_from_separate_event_loops_and_threads():
     import asyncio
@@ -190,7 +170,6 @@ def test_reconcile_works_from_separate_event_loops_and_threads():
     assert len(summaries) == 4
     assert all(s.backend_ids == ["native"] and not s.failed_backend_ids for s in summaries)
     assert max_in_flight == 1
-
 
 def test_a_registry_failure_never_reaches_the_caller():
     import asyncio

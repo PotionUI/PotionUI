@@ -1,11 +1,3 @@
-"""`ModelJobs.run_download_and_index` writes a `models` row through the
-filesystem `ModelScanner`, which never touches `model_availability`. Once any
-backend of an engine has been indexed, a model with no availability row is
-invisible to pickers and generation refuses it
-(`src.features.models.availability.NoBackendHoldsAllModelsError`). This pins
-that the job reconciles native availability right after indexing succeeds -
-see `src.features.models.native_availability_reconciler`.
-"""
 
 import asyncio
 from pathlib import Path
@@ -13,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.features.downloads.models import Download, DownloadStatus
 from src.features.models.jobs import ModelJobs
-
 
 class FakeDownloadQueue:
     def __init__(self, download: Download):
@@ -24,7 +15,6 @@ class FakeDownloadQueue:
 
     def get_download(self, download_id):
         return self._download
-
 
 def _job(tmp_path: Path, reconciler=None, backend_registry=None) -> ModelJobs:
     destination = tmp_path / "model.safetensors"
@@ -44,7 +34,6 @@ def _job(tmp_path: Path, reconciler=None, backend_registry=None) -> ModelJobs:
     )
     return job
 
-
 def test_run_download_and_index_reconciles_native_availability(tmp_path):
     reconciler = MagicMock()
     reconciler.reconcile = AsyncMock()
@@ -60,7 +49,6 @@ def test_run_download_and_index_reconciles_native_availability(tmp_path):
         ))
 
     reconciler.reconcile.assert_awaited_once_with(backend_registry)
-
 
 def test_run_download_and_index_skips_reconcile_when_indexing_fails(tmp_path):
     reconciler = MagicMock()

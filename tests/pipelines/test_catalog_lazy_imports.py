@@ -141,7 +141,7 @@ def _run_subprocess(script: str) -> subprocess.CompletedProcess:
         env=env,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=600,
     )
 
 

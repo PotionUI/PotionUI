@@ -1,7 +1,7 @@
 /**
  * Which image an inpaint mask belongs to.
  *
- * The mask a user paints in InpaintingModal is uploaded separately and lands on
+ * The mask a user paints on an image is uploaded separately and lands on
  * the `${name}_inpaint_mask` sibling channel, not on the field's value. Nothing
  * tied the two together, so swapping the image out (a new upload, a pick from
  * history or the upload library, a clear) left the old mask attached and the

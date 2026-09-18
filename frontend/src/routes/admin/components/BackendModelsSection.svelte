@@ -26,6 +26,7 @@
 		DEFAULT_STATUS_FILTER,
 		MAX_RENDERED_SYNC_ROWS
 	} from './backendModelsSync';
+	import { createVisiblePoll } from './visiblePoll';
 
 	/**
 	 * Shown on a `native.remote` backend's Models tab - lets an admin push
@@ -45,7 +46,6 @@
 	let { backendId, onOpenInfrastructure }: { backendId: string; onOpenInfrastructure?: () => void } = $props();
 
 	const POLL_INTERVAL_MS = 2000;
-	let pollHandle: ReturnType<typeof setInterval> | null = null;
 
 	let loading = $state(true);
 	let rows = $state<RemoteModelSyncRow[]>([]);
@@ -183,7 +183,7 @@
 			captureRowErrors();
 			const running = hasRunningTransfer(transfers);
 			if (!running) {
-				stopPolling();
+				poll.stop();
 				if (wasRunning) await loadSyncView();
 			}
 			wasRunning = running;
@@ -192,27 +192,17 @@
 		}
 	}
 
-	function startPolling() {
-		stopPolling();
-		pollHandle = setInterval(pollTransfers, POLL_INTERVAL_MS);
-	}
-
-	function stopPolling() {
-		if (pollHandle !== null) {
-			clearInterval(pollHandle);
-			pollHandle = null;
-		}
-	}
+	const poll = createVisiblePoll(pollTransfers, POLL_INTERVAL_MS);
 
 	onMount(async () => {
 		await loadSyncView();
 		if (!sectionError) {
 			await pollTransfers();
-			if (hasRunningTransfer(transfers)) startPolling();
+			if (hasRunningTransfer(transfers)) poll.start();
 		}
 	});
 
-	onDestroy(stopPolling);
+	onDestroy(poll.stop);
 
 	async function submitPush() {
 		if (selected.size === 0 || syncing) return;
@@ -229,7 +219,7 @@
 				rowErrors = next;
 				selected = new Set();
 				await pollTransfers();
-				if (hasRunningTransfer(transfers)) startPolling();
+				if (hasRunningTransfer(transfers)) poll.start();
 			} else if (response.error === 'worker_not_running') {
 				sectionError = { kind: 'worker_not_running', message: response.message ?? '' };
 			} else if (response.error === 'worker_unreachable') {
@@ -248,7 +238,7 @@
 		void loadSyncView().then(() => {
 			if (!sectionError) {
 				pollTransfers().then(() => {
-					if (hasRunningTransfer(transfers)) startPolling();
+					if (hasRunningTransfer(transfers)) poll.start();
 				});
 			}
 		});

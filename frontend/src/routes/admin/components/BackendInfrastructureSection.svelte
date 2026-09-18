@@ -30,6 +30,7 @@
 		canStart,
 		isNearBottom
 	} from './provisionedComputeView';
+	import { createVisiblePoll } from './visiblePoll';
 
 	/**
 	 * Shown on a backend's detail pane. Three states, discriminated by whether
@@ -74,9 +75,8 @@
 	} = $props();
 
 	const POLL_INTERVAL_MS = 30000;
-	let pollHandle: ReturnType<typeof setInterval> | null = null;
+	const CHECKED_AGO_TICK_MS = 5000;
 	let unsubscribeComputeStatus: (() => void) | null = null;
-	let checkedAgoTickHandle: ReturnType<typeof setInterval> | null = null;
 
 	let loading = $state(true);
 	let row = $state<ProvisionedCompute | null>(null);
@@ -139,17 +139,10 @@
 		}
 	}
 
-	function startPolling() {
-		stopPolling();
-		pollHandle = setInterval(pollStatus, POLL_INTERVAL_MS);
-	}
-
-	function stopPolling() {
-		if (pollHandle !== null) {
-			clearInterval(pollHandle);
-			pollHandle = null;
-		}
-	}
+	const statusPoll = createVisiblePoll(pollStatus, POLL_INTERVAL_MS);
+	const checkedAgoPoll = createVisiblePoll(() => {
+		checkedAgoTick += 1;
+	}, CHECKED_AGO_TICK_MS);
 
 	onMount(async () => {
 		// Subscribed before the initial fetch below awaits, so a `compute_status`
@@ -171,7 +164,7 @@
 			if (response.success && response.data && !row) {
 				row = response.data;
 			}
-			if (row) startPolling();
+			if (row) statusPoll.start();
 		} catch (e: unknown) {
 			if (!isAxiosError(e) || e.response?.status !== 404) {
 				toasts.error(getApiErrorMessage(e, 'Failed to load infrastructure status'));
@@ -184,13 +177,13 @@
 			void loadProviders();
 		}
 
-		checkedAgoTickHandle = setInterval(() => (checkedAgoTick += 1), 5000);
+		checkedAgoPoll.start();
 	});
 
 	onDestroy(() => {
-		stopPolling();
+		statusPoll.stop();
 		unsubscribeComputeStatus?.();
-		if (checkedAgoTickHandle !== null) clearInterval(checkedAgoTickHandle);
+		checkedAgoPoll.stop();
 	});
 
 	function requestStop() {
@@ -219,7 +212,7 @@
 				const response = await terminateProvisionedCompute(row.id);
 				if (response.success) {
 					toasts.success(`"${row.profile_name}" terminated`);
-					stopPolling();
+					statusPoll.stop();
 					row = null;
 					onTerminated();
 				} else {
@@ -379,7 +372,7 @@
 				toasts.info(`Bringing up "${response.data.profile_name}"…`);
 				row = response.data;
 				reprovisioning = false;
-				startPolling();
+				statusPoll.start();
 				onProvisioned();
 			} else {
 				provisionError = response.message || 'Failed to provision compute';

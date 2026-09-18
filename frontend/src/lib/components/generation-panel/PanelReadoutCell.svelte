@@ -3,9 +3,7 @@
 	// (last, elapsed, queue — the session/save cell is SessionCluster's own
 	// `.session-control`, not this). Ported from generation-panel-concept.html's
 	// `.readout` (lines 191-195, 452-454): fixed 69px width, label/value
-	// stacked, border-right, mono value. A distinct component from the shared
-	// ReadoutCell.svelte — that one is also used outside this ported scope
-	// (admin GenerationStatTiles) and keeps its own Tailwind styling. A cell
+	// stacked, border-right, mono value. A cell
 	// never disappears — the caller always passes a value, falling back to
 	// "none"/"empty" text upstream — so this component has no empty state.
 	export let label: string;

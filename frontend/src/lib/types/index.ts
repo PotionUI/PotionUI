@@ -22,7 +22,6 @@ export * from './llm';
 export * from './models';
 export * from './segments';
 export * from './tabs';
-export * from './tutorial';
 
 // The wildcard re-exports above collide on a handful of names between
 // modules; these explicit re-exports pick the winner for the bare name

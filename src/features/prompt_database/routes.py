@@ -206,14 +206,18 @@ def build_router(container: "AppContainer") -> APIRouter:
         model_id: Optional[str] = None,
         current_user: User = Depends(get_current_active_user),
     ):
-        groups = await operations.find_duplicates(
+        result = await operations.find_duplicates(
             controller.collaborators, _user_id(current_user), threshold, model_id,
         )
+        groups = result["groups"]
         return APIResponse(
             success=True,
             data={
                 "groups": groups,
                 "total_duplicates": sum(len(group["prompts"]) - 1 for group in groups),
+                "scanned": result["scanned"],
+                "total": result["total"],
+                "partial": result["partial"],
             },
         )
 

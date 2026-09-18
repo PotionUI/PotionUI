@@ -141,6 +141,9 @@ export function createPromptsApi(client: AxiosInstance) {
 			APIResponse<{
 				groups: Array<{ similarity: number; prompts: Prompt[] }>;
 				total_duplicates: number;
+				scanned: number;
+				total: number;
+				partial: boolean;
 			}>
 		> {
 			const response = await client.post('/api/prompts/find-duplicates', null, {

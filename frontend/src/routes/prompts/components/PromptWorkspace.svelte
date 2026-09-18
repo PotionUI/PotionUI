@@ -5,6 +5,7 @@
 	import ModelAssignmentModal from '$lib/components/modals/ModelAssignmentModal.svelte';
 	import MediaPreview from '$lib/components/MediaPreview.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { MasterDetailLayout, DetailPane } from '$lib/components/master-detail';
 	import { Pane, PaneRow } from '$lib/components/pane';
 	import { Badge, Button, Card, EmptyState, IconButton, Input, Spinner } from '$lib/components/ui';
@@ -76,6 +77,9 @@
 	let showDuplicatesModal = false;
 	let duplicatesLoading = false;
 	let duplicateGroups: DuplicateGroup[] | null = null;
+	let duplicateScanPartial = false;
+	let duplicateScanScanned = 0;
+	let duplicateScanTotal = 0;
 	let duplicateThreshold = 0.1;
 	let pendingDuplicateAction: DuplicateAction | null = null;
 	let duplicateActionBusy = false;
@@ -360,6 +364,7 @@
 	async function refreshDuplicates() {
 		duplicatesLoading = true;
 		duplicateGroups = null;
+		duplicateScanPartial = false;
 		pendingDuplicateAction = null;
 		try {
 			const response = await api.findDuplicatePrompts({
@@ -367,6 +372,9 @@
 				threshold: duplicateThreshold
 			});
 			duplicateGroups = response.data?.groups || [];
+			duplicateScanPartial = response.data?.partial ?? false;
+			duplicateScanScanned = response.data?.scanned ?? 0;
+			duplicateScanTotal = response.data?.total ?? 0;
 		} catch {
 			toasts.error('Duplicate scan failed');
 			duplicateGroups = [];
@@ -798,10 +806,23 @@
 				</div>
 			</div>
 			{#if !duplicatesLoading && duplicateGroups}
-				<Badge>
-					<span class="font-mono tabular-nums">{duplicateGroups.length}</span>
-					group{duplicateGroups.length === 1 ? '' : 's'}
-				</Badge>
+				<div class="flex items-center gap-2">
+					{#if duplicateScanPartial}
+						<Tooltip
+							text={`Scanned the first ${duplicateScanScanned.toLocaleString()} of ${duplicateScanTotal.toLocaleString()} prompts. Narrow the model filter to scan the rest.`}
+							position="bottom"
+						>
+							<Badge variant="warning">
+								<Icon name="warning" className="h-3 w-3" />
+								Partial scan
+							</Badge>
+						</Tooltip>
+					{/if}
+					<Badge>
+						<span class="font-mono tabular-nums">{duplicateGroups.length}</span>
+						group{duplicateGroups.length === 1 ? '' : 's'}
+					</Badge>
+				</div>
 			{/if}
 		</div>
 

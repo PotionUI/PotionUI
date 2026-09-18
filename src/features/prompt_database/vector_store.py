@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+import numpy as np
 
 from src.platform.vector.chroma_client import ChromaClientProvider
 
@@ -11,6 +14,18 @@ if TYPE_CHECKING:
     import chromadb
 
 logger = logging.getLogger(__name__)
+
+DUPLICATE_SCAN_CAP = 5000
+DUPLICATE_SCAN_PAGE_SIZE = 500
+
+
+@dataclass
+class EmbeddingScan:
+    ids: List[str]
+    vectors: np.ndarray
+    scanned: int
+    total: int
+    partial: bool
 
 
 class PromptVectorStore:
@@ -123,47 +138,52 @@ class PromptVectorStore:
             logger.error(f"ChromaDB search failed: {e}")
             return []
 
-    def get_all_embeddings(
+    def scan_embeddings(
         self,
         user_id: str,
         where: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, List[float]]:
-        """Retrieve all prompt IDs and their embedding vectors from the user's collection.
-
-        Args:
-            user_id: The user whose collection to query.
-            where: Optional ChromaDB metadata filter.
-
-        Returns:
-            Dict mapping prompt_id to embedding vector.
-        """
+        cap: int = DUPLICATE_SCAN_CAP,
+        page_size: int = DUPLICATE_SCAN_PAGE_SIZE,
+    ) -> EmbeddingScan:
         collection = self.get_collection(user_id)
         try:
-            kwargs: Dict[str, Any] = {"include": ["embeddings"]}
+            total = collection.count()
+        except Exception as e:
+            logger.error(f"ChromaDB count failed: {e}")
+            total = 0
+
+        ids: List[str] = []
+        vector_pages: List[np.ndarray] = []
+        offset = 0
+        partial = False
+        while len(ids) < cap:
+            limit = min(page_size, cap - len(ids))
+            kwargs: Dict[str, Any] = {"include": ["embeddings"], "limit": limit, "offset": offset}
             if where:
                 kwargs["where"] = where
-            results = collection.get(**kwargs)
-            ids = results.get("ids", [])
-            embeddings = results.get("embeddings", [])
-            # Chroma may return embeddings as a NumPy array. Array truth-value
-            # checks (``if not embeddings``) raise when it contains multiple
-            # values, so test absence/emptiness explicitly.
-            if ids is None or embeddings is None:
-                return {}
-            if len(ids) == 0 or len(embeddings) == 0:
-                return {}
+            try:
+                results = collection.get(**kwargs)
+            except Exception as e:
+                logger.error(f"ChromaDB scan_embeddings failed: {e}")
+                break
+            page_ids = list(results.get("ids") or [])
+            page_embeddings = results.get("embeddings")
+            if not page_ids or page_embeddings is None or len(page_embeddings) == 0:
+                break
+            ids.extend(page_ids)
+            vector_pages.append(np.asarray(page_embeddings, dtype=np.float64))
+            offset += len(page_ids)
+            if len(page_ids) < limit:
+                break
+        else:
+            partial = True
 
-            # Keep the vector-store boundary stable regardless of whether the
-            # Chroma client returns Python lists or NumPy arrays.
-            return {
-                prompt_id: embedding.tolist()
-                if hasattr(embedding, "tolist")
-                else list(embedding)
-                for prompt_id, embedding in zip(ids, embeddings)
-            }
-        except Exception as e:
-            logger.error(f"ChromaDB get_all_embeddings failed: {e}")
-            return {}
+        vectors = (
+            np.concatenate(vector_pages, axis=0)
+            if vector_pages
+            else np.empty((0, 0), dtype=np.float64)
+        )
+        return EmbeddingScan(ids=ids, vectors=vectors, scanned=len(ids), total=total, partial=partial)
 
     def bulk_delete(self, user_id: str, prompt_ids: List[str]) -> None:
         """Remove multiple prompt embeddings at once."""

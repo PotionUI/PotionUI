@@ -1,4 +1,5 @@
 """Semantic search and near-duplicate detection over saved Prompts."""
+import asyncio
 import logging
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
@@ -6,8 +7,11 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from src.features.prompt_database.collaborators import PromptDatabaseCollaborators
+from src.features.prompt_database.vector_store import DUPLICATE_SCAN_CAP, EmbeddingScan
 
 logger = logging.getLogger(__name__)
+
+DUPLICATE_MATCH_BLOCK_SIZE = 32
 
 
 async def search(
@@ -37,30 +41,49 @@ async def search(
 async def find_duplicates(
     collaborators: PromptDatabaseCollaborators,
     user_id: str, threshold: float = 0.1, model_id: Optional[str] = None,
-) -> List[Dict[str, Any]]:
-    """Return duplicate groups as ``{"similarity": float, "prompts": [...]}``.
-
-    ``similarity`` is the worst-case (minimum) pairwise cosine similarity within
-    the group when embeddings are available, or ``1.0`` for exact normalized-text
-    matches when they aren't.
-    """
-    embeddings = collaborators.vector_store.get_all_embeddings(
-        user_id, where={"model_id": model_id} if model_id else None,
-    )
-    if embeddings:
-        return _find_duplicates_by_embedding(collaborators, embeddings, user_id, threshold)
-    return _find_duplicates_by_text(collaborators, user_id, model_id)
+) -> Dict[str, Any]:
+    return await asyncio.to_thread(_find_duplicates_sync, collaborators, user_id, threshold, model_id)
 
 
-def _find_duplicates_by_embedding(collaborators, embeddings, user_id, threshold):
-    ids = list(embeddings)[:5000]
-    if len(ids) < 2:
+def _find_duplicates_sync(collaborators, user_id, threshold, model_id):
+    where = {"model_id": model_id} if model_id else None
+    scan = collaborators.vector_store.scan_embeddings(user_id, where=where, cap=DUPLICATE_SCAN_CAP)
+    if scan.scanned >= 2:
+        groups = _find_duplicates_by_embedding(collaborators, scan, user_id, threshold)
+        return {
+            "groups": groups,
+            "scanned": scan.scanned,
+            "total": scan.total,
+            "partial": scan.partial,
+        }
+
+    rows = collaborators.repository.get_ids_and_text(user_id, limit=DUPLICATE_SCAN_CAP, model_id=model_id)
+    groups = _group_duplicates_by_text(collaborators, user_id, rows)
+    total = collaborators.repository.count(user_id, model_id=model_id)
+    return {
+        "groups": groups,
+        "scanned": len(rows),
+        "total": total,
+        "partial": total > len(rows),
+    }
+
+
+def _iter_block_distances(vectors: np.ndarray, block_size: int):
+    n = len(vectors)
+    for start in range(0, n, block_size):
+        end = min(start + block_size, n)
+        yield start, end, 1.0 - np.clip(vectors[start:end] @ vectors.T, -1.0, 1.0)
+
+
+def _find_duplicates_by_embedding(collaborators, scan: EmbeddingScan, user_id, threshold):
+    ids = scan.ids
+    n = len(ids)
+    if n < 2:
         return []
-    vectors = np.asarray([embeddings[prompt_id] for prompt_id in ids], dtype=np.float64)
+    vectors = scan.vectors.astype(np.float64, copy=True)
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     vectors /= np.where(norms == 0, 1, norms)
-    distance = 1.0 - np.clip(vectors @ vectors.T, -1.0, 1.0)
-    parent = list(range(len(ids)))
+    parent = list(range(n))
 
     def find(index):
         while parent[index] != index:
@@ -68,23 +91,27 @@ def _find_duplicates_by_embedding(collaborators, embeddings, user_id, threshold)
             index = parent[index]
         return index
 
-    for left in range(len(ids)):
-        for right in range(left + 1, len(ids)):
-            if distance[left, right] < threshold:
-                a, b = find(left), find(right)
+    for start, end, block_distance in _iter_block_distances(vectors, DUPLICATE_MATCH_BLOCK_SIZE):
+        for local_index in range(end - start):
+            global_left = start + local_index
+            row = block_distance[local_index]
+            for right in np.flatnonzero(row[global_left + 1:] < threshold) + global_left + 1:
+                a, b = find(global_left), find(int(right))
                 if a != b:
                     parent[a] = b
 
     index_groups = defaultdict(list)
-    for index in range(len(ids)):
+    for index in range(n):
         index_groups[find(index)].append(index)
 
     groups = []
     for indices in index_groups.values():
         if len(indices) < 2:
             continue
+        group_vectors = vectors[indices]
+        group_distance = 1.0 - np.clip(group_vectors @ group_vectors.T, -1.0, 1.0)
         worst_distance = max(
-            distance[indices[a], indices[b]]
+            group_distance[a, b]
             for a in range(len(indices))
             for b in range(a + 1, len(indices))
         )
@@ -95,9 +122,9 @@ def _find_duplicates_by_embedding(collaborators, embeddings, user_id, threshold)
     return sorted(groups, key=lambda group: len(group["prompts"]), reverse=True)
 
 
-def _find_duplicates_by_text(collaborators, user_id, model_id=None):
+def _group_duplicates_by_text(collaborators, user_id, rows):
     id_groups = defaultdict(list)
-    for prompt_id, flattened_text in collaborators.repository.get_ids_and_text(user_id, limit=5000, model_id=model_id):
+    for prompt_id, flattened_text in rows:
         key = " ".join(flattened_text.lower().split())
         if key:
             id_groups[key].append(prompt_id)

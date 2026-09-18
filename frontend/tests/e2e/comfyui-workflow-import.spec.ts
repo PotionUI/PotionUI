@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readdirSync, readFileSync, rmSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
@@ -23,6 +25,40 @@ const FIXTURE_PATH = resolve(
 	REPO_ROOT,
 	'content/plugins/marketplace/comfyui-backend/tests/fixtures/sdxl_basic_api.json'
 );
+const OBJECT_INFO_PATH = resolve(
+	REPO_ROOT,
+	'content/plugins/marketplace/comfyui-backend/tests/fixtures/object_info_sdxl.json'
+);
+
+let objectInfoServer: Server;
+let objectInfoPort = 0;
+
+test.beforeAll(async () => {
+	const body = readFileSync(OBJECT_INFO_PATH, 'utf8');
+	objectInfoServer = createServer((req, res) => {
+		if (req.url === '/object_info') {
+			res.writeHead(200, { 'Content-Type': 'application/json' });
+			res.end(body);
+			return;
+		}
+		res.writeHead(404);
+		res.end();
+	});
+	await new Promise<void>((ready) => objectInfoServer.listen(0, '127.0.0.1', ready));
+	objectInfoPort = (objectInfoServer.address() as AddressInfo).port;
+});
+
+test.afterAll(async () => {
+	await new Promise<void>((done) => objectInfoServer.close(() => done()));
+});
+
+async function pointPluginAtMockComfyUI(page: Page, token: string) {
+	const res = await page.request.put(`/api/plugins/${PLUGIN_ID}/settings`, {
+		headers: { Authorization: `Bearer ${token}` },
+		data: { settings: { default_host: '127.0.0.1', default_port: objectInfoPort, default_secure: false } }
+	});
+	expect(res.ok(), `PUT plugin settings -> ${res.status()}`).toBeTruthy();
+}
 
 // Isolates one `- name: <fieldName>` list item out of a tab YAML's `fields:`
 // block (sibling fields, and a section's other fields sharing the file,
@@ -88,6 +124,7 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		if (!pluginRow.enabled) {
 			await apiPost(page, `/api/plugins/${PLUGIN_ID}/enable`, token);
 		}
+		await pointPluginAtMockComfyUI(page, token);
 
 		await page.goto('/admin?tab=plugins');
 		await page.waitForTimeout(500);
@@ -397,6 +434,7 @@ test('Admin > Plugins > ComfyUI Backend - "Add LoRA picker" wires a picker into 
 		if (!pluginRow.enabled) {
 			await apiPost(page, `/api/plugins/${PLUGIN_ID}/enable`, token);
 		}
+		await pointPluginAtMockComfyUI(page, token);
 
 		await page.goto('/admin?tab=plugins');
 		await page.waitForTimeout(500);

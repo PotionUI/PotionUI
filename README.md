@@ -29,7 +29,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
   write action needs your approval.
 - **Video Director** — compose shots in sections instead of one giant prompt.
 
-*Alpha 0.0.8 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
+*Alpha 0.0.9 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
 Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Ko-fi](https://ko-fi.com/A3B325D031)*
 
@@ -209,7 +209,7 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.8 matrix. **Native
+> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.9 matrix. **Native
 > Windows is supported experimentally** as of 0.0.8: the installer, the CLI,
 > the backend test suite, the frontend checks and the E2E harness all run in
 > CI on `windows-latest` — see [Windows (native)](#windows-native) below.
@@ -253,7 +253,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 | Platform                    | Status                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.8                                                              |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.9                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
 | Windows native              | Experimental (0.0.8) — installer, CLI, backend suite, frontend checks and E2E harness run in CI on `windows-latest`; see [Windows (native)](#windows-native) |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
@@ -359,8 +359,43 @@ Start with the in-app documentation browser, or read the Markdown directly:
 
 ## Changelog
 
-The two most recent releases; older history lives in the
+The three most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
+
+### 0.0.9 — 2026-09-18
+
+- Login: a generic OpenID Connect provider ships as the `oidc-auth` marketplace
+  plugin, so any OIDC identity provider such as Keycloak, Authentik or Entra can sign
+  users in with a "Continue with" button; accounts it creates carry an email only when
+  the provider verified it, see a notice on the settings page instead of a password
+  form they cannot use, and the login page says so when an attempt is refused.
+- Admin: model cards get a per-model fetch button that pulls the description,
+  preview media and trigger words from CivitAI and updates the card in place, filling
+  only what is still empty; model details list the model's mirrors with a link to the
+  provider page; plugins can add their own actions to a model card; the global Index
+  Models and bulk provider fetch buttons are gone from the Models header, unindexed
+  files now link to Backends; plugin settings forms can show info notices, and the
+  plugin detail pane refreshes after a scan.
+- Generate: models added by a local download, a recipe's index step or a model job
+  are registered on the local native backend right away, so they no longer disappear
+  from the pickers once a backend has been indexed.
+- History: tile actions are separate buttons with tooltips, like model cards.
+- Performance: the built frontend is served gzip-compressed with hashed assets cached
+  and the shell always revalidated; model and prompt lists load their providers,
+  tags, files and segments in batches instead of per row; stats, library and session
+  requests run their database work off the event loop; generation progress ticks no
+  longer wake the active tab, session tracking or tab persistence unless something
+  they read changed; new indexes speed up run-report retention, the favorites page,
+  model path lookups and newest-first prompt search.
+- Reliability: media index queue claims are a single atomic statement, so
+  overlapping workers never take the same item.
+- Fixes: boolean settings submitted as the string "false" are stored as false;
+  CivitAI trigger words come from the model's trained words instead of being mixed
+  into its tags.
+- Upgrading: two database migrations run on first start, one adding a local-password
+  flag to accounts and one adding the new indexes while dropping twelve that only
+  duplicated a unique constraint; admins who relied on the header-level Index Models
+  button now index from Admin → Backends.
 
 ### 0.0.8 — 2026-09-17
 
@@ -425,59 +460,6 @@ The two most recent releases; older history lives in the
 - Generate: the Anima preset ships rendered previews for all fifty of its styles, so
   the Styles picker shows what each one looks like on the same potion scene instead
   of placeholder tiles.
-
-### 0.0.6 — 2026-09-11
-
-- Generate: presets can ship curated styles — a Styles button in the Prompt panel opens
-  a picker with category filters, a text filter and Small/Big previews, and applying a
-  style wraps the prompt with the style's opening and closing segments plus its negative,
-  with a second pick replacing the first; Anima ships fifty styles; prompt weights like `(red hair:1.3)` are honored by the Qwen3, Qwen3-VL and
-  Qwen2.5-VL text encoders (Klein, Krea-2, Qwen-Image, Anima, Z-Image); phrasebook chips
-  animate when a value is shuffled or picked; the chat's Suggested change preview shows
-  phrasebook and variable references as chips.
-- Generate: the page stays smooth during a generation — status and preview updates are
-  applied once per frame instead of once per sampling step, the presets list and plugin
-  catalogs are fetched once at boot instead of twice, and the collapsed workbench is a
-  labelled rail in both layouts; the Prompt panel toolbar reads at the app's text size.
-- History and Library: drag a marquee, Shift-click a range, Ctrl-click to toggle and
-  Ctrl+A to select the page, on both grids; Delete by criteria replaces Delete by tags —
-  tags, older than N days or a date range, failed/cancelled only, without media files,
-  keep favorites — with a live count; Compare gets Overlay with an opacity slider and
-  Wipe with a draggable divider on full-resolution images plus a full-screen viewer;
-  Compare, Stitch and Download work from the Library too, plugins can scope their
-  tools to History, Library or both, and the Library can export a zip; Stitch results
-  can be saved to the Library; grids resize without remounting their thumbnails.
-- Chat: memory reflection saves to the preset a generation chat is about and to the
-  plugin mode a plugin chat runs in, and only to global when you ask; long sessions
-  open on their latest messages and load earlier ones as you scroll up, streamed
-  replies are applied once per frame, and the transcript only follows the reply while
-  you are at the bottom; Admin → Chat Sessions can clear every chat session.
-- Admin: Housekeeping deletes generations by criteria across all users with a
-  preview count; the Add Download modal picks the model type from a chip row and the
-  destination from your real depot subfolders, nested ones included, with an inline
-  New folder option, and the Downloads to hint follows the type; the model picker's
-  download shows a spinner; Hugging Face downloads carry the provider's token.
-- Recipes: starter recipes for Flux2 Klein, Krea-2, Qwen-Image, Anima, Wan 2.2, LTX-2,
-  LTX-2.5, MiniMax-H3, MiniMax-Music3, SeedVR2 and TRELLIS.2 with official repositories;
-  gated models are marked with their licence link; the first-generation step shows
-  sampling progress and the result inline (image, video, audio or mesh); an installed
-  model is recognised by hash even when it was filed under another type or folder.
-- Native engine: the text encoder stays on the GPU after encoding when it fits, so
-  back-to-back generations skip the reload; rotary tables are computed once per run
-  for MiniMax-H3 and Krea-2; Krea-2 gains ER-SDE, DPM++ 2M SDE, DPM++ 3M and RES
-  multistep samplers and a Beta schedule, and samplers and schedules are a plugin
-  extension point; long-prompt attention stays on the memory-efficient kernel instead
-  of running out of memory.
-- Fixes: the model scanner no longer stops on an indexed model without a file path or
-  when the models location is unset; a recipe download could land under a doubled
-  models folder and go unfound by the first-generation step; tag popovers inside
-  modals no longer stretch the modal; long option lists in chip popovers scroll; the
-  phrasebook preview poll pauses while the tab is hidden; superseded model searches
-  are cancelled instead of racing.
-- Upgrading: style previews are rendered with `python scripts/preset_styles_render.py
-  <preset directory>` — a preset's `styles.yml` declares the styles and a shared
-  preview scene, and the script writes the previews into the preset's `public/styles/`
-  folder.
 
 ## Contributing
 

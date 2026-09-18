@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { authStore } from '$lib/stores/auth';
 	import { keybindingsStore, shortcutLabels } from '$lib/stores/keybindings';
@@ -7,6 +8,9 @@
 	import { notifications, bellIndicator } from '$lib/stores/notifications';
 	import { pluginNavItems } from '$lib/stores/plugins';
 	import { iconPaths } from '$lib/utils/IconLibrary';
+	import { MENU_EDGE_GUTTER, MENU_GAP } from '$lib/utils/menuPosition';
+	import { partitionNavItems } from './sidebarOverflow';
+	import portal from '$lib/actions/portal';
 	import Tooltip from './Tooltip.svelte';
 	import Logo from './brand/Logo.svelte';
 	import SidebarWidgets from './SidebarWidgets.svelte';
@@ -126,6 +130,110 @@
 		const p = iconPaths[name];
 		return Array.isArray(p) ? p : p ? [p] : [];
 	}
+
+	interface OverflowableNavItem {
+		path: string;
+		label: string;
+		iconD: string;
+		kind: 'core' | 'plugin';
+		actionId?: string;
+	}
+
+	$: overflowableNavItems = [
+		...mergedNavItems.map(
+			(item): OverflowableNavItem => ({
+				path: item.path,
+				label: item.label,
+				iconD: iconPath(item.icon),
+				kind: 'core',
+				actionId: item.actionId
+			})
+		),
+		...visiblePluginNavItems.map(
+			(item): OverflowableNavItem => ({
+				path: `/plugins/${item.route}`,
+				label: item.label,
+				iconD: item.icon_svg || 'M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z',
+				kind: 'plugin'
+			})
+		)
+	];
+
+	const NAV_ROW_HEIGHT = 44;
+	const NAV_DIVIDER_HEIGHT = 17;
+	const NAV_VERTICAL_PADDING = 32;
+
+	let navEl: HTMLElement;
+	let navHeight = 0;
+
+	$: availableNavHeight = Math.max(0, navHeight - NAV_VERTICAL_PADDING);
+
+	$: adminReservedHeight = showAdminSection
+		? NAV_DIVIDER_HEIGHT + computedAdminNavItems.length * NAV_ROW_HEIGHT
+		: 0;
+
+	$: navPartition = partitionNavItems(overflowableNavItems, availableNavHeight, {
+		rowHeight: NAV_ROW_HEIGHT,
+		reservedHeight: adminReservedHeight
+	});
+
+	$: visibleCoreNavItems = navPartition.visible.filter((item) => item.kind === 'core');
+	$: visiblePluginPageItems = navPartition.visible.filter((item) => item.kind === 'plugin');
+	$: overflowNavItems = navPartition.overflow;
+	$: isMoreActive = overflowNavItems.some((item) => isActive(item.path));
+
+	let moreOpen = false;
+	let moreTriggerEl: HTMLButtonElement;
+	let moreMenuEl: HTMLDivElement;
+	let morePos = { top: 0, left: 0 };
+
+	function updateMorePosition() {
+		if (!moreTriggerEl) return;
+		const rect = moreTriggerEl.getBoundingClientRect();
+		const menuHeight = moreMenuEl?.getBoundingClientRect().height ?? overflowNavItems.length * 36 + 8;
+		let top = rect.top;
+		const maxTop = window.innerHeight - menuHeight - MENU_EDGE_GUTTER;
+		if (top > maxTop) top = maxTop;
+		if (top < MENU_EDGE_GUTTER) top = MENU_EDGE_GUTTER;
+		morePos = { top, left: rect.right + MENU_GAP };
+	}
+
+	function toggleMore() {
+		moreOpen = !moreOpen;
+		if (moreOpen) {
+			updateMorePosition();
+			requestAnimationFrame(updateMorePosition);
+		}
+	}
+
+	function closeMore() {
+		moreOpen = false;
+	}
+
+	function handleMoreClickOutside(event: MouseEvent) {
+		const target = event.target as Node;
+		if (
+			moreOpen &&
+			moreTriggerEl &&
+			!moreTriggerEl.contains(target) &&
+			!(moreMenuEl && moreMenuEl.contains(target))
+		) {
+			closeMore();
+		}
+	}
+
+	function handleMoreKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && moreOpen) closeMore();
+	}
+
+	onMount(() => {
+		document.addEventListener('click', handleMoreClickOutside);
+		document.addEventListener('keydown', handleMoreKeydown);
+		return () => {
+			document.removeEventListener('click', handleMoreClickOutside);
+			document.removeEventListener('keydown', handleMoreKeydown);
+		};
+	});
 </script>
 
 <aside class="fixed left-0 top-0 h-screen w-14 flex flex-col bg-canvas border-r border-line z-50">
@@ -143,9 +251,9 @@
 	</div>
 
 	<!-- Main Navigation -->
-	<nav class="flex-1 py-4 overflow-hidden">
+	<nav bind:this={navEl} bind:clientHeight={navHeight} class="flex-1 py-4 overflow-hidden">
 		<div class="space-y-1 px-2">
-			{#each mergedNavItems as item}
+			{#each visibleCoreNavItems as item}
 				<Tooltip
 					text={item.label}
 					kbd={item.actionId ? $shortcutLabels[item.actionId] : undefined}
@@ -165,7 +273,7 @@
 								stroke-linecap="round"
 								stroke-linejoin="round"
 								stroke-width="2"
-								d={iconPath(item.icon)}
+								d={item.iconD}
 							/>
 						</svg>
 						<!-- Active indicator -->
@@ -177,14 +285,16 @@
 			{/each}
 
 			<!-- Plugin Pages Section -->
-			{#if visiblePluginNavItems.length > 0}
-				<div class="my-2 mx-2 border-t border-line"></div>
-				{#each visiblePluginNavItems as item}
+			{#if visiblePluginPageItems.length > 0}
+				{#if visibleCoreNavItems.length > 0}
+					<div class="my-2 mx-2 border-t border-line"></div>
+				{/if}
+				{#each visiblePluginPageItems as item}
 					<Tooltip text={item.label} position="right" wrapperClass="flex justify-center">
 						<a
-							href="/plugins/{item.route}"
+							href={item.path}
 							class="relative flex items-center justify-center w-10 h-10 rounded-lg transition-all
-								{isActive(`/plugins/${item.route}`)
+								{isActive(item.path)
 									? 'bg-signal/10 text-signal'
 									: 'text-fg-muted hover:text-fg hover:bg-surface-2'}"
 							aria-label={item.label}
@@ -194,15 +304,44 @@
 									stroke-linecap="round"
 									stroke-linejoin="round"
 									stroke-width="2"
-									d={item.icon_svg || 'M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z'}
+									d={item.iconD}
 								/>
 							</svg>
-							{#if isActive(`/plugins/${item.route}`)}
+							{#if isActive(item.path)}
 								<div class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-signal rounded-r"></div>
 							{/if}
 						</a>
 					</Tooltip>
 				{/each}
+			{/if}
+
+			{#if overflowNavItems.length > 0}
+				<Tooltip text="More" position="right" wrapperClass="flex justify-center">
+					<button
+						bind:this={moreTriggerEl}
+						type="button"
+						on:click={toggleMore}
+						class="relative flex items-center justify-center w-10 h-10 rounded-lg transition-all
+							{isMoreActive
+								? 'bg-signal/10 text-signal'
+								: 'text-fg-muted hover:text-fg hover:bg-surface-2'}"
+						aria-label="More"
+						aria-haspopup="menu"
+						aria-expanded={moreOpen}
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d={iconPath('more')}
+							/>
+						</svg>
+						{#if isMoreActive}
+							<div class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-signal rounded-r"></div>
+						{/if}
+					</button>
+				</Tooltip>
 			{/if}
 
 			<!-- Admin Section -->
@@ -329,6 +468,34 @@
 		{/if}
 	</div>
 </aside>
+
+{#if moreOpen}
+	<div
+		use:portal
+		bind:this={moreMenuEl}
+		class="fixed z-[9999] min-w-[12rem] p-1 bg-surface-1 border border-line-strong rounded-lg shadow-overlay"
+		style="top: {morePos.top}px; left: {morePos.left}px;"
+		role="menu"
+		aria-label="More"
+	>
+		{#each overflowNavItems as item}
+			<a
+				href={item.path}
+				role="menuitem"
+				on:click={closeMore}
+				class="flex items-center gap-2.5 min-h-[36px] px-2.5 py-2 rounded text-sm transition-colors
+					{isActive(item.path)
+						? 'bg-signal/10 text-signal'
+						: 'text-fg-muted hover:text-fg hover:bg-surface-2'}"
+			>
+				<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={item.iconD} />
+				</svg>
+				<span class="truncate">{item.label}</span>
+			</a>
+		{/each}
+	</div>
+{/if}
 
 <style>
 	/* AI Chat trigger — the sole "AI-product gradient ring" idiom in the app,

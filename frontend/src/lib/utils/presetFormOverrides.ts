@@ -111,25 +111,6 @@ export function buildOverridesPayload(
 }
 
 // ── Rich default-value editor (renders the real /generate widget) ──
-//
-// The override inventory (`PresetFormOverrideField`) only carries a thin
-// {name, label, type, preset_default, options?} shape - not enough to drive a
-// field's real component (a model field needs `model_type`/`preset_id`, a
-// slider needs min/max, ...). That richer per-field config already exists in
-// the preset's rendered form schema (`GET /api/presets/{id}/form`, the same
-// endpoint /generate's DynamicForm uses) - `buildFieldConfigIndex` flattens it
-// by field name with `$lib/form/reactions`' `extractAllFields`, the same
-// tree-walk DynamicForm itself uses for `allFields`.
-//
-// Two caveats inherent to reusing that endpoint rather than inventing one:
-//   - it returns only the mode's DEFAULT form variant, so a field declared
-//     only in a non-default variant has no entry in the index here even
-//     though the override inventory (a cross-variant union) still lists it;
-//   - a field currently overridden `visible: false` is removed from the
-//     schema entirely (`apply_overrides_to_fields`), so it also has no entry
-//     while that override is active.
-// Both cases - and any field type not on `RICH_EDITOR_TYPES` below - fall
-// back to the plain `overrideEditorKind` editor via `canUseRichEditor`.
 
 /** Field types whose component value shape isn't the raw wire value - mirrors
  *  `DynamicForm.svelte`'s `flattenFormData`/`mergeFormData` model-object
@@ -210,14 +191,12 @@ export function rawEditorHint(fieldType: string): string | undefined {
 	return RAW_EDITOR_HINTS[fieldType];
 }
 
-/** Flattens a preset form schema (`{properties: {root: {children: [...]}}}`,
- *  as returned by `GET /api/presets/{id}/form`) into a `{fieldName: config}`
- *  map. First-seen wins on a duplicate name (shouldn't happen within one
- *  schema, but matches the backend inventory's own tie-break). */
-export function buildFieldConfigIndex(formSchema: unknown): Record<string, FieldConfig> {
+export function buildFieldConfigIndex(formSchemas: unknown[]): Record<string, FieldConfig> {
 	const index: Record<string, FieldConfig> = {};
-	for (const field of extractAllFields(formSchema)) {
-		if (field.name && !(field.name in index)) index[field.name] = field;
+	for (const formSchema of formSchemas) {
+		for (const field of extractAllFields(formSchema)) {
+			if (field.name && !(field.name in index)) index[field.name] = field;
+		}
 	}
 	return index;
 }

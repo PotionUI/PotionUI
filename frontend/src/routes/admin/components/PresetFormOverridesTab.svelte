@@ -91,23 +91,15 @@
 	async function loadOverrides() {
 		overridesLoading = true;
 		overridesError = '';
-		// Fetch the override inventory AND the rich per-field config together and
-		// only reveal the table once BOTH have landed: the rich-vs-raw decision
-		// must be made with real config in hand, or a saved model override paints
-		// its raw fallback (`model:<id>`) and nothing forces a second pass once
-		// the config arrives.
 		try {
-			const [overridesResponse, resolvedFieldConfigIndex] = await Promise.all([
-				api.getPresetFormOverrides(presetId, mode),
-				loadFieldConfigIndex(mode)
-			]);
+			const overridesResponse = await api.getPresetFormOverrides(presetId, mode);
 			if (!overridesResponse.success || !overridesResponse.data) {
 				throw new Error(responseError(overridesResponse, 'Could not load form overrides'));
 			}
 			fields = overridesResponse.data.fields || [];
 			tabs = overridesResponse.data.tabs || [];
 			pending = Object.fromEntries(fields.map((field) => [field.name, pendingOverrideFrom(field)]));
-			fieldConfigIndex = resolvedFieldConfigIndex;
+			fieldConfigIndex = buildFieldConfigIndex(overridesResponse.data.form_schemas || []);
 			selectedGroup = groupFieldsByTab(fields, tabs)[0]?.label ?? '';
 		} catch (error) {
 			logger.error('Failed to load preset form overrides:', error);
@@ -119,23 +111,6 @@
 			selectedGroup = '';
 		} finally {
 			overridesLoading = false;
-		}
-	}
-
-	/** Best-effort: the rich per-field config comes from the mode's rendered
-	 *  form schema, a separate request from the override inventory. Resolves
-	 *  to `{}` (never rejects) on any failure, so a schema-fetch problem just
-	 *  means every field falls back to its plain editor - not fatal to the
-	 *  override inventory `Promise.all` it's raced against in `loadOverrides`. */
-	async function loadFieldConfigIndex(modeToLoad: string): Promise<Record<string, FieldConfig>> {
-		try {
-			const response = await api.getPresetFormSchema(presetId, modeToLoad);
-			return response.success && response.data?.form_schema
-				? buildFieldConfigIndex(response.data.form_schema)
-				: {};
-		} catch (error) {
-			logger.error('Failed to load preset form schema for form overrides:', error);
-			return {};
 		}
 	}
 

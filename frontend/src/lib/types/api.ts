@@ -367,6 +367,7 @@ export interface PresetFormOverridesResponse {
 	fields: PresetFormOverrideField[];
 	/** Tab labels in declaration order; empty for a flat form with no tabs. */
 	tabs: string[];
+	form_schemas: unknown[];
 }
 
 export interface TagUsageRef {

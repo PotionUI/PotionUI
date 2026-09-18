@@ -21,6 +21,7 @@ from src.features.presets.form_overrides import (
     build_inventory_entries,
     validate_form_overrides,
 )
+from src.features.presets.templates import sorted_forms
 from src.platform.security.user import User, AccountType
 
 logger = logging.getLogger(__name__)
@@ -69,12 +70,19 @@ def get_form_overrides_inventory(
     stored_overrides = collaborators.db_repo.get_preset_form_overrides(preset_id).get(mode, {})
     fields, tabs = build_inventory_entries(found_preset, mode, stored_overrides)
 
+    mode_data = found_preset.modes[mode]
+    form_schemas = [
+        collaborators.form_serializer.process_form_fields(form, preset_id)
+        for form in sorted_forms(mode_data)
+    ]
+
     return {
         "preset_id": preset_id,
         "mode": mode,
         "modes": list((found_preset.modes or {}).keys()),
         "fields": fields,
         "tabs": tabs,
+        "form_schemas": form_schemas,
     }
 
 

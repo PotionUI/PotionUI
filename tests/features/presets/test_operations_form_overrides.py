@@ -125,6 +125,53 @@ class TestGetFormOverridesInventory:
         assert result["tabs"] == []
         assert by_name["steps"]["tab"] is None
 
+    def test_form_schemas_are_unmerged_and_keep_a_field_hidden_by_override(
+        self, collaborators, mock_file_repo, mock_db_repo, preset_template, admin_user,
+    ):
+        mock_file_repo.find_preset_by_id.return_value = preset_template
+        mock_db_repo.get_preset_form_overrides.return_value = {"txt2img": {"checkpoint": {"visible": False}}}
+
+        def fake_process_form_fields(form_config, preset_id, overrides=None):
+            names = [f.name for f in form_config.fields if f.name]
+            if overrides:
+                names = [n for n in names if not (overrides.get(n) or {}).get("visible") is False]
+            return {"type": "object", "properties": {n: {} for n in names}, "required": []}
+
+        collaborators.form_serializer.process_form_fields.side_effect = fake_process_form_fields
+
+        result = operations.get_form_overrides_inventory(collaborators, "test-preset", "txt2img", admin_user)
+
+        assert len(result["form_schemas"]) == 1
+        assert "checkpoint" in result["form_schemas"][0]["properties"]
+
+    def test_form_schemas_has_one_entry_per_form_variant(
+        self, collaborators, mock_file_repo, mock_db_repo, admin_user,
+    ):
+        preset = PresetTemplate(
+            id="test-preset", name="Test Preset", version="1.0.0", path="/presets/test-preset",
+            modes={"txt2img": ModeTemplate(forms=[
+                FormTemplate(name="simple", fields=[_field("steps")], default=True),
+                FormTemplate(name="advanced", fields=[_field("steps"), _field("sampler")]),
+            ], pipes=[])},
+        )
+        mock_file_repo.find_preset_by_id.return_value = preset
+        mock_db_repo.get_preset_form_overrides.return_value = {}
+
+        collaborators.form_serializer.process_form_fields.side_effect = (
+            lambda form_config, preset_id, overrides=None: {
+                "type": "object",
+                "properties": {f.name: {} for f in form_config.fields if f.name},
+                "required": [],
+            }
+        )
+
+        result = operations.get_form_overrides_inventory(collaborators, "test-preset", "txt2img", admin_user)
+
+        assert len(result["form_schemas"]) == 2
+        schemas_by_properties = [set(schema["properties"]) for schema in result["form_schemas"]]
+        assert {"steps"} in schemas_by_properties
+        assert {"steps", "sampler"} in schemas_by_properties
+
     def test_fields_carry_their_tab_and_response_carries_tab_order(
         self, collaborators, mock_file_repo, mock_db_repo, admin_user,
     ):

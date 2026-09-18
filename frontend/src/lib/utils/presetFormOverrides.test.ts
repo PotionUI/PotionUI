@@ -202,19 +202,20 @@ describe('buildFieldConfigIndex', () => {
 			}
 		};
 
-		const index = buildFieldConfigIndex(schema);
+		const index = buildFieldConfigIndex([schema]);
 		expect(Object.keys(index).sort()).toEqual(['checkpoint', 'sampler', 'steps']);
 		expect(index.checkpoint.configuration).toEqual({ model_type: 'checkpoint' });
 		expect(index.steps.configuration).toEqual({ min: 1, max: 100 });
 		expect((index.sampler as { options?: unknown }).options).toEqual([{ label: 'Euler', value: 'euler' }]);
 	});
 
-	it('returns an empty index for a missing/empty schema', () => {
-		expect(buildFieldConfigIndex(null)).toEqual({});
-		expect(buildFieldConfigIndex({})).toEqual({});
+	it('returns an empty index for a missing/empty schema list', () => {
+		expect(buildFieldConfigIndex([])).toEqual({});
+		expect(buildFieldConfigIndex([null])).toEqual({});
+		expect(buildFieldConfigIndex([{}])).toEqual({});
 	});
 
-	it('first-seen wins on a duplicate field name', () => {
+	it('first-seen wins on a duplicate field name within one schema', () => {
 		const schema = {
 			properties: {
 				root: {
@@ -225,7 +226,27 @@ describe('buildFieldConfigIndex', () => {
 				}
 			}
 		};
-		expect(buildFieldConfigIndex(schema).dup.configuration).toEqual({ first: true });
+		expect(buildFieldConfigIndex([schema]).dup.configuration).toEqual({ first: true });
+	});
+
+	it('merges fields across multiple form-variant schemas, first-seen wins', () => {
+		const simpleVariant = {
+			properties: { root: { children: [{ type: 'slider', name: 'steps', configuration: { min: 1, max: 50 } }] } }
+		};
+		const advancedVariant = {
+			properties: {
+				root: {
+					children: [
+						{ type: 'slider', name: 'steps', configuration: { min: 1, max: 999 } },
+						{ type: 'select', name: 'sampler', options: [{ label: 'Euler', value: 'euler' }] }
+					]
+				}
+			}
+		};
+
+		const index = buildFieldConfigIndex([simpleVariant, advancedVariant]);
+		expect(Object.keys(index).sort()).toEqual(['sampler', 'steps']);
+		expect(index.steps.configuration).toEqual({ min: 1, max: 50 });
 	});
 });
 
@@ -261,7 +282,7 @@ describe('canUseRichEditor', () => {
 		expect(canUseRichEditor('lora_picker', { type: 'lora_picker', name: 'loras' })).toBe(true);
 	});
 
-	it('is false without config metadata (field hidden by an override, or a non-default variant)', () => {
+	it('is false without config metadata (the field is not rendered by any form variant, e.g. an unregistered type)', () => {
 		expect(canUseRichEditor('model', undefined)).toBe(false);
 		expect(canUseRichEditor('lora_picker', undefined)).toBe(false);
 	});

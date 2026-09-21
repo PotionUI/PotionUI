@@ -78,7 +78,6 @@ export interface FieldConfig {
 	reactions?: Reaction[];
 	visible?: boolean;
 	disabled?: boolean;
-	required?: boolean;
 	validation?: Record<string, any>;
 	value?: any;
 	default?: any;

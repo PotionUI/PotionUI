@@ -202,6 +202,35 @@ class StableDiffusionXLKDiffusionPipeline(
         if not add_watermarker:
             self.watermark = None
 
+    @classmethod
+    def load_lora_into_text_encoder(
+        cls,
+        state_dict,
+        network_alphas,
+        text_encoder,
+        prefix=None,
+        metadata=None,
+        **kwargs,
+    ):
+        prefix = prefix or cls.text_encoder_name
+        if not hasattr(text_encoder, "text_model"):
+            stale = f"{prefix}.text_model."
+
+            def flatten(d):
+                if not d:
+                    return d
+                return {(f"{prefix}." + k[len(stale):] if k.startswith(stale) else k): v for k, v in d.items()}
+
+            state_dict, network_alphas, metadata = flatten(state_dict), flatten(network_alphas), flatten(metadata)
+        return super().load_lora_into_text_encoder(
+            state_dict,
+            network_alphas,
+            text_encoder,
+            prefix=prefix,
+            metadata=metadata,
+            **kwargs,
+        )
+
     def encode_prompt(
         self,
         prompt: str,

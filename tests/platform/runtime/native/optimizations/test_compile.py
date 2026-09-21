@@ -11,6 +11,7 @@ marked ``slow``.
 
 from __future__ import annotations
 
+import sys
 import types
 
 import torch
@@ -217,6 +218,7 @@ def test_maybe_compile_noop_when_gate_fails(monkeypatch):
 
 
 @pytest.mark.slow
+@pytest.mark.skipif(sys.platform == "win32", reason="torch.compile is unsupported on native Windows")
 def test_compile_executes_matches_and_restores(monkeypatch):
     torch._dynamo.reset()
     _enable(monkeypatch)

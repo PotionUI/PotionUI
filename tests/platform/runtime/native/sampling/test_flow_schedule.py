@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 import torch
+from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
 
 from src.platform.runtime.native.sampling.flow_schedule import build_sigmas
 
@@ -60,11 +62,6 @@ LTXAV_SHIFT = 7.767901106306771  # exp(2.05)
 
 @pytest.mark.parametrize("steps", [8, 24, 40])
 def test_ltxav_shift_matches_diffusers_ltx2_scheduler(steps):
-    import numpy as np
-    from diffusers.schedulers.scheduling_flow_match_euler_discrete import (
-        FlowMatchEulerDiscreteScheduler,
-    )
-
     assert LTXAV_SHIFT == pytest.approx(math.exp(2.05), rel=0, abs=1e-12)
 
     # Mirrors LTX2Pipeline.__call__: sigmas = np.linspace(1.0, 1/steps, steps),

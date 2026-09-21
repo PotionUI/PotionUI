@@ -1499,6 +1499,22 @@ def test_sample_rejects_invalid_explicit_sigmas(dit_path, vae_path, monkeypatch,
         gen.sample(cond, latents_shape=(1, 16, 16, 16), steps=2, seed=1, cfg_scale=3.0, sigmas=bad_sigmas)
 
 
+def test_sample_releases_dit_when_denoise_raises(dit_path, vae_path, monkeypatch):
+    gen = _apg_gen(dit_path, vae_path)
+    import src.platform.runtime.native.engine as engine_mod
+
+    def _oom(*a, **kw):
+        raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+
+    monkeypatch.setattr(engine_mod, "denoise", _oom)
+    releases = []
+    monkeypatch.setattr(gen, "_release_dit_after_sampling", lambda: releases.append(True))
+    cond = gen.encode_prompt("prompt")
+    with pytest.raises(torch.cuda.OutOfMemoryError):
+        gen.sample(cond, latents_shape=(1, 16, 16, 16), steps=2, seed=1, cfg_scale=3.0)
+    assert releases == [True]
+
+
 def test_sample_accepts_sigma0_below_one_and_equal_to_one(dit_path, vae_path, monkeypatch):
     gen = _apg_gen(dit_path, vae_path)
     # sigma0 < 1.0 (a genuine partial-noise refine start) and sigma0 == 1.0

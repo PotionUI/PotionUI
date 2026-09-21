@@ -197,6 +197,12 @@ class GeneratorSDXLPipe(BasePipe):
     @staticmethod
     def _aggressive_cleanup(model):
         from src.platform.runtime.model_lifecycle.lifecycle import get_model_lifecycle
+        free_hooks = getattr(getattr(model, "pipe", None), "maybe_free_model_hooks", None)
+        if callable(free_hooks):
+            try:
+                free_hooks()
+            except Exception:
+                logger.debug("[GENERATOR][SDXL] maybe_free_model_hooks failed", exc_info=True)
         models = get_model_lifecycle()
         if models is not None:
             models.cleanup(aggressive=True)

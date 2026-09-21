@@ -42,6 +42,7 @@ fields:
       - name: "model"
         type: "model"
         label: "Model"
+        required: true
         configuration:
           model_type: "checkpoint"
           allow_info_modal: true

@@ -58,6 +58,9 @@
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import { resolveVariant } from '$lib/utils/variants';
 	import { isPromptlessMode } from '$lib/utils/promptlessMode';
+	import { extractAllFields } from '$lib/form/reactions';
+	import { getCachedSchema } from '$lib/form/schemaCache';
+	import { missingRequiredModelField } from '$lib/generation/requiredModelField';
 	import { resolvePresetSegmentTemplates } from '$lib/utils/presetSegmentTemplates';
 	import { toasts } from '$lib/stores/toast';
 	import { buildActiveTabReuseUpdate } from '$lib/utils/historyReuse';
@@ -503,6 +506,8 @@
 	// mark/subline (GenerationPanel) instead of leaving a disabled Generate
 	// button with no explanation.
 	let generateDisabledReason: string | undefined;
+	let currentFormFields: import('$lib/form/reactions').FieldConfig[] = [];
+	let currentFormFieldsKey = '';
 	let isReloadingPreset = false;
 	// Guards against overlapping restore passes on rapid connect/disconnect
 	// flapping -- NOT a one-shot: a genuine reconnect (the connection drops
@@ -698,6 +703,48 @@
 		})();
 		presetVarsInFlight.set(presetId, request);
 		return request;
+	}
+
+	$: {
+		const presetId = currentTab.selectedPreset;
+		const mode = currentTab.selectedMode ?? 'txt2img';
+		const variant = currentTab.selectedVariant ?? undefined;
+		const key = presetId ? `${presetId}-${mode}-${variant ?? ''}` : '';
+		if (key !== currentFormFieldsKey) {
+			currentFormFieldsKey = key;
+			if (presetId) {
+				loadCurrentFormFields(presetId, mode, variant, key);
+			} else {
+				currentFormFields = [];
+			}
+		}
+	}
+
+	async function loadCurrentFormFields(
+		presetId: string,
+		mode: string,
+		variant: string | undefined,
+		key: string
+	) {
+		try {
+			const schema = await getCachedSchema(
+				presetId,
+				mode,
+				async () => {
+					const response = await api.getPresetFormSchema(presetId, mode, variant);
+					if (!response.success || !response.data?.form_schema) {
+						throw new Error(response.error || 'The preset did not return a form schema.');
+					}
+					return response.data.form_schema;
+				},
+				false,
+				variant
+			);
+			if (currentFormFieldsKey === key) currentFormFields = extractAllFields(schema);
+		} catch (error) {
+			console.error('Failed to load form schema for the generate preflight:', error);
+			if (currentFormFieldsKey === key) currentFormFields = [];
+		}
 	}
 
 	onMount(async () => {
@@ -1809,12 +1856,22 @@
 			}
 		}
 
-		canGenerate = !!currentTab.selectedPreset && hasPrompt;
+		const expectedFormFieldsKey = currentTab.selectedPreset
+			? `${currentTab.selectedPreset}-${currentTab.selectedMode ?? 'txt2img'}-${currentTab.selectedVariant ?? ''}`
+			: '';
+		const missingModelField =
+			currentFormFieldsKey === expectedFormFieldsKey
+				? missingRequiredModelField(currentFormFields, currentTab.formData)
+				: null;
+
+		canGenerate = !!currentTab.selectedPreset && hasPrompt && !missingModelField;
 		generateDisabledReason = canGenerate
 			? undefined
 			: !currentTab.selectedPreset
 				? 'Select a preset to generate'
-				: noPromptReason;
+				: missingModelField
+					? `Select ${missingModelField.label} to generate`
+					: noPromptReason;
 	}
 
 	// Workbench event handlers

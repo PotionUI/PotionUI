@@ -32,6 +32,7 @@ fields:
       - name: "model"
         type: "model"
         label: "Model"
+        required: true
         ai_hint: "The base checkpoint model. Realistic models like RealVisXL, JuggernautXL produce photorealistic results. Anime models like AnimagineXL are for stylized art. The model choice determines the overall style and quality."
         configuration:
           model_type: "checkpoint"

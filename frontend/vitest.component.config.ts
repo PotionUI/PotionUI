@@ -30,6 +30,6 @@ export default defineConfig({
 	test: {
 		environment: 'jsdom',
 		include: ['tests/component/**/*.{test,spec}.ts'],
-		setupFiles: ['tests/component/setup/webAnimations.ts']
+		setupFiles: ['tests/component/setup/webAnimations.ts', 'tests/component/setup/resizeObserver.ts']
 	}
 });

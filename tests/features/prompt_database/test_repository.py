@@ -90,6 +90,57 @@ class TestPromptRepository(PersistenceTestBase):
         self.assertEqual(created.usage_hint, "negative")
         self.assertIn("portrait in warm", created.display_name)
 
+    def test_variables_round_trip_through_create_and_get(self):
+        variables = {
+            "mood": {"type": "text", "value": "noir"},
+            "scene": {
+                "type": "choice",
+                "mode": "shuffle",
+                "pinnedIndex": None,
+                "options": ["day", "night"],
+            },
+        }
+        created = self.repository.create(
+            Prompt(
+                id=generate_ulid(), user_id=self.user_1,
+                segments=[RichSegment(content="a fox")], variables=variables,
+            )
+        )
+
+        self.assertEqual(created.variables, variables)
+        fetched = self.repository.get_by_id(created.id, self.user_1)
+        self.assertEqual(fetched.variables, variables)
+
+    def test_variables_default_to_none_and_round_trip_none(self):
+        created = self.repository.create(
+            Prompt(id=generate_ulid(), user_id=self.user_1, segments=[RichSegment(content="a fox")])
+        )
+
+        self.assertIsNone(created.variables)
+        fetched = self.repository.get_by_id(created.id, self.user_1)
+        self.assertIsNone(fetched.variables)
+
+    def test_update_replaces_variables(self):
+        created = self.repository.create(
+            Prompt(
+                id=generate_ulid(), user_id=self.user_1,
+                segments=[RichSegment(content="a fox")],
+                variables={"mood": {"type": "text", "value": "noir"}},
+            )
+        )
+
+        updated = self.repository.update(
+            created.id, self.user_1,
+            Prompt(
+                id=created.id, user_id=self.user_1,
+                segments=[RichSegment(content="a fox")], variables=None,
+            ),
+        )
+
+        self.assertIsNone(updated.variables)
+        fetched = self.repository.get_by_id(created.id, self.user_1)
+        self.assertIsNone(fetched.variables)
+
     def test_complete_child_replacement_is_atomic(self):
         original = self.repository.create(
             Prompt(
@@ -174,6 +225,41 @@ class TestPromptRepository(PersistenceTestBase):
 
         unfiltered = self.repository.get_all(user_id=self.user_1)
         self.assertEqual({p.id for p in unfiltered}, {in_prompt.id, out_prompt.id})
+
+    def test_get_source_ids_scopes_by_user_provider_and_model(self):
+        """The bulk-import dedupe surface: only this user's rows under this
+        source_provider (and, when given, this model_id) count as known."""
+        from src.features.models.repository import ModelRepository
+        from src.features.models.records import Model
+
+        models = ModelRepository()
+        model_a = models.create(Model(filename="a.safetensors", file_path="/models/a.safetensors", model_type="checkpoint"))
+        model_b = models.create(Model(filename="b.safetensors", file_path="/models/b.safetensors", model_type="checkpoint"))
+
+        self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_1, segments=[RichSegment(content="a")],
+            source_provider="civitai-provider", source_id="101", model_id=model_a.id,
+        ))
+        self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_1, segments=[RichSegment(content="b")],
+            source_provider="civitai-provider", source_id="102", model_id=model_b.id,
+        ))
+        self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_1, segments=[RichSegment(content="c")],
+            source_provider="manual", source_id="103", model_id=model_a.id,
+        ))
+        self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_2, segments=[RichSegment(content="d")],
+            source_provider="civitai-provider", source_id="104", model_id=model_a.id,
+        ))
+
+        all_for_provider = self.repository.get_source_ids(self.user_1, "civitai-provider")
+        self.assertEqual(all_for_provider, {"101", "102"})
+
+        scoped_to_model = self.repository.get_source_ids(self.user_1, "civitai-provider", model_id=model_a.id)
+        self.assertEqual(scoped_to_model, {"101"})
+
+        self.assertEqual(self.repository.get_source_ids(self.user_1, "unknown-provider"), set())
 
     def test_at_least_one_child_is_required(self):
         with self.assertRaises(ValueError):
@@ -381,3 +467,158 @@ class TestPromptRepository(PersistenceTestBase):
         ids = [row[0] for row in rows]
         self.assertIn(matching.id, ids)
         self.assertNotIn(other.id, ids)
+
+    def test_get_all_filters_by_q_matches_name_or_flattened_text(self):
+        named = self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_1, name="Golden Fox",
+            segments=[RichSegment(content="unrelated body")],
+        ))
+        by_body = self._create_prompt("a wandering fox in the woods")
+        other = self._create_prompt("a distant mountain")
+
+        results = self.repository.get_all(user_id=self.user_1, q="fox")
+
+        ids = {prompt.id for prompt in results}
+        self.assertEqual(ids, {named.id, by_body.id})
+        self.assertNotIn(other.id, ids)
+
+    def test_get_all_filters_by_tags_any_of(self):
+        portrait = self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_1, tags=["portrait", "warm"],
+            segments=[RichSegment(content="a")],
+        ))
+        anime = self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_1, tags=["anime"],
+            segments=[RichSegment(content="b")],
+        ))
+        untagged = self._create_prompt("c")
+
+        results = self.repository.get_all(user_id=self.user_1, tags=["portrait", "anime"])
+
+        ids = {prompt.id for prompt in results}
+        self.assertEqual(ids, {portrait.id, anime.id})
+        self.assertNotIn(untagged.id, ids)
+
+    def test_get_all_has_variables_filter(self):
+        with_vars = self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_1, variables={"subject": "fox"},
+            segments=[RichSegment(content="a")],
+        ))
+        without_vars = self._create_prompt("b")
+
+        with_only = self.repository.get_all(user_id=self.user_1, has_variables=True)
+        self.assertEqual([p.id for p in with_only], [with_vars.id])
+
+        without_only = self.repository.get_all(user_id=self.user_1, has_variables=False)
+        self.assertEqual([p.id for p in without_only], [without_vars.id])
+
+    def test_get_all_nsfw_excluded_by_default_and_included_on_request(self):
+        clean = self._create_prompt("clean")
+        flagged = self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_1, nsfw=True,
+            segments=[RichSegment(content="explicit")],
+        ))
+
+        default_results = self.repository.get_all(user_id=self.user_1)
+        self.assertEqual({p.id for p in default_results}, {clean.id})
+
+        included_results = self.repository.get_all(user_id=self.user_1, nsfw="include")
+        self.assertEqual({p.id for p in included_results}, {clean.id, flagged.id})
+
+    def test_get_all_used_and_never_filters(self):
+        from src.features.generation.records import Generation
+        from src.features.generation.repository import GenerationRepository
+
+        used_prompt = self._create_prompt("used")
+        never_prompt = self._create_prompt("never")
+        GenerationRepository().create(Generation(
+            id=generate_ulid(), preset_id="p", form_data={}, user_id=self.user_1,
+            status="completed", source_prompt_id=used_prompt.id,
+        ))
+
+        used_results = self.repository.get_all(user_id=self.user_1, used="used")
+        self.assertEqual([p.id for p in used_results], [used_prompt.id])
+
+        never_results = self.repository.get_all(user_id=self.user_1, used="never")
+        self.assertEqual([p.id for p in never_results], [never_prompt.id])
+
+    def test_get_all_used_after_filters_by_last_generation(self):
+        from src.features.generation.records import Generation
+        from src.features.generation.repository import GenerationRepository
+
+        recent = self._create_prompt("recent")
+        stale = self._create_prompt("stale")
+        gen_repo = GenerationRepository()
+        recent_gen = generate_ulid()
+        stale_gen = generate_ulid()
+        gen_repo.create(Generation(
+            id=recent_gen, preset_id="p", form_data={}, user_id=self.user_1,
+            status="completed", source_prompt_id=recent.id,
+        ))
+        gen_repo.create(Generation(
+            id=stale_gen, preset_id="p", form_data={}, user_id=self.user_1,
+            status="completed", source_prompt_id=stale.id,
+        ))
+        with self.db.get_cursor() as cursor:
+            cursor.execute("UPDATE generations SET created_at = ? WHERE id = ?", ("2026-01-10 00:00:00", recent_gen))
+            cursor.execute("UPDATE generations SET created_at = ? WHERE id = ?", ("2026-01-01 00:00:00", stale_gen))
+
+        results = self.repository.get_all(user_id=self.user_1, used_after="2026-01-05T00:00:00")
+
+        self.assertEqual([p.id for p in results], [recent.id])
+
+    def test_get_all_sorts_by_usage_count_and_last_used_at(self):
+        from src.features.generation.records import Generation
+        from src.features.generation.repository import GenerationRepository
+
+        quiet = self._create_prompt("quiet")
+        popular = self._create_prompt("popular")
+        gen_repo = GenerationRepository()
+        for _ in range(3):
+            gen_repo.create(Generation(
+                id=generate_ulid(), preset_id="p", form_data={}, user_id=self.user_1,
+                status="completed", source_prompt_id=popular.id,
+            ))
+
+        desc = self.repository.get_all(user_id=self.user_1, sort_by="usage_count", sort_order="desc")
+        self.assertEqual([p.id for p in desc], [popular.id, quiet.id])
+
+        asc = self.repository.get_all(user_id=self.user_1, sort_by="usage_count", sort_order="asc")
+        self.assertEqual([p.id for p in asc], [quiet.id, popular.id])
+
+    def test_count_reflects_the_same_filters_as_get_all(self):
+        self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_1, tags=["portrait"],
+            segments=[RichSegment(content="a")],
+        ))
+        self._create_prompt("b")
+
+        self.assertEqual(self.repository.count(self.user_1, tags=["portrait"]), 1)
+        self.assertEqual(self.repository.count(self.user_1), 2)
+
+    def test_tag_counts_sorted_by_count_then_tag_and_scoped_to_user(self):
+        self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_1, tags=["portrait", "warm"],
+            segments=[RichSegment(content="a")],
+        ))
+        self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_1, tags=["portrait"],
+            segments=[RichSegment(content="b")],
+        ))
+        self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_2, tags=["portrait"],
+            segments=[RichSegment(content="c")],
+        ))
+
+        counts = self.repository.tag_counts(self.user_1)
+
+        self.assertEqual(counts, [("portrait", 2), ("warm", 1)])
+
+    def test_tag_counts_excludes_nsfw_by_default(self):
+        self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_1, tags=["explicit"], nsfw=True,
+            segments=[RichSegment(content="a")],
+        ))
+
+        self.assertEqual(self.repository.tag_counts(self.user_1), [])
+        self.assertEqual(self.repository.tag_counts(self.user_1, nsfw="include"), [("explicit", 1)])

@@ -1,13 +1,12 @@
 """HTTP boundary for the normalized prompt aggregate API."""
 
 import logging
-from typing import Any, Dict, List, TYPE_CHECKING, Optional, Tuple
+from typing import Any, Dict, List, Literal, TYPE_CHECKING, Optional, Tuple
 
 from fastapi import APIRouter, Body, Depends, Form, Query, UploadFile
 from fastapi import File as FastAPIFile
 from fastapi.responses import PlainTextResponse
 
-from src.platform.database.rows import dt_iso
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.prompt_database import operations
@@ -19,7 +18,6 @@ from src.features.prompt_database.dto import (
 from src.features.prompt_database.embedding import LocalEmbeddingProvider
 from src.features.prompt_database.operations.mutations import UnknownModelError
 from src.features.generation.repository import generation_repo
-from src.features.presets.name_resolver import PresetNameResolver
 from src.platform.security.user import User
 
 if TYPE_CHECKING:
@@ -72,6 +70,15 @@ def build_router(container: "AppContainer") -> APIRouter:
     settings = container.settings
     download_queue = container.download_queue
     prompt_importer_registry = container.prompt_importer_registry
+    collection_repository = container.collection_repository
+
+    def membership(prompt_ids: List[str], user_id: str) -> Dict[str, List[Dict[str, str]]]:
+        grouped = collection_repository.get_for_prompts(prompt_ids, user_id)
+        return {
+            prompt_id: [{"id": c.id, "name": c.name} for c in grouped.get(prompt_id, [])]
+            for prompt_id in prompt_ids
+        }
+
     router = APIRouter(prefix="/api/prompts", tags=["Prompts"])
 
     @router.get(
@@ -200,6 +207,16 @@ def build_router(container: "AppContainer") -> APIRouter:
         )
         return APIResponse(success=True, data=[prompt.to_dict() for prompt in prompts])
 
+    @router.get("/tags", response_model=APIResponse, summary="Tag counts across saved prompts")
+    async def list_prompt_tags(
+        nsfw: Literal["exclude", "include"] = "exclude",
+        current_user: User = Depends(get_current_active_user),
+    ):
+        counts = controller.collaborators.repository.tag_counts(_user_id(current_user), nsfw=nsfw)
+        return APIResponse(success=True, data={
+            "tags": [{"tag": tag, "count": count} for tag, count in counts],
+        })
+
     @router.post("/find-duplicates", response_model=APIResponse, summary="Find near-duplicate prompts")
     async def find_duplicates(
         threshold: float = Query(0.1, ge=0.01, le=1.0),
@@ -260,40 +277,66 @@ def build_router(container: "AppContainer") -> APIRouter:
         source_provider: Optional[str] = None, base_model: Optional[str] = None,
         model_id: Optional[str] = None, usage_hint: Optional[str] = None,
         collection_id: Optional[str] = Query(None, description="Only prompts in this 'prompts'-scope collection"),
+        q: Optional[str] = None,
+        tags: Optional[str] = Query(None, description="Comma-separated, any-of exact tag match"),
+        used: Literal["any", "used", "never"] = "any",
+        used_after: Optional[str] = None,
+        has_variables: Optional[bool] = None,
+        nsfw: Literal["exclude", "include"] = "exclude",
         sort_by: str = "created_at", sort_order: str = "desc",
         current_user: User = Depends(get_current_active_user),
     ):
         user_id = _user_id(current_user)
         repository = controller.collaborators.repository
+        tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()] if tags else None
         items = repository.get_all(
             user_id=user_id, limit=limit, offset=offset,
             source_provider=source_provider, base_model=base_model, model_id=model_id,
             usage_hint=usage_hint, collection_id=collection_id,
+            q=q, tags=tag_list, used=used, used_after=used_after,
+            has_variables=has_variables, nsfw=nsfw,
             sort_by=sort_by, sort_order=sort_order,
         )
         total = repository.count(
             user_id, source_provider, model_id, base_model, usage_hint, collection_id,
+            q=q, tags=tag_list, used=used, used_after=used_after,
+            has_variables=has_variables, nsfw=nsfw,
         )
         data = {
             "items": [item.to_dict() for item in items], "total": total,
             "limit": limit, "offset": offset,
         }
-        # Single grouped query for the whole page rather than one lookup per
-        # prompt - see GenerationRepository.usage_stats_by_source_prompt.
         prompt_ids = [item["id"] for item in data["items"]]
         usage = generation_repo.usage_stats_by_source_prompt(prompt_ids, user_id)
+        cover = generation_repo.cover_stats_by_source_prompt(prompt_ids, user_id)
+        collections = membership(prompt_ids, user_id)
         for item in data["items"]:
+            item["collections"] = collections[item["id"]]
             stats = usage.get(item["id"])
             item["usage_count"] = stats["usage_count"] if stats else 0
             item["last_used_at"] = stats["last_used_at"] if stats else None
+            cover_stats = cover.get(item["id"])
+            item["generation_count"] = cover_stats["generation_count"] if cover_stats else 0
+            item["cover_thumbnail"] = cover_stats["cover_thumbnail"] if cover_stats else None
         return APIResponse(success=True, data=data)
 
     @router.get("/{prompt_id}", response_model=APIResponse, summary="Get a prompt")
     async def get_prompt(prompt_id: str, current_user: User = Depends(get_current_active_user)):
-        prompt = controller.collaborators.repository.get_by_id(prompt_id, _user_id(current_user))
+        user_id = _user_id(current_user)
+        prompt = controller.collaborators.repository.get_by_id(prompt_id, user_id)
         if prompt is None:
             return controller.error_response("not_found", "Prompt not found", 404)
-        return APIResponse(success=True, data=prompt.to_dict())
+        data = prompt.to_dict()
+        usage = generation_repo.usage_stats_by_source_prompt([prompt_id], user_id)
+        cover = generation_repo.cover_stats_by_source_prompt([prompt_id], user_id)
+        stats = usage.get(prompt_id)
+        data["usage_count"] = stats["usage_count"] if stats else 0
+        data["last_used_at"] = stats["last_used_at"] if stats else None
+        cover_stats = cover.get(prompt_id)
+        data["generation_count"] = cover_stats["generation_count"] if cover_stats else 0
+        data["cover_thumbnail"] = cover_stats["cover_thumbnail"] if cover_stats else None
+        data["collections"] = membership([prompt_id], user_id)[prompt_id]
+        return APIResponse(success=True, data=data)
 
     @router.get(
         "/{prompt_id}/generations", response_model=APIResponse,
@@ -313,17 +356,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         user_id = _user_id(current_user)
         generations = generation_repo.get_by_source_prompt(prompt_id, user_id, limit=limit, offset=offset)
         total = generation_repo.count_by_source_prompt(prompt_id, user_id)
-        names = PresetNameResolver(container.preset_template_loader).name_map()
-        items = [
-            {
-                "id": generation.id,
-                "preset_id": generation.preset_id,
-                "preset_name": names.get(generation.preset_id, generation.preset_id) if generation.preset_id else None,
-                "created_at": dt_iso(generation.created_at),
-                "files": [file.to_dict() for file in generation.files],
-            }
-            for generation in generations
-        ]
+        items = container.generation_history_facade.query.serialize_generations(generations, include_tags=False)
         return APIResponse(success=True, data={"items": items, "total": total, "limit": limit, "offset": offset})
 
     @router.put("/{prompt_id}", response_model=APIResponse, summary="Replace a prompt")

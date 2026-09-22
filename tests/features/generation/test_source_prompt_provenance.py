@@ -11,7 +11,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from tests.fixtures.persistence_base import PersistenceTestBase
-from src.features.generation.records import Generation
+from src.features.generation.records import File, Generation
 from src.features.generation.repository import GenerationRepository
 from src.platform.util.ids import generate_ulid
 
@@ -169,3 +169,78 @@ class TestSourcePromptProvenance(PersistenceTestBase):
 
     def test_usage_stats_empty_prompt_id_list_returns_empty_dict(self):
         self.assertEqual(self.repo.usage_stats_by_source_prompt([], self.user_id), {})
+
+    # --- cover_stats_by_source_prompt ------------------------------------------
+
+    def test_cover_stats_counts_completed_generations_and_picks_the_newest_thumbnail(self):
+        older_gen = self._create_generation(
+            self.user_id, source_prompt_id="prompt-1", created_at="2026-01-01 00:00:00",
+        )
+        newer_gen = self._create_generation(
+            self.user_id, source_prompt_id="prompt-1", created_at="2026-01-05 00:00:00",
+        )
+        self.repo.add_file(older_gen, File(
+            file_path="generations/older.png", file_type="IMAGE", user_id=self.user_id,
+            is_final=True, thumbnail_medium="generations/older_thumb.png",
+        ))
+        newer_file = self.repo.add_file(newer_gen, File(
+            file_path="generations/newer.png", file_type="IMAGE", user_id=self.user_id,
+            is_final=True, thumbnail_medium="generations/newer_thumb.png",
+        ))
+
+        stats = self.repo.cover_stats_by_source_prompt(["prompt-1"], self.user_id)
+
+        self.assertEqual(stats["prompt-1"]["generation_count"], 2)
+        self.assertEqual(
+            stats["prompt-1"]["cover_thumbnail"], f"/api/media/files/{newer_file.id}?size=medium"
+        )
+
+    def test_cover_stats_falls_back_across_thumbnail_sizes(self):
+        gen_id = self._create_generation(self.user_id, source_prompt_id="prompt-1")
+        only_file = self.repo.add_file(gen_id, File(
+            file_path="generations/only.png", file_type="IMAGE", user_id=self.user_id,
+            is_final=True, thumbnail_small="generations/only_small.png",
+        ))
+
+        stats = self.repo.cover_stats_by_source_prompt(["prompt-1"], self.user_id)
+
+        self.assertEqual(
+            stats["prompt-1"]["cover_thumbnail"], f"/api/media/files/{only_file.id}?size=medium"
+        )
+
+    def test_cover_stats_ignores_non_final_files_and_failed_generations(self):
+        failed_gen = self._create_generation(self.user_id, source_prompt_id="prompt-1", status="failed")
+        self.repo.add_file(failed_gen, File(
+            file_path="generations/wip.png", file_type="IMAGE", user_id=self.user_id,
+            is_final=False, thumbnail_medium="generations/wip_thumb.png",
+        ))
+
+        stats = self.repo.cover_stats_by_source_prompt(["prompt-1"], self.user_id)
+
+        self.assertEqual(stats, {})
+
+    def test_cover_stats_yields_none_cover_when_final_file_has_no_thumbnails(self):
+        gen_id = self._create_generation(self.user_id, source_prompt_id="prompt-1")
+        self.repo.add_file(gen_id, File(
+            file_path="generations/no_thumb.png", file_type="IMAGE", user_id=self.user_id,
+            is_final=True,
+        ))
+
+        stats = self.repo.cover_stats_by_source_prompt(["prompt-1"], self.user_id)
+
+        self.assertEqual(stats["prompt-1"]["generation_count"], 1)
+        self.assertIsNone(stats["prompt-1"]["cover_thumbnail"])
+
+    def test_cover_stats_scopes_to_the_owning_user(self):
+        gen_id = self._create_generation(self.other_user_id, source_prompt_id="prompt-1")
+        self.repo.add_file(gen_id, File(
+            file_path="generations/other.png", file_type="IMAGE", user_id=self.other_user_id,
+            is_final=True, thumbnail_medium="generations/other_thumb.png",
+        ))
+
+        stats = self.repo.cover_stats_by_source_prompt(["prompt-1"], self.user_id)
+
+        self.assertEqual(stats, {})
+
+    def test_cover_stats_empty_prompt_id_list_returns_empty_dict(self):
+        self.assertEqual(self.repo.cover_stats_by_source_prompt([], self.user_id), {})

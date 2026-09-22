@@ -54,26 +54,26 @@ def test_resolver_maps_id_to_yaml_name(real_preset, resolver):
 
 def test_known_preset_id_serializes_to_its_name(real_preset, resolver):
     _, preset = real_preset
-    rows = _query(resolver)._serialize_generations([_gen(preset.id)], include_tags=False)
+    rows = _query(resolver).serialize_generations([_gen(preset.id)], include_tags=False)
     assert rows[0]["preset_name"] == preset.name
     assert rows[0]["preset_name"] != preset.id
 
 
 def test_deleted_preset_id_falls_back_to_the_id(resolver):
     missing = generate_ulid()
-    rows = _query(resolver)._serialize_generations([_gen(missing)], include_tags=False)
+    rows = _query(resolver).serialize_generations([_gen(missing)], include_tags=False)
     assert rows[0]["preset_name"] == missing
 
 
 def test_null_preset_id_is_uploaded(resolver):
-    rows = _query(resolver)._serialize_generations([_gen(None)], include_tags=False)
+    rows = _query(resolver).serialize_generations([_gen(None)], include_tags=False)
     assert rows[0]["preset_name"] == "Uploaded"
 
 
 def test_absent_resolver_leaves_ids_intact():
     preset_id = generate_ulid()
     query = GenerationHistoryQuery(generation_repo=Mock())
-    rows = query._serialize_generations([_gen(preset_id)], include_tags=False)
+    rows = query.serialize_generations([_gen(preset_id)], include_tags=False)
     assert rows[0]["preset_name"] == preset_id
 
 
@@ -107,5 +107,5 @@ def test_preset_list_is_read_once_per_serialization_pass(real_preset):
 
     counting.name_map = counted
     generations = [_gen(preset.id) for _ in range(25)]
-    _query(counting)._serialize_generations(generations, include_tags=False)
+    _query(counting).serialize_generations(generations, include_tags=False)
     assert len(calls) == 1

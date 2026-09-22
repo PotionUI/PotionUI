@@ -283,7 +283,7 @@ class GenerationHistoryQuery:
             **filter_kwargs,
         )
 
-        history_data = self._serialize_generations(generations, include_tags)
+        history_data = self.serialize_generations(generations, include_tags)
 
         # Get total count with tag filtering
         total_count = self.generation_repo.count_by_status(**filter_kwargs)
@@ -303,7 +303,7 @@ class GenerationHistoryQuery:
             }
         }
 
-    def _serialize_generations(
+    def serialize_generations(
         self, generations: List[Generation], include_tags: bool
     ) -> List[Dict[str, Any]]:
         """Serialize generations for history payloads and attach system tags."""
@@ -456,7 +456,7 @@ class GenerationHistoryQuery:
                 include_tags=include_tags,
             )
             page_generations.sort(key=lambda g: page_order.get(g.id, len(page_order)))
-            history_data = self._serialize_generations(page_generations, include_tags)
+            history_data = self.serialize_generations(page_generations, include_tags)
 
         return {
             'generations': history_data,

@@ -74,7 +74,7 @@ class PromptRepository:
         "name", "usage_hint", "source_group_id", "source_provider", "source_id",
         "source_url", "model_id", "model_name", "base_model", "cfg_scale", "steps",
         "sampler", "width", "height", "heart_count", "like_count", "laugh_count",
-        "cry_count", "comment_count", "tags", "nsfw", "metadata",
+        "cry_count", "comment_count", "tags", "nsfw", "metadata", "variables",
     )
 
     def _segments_for(self, cursor, prompt_id: str) -> List[RichSegment]:
@@ -110,6 +110,7 @@ class PromptRepository:
             laugh_count=row["laugh_count"] or 0, cry_count=row["cry_count"] or 0,
             comment_count=row["comment_count"] or 0, tags=json.loads(row["tags"] or "[]"),
             nsfw=bool(row["nsfw"]), metadata=json.loads(row["metadata"] or "{}"),
+            variables=json.loads(row["variables"]) if row["variables"] else None,
             embedded=bool(row["embedded"]), created_at=dt_column(row["created_at"]),
             updated_at=dt_column(row["updated_at"]), segments=segments,
         )
@@ -164,15 +165,17 @@ class PromptRepository:
                     id, user_id, name, flattened_text, usage_hint, source_group_id,
                     source_provider, source_id, source_url, model_id, model_name, base_model,
                     cfg_scale, steps, sampler, width, height, heart_count, like_count,
-                    laugh_count, cry_count, comment_count, tags, nsfw, metadata, embedded
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    laugh_count, cry_count, comment_count, tags, nsfw, metadata, variables, embedded
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     prompt.id, prompt.user_id, prompt.name, prompt.flattened_text, prompt.usage_hint,
                     prompt.source_group_id, prompt.source_provider, prompt.source_id, prompt.source_url,
                     prompt.model_id, prompt.model_name, prompt.base_model, prompt.cfg_scale, prompt.steps,
                     prompt.sampler, prompt.width, prompt.height, prompt.heart_count, prompt.like_count,
                     prompt.laugh_count, prompt.cry_count, prompt.comment_count, json.dumps(prompt.tags),
-                    int(prompt.nsfw), json.dumps(prompt.metadata), int(prompt.embedded),
+                    int(prompt.nsfw), json.dumps(prompt.metadata),
+                    json.dumps(prompt.variables) if prompt.variables is not None else None,
+                    int(prompt.embedded),
                 ),
             )
             self._insert_segments(cursor, prompt.id, prompt.segments)
@@ -212,15 +215,17 @@ class PromptRepository:
                 """UPDATE prompts SET name=?, flattened_text=?, usage_hint=?, source_group_id=?,
                    source_provider=?, source_id=?, source_url=?, model_id=?, model_name=?, base_model=?,
                    cfg_scale=?, steps=?, sampler=?, width=?, height=?, heart_count=?, like_count=?,
-                   laugh_count=?, cry_count=?, comment_count=?, tags=?, nsfw=?, metadata=?, embedded=0,
-                   updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?""",
+                   laugh_count=?, cry_count=?, comment_count=?, tags=?, nsfw=?, metadata=?, variables=?,
+                   embedded=0, updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?""",
                 (
                     prompt.name, flattened, prompt.usage_hint, prompt.source_group_id,
                     prompt.source_provider, prompt.source_id, prompt.source_url, prompt.model_id,
                     prompt.model_name, prompt.base_model, prompt.cfg_scale, prompt.steps, prompt.sampler,
                     prompt.width, prompt.height, prompt.heart_count, prompt.like_count, prompt.laugh_count,
                     prompt.cry_count, prompt.comment_count, json.dumps(prompt.tags), int(prompt.nsfw),
-                    json.dumps(prompt.metadata), prompt_id, user_id,
+                    json.dumps(prompt.metadata),
+                    json.dumps(prompt.variables) if prompt.variables is not None else None,
+                    prompt_id, user_id,
                 ),
             )
             if cursor.rowcount == 0:
@@ -230,43 +235,107 @@ class PromptRepository:
             cursor.execute("SELECT * FROM prompts WHERE id = ?", (prompt_id,))
             return self._from_row(cursor, cursor.fetchone())
 
-    def get_all(
-        self, user_id: str, limit: int = 20, offset: int = 0,
-        source_provider: Optional[str] = None, base_model: Optional[str] = None,
-        model_id: Optional[str] = None, usage_hint: Optional[str] = None,
-        collection_id: Optional[str] = None,
-        sort_by: str = "created_at", sort_order: str = "desc",
-    ) -> List[Prompt]:
-        clauses, params = ["user_id = ?"], [user_id]
+    _USAGE_JOIN_SQL = (
+        "LEFT JOIN (SELECT source_prompt_id, COUNT(*) AS usage_count, "
+        "MAX(created_at) AS last_used_at FROM generations WHERE user_id = ? "
+        "GROUP BY source_prompt_id) usage ON usage.source_prompt_id = prompts.id"
+    )
+
+    def _list_filters(
+        self, user_id: str, source_provider: Optional[str], base_model: Optional[str],
+        model_id: Optional[str], usage_hint: Optional[str], collection_id: Optional[str],
+        q: Optional[str], tags: Optional[Sequence[str]], used: str,
+        used_after: Optional[str], has_variables: Optional[bool], nsfw: str,
+    ) -> Tuple[List[str], List[Any], bool]:
+        clauses, params = ["prompts.user_id = ?"], [user_id]
         for column, value in (
             ("source_provider", source_provider), ("base_model", base_model),
             ("model_id", model_id), ("usage_hint", usage_hint),
         ):
             if value is not None:
-                clauses.append(f"{column} = ?")
+                clauses.append(f"prompts.{column} = ?")
                 params.append(value)
         if collection_id:
             clauses.append(
-                "id IN (SELECT prompt_id FROM collection_prompts WHERE collection_id = ?)"
+                "prompts.id IN (SELECT prompt_id FROM collection_prompts WHERE collection_id = ?)"
             )
             params.append(collection_id)
+        if q:
+            clauses.append("(prompts.name LIKE ? OR prompts.flattened_text LIKE ?)")
+            like = f"%{q}%"
+            params.extend([like, like])
+        if tags:
+            placeholders = ",".join("?" for _ in tags)
+            clauses.append(
+                f"EXISTS (SELECT 1 FROM json_each(prompts.tags) WHERE json_each.value IN ({placeholders}))"
+            )
+            params.extend(tags)
+        if has_variables is True:
+            clauses.append("prompts.variables IS NOT NULL")
+        elif has_variables is False:
+            clauses.append("prompts.variables IS NULL")
+        if nsfw != "include":
+            clauses.append("prompts.nsfw = 0")
+        needs_usage_join = used in ("used", "never") or bool(used_after)
+        if used == "used":
+            clauses.append("usage.usage_count > 0")
+        elif used == "never":
+            clauses.append("usage.usage_count IS NULL")
+        if used_after:
+            clauses.append("datetime(usage.last_used_at) >= datetime(?)")
+            params.append(used_after)
+        return clauses, params, needs_usage_join
+
+    def get_all(
+        self, user_id: str, limit: int = 20, offset: int = 0,
+        source_provider: Optional[str] = None, base_model: Optional[str] = None,
+        model_id: Optional[str] = None, usage_hint: Optional[str] = None,
+        collection_id: Optional[str] = None,
+        q: Optional[str] = None, tags: Optional[Sequence[str]] = None,
+        used: str = "any", used_after: Optional[str] = None,
+        has_variables: Optional[bool] = None, nsfw: str = "exclude",
+        sort_by: str = "created_at", sort_order: str = "desc",
+    ) -> List[Prompt]:
+        clauses, params, needs_usage_join = self._list_filters(
+            user_id, source_provider, base_model, model_id, usage_hint, collection_id,
+            q, tags, used, used_after, has_variables, nsfw,
+        )
         sort_columns = {
-            "created_at": "created_at", "updated_at": "updated_at",
-            "most_hearts": "heart_count", "heart_count": "heart_count",
-            "like_count": "like_count", "name": "COALESCE(name, flattened_text)",
+            "created_at": "prompts.created_at", "updated_at": "prompts.updated_at",
+            "most_hearts": "prompts.heart_count", "heart_count": "prompts.heart_count",
+            "like_count": "prompts.like_count", "name": "COALESCE(prompts.name, prompts.flattened_text)",
+            "usage_count": "COALESCE(usage.usage_count, 0)", "last_used_at": "usage.last_used_at",
         }
+        needs_usage_join = needs_usage_join or sort_by in ("usage_count", "last_used_at")
         order = "DESC" if sort_order.lower() == "desc" else "ASC"
+        join_sql = self._USAGE_JOIN_SQL if needs_usage_join else ""
+        join_params = [user_id] if needs_usage_join else []
         query = (
-            f"SELECT * FROM prompts WHERE {' AND '.join(clauses)} "
-            f"ORDER BY {sort_columns.get(sort_by, 'created_at')} {order} LIMIT ? OFFSET ?"
+            f"SELECT prompts.* FROM prompts {join_sql} WHERE {' AND '.join(clauses)} "
+            f"ORDER BY {sort_columns.get(sort_by, 'prompts.created_at')} {order} LIMIT ? OFFSET ?"
         )
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
-            cursor.execute(query, (*params, limit, offset))
+            cursor.execute(query, (*join_params, *params, limit, offset))
             rows = cursor.fetchall()
             prompt_ids = [row["id"] for row in rows]
             segments_by_prompt = self._segments_bulk(cursor, prompt_ids)
             return [self._prompt_from_row(row, segments_by_prompt[row["id"]]) for row in rows]
+
+    def tag_counts(self, user_id: str, nsfw: str = "exclude") -> List[Tuple[str, int]]:
+        clauses = ["prompts.user_id = ?"]
+        params: List[Any] = [user_id]
+        if nsfw != "include":
+            clauses.append("prompts.nsfw = 0")
+        query = (
+            "SELECT je.value AS tag, COUNT(*) AS count FROM prompts, "
+            f"json_each(prompts.tags) je WHERE {' AND '.join(clauses)} "
+            "GROUP BY je.value ORDER BY count DESC, tag ASC"
+        )
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(query, params)
+            return [(row["tag"], row["count"]) for row in cursor.fetchall()]
 
     def get_ids_and_text(
         self, user_id: str, limit: int = 5000, model_id: Optional[str] = None,
@@ -307,29 +376,34 @@ class PromptRepository:
     def count(
         self, user_id: str, source_provider=None, model_id=None,
         base_model=None, usage_hint=None, collection_id=None,
+        q: Optional[str] = None, tags: Optional[Sequence[str]] = None,
+        used: str = "any", used_after: Optional[str] = None,
+        has_variables: Optional[bool] = None, nsfw: str = "exclude",
     ) -> int:
-        clauses, params = ["user_id = ?"], [user_id]
-        if source_provider is not None:
-            clauses.append("source_provider = ?")
-            params.append(source_provider)
+        clauses, params, needs_usage_join = self._list_filters(
+            user_id, source_provider, base_model, model_id, usage_hint, collection_id,
+            q, tags, used, used_after, has_variables, nsfw,
+        )
+        join_sql = self._USAGE_JOIN_SQL if needs_usage_join else ""
+        join_params = [user_id] if needs_usage_join else []
+        query = f"SELECT COUNT(*) FROM prompts {join_sql} WHERE {' AND '.join(clauses)}"
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(query, (*join_params, *params))
+            return int(cursor.fetchone()[0])
+
+    def get_source_ids(
+        self, user_id: str, source_provider: str, model_id: Optional[str] = None,
+    ) -> "set[str]":
+        clauses = ["user_id = ?", "source_provider = ?", "source_id IS NOT NULL"]
+        params: List[Any] = [user_id, source_provider]
         if model_id is not None:
             clauses.append("model_id = ?")
             params.append(model_id)
-        if base_model is not None:
-            clauses.append("base_model = ?")
-            params.append(base_model)
-        if usage_hint is not None:
-            clauses.append("usage_hint = ?")
-            params.append(usage_hint)
-        if collection_id is not None:
-            clauses.append(
-                "id IN (SELECT prompt_id FROM collection_prompts WHERE collection_id = ?)"
-            )
-            params.append(collection_id)
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
-            cursor.execute(f"SELECT COUNT(*) FROM prompts WHERE {' AND '.join(clauses)}", params)
-            return int(cursor.fetchone()[0])
+            cursor.execute(f"SELECT source_id FROM prompts WHERE {' AND '.join(clauses)}", params)
+            return {row["source_id"] for row in cursor.fetchall()}
 
     def delete(self, prompt_id: str, user_id: str) -> bool:
         from src.platform.database.database import db

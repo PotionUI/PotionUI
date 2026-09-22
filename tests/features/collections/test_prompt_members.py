@@ -117,6 +117,24 @@ class TestCollectionPromptMembers(PersistenceTestBase):
         # The prompt itself is untouched - a folder is a grouping, not an owner.
         self.assertIsNotNone(self.prompts.get_by_id(prompt.id, self.user_id))
 
+    def test_get_for_prompts_groups_memberships_by_prompt_for_the_owner(self):
+        portraits = self.repo.create("Portraits", self.user_id, PROMPTS)
+        studio = self.repo.create("Studio", self.user_id, PROMPTS)
+        theirs = self.repo.create("Theirs", self.other_user_id, PROMPTS)
+        filed = self._prompt()
+        unfiled = self._prompt("plain")
+        their_prompt = self._prompt("theirs", user_id=self.other_user_id)
+        self.repo.add_prompt_members(studio.id, [filed.id], self.user_id, PROMPTS)
+        self.repo.add_prompt_members(portraits.id, [filed.id], self.user_id, PROMPTS)
+        self.repo.add_prompt_members(theirs.id, [their_prompt.id], self.other_user_id, PROMPTS)
+
+        grouped = self.repo.get_for_prompts([filed.id, unfiled.id, their_prompt.id], self.user_id)
+
+        self.assertEqual([c.name for c in grouped[filed.id]], ["Portraits", "Studio"])
+        self.assertNotIn(unfiled.id, grouped)
+        self.assertNotIn(their_prompt.id, grouped)
+        self.assertEqual(self.repo.get_for_prompts([], self.user_id), {})
+
     def test_list_is_scope_isolated_from_history_and_library(self):
         self.repo.create("History Folder", self.user_id, HISTORY)
         self.repo.create("Library Folder", self.user_id, LIBRARY)

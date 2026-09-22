@@ -510,6 +510,42 @@ class GenerationRepository:
                 for row in cursor.fetchall()
             }
 
+    def cover_stats_by_source_prompt(
+        self, prompt_ids: List[str], user_id: str
+    ) -> Dict[str, Dict[str, Any]]:
+        if not prompt_ids:
+            return {}
+        placeholders = ','.join('?' * len(prompt_ids))
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT g.source_prompt_id AS prompt_id, COUNT(*) AS generation_count, "
+                f"(SELECT f2.id "
+                f"FROM generation_files gf2 JOIN files f2 ON f2.id = gf2.file_id "
+                f"WHERE gf2.generation_id = ("
+                f"SELECT g3.id FROM generations g3 WHERE g3.source_prompt_id = g.source_prompt_id "
+                f"AND g3.user_id = g.user_id AND g3.status = 'completed' "
+                f"ORDER BY g3.created_at DESC LIMIT 1"
+                f") AND f2.is_final = 1 "
+                f"AND (f2.thumbnail_medium IS NOT NULL OR f2.thumbnail_small IS NOT NULL "
+                f"OR f2.thumbnail_large IS NOT NULL) "
+                f"ORDER BY f2.created_at DESC LIMIT 1"
+                f") AS cover_file_id "
+                f"FROM generations g WHERE g.source_prompt_id IN ({placeholders}) "
+                f"AND g.user_id = ? AND g.status = 'completed' GROUP BY g.source_prompt_id",
+                (*prompt_ids, user_id),
+            )
+            return {
+                row['prompt_id']: {
+                    'generation_count': row['generation_count'],
+                    'cover_thumbnail': (
+                        f"/api/media/files/{row['cover_file_id']}?size=medium"
+                        if row['cover_file_id'] else None
+                    ),
+                }
+                for row in cursor.fetchall()
+            }
+
     # --- Ratings & favorites ----------------------------------------------------
 
     def update_rating(self, generation_id: str, rating: int, user_id: Optional[str] = None) -> bool:

@@ -128,6 +128,17 @@ export function createCollectionsApi(client: AxiosInstance) {
 				scope
 			});
 			return response.data;
+		},
+
+		async removePromptsFromCollection(
+			id: string,
+			promptIds: string[],
+			scope: CollectionScope
+		): Promise<APIResponse<{ removed: number }>> {
+			const response = await client.delete(`/api/collections/${id}/prompts`, {
+				data: { prompt_ids: promptIds, scope }
+			});
+			return response.data;
 		}
 	};
 }

@@ -85,6 +85,10 @@
 		tabsStore.updateTab(tab.id, { variables: { ...(tab.variables || {}), [name]: def } });
 	}
 
+	function handleSourcePromptChange(id: string | null) {
+		tabsStore.updateTab(tab.id, { sourcePromptId: id });
+	}
+
 	function openVariableManager() {
 		variablesModalOpen = true;
 	}
@@ -134,6 +138,10 @@
 			selectedMode={tab.selectedMode}
 			formData={tab.formData}
 			runs={directorRuns}
+			variables={tab.variables || {}}
+			variableRolls={tab.variableRolls || {}}
+			onVariableDefChange={handleVariableDefChange}
+			onVariablesImport={handleVariablesChange}
 			onChange={(v) => tabsStore.updateTab(tab.id, { videoDirector: v })}
 			onOpenVariables={openVariableManager}
 			{variableCount}
@@ -162,6 +170,8 @@
 			variables={tab.variables || {}}
 			variableRolls={tab.variableRolls || {}}
 			onVariableDefChange={handleVariableDefChange}
+			onVariablesImport={handleVariablesChange}
+			onSourcePromptChange={handleSourcePromptChange}
 			onOpenVariableManager={openVariableManager}
 			{activeTriggerWords}
 			{presetSegmentTemplates}
@@ -181,6 +191,8 @@
 				variables={tab.variables || {}}
 				variableRolls={tab.variableRolls || {}}
 				onVariableDefChange={handleVariableDefChange}
+				onVariablesImport={handleVariablesChange}
+				onSourcePromptChange={handleSourcePromptChange}
 				onOpenVariableManager={openVariableManager}
 				onOpenStyles={presetStyles.length > 0 ? () => (stylesPickerOpen = true) : null}
 				{appliedStyleName}

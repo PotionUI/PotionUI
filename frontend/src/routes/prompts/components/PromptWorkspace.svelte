@@ -1,141 +1,196 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import { get } from 'svelte/store';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import { api } from '$lib/services/api';
-	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
+	import type { PromptImporter } from '$lib/services/api/prompts';
+	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
+	import { parseComponentRef } from '$lib/plugin-api/componentRef';
+	import { logger } from '$lib/utils/logger';
+	import LibraryShell from '../library/LibraryShell.svelte';
+	import { setLibraryCount } from '../library/libraryCounts';
+	import { withSection, type SortOption } from '../library/librarySection';
+	import PromptsGrid from './PromptsGrid.svelte';
+	import PromptsSidebar from './PromptsSidebar.svelte';
+	import PromptFiltersPopover from '$lib/prompts/PromptFiltersPopover.svelte';
+	import PromptImportModal from './PromptImportModal.svelte';
+	import PromptDetailView from './PromptDetailView.svelte';
+	import VariableManagerModal from '$lib/components/VariableManagerModal.svelte';
 	import ModelAssignmentModal from '$lib/components/modals/ModelAssignmentModal.svelte';
-	import MediaPreview from '$lib/components/MediaPreview.svelte';
+	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { MasterDetailLayout, DetailPane } from '$lib/components/master-detail';
-	import { Pane, PaneRow } from '$lib/components/pane';
-	import { Badge, Button, Card, EmptyState, IconButton, Input, Spinner } from '$lib/components/ui';
-	import type { Prompt, PromptGenerationItem, PromptUsageHint, Segment } from '$lib/types/segments';
-	import type { GenerationFile } from '$lib/types/history';
+	import { Badge, Button, EmptyState, IconButton, Spinner } from '$lib/components/ui';
+	import type { VariablesMap, VariableDef } from '$lib/utils/variableDefs';
+	import type {
+		Prompt,
+		PromptUsageHint,
+		ReplacePromptInput,
+		Segment,
+		RichSegment
+	} from '$lib/types/segments';
+	import type { GenerationHistoryItem } from '$lib/types/history';
+	import CreateTagModal from '$lib/components/modals/CreateTagModal.svelte';
 	import {
+		applySegmentList,
 		createBlankEditorSegment,
 		hasMeaningfulSegments,
 		toEditorSegment,
 		toRichSegment
 	} from '$lib/utils/richSegments';
-	import { leadIndex } from '$lib/generation/leadFile';
-	import { timeAgo } from '$lib/utils/relativeTime';
+	import { mergeVariables } from '$lib/utils/variablesTransfer';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import { promptsCollectionsStore } from '$lib/stores/collections';
-	import AddToCollectionMenu from '$lib/components/collections/AddToCollectionMenu.svelte';
-	import PromptModelField from './PromptModelField.svelte';
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
+	import { tabsStore, activeTab } from '$lib/stores/tabs';
 	import {
 		DUPLICATE_THRESHOLD_PRESETS,
 		removePromptsFromDuplicateGroup,
 		type DuplicateGroup
 	} from '$lib/utils/duplicatePrompts';
+	import {
+		promptFiltersFromSearchParams,
+		promptFiltersToSearchParams,
+		promptFilterActiveCount,
+		promptFilterChips,
+		clearPromptFilterChip,
+		clearAllPromptFilters,
+		type PromptSortBy
+	} from '$lib/prompts/promptFilters';
+	import { queryPromptLibrary } from '$lib/prompts/promptLibraryQuery';
+
+	const PAGE_SIZE = 48;
+	const NAME_FIELD_ID = 'prompt-detail-name-field';
+	const SORT_OPTIONS: readonly SortOption<PromptSortBy>[] = [
+		{ value: 'last_used_at', label: 'Last used' },
+		{ value: 'created_at', label: 'Created' },
+		{ value: 'name', label: 'Name' },
+		{ value: 'usage_count', label: 'Most used' }
+	];
+
+	$: filters = promptFiltersFromSearchParams($page.url.searchParams);
+	$: collectionId = $page.url.searchParams.get('collection') || undefined;
+	$: viewId = $page.url.searchParams.get('id');
+	$: viewIsNew = $page.url.searchParams.get('new') === '1';
+	$: detailOpen = !!viewId || viewIsNew;
+	$: filterCount = promptFilterActiveCount(filters);
+	$: filterChips = promptFilterChips(filters, modelLabel !== 'Any' ? modelLabel : undefined);
+
+	function buildUrl(
+		overrides: {
+			id?: string | null;
+			isNew?: boolean;
+			collection?: string | null;
+			filters?: import('$lib/prompts/promptFilters').PromptFilters;
+		} = {}
+	): string {
+		const params = withSection(promptFiltersToSearchParams(overrides.filters ?? filters), 'prompts');
+		const collection = overrides.collection !== undefined ? overrides.collection : collectionId;
+		if (collection) params.set('collection', collection);
+		const id = overrides.id !== undefined ? overrides.id : viewId;
+		const isNew = overrides.isNew !== undefined ? overrides.isNew : viewIsNew;
+		if (id) params.set('id', id);
+		if (isNew) params.set('new', '1');
+		const query = params.toString();
+		return query ? `${$page.url.pathname}?${query}` : $page.url.pathname;
+	}
+
+	let filtersDebounce: ReturnType<typeof setTimeout> | undefined;
+	function updateFilters(next: import('$lib/prompts/promptFilters').PromptFilters) {
+		clearTimeout(filtersDebounce);
+		filtersDebounce = setTimeout(() => {
+			void goto(buildUrl({ filters: next }), { replaceState: true, keepFocus: true, noScroll: true });
+		}, 250);
+	}
+
+	function updateQuery(value: string) {
+		updateFilters({ ...filters, q: value });
+	}
+
+	function updateSort(value: string) {
+		updateFilters({ ...filters, sortBy: value as PromptSortBy });
+	}
+
+	function removeChip(key: string) {
+		updateFilters(clearPromptFilterChip(filters, key));
+	}
+
+	function clearFilters() {
+		updateFilters(clearAllPromptFilters(filters));
+	}
+
+	function openPrompt(prompt: Prompt) {
+		void goto(buildUrl({ id: prompt.id, isNew: false }));
+	}
+
+	function backToGrid() {
+		void goto(buildUrl({ id: null, isNew: false }));
+	}
 
 	let prompts: Prompt[] = [];
-	let selected: Prompt | null = null;
-	let name = '';
-	let usageHint: PromptUsageHint | '' = '';
-	let editModelId: string | null = null;
-	let editModelLabel: string | null = null;
-	let editorSegments: Segment[] = [createBlankEditorSegment()];
+	let total = 0;
 	let loading = false;
-	let saving = false;
-	let query = '';
-	let usageFilter: 'all' | PromptUsageHint = 'all';
-	let source = '';
-	let modelId = '';
-	let models: Array<{
-		id: string;
-		filename?: string;
-		name?: string;
-		model_type?: string;
-		tags?: Array<{ name?: string } | string>;
-		providers?: any[];
-	}> = [];
-	let showModelFilter = false;
-	let selectedModelName = '';
-	let creating = false;
-	let previousSelection: Prompt | null = null;
-	let structureExpanded = true;
-	let collectionId: string | undefined = undefined;
-	let addToCollectionOpen = false;
+	let loadingMore = false;
+	let gridRequestId = 0;
+	let selectedIds = new Set<string>();
+	let semanticHitCount = 0;
 
-	$: promptCollections = $promptsCollectionsStore.collections;
+	$: hasMore = prompts.length < total;
+	$: searchHint = semanticHitCount > 0 ? `semantic · ${semanticHitCount} hits` : null;
 
-	// "Used in generations" — usage summary for whichever prompt is selected.
-	const USAGE_STRIP_LIMIT = 6;
-	let usageItems: PromptGenerationItem[] = [];
-	let usageTotal = 0;
-	let usageLoading = false;
-	let usageRequestId = 0;
-
-	const NAME_FIELD_ID = 'prompt-workspace-name-field';
-
-	type DuplicateAction = { kind: 'delete' | 'keep'; groupIndex: number; promptId: string };
-
-	let showDuplicatesModal = false;
-	let duplicatesLoading = false;
-	let duplicateGroups: DuplicateGroup[] | null = null;
-	let duplicateScanPartial = false;
-	let duplicateScanScanned = 0;
-	let duplicateScanTotal = 0;
-	let duplicateThreshold = 0.1;
-	let pendingDuplicateAction: DuplicateAction | null = null;
-	let duplicateActionBusy = false;
-	$: selectedModelLabel = modelId
-		? selectedModelName || modelDisplayName(models.find((model) => model.id === modelId)) || 'Selected model'
-		: 'All models';
-
-	// A blank draft (the single pristine placeholder segment) discards silently;
-	// anything the user actually typed needs confirmation before it's dropped.
-	async function discardDraftOk(): Promise<boolean> {
-		if (!creating || !hasMeaningfulSegments(editorSegments)) return true;
-		return await confirmDialog({
-			title: 'Discard new prompt?',
-			message: 'This prompt has not been saved yet. Discard it?',
-			variant: 'danger'
-		});
+	async function loadGrid(reset: boolean) {
+		const requestId = ++gridRequestId;
+		if (reset) {
+			loading = true;
+			selectedIds = new Set();
+		} else {
+			loadingMore = true;
+		}
+		try {
+			const offset = reset ? 0 : prompts.length;
+			const query = filters.q.trim();
+			const result = await queryPromptLibrary(api, filters, { collectionId, limit: PAGE_SIZE, offset });
+			if (requestId !== gridRequestId) return;
+			prompts = reset ? result.rows : [...prompts, ...result.rows];
+			total = result.total;
+			semanticHitCount = reset ? result.semanticHits : semanticHitCount;
+			if (!collectionId && !query && filterCount === 0) setLibraryCount('prompts', result.total);
+		} catch {
+			if (requestId === gridRequestId) toasts.error('Failed to load prompts');
+		} finally {
+			if (requestId === gridRequestId) {
+				loading = false;
+				loadingMore = false;
+			}
+		}
 	}
 
-	// Exposed to the page-level toolbar via bind:this — the models list, the
-	// current model filter and the duplicate-scan state all live here, so the
-	// toolbar triggers these instead of owning parallel copies of them.
-	export async function startNewPrompt() {
-		if (!(await discardDraftOk())) return;
-		previousSelection = selected;
-		selected = null;
-		creating = true;
-		name = '';
-		usageHint = '';
-		editModelId = modelId || null;
-		editModelLabel = modelId ? selectedModelLabel : null;
-		editorSegments = [createBlankEditorSegment()];
-		usageItems = [];
-		usageTotal = 0;
-		await tick();
-		document.getElementById(NAME_FIELD_ID)?.focus();
-	}
-	export function openDuplicatesScan() {
-		openDuplicatesModal();
-	}
-	// Called by the toolbar once a plugin-hosted import modal reports it
-	// created prompts, so the list reflects them without the toolbar owning
-	// its own copy of `loadPrompts`.
-	export async function reloadPrompts() {
-		await loadPrompts();
-	}
-	// Called by the page's PromptsSidebar (a sibling, not a child) on folder
-	// selection - PromptWorkspace has no dedicated filter store, so its other
-	// filters (model, source, usage) follow the same bind:this pattern.
-	export async function setCollectionFilter(id: string | undefined) {
-		collectionId = id;
-		await loadPrompts();
+	function loadMore() {
+		void loadGrid(false);
 	}
 
-	onMount(async () => {
-		await Promise.all([loadPrompts(), loadModels(), promptsCollectionsStore.load()]);
-	});
+	function toggleSelect(prompt: Prompt) {
+		const next = new Set(selectedIds);
+		if (next.has(prompt.id)) next.delete(prompt.id);
+		else next.add(prompt.id);
+		selectedIds = next;
+	}
+
+	function selectAll() {
+		selectedIds = new Set(prompts.map((p) => p.id));
+	}
+
+	function clearSelection() {
+		selectedIds = new Set();
+	}
+
+	let models: Array<{ id: string; filename?: string; name?: string; model_type?: string; tags?: unknown[] }> = [];
+	let showModelFilterPicker = false;
+
+	$: modelLabel = filters.modelId
+		? modelDisplayName(models.find((m) => m.id === filters.modelId)) || 'Selected model'
+		: 'Any';
 
 	async function loadModels() {
 		try {
@@ -146,66 +201,136 @@
 		}
 	}
 
-	async function selectModelFilter(model: any | null) {
-		modelId = model?.id || '';
-		selectedModelName = model ? modelDisplayName(model) : '';
-		if (model && !models.some((item) => item.id === model.id)) {
-			models = [model, ...models];
-		}
-		showModelFilter = false;
-		await loadPrompts();
+	async function selectModelForFilter(model: { id: string } | null) {
+		showModelFilterPicker = false;
+		if (model && !models.some((m) => m.id === model.id)) models = [model as never, ...models];
+		updateFilters({ ...filters, modelId: model?.id || '' });
 	}
 
-	async function loadPrompts() {
-		loading = true;
+	let lastRouteKey = '';
+	$: {
+		const routeKey = viewId ? `edit:${viewId}` : viewIsNew ? 'new' : 'grid';
+		if (routeKey !== lastRouteKey) {
+			lastRouteKey = routeKey;
+			if (viewId) void enterEdit(viewId);
+			else if (viewIsNew) enterCreate();
+		}
+	}
+
+	let lastGridKey = '';
+	$: if (!viewId && !viewIsNew) {
+		const gridKey = JSON.stringify({ filters, collectionId });
+		if (gridKey !== lastGridKey) {
+			lastGridKey = gridKey;
+			void loadGrid(true);
+		}
+	}
+
+	loadModels();
+	promptsCollectionsStore.load();
+	$: promptCollections = $promptsCollectionsStore.collections;
+
+	let mode: 'create' | 'edit' = 'edit';
+	let selected: Prompt | null = null;
+	let name = '';
+	let usageHint: PromptUsageHint | '' = '';
+	let editModelId: string | null = null;
+	let editModelLabel: string | null = null;
+	let editorSegments: Segment[] = [createBlankEditorSegment()];
+	let editorVariables: VariablesMap = {};
+	let saving = false;
+	let variablesModalOpen = false;
+	let dirtySnapshot = '';
+
+	const USAGE_STRIP_LIMIT = 12;
+	let usageItems: GenerationHistoryItem[] = [];
+	let usageTotal = 0;
+	let usageLoading = false;
+	let usageRequestId = 0;
+
+	function handleVariableDefChange(variableName: string, def: VariableDef) {
+		editorVariables = { ...editorVariables, [variableName]: def };
+	}
+
+	function snapshotOf() {
+		return JSON.stringify({
+			name: name.trim(),
+			usageHint,
+			editModelId,
+			segments: editorSegments.map(toRichSegment),
+			variables: editorVariables
+		});
+	}
+
+	function computeDirtyCount(
+		_name: string,
+		_usageHint: string,
+		_editModelId: string | null,
+		_editorSegments: Segment[],
+		_editorVariables: VariablesMap
+	): number {
+		if (!dirtySnapshot) return 0;
 		try {
-			const response = query.trim()
-				? await api.searchPrompts({
-						q: query.trim(),
-						limit: 100,
-						model_id: modelId || undefined,
-						source_provider: source || undefined
-					})
-				: await api.listPrompts({
-						limit: 100,
-						model_id: modelId || undefined,
-						source_provider: source || undefined,
-						usage_hint: usageFilter === 'all' ? undefined : usageFilter,
-						collection_id: collectionId,
-						sort_by: 'updated_at'
-					});
-			prompts = response.success
-				? (Array.isArray(response.data) ? response.data : response.data?.items || [])
-				: [];
-			if (selected) {
-				const refreshed = prompts.find((prompt) => prompt.id === selected?.id);
-				if (refreshed) selectPrompt(refreshed);
-			}
+			const before = JSON.parse(dirtySnapshot);
+			const after = JSON.parse(snapshotOf());
+			let count = 0;
+			if (before.name !== after.name) count++;
+			if (before.usageHint !== after.usageHint) count++;
+			if (before.editModelId !== after.editModelId) count++;
+			if (JSON.stringify(before.segments) !== JSON.stringify(after.segments)) count++;
+			if (JSON.stringify(before.variables) !== JSON.stringify(after.variables)) count++;
+			return count;
 		} catch {
-			toasts.error('Failed to load prompts');
-		} finally {
-			loading = false;
+			return 0;
 		}
 	}
+	$: dirtyCount = computeDirtyCount(name, usageHint, editModelId, editorSegments, editorVariables);
 
-	function selectUsageFilter(next: 'all' | PromptUsageHint) {
-		if (usageFilter === next) return;
-		usageFilter = next;
-		loadPrompts();
+	function resetEditFields() {
+		selected = null;
+		name = '';
+		usageHint = '';
+		editModelId = collectionId ? editModelId : null;
+		editModelLabel = null;
+		editorSegments = [createBlankEditorSegment()];
+		editorVariables = {};
+		usageItems = [];
+		usageTotal = 0;
 	}
 
-	async function selectPrompt(prompt: Prompt) {
-		if (!(await discardDraftOk())) return;
-		creating = false;
-		previousSelection = null;
-		selected = prompt;
-		name = prompt.name || '';
-		usageHint = prompt.usage_hint || '';
-		editModelId = prompt.model_id ?? null;
-		editModelLabel = prompt.model_name ?? null;
-		editorSegments = prompt.segments.map((segment) => toEditorSegment(segment));
+	function enterCreate() {
+		mode = 'create';
+		resetEditFields();
+		dirtySnapshot = snapshotOf();
+		tick().then(() => document.getElementById(NAME_FIELD_ID)?.focus());
+	}
+
+	async function enterEdit(id: string) {
+		mode = 'edit';
+		let target: Prompt | null = prompts.find((p) => p.id === id) || (selected?.id === id ? selected : null);
+		if (!target) {
+			try {
+				const response = await api.getPrompt(id);
+				target = response.success ? response.data ?? null : null;
+			} catch {
+				target = null;
+			}
+		}
+		if (!target) {
+			toasts.error('Prompt not found');
+			backToGrid();
+			return;
+		}
+		selected = target;
+		name = target.name || '';
+		usageHint = target.usage_hint || '';
+		editModelId = target.model_id ?? null;
+		editModelLabel = target.model_name ?? null;
+		editorSegments = target.segments.map((segment) => toEditorSegment(segment));
 		if (!editorSegments.length) editorSegments = [createBlankEditorSegment()];
-		loadUsage(prompt.id);
+		editorVariables = target.variables ?? {};
+		dirtySnapshot = snapshotOf();
+		loadUsage(target.id);
 	}
 
 	async function loadUsage(promptId: string) {
@@ -227,57 +352,24 @@
 		}
 	}
 
-	function resetPrompt() {
-		if (selected) selectPrompt(selected);
-	}
-
-	function cancelCreate() {
-		creating = false;
-		const target = previousSelection;
-		previousSelection = null;
-		if (target) selectPrompt(target);
-		else selected = null;
-	}
-
-	async function createDraftPrompt() {
-		if (!hasMeaningfulSegments(editorSegments)) return;
-		saving = true;
-		const payload = {
-			name: name.trim() || null,
-			usage_hint: usageHint || null,
-			model_id: editModelId,
-			segments: editorSegments.map(toRichSegment)
-		};
-		try {
-			const response = await api.createPrompt(payload);
-			if (!response.success || !response.data) throw new Error(response.error || 'Create failed');
-			toasts.success('Prompt created');
-			creating = false;
-			previousSelection = null;
-			await loadPrompts();
-			selectPrompt(response.data);
-		} catch (error) {
-			toasts.error(error instanceof Error ? error.message : 'Failed to create prompt');
-		} finally {
-			saving = false;
-		}
-	}
-
-	async function savePrompt() {
+	async function saveEditor() {
+		if (mode === 'create') return createDraft();
 		if (!selected) return;
 		saving = true;
 		const payload = {
 			name: name.trim() || null,
 			usage_hint: usageHint || null,
 			model_id: editModelId,
-			segments: editorSegments.map(toRichSegment)
+			segments: editorSegments.map(toRichSegment),
+			variables: Object.keys(editorVariables).length ? editorVariables : null
 		};
 		try {
 			const response = await api.replacePrompt(selected.id, payload);
 			if (!response.success || !response.data) throw new Error(response.error || 'Save failed');
 			toasts.success('Prompt updated');
-			await loadPrompts();
-			selectPrompt(response.data);
+			selected = response.data;
+			dirtySnapshot = snapshotOf();
+			prompts = prompts.map((p) => (p.id === selected!.id ? (response.data as Prompt) : p));
 		} catch (error) {
 			toasts.error(error instanceof Error ? error.message : 'Failed to save prompt');
 		} finally {
@@ -285,32 +377,267 @@
 		}
 	}
 
-	async function deletePrompt() {
-		if (!selected) return;
-		if (
-			!(await confirmDialog({
-				title: 'Delete',
-				message: `Delete “${selected.display_name}”?`,
-				variant: 'danger'
-			}))
-		)
-			return;
+	async function createDraft() {
+		if (!hasMeaningfulSegments(editorSegments)) return;
+		saving = true;
+		const payload = {
+			name: name.trim() || null,
+			usage_hint: usageHint || null,
+			model_id: editModelId,
+			segments: editorSegments.map(toRichSegment),
+			variables: Object.keys(editorVariables).length ? editorVariables : null
+		};
 		try {
-			await api.deletePrompt(selected.id);
+			const response = await api.createPrompt(payload);
+			if (!response.success || !response.data) throw new Error(response.error || 'Create failed');
+			toasts.success('Prompt created');
+			lastGridKey = '';
+			await loadGrid(true);
+			void goto(buildUrl({ id: response.data.id, isNew: false }));
+		} catch (error) {
+			toasts.error(error instanceof Error ? error.message : 'Failed to create prompt');
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function discardEditor() {
+		if (mode === 'create') {
+			if (hasMeaningfulSegments(editorSegments)) {
+				const ok = await confirmDialog({
+					title: 'Discard new prompt?',
+					message: 'This prompt has not been saved yet. Discard it?',
+					variant: 'danger'
+				});
+				if (!ok) return;
+			}
+			backToGrid();
+			return;
+		}
+		if (selected) {
+			name = selected.name || '';
+			usageHint = selected.usage_hint || '';
+			editModelId = selected.model_id ?? null;
+			editModelLabel = selected.model_name ?? null;
+			editorSegments = selected.segments.map((segment) => toEditorSegment(segment));
+			if (!editorSegments.length) editorSegments = [createBlankEditorSegment()];
+			editorVariables = selected.variables ?? {};
+			dirtySnapshot = snapshotOf();
+		}
+	}
+
+	async function applyToActiveTab(
+		segments: RichSegment[],
+		variables: VariablesMap | null | undefined,
+		usageHintValue: string,
+		sourcePromptId: string | null
+	) {
+		const tab = get(activeTab);
+		if (!tab) {
+			toasts.error('No active Generate tab to apply this prompt to');
+			return;
+		}
+		const isNegative = usageHintValue === 'negative';
+		const currentList = (isNegative ? tab.negativePromptSegments : tab.promptSegments) ?? [];
+		const nextList = applySegmentList(currentList, segments, 'replace');
+		const updates: Record<string, unknown> = isNegative
+			? { negativePromptSegments: nextList, sourcePromptId }
+			: { promptSegments: nextList, sourcePromptId };
+		const importedCount = variables ? Object.keys(variables).length : 0;
+		if (importedCount > 0)
+			updates.variables = mergeVariables(tab.variables ?? {}, variables as VariablesMap, 'replace');
+		tabsStore.updateTab(tab.id, updates);
+		if (importedCount > 0) toasts.success(`Imported ${importedCount} variable${importedCount === 1 ? '' : 's'}`);
+		toasts.success('Prompt applied to the active Generate tab');
+		await goto('/');
+	}
+
+	function useFromCard(prompt: Prompt) {
+		void applyToActiveTab(prompt.segments, prompt.variables, prompt.usage_hint || '', prompt.id);
+	}
+
+	function useFromEditor() {
+		void applyToActiveTab(editorSegments.map(toRichSegment), editorVariables, usageHint, mode === 'edit' ? selected?.id ?? null : null);
+	}
+
+	async function copyFromCard(prompt: Prompt) {
+		try {
+			await navigator.clipboard.writeText(prompt.flattened_text || '');
+			toasts.success('Copied to clipboard');
+		} catch {
+			toasts.error('Failed to copy prompt');
+		}
+	}
+
+	async function duplicateFromCard(prompt: Prompt) {
+		try {
+			const response = await api.createPrompt({
+				name: prompt.name ? `${prompt.name} copy` : null,
+				usage_hint: prompt.usage_hint ?? null,
+				model_id: prompt.model_id ?? null,
+				segments: prompt.segments
+			});
+			if (!response.success || !response.data) throw new Error(response.error || 'Duplicate failed');
+			toasts.success('Prompt duplicated');
+			lastGridKey = '';
+			await loadGrid(true);
+		} catch (error) {
+			toasts.error(error instanceof Error ? error.message : 'Failed to duplicate prompt');
+		}
+	}
+
+	function duplicateFromEditor() {
+		if (selected) void duplicateFromCard(selected);
+	}
+
+	function addToCollectionFromCard(prompt: Prompt) {
+		selectedIds = new Set([prompt.id]);
+		toasts.success('Selected - use "Add to collection…" below');
+	}
+
+	async function exportPrompts() {
+		try {
+			await api.downloadPromptsExport(collectionId ? { collection_id: collectionId } : {});
+		} catch {
+			toasts.error('Failed to export prompts');
+		}
+	}
+
+	async function deleteFromCard(prompt: Prompt) {
+		const ok = await confirmDialog({
+			title: 'Delete',
+			message: `Delete "${prompt.display_name}"?`,
+			variant: 'danger'
+		});
+		if (!ok) return;
+		try {
+			await api.deletePrompt(prompt.id);
 			toasts.success('Prompt deleted');
-			selected = null;
-			await loadPrompts();
+			if (viewId === prompt.id) backToGrid();
+			lastGridKey = '';
+			await loadGrid(true);
 		} catch {
 			toasts.error('Failed to delete prompt');
 		}
 	}
 
-	async function handleAddToCollection(targetCollectionId: string): Promise<boolean> {
-		if (!selected) return false;
+	function deleteFromEditor() {
+		if (selected) void deleteFromCard(selected);
+	}
+
+	async function bulkAddToCollection(targetCollectionId: string): Promise<boolean> {
+		if (selectedIds.size === 0) return false;
 		try {
-			const response = await api.addPromptsToCollection(targetCollectionId, [selected.id], 'prompts');
+			const response = await api.addPromptsToCollection(targetCollectionId, Array.from(selectedIds), 'prompts');
 			if (response.success) {
 				await promptsCollectionsStore.load();
+				toasts.success('Added to collection');
+				clearSelection();
+				return true;
+			}
+			toasts.error('Failed to add to collection');
+			return false;
+		} catch {
+			toasts.error('Failed to add to collection');
+			return false;
+		}
+	}
+
+	async function bulkCreateAndAddToCollection(name: string): Promise<boolean> {
+		const created = await promptsCollectionsStore.create(name);
+		const collection = created.success ? created.data?.collection : undefined;
+		if (!collection) {
+			toasts.error('Failed to create collection');
+			return false;
+		}
+		return bulkAddToCollection(collection.id);
+	}
+
+	let showBulkTagModal = false;
+
+	function bulkAddTag() {
+		if (selectedIds.size === 0) return;
+		showBulkTagModal = true;
+	}
+
+	async function applyTagToSelection(tagName: string): Promise<{ success: boolean }> {
+		const targets = prompts.filter((p) => selectedIds.has(p.id));
+		if (targets.length === 0) return { success: false };
+		let succeeded = 0;
+		for (const target of targets) {
+			const nextTags = target.tags?.includes(tagName) ? target.tags : [...(target.tags ?? []), tagName];
+			const payload: ReplacePromptInput = {
+				name: target.name ?? null,
+				usage_hint: target.usage_hint ?? null,
+				model_id: target.model_id ?? null,
+				segments: target.segments,
+				variables: target.variables ?? null,
+				tags: nextTags
+			};
+			try {
+				const response = await api.replacePrompt(target.id, payload);
+				if (response.success) succeeded++;
+			} catch {
+				continue;
+			}
+		}
+		if (succeeded > 0) {
+			toasts.success(`Tagged ${succeeded} prompt${succeeded === 1 ? '' : 's'}`);
+			clearSelection();
+			lastGridKey = '';
+			await loadGrid(true);
+		}
+		if (succeeded < targets.length) {
+			const failed = targets.length - succeeded;
+			toasts.error(`Failed to tag ${failed} prompt${failed === 1 ? '' : 's'}`);
+		}
+		return { success: succeeded > 0 };
+	}
+
+	async function bulkExport() {
+		await exportPrompts();
+	}
+
+	async function bulkDelete() {
+		if (selectedIds.size === 0) return;
+		const count = selectedIds.size;
+		const ok = await confirmDialog({
+			title: `Delete ${count} prompt${count === 1 ? '' : 's'}?`,
+			message: "This can't be undone.",
+			variant: 'danger'
+		});
+		if (!ok) return;
+		try {
+			await api.bulkDeletePrompts(Array.from(selectedIds));
+			toasts.success(`Deleted ${count} prompt${count === 1 ? '' : 's'}`);
+			if (viewId && selectedIds.has(viewId)) backToGrid();
+			clearSelection();
+			lastGridKey = '';
+			await loadGrid(true);
+		} catch {
+			toasts.error('Failed to delete prompts');
+		}
+	}
+
+	async function refreshSelectedMembership(promptId: string) {
+		await promptsCollectionsStore.load();
+		try {
+			const response = await api.getPrompt(promptId);
+			if (!response.success || !response.data || selected?.id !== promptId) return;
+			selected = { ...selected, collections: response.data.collections ?? [] };
+			prompts = prompts.map((p) => (p.id === promptId ? { ...p, collections: response.data!.collections ?? [] } : p));
+		} catch {
+			return;
+		}
+	}
+
+	async function addSelectedToCollection(targetCollectionId: string): Promise<boolean> {
+		if (!selected) return false;
+		const promptId = selected.id;
+		try {
+			const response = await api.addPromptsToCollection(targetCollectionId, [promptId], 'prompts');
+			if (response.success) {
+				await refreshSelectedMembership(promptId);
 				toasts.success('Added to collection');
 				return true;
 			}
@@ -322,33 +649,101 @@
 		}
 	}
 
-	async function handleCreateAndAddToCollection(name: string): Promise<boolean> {
+	async function removeSelectedFromCollection(targetCollectionId: string): Promise<boolean> {
+		if (!selected) return false;
+		const promptId = selected.id;
+		try {
+			const response = await api.removePromptsFromCollection(targetCollectionId, [promptId], 'prompts');
+			if (response.success) {
+				await refreshSelectedMembership(promptId);
+				toasts.success('Removed from collection');
+				return true;
+			}
+			toasts.error('Failed to remove from collection');
+			return false;
+		} catch {
+			toasts.error('Failed to remove from collection');
+			return false;
+		}
+	}
+
+	async function createAndAddSelectedToCollection(name: string): Promise<boolean> {
 		const created = await promptsCollectionsStore.create(name);
 		const collection = created.success ? created.data?.collection : undefined;
 		if (!collection) {
 			toasts.error('Failed to create collection');
 			return false;
 		}
-		return await handleAddToCollection(collection.id);
+		return addSelectedToCollection(collection.id);
 	}
 
-	async function duplicatePrompt() {
-		if (!selected) return;
+	export async function startNewPrompt() {
+		await goto(buildUrl({ id: null, isNew: true }));
+	}
+
+	async function reloadPrompts() {
+		lastGridKey = '';
+		await loadGrid(true);
+	}
+
+	export async function setCollectionFilter(id: string | undefined) {
+		await goto(buildUrl({ collection: id ?? null, id: null, isNew: false }));
+	}
+
+	let importers: PromptImporter[] = [];
+	let activeImporter: PromptImporter | null = null;
+	let coreImportOpen = false;
+	let exporting = false;
+
+	$: activeImporterRef = activeImporter ? parseComponentRef(activeImporter.component) : null;
+
+	onMount(async () => {
 		try {
-			const response = await api.createPrompt({
-				name: selected.name ? `${selected.name} copy` : null,
-				usage_hint: selected.usage_hint ?? null,
-				model_id: selected.model_id ?? null,
-				segments: selected.segments
-			});
-			if (!response.success || !response.data) throw new Error(response.error || 'Duplicate failed');
-			toasts.success('Prompt duplicated');
-			await loadPrompts();
-			selectPrompt(response.data);
-		} catch (error) {
-			toasts.error(error instanceof Error ? error.message : 'Failed to duplicate prompt');
+			const response = await api.listPromptImporters();
+			if (response?.success && response.data) importers = response.data;
+		} catch (err) {
+			logger.error('Failed to load prompt importers:', err);
+		}
+	});
+
+	function closeImporter() {
+		activeImporter = null;
+	}
+
+	async function handleImported() {
+		activeImporter = null;
+		await reloadPrompts();
+	}
+
+	function closeCoreImport() {
+		coreImportOpen = false;
+	}
+
+	async function handleCoreImported() {
+		await reloadPrompts();
+	}
+
+	async function handleExport() {
+		if (exporting) return;
+		exporting = true;
+		try {
+			await exportPrompts();
+		} finally {
+			exporting = false;
 		}
 	}
+
+	type DuplicateAction = { kind: 'delete' | 'keep'; groupIndex: number; promptId: string };
+
+	let showDuplicatesModal = false;
+	let duplicatesLoading = false;
+	let duplicateGroups: DuplicateGroup[] | null = null;
+	let duplicateScanPartial = false;
+	let duplicateScanScanned = 0;
+	let duplicateScanTotal = 0;
+	let duplicateThreshold = 0.1;
+	let pendingDuplicateAction: DuplicateAction | null = null;
+	let duplicateActionBusy = false;
 
 	async function openDuplicatesModal() {
 		showDuplicatesModal = true;
@@ -368,7 +763,7 @@
 		pendingDuplicateAction = null;
 		try {
 			const response = await api.findDuplicatePrompts({
-				model_id: modelId || undefined,
+				model_id: filters.modelId || undefined,
 				threshold: duplicateThreshold
 			});
 			duplicateGroups = response.data?.groups || [];
@@ -398,17 +793,16 @@
 	}
 
 	async function forgetDeletedSelection(removedIds: string[]) {
-		if (selected && removedIds.includes(selected.id)) selected = null;
-		await loadPrompts();
+		if (viewId && removedIds.includes(viewId)) backToGrid();
+		lastGridKey = '';
+		await loadGrid(true);
 	}
 
 	async function confirmDeleteDuplicate(groupIndex: number, promptId: string) {
 		duplicateActionBusy = true;
 		try {
 			await api.deletePrompt(promptId);
-			if (duplicateGroups) {
-				duplicateGroups = removePromptsFromDuplicateGroup(duplicateGroups, groupIndex, [promptId]);
-			}
+			if (duplicateGroups) duplicateGroups = removePromptsFromDuplicateGroup(duplicateGroups, groupIndex, [promptId]);
 			toasts.success('Prompt deleted');
 			await forgetDeletedSelection([promptId]);
 		} catch {
@@ -421,9 +815,7 @@
 
 	async function confirmKeepOnly(groupIndex: number, keepId: string) {
 		if (!duplicateGroups) return;
-		const removeIds = duplicateGroups[groupIndex].prompts
-			.filter((prompt) => prompt.id !== keepId)
-			.map((prompt) => prompt.id);
+		const removeIds = duplicateGroups[groupIndex].prompts.filter((prompt) => prompt.id !== keepId).map((prompt) => prompt.id);
 		if (!removeIds.length) return;
 		duplicateActionBusy = true;
 		try {
@@ -438,350 +830,203 @@
 			pendingDuplicateAction = null;
 		}
 	}
-
-	function sourceLabel(prompt: Prompt) {
-		return prompt.source_provider || 'manual';
-	}
-
-	function usageLabel(prompt: Prompt): string {
-		if (!prompt.usage_count) return '';
-		const when = prompt.last_used_at ? timeAgo(prompt.last_used_at) : '';
-		return when ? `${prompt.usage_count}× · ${when}` : `${prompt.usage_count}×`;
-	}
-
-	/** Same lead-file rule GenerationCard/HistoryGrid use, so the strip's
-	 *  thumbnail matches what the history page itself would show first. */
-	function leadFileOf(item: PromptGenerationItem): GenerationFile | null {
-		const media = item.files.filter(
-			(file) => file.is_final !== false && ['image', 'video', 'audio', 'mesh'].includes(file.file_type.toLowerCase())
-		);
-		if (!media.length) return null;
-		return media[leadIndex(media)];
-	}
 </script>
 
-<div class="h-full">
-	<MasterDetailLayout
-		leftWidth={360}
-		minWidth={280}
-		maxWidth={520}
-		storageKey="prompt-library-panel-width"
-	>
-		<svelte:fragment slot="list">
-			<Pane
-				label="Prompts"
-				count={prompts.length}
-				searchable
-				bind:search={query}
-				searchPlaceholder="Search name, content, tags..."
-				onSearch={loadPrompts}
-				{loading}
-				isEmpty={prompts.length === 0}
+<LibraryShell
+	section="prompts"
+	count={total}
+	{detailOpen}
+	q={filters.q}
+	onQueryChange={updateQuery}
+	{searchHint}
+	sortBy={filters.sortBy}
+	sortOptions={SORT_OPTIONS}
+	onSortChange={updateSort}
+	{filterCount}
+	chips={filterChips}
+	onRemoveChip={removeChip}
+	onClearFilters={clearFilters}
+	loadedCount={prompts.length}
+	{total}
+>
+	{#snippet sidebarTree()}
+		<PromptsSidebar
+			activeId={collectionId}
+			onSelectAll={() => setCollectionFilter(undefined)}
+			onSelectFolder={(id) => setCollectionFilter(id)}
+		/>
+	{/snippet}
+
+	{#snippet filtersPopover(close)}
+		<PromptFiltersPopover
+			{filters}
+			{modelLabel}
+			onChange={updateFilters}
+			onOpenModelPicker={() => (showModelFilterPicker = true)}
+			onClose={close}
+		/>
+	{/snippet}
+
+	{#snippet overflow(close)}
+		<button
+			type="button"
+			role="menuitem"
+			class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-surface-3 hover:text-fg"
+			onclick={() => {
+				close();
+				coreImportOpen = true;
+			}}
+		>
+			<Icon name="upload" className="h-3.5 w-3.5" />
+			From file or text
+		</button>
+		{#each importers as importer (importer.id)}
+			<button
+				type="button"
+				role="menuitem"
+				class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-surface-3 hover:text-fg"
+				onclick={() => {
+					close();
+					activeImporter = importer;
+				}}
 			>
-				{#snippet filters()}
-					<div class="space-y-2 border-b border-line p-3">
-						<div class="flex flex-wrap items-center gap-1.5">
-							{#each [{ id: 'all', label: 'All' }, { id: 'positive', label: 'Positive' }, { id: 'negative', label: 'Negative' }] as pill (pill.id)}
-								<button
-									type="button"
-									class="rounded px-2.5 py-1 text-xs font-medium transition-colors {usageFilter === pill.id
-										? 'border border-signal/25 bg-signal/10 text-signal'
-										: 'border border-line-strong bg-surface-2 text-fg-muted hover:border-line-hover hover:text-fg'}"
-									onclick={() => selectUsageFilter(pill.id as 'all' | PromptUsageHint)}
-								>
-									{pill.label}
-								</button>
-							{/each}
-						</div>
-						<div class="grid grid-cols-2 gap-2">
-							<button
-								class="input flex min-w-0 items-center gap-1.5 py-1.5 text-left text-xs"
-								title={selectedModelLabel}
-								onclick={() => (showModelFilter = true)}
-							>
-								<Icon name="search" className="h-3.5 w-3.5 flex-shrink-0 text-fg-subtle" />
-								<span class="min-w-0 flex-1 truncate">{selectedModelLabel}</span>
-								<Icon name="chevron-down" className="h-3 w-3 flex-shrink-0 text-fg-subtle" />
-							</button>
-							<label>
-								<span class="sr-only">Source</span>
-								<select class="input py-1.5 text-xs" bind:value={source} onchange={loadPrompts}>
-									<option value="">All sources</option>
-									<option value="manual">Manual</option>
-									<option value="text_import">Text import</option>
-									<option value="civitai">CivitAI</option>
-								</select>
-							</label>
-						</div>
-					</div>
-				{/snippet}
+				<Icon name="upload" className="h-3.5 w-3.5" />
+				{importer.label}
+			</button>
+		{/each}
+		<div class="my-1 h-px bg-line"></div>
+		<button
+			type="button"
+			role="menuitem"
+			class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-surface-3 hover:text-fg disabled:opacity-50"
+			disabled={exporting}
+			onclick={() => {
+				close();
+				void handleExport();
+			}}
+		>
+			<Icon name="download" className="h-3.5 w-3.5" />
+			Export styles.csv
+		</button>
+		<button
+			type="button"
+			role="menuitem"
+			class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-surface-3 hover:text-fg"
+			onclick={() => {
+				close();
+				void openDuplicatesModal();
+			}}
+		>
+			<Icon name="copy" className="h-3.5 w-3.5" />
+			Find duplicates
+		</button>
+	{/snippet}
 
-				{#snippet empty()}
-					<div class="px-4 py-10 text-center">
-						<Icon name="document" className="mx-auto mb-3 h-9 w-9 text-fg-disabled" strokeWidth={1.5} />
-						<p class="text-sm text-fg-muted">
-							{query.trim() || modelId || source || usageFilter !== 'all' || collectionId
-								? 'No prompts match these filters'
-								: 'No prompts yet'}
-						</p>
-						{#if !query.trim() && !modelId && !source && usageFilter === 'all' && !collectionId}
-							<Button class="mt-3" size="xs" variant="ghost" icon="plus" onclick={startNewPrompt}>
-								Create your first prompt
-							</Button>
-						{/if}
-					</div>
-				{/snippet}
+	{#snippet primary()}
+		<Button size="sm" variant="primary" icon="plus" onclick={startNewPrompt}>New prompt</Button>
+	{/snippet}
 
-				{#snippet children()}
-					{#each prompts as prompt (prompt.id)}
-						{#snippet meta()}
-							<div class="mt-2 flex flex-wrap items-center gap-1.5">
-								<Badge size="sm">
-									{prompt.segments.length} segment{prompt.segments.length === 1 ? '' : 's'}
-								</Badge>
-								<Badge size="sm" variant="info">{sourceLabel(prompt)}</Badge>
-								{#if prompt.usage_hint}
-									<Badge size="sm" variant={prompt.usage_hint === 'negative' ? 'danger' : 'success'}>
-										{prompt.usage_hint}
-									</Badge>
-								{/if}
-								<span class="flex-1"></span>
-								{#if usageLabel(prompt)}
-									<span class="font-mono text-2xs tabular-nums text-fg-subtle">{usageLabel(prompt)}</span>
-								{/if}
-							</div>
-						{/snippet}
-						<PaneRow
-							title={prompt.display_name}
-							subtitle={prompt.flattened_text || 'Empty composition'}
-							selected={selected?.id === prompt.id}
-							onclick={() => selectPrompt(prompt)}
-							{meta}
-						/>
-					{/each}
-				{/snippet}
-			</Pane>
-		</svelte:fragment>
+	{#if detailOpen}
+		<PromptDetailView
+			{mode}
+			prompt={selected}
+			bind:name
+			bind:usageHint
+			bind:editModelId
+			bind:editModelLabel
+			bind:editorSegments
+			bind:editorVariables
+			{usageItems}
+			{usageTotal}
+			{usageLoading}
+			{saving}
+			{dirtyCount}
+			{promptCollections}
+			onBack={backToGrid}
+			onSave={saveEditor}
+			onDiscard={discardEditor}
+			onDelete={deleteFromEditor}
+			onDuplicate={duplicateFromEditor}
+			onUse={useFromEditor}
+			onAddToCollection={addSelectedToCollection}
+			onCreateAndAddToCollection={createAndAddSelectedToCollection}
+			onRemoveFromCollection={removeSelectedFromCollection}
+			onOpenVariableManager={() => (variablesModalOpen = true)}
+			onVariableDefChange={handleVariableDefChange}
+		/>
+	{:else}
+		<PromptsGrid
+			{prompts}
+			{loading}
+			{loadingMore}
+			{hasMore}
+			{filters}
+			{selectedIds}
+			collections={promptCollections}
+			onFiltersChange={updateFilters}
+			onLoadMore={loadMore}
+			onOpen={openPrompt}
+			onUse={useFromCard}
+			onCopy={copyFromCard}
+			onDuplicate={duplicateFromCard}
+			onAddToCollection={addToCollectionFromCard}
+			onExport={exportPrompts}
+			onDeleteOne={deleteFromCard}
+			onToggleSelect={toggleSelect}
+			onSelectAll={selectAll}
+			onClearSelection={clearSelection}
+			onBulkAddToCollection={bulkAddToCollection}
+			onBulkCreateAndAddToCollection={bulkCreateAndAddToCollection}
+			onBulkAddTag={bulkAddTag}
+			onBulkExport={bulkExport}
+			onBulkDelete={bulkDelete}
+			onNewPrompt={startNewPrompt}
+		/>
+	{/if}
+</LibraryShell>
 
-		<svelte:fragment slot="detail">
-			{#if !selected && !creating}
-				<div class="flex h-full items-center justify-center">
-					<EmptyState
-						icon="document"
-						title="No prompt selected"
-						description="Pick a prompt from the list, or start a new one from the toolbar."
-					>
-						{#snippet actions()}
-							<Button size="sm" variant="primary" icon="plus" onclick={startNewPrompt}>Create a prompt</Button>
-						{/snippet}
-					</EmptyState>
-				</div>
-			{:else}
-				<DetailPane
-					title={creating ? 'New prompt' : 'Edit Prompt'}
-					showDelete={!creating}
-					showCancel
-					saveLabel={creating ? 'Create' : 'Save changes'}
-					saveDisabled={creating && !hasMeaningfulSegments(editorSegments)}
-					isLoading={saving}
-					on:save={creating ? createDraftPrompt : savePrompt}
-					on:cancel={creating ? cancelCreate : resetPrompt}
-					on:delete={deletePrompt}
-				>
-					{#snippet headerActions()}
-						{#if !creating}
-							{#if usageHint}
-								<Badge size="sm" variant={usageHint === 'negative' ? 'danger' : 'success'}>{usageHint}</Badge>
-							{/if}
-							<Button size="sm" icon="copy" onclick={duplicatePrompt}>Duplicate</Button>
-							<AddToCollectionMenu
-								collections={promptCollections}
-								open={addToCollectionOpen}
-								placement="down"
-								onToggle={() => (addToCollectionOpen = !addToCollectionOpen)}
-								onClose={() => (addToCollectionOpen = false)}
-								onAdd={handleAddToCollection}
-								onCreateAndAdd={handleCreateAndAddToCollection}
-							/>
-						{/if}
-					{/snippet}
+{#if activeImporterRef}
+	{#await resolvePluginComponent(activeImporterRef.pluginId, activeImporterRef.asset) then Component}
+		{#if Component}
+			<svelte:component this={Component} onClose={closeImporter} onImported={handleImported} />
+		{/if}
+	{/await}
+{/if}
 
-					<div class="space-y-4">
-						{#if !creating}
-							<Card padding="sm">
-								<div class="mb-3 flex items-center gap-2">
-									<span class="font-mono text-2xs font-semibold uppercase tracking-[0.13em] text-fg-subtle">
-										Used in generations
-									</span>
-									{#if usageTotal > 0}
-										<Badge size="sm" variant="signal">
-											<span class="font-mono tabular-nums">{usageTotal}</span>
-											use{usageTotal === 1 ? '' : 's'}
-										</Badge>
-									{/if}
-									<span class="flex-1"></span>
-									{#if usageItems[0]?.created_at}
-										<span class="font-mono text-2xs tabular-nums text-fg-subtle">
-											Last used {timeAgo(usageItems[0].created_at)}
-										</span>
-									{/if}
-								</div>
+{#if coreImportOpen}
+	<PromptImportModal onClose={closeCoreImport} onImported={handleCoreImported} />
+{/if}
 
-								{#if usageLoading}
-									<div class="flex h-16 items-center justify-center">
-										<Spinner size="sm" />
-									</div>
-								{:else if usageItems.length === 0}
-									<p class="text-xs text-fg-subtle">Not used in any generation yet.</p>
-								{:else}
-									<div class="flex gap-2.5 overflow-x-auto pb-1">
-										{#each usageItems as item (item.id)}
-											{@const leadFile = leadFileOf(item)}
-											<div class="w-16 flex-shrink-0">
-												<div
-													class="h-16 w-16 overflow-hidden rounded border border-line-strong bg-surface-2"
-													title="{item.preset_name || item.preset_id || 'Unknown preset'} · {item.created_at
-														? timeAgo(item.created_at)
-														: ''}"
-												>
-													{#if leadFile}
-														<MediaPreview
-															file={leadFile}
-															generationId={item.id}
-															thumbnailSize="small"
-															loadFullOnClick={false}
-														/>
-													{/if}
-												</div>
-												<div class="mt-1 truncate text-center font-mono text-3xs text-fg-subtle">
-													{item.preset_name || item.preset_id || '—'}
-												</div>
-												{#if item.created_at}
-													<div class="text-center font-mono text-3xs tabular-nums text-fg-disabled">
-														{timeAgo(item.created_at)}
-													</div>
-												{/if}
-											</div>
-										{/each}
-										{#if usageTotal > usageItems.length}
-											<div class="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded border border-dashed border-line-strong text-xs font-medium text-fg-subtle">
-												+{usageTotal - usageItems.length}
-											</div>
-										{/if}
-									</div>
-								{/if}
-							</Card>
-						{/if}
+<VariableManagerModal
+	isOpen={variablesModalOpen}
+	variables={editorVariables}
+	on:close={() => (variablesModalOpen = false)}
+	on:change={(e) => (editorVariables = e.detail)}
+/>
 
-						<Card padding="sm">
-							<h3 class="label mb-3">Prompt details</h3>
-							<div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
-								<label>
-									<span class="mb-1.5 block text-xs font-medium text-fg-muted">
-										Name <span class="font-normal text-fg-subtle">(optional)</span>
-									</span>
-									<Input
-										id={NAME_FIELD_ID}
-										class="text-sm"
-										bind:value={name}
-										placeholder="Content preview is used when unnamed"
-									/>
-								</label>
-								<label>
-									<span class="mb-1.5 block text-xs font-medium text-fg-muted">Usage hint</span>
-									<select class="input text-sm" bind:value={usageHint}>
-										<option value="">None</option>
-										<option value="positive">Positive</option>
-										<option value="negative">Negative</option>
-									</select>
-								</label>
-							</div>
-							<div class="mt-3">
-								<PromptModelField
-									modelId={editModelId}
-									modelLabel={editModelLabel}
-									disabled={saving}
-									onChange={(model) => {
-										editModelId = model?.id ?? null;
-										editModelLabel = model?.label ?? null;
-									}}
-								/>
-							</div>
-						</Card>
-
-						<Card padding="none" class="overflow-hidden">
-							<button
-								type="button"
-								class="flex w-full items-center gap-2 border-b border-line px-4 py-2.5"
-								onclick={() => (structureExpanded = !structureExpanded)}
-							>
-								<span class="font-mono text-2xs font-semibold uppercase tracking-[0.13em] text-fg-subtle">
-									Prompt structure
-								</span>
-								<span class="flex-1"></span>
-								<span class="font-mono text-2xs tabular-nums text-fg-subtle">
-									{editorSegments.length} segment{editorSegments.length === 1 ? '' : 's'}
-								</span>
-								<Icon
-									name="chevron-down"
-									className="h-3 w-3 text-fg-subtle transition-transform {structureExpanded ? 'rotate-180' : ''}"
-								/>
-							</button>
-							{#if structureExpanded}
-								<div class="p-4">
-									<SegmentedPromptEditor
-										segments={editorSegments}
-										label="Prompt composition"
-										compact
-										showLibraryActions={false}
-										on:segmentsChange={(event) => (editorSegments = event.detail)}
-									/>
-								</div>
-							{/if}
-						</Card>
-
-						{#if selected?.source_url}
-							<Card padding="sm" class="text-xs text-fg-muted shadow-none">
-								<div class="flex items-start gap-2">
-									<Icon name="info" className="mt-0.5 h-4 w-4 flex-shrink-0 text-info" />
-									<p>
-										Browsing metadata: {selected.model_name || selected.base_model || 'no model'} ·
-										{sourceLabel(selected)} ·
-										<a class="text-signal hover:underline" href={selected.source_url} target="_blank" rel="noreferrer">
-											view source
-										</a>.
-										Applying this Prompt never changes generation settings.
-									</p>
-								</div>
-							</Card>
-						{/if}
-					</div>
-				</DetailPane>
-			{/if}
-		</svelte:fragment>
-	</MasterDetailLayout>
-</div>
-
-{#if showModelFilter}
+{#if showModelFilterPicker}
 	<ModelAssignmentModal
 		selectionMode="single"
-		selectedModelId={modelId || null}
+		selectedModelId={filters.modelId || null}
 		allowClear={true}
 		title="Filter prompts by model"
 		subtitle="Search the model catalog or narrow it by type, then select one model."
-		onSelect={selectModelFilter}
-		onClear={() => selectModelFilter(null)}
-		onClose={() => (showModelFilter = false)}
+		onSelect={selectModelForFilter}
+		onClear={() => selectModelForFilter(null)}
+		onClose={() => (showModelFilterPicker = false)}
+	/>
+{/if}
+
+{#if showBulkTagModal}
+	<CreateTagModal
+		onClose={() => (showBulkTagModal = false)}
+		onCreate={applyTagToSelection}
+		description={`Adding this tag to the ${selectedIds.size} selected prompt${selectedIds.size === 1 ? '' : 's'}.`}
 	/>
 {/if}
 
 {#if showDuplicatesModal}
-	<BaseModal
-		isOpen={true}
-		title="Duplicate prompts"
-		sizeClass="md:max-w-2xl md:w-full"
-		on:close={closeDuplicatesModal}
-	>
+	<BaseModal isOpen={true} title="Duplicate prompts" sizeClass="md:max-w-2xl md:w-full" on:close={closeDuplicatesModal}>
 		<svelte:fragment slot="headerIcon">
 			<Icon name="copy" className="h-5 w-5 flex-shrink-0 text-fg-muted" />
 		</svelte:fragment>
@@ -808,15 +1053,10 @@
 			{#if !duplicatesLoading && duplicateGroups}
 				<div class="flex items-center gap-2">
 					{#if duplicateScanPartial}
-						<Tooltip
-							text={`Scanned the first ${duplicateScanScanned.toLocaleString()} of ${duplicateScanTotal.toLocaleString()} prompts. Narrow the model filter to scan the rest.`}
-							position="bottom"
-						>
-							<Badge variant="warning">
-								<Icon name="warning" className="h-3 w-3" />
-								Partial scan
-							</Badge>
-						</Tooltip>
+						<Badge variant="warning">
+							<Icon name="warning" className="h-3 w-3" />
+							Partial scan
+						</Badge>
 					{/if}
 					<Badge>
 						<span class="font-mono tabular-nums">{duplicateGroups.length}</span>
@@ -840,7 +1080,7 @@
 				/>
 			{:else}
 				{#each duplicateGroups as group, groupIndex (group.prompts.map((prompt) => prompt.id).join('-'))}
-					<Card padding="sm" class="shadow-none">
+					<div class="rounded-lg border border-line-strong bg-surface-1 p-3 shadow-raised">
 						<div class="mb-2 flex items-center justify-between gap-3">
 							<div class="flex items-center gap-2">
 								<Badge variant="signal">
@@ -870,12 +1110,7 @@
 												<span class="text-xs text-fg-muted">
 													{action.kind === 'keep' ? 'Remove the rest?' : 'Remove this prompt?'}
 												</span>
-												<Button
-													size="xs"
-													variant="ghost"
-													disabled={duplicateActionBusy}
-													onclick={cancelDuplicateAction}
-												>
+												<Button size="xs" variant="ghost" disabled={duplicateActionBusy} onclick={cancelDuplicateAction}>
 													Cancel
 												</Button>
 												<Button
@@ -896,8 +1131,7 @@
 													size="xs"
 													variant="ghost"
 													disabled={duplicateActionBusy}
-													onclick={() =>
-														armDuplicateAction({ kind: 'keep', groupIndex, promptId: prompt.id })}
+													onclick={() => armDuplicateAction({ kind: 'keep', groupIndex, promptId: prompt.id })}
 												>
 													Keep only this
 												</Button>
@@ -905,8 +1139,7 @@
 													icon="trash"
 													label="Delete this prompt"
 													disabled={duplicateActionBusy}
-													onclick={() =>
-														armDuplicateAction({ kind: 'delete', groupIndex, promptId: prompt.id })}
+													onclick={() => armDuplicateAction({ kind: 'delete', groupIndex, promptId: prompt.id })}
 												/>
 											</div>
 										{/if}
@@ -914,7 +1147,7 @@
 								</div>
 							{/each}
 						</div>
-					</Card>
+					</div>
 				{/each}
 			{/if}
 		</div>

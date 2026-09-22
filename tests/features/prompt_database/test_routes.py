@@ -31,6 +31,8 @@ from src.platform.security.user import AccountType, User
 from src.features.segments.dto import RichSegment
 from src.features.prompt_database.records import Prompt
 from src.features.generation.records import File, Generation
+from src.features.generation.history_facade import GenerationHistoryFacade
+from src.features.presets.name_resolver import PresetNameResolver
 from src.features.downloads.models import Download, DownloadStatus, DownloadType
 
 
@@ -74,6 +76,7 @@ def generation_repo_mock():
     hit whatever database `src.platform.database.db` is pointed at."""
     with patch("src.features.prompt_database.routes.generation_repo") as mock:
         mock.usage_stats_by_source_prompt.return_value = {}
+        mock.cover_stats_by_source_prompt.return_value = {}
         mock.get_by_source_prompt.return_value = []
         mock.count_by_source_prompt.return_value = 0
         yield mock
@@ -85,14 +88,31 @@ def prompt_importer_registry():
 
 
 @pytest.fixture
-def built_router(collaborators, generation_repo_mock, prompt_importer_registry):
+def collection_repository_mock():
+    mock = MagicMock()
+    mock.get_for_prompts.return_value = {}
+    return mock
+
+
+@pytest.fixture
+def built_router(collaborators, generation_repo_mock, prompt_importer_registry, collection_repository_mock):
+    preset_template_loader = SimpleNamespace(_ensure_loaded=lambda: None, presets=[])
+    generation_history_facade = GenerationHistoryFacade(
+        generation_repo=generation_repo_mock,
+        file_service=MagicMock(),
+        plugin_registry=MagicMock(),
+        run_report_repository=MagicMock(),
+        preset_name_resolver=PresetNameResolver(preset_template_loader),
+    )
     return build_router(
         SimpleNamespace(
             prompt_database_controller=PromptDatabaseController(collaborators),
             settings=MagicMock(),
             download_queue=MagicMock(),
-            preset_template_loader=SimpleNamespace(_ensure_loaded=lambda: None, presets=[]),
+            preset_template_loader=preset_template_loader,
             prompt_importer_registry=prompt_importer_registry,
+            generation_history_facade=generation_history_facade,
+            collection_repository=collection_repository_mock,
         )
     )
 
@@ -163,11 +183,19 @@ def test_list_delegates_browse_filters_without_generation_configuration(client, 
         model_id=None,
         usage_hint="negative",
         collection_id=None,
+        q=None,
+        tags=None,
+        used="any",
+        used_after=None,
+        has_variables=None,
+        nsfw="exclude",
         sort_by="created_at",
         sort_order="desc",
     )
     collaborators.repository.count.assert_called_once_with(
         "user-1", "civitai", None, None, "negative", None,
+        q=None, tags=None, used="any", used_after=None,
+        has_variables=None, nsfw="exclude",
     )
 
 
@@ -192,6 +220,68 @@ def test_list_merges_usage_aggregates_from_generation_repo(client, collaborators
     )
 
 
+def test_list_merges_cover_stats_from_generation_repo(client, collaborators, generation_repo_mock):
+    collaborators.repository.get_all.return_value = [make_prompt("prompt-1"), make_prompt("prompt-2")]
+    collaborators.repository.count.return_value = 2
+    generation_repo_mock.cover_stats_by_source_prompt.return_value = {
+        "prompt-1": {"generation_count": 2, "cover_thumbnail": "/api/media/files/file-1?size=medium"},
+    }
+
+    response = client.get("/api/prompts")
+
+    assert response.status_code == 200
+    items = {item["id"]: item for item in response.json()["data"]["items"]}
+    assert items["prompt-1"]["generation_count"] == 2
+    assert items["prompt-1"]["cover_thumbnail"] == "/api/media/files/file-1?size=medium"
+    assert items["prompt-2"]["generation_count"] == 0
+    assert items["prompt-2"]["cover_thumbnail"] is None
+    generation_repo_mock.cover_stats_by_source_prompt.assert_called_once_with(
+        ["prompt-1", "prompt-2"], "user-1"
+    )
+
+
+def test_list_forwards_new_filters_and_sort_keys(client, collaborators):
+    collaborators.repository.get_all.return_value = []
+    collaborators.repository.count.return_value = 0
+
+    response = client.get(
+        "/api/prompts?q=fox&tags=portrait,anime&used=used&used_after=2026-01-01T00:00:00"
+        "&has_variables=true&nsfw=include&sort_by=usage_count&sort_order=asc"
+    )
+
+    assert response.status_code == 200
+    collaborators.repository.get_all.assert_called_once_with(
+        user_id="user-1",
+        limit=20,
+        offset=0,
+        source_provider=None,
+        base_model=None,
+        model_id=None,
+        usage_hint=None,
+        collection_id=None,
+        q="fox",
+        tags=["portrait", "anime"],
+        used="used",
+        used_after="2026-01-01T00:00:00",
+        has_variables=True,
+        nsfw="include",
+        sort_by="usage_count",
+        sort_order="asc",
+    )
+
+
+def test_list_tags_route_delegates_with_user_scope(client, collaborators):
+    collaborators.repository.tag_counts.return_value = [("portrait", 5), ("anime", 2)]
+
+    response = client.get("/api/prompts/tags")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["tags"] == [
+        {"tag": "portrait", "count": 5}, {"tag": "anime", "count": 2},
+    ]
+    collaborators.repository.tag_counts.assert_called_once_with("user-1", nsfw="exclude")
+
+
 def test_get_delegates_with_user_scope(client, collaborators):
     collaborators.repository.get_by_id.return_value = make_prompt()
 
@@ -200,6 +290,103 @@ def test_get_delegates_with_user_scope(client, collaborators):
     assert response.status_code == 200
     assert response.json()["data"]["id"] == "prompt-1"
     collaborators.repository.get_by_id.assert_called_once_with("prompt-1", "user-1")
+
+
+def test_get_prompt_includes_usage_and_cover_stats(client, collaborators, generation_repo_mock):
+    collaborators.repository.get_by_id.return_value = make_prompt()
+    generation_repo_mock.usage_stats_by_source_prompt.return_value = {
+        "prompt-1": {"usage_count": 4, "last_used_at": "2026-01-05 00:00:00"},
+    }
+    generation_repo_mock.cover_stats_by_source_prompt.return_value = {
+        "prompt-1": {"generation_count": 3, "cover_thumbnail": "/api/media/files/file-1?size=medium"},
+    }
+
+    response = client.get("/api/prompts/prompt-1")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["usage_count"] == 4
+    assert data["last_used_at"] == "2026-01-05 00:00:00"
+    assert data["generation_count"] == 3
+    assert data["cover_thumbnail"] == "/api/media/files/file-1?size=medium"
+    generation_repo_mock.usage_stats_by_source_prompt.assert_called_once_with(["prompt-1"], "user-1")
+    generation_repo_mock.cover_stats_by_source_prompt.assert_called_once_with(["prompt-1"], "user-1")
+
+
+def test_get_prompt_defaults_stats_to_zero_when_never_used(client, collaborators, generation_repo_mock):
+    collaborators.repository.get_by_id.return_value = make_prompt()
+
+    response = client.get("/api/prompts/prompt-1")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["usage_count"] == 0
+    assert data["last_used_at"] is None
+    assert data["generation_count"] == 0
+    assert data["cover_thumbnail"] is None
+
+
+def test_get_prompt_lists_the_collections_it_belongs_to(client, collaborators, collection_repository_mock):
+    collaborators.repository.get_by_id.return_value = make_prompt()
+    collection_repository_mock.get_for_prompts.return_value = {
+        "prompt-1": [
+            SimpleNamespace(id="col-1", name="Portraits"),
+            SimpleNamespace(id="col-2", name="Studio"),
+        ],
+    }
+
+    response = client.get("/api/prompts/prompt-1")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["collections"] == [
+        {"id": "col-1", "name": "Portraits"},
+        {"id": "col-2", "name": "Studio"},
+    ]
+    collection_repository_mock.get_for_prompts.assert_called_once_with(["prompt-1"], "user-1")
+
+
+def test_get_prompt_reports_an_empty_collection_list_when_unfiled(client, collaborators):
+    collaborators.repository.get_by_id.return_value = make_prompt()
+
+    response = client.get("/api/prompts/prompt-1")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["collections"] == []
+
+
+def test_list_carries_collections_from_one_grouped_query(client, collaborators, collection_repository_mock):
+    collaborators.repository.get_all.return_value = [make_prompt("prompt-1"), make_prompt("prompt-2")]
+    collaborators.repository.count.return_value = 2
+    collection_repository_mock.get_for_prompts.return_value = {
+        "prompt-2": [SimpleNamespace(id="col-1", name="Portraits")],
+    }
+
+    response = client.get("/api/prompts")
+
+    assert response.status_code == 200
+    items = response.json()["data"]["items"]
+    assert items[0]["collections"] == []
+    assert items[1]["collections"] == [{"id": "col-1", "name": "Portraits"}]
+    collection_repository_mock.get_for_prompts.assert_called_once_with(["prompt-1", "prompt-2"], "user-1")
+
+
+def test_get_prompt_returns_not_found_for_unknown_id(client, collaborators):
+    collaborators.repository.get_by_id.return_value = None
+
+    response = client.get("/api/prompts/missing-id")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["error"] == "not_found"
+
+
+def test_get_prompt_returns_not_found_for_another_users_prompt(client, collaborators):
+    collaborators.repository.get_by_id.return_value = None
+
+    response = client.get("/api/prompts/someone-elses-prompt")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["error"] == "not_found"
+    collaborators.repository.get_by_id.assert_called_once_with("someone-elses-prompt", "user-1")
 
 
 def test_put_delegates_atomic_aggregate_replacement(client, collaborators, mock_operations):
@@ -308,6 +495,7 @@ def admin_client(collaborators, tmp_path):
             settings=settings,
             download_queue=download_queue,
             prompt_importer_registry=PromptImporterRegistry(),
+            collection_repository=MagicMock(),
         )
     )
     app = FastAPI()
@@ -420,10 +608,18 @@ def test_get_prompt_generations_delegates_with_user_scope_and_pagination(
     assert data["total"] == 1
     assert data["limit"] == 5
     assert data["offset"] == 10
-    assert data["items"][0]["id"] == "gen-1"
-    assert data["items"][0]["preset_id"] == "preset-1"
-    assert data["items"][0]["created_at"] == "2026-01-05T00:00:00+00:00"
-    assert data["items"][0]["files"][0]["thumbnail_small"] == "generations/x_thumb.png"
+    item = data["items"][0]
+    assert item["id"] == "gen-1"
+    assert item["preset_id"] == "preset-1"
+    assert item["preset_name"] == "preset-1"
+    assert item["status"] == "completed"
+    assert item["progress"] == 0.0
+    assert item["rating"] == 0
+    assert item["is_favorite"] is False
+    assert item["created_at"] == "2026-01-05T00:00:00+00:00"
+    assert item["files"][0]["thumbnail_small"] == "generations/x_thumb.png"
+    assert item["files"][0]["system_tags"] == []
+    assert item["files"][0]["nsfw"] is False
     generation_repo_mock.get_by_source_prompt.assert_called_once_with(
         "prompt-1", "user-1", limit=5, offset=10
     )
@@ -452,7 +648,10 @@ class TestRouteOrder:
             if isinstance(route, APIRoute) and "GET" in route.methods
         ]
         catch_all = get_paths.index("/api/prompts/{prompt_id}")
-        for static in ("/api/prompts/embedding-status", "/api/prompts/search", "/api/prompts/export", "/api/prompts"):
+        for static in (
+            "/api/prompts/embedding-status", "/api/prompts/search", "/api/prompts/tags",
+            "/api/prompts/export", "/api/prompts",
+        ):
             assert get_paths.index(static) < catch_all, (
                 f"{static} is registered after /{{prompt_id}} and can never match"
             )

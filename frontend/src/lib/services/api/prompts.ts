@@ -1,20 +1,22 @@
 import type { AxiosInstance } from 'axios';
 import type { APIResponse } from '$lib/types/api';
-import type {
-	CreatePromptInput,
-	Prompt,
-	PromptGenerationItem,
-	ReplacePromptInput
-} from '$lib/types/segments';
+import type { CreatePromptInput, Prompt, ReplacePromptInput } from '$lib/types/segments';
+import type { GenerationHistoryItem } from '$lib/types/history';
 
 export interface PromptListParams {
 	limit?: number;
 	offset?: number;
+	q?: string;
 	source_provider?: string;
 	base_model?: string;
 	model_id?: string;
 	usage_hint?: 'positive' | 'negative';
 	collection_id?: string;
+	tags?: string;
+	used?: 'any' | 'used' | 'never';
+	used_after?: string;
+	has_variables?: boolean;
+	nsfw?: 'exclude' | 'include';
 	sort_by?: string;
 	sort_order?: string;
 }
@@ -87,6 +89,11 @@ export function createPromptsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
+		async getPrompt(promptId: string): Promise<APIResponse<Prompt>> {
+			const response = await client.get(`/api/prompts/${promptId}`);
+			return response.data;
+		},
+
 		async replacePrompt(promptId: string, data: ReplacePromptInput): Promise<APIResponse<Prompt>> {
 			const response = await client.put(`/api/prompts/${promptId}`, data);
 			return response.data;
@@ -125,7 +132,7 @@ export function createPromptsApi(client: AxiosInstance) {
 			params: { limit?: number; offset?: number } = {}
 		): Promise<
 			APIResponse<{
-				items: PromptGenerationItem[];
+				items: GenerationHistoryItem[];
 				total: number;
 				limit: number;
 				offset: number;
@@ -156,6 +163,11 @@ export function createPromptsApi(client: AxiosInstance) {
 			const response = await client.post('/api/prompts/bulk-delete', {
 				prompt_ids: promptIds
 			});
+			return response.data;
+		},
+
+		async listPromptTags(): Promise<APIResponse<{ tags: Array<{ tag: string; count: number }> }>> {
+			const response = await client.get('/api/prompts/tags');
 			return response.data;
 		}
 	};

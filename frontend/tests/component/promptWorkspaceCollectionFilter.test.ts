@@ -1,17 +1,8 @@
-// @vitest-environment jsdom
-//
-// The Prompt Library's collection folder tree lives in a sibling component
-// (PromptsSidebar), not inside PromptWorkspace, so the page wires them
-// together through PromptWorkspace's exported setCollectionFilter - the same
-// bind:this pattern the toolbar already uses for startNewPrompt/openDuplicatesScan.
-// This proves that call actually reaches api.listPrompts with collection_id,
-// and that it stays out of unfiltered loads.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Writable } from 'svelte/store';
 
-// PromptWorkspace pulls in ModelAssignmentModal, which transitively touches
-// the real auth store's api.setOnAuthExpired and other unrelated api methods
-// at import time - spread the real module and override only what this test
-// drives, rather than reproducing its whole surface as a mock.
+type PageStore = Writable<{ url: URL }>;
+
 vi.mock('$lib/services/api/index', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/services/api/index')>();
 	return {
@@ -27,10 +18,21 @@ vi.mock('$lib/services/api/index', async (importOriginal) => {
 	};
 });
 
+vi.mock('$app/navigation', async () => {
+	const { page } = await import('$app/stores');
+	const store = page as unknown as PageStore;
+	return {
+		goto: async (href: string) => {
+			store.update((current) => ({ ...current, url: new URL(href, 'http://localhost') }));
+		},
+		afterNavigate: () => {},
+		beforeNavigate: () => {}
+	};
+});
+
 const { api } = await import('$lib/services/api/index');
-const { default: PromptWorkspace } = await import(
-	'../../src/routes/prompts/components/PromptWorkspace.svelte'
-);
+const page = (await import('$app/stores')).page as unknown as PageStore;
+const { default: PromptWorkspace } = await import('../../src/routes/prompts/components/PromptWorkspace.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 
 function mountWorkspace() {
@@ -59,6 +61,7 @@ async function settle() {
 let mounted: ReturnType<typeof mountWorkspace> | undefined;
 
 beforeEach(() => {
+	page.update((current) => ({ ...current, url: new URL('http://localhost/prompts') }));
 	vi.mocked(api.listPrompts).mockResolvedValue({
 		success: true,
 		data: { items: [], total: 0, limit: 100, offset: 0 }
@@ -71,6 +74,7 @@ beforeEach(() => {
 		success: true,
 		data: { collections: [], total: 0 }
 	} as never);
+	vi.mocked(api.listPromptImporters).mockResolvedValue({ success: true, data: [] } as never);
 });
 
 afterEach(() => {
@@ -84,9 +88,7 @@ describe('prompt workspace collection filter', () => {
 		mounted = mountWorkspace();
 		await settle();
 
-		expect(api.listPrompts).toHaveBeenCalledWith(
-			expect.objectContaining({ collection_id: undefined })
-		);
+		expect(api.listPrompts).toHaveBeenCalledWith(expect.objectContaining({ collection_id: undefined }));
 	});
 
 	it('threads the selected folder id into the next listPrompts call', async () => {
@@ -97,9 +99,7 @@ describe('prompt workspace collection filter', () => {
 		await mounted.component.setCollectionFilter('col-1');
 		await settle();
 
-		expect(api.listPrompts).toHaveBeenCalledWith(
-			expect.objectContaining({ collection_id: 'col-1' })
-		);
+		expect(api.listPrompts).toHaveBeenCalledWith(expect.objectContaining({ collection_id: 'col-1' }));
 	});
 
 	it('clears the filter when the folder selection is cleared', async () => {
@@ -112,8 +112,19 @@ describe('prompt workspace collection filter', () => {
 		await mounted.component.setCollectionFilter(undefined);
 		await settle();
 
-		expect(api.listPrompts).toHaveBeenCalledWith(
-			expect.objectContaining({ collection_id: undefined })
-		);
+		expect(api.listPrompts).toHaveBeenCalledWith(expect.objectContaining({ collection_id: undefined }));
+	});
+
+	it('keeps the prompts section out of the URL when the folder changes', async () => {
+		mounted = mountWorkspace();
+		await settle();
+
+		await mounted.component.setCollectionFilter('col-1');
+		await settle();
+
+		let url = '';
+		page.subscribe((current) => (url = current.url.toString()))();
+		expect(url).toContain('collection=col-1');
+		expect(url).not.toContain('section=');
 	});
 });

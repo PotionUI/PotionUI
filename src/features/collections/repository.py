@@ -13,7 +13,7 @@ even though all three still live in the one `collections` table and share the
 for a given row, since scope determines which one a collection can accept,
 but the expression stays a sum of all three for safety).
 """
-from typing import List, Optional
+from typing import Dict, List, Optional
 from src.features.collections.records import Collection
 from src.platform.database.rows import now_utc
 from src.platform.util.ids import generate_ulid
@@ -318,6 +318,24 @@ class CollectionRepository:
                 ORDER BY c.name ASC
             """, (prompt_id,))
             return [Collection.from_row(row) for row in cursor.fetchall()]
+
+    def get_for_prompts(self, prompt_ids: List[str], user_id: str) -> Dict[str, List[Collection]]:
+        if not prompt_ids:
+            return {}
+        from src.platform.database.database import db
+        placeholders = ','.join('?' * len(prompt_ids))
+        by_prompt: Dict[str, List[Collection]] = {}
+        with db.get_cursor() as cursor:
+            cursor.execute(f"""
+                SELECT cp.prompt_id, c.id, c.name, c.user_id, c.parent_id, c.created_at, c.scope
+                FROM collections c
+                JOIN collection_prompts cp ON c.id = cp.collection_id
+                WHERE cp.prompt_id IN ({placeholders}) AND c.user_id = ?
+                ORDER BY c.name ASC
+            """, (*prompt_ids, user_id))
+            for row in cursor.fetchall():
+                by_prompt.setdefault(row["prompt_id"], []).append(Collection.from_row(row))
+        return by_prompt
 
     def get_for_upload(self, upload_id: str) -> List[Collection]:
         """List collections that contain the given library upload (always 'library' scope)."""

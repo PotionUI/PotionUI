@@ -1,5 +1,7 @@
 // Segment and prompt editor types
 
+import type { VariablesMap } from '$lib/utils/variableDefs';
+
 export interface ChipData {
 	id: string;
 	categoryPath: string;
@@ -78,6 +80,7 @@ export interface Prompt {
 	segments: RichSegment[];
 	flattened_text: string;
 	usage_hint?: PromptUsageHint | null;
+	variables?: VariablesMap | null;
 	user_id?: string;
 	source_provider?: string | null;
 	source_id?: string | null;
@@ -99,17 +102,9 @@ export interface Prompt {
 	/** How many completed generations carried this prompt as their source (GET /api/prompts). */
 	usage_count?: number;
 	last_used_at?: string | null;
-}
-
-/** A completed generation that used a library prompt as its source
- *  (`GET /api/prompts/{id}/generations`). `files` follows the same shape
- *  history rows use, so thumbnail helpers built for history work unchanged. */
-export interface PromptGenerationItem {
-	id: string;
-	preset_id: string | null;
-	preset_name: string | null;
-	created_at: string | null;
-	files: import('$lib/types/history').GenerationFile[];
+	generation_count?: number;
+	cover_thumbnail?: string | null;
+	collections?: Array<{ id: string; name: string }>;
 }
 
 export interface SavedSegment extends Omit<RichSegment, 'name'> {
@@ -145,7 +140,9 @@ export interface SegmentCategory {
 	user_id?: string;
 }
 
-export type CreatePromptInput = Pick<Prompt, 'name' | 'segments' | 'usage_hint'> & { model_id?: string | null };
+export type CreatePromptInput = Pick<Prompt, 'name' | 'segments' | 'usage_hint' | 'variables' | 'tags'> & {
+	model_id?: string | null;
+};
 export type ReplacePromptInput = CreatePromptInput;
 export type CreateSavedSegmentInput = Omit<
 	SavedSegment,

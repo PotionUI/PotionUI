@@ -161,7 +161,7 @@
 									<td class="px-3 py-2 text-right">
 										<span class="font-mono tabular-nums text-fg">{fileResult.skipped}</span>
 										{#if fileResult.skipped > 0 && reasonCopy}
-											<span class="ml-1.5 text-2xs text-fg-subtle">({reasonCopy})</span>
+											<span class="ml-1.5 text-xs text-fg-subtle">({reasonCopy})</span>
 										{/if}
 									</td>
 								</tr>
@@ -212,7 +212,7 @@
 					<span class="text-xs text-fg-muted">
 						Drop files here, or <span class="text-fg underline">browse</span>
 					</span>
-					<span class="text-2xs text-fg-subtle">CSV, JSON, YAML, TXT, PNG, JPEG, WebP</span>
+					<span class="text-xs text-fg-subtle">CSV, JSON, YAML, TXT, PNG, JPEG, WebP</span>
 				</button>
 				<input
 					bind:this={fileInput}
@@ -231,7 +231,7 @@
 							>
 								<span class="min-w-0 truncate text-xs text-fg" title={file.name}>{file.name}</span>
 								<div class="flex flex-shrink-0 items-center gap-2">
-									<span class="font-mono text-2xs tabular-nums text-fg-subtle">{formatBytes(file.size)}</span>
+									<span class="font-mono text-xs tabular-nums text-fg-subtle">{formatBytes(file.size)}</span>
 									<Tooltip text="Remove file" position="top">
 										<IconButton icon="close" label="Remove {file.name}" size="sm" onclick={() => removeFile(index)} />
 									</Tooltip>
@@ -259,7 +259,7 @@
 						<option value={option.value}>{option.label}</option>
 					{/each}
 				</select>
-				<span class="mt-1 block text-2xs text-fg-subtle">{selectedFormat.hint}</span>
+				<span class="mt-1 block text-xs text-fg-subtle">{selectedFormat.hint}</span>
 			</label>
 
 			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -280,7 +280,7 @@
 					<Input class="text-sm" bind:value={baseModel} placeholder="Fills gaps only" />
 				</label>
 			</div>
-			<span class="-mt-2 block text-2xs text-fg-subtle">
+			<span class="-mt-2 block text-xs text-fg-subtle">
 				The model is assigned to every imported prompt; a model name or base model found in the file is kept.
 			</span>
 		</fieldset>

@@ -13,6 +13,8 @@ import {
 } from './selection';
 
 const MARQUEE_THRESHOLD_PX = 4;
+const INTERACTIVE_SELECTOR =
+	'button, a, input, select, textarea, label, [role="button"], [role="menuitem"], [contenteditable="true"], [data-no-marquee]';
 
 export interface MarqueeVisualState {
 	active: boolean;
@@ -48,7 +50,7 @@ export function marqueeSelection(node: HTMLElement, options: MarqueeSelectionOpt
 	let mode: 'replace' | 'add' = 'replace';
 	let preDragSelection: string[] = [];
 	let cardRects = new Map<string, SelectionRect>();
-	let pointerDownAt: { x: number; y: number; additive: boolean } | null = null;
+	let pointerDownAt: { x: number; y: number; pointerId: number; additive: boolean } | null = null;
 	let pointerOverGrid = false;
 
 	function notify() {
@@ -74,17 +76,17 @@ export function marqueeSelection(node: HTMLElement, options: MarqueeSelectionOpt
 	}
 
 	function handlePointerDown(event: PointerEvent) {
-		if (event.button !== 0) return; // left button only
+		if (event.button !== 0) return;
 		const target = event.target as HTMLElement;
-		// A pointerdown on a card (plain, Shift or Ctrl) belongs to the card's
-		// own click/checkbox handler; only a background press begins a marquee.
 		if (target.closest(opts.cardSelector)) return;
+		const interactive = target.closest(INTERACTIVE_SELECTOR);
+		if (interactive && node.contains(interactive)) return;
 		pointerDownAt = {
 			x: event.clientX,
 			y: event.clientY,
+			pointerId: event.pointerId,
 			additive: event.shiftKey || event.ctrlKey || event.metaKey
 		};
-		node.setPointerCapture(event.pointerId);
 	}
 
 	function handlePointerMove(event: PointerEvent) {
@@ -98,6 +100,9 @@ export function marqueeSelection(node: HTMLElement, options: MarqueeSelectionOpt
 			mode = pointerDownAt.additive ? 'add' : 'replace';
 			preDragSelection = opts.selectedIds;
 			cardRects = measureCardRects();
+			if (!node.hasPointerCapture(pointerDownAt.pointerId)) {
+				node.setPointerCapture(pointerDownAt.pointerId);
+			}
 			opts.onDragStart?.();
 		}
 		rect = rectFromPoints(pointerDownAt.x, pointerDownAt.y, event.clientX, event.clientY);

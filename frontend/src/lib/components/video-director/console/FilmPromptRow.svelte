@@ -13,6 +13,7 @@
 	// the segments as a sibling prop rather than reading them off the model.
 	import type { ConsoleFilmRow } from './consoleModel';
 	import type { Segment } from '$lib/types/segments';
+	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
 	import ConsoleIcon from './ConsoleIcon.svelte';
 
@@ -20,12 +21,20 @@
 		row,
 		position,
 		segments,
-		onSegmentsChange
+		onSegmentsChange,
+		variables = {},
+		variableRolls = {},
+		onVariableDefChange,
+		onOpenVariableManager
 	}: {
 		row: ConsoleFilmRow;
 		position: 'first' | 'last';
 		segments: Segment[];
 		onSegmentsChange: (segments: Segment[]) => void;
+		variables?: VariablesMap;
+		variableRolls?: Record<string, VariableRoll>;
+		onVariableDefChange?: (name: string, def: VariableDef) => void;
+		onOpenVariableManager?: () => void;
 	} = $props();
 
 	let editing = $state(false);
@@ -74,6 +83,10 @@
 				compact
 				embedded
 				showLibraryActions={false}
+				{variables}
+				{variableRolls}
+				{onVariableDefChange}
+				{onOpenVariableManager}
 				on:segmentsChange={(e) => handleSegmentsChange(e.detail)}
 			/>
 		</div>

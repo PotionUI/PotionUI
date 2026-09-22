@@ -34,6 +34,43 @@ describe('buildApprovalDiff', () => {
 	it('returns null for an empty proposed_changes array', () => {
 		expect(buildApprovalDiff(execution(JSON.stringify({ proposed_changes: [] })))).toBeNull();
 	});
+
+	it('formats a prompt-variable option object as readable text, never raw JSON', () => {
+		const data = JSON.stringify({
+			proposed_changes: [
+				{
+					field_name: 'breaking',
+					old_value: { text: 'breaking' },
+					new_value: { text: 'breaking', when: { var: 'music', values: ['hip hop'] } }
+				}
+			]
+		});
+		expect(buildApprovalDiff(execution(data))).toEqual([
+			{
+				field: 'breaking',
+				oldValue: 'breaking',
+				newValue: 'breaking (when $music = hip hop)',
+				reason: undefined
+			}
+		]);
+	});
+
+	it('formats an array of prompt-variable options as readable text', () => {
+		const data = JSON.stringify({
+			proposed_changes: [
+				{
+					field_name: 'dance',
+					old_value: ['breaking', 'waltz'],
+					new_value: [
+						{ text: 'breaking', when: { var: 'music', values: ['hip hop'] } },
+						{ text: 'waltz', when: { var: 'music', values: ['classical'] } }
+					]
+				}
+			]
+		});
+		const [row] = buildApprovalDiff(execution(data))!;
+		expect(row.newValue).toBe('breaking (when $music = hip hop), waltz (when $music = classical)');
+	});
 });
 
 describe('buildDirectorChangeGroups', () => {

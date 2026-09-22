@@ -132,9 +132,9 @@ pipeline:
       n_prompt:
         input: "{{ generation.prompts.first.negative }}"
         output: "{{ generation.prompts.first.negative }}"
-      # One pair per Director segment (literal per-segment prompts -- no
-      # `{a|b}` template grammar in v1, see normalize.py). t2v/i2v/flf always
-      # have exactly one segment; chain has N.
+      # One pair per Director segment; `${vars}` and `{a|b}` are already
+      # expanded per segment by the orchestrator's PromptExpander. t2v/i2v/flf
+      # always have exactly one segment; chain has N.
       pairs:
         "@loop":
           items: "{{ form.video_director.segments }}"

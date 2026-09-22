@@ -18,6 +18,7 @@
 	// ShotConsole.svelte -- see that file's own header note.
 	import type { VideoDirectorValue, DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { DirectorRunState } from '$lib/types/tabs';
+	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
 	import type { ConsoleHeader as ConsoleHeaderModel } from './console/consoleModel';
 	import ShotConsole from './console/ShotConsole.svelte';
 	import ConsoleHeader from './console/ConsoleHeader.svelte';
@@ -34,6 +35,10 @@
 		onChange,
 		onOpenVariables,
 		variableCount = 0,
+		variables = {},
+		variableRolls = {},
+		onVariableDefChange,
+		onVariablesImport,
 		onCheckedChange,
 		onGenerateShots
 	}: {
@@ -56,6 +61,10 @@
 		// State and the modal itself stay owned by the caller (PromptSection.svelte).
 		onOpenVariables?: () => void;
 		variableCount?: number;
+		variables?: VariablesMap;
+		variableRolls?: Record<string, VariableRoll>;
+		onVariableDefChange?: (name: string, def: VariableDef) => void;
+		onVariablesImport?: (merged: VariablesMap) => void;
 		/** See ShotConsole.svelte's own doc comments -- passed straight through. */
 		onCheckedChange?: (checked: Set<string>) => void;
 		onGenerateShots?: (shotIds: string[]) => void;
@@ -103,6 +112,11 @@
 		onHeaderChange={(h) => (header = h)}
 		{onCheckedChange}
 		{onGenerateShots}
+		{variables}
+		{variableRolls}
+		{onVariableDefChange}
+		{onVariablesImport}
+		onOpenVariableManager={onOpenVariables}
 	/>
 </section>
 

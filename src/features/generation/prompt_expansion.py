@@ -8,10 +8,11 @@ docs/prompts.md.
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from src.platform.util.latents import generate_seed
 from src.features.prompt.expander import expand_prompts
+from src.features.music_director import compile_sections_to_lyrics
 
 logger = logging.getLogger(__name__)
 
@@ -46,17 +47,22 @@ class PromptExpander:
         prompt expansion and the latents share it: image `i` gets `base + i` in
         both places, and re-running the same seed reproduces the same batch.
         """
-        if not prompts:
-            return prompts
-
         form_data = request.form_data or {}
 
-        # A Video Director document carries literal, per-segment prompts (no
-        # `{a|b}` template grammar in v1) and its seed was already resolved by
-        # normalize_video_director() in start_generation(); running the
-        # dynamicprompts expander over `prompts[0]` here would be a no-op at
-        # best and a stale re-roll of the seed at worst.
-        if form_data.get('video_director'):
+        video_director = form_data.get('video_director')
+        if isinstance(video_director, dict):
+            self._expand_director_segments(generation_id, request, video_director)
+            first = (video_director.get('segments') or [None])[0]
+            if prompts and isinstance(first, dict):
+                prompts[0] = {'positive': first.get('prompt', ''), 'negative': first.get('negative_prompt', '')}
+            return prompts
+
+        music_director = form_data.get('music_director')
+        if isinstance(music_director, dict):
+            self._expand_music_document(generation_id, request, music_director)
+            return prompts
+
+        if not prompts:
             return prompts
 
         try:
@@ -98,3 +104,94 @@ class PromptExpander:
             return prompts
 
         return [{'positive': e.positive, 'negative': e.negative} for e in expanded]
+
+    def _expand_director_segments(
+        self,
+        generation_id: str,
+        request,  # GenerationRequest type
+        document: Dict[str, Any],
+    ) -> None:
+        segments = document.get('segments')
+        if not segments:
+            return
+
+        base_seed = _document_seed(document)
+        variables = getattr(request, 'variables', None)
+
+        for index, segment in enumerate(segments):
+            if not isinstance(segment, dict):
+                continue
+            segment_seed = segment.get('seed')
+            seed = segment_seed if isinstance(segment_seed, int) else base_seed + index
+            expanded = self._expand_pair(
+                generation_id, variables, seed, f"segment {index}",
+                segment.get('prompt', '') or '', segment.get('negative_prompt', '') or '',
+            )
+            if expanded is None:
+                continue
+            segment['prompt'], segment['negative_prompt'] = expanded
+
+    def _expand_music_document(
+        self,
+        generation_id: str,
+        request,  # GenerationRequest type
+        document: Dict[str, Any],
+    ) -> None:
+        base_seed = _document_seed(document)
+        variables = getattr(request, 'variables', None)
+
+        expanded = self._expand_pair(
+            generation_id, variables, base_seed, "description", document.get('description') or '', '',
+        )
+        if expanded is not None:
+            document['description'] = expanded[0]
+
+        sections = document.get('sections') or []
+        for index, section in enumerate(sections):
+            if not isinstance(section, dict):
+                continue
+            seed = base_seed + index + 1
+            for key in ('lyrics', 'style_hint'):
+                text = section.get(key)
+                if not isinstance(text, str) or not text:
+                    continue
+                expanded = self._expand_pair(generation_id, variables, seed, f"section {index} {key}", text, '')
+                if expanded is not None:
+                    section[key] = expanded[0]
+
+        if 'compiled_lyrics' in document:
+            document['compiled_lyrics'] = compile_sections_to_lyrics(sections)
+
+    def _expand_pair(
+        self,
+        generation_id: str,
+        variables: Optional[Dict[str, str]],
+        seed: int,
+        label: str,
+        positive: str,
+        negative: str,
+    ) -> Optional[tuple]:
+        try:
+            expanded = expand_prompts(
+                positive,
+                negative,
+                count=1,
+                base_seed=seed,
+                variables=variables,
+                plugin_registry=self.plugin_registry,
+                generation_id=generation_id,
+            )[0]
+        except Exception as e:
+            logger.error(
+                f"Director prompt expansion failed for {generation_id} {label}, using template: {e}",
+                exc_info=True,
+            )
+            return None
+        return expanded.positive, expanded.negative
+
+
+def _document_seed(document: Dict[str, Any]) -> int:
+    try:
+        return int((document.get('settings') or {}).get('seed'))
+    except (TypeError, ValueError):
+        return 0

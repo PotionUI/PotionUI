@@ -19,6 +19,7 @@
 	import type { VideoDirectorValue, DirectorCapabilities, DirectorKeyframe, DirectorPromptSegment } from '$lib/types/videoDirector';
 	import type { Segment } from '$lib/types/segments';
 	import type { DirectorRunState } from '$lib/types/tabs';
+	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
 	import {
 		normalizeDirectorValue,
 		toModelessDirectorValue,
@@ -73,7 +74,12 @@
 		onChange,
 		onHeaderChange,
 		onCheckedChange,
-		onGenerateShots
+		onGenerateShots,
+		variables = {},
+		variableRolls = {},
+		onVariableDefChange,
+		onVariablesImport,
+		onOpenVariableManager
 	}: {
 		value: VideoDirectorValue | undefined;
 		capabilities: DirectorCapabilities;
@@ -116,6 +122,11 @@
 		 * which per the maintainer ruling doesn't exist -- +page.svelte owns
 		 * the actual submission/tab-state work either way. */
 		onGenerateShots?: (shotIds: string[]) => void;
+		variables?: VariablesMap;
+		variableRolls?: Record<string, VariableRoll>;
+		onVariableDefChange?: (name: string, def: VariableDef) => void;
+		onVariablesImport?: (merged: VariablesMap) => void;
+		onOpenVariableManager?: () => void;
 	} = $props();
 
 	function project(raw: unknown): VideoDirectorValue {
@@ -419,12 +430,20 @@
 			position="first"
 			segments={doc.global_prompt_segments}
 			onSegmentsChange={(segments) => (doc = withGlobalPromptSegments(doc, segments))}
+			{variables}
+			{variableRolls}
+			{onVariableDefChange}
+			{onOpenVariableManager}
 		/>
 		<FilmPromptRow
 			row={model.filmRows[1]}
 			position="last"
 			segments={doc.negative_prompt_segments}
 			onSegmentsChange={(segments) => (doc = withNegativePromptSegments(doc, segments))}
+			{variables}
+			{variableRolls}
+			{onVariableDefChange}
+			{onOpenVariableManager}
 		/>
 	</div>
 
@@ -474,7 +493,20 @@
 						onRemoveKeyframe={(id) => handleRemoveKeyframe(shot.id, id)}
 						onResizeBeat={(id, edge, atSeconds) => handleResizeBeat(shot.id, id, edge, atSeconds)}
 					/>
-					<ShotStage {shot} {doc} caps={capabilities} {formData} {presetId} {selection} onDoc={updateDoc} />
+					<ShotStage
+					{shot}
+					{doc}
+					caps={capabilities}
+					{formData}
+					{presetId}
+					{selection}
+					onDoc={updateDoc}
+					{variables}
+					{variableRolls}
+					{onVariableDefChange}
+					{onVariablesImport}
+					{onOpenVariableManager}
+				/>
 					{#if capabilities.segmentRouting}
 						<OverridesDisclosure {doc} caps={capabilities} shotId={shot.id} onDoc={updateDoc} />
 					{/if}

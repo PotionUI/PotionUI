@@ -17,10 +17,12 @@
 
 import {
 	normalizeVariableDef,
+	optionText,
 	type ChoiceVariableMode,
 	type VariableDef,
 	type VariablesMap,
-	type VariableRoll
+	type VariableRoll,
+	type VariableOptionWhen
 } from './variableDefs';
 
 // Payload discipline for the small (26B) chat model — kept identical to the
@@ -33,8 +35,20 @@ function clip(text: string, limit = MAX_VALUE_CHARS): string {
 	return text.length > limit ? text.slice(0, limit) + '…' : text;
 }
 
+export function composeLastRoll(roll: VariableRoll): string {
+	const value = roll.value.trim();
+	const eligibility = roll.eligible !== undefined && roll.total !== undefined ? `${roll.eligible} of ${roll.total} eligible` : undefined;
+
+	if (roll.because) {
+		const because = `because $${roll.because.var} = ${roll.because.value}`;
+		return `${value} (${eligibility ? `${because}, ${eligibility}` : because})`;
+	}
+	if (eligibility) return `${value} (${eligibility})`;
+	return value;
+}
+
 function validOptions(def: Extract<VariableDef, { type: 'choice' }>): string[] {
-	return def.options.map((o) => o.trim()).filter((o) => o.length > 0);
+	return def.options.map((o) => optionText(o).trim()).filter((o) => o.length > 0);
 }
 
 /** One entry in the chat form-state snapshot's `variables` list. Compact by
@@ -45,7 +59,7 @@ export interface VariableSnapshotEntry {
 	/** text variables only — the current value, clipped. */
 	value?: string;
 	/** choice variables only — non-blank options, clipped and count-capped. */
-	options?: string[];
+	options?: Array<string | { text: string; when?: VariableOptionWhen }>;
 	/** choice variables only. */
 	mode?: ChoiceVariableMode;
 	/** choice + pin only — index into `options` (post-filter). */
@@ -85,20 +99,22 @@ export function buildVariablesSnapshot(
 		const entry: VariableSnapshotEntry = {
 			name,
 			type: 'choice',
-			options: opts.slice(0, MAX_OPTIONS).map((o) => clip(o)),
+			options: def.options
+				.filter((o) => optionText(o).trim().length > 0)
+				.slice(0, MAX_OPTIONS)
+				.map((o) => (typeof o === 'string' ? clip(o.trim()) : { text: clip(o.text.trim()), when: o.when })),
 			mode: def.mode
 		};
 		if (def.mode === 'pin' && def.pinnedIndex !== null) {
-			// Re-project the pinned index onto the filtered option list so the
-			// backend can name it without seeing the blank rows we dropped.
-			const pinnedText = def.options[def.pinnedIndex]?.trim();
+			const pinnedOption = def.options[def.pinnedIndex];
+			const pinnedText = pinnedOption !== undefined ? optionText(pinnedOption).trim() : undefined;
 			if (pinnedText) {
 				const idx = opts.indexOf(pinnedText);
 				if (idx >= 0 && idx < MAX_OPTIONS) entry.pinnedIndex = idx;
 			}
 		}
 		const roll = rolls?.[name];
-		if (def.mode === 'shuffle' && roll?.value) entry.lastRoll = clip(roll.value.trim());
+		if (def.mode === 'shuffle' && roll?.value) entry.lastRoll = clip(composeLastRoll(roll));
 		out.push(entry);
 	}
 
@@ -116,7 +132,8 @@ function describeVariable(def: VariableDef, roll: VariableRoll | undefined): str
 	if (opts.length > MAX_OPTIONS) listing += ', …';
 	let phrase: string;
 	if (def.mode === 'pin') {
-		const pinned = def.pinnedIndex !== null ? def.options[def.pinnedIndex]?.trim() : '';
+		const pinnedOption = def.pinnedIndex !== null ? def.options[def.pinnedIndex] : undefined;
+		const pinned = pinnedOption !== undefined ? optionText(pinnedOption).trim() : '';
 		phrase = pinned ? `pinned to ${clip(pinned)}` : 'pinned';
 	} else if (def.mode === 'per-image') {
 		phrase = 're-rolls per image';

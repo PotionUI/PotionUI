@@ -1,7 +1,7 @@
 // Small pure helpers used by InlineChipEditor.svelte, extracted unchanged:
 // a chip-map fingerprint pair and the $-picker preview string.
 import type { ChipData } from '$lib/types/segments';
-import { normalizeVariableDef, type VariablesMap, type VariableRoll } from '$lib/utils/variableDefs';
+import { normalizeVariableDef, optionText, type VariablesMap, type VariableRoll } from '$lib/utils/variableDefs';
 
 /** Short preview shown next to a variable name in the `$` picker — the raw
  *  value for a text variable, or its option list for a choice variable
@@ -9,9 +9,10 @@ import { normalizeVariableDef, type VariablesMap, type VariableRoll } from '$lib
 export function variablePreview(name: string, variables: VariablesMap): string {
 	const def = normalizeVariableDef(variables[name]);
 	if (def.type === 'text') return def.value;
-	const options = def.options.map((o) => o.trim()).filter(Boolean);
-	if (def.pinnedIndex !== null && def.options[def.pinnedIndex]?.trim()) {
-		return `pinned: ${def.options[def.pinnedIndex]}`;
+	const options = def.options.map((o) => optionText(o).trim()).filter(Boolean);
+	const pinned = def.pinnedIndex !== null ? def.options[def.pinnedIndex] : undefined;
+	if (pinned !== undefined && optionText(pinned).trim()) {
+		return `pinned: ${optionText(pinned)}`;
 	}
 	return options.length > 0 ? options.join(' | ') : '(no options yet)';
 }

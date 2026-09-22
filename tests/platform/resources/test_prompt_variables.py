@@ -96,3 +96,207 @@ class TestRenderPromptVariableLines:
         }])
         assert lines[0].endswith("…")
         assert len(lines[0]) < 120
+
+    def test_conditioned_option_shows_when_clause_and_resolve_order(self):
+        lines = render_prompt_variable_lines([
+            {"name": "music", "type": "choice", "options": ["hip hop", "classical"]},
+            {
+                "name": "dance",
+                "type": "choice",
+                "options": [
+                    {"text": "breaking", "when": {"var": "music", "values": ["hip hop"]}},
+                    "salsa",
+                ],
+            },
+        ])
+        assert lines == [
+            "music: one of hip hop, classical — shuffles each generation",
+            "dance — resolves after $music — one of breaking (when $music = hip hop), salsa "
+            "— shuffles each generation",
+        ]
+
+    def test_untouched_string_options_unaffected_by_condition_support(self):
+        lines = render_prompt_variable_lines([
+            {"name": "mood", "type": "choice", "options": ["noir", "sunlit"]},
+        ])
+        assert lines == ["mood: one of noir, sunlit — shuffles each generation"]
+
+
+class TestSharedHelpers:
+    def test_valid_options_normalizes_mixed_string_and_object_entries(self):
+        from src.platform.resources.prompt_variables import valid_options
+
+        options = valid_options([
+            "salsa",
+            {"text": "breaking", "when": {"var": "music", "values": ["hip hop"]}},
+            {"text": "  "},
+            "",
+        ])
+        assert options == [
+            {"text": "salsa", "when": None},
+            {"text": "breaking", "when": {"var": "music", "values": ["hip hop"]}},
+        ]
+
+    def test_variable_dependencies_dedupes_and_preserves_order(self):
+        from src.platform.resources.prompt_variables import variable_dependencies
+
+        var = {
+            "type": "choice",
+            "options": [
+                {"text": "a", "when": {"var": "music", "values": ["x"]}},
+                {"text": "b", "when": {"var": "era", "values": ["y"]}},
+                {"text": "c", "when": {"var": "music", "values": ["z"]}},
+            ],
+        }
+        assert variable_dependencies(var) == ["music", "era"]
+
+    def test_is_downstream_detects_transitive_chain(self):
+        from src.platform.resources.prompt_variables import is_downstream
+
+        variables = {
+            "music": {"type": "choice", "options": ["hip hop"]},
+            "dance": {
+                "type": "choice",
+                "options": [{"text": "a", "when": {"var": "music", "values": ["hip hop"]}}],
+            },
+            "era": {
+                "type": "choice",
+                "options": [{"text": "b", "when": {"var": "dance", "values": ["a"]}}],
+            },
+        }
+        assert is_downstream("era", "music", variables) is True
+        assert is_downstream("music", "era", variables) is False
+
+    def test_format_option_appends_when_clause(self):
+        from src.platform.resources.prompt_variables import format_option
+
+        assert format_option({"text": "breaking", "when": None}) == "breaking"
+        assert format_option(
+            {"text": "breaking", "when": {"var": "music", "values": ["hip hop", "latin"]}}
+        ) == "breaking (when $music = hip hop, latin)"
+
+
+class TestNameError:
+    def test_valid_names_pass(self):
+        from src.platform.resources.prompt_variables import name_error
+
+        assert name_error("mood") is None
+        assert name_error("_mood2") is None
+
+    def test_invalid_names_are_rejected(self):
+        from src.platform.resources.prompt_variables import name_error
+
+        assert "not a valid variable name" in name_error("1mood")
+        assert "not a valid variable name" in name_error("mo od")
+        assert "not a valid variable name" in name_error("m" * 61)
+
+
+class TestValidateCondition:
+    def test_valid_condition_normalizes(self):
+        from src.platform.resources.prompt_variables import validate_condition
+
+        variables = {"scene": {"type": "choice", "options": ["day", "night"]}}
+        normalized, error = validate_condition(
+            "mood", {"var": "scene", "values": ["day"]}, variables
+        )
+        assert error is None
+        assert normalized == {"var": "scene", "values": ["day"]}
+
+    def test_self_reference_is_rejected(self):
+        from src.platform.resources.prompt_variables import validate_condition
+
+        _, error = validate_condition("mood", {"var": "mood", "values": ["x"]}, {"mood": {}})
+        assert "cannot reference" in error
+
+    def test_reference_to_non_choice_variable_is_rejected(self):
+        from src.platform.resources.prompt_variables import validate_condition
+
+        variables = {"scene": {"type": "text", "value": "day"}}
+        _, error = validate_condition("mood", {"var": "scene", "values": ["day"]}, variables)
+        assert "is not a choice variable" in error
+
+    def test_values_not_among_referenced_options_are_rejected(self):
+        from src.platform.resources.prompt_variables import validate_condition
+
+        variables = {"scene": {"type": "choice", "options": ["day", "night"]}}
+        _, error = validate_condition(
+            "mood", {"var": "scene", "values": ["dusk"]}, variables
+        )
+        assert "are not options of $scene" in error
+
+
+class TestValidateVariablesMap:
+    def test_none_is_valid(self):
+        from src.platform.resources.prompt_variables import validate_variables_map
+
+        assert validate_variables_map(None) == []
+
+    def test_non_dict_is_rejected(self):
+        from src.platform.resources.prompt_variables import validate_variables_map
+
+        assert validate_variables_map([1, 2]) != []
+
+    def test_valid_text_and_choice_map_has_no_errors(self):
+        from src.platform.resources.prompt_variables import validate_variables_map
+
+        variables = {
+            "mood": {"type": "text", "value": "noir"},
+            "scene": {
+                "type": "choice", "mode": "pin", "pinnedIndex": 0,
+                "options": ["day", "night"],
+            },
+        }
+        assert validate_variables_map(variables) == []
+
+    def test_bad_name_is_reported(self):
+        from src.platform.resources.prompt_variables import validate_variables_map
+
+        errors = validate_variables_map({"1bad": {"type": "text", "value": "x"}})
+        assert any("not a valid variable name" in e for e in errors)
+
+    def test_choice_with_no_options_is_rejected(self):
+        from src.platform.resources.prompt_variables import validate_variables_map
+
+        errors = validate_variables_map({"scene": {"type": "choice", "options": []}})
+        assert any("needs at least one non-empty option" in e for e in errors)
+
+    def test_invalid_mode_is_rejected(self):
+        from src.platform.resources.prompt_variables import validate_variables_map
+
+        errors = validate_variables_map({
+            "scene": {"type": "choice", "mode": "random", "options": ["day"]}
+        })
+        assert any("invalid mode" in e for e in errors)
+
+    def test_pinned_index_out_of_range_is_rejected(self):
+        from src.platform.resources.prompt_variables import validate_variables_map
+
+        errors = validate_variables_map({
+            "scene": {"type": "choice", "mode": "pin", "pinnedIndex": 5, "options": ["day"]}
+        })
+        assert any("pinnedIndex must be a valid index" in e for e in errors)
+
+    def test_unknown_definition_type_is_rejected(self):
+        from src.platform.resources.prompt_variables import validate_variables_map
+
+        errors = validate_variables_map({"mood": {"type": "number", "value": 1}})
+        assert any("Use text or choice" in e for e in errors)
+
+    def test_condition_referencing_a_variable_outside_the_map_is_rejected(self):
+        from src.platform.resources.prompt_variables import validate_variables_map
+
+        errors = validate_variables_map({
+            "scene": {
+                "type": "choice", "mode": "shuffle", "options": [
+                    {"text": "x", "when": {"var": "missing", "values": ["y"]}}
+                ],
+            },
+        })
+        assert any("is not a choice variable" in e for e in errors)
+
+    def test_too_many_variables_is_rejected(self):
+        from src.platform.resources.prompt_variables import validate_variables_map, MAX_VARIABLES
+
+        variables = {f"v{i}": {"type": "text", "value": "x"} for i in range(MAX_VARIABLES + 1)}
+        errors = validate_variables_map(variables)
+        assert any("Too many prompt variables" in e for e in errors)

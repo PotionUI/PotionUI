@@ -2,37 +2,24 @@
 
 import json
 import logging
-import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.platform.resources.prompt_variables import (
+    MAX_OPTIONS,
+    MAX_VARIABLES,
+    VALID_MODES,
+    dependency_prefix,
+    format_option,
+    name_error,
+    normalize_option,
+    option_texts,
+    valid_options,
+    validate_condition,
+    variable_dependencies,
+)
 
 logger = logging.getLogger(__name__)
-
-# Caps mirror src/platform/resources/prompt_variables.py and
-# frontend/src/lib/utils/variableSnapshot.ts (small-model payload discipline).
-_MAX_VARIABLES = 24
-_MAX_OPTIONS = 12
-_MAX_NAME_CHARS = 60
-
-# Mirrors frontend/src/lib/utils/promptVariables.ts VARIABLE_NAME_RE — the
-# grammar a `${name}` usage in the prompt actually resolves against.
-_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-_VALID_MODES = {"shuffle", "pin", "per-image"}
-
-
-def _valid_options(raw: Any) -> List[str]:
-    if not isinstance(raw, (list, tuple)):
-        return []
-    out: List[str] = []
-    for opt in raw:
-        if not isinstance(opt, (str, int, float)):
-            continue
-        text = str(opt).strip()
-        if text:
-            out.append(text)
-    return out
 
 
 def _describe(var: Optional[Dict[str, Any]]) -> str:
@@ -41,22 +28,38 @@ def _describe(var: Optional[Dict[str, Any]]) -> str:
     if not var:
         return "not set"
     if var.get("type") == "choice":
-        options = _valid_options(var.get("options"))
+        options = valid_options(var.get("options"))
         if not options:
             return "choice with no options"
         mode = var.get("mode") or "shuffle"
+        texts = option_texts(options)
         if mode == "pin":
             idx = var.get("pinnedIndex")
-            if isinstance(idx, int) and 0 <= idx < len(options):
-                return f"pinned to {options[idx]}"
+            if isinstance(idx, int) and 0 <= idx < len(texts):
+                return f"pinned to {texts[idx]}"
             return "pinned (no option selected)"
+        prefix = dependency_prefix(variable_dependencies(var))
+        listing = ", ".join(format_option(o) for o in options)
         if mode == "per-image":
-            return f"one of {', '.join(options)} — re-rolls per image"
-        return f"one of {', '.join(options)} — shuffles each generation"
+            return f"{prefix}one of {listing} — re-rolls per image"
+        return f"{prefix}one of {listing} — shuffles each generation"
     value = var.get("value")
     if not isinstance(value, str) or not value.strip():
         return "empty text"
     return value.strip()
+
+
+def _validate_condition(
+    name: str,
+    when: Dict[str, Any],
+    working: Dict[str, Dict[str, Any]],
+    errors: List[str],
+) -> Optional[Dict[str, Any]]:
+    normalized, error = validate_condition(name, when, working)
+    if error:
+        errors.append(error)
+        return None
+    return normalized
 
 
 def _existing_by_name(form_state: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
@@ -73,22 +76,45 @@ def _existing_by_name(form_state: Optional[Dict[str, Any]]) -> Dict[str, Dict[st
     return out
 
 
-def _build_choice_var(op: Dict[str, Any], name: str, errors: List[str]) -> Optional[Dict[str, Any]]:
+def _build_choice_var(
+    op: Dict[str, Any],
+    name: str,
+    working: Dict[str, Dict[str, Any]],
+    errors: List[str],
+) -> Optional[Dict[str, Any]]:
     raw_options = op.get("options")
-    options = _valid_options(raw_options)
+    if not isinstance(raw_options, (list, tuple)):
+        errors.append(f"'{name}': a choice variable needs at least one non-empty option.")
+        return None
+    if len(raw_options) > MAX_OPTIONS:
+        errors.append(f"'{name}': too many options ({len(raw_options)} > {MAX_OPTIONS}).")
+        return None
+
+    options: List[Any] = []
+    texts: List[str] = []
+    for raw_opt in raw_options:
+        normalized = normalize_option(raw_opt)
+        if normalized is None:
+            continue
+        when = normalized["when"]
+        if when is not None:
+            when = _validate_condition(name, when, working, errors)
+            if when is None:
+                return None
+        texts.append(normalized["text"])
+        options.append({"text": normalized["text"], "when": when} if when else normalized["text"])
+
     if not options:
         errors.append(f"'{name}': a choice variable needs at least one non-empty option.")
         return None
-    if isinstance(raw_options, (list, tuple)) and len(raw_options) > _MAX_OPTIONS:
-        errors.append(f"'{name}': too many options ({len(raw_options)} > {_MAX_OPTIONS}).")
-        return None
+
     mode = op.get("mode") or "shuffle"
-    if mode not in _VALID_MODES:
+    if mode not in VALID_MODES:
         errors.append(f"'{name}': invalid mode '{mode}'. Use shuffle, pin, or per-image.")
         return None
     pinned_index = op.get("pinned_index")
     if pinned_index is not None and (
-        not isinstance(pinned_index, int) or not (0 <= pinned_index < len(options))
+        not isinstance(pinned_index, int) or not (0 <= pinned_index < len(texts))
     ):
         errors.append(f"'{name}': pinned_index must be a valid index into options.")
         return None
@@ -126,11 +152,9 @@ def _validate_operations(
         if not name:
             errors.append("Empty variable name in operation.")
             continue
-        if not _NAME_RE.match(name) or len(name) > _MAX_NAME_CHARS:
-            errors.append(
-                f"'{name}' is not a valid variable name. Use letters, digits, and "
-                f"underscores, starting with a letter or underscore, up to {_MAX_NAME_CHARS} characters."
-            )
+        name_err = name_error(name)
+        if name_err:
+            errors.append(name_err)
             continue
 
         if op_type == "remove":
@@ -164,7 +188,7 @@ def _validate_operations(
                 continue
             new_var: Dict[str, Any] = {"type": "text", "value": value}
         else:
-            built = _build_choice_var(op, name, errors)
+            built = _build_choice_var(op, name, working, errors)
             if built is None:
                 continue
             new_var = built
@@ -187,9 +211,9 @@ def _validate_operations(
             row["reason"] = reason
         preview_rows.append(row)
 
-    if len(working) > _MAX_VARIABLES:
+    if len(working) > MAX_VARIABLES:
         errors.append(
-            f"Too many prompt variables: {len(working)} (max {_MAX_VARIABLES}). "
+            f"Too many prompt variables: {len(working)} (max {MAX_VARIABLES}). "
             "Remove some before adding more."
         )
         return [], [], errors
@@ -241,7 +265,17 @@ class ManagePromptVariablesTool(BaseTool):
             "one's value/options) or 'remove'. A 'set' with type 'text' takes a plain "
             "value; type 'choice' takes an options list and a mode — 'shuffle' rolls one "
             "option per generation, 'pin' always uses pinned_index, 'per-image' re-rolls "
-            "independently per image. The user must approve before changes are applied."
+            "independently per image. A choice option can be conditioned on another choice "
+            "variable by replacing its string with {\"text\": ..., \"when\": {\"var\": "
+            "\"other_var\", \"values\": [...]}}; it is then eligible only when other_var last "
+            "resolved to one of those values, and an option without 'when' is always "
+            "eligible. 'when.var' must already be a choice variable on this tab (or set "
+            "earlier in this same operations list), cannot be the variable being defined, and "
+            "cannot depend on it in turn (no cycles); 'when.values' must match that "
+            "variable's option texts exactly. Example: {\"op\": \"set\", \"name\": \"dance\", "
+            "\"type\": \"choice\", \"options\": [{\"text\": \"breaking\", \"when\": "
+            "{\"var\": \"music\", \"values\": [\"hip hop\"]}}, \"salsa\"]}. "
+            "The user must approve before changes are applied."
             "{{#if get_form_state}} Call get_form_state first to see existing variables and "
             "their current values.{{/if}}"
         )
@@ -280,8 +314,38 @@ class ManagePromptVariablesTool(BaseTool):
                             },
                             "options": {
                                 "type": "array",
-                                "items": {"type": "string"},
-                                "description": "Option texts, for a 'set' with type 'choice'",
+                                "items": {
+                                    "oneOf": [
+                                        {"type": "string"},
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "text": {"type": "string"},
+                                                "when": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "var": {
+                                                            "type": "string",
+                                                            "description": "Name of another choice variable this option depends on",
+                                                        },
+                                                        "values": {
+                                                            "type": "array",
+                                                            "items": {"type": "string"},
+                                                            "description": "Exact option texts of that variable this option is eligible for",
+                                                        },
+                                                    },
+                                                    "required": ["var", "values"],
+                                                },
+                                            },
+                                            "required": ["text"],
+                                        },
+                                    ]
+                                },
+                                "description": (
+                                    "Option texts, for a 'set' with type 'choice'. Each entry is "
+                                    "a plain string, or {text, when: {var, values}} to make it "
+                                    "conditionally eligible."
+                                ),
                             },
                             "mode": {
                                 "type": "string",

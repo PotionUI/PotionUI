@@ -30,8 +30,25 @@ function parseExecutionResultData<T = any>(execution: ToolExecution): T {
 	}
 }
 
+function isVariableOptionLike(value: unknown): value is { text: string; when?: { var: string; values: string[] } } {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+	const candidate = value as { text?: unknown; when?: unknown };
+	if (typeof candidate.text !== 'string') return false;
+	if (candidate.when === undefined) return true;
+	const when = candidate.when as { var?: unknown; values?: unknown };
+	return typeof when === 'object' && when !== null && typeof when.var === 'string' && Array.isArray(when.values);
+}
+
+function formatVariableOption(option: { text: string; when?: { var: string; values: string[] } }): string {
+	return option.when ? `${option.text} (when $${option.when.var} = ${option.when.values.join(', ')})` : option.text;
+}
+
 function formatValue(value: unknown): string {
 	if (value === null || value === undefined || value === '') return '(empty)';
+	if (isVariableOptionLike(value)) return formatVariableOption(value);
+	if (Array.isArray(value) && value.length > 0 && value.every(isVariableOptionLike)) {
+		return value.map(formatVariableOption).join(', ');
+	}
 	if (typeof value === 'object') return JSON.stringify(value);
 	return String(value);
 }

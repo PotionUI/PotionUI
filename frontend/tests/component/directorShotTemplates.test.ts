@@ -161,9 +161,7 @@ function mountStageBeat(context?: Map<string, unknown>) {
 
 async function openTemplateModal(target: HTMLElement) {
 	await settle();
-	const templateButton = Array.from(target.querySelectorAll<HTMLButtonElement>('.toolbar-button')).find(
-		(button) => button.querySelector('use[href="#i-template"]') !== null
-	);
+	const templateButton = target.querySelector<HTMLButtonElement>('button[aria-label="Templates"]');
 	if (!templateButton) throw new Error('no Apply a Segment Template button found in StageBeat render');
 	templateButton.click();
 	await settle();

@@ -250,6 +250,19 @@
 			},
 			segments: buildSegmentsPayload(tab, presetVars[tab.selectedPreset!]?.num_prompts || 1)
 		};
+
+		const undefinedVariables = findUndefinedVariableUsages(
+			resolvedDoc.segments.flatMap((s) => [s.prompt, s.negative_prompt]),
+			Object.keys(request.variables || {})
+		);
+		if (undefinedVariables.length > 0) {
+			toasts.warning(
+				undefinedVariables.length === 1
+					? `Variable \${${undefinedVariables[0]}} has no value — it will expand to nothing.`
+					: `Variables ${undefinedVariables.map((n) => `\${${n}}`).join(', ')} have no value — they will expand to nothing.`
+			);
+		}
+
 		try {
 			const response = await api.startGeneration(request);
 			if (response.success && response.data) {

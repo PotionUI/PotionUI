@@ -110,4 +110,29 @@ describe('applyVariableChanges', () => {
 		const result = applyVariableChanges({}, [{ op: 'set', name: 'mood', type: 'text' }]);
 		expect(result.mood).toEqual({ type: 'text', value: '' });
 	});
+
+	it('stores object options with a `when` condition as-is, unreshaped', () => {
+		const result = applyVariableChanges({}, [
+			{
+				op: 'set',
+				name: 'dance',
+				type: 'choice',
+				options: [
+					{ text: 'breaking', when: { var: 'music', values: ['hip hop'] } },
+					{ text: 'popping', when: { var: 'music', values: ['hip hop'] } },
+					'salsa'
+				]
+			}
+		]);
+		expect(result.dance).toEqual({
+			type: 'choice',
+			options: [
+				{ text: 'breaking', when: { var: 'music', values: ['hip hop'] } },
+				{ text: 'popping', when: { var: 'music', values: ['hip hop'] } },
+				'salsa'
+			],
+			mode: 'shuffle',
+			pinnedIndex: null
+		});
+	});
 });

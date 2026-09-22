@@ -22,12 +22,21 @@ export interface TextVariableDef {
 
 export type ChoiceVariableMode = 'shuffle' | 'pin' | 'per-image';
 
+export interface VariableOptionWhen {
+	var: string;
+	values: string[];
+}
+
+export interface VariableOptionObject {
+	text: string;
+	when?: VariableOptionWhen;
+}
+
+export type VariableOption = string | VariableOptionObject;
+
 export interface ChoiceVariableDef {
 	type: 'choice';
-	/** Option texts, in order. Blank entries are ignored at wire-serialization
-	 *  time but kept here so an in-progress "Add option" row isn't dropped
-	 *  out from under the user while they type. */
-	options: string[];
+	options: VariableOption[];
 	mode: ChoiceVariableMode;
 	/** Index into `options` to pin — only meaningful (and only ever read) when
 	 *  `mode === 'pin'`. Pinning is per-variable, not per-usage: the backend
@@ -42,8 +51,94 @@ export type VariableDef = TextVariableDef | ChoiceVariableDef;
  *  was set. normalizeVariableDef migrates a no-mode def to `shuffle`. */
 export interface LegacyChoiceVariableDef {
 	type: 'choice';
-	options: string[];
+	options: VariableOption[];
 	pinnedIndex: number | null;
+}
+
+export function optionText(option: VariableOption): string {
+	return typeof option === 'string' ? option : option.text;
+}
+
+export function optionWhen(option: VariableOption): VariableOptionWhen | undefined {
+	return typeof option === 'string' ? undefined : option.when;
+}
+
+export function whenIsBroken(when: VariableOptionWhen, variables: VariablesMap): boolean {
+	const refStored = variables[when.var];
+	if (refStored === undefined) return true;
+	const refDef = normalizeVariableDef(refStored);
+	if (refDef.type !== 'choice') return true;
+	const refTexts = new Set(refDef.options.map((o) => optionText(o).trim()));
+	return when.values.some((v) => !refTexts.has(v));
+}
+
+export function dependencies(name: string, variables: VariablesMap, transitive = false): string[] {
+	const def = normalizeVariableDef(variables[name]);
+	const direct = new Set<string>();
+	if (def.type === 'choice') {
+		for (const option of def.options) {
+			const when = optionWhen(option);
+			if (when && when.var !== name && variables[when.var] !== undefined) direct.add(when.var);
+		}
+	}
+	if (!transitive) return [...direct];
+
+	const seen = new Set<string>();
+	const stack = [...direct];
+	while (stack.length > 0) {
+		const current = stack.pop() as string;
+		if (seen.has(current) || current === name) continue;
+		seen.add(current);
+		for (const dep of dependencies(current, variables, false)) stack.push(dep);
+	}
+	return [...seen];
+}
+
+export function dependents(name: string, variables: VariablesMap, transitive = false): string[] {
+	const direct = Object.keys(variables).filter(
+		(other) => other !== name && dependencies(other, variables, false).includes(name)
+	);
+	if (!transitive) return direct;
+
+	const seen = new Set<string>();
+	const stack = [...direct];
+	while (stack.length > 0) {
+		const current = stack.pop() as string;
+		if (seen.has(current) || current === name) continue;
+		seen.add(current);
+		for (const dep of dependents(current, variables, false)) stack.push(dep);
+	}
+	return [...seen];
+}
+
+export function resolveVariableOrder(variables: VariablesMap | undefined): string[] {
+	if (!variables) return [];
+	const order: string[] = [];
+	const done = new Set<string>();
+	const active = new Set<string>();
+
+	function visit(name: string) {
+		if (done.has(name) || active.has(name)) return;
+		active.add(name);
+		for (const dep of dependencies(name, variables!, false)) visit(dep);
+		active.delete(name);
+		done.add(name);
+		order.push(name);
+	}
+
+	for (const name of Object.keys(variables)) visit(name);
+	return order;
+}
+
+export function isOptionEligible(option: VariableOption, resolved: Record<string, string>): boolean {
+	const when = optionWhen(option);
+	if (!when) return true;
+	const actual = resolved[when.var];
+	return actual !== undefined && when.values.includes(actual);
+}
+
+export function eligibleOptions(def: ChoiceVariableDef, resolved: Record<string, string>): VariableOption[] {
+	return def.options.filter((option) => optionText(option).trim().length > 0 && isOptionEligible(option, resolved));
 }
 
 /** Older sessions stored a variable as a bare string (the template itself), or
@@ -73,7 +168,7 @@ export function createTextVariable(value: string = ''): TextVariableDef {
 	return { type: 'text', value };
 }
 
-export function createChoiceVariable(options: string[] = ['', '']): ChoiceVariableDef {
+export function createChoiceVariable(options: VariableOption[] = ['', '']): ChoiceVariableDef {
 	return { type: 'choice', options, mode: 'shuffle', pinnedIndex: null };
 }
 
@@ -87,12 +182,13 @@ export function createChoiceVariable(options: string[] = ['', '']): ChoiceVariab
 export function buildVariableWireValue(def: VariableDef): string {
 	if (def.type === 'text') return def.value;
 
-	const validOptions = def.options.map((o) => o.trim()).filter((o) => o.length > 0);
+	const validOptions = def.options.map((o) => optionText(o).trim()).filter((o) => o.length > 0);
 	if (validOptions.length === 0) return '';
 
 	if (def.mode === 'pin' && def.pinnedIndex !== null) {
 		const pinned = def.options[def.pinnedIndex];
-		if (pinned !== undefined && pinned.trim().length > 0) return pinned.trim();
+		const pinnedText = pinned !== undefined ? optionText(pinned).trim() : '';
+		if (pinnedText.length > 0) return pinnedText;
 		// Pinned index points at a blank/removed option — fall through to the
 		// grouped form across whatever valid options remain rather than
 		// silently resolving to nothing.
@@ -109,30 +205,30 @@ export function buildVariableWireValue(def: VariableDef): string {
 	return serializeGroup(spec);
 }
 
-/** One client-side roll of a `shuffle`-mode choice variable — the run state
- *  a usage chip re-renders from (see VariableUsageChip.svelte). */
 export interface VariableRoll {
 	optionIndex: number;
 	value: string;
 	rolledAt: number;
+	because?: { var: string; value: string };
+	eligible?: number;
+	total?: number;
 }
 
 /**
  * Pick one non-blank option at random. Pure given `random` (a `[0,1)`
  * source, defaults to `Math.random` — inject a fixed sequence in tests for
- * determinism). Returns `null` when there's nothing valid to pick.
  */
 export function rollChoiceOption(
 	def: ChoiceVariableDef,
 	random: () => number = Math.random
 ): { index: number; value: string } | null {
 	const validIndices = def.options
-		.map((o, i) => ({ trimmed: o.trim(), i }))
+		.map((o, i) => ({ trimmed: optionText(o).trim(), i }))
 		.filter((x) => x.trimmed.length > 0)
 		.map((x) => x.i);
 	if (validIndices.length === 0) return null;
 	const pick = validIndices[Math.floor(random() * validIndices.length)];
-	return { index: pick, value: def.options[pick] };
+	return { index: pick, value: optionText(def.options[pick]) };
 }
 
 export interface VariablesSubmitResult {
@@ -160,8 +256,6 @@ export interface VariablesForSubmitOptions {
 /**
  * The mode-aware wire-building pass, run once per Generate click (shared by both
  * request-assembly sites — generationOrchestrator.ts `buildVariablesPayload` and
- * generate/+page.svelte's `startGeneration`). Every `shuffle`-mode choice
- * variable is rolled fresh here.
  */
 export function buildVariablesForSubmit(
 	variables: VariablesMap | undefined,
@@ -174,21 +268,52 @@ export function buildVariablesForSubmit(
 
 	if (!variables) return { wireMap, rolls };
 
-	for (const [name, stored] of Object.entries(variables)) {
+	const resolved: Record<string, string> = {};
+
+	for (const name of resolveVariableOrder(variables)) {
+		const stored = variables[name];
+		if (stored === undefined) continue;
 		const def = normalizeVariableDef(stored);
 
-		if (def.type === 'choice' && def.mode === 'shuffle') {
-			const rolled = rollChoiceOption(def, random);
-			if (rolled) {
-				const value = rolled.value.trim();
-				wireMap[name] = value;
-				rolls[name] = { optionIndex: rolled.index, value, rolledAt: now() };
+		if (def.type === 'text') {
+			if (def.value) wireMap[name] = def.value;
+			resolved[name] = def.value.trim();
+			continue;
+		}
+
+		if (def.mode === 'shuffle') {
+			const validEntries = def.options
+				.map((o, i) => ({ option: o, index: i, text: optionText(o).trim() }))
+				.filter((entry) => entry.text.length > 0);
+			if (validEntries.length === 0) continue;
+
+			const hasConditions = validEntries.some((entry) => !!optionWhen(entry.option));
+			const eligibleEntries = validEntries.filter((entry) => isOptionEligible(entry.option, resolved));
+
+			if (eligibleEntries.length === 0) {
+				if (hasConditions) {
+					rolls[name] = { optionIndex: -1, value: '', rolledAt: now(), eligible: 0, total: validEntries.length };
+				}
+				continue;
 			}
+
+			const pick = eligibleEntries[Math.floor(random() * eligibleEntries.length)];
+			wireMap[name] = pick.text;
+			resolved[name] = pick.text;
+			const roll: VariableRoll = { optionIndex: pick.index, value: pick.text, rolledAt: now() };
+			if (hasConditions) {
+				roll.eligible = eligibleEntries.length;
+				roll.total = validEntries.length;
+				const when = optionWhen(pick.option);
+				if (when) roll.because = { var: when.var, value: resolved[when.var] ?? '' };
+			}
+			rolls[name] = roll;
 			continue;
 		}
 
 		const value = buildVariableWireValue(def);
 		if (value) wireMap[name] = value;
+		if (def.mode === 'pin') resolved[name] = value;
 	}
 
 	return { wireMap, rolls };

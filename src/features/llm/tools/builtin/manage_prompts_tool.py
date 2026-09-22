@@ -30,13 +30,52 @@ RICH_SEGMENT_SCHEMA = {
     },
 }
 
+VARIABLES_SCHEMA = {
+    "type": "object",
+    "additionalProperties": {
+        "type": "object",
+        "properties": {
+            "type": {"type": "string", "enum": ["text", "choice"]},
+            "value": {"type": "string", "description": "text only"},
+            "mode": {"type": "string", "enum": ["shuffle", "pin", "per-image"], "description": "choice only"},
+            "pinnedIndex": {"type": "integer", "description": "choice + pin only"},
+            "options": {
+                "type": "array",
+                "description": "choice only",
+                "items": {
+                    "anyOf": [
+                        {"type": "string"},
+                        {
+                            "type": "object",
+                            "properties": {
+                                "text": {"type": "string"},
+                                "when": {
+                                    "type": "object",
+                                    "properties": {
+                                        "var": {"type": "string"},
+                                        "values": {"type": "array", "items": {"type": "string"}},
+                                    },
+                                    "required": ["var", "values"],
+                                },
+                            },
+                            "required": ["text"],
+                        },
+                    ]
+                },
+            },
+        },
+        "required": ["type"],
+    },
+    "description": "Prompt ${name} variables, keyed by name.",
+}
+
 
 def _prompt_request(existing=None, **kwargs) -> PromptRequest:
     if existing is None:
         return PromptRequest(
             name=kwargs.get("name"), usage_hint=kwargs.get("usage_hint"),
             segments=kwargs.get("segments") or [], source_provider="llm_tool",
-            tags=kwargs.get("tags") or [],
+            tags=kwargs.get("tags") or [], variables=kwargs.get("variables"),
         )
     metadata_fields = (
         "source_provider", "source_id", "source_url", "source_group_id", "model_id",
@@ -48,6 +87,7 @@ def _prompt_request(existing=None, **kwargs) -> PromptRequest:
     values.update(
         name=kwargs.get("name", existing.name),
         usage_hint=kwargs.get("usage_hint", existing.usage_hint),
+        variables=kwargs.get("variables", existing.variables),
         segments=kwargs.get("segments", [segment.model_dump() for segment in existing.segments]),
     )
     return PromptRequest(**values)
@@ -73,7 +113,8 @@ class AddPromptTool(BaseTool):
     def description(self):
         return (
             "Save one detached Prompt: an ordered array of one or more rich segments. "
-            "Positive and negative prompts are separate records selected with usage_hint."
+            "Positive and negative prompts are separate records selected with usage_hint. "
+            "Optionally carries ${name} prompt variables."
         )
 
     @property
@@ -88,6 +129,7 @@ class AddPromptTool(BaseTool):
                 "usage_hint": {"type": "string", "enum": ["positive", "negative"]},
                 "segments": {"type": "array", "items": RICH_SEGMENT_SCHEMA, "minItems": 1},
                 "tags": {"type": "array", "items": {"type": "string"}},
+                "variables": VARIABLES_SCHEMA,
             },
             "required": ["segments"],
         }
@@ -105,6 +147,8 @@ class AddPromptTool(BaseTool):
             fields.append({"label": "Usage", "value": request.usage_hint})
         if request.tags:
             fields.append({"label": "Tags", "value": ", ".join(request.tags)})
+        if request.variables:
+            fields.append({"label": "Variables", "value": f"{len(request.variables)} variables"})
         preview = ToolApprovalPreview(
             action="Add prompt",
             target=request.name or None,
@@ -153,7 +197,10 @@ class EditPromptTool(BaseTool):
 
     @property
     def description(self):
-        return "Replace a Prompt's complete ordered segment array and/or its library name or usage hint."
+        return (
+            "Replace a Prompt's complete ordered segment array and/or its library name or "
+            "usage hint. Can also replace its ${name} prompt variables."
+        )
 
     @property
     def requires_approval(self): return True
@@ -167,6 +214,7 @@ class EditPromptTool(BaseTool):
                 "name": {"type": "string"},
                 "usage_hint": {"type": "string", "enum": ["positive", "negative"]},
                 "segments": {"type": "array", "items": RICH_SEGMENT_SCHEMA, "minItems": 1},
+                "variables": VARIABLES_SCHEMA,
             },
             "required": ["prompt_id"],
         }
@@ -181,7 +229,7 @@ class EditPromptTool(BaseTool):
         existing = self._existing(context, prompt_id) if prompt_id else None
         if existing is None:
             return ToolResult(success=False, data="", error=f"Prompt '{prompt_id}' not found")
-        if not any(key in kwargs for key in ("name", "usage_hint", "segments")):
+        if not any(key in kwargs for key in ("name", "usage_hint", "segments", "variables")):
             return ToolResult(success=False, data="", error="No Prompt fields were supplied")
         try:
             request = _prompt_request(existing, **kwargs)
@@ -199,6 +247,12 @@ class EditPromptTool(BaseTool):
             fields.append({"label": "Name", "value": kwargs["name"], "old": existing.name or "Untitled"})
         if kwargs.get("usage_hint") and kwargs["usage_hint"] != existing.usage_hint:
             fields.append({"label": "Usage", "value": kwargs["usage_hint"], "old": existing.usage_hint or "unset"})
+        if "variables" in kwargs and kwargs["variables"] != existing.variables:
+            fields.append({
+                "label": "Variables",
+                "value": f"{len(request.variables or {})} variables",
+                "old": f"{len(existing.variables or {})} variables",
+            })
 
         preview = ToolApprovalPreview(
             action="Edit prompt",

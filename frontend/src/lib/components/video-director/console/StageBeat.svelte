@@ -22,6 +22,9 @@
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import type { Segment } from '$lib/types/segments';
+	import { directorShotWirePrompt } from '$lib/utils/videoDirector';
+	import { resolvePromptSegments } from '$lib/utils/promptSegments';
+	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
 
 	const presetSegmentTemplates =
 		getContext<Readable<PresetSegmentTemplate[]>>('presetSegmentTemplates') ?? readable<PresetSegmentTemplate[]>([]);
@@ -31,7 +34,12 @@
 		doc,
 		caps,
 		timelineShotId,
-		onDoc
+		onDoc,
+		variables = {},
+		variableRolls = {},
+		onVariableDefChange,
+		onVariablesImport,
+		onOpenVariableManager
 	}: {
 		model: StageShotModel;
 		doc: VideoDirectorValue;
@@ -40,6 +48,11 @@
 		 * routing (a chain shot's prompt IS its one segment). */
 		timelineShotId: string;
 		onDoc: (next: VideoDirectorValue) => void;
+		variables?: VariablesMap;
+		variableRolls?: Record<string, VariableRoll>;
+		onVariableDefChange?: (name: string, def: VariableDef) => void;
+		onVariablesImport?: (merged: VariablesMap) => void;
+		onOpenVariableManager?: () => void;
 	} = $props();
 
 	let isTimeline = $derived(model.routing === 'timeline' && model.footer.startSeconds != null && model.footer.endSeconds != null);
@@ -86,9 +99,15 @@
 		segments={model.promptSegments}
 		presetSegmentTemplates={$presetSegmentTemplates}
 		label="Prompt"
-		showPreview={false}
+		previewSegments={[...doc.global_prompt_segments, ...model.promptSegments]}
+		previewText={directorShotWirePrompt(doc.global_prompt, resolvePromptSegments(model.promptSegments), model.routing, model.isFirst)}
 		compact
 		placeholder={model.isFirst && model.isLast ? 'Describe the first shot…' : "Describe this shot's action, camera and composition…"}
+		{variables}
+		{variableRolls}
+		{onVariableDefChange}
+		{onVariablesImport}
+		{onOpenVariableManager}
 		on:segmentsChange={(e) => updatePromptSegments(e.detail)}
 	/>
 </div>

@@ -154,6 +154,45 @@ async def test_add_confirmed_calls_aggregate_manager(mock_operations):
 
 
 @pytest.mark.asyncio
+async def test_add_confirmed_with_variables_creates_the_prompt(mock_operations):
+    prompt_database = MagicMock()
+    mock_operations.create_prompt = AsyncMock(return_value=make_prompt("saved-1"))
+    variables = {"mood": {"type": "text", "value": "noir"}}
+
+    result = await AddPromptTool().execute_confirmed(
+        make_context(prompt_database, "owner-1"),
+        segments=[{"content": "a fox"}],
+        variables=variables,
+    )
+
+    assert result.success is True
+    mock_operations.create_prompt.assert_awaited_once()
+    _, _, request = mock_operations.create_prompt.await_args.args
+    assert request.variables == variables
+
+
+@pytest.mark.asyncio
+async def test_add_rejects_a_variables_cycle():
+    result = await AddPromptTool().execute(
+        make_context(MagicMock()),
+        segments=[{"content": "a fox"}],
+        variables={
+            "a": {
+                "type": "choice", "mode": "shuffle", "pinnedIndex": None,
+                "options": [{"text": "x", "when": {"var": "b", "values": ["y"]}}],
+            },
+            "b": {
+                "type": "choice", "mode": "shuffle", "pinnedIndex": None,
+                "options": [{"text": "y", "when": {"var": "a", "values": ["x"]}}],
+            },
+        },
+    )
+
+    assert result.success is False
+    assert "cycle" in result.error
+
+
+@pytest.mark.asyncio
 async def test_edit_proposal_shows_old_and_new_ordered_aggregates():
     prompt_database = MagicMock()
     prompt_database.repository.get_by_id.return_value = make_prompt()
@@ -251,6 +290,23 @@ async def test_edit_requires_an_existing_prompt_and_at_least_one_change():
     assert unchanged.success is False
     assert unchanged.error is not None
     assert "No Prompt fields" in unchanged.error
+
+
+@pytest.mark.asyncio
+async def test_edit_accepts_a_variables_only_change(mock_operations):
+    prompt_database = MagicMock()
+    prompt_database.repository.get_by_id.return_value = make_prompt()
+    variables = {"mood": {"type": "text", "value": "noir"}}
+
+    result = await EditPromptTool().execute(
+        make_context(prompt_database), prompt_id="prompt-1", variables=variables,
+    )
+
+    assert result.success is True
+    proposal = json.loads(result.data)["proposal"]
+    assert proposal["new"]["variables"] == variables
+    fields = {f["label"]: f["value"] for f in result.preview.fields}
+    assert fields["Variables"] == "1 variables"
 
 
 @pytest.mark.asyncio

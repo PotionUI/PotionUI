@@ -11,6 +11,7 @@
 	import type { VideoDirectorValue, DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { ConsoleShot } from './consoleModel';
 	import type { ConsoleSelection } from './consoleSelection';
+	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
 	import { deriveStageModel } from '../stage-rail/stageModel';
 	import type { RailSelectionId } from '../stage-rail/railModel';
 	import StageBeat from './StageBeat.svelte';
@@ -28,7 +29,12 @@
 		formData,
 		presetId,
 		selection,
-		onDoc
+		onDoc,
+		variables = {},
+		variableRolls = {},
+		onVariableDefChange,
+		onVariablesImport,
+		onOpenVariableManager
 	}: {
 		shot: ConsoleShot;
 		doc: VideoDirectorValue;
@@ -37,6 +43,11 @@
 		presetId: string;
 		selection: ConsoleSelection;
 		onDoc: (next: VideoDirectorValue) => void;
+		variables?: VariablesMap;
+		variableRolls?: Record<string, VariableRoll>;
+		onVariableDefChange?: (name: string, def: VariableDef) => void;
+		onVariablesImport?: (merged: VariablesMap) => void;
+		onOpenVariableManager?: () => void;
 	} = $props();
 
 	let activeTab: ConsoleShot['tabs'][number]['id'] = $state('selection');
@@ -113,7 +124,18 @@
 	{#if activeTab === 'selection'}
 		{#if capText}<div class="stage-cap">{capText}</div>{/if}
 		{#if stageModel.selected.kind === 'shot'}
-			<StageBeat model={stageModel.selected} {doc} {caps} timelineShotId={shot.id} {onDoc} />
+			<StageBeat
+				model={stageModel.selected}
+				{doc}
+				{caps}
+				timelineShotId={shot.id}
+				{onDoc}
+				{variables}
+				{variableRolls}
+				{onVariableDefChange}
+				{onVariablesImport}
+				{onOpenVariableManager}
+			/>
 		{:else if stageModel.selected.kind === 'keyframe'}
 			<StageKeyframe model={stageModel.selected} {doc} {caps} timelineShotId={shot.id} {formData} {onDoc} />
 		{:else if stageModel.selected.kind === 'audio'}

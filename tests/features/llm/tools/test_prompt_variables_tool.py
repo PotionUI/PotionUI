@@ -361,3 +361,209 @@ class TestExecuteConfirmed:
             ctx, operations=[set_op("one_more", type="text", value="y")]
         )
         assert result.success is False
+
+
+# ---------------------------------------------------------------------------
+# Conditional options ("when")
+# ---------------------------------------------------------------------------
+
+class TestConditionalOptions:
+    @pytest.mark.asyncio
+    async def test_object_option_accepted_and_passed_through(self):
+        existing = [choice_var("music", ["hip hop", "classical", "latin"])]
+        ctx = make_context(session_metadata={"form_state": make_form_state(existing)})
+        result = await ManagePromptVariablesTool().execute_confirmed(
+            ctx,
+            operations=[
+                set_op(
+                    "dance",
+                    type="choice",
+                    options=[
+                        {"text": "breaking", "when": {"var": "music", "values": ["hip hop"]}},
+                        "salsa",
+                    ],
+                )
+            ],
+        )
+        assert result.success is True
+        payload = json.loads(result.data)
+        op = payload["operations"][0]
+        assert op["options"] == [
+            {"text": "breaking", "when": {"var": "music", "values": ["hip hop"]}},
+            "salsa",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_batch_local_reference_accepted(self):
+        ctx = make_context(session_metadata={"form_state": make_form_state()})
+        result = await ManagePromptVariablesTool().execute_confirmed(
+            ctx,
+            operations=[
+                set_op("music", type="choice", options=["hip hop", "classical"]),
+                set_op(
+                    "dance",
+                    type="choice",
+                    options=[
+                        {"text": "breaking", "when": {"var": "music", "values": ["hip hop"]}},
+                        "waltz",
+                    ],
+                ),
+            ],
+        )
+        assert result.success is True
+        payload = json.loads(result.data)
+        assert len(payload["operations"]) == 2
+        assert payload["operations"][1]["options"][0]["when"] == {
+            "var": "music",
+            "values": ["hip hop"],
+        }
+
+    @pytest.mark.asyncio
+    async def test_unknown_when_var_produces_teaching_error(self):
+        existing = [
+            choice_var("music", ["hip hop", "classical", "latin"]),
+            choice_var("era", ["80s", "90s"]),
+        ]
+        ctx = make_context(session_metadata={"form_state": make_form_state(existing)})
+        result = await ManagePromptVariablesTool().execute(
+            ctx,
+            operations=[
+                set_op(
+                    "dance",
+                    type="choice",
+                    options=[{"text": "breaking", "when": {"var": "musc", "values": ["hip hop"]}}],
+                )
+            ],
+        )
+        assert result.success is False
+        assert result.error == (
+            "'dance': when.var 'musc' is not a choice variable on this tab; "
+            "choice variables: music, era."
+        )
+
+    @pytest.mark.asyncio
+    async def test_when_var_not_a_choice_variable_produces_teaching_error(self):
+        existing = [text_var("music", "hip hop")]
+        ctx = make_context(session_metadata={"form_state": make_form_state(existing)})
+        result = await ManagePromptVariablesTool().execute(
+            ctx,
+            operations=[
+                set_op(
+                    "dance",
+                    type="choice",
+                    options=[{"text": "breaking", "when": {"var": "music", "values": ["hip hop"]}}],
+                )
+            ],
+        )
+        assert result.success is False
+        assert "is not a choice variable on this tab" in result.error
+
+    @pytest.mark.asyncio
+    async def test_self_reference_rejected(self):
+        ctx = make_context(session_metadata={"form_state": make_form_state()})
+        result = await ManagePromptVariablesTool().execute(
+            ctx,
+            operations=[
+                set_op(
+                    "dance",
+                    type="choice",
+                    options=[{"text": "breaking", "when": {"var": "dance", "values": ["waltz"]}}],
+                )
+            ],
+        )
+        assert result.success is False
+        assert result.error == "'dance': when.var cannot reference 'dance' itself."
+
+    @pytest.mark.asyncio
+    async def test_cycle_rejected_with_teaching_error(self):
+        existing = [
+            choice_var("music", ["hip hop", "classical"]),
+            choice_var(
+                "dance",
+                [
+                    {"text": "breaking", "when": {"var": "music", "values": ["hip hop"]}},
+                    "waltz",
+                ],
+            ),
+        ]
+        ctx = make_context(session_metadata={"form_state": make_form_state(existing)})
+        result = await ManagePromptVariablesTool().execute(
+            ctx,
+            operations=[
+                set_op(
+                    "music",
+                    type="choice",
+                    options=[
+                        {"text": "hip hop", "when": {"var": "dance", "values": ["waltz"]}},
+                        "classical",
+                    ],
+                )
+            ],
+        )
+        assert result.success is False
+        assert result.error == (
+            "'music': when.var 'dance' would make a cycle "
+            "(dance already resolves after music)."
+        )
+
+    @pytest.mark.asyncio
+    async def test_unknown_when_values_produces_teaching_error(self):
+        existing = [choice_var("music", ["hip hop", "classical", "latin"])]
+        ctx = make_context(session_metadata={"form_state": make_form_state(existing)})
+        result = await ManagePromptVariablesTool().execute(
+            ctx,
+            operations=[
+                set_op(
+                    "dance",
+                    type="choice",
+                    options=[{"text": "breaking", "when": {"var": "music", "values": ["hiphop"]}}],
+                )
+            ],
+        )
+        assert result.success is False
+        assert result.error == (
+            '\'dance\': when.values ["hiphop"] are not options of $music; '
+            "its options are hip hop, classical, latin."
+        )
+
+    @pytest.mark.asyncio
+    async def test_empty_when_values_rejected(self):
+        existing = [choice_var("music", ["hip hop"])]
+        ctx = make_context(session_metadata={"form_state": make_form_state(existing)})
+        result = await ManagePromptVariablesTool().execute(
+            ctx,
+            operations=[
+                set_op(
+                    "dance",
+                    type="choice",
+                    options=[{"text": "breaking", "when": {"var": "music", "values": []}}],
+                )
+            ],
+        )
+        assert result.success is False
+        assert result.error == "'dance': when.values must not be empty."
+
+    @pytest.mark.asyncio
+    async def test_describe_conditioned_variable_in_preview(self):
+        existing = [choice_var("music", ["hip hop", "classical"])]
+        ctx = make_context(session_metadata={"form_state": make_form_state(existing)})
+        result = await ManagePromptVariablesTool().execute(
+            ctx,
+            operations=[
+                set_op(
+                    "dance",
+                    type="choice",
+                    options=[
+                        {"text": "breaking", "when": {"var": "music", "values": ["hip hop"]}},
+                        "salsa",
+                    ],
+                )
+            ],
+        )
+        assert result.success is True
+        payload = json.loads(result.data)
+        new_value = payload["proposed_changes"][0]["new_value"]
+        assert new_value == (
+            "resolves after $music — one of breaking (when $music = hip hop), salsa "
+            "— shuffles each generation"
+        )

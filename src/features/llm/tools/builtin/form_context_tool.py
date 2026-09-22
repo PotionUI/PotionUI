@@ -180,7 +180,9 @@ class GetFormStateTool(BaseTool):
             "and current value. For model fields (type 'model'), the value contains a modelPath "
             "that can be used with get_model_info to get model details like description. "
             "If the prompt uses ${name} variables, a 'prompt_variables' list describes each in "
-            "plain language (its options and whether it shuffles, is pinned, or re-rolls per image)."
+            "plain language (its options and whether it shuffles, is pinned, or re-rolls per "
+            "image), noting any option's condition ('(when $other = value)') and, when a "
+            "variable depends on another, a 'resolves after $other' prefix."
         )
 
     @property

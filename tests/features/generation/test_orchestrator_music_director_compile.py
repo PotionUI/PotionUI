@@ -272,3 +272,48 @@ class TestCompiledLyricsAttachment:
 
         mock_compile.assert_not_called()
         assert request.form_data == {'steps': 20}
+
+
+class TestMusicDirectorPromptExpansion:
+    def test_description_sections_and_compiled_lyrics_are_expanded(self, orchestrator):
+        document = {
+            'mode': 'director',
+            'description': 'a ${genre} ballad',
+            'settings': {'seed': 7},
+            'sections': [
+                {'id': 'sec-1', 'kind': 'verse', 'lyrics': 'rain on the ${place}', 'style_hint': '${genre} guitar'},
+                {'id': 'sec-2', 'kind': 'chorus', 'lyrics': 'nowhere to go', 'style_hint': None},
+            ],
+            'compiled_lyrics': '',
+        }
+        request = _request({'music_director': document})
+        request.variables = {'genre': 'folk', 'place': 'window'}
+
+        result = orchestrator._expand_prompts_per_image('gen1', request, None)
+
+        assert result is None
+        assert document['description'] == 'a folk ballad'
+        assert document['sections'][0]['lyrics'] == 'rain on the window'
+        assert document['sections'][0]['style_hint'] == 'folk guitar'
+        assert document['sections'][1]['style_hint'] is None
+        assert document['compiled_lyrics'] == '[Verse]\nrain on the window\n\n[Chorus]\nnowhere to go'
+
+    def test_undefined_variable_expands_to_empty(self, orchestrator):
+        document = {'mode': 't2m', 'description': '${missing} beat', 'settings': {'seed': 1}}
+        request = _request({'music_director': document})
+
+        orchestrator._expand_prompts_per_image('gen1', request, None)
+
+        assert document['description'] == 'beat'
+        assert 'compiled_lyrics' not in document
+
+    def test_choice_grammar_is_deterministic_for_a_fixed_seed(self, orchestrator):
+        def _make():
+            return {'mode': 't2m', 'description': '{a|b|c|d|e|f}', 'settings': {'seed': 55}}
+
+        first, second = _make(), _make()
+        orchestrator._expand_prompts_per_image('gen1', _request({'music_director': first}), None)
+        orchestrator._expand_prompts_per_image('gen2', _request({'music_director': second}), None)
+
+        assert first['description'] == second['description']
+        assert first['description'] in list('abcdef')

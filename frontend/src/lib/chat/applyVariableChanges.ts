@@ -8,6 +8,7 @@ import {
 	createChoiceVariable,
 	createTextVariable,
 	type ChoiceVariableMode,
+	type VariableOption,
 	type VariablesMap
 } from '$lib/utils/variableDefs';
 
@@ -16,7 +17,7 @@ export interface PromptVariableOperation {
 	name: string;
 	type?: 'text' | 'choice';
 	value?: string;
-	options?: string[];
+	options?: VariableOption[];
 	mode?: ChoiceVariableMode;
 	pinned_index?: number | null;
 }

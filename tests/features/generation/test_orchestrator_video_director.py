@@ -523,9 +523,11 @@ class TestPerShotCompileWiring:
         mock_backend_registry.select_backend_for_generation.assert_not_called()
 
 
-class TestPromptExpansionBypass:
-    def test_expansion_bypassed_when_document_present(self, orchestrator):
-        request = _request({'video_director': {'mode': 't2v'}, 'quantity': 4, 'seed': 1})
+class TestDirectorPromptExpansion:
+    def test_top_level_prompts_list_is_untouched_when_document_has_no_segments(self, orchestrator):
+        """A Director document has no `prompts[0]` template of its own; the
+        top-level list this method otherwise expands is returned as-is."""
+        request = _request({'video_director': {'mode': 't2v', 'segments': []}, 'quantity': 4, 'seed': 1})
         prompts = [{'positive': '{a|b|c}', 'negative': ''}]
 
         with patch('src.features.generation.prompt_expansion.expand_prompts') as mock_expand:
@@ -542,3 +544,73 @@ class TestPromptExpansionBypass:
 
         assert len(result) == 4
         assert all(p['positive'] in ('a', 'b', 'c') for p in result)
+
+    def test_segment_variables_and_choice_grammar_are_expanded_in_place(self, orchestrator):
+        document = {
+            'mode': 'director',
+            'settings': {'seed': 100},
+            'segments': [
+                {'id': 'seg-1', 'prompt': '${hero} running', 'negative_prompt': 'blurry'},
+                {'id': 'seg-2', 'prompt': '${hero} jumping {high|low}', 'negative_prompt': ''},
+            ],
+        }
+        request = _request({'video_director': document})
+        request.variables = {'hero': 'a red fox'}
+
+        result = orchestrator._expand_prompts_per_image('gen1', request, None)
+
+        assert result is None
+        assert document['segments'][0]['prompt'] == 'a red fox running'
+        assert document['segments'][0]['negative_prompt'] == 'blurry'
+        assert document['segments'][1]['prompt'] in ('a red fox jumping high', 'a red fox jumping low')
+
+    def test_first_segment_expansion_replaces_the_recorded_positive_prompt(self, orchestrator):
+        document = {
+            'mode': 't2v',
+            'settings': {'seed': 3},
+            'segments': [{'id': 'seg-1', 'prompt': '${hero} on stage', 'negative_prompt': '${bad}'}],
+        }
+        request = _request({'video_director': document})
+        request.variables = {'hero': 'a violinist', 'bad': 'blurry'}
+        prompts = [{'positive': '${hero} on stage', 'negative': '${bad}'}]
+
+        result = orchestrator._expand_prompts_per_image('gen1', request, prompts)
+
+        assert result is prompts
+        assert prompts[0] == {'positive': 'a violinist on stage', 'negative': 'blurry'}
+
+    def test_undefined_variable_expands_to_empty(self, orchestrator):
+        document = {
+            'mode': 't2v',
+            'settings': {'seed': 1},
+            'segments': [{'id': 'seg-1', 'prompt': '${missing} shot', 'negative_prompt': ''}],
+        }
+        request = _request({'video_director': document})
+
+        orchestrator._expand_prompts_per_image('gen1', request, None)
+
+        assert document['segments'][0]['prompt'] == 'shot'
+
+    def test_expansion_is_deterministic_for_a_fixed_document_seed(self, orchestrator):
+        def _make_document():
+            return {
+                'mode': 't2v',
+                'settings': {'seed': 55},
+                'segments': [{'id': 'seg-1', 'prompt': '{a|b|c|d}', 'negative_prompt': ''}],
+            }
+
+        first_doc = _make_document()
+        second_doc = _make_document()
+        orchestrator._expand_prompts_per_image('gen1', _request({'video_director': first_doc}), None)
+        orchestrator._expand_prompts_per_image('gen2', _request({'video_director': second_doc}), None)
+
+        assert first_doc['segments'][0]['prompt'] == second_doc['segments'][0]['prompt']
+
+    def test_non_director_path_is_unaffected(self, orchestrator):
+        request = _request({'quantity': 1, 'seed': 1})
+        request.variables = {'mood': 'moody'}
+        prompts = [{'positive': 'a ${mood} shot', 'negative': ''}]
+
+        result = orchestrator._expand_prompts_per_image('gen1', request, prompts)
+
+        assert result[0]['positive'] == 'a moody shot'

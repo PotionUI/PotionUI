@@ -36,6 +36,7 @@ class Prompt:
     tags: List[str] = field(default_factory=list)
     nsfw: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
+    variables: Optional[Dict[str, Any]] = None
     embedded: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -85,6 +86,7 @@ class Prompt:
             "tags": self.tags,
             "nsfw": self.nsfw,
             "metadata": self.metadata,
+            "variables": self.variables,
             "embedded": self.embedded,
             "created_at": dt_iso(self.created_at),
             "updated_at": dt_iso(self.updated_at),

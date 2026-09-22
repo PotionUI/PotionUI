@@ -48,6 +48,18 @@ confirmed result is an `apply_variable_changes` action the frontend applies via
 `frontend/src/lib/chat/applyVariableChanges.ts`. The model never invents a `${name}`: it either
 references one already in `form_state.variables`, or calls this tool first.
 
+A choice option is a plain string, or `{text, when: {var, values}}` to make it eligible only
+when the referenced variable last resolved to one of `values`; the wire op passes conditioned
+options through unchanged, in the same shape they were sent. `when.var` must already be a choice variable on
+the tab (or set earlier in the same `operations` batch), must not be the variable being
+defined, and must not depend on it in turn — the validator walks the `when` edges of every
+variable in scope and rejects a cycle. `when.values` must match the referenced variable's
+option texts exactly; there is no fuzzy repair. Every rejection names the fix, e.g. `'dance':
+when.var 'musc' is not a choice variable on this tab; choice variables: music, era.` A variable
+with conditioned options resolves after the variables its `when.var`s name — `get_form_state`
+and `@form` show this as a `resolves after $music` prefix, and each conditioned option as
+`breaking (when $music = hip hop)`.
+
 ## Seeding
 
 `src/features/generation/orchestrator.py::_expand_prompts_per_image` runs just before

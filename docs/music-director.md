@@ -413,7 +413,7 @@ These are current, not architectural — expect some to loosen as the pipes matu
   idiom; read it for the fuller worked examples of the overlay mechanism and the
   path-resolution discipline both modules share.
 - [Preset Authoring Guide](presets.md) — `preset.yml`, `vars:`, forms, pipeline templating.
-- [Prompt Expansion](prompts.md) — the `{a|b}` dynamicprompts grammar; `description` and
-  section `lyrics`/`style_hint` in this contract are literal, same as Video Director's
-  segment prompts, for the same reason (per-image variant sampling doesn't compose with a
-  single fixed generation).
+- [Prompt Expansion](prompts.md) — the `${vars}`/`{a|b}` dynamicprompts grammar; `description`
+  and section `lyrics`/`style_hint` in this contract expand exactly once, seeded from
+  `settings.seed` (sections at seed + index + 1), and `compiled_lyrics` is rebuilt from the
+  expanded sections, same as Video Director's segment prompts.

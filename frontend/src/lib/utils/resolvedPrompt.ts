@@ -10,10 +10,11 @@ export interface ResolvedPromptStats {
 }
 
 export function resolvedPromptStats(
-	segments: readonly (Segment | RichSegment)[] = []
+	segments: readonly (Segment | RichSegment)[] = [],
+	text: string = flattenRichSegments(segments)
 ): ResolvedPromptStats {
 	return {
-		chars: flattenRichSegments(segments).length,
+		chars: text.length,
 		breaks: segments.filter((segment) => segment.type === 'break' && isSegmentEnabled(segment)).length
 	};
 }
@@ -67,9 +68,9 @@ function isFreeStanding(text: string, start: number, end: number): boolean {
 }
 
 export function resolvedPromptTokens(
-	segments: readonly (Segment | RichSegment)[] = []
+	segments: readonly (Segment | RichSegment)[] = [],
+	text: string = flattenRichSegments(segments)
 ): ResolvedPromptToken[] {
-	const text = flattenRichSegments(segments);
 	if (!text) return [];
 
 	const candidates: Candidate[] = [];

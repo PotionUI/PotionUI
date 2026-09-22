@@ -947,10 +947,11 @@ contract, not internal function names, so it won't go stale as the implementatio
 
 These are current, not architectural — expect some to loosen as the pipes mature.
 
-- **Prompts are literal.** Unlike the main prompt editor's `{a|b}` dynamicprompts grammar
-  (see [Prompt Expansion](prompts.md)), a Video Director segment's `prompt`/`negative_prompt`
-  is used exactly as written — no per-image variant sampling. The orchestrator skips prompt
-  expansion entirely when `form_data.video_director` is present.
+- **Prompts expand once per segment.** A segment's `prompt`/`negative_prompt` goes through
+  the same expander as the main prompt editor (see [Prompt Expansion](prompts.md)): `${vars}`
+  resolve and `{a|b}` is sampled exactly once per segment, seeded by the segment's own seed
+  (else the document seed plus the segment index), so a fixed seed reproduces the same text.
+  There is no per-image variant sampling — a director run produces one video.
 - **`quantity` is effectively `1` in a chain-style director** — a chain produces one
   stitched video per generation, not a batch of independent chains.
 - **Conditioned LTX runs are euler-only** — keyframe-token conditioning (i2v/flf/director)
@@ -966,7 +967,7 @@ These are current, not architectural — expect some to loosen as the pipes matu
 ## See also
 
 - [Preset Authoring Guide](presets.md) — `preset.yml`, `vars:`, forms, pipeline templating.
-- [Prompt Expansion](prompts.md) — the `{a|b}` dynamicprompts grammar Video Director
-  segments deliberately don't use, and why ComfyUI presets are per-batch.
+- [Prompt Expansion](prompts.md) — the `${vars}`/`{a|b}` dynamicprompts grammar Video
+  Director segments expand once per segment, and why ComfyUI presets are per-batch.
 - [Backends and Engines](backends.md) — Video Director targets the `native` engine; a
   `comfyui` preset is untouched by any of this.

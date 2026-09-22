@@ -15,6 +15,8 @@
 	export let variables: VariablesMap = {};
 	export let variableRolls: Record<string, VariableRoll> = {};
 	export let onVariableDefChange: ((name: string, def: VariableDef) => void) | undefined = undefined;
+	export let onVariablesImport: ((merged: VariablesMap) => void) | undefined = undefined;
+	export let onSourcePromptChange: ((id: string | null) => void) | undefined = undefined;
 	export let onOpenVariableManager: (() => void) | undefined = undefined;
 	export let activeTriggerWords: string[] = [];
 	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
@@ -97,6 +99,8 @@
 				{variables}
 				{variableRolls}
 				{onVariableDefChange}
+				{onVariablesImport}
+				{onSourcePromptChange}
 				{onOpenVariableManager}
 				{activeTriggerWords}
 				{presetSegmentTemplates}

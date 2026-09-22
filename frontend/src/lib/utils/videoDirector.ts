@@ -1648,6 +1648,15 @@ function directorSegmentPrompt(globalPrompt: string, segmentText: string, isFirs
 	return isFirst ? joinPrompt(globalPrompt, segmentText) : segmentText.trim();
 }
 
+export function directorShotWirePrompt(
+	globalPrompt: string,
+	segmentText: string,
+	routing: 'chain' | string,
+	isFirst: boolean
+): string {
+	return routing === 'chain' ? directorSegmentPrompt(globalPrompt, segmentText, isFirst) : joinPrompt(globalPrompt, segmentText);
+}
+
 // A segment's `references` is already the exact wire shape (see SegmentReference's
 // doc comment) -- only ever populated under the top-level 'per_shot' capability
 // ('whole'/null never emit the field, the pool is implicit from the form), and

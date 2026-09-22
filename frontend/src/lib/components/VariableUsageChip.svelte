@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		normalizeVariableDef,
+		optionText,
 		type ChoiceVariableMode,
 		type VariableDef,
 		type StoredVariableDef,
@@ -60,6 +61,7 @@
 	$: def = definition !== undefined ? normalizeVariableDef(definition) : null;
 	$: isUndefined = def === null;
 	$: isShuffleWithRoll = def?.type === 'choice' && def.mode === 'shuffle' && !!roll;
+	$: isEmptyRoll = def?.type === 'choice' && def.mode === 'shuffle' && !!roll && roll.value === '';
 	$: isPerImage = def?.type === 'choice' && def.mode === 'per-image';
 
 	// A stable-per-name color, the same visual language InlineChip.svelte uses
@@ -94,7 +96,7 @@
 <InlinePopoverChip
 	{variant}
 	kind="variable"
-	tone={isUndefined ? 'warning' : 'accent'}
+	tone={isUndefined || isEmptyRoll ? 'warning' : 'accent'}
 	density="tight"
 	{disabled}
 	onremove={onRemove}
@@ -113,7 +115,11 @@
 		<span class="text-sm font-mono {isUndefined ? 'text-warning' : 'text-fg-subtle'}">$</span>
 		<span class="text-sm font-mono whitespace-nowrap max-w-[10rem] truncate {isUndefined ? 'text-warning' : 'text-fg'}">{name}</span>
 
-		{#if isShuffleWithRoll && roll}
+		{#if isEmptyRoll}
+			<span class="text-fg-subtle">&middot;</span>
+			<Icon name="warning" className="w-3 h-3 text-warning flex-shrink-0" />
+			<span class="text-sm font-medium text-warning whitespace-nowrap">nothing</span>
+		{:else if isShuffleWithRoll && roll}
 			<span class="text-fg-subtle">&middot;</span>
 			<span class="h-2 w-2 rounded-full {indicatorColor} flex-shrink-0"></span>
 			<span class="text-sm font-medium text-fg whitespace-nowrap max-w-[8rem] truncate">{roll.value}</span>
@@ -127,7 +133,9 @@
 			<svg class="icon"><use href="#i-info" /></svg>
 		{/if}
 		<span class="chip-context">{name}</span>
-		{#if isShuffleWithRoll && roll}
+		{#if isEmptyRoll}
+			<span class="chip-label">nothing</span>
+		{:else if isShuffleWithRoll && roll}
 			<span class="chip-label">{roll.value}</span>
 		{:else if def?.type === 'text'}
 			<span class="chip-label">{def.value || '(empty)'}</span>
@@ -145,7 +153,7 @@
 					{#each def.options as option, index (index)}
 						<div class="option-row">
 							<span class="dot"></span>
-							<strong>{option || `Option ${index + 1}`}</strong>
+							<strong>{optionText(option) || `Option ${index + 1}`}</strong>
 							<span>
 								{def.mode === 'pin' && def.pinnedIndex === index
 									? 'Current'
@@ -181,7 +189,7 @@
 							aria-label={`Which option to use for ${name}`}
 						>
 							{#each def.options as option, index (index)}
-								<option value={index}>{option || `Option ${index + 1}`}</option>
+								<option value={index}>{optionText(option) || `Option ${index + 1}`}</option>
 							{/each}
 						</select>
 					{/if}
@@ -228,15 +236,25 @@
 							{:else}
 								<span class="h-3.5 w-3.5 flex-shrink-0"></span>
 							{/if}
-							<span class="truncate">{option || `Option ${index + 1}`}</span>
+							<span class="truncate">{optionText(option) || `Option ${index + 1}`}</span>
 						</li>
 					{/each}
 				</ul>
 
 				{#if def.mode === 'shuffle'}
-					<p class="mt-1.5 text-2xs text-fg-subtle">
-						{#if roll}
+					<p class="mt-1.5 text-2xs {isEmptyRoll ? 'text-warning' : 'text-fg-subtle'}">
+						{#if isEmptyRoll && roll?.because}
+							No option is eligible for <span class="font-mono">${roll.because.var} = {roll.because.value}</span>.
+						{:else if isEmptyRoll}
+							No option is eligible and none is marked Always — it will expand to nothing.
+						{:else if roll}
 							Rolled <span class="text-fg">{roll.value}</span> for this generation. Re-rolls every time you click Generate.
+							{#if roll.because}
+								<br />because <span class="font-mono text-fg">${roll.because.var} = {roll.because.value}</span>
+							{/if}
+							{#if roll.eligible !== undefined && roll.total !== undefined}
+								<span class="text-fg-subtle"> · {roll.eligible} of {roll.total} eligible</span>
+							{/if}
 						{:else}
 							Rolls a new pick the next time you click Generate.
 						{/if}
@@ -269,7 +287,7 @@
 						aria-label={`Which option to use for ${name}`}
 					>
 						{#each def.options as option, index (index)}
-							<option value={index}>{option || `Option ${index + 1}`}</option>
+							<option value={index}>{optionText(option) || `Option ${index + 1}`}</option>
 						{/each}
 					</select>
 				{/if}

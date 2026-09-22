@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.features.segments.dto import RichSegment
 from src.features.prompt_database.validators import validate_at_least_one_segment_policy
+from src.platform.resources.prompt_variables import validate_variables_map
 
 
 class PromptMetadata(BaseModel):
@@ -32,6 +33,7 @@ class PromptMetadata(BaseModel):
     tags: List[str] = Field(default_factory=list)
     nsfw: bool = False
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    variables: Optional[Dict[str, Any]] = None
 
 
 class PromptRequest(PromptMetadata):
@@ -51,6 +53,14 @@ class PromptRequest(PromptMetadata):
     @classmethod
     def at_least_one_segment(cls, value: List[RichSegment]) -> List[RichSegment]:
         return validate_at_least_one_segment_policy(value)
+
+    @field_validator("variables")
+    @classmethod
+    def variables_are_valid(cls, value: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        errors = validate_variables_map(value)
+        if errors:
+            raise ValueError("; ".join(errors))
+        return value
 
 
 class PromptResponse(PromptMetadata):

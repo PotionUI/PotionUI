@@ -2688,6 +2688,34 @@ class TestGetFormStateTool:
         ]
 
     @pytest.mark.asyncio
+    async def test_prompt_variables_shows_condition_and_resolve_order(self):
+        form_state = {
+            "preset": "sdxl-standard",
+            "mode": "t2i",
+            "variables": [
+                {"name": "music", "type": "choice", "options": ["hip hop", "classical"]},
+                {
+                    "name": "dance",
+                    "type": "choice",
+                    "options": [
+                        {"text": "breaking", "when": {"var": "music", "values": ["hip hop"]}},
+                        "salsa",
+                    ],
+                },
+            ],
+        }
+        ctx = make_context(session_metadata={"form_state": form_state})
+
+        result = await self._tool().execute(ctx)
+
+        data = json.loads(result.data)
+        assert data["prompt_variables"] == [
+            "music: one of hip hop, classical — shuffles each generation",
+            "dance — resolves after $music — one of breaking (when $music = hip hop), salsa "
+            "— shuffles each generation",
+        ]
+
+    @pytest.mark.asyncio
     async def test_prompt_variables_absent_when_no_variables(self):
         form_state = {"preset": "sdxl-standard", "mode": "t2i"}
         ctx = make_context(session_metadata={"form_state": form_state})

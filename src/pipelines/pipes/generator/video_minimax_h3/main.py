@@ -75,22 +75,45 @@ up to the truncated schedule's first kept sigma with `schedule.scale_noise`
 -- the same math `prepare_keyframe_condition_rows` already uses for a
 keyframe anchor, reused rather than reinvented.
 
-**Audio on a refine.** This pipe does not lock the target audio rows clean
-during a refine (that needs a THIRD row-timestep category the packed-
-sequence/scheduler machinery has no seam for today, on top of the existing
-condition/target split -- out of scope here, see the port notes). The
-pragmatic route instead: audio samples normally over the truncated schedule,
-and a caller that wants to preserve the source clip's lipsync sets
-`audio_source="passthrough"` with the existing `audio` input wired to the
-source track, which mutes this pipe's own audio and mux'es the source's
-verbatim (`_resolve_audio`'s existing "file"/"passthrough" branch -- no new
-machinery needed for this).
+**Audio on a refine.** A refine's target audio rows are never drawn from
+`torch.randn` on their own -- a 4-8 step low-sigma refine cannot turn pure
+noise into audio, and those rows share the packed sequence the video rows
+attend to every step, so leaving them unconditioned shows up as noise/
+artifacts in the refined VIDEO too, not just a bad soundtrack. `audio_refine`
+(config, default `"lock"`) picks the treatment once `initial_audio_latent` (or
+its `audio_source="passthrough"` fallback below) supplies a seed: `"lock"`
+noises it to the fixed, near-clean `KEYFRAME_NOISE_AUG` timestep and holds it
+there for every step, EXCLUDED from the Euler update -- a THIRD fixed-
+timestep row category (`_sample_window`'s `audio_locked`), alongside the
+existing video/audio condition rows, reusing the SAME row-timestep vector the
+model already builds those from rather than a mask blend. `"resample"`
+instead noises it to the truncated AUDIO schedule's own first kept sigma (the
+audio mirror of the video `initial_latent` path above) and samples it
+normally, letting the refine touch the audio the way it touches video.
+
+Stage 1 exposes the latent this needs as its own `audio_latent` output (the
+sampled audio rows, un-decoded, condition prefix excluded) -- a stage-2
+refine wires that straight into `initial_audio_latent`, no VAE round trip. A
+refine with NEITHER `initial_audio_latent` NOR a stage-1 latent connected
+falls back to `audio_source="passthrough"`'s own `audio` track, encoded
+through the audio VAE (`_encode_refine_audio_latent`); with no seed available
+at all, the refine is refused (`GenerationExecutionError`) rather than
+silently sampling the audio stream from unconditioned noise. A caller that
+still wants the SOURCE clip's lipsync untouched keeps `audio_source=
+"passthrough"` for the final MUXED track regardless of `audio_refine` --
+`_resolve_audio`'s existing "file"/"passthrough" branch mutes this pipe's own
+decoded audio and mux'es the source verbatim; `audio_refine` only controls
+what the DiT samples against during the refine itself.
 """
 
 from __future__ import annotations
 
+import math
+import shutil
+import subprocess
 import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
@@ -98,9 +121,10 @@ import torch
 
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
-from src.pipelines.outputs import Icon
+from src.pipelines.outputs import GenerationExecutionError, Icon
 from src.platform.runtime.device import clear_gpu_memory
 from src.platform.runtime.native.errors import SamplingCancelled
+from src.platform.runtime.native.lora import apply_loras, restore_lora_state, snapshot_lora_state
 from src.platform.runtime.native.memory.residency import effective_free_vram_gb, minimum_inference_memory_gb
 from src.platform.runtime.native.sampling.hooks import ProgressHook, run_hooks
 from src.platform.runtime.native.sampling.preview import make_preview_hook
@@ -118,10 +142,19 @@ from src.platform.runtime.native.arch.minimax_h3.vdn import (
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext, emit_gallery
 from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
+from src.pipelines.pipes._shared.generation.loader_helpers import (
+    active_loras as _active_loras,
+    load_lora_stack as _load_lora_stack,
+)
 from src.pipelines.pipes._shared.generation.reference_order import pack_references
 from src.pipelines.pipes._shared.generation.refmods import RefMod, load_refmods
 from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
-from src.pipelines.pipes._shared.vae.minimax_h3_decode import TILE_PX_CHOICES, decode_video
+from src.pipelines.pipes._shared.vae.minimax_h3_decode import (
+    TILE_PX_CHOICES,
+    decode_bytes_per_tile_token,
+    decode_tile_tokens,
+    decode_video,
+)
 from src.pipelines.pipes._shared.media.video_encode import AudioInput, AudioTrack, encode_frames_to_mp4
 from src.pipelines.pipes._shared.media.video_read import read_video_frames
 from src.pipelines.pipes.generator.txt2vid_ltx.main import release_idle_te
@@ -129,6 +162,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.audio import (
     AUDIO_CHANNELS,
     AUDIO_SAMPLE_RATE,
     decode_generated_audio,
+    encode_audio_condition,
     pack_audio_rows,
     unpack_audio_rows,
 )
@@ -298,6 +332,7 @@ VDN_ANCHOR_FRAMES = "both"
 
 _VALID_ANCHORS = ("first", "last")
 _VALID_AUDIO_SOURCES = ("generate", "file", "passthrough")
+_VALID_AUDIO_REFINE_MODES = ("lock", "resample")
 _VALID_MODES = ("video", "references")
 # `MiniMaxH3Ref2VASetupStep`'s own per-modality defaults (before_encoder.py),
 # re-exported from `conditioning` so the early request-shape check and the
@@ -338,6 +373,60 @@ def _load_reference_audio(audio_path: Any) -> ReferenceMedia:
     return ReferenceMedia(kind="audio", audio=waveform, sample_rate=int(sample_rate))
 
 
+def _decode_waveform_via_ffmpeg(path: Any) -> tuple[Tensor, int]:
+    """Any media file (pure audio, or a video with an embedded soundtrack) ->
+    a `(channels, samples)` float32 waveform at its native rate, via a real
+    `ffmpeg` decode rather than `soundfile` (which does not read video
+    containers) -- the fallback path for a refine's `audio_refine` when no
+    `initial_audio_latent` was connected (module docstring, "Audio on a
+    refine")."""
+    if shutil.which("ffmpeg") is None:
+        raise GenerationExecutionError(
+            "generator/video_minimax_h3: encoding a passthrough audio track into a refine's audio "
+            "latent needs ffmpeg on PATH"
+        )
+    import soundfile as sf
+
+    wav_path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", str(path), "-vn", "-acodec", "pcm_s16le", "-ar", str(AUDIO_SAMPLE_RATE), wav_path],
+            capture_output=True, timeout=120,
+        )
+        if result.returncode != 0:
+            raise GenerationExecutionError(
+                f"generator/video_minimax_h3: could not decode an audio track out of {path!r} "
+                f"({result.stderr.decode(errors='replace').strip()[-400:]})"
+            )
+        samples, sample_rate = sf.read(wav_path, dtype="float32", always_2d=True)
+    finally:
+        Path(wav_path).unlink(missing_ok=True)
+    return torch.from_numpy(np.ascontiguousarray(samples.T)), int(sample_rate)
+
+
+def _encode_refine_audio_latent(c: "_MiniMaxH3Ctx", audio_file: Any, num_audio_latents: int) -> Tensor:
+    """A refine's fallback audio target: encode `audio_file` (the
+    `audio_source='passthrough'` track) through the audio VAE into exactly
+    `num_audio_latents` packed condition-convention rows, the same space
+    `generate_one`'s own `audio_latent` output/`initial_audio_latent` input
+    carry (module docstring, "Audio on a refine")."""
+    if isinstance(audio_file, AudioTrack):
+        waveform = torch.from_numpy(np.ascontiguousarray(audio_file.waveform))
+        sample_rate = audio_file.sample_rate
+    else:
+        waveform, sample_rate = _decode_waveform_via_ffmpeg(audio_file)
+
+    audio_vae_module = c.bundle.audio_vae.module
+    _place_vae(c, c.bundle.audio_vae)
+    try:
+        return encode_audio_condition(
+            audio_vae_module, waveform, sample_rate=sample_rate,
+            num_condition_audio_latents=num_audio_latents, device=c.device, dtype=torch.float32,
+        )
+    finally:
+        c.bundle.audio_vae.offload()
+
+
 def validate_minimax_h3_config(config: Dict[str, Any], *, pipe_id: str) -> None:
     """Static (pipe_input-independent) cross-field checks, run before the
     pipe -- and the model it needs loaded -- ever runs."""
@@ -354,6 +443,12 @@ def validate_minimax_h3_config(config: Dict[str, Any], *, pipe_id: str) -> None:
     if audio_source not in _VALID_AUDIO_SOURCES:
         raise ValueError(
             f"{pipe_id}: 'audio_source' must be one of {_VALID_AUDIO_SOURCES}, got {audio_source!r}"
+        )
+
+    audio_refine = config.get("audio_refine", "lock")
+    if audio_refine not in _VALID_AUDIO_REFINE_MODES:
+        raise ValueError(
+            f"{pipe_id}: 'audio_refine' must be one of {_VALID_AUDIO_REFINE_MODES}, got {audio_refine!r}"
         )
 
     sampler = config.get("sampler", "euler")
@@ -501,13 +596,40 @@ def sparse_attn_dense_last_steps(config: Dict[str, Any]) -> int:
         return 2
 
 
-def is_dense_step(step_index: int, num_steps: int, dense_last_steps: int) -> bool:
+def sparse_attn_start_percent(config: Dict[str, Any]) -> float:
+    """Fraction of the schedule that runs dense BEFORE sparse attention
+    begins (mirrors ComfyUI's own `start_percent` warm-up). ``0.0`` (the
+    default) is today's behaviour: sparse attention active from step 0,
+    modulo the tail `sparse_attn_dense_last_steps` already carves out. A
+    non-numeric or out-of-[0,1] knob falls back to the default rather than
+    failing the generation, matching `sparse_attn_dense_last_steps`'s own
+    guard."""
+    value = config.get("sparse_attn_start_percent", 0.0)
+    try:
+        pct = float(value)
+    except (TypeError, ValueError):
+        logger.warning("[GENERATOR MINIMAX-H3] ignoring non-numeric sparse_attn_start_percent=%r", value)
+        return 0.0
+    if not (0.0 <= pct <= 1.0):
+        logger.warning("[GENERATOR MINIMAX-H3] ignoring out-of-range sparse_attn_start_percent=%r", value)
+        return 0.0
+    return pct
+
+
+def is_dense_step(step_index: int, num_steps: int, dense_last_steps: int, dense_start_percent: float = 0.0) -> bool:
     """Whether this step runs on the normal dense attention path.
 
-    The trailing `dense_last_steps` steps do. A window with no more steps than
-    that runs entirely dense, which is the feature turning itself off rather
-    than a special case to guard.
+    Dense at both ends of the schedule: the trailing `dense_last_steps` steps
+    (unconditional, this feature's original behaviour), OR, when
+    `dense_start_percent > 0`, every step before `ceil(dense_start_percent *
+    num_steps)` (the warm-up, ComfyUI's own `start_percent` semantics --
+    the fraction names how much of the schedule runs dense, not a sigma
+    value). A window with no more steps than either threshold runs entirely
+    dense, which is the feature turning itself off rather than a special
+    case to guard.
     """
+    if step_index < math.ceil(dense_start_percent * num_steps):
+        return True
     return step_index >= num_steps - dense_last_steps
 
 
@@ -586,6 +708,54 @@ def _place_vae(c: "_MiniMaxH3Ctx", vae) -> None:
         if free_gb < need_gb:
             c.bundle.dit.offload()
     vae.move_to(c.device)
+
+
+def _dit_fits_resident(c: "_MiniMaxH3Ctx", need_gb: float) -> bool:
+    """True when `need_gb` of additional GPU work fits beside an
+    ALREADY-resident DiT -- same fit rule as `_place_vae`, generalized to a
+    consumer that has not moved onto the device yet (so there is nothing to
+    `move_to` here, only a decision). `False` (never keep resident) when free
+    VRAM can't be read at all."""
+    free_gb = effective_free_vram_gb(c.device)
+    if free_gb is None:
+        return False
+    return free_gb >= need_gb + minimum_inference_memory_gb()
+
+
+def _next_gpu_consumer_gb(c: "_MiniMaxH3Ctx") -> float:
+    """Best-effort size of the GPU work immediately after sampling ends, so
+    the DiT can be left resident through it instead of paying an
+    offload-then-restore round trip for a consumer that would have fit
+    alongside it anyway.
+
+    Only the FIRST next consumer matters here: audio decode always runs
+    before video decode (`generate_one`'s own order), and once it is placed
+    and offloaded, `_place_vae` re-evaluates fit for video decode itself
+    against whatever free VRAM actually remains at that point -- this
+    function's job ends at the first step.
+
+    Video decode's own single-tile activation peak
+    (`decode_bytes_per_tile_token`/`decode_tile_tokens`, the same terms
+    `minimax_h3_decode.plan_tile_batch` sizes its adaptive tile batch off of)
+    is folded in on top of the VAE's weight size: unlike the small,
+    non-tiled audio VAE, the video VAE's weight size alone under-counts a
+    decode's real footprint.
+    """
+    if c.audio_source == "generate":
+        return float(getattr(c.bundle.audio_vae, "estimated_vram_gb", None) or 0.0)
+    if not c.decode:
+        return 0.0
+    vae = c.bundle.video_vae
+    weight_gb = float(getattr(vae, "estimated_vram_gb", None) or 0.0)
+    vae_module = getattr(vae, "module", None)
+    if vae_module is None:
+        return weight_gb
+    try:
+        tokens = decode_tile_tokens(vae_module, c.latent_height, c.latent_width)
+        per_tile_gb = decode_bytes_per_tile_token(vae_module) * tokens / (1 << 30)
+    except AttributeError:
+        return weight_gb
+    return weight_gb + per_tile_gb
 
 
 def _trim_audio_head(track: AudioInput, overlap_frames: int) -> AudioInput:
@@ -736,9 +906,12 @@ class _MiniMaxH3Ctx:
     # (un-normalized) video latent per seed, in the video VAE's own native
     # space -- `[]` is the ordinary from-noise path, unchanged.
     initial_latents: list = field(default_factory=list)
+    initial_audio_latents: list = field(default_factory=list)
+    audio_refine: str = "lock"
     source_frame_count: Optional[int] = None
     denoise: float = 1.0
     video_sigma_shift: float = VIDEO_SHIFT
+    runtime_lora_stack: list = field(default_factory=list)
     # Request-local cache of clean, VAE-encoded visual keyframe/reference
     # latents (conditioning.py's `VisualLatentCache`) -- one instance per
     # request, released explicitly once every seed/window is done
@@ -773,6 +946,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             "preview": True,
             "keyframe_anchors": [],
             "audio_source": "generate",
+            "audio_refine": "lock",
             "decode": True,
             "decode_tile_px": 256,
             "step_cache_threshold": 0.0,
@@ -783,6 +957,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             "sla_sparsity": 0.90,
             "sla_block_size": 64,
             "sparse_attn_dense_last_steps": 2,
+            "sparse_attn_start_percent": 0.0,
             "seq_chunk_rows": 0,
             "sampler": "euler",
             "scheduler": SIMPLE_SCHEDULER,
@@ -790,6 +965,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             "manual_audio_sigmas": "",
             "denoise": 1.0,
             "video_sigma_shift": VIDEO_SHIFT,
+            "runtime_loras": [],
             "document": None,
             "references": [],
             "reference_videos": [],
@@ -829,6 +1005,16 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                            "muxed track is), file (mux the user-supplied audio input instead), or "
                            "passthrough (mux an already-decoded track from this pipe's own prior 'audio' "
                            "output, e.g. a future refine stage)", required=False, choices=list(_VALID_AUDIO_SOURCES)),
+            PipeConfigSpec(
+                "audio_refine", str, "lock",
+                "How a refine ('initial_latent' connected) treats the audio stream. 'lock' (default) "
+                "keeps stage 1's audio and lip-sync fixed: the audio rows are seeded from "
+                "'initial_audio_latent' at a fixed near-clean timestep and held there for every step, "
+                "never resampled. 'resample' lets the refine touch the audio too, the same way it "
+                "touches video: the audio rows are noised to the truncated schedule's own first kept "
+                "sigma and sampled normally. Only has an effect on a refine; a fresh generation ignores "
+                "it.", required=False, choices=list(_VALID_AUDIO_REFINE_MODES),
+            ),
             PipeConfigSpec("decode", bool, True, "Decode to video; set false to emit the raw latent instead "
                            "(audio is still decoded/populated either way)", required=False),
             PipeConfigSpec(
@@ -895,6 +1081,15 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "sparse approximation there is the most visible. At or above the step count the "
                 "feature is effectively off.",
                 required=False, min_value=0, max_value=10,
+            ),
+            PipeConfigSpec(
+                "sparse_attn_start_percent", float, 0.0,
+                "Sparse attention: fraction of each window's schedule that runs dense BEFORE "
+                "sparse attention begins (mirrors ComfyUI's own start_percent warm-up). 0.0 "
+                "(default) is today's behaviour -- sparse attention active from step 0, modulo "
+                "'sparse_attn_dense_last_steps' tail. Composes with the tail: a step counts as "
+                "dense if it falls in EITHER window.",
+                required=False, min_value=0.0, max_value=1.0,
             ),
             PipeConfigSpec(
                 "seq_chunk_rows", int, 0,
@@ -965,6 +1160,16 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "already-upsampled latent typically runs at a lower shift (e.g. 9) than a fresh "
                 "generation; the audio stream's own shift (3.0) is a separate, unaffected knob.",
                 required=False, min_value=0.1, max_value=50.0,
+            ),
+            PipeConfigSpec(
+                "runtime_loras", list, [],
+                "LoRAs applied ONLY around this call's own sampling, never baked onto the shared "
+                "DiT. Lets two generator nodes that read the SAME model_loader/minimax_h3 "
+                "acquisition (same cache key, unbaked -- 'loras' left empty there) each run their "
+                "own exclusive LoRA set without forcing a second, costly DiT reload from disk: a "
+                "plain generation and a stage-2 refine of it can use two different LoRA stacks on "
+                "one loaded DiT. Empty (default) is a byte-identical no-op.",
+                required=False,
             ),
             PipeConfigSpec(
                 "document", dict, None,
@@ -1060,6 +1265,15 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                           "Mutually exclusive with 'document', 'image'/'keyframe_anchors' and every "
                           "reference input",
                           is_array=True),
+            PipeInputSpec("initial_audio_latent", IOType.LATENT, False,
+                          "A refine's stage-1 audio latent, one per seed: this pipe's own 'audio_latent' "
+                          "output, packed and normalized in the same convention -- only meaningful "
+                          "alongside 'initial_latent'. Drives the 'audio_refine' config's 'lock' (default) "
+                          "or 'resample' behavior. Absent on a refine -> audio_source='passthrough' with "
+                          "an 'audio' input is encoded through the audio VAE instead; absent with no "
+                          "'audio' input either -> the refine is refused rather than sampling the audio "
+                          "stream from unconditioned noise",
+                          is_array=True),
             PipeInputSpec("source_frame_count", IOType.INT, False,
                           "Original (pre-temporal-padding) frame count of a refine's source clip, from "
                           "the upstream latent_upscaler's own 'source_frame_count' output -- used to "
@@ -1079,6 +1293,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             PipeOutputSpec("latent", IOType.LATENT, "Raw per-seed video latents (only populated when "
                            "decode=false)", is_array=True),
             PipeOutputSpec("audio", IOType.AUDIO, "Decoded/passthrough audio track, one per seed", is_array=True),
+            PipeOutputSpec("audio_latent", IOType.LATENT, "Un-decoded audio rows this seed actually sampled "
+                           "(condition prefix excluded), in this pipe's own packed/normalized convention -- "
+                           "feeds a refine stage's 'initial_audio_latent'. Always populated, decode=false or "
+                           "not", is_array=True),
         ]
 
     # -- context -------------------------------------------------------
@@ -1103,6 +1321,13 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             initial_latents = list(raw_initial_latent)
         else:
             initial_latents = [raw_initial_latent]
+        raw_initial_audio_latent = pipe_input.input.get("initial_audio_latent")
+        if raw_initial_audio_latent is None:
+            initial_audio_latents: list = []
+        elif isinstance(raw_initial_audio_latent, (list, tuple)):
+            initial_audio_latents = list(raw_initial_audio_latent)
+        else:
+            initial_audio_latents = [raw_initial_audio_latent]
         source_frame_count = pipe_input.input.get("source_frame_count")
 
         if bundle.spec.family != "minimax_h3":
@@ -1141,12 +1366,20 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "'document' (Video Director), 'image'/'keyframe_anchors' (fl2va) and every reference "
                 "input (ref2va) -- a refine pass has no keyframe/reference overlay to combine it with"
             )
+        if initial_audio_latents and not initial_latents:
+            raise ValueError(
+                "generator/video_minimax_h3: 'initial_audio_latent' has no effect without 'initial_latent' "
+                "connected -- it only seeds the audio side of a refine"
+            )
+        audio_refine = str(self.config.get("audio_refine", "lock"))
         denoise = float(self.config.get("denoise", 1.0))
         if not initial_latents and denoise < 1.0:
             raise ValueError(
                 "generator/video_minimax_h3: 'denoise' < 1.0 has no effect without 'initial_latent' "
                 "connected -- connect a refine seed latent, or leave 'denoise' at its default 1.0"
             )
+        runtime_loras_cfg = _active_loras(self.config.get("runtime_loras"))
+        runtime_lora_stack = _load_lora_stack(runtime_loras_cfg) if runtime_loras_cfg else []
         for name, loaded, limit in (
             ("reference_images", reference_images, _MAX_REFERENCE_IMAGES),
             ("reference_videos", reference_videos, _MAX_REFERENCE_VIDEOS),
@@ -1332,6 +1565,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
 
         self._video_resolution = (width, height)
         self._audio_results: list = []
+        self._audio_latent_results: list = []
 
         # A director run's own top-level `frames` is vestigial (each window
         # has its own count, per `document`'s PipeConfigSpec); normalizing
@@ -1359,8 +1593,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 sampler=sampler, scheduler=scheduler,
                 plan=plan, director_images=director_images,
                 initial_latents=initial_latents,
+                initial_audio_latents=initial_audio_latents, audio_refine=audio_refine,
                 source_frame_count=int(source_frame_count) if source_frame_count else None,
                 denoise=denoise, video_sigma_shift=video_sigma_shift,
+                runtime_lora_stack=runtime_lora_stack,
             ),
         )
 
@@ -1575,6 +1811,39 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         lstd = torch.as_tensor(video_vae_module.latents_std, device=c.device, dtype=torch.float32)
         return (latent - lmean.view(1, -1, 1, 1, 1)) / lstd.view(1, -1, 1, 1, 1)
 
+    @staticmethod
+    def _resolve_initial_audio_latent(c: "_MiniMaxH3Ctx", index: int) -> Tensor:
+        """This seed's audio side of a refine -- always returns a real
+        tensor, since a refine with no way to seed its audio target rows is
+        refused outright rather than left to sample from unconditioned noise
+        (module docstring, "Audio on a refine").
+
+        `c.initial_audio_latents[index]` (falling back to the last entry,
+        the same "one latent may serve every seed" convention
+        `_normalized_initial_latent` uses) when connected -- already in this
+        pipe's own packed/normalized convention, no VAE round trip needed.
+        Otherwise, `audio_source='passthrough'`'s own track is encoded
+        through the audio VAE as the fallback.
+        """
+        if c.initial_audio_latents:
+            raw = c.initial_audio_latents[index] if index < len(c.initial_audio_latents) else c.initial_audio_latents[-1]
+            expected_rows = c.num_audio_latents * AUDIO_CHANNELS
+            if raw.shape[0] != expected_rows or raw.shape[1] != AUDIO_LATENT_CHANNELS:
+                raise ValueError(
+                    f"generator/video_minimax_h3: initial_audio_latent[{index}] shape {tuple(raw.shape)} "
+                    f"does not match the expected ({expected_rows}, {AUDIO_LATENT_CHANNELS}) packed audio "
+                    f"rows for this refine's derived geometry"
+                )
+            return raw.to(device=c.device, dtype=torch.float32)
+        if c.audio_source == "passthrough" and c.audio_file is not None:
+            return _encode_refine_audio_latent(c, c.audio_file, c.num_audio_latents)
+        raise GenerationExecutionError(
+            "generator/video_minimax_h3: a refine ('initial_latent' connected) needs the stage-1 audio "
+            "latent -- connect 'initial_audio_latent' to the first stage's own 'audio_latent' output, or "
+            "set audio_source='passthrough' with the source track wired to 'audio' so it can be encoded "
+            "instead"
+        )
+
     # -- per-seed generation ---------------------------------------------
 
     def generate_one(self, ctx: GeneratorContext, index: int, seed: int, progress) -> Any:
@@ -1637,12 +1906,16 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 if needs_video_encode:
                     c.bundle.video_vae.offload()
 
+        initial_audio_latent = (
+            self._resolve_initial_audio_latent(c, index) if initial_latent is not None else None
+        )
         video_rows, audio_rows, layout = self._sample_window(
             c, prompt_embeds=prompt_embeds, text_token_tags=text_token_tags,
             condition_rows=condition_rows, keyframe_anchors=c.keyframe_anchors,
             num_latent_frames=c.num_latent_frames, num_audio_latents=c.num_audio_latents,
             condition_audio_rows=condition_audio_rows, steps=c.steps, generator=gen, progress=progress,
             layout=ref2va_layout, is_cancelled=ctx.is_cancelled, initial_latent=initial_latent,
+            initial_audio_latent=initial_audio_latent,
         )
         if ctx.is_cancelled():
             # Sampling completed (or was mid-step cancellation lost the race
@@ -1661,10 +1934,12 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
 
         audio_track = self._resolve_audio(c, audio_rows, num_condition_audio_rows=n_ca)
         self._audio_results.append(audio_track)
+        if not hasattr(self, "_audio_latent_results"):
+            self._audio_latent_results = []
+        self._audio_latent_results.append(audio_rows[n_ca:].detach())
 
         if not c.decode:
             if index == ctx.quantity - 1:
-                restore_dit_best_effort(c.bundle.dit, c.device)
                 c.reference_cache.release()
             return video_latent
 
@@ -1691,7 +1966,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         condition_audio_rows: Optional[Tensor], steps: int, generator: torch.Generator, progress,
         progress_offset: int = 0, progress_total: Optional[int] = None, progress_state: str = "VIDEO",
         layout: Optional[PackedLayout] = None, is_cancelled: Optional[Callable[[], bool]] = None,
-        initial_latent: Optional[Tensor] = None, progress_segment_id: Optional[str] = None,
+        initial_latent: Optional[Tensor] = None, initial_audio_latent: Optional[Tensor] = None,
+        progress_segment_id: Optional[str] = None,
     ) -> tuple[Tensor, Tensor, PackedLayout]:
         """Sample ONE packed sequence to completion; returns the final
         `(video_rows, audio_rows, layout)` with the condition prefixes still
@@ -1730,6 +2006,21 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         anchor's own noise augmentation uses) -- the video noise draw below
         still happens either way, same shape, so the generator's draw count
         is unchanged by which branch runs.
+
+        `initial_audio_latent`: the audio counterpart of `initial_latent`,
+        already in this pipe's own packed/normalized convention -- `None`
+        unless `initial_latent` is also given. `c.audio_refine` then picks
+        one of two treatments: `"lock"` (default) seeds the audio target rows
+        from `initial_audio_latent` at the fixed `KEYFRAME_NOISE_AUG`
+        timestep (the same near-clean augmentation a keyframe condition row
+        gets) and EXCLUDES them from every step's Euler update -- a third
+        fixed-timestep row category alongside video/audio condition rows,
+        held constant for the whole trajectory. `"resample"` instead noises
+        `initial_audio_latent` to the truncated AUDIO schedule's own first
+        kept sigma (the audio mirror of the video path above) and samples it
+        normally, same as an ordinary generation's audio rows. The audio
+        noise draw below always happens, same shape, regardless of which
+        branch runs -- unchanged generator draw count.
         """
         if layout is None:
             # `device=c.device` explicit: build_packed_sequence builds every
@@ -1781,10 +2072,21 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             if condition_rows.shape[0] else video_target_rows
         )
 
-        audio_target_rows = torch.randn(
+        audio_noise = torch.randn(
             (num_audio_latents * 2, AUDIO_LATENT_CHANNELS), generator=generator, device=c.device,
             dtype=torch.float32,
-        ).to(c.dtype)
+        )
+        audio_locked = False
+        if initial_audio_latent is not None:
+            if c.audio_refine == "lock":
+                noised_audio = scale_noise(initial_audio_latent.to(torch.float32), KEYFRAME_NOISE_AUG, audio_noise)
+                audio_locked = True
+            else:
+                first_audio_t = float(audio_schedule.timesteps[0])
+                noised_audio = scale_noise(initial_audio_latent.to(torch.float32), first_audio_t, audio_noise)
+            audio_target_rows = noised_audio.to(c.dtype)
+        else:
+            audio_target_rows = audio_noise.to(c.dtype)
         audio_rows = (
             torch.cat([condition_audio_rows.to(c.dtype), audio_target_rows], dim=0)
             if condition_audio_rows is not None else audio_target_rows
@@ -1802,6 +2104,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         # is a row count into THIS window's packed sequence.
         sparse_attn_ctx = build_sparse_attn_ctx(self.config, layout)
         dense_last_steps = sparse_attn_dense_last_steps(self.config)
+        dense_start_percent = sparse_attn_start_percent(self.config)
         sparse_attn_reserve = sparse_attn_reserve_gb(sparse_attn_ctx, layout)
         seq_chunk_rows = int(self.config.get("seq_chunk_rows", 0) or 0)
 
@@ -1825,19 +2128,20 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 vdn_layout.num_frames, vdn_layout.tokens_per_frame, vdn_layout.video_start,
                 vdn_reserve_gb(vdn_layout),
             )
+        warmup_steps = min(math.ceil(dense_start_percent * num_steps), num_steps)
         if isinstance(sparse_attn_ctx, SolAttnContext):
             logger.info(
                 "[GENERATOR MINIMAX-H3] Sol-Attn requested: tau=%.2f, %d exact prefix row(s) of %d, "
-                "last %d of %d step(s) dense, reserving %.2f GB for its transients",
+                "first %d and last %d of %d step(s) dense, reserving %.2f GB for its transients",
                 sparse_attn_ctx.tau, sparse_attn_ctx.sink_tokens, int(layout.position_ids.shape[0]),
-                min(dense_last_steps, num_steps), num_steps, sparse_attn_reserve,
+                warmup_steps, min(dense_last_steps, num_steps), num_steps, sparse_attn_reserve,
             )
         elif isinstance(sparse_attn_ctx, SlaAttnContext):
             logger.info(
                 "[GENERATOR MINIMAX-H3] SLA requested: sparsity=%.2f, block=%d, %d pinned prefix "
-                "row(s) of %d, last %d of %d step(s) dense, reserving %.2f GB for its transients",
+                "row(s) of %d, first %d and last %d of %d step(s) dense, reserving %.2f GB for its transients",
                 sparse_attn_ctx.sparsity, sparse_attn_ctx.block_size, sparse_attn_ctx.prefix_tokens,
-                int(layout.position_ids.shape[0]), min(dense_last_steps, num_steps), num_steps,
+                int(layout.position_ids.shape[0]), warmup_steps, min(dense_last_steps, num_steps), num_steps,
                 sparse_attn_reserve,
             )
 
@@ -1859,6 +2163,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 num_latent_frames, FPS, c.width, c.height,
             )
             return _format_fit_hint(hint, c.width, c.height)
+
+        lora_snapshot = snapshot_lora_state(c.bundle.dit.module) if c.runtime_lora_stack else None
+        if lora_snapshot is not None:
+            apply_loras(c.bundle.dit.module, c.runtime_lora_stack)
 
         placement = place_dit_for_sequence(
             c.bundle.dit, c.device,
@@ -1920,10 +2228,11 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
 
                 video_t = float(video_schedule.timesteps[step_index])
                 audio_t = float(audio_schedule.timesteps[step_index])
+                row_audio_timestep = KEYFRAME_NOISE_AUG if audio_locked else audio_t
                 unique_timesteps, timestep_indices = build_row_timesteps(
                     layout.video_indices, layout.audio_indices,
                     num_condition_video_rows=n_cv, num_condition_audio_rows=n_ca, num_text_tokens=num_text_tokens,
-                    video_timestep=video_t, audio_timestep=audio_t,
+                    video_timestep=video_t, audio_timestep=row_audio_timestep,
                     condition_video_timestep=max(video_t, KEYFRAME_NOISE_AUG), condition_audio_timestep=1.0,
                 )
                 # The last step is never cached: it is the one that lands on the
@@ -1931,7 +2240,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 # the output (the shared denoise loop makes the same exclusion).
                 is_final_step = step_index == num_steps - 1
                 if sparse_attn_ctx is not None:
-                    sparse_attn_ctx.dense = is_dense_step(step_index, num_steps, dense_last_steps)
+                    sparse_attn_ctx.dense = is_dense_step(
+                        step_index, num_steps, dense_last_steps, dense_start_percent,
+                    )
                 video_pred, audio_pred = sample_forward(
                     video_rows, audio_rows, unique_timesteps.to(c.device), timestep_indices.to(c.device),
                     step_cache=None if is_final_step else step_cache,
@@ -1953,10 +2264,11 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     video_velocity, video_t, video_sample,
                     video_schedule.sigmas[step_index], video_schedule.sigmas[step_index + 1],
                 ).to(c.dtype)
-                audio_rows[n_ca:] = audio_stepper.step(
-                    audio_pred[n_ca:].float(), audio_t, audio_rows[n_ca:].float(),
-                    audio_schedule.sigmas[step_index], audio_schedule.sigmas[step_index + 1],
-                ).to(c.dtype)
+                if not audio_locked:
+                    audio_rows[n_ca:] = audio_stepper.step(
+                        audio_pred[n_ca:].float(), audio_t, audio_rows[n_ca:].float(),
+                        audio_schedule.sigmas[step_index], audio_schedule.sigmas[step_index + 1],
+                    ).to(c.dtype)
 
                 if video_x0 is not None:  # a preview hook is registered
                     video_x0_5d = unpatchify_video_rows(
@@ -1976,8 +2288,11 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 )
         finally:
             forward.release()
+            if lora_snapshot is not None:
+                restore_lora_state(lora_snapshot)
 
-        c.bundle.dit.offload()
+        if not _dit_fits_resident(c, _next_gpu_consumer_gb(c)):
+            c.bundle.dit.offload()
         clear_gpu_memory()
         return video_rows, audio_rows, layout
 
@@ -2042,6 +2357,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         total_steps = sum(self._window_step_count(c, window) for window in windows)
         clips: List[str] = []
         tracks: List[Any] = []
+        audio_latents: List[Tensor] = []
         window_frames: List[np.ndarray] = []
         previous_tail_frames: Optional[np.ndarray] = None
         previous_audio_rows: Optional[Tensor] = None
@@ -2122,6 +2438,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             )
             window_frames.append(frames)
             tracks.append(track)
+            audio_latents.append(previous_audio_rows.detach())
 
             clip = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
             encode_frames_to_mp4(frames, clip, fps=FPS, audio=track)
@@ -2134,14 +2451,18 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         restore_dit_best_effort(c.bundle.dit, c.device)
         c.reference_cache.release()
 
+        if not hasattr(self, "_audio_latent_results"):
+            self._audio_latent_results = []
         if not plan.stitch:
             self._audio_results.extend(tracks)
+            self._audio_latent_results.extend(audio_latents)
             return clips
 
         stitched_track = plan.mux_audio_path or _concat_audio_tracks(tracks)
         stitched = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
         encode_frames_to_mp4(np.concatenate(window_frames, axis=0), stitched, fps=FPS, audio=stitched_track)
         self._audio_results.append(stitched_track)
+        self._audio_latent_results.append(audio_latents[-1] if audio_latents else None)
         return [stitched]
 
     def _window_step_count(self, c: _MiniMaxH3Ctx, window: WindowPlan) -> int:
@@ -2331,6 +2652,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
 
     def build_output(self, results: List[Any]) -> Dict[str, Any]:
         audio = list(getattr(self, "_audio_results", []))
+        audio_latent = list(getattr(self, "_audio_latent_results", []))
         if not bool(self.config.get("decode", True)):
-            return {"latent": results, "video": [], "audio": audio}
-        return {"video": self._flatten(results), "latent": [], "audio": audio}
+            return {"latent": results, "video": [], "audio": audio, "audio_latent": audio_latent}
+        return {"video": self._flatten(results), "latent": [], "audio": audio, "audio_latent": audio_latent}

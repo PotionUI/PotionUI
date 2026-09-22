@@ -31,9 +31,9 @@ PRUNED_ADALN_GRID = 1025
 PRUNED_ADALN_WIDTH = 8
 
 
-def _block_sd(prefix: str, *, fp8: bool = False) -> dict[str, torch.Tensor]:
+def _block_sd(prefix: str, *, fp8: bool = False, gate_compress: bool = False) -> dict[str, torch.Tensor]:
     qkv_dtype = torch.float8_e4m3fn if fp8 else torch.bfloat16
-    return {
+    sd = {
         f"{prefix}attn.qkv_proj.weight": torch.zeros(3 * INNER, HIDDEN, dtype=qkv_dtype),
         f"{prefix}attn.q_norm.weight": torch.zeros(HEAD_DIM, dtype=torch.bfloat16),
         f"{prefix}attn.k_norm.weight": torch.zeros(HEAD_DIM, dtype=torch.bfloat16),
@@ -43,10 +43,13 @@ def _block_sd(prefix: str, *, fp8: bool = False) -> dict[str, torch.Tensor]:
         f"{prefix}norm1.weight": torch.zeros(HIDDEN, dtype=torch.bfloat16),
         f"{prefix}norm2.weight": torch.zeros(HIDDEN, dtype=torch.bfloat16),
     }
+    if gate_compress:
+        sd[f"{prefix}attn.to_gate_compress.weight"] = torch.zeros(INNER, HIDDEN, dtype=qkv_dtype)
+    return sd
 
 
 def _minimax_h3_sd(*, pruned: bool, num_layers: int = 2, num_refiner_layers: int = 1,
-                    fp8: bool = False) -> dict[str, torch.Tensor]:
+                    fp8: bool = False, gate_compress: bool = False) -> dict[str, torch.Tensor]:
     time_embed_dim = PRUNED_ADALN_WIDTH if pruned else FULL_TIME_EMBED_DIM
     adaln_dtype = torch.float16 if pruned else torch.bfloat16
 
@@ -68,7 +71,7 @@ def _minimax_h3_sd(*, pruned: bool, num_layers: int = 2, num_refiner_layers: int
         "token_refiner.final_norm.weight": torch.zeros(HIDDEN, dtype=torch.bfloat16),
     }
     for i in range(num_layers):
-        sd.update(_block_sd(f"blocks.{i}.", fp8=fp8))
+        sd.update(_block_sd(f"blocks.{i}.", fp8=fp8, gate_compress=gate_compress))
         sd[f"blocks.{i}.adaln_proj.linear.weight"] = torch.zeros(6 * HIDDEN * 3, time_embed_dim, dtype=adaln_dtype)
         sd[f"blocks.{i}.adaln_proj.linear.bias"] = torch.zeros(6 * HIDDEN * 3, dtype=adaln_dtype)
     for i in range(num_refiner_layers):
@@ -136,6 +139,22 @@ def test_pruned_fp8_qkv_shape_still_reads_correctly():
     c = detect_unet_config(_minimax_h3_sd(pruned=True, num_layers=1, fp8=True))
     assert c["num_attention_heads"] == HEADS
     assert c["attention_head_dim"] == HEAD_DIM
+
+
+def test_detect_gate_compress_flag_on():
+    # FastVideo FastH3's VSA coarse-attention gate -- present on every main
+    # block, never on the token refiner (see _minimax_h3_sd/_block_sd above).
+    c = detect_unet_config(_minimax_h3_sd(pruned=True, num_layers=2, gate_compress=True))
+    assert c["gate_compress"] is True
+
+
+def test_detect_gate_compress_flag_off_by_default():
+    # Every other released checkpoint (fl2va/ref2va, full or pruned) carries
+    # no such key, and the config must not claim the gate exists.
+    c = detect_unet_config(_minimax_h3_sd(pruned=True, num_layers=2))
+    assert "gate_compress" not in c
+    c_full = detect_unet_config(_minimax_h3_sd(pruned=False, num_layers=2))
+    assert "gate_compress" not in c_full
 
 
 def test_non_minimax_h3_returns_none_or_other_family():

@@ -61,6 +61,7 @@ class MiniMaxH3Config:
     freq_dim: int = 256                 # full only: sinusoidal timestep input width
     time_embed_hidden_dim: int = 5376   # full only: time_embedder MLP inner width
     adaln_curve_grid: int = 1025        # pruned only: adaln_t_table row count
+    gate_compress: bool = False
 
     @property
     def inner_dim(self) -> int:
@@ -95,4 +96,5 @@ class MiniMaxH3Config:
             freq_dim=int(config.get("freq_dim", 256)),
             time_embed_hidden_dim=int(config.get("time_embed_hidden_dim", 5376)),
             adaln_curve_grid=int(config.get("adaln_curve_grid", 1025)),
+            gate_compress=bool(config.get("gate_compress", False)),
         )

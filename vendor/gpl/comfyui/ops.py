@@ -714,7 +714,7 @@ class disable_weight_init:
                 convrot, groupsize = _extract_convrot_config(layer_conf, prefix.rstrip("."))
                 if convrot:
                     self._int8_convrot_groupsize = groupsize
-                    self._int8_convrot_hadamard = _build_convrot_hadamard(groupsize, device="cpu", dtype=torch.float32)
+                    self._int8_convrot_hadamard = _build_convrot_hadamard(groupsize, device="cpu", dtype=torch.float32).clone()
                 # Free the empty [num_embeddings, embedding_dim] float weight the
                 # constructor allocated; the int8 table is stored on the side.
                 self.weight = None
@@ -1126,7 +1126,7 @@ class Fp8ScaledLinear(manual_cast.Linear):
                     # registered as a buffer so the module's own .to()/_apply
                     # (partial-residency streaming included) moves it alongside
                     # the weight without a separate move call.
-                    self.convrot_hadamard = _build_convrot_hadamard(groupsize, device="cpu", dtype=torch.float32)
+                    self.convrot_hadamard = _build_convrot_hadamard(groupsize, device="cpu", dtype=torch.float32).clone()
         else:
             _reject_ambiguous_int8(state_dict.get(prefix + "weight"), ws, prefix.rstrip("."))
         if ws is not None:

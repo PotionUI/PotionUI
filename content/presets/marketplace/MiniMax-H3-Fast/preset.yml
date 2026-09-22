@@ -1,0 +1,183 @@
+########
+## MiniMax-H3-Fast: FastVideo's FastH3 8-Step V2 (native engine)
+##
+## FastH3 is a DMD2-distilled repack of the SAME 50-block MiniMax-H3 arch and
+## 17-layer token refiner as the base MiniMax-H3 preset's checkpoint -- but
+## trained for exactly 8 steps, so this preset has ONE speed profile instead
+## of a choice, and no reference (ref2va) mode: FastVideo ships an fl2va-shaped
+## repack only, the same task the base preset's own
+## `minimax_h3_fl2va_pruned_fp8_scaled` file covers.
+##
+## H3 samples the picture and its soundtrack as ONE packed sequence, so the
+## audio track is part of the model rather than an optional second pass -- there
+## is no "generate audio" toggle to turn off. It is guidance-distilled: no CFG
+## scale, no negative prompt, one forward pass per step.
+##
+## Every component ships as its own file. TE, video VAE and audio VAE are
+## IDENTICAL files to the base MiniMax-H3 preset's -- only the DiT differs.
+##
+## WEIGHTS LICENSE: the MiniMax H3 weights are published under the MiniMax H3
+## Community License, whose Applicable Territory EXCLUDES the European Union,
+## the United Kingdom, the United States and the Republic of Korea -- and the
+## exclusion covers the model's outputs as well as the weights. This applies to
+## the FastH3 repack too, since it is a distillation of the same licensed
+## checkpoint. Read description.md before enabling this preset.
+##
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01KX47H3FASTH30000000000VA"
+name: "MiniMax-H3-Fast"
+category: "video"
+version: "1.0.0"
+engine: "native"
+tags: ["minimax", "minimax-h3", "fasth3", "distilled", "8-step", "video", "audio", "t2va", "fl2va", "flow-matching", "local"]
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models
+# shown). A separate configuration block from the base MiniMax-H3 preset so an
+# admin can scope this preset's model pickers independently.
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the MiniMax-H3-Fast DiT picker."
+  text_encoder_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the video VAE and audio VAE pickers."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+  upscaler_tags:
+    type: "model_tags"
+    label: "Latent upscaler tags"
+    description: "Only models with any of these tags appear in the Latent Upscaler picker."
+
+# ONE speed profile: FastH3 is a DMD2 distillation trained for exactly 8
+# steps, not a range a user can trade off -- there is no quality/turbo/custom
+# choice to offer the way the base MiniMax-H3 preset does. The Steps slider on
+# the Advanced tab is still driven through the same reaction pattern (see
+# modes/video/tabs/advanced.yml) so it can never disagree with what runs, it
+# just always resolves to this one entry.
+speed_profiles:
+  distilled:
+    steps: 8
+
+vars:
+  # H3's frame rate is fixed by the model, not chosen per request: the audio
+  # stream's latent count is derived from it (40 latents per second of video),
+  # so this is a constant the pipeline reports rather than a knob.
+  fps: 24
+  # 17*7+5 = 124 -- already on the VAE's 17n+5 lattice, so FastVideo's own
+  # recommended clip length needs no override here.
+  default_frames: 124
+
+  prompt:
+    segment_join: "paragraph"
+    segment_templates:
+      - name: "H3 prompt document"
+        description: "The three labeled fields MiniMax-H3 was trained on, in order."
+        tags: ["minimax-h3", "fasth3"]
+        segments:
+          - name: "Multimodal description"
+            prefix: "integrated_multimodal_description: "
+            content: ""
+            description: "[Shot 1] style and opening composition, then the whole timeline: cuts with timestamps, camera motion, speakers with (S1)/(S2) IDs and <d> dialogue, in-scene sound."
+          - name: "Soundscape"
+            prefix: "overall_soundscape: "
+            content: ""
+            description: "Ambient, physical and non-verbal human sounds for the whole video. No dialogue or music. N/A only for total silence."
+          - name: "Music"
+            prefix: "non_diegetic_music: "
+            content: ""
+            description: "Background score by instrumentation, tempo, rhythm and dynamics. N/A when there is no score."
+
+  # Video Director capabilities for the `video` mode -- same shape as the base
+  # MiniMax-H3 preset's, minus the `refs` mode entry (this preset has no refs
+  # mode) and its `preset_mode_overrides`. See the base preset.yml's own
+  # comment for the full rationale; unchanged here.
+  video_director:
+    family: "minimax_h3"
+    preset_modes: ["video"]
+    segment_routing: true
+    modes:
+      t2v: {}
+      i2v: {}
+      flf: {}
+      director:
+        keyframes: "anywhere"
+        audio: true
+        max_keyframes: 8
+        fps_locked: true
+        max_segments: 6
+        max_frames_per_segment: 345
+        continuation:
+          source: "tail_frames"
+          overlap_frames: 17
+          stitch: true
+        max_overlap_frames: 34
+    limits:
+      default_duration: 5
+      default_fps: 24
+      max_duration: 15
+
+llm:
+  guide: |
+    The prompt IS a structured document the model was trained on - write it in
+    exactly this shape, three labeled fields in this order:
+
+    integrated_multimodal_description: [Shot 1] <style>, <initial composition>...
+    (the whole timeline: visuals, actions, cuts, camera, speakers, dialogue,
+    in-scene sound)
+
+    overall_soundscape: 1-4 sentences of ambient sound, physical action sounds and
+    non-verbal human sounds across the whole video (no dialogue or music here);
+    "N/A" only if the user wants total silence.
+
+    non_diegetic_music: 1-3 sentences of background score by instrumentation,
+    tempo, rhythm and dynamics - never abstract mood words; "N/A" when no score.
+
+    Rules for the multimodal description:
+    - Open [Shot 1] with the overall style (Cinematic, live-action, 2D-animated,
+      3D CG, claymation, watercolor, vintage film) and initial composition; no
+      timestamp on Shot 1.
+    - Later shots: "[Shot 2] At 00:03.500, the camera cuts to..." with strictly
+      increasing times inside the duration. Cut only to introduce new subject,
+      space, state, viewpoint or time; for smaller changes prefer camera motion.
+    - Camera motion as natural English inside the shot: zoom in/out, push in /
+      pull out, pan left/right, truck left/right, tilt up/down, pedestal up/down,
+      arc shot, tracking shot, static shot, POV, roll clockwise/counterclockwise,
+      shake slightly/strongly - optionally "with small/large amplitude" and
+      "at slow/fast speed" (omit medium amplitude / normal speed).
+    - Speakers get stable IDs (S1), (S2) ((S1,S2) when together); establish the
+      voice at first appearance (age, gender, pitch, timbre, pace). Identifying
+      phrase, ID and action go outside the tag; exact words inside:
+      (S1) says: <d>[English] I get off at the next station.</d> Preserve the
+      user's words and punctuation verbatim, never translate. Voiceover uses
+      exactly "says in an off-screen voiceover" and states the on-screen lips
+      stay closed. <scenetrans> marks a line crossing a cut; <cutoff> marks
+      speech truncated by the video's end.
+    - On-screen text (signs, labels) goes verbatim in double quotes.
+    - Reference-image modes: the first line, followed by a blank line, is the
+      alignment instruction. First frame: "For the target video, at 0.00 seconds
+      into the target video, <Picture 1> (from [Shot 1]) is fully referenced."
+      First+last: "How the reference pictures align with the target video -
+      Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target
+      video; Picture 2 (from Shot N) aligns with the S.SS-second mark of the
+      target video." Then describe the motion path between anchors - never
+      re-describe the static image content.
+    Natural prose throughout, no tag lists. In Video Director mode, put one shot
+    per segment through the director tool instead of [Shot] markers in one prompt;
+    each Director shot is its own generation, so its prompt is a complete
+    three-field document on its own: it opens with [Shot 1] (no timestamp),
+    any later cut inside it is timed from that shot's own 00:00, and it never
+    mentions or continues from another Director shot.
+
+modes:
+  - video

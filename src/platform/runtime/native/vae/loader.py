@@ -37,8 +37,10 @@ from ..detect.vae_detect import (
     detect_ltx_video_vae_config,
     detect_ltx_vocoder_config,
     detect_minimax_h3_audio_vae_config,
+    detect_minimax_h3_latent_upsampler_config,
     detect_minimax_h3_video_vae_config,
     detect_minimax_music3_dav_config,
+    detect_qwen_image21_vae_config,
     detect_seedvr2_vae_config,
     detect_vae_config,
     detect_yue2_vae_config,
@@ -55,6 +57,7 @@ from .ltx_causal_video import LTXCausalVideoVAE
 from .ltx_diffusion_video import LTXDiffusionVideoVAE
 from .ltx_latent_upsampler import LTXLatentUpsampler
 from .minimax_h3_audio import MiniMaxH3AudioVAE
+from .minimax_h3_latent_upsampler import MiniMaxH3LatentUpsampler
 from .minimax_h3_video import MiniMaxH3VideoVAE
 from .minimax_music3_dav import MiniMaxMusic3DAV, fold_weight_norm_conv
 from .seedvr2_causal_video import SeedVR2CausalVideoVAE
@@ -403,6 +406,43 @@ def load_ltx_latent_upsampler(
     return module
 
 
+def load_minimax_h3_latent_upsampler(
+    path: str | Path,
+    operations: Any,
+    device: str | torch.device = "cpu",
+    sd: dict[str, torch.Tensor] | None = None,
+    metadata: dict[str, str] | None = None,
+) -> MiniMaxH3LatentUpsampler:
+    """Load the MiniMax-H3 3D latent upsampler from its standalone checkpoint
+    (bare/unprefixed keys, no embedded ``__metadata__`` -- see
+    ``vae/minimax_h3_latent_upsampler.py``'s module docstring), shape-detected
+    the same way as the other MiniMax-H3 components.
+
+    ``sd``/``metadata`` let a caller that already read the file pass them
+    straight through instead of paying for a second full-checkpoint read.
+    """
+    path = Path(path)
+    if sd is None or metadata is None:
+        sd, metadata = load_torch_file(path, device=device)
+
+    config = detect_minimax_h3_latent_upsampler_config(sd)
+    if config is None:
+        raise NativeEngineUnsupportedError(
+            f"'{path.name}' does not look like a MiniMax-H3 latent upsampler "
+            "(missing conv_in.weight / embed.0.weight / norm_out.weight)"
+        )
+
+    module = MiniMaxH3LatentUpsampler.from_config(config, operations)
+    spec = _VaeSpec(family="vae", variant="minimax_h3_latent_upsampler")
+    load_into_module(module, sd, spec)
+
+    logger.debug(
+        "loaded MiniMax-H3 latent upsampler from %s (channels=%d, num_res_blocks=%d)",
+        path.name, config["channels"], config["num_res_blocks"],
+    )
+    return module
+
+
 def load_causal3d_v2_vae(
     path: str | Path,
     operations: Any,
@@ -421,6 +461,36 @@ def load_causal3d_v2_vae(
             f"'{path.name}' does not look like a Wan-2.2-shaped causal 3D VAE "
             "(missing decoder.middle.0.residual.0.gamma + the nested "
             "decoder.upsamples.0.upsamples.0.* signature)"
+        )
+
+    module = AutoEncoderCausal3D_2_2.from_config(config, operations)
+    spec = _VaeSpec(family="vae", variant=config["vae_type"])
+    load_into_module(module, sd, spec)
+
+    logger.debug("loaded %s causal-3D VAE from %s (latent_channels=%d)", config["vae_type"], path.name, config["latent_channels"])
+    return module
+
+
+def load_qwen_image21_vae(
+    path: str | Path,
+    operations: Any,
+    device: str | torch.device = "cpu",
+) -> AutoEncoderCausal3D_2_2:
+    """Load the Qwen-Image-2.1-shaped causal 3D VAE (64ch, RGBA, no patchify --
+    see ``vae/causal_3d_v2.py``) from a single safetensors file. Same
+    ``AutoEncoderCausal3D_2_2`` module class as :func:`load_causal3d_v2_vae`
+    (Wan 2.2), built with this family's hyper-parameters instead; same
+    no-rename key parity.
+    """
+    path = Path(path)
+    sd, _metadata = load_torch_file(path, device=device)
+
+    config = detect_qwen_image21_vae_config(sd)
+    if config is None:
+        raise NativeEngineUnsupportedError(
+            f"'{path.name}' does not look like a Qwen-Image-2.1-shaped causal 3D VAE "
+            "(missing the Wan-2.2-shaped nested decoder.upsamples.0.upsamples.0.* "
+            "signature, or decoder.head.2.weight's temporal kernel isn't 1)"
         )
 
     module = AutoEncoderCausal3D_2_2.from_config(config, operations)

@@ -1,0 +1,101 @@
+fields:
+  - name: "latent_upscale"
+    type: "select"
+    label: "Latent Upscale"
+    ai_hint: "Two-stage latent upscale, same recipe as the base MiniMax-H3 preset's Enhance tab -- requires the Latent Upscaler selected below on this tab. Stage 1 renders at the picked Resolution (Generation tab) without decoding; the latent upscaler resizes that latent to the picked target; stage 2 refines it at the new resolution with its own LoRAs/steps/denoise/shift below, added on top of stage 1's own LoRA chain. Composes freely with audio and with a first/last frame or Video Director document: stage 1's audio track is decoded/passed through independently of the video refine and muxed into stage 2's output, and whatever keyframe or Director conditioning shaped stage 1's generation is already baked into the latent stage 2 refines -- the refine entry path does not re-apply keyframe conditioning at stage 2's resolution."
+    default: "off"
+    configuration:
+      options:
+        - { label: "Off (single pass)", value: "off" }
+        - { label: "HD (~2.1MP, native H3 canvas)", value: "hd" }
+        - { label: "2K (~3.7MP)", value: "2k" }
+        - { label: "1.5x stage 1", value: "1.5x" }
+        - { label: "2x stage 1", value: "2x" }
+
+  - name: "upscale_model"
+    type: "model"
+    label: "Latent Upscaler (required when Latent Upscale is not Off)"
+    ai_hint: "The 3D latent-upscale checkpoint stage 1's output is resized through -- the same checkpoint the base MiniMax-H3 preset's Enhance tab and standalone Upscale mode use. Unset while Latent Upscale is not Off fails the render with a clear error at generation time."
+    configuration:
+      model_type: "upscaler"
+      placeholder: "Select a MiniMax-H3 3D latent upscaler..."
+      filter_tags: "@config:upscaler_tags"
+      recommendations:
+        - name: "minimax_h3_latent_upscaler_3d_bf16.safetensors"
+          link: "https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler/resolve/main/minimax_h3_latent_upscaler_3d_bf16.safetensors"
+          size: "690.59 MB"
+          sha256: "4f57821f5837f32f7142b67d815606dbd7550f194e5c769f7d6c3f83b146a5e6"
+          description: "MiniMax-H3 3D latent upsampler (Apache-2.0, community-trained). Shared with the base MiniMax-H3 preset."
+    reactions:
+      - when: { field: "latent_upscale", equals: "off" }
+        then: { set_visibility: false }
+      - when: { field: "latent_upscale", not_equals: "off" }
+        then: { set_visibility: true }
+
+  - name: "refine_loras"
+    type: "lora_picker"
+    label: "Refine LoRAs (stage 2)"
+    default: []
+    ai_hint: "ADDED to the generation LoRAs (LoRA tab's LoRAs field) for the two-stage refine pass ONLY -- stage 1 renders with the plain generation LoRA stack, unaffected. Empty = the refine pass shares the generation LoRA stack exactly as before this field existed."
+    configuration:
+      model_type: "lora"
+      placeholder: "Select a refine-stage LoRA..."
+      filter_tags: "@config:lora_tags"
+      allow_info_modal: true
+      show_triggers: true
+      strength_min: -2.0
+      strength_max: 2.0
+      strength_step: 0.05
+      strength_default: 1.0
+      max_items: 6
+    reactions:
+      - when: { field: "latent_upscale", equals: "off" }
+        then: { set_visibility: false }
+      - when: { field: "latent_upscale", not_equals: "off" }
+        then: { set_visibility: true }
+
+  - name: "refine_steps"
+    type: "slider"
+    label: "Refine steps"
+    default: 4
+    ai_hint: "Denoising steps for the refine pass; video and audio share the count but step their own sigma schedules. 4 is the released recipe -- raise if the refine looks under-cooked at Strong denoise. Only has an effect when Latent Upscale is not Off."
+    configuration: {min: 2, max: 24, step: 1}
+    reactions:
+      - when: { field: "latent_upscale", equals: "off" }
+        then: { set_visibility: false }
+      - when: { field: "latent_upscale", not_equals: "off" }
+        then: { set_visibility: true }
+
+  - name: "refine_denoise"
+    type: "select"
+    label: "Refine denoise"
+    default: "0.45"
+    ai_hint: "Fraction of the refine schedule actually walked. Balanced (0.45) is the recommended default. Light (0.30) stays closer to the upsampled latent as-is; Strong (0.60) gives the refine more freedom to add detail at the cost of drifting further from stage 1. Only has an effect when Latent Upscale is not Off."
+    configuration:
+      options:
+        - { label: "Light (0.30)", value: "0.30" }
+        - { label: "Balanced (0.45, recommended)", value: "0.45" }
+        - { label: "Strong (0.60)", value: "0.60" }
+    reactions:
+      - when: { field: "latent_upscale", equals: "off" }
+        then: { set_visibility: false }
+      - when: { field: "latent_upscale", not_equals: "off" }
+        then: { set_visibility: true }
+
+  - name: "refine_sampler"
+    type: "select"
+    label: "Refine sampler"
+    default: "euler"
+    ai_hint: "How each refine step advances between two sigmas -- the same choices as stage 1's own Sampler (Advanced tab), set independently. Euler is the reference solver; stage 1 defaults to Res multistep instead, FastVideo's own recommendation for the 8-step base pass, but the refine is a separate, shorter schedule the released recipe leaves at the reference solver. Only has an effect when Latent Upscale is not Off."
+    configuration:
+      options:
+        - { label: "Euler (reference)", value: "euler" }
+        - { label: "Res multistep", value: "res_multistep" }
+        - { label: "DPM++ 2M", value: "dpmpp_2m" }
+        - { label: "ER-SDE (stochastic)", value: "er_sde" }
+        - { label: "SA-Solver", value: "sa_solver" }
+    reactions:
+      - when: { field: "latent_upscale", equals: "off" }
+        then: { set_visibility: false }
+      - when: { field: "latent_upscale", not_equals: "off" }
+        then: { set_visibility: true }

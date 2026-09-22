@@ -1,0 +1,101 @@
+fields:
+  - name: "latent_upscale"
+    type: "select"
+    label: "Latent Upscale"
+    ai_hint: "Two-stage latent upscale, same recipe as the standalone Upscale mode -- requires the Latent Upscaler selected below on this tab. Stage 1 renders at the picked Resolution (Generation tab) without decoding, using the LoRA tab's own LoRAs; the latent upscaler resizes that latent to the picked target; stage 2 refines it at the new resolution using ITS OWN separate model load, with its own LoRAs (Refine LoRAs below, not the LoRA tab's) and its own steps/denoise/sampler/shift. Composes freely with audio and with a first/last frame or Video Director document: stage 1's audio track is decoded/passed through independently of the video refine and muxed into stage 2's output, and whatever keyframe or Director conditioning shaped stage 1's generation is already baked into the latent stage 2 refines -- MiniMax-H3's refine entry does not re-apply keyframe conditioning at stage 2's resolution the way LTX's does, since the model treats a refine and a keyframe/reference overlay as mutually exclusive."
+    default: "off"
+    configuration:
+      options:
+        - { label: "Off (single pass)", value: "off" }
+        - { label: "HD (~2.1MP, native H3 canvas)", value: "hd" }
+        - { label: "2K (~3.7MP)", value: "2k" }
+        - { label: "1.5x stage 1", value: "1.5x" }
+        - { label: "2x stage 1", value: "2x" }
+
+  - name: "upscale_model"
+    type: "model"
+    label: "Latent Upscaler (required when Latent Upscale is not Off)"
+    ai_hint: "The 3D latent-upscale checkpoint stage 1's output is resized through. Also used by the standalone Upscale mode. Unset while Latent Upscale is not Off fails the render with a clear error at generation time."
+    configuration:
+      model_type: "upscaler"
+      placeholder: "Select a MiniMax-H3 3D latent upscaler..."
+      filter_tags: "@config:upscaler_tags"
+      recommendations:
+        - name: "minimax_h3_latent_upscaler_3d_bf16.safetensors"
+          link: "https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler/resolve/main/minimax_h3_latent_upscaler_3d_bf16.safetensors"
+          size: "690.59 MB"
+          sha256: "4f57821f5837f32f7142b67d815606dbd7550f194e5c769f7d6c3f83b146a5e6"
+          description: "MiniMax-H3 3D latent upsampler (Apache-2.0, community-trained). Also used by the standalone Upscale mode."
+    reactions:
+      - when: { field: "latent_upscale", equals: "off" }
+        then: { set_visibility: false }
+      - when: { field: "latent_upscale", not_equals: "off" }
+        then: { set_visibility: true }
+
+  - name: "refine_loras"
+    type: "lora_picker"
+    label: "Refine LoRAs (stage 2)"
+    default: []
+    ai_hint: "Stage 2's OWN LoRA stack, used INSTEAD of the LoRA tab's LoRAs -- stage 2 runs its own separate model load, so it never inherits stage 1's LoRAs. Put a distillation LoRA here for a fast stage-2 refine pass (e.g. a 3-step distilled LoRA) while stage 1 keeps running the base model, undistilled, at its own step count. Empty = stage 2 runs the base model with no LoRAs regardless of what the LoRA tab has loaded for stage 1."
+    configuration:
+      model_type: "lora"
+      placeholder: "Select a refine-stage LoRA..."
+      filter_tags: "@config:lora_tags"
+      allow_info_modal: true
+      show_triggers: true
+      strength_min: -2.0
+      strength_max: 2.0
+      strength_step: 0.05
+      strength_default: 1.0
+      max_items: 6
+    reactions:
+      - when: { field: "latent_upscale", equals: "off" }
+        then: { set_visibility: false }
+      - when: { field: "latent_upscale", not_equals: "off" }
+        then: { set_visibility: true }
+
+  - name: "refine_steps"
+    type: "slider"
+    label: "Refine steps"
+    default: 4
+    ai_hint: "Denoising steps for the refine pass; video and audio share the count but step their own sigma schedules. 4 is the default recipe -- raise if the refine looks under-cooked at Strong denoise, or if Refine LoRAs is empty (no distillation LoRA) and the refine needs more steps to converge. Only has an effect when Latent Upscale is not Off."
+    configuration: {min: 2, max: 24, step: 1}
+    reactions:
+      - when: { field: "latent_upscale", equals: "off" }
+        then: { set_visibility: false }
+      - when: { field: "latent_upscale", not_equals: "off" }
+        then: { set_visibility: true }
+
+  - name: "refine_denoise"
+    type: "select"
+    label: "Refine denoise"
+    default: "0.45"
+    ai_hint: "Fraction of the refine schedule actually walked. Balanced (0.45) is the recommended default. Light (0.30) stays closer to the upsampled latent as-is (less fixing of upsampling softness, less risk of drifting from stage 1); Strong (0.60) gives the refine more freedom to add detail at the cost of drifting further from stage 1. Only has an effect when Latent Upscale is not Off."
+    configuration:
+      options:
+        - { label: "Light (0.30)", value: "0.30" }
+        - { label: "Balanced (0.45, recommended)", value: "0.45" }
+        - { label: "Strong (0.60)", value: "0.60" }
+    reactions:
+      - when: { field: "latent_upscale", equals: "off" }
+        then: { set_visibility: false }
+      - when: { field: "latent_upscale", not_equals: "off" }
+        then: { set_visibility: true }
+
+  - name: "refine_sampler"
+    type: "select"
+    label: "Refine sampler"
+    default: "euler"
+    ai_hint: "How each refine step advances between two sigmas -- the same choices as stage 1's own Sampler (Generation tab), set independently. Euler is the reference solver and the right default for a distilled refine LoRA. Only has an effect when Latent Upscale is not Off."
+    configuration:
+      options:
+        - { label: "Euler (reference)", value: "euler" }
+        - { label: "Res multistep", value: "res_multistep" }
+        - { label: "DPM++ 2M", value: "dpmpp_2m" }
+        - { label: "ER-SDE (stochastic)", value: "er_sde" }
+        - { label: "SA-Solver", value: "sa_solver" }
+    reactions:
+      - when: { field: "latent_upscale", equals: "off" }
+        then: { set_visibility: false }
+      - when: { field: "latent_upscale", not_equals: "off" }
+        then: { set_visibility: true }

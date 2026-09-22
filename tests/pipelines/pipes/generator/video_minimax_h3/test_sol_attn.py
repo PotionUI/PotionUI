@@ -24,6 +24,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.main import (
     is_dense_step,
     sparse_attn_dense_last_steps,
     sparse_attn_reserve_gb,
+    sparse_attn_start_percent,
     video_target_start,
 )
 from src.platform.runtime.native.sla_attn import SlaAttnContext
@@ -117,7 +118,9 @@ def test_the_pipe_spec_defaults_are_off():
     assert defaults["sla_sparsity"] == 0.90
     assert defaults["sla_block_size"] == 64
     assert defaults["sparse_attn_dense_last_steps"] == 2
+    assert defaults["sparse_attn_start_percent"] == 0.0
     assert GeneratorMinimaxH3Pipe.get_default_config()["sparse_attn"] == "off"
+    assert GeneratorMinimaxH3Pipe.get_default_config()["sparse_attn_start_percent"] == 0.0
 
 
 def test_sol_builds_a_sol_context_with_the_layout_sink():
@@ -165,6 +168,14 @@ def test_dense_last_steps_coercion(value, expected):
     assert sparse_attn_dense_last_steps(_config(sparse_attn_dense_last_steps=value)) == expected
 
 
+@pytest.mark.parametrize(
+    "value, expected",
+    [(0.0, 0.0), (0.2, 0.2), (1.0, 1.0), ("0.3", 0.3), (None, 0.0), ("many", 0.0), (-0.1, 0.0), (1.1, 0.0)],
+)
+def test_start_percent_coercion(value, expected):
+    assert sparse_attn_start_percent(_config(sparse_attn_start_percent=value)) == expected
+
+
 # --- the trailing-dense rule ------------------------------------------------
 
 def test_only_the_trailing_steps_are_dense():
@@ -179,6 +190,43 @@ def test_zero_dense_last_steps_leaves_every_step_sparse():
 @pytest.mark.parametrize("dense_last", [6, 7, 99])
 def test_a_dense_window_at_or_above_the_step_count_is_the_feature_off(dense_last):
     assert all(is_dense_step(i, 6, dense_last) for i in range(6))
+
+
+# --- the warm-up (dense_start_percent) rule ---------------------------------
+
+def test_start_percent_zero_is_todays_behaviour():
+    dense = [is_dense_step(i, 10, 2, 0.0) for i in range(10)]
+    assert dense == [False] * 8 + [True] * 2
+
+
+def test_start_percent_forces_the_leading_steps_dense():
+    # ceil(0.2 * 10) = 2 leading steps dense, plus the trailing 2.
+    dense = [is_dense_step(i, 10, 2, 0.2) for i in range(10)]
+    assert dense == [True, True] + [False] * 6 + [True, True]
+
+
+def test_start_percent_rounds_up_a_fractional_step_count():
+    # ceil(0.25 * 10) = 3 leading steps dense.
+    dense = [is_dense_step(i, 10, 0, 0.25) for i in range(10)]
+    assert dense == [True, True, True] + [False] * 7
+
+
+def test_start_percent_one_makes_every_step_dense():
+    assert all(is_dense_step(i, 8, 0, 1.0) for i in range(8))
+
+
+def test_start_percent_and_dense_last_steps_overlap_without_double_counting():
+    # A warm-up that reaches into the tail must not raise or misbehave --
+    # each side of the OR is independent.
+    dense = [is_dense_step(i, 5, 3, 0.6) for i in range(5)]
+    assert dense == [True] * 5
+
+
+def test_start_percent_default_leaves_is_dense_step_unchanged():
+    """The new parameter defaults to 0.0, so an existing call site that
+    never passes it stays byte-identical to the pre-warm-up behaviour."""
+    for i in range(10):
+        assert is_dense_step(i, 10, 2) == is_dense_step(i, 10, 2, 0.0)
 
 
 # --- the placement reserve --------------------------------------------------

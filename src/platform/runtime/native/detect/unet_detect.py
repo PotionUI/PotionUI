@@ -47,6 +47,8 @@ _KREA2_SIG = "txtfusion.projector.weight"
 # `transformer_blocks` is unique among the image families (flux uses double_blocks,
 # krea2 uses blocks/txtfusion). Paired with `txt_norm.weight` (ComfyUI signature).
 _QWEN_IMAGE_SIG = "transformer_blocks.0.attn.add_q_proj.weight"
+_QWEN_IMAGE21_SIG = "modulation.1.weight"
+_QWEN_IMAGE21_SIG2 = "txt_in.text_norm.weight"
 # Wan 2.1 / 2.2: the per-token final-layer modulation is unique to Wan among all
 # the DiT families (ComfyUI's ``head.modulation`` signature). ``image_model`` is
 # "wan2.1" for BOTH Wan 2.1 and 2.2 — the 2.2 14B dual-expert split is a
@@ -136,6 +138,9 @@ def detect_unet_config(sd: dict[str, torch.Tensor], metadata: dict[str, str] | N
 
     if _KREA2_SIG in sd:
         return _detect_krea2(sd)
+
+    if _QWEN_IMAGE21_SIG in sd and _QWEN_IMAGE21_SIG2 in sd:
+        return _detect_qwen_image21(sd)
 
     if _QWEN_IMAGE_SIG in sd and "txt_norm.weight" in sd:
         return _detect_qwen_image(sd)
@@ -325,6 +330,49 @@ def _detect_krea2(sd: dict[str, torch.Tensor]) -> dict:
     logger.debug(
         "detected krea2 DiT: features=%d heads=%d/%d layers=%d channels=%d txtdim=%d txtlayers=%d mult=%d",
         features, heads, kvheads, config["layers"], channels, txtdim, txtlayers, multiplier,
+    )
+    return config
+
+
+def _detect_qwen_image21(sd: dict[str, torch.Tensor]) -> dict:
+    """Config for a Qwen-Image-2.1 single-stream DiT state dict (shape-sniffed).
+
+    ``axes_dims_rope``/``theta`` are arch constants shared with 1.0. Unlike
+    1.0, there is no ``patch_size`` to shape-derive around: ``img_in.weight``'s
+    in-features IS the VAE latent channel count (64) directly, no 2x2
+    patchify. ``mlp_ratio`` is read back from the feed-forward hidden width
+    (``mlp_hidden / inner_dim``, always an integer for the shipped checkpoint).
+    ``fused_mlp`` is False only for a hypothetical diffusers-split checkpoint
+    that reached detection without going through
+    ``arch/qwen_image21/model.py:convert_qwen_image21_state_dict`` first — the
+    Comfy-Org single file (the only shipping target today) is always fused.
+    """
+    inner_dim = int(sd["img_in.weight"].shape[0])
+    in_channels = linear_in_features(sd, "img_in.weight")
+    attention_head_dim = int(sd["transformer_blocks.0.attn.norm_q.weight"].shape[0])
+    fused_mlp = "transformer_blocks.0.img_mlp.gate_up.weight" in sd
+    if fused_mlp:
+        mlp_hidden = int(sd["transformer_blocks.0.img_mlp.gate_up.weight"].shape[0]) // 2
+    else:
+        mlp_hidden = int(sd["transformer_blocks.0.img_mlp.gate_layer.weight"].shape[0])
+    config = {
+        "image_model": "qwen_image21",
+        "in_channels": in_channels,
+        "out_channels": int(sd["proj_out.weight"].shape[0]),
+        "inner_dim": inner_dim,
+        "num_layers": count_blocks(sd, "transformer_blocks.{}."),
+        "num_attention_heads": inner_dim // attention_head_dim,
+        "attention_head_dim": attention_head_dim,
+        "joint_attention_dim": linear_in_features(sd, "txt_in.in_layer.weight"),
+        "mlp_ratio": round(mlp_hidden / inner_dim),
+        "axes_dims_rope": (16, 56, 56),
+        "theta": 10000,
+        "fused_mlp": fused_mlp,
+    }
+    logger.debug(
+        "detected qwen_image21 DiT: inner=%d heads=%d headdim=%d layers=%d in=%d out=%d ctx=%d fused_mlp=%s",
+        inner_dim, config["num_attention_heads"], attention_head_dim, config["num_layers"],
+        in_channels, config["out_channels"], config["joint_attention_dim"], fused_mlp,
     )
     return config
 
@@ -820,11 +868,15 @@ def _detect_minimax_h3(sd: dict[str, torch.Tensor]) -> dict:
         config["time_embed_hidden_dim"] = int(sd["time_embedder.proj_in.weight"].shape[0])
         config["time_embed_dim"] = int(sd["time_embedder.proj_out.weight"].shape[0])
 
+    if "blocks.0.attn.to_gate_compress.weight" in sd:
+        config["gate_compress"] = True
+
     logger.debug(
         "detected minimax_h3 DiT: hidden=%d heads=%d headdim=%d layers=%d refiner=%d "
-        "ffn=%d in=%d audio_in=%d text=%d pruned=%s time_embed=%d",
+        "ffn=%d in=%d audio_in=%d text=%d pruned=%s time_embed=%d gate_compress=%s",
         hidden_size, num_attention_heads, attention_head_dim, num_layers, num_refiner_layers,
         ffn_dim, in_channels, audio_in_channels, text_dim, config["pruned"], config["time_embed_dim"],
+        config.get("gate_compress", False),
     )
     return config
 

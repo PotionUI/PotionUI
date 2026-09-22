@@ -38,6 +38,7 @@ pipeline:
   ## standalone files, each cached independently by the lifecycle service)
   ############
   - name: "model_loader/minimax_h3"
+    id: "model_loader"
     enabled: true
     configuration:
       model:
@@ -52,12 +53,15 @@ pipeline:
       audio_vae:
         file_path: "{{ form.audio_vae }}"
         name: "{{ form.audio_vae }}"
+      upscale_model:
+        file_path: "{{ form.upscale_model | default('') }}"
+        name: "{{ form.upscale_model | default('') }}"
       # Applied to the DiT at load time. `@loop` `items:` must be an exact
       # `{{ expression }}` evaluating to a real list -- a mixed/string template
       # there iterates the string's CHARACTERS instead.
       loras:
         "@loop":
-          items: "{{ form.loras }}"
+          items: "{{ form.loras if (form.latent_upscale) == 'off' else [] }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -141,7 +145,7 @@ pipeline:
   ############
   - name: "prompt_encoder"
     input:
-      - ["text_encoder", "model_loader/minimax_h3", "text_encoder"]
+      - ["text_encoder", "model_loader", "text_encoder"]
       - ["image", "keyframes", "image"]
     enabled: true
     configuration:
@@ -170,7 +174,7 @@ pipeline:
   - name: "prompt_encoder"
     id: "prompt_encoder_director"
     input:
-      - ["text_encoder", "model_loader/minimax_h3", "text_encoder"]
+      - ["text_encoder", "model_loader", "text_encoder"]
     enabled: "{{ form.video_director is defined and form.video_director.mode == 'director' }}"
     configuration:
       p_prompt:
@@ -232,6 +236,7 @@ pipeline:
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.video_vae }}"]
         - ["model", "{{ form.audio_vae }}"]
+        - ["model", "{{ form.upscale_model | default('') }}"]
         - "@loop":
             items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
@@ -239,6 +244,10 @@ pipeline:
         - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
         - ["speed_profile", "{{ form.speed_profile }}"]
         - ["resolution", "{{ form.resolution }}"]
+        - ["latent_upscale", "{{ form.latent_upscale | default('off') }}"]
+        - "@loop":
+            items: "{{ form.refine_loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
         - ["frames", "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (form.frames | default(preset.vars.default_frames)) }}"]
         - ["fps", "{{ preset.vars.fps }}"]
 
@@ -251,8 +260,9 @@ pipeline:
   ## files/form/resolutions_canvas.yml).
   ############
   - name: "generator/video_minimax_h3"
+    id: "generator_stage1"
     input:
-      - ["model", "model_loader/minimax_h3", "model"]
+      - ["model", "model_loader", "model"]
       - ["conditioning", "{% if form.video_director is defined and form.video_director.mode == 'director' %}prompt_encoder_director{% else %}prompt_encoder{% endif %}", "conditioning"]
       - ["seed", "seed_generator", "seed"]
       - ["image", "keyframes", "image"]
@@ -289,7 +299,7 @@ pipeline:
       # choices ("file"/"passthrough") need an `audio` input this preset has no
       # form field for yet.
       audio_source: "generate"
-      decode: true
+      decode: "{{ (form.latent_upscale) == 'off' }}"
       # FBCache. The pipe's own defaults are off (threshold 0.0), so an
       # untouched Advanced tab renders exactly the pipeline it did before
       # these three controls existed.
@@ -316,12 +326,60 @@ pipeline:
       # is refused outright alongside a non-simple `scheduler`.
       manual_sigmas: "{{ form.manual_sigmas }}"
       manual_audio_sigmas: "{{ form.manual_audio_sigmas }}"
+      runtime_loras:
+        "@loop":
+          items: "{{ form.loras if (form.latent_upscale) != 'off' else [] }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  - name: "latent_upscaler/minimax_h3"
+    id: "latent_upscaler"
+    input:
+      - ["latent", "generator_stage1", "latent"]
+      - ["model", "model_loader", "model"]
+    enabled: "{{ (form.latent_upscale) != 'off' }}"
+    configuration:
+      target_mode: "{{ 'scale' if (form.latent_upscale) in ['1.5x', '2x'] else 'megapixels' }}"
+      megapixels: "{{ 3.7 if (form.latent_upscale) == '2k' else 2.1 }}"
+      scale: "{{ 2.0 if (form.latent_upscale) == '2x' else 1.5 }}"
+
+  - name: "generator/video_minimax_h3"
+    id: "generator_stage2"
+    input:
+      - ["model", "model_loader", "model"]
+      - ["conditioning", "{% if form.video_director is defined and form.video_director.mode == 'director' %}prompt_encoder_director{% else %}prompt_encoder{% endif %}", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["initial_latent", "latent_upscaler", "latent"]
+      - ["initial_audio_latent", "generator_stage1", "audio_latent"]
+      - ["audio", "generator_stage1", "audio"]
+    enabled: "{{ (form.latent_upscale) != 'off' }}"
+    configuration:
+      mode: "video"
+      quantity: "{{ form.quantity }}"
+      preview: "{{ form.preview }}"
+      audio_source: "passthrough"
+      audio_refine: "{{ form.audio_refine | default('lock') }}"
+      decode: true
+      denoise: "{{ form.refine_denoise | default('0.45') | float }}"
+      video_sigma_shift: "{{ form.refine_video_sigma_shift | default(9.0) }}"
+      steps: "{{ form.refine_steps | default(4) }}"
+      sampler: "{{ form.refine_sampler }}"
+      scheduler: "{{ form.scheduler }}"
+      manual_sigmas: "{{ form.refine_manual_sigmas | default('') }}"
+      manual_audio_sigmas: "{{ form.refine_manual_audio_sigmas | default('') }}"
+      runtime_loras:
+        "@loop":
+          items: "{{ form.refine_loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
 
   #############
   ## Gallery
   ############
   - name: "gallery"
     input:
-      - ["video", "generator/video_minimax_h3", "video"]
+      - ["video", "{% set effective_upscale = (form.latent_upscale) %}{% if effective_upscale != 'off' %}generator_stage2{% else %}generator_stage1{% endif %}", "video"]
       - ["seed", "seed_generator", "seed"]
     enabled: true

@@ -468,3 +468,22 @@ def test_fp8_gemm_fast_path_refuses_int8_codes():
         input_dtype=torch.bfloat16, input_is_cuda=True, weight_is_cuda=True,
         in_features=64, out_features=64,
     ) is False
+
+
+def test_releasing_one_convrot_layer_leaves_the_shared_hadamard_intact():
+    from src.platform.runtime.native.base import release_module_storage
+
+    sd, _, _, _ = int8_state_dict(64, 256, convrot=True)
+    fresh = lambda: {k: v.clone() for k, v in sd.items()}
+    first = _linear(256, 64, fresh())
+    second = _linear(256, 64, fresh())
+    x = torch.randn(2, 256)
+    expected = second(x)
+
+    release_module_storage(first)
+
+    assert second.convrot_hadamard.numel() == 256 * 256
+    assert _build_convrot_hadamard(256, device="cpu", dtype=torch.float32).numel() == 256 * 256
+    assert torch.equal(second(x), expected)
+    third = _linear(256, 64, fresh())
+    assert torch.equal(third(x), expected)

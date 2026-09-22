@@ -1,0 +1,122 @@
+fields:
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "input_video"
+        type: "video"
+        label: "Input Video"
+        required: true
+        ai_hint: "An existing MiniMax-H3 video to upscale and refine (the 'HD detailer' pass), for example a Text to Video or References mode output. Latent-space upscale followed by a short partial-denoise refine at the new resolution. Any frame count or resolution works; frame count is padded up to the video VAE's own lattice, which can add up to ~0.7s of a frozen final frame."
+
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+            width: "2/5"
+            full_width: true
+
+      - name: "target_size"
+        type: "select"
+        label: "Target Size"
+        default: "hd"
+        ai_hint: "How large the upscale targets, as an area or a straight multiple of the source's own encode canvas. 'HD' is the checkpoint's own release canvas area and the recommended default. '2K' is a heavier area target for a source that is already close to HD. The two multiplier options scale the source canvas directly rather than hitting a fixed area -- reach for those when the user wants a specific size relationship to the source rather than a fixed resolution class. All four still round onto the model's own 32px canvas grid."
+        configuration:
+          options:
+            - { label: "HD (~2.1MP, native H3 canvas)", value: "hd" }
+            - { label: "2K (~3.7MP)", value: "2k" }
+            - { label: "1.5x source", value: "1.5x" }
+            - { label: "2x source", value: "2x" }
+
+      - name: "refine_denoise"
+        type: "select"
+        label: "Refine denoise"
+        default: "0.45"
+        ai_hint: "Fraction of the refine schedule actually walked. Balanced (0.45) is the recommended default. Light (0.30) stays closer to the upsampled source as-is (less fixing of upsampling softness, less risk of drifting from the source); Strong (0.60) gives the refine more freedom to add detail at the cost of drifting further from the source."
+        configuration:
+          options:
+            - { label: "Light (0.30)", value: "0.30" }
+            - { label: "Balanced (0.45, recommended)", value: "0.45" }
+            - { label: "Strong (0.60)", value: "0.60" }
+
+      - name: "refine_steps"
+        type: "slider"
+        label: "Refine steps"
+        default: 4
+        ai_hint: "Denoising steps for the refine pass; video and audio share the count but step their own sigma schedules. The released recipe runs 4 -- raise only if the refine looks under-cooked at Strong denoise, or the user explicitly asks for more steps."
+        configuration: {min: 2, max: 24, step: 1}
+
+      - name: "refine_sampler"
+        type: "select"
+        label: "Refine sampler"
+        default: "euler"
+        ai_hint: "How each step advances between two sigmas. Euler is the reference solver and what the model was distilled against -- leave it there for an ordinary refine. Res multistep, DPM++ 2M and SA-Solver are deterministic second-order solvers that cost no extra time and mostly buy sharpness at this mode's low step counts. ER-SDE is stochastic instead, trading exact reproducibility for more variety."
+        configuration:
+          options:
+            - { label: "Euler (reference)", value: "euler" }
+            - { label: "Res multistep", value: "res_multistep" }
+            - { label: "DPM++ 2M", value: "dpmpp_2m" }
+            - { label: "ER-SDE (stochastic)", value: "er_sde" }
+            - { label: "SA-Solver", value: "sa_solver" }
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "model"
+        type: "model"
+        label: "MiniMax-H3 DiT"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "minimax_h3_fl2va_pruned_fp8_scaled..."
+          filter_tags: "@config:checkpoint_tags"
+
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (Qwen3-VL-32B)"
+        required: true
+        configuration:
+          model_type: "text_encoder"
+          placeholder: "Select the Qwen3-VL-32B encoder..."
+          filter_tags: "@config:text_encoder_tags"
+
+      - name: "video_vae"
+        type: "model"
+        label: "Video VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "minimax_h3_video_vae..."
+          filter_tags: "@config:vae_tags"
+
+      - name: "audio_vae"
+        type: "model"
+        label: "Audio VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "minimax_h3_audio_vae..."
+          filter_tags: "@config:vae_tags"
+
+      - name: "upscale_model"
+        type: "model"
+        label: "Latent Upscaler"
+        required: true
+        configuration:
+          model_type: "upscaler"
+          placeholder: "Select a MiniMax-H3 3D latent upscaler..."
+          filter_tags: "@config:upscaler_tags"
+          recommendations:
+            - name: "minimax_h3_latent_upscaler_3d_bf16.safetensors"
+              link: "https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler/resolve/main/minimax_h3_latent_upscaler_3d_bf16.safetensors"
+              size: "690.59 MB"
+              sha256: "4f57821f5837f32f7142b67d815606dbd7550f194e5c769f7d6c3f83b146a5e6"
+              description: "MiniMax-H3 3D latent upsampler (Apache-2.0, community-trained). Required for this mode and for the video mode's optional two-stage upscale."

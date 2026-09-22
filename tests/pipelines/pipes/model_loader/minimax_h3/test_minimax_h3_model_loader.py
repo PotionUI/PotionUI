@@ -207,3 +207,70 @@ def test_non_arch_module_fakes_pass_the_family_guard():
     # guard -- only a REAL NativeArchModule of the wrong class is rejected.
     models, out = _run()
     assert out.output["model"] is not None
+
+
+def test_upscale_model_not_acquired_when_unset():
+    models, out = _run()
+    keys = [k for k, _ in models.calls]
+    assert not any(k.startswith("native/h3_upsampler/") for k in keys)
+    bundle = out.output["model"]
+    assert bundle.upsampler is None
+
+
+def test_upscale_model_acquired_when_configured():
+    cfg = _config()
+    cfg["upscale_model"] = {
+        "file_path": "/m/minimax_h3_latent_upscaler_3d_bf16.safetensors",
+        "name": "minimax_h3_latent_upscaler_3d_bf16",
+    }
+    models, out = _run(cfg)
+    keys = [k for k, _ in models.calls]
+    assert "native/h3_upsampler//m/minimax_h3_latent_upscaler_3d_bf16.safetensors" in keys
+    bundle = out.output["model"]
+    assert bundle.upsampler is not None
+
+
+def test_wrong_family_upscale_model_is_rejected():
+    cfg = _config()
+    cfg["upscale_model"] = {"file_path": "/m/ltx_spatial_upscaler.safetensors", "name": "ltx_spatial_upscaler"}
+    models = _FakeModelsWithModule(
+        lambda key: _ForeignArchModule() if key.startswith("native/h3_upsampler/") else object()
+    )
+    with pytest.raises(ValueError, match="upscale_model"):
+        ModelLoaderMinimaxH3Pipe(cfg).process(PipeInput(input={"MODELS": models}), lambda o: None)
+
+
+def test_dit_cache_key_is_shared_when_both_calls_have_no_loras():
+    """Two separate model_loader acquisitions of the SAME DiT file, both with
+    an empty LoRA stack (the default), must resolve to the identical
+    (key, fingerprint) pair -- this is what lets a stage-2 call with no
+    Refine LoRAs configured reuse stage 1's already-resident DiT instead of
+    forcing a needless reload."""
+    models_a, _ = _run(_config())
+    models_b, _ = _run(_config())
+    dit_call_a = models_a.calls[0]
+    dit_call_b = models_b.calls[0]
+    assert dit_call_a == dit_call_b
+
+
+def test_dit_cache_fingerprint_differs_when_lora_lists_differ():
+    """A stage-2 model_loader call configured with its OWN Refine LoRAs must
+    resolve to a DIFFERENT fingerprint than stage 1's (LoRA-free) call under
+    the SAME cache key -- the key names the file, the fingerprint names the
+    built module, and a LoRA stack changes the built module."""
+    cfg_stage1 = _config()
+    cfg_stage2 = {**_config(), "loras": [{"model": "/m/loras/distilled.safetensors", "strength": 1.0}]}
+    models_stage1, _ = _run(cfg_stage1)
+    models_stage2, _ = _run(cfg_stage2)
+    key_stage1, fingerprint_stage1 = models_stage1.calls[0]
+    key_stage2, fingerprint_stage2 = models_stage2.calls[0]
+    assert key_stage1 == key_stage2
+    assert fingerprint_stage1 != fingerprint_stage2
+
+
+def test_dit_cache_fingerprint_differs_between_two_different_nonempty_lora_stacks():
+    cfg_a = {**_config(), "loras": [{"model": "/m/loras/a.safetensors", "strength": 1.0}]}
+    cfg_b = {**_config(), "loras": [{"model": "/m/loras/b.safetensors", "strength": 1.0}]}
+    models_a, _ = _run(cfg_a)
+    models_b, _ = _run(cfg_b)
+    assert models_a.calls[0][1] != models_b.calls[0][1]

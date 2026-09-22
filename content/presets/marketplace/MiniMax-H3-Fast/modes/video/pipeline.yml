@@ -1,0 +1,394 @@
+# t2va / fl2va pipeline for the native FastH3 (MiniMax-H3-Fast) family.
+#
+#   model_loader/minimax_h3
+#     -> keyframes (media_loader, only for a single-shot flf/i2v Video
+#        Director document)
+#     -> prompt_encoder -> seed_generator
+#     -> generator/video_minimax_h3 -> gallery
+#
+# One generator covers both tasks: with no keyframe images it is plain t2va,
+# with one or two it is fl2va. The audio track is not a branch of this pipeline
+# at all -- H3 samples it inside the same packed sequence as the video and the
+# generator muxes it into the finished mp4 itself.
+#
+# Enhance tab: an optional stage-1 -> latent_upscaler -> stage-2 refine,
+# same mechanism as the base MiniMax-H3 preset's `video` pipeline -- this
+# preset has no standalone `upscale` mode, only the in-flow two-stage path.
+#
+# The Video Director is the ONLY way to attach a first/last frame -- there is
+# no manual Keyframes tab. A single, edgeless shot with one or two edge wells
+# filled derives to a `t2v`/`i2v`/`flf` document (never `director`); `keyframes`
+# below reads those edges straight off `form.video_director.media`. A routed
+# multi-segment `director` document is a different shape entirely and never
+# reaches this node -- see the `director_media` loader further down.
+#
+# A keyframe is consumed TWICE, by two pipes that need it for different reasons:
+# `prompt_encoder` puts it through the text encoder's vision tower so it lands in
+# the prompt presentation as a `<Picture i>: ` block, and the generator VAE-encodes
+# it into condition rows. Both consumers read the SAME `keyframes` node, so the
+# two paths can never disagree about which images (or what order) they got.
+#
+# Pipes run in DECLARATION ORDER (an input whose provider hasn't run yet resolves
+# to nothing and only logs a warning), which is why `keyframes` is declared up
+# here rather than next to the generator that also reads it.
+#
+# The gallery deliberately reads only `video`. The generator's `audio` output is
+# an in-memory AudioTrack (a waveform), not a file path, and the gallery writes
+# whatever it gets on that input straight out as an audio asset path -- wiring it
+# would both break and duplicate the soundtrack that is already inside the mp4.
+pipeline:
+  #############
+  ## Model loader (DiT + Qwen3-VL-32B TE + video VAE + audio VAE, four
+  ## standalone files, each cached independently by the lifecycle service)
+  ############
+  - name: "model_loader/minimax_h3"
+    id: "model_loader"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      video_vae:
+        file_path: "{{ form.video_vae }}"
+        name: "{{ form.video_vae }}"
+      audio_vae:
+        file_path: "{{ form.audio_vae }}"
+        name: "{{ form.audio_vae }}"
+      upscale_model:
+        file_path: "{{ form.upscale_model | default('') }}"
+        name: "{{ form.upscale_model | default('') }}"
+      # Applied to the DiT at load time. `@loop` `items:` must be an exact
+      # `{{ expression }}` evaluating to a real list -- a mixed/string template
+      # there iterates the string's CHARACTERS instead.
+      loras:
+        "@loop":
+          items: "{{ form.loras if (form.latent_upscale) == 'off' else [] }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  #############
+  ## Keyframes (fl2va), single-shot Video Director documents only. ONE loader
+  ## for both anchors and BOTH consumers, because the generator's `image`
+  ## input is a single array and `keyframe_anchors` (config, further down)
+  ## indexes into it positionally -- this `items:` list and that anchor list
+  ## must stay the SAME traversal (`role` sorted so "first" precedes "last"),
+  ## or an anchor binds to the wrong image.
+  ##
+  ## Gated on `mode != "director"`: a routed multi-segment document places its
+  ## `first`/`last` media through the SEPARATE `director_media` loader below
+  ## instead (see that block's comment for why). t2v carries no `first`/`last`
+  ## media, so this stays disabled and the request is plain t2va.
+  ##
+  ## `enabled:` must be an exact `{{ expression }}` so it evaluates to a real
+  ## bool: a `{% set %}`-prefixed string renders "False", and bool("False") is
+  ## True, which would force the loader on with nothing to load.
+  ############
+  - name: "media_loader"
+    id: "keyframes"
+    enabled: "{{ form.video_director is defined and form.video_director.mode != 'director' and (form.video_director.media | selectattr('role', 'in', ['first', 'last']) | list | length) > 0 }}"
+    configuration:
+      media:
+        "@loop":
+          items: "{{ (form.video_director.media | selectattr('role', 'in', ['first', 'last']) | sort(attribute='role') | list) if form.video_director is defined else [] }}"
+          template:
+            type: "image"
+            path: "{{ item.media.path }}"
+
+  #############
+  ## Video Director images (director mode only).
+  ##
+  ## Deliberately a SECOND loader rather than more entries on `keyframes`
+  ## above: these images feed the generator alone. A Director keyframe
+  ## conditions latent frames and nothing else -- it never reaches the text
+  ## encoder's vision tower the way a single-shot flf/i2v edge frame does, so
+  ## a shot's own start image cannot quietly rewrite the prompt of every
+  ## other shot (prompt_encoder forwards its whole image batch to every
+  ## request -- see the fl2va note below).
+  ##
+  ## `media_images` is built by derive_ltx_media_fields() during document
+  ## normalization and is index-aligned with `media_placements`, which is what
+  ## the generator resolves each placement's image through. It is populated
+  ## for EVERY mode, not just `director` -- gated here on `mode == "director"`
+  ## so this loader and `keyframes` above stay mutually exclusive rather than
+  ## both loading the same edge image for a single-shot flf/i2v document.
+  ############
+  - name: "media_loader"
+    id: "director_media"
+    enabled: "{{ form.video_director is defined and form.video_director.mode == 'director' and (form.video_director.media_images | length) > 0 }}"
+    configuration:
+      media:
+        "@loop":
+          items: "{{ form.video_director.media_images if form.video_director is defined else [] }}"
+          template:
+            type: "image"
+            path: "{{ item }}"
+
+  #############
+  ## Prompt encoder (shared pipe; produces the conditioning)
+  ##
+  ## The `image` edge is what makes this fl2va rather than t2va-with-anchors:
+  ## the H3 clip adapter declares `forwards_full_image_batch`, so prompt_encoder
+  ## hands it the WHOLE keyframe list for every request instead of one image per
+  ## output index. With no keyframes picked the loader is disabled, this input
+  ## resolves to nothing, and the encode is plain t2va.
+  ##
+  ## No `n_prompt` block and guidance_scale pinned at 1.0: MiniMax-H3 is
+  ## guidance-distilled and has no unconditional branch to encode. The H3 clip
+  ## adapter returns an empty `n_embeds` no matter what it is handed, so 1.0
+  ## here is what keeps the recorded `negative_applied` provenance honest
+  ## instead of claiming a negative pass that never runs.
+  ############
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader", "text_encoder"]
+      - ["image", "keyframes", "image"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+      guidance_scale: 1.0
+      # Caps the keyframe area the TE's vision tower sees, as a multiple of the
+      # output canvas. Both keys are inert without a keyframe.
+      image_pixel_budget: "{{ form.keyframe_pixel_budget }}"
+      output_resolution: "{{ form.resolution }}"
+
+  #############
+  ## Prompt encoder, director mode: ONE conditioning per shot.
+  ##
+  ## A separate node rather than a conditional `pairs:` on the one above,
+  ## because the two shapes are irreconcilable in a single block -- `@loop`'s
+  ## `items:` cannot fall back to the scalar `generation.prompts.pairs` a
+  ## non-director request needs. The generator picks whichever node ran, which
+  ## keeps the ordinary path rendering exactly what it rendered before.
+  ##
+  ## No `image` input: see the director_media loader's comment.
+  ############
+  - name: "prompt_encoder"
+    id: "prompt_encoder_director"
+    input:
+      - ["text_encoder", "model_loader", "text_encoder"]
+    enabled: "{{ form.video_director is defined and form.video_director.mode == 'director' }}"
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      pairs:
+        "@loop":
+          items: "{{ form.video_director.segments if form.video_director is defined else [] }}"
+          template:
+            positive: "{{ item.prompt }}"
+            negative: ""
+      quantity: "{{ (form.video_director.segments | length) if form.video_director is defined else 1 }}"
+      guidance_scale: 1.0
+      output_resolution: "{{ form.resolution }}"
+
+  #############
+  ## Seed generator
+  ############
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  #############
+  ## Rendered prompts (provenance): surfaces the per-clip expanded prompts as
+  ## pipe artifacts, the prompt counterpart of seed_generator.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+
+  #############
+  ## IOType to Value Converter
+  ############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter
+  ############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity }}"
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.video_vae }}"]
+        - ["model", "{{ form.audio_vae }}"]
+        - ["model", "{{ form.upscale_model | default('') }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["speed_profile", "{{ form.speed_profile }}"]
+        - ["resolution", "{{ form.resolution }}"]
+        - ["latent_upscale", "{{ form.latent_upscale | default('off') }}"]
+        - "@loop":
+            items: "{{ form.refine_loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["frames", "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (form.frames | default(preset.vars.default_frames)) }}"]
+        - ["fps", "{{ preset.vars.fps }}"]
+
+  #############
+  ## Generator, stage 1 (t2va + fl2va). `frames` is snapped UP to the next
+  ## 17n+5 by the pipe itself, but `resolution` is NOT snapped -- an off-grid
+  ## canvas is rejected outright, so the Resolution field's option files are
+  ## the contract (see files/form/resolutions_canvas.yml).
+  ############
+  - name: "generator/video_minimax_h3"
+    id: "generator_stage1"
+    input:
+      - ["model", "model_loader", "model"]
+      - ["conditioning", "{% if form.video_director is defined and form.video_director.mode == 'director' %}prompt_encoder_director{% else %}prompt_encoder{% endif %}", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "keyframes", "image"]
+      - ["director_image", "director_media", "image"]
+    enabled: true
+    configuration:
+      mode: "video"
+      # The whole normalized Director document, raw (an exact `{{ }}` scalar
+      # bypasses Jinja stringification -- the pipe reads real nested dicts and
+      # lists). Absent for every ordinary request, which is what leaves this
+      # pipe on its single-generation path with the knobs below as the request.
+      document: "{{ form.video_director if form.video_director is defined else none }}"
+      # The profile supplies the baseline; the visible Steps slider (baked to
+      # the profile's exact value by the reaction in tabs/advanced.yml) is
+      # what actually wins.
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      resolution: "{{ form.resolution }}"
+      # A document's `settings.duration` is the truth once one is attached --
+      # a derived single-shot document (t2v/i2v/flf, `document` above stays
+      # `document.mode != 'director'`) still carries the shot's own duration
+      # here, and this form has no `frames`/duration field of its own for that
+      # path to fall back to. For a routed multi-segment `director` document
+      # this value is vestigial -- each window's own `frames`
+      # (windows.py's `build_director_plan`) is what actually runs -- so
+      # reading it here costs nothing.
+      frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (form.frames | default(preset.vars.default_frames)) }}"
+      quantity: "{{ form.quantity }}"
+      preview: "{{ form.preview }}"
+      # Positional with the `keyframes` loader's `items:` above -- SAME filter,
+      # SAME sort, so the Nth anchor here always names the Nth image there.
+      keyframe_anchors: "{{ (form.video_director.media | selectattr('role', 'in', ['first', 'last']) | sort(attribute='role') | map(attribute='role') | list) if (form.video_director is defined and form.video_director.mode != 'director') else [] }}"
+      # H3 always samples an audio stream; this only picks which track gets
+      # muxed. "generate" = the one the model just produced. The pipe's other
+      # choices ("file"/"passthrough") need an `audio` input this preset has no
+      # form field for yet.
+      audio_source: "generate"
+      decode: "{{ (form.latent_upscale) == 'off' }}"
+      # FBCache. The pipe's own defaults are off (threshold 0.0), so an
+      # untouched Advanced tab renders exactly the pipeline it did before
+      # these three controls existed.
+      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
+      # Sparse attention: ONE method knob (off/sol/sla), plus a dense warm-up
+      # fraction. Defaults here are FastVideo's own recommended pairing for
+      # this checkpoint (see tabs/advanced.yml's ai_hints), unlike the base
+      # MiniMax-H3 preset's off-by-default posture.
+      sparse_attn: "{{ form.sparse_attn }}"
+      sol_attn_tau: "{{ form.sol_attn_tau }}"
+      sla_sparsity: "{{ form.sla_sparsity }}"
+      sla_block_size: "{{ form.sla_block_size | int }}"
+      sparse_attn_dense_last_steps: "{{ form.sparse_attn_dense_last_steps }}"
+      sparse_attn_start_percent: "{{ form.sparse_attn_start_percent }}"
+      # Solver, knot placement and the video shift. FastVideo's own tutorial
+      # values are this preset's defaults (see tabs/advanced.yml).
+      sampler: "{{ form.sampler }}"
+      scheduler: "{{ form.scheduler }}"
+      video_sigma_shift: "{{ form.video_sigma_shift }}"
+      # Blank (the default) leaves the schedules computed from `steps` above;
+      # a filled-in list owns the step count outright, profile included, and
+      # is refused outright alongside a non-simple `scheduler`.
+      manual_sigmas: "{{ form.manual_sigmas }}"
+      manual_audio_sigmas: "{{ form.manual_audio_sigmas }}"
+      runtime_loras:
+        "@loop":
+          items: "{{ form.loras if (form.latent_upscale) != 'off' else [] }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  #############
+  ## Enhance: stage-1 latent -> latent_upscaler -> stage-2 refine, same
+  ## mechanism as the base MiniMax-H3 preset's Enhance tab. Disabled (and
+  ## `decode: false` above never triggers) while Latent Upscale is Off.
+  ############
+  - name: "latent_upscaler/minimax_h3"
+    id: "latent_upscaler"
+    input:
+      - ["latent", "generator_stage1", "latent"]
+      - ["model", "model_loader", "model"]
+    enabled: "{{ (form.latent_upscale) != 'off' }}"
+    configuration:
+      target_mode: "{{ 'scale' if (form.latent_upscale) in ['1.5x', '2x'] else 'megapixels' }}"
+      megapixels: "{{ 3.7 if (form.latent_upscale) == '2k' else 2.1 }}"
+      scale: "{{ 2.0 if (form.latent_upscale) == '2x' else 1.5 }}"
+
+  - name: "generator/video_minimax_h3"
+    id: "generator_stage2"
+    input:
+      - ["model", "model_loader", "model"]
+      - ["conditioning", "{% if form.video_director is defined and form.video_director.mode == 'director' %}prompt_encoder_director{% else %}prompt_encoder{% endif %}", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["initial_latent", "latent_upscaler", "latent"]
+      - ["initial_audio_latent", "generator_stage1", "audio_latent"]
+      - ["audio", "generator_stage1", "audio"]
+    enabled: "{{ (form.latent_upscale) != 'off' }}"
+    configuration:
+      mode: "video"
+      quantity: "{{ form.quantity }}"
+      preview: "{{ form.preview }}"
+      audio_source: "passthrough"
+      audio_refine: "{{ form.audio_refine | default('lock') }}"
+      decode: true
+      denoise: "{{ form.refine_denoise | default('0.45') | float }}"
+      video_sigma_shift: "{{ form.refine_video_sigma_shift | default(9.0) }}"
+      steps: "{{ form.refine_steps | default(4) }}"
+      sampler: "{{ form.refine_sampler }}"
+      scheduler: "{{ form.scheduler }}"
+      manual_sigmas: "{{ form.refine_manual_sigmas | default('') }}"
+      manual_audio_sigmas: "{{ form.refine_manual_audio_sigmas | default('') }}"
+      # This preset's own sparse-attention defaults (unlike the base
+      # MiniMax-H3 preset's stage 2, which leaves them at the pipe's off
+      # default) -- FastVideo's recommended pairing applies to the refine
+      # pass exactly as it does to stage 1.
+      sparse_attn: "{{ form.sparse_attn }}"
+      sla_sparsity: "{{ form.sla_sparsity }}"
+      sparse_attn_start_percent: "{{ form.sparse_attn_start_percent }}"
+      runtime_loras:
+        "@loop":
+          items: "{{ form.refine_loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  #############
+  ## Gallery
+  ############
+  - name: "gallery"
+    input:
+      - ["video", "{% if (form.latent_upscale) != 'off' %}generator_stage2{% else %}generator_stage1{% endif %}", "video"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true

@@ -45,6 +45,10 @@ configuration:
     type: "model_tags"
     label: "LoRA tags"
     description: "Only LoRAs with any of these tags appear in the LoRA picker."
+  upscaler_tags:
+    type: "model_tags"
+    label: "Latent upscaler tags"
+    description: "Only models with any of these tags appear in the Latent Upscaler picker."
 
 # Selectable speed profiles (docs/presets.md "Speed profiles"), same pattern as
 # presets/native/LTX-2 and presets/native/Krea2. Each profile bakes the ACTUAL
@@ -354,6 +358,16 @@ llm:
         reused, state the copy/reference relationship only in the section matching
         the audible layer.
 
+    upscale:
+      guide: |
+        Utility mode -- upscales and refines an EXISTING MiniMax-H3 video, not a
+        fresh generation from a prompt. The prompt pane stays visible (the same
+        three-field document as the video mode) but is optional here. Help the
+        user pick Target Size and Refine Strength from the form summary below;
+        never suggest prompt text unless they explicitly want the refine's own
+        conditioning changed.
+
 modes:
   - video
   - refs
+  - upscale

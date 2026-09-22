@@ -108,13 +108,41 @@ see ``detect_seedvr2_vae_config`` below, not renumbered into this list):
    against ``models/vae/wan2.2_vae.safetensors``: same bottleneck signature as
    Wan 2.1 plus the nested ``decoder.upsamples.0.upsamples.0.*`` key (see
    ``vae/causal_3d_v2.py`` module docstring for the architecture). 48-channel
-   latent, patchified (2x2 space-to-depth) input/output.
+   latent, patchified (2x2 space-to-depth) input/output. Excludes the Qwen-
+   Image-2.1 shape below (same nested key, disambiguated by temporal kernel).
 
    Config dict schema:
     vae_type:        "wan2.2"
     latent_channels: int              -- 48
     in_channels:     int              -- image channels (3)
     out_channels:    int              -- image channels (3)
+
+7b. **Causal 3D Qwen-Image-2.1 VAE** (``detect_qwen_image21_vae_config``) --
+   the Comfy-Org single-file repack (``qwen_image_2.1_vae_bf16.safetensors``).
+   Architecturally the Wan 2.2 module shape (``AutoEncoderCausal3D_2_2``) with
+   different hyper-parameters -- ComfyUI itself reuses ``comfy.ldm.wan.vae2_2.
+   WanVAE`` for it (``comfy/sd.py``'s VAE dispatch). Same nested
+   ``decoder.upsamples.0.upsamples.0.residual.2.weight`` signature as Wan 2.2,
+   disambiguated by ``decoder.head.2.weight``'s temporal kernel: a 5D weight
+   with ``shape[2] == 1`` is this family (``temporal_kernel=1``); ``!= 1``
+   (Wan 2.2's ``3``) is not. RGBA in/out (``image_channels=4``, alpha padded
+   with ``pad_channel_value=1.0`` by the caller when fed RGB -- not this
+   detector's job), no 2x2 patchify (``patch_size=1``), 64-channel latent,
+   still 16x spatial downscale (``dim_mult`` has one more stage than Wan 2.2's
+   but the extra stage's ``down_flag`` is ``False`` -- no extra downscale).
+
+   Config dict schema:
+    vae_type:           "qwen_image21"
+    latent_channels:    int              -- 64
+    in_channels:         int              -- image channels (4, RGBA)
+    out_channels:        int              -- image channels (4, RGBA)
+    dim:                 int              -- 96 (encoder base width)
+    dec_dim:              int              -- 144 (decoder base width)
+    dim_mult:            tuple[int, ...]  -- (1, 2, 4, 8, 8)
+    num_res_blocks:      int              -- 2
+    temporal_downsample: tuple[bool, ...] -- (False, True, True, True)
+    patch_size:          int              -- 1
+    temporal_kernel:     int              -- 1
 
 8. **MiniMax-H3 video VAE** (``detect_minimax_h3_video_vae_config``) -- the
    Comfy-Org single-file repack (``minimax_h3_video_vae_fp16.safetensors``).
@@ -187,10 +215,19 @@ see ``detect_seedvr2_vae_config`` below, not renumbered into this list):
    ``pooler_hidden_dim``, ``num_queries``, ``num_pooler_heads``,
    ``mlp_hidden_dim``).
 
-The MiniMax-H3 3D latent upsampler detector that used to live here as #11
-moved to the minimax-h3-upscale plugin (``detect_config`` in
-``content/plugins/local/minimax-h3-upscale/pipes/latent_upscaler_minimax_h3/upsampler.py``)
-along with the rest of that mode -- this module no longer detects it.
+11. **MiniMax-H3 3D latent upsampler** (``detect_minimax_h3_latent_upsampler_config``)
+   -- the Apache-2.0 ``LBH-123-AI/Minimax_h3_latent_Upscaler`` checkpoint
+   (``minimax_h3_latent_upscaler_3d_bf16.safetensors``). Unlike every LTX
+   component above, this checkpoint carries no embedded ``__metadata__`` at
+   all (verified against the real header), so detection is entirely
+   shape-derived from ``sd`` -- same pattern as #8/#9. Signature:
+   ``conv_in.weight`` (a 5D conv) plus ``embed.0.weight`` and
+   ``norm_out.weight`` both present. See ``vae/minimax_h3_latent_upsampler.py``
+   for the full architecture.
+
+   Config dict schema: matches ``MiniMaxH3LatentUpsampler.from_config``'s
+   kwargs (``in_channels``, ``channels``, ``num_res_blocks``,
+   ``temporal_every``, ``temporal_kernel``, ``embed_dim``).
 """
 
 from __future__ import annotations
@@ -225,6 +262,12 @@ _H3_VIDEO_DECODER_ROPE_DIM_RATIO = 0.75
 _H3_VIDEO_DECODER_NORM_EPS = 1e-5
 _H3_VIDEO_CLIP_LENGTH = 17
 _H3_VIDEO_TOKEN_DROP = 3
+
+_QWEN_IMAGE21_DIM_MULT: tuple[int, ...] = (1, 2, 4, 8, 8)
+_QWEN_IMAGE21_NUM_RES_BLOCKS = 2
+_QWEN_IMAGE21_TEMPORAL_DOWNSAMPLE: tuple[bool, ...] = (False, True, True, True)
+_QWEN_IMAGE21_PATCH_SIZE = 1
+_QWEN_IMAGE21_TEMPORAL_KERNEL = 1
 
 _H3_AUDIO_ENCODER_DIM = 64
 _H3_AUDIO_ENCODER_RATES: tuple[int, ...] = (2, 4, 4, 5, 5)
@@ -496,17 +539,37 @@ def detect_causal3d_vae_config(sd: dict[str, torch.Tensor]) -> dict | None:
     return config
 
 
+def _is_wan22_shaped(sd: dict[str, torch.Tensor]) -> bool:
+    """Shared first gate for the two nested-``upsamples.upsamples``-shaped
+    causal 3D VAEs (Wan 2.2 and Qwen-Image-2.1 -- see both detectors below)."""
+    return (
+        "decoder.middle.0.residual.0.gamma" in sd
+        and "decoder.upsamples.0.upsamples.0.residual.2.weight" in sd
+    )
+
+
+def _has_qwen_image21_temporal_kernel(sd: dict[str, torch.Tensor]) -> bool:
+    """``decoder.head.2.weight`` is the final decoder conv, 5D
+    ``(out, in, kT, 3, 3)``: Wan 2.2 uses ``temporal_kernel=3`` (``kT == 3``),
+    Qwen-Image-2.1 uses ``temporal_kernel=1`` (``kT == 1``) -- ComfyUI's own
+    disambiguation (``comfy/sd.py``'s VAE dispatch)."""
+    head_conv = sd.get("decoder.head.2.weight")
+    return head_conv is not None and head_conv.ndim == 5 and int(head_conv.shape[2]) == 1
+
+
 def detect_causal3d_v2_vae_config(sd: dict[str, torch.Tensor]) -> dict | None:
     """Return a config dict for a Wan-2.2-shaped causal 3D VAE state dict
     (``vae/causal_3d_v2.py``), else ``None``. Signature: the same bottleneck
     ``decoder.middle.0.residual.0.gamma`` marker as Wan 2.1, PLUS the nested
     ``decoder.upsamples.0.upsamples.0.residual.2.weight`` key that only the
     2.2 shape's ``Up_ResidualBlock``-inside-``Sequential`` layout produces.
+    Excludes the Qwen-Image-2.1 shape (same nested key, ``temporal_kernel=1``
+    instead of 3 -- see ``detect_qwen_image21_vae_config``).
     """
-    if "decoder.middle.0.residual.0.gamma" not in sd:
+    if not _is_wan22_shaped(sd):
         return None
-    if "decoder.upsamples.0.upsamples.0.residual.2.weight" not in sd:
-        return None
+    if _has_qwen_image21_temporal_kernel(sd):
+        return None  # Qwen-Image-2.1 shape; not this detector's job.
 
     # encoder.conv1/decoder.head.2 operate on patchified (image_ch * patch_size**2)
     # channels, not raw image channels (patch_size=2 -> divide by 4).
@@ -525,6 +588,54 @@ def detect_causal3d_v2_vae_config(sd: dict[str, torch.Tensor]) -> dict | None:
     logger.debug(
         "detected wan2.2 (causal 3D, patchified) VAE: latent=%d in=%d out=%d",
         latent_channels, in_channels, out_channels,
+    )
+    return config
+
+
+def detect_qwen_image21_vae_config(sd: dict[str, torch.Tensor]) -> dict | None:
+    """Return a config dict for a Qwen-Image-2.1-shaped causal 3D VAE state
+    dict (``vae/causal_3d_v2.py``'s ``AutoEncoderCausal3D_2_2``, reused with
+    different hyper-parameters), else ``None``. Signature: the same nested
+    ``decoder.upsamples.0.upsamples.0.*`` key as Wan 2.2, PLUS a
+    ``temporal_kernel=1`` ``decoder.head.2.weight`` (see
+    ``_has_qwen_image21_temporal_kernel``) -- Wan 2.2 itself (``temporal_kernel=3``)
+    is excluded.
+    """
+    if not _is_wan22_shaped(sd):
+        return None
+    if not _has_qwen_image21_temporal_kernel(sd):
+        return None  # Wan 2.2 shape; not this detector's job.
+
+    patch_size = _QWEN_IMAGE21_PATCH_SIZE
+    dim_mult = _QWEN_IMAGE21_DIM_MULT
+
+    dim = int(sd["encoder.conv1.weight"].shape[0]) if "encoder.conv1.weight" in sd else 96
+    dec_dim = (
+        int(sd["decoder.conv1.weight"].shape[0]) // dim_mult[-1] if "decoder.conv1.weight" in sd else 144
+    )
+    latent_channels = int(sd["conv2.weight"].shape[0]) if "conv2.weight" in sd else 64
+
+    patchified_in = int(sd["encoder.conv1.weight"].shape[1]) if "encoder.conv1.weight" in sd else 4
+    patchified_out = int(sd["decoder.head.2.weight"].shape[0]) if "decoder.head.2.weight" in sd else 4
+    in_channels = patchified_in // (patch_size ** 2)
+    out_channels = patchified_out // (patch_size ** 2)
+
+    config = {
+        "vae_type": "qwen_image21",
+        "latent_channels": latent_channels,
+        "in_channels": in_channels,
+        "out_channels": out_channels,
+        "dim": dim,
+        "dec_dim": dec_dim,
+        "dim_mult": dim_mult,
+        "num_res_blocks": _QWEN_IMAGE21_NUM_RES_BLOCKS,
+        "temporal_downsample": _QWEN_IMAGE21_TEMPORAL_DOWNSAMPLE,
+        "patch_size": patch_size,
+        "temporal_kernel": _QWEN_IMAGE21_TEMPORAL_KERNEL,
+    }
+    logger.debug(
+        "detected qwen_image21 (causal 3D, RGBA) VAE: latent=%d in=%d out=%d dim=%d dec_dim=%d",
+        latent_channels, in_channels, out_channels, dim, dec_dim,
     )
     return config
 
@@ -730,5 +841,43 @@ def detect_yue2_vae_config(sd: dict[str, torch.Tensor]) -> dict | None:
     logger.debug(
         "detected yue2 VAE: latent_dim=%d out_channels=%d",
         latent_dim, out_channels,
+    )
+    return config
+
+
+def detect_minimax_h3_latent_upsampler_config(sd: dict[str, torch.Tensor]) -> dict | None:
+    """Return a config dict for a MiniMax-H3 3D latent upsampler state dict
+    (the Apache-2.0 ``LBH-123-AI/Minimax_h3_latent_Upscaler`` checkpoint --
+    see ``vae/minimax_h3_latent_upsampler.py``), else ``None``. No embedded
+    metadata exists for this checkpoint (unlike the LTX latent upsampler
+    above), so every field is shape-derived from ``sd``.
+    """
+    conv_in = sd.get("conv_in.weight")
+    if conv_in is None or conv_in.ndim != 5:
+        return None
+    if "embed.0.weight" not in sd or "norm_out.weight" not in sd:
+        return None
+
+    channels = int(conv_in.shape[0])
+    in_channels = int(conv_in.shape[1])
+    num_res_blocks = len({
+        int(k.split(".")[1]) for k in sd
+        if k.startswith("in_blocks.") and ".in_layers." in k
+    })
+    dwconv_key = next((k for k in sd if k.endswith(".dwconv.weight")), None)
+    temporal_kernel = int(sd[dwconv_key].shape[2]) if dwconv_key is not None else 5
+    embed_dim = int(sd["embed.0.weight"].shape[0])
+
+    config = {
+        "in_channels": in_channels,
+        "channels": channels,
+        "num_res_blocks": num_res_blocks,
+        "temporal_every": 2,
+        "temporal_kernel": temporal_kernel,
+        "embed_dim": embed_dim,
+    }
+    logger.debug(
+        "detected minimax_h3 latent upsampler: in=%d channels=%d res_blocks=%d embed_dim=%d",
+        in_channels, channels, num_res_blocks, embed_dim,
     )
     return config

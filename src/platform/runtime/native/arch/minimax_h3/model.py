@@ -179,10 +179,18 @@ class MiniMaxH3AdalnProj(nn.Module):
 
 class MiniMaxH3Attention(nn.Module):
     """Full self-attention with a fused qkv projection and per-head RMSNorm(q,k)
-    applied BEFORE RoPE. No cross-attention exists anywhere in this model."""
+    applied BEFORE RoPE. No cross-attention exists anywhere in this model.
+
+    ``gate_compress`` (default off) builds FastVideo FastH3's ``to_gate_compress``
+    projection -- a [inner_dim, hidden_size] Linear present only on that
+    checkpoint's main blocks (never on the token refiner). It is VSA's
+    coarse-attention gate: loaded so the checkpoint's key set is satisfied, but
+    not read anywhere in this forward -- the sparse VSA routing that consumes it
+    is a separate, not-yet-ported feature. With it absent (every other released
+    checkpoint) this module is unchanged."""
 
     def __init__(self, hidden_size: int, heads: int, head_dim: int, qk_norm_eps: float,
-                 operations, dtype=None, device=None) -> None:
+                 operations, dtype=None, device=None, gate_compress: bool = False) -> None:
         super().__init__()
         self.heads = heads
         self.head_dim = head_dim
@@ -193,6 +201,8 @@ class MiniMaxH3Attention(nn.Module):
         self.q_norm = operations.RMSNorm(head_dim, eps=qk_norm_eps, dtype=dtype, device=device)
         self.k_norm = operations.RMSNorm(head_dim, eps=qk_norm_eps, dtype=dtype, device=device)
         self.out_proj = operations.Linear(inner_dim, hidden_size, bias=False, dtype=dtype, device=device)
+        if gate_compress:
+            self.to_gate_compress = operations.Linear(hidden_size, inner_dim, bias=False, dtype=dtype, device=device)
         # Sticky OOM marker: sequence lengths >= this skip the normal dispatch
         # and go straight to the query-chunked sdpa rescue (see forward()).
         self._sdpa_min_rows: int | None = None
@@ -405,10 +415,11 @@ class MiniMaxH3Block(nn.Module):
 
     def __init__(self, hidden_size: int, heads: int, head_dim: int, ffn_dim: int, t_dim: int,
                  apply_silu: bool, norm_eps: float, qk_norm_eps: float,
-                 operations, dtype=None, device=None) -> None:
+                 operations, dtype=None, device=None, gate_compress: bool = False) -> None:
         super().__init__()
         self.norm1 = operations.RMSNorm(hidden_size, eps=norm_eps, dtype=dtype, device=device)
-        self.attn = MiniMaxH3Attention(hidden_size, heads, head_dim, qk_norm_eps, operations, dtype=dtype, device=device)
+        self.attn = MiniMaxH3Attention(hidden_size, heads, head_dim, qk_norm_eps, operations, dtype=dtype, device=device,
+                                        gate_compress=gate_compress)
         self.norm2 = operations.RMSNorm(hidden_size, eps=norm_eps, dtype=dtype, device=device)
         self.mlp = MiniMaxH3MLP(hidden_size, ffn_dim, operations, dtype=dtype, device=device)
         self.adaln_proj = MiniMaxH3AdalnProj(t_dim, hidden_size, 6, MINIMAX_H3_MODALITY_NUM, apply_silu,
@@ -565,12 +576,13 @@ class MiniMaxH3Model(NativeArchModule):
             operations, dtype=dtype, device=device,
         )
 
-        # 5. The block stack.
+        # 5. The block stack. gate_compress (FastH3 only) reaches the main
+        # blocks alone -- the token refiner's checkpoint keys never carry it.
         apply_silu = not config.pruned
         self.blocks = nn.ModuleList([
             MiniMaxH3Block(hidden_size, config.num_attention_heads, config.attention_head_dim, config.ffn_dim,
                             config.time_embed_dim, apply_silu, config.norm_eps, config.qk_norm_eps,
-                            operations, dtype=dtype, device=device)
+                            operations, dtype=dtype, device=device, gate_compress=config.gate_compress)
             for _ in range(config.num_layers)
         ])
 

@@ -31,6 +31,14 @@
           "type": "str",
           "value": "/GOLDEN/models/text_encoder.safetensors"
         },
+        "upscale_model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/upscale_model.safetensors"
+        },
+        "upscale_model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/upscale_model.safetensors"
+        },
         "video_vae.file_path": {
           "type": "str",
           "value": "/GOLDEN/models/video_vae.safetensors"
@@ -44,7 +52,7 @@
         "type": "bool",
         "value": true
       },
-      "id": null,
+      "id": "model_loader",
       "name": "model_loader/minimax_h3"
     },
     {
@@ -193,6 +201,10 @@
               "model",
               "/GOLDEN/models/audio_vae.safetensors"
             ],
+            [
+              "model",
+              "/GOLDEN/models/upscale_model.safetensors"
+            ],
             [],
             [
               "positive_prompt",
@@ -212,6 +224,11 @@
               "resolution",
               "1344x768"
             ],
+            [
+              "latent_upscale",
+              "off"
+            ],
+            [],
             [
               "frames",
               120
@@ -354,6 +371,10 @@
           "type": "str",
           "value": "1344x768"
         },
+        "runtime_loras": {
+          "type": "list",
+          "value": []
+        },
         "sampler": {
           "type": "str",
           "value": "euler"
@@ -403,7 +424,25 @@
         "type": "bool",
         "value": true
       },
-      "id": null,
+      "id": "generator_stage1",
+      "name": "generator/video_minimax_h3"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "latent_upscaler",
+      "name": "latent_upscaler/minimax_h3"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "generator_stage2",
       "name": "generator/video_minimax_h3"
     },
     {

@@ -116,6 +116,22 @@ artifacts:
       model_id: "Comfy-Org/MiniMax-H3"
       version_id: "main@vae/minimax_h3_audio_vae_fp32.safetensors"
 
+  - id: "minimax-h3-latent-upscaler"
+    kind: "upscaler"
+    model_type: "upscaler"
+    filename: "minimax_h3_latent_upscaler_3d_bf16.safetensors"
+    display_name: "MiniMax-H3 3D latent upsampler (Apache-2.0, optional)"
+    required: false
+    size_bytes: 690592992
+    checksum:
+      algorithm: "sha256"
+      value: "4f57821f5837f32f7142b67d815606dbd7550f194e5c769f7d6c3f83b146a5e6"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "LBH-123-AI/Minimax_h3_latent_Upscaler"
+      version_id: "main@minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"
+
 presets:
   - preset_id: "01KX47H3MINIMAX000000000VA"
     path_hint: "marketplace/MiniMax-H3"

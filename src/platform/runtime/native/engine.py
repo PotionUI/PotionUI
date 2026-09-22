@@ -74,12 +74,14 @@ from .text_encoders.base import NativeTextEncoder
 from .text_encoders.loader import load_text_encoder
 from .detect.vae_detect import (
     detect_causal3d_v2_vae_config,
+    detect_qwen_image21_vae_config,
     detect_causal3d_vae_config,
     detect_ltx_audio_vae_config,
     detect_ltx_diffusion_vae_config,
     detect_ltx_video_vae_config,
     detect_ltx_vocoder_config,
     detect_minimax_h3_audio_vae_config,
+    detect_minimax_h3_latent_upsampler_config,
     detect_minimax_h3_video_vae_config,
     detect_minimax_music3_dav_config,
     detect_seedvr2_vae_config,
@@ -89,6 +91,7 @@ from .detect.vae_detect import (
 from .vae.ae_2d import AutoEncoder2D
 from .vae.loader import (
     load_causal3d_v2_vae,
+    load_qwen_image21_vae,
     load_causal3d_vae,
     load_ltx_audio_vae,
     load_ltx_diffusion_video_vae,
@@ -96,6 +99,7 @@ from .vae.loader import (
     load_ltx_video_vae,
     load_ltx_vocoder,
     load_minimax_h3_audio_vae,
+    load_minimax_h3_latent_upsampler,
     load_minimax_h3_video_vae,
     load_minimax_music3_dav,
     load_seedvr2_vae,
@@ -916,6 +920,8 @@ class NativeEngineLoader:
             return load_causal3d_vae(path, ops, device="cpu")      # Wan 2.1 / Qwen-Image
         if detect_causal3d_v2_vae_config(sd) is not None:
             return load_causal3d_v2_vae(path, ops, device="cpu")   # Wan 2.2
+        if detect_qwen_image21_vae_config(sd) is not None:
+            return load_qwen_image21_vae(path, ops, device="cpu")  # Qwen-Image 2.1 (RGBA, 16x)
         if detect_seedvr2_vae_config(sd) is not None:
             return load_seedvr2_vae(path, ops, device="cpu")       # SeedVR2 (self-normalizing)
         if detect_ltx_video_vae_config(metadata) is not None:
@@ -998,11 +1004,17 @@ class NativeEngineLoader:
 
     def _load_latent_upscaler(self, path: str | Path) -> NativeModel:
         """Latent upsampler: a small standalone checkpoint, loaded via the
-        same detect-then-build path as the other VAE-family components --
-        the LTX-2.3 spatial upsampler (config embedded in its own metadata --
-        see ``load_ltx_latent_upsampler``'s docstring). Only acquired by a
-        model loader when the preset's upscale option is on, so this never
-        runs at zero-extra-cost baseline.
+        same detect-then-build path as the other VAE-family components. Two
+        unrelated architectures share this ``kind``: the LTX-2.3 spatial
+        upsampler (config embedded in its own metadata -- see
+        ``load_ltx_latent_upsampler``'s docstring) and the MiniMax-H3 3D
+        upsampler (no embedded metadata at all, shape-detected -- see
+        ``load_minimax_h3_latent_upsampler``'s docstring); the two never
+        share a key name (``conv_in``/``norm_out`` vs. ``initial_conv``/
+        ``final_conv``), so detection order is immaterial -- H3's shape
+        check runs first only because it's the cheaper of the two. Only
+        acquired by a model loader when the preset's upscale option is on,
+        so this never runs at zero-extra-cost baseline.
         """
         sd, metadata = load_torch_file(path, device="cpu")
         get_profiler().mark("load.latent_upscaler.read", est_gb=_estimated_gb(sd))
@@ -1012,7 +1024,10 @@ class NativeEngineLoader:
         storage_dtype = sd_dtype or compute_dtype
         est_gb = _estimated_gb(sd)
         ops = self._ops_for("vae", est_gb, storage_dtype, compute_dtype, quant_format, sd)
-        module = load_ltx_latent_upsampler(path, ops, device="cpu", sd=sd, metadata=metadata)
+        if detect_minimax_h3_latent_upsampler_config(sd) is not None:
+            module = load_minimax_h3_latent_upsampler(path, ops, device="cpu", sd=sd, metadata=metadata)
+        else:
+            module = load_ltx_latent_upsampler(path, ops, device="cpu", sd=sd, metadata=metadata)
         get_profiler().mark("load.latent_upscaler.built", est_gb=est_gb, quant_format=quant_format)
         return NativeModel(
             "latent_upscaler", module, estimated_vram_gb=est_gb,
@@ -1427,7 +1442,10 @@ class NativeGenerator:
         """
         if self._is_causal3d_vae():
             from .vae.causal_3d import LATENTS_MEAN
-            return (batch, len(LATENTS_MEAN), 1, height // 8, width // 8)
+            lf = self.spec.latent_format or {}
+            channels = int(lf.get("latent_channels", len(LATENTS_MEAN)))
+            downscale = self._spatial_downscale()
+            return (batch, channels, 1, height // downscale, width // downscale)
         dit_ch = int(self.dit.module.params.in_channels)
         downscale = self._spatial_downscale()
         return (batch, dit_ch, height // downscale, width // downscale)
@@ -1436,7 +1454,7 @@ class NativeGenerator:
         """Pixel->latent spatial factor: 8 for the causal-3D VAE; 8*fold for the
         Flux 2D AE, where Flux2's VAE folds an extra 2x via pixel_unshuffle."""
         if self._is_causal3d_vae():
-            return 8
+            return int((self.spec.latent_format or {}).get("spatial_downscale", 8))
         dit_ch = int(self.dit.module.params.in_channels)
         vae_z = int(getattr(self.vae.module, "z_channels", dit_ch)) or dit_ch
         fold = max(1, round((dit_ch / vae_z) ** 0.5))
@@ -2045,7 +2063,7 @@ class NativeGenerator:
             overlap = min(tile // 2, max(8, tile // 8))
             try:
                 logger.debug("decode: causal-3D tiled decode, tile=%d overlap=%d (latent px)", tile, overlap)
-                pixels = tiled_decode_causal3d(self.vae.module, denorm, tile_size=tile, overlap=overlap)
+                pixels = tiled_decode_causal3d(self.vae.module, denorm, tile_size=tile, overlap=overlap, scale=self._spatial_downscale())
                 break
             except torch.cuda.OutOfMemoryError:
                 if tile <= _MIN_DECODE_TILE_LATENT:
@@ -2435,6 +2453,9 @@ class NativeGenerator:
             ref_latents = conditioning.get("ref_latents")
             if ref_latents is not None:
                 extra["ref_latents"] = ref_latents
+            image_slots = conditioning.get("image_slots")
+            if image_slots is not None:
+                extra["image_slots"] = image_slots
             # Krea-2 edit ref_boost: scalar reference-fidelity dials the
             # krea2-edit pipe puts in the cond dict. Same conditional-forwarding
             # idiom -- only Krea2.forward declares these kwargs (defaults 1.0 =

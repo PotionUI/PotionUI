@@ -1,0 +1,19 @@
+# Below the native canvas. The packed sequence is dominated by video rows
+# (one row per 2x2 latent patch per latent frame), so canvas area is the
+# strongest speed lever H3 has: 960x544 runs roughly 2.3x faster per step than
+# 1344x768. Quality is below the geometry the model was released for.
+#
+# Same hard rule as the canvas list: multiples of 32, aspect within 1:4..4:1.
+- { value: "960x544", ratio: [30, 17], description: "Widescreen, ~2.3x faster than 1344x768" }
+- { value: "544x960", ratio: [17, 30], description: "Vertical, faster" }
+- { value: "832x480", ratio: [26, 15], description: "Widescreen, ~0.4 MP" }
+- { value: "480x832", ratio: [15, 26], description: "Vertical, ~0.4 MP" }
+- { value: "640x480", ratio: [4, 3], description: "Landscape 4:3, ~0.3 MP" }
+- { value: "480x640", ratio: [3, 4], description: "Portrait 3:4, ~0.3 MP" }
+- { value: "640x640", ratio: [1, 1], description: "Square, ~0.4 MP" }
+- { value: "736x416", ratio: [23, 13], description: "Widescreen ~0.3 MP, ~4x faster than 1344x768" }
+- { value: "416x736", ratio: [13, 23], description: "Vertical ~0.3 MP" }
+- { value: "608x352", ratio: [19, 11], description: "Widescreen ~0.2 MP draft, ~6x faster than 1344x768" }
+- { value: "352x608", ratio: [11, 19], description: "Vertical ~0.2 MP draft" }
+- { value: "512x384", ratio: [4, 3], description: "Landscape 4:3, 0.2 MP draft" }
+- { value: "384x512", ratio: [3, 4], description: "Portrait 3:4, 0.2 MP draft" }

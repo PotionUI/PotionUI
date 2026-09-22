@@ -1,0 +1,200 @@
+fields:
+  - type: "section"
+    label: "Refine"
+    audience: "advanced"
+    children:
+      - name: "refine_video_sigma_shift"
+        type: "slider"
+        label: "Refine video sigma shift"
+        audience: "advanced"
+        default: 9.0
+        ai_hint: "The video stream's exponential-shift constant for the Enhance tab's stage-2 refine pass (the audio stream's own shift, 3.0, is unaffected and not exposed here). 9 is the released recipe -- lower than the base pass's shift, since a refine starts from the upsampled latent rather than pure noise. Only has an effect when the Enhance tab's Latent Upscale is not Off."
+        configuration: {min: 0.1, max: 50.0, step: 0.5}
+
+      - name: "refine_manual_sigmas"
+        type: "textbox"
+        label: "Refine manual sigmas (video)"
+        default: ""
+        ai_hint: "An expert escape hatch for reshaping the stage-2 refine's own schedule -- prefer the Enhance tab's Refine denoise/Refine steps for ordinary use. Always end the list at 0.0 or the render is refused. The list is the grid, not the step count: N values run N-1 steps. Independent of this tab's own Manual sigmas (video), which is stage 1's."
+        configuration:
+          placeholder: "e.g. 0.9, 0.7, 0.4, 0.0"
+
+      - name: "refine_manual_audio_sigmas"
+        type: "textbox"
+        label: "Refine manual sigmas (audio)"
+        default: ""
+        ai_hint: "Rarely needed on its own for the stage-2 refine. Leave blank even when Refine manual sigmas (video) is set, unless the user specifically wants a different noise curve for the refine's soundtrack. If both lists are filled they must have the same number of values. No effect while Refine audio is Lock, since locked audio rows never sample."
+        configuration:
+          placeholder: "blank = matched to the refine's video schedule"
+
+      - name: "audio_refine"
+        type: "select"
+        label: "Refine audio"
+        audience: "advanced"
+        default: "lock"
+        ai_hint: "How the stage-2 refine treats the audio stage 1 already sampled. Lock (default) keeps stage 1's audio and lip-sync exactly as sampled -- the right choice for almost every refine, and what prevents noise from leaking into the refined picture through the shared attention. Resample lets the refine touch the audio too, the same way it touches video; only suggest it when the user explicitly wants the refine to also change the soundtrack. Only has an effect when Latent Upscale is not Off."
+        configuration:
+          options:
+            - { label: "Lock (keep stage-1 audio)", value: "lock" }
+            - { label: "Resample (let the refine touch audio too)", value: "resample" }
+
+  - type: "section"
+    label: "Sampling"
+    children:
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        audience: "advanced"
+        default: 8
+        ai_hint: "FastH3 8-Step V2 is DMD2-distilled for exactly 8 steps -- unlike the base MiniMax-H3 preset there is no other working step count to suggest, so this is locked rather than a choice."
+        configuration: {min: 2, max: 100, step: 1}
+        reactions:
+          - when: { field: "speed_profile", equals: "distilled" }
+            then: { set_value: 8, set_disabled: true }
+      - type: "row"
+        children:
+          - name: "sampler"
+            type: "select"
+            label: "Sampler"
+            audience: "advanced"
+            default: "res_multistep"
+            ai_hint: >-
+              How each step advances between two sigmas. Res multistep with the
+              Simple scheduler is FastVideo's own recommended pairing for the
+              8-Step V2 recipe -- leave it there for an ordinary request. Euler
+              is the reference solver the base (non-distilled) checkpoint was
+              trained against; DPM++ 2M and SA-Solver are the other
+              deterministic second-order solvers. ER-SDE is stochastic instead
+              -- it injects noise every step, trading exact reproducibility for
+              more variety. Suggest a non-default one only when the user
+              explicitly asks to try an alternative recipe.
+            configuration:
+              options:
+                - { label: "Res multistep (FastVideo recommended)", value: "res_multistep" }
+                - { label: "Euler (base-model reference)", value: "euler" }
+                - { label: "DPM++ 2M", value: "dpmpp_2m" }
+                - { label: "ER-SDE (stochastic)", value: "er_sde" }
+                - { label: "SA-Solver", value: "sa_solver" }
+
+          - name: "scheduler"
+            type: "select"
+            label: "Scheduler"
+            audience: "advanced"
+            default: "simple"
+            ai_hint: >-
+              Where the steps land on the noise curve. Simple is FastVideo's
+              own recommended schedule for the 8-Step V2 recipe and the right
+              answer unless asked otherwise. Beta pulls knots toward both ends
+              -- more steps on early composition and on final detail, fewer in
+              the middle. Both video and audio are derived from the same knots
+              either way. Cannot be combined with this tab's manual sigmas;
+              that combination is refused rather than silently ignored.
+            configuration:
+              options:
+                - { label: "Simple (FastVideo recommended)", value: "simple" }
+                - { label: "Beta", value: "beta" }
+          - name: "video_sigma_shift"
+            type: "slider"
+            label: "Video sigma shift"
+            audience: "advanced"
+            default: 10.0
+            ai_hint: "The video stream's exponential-shift constant (the audio stream's own shift, 3.0, is a separate, unaffected knob). 10 is FastVideo's own recommended shift for the 8-Step V2 recipe -- lower than the base MiniMax-H3 preset's 12, since the distilled checkpoint's schedule was tuned around it. Only reach for a different value when transplanting another tool's schedule."
+            configuration: {min: 0.1, max: 50.0, step: 0.5}
+          - name: "manual_sigmas"
+            type: "textbox"
+            label: "Manual sigmas (video)"
+            default: ""
+            ai_hint: "An expert escape hatch for reshaping where the model spends its steps -- front-load values near 1.0 for more composition work, cluster them low for more detail refinement. Do not offer it for ordinary requests; Steps and Video sigma shift cover those. Only reach for it when the user explicitly asks for a custom or non-uniform sigma schedule, or is transplanting a schedule from another tool. Always end the list at 0.0 or the render is refused. The list is the grid, not the step count: N values run N-1 steps."
+            configuration:
+              placeholder: "e.g. 1.0, 0.93, 0.8, 0.55, 0.0"
+          - name: "manual_audio_sigmas"
+            type: "textbox"
+            label: "Manual sigmas (audio)"
+            default: ""
+            ai_hint: "Rarely needed on its own. Leave blank even when Manual sigmas (video) is set, unless the user specifically wants a different noise curve for the soundtrack than for the picture. If both lists are filled they must have the same number of values."
+            configuration:
+              placeholder: "blank = matched to the video schedule"
+
+  - type: "section"
+    label: "Sparse attention"
+    audience: "advanced"
+    children:
+      - name: "sparse_attn"
+        type: "select"
+        label: "Sparse attention"
+        default: "sla"
+        ai_hint: "FastH3's checkpoint is trained toward a sparse-attention pattern (VSA), which is not ported yet -- this SLA setup with a dense warm-up approximates it rather than replaying the real thing, and dense (Off) also works fine if the approximation ever looks soft. SLA keeps a fixed top-k fraction of key blocks; its VRAM cost is far smaller than Sol-Attn's. Neither does anything on machines without a recent CUDA GPU -- do not promise a speedup, and prefer Off for a final render where fidelity matters most."
+        configuration:
+          options:
+            - { label: "Off (dense)", value: "off" }
+            - { label: "Sol-Attn (threshold)", value: "sol" }
+            - { label: "SLA (top-k, approximates FastH3's trained sparsity)", value: "sla" }
+      - type: "row"
+        children:
+          - name: "sol_attn_tau"
+            type: "slider"
+            label: "Sol-Attn sparsity"
+            default: 1.0
+            ai_hint: "Only has an effect when Sparse attention is Sol-Attn. Higher skips more attention work: faster and less faithful. Stay in 0.8-1.5; leave at 1.0 unless the user asks for more speed (raise) or reports lost detail and wants to keep the feature on (lower)."
+            configuration: {min: 0.0, max: 3.0, step: 0.1}
+          - name: "sla_sparsity"
+            type: "slider"
+            label: "SLA sparsity"
+            default: 0.9
+            ai_hint: "Only has an effect when Sparse attention is SLA. Fraction of key blocks skipped -- higher is faster and less faithful. 0.9, paired with the Sparse attention warm-up below, approximates the ~10%-keep pattern FastH3 was trained toward; below roughly 0.6 SLA is slower than dense attention, not faster."
+            configuration: {min: 0.0, max: 0.95, step: 0.05}
+      - type: "row"
+        children:
+          - name: "sla_block_size"
+            type: "select"
+            label: "SLA block size"
+            default: "64"
+            ai_hint: "Only has an effect when Sparse attention is SLA. 64 is the audio-safe choice. 128 forces roughly 1.6s of audio through one attention pattern and made speech robotic in upstream testing -- use it only for runs where the audio track does not matter."
+            configuration:
+              options:
+                - { label: "64 (audio-safe)", value: "64" }
+                - { label: "128", value: "128" }
+          - name: "sparse_attn_dense_last_steps"
+            type: "slider"
+            label: "Exact final steps"
+            default: 2
+            ai_hint: "Only has an effect when Sparse attention is not Off. The last steps of a trajectory carry the least noise, so an approximation there is the most visible -- these run on the normal exact path. Raise to 3-4 if a sparse run looks soft or shimmery at the end; that gives back some of the speed. At or above the step count the feature is effectively off."
+            configuration: {min: 0, max: 10, step: 1}
+      - name: "sparse_attn_start_percent"
+        type: "slider"
+        label: "Sparse attention warm-up"
+        default: 0.2
+        ai_hint: "Only has an effect when Sparse attention is not Off. Fraction of the schedule that runs dense BEFORE sparse attention begins, mirroring ComfyUI's own start_percent warm-up on this checkpoint. 0.2 (warm up through the first ~20% of steps, then switch to SLA at the sparsity above) is FastVideo's own recommended pairing -- it approximates the checkpoint's trained sparse pattern more closely than starting sparse from step 0. Composes with Exact final steps above: a step counts as dense if it falls in EITHER window."
+        configuration: {min: 0.0, max: 1.0, step: 0.05}
+
+  # Krea-2 layout: Step cache (FBCache) is the last section on the Advanced
+  # tab.
+  - type: "section"
+    label: "Step cache (FBCache)"
+    audience: "advanced"
+    children:
+      - type: "row"
+        children:
+          - name: "step_cache_threshold"
+            type: "slider"
+            label: "Cache threshold"
+            default: 0.0
+            ai_hint: "A speed-for-fidelity trade, never a quality improvement -- it only removes work. Suggest 0.08 when the user explicitly wants a long run faster and can accept some softening, smoothed motion and a slightly duller soundtrack. 0.15 only if they ask for aggressive speed. Keep it at 0.0 for final renders, and at FastH3's own 8-step count where the warmup steps already cover most of the trajectory and there is almost nothing left to skip. Be more conservative again when the Sampler is Res multistep or DPM++ 2M: a skipped step replays the previous velocity, and a second-order sampler takes that replayed estimate into its history, so one skip biases the steps after it as well."
+            configuration: {min: 0.0, max: 0.3, step: 0.01}
+          - name: "step_cache_warmup_steps"
+            type: "slider"
+            label: "Warmup steps"
+            default: 4
+            ai_hint: "Only has an effect when Cache threshold is above 0. Raise toward 6-8 if a cached run loses composition or motion -- it gives back some of the speed."
+            configuration: {min: 0, max: 12, step: 1}
+          - name: "step_cache_max_skips"
+            type: "slider"
+            label: "Max consecutive skips"
+            default: 3
+            ai_hint: "Only has an effect when Cache threshold is above 0. Lower to 1-2 if a cached run drifts or loses detail late in the trajectory. Cap it at 1-2 whenever the Sampler is Res multistep or DPM++ 2M even if the run looks fine: consecutive skips feed the same replayed velocity into the sampler's two-step history, which is the case second-order solvers degrade on fastest."
+            configuration: {min: 0, max: 10, step: 1}
+
+  - name: "preview"
+    type: "checkbox"
+    label: "Live preview"
+    default: true

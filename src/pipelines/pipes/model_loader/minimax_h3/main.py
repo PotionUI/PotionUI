@@ -21,9 +21,12 @@ here at load time -- `clip` is handed a lazy `te_factory` closure instead
 conditioning-cache hit (same prompt as a prior generation) never touches the
 TE, never mind reloads it from disk.
 
-There is no latent-upscaler slot here: the standalone "upscale" mode and its
-3D upsampler checkpoint moved to the ``minimax-h3-upscale`` plugin, which
-acquires and loads that checkpoint itself rather than through this bundle.
+Latent upscaler (``upscale_model``): an optional, standalone MiniMax-H3
+3D latent-upsampler checkpoint (``minimax_h3_latent_upscaler_3d_bf16.safetensors``),
+the same optional-slot shape as ``model_loader/ltx``'s own ``upscale_model`` --
+acquired only when configured, ``None`` (and uncached) otherwise, at zero
+extra VRAM/RAM cost when unset. ``latent_upscaler/minimax_h3`` reads
+``bundle.upsampler``.
 """
 
 from __future__ import annotations
@@ -62,6 +65,7 @@ from src.pipelines.pipes._shared.generation.loader_lifecycle import (
 from src.platform.runtime.native.base import NativeArchModule
 from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Model
 from src.platform.runtime.native.vae.minimax_h3_audio import MiniMaxH3AudioVAE
+from src.platform.runtime.native.vae.minimax_h3_latent_upsampler import MiniMaxH3LatentUpsampler
 from src.platform.runtime.native.vae.minimax_h3_video import MiniMaxH3VideoVAE
 from src.pipelines.pipes.model_loader.minimax_h3 import vdn as _vdn
 from src.pipelines.pipes.model_loader.minimax_h3.bundle import MiniMaxH3ModelBundle
@@ -101,6 +105,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             "text_encoder": None,
             "video_vae": None,
             "audio_vae": None,
+            "upscale_model": None,
             "loras": [],
             "vdn_module": None,
             "dense_time_embedder": None,
@@ -115,6 +120,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             PipeConfigSpec("text_encoder", dict, None, "Qwen3-VL-32B text encoder", required=True),
             PipeConfigSpec("video_vae", dict, None, "MiniMax-H3 video VAE", required=True),
             PipeConfigSpec("audio_vae", dict, None, "MiniMax-H3 audio VAE (always loaded -- audio is inherent)", required=True),
+            PipeConfigSpec("upscale_model", dict, None, "Optional MiniMax-H3 3D latent-upscaler checkpoint", required=False),
             PipeConfigSpec("loras", list, [], "DiT LoRAs", required=False),
             PipeConfigSpec("vdn_module", dict, None,
                            "Video-DeltaNet linear branch to attach to the DiT (turbo hybrid attention)",
@@ -159,6 +165,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             ("text_encoder", "minimax_h3_qwen3vl_32b"),
             ("video_vae", "minimax_h3_video_vae"),
             ("audio_vae", "minimax_h3_audio_vae"),
+            ("upscale_model", "minimax_h3_latent_upscaler"),
             ("vdn_module", "minimax_h3_vdn_branch"),
             ("dense_time_embedder", "minimax_h3_time_embedder"),
         ):
@@ -189,11 +196,9 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
         loader = NativeEngineLoader(device=device, vram_gb=vram_gb)
 
         models = pipe_input.input.get("MODELS", None)
-        # Four, not three: the deferred text encoder announces itself when its
-        # thunk runs, so leaving it out of the total overshoots ("4 of 3") on
-        # the first cold encode. A warm conditioning cache never resolves the
-        # thunk and the run ends at 3 of 4, the same posture as LTX.
-        progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=4)
+        upscale_model_path = _path_of(self.config.get("upscale_model"))
+        total_components = 4 + (1 if upscale_model_path else 0)
+        progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=total_components)
         lifecycle = ComponentLifecycle(models, progress)
 
         # Every H3 component lives in its OWN standalone file (unlike LTX's
@@ -250,6 +255,13 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             _component("audio VAE", f"native/audio_vae/{audio_vae_path}", "audio_vae", audio_vae_path)
         )
 
+        upsampler_model: Optional[NativeModel] = None
+        if upscale_model_path:
+            upsampler_model = lifecycle.acquire(_component(
+                "latent upsampler", f"native/h3_upsampler/{upscale_model_path}",
+                "latent_upscaler", upscale_model_path,
+            ))
+
         # The TE is NOT acquired here -- deferred into `clip`'s own lazy
         # `te_factory` (see clip.py's module docstring "Lazy TE acquisition"):
         # eagerly acquiring it every generation, regardless of whether
@@ -269,10 +281,11 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
         _assert_h3_component("model", dit_model, MiniMaxH3Model, model_path)
         _assert_h3_component("video_vae", video_vae_model, MiniMaxH3VideoVAE, video_vae_path)
         _assert_h3_component("audio_vae", audio_vae_model, MiniMaxH3AudioVAE, audio_vae_path)
+        _assert_h3_component("upscale_model", upsampler_model, MiniMaxH3LatentUpsampler, upscale_model_path or "")
 
         bundle = MiniMaxH3ModelBundle(
             dit=dit_model, te=None, video_vae=video_vae_model, audio_vae=audio_vae_model,
-            te_cache_key=te.key,
+            upsampler=upsampler_model, te_cache_key=te.key,
         )
         clip = MiniMaxH3ClipTextEncoder(
             lifecycle.deferred_module(te), device=device, model_fingerprint=f"{te_path}|vision=True",

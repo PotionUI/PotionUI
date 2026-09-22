@@ -1,0 +1,28 @@
+# LoRAs applied to the DiT at load time. A LoRA change busts the DiT's
+# fingerprint in the model cache, so switching one forces a reload of the
+# checkpoint -- not of the text encoder or the VAEs.
+fields:
+  - name: "loras"
+    type: "lora_picker"
+    label: "LoRAs"
+    default: []
+    ai_hint: >-
+      LoRAs for the MiniMax-H3-Fast (FastH3 8-Step V2) DiT, applied on top of
+      the already-distilled checkpoint. No turbo/distillation LoRA is needed
+      or recommended here -- FastH3 is DMD2-distilled for exactly 8 steps on
+      its own, unlike the base MiniMax-H3 preset's optional turbo LoRA. Only
+      suggest a LoRA for a style or subject adaptation, and validate its
+      strength against this checkpoint specifically: a LoRA's baked-in scale
+      does not necessarily carry over between the base checkpoint and this
+      distilled one.
+    configuration:
+      model_type: "lora"
+      placeholder: "Select a MiniMax-H3-Fast LoRA..."
+      filter_tags: "@config:lora_tags"
+      allow_info_modal: true
+      show_triggers: true
+      strength_min: -2.0
+      strength_max: 2.0
+      strength_step: 0.05
+      strength_default: 1.0
+      max_items: 6

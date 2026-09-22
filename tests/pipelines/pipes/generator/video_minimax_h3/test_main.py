@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 import torch
 
+from src.pipelines.outputs import GenerationExecutionError
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.media.video_encode import AudioTrack
@@ -33,6 +34,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.layout import (
     unpatchify_video_rows,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.main import (
+    AUDIO_LATENT_CHANNELS,
     GeneratorMinimaxH3Pipe,
     H3_INNER_DIM,
     _fit_hint,
@@ -363,6 +365,10 @@ def _refine_latent(t_lat=7, h_lat=4, w_lat=6):
     return torch.zeros(1, 24, t_lat, h_lat, w_lat)
 
 
+def _refine_audio_latent(num_audio_latents=2):
+    return torch.zeros(num_audio_latents * 2, AUDIO_LATENT_CHANNELS)
+
+
 def test_build_context_derives_geometry_from_initial_latent():
     pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
     bundle = _fake_bundle()
@@ -495,6 +501,95 @@ def test_build_context_accepts_an_initial_latent_above_the_generation_canvas_cap
     assert ctx.extra.height == 1088
     assert ctx.extra.width == 1920
     assert ctx.extra.height * ctx.extra.width > 768 * 1344  # above the release canvas cap, on purpose
+
+
+def test_runtime_loras_default_empty_and_declared_in_configuration():
+    assert GeneratorMinimaxH3Pipe.get_default_config()["runtime_loras"] == []
+    spec = next(s for s in GeneratorMinimaxH3Pipe.configuration() if s.name == "runtime_loras")
+    assert spec.default == []
+    assert spec.required is False
+
+
+def test_runtime_loras_empty_stays_empty_stack():
+    pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
+    bundle = _fake_bundle()
+    ctx = pipe.build_context(_pipe_input(model=bundle, conditioning=[_fake_conditioning(3)]))
+    assert ctx.extra.runtime_lora_stack == []
+
+
+def test_runtime_loras_works_on_a_plain_from_noise_call_not_only_a_refine():
+    """Unlike the old stage2-only `stage2_loras` design, `runtime_loras` is a
+    generic apply-at-sampling-time primitive -- it must not require
+    `initial_latent` to be connected."""
+    pipe = GeneratorMinimaxH3Pipe({
+        **GeneratorMinimaxH3Pipe.get_default_config(),
+        "runtime_loras": [{"file_path": "/fake/style.safetensors", "weight": 0.8}],
+    })
+    bundle = _fake_bundle()
+    with patch(f"{_MAIN}._load_lora_stack") as mock_load:
+        sentinel = [({"lora.weight": torch.zeros(1)}, 0.8)]
+        mock_load.return_value = sentinel
+        ctx = pipe.build_context(_pipe_input(model=bundle, conditioning=[_fake_conditioning(3)]))
+    mock_load.assert_called_once_with([{"file_path": "/fake/style.safetensors", "weight": 0.8, "window": None}])
+    assert ctx.extra.runtime_lora_stack is sentinel
+
+
+@patch(f"{_MAIN}._load_lora_stack")
+def test_runtime_loras_loaded_once_in_build_context_on_a_refine_call(mock_load):
+    sentinel_stack = [({"lora.weight": torch.zeros(1)}, 1.0)]
+    mock_load.return_value = sentinel_stack
+    pipe = GeneratorMinimaxH3Pipe({
+        **GeneratorMinimaxH3Pipe.get_default_config(),
+        "runtime_loras": [{"file_path": "/fake/distilled.safetensors", "weight": 1.0}],
+    })
+    bundle = _fake_bundle()
+    ctx = pipe.build_context(_pipe_input(
+        model=bundle, conditioning=[_fake_conditioning(3)], initial_latent=[_refine_latent()],
+    ))
+    mock_load.assert_called_once_with([{"file_path": "/fake/distilled.safetensors", "weight": 1.0, "window": None}])
+    assert ctx.extra.runtime_lora_stack is sentinel_stack
+
+
+def test_runtime_loras_are_staged_before_dit_placement_so_the_budget_sees_them():
+    """`place_dit_for_sequence`'s own `_dit_lora_profile` walk only sees a
+    runtime LoRA's staged deltas if they are ALREADY on the DiT's Linears by
+    the time it runs -- applying the stack around the sampling loop (the old
+    `with temporarily_applied_loras(...)` shape wrapping only the steps, not
+    the placement call above them) left the weight budget blind to a
+    turbo-LoRA-sized stack (1-2GB), which overcommitted and OOM'd partway
+    into sampling on a real run."""
+    calls = []
+    _, ctx = _residency_bundle_and_ctx(runtime_lora_stack=[({"fake.key": torch.zeros(1)}, 0.8)])
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    with patch(f"{_MAIN}.snapshot_lora_state", side_effect=lambda m: calls.append("snapshot_lora_state") or "snap"), \
+         patch(f"{_MAIN}.apply_loras", side_effect=lambda m, loras: calls.append("apply_loras")), \
+         patch(f"{_MAIN}.place_dit_for_sequence",
+               side_effect=lambda *a, **k: calls.append("place_dit_for_sequence") or DitPlacementDecision(
+                   "cpu", 0.0, 0.0, 0.0, 0, 0)), \
+         patch(f"{_MAIN}.restore_lora_state") as mock_restore:
+        pipe.generate_one(ctx, 0, 7, progress)
+
+    assert calls == ["snapshot_lora_state", "apply_loras", "place_dit_for_sequence"]
+    mock_restore.assert_called_once_with("snap")
+
+
+def test_runtime_loras_empty_never_stages_or_snapshots():
+    _, ctx = _residency_bundle_and_ctx()
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    with patch(f"{_MAIN}.snapshot_lora_state") as mock_snapshot, \
+         patch(f"{_MAIN}.apply_loras") as mock_apply, \
+         patch(f"{_MAIN}.restore_lora_state") as mock_restore:
+        pipe.generate_one(ctx, 0, 7, progress)
+
+    mock_snapshot.assert_not_called()
+    mock_apply.assert_not_called()
+    mock_restore.assert_not_called()
 
 
 # -- refine entry path: _normalized_initial_latent ---------------------------
@@ -872,6 +967,11 @@ def _fake_audio_vae_module():
 
         def decode(self, latents):
             return torch.zeros(2, 1, latents.shape[-1] * 4)
+
+        def encode(self, waveform):
+            channels = waveform.shape[0]
+            n = max(1, waveform.shape[-1] // 800)
+            return torch.full((channels, 32, n), float(waveform.mean()), dtype=torch.float32)
 
     return _FakeAudioVae()
 
@@ -1257,6 +1357,101 @@ def test_generate_one_video_vae_offload_runs_only_when_placed_on_failure():
 
     assert move_to.call_count == 0
     assert offload.call_count == 0
+
+
+# -- post-sampling DiT residency -----------------------------------
+
+def _residency_bundle_and_ctx(offload: "Mock | None" = None, runtime_lora_stack: "list | None" = None):
+    """`decode=False` + `audio_source='passthrough'` isolates the sampling
+    tail's own offload decision from any downstream `_place_vae` call --
+    with no video/audio VAE ever placed after sampling, every `offload` call
+    the fake DiT sees comes from `_sample_window`'s own post-sampling fit
+    check."""
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=SimpleNamespace(compute_dtype=torch.float32, estimated_vram_gb=19.5,
+                            module=_fake_dit_module(video_patch_dim),
+                            move_to=lambda d: None, offload=offload or Mock()),
+        video_vae=SimpleNamespace(module=StubVideoVae(), compute_dtype=torch.float32,
+                                   move_to=Mock(), offload=Mock(), estimated_vram_gb=2.0),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=Mock(), offload=Mock(),
+                                   estimated_vram_gb=0.5),
+        te=None, te_cache_key=None,
+    )
+    ctx_extra = _MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=3,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[], keyframe_anchors=(), audio_source="passthrough", audio_file="fake.mp3",
+        decode=False, runtime_lora_stack=runtime_lora_stack or [],
+    )
+    return bundle, GeneratorContext(quantity=1, input_seeds=[7], extra=ctx_extra)
+
+
+def test_sample_window_keeps_dit_resident_when_next_consumer_fits_beside_it():
+    offload = Mock()
+    bundle, ctx = _residency_bundle_and_ctx(offload)
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    with patch(f"{_MAIN}.effective_free_vram_gb", return_value=30.0):
+        result = pipe.generate_one(ctx, 0, 7, progress)
+
+    offload.assert_not_called()
+    assert isinstance(result, torch.Tensor)
+
+
+def test_sample_window_offloads_dit_when_next_consumer_would_not_fit():
+    offload = Mock()
+    bundle, ctx = _residency_bundle_and_ctx(offload)
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    with patch(f"{_MAIN}.effective_free_vram_gb", return_value=0.5):
+        result = pipe.generate_one(ctx, 0, 7, progress)
+
+    offload.assert_called_once()
+    assert isinstance(result, torch.Tensor)
+
+
+def test_generate_one_skips_dit_restore_when_decode_is_false():
+    """`decode=False` means a downstream pipe (the latent upscaler ->
+    `generator_stage2`) consumes this run's latent right away in the SAME
+    generation -- restoring the DiT here for a warm NEXT generation is
+    wasted work that gets evicted again immediately."""
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=SimpleNamespace(compute_dtype=torch.float32, estimated_vram_gb=19.5,
+                            module=_fake_dit_module(video_patch_dim),
+                            move_to=lambda d: None, offload=lambda: None),
+        video_vae=SimpleNamespace(module=StubVideoVae(), compute_dtype=torch.float32,
+                                   move_to=Mock(), offload=Mock(), estimated_vram_gb=2.0),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=Mock(), offload=Mock(),
+                                   estimated_vram_gb=0.5),
+        te=None, te_cache_key=None,
+    )
+    ctx_extra = _MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=3,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[], keyframe_anchors=(), audio_source="passthrough", audio_file="fake.mp3",
+        decode=False,
+    )
+    ctx = GeneratorContext(quantity=1, input_seeds=[7], extra=ctx_extra)
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    with patch(f"{_MAIN}.restore_dit_best_effort") as mock_restore:
+        pipe.generate_one(ctx, 0, 7, progress)
+
+    mock_restore.assert_not_called()
 
 
 # -- cancellation -------------------------------------------------------------
@@ -1778,6 +1973,7 @@ def test_denoise_1_with_initial_latent_reproduces_the_plain_noise_path():
     refine, _ = _run_generate_one({}, ctx_overrides={
         "decode": False, "denoise": 1.0,
         "initial_latents": [torch.rand(1, 24, 2, 2, 2)],  # arbitrary -- must be ignored
+        "initial_audio_latents": [_refine_audio_latent()],
     })
     torch.testing.assert_close(refine._last_result, plain._last_result, rtol=0, atol=0)
 
@@ -1789,6 +1985,7 @@ def test_bite_check_denoise_below_1_moves_the_latent_off_the_plain_noise_path():
     refine, _ = _run_generate_one({}, ctx_overrides={
         "decode": False, "denoise": 0.45,
         "initial_latents": [torch.rand(1, 24, 2, 2, 2)],
+        "initial_audio_latents": [_refine_audio_latent()],
     })
     assert not torch.allclose(refine._last_result, plain._last_result)
 
@@ -1801,10 +1998,12 @@ def test_bite_check_the_initial_latent_content_reaches_the_refine_trajectory():
     run_a, _ = _run_generate_one({}, ctx_overrides={
         "decode": False, "denoise": 0.5,
         "initial_latents": [torch.full((1, 24, 2, 2, 2), 3.0)],
+        "initial_audio_latents": [_refine_audio_latent()],
     })
     run_b, _ = _run_generate_one({}, ctx_overrides={
         "decode": False, "denoise": 0.5,
         "initial_latents": [torch.full((1, 24, 2, 2, 2), -3.0)],
+        "initial_audio_latents": [_refine_audio_latent()],
     })
     assert not torch.allclose(run_a._last_result, run_b._last_result)
 
@@ -1818,21 +2017,171 @@ def test_denoise_below_1_runs_the_same_number_of_model_evaluations():
     _, seen_refine = _run_generate_one({}, steps=steps, ctx_overrides={
         "decode": False, "denoise": 0.45,
         "initial_latents": [torch.rand(1, 24, 2, 2, 2)],
+        "initial_audio_latents": [_refine_audio_latent()],
     })
     assert len(seen_plain) == len(seen_refine) == steps
 
 
 def test_video_sigma_shift_reaches_the_loop_and_changes_the_refine_latent():
     fixed_latent = torch.rand(1, 24, 2, 2, 2)
+    fixed_audio_latent = _refine_audio_latent()
     default_shift, _ = _run_generate_one({}, ctx_overrides={
         "decode": False, "denoise": 0.6, "video_sigma_shift": VIDEO_SHIFT,
-        "initial_latents": [fixed_latent],
+        "initial_latents": [fixed_latent], "initial_audio_latents": [fixed_audio_latent],
     })
     alt_shift, _ = _run_generate_one({}, ctx_overrides={
         "decode": False, "denoise": 0.6, "video_sigma_shift": 9.0,
-        "initial_latents": [fixed_latent],
+        "initial_latents": [fixed_latent], "initial_audio_latents": [fixed_audio_latent],
     })
     assert not torch.allclose(default_shift._last_result, alt_shift._last_result)
+
+
+# -- audio refine: lock (default) vs resample ---------------------------------
+
+def test_stage1_populates_audio_latent_results():
+    pipe, _ = _run_generate_one({}, ctx_overrides={"decode": False})
+    assert len(pipe._audio_latent_results) == 1
+    assert pipe._audio_latent_results[0].shape == (2 * 2, AUDIO_LATENT_CHANNELS)
+
+
+def test_audio_refine_lock_is_the_default():
+    assert GeneratorMinimaxH3Pipe.get_default_config()["audio_refine"] == "lock"
+    spec_defaults = {s.name: s.default for s in GeneratorMinimaxH3Pipe.configuration()}
+    assert spec_defaults["audio_refine"] == "lock"
+
+
+def test_refine_with_no_audio_seed_and_no_passthrough_track_is_refused():
+    with pytest.raises(GenerationExecutionError, match="initial_audio_latent"):
+        _run_generate_one({}, ctx_overrides={
+            "decode": False, "denoise": 0.5,
+            "initial_latents": [torch.rand(1, 24, 2, 2, 2)],
+        })
+
+
+def test_refine_lock_audio_content_reaches_the_trajectory():
+    fixed_video = torch.rand(1, 24, 2, 2, 2)
+    seed_a = _refine_audio_latent()
+    seed_a.fill_(3.0)
+    seed_b = _refine_audio_latent()
+    seed_b.fill_(-3.0)
+    run_a, _ = _run_generate_one({}, ctx_overrides={
+        "decode": False, "denoise": 0.5,
+        "initial_latents": [fixed_video], "initial_audio_latents": [seed_a],
+    })
+    run_b, _ = _run_generate_one({}, ctx_overrides={
+        "decode": False, "denoise": 0.5,
+        "initial_latents": [fixed_video], "initial_audio_latents": [seed_b],
+    })
+    assert not torch.allclose(run_a._audio_latent_results[0], run_b._audio_latent_results[0])
+
+
+def test_refine_lock_audio_rows_are_never_drawn_from_plain_noise():
+    """The bug this fixes: a refine's target audio rows used to be
+    `torch.randn` regardless of any seed -- with `initial_audio_latent`
+    connected, the sampled output must actually depend on that seed's
+    content rather than on the request's random draw alone."""
+    fixed_video = torch.rand(1, 24, 2, 2, 2)
+    fixed_audio = _refine_audio_latent()
+    fixed_audio.fill_(5.0)
+    same_seed_a, _ = _run_generate_one({}, ctx_overrides={
+        "decode": False, "denoise": 0.5,
+        "initial_latents": [fixed_video], "initial_audio_latents": [fixed_audio],
+    })
+    same_seed_b, _ = _run_generate_one({}, ctx_overrides={
+        "decode": False, "denoise": 0.5,
+        "initial_latents": [fixed_video], "initial_audio_latents": [fixed_audio],
+    })
+    torch.testing.assert_close(
+        same_seed_a._audio_latent_results[0], same_seed_b._audio_latent_results[0], rtol=0, atol=0,
+    )
+
+
+def test_refine_lock_holds_audio_rows_constant_across_every_step():
+    from src.pipelines.pipes.generator.video_minimax_h3 import main as h3_main
+    from src.pipelines.pipes.generator.video_minimax_h3.schedule import KEYFRAME_NOISE_AUG
+
+    fixed_video = torch.rand(1, 24, 2, 2, 2)
+    fixed_audio = _refine_audio_latent()
+    fixed_audio.fill_(1.5)
+
+    locked_calls: list = []
+    real_scale_noise = h3_main.scale_noise
+
+    def spy(sample, timestep, noise):
+        result = real_scale_noise(sample, timestep, noise)
+        if sample.shape[-1] == AUDIO_LATENT_CHANNELS:
+            assert float(timestep) == KEYFRAME_NOISE_AUG
+            locked_calls.append(result.clone())
+        return result
+
+    with patch(f"{_MAIN}.scale_noise", spy):
+        pipe, _ = _run_generate_one({}, steps=5, ctx_overrides={
+            "decode": False, "denoise": 0.5,
+            "initial_latents": [fixed_video], "initial_audio_latents": [fixed_audio],
+        })
+
+    assert len(locked_calls) == 1
+    torch.testing.assert_close(
+        pipe._audio_latent_results[0], locked_calls[0].to(pipe._audio_latent_results[0].dtype), rtol=0, atol=0,
+    )
+
+
+def test_refine_resample_noises_to_the_audio_schedules_first_timestep():
+    from src.pipelines.pipes.generator.video_minimax_h3 import main as h3_main
+    from src.pipelines.pipes.generator.video_minimax_h3.schedule import resolve_schedules
+
+    fixed_video = torch.rand(1, 24, 2, 2, 2)
+    fixed_audio = _refine_audio_latent()
+    fixed_audio.fill_(1.5)
+    steps = 5
+
+    timesteps_seen: list = []
+    real_scale_noise = h3_main.scale_noise
+
+    def spy(sample, timestep, noise):
+        if sample.shape[-1] == AUDIO_LATENT_CHANNELS:
+            timesteps_seen.append(float(timestep))
+        return real_scale_noise(sample, timestep, noise)
+
+    with patch(f"{_MAIN}.scale_noise", spy):
+        _run_generate_one({}, steps=steps, ctx_overrides={
+            "decode": False, "denoise": 0.5, "audio_refine": "resample",
+            "initial_latents": [fixed_video], "initial_audio_latents": [fixed_audio],
+        })
+
+    _, audio_schedule = resolve_schedules(steps, denoise=0.5)
+    assert len(timesteps_seen) == 1
+    assert timesteps_seen[0] == pytest.approx(float(audio_schedule.timesteps[0]))
+
+
+def test_refine_resample_updates_audio_rows_unlike_lock():
+    fixed_video = torch.rand(1, 24, 2, 2, 2)
+    fixed_audio = _refine_audio_latent()
+    fixed_audio.fill_(1.5)
+    locked, _ = _run_generate_one({}, ctx_overrides={
+        "decode": False, "denoise": 0.5, "audio_refine": "lock",
+        "initial_latents": [fixed_video], "initial_audio_latents": [fixed_audio],
+    })
+    resampled, _ = _run_generate_one({}, ctx_overrides={
+        "decode": False, "denoise": 0.5, "audio_refine": "resample",
+        "initial_latents": [fixed_video], "initial_audio_latents": [fixed_audio],
+    })
+    assert not torch.allclose(locked._audio_latent_results[0], resampled._audio_latent_results[0])
+
+
+def test_refine_missing_audio_latent_falls_back_to_encoding_the_passthrough_track():
+    fixed_video = torch.rand(1, 24, 2, 2, 2)
+    track_a = AudioTrack(waveform=np.full((2, 1600), 0.2, dtype=np.float32), sample_rate=32000)
+    track_b = AudioTrack(waveform=np.full((2, 1600), -0.6, dtype=np.float32), sample_rate=32000)
+    run_a, _ = _run_generate_one({}, ctx_overrides={
+        "decode": False, "denoise": 0.5, "initial_latents": [fixed_video],
+        "audio_source": "passthrough", "audio_file": track_a,
+    })
+    run_b, _ = _run_generate_one({}, ctx_overrides={
+        "decode": False, "denoise": 0.5, "initial_latents": [fixed_video],
+        "audio_source": "passthrough", "audio_file": track_b,
+    })
+    assert not torch.allclose(run_a._audio_latent_results[0], run_b._audio_latent_results[0])
 
 
 # -- Video Director windowed generation -----------------------------------------

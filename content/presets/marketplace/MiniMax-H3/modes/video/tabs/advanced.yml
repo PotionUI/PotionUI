@@ -76,7 +76,46 @@ fields:
             ai_hint: "Rarely needed on its own. Leave blank even when Manual sigmas (video) is set, unless the user specifically wants a different noise curve for the soundtrack than for the picture. If both lists are filled they must have the same number of values."
             configuration:
               placeholder: "blank = matched to the video schedule"
+              
+  - type: "section"
+    label: "Refine"
+    audience: "advanced"
+    children:
+      - name: "refine_video_sigma_shift"
+        type: "slider"
+        label: "Refine video sigma shift"
+        audience: "advanced"
+        default: 9.0
+        ai_hint: "The video stream's exponential-shift constant for the Enhance tab's stage-2 refine pass (the audio stream's own shift, 3.0, is unaffected and not exposed here). 9 is the released recipe -- lower than a fresh generation's 12, since a refine starts from the upsampled latent rather than pure noise. Only has an effect when the Enhance tab's Latent Upscale is not Off."
+        configuration: {min: 0.1, max: 50.0, step: 0.5}
 
+      - name: "refine_manual_sigmas"
+        type: "textbox"
+        label: "Refine manual sigmas (video)"
+        default: ""
+        ai_hint: "An expert escape hatch for reshaping the stage-2 refine's own schedule -- prefer the Enhance tab's Refine denoise/Refine steps for ordinary use. Only reach for this when the user explicitly asks for a custom or non-uniform refine sigma schedule. Always end the list at 0.0 or the render is refused. The list is the grid, not the step count: N values run N-1 steps. Independent of this tab's own Manual sigmas (video), which is stage 1's."
+        configuration:
+          placeholder: "e.g. 0.9, 0.7, 0.4, 0.0"
+
+      - name: "refine_manual_audio_sigmas"
+        type: "textbox"
+        label: "Refine manual sigmas (audio)"
+        default: ""
+        ai_hint: "Rarely needed on its own for the stage-2 refine. Leave blank even when Refine manual sigmas (video) is set, unless the user specifically wants a different noise curve for the refine's soundtrack. If both lists are filled they must have the same number of values. No effect while Refine audio is Lock, since locked audio rows never sample."
+        configuration:
+          placeholder: "blank = matched to the refine's video schedule"
+
+      - name: "audio_refine"
+        type: "select"
+        label: "Refine audio"
+        audience: "advanced"
+        default: "lock"
+        ai_hint: "How the stage-2 refine treats the audio stage 1 already sampled. Lock (default) keeps stage 1's audio and lip-sync exactly as sampled -- the right choice for almost every refine, and what prevents noise from leaking into the refined picture through the shared attention. Resample lets the refine touch the audio too, the same way it touches video; only suggest it when the user explicitly wants the refine to also change the soundtrack. Only has an effect when Latent Upscale is not Off."
+        configuration:
+          options:
+            - { label: "Lock (keep stage-1 audio)", value: "lock" }
+            - { label: "Resample (let the refine touch audio too)", value: "resample" }
+            
   - type: "section"
     label: "Sparse attention"
     audience: "advanced"

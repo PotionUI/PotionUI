@@ -49,23 +49,25 @@ test('a manually authored prompt saves and appears in the list', async ({ page }
 	).toContain('a hand-typed manual prompt, not imported');
 
 	await expect(page.getByText('Prompt created')).toBeVisible({ timeout: 5000 });
+	await expect(page.getByRole('heading', { name: uniqueName })).toBeVisible({ timeout: 10000 });
+
+	await page.getByRole('button', { name: 'Back to Prompts' }).click();
 	await expect(page.getByText(uniqueName)).toBeVisible({ timeout: 10000 });
 
 	await page.waitForTimeout(300);
 	await screenshot(page, JOURNEY, 'saved-in-list');
 
-	// The list shows this prompt tagged "manual" (sourceLabel()'s fallback for
-	// a falsy source_provider) - the Source filter's own "Manual" option must
-	// actually find it, not just display the label.
 	const listResponse = page.waitForResponse(
-		(r) => r.url().includes('/api/prompts') && r.request().method() === 'GET',
+		(r) => r.url().includes('/api/prompts') && r.url().includes('source_provider=manual') && r.request().method() === 'GET',
 		{ timeout: 15000 }
 	);
-	await page.getByLabel('Source').selectOption('manual');
+	await page.getByRole('button', { name: 'Filters' }).click();
+	await page.getByRole('dialog', { name: 'Filters' }).getByRole('button', { name: 'Mine', exact: true }).click();
 	await listResponse;
+	await expect(page).toHaveURL(/source=mine/);
 	await expect(
 		page.getByText(uniqueName),
-		'a hand-typed prompt must still be found once the Source filter is set to "Manual"'
+		'a hand-typed prompt must still be found once the Source filter is set to "Mine"'
 	).toBeVisible({ timeout: 10000 });
 
 	console.log(`[${JOURNEY}] manual prompt created via POST ${response.status()}, visible in list and under the Manual source filter`);

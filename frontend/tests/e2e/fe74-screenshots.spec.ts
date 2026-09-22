@@ -304,17 +304,12 @@ test('one-panel prompt editor — visual capture only', async ({ page }) => {
 	await page.waitForTimeout(300);
 	await screenshot(page, JOURNEY, '08-prompts-workspace-compact');
 
-	// ---------------------------------------------------------------------
-	// /prompts — Segment Templates workspace (compact context)
-	// ---------------------------------------------------------------------
-	await page.getByRole('button', { name: 'Segment Templates' }).click();
+	await page.getByRole('listbox', { name: 'Library sections' }).getByRole('option', { name: 'Templates' }).click();
 	await page.waitForTimeout(500);
-	const newTemplateBtn = page.getByRole('button', { name: 'New Template' });
+	const newTemplateBtn = page.getByRole('button', { name: 'New template' });
 	if (await newTemplateBtn.count() > 0) {
 		await newTemplateBtn.click();
 		await page.waitForTimeout(300);
-		// Scope to the template form: the Segments workspace's editor from the
-		// previous step can stay mounted (hidden), and it precedes this one in DOM order.
 		const templateEditor = page.getByRole('list', { name: 'Template slots' }).locator('.inline-chip-editor[role="textbox"]').first();
 		if (await templateEditor.count() > 0) {
 			await templateEditor.click();

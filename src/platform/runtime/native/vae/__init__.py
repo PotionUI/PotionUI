@@ -1,6 +1,6 @@
 """Native-engine VAEs: the Flux-family 2D image VAE, the Wan-2.1/2.2-shaped
-causal 3D VAEs (Qwen-Image/Krea-2/Wan), and the LTX-2/2.3 causal video VAE,
-plus key-layout handling and spatial tiling."""
+causal 3D VAEs (Qwen-Image/Qwen-Image-2.1/Krea-2/Wan), and the LTX-2/2.3
+causal video VAE, plus key-layout handling and spatial tiling."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from .loader import (
     load_ltx_latent_upsampler,
     load_ltx_video_vae,
     load_ltx_vocoder,
+    load_qwen_image21_vae,
     load_vae,
 )
 from .ltx_audio import LATENT_DOWNSAMPLE_FACTOR as LTX_AUDIO_LATENT_DOWNSAMPLE_FACTOR
@@ -59,6 +60,7 @@ __all__ = [
     "load_ltx_latent_upsampler",
     "load_ltx_video_vae",
     "load_ltx_vocoder",
+    "load_qwen_image21_vae",
     "load_vae",
     "tiled_decode",
     "tiled_decode_causal3d",

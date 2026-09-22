@@ -1,0 +1,12 @@
+# Qwen-Image-2.1 Resolutions - the model's own reference aspect ratios
+# (Comfy-Org's t2i workflow template). Snapped to the DiT's 16px granularity
+# (16x VAE downscale; the DiT consumes latents unpatched, unlike 1.0) by
+# generator/qwen_image21 at generation time, so a value here that isn't an
+# exact multiple rounds to the nearest one.
+- { value: "1024x1024", ratio: [1, 1], description: "Square (Compact)", tier: "Compact" }
+- { value: "1328x1328", ratio: [1, 1], description: "Square", tier: "Full" }
+- { value: "2048x2048", ratio: [1, 1], description: "Square (Large)", tier: "Large" }
+- { value: "2752x1536", ratio: [16, 9], description: "Widescreen", tier: "Full" }
+- { value: "1536x2752", ratio: [9, 16], description: "Vertical", tier: "Full" }
+- { value: "1664x928", ratio: [16, 9], description: "Widescreen (Compact)", tier: "Compact" }
+- { value: "928x1664", ratio: [9, 16], description: "Vertical (Compact)", tier: "Compact" }

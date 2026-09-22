@@ -206,10 +206,12 @@ def detect_te_config(sd: dict[str, torch.Tensor]) -> dict | None:
         has_vision = has_nested_vision or has_toplevel_vision
         if has_vision:
             te_type = "qwen3vl"
-            # Width branch: hidden 2560 -> Krea-2's Qwen3-VL-4B; hidden 5120 ->
-            # MiniMax-H3's Qwen3-VL-32B TE. Widths don't overlap between the two
-            # known checkpoints, so the threshold is safe.
-            variant = "qwen3vl_32b" if hidden >= 5120 else "qwen3vl_4b"
+            if hidden >= 5120:
+                variant = "qwen3vl_32b"
+            elif hidden == 4096:
+                variant = "qwen3vl_8b"
+            else:
+                variant = "qwen3vl_4b"
         else:
             te_type = "qwen3"
             # 0.6B: hidden EXACTLY 1024, 28 layers (Anima's TE — its own head/MLP

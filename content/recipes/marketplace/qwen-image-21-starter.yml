@@ -1,0 +1,178 @@
+########
+## Setup recipe: Qwen-Image-2.1 on the native engine
+##
+## See src/features/recipes/schema.py for the schema this file is
+## validated against (scripts/recipe_lint.py) and
+## src/features/recipes/executors/ for what each step kind actually does.
+########
+schema_version: 1
+id: "qwen-image-21-starter"
+version: 1
+name: "Qwen-Image-2.1 Starter"
+engine: "native"
+category: "image"
+summary: "Get a working Qwen-Image-2.1 setup on your local GPU and produce a first image."
+description: >
+  Installs the bundled Qwen-Image-2.1 preset on the native (in-process) engine
+  in its txt2img mode, makes sure its three model files are available, and
+  proves the pipeline is wired up correctly before handing you a
+  ready-to-use preset (see docs/models/qwen_image_21.md). Fetches the bf16
+  MMDiT checkpoint, the matching Qwen3-VL-8B text encoder, and the RGBA
+  16x-latent VAE, all from Comfy-Org's official repack of Qwen/Qwen-Image-2.1.
+  These files ship under the Qwen Research License (NOT Apache-2.0) -
+  commercial use requires accepting Alibaba's separate terms at
+  https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE. The three
+  files together are a real download (~33 GB); `edit` mode (RGBA in/out) is
+  out of scope for this v1 preset.
+
+plugins:
+  - id: "huggingface-provider"
+    reason: >
+      Resolves the diffusion model, text encoder and VAE from HuggingFace
+      by exact repo path. HuggingFace has no hash-lookup API, so each
+      artifact below names its file explicitly; the sha256 in each
+      artifact's checksum still verifies the download afterwards.
+
+backend:
+  engine: "native"
+
+artifacts:
+  - id: "qwenimage21-diffusion-model"
+    kind: "diffusion_model"
+    model_type: "diffusion_model"
+    filename: "qwen_image_2.1_bf16.safetensors"
+    display_name: "Qwen-Image-2.1 (MMDiT, bf16)"
+    required: true
+    size_bytes: 14230280616
+    checksum:
+      algorithm: "sha256"
+      value: "89f4158d066cc33906a199fca85634f766892dd78f49b6698dabf187ac86c4bc"
+    # Declared by capability, never by a concrete plugin id - core resolves a
+    # download source through whichever enabled plugin advertises this
+    # capability (see plugin manifest `capabilities:`).
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Qwen-Image-2.1"
+      version_id: "main@diffusion_models/qwen_image_2.1_bf16.safetensors"
+
+  - id: "qwenimage21-text-encoder"
+    kind: "text_encoder"
+    model_type: "text_encoder"
+    filename: "qwen3vl_8b_bf16.safetensors"
+    display_name: "Qwen3-VL-8B text encoder (bf16)"
+    required: true
+    size_bytes: 17534334616
+    checksum:
+      algorithm: "sha256"
+      value: "68bdc82bc1b66851162ae656225e7e2068166b603db19bd5d5a3b90eb12669a9"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Qwen-Image-2.1"
+      version_id: "main@text_encoders/qwen3vl_8b_bf16.safetensors"
+
+  - id: "qwenimage21-vae"
+    kind: "vae"
+    model_type: "vae"
+    filename: "qwen_image_2.1_vae_bf16.safetensors"
+    display_name: "Qwen-Image-2.1 VAE (RGBA, 16x latent)"
+    required: true
+    size_bytes: 675509688
+    checksum:
+      algorithm: "sha256"
+      value: "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Qwen-Image-2.1"
+      version_id: "main@vae/qwen_image_2.1_vae_bf16.safetensors"
+
+presets:
+  - preset_id: "01M31Y6WNM07EHAXXCDV1QVJVX"
+    path_hint: "marketplace/QwenImage-2.1"
+    assign_to_owner: true
+
+smoke:
+  preset_id: "01M31Y6WNM07EHAXXCDV1QVJVX"
+  mode: "txt2img"
+  prompt: "a stack of ceramic bowls on a kitchen counter, soft daylight"
+  seed: 4242
+  # Matches content/presets/marketplace/QwenImage-2.1/tests.yml's
+  # "qwen-image-21-baseline-fast" case: low steps, cfg near the preset's own
+  # default, smallest square resolution.
+  form:
+    steps: 10
+    cfg: 3.0
+    sampler: "euler"
+    resolution: "1024x1024"
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable required plugins"
+    params:
+      # huggingface-provider is needed so the download step can resolve each
+      # artifact's exact repo file.
+      plugin_ids: ["huggingface-provider"]
+
+  - key: "backend.ensure"
+    kind: "backend.ensure"
+    title: "Prepare the native backend"
+    params:
+      engine: "native"
+
+  # Index BEFORE planning downloads: on a fresh instance nothing is indexed
+  # yet, so without this pass artifacts.plan cannot see files the user
+  # already has and would ask to download them.
+  - key: "models.index"
+    kind: "models.index"
+    title: "Find models you already have"
+    params:
+      engine: "native"
+
+  - key: "artifacts.plan"
+    kind: "artifacts.plan"
+    title: "Plan required downloads"
+    params:
+      artifact_ids: ["qwenimage21-diffusion-model", "qwenimage21-text-encoder", "qwenimage21-vae"]
+
+  - key: "artifacts.fetch"
+    kind: "artifacts.fetch"
+    title: "Download the Qwen-Image-2.1 model files"
+    params:
+      artifact_ids: ["qwenimage21-diffusion-model", "qwenimage21-text-encoder", "qwenimage21-vae"]
+
+  - key: "models.index.downloads"
+    kind: "models.index"
+    title: "Register downloaded models"
+    params:
+      engine: "native"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign the Qwen-Image-2.1 preset"
+    params:
+      preset_id: "01M31Y6WNM07EHAXXCDV1QVJVX"
+
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the pipeline"
+    params:
+      preset_id: "01M31Y6WNM07EHAXXCDV1QVJVX"
+      mode: "txt2img"
+
+  - key: "generation.smoke"
+    kind: "generation.smoke"
+    title: "Run a first real generation"
+    params:
+      preset_id: "01M31Y6WNM07EHAXXCDV1QVJVX"
+      mode: "txt2img"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    # Only meaningful during the first-run wizard - a run started from
+    # Admin -> Recipes skips it.
+    onboarding_only: true
+    params: {}

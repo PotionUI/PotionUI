@@ -1,0 +1,77 @@
+########
+## Qwen-Image-2.1 text-to-image (native engine)
+##
+## Qwen-Image-2.1 is a single-checkpoint 32-layer single-stream MMDiT plus ONE
+## text encoder (Qwen3-VL-8B, no CLIP-L) and an RGBA 16x-latent VAE. Guidance
+## is TRUE CFG (the sampler runs a cond/uncond pass), so the negative prompt
+## is encoded. The VAE's alpha channel is dropped on decode, in both modes
+## (see docs/models/qwen_image_21.md). `edit` reuses the SAME checkpoint as
+## `txt2img`, run with the text encoder's vision tower loaded and up to 10
+## reference images spliced into the DiT's sequence as clean VAE latents.
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01M31Y6WNM07EHAXXCDV1QVJVX"
+name: "Qwen-Image-2.1"
+category: "image"
+version: "1.0.0"
+engine: "native"
+tags: ["qwen", "qwenimage", "local", "transformer", "text-rendering"]
+
+# Hardware guidance (docs/user/hardware-requirements.md): bf16 checkpoint set
+# is ~33 GB together (14.23 GB DiT + 17.53 GB TE + 0.68 GB VAE); a 24 GB card
+# needs TE offload between the text-encode and denoise phases (the model
+# lifecycle cache handles this automatically) - no min_vram_gb until a lower
+# tier is validated.
+requires:
+  recommended_vram_gb: 24
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the Diffusion Model picker."
+  text_encoder_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the VAE picker."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+
+# balanced sourced from ComfyUI's reference Qwen-Image-2.1 workflow (not
+# distilled -> ~40 steps at cfg ~4.0). turbo is a PROPOSED fast profile (no
+# distilled Qwen-Image-2.1 checkpoint exists yet) -- pair it with a Lightning
+# LoRA on the LoRA tab for acceptable quality at 20 steps/cfg 1.0.
+speed_profiles:
+  balanced: { steps: 40, guidance: 4.0, sampler: "euler" }
+  turbo:    { steps: 20, guidance: 1.0, sampler: "euler" }
+  custom:   { steps: 40, guidance: 4.0, sampler: "euler" }
+
+vars:
+  default_shift: 2.0
+
+llm:
+  guide: |
+    Write dense, descriptive prompts with specifics about composition, style, and
+    visual elements - the model was trained progressively up to paragraph-level
+    captions, so long complex prompts work well. Its signature strength is text
+    rendering in English and Chinese: put exact display text in quotes ('the sign reads
+    "Qwen Coffee"'). Bilingual English+Chinese prompts are supported. Negative prompts
+    are supported; keep them short and targeted, or empty when nothing needs
+    suppressing. This preset always outputs an opaque RGB image - do not suggest
+    transparency or an alpha channel. Edit mode takes 1-10 reference images: the
+    first sets the output's size and is the image being edited; describe the
+    change you want in the prompt (e.g. "change the sign text to ..."), not the
+    whole scene from scratch.
+
+modes:
+  - txt2img
+  - edit

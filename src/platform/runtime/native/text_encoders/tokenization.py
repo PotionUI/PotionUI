@@ -308,6 +308,41 @@ class Qwen25VLTokenizer:
         return _pad_weighted(ids, weights, QWEN3_PAD, 1, device)
 
 
+QWEN_IMAGE21_SYSTEM_PROMPT = "Comprehend and analyze the provided prompt."
+QWEN_IMAGE21_PREFIX = f"<|im_start|>system\n{QWEN_IMAGE21_SYSTEM_PROMPT}<|im_end|>\n<|im_start|>user\n"
+QWEN_IMAGE21_SUFFIX = "<|im_end|>\n<|im_start|>assistant\n"
+QWEN_IMAGE21_VISION_MARKUP = "<|vision_start|><|image_pad|><|vision_end|>"
+
+
+class QwenImage21Tokenizer:
+    def __init__(self) -> None:
+        self._tok = _load_tokenizer("qwen3_tokenizer", "Qwen2Tokenizer")
+        self._prefix_len = len(self._tok(QWEN_IMAGE21_PREFIX)["input_ids"])
+
+    def __call__(
+        self, texts: list[str], device: torch.device | str = "cpu"
+    ) -> tuple[torch.Tensor, torch.Tensor, int]:
+        id_lists = [
+            self._tok(QWEN_IMAGE21_PREFIX + t + QWEN_IMAGE21_SUFFIX)["input_ids"] for t in texts
+        ]
+        ids, mask = _pad_batch(id_lists, QWEN3_PAD, 1, device)
+        return ids, mask, self._prefix_len
+
+    def tokenize_with_weights(self, prompt: str, device="cpu"):
+        ids, weights = weighted_token_ids(self._tok, prompt, QWEN_IMAGE21_PREFIX, QWEN_IMAGE21_SUFFIX)
+        return _pad_weighted(ids, weights, QWEN3_PAD, 1, device)
+
+    def tokenize_with_images(
+        self, text: str, *, num_images: int, device: torch.device | str = "cpu",
+    ) -> tuple[torch.Tensor, torch.Tensor, int]:
+        if num_images < 1:
+            raise ValueError("tokenize_with_images requires at least one image")
+        refs = " ".join(f"<image{i + 1}>{QWEN_IMAGE21_VISION_MARKUP}" for i in range(num_images))
+        ids = self._tok(QWEN_IMAGE21_PREFIX + refs + text + QWEN_IMAGE21_SUFFIX)["input_ids"]
+        ids_t, mask = _pad_batch([ids], QWEN3_PAD, 1, device)
+        return ids_t, mask, self._prefix_len
+
+
 class MiniMaxH3Tokenizer:
     """MiniMax-H3's Qwen3-VL-32B tokenizer: raw prompt, NO chat template, NO
     special tokens (``add_special_tokens=False``), no padding ever (MiniMax-H3

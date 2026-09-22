@@ -1,0 +1,1 @@
+Turn a text prompt into a detailed image — including posters, signs and labels with readable text, in both English and Chinese. Qwen-Image-2.1 is Alibaba's follow-up to Qwen-Image, with a larger 32-layer MMDiT and a Qwen3-VL-8B text encoder for stronger prompt understanding.

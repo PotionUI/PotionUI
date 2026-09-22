@@ -87,16 +87,16 @@ _SPECS: dict[str, TESpec] = {
     "qwen3vl": TESpec(
         family="qwen3vl",
         variant="qwen3vl",
-        # Same Qwen3 language model, at two widths (4B Krea-2, 32B MiniMax-H3
-        # — see te_detect.py's width branch). By default the vision tower is
-        # stripped before load so only the LM weights remain; `vision=True`
+        # Same Qwen3 language model, at three widths (4B Krea-2, 8B Qwen-Image-2.1,
+        # 32B MiniMax-H3 — see te_detect.py's width branch). By default the vision
+        # tower is stripped before load so only the LM weights remain; `vision=True`
         # keeps+loads it into a `Qwen3VLVisionTower` instead (see `_load_one`).
-        # Allowlisted at BOTH prefixes the two checkpoints use — nested
-        # `model.visual.*` (4B) and top-level `visual.*` (32B, `vision_top_level`)
+        # Allowlisted at BOTH prefixes these checkpoints use — nested
+        # `model.visual.*` (4B, 8B) and top-level `visual.*` (32B, `vision_top_level`)
         # — defensively either way: a stray/unmatched visual key never trips
         # the integrity assert.
         model_class=Qwen3Model,
-        expected_unexpected_keys={"model.visual.*", "visual.*", *_QUANT_SIDECAR},
+        expected_unexpected_keys={"model.visual.*", "visual.*", "lm_head.weight", *_QUANT_SIDECAR},
     ),
     "qwen25_vl": TESpec(
         family="qwen25_vl",
@@ -195,6 +195,8 @@ def _build_config(te_config: dict[str, Any], sd: dict[str, torch.Tensor]) -> dic
                 config["num_attention_heads"] = int(q.shape[0]) // head_dim
             if k is not None:
                 config["num_key_value_heads"] = int(k.shape[0]) // head_dim
+        if te_type == "qwen3vl" and config.get("variant") in ("qwen3vl_8b", "qwen3vl_32b"):
+            config["rope_theta"] = 5000000.0
         if te_type == "qwen3vl" and config.get("vision"):
             # Vision-tower dims recoverable from shapes; the rest (patch/temporal/
             # merge sizes, num_position_embeddings, deepstack_visual_indexes) are
@@ -202,18 +204,19 @@ def _build_config(te_config: dict[str, Any], sd: dict[str, torch.Tensor]) -> dic
             # qwen3_vl_vision.py's module constants (HF config-sourced) supply
             # those, same convention as qwen_vl_vision.py's Qwen2.5-VL constants.
             # num_heads/patch/temporal_patch/merge/num_position_embeddings are
-            # IDENTICAL between the 4B and 32B (MiniMax-H3) towers (verified
-            # against both HF configs) so only `deepstack_indexes` needs a
-            # per-variant default; the rest reuse the shared constants as-is.
+            # IDENTICAL across the 4B, 8B (Qwen-Image-2.1) and 32B (MiniMax-H3)
+            # towers (verified against all three HF configs) so only
+            # `deepstack_indexes` needs a per-variant default; the rest reuse
+            # the shared constants as-is.
             from .qwen3_vl_vision import (
                 H3_VISION_DEEPSTACK_INDEXES, VISION_DEEPSTACK_INDEXES, VISION_NUM_HEADS,
                 VISION_NUM_POSITION_EMBEDDINGS, VISION_PATCH_SIZE, VISION_SPATIAL_MERGE_SIZE,
                 VISION_TEMPORAL_PATCH_SIZE,
             )
-            is_h3 = config.get("variant") == "qwen3vl_32b"
-            # The two checkpoints carry the tower at different prefixes — see
-            # te_detect.py's `vision_top_level` (nested `model.visual.*` for the
-            # 4B, top-level `visual.*` for the 32B).
+            wide_vision_tower = config.get("variant") in ("qwen3vl_8b", "qwen3vl_32b")
+            # Two attachment points carry the tower — see te_detect.py's
+            # `vision_top_level` (nested `model.visual.*` for the 4B and 8B,
+            # top-level `visual.*` for the 32B).
             vision_prefix = "visual." if config.get("vision_top_level") else "model.visual."
             v_hidden = sd.get(f"{vision_prefix}blocks.0.norm1.weight")
             if v_hidden is not None:
@@ -230,7 +233,9 @@ def _build_config(te_config: dict[str, Any], sd: dict[str, torch.Tensor]) -> dic
             config["vision_patch_size"] = VISION_PATCH_SIZE
             config["vision_temporal_patch_size"] = VISION_TEMPORAL_PATCH_SIZE
             config["vision_spatial_merge_size"] = VISION_SPATIAL_MERGE_SIZE
-            config["vision_deepstack_indexes"] = H3_VISION_DEEPSTACK_INDEXES if is_h3 else VISION_DEEPSTACK_INDEXES
+            config["vision_deepstack_indexes"] = (
+                H3_VISION_DEEPSTACK_INDEXES if wide_vision_tower else VISION_DEEPSTACK_INDEXES
+            )
 
     elif te_type == "qwen25_vl":
         gate = sd.get("model.layers.0.mlp.gate_proj.weight")
@@ -380,12 +385,12 @@ def _load_one(
 
     ``vision`` affects two text-encoder types:
 
-      * ``te_type == "qwen3vl"`` (Krea-2 edit mode's 4B, or MiniMax-H3's TE at
-        32B — the two share a te_type, distinguished by width): keep+load the
-        checkpoint's Qwen3-VL vision tower instead of stripping it (a few
-        extra GB — see ``qwen3_vl_vision.py``; the tower's prefix differs by
-        width, ``vision_top_level``). Default False: dropped, exactly as
-        before this flag existed, so ordinary (text-only) Krea-2/t2va
+      * ``te_type == "qwen3vl"`` (Krea-2 edit mode's 4B, Qwen-Image-2.1's 8B, or
+        MiniMax-H3's TE at 32B — all three share a te_type, distinguished by
+        width): keep+load the checkpoint's Qwen3-VL vision tower instead of
+        stripping it (a few extra GB — see ``qwen3_vl_vision.py``; the tower's
+        prefix differs by width, ``vision_top_level``). Default False: dropped,
+        exactly as before this flag existed, so ordinary (text-only) Krea-2/t2va
         generation's memory footprint and encode path are unaffected either
         way.
       * ``te_type == "qwen25_vl"``: keep+load the checkpoint's ``visual.*``
@@ -504,6 +509,10 @@ def _make_encoder(te_type: str, variant: str, module: Any, device: str | torch.d
             # entirely different encode contract (no chat template, hidden_states[50]
             # tap) — see qwen3.py's MiniMaxH3TextEncoder docstring.
             return MiniMaxH3TextEncoder(module, MiniMaxH3Tokenizer(), variant=variant, device=device)
+        if variant == "qwen3vl_8b":
+            from .qwen_image21 import QwenImage21TextEncoder
+            from .tokenization import QwenImage21Tokenizer
+            return QwenImage21TextEncoder(module, QwenImage21Tokenizer(), variant=variant, device=device)
         return Qwen3VLTextEncoder(module, Qwen3VLTokenizer(), variant=variant, device=device)
     if te_type == "qwen25_vl":
         return Qwen25VLTextEncoder(module, Qwen25VLTokenizer(), variant=variant, device=device)

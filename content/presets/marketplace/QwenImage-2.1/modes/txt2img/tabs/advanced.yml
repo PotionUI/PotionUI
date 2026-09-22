@@ -1,0 +1,99 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    children:
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        audience: "advanced"
+        default: 40
+        configuration: {min: 1, max: 100, step: 1}
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: 40, set_disabled: false }
+          - when: { field: "speed_profile", equals: "turbo" }
+            then: { set_value: 20, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - type: "row"
+        children:
+          - name: "sampler"
+            type: "sampler"
+            label: "Sampler"
+            audience: "advanced"
+            default: "euler"
+            configuration:
+              family: "qwen_image21"
+              # A pipeline-authored choice for distilled/consistency
+              # checkpoints, garbage on a normal one -- never a dropdown row.
+              exclude: ["lcm"]
+            reactions:
+              - when: { field: "speed_profile", equals: "balanced" }
+                then: { set_value: "euler", set_disabled: false }
+              - when: { field: "speed_profile", equals: "turbo" }
+                then: { set_value: "euler", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
+
+          - name: "schedule"
+            type: "schedule"
+            label: "Schedule"
+            audience: "advanced"
+            default: "shift"
+            configuration:
+              family: "qwen_image21"
+              exclude: ["manual"]
+            reactions:
+              - when: { field: "speed_profile", equals: "balanced" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "turbo" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG Scale"
+        audience: "advanced"
+        default: 4.0
+        configuration: {min: 1.0, max: 10.0, step: 0.5}
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: 4.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "turbo" }
+            then: { set_value: 1.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      # Optional sigma-shift override. Leave blank to use the model's built-in
+      # default (resolution-dynamic mu; 2.0 multiplicative at 1024², ComfyUI mu 0.69). Independent of the speed profile axis.
+      - name: "shift"
+        type: "number"
+        label: "Shift (override)"
+        audience: "advanced"
+        configuration: {min: 0.1, max: 10.0, step: 0.05}
+
+  - type: "section"
+    label: "Step Cache"
+    children:
+      - type: "row"
+        children:
+          - name: "step_cache_threshold"
+            type: "slider"
+            label: "Cache threshold"
+            default: 0.0
+            ai_hint: "A speed-for-fidelity trade, never a quality improvement -- it only removes work. Suggest 0.08 when the user explicitly wants a Qwen-Image-2.1 render faster and can accept some softening of fine detail; 0.15 only if they ask for aggressive speed. Keep it at 0.0 for final renders."
+            configuration: {min: 0.0, max: 0.3, step: 0.01}
+          - name: "step_cache_warmup_steps"
+            type: "slider"
+            label: "Warmup steps"
+            default: 4
+            ai_hint: "Only has an effect when Cache threshold is above 0. Raise toward 6-8 if a cached run loses composition -- it gives back some of the speed."
+            configuration: {min: 0, max: 12, step: 1}
+          - name: "step_cache_max_skips"
+            type: "slider"
+            label: "Max consecutive skips"
+            default: 3
+            ai_hint: "Only has an effect when Cache threshold is above 0. Lower to 1-2 if a cached run drifts or loses detail late in the trajectory."
+            configuration: {min: 0, max: 10, step: 1}

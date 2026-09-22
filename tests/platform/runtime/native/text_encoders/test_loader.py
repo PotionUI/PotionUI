@@ -120,6 +120,16 @@ def test_integrity_error_on_unlisted_key(tmp_path):
         load_text_encoder(path)
 
 
+def test_qwen3vl_repack_with_lm_head_loads(tmp_path):
+    sd = tiny_qwen3_state_dict(num_layers=36, hidden=64)
+    sd["model.visual.patch_embed.proj.weight"] = torch.zeros(8, 3, 2, 16, 16, dtype=torch.bfloat16)
+    sd["lm_head.weight"] = torch.zeros(151936, 64, dtype=torch.bfloat16)
+    path = _save(sd, tmp_path, "qwen3vl_repack.safetensors")
+    enc = load_text_encoder(path)
+    out = enc.encode(["a cat"])
+    assert torch.isfinite(out["context"]).all()
+
+
 def test_unrecognised_checkpoint_rejected(tmp_path):
     path = _save({"not.a.text.encoder": torch.zeros(4)}, tmp_path, "unknown.safetensors")
     with pytest.raises(NativeEngineUnsupportedError):

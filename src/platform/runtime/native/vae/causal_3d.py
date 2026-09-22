@@ -243,16 +243,22 @@ class Resample(nn.Module):
 
 
 class ResidualBlock(nn.Module):
-    def __init__(self, in_dim: int, out_dim: int, *, operations: Any) -> None:
+    """``temporal_kernel`` (default 3, Wan 2.1/2.2's own value) sizes the two
+    3x3-spatial convs' temporal axis -- Qwen-Image-2.1's VAE (``causal_3d_v2.py``,
+    ``temporal_kernel=1``) reuses this class with a smaller kernel and no
+    causal history needed (``padding = temporal_kernel // 2`` -> 0)."""
+
+    def __init__(self, in_dim: int, out_dim: int, *, operations: Any, temporal_kernel: int = 3) -> None:
         super().__init__()
+        t_pad = temporal_kernel // 2
         self.residual = nn.Sequential(
             RMS_norm(in_dim, images=False),
             nn.SiLU(),
-            _causal_conv3d(in_dim, out_dim, 3, padding=1, operations=operations),
+            _causal_conv3d(in_dim, out_dim, (temporal_kernel, 3, 3), padding=(t_pad, 1, 1), operations=operations),
             RMS_norm(out_dim, images=False),
             nn.SiLU(),
             nn.Dropout(0.0),
-            _causal_conv3d(out_dim, out_dim, 3, padding=1, operations=operations),
+            _causal_conv3d(out_dim, out_dim, (temporal_kernel, 3, 3), padding=(t_pad, 1, 1), operations=operations),
         )
         self.shortcut = (
             _causal_conv3d(in_dim, out_dim, 1, operations=operations) if in_dim != out_dim else nn.Identity()

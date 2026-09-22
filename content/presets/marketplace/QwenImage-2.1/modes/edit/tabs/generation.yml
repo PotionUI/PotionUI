@@ -1,0 +1,81 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    label: "Speed profile"
+    default: "balanced"
+    configuration:
+      options:
+        - { label: "Balanced", value: "balanced", sub_label: "40 steps" }
+        - { label: "Turbo", value: "turbo", sub_label: "20 steps" }
+        - { label: "Custom", value: "custom", sub_label: "set steps/CFG freely" }
+
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            width: "2/5"
+            full_width: true
+            configuration: {min: 1, max: 10, step: 1}
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "diffusion_model"
+        type: "model"
+        label: "Diffusion Model"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Select Qwen-Image-2.1 MMDiT (e.g. qwen_image_2.1_bf16)..."
+          filter_tags: "@config:checkpoint_tags"
+          recommendations:
+            - name: "qwen_image_2.1_bf16.safetensors"
+              link: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_bf16.safetensors"
+              size: "14.23 GB"
+              sha256: "89f4158d066cc33906a199fca85634f766892dd78f49b6698dabf187ac86c4bc"
+              description: "Qwen-Image-2.1 MMDiT, bf16 - the validated local checkpoint. Same checkpoint as txt2img -- edit is the same weights, run with the vision tower loaded."
+
+      # Single text encoder: Qwen3-VL-8B. The vision tower is loaded for this
+      # mode (model_loader/qwen_image21's `vision: true`, see pipeline.yml) so
+      # the same file ALSO grounds the text conditioning on the source
+      # image(s), not just their text description.
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (Qwen3-VL-8B)"
+        required: true
+        configuration:
+          model_type: "text_encoder"
+          placeholder: "Select Qwen3-VL-8B text encoder..."
+          filter_tags: "@config:text_encoder_tags"
+          recommendations:
+            - name: "qwen3vl_8b_bf16.safetensors"
+              link: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_bf16.safetensors"
+              size: "17.53 GB"
+              sha256: "68bdc82bc1b66851162ae656225e7e2068166b603db19bd5d5a3b90eb12669a9"
+              description: "Qwen3-VL-8B encoder, bf16 - pairs with the bf16 MMDiT."
+
+      - name: "vae"
+        type: "model"
+        label: "VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "Select Qwen-Image-2.1 VAE..."
+          filter_tags: "@config:vae_tags"
+          recommendations:
+            - name: "qwen_image_2.1_vae_bf16.safetensors"
+              link: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors"
+              size: "0.68 GB"
+              sha256: "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9"
+              description: "Qwen-Image-2.1 VAE (RGBA, 16x latent). Alpha is dropped on decode in this preset."

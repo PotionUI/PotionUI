@@ -1,0 +1,64 @@
+########
+## QwenImage-2.1 standard: E2E test suite.
+## Authoring reference: docs/presets.md "Testing presets"
+########
+schema: 1
+
+cases:
+  # Cheapest possible smoke test: low steps, the smallest resolution this
+  # preset's own resolution list offers (Compact square, 1024x1024), pinned
+  # seed.
+  #
+  # None of the three weight files this case needs (the bf16 DiT, the
+  # Qwen3-VL-8B text encoder, and the Qwen-Image-2.1 VAE) are on this
+  # checkout's disk right now, so every models: entry uses the placeholder
+  # sha256 and the case is tagged `needs-model` per the convention
+  # documented in tests_schema.py's module docstring -- the runner is
+  # expected to skip it, not fail it.
+  - name: "qwen-image-21-baseline-fast"
+    mode: "txt2img"
+    seed: 4242
+    tags: ["fast", "needs-model"]
+    form:
+      # `prompt` is not a preset form field (QwenImage-2.1/standard has none) --
+      # it maps to the generation request's top-level prompt, per convention.
+      prompt: "a stack of ceramic bowls on a kitchen counter, soft daylight"
+      steps: 10
+      cfg: 3.0
+      sampler: "euler"
+      resolution: "1024x1024"
+    models:
+      diffusion_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      resolution: "1024x1024"
+      not_black: true
+
+  # Edit smoke: requires an input image the headless suite can't supply, so
+  # the model refs are placeholder+needs-model to make the case skip cleanly
+  # (same convention as SeedVR2's upscale case). Output size derives from the
+  # reference image, so no fixed `resolution` check here.
+  - name: "qwen-image-21-edit-fast"
+    mode: "edit"
+    seed: 4242
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "change the sign text to read \"Qwen Coffee\""
+      steps: 10
+      cfg: 3.0
+      sampler: "euler"
+    models:
+      diffusion_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true

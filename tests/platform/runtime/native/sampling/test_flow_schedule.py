@@ -220,3 +220,15 @@ def test_invalid_args():
         build_sigmas(4, shift=2.02, denoise=0.0)
     with pytest.raises(ValueError):
         build_sigmas(4, shift=2.02, denoise=1.5)
+
+
+def test_qwen_image21_spec_shift_matches_diffusers_dynamic_mu():
+    from src.platform.runtime.native.detect.registry import match_model_spec
+    from src.platform.runtime.native.sampling.flow_schedule import _anchored_mu
+
+    spec = match_model_spec({"image_model": "qwen_image21"})
+    dyn = spec.sampling_settings["dynamic_shift"]
+    for tokens in (256, 4096, 8192):
+        expected = 0.5 + (0.9 - 0.5) * (tokens - 256) / (8192 - 256)
+        assert _anchored_mu(dyn, tokens) == pytest.approx(expected, abs=2e-3)
+    assert spec.sampling_settings["shift"] == pytest.approx(math.exp(_anchored_mu(dyn, 4096)), abs=0.01)

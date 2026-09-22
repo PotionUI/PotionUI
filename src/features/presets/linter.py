@@ -58,8 +58,8 @@ def _is_exact_expression(value: str) -> bool:
 # entries actually declare (a plugin-contributed family not yet in this fixed
 # list is still accepted) - see `_lint_sampling_fields`.
 _KNOWN_SAMPLING_FAMILIES = frozenset({
-    "anima", "flux", "krea2", "ltx", "minimax_h3", "qwen_image", "wan",
-    "z_image", "seedvr2", "minimax_music3",
+    "anima", "flux", "krea2", "ltx", "minimax_h3", "qwen_image", "qwen_image21",
+    "wan", "z_image", "seedvr2", "minimax_music3",
 })
 
 # Runtime documents the orchestrator injects into the `form` context that are

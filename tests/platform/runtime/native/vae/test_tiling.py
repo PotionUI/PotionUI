@@ -204,3 +204,26 @@ def test_auto_tile_size_grows_with_more_vram():
     large = auto_tile_size(vram_free_gb=4.0, latent_hw=(512, 512))
     assert small is not None and large is not None
     assert large > small
+
+
+class _Upscale16RGBAVAE:
+    def decode(self, latent):
+        b, c, t, h, w = latent.shape
+        rgb = latent[:, :4].reshape(b * t, 4, h, w) if c >= 4 else latent.reshape(b * t, c, h, w)
+        up = torch.nn.functional.interpolate(rgb, scale_factor=16, mode="bilinear", align_corners=False)
+        return up.reshape(b, 4, t, h * 16, w * 16)
+
+
+def test_tiled_decode_causal3d_honours_a_16x_rgba_vae():
+    torch.manual_seed(0)
+    vae = _Upscale16RGBAVAE()
+    latent = torch.randn(1, 64, 1, 40, 40)
+
+    with torch.no_grad():
+        whole = vae.decode(latent)
+        tiled = tiled_decode_causal3d(vae, latent, tile_size=32, overlap=8, scale=16)
+
+    assert tiled.shape == whole.shape == (1, 4, 1, 640, 640)
+    assert torch.isfinite(tiled).all()
+    interior = (slice(None), slice(None), slice(None), slice(64, -64), slice(64, -64))
+    assert torch.allclose(tiled[interior], whole[interior], atol=5e-2)

@@ -36,6 +36,13 @@ per-channel Wan 2.2 mean/std anywhere in ComfyUI to port; verified by reading
 the class, not assumed. So Wan 2.2 normalization is plain
 ``latent * scale_factor`` (``scale_factor=1.0``, i.e. no-op) -- do not invent
 48-length mean/std constants to "complete" this; there aren't any upstream.
+
+**Qwen-Image-2.1**: same module shape, different hyper-parameters -- every
+class below is parametrised (``dim``/``dec_dim``/``z_dim``/``dim_mult``/
+``num_res_blocks``/``temporal_downsample``/``image_channels``/``patch_size``/
+``temporal_kernel``), with the constants two paragraphs down as the Wan 2.2
+defaults. See ``AutoEncoderCausal3D_2_2``'s docstring and
+``detect_qwen_image21_vae_config``.
 """
 
 from __future__ import annotations
@@ -63,7 +70,21 @@ logger = logging.getLogger(__name__)
 # wan2.2_vae.safetensors header: encoder dim=160 (encoder.conv1 out-channels),
 # decoder dim=256 (decoder.conv1 out=1024=256*dim_mult[-1]), z_dim=48
 # (conv2 channels), dim_mult/temporal flags mirror ComfyUI's ddconfig
-# (comfy/sd.py's Wan 2.2 branch) exactly.
+# (comfy/sd.py's Wan 2.2 branch) exactly. Also the class defaults below --
+# ``AutoEncoderCausal3D_2_2(operations=...)`` with no other kwargs builds
+# exactly this shape. Qwen-Image-2.1's VAE reuses every class in this module
+# with a different set of these same knobs (``dim``/``dec_dim``/``z_dim``/
+# ``dim_mult``/``temporal_downsample``/``image_channels``/``patch_size``/
+# ``temporal_kernel``) -- see ``detect_qwen_image21_vae_config`` -- rather
+# than a second copy of this file: same nested-``upsamples.upsamples`` block
+# structure (patchify/average-pool shortcuts/asymmetric encoder-decoder
+# width), verified against ``Comfy-Org/Qwen-Image-2.1``'s
+# ``qwen_image_2.1_vae_bf16.safetensors`` header (238 tensors, same key names
+# as this module's submodules) -- ComfyUI itself reuses ``vae2_2.WanVAE`` for
+# it. The only real differences are RGBA (not RGB) images, no 2x2 patchify,
+# and ``temporal_kernel=1`` instead of 3 (every "3x3 spatial" causal conv's
+# temporal axis shrinks to 1 -- no causal history needed, ``padding =
+# temporal_kernel // 2`` -> 0).
 _ENC_DIM = 160
 _DEC_DIM = 256
 _Z_DIM = 48
@@ -71,12 +92,18 @@ _DIM_MULT = (1, 2, 4, 4)
 _NUM_RES_BLOCKS = 2
 _ATTN_SCALES: tuple[float, ...] = ()
 _TEMPORAL_DOWNSAMPLE = (False, True, True)
-_PATCHIFIED_CHANNELS = 12  # 3 image channels * patch_size(2)**2
+_IMAGE_CHANNELS = 3
+_PATCH_SIZE = 2
+_TEMPORAL_KERNEL = 3
 _CACHE_T = 2
 
 LATENT_CHANNELS = _Z_DIM
 # See module docstring: ComfyUI's Wan22 latent format has no per-channel
-# mean/std -- plain scale_factor normalization only.
+# mean/std -- plain scale_factor normalization only. Qwen-Image-2.1's
+# per-channel latents_mean/latents_std live on the DiT's ModelSpec
+# (``latent_format``), read generically by ``engine.py`` -- not here (see
+# ``causal_3d.py``'s LATENTS_MEAN/LATENTS_STD for the sibling family that
+# HAS a fixed per-channel format; this one and Wan 2.2 don't).
 LATENT_SCALE_FACTOR = 1.0
 
 
@@ -108,7 +135,7 @@ class Resample2(nn.Module):
     keeps the channel count fixed (``dim -> dim``, not ``dim -> dim//2`` --
     the channel change happens via the parallel ``DupUp3D`` shortcut instead)."""
 
-    def __init__(self, dim: int, mode: str, *, operations: Any) -> None:
+    def __init__(self, dim: int, mode: str, *, operations: Any, temporal_kernel: int = _TEMPORAL_KERNEL) -> None:
         super().__init__()
         self.mode = mode
 
@@ -118,14 +145,19 @@ class Resample2(nn.Module):
                 operations.Conv2d(dim, dim, 3, padding=1),
             )
             if mode == "upsample3d":
-                self.time_conv = _causal_conv3d(dim, dim * 2, (3, 1, 1), padding=(1, 0, 0), operations=operations)
+                t_pad = temporal_kernel // 2
+                self.time_conv = _causal_conv3d(
+                    dim, dim * 2, (temporal_kernel, 1, 1), padding=(t_pad, 0, 0), operations=operations,
+                )
         elif mode in ("downsample2d", "downsample3d"):
             self.resample = nn.Sequential(
                 nn.ZeroPad2d((0, 1, 0, 1)),
                 operations.Conv2d(dim, dim, 3, stride=2),
             )
             if mode == "downsample3d":
-                self.time_conv = _causal_conv3d(dim, dim, (3, 1, 1), stride=(2, 1, 1), operations=operations)
+                self.time_conv = _causal_conv3d(
+                    dim, dim, (temporal_kernel, 1, 1), stride=(2, 1, 1), operations=operations,
+                )
         else:
             self.resample = nn.Identity()
 
@@ -220,6 +252,7 @@ class DupUp3D(nn.Module):
 class Down_ResidualBlock(nn.Module):
     def __init__(
         self, in_dim: int, out_dim: int, mult: int, *, temporal_downsample: bool, down_flag: bool, operations: Any,
+        temporal_kernel: int = _TEMPORAL_KERNEL,
     ) -> None:
         super().__init__()
         self.avg_shortcut = AvgDown3D(
@@ -229,11 +262,11 @@ class Down_ResidualBlock(nn.Module):
         downsamples: list[nn.Module] = []
         cur_in = in_dim
         for _ in range(mult):
-            downsamples.append(ResidualBlock(cur_in, out_dim, operations=operations))
+            downsamples.append(ResidualBlock(cur_in, out_dim, operations=operations, temporal_kernel=temporal_kernel))
             cur_in = out_dim
         if down_flag:
             mode = "downsample3d" if temporal_downsample else "downsample2d"
-            downsamples.append(Resample2(out_dim, mode, operations=operations))
+            downsamples.append(Resample2(out_dim, mode, operations=operations, temporal_kernel=temporal_kernel))
         self.downsamples = nn.Sequential(*downsamples)
 
     def forward(self, x: torch.Tensor, feat_cache: list | None, feat_idx: list[int]) -> torch.Tensor:
@@ -247,6 +280,7 @@ class Down_ResidualBlock(nn.Module):
 class Up_ResidualBlock(nn.Module):
     def __init__(
         self, in_dim: int, out_dim: int, mult: int, *, temporal_upsample: bool, up_flag: bool, operations: Any,
+        temporal_kernel: int = _TEMPORAL_KERNEL,
     ) -> None:
         super().__init__()
         self.avg_shortcut = (
@@ -257,11 +291,11 @@ class Up_ResidualBlock(nn.Module):
         upsamples: list[nn.Module] = []
         cur_in = in_dim
         for _ in range(mult):
-            upsamples.append(ResidualBlock(cur_in, out_dim, operations=operations))
+            upsamples.append(ResidualBlock(cur_in, out_dim, operations=operations, temporal_kernel=temporal_kernel))
             cur_in = out_dim
         if up_flag:
             mode = "upsample3d" if temporal_upsample else "upsample2d"
-            upsamples.append(Resample2(out_dim, mode, operations=operations))
+            upsamples.append(Resample2(out_dim, mode, operations=operations, temporal_kernel=temporal_kernel))
         self.upsamples = nn.Sequential(*upsamples)
 
     def forward(
@@ -301,30 +335,38 @@ def _run_seq_with_cache(container: nn.Sequential, x: torch.Tensor, feat_cache, f
 
 
 class Encoder3d(nn.Module):
-    def __init__(self, *, operations: Any) -> None:
+    def __init__(
+        self, *, operations: Any,
+        dim: int = _ENC_DIM, dim_mult: tuple[int, ...] = _DIM_MULT, num_res_blocks: int = _NUM_RES_BLOCKS,
+        temporal_downsample: tuple[bool, ...] = _TEMPORAL_DOWNSAMPLE, patchified_channels: int,
+        z_dim: int = _Z_DIM, temporal_kernel: int = _TEMPORAL_KERNEL,
+    ) -> None:
         super().__init__()
-        dims = [_ENC_DIM * m for m in (1,) + _DIM_MULT]
-        self.conv1 = _causal_conv3d(_PATCHIFIED_CHANNELS, dims[0], 3, padding=1, operations=operations)
+        dims = [dim * m for m in (1,) + dim_mult]
+        t_pad = temporal_kernel // 2
+        self.conv1 = _causal_conv3d(
+            patchified_channels, dims[0], (temporal_kernel, 3, 3), padding=(t_pad, 1, 1), operations=operations,
+        )
 
         downsamples: list[nn.Module] = []
         out_dim = dims[0]
         for i, (in_dim, out_dim) in enumerate(zip(dims[:-1], dims[1:])):
-            t_down = _TEMPORAL_DOWNSAMPLE[i] if i < len(_TEMPORAL_DOWNSAMPLE) else False
+            t_down = temporal_downsample[i] if i < len(temporal_downsample) else False
             downsamples.append(Down_ResidualBlock(
-                in_dim, out_dim, _NUM_RES_BLOCKS, temporal_downsample=t_down,
-                down_flag=i != len(_DIM_MULT) - 1, operations=operations,
+                in_dim, out_dim, num_res_blocks, temporal_downsample=t_down,
+                down_flag=i != len(dim_mult) - 1, operations=operations, temporal_kernel=temporal_kernel,
             ))
         self.downsamples = nn.Sequential(*downsamples)
 
         self.middle = nn.Sequential(
-            ResidualBlock(out_dim, out_dim, operations=operations),
+            ResidualBlock(out_dim, out_dim, operations=operations, temporal_kernel=temporal_kernel),
             AttentionBlock(out_dim, operations=operations),
-            ResidualBlock(out_dim, out_dim, operations=operations),
+            ResidualBlock(out_dim, out_dim, operations=operations, temporal_kernel=temporal_kernel),
         )
         self.head = nn.Sequential(
             RMS_norm(out_dim, images=False),
             nn.SiLU(),
-            _causal_conv3d(out_dim, _Z_DIM * 2, 3, padding=1, operations=operations),
+            _causal_conv3d(out_dim, z_dim * 2, (temporal_kernel, 3, 3), padding=(t_pad, 1, 1), operations=operations),
         )
 
     def forward(self, x: torch.Tensor, feat_cache: list | None = None, feat_idx: list[int] = [0]) -> torch.Tensor:  # noqa: B006
@@ -347,31 +389,42 @@ class Encoder3d(nn.Module):
 
 
 class Decoder3d(nn.Module):
-    def __init__(self, *, operations: Any) -> None:
+    def __init__(
+        self, *, operations: Any,
+        dec_dim: int = _DEC_DIM, dim_mult: tuple[int, ...] = _DIM_MULT, num_res_blocks: int = _NUM_RES_BLOCKS,
+        temporal_downsample: tuple[bool, ...] = _TEMPORAL_DOWNSAMPLE, patchified_channels: int,
+        z_dim: int = _Z_DIM, temporal_kernel: int = _TEMPORAL_KERNEL,
+    ) -> None:
         super().__init__()
-        dims = [_DEC_DIM * m for m in (_DIM_MULT[-1],) + _DIM_MULT[::-1]]
-        self.conv1 = _causal_conv3d(_Z_DIM, dims[0], 3, padding=1, operations=operations)
+        dims = [dec_dim * m for m in (dim_mult[-1],) + dim_mult[::-1]]
+        t_pad = temporal_kernel // 2
+        self.conv1 = _causal_conv3d(
+            z_dim, dims[0], (temporal_kernel, 3, 3), padding=(t_pad, 1, 1), operations=operations,
+        )
 
         self.middle = nn.Sequential(
-            ResidualBlock(dims[0], dims[0], operations=operations),
+            ResidualBlock(dims[0], dims[0], operations=operations, temporal_kernel=temporal_kernel),
             AttentionBlock(dims[0], operations=operations),
-            ResidualBlock(dims[0], dims[0], operations=operations),
+            ResidualBlock(dims[0], dims[0], operations=operations, temporal_kernel=temporal_kernel),
         )
 
         upsamples: list[nn.Module] = []
         out_dim = dims[0]
+        temporal_upsample = temporal_downsample[::-1]
         for i, (in_dim, out_dim) in enumerate(zip(dims[:-1], dims[1:])):
-            t_up = _TEMPORAL_DOWNSAMPLE[::-1][i] if i < len(_TEMPORAL_DOWNSAMPLE) else False
+            t_up = temporal_upsample[i] if i < len(temporal_upsample) else False
             upsamples.append(Up_ResidualBlock(
-                in_dim, out_dim, _NUM_RES_BLOCKS + 1, temporal_upsample=t_up,
-                up_flag=i != len(_DIM_MULT) - 1, operations=operations,
+                in_dim, out_dim, num_res_blocks + 1, temporal_upsample=t_up,
+                up_flag=i != len(dim_mult) - 1, operations=operations, temporal_kernel=temporal_kernel,
             ))
         self.upsamples = nn.Sequential(*upsamples)
 
         self.head = nn.Sequential(
             RMS_norm(out_dim, images=False),
             nn.SiLU(),
-            _causal_conv3d(out_dim, _PATCHIFIED_CHANNELS, 3, padding=1, operations=operations),
+            _causal_conv3d(
+                out_dim, patchified_channels, (temporal_kernel, 3, 3), padding=(t_pad, 1, 1), operations=operations,
+            ),
         )
 
     def forward(
@@ -401,21 +454,54 @@ def _count_causal_conv3d_v2(module: nn.Module) -> int:
 
 class AutoEncoderCausal3D_2_2(NativeArchModule):
     """Wan 2.2 causal 3D VAE (48ch, patchified, average-pool shortcuts --
-    see module docstring). Same ``encode``/``decode`` (video) +
-    ``encode_image``/``decode_image`` (T=1 convenience) API shape as
-    ``causal_3d.AutoEncoderCausal3D``.
+    see module docstring) by default; also builds Qwen-Image-2.1's VAE (64ch
+    RGBA, no patchify, ``temporal_kernel=1``) when constructed with that
+    shape's kwargs (``from_config``, below). Same ``encode``/``decode``
+    (video) + ``encode_image``/``decode_image`` (T=1 convenience) API shape
+    as ``causal_3d.AutoEncoderCausal3D``.
     """
 
-    def __init__(self, *, operations: Any) -> None:
+    def __init__(
+        self, *, operations: Any,
+        dim: int = _ENC_DIM, dec_dim: int = _DEC_DIM, z_dim: int = _Z_DIM, dim_mult: tuple[int, ...] = _DIM_MULT,
+        num_res_blocks: int = _NUM_RES_BLOCKS, temporal_downsample: tuple[bool, ...] = _TEMPORAL_DOWNSAMPLE,
+        image_channels: int = _IMAGE_CHANNELS, patch_size: int = _PATCH_SIZE, temporal_kernel: int = _TEMPORAL_KERNEL,
+        pad_channel_value: float | None = None,
+    ) -> None:
         super().__init__()
-        self.encoder = Encoder3d(operations=operations)
-        self.conv1 = _causal_conv3d(_Z_DIM * 2, _Z_DIM * 2, 1, operations=operations)
-        self.conv2 = _causal_conv3d(_Z_DIM, _Z_DIM, 1, operations=operations)
-        self.decoder = Decoder3d(operations=operations)
+        self.patch_size = patch_size
+        self.image_channels = image_channels
+        self.pad_channel_value = pad_channel_value
+        patchified_channels = image_channels * patch_size * patch_size
+        self.encoder = Encoder3d(
+            operations=operations, dim=dim, dim_mult=dim_mult, num_res_blocks=num_res_blocks,
+            temporal_downsample=temporal_downsample, patchified_channels=patchified_channels, z_dim=z_dim,
+            temporal_kernel=temporal_kernel,
+        )
+        self.conv1 = _causal_conv3d(z_dim * 2, z_dim * 2, 1, operations=operations)
+        self.conv2 = _causal_conv3d(z_dim, z_dim, 1, operations=operations)
+        self.decoder = Decoder3d(
+            operations=operations, dec_dim=dec_dim, dim_mult=dim_mult, num_res_blocks=num_res_blocks,
+            temporal_downsample=temporal_downsample, patchified_channels=patchified_channels, z_dim=z_dim,
+            temporal_kernel=temporal_kernel,
+        )
 
     @classmethod
     def from_config(cls, config: dict[str, Any], operations: Any) -> "AutoEncoderCausal3D_2_2":
-        return cls(operations=operations)
+        image_channels = config.get("in_channels", _IMAGE_CHANNELS)
+        return cls(
+            operations=operations,
+            dim=config.get("dim", _ENC_DIM),
+            dec_dim=config.get("dec_dim", _DEC_DIM),
+            z_dim=config.get("latent_channels", _Z_DIM),
+            dim_mult=tuple(config.get("dim_mult", _DIM_MULT)),
+            num_res_blocks=config.get("num_res_blocks", _NUM_RES_BLOCKS),
+            temporal_downsample=tuple(config.get("temporal_downsample", _TEMPORAL_DOWNSAMPLE)),
+            image_channels=image_channels,
+            patch_size=config.get("patch_size", _PATCH_SIZE),
+            temporal_kernel=config.get("temporal_kernel", _TEMPORAL_KERNEL),
+            pad_channel_value=1.0 if image_channels == 4 else None,
+        )
 
     def post_load(self) -> None:
         # No computed buffers: same reasoning as causal_3d.AutoEncoderCausal3D
@@ -423,9 +509,21 @@ class AutoEncoderCausal3D_2_2(NativeArchModule):
         # computed per-forward, and AvgDown3D/DupUp3D carry no parameters.
         return None
 
+    def _pad_missing_channel(self, x: torch.Tensor) -> torch.Tensor:
+        """Fill a caller-omitted channel (RGB in on an RGBA VAE) with
+        :attr:`pad_channel_value`; no-op when the channel count already
+        matches or padding isn't configured for this variant."""
+        if self.pad_channel_value is None or x.shape[1] != self.image_channels - 1:
+            return x
+        pad = torch.full_like(x[:, :1], self.pad_channel_value)
+        return torch.cat([x, pad], dim=1)
+
     def encode(self, x: torch.Tensor) -> torch.Tensor:
-        """``x``: (B, 3, T, H, W) pixels in [-1, 1]. Returns (B, 48, T', H/16, W/16)."""
-        x = _patchify(x, patch_size=2)
+        """``x``: (B, image_channels, T, H, W) pixels in [-1, 1]; a caller may
+        instead pass ``image_channels - 1`` channels (RGB on an RGBA VAE --
+        see :attr:`pad_channel_value`). Returns (B, z_dim, T', H/16, W/16)."""
+        x = self._pad_missing_channel(x)
+        x = _patchify(x, patch_size=self.patch_size)
         t = x.shape[2]
         n_chunks = 1 + (t - 1) // 4
         feat_cache = [None] * _count_causal_conv3d_v2(self.encoder)
@@ -451,8 +549,13 @@ class AutoEncoderCausal3D_2_2(NativeArchModule):
         """
         return [None] * _count_causal_conv3d_v2(self.decoder)
 
-    def decode(self, z: torch.Tensor, feat_cache: list | None = None, first_chunk: bool = True) -> torch.Tensor:
-        """``z``: (B, 48, T, H, W). Returns (B, 3, T', H*16, W*16) pixels in [-1, 1].
+    def decode(
+        self, z: torch.Tensor, feat_cache: list | None = None, first_chunk: bool = True, rgb_only: bool = False,
+    ) -> torch.Tensor:
+        """``z``: (B, z_dim, T, H, W). Returns (B, image_channels, T', H*16, W*16)
+        pixels in [-1, 1] -- RGBA (4 channels), unmodified, for an RGBA VAE
+        (see ``rgb_only`` to instead get RGB; this method never composites the
+        alpha channel silently).
 
         ``feat_cache``: pass an external cache from :meth:`new_feat_cache`
         (mutated in place) to decode ``z`` as one temporal chunk of a longer
@@ -470,6 +573,10 @@ class AutoEncoderCausal3D_2_2(NativeArchModule):
         ``first_chunk=False`` for every call except the one carrying the
         clip's actual first latent frame, or the trim will fire again on that
         chunk's own local frame 0 and drop a real output frame.
+
+        ``rgb_only``: drop the trailing (alpha) channel and return only the
+        first 3, for a caller that wants plain RGB from an RGBA VAE and
+        doesn't want to reach into the output itself.
         """
         n_chunks = z.shape[2]
         if feat_cache is None:
@@ -483,12 +590,16 @@ class AutoEncoderCausal3D_2_2(NativeArchModule):
                 x[:, :, i:i + 1], feat_cache=feat_cache, feat_idx=idx, first_chunk=(first_chunk and i == 0),
             )
             out = chunk if out is None else torch.cat([out, chunk], dim=2)
-        return _unpatchify(out, patch_size=2)
+        out = _unpatchify(out, patch_size=self.patch_size)
+        return out[:, :3] if rgb_only else out
 
     def encode_image(self, pixels: torch.Tensor) -> torch.Tensor:
-        """``pixels``: (B, 3, H, W) in [-1, 1]. Returns (B, 48, H/16, W/16)."""
+        """``pixels``: (B, image_channels, H, W) in [-1, 1]; a caller may
+        instead pass ``image_channels - 1`` channels (see :meth:`encode`).
+        Returns (B, z_dim, H/16, W/16)."""
         return self.encode(pixels.unsqueeze(2)).squeeze(2)
 
-    def decode_image(self, latent: torch.Tensor) -> torch.Tensor:
-        """``latent``: (B, 48, H, W). Returns (B, 3, H*16, W*16) in [-1, 1]."""
-        return self.decode(latent.unsqueeze(2)).squeeze(2)
+    def decode_image(self, latent: torch.Tensor, rgb_only: bool = False) -> torch.Tensor:
+        """``latent``: (B, z_dim, H, W).
+        Returns (B, image_channels, H*16, W*16) in [-1, 1] (see :meth:`decode`)."""
+        return self.decode(latent.unsqueeze(2), rgb_only=rgb_only).squeeze(2)

@@ -83,6 +83,32 @@ def test_detect_qwen3vl_4b_nested_vision_by_hidden():
     assert c["vision_top_level"] is False
 
 
+def test_detect_qwen3vl_8b_nested_vision_by_hidden():
+    sd = {
+        "model.embed_tokens.weight": torch.zeros(260, 4096),
+        "model.layers.0.self_attn.q_norm.weight": torch.zeros(128),
+        "model.visual.blocks.0.attn.qkv.weight": torch.zeros(4, 4),
+    }
+    c = detect_te_config(sd)
+    assert c["te_type"] == "qwen3vl"
+    assert c["variant"] == "qwen3vl_8b"
+    assert c["vision_top_level"] is False
+
+
+def test_detect_qwen3vl_8b_vs_plain_qwen3_8b_same_hidden():
+    vl = {
+        "model.embed_tokens.weight": torch.zeros(260, 4096),
+        "model.layers.0.self_attn.q_norm.weight": torch.zeros(128),
+        "model.visual.blocks.0.attn.qkv.weight": torch.zeros(4, 4),
+    }
+    plain = {
+        "model.embed_tokens.weight": torch.zeros(260, 4096),
+        "model.layers.0.self_attn.q_norm.weight": torch.zeros(128),
+    }
+    assert detect_te_config(vl)["variant"] == "qwen3vl_8b"
+    assert detect_te_config(plain)["variant"] == "qwen3_8b"
+
+
 def test_detect_qwen3vl_32b_toplevel_vision_by_hidden():
     # MiniMax-H3's Qwen3-VL-32B TE: hidden 5120, vision tower TOP-LEVEL
     # `visual.*` (not nested `model.visual.*` like the 4B) — see

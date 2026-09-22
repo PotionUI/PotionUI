@@ -20,6 +20,7 @@ from src.platform.runtime.native.sampling.preview import (
     FLUX2,
     LTXV,
     MINIMAX_H3,
+    QWEN_IMAGE21,
     WAN21,
     WAN22,
     PreviewFactors,
@@ -94,6 +95,7 @@ def test_resolve_keys_by_format_and_channels():
     flux = SimpleNamespace(latent_format={"latent_channels": 16, "scale_factor": 0.3611})
     assert resolve_preview_factors(flux) is FLUX
     assert resolve_preview_factors(SimpleNamespace(latent_format={"latent_channels": 32})) is FLUX2
+    assert resolve_preview_factors(SimpleNamespace(latent_format={"latent_channels": 64, "format": "qwen_image21"})) is QWEN_IMAGE21
     assert resolve_preview_factors(SimpleNamespace(latent_format={"format": "wan22"})) is WAN22
     assert resolve_preview_factors(SimpleNamespace(latent_format={"format": "ltxv"})) is LTXV
     # 24ch minimax_h3 video latent: explicit format branch (not a channel-count

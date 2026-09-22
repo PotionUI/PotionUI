@@ -1796,6 +1796,33 @@ def test_latent_shape_for_qwen_is_5d():
     assert gen.latent_shape_for(512, 768, batch=2) == (2, 16, 1, 96, 64)
 
 
+def test_latent_shape_for_qwen_image21_uses_spec_channels_and_downscale():
+    import types
+
+    from src.platform.runtime.native.engine import NativeGenerator
+
+    class _CausalVaeStub:
+        def decode_image(self, x):
+            return x
+
+    spec = types.SimpleNamespace(
+        sampling_settings={}, latent_format={"latent_channels": 64, "spatial_downscale": 16},
+        family="qwen_image21", variant="qwen_image21",
+    )
+    dit = types.SimpleNamespace(
+        spec=spec, module=types.SimpleNamespace(params=types.SimpleNamespace(in_channels=64), patch_size=1),
+        estimated_vram_gb=1.0, compute_dtype=torch.bfloat16, quant_format=None,
+    )
+    vae = types.SimpleNamespace(module=_CausalVaeStub(), estimated_vram_gb=0.3,
+                                compute_dtype=torch.bfloat16, quant_format=None)
+    gen = NativeGenerator.__new__(NativeGenerator)
+    gen.dit, gen.vae, gen.spec = dit, vae, spec
+    assert gen.latent_shape_for(1024, 1024) == (1, 64, 1, 64, 64)
+    assert gen.latent_shape_for(1664, 928, batch=2) == (2, 64, 1, 58, 104)
+    assert gen.pixel_granularity() == 16
+    assert gen.snap_resolution(1000, 1000) == (992, 992)
+
+
 def test_decode_causal3d_denormalizes_and_squeezes():
     """The causal-3D decode path applies per-channel wan21 denorm + squeezes T."""
     import types
@@ -2226,6 +2253,42 @@ def test_make_forward_forwards_ref_latents_when_present():
     ref = torch.ones(1, 4, 1, 8, 8)
     model_forward(x, sigma, {"context": torch.zeros(1), "ref_latents": ref})
     assert calls[0]["ref_latents"] is ref
+
+
+def test_make_forward_omits_image_slots_when_absent():
+    gen = NativeGenerator.__new__(NativeGenerator)
+    calls = []
+
+    def fake_module(x, sigma, context, **kwargs):
+        calls.append(kwargs)
+        return x
+
+    gen.dit = type("Fake", (), {"module": staticmethod(fake_module)})()
+    model_forward = gen._make_forward("cpu", torch.float32)
+
+    x = torch.zeros(1)
+    sigma = torch.zeros(1)
+    ref = torch.ones(1, 4, 1, 8, 8)
+    model_forward(x, sigma, {"context": torch.zeros(1), "ref_latents": ref})
+    assert "image_slots" not in calls[0]
+
+
+def test_make_forward_forwards_image_slots_when_present():
+    gen = NativeGenerator.__new__(NativeGenerator)
+    calls = []
+
+    def fake_module(x, sigma, context, **kwargs):
+        calls.append(kwargs)
+        return x
+
+    gen.dit = type("Fake", (), {"module": staticmethod(fake_module)})()
+    model_forward = gen._make_forward("cpu", torch.float32)
+
+    x = torch.zeros(1)
+    sigma = torch.zeros(1)
+    ref = torch.ones(1, 4, 1, 8, 8)
+    model_forward(x, sigma, {"context": torch.zeros(1), "ref_latents": ref, "image_slots": [3]})
+    assert calls[0]["image_slots"] == [3]
 
 
 class TestMoveCondListValues:

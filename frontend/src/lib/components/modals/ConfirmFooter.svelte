@@ -7,6 +7,7 @@
 		confirmVariant = 'primary',
 		busy = false,
 		confirmDisabled = false,
+		hideCancel = false,
 		secondaryLabel,
 		secondaryIcon,
 		secondaryBusy = false,
@@ -21,6 +22,7 @@
 		confirmVariant?: 'primary' | 'danger';
 		busy?: boolean;
 		confirmDisabled?: boolean;
+		hideCancel?: boolean;
 		/** An optional extra action rendered between Cancel and Confirm, e.g. "Save to Library". */
 		secondaryLabel?: string;
 		secondaryIcon?: string;
@@ -43,12 +45,14 @@
 		<span class="min-w-0 truncate font-mono text-xs text-fg-muted">{summary}</span>
 	{/if}
 	<div class="flex flex-shrink-0 items-center gap-3 ml-auto">
-		<Button variant="secondary" disabled={anyBusy} onclick={onCancel}>
-			<span class="inline-flex items-center gap-2">
-				{cancelLabel}
-				<Kbd keys="Esc" />
-			</span>
-		</Button>
+		{#if !hideCancel}
+			<Button variant="secondary" disabled={anyBusy} onclick={onCancel}>
+				<span class="inline-flex items-center gap-2">
+					{cancelLabel}
+					<Kbd keys="Esc" />
+				</span>
+			</Button>
+		{/if}
 		{#if secondaryLabel && onSecondary}
 			<Button
 				variant="secondary"

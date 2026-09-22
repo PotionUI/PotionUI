@@ -2066,6 +2066,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       cursor: pointer;
     }
 
+.tool-row.user-off { color: rgb(var(--fg-disabled)); cursor: default; }
+
 .tool-row:hover {
       background: rgb(var(--surface-3));
     }

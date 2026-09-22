@@ -13,10 +13,11 @@ so the composition root's late binding keeps working.
 import json
 import logging
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from src.features.chat.exceptions import MessageCreationFailedException
-from src.features.llm.tools.base import ToolContext
+from src.features.chat.reply_contract import TOOL_LOOP_CONTINUATION_NUDGE
+from src.features.llm.tools.base import ToolContext, serialize_approval_preview
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,7 @@ class ToolCallDispatcher:
 
         result_data: Dict[str, Any]
         context_metadata = metadata.get("context_metadata", {})
+        resumed_tool_context: Optional[ToolContext] = None
 
         if approved and self._m.tool_executor:
             tool_name = execution.get("tool_name", "")
@@ -125,6 +127,7 @@ class ToolCallDispatcher:
                 generation_history_facade=self._m.generation_history_facade,
                 llm_id=session.llm_config_id,
             )
+            resumed_tool_context = context
 
             result = await self._m.tool_executor.execute_tool_confirmed(
                 tool_name, context, arguments
@@ -151,21 +154,136 @@ class ToolCallDispatcher:
             f"{'approved' if approved else 'rejected'}"
         )
 
-        # Continue the conversation: feed the outcome back and let the model say
-        # what it did (or acknowledge the rejection) as a new assistant message.
-        assistant_message = await self._present_outcome(
-            session=session,
-            tool_name=execution.get("tool_name", ""),
-            arguments=execution.get("arguments", {}),
-            approved=approved,
-            result_data=result_data,
-            form_state=context_metadata.get("form_state"),
-        )
+        if resumed_tool_context is not None:
+            assistant_message = await self._resume_tool_loop(
+                session=session,
+                tool_context=resumed_tool_context,
+                tool_name=execution.get("tool_name", ""),
+                arguments=execution.get("arguments", {}),
+                result_data=result_data,
+                context_metadata=context_metadata,
+            )
+        else:
+            assistant_message = await self._present_outcome(
+                session=session,
+                tool_name=execution.get("tool_name", ""),
+                arguments=execution.get("arguments", {}),
+                approved=approved,
+                result_data=result_data,
+                form_state=context_metadata.get("form_state"),
+            )
 
         return {
             "result": result_data,
             "assistant_message": assistant_message.model_dump() if assistant_message else None,
         }
+
+    def _rebuild_history_with_resolved_tool(
+        self,
+        session: Any,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        approved: bool,
+        result_data: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        history = self._m.chat_repository.get_conversation_history(session.id)
+        while history and history[-1].get("role") == "assistant" and not (
+            history[-1].get("content") or ""
+        ).strip():
+            history.pop()
+
+        call_id = "approval_call_0"
+        history.append({
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": call_id,
+                "type": "function",
+                "function": {"name": tool_name, "arguments": arguments or {}},
+            }],
+        })
+        history.append({
+            "role": "tool",
+            "tool_call_id": call_id,
+            "name": tool_name,
+            "content": self._outcome_tool_message(approved, result_data),
+        })
+        return history
+
+    async def _resume_tool_loop(
+        self,
+        session: Any,
+        tool_context: ToolContext,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        result_data: Dict[str, Any],
+        context_metadata: Optional[Dict[str, Any]],
+    ):
+        if not self._m.tool_executor:
+            return None
+        try:
+            system_prompt, allowed_tools, mode = (
+                self._m._context.resolve_session_prompt_and_tools(
+                    session, form_state=(context_metadata or {}).get("form_state")
+                )
+            )
+            history = self._rebuild_history_with_resolved_tool(
+                session, tool_name, arguments, True, result_data
+            )
+
+            response, new_tool_executions = await self._m.tool_executor.execute_with_tools(
+                messages=history,
+                llm_id=session.llm_config_id,
+                system_message=system_prompt or "",
+                tool_context=tool_context,
+                mode=mode.id if mode else None,
+                allowed_tools=allowed_tools,
+                llm_options=(mode.llm_options or None) if mode else None,
+                iteration_nudge=TOOL_LOOP_CONTINUATION_NUDGE if mode and mode.structured_reply else None,
+            )
+
+            cleaned_content, parsed_content = self._m.response_processor.process(
+                response.content if response is not None else "", mode=session.mode
+            )
+            if not (cleaned_content or "").strip() and not new_tool_executions:
+                cleaned_content = self._fallback_narration(tool_name, True, result_data)
+                parsed_content = None
+
+            assistant_metadata: Dict[str, Any] = {
+                "model": getattr(response, "model", None) if response else None,
+                "tokens_used": getattr(response, "tokens_used", None) if response else None,
+                "prompt_tokens": getattr(response, "prompt_tokens", None) if response else None,
+                "completion_tokens": getattr(response, "completion_tokens", None) if response else None,
+            }
+            if new_tool_executions:
+                assistant_metadata["tool_executions"] = [
+                    {
+                        "tool_name": te.tool_name,
+                        "arguments": te.arguments,
+                        "result": {
+                            "success": te.result.success,
+                            "data": te.result.data,
+                            "error": te.result.error,
+                        },
+                        "duration_ms": te.duration_ms,
+                        "pending_approval": te.pending_approval,
+                        "preview": serialize_approval_preview(te.result.preview),
+                    }
+                    for te in new_tool_executions
+                ]
+                if context_metadata:
+                    assistant_metadata["context_metadata"] = context_metadata
+
+            return self._m.chat_repository.add_message(
+                session_id=session.id,
+                role="assistant",
+                content=cleaned_content,
+                parsed_content=parsed_content,
+                metadata=assistant_metadata,
+            )
+        except Exception:
+            logger.exception("Failed to resume tool loop after approval")
+            return None
 
     async def _present_outcome(
         self,
@@ -191,34 +309,9 @@ class ToolCallDispatcher:
                 self._m._context.resolve_session_prompt_and_tools(session, form_state=form_state)
             )
             presentation_prompt = self._build_presentation_system_prompt(system_prompt or "")
-
-            # Trailing empty-content assistant turns are the paused tool-call
-            # turn(s), which carry no text — drop them so the model isn't fed a
-            # bogus blank assistant message before the reconstructed tool call.
-            history = self._m.chat_repository.get_conversation_history(session.id)
-            while history and history[-1].get("role") == "assistant" and not (
-                history[-1].get("content") or ""
-            ).strip():
-                history.pop()
-
-            call_id = "approval_call_0"
-            history.append({
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [{
-                    "id": call_id,
-                    "type": "function",
-                    # Canonical object arguments; the client normalizes to its wire
-                    # shape at the request boundary (see clients.tool_call_shape).
-                    "function": {"name": tool_name, "arguments": arguments or {}},
-                }],
-            })
-            history.append({
-                "role": "tool",
-                "tool_call_id": call_id,
-                "name": tool_name,
-                "content": self._outcome_tool_message(approved, result_data),
-            })
+            history = self._rebuild_history_with_resolved_tool(
+                session, tool_name, arguments, approved, result_data
+            )
 
             response = await self._m.tool_executor.present_tool_outcome(
                 messages=history,

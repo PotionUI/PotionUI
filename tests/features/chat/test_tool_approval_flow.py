@@ -103,6 +103,69 @@ class _FakeUpdatePhrasebookTool(BaseTool):
         )
 
 
+class _FakeNoteTool(BaseTool):
+    """Non-approval-gated tool used to exercise a second tool call within the
+    resumed loop."""
+
+    modes = ["generation"]
+
+    def __init__(self):
+        self.called_with = None
+
+    @property
+    def name(self) -> str:
+        return "add_note"
+
+    @property
+    def description(self) -> str:
+        return "Add a note (test tool)."
+
+    @property
+    def parameters(self):
+        return {"type": "object", "properties": {}, "required": []}
+
+    @property
+    def requires_approval(self) -> bool:
+        return False
+
+    async def execute(self, context, **kwargs) -> ToolResult:
+        self.called_with = kwargs
+        return ToolResult(success=True, data=json.dumps({"noted": True}))
+
+
+class _FakeSecondApprovalTool(BaseTool):
+    """A second approval-gated tool, distinct from `_FakeApprovalTool`, used to
+    exercise a chained approval within the resumed loop."""
+
+    modes = ["generation"]
+
+    @property
+    def name(self) -> str:
+        return "remove_more_stuff"
+
+    @property
+    def description(self) -> str:
+        return "Remove more stuff (test tool)."
+
+    @property
+    def parameters(self):
+        return {"type": "object", "properties": {}, "required": []}
+
+    @property
+    def requires_approval(self) -> bool:
+        return True
+
+    async def execute(self, context, **kwargs) -> ToolResult:
+        return ToolResult(
+            success=True,
+            data=json.dumps({"status": "pending_approval", "count": 1}),
+            preview=ToolApprovalPreview(action="Remove", target="from category lens", items=["c"]),
+        )
+
+    async def execute_confirmed(self, context, **kwargs) -> ToolResult:
+        return ToolResult(success=True, data=json.dumps({"deleted_count": 1}))
+
+
 class _PresentingLLM:
     """LLM double that returns a fixed presentation text for the continuation."""
 
@@ -139,7 +202,37 @@ class _AlwaysEmptyLLM:
         )
 
 
-def _make_manager(tool, llm=None):
+class _ChainingLLM:
+    """LLM double whose first call (the resumed loop's first turn) calls a
+    second tool; its second call answers with no further tool calls."""
+
+    def __init__(self, second_call_name, arguments="{}", final_text="Done both things."):
+        self._second_call_name = second_call_name
+        self._arguments = arguments
+        self._final_text = final_text
+        self.repository = Mock()
+        self.repository.get_configuration.return_value = SimpleNamespace(provider_options={})
+        self.generate_calls = []
+
+    async def generate_with_tools(self, **kwargs):
+        self.generate_calls.append(kwargs)
+        if len(self.generate_calls) == 1:
+            return SimpleNamespace(
+                content="",
+                tool_calls=[{
+                    "id": "chain_call_0",
+                    "function": {"name": self._second_call_name, "arguments": self._arguments},
+                }],
+                model="m", tokens_used=5, prompt_tokens=3, completion_tokens=2,
+            )
+        return SimpleNamespace(
+            content=self._final_text, tool_calls=[], model="m", tokens_used=7, prompt_tokens=4, completion_tokens=3
+        )
+
+
+def _make_manager(tool_or_tools, llm=None):
+    tools = tool_or_tools if isinstance(tool_or_tools, list) else [tool_or_tools]
+
     repo = Mock()
     processor = Mock()
     processor.process.side_effect = lambda content, mode=None: ((content or "").strip(), None)
@@ -147,7 +240,8 @@ def _make_manager(tool, llm=None):
     plugins.execute_hook.return_value = (Mock(data={}), [])
 
     registry = ToolRegistry()
-    registry.register(tool)
+    for tool in tools:
+        registry.register(tool)
     llm = llm if llm is not None else _PresentingLLM()
     executor = ToolExecutor(tool_registry=registry, llm_service=llm)
 
@@ -162,7 +256,7 @@ def _make_manager(tool, llm=None):
     return manager, repo, llm
 
 
-def _wire_repo(repo, tool_name="remove_stuff"):
+def _wire_repo(repo, tool_name="remove_stuff", context_metadata=None):
     session = Mock()
     session.id = "session-1"
     session.user_id = "user-1"
@@ -181,7 +275,7 @@ def _wire_repo(repo, tool_name="remove_stuff"):
             "pending_approval": True,
             "result": {"success": True, "data": json.dumps({"status": "pending_approval"})},
         }],
-        "context_metadata": {},
+        "context_metadata": context_metadata if context_metadata is not None else {},
     }
     repo.get_message.return_value = message
     repo.get_conversation_history.return_value = [
@@ -204,7 +298,7 @@ def _wire_repo(repo, tool_name="remove_stuff"):
 
 class TestApprovalContinuesConversation:
     @pytest.mark.asyncio
-    async def test_approve_runs_confirm_and_presents_outcome(self):
+    async def test_approve_resumes_tool_loop_with_tools_enabled(self):
         tool = _FakeApprovalTool()
         manager, repo, llm = _make_manager(tool)
         _message, saved = _wire_repo(repo)
@@ -216,8 +310,12 @@ class TestApprovalContinuesConversation:
 
         # The confirmed action ran.
         assert tool.confirmed_with is not None
-        # A presentation completion was made with tools disabled.
-        assert llm.generate_calls and llm.generate_calls[-1]["tools"] == []
+        # The resumed turn went through the normal tool loop, not the
+        # tool-free presentation turn: tools stay enabled.
+        assert llm.generate_calls
+        call = llm.generate_calls[-1]
+        assert call["tools"]
+        assert any(t.get("function", {}).get("name") == "remove_stuff" for t in call["tools"])
         # A new assistant message was persisted with the narrated outcome.
         assert any(m["role"] == "assistant" and m["content"] for m in saved)
         assert result["assistant_message"] is not None
@@ -239,6 +337,52 @@ class TestApprovalContinuesConversation:
         assert messages[-2]["role"] == "assistant" and messages[-2]["tool_calls"]
         assert messages[-1]["role"] == "tool"
         assert json.loads(messages[-1]["content"])["deleted_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_approve_then_further_tool_call_completes_and_is_persisted(self):
+        approval_tool = _FakeApprovalTool()
+        note_tool = _FakeNoteTool()
+        llm = _ChainingLLM(second_call_name="add_note", final_text="Done: removed 2 and added a note.")
+        manager, repo, _llm = _make_manager([approval_tool, note_tool], llm=llm)
+        _message, saved = _wire_repo(repo)
+
+        result = await manager.approve_tool_execution(
+            session_id="session-1", user_id="user-1", message_id="msg-1",
+            tool_index=0, approved=True,
+        )
+
+        assert approval_tool.confirmed_with is not None
+        assert note_tool.called_with is not None
+        assert len(llm.generate_calls) == 2
+        assert result["assistant_message"] is not None
+        assert result["assistant_message"]["content"] == "Done: removed 2 and added a note."
+
+        persisted = saved[-1]
+        assert persisted["metadata"]["tool_executions"][0]["tool_name"] == "add_note"
+        assert persisted["metadata"]["tool_executions"][0]["pending_approval"] is False
+
+    @pytest.mark.asyncio
+    async def test_approve_then_second_approval_gated_tool_persists_pending(self):
+        approval_tool = _FakeApprovalTool()
+        second_tool = _FakeSecondApprovalTool()
+        llm = _ChainingLLM(second_call_name="remove_more_stuff")
+        manager, repo, _llm = _make_manager([approval_tool, second_tool], llm=llm)
+        _message, saved = _wire_repo(repo, context_metadata={"form_state": {"a": 1}})
+
+        result = await manager.approve_tool_execution(
+            session_id="session-1", user_id="user-1", message_id="msg-1",
+            tool_index=0, approved=True,
+        )
+
+        assert approval_tool.confirmed_with is not None
+        assert len(llm.generate_calls) == 1
+        assert result["assistant_message"] is not None
+
+        persisted = saved[-1]
+        tool_executions = persisted["metadata"]["tool_executions"]
+        assert tool_executions[0]["tool_name"] == "remove_more_stuff"
+        assert tool_executions[0]["pending_approval"] is True
+        assert persisted["metadata"]["context_metadata"] == {"form_state": {"a": 1}}
 
     @pytest.mark.asyncio
     async def test_deny_acknowledges_without_confirming(self):
@@ -278,9 +422,7 @@ class TestApprovalOutcomeNeverEmpty:
             tool_index=0, approved=True,
         )
 
-        # Every retry was exhausted before falling back.
-        from src.features.llm.tools.executor import ToolExecutor as _TE
-        assert len(llm.generate_calls) == _TE._EMPTY_RESPONSE_MAX_RETRIES
+        assert len(llm.generate_calls) == 1
         assert result["assistant_message"] is not None
         assert result["assistant_message"]["content"] == "Done: updated 3 phrasebook values."
 
@@ -346,7 +488,7 @@ class TestPresentationSystemPromptIsToolFree:
 
         await manager.approve_tool_execution(
             session_id="session-1", user_id="user-1", message_id="msg-1",
-            tool_index=0, approved=True,
+            tool_index=0, approved=False,
         )
 
         system_message = llm.generate_calls[-1]["custom_system_message"]
@@ -363,7 +505,7 @@ class TestPresentationSystemPromptIsToolFree:
 
         await manager.approve_tool_execution(
             session_id="session-1", user_id="user-1", message_id="msg-1",
-            tool_index=0, approved=True,
+            tool_index=0, approved=False,
         )
 
         first_prompt = llm.generate_calls[0]["custom_system_message"]

@@ -686,7 +686,7 @@ prompt per line, and images carrying A1111, ComfyUI, InvokeAI or NovelAI metadat
 format auto-detection (`src/features/prompt_database/importing/`), and
 `GET /api/prompts/export?format=styles-csv` writes the library back out. A plugin importer
 is for a source that is not a file — a marketplace or a remote service. It appears in the
-Prompt Library's Import menu below the core entry. Declare each importer in `manifest.yml`:
+Prompt Library's header overflow menu below the core "From file or text" entry. Declare each importer in `manifest.yml`:
 
 ```yaml
 prompt_importers:
@@ -724,10 +724,68 @@ it with core's picker rather than a free-text input: mount
 onPickerOpenChange})`, then `update`/`unmount`) — `onChange` receives `{id, label}` or
 `null`, and `onPickerOpenChange(true)` tells your modal to leave Escape to the picker.
 
+For a searchable admin/user multi-select (e.g. "who to run this fetch for"), mount
+`window.__potionui.components.UserPicker` the same way: `mount(el, {users, value, onChange,
+disabled})`, then `update`/`unmount` as `users`/`value`/`disabled` change. `users` is
+`{id, username, email?}[]`; `value` is `string[]` (the selected user ids) or the string
+`'all'`; `onChange` receives the next `value`. The component owns its own search box,
+keyboard navigation, and an "All users" toggle that disables the list — you never render
+your own user checkboxes.
+
+For a plugin dialog, mount `window.__potionui.components.PluginModal` instead of rolling
+your own overlay — it wraps the same `BaseModal` + `ConfirmFooter` every core modal uses, so
+Cancel/Esc/backdrop-click and Confirm/Enter behave identically everywhere. Props: `isOpen`
+(default `true`), `title`, `subtitle?`, `size?` (`'sm' | 'md' | 'lg' | 'xl' | 'full'`,
+default `'md'`), `confirmLabel` (default `'Confirm'`), `cancelLabel?`, `confirmVariant?`
+(`'primary' | 'danger'`, default `'primary'`), `busy?`, `confirmDisabled?`, `summary?`,
+`hideCancel?` (omits the Cancel button, e.g. for a "Close" footer on a result screen),
+`onConfirm`, `onCancel` (Cancel/Esc/backdrop/close-X all call this; every dismiss path is
+blocked while `busy`), and `mountBody(el: HTMLElement) => void | (() => void)` — called once
+the body container is in the DOM so you can append your own DOM node into it; a returned
+function runs as cleanup when the modal is destroyed. Enter confirms only when
+`!busy && !confirmDisabled`, and is ignored inside a `<textarea>`.
+
+```js
+const api = window.__potionui.components.PluginModal;
+const el = document.createElement('div');
+document.body.appendChild(el);
+const instance = api.mount(el, {
+  title: 'Import from Civitai',
+  confirmLabel: 'Import',
+  mountBody: (target) => target.appendChild(bodyEl),
+  onConfirm: () => runImport(),
+  onCancel: () => api.unmount(instance)
+});
+api.update(instance, { busy: true });
+api.unmount(instance);
+```
+
 A provider-backed importer (one that calls out to a marketplace provider plugin, e.g. the
 `civitai` provider's `fetch_image_prompts`) registers exactly the same way — `run()` is
 free to call whatever else it needs, including another plugin's provider, before handing
 prompts to `create_prompt_for_user`.
+
+A bulk fetch — many prompts, fanned out to many users, from one provider call — skips
+`create_prompt_for_user`'s one-at-a-time loop for `import_prompts_for_user(user_id, entries,
+*, source_provider)` instead. Each entry is the `ProviderPromptItem` shape (`prompt`, and
+optionally `negative_prompt`, `source_id`, `source_url`, `model_id`, `model_name`,
+`base_model`, `cfg_scale`, `steps`, `sampler`, `width`, `height`, `nsfw`, `tags`,
+`metadata`); a `negative_prompt` becomes its own row, paired with the positive one under a
+fresh `source_group_id`. It dedupes against what `user_id` already has on file under
+`source_provider` by `source_id` — call `find_prompt_source_ids(user_id, source_provider,
+model_id=None)` yourself if you need that set for a dedupe of your own — and returns
+`{"created": <rows written>, "skipped_duplicates": <entries skipped>}`.
+
+To resolve which marketplace id a catalog model is linked to (so you know what to fetch),
+read `src.plugin_api.models.get_model_provider_info(model_id, provider=None)` — the
+model's `providers` table row (`{"provider", "provider_model_id", "provider_version_id",
+"model_name"}`), or `None` when it has no link to that provider.
+`src.plugin_api.identity.list_user_ids()` lists every user id in the instance — the "all
+users" default for a fetch route that doesn't take an explicit user list. From an async
+route handler, `await src.plugin_api.providers.ensure_providers_discovered()` guarantees
+the provider registry is discovered and initialized before you call
+`registry.get_provider(provider_id)`; `get_provider_registry()` alone only kicks discovery
+off in the background and can hand you a registry that isn't ready yet.
 
 Disabling the plugin removes its importer(s) from `GET /api/prompts/importers`
 immediately; prompts already imported are unaffected.

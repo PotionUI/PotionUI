@@ -71,7 +71,9 @@
 			numberInput,
 			mediaLoaderField,
 			modelField,
-			promptModelField
+			promptModelField,
+			userPicker,
+			pluginModal
 		] = await Promise.all([
 			import('$lib/components/Sidebar.svelte'),
 			import('$lib/components/MobileTabBar.svelte'),
@@ -86,7 +88,9 @@
 			import('$lib/components/form-fields/NumberInput.svelte'),
 			import('$lib/components/form-fields/MediaLoaderField.svelte'),
 			import('$lib/components/form-fields/ModelField.svelte'),
-			import('./prompts/components/PromptModelField.svelte')
+			import('./prompts/components/PromptModelField.svelte'),
+			import('$lib/components/ui/UserPicker.svelte'),
+			import('$lib/components/modals/PluginModal.svelte')
 		]);
 
 		SidebarComponent = sidebar.default;
@@ -103,6 +107,8 @@
 		registerComponent('MediaLoaderField', mediaLoaderField.default);
 		registerComponent('ModelField', modelField.default);
 		registerComponent('PromptModelField', promptModelField.default);
+		registerComponent('UserPicker', userPicker.default);
+		registerComponent('PluginModal', pluginModal.default);
 		initHostApi();
 		builtinFields.registerBuiltinFieldComponents();
 		await refreshPluginExtensions();

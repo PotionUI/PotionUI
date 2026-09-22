@@ -161,23 +161,25 @@
 	// Tools an admin turned off entirely don't belong in this popover at all -
 	// they're not "unticked", they don't exist.
 	$: effectiveVisibleTools = filterVisibleToolsByPreferences(visibleTools, myToolPreferences);
+	$: userOffNames = new Set((myToolPreferences ?? []).filter((p) => p.disabled_by_user).map((p) => p.name));
 	$: groupedTools = groupTools(effectiveVisibleTools);
 	$: groupInfo = groupedTools.map(([group, tools]) => ({
 		group,
 		tools,
 		total: tools.length,
-		enabled: tools.filter((t) => !disabledTools.includes(t.name)).length
+		enabled: tools.filter((t) => !disabledTools.includes(t.name) && !userOffNames.has(t.name)).length
 	}));
 	$: activeGroupEntry = drillGroup ? groupInfo.find((g) => g.group === drillGroup) : null;
 	$: activeGroupTools = activeGroupEntry ? activeGroupEntry.tools : [];
 	$: totalToolCount = effectiveVisibleTools.length;
 	$: enabledToolCount = enableTools
-		? effectiveVisibleTools.filter((t) => !disabledTools.includes(t.name)).length
+		? effectiveVisibleTools.filter((t) => !disabledTools.includes(t.name) && !userOffNames.has(t.name)).length
 		: 0;
 
 	function toggleGroup(tools: ChatToolInfo[], enabled: number, total: number) {
 		const shouldEnable = enabled < total;
 		for (const tool of tools) {
+			if (userOffNames.has(tool.name)) continue;
 			const isDisabled = disabledTools.includes(tool.name);
 			if (shouldEnable && isDisabled) onToggleTool?.(tool.name);
 			else if (!shouldEnable && !isDisabled) onToggleTool?.(tool.name);
@@ -243,11 +245,12 @@
 							<span>{drillGroup}</span>
 						</button>
 						{#each activeGroupTools as tool (tool.name)}
-							<Tooltip text={tool.user_description || ''} wrapperClass="block">
-								<label class="tool-row" data-testid="tool-row" data-tool={tool.name}>
+							<Tooltip text={userOffNames.has(tool.name) ? 'Turned off in My Tools' : tool.user_description || ''} wrapperClass="block">
+								<label class="tool-row" class:user-off={userOffNames.has(tool.name)} data-testid="tool-row" data-tool={tool.name}>
 									<input
 										type="checkbox"
-										checked={!disabledTools.includes(tool.name)}
+										checked={!disabledTools.includes(tool.name) && !userOffNames.has(tool.name)}
+										disabled={userOffNames.has(tool.name)}
 										on:change={() => onToggleTool?.(tool.name)}
 									/>
 									<span>{toolLabel(tool)}</span>

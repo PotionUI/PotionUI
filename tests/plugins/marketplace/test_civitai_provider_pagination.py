@@ -356,3 +356,115 @@ async def test_no_validation_without_model_id(provider):
 
     assert len(items) == 1
     validate_mock.assert_not_called()
+
+
+# ── nsfw level, max_pages, showcase tests ─────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_nsfw_level_is_passed_through_as_query_param(provider):
+    """A given nsfw level (e.g. "Mature") is sent verbatim as the `nsfw` param."""
+    page = _make_civitai_response([1])
+    captured_params = []
+
+    def _mock_get(url, params=None, timeout=None):
+        captured_params.append(dict(params) if params else {})
+        return _FakeResponse(page)
+
+    mock_session = MagicMock()
+    mock_session.get = _mock_get
+
+    with patch.object(provider, "_get_session", AsyncMock(return_value=mock_session)):
+        await provider.fetch_image_prompts(nsfw="Mature")
+
+    assert captured_params[0]["nsfw"] == "Mature"
+
+
+@pytest.mark.asyncio
+async def test_nsfw_omitted_sends_no_nsfw_param(provider):
+    """No nsfw level (the default) omits the filter entirely - any level."""
+    page = _make_civitai_response([1])
+    captured_params = []
+
+    def _mock_get(url, params=None, timeout=None):
+        captured_params.append(dict(params) if params else {})
+        return _FakeResponse(page)
+
+    mock_session = MagicMock()
+    mock_session.get = _mock_get
+
+    with patch.object(provider, "_get_session", AsyncMock(return_value=mock_session)):
+        await provider.fetch_image_prompts()
+
+    assert "nsfw" not in captured_params[0]
+    assert "browsingLevel" not in captured_params[0]
+
+
+@pytest.mark.asyncio
+async def test_max_pages_caps_pagination_even_with_more_cursors(provider):
+    """max_pages stops pagination even when the API keeps offering a nextCursor."""
+    pages = [
+        _make_civitai_response([1], next_cursor="cur_1"),
+        _make_civitai_response([2], next_cursor="cur_2"),
+        _make_civitai_response([3], next_cursor="cur_3"),
+        _make_civitai_response([4], next_cursor="cur_4"),
+    ]
+    call_index = 0
+
+    def _mock_get(url, params=None, timeout=None):
+        nonlocal call_index
+        resp = _FakeResponse(pages[call_index])
+        call_index += 1
+        return resp
+
+    mock_session = MagicMock()
+    mock_session.get = _mock_get
+
+    with patch.object(provider, "_get_session", AsyncMock(return_value=mock_session)):
+        items = await provider.fetch_image_prompts(fetch_all=True, limit=100, max_pages=2)
+
+    assert call_index == 2
+    assert len(items) == 2
+
+
+@pytest.mark.asyncio
+async def test_fetch_showcase_prompts_maps_version_images(provider):
+    """Showcase images come from /model-versions/<id>'s `images[]`, same shape
+    as the paginated /images items."""
+    version_data = {
+        "id": 999,
+        "images": [
+            {
+                "id": 55,
+                "meta": {"prompt": "a castle at dusk", "negativePrompt": "blurry", "cfgScale": 6.5, "steps": 30},
+                "baseModel": "Pony",
+                "width": 832,
+                "height": 1216,
+                "username": "artist1",
+                "stats": {"heartCount": 5, "likeCount": 3, "laughCount": 0, "cryCount": 0, "commentCount": 1},
+                "nsfw": False,
+            },
+            {"id": 56, "meta": {}},  # no prompt - dropped
+        ],
+    }
+
+    with patch.object(provider, "_validate_model_version_id", AsyncMock(return_value=version_data)):
+        items = await provider.fetch_showcase_prompts("999")
+
+    assert len(items) == 1
+    item = items[0]
+    assert item["source_id"] == "55"
+    assert item["prompt"] == "a castle at dusk"
+    assert item["negative_prompt"] == "blurry"
+    assert item["base_model"] == "Pony"
+    assert item["username"] == "artist1"
+    assert item["stats"]["heart_count"] == 5
+    assert item["source_url"] == "https://civitai.com/images/55"
+
+
+@pytest.mark.asyncio
+async def test_fetch_showcase_prompts_returns_empty_when_version_not_found(provider):
+    with patch.object(provider, "_validate_model_version_id", AsyncMock(return_value=None)):
+        items = await provider.fetch_showcase_prompts("nonexistent")
+
+    assert items == []

@@ -340,3 +340,58 @@ def test_no_progress_report_when_download_exposes_no_byte_counts():
 
     assert result.success is True
     assert reports == []
+
+
+class FakeRegistry:
+    def __init__(self, by_hash_url=None, by_id_url=None):
+        self.by_hash_url = by_hash_url
+        self.by_id_url = by_id_url
+        self.calls = []
+
+    async def get_model_by_hash_any(self, checksum):
+        self.calls.append("hash")
+        if self.by_hash_url is None:
+            return None
+        return type("Info", (), {"download_url": self.by_hash_url, "provider_id": "civitai"})()
+
+    async def get_download_url(self, source, model_id, version_id):
+        self.calls.append("id")
+        return self.by_id_url
+
+    async def search_models(self, source, query, model_type=None, limit=1):
+        self.calls.append("search")
+        return []
+
+
+def _hinted_artifact(checksum="a" * 64, model_id="Comfy-Org/Qwen-Image-2.1"):
+    return RecipeArtifact(
+        id="ckpt",
+        kind="checkpoint",
+        model_type="checkpoint",
+        filename="model.safetensors",
+        display_name="Model",
+        checksum=RecipeChecksum(algorithm="sha256", value=checksum),
+        provider_hint={"source": "huggingface", "model_id": model_id, "version_id": "main@model.safetensors"},
+    )
+
+
+def _executor_with(registry):
+    executor = ArtifactsFetchExecutor(FakeDownloadService(), FakeModelRepository(), provider_registry_factory=None)
+    executor._get_provider_registry = lambda: registry
+    return executor
+
+
+def test_explicit_provider_source_beats_cross_provider_checksum_match():
+    registry = FakeRegistry(by_hash_url="https://civitai.com/api/download/models/1", by_id_url="https://huggingface.co/x/y")
+    url, reason = _executor_with(registry)._resolve_download_url(_hinted_artifact())
+    assert url == "https://huggingface.co/x/y"
+    assert reason == "huggingface (matched by id)"
+    assert registry.calls == ["id"]
+
+
+def test_checksum_match_is_the_fallback_when_the_hinted_source_cannot_resolve():
+    registry = FakeRegistry(by_hash_url="https://civitai.com/api/download/models/1", by_id_url=None)
+    url, reason = _executor_with(registry)._resolve_download_url(_hinted_artifact())
+    assert url == "https://civitai.com/api/download/models/1"
+    assert reason == "civitai (matched by checksum)"
+    assert registry.calls == ["id", "hash"]

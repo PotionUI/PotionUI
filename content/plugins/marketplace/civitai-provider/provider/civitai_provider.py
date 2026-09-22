@@ -557,8 +557,9 @@ class CivitaiProvider(MarketplaceProviderBase):
         sort: str = "Most Reactions",
         period: str = "AllTime",
         limit: int = 20,
-        nsfw: bool = False,
+        nsfw: Optional[str] = None,
         fetch_all: bool = False,
+        max_pages: Optional[int] = None,
         **kwargs,
     ) -> List[Dict[str, Any]]:
         """Fetch image generation prompts from CivitAI's /api/v1/images endpoint.
@@ -570,8 +571,10 @@ class CivitaiProvider(MarketplaceProviderBase):
             period: Time period (AllTime, Year, Month, Week, Day).
             limit: When fetch_all=False, max items per page. When fetch_all=True,
                 max total items to collect.
-            nsfw: Include NSFW images.
+            nsfw: CivitAI nsfw level filter (None, Soft, Mature, X); omitted
+                (`None`) fetches any level.
             fetch_all: If True, paginate through pages up to limit total items.
+            max_pages: Hard cap on the number of pages fetched.
 
         Returns:
             List of dicts with prompt metadata ready for PromptDatabaseManager.
@@ -625,10 +628,68 @@ class CivitaiProvider(MarketplaceProviderBase):
             nsfw=nsfw,
             fetch_all=fetch_all,
             max_total=max_total,
+            max_pages=max_pages,
         )
 
         logger.info(f"CivitAI: fetched {len(all_items)} image prompts")
         return all_items
+
+    @staticmethod
+    def _prompt_item_from_image(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Map one CivitAI `/images` (or a version's showcase) item to the
+        prompt-dict shape `fetch_image_prompts`/`fetch_showcase_prompts`
+        return. `None` when the item carries no usable prompt."""
+        outer_meta = item.get("meta") or {}
+        if not item.get("meta"):
+            return None
+        meta = outer_meta.get("meta") or outer_meta
+        prompt_text = meta.get("prompt", "")
+        if not prompt_text:
+            return None
+
+        stats = item.get("stats") or {}
+        width = item.get("width")
+        height = item.get("height")
+        return {
+            "source_id": str(item.get("id", "")),
+            "prompt": prompt_text,
+            "negative_prompt": meta.get("negativePrompt"),
+            "model_name": meta.get("Model"),
+            "base_model": item.get("baseModel"),
+            "cfg_scale": meta.get("cfgScale"),
+            "steps": meta.get("steps"),
+            "sampler": meta.get("sampler"),
+            "seed": meta.get("seed"),
+            "clip_skip": meta.get("clipSkip"),
+            "width": width,
+            "height": height,
+            "username": item.get("username"),
+            "stats": {
+                "heart_count": stats.get("heartCount", 0),
+                "like_count": stats.get("likeCount", 0),
+                "laugh_count": stats.get("laughCount", 0),
+                "cry_count": stats.get("cryCount", 0),
+                "comment_count": stats.get("commentCount", 0),
+            },
+            "tags": [],
+            "nsfw": item.get("nsfw", False) if isinstance(item.get("nsfw"), bool) else item.get("nsfwLevel", "None") != "None",
+            "source_url": f"https://civitai.com/images/{item.get('id', '')}",
+        }
+
+    async def fetch_showcase_prompts(self, model_version_id: str) -> List[Dict[str, Any]]:
+        """Prompt dicts from a model version's showcase images
+        (`/model-versions/<id>` `images[]`), the same shape
+        `fetch_image_prompts` returns. Empty when the version isn't found."""
+        version_data = await self._validate_model_version_id(model_version_id)
+        if not version_data:
+            return []
+        images = version_data.get("images") or []
+        results: List[Dict[str, Any]] = []
+        for item in images:
+            entry = self._prompt_item_from_image(item)
+            if entry is not None:
+                results.append(entry)
+        return results
 
     async def _fetch_images_paginated(
         self,
@@ -637,14 +698,17 @@ class CivitaiProvider(MarketplaceProviderBase):
         sort: str = "Most Reactions",
         period: str = "AllTime",
         limit: int = 20,
-        nsfw: bool = False,
+        nsfw: Optional[str] = None,
         fetch_all: bool = False,
         max_total: int = 5000,
+        max_pages: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Fetch images from CivitAI with pagination support.
 
         Args:
             max_total: Hard cap on total items to collect across all pages.
+            max_pages: Hard cap on the number of pages fetched, regardless of
+                whether max_total has been reached.
 
         Returns list of prompt dicts extracted from CivitAI image metadata.
         """
@@ -658,10 +722,7 @@ class CivitaiProvider(MarketplaceProviderBase):
         if model_version_id:
             params["modelVersionId"] = model_version_id
         if nsfw:
-            # browsingLevel is a bitmask: 1=SFW, 2=Soft, 4=Mature, 8=X — 31 includes all
-            params["browsingLevel"] = 31
-        else:
-            params["nsfw"] = "None"
+            params["nsfw"] = nsfw
 
         url = f"{self.BASE_URL}/images"
         session = await self._get_session()
@@ -705,44 +766,19 @@ class CivitaiProvider(MarketplaceProviderBase):
             logger.info(f"CivitAI page {page_num}: received {len(items)} items")
 
             for item in items:
-                outer_meta = item.get("meta") or {}
-                if not item.get("meta"):
-                    skipped_no_meta += 1
+                entry = self._prompt_item_from_image(item)
+                if entry is None:
+                    if item.get("meta"):
+                        skipped_no_prompt += 1
+                        meta_keys = list((item.get("meta") or {}).keys())[:10]
+                        logger.debug(
+                            f"CivitAI: item {item.get('id')} has meta but no prompt. "
+                            f"Meta keys: {meta_keys}"
+                        )
+                    else:
+                        skipped_no_meta += 1
                     continue
-                meta = outer_meta.get("meta") or outer_meta
-                prompt_text = meta.get("prompt", "")
-                if not prompt_text:
-                    skipped_no_prompt += 1
-                    meta_keys = list(outer_meta.keys())[:10]
-                    logger.debug(
-                        f"CivitAI: item {item.get('id')} has meta but no prompt. "
-                        f"Meta keys: {meta_keys}"
-                    )
-                    continue
-
-                stats = item.get("stats") or {}
-                all_items.append({
-                    "source_id": str(item.get("id", "")),
-                    "prompt": prompt_text,
-                    "negative_prompt": meta.get("negativePrompt"),
-                    "model_name": meta.get("Model"),
-                    "base_model": item.get("baseModel"),
-                    "cfg_scale": meta.get("cfgScale"),
-                    "steps": meta.get("steps"),
-                    "sampler": meta.get("sampler"),
-                    "width": item.get("width"),
-                    "height": item.get("height"),
-                    "stats": {
-                        "heart_count": stats.get("heartCount", 0),
-                        "like_count": stats.get("likeCount", 0),
-                        "laugh_count": stats.get("laughCount", 0),
-                        "cry_count": stats.get("cryCount", 0),
-                        "comment_count": stats.get("commentCount", 0),
-                    },
-                    "tags": [],
-                    "nsfw": item.get("nsfw", False) if isinstance(item.get("nsfw"), bool) else item.get("nsfwLevel", "None") != "None",
-                    "source_url": f"https://civitai.com/images/{item.get('id', '')}",
-                })
+                all_items.append(entry)
 
             logger.info(
                 f"CivitAI page {page_num} summary: {len(items)} items, "
@@ -759,6 +795,10 @@ class CivitaiProvider(MarketplaceProviderBase):
                     f"CivitAI: reached max_total cap of {max_total} items, "
                     "stopping pagination"
                 )
+                break
+
+            if max_pages is not None and page_num >= max_pages:
+                logger.info(f"CivitAI: reached max_pages cap of {max_pages}, stopping pagination")
                 break
 
             # Pagination

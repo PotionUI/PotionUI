@@ -30,7 +30,7 @@ accepting the connection:
 Check `user.account_type == AccountType.ADMIN` to restrict a route to admins.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from src.features.auth.external_login import ExternalLoginError, ExternalSession
 from src.platform.plugins.login_providers import (
@@ -58,10 +58,17 @@ __all__ = [
     "authenticate_websocket_token",
     "get_current_active_user",
     "get_current_admin_user",
+    "list_user_ids",
     "register_login_provider",
     "sign_in_external",
     "unregister_login_provider",
 ]
+
+
+def list_user_ids() -> List[str]:
+    """Every user id in the instance, admins included - the "fan out to all
+    users" default a plugin uses when a caller doesn't name specific ones."""
+    return [user.id for user in get_container().user_repository.get_all()]
 
 
 def register_login_provider(id: str, label: str, start_path: str) -> None:

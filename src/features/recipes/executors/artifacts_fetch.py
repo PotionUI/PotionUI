@@ -179,15 +179,6 @@ class ArtifactsFetchExecutor:
         if registry is None:
             return None, "no marketplace provider plugin is available to look up a source"
 
-        checksum = artifact.checksum.value if artifact.checksum else None
-        if checksum:
-            try:
-                info = run_sync(registry.get_model_by_hash_any(checksum))
-            except Exception:
-                info = None
-            if info and info.download_url:
-                return info.download_url, f"{info.provider_id} (matched by checksum)"
-
         source = provider_hint.get("source")
         model_id = provider_hint.get("model_id")
         if source and model_id:
@@ -197,6 +188,15 @@ class ArtifactsFetchExecutor:
                 url = None
             if url:
                 return url, f"{source} (matched by id)"
+
+        checksum = artifact.checksum.value if artifact.checksum else None
+        if checksum:
+            try:
+                info = run_sync(registry.get_model_by_hash_any(checksum))
+            except Exception:
+                info = None
+            if info and info.download_url:
+                return info.download_url, f"{info.provider_id} (matched by checksum)"
 
         if source:
             query = artifact.display_name or artifact.filename

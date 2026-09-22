@@ -29,6 +29,10 @@ contributions:
     component: "FetchCivitaiInfoButton.js"
     label: "Fetch CivitAI data"
     order: 100
+  - slot: "admin.models.card.actions"
+    component: "FetchCivitaiPromptsButton.js"
+    label: "Fetch prompts from CivitAI"
+    order: 110
 
 settings:
   - name: "api_key"

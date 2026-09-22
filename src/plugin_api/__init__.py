@@ -30,6 +30,7 @@ from src.plugin_api.identity import (
     authenticate_websocket_token,
     get_current_active_user,
     get_current_admin_user,
+    list_user_ids,
     register_login_provider,
     sign_in_external,
     unregister_login_provider,
@@ -63,6 +64,7 @@ from src.plugin_api.providers import (
     ProviderRateLimitError,
     ProviderSearchResult,
     RemoteDownloadRef,
+    ensure_providers_discovered,
     get_provider_registry,
 )
 
@@ -163,7 +165,13 @@ from src.plugin_api.automation import (
 from src.plugin_api.media import BackgroundMattingModel, convert_image_to_base64
 
 # Contributing a prompt import source.
-from src.plugin_api.prompts import PromptImporter, PromptImportOutcome, create_prompt_for_user
+from src.plugin_api.prompts import (
+    PromptImporter,
+    PromptImportOutcome,
+    create_prompt_for_user,
+    find_prompt_source_ids,
+    import_prompts_for_user,
+)
 
 # Shipping a recipe, and contributing a recipe step kind.
 from src.plugin_api.recipes import (
@@ -189,8 +197,8 @@ from src.plugin_api.phrasebook import (
     PhrasebookBatchOperation,
 )
 
-# Model metadata field identifiers.
-from src.plugin_api.models import WellKnownModelMetadataField
+# Model metadata field identifiers, and a model's marketplace provider link.
+from src.plugin_api.models import WellKnownModelMetadataField, get_model_provider_info
 
 # Contributing a step algorithm or a sigma schedule to the native engine.
 from src.plugin_api.sampling import (
@@ -213,6 +221,7 @@ __all__ = [
     "authenticate_websocket_token",
     "get_current_active_user",
     "get_current_admin_user",
+    "list_user_ids",
     "register_login_provider",
     "sign_in_external",
     "unregister_login_provider",
@@ -240,6 +249,7 @@ __all__ = [
     "ProviderRateLimitError",
     "ProviderSearchResult",
     "RemoteDownloadRef",
+    "ensure_providers_discovered",
     "get_provider_registry",
     # Chat
     "BaseTool",
@@ -318,6 +328,8 @@ __all__ = [
     "PromptImporter",
     "PromptImportOutcome",
     "create_prompt_for_user",
+    "find_prompt_source_ids",
+    "import_prompts_for_user",
     # Recipes and recipe step kinds
     "Recipe",
     "RecipeArtifact",
@@ -336,8 +348,9 @@ __all__ = [
     "BatchPreview",
     "PhrasebookBatchContext",
     "PhrasebookBatchOperation",
-    # Model metadata fields
+    # Model metadata fields, and a model's marketplace provider link
     "WellKnownModelMetadataField",
+    "get_model_provider_info",
     # Samplers and schedules
     "OptionSpec",
     "SamplerDefinition",

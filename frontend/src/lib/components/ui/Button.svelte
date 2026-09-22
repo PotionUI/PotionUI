@@ -19,6 +19,8 @@
 		onclick,
 		title,
 		initialFocus = false,
+		ariaExpanded,
+		ariaHaspopup,
 		children
 	}: {
 		variant?: Variant;
@@ -34,6 +36,8 @@
 		onclick?: (e: MouseEvent) => void;
 		title?: string;
 		initialFocus?: boolean;
+		ariaExpanded?: boolean;
+		ariaHaspopup?: 'dialog' | 'menu' | 'listbox' | 'true';
 		children?: Snippet;
 	} = $props();
 
@@ -76,6 +80,8 @@
 		disabled={isDisabled}
 		{title}
 		{onclick}
+		aria-expanded={ariaExpanded}
+		aria-haspopup={ariaHaspopup}
 		data-autofocus={initialFocus ? '' : undefined}
 	>
 		{#if loading}

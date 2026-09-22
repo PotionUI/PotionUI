@@ -12,6 +12,8 @@
 		SegmentTemplate
 	} from '$lib/types/segments';
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
+	import { mergeVariables } from '$lib/utils/variablesTransfer';
+	import { toasts } from '$lib/stores/toast';
 	import { hydrateSegments } from '$lib/utils/chipParser';
 	import {
 		applySegmentList,
@@ -31,6 +33,7 @@
 	import { resolvedPromptStats, resolvedPromptTokens } from '$lib/utils/resolvedPrompt';
 	import PromptSegment from './PromptSegment.svelte';
 	import Tooltip from './Tooltip.svelte';
+	import { Button, IconButton } from '$lib/components/ui';
 	import SegmentComposerIconSprite from './SegmentComposerIconSprite.svelte';
 	import SegmentListApplyModal from './modals/SegmentListApplyModal.svelte';
 	import SavedSegmentSelectionModal from './modals/SavedSegmentSelectionModal.svelte';
@@ -40,11 +43,22 @@
 
 	type ApplyTarget = 'main' | 'negative';
 
+	type ToolbarAction = {
+		icon: string;
+		label: string;
+		tip: string;
+		onclick: () => void;
+		active?: boolean;
+		count?: number;
+	};
+
 	// Props
 	export let segments: Segment[] = [];
 	export let isNegative = false;
 	export let negativeSegments: Segment[] | undefined = undefined;
 	export let showPreview = true;
+	export let previewSegments: Segment[] | undefined = undefined;
+	export let previewText: string | undefined = undefined;
 	export let negativePromptUnavailable = false;
 	// The preset supports a negative, but at the current resolved
 	// guidance (<= 1, NAG off) it is never sent to the model. Distinct from
@@ -58,6 +72,11 @@
 	export let variables: VariablesMap = {};
 	export let variableRolls: Record<string, VariableRoll> = {};
 	export let onVariableDefChange: ((name: string, def: VariableDef) => void) | undefined = undefined;
+	/** Applying a library Prompt that carries variables merges them into the
+	 *  tab's map (`mergeVariables(..., 'replace')`) and hands the result up here --
+	 *  unlike `onVariableDefChange`, which only ever sets one name at a time. */
+	export let onVariablesImport: ((merged: VariablesMap) => void) | undefined = undefined;
+	export let onSourcePromptChange: ((id: string | null) => void) | undefined = undefined;
 	export let onOpenVariableManager: (() => void) | undefined = undefined;
 	/** Renders a Styles toolbar button (main segments only) when set — see
 	 *  PromptSection.svelte's applyStyle/appliedStyleName. */
@@ -111,10 +130,8 @@
 
 	let mainMoreOpen = false;
 	let mainMoreRoot: HTMLDivElement;
-	let mainMoreTrigger: HTMLButtonElement;
 	let negativeMoreOpen = false;
 	let negativeMoreRoot: HTMLDivElement;
-	let negativeMoreTrigger: HTMLButtonElement;
 
 	let resolvedOpen = true;
 	let copiedTarget: ApplyTarget | null = null;
@@ -354,6 +371,16 @@
 				? applyTemplateSegments(getList(applyTarget), detail.item as SegmentTemplate, detail.mode)
 				: applySegmentList(getList(applyTarget), detail.item.segments, detail.mode);
 		commitList(applyTarget, next);
+		if (kind === 'template' && detail.mode === 'replace') onSourcePromptChange?.(null);
+		if (kind === 'prompt') {
+			onSourcePromptChange?.(detail.item.id);
+			const imported = (detail.item as Prompt).variables;
+			const importedCount = imported ? Object.keys(imported).length : 0;
+			if (importedCount > 0 && onVariablesImport) {
+				onVariablesImport(mergeVariables(variables, imported as VariablesMap, 'replace'));
+				toasts.success(`Imported ${importedCount} variable${importedCount === 1 ? '' : 's'}`);
+			}
+		}
 		showPromptApplyModal = false;
 		showTemplateApplyModal = false;
 	}
@@ -419,8 +446,10 @@
 	}
 
 	$: negativeCount = (negativeSegments || []).length;
-	$: resolvedTokens = showPreview && resolvedOpen ? resolvedPromptTokens(segments) : [];
-	$: resolvedStats = showPreview ? resolvedPromptStats(segments) : { chars: 0, breaks: 0 };
+	$: previewSource = previewSegments ?? segments;
+	$: hasPreviewContent = (previewText ?? flattenRichSegments(previewSource)).length > 0;
+	$: resolvedTokens = showPreview && resolvedOpen ? resolvedPromptTokens(previewSource, previewText) : [];
+	$: resolvedStats = showPreview ? resolvedPromptStats(previewSource, previewText) : { chars: 0, breaks: 0 };
 </script>
 
 <svelte:window on:pointerdown={handleOutsidePointerDown} on:keydown={handleOutsideKeydown} />
@@ -469,6 +498,72 @@
 		</div>
 	{/snippet}
 
+	{#snippet toolbarAction(action: ToolbarAction)}
+		{@const count = action.count ?? 0}
+		{#if compact}
+			<Tooltip text={count > 0 ? `${action.tip} · ${count}` : action.tip} position="top">
+				<IconButton
+					icon={action.icon}
+					label={count > 0 ? `${action.label} (${count})` : action.label}
+					size="xs"
+					variant="secondary"
+					active={action.active ?? false}
+					onclick={action.onclick}
+				/>
+			</Tooltip>
+		{:else}
+			<Tooltip text={action.tip} position="top">
+				<Button
+					size="xs"
+					variant="secondary"
+					icon={action.icon}
+					class={action.active ? 'text-sm styles-applied' : 'text-sm'}
+					onclick={action.onclick}
+				>
+					<span class="toolbar-label">{action.label}</span>
+					{#if count > 0}
+						<span class="font-mono tabular-nums text-sm text-signal">{count}</span>
+					{/if}
+				</Button>
+			</Tooltip>
+		{/if}
+	{/snippet}
+
+	{#snippet libraryActions(target: ApplyTarget)}
+		{@render toolbarAction({
+			icon: 'document',
+			label: 'Prompts',
+			tip: 'Apply a saved prompt',
+			onclick: () => openPromptApply(target)
+		})}
+		{@render toolbarAction({
+			icon: 'list',
+			label: 'Segments',
+			tip: 'Insert a saved segment',
+			onclick: () => openLibraryInsert(target)
+		})}
+		{@render toolbarAction({
+			icon: 'layout-template',
+			label: 'Templates',
+			tip: 'Apply a segment template',
+			onclick: () => openTemplateApply(target)
+		})}
+	{/snippet}
+
+	{#snippet moreTrigger(label: string, open: boolean, onclick: () => void)}
+		<Tooltip text={label} position="top">
+			<IconButton
+				icon="more"
+				{label}
+				size="xs"
+				variant="secondary"
+				active={open}
+				ariaExpanded={open}
+				{onclick}
+			/>
+		</Tooltip>
+	{/snippet}
+
 	{#if embedded}
 		{@render mainRail()}
 	{:else}
@@ -484,68 +579,36 @@
 				<div class="toolbar-spacer"></div>
 
 				{#if onOpenStyles}
-					<Tooltip text="Apply a preset style" position="top">
-						<button
-							type="button"
-							class="toolbar-button"
-							class:styles-applied={!!appliedStyleName}
-							on:click={onOpenStyles}
-						>
-							<svg class="icon"><use href="#i-sparkles" /></svg>
-							{#if !compact}<span>{appliedStyleName ? `Style: ${appliedStyleName}` : 'Styles'}</span>{/if}
-						</button>
-					</Tooltip>
+					{@render toolbarAction({
+						icon: 'sparkles',
+						label: appliedStyleName ? `Style: ${appliedStyleName}` : 'Styles',
+						tip: 'Apply a preset style',
+						onclick: onOpenStyles,
+						active: !!appliedStyleName
+					})}
 				{/if}
 
 				{#if showLibraryActions}
-					<Tooltip text="Insert a saved Segment" position="top">
-						<button type="button" class="toolbar-button" on:click={() => openLibraryInsert('main')}>
-							<svg class="icon"><use href="#i-library" /></svg>
-							{#if !compact}<span>Library</span>{/if}
-						</button>
-					</Tooltip>
-					<Tooltip text="Apply a Segment Template" position="top">
-						<button type="button" class="toolbar-button" on:click={() => openTemplateApply('main')}>
-							<svg class="icon"><use href="#i-template" /></svg>
-							{#if !compact}<span>Template</span>{/if}
-						</button>
-					</Tooltip>
+					{@render libraryActions('main')}
 				{/if}
 
 				{#if onOpenVariableManager}
-					<Tooltip text="Manage prompt variables" position="top">
-						<button type="button" class="toolbar-button" on:click={onOpenVariableManager}>
-							<svg class="icon"><use href="#i-braces" /></svg>
-							{#if !compact}<span>Variables</span>{/if}
-							{#if variableCount > 0}
-								<span class="badge font-mono tabular-nums">{variableCount}</span>
-							{/if}
-						</button>
-					</Tooltip>
+					{@render toolbarAction({
+						icon: 'braces',
+						label: 'Variables',
+						tip: 'Manage prompt variables',
+						onclick: onOpenVariableManager,
+						count: variableCount
+					})}
 				{/if}
 
 				{#if showLibraryActions || hasMainContent}
 					<div class="relative" bind:this={mainMoreRoot}>
-						<button
-							type="button"
-							class="toolbar-button more-button"
-							class:active={mainMoreOpen}
-							bind:this={mainMoreTrigger}
-							aria-haspopup="menu"
-							aria-expanded={mainMoreOpen}
-							aria-label="More prompt actions"
-							on:click={toggleMainMore}
-						>
-							<svg class="icon"><use href="#i-more" /></svg>
-						</button>
+						{@render moreTrigger('More prompt actions', mainMoreOpen, toggleMainMore)}
 						{#if mainMoreOpen}
 							<div class="floating segment-menu header-menu" role="menu" aria-label="More prompt actions">
 								<div class="menu-group">
 									{#if showLibraryActions}
-										<button type="button" role="menuitem" class="menu-item" on:click={() => runMainMore(() => openPromptApply('main'))}>
-											<svg class="icon"><use href="#i-file" /></svg>
-											<span>Apply Prompt</span>
-										</button>
 										<button type="button" role="menuitem" class="menu-item" on:click={() => runMainMore(() => openSavePrompt('main'))}>
 											<svg class="icon"><use href="#i-save" /></svg>
 											<span>Save as Prompt</span>
@@ -587,7 +650,7 @@
 						<span class="resolved-stats font-mono tabular-nums">
 							{resolvedStats.chars} chars · {resolvedStats.breaks} {resolvedStats.breaks === 1 ? 'break' : 'breaks'}
 						</span>
-						{#if hasMainContent}
+						{#if hasPreviewContent}
 							<button type="button" class="resolved-copy small-button" on:click={() => handleCopyPrompt('main')}>
 								{copiedTarget === 'main' ? 'Copied' : 'Copy'}
 							</button>
@@ -677,42 +740,16 @@
 					<div class="toolbar-spacer"></div>
 
 					{#if showLibraryActions}
-						<Tooltip text="Insert a saved Segment" position="top">
-							<button type="button" class="toolbar-button" on:click={() => openLibraryInsert('negative')}>
-								<svg class="icon"><use href="#i-library" /></svg>
-								{#if !compact}<span>Library</span>{/if}
-							</button>
-						</Tooltip>
-						<Tooltip text="Apply a Segment Template" position="top">
-							<button type="button" class="toolbar-button" on:click={() => openTemplateApply('negative')}>
-								<svg class="icon"><use href="#i-template" /></svg>
-								{#if !compact}<span>Template</span>{/if}
-							</button>
-						</Tooltip>
+						{@render libraryActions('negative')}
 					{/if}
 
 					{#if showLibraryActions || hasNegativeContent}
 						<div class="relative" bind:this={negativeMoreRoot}>
-							<button
-								type="button"
-								class="toolbar-button more-button"
-								class:active={negativeMoreOpen}
-								bind:this={negativeMoreTrigger}
-								aria-haspopup="menu"
-								aria-expanded={negativeMoreOpen}
-								aria-label="More negative prompt actions"
-								on:click={toggleNegativeMore}
-							>
-								<svg class="icon"><use href="#i-more" /></svg>
-							</button>
+							{@render moreTrigger('More negative prompt actions', negativeMoreOpen, toggleNegativeMore)}
 							{#if negativeMoreOpen}
 								<div class="floating segment-menu header-menu" role="menu" aria-label="More negative prompt actions">
 									<div class="menu-group">
 										{#if showLibraryActions}
-											<button type="button" role="menuitem" class="menu-item" on:click={() => runNegativeMore(() => openPromptApply('negative'))}>
-												<svg class="icon"><use href="#i-file" /></svg>
-												<span>Apply Prompt</span>
-											</button>
 											<button type="button" role="menuitem" class="menu-item" on:click={() => runNegativeMore(() => openSavePrompt('negative'))}>
 												<svg class="icon"><use href="#i-save" /></svg>
 												<span>Save as Prompt</span>
@@ -780,8 +817,12 @@
 	isOpen={showSavePromptModal}
 	segments={getList(savePromptTarget)}
 	usageHint={savePromptUsageHint}
+	{variables}
 	on:close={() => (showSavePromptModal = false)}
-	on:saved={() => (showSavePromptModal = false)}
+	on:saved={(event) => {
+		showSavePromptModal = false;
+		onSourcePromptChange?.(event.detail.id);
+	}}
 />
 
 <SegmentTemplateSaveModal
@@ -792,13 +833,6 @@
 />
 
 <style>
-	/* Chrome, toolbar, segment-list, add-row and resolved-panel visuals all
-	   come from the ported `.composer`/`.composer-toolbar`/`.toolbar-button`/
-	   `.segment-list`/`.add-segment`/`.resolved*` rules in segment-composer.css
-	   (imported globally, scoped under this root's own `.segment-composer`
-	   class). This block is only the handful of layout/state bits the mock
-	   doesn't need to say anything about. */
-
 	.prompt-editor {
 		display: flex;
 		flex-direction: column;
@@ -810,7 +844,7 @@
 	}
 
 	.inline-warning {
-		font-size: 0.6875rem;
+		font-size: 0.75rem;
 		color: rgb(var(--warning));
 	}
 
@@ -819,13 +853,13 @@
 		border: 1px solid rgb(var(--warning) / 0.25);
 		background-color: rgb(var(--warning) / 0.1);
 		padding: 0.125rem 0.375rem;
-		font-size: 0.625rem;
+		font-size: 0.75rem;
 		font-weight: 500;
 		color: rgb(var(--warning));
 	}
 
-	.toolbar-button.styles-applied {
+	.segment-composer :global(.styles-applied) {
 		color: rgb(var(--signal));
-		border-color: rgb(var(--signal));
+		box-shadow: inset 0 0 0 1px rgb(var(--signal));
 	}
 </style>

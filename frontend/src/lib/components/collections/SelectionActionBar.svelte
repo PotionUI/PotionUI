@@ -12,9 +12,9 @@
 	export let onClearSelection: () => void;
 	export let onClose: () => void;
 	export let feedback: string | null = null;
-	export let collections: T[];
-	export let onAddToCollection: (collectionId: string) => Promise<boolean>;
-	export let onCreateAndAddToCollection: (name: string) => Promise<boolean>;
+	export let collections: T[] | undefined = undefined;
+	export let onAddToCollection: ((collectionId: string) => Promise<boolean>) | undefined = undefined;
+	export let onCreateAndAddToCollection: ((name: string) => Promise<boolean>) | undefined = undefined;
 	/** "Select all N matching" - shown once every loaded item is already
 	 *  selected and more exist beyond the loaded page (Gmail's pattern).
 	 *  Optional: only the history grid currently supports it. */
@@ -89,14 +89,16 @@
 				<div class="flex items-center gap-1 px-1">
 					<slot name="actionsBeforeCollection" {activeMenu} {toggleMenu} {closeMenus} />
 
-					<AddToCollectionMenu
-						{collections}
-						open={activeMenu === 'collection'}
-						onToggle={() => toggleMenu('collection')}
-						onClose={closeMenus}
-						onAdd={onAddToCollection}
-						onCreateAndAdd={onCreateAndAddToCollection}
-					/>
+					{#if collections && onAddToCollection && onCreateAndAddToCollection}
+						<AddToCollectionMenu
+							{collections}
+							open={activeMenu === 'collection'}
+							onToggle={() => toggleMenu('collection')}
+							onClose={closeMenus}
+							onAdd={onAddToCollection}
+							onCreateAndAdd={onCreateAndAddToCollection}
+						/>
+					{/if}
 
 					<slot name="actionsAfterCollection" {activeMenu} {toggleMenu} {closeMenus} />
 				</div>

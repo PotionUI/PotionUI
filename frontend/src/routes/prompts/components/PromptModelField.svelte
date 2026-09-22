@@ -53,17 +53,16 @@
 	}
 </script>
 
-<div>
+<div class="min-w-0">
 	<span class="mb-1.5 block text-xs font-medium text-fg-muted">
 		Model <span class="font-normal text-fg-subtle">(optional)</span>
 	</span>
 	<div class="flex items-center gap-2">
-		<div
-			class="input flex min-w-0 flex-1 items-center py-1.5 text-sm {modelId ? 'text-fg' : 'text-fg-subtle'}"
-			title={label}
-		>
-			<span class="truncate">{label}</span>
-		</div>
+		<Tooltip text={label} position="top" wrapperClass="flex min-w-0 flex-1 items-center">
+			<div class="input flex min-w-0 flex-1 items-center py-1.5 text-sm {modelId ? 'text-fg' : 'text-fg-subtle'}">
+				<span class="truncate">{label}</span>
+			</div>
+		</Tooltip>
 		<Button variant="secondary" size="sm" {disabled} onclick={() => (pickerOpen = true)}>Change</Button>
 		{#if modelId}
 			<Tooltip text="Clear model" position="top">

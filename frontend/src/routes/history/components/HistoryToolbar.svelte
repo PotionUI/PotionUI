@@ -8,7 +8,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { logger } from '$lib/utils/logger';
 	import { buildImportBundleTabData } from '$lib/utils/historyReuse';
-	import { PageHeader, IconButton, Badge } from '$lib/components/ui';
+	import { PageHeader, PageTitle, IconButton, Badge } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { api } from '$lib/services/api/index';
 	import HistorySearchableFilter from './HistorySearchableFilter.svelte';
@@ -325,13 +325,7 @@
 <PageHeader wrap sticky={false}>
 	<div class="flex flex-col gap-2 w-full">
 		<div class="flex flex-wrap items-center gap-2 xl:gap-4 w-full">
-			<!-- Left: Title + count -->
-			<div class="flex items-baseline gap-3 flex-shrink-0">
-				<span class="text-sm font-semibold text-fg">History</span>
-				<span class="font-mono tabular-nums text-2xs uppercase tracking-[0.07em] text-fg-subtle whitespace-nowrap">
-					{currentState.totalCount} generations
-				</span>
-			</div>
+			<PageTitle title="History" count={currentState.totalCount} countLabel="generations" />
 
 			<!-- Divider -->
 			<div class="hidden md:block h-6 w-px bg-line-strong flex-shrink-0"></div>

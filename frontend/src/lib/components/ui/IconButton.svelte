@@ -3,7 +3,7 @@
 	import Icon from '../Icon.svelte';
 	import { INSIDE_TOOLTIP_CONTEXT_KEY } from '../tooltipContext';
 
-	type Size = 'sm' | 'md';
+	type Size = 'xs' | 'sm' | 'md';
 	type Variant = 'ghost' | 'secondary';
 
 	let {
@@ -33,11 +33,13 @@
 	const insideTooltip = getContext<boolean | undefined>(INSIDE_TOOLTIP_CONTEXT_KEY) === true;
 
 	const sizeClasses: Record<Size, string> = {
+		xs: 'min-w-6 min-h-6 p-1',
 		sm: 'min-w-8 min-h-8 p-1.5',
 		md: 'min-w-10 min-h-10 p-2'
 	};
 
 	const iconSizeClasses: Record<Size, string> = {
+		xs: 'w-3.5 h-3.5',
 		sm: 'w-4 h-4',
 		md: 'w-5 h-5'
 	};

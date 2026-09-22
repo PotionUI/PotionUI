@@ -110,7 +110,7 @@ describe('PhrasebookHeader', () => {
 
 	it('opens the Filters popover from the trigger and closes it on outside click', () => {
 		mountHeader();
-		const trigger = target.querySelector<HTMLButtonElement>('[data-filters-trigger]');
+		const trigger = target.querySelector<HTMLButtonElement>('[data-filters-trigger] button');
 		if (!trigger) throw new Error('missing filters trigger');
 
 		trigger.click();
@@ -125,7 +125,7 @@ describe('PhrasebookHeader', () => {
 
 	it('Reset filters clears every non-default filter back to defaults', () => {
 		mountHeader({ ...defaultFilters(), caseSensitive: true, scope: 'categories', pathPrefix: 'animals' });
-		target.querySelector<HTMLButtonElement>('[data-filters-trigger]')?.click();
+		target.querySelector<HTMLButtonElement>('[data-filters-trigger] button')?.click();
 		flushSync();
 
 		const resetButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((b) =>
@@ -147,7 +147,7 @@ describe('PhrasebookHeader', () => {
 
 	it('picking Show = Active in the Filters popover adds 1 to the badge', async () => {
 		mountHeader();
-		target.querySelector<HTMLButtonElement>('[data-filters-trigger]')?.click();
+		target.querySelector<HTMLButtonElement>('[data-filters-trigger] button')?.click();
 		flushSync();
 
 		const showGroup = document.querySelector('[role="group"][aria-label="Show"]');
@@ -163,7 +163,7 @@ describe('PhrasebookHeader', () => {
 		mountHeader();
 		expect(document.querySelector('[data-import-popover]')).toBeNull();
 
-		const trigger = target.querySelector<HTMLButtonElement>('[data-import-trigger]');
+		const trigger = target.querySelector<HTMLButtonElement>('[data-import-trigger] button');
 		if (!trigger) throw new Error('missing import trigger');
 		trigger.click();
 		flushSync();
@@ -179,7 +179,7 @@ describe('PhrasebookHeader', () => {
 		} as never);
 
 		mountHeader();
-		target.querySelector<HTMLButtonElement>('[data-import-trigger]')?.click();
+		target.querySelector<HTMLButtonElement>('[data-import-trigger] button')?.click();
 		flushSync();
 
 		const fileInput = document.querySelector<HTMLInputElement>('[data-import-file-input]');
@@ -207,7 +207,7 @@ describe('PhrasebookHeader', () => {
 
 	it('rejects a non-YAML file with an inline error and leaves the confirm button disabled', () => {
 		mountHeader();
-		target.querySelector<HTMLButtonElement>('[data-import-trigger]')?.click();
+		target.querySelector<HTMLButtonElement>('[data-import-trigger] button')?.click();
 		flushSync();
 
 		const fileInput = document.querySelector<HTMLInputElement>('[data-import-file-input]');

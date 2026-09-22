@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { api, type PhrasebookStateFilter } from '$lib/services/api/index';
-	import { PageHeader, Alert, Button, Kbd, Spinner, Switch } from '$lib/components/ui';
+	import { PageHeader, PageTitle, Alert, Badge, Button, IconButton, Kbd, Spinner, Switch } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import portal from '$lib/actions/portal';
@@ -143,7 +143,7 @@
 
 	// Filters popover
 	let filtersOpen = $state(false);
-	let filtersTrigger: HTMLButtonElement | undefined = $state();
+	let filtersTrigger: HTMLDivElement | undefined = $state();
 	let filtersPopoverEl: HTMLDivElement | undefined = $state();
 	let popoverPos = $state<FlippedMenuPosition>({ left: 0, top: 0, maxHeight: 0 });
 
@@ -171,7 +171,7 @@
 
 	// Import popover
 	let importOpen = $state(false);
-	let importTrigger: HTMLButtonElement | undefined = $state();
+	let importTrigger: HTMLDivElement | undefined = $state();
 	let importPopoverEl: HTMLDivElement | undefined = $state();
 	let importPopoverPos = $state<FlippedMenuPosition>({ left: 0, top: 0, maxHeight: 0 });
 
@@ -265,12 +265,13 @@
 
 <PageHeader sticky={false}>
 	<div class="flex items-center gap-3 w-full" data-phrasebook-header>
-		<div class="flex items-center gap-3 flex-shrink-0">
-			<svg class="w-5 h-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
-			</svg>
-			<span class="text-sm font-semibold text-fg whitespace-nowrap">Phrasebook Management</span>
-		</div>
+		<PageTitle title="Phrasebook Management">
+			{#snippet leading()}
+				<svg class="w-5 h-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
+				</svg>
+			{/snippet}
+		</PageTitle>
 
 		<div class="relative flex-1 min-w-[16rem] max-w-2xl">
 			<Icon
@@ -296,14 +297,7 @@
 					<Kbd keys="/" />
 				{:else}
 					<Tooltip text="Clear" kbd="Esc" position="bottom">
-						<button
-							type="button"
-							class="p-0.5 rounded text-fg-muted hover:text-fg hover:bg-surface-3/50 transition-colors"
-							aria-label="Clear search"
-							onclick={onClear}
-						>
-							<Icon name="close" className="w-3.5 h-3.5" />
-						</button>
+						<IconButton icon="close" label="Clear search" size="sm" onclick={onClear} />
 					</Tooltip>
 				{/if}
 			</div>
@@ -322,27 +316,20 @@
 			{/each}
 		</div>
 
-		<div class="relative flex-shrink-0">
-			<button
-				bind:this={filtersTrigger}
-				type="button"
-				class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium transition-colors {filtersOpen ||
-				filterCount > 0
-					? 'bg-signal/10 text-signal'
-					: 'bg-surface-3 text-fg hover:bg-line-hover'}"
-				aria-expanded={filtersOpen}
-				aria-haspopup="dialog"
-				data-filters-trigger
+		<div class="relative flex-shrink-0" bind:this={filtersTrigger} data-filters-trigger>
+			<Button
+				size="sm"
+				variant="secondary"
+				icon="sliders"
+				ariaExpanded={filtersOpen}
+				ariaHaspopup="dialog"
 				onclick={toggleFilters}
 			>
-				<Icon name="sliders" className="w-3.5 h-3.5" />
 				Filters
 				{#if filterCount > 0}
-					<span class="font-mono text-2xs tabular-nums px-1 rounded-sm bg-signal/15" data-filters-count
-						>{filterCount}</span
-					>
+					<span data-filters-count><Badge variant="signal" size="sm" class="font-mono tabular-nums">{filterCount}</Badge></span>
 				{/if}
-			</button>
+			</Button>
 
 			{#if filtersOpen}
 				<div
@@ -465,21 +452,17 @@
 		</div>
 
 		<div class="ml-auto flex items-center gap-3 flex-shrink-0">
-			<div class="relative flex-shrink-0">
-				<button
-					bind:this={importTrigger}
-					type="button"
-					class="btn-header-secondary"
-					aria-expanded={importOpen}
-					aria-haspopup="dialog"
-					data-import-trigger
+			<div class="relative flex-shrink-0" bind:this={importTrigger} data-import-trigger>
+				<Button
+					size="sm"
+					variant="secondary"
+					icon="upload"
+					ariaExpanded={importOpen}
+					ariaHaspopup="dialog"
 					onclick={toggleImport}
 				>
-					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-					</svg>
 					Import
-				</button>
+				</Button>
 
 				{#if importOpen}
 					<div
@@ -548,12 +531,9 @@
 				{/if}
 			</div>
 
-			<button class="btn-header-primary" onclick={() => phrasebookStore.handleNewCategory()}>
-				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-				</svg>
+			<Button size="sm" variant="primary" icon="plus" onclick={() => phrasebookStore.handleNewCategory()}>
 				New Category
-			</button>
+			</Button>
 		</div>
 	</div>
 </PageHeader>

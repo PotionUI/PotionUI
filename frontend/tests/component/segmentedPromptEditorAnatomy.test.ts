@@ -137,18 +137,51 @@ describe('the Styles toolbar button', () => {
 		expect(editor.byText('Styles')).toBeUndefined();
 	});
 
-	it('appears first in the main toolbar, before Library, when the call site sets onOpenStyles', () => {
+	it('appears first in the main toolbar, before Prompts, when the call site sets onOpenStyles', () => {
 		const editor = mount({ onOpenStyles: () => {} });
 		const styles = editor.byText('Styles');
-		const library = editor.byText('Library');
+		const prompts = editor.byText('Prompts');
 		expect(styles).toBeTruthy();
-		expect(library).toBeTruthy();
-		expect(styles!.compareDocumentPosition(library!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(prompts).toBeTruthy();
+		expect(styles!.compareDocumentPosition(prompts!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 	});
 
 	it('shows the applied style name instead of the bare label', () => {
 		const editor = mount({ onOpenStyles: () => {}, appliedStyleName: '80s OVA Sci-Fi' });
 		expect(editor.byText('Style: 80s OVA Sci-Fi')).toBeTruthy();
+	});
+});
+
+describe('the library actions', () => {
+	function order(editor: ReturnType<typeof mount>, labels: string[]) {
+		const buttons = labels.map((label) => editor.byText(label));
+		buttons.forEach((button) => expect(button).toBeTruthy());
+		return buttons.map((button) => editor.buttons().indexOf(button!));
+	}
+
+	it('renders Prompts, Segments and Templates as visible buttons, in that order', () => {
+		const editor = mount();
+		const positions = order(editor, ['Prompts', 'Segments', 'Templates']);
+		expect(positions).toEqual([...positions].sort((a, b) => a - b));
+	});
+
+	it('keeps Apply Prompt out of the more menu now that Prompts is a button', async () => {
+		const editor = mount();
+		(editor.target.querySelector('button[aria-label="More prompt actions"]') as HTMLButtonElement).click();
+		await Promise.resolve();
+		const items = Array.from(editor.target.querySelectorAll('[role="menuitem"]')).map((el) =>
+			(el.textContent || '').trim()
+		);
+		expect(items).toContain('Save as Prompt');
+		expect(items).not.toContain('Apply Prompt');
+	});
+
+	it('collapses to icon buttons that keep their names in compact mode', () => {
+		const editor = mount({ compact: true });
+		expect(editor.byText('Prompts')).toBeUndefined();
+		for (const label of ['Prompts', 'Segments', 'Templates']) {
+			expect(editor.target.querySelector(`button[aria-label="${label}"]`)).toBeTruthy();
+		}
 	});
 });
 

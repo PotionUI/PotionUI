@@ -11,7 +11,7 @@
 	import ModelCard from '$lib/components/ModelCard.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import QuickTagFilterBar from '$lib/components/QuickTagFilterBar.svelte';
-	import { PageHeader, IconButton, Pagination } from '$lib/components/ui';
+	import { PageHeader, PageTitle, IconButton, Pagination } from '$lib/components/ui';
 	import ModelLibrarySidebar from './components/ModelLibrarySidebar.svelte';
 	import ModelSelectionToolbar from './components/ModelSelectionToolbar.svelte';
 
@@ -275,13 +275,7 @@
 	<div class="sticky top-0 z-30">
 	<PageHeader wrap sticky={false}>
 		<div class="flex items-center gap-2 md:gap-4 flex-wrap w-full">
-			<!-- Left: Title + count -->
-			<div class="flex items-baseline gap-3">
-				<span class="text-sm font-semibold text-fg">Models</span>
-				<span class="font-mono tabular-nums text-2xs uppercase tracking-[0.07em] text-fg-subtle whitespace-nowrap">
-					{totalCount} models
-				</span>
-			</div>
+			<PageTitle title="Models" count={totalCount} countLabel="models" />
 
 			<!-- Divider -->
 			<div class="hidden md:block h-6 w-px bg-line-strong"></div>

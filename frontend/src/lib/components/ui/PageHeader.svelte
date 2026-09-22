@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import PageTitle from './PageTitle.svelte';
 
 	let {
 		title,
@@ -33,10 +34,7 @@
 	{:else}
 		<div class="flex items-center gap-4 min-w-0">
 			{#if title}
-				<div class="min-w-0">
-					<h1 class="text-lg font-semibold text-fg truncate">{title}</h1>
-					{#if description}<p class="text-xs text-fg-muted mt-0.5 truncate">{description}</p>{/if}
-				</div>
+				<PageTitle {title} {description} />
 			{/if}
 			{@render left?.()}
 		</div>

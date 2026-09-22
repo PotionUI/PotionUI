@@ -3,19 +3,12 @@
 	import CollectionLibrarySidebar from '$lib/components/collections/CollectionLibrarySidebar.svelte';
 	import type { SmartView, TreeActions } from '$lib/components/collections/types';
 
-	// Unlike History/Library, the Prompt Library keeps its active-filter state
-	// on the page itself (PromptWorkspace has no dedicated store) - so the
-	// active collection id and the select callbacks come in as props instead
-	// of being read off a shared filter store.
 	export let activeId: string | undefined;
 	export let onSelectAll: () => void | Promise<void>;
 	export let onSelectFolder: (id: string) => void | Promise<void>;
-	export let onCollapse: () => void;
 
 	$: collections = $collectionsStore.collections;
 
-	// Post-delete fallback: if the deleted folder (or one of its now-gone
-	// descendants) was the active filter, fall back to "all prompts".
 	async function handleDelete(id: string, blockedIds: Set<string>) {
 		const response = await collectionsStore.remove(id);
 		if (response.success && activeId && blockedIds.has(activeId)) {
@@ -46,10 +39,11 @@
 
 <CollectionLibrarySidebar
 	storageKey="prompts-expanded-collections"
+	label="Collections"
+	embedded
 	{collections}
 	{activeId}
 	{smartViews}
 	{treeActions}
 	onCreateRoot={(name) => collectionsStore.create(name, null)}
-	{onCollapse}
 />

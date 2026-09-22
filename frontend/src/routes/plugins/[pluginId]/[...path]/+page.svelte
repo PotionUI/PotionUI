@@ -6,7 +6,7 @@
 	import { authStore } from '$lib/stores/auth';
 	import { goto, afterNavigate } from '$app/navigation';
 	import { getRegistry } from '$lib/plugin-api/componentRegistry';
-	import { PageHeader } from '$lib/components/ui';
+	import { PageHeader, PageTitle } from '$lib/components/ui';
 
 	let pageInfo: any = null;
 	let loading = true;
@@ -208,18 +208,19 @@
 		<!-- Header -->
 		<PageHeader sticky={false}>
 			<div class="flex items-center gap-6 w-full">
-				<div class="flex items-center gap-3">
-					{#if pageInfo?.icon_svg}
-						<svg class="w-5 h-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={pageInfo.icon_svg} />
-						</svg>
-					{:else}
-						<svg class="w-5 h-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
-						</svg>
-					{/if}
-					<span class="text-sm font-semibold text-fg">{pageInfo?.label || 'Plugin'}</span>
-				</div>
+				<PageTitle title={pageInfo?.label || 'Plugin'}>
+					{#snippet leading()}
+						{#if pageInfo?.icon_svg}
+							<svg class="w-5 h-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={pageInfo.icon_svg} />
+							</svg>
+						{:else}
+							<svg class="w-5 h-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
+							</svg>
+						{/if}
+					{/snippet}
+				</PageTitle>
 
 				<!-- Plugin-provided header actions -->
 				<div bind:this={headerActionsEl} class="flex items-center gap-3 flex-1"></div>

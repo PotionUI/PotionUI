@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { inspirationsStore } from '$lib/stores/inspirations';
-	import { PageHeader, IconButton } from '$lib/components/ui';
+	import { PageHeader, PageTitle, IconButton } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 
 	$: state = $inspirationsStore;
@@ -26,15 +26,7 @@
 
 <PageHeader wrap sticky={false}>
 	<div class="flex items-center gap-2 md:gap-4 w-full">
-		<!-- Left: title + count -->
-		<div class="flex items-baseline gap-3 flex-shrink-0">
-			<span class="text-sm font-semibold text-fg">Inspirations</span>
-			<span
-				class="font-mono tabular-nums text-2xs uppercase tracking-[0.07em] text-fg-subtle whitespace-nowrap"
-			>
-				{state.totalCount} items
-			</span>
-		</div>
+		<PageTitle title="Inspirations" count={state.totalCount} countLabel="items" />
 
 		<div class="hidden md:block h-6 w-px bg-line-strong flex-shrink-0"></div>
 

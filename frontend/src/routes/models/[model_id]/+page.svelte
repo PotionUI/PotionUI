@@ -4,7 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
 	import { modelLibraryStore } from '$lib/stores/modelLibrary';
-	import { PageHeader, IconButton, Spinner, Button } from '$lib/components/ui';
+	import { PageHeader, PageTitle, IconButton, Spinner, Button } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { listModelViewSections } from '$lib/registries/modelViewRegistry';
 	import ModelDetailsHeader from '$lib/components/modals/model-details/ModelDetailsHeader.svelte';
@@ -84,7 +84,7 @@
 					on:toggleFavorite={controller.toggleFavorite}
 				/>
 			{:else}
-				<span class="text-sm font-semibold text-fg">Model Details</span>
+				<PageTitle title="Model Details" />
 			{/if}
 		</div>
 	</PageHeader>

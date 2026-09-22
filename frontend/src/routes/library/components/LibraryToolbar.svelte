@@ -2,7 +2,7 @@
 	import { onDestroy } from 'svelte';
 	import { libraryStore } from '$lib/stores/library';
 	import { historyTileSize, type HistoryTileSize } from '$lib/stores/historyTileSize';
-	import { PageHeader, IconButton, Button } from '$lib/components/ui';
+	import { PageHeader, PageTitle, IconButton, Button } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 
 	// Self-contained: reads/writes libraryStore directly. Modal-opening
@@ -55,15 +55,7 @@
 
 <PageHeader wrap sticky={false}>
 	<div class="flex items-center gap-2 md:gap-4 w-full">
-		<!-- Left: title + count -->
-		<div class="flex items-baseline gap-3 flex-shrink-0">
-			<span class="text-sm font-semibold text-fg">Library</span>
-			<span
-				class="font-mono tabular-nums text-2xs uppercase tracking-[0.07em] text-fg-subtle whitespace-nowrap"
-			>
-				{state.totalCount} items
-			</span>
-		</div>
+		<PageTitle title="Library" count={state.totalCount} countLabel="items" />
 
 		<div class="hidden md:block h-6 w-px bg-line-strong flex-shrink-0"></div>
 

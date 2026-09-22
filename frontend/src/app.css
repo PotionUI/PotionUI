@@ -70,7 +70,7 @@
 }
 
 /* Shared component classes — token-based.
-   .btn-* / .btn-header-* are deprecated aliases: prefer the Button/IconButton
+   .btn-* are deprecated aliases: prefer the Button/IconButton
    primitives in src/lib/components/ui/ for new code.
    .input / .label / .field-card are the DynamicForm form-fields contract. */
 @layer components {
@@ -122,19 +122,6 @@
 	/* Mono micro-label — the camera-HUD label style (SEED 4211984, 1024×1024 …) */
 	.label {
 		@apply inline-block font-mono text-2xs font-medium uppercase tracking-[0.07em] text-fg-subtle mb-1;
-	}
-
-	/* Header button styles for consistent page headers */
-	.btn-header-primary {
-		@apply px-3 py-1.5 bg-surface-3 text-fg text-xs rounded hover:bg-line-hover transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed;
-	}
-
-	.btn-header-secondary {
-		@apply px-3 py-1.5 bg-surface-2/50 text-fg-muted text-xs rounded hover:bg-surface-3/50 hover:text-fg transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed;
-	}
-
-	.btn-header-ghost {
-		@apply p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center text-fg-muted hover:text-fg hover:bg-surface-3/50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
 	}
 
 	/* Fields flow directly on the panel — the catalog's boxes are column

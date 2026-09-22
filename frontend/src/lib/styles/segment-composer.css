@@ -6,9 +6,9 @@
 @keyframes auto-border-reminder { 0% { opacity: 0; transform: rotate(0); } 16%, 72% { opacity: .85; } 100% { opacity: 0; transform: rotate(1turn); } }
 
 .segment-composer {
-button, input, textarea { font: inherit; color: inherit; }
+input, textarea { font: inherit; color: inherit; }
 
-button { border: 0; cursor: pointer; }
+button { cursor: pointer; }
 
 button:focus-visible, input:focus-visible, textarea:focus-visible, [contenteditable]:focus-visible { outline: 2px solid color-mix(in srgb, rgb(var(--fg)) 72%, transparent); outline-offset: 2px; }
 
@@ -29,16 +29,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 .composer-count { color: rgb(var(--fg-subtle)); font: 400 7px "IBM Plex Mono"; }
 
 .toolbar-spacer { flex: 1; }
-
-.toolbar-button { height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; color: rgb(var(--fg-muted)); background: transparent; border: 1px solid rgb(var(--line)); border-radius: 5px; font-size: 8px; }
-
-.toolbar-button:hover, .toolbar-button.active { color: rgb(var(--fg)); background: rgb(var(--surface-2)); border-color: rgb(var(--line-strong)); }
-
-.toolbar-button .icon { width: 12px; height: 12px; }
-
-.badge { min-width: 16px; padding: 2px 4px; color: rgb(var(--fg)); background: rgb(var(--surface-3)); border: 1px solid rgb(var(--line)); border-radius: 5px; text-align: center; font: 500 6px "IBM Plex Mono"; }
-
-.more-button { width: 30px; padding: 0; justify-content: center; }
 
 /* The lane (list + add row) is the canvas tone, so the gap between segments
    and around the add row reads as one dark channel. */
@@ -267,7 +257,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .add-segment .icon { width: 12px; height: 12px; }
 
-.resolved { margin: 0 12px 12px; background: rgb(var(--surface-2)); border: 1px solid rgb(var(--line)); border-radius: 6px; overflow: hidden; }
+.resolved { margin: 12px; background: rgb(var(--surface-2)); border: 1px solid rgb(var(--line)); border-radius: 6px; overflow: hidden; }
 
 .resolved-head { width: 100%; min-height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 9px; color: rgb(var(--fg-muted)); background: transparent; text-align: left; }
 
@@ -530,7 +520,7 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 .chip-tooltip { position: fixed; z-index: 90; width: max-content; max-width: min(360px, calc(100vw - 24px)); padding: 7px 9px; color: rgb(var(--fg)); background: rgb(var(--surface-2)); border: 1px solid rgb(var(--line-strong)); border-radius: 5px; box-shadow: 0 9px 26px rgba(0,0,0,.28); font-size: 8px; line-height: 1.45; overflow-wrap: anywhere; pointer-events: none; }
 
 @media (max-width: 760px) {
-  .toolbar-button span:not(.badge) { display: none; }
+  .toolbar-label { display: none; }
   .segment { grid-template-columns: 34px minmax(0, 1fr); }
   .segment-description, .insert-label, .segment-stats span:first-child { display: none; }
   .picker { left: 38px; width: calc(100% - 48px); }
@@ -792,6 +782,15 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 .segment-description {
 	font-size: 12px;
 }
+.char-count {
+	color: rgb(var(--fg-subtle));
+	font: 400 12px "IBM Plex Mono";
+	font-variant-numeric: tabular-nums;
+}
+.state-badge {
+	font-size: 12px;
+	letter-spacing: .04em;
+}
 
 /* `embedded` (SegmentedPromptEditor's Video Director mode) renders `.segment`
    with no `.composer.edge-inline` ancestor at all — the generated rules above
@@ -919,11 +918,4 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 }
 }
 
-/* Readability (maintainer): the mock's 8px toolbar buttons, 6px badges and
-   7px segment count are unreadable on a real screen — they read at the
-   app's small text size. */
-.toolbar-button { height: 32px; padding: 0 10px; gap: 6px; font-size: 12px; }
-.toolbar-button .icon { width: 14px; height: 14px; }
-.more-button { width: 32px; }
-.badge { min-width: 18px; font-size: 10px; }
-.composer-count { font-size: 10px; }
+.composer-count { font-size: 12px; }

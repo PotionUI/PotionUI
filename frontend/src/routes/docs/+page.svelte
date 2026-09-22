@@ -3,9 +3,8 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { docsStore, findDocItem } from '$lib/stores/docs';
-	import { EmptyState, PageHeader, Spinner } from '$lib/components/ui';
+	import { EmptyState, PageHeader, PageTitle, Spinner } from '$lib/components/ui';
 	import MasterDetailLayout from '$lib/components/master-detail/MasterDetailLayout.svelte';
-	import Icon from '$lib/components/Icon.svelte';
 	import DocsSidebar from './components/DocsSidebar.svelte';
 	import DocsContent from './components/DocsContent.svelte';
 
@@ -44,17 +43,7 @@
 
 <div class="flex h-[100dvh] flex-col bg-canvas text-fg">
 	<PageHeader sticky={false}>
-		<div class="flex min-w-0 items-center gap-3">
-			<span class="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded bg-surface-2 border border-line-strong">
-				<Icon name="book" className="h-4 w-4 text-fg-muted" />
-			</span>
-			<div class="min-w-0">
-				<h1 class="truncate text-sm font-semibold text-fg">Documentation</h1>
-				<p class="hidden text-xs text-fg-muted sm:block">
-					{docCount} {docCount === 1 ? 'topic' : 'topics'}
-				</p>
-			</div>
-		</div>
+		<PageTitle title="Documentation" count={docCount} countLabel={docCount === 1 ? 'topic' : 'topics'} />
 	</PageHeader>
 
 	<div class="flex-1 min-h-0 p-4">

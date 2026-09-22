@@ -92,9 +92,9 @@
 
 <div class="flex flex-col h-full min-h-0 text-sm {className}">
 	<div class="flex items-center gap-2 px-3 min-h-header border-b border-line flex-shrink-0">
-		<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle truncate">{label}</span>
+		<span class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle truncate">{label}</span>
 		{#if count !== undefined}
-			<span class="font-mono text-2xs tabular-nums text-fg-subtle">{count}</span>
+			<span class="font-mono text-xs tabular-nums text-fg-subtle">{count}</span>
 		{/if}
 		<div class="ml-auto flex items-center gap-1 flex-shrink-0">
 			{@render headerActions?.()}

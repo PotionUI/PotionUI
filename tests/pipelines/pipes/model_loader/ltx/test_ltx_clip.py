@@ -332,8 +332,10 @@ import torch.nn as nn
 
 from src.pipelines.contracts import PipeInput
 from src.pipelines.pipes.prompt_encoder.main import PromptEncoderPipe
+from src.platform.runtime.model_lifecycle import lifecycle as lifecycle_module
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 from src.platform.runtime.native.engine import NativeModel
+from src.platform.runtime.system_memory import SystemMemory
 
 
 class _RealFakeTE(nn.Module):
@@ -363,8 +365,14 @@ class _RealFakeDit(nn.Module):
         return torch.zeros(gemma_output.shape[0], 4, 16)
 
 
-def test_te_eviction_actually_frees_the_module_after_prompt_encoder_caches_conditioning():
+def test_te_eviction_actually_frees_the_module_after_prompt_encoder_caches_conditioning(monkeypatch):
     get_prompt_embed_cache().clear()
+
+    gb = 1024**3
+    monkeypatch.setattr(
+        lifecycle_module, "get_system_memory",
+        lambda: SystemMemory(total=int(256 * gb), available=int(200 * gb)),
+    )
 
     te_module = _RealFakeTE()
     dit_module = _RealFakeDit()

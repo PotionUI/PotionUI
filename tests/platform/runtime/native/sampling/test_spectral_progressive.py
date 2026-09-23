@@ -86,6 +86,21 @@ def test_fft_expand_shape_and_lowfreq_roundtrip():
     assert torch.allclose(back.mean(), x.mean(), atol=1e-5)
 
 
+def test_fft_expand_alignment_matches_on_path_noise_floor():
+    h, w = 16, 16
+    r = 2.0
+    sigma = 0.7
+    batch = 1500
+    torch.manual_seed(0)
+    x = sigma * torch.randn(batch, 1, h, w)
+    grown = _fft_expand(x, (int(h * r), int(w * r)), sigma, None)
+    k = kappa(sigma, r)
+    aligned = grown * k
+    sigma_aligned = k * sigma
+    empirical_std = aligned.std(dim=0).mean().item()
+    assert empirical_std == pytest.approx(sigma_aligned, rel=0.1)
+
+
 def test_fft_expand_is_generator_deterministic():
     x = torch.randn(1, 2, 8, 8)
     a = _fft_expand(x, (16, 16), 0.5, torch.Generator().manual_seed(7))

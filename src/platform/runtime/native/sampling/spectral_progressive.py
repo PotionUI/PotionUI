@@ -131,7 +131,7 @@ def _fft_expand(x: Tensor, target_hw: tuple[int, int], sigma: float,
     xs = torch.fft.fftshift(torch.fft.fft2(x.float(), norm="ortho"), dim=(-2, -1))
     nr = _randn((*lead, ht, wt), x, generator)
     ni = _randn((*lead, ht, wt), x, generator)
-    big = sigma * torch.complex(nr, ni) / math.sqrt(2.0)
+    big = sigma * torch.complex(nr, ni)
     ph, pw = (ht - h) // 2, (wt - w) // 2
     big[..., ph:ph + h, pw:pw + w] = xs
     return torch.fft.ifft2(torch.fft.ifftshift(big, dim=(-2, -1)), norm="ortho").real.to(x.dtype)

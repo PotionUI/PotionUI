@@ -21,7 +21,7 @@ engine: "native"
 tags: ["ltx", "ltx-2", "ltx-2.3", "video", "t2v", "flow-matching", "local"]
 
 media:
-  cover: "public/examples/potion.jpg"
+  cover: "public/examples/potion.webp"
   gallery:
     - src: "public/examples/potion.mp4"
       prompt: "Cinematic, hyper-detailed macro video tracking shot of an ornate glass potion bottle on an old alchemist's wooden desk. The camera starts in a tight close-up on the bottle's surface and smoothly glides backward and upward in a dramatic crane shot, revealing the full cluttered workshop environment. Inside the flask, a thick, viscous bioluminescent liquid in swirling gradients of deep neon purple and shimmering gold moves with realistic fluid dynamics, creating small waves and bubbles that interact with the inner glass walls. The intense internal light pulses rhythmically, casting intricate, moving caustic light patterns across the textured dark wood and onto nearby scattered parchment pages. A slow, wispy volumetric smoke column gently rises from the flask's neck, catching the light. The background features a deep, smooth bokeh blur of shelves filled with glass vials and books. Perfect temporal consistency, photorealistic textures, seamless physics integration, and high dynamic range lighting."

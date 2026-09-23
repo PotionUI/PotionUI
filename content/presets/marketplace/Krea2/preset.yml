@@ -11,9 +11,9 @@ engine: "native"
 tags: []
 
 media:
-  cover: "public/examples/potion.png"
+  cover: "public/examples/potion.webp"
   gallery:
-    - src: "public/examples/potion.png"
+    - src: "public/examples/potion.webp"
       prompt: "An extreme macro photograph of an antique, hand-blown glass potion bottle resting on a chipped, aged stone alchemist's bench. The liquid inside is a violently swirling, hyper-detailed vortex of bioluminescent liquids, mixing deep ultraviolet, electric cyan, and stark gold, that glows fiercely from within. Suspended perfectly clear in the center of the vortex is a tiny, fully functional brass and steel clockwork mechanism with visible microscopic gears and sapphire jewels. The bottle's exterior features intricate, relief-carved glass patterns and is sealed with a complex stopper made of worn leather, engraved metal rings, and a single large, polished crystal. A delicate, wispy volumetric mist, illuminated from below by the potion's own light, rises from the slightly unsealed neck. The background is a deeply blurred (bokeh) alchemy lab with aged copper tubing, leather books, and dust motes catching a single, cinematic shaft of sunlight, creating dramatic rim lighting and sharp, raytraced reflections on the glass and liquid. Shot on a 100mm macro lens, f/2.8, razor-sharp focus on the internal clockwork, 8k, photorealistic masterpiece, extreme depth of field."
       mode: "txt2img"
 

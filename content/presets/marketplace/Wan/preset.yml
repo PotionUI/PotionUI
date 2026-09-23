@@ -15,7 +15,7 @@ engine: "native"
 tags: ["wan", "wan2.2", "video", "t2v", "flow-matching", "local"]
 
 media:
-  cover: "public/examples/potion.jpg"
+  cover: "public/examples/potion.webp"
   gallery:
     - src: "public/examples/potion.mp4"
       prompt: "Cinematic macro slow-motion video of an ornate, hand-blown glass potion bottle resting on a weathered dark oak bench. The camera slowly and smoothly orbits the bottle in a semi-circle. Inside the flask, a bioluminescent liquid mixture of deep ultraviolet and molten gold violently swirls in a hypnotic vortex, with thousands of tiny glowing micro-particles and bubbles circulating dynamically in real-time. The intense internal glow of the liquid pulses gently, casting fluid, rapidly shifting blue and gold caustic light patterns across the textured wood grain of the bench. A delicate, wispy volumetric mist slowly and realistically wafts upward from the slightly unsealed neck of the bottle, illuminated by the internal light. The background is a darkly lit, softly blurred alchemy workshop. Extreme shallow depth of field, razor-sharp focus on the swirling liquid and etched glass details, hyper-realistic textures, seamless motion, and lifelike fluid physics."

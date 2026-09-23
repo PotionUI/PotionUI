@@ -10,9 +10,9 @@ engine: "native"
 tags: ["sdxl", "realistic", "photorealistic", "local"]
 
 media:
-  cover: "public/examples/potion.png"
+  cover: "public/examples/potion.webp"
   gallery:
-    - src: "public/examples/potion.png"
+    - src: "public/examples/potion.webp"
       prompt: "masterpiece, best quality, ultra-detailed, macro photography, focal point on glowing ornate glass potion bottle, alchemical artifact, swirling bioluminescent liquid, deep ultraviolet, electric cyan, bright gold, suspended microscopic clockwork mechanism, intricate brass gears, sapphire jewels, complex etched glass surface, arcane geometry, aged leather stopper, polished crystal cap, weathered stone bench, background bokeh, glowing liquid caustics, dramatic rim lighting, volumetric mist, cinematic lighting, subsurface scattering, 8k resolution, sharp focus, extreme depth of field"
       mode: "txt2img"
 

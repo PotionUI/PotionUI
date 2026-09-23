@@ -18,9 +18,9 @@ engine: "native"
 tags: ["anima", "cosmos", "local", "transformer", "anime"]
 
 media:
-  cover: "public/examples/potion.png"
+  cover: "public/examples/potion.webp"
   gallery:
-    - src: "public/examples/potion.png"
+    - src: "public/examples/potion.webp"
       prompt: "masterpiece, best quality, ultra-detailed, intricate detail, anime, illustration, 1girl, young alchemist, serious expression, detailed eyes with sparkling highlights, braided chestnut hair, wearing an intricate alchemist vest over a white tunic, utility belt with small vials, detailed gloves, detailed hands, holding a massive ornate glass bottle, focal point on glowing potion, complex etched symbols, arcane runes, metal filigree, miniature clockwork gears on bottle neck, worn leather straps, swirling bioluminescent liquid, deep ultraviolet liquid, electric cyan liquid, bright gold liquid, internal galaxy effect, miniature nebulae, tiny stars, internal crystals glowing, intense light source within, alchemist laboratory background, messy workshop, blurred background, wooden shelves, leather-bound books, copper tubing, dried lavender bunches, glass apparatus, atmospheric perspective, cinematic lighting, dramatic rim lighting, light shafts piercing background from high window, dust motes, volumetric mist, subsurface scattering, glowing effects, bloom, depth of field, shallow depth of field, background bokeh, high contrast, clean composition, close-up view."
       mode: "txt2img"
 

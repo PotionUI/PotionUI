@@ -19,9 +19,9 @@ tags: ["z-image", "zimage", "lumina", "nextdit", "local", "transformer", "turbo"
 # Cover + example gallery, served from this preset's public/ directory.
 # Each gallery entry carries the settings that produced it.
 media:
-  cover: "public/examples/potion.png"
+  cover: "public/examples/potion.webp"
   gallery:
-    - src: "public/examples/potion.png"
+    - src: "public/examples/potion.webp"
       prompt: "A hyper-realistic, ultra-high-speed macro photograph of an ornate, ancient glass potion bottle suspended in mid-air, frozen at the exact millisecond of shattering. The shards of intricately carved crystal and heavy gold filigree are expanding outward in a perfect radial burst. The escaping liquid is a dense, swirling, violently kinetic mixture of glowing neon-emerald and vibrant magenta bioluminescence, splashing outward with perfect fluid dynamics, suspended droplets, and micro-bubbles. The scene is set against a pitch-black, dark studio void to maximize the HDR contrast. Dramatic, focused rim lighting highlights the edges of the flying glass, while the glowing liquid casts complex, multi-colored raytraced caustics through the refracting crystal shards. Shot on a 100mm macro lens at f/1.4, razor-sharp focus on the central splash and nearest flying glass fragments, extreme depth of field blurring the furthest shards. 8k resolution, raw photography, uncompressed visual masterpiece, perfect material rendering."
       mode: "txt2img"
 

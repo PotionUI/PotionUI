@@ -11,9 +11,9 @@ engine: "native"
 tags: []
 
 media:
-  cover: "public/examples/potion.png"
+  cover: "public/examples/potion.webp"
   gallery:
-    - src: "public/examples/potion.png"
+    - src: "public/examples/potion.webp"
       prompt: "A photorealistic, highly detailed cinematic macro photograph set within a dimly lit, cluttered alchemist's workshop. The central focus is a single, intricately hand-blown glass potion flask with a distinct twisted and warped sculptural form. The flask is filled with a vibrant, intensely glowing cobalt blue bioluminescent liquid. This central glowing flask sits upon a heavily weathered, dark, aged wooden alchemist's bench, which is dusted with fine, scattered blue pigment powders. The glowing liquid in the flask casts a dramatic, shimmering, and complex blue caustic light pattern directly onto the wooden table surface beneath and in front of it. To the left of the flask sits an old, worn, dark leather-bound journal with straps and a buckle, angled slightly away. To the right of the flask, an open, aged parchment book covered in illegible, handwritten alchemical script, complex symbols, formulas, and small, faded illustrative diagrams of various potion bottles is displayed. The background consists of receding wooden shelves heavily cluttered with dozens of glass vials, bottles, and flasks of varying sizes, containing differing blue liquids and powders, all receding into a soft bokeh. Bunches of dried herbs, like lavender, hang from the shelves. The lighting is dominated by the internal bioluminescence of the central flask, creating an intimate, mysterious atmosphere. Shallow depth of field, sharp focus on the twisted glass bottle, photorealistic textures."
       mode: "txt2img"
 

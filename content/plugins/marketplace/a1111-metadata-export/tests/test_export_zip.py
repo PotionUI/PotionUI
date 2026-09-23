@@ -135,12 +135,12 @@ def test_export_zip_matches_single_image_route_metadata(png_dir, png_bytes_facto
 
     client = client_factory(container)
 
-    single_response = client.get("/api/plugins/civitai-provider/export-png", params={"generation_id": "gen-a", "index": 0})
+    single_response = client.get("/api/plugins/a1111-metadata-export/export-png", params={"generation_id": "gen-a", "index": 0})
     assert single_response.status_code == 200
     single_parameters = _parameters_chunk(single_response.content)
     assert single_parameters and "a cat" in single_parameters
 
-    zip_response = client.post("/api/plugins/civitai-provider/export-zip", json={"generation_ids": ["gen-a", "gen-b"]})
+    zip_response = client.post("/api/plugins/a1111-metadata-export/export-zip", json={"generation_ids": ["gen-a", "gen-b"]})
     assert zip_response.status_code == 200
     assert zip_response.headers["content-type"] == "application/zip"
 
@@ -175,7 +175,7 @@ def test_export_zip_skips_unowned_generation(png_dir, png_bytes_factory, client_
     client = client_factory(container)
 
     response = client.post(
-        "/api/plugins/civitai-provider/export-zip",
+        "/api/plugins/a1111-metadata-export/export-zip",
         json={"generation_ids": ["gen-not-mine", "gen-mine"]},
     )
     assert response.status_code == 200
@@ -208,7 +208,7 @@ def test_export_zip_skips_video_and_reports_it(png_dir, png_bytes_factory, clien
 
     client = client_factory(container)
 
-    response = client.post("/api/plugins/civitai-provider/export-zip", json={"generation_ids": ["gen-mixed"]})
+    response = client.post("/api/plugins/a1111-metadata-export/export-zip", json={"generation_ids": ["gen-mixed"]})
     assert response.status_code == 200
 
     with ZipFile(io.BytesIO(response.content)) as archive:
@@ -241,7 +241,7 @@ def test_export_zip_continues_after_per_file_failure(png_dir, png_bytes_factory,
 
     client = client_factory(container)
 
-    response = client.post("/api/plugins/civitai-provider/export-zip", json={"generation_ids": ["gen-flaky"]})
+    response = client.post("/api/plugins/a1111-metadata-export/export-zip", json={"generation_ids": ["gen-flaky"]})
     assert response.status_code == 200
 
     with ZipFile(io.BytesIO(response.content)) as archive:

@@ -1,16 +1,3 @@
-"""Regression test for the civitai-provider `/export-png` route against a
-REAL `GenerationHistoryFacade` (not the hand-rolled fake in
-`test_civitai_export_endpoint.py`).
-
-Since commit 403261a8 (2026-08-20) removed `GenerationHistoryFacade.get_params`
-in favor of the `.query` property forwarding to `GenerationHistoryQuery`, the
-route's two `history.get_params(...)` calls raised `AttributeError` on every
-request - masked as a 404 "Generation not found" by a bare `except Exception`.
-`test_civitai_export_endpoint.py`'s fake implemented `get_params` directly on
-the manager stand-in, so it exercised the wrong seam and never caught this;
-this test drives the real manager the DI container actually hands the plugin.
-"""
-
 import importlib.util
 import io
 import json
@@ -33,12 +20,10 @@ from src.platform.security.user import AccountType, User
 from src.features.generation.run_report_repository import GenerationRunReportRepository
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-_PLUGIN_DIR = os.path.join(REPO_ROOT, "content", "plugins", "marketplace", "civitai-provider")
+_PLUGIN_DIR = os.path.join(REPO_ROOT, "content", "plugins", "marketplace", "a1111-metadata-export")
 _BACKEND_DIR = os.path.join(_PLUGIN_DIR, "backend")
 
-# Namespaced separately from test_civitai_export_endpoint.py's loader so the
-# two test modules never fight over the same sys.modules entry.
-_PKG_NAME = "civitai_provider_real_history_test_plugin"
+_PKG_NAME = "a1111_metadata_export_real_history_test_plugin"
 _BACKEND_PKG = f"{_PKG_NAME}.backend"
 
 
@@ -65,10 +50,6 @@ def _load_plugin_router():
 
 
 class _FakeMediaStore:
-    """The route's third collaborator, media serving, is unrelated to the
-    get_params regression under test - faked exactly like
-    test_civitai_export_endpoint.py fakes it."""
-
     def __init__(self, file_path):
         self.file_path = file_path
 
@@ -120,11 +101,6 @@ class TestExportPngAgainstRealHistoryFacade(PersistenceTestBase):
         return path
 
     def test_export_png_survives_the_real_manager_and_embeds_parameters(self):
-        """Pins the actual crash: before the fix, `history.get_params(...)`
-        raised `AttributeError` on the real `GenerationHistoryFacade` (the
-        forwarder was removed) and the route's bare `except Exception`
-        turned that into a 404. A regression back to calling `get_params`
-        directly on the manager reproduces the same crash here."""
         generation_id = "gen-real-1"
         with self.db.get_cursor() as cursor:
             cursor.execute(
@@ -150,7 +126,7 @@ class TestExportPngAgainstRealHistoryFacade(PersistenceTestBase):
         runtime_registries._container = _RealHistoryContainer(self.history, _FakeMediaStore(png_path))
         try:
             client = self._client()
-            resp = client.get(f"/api/plugins/civitai-provider/export-png?generation_id={generation_id}&index=0")
+            resp = client.get(f"/api/plugins/a1111-metadata-export/export-png?generation_id={generation_id}&index=0")
         finally:
             runtime_registries._container = None
 

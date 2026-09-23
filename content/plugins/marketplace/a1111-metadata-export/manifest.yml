@@ -1,0 +1,32 @@
+id: "a1111-metadata-export"
+name: "A1111 Metadata Export"
+version: "1.0.0"
+description: "Export generations as PNGs carrying A1111/Forge-style parameters metadata, readable by A1111, Forge, CivitAI and PNG-info tools"
+author: "PotionUI Team"
+type: "full-stack"
+category: "media"
+license: "MIT"
+
+capabilities:
+  - "media-export"
+
+api:
+  module: "backend/api.py"
+
+hooks:
+  frontend:
+    - hook: "image.actions"
+      component: "ExportA1111Button.js"
+      position: "top-right"
+      order: 100
+
+history_tools:
+  - id: "export-zip"
+    label: "Download with A1111 metadata"
+    description: "Download the selected generations as one ZIP of PNGs, each carrying the parameters chunk A1111, Forge and CivitAI read on upload"
+    icon: "download"
+    category: "export"
+    component: "A1111ExportTool.js"
+    applies_to:
+      min_selection: 1
+      media_kinds: ["image"]

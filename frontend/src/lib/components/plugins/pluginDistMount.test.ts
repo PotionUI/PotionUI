@@ -26,7 +26,7 @@ const IMAGE_ACTION_PROPS = {
 
 const DISTS = [
 	{
-		path: 'content/plugins/marketplace/civitai-provider/frontend/dist/ExportCivitaiButton.js',
+		path: 'content/plugins/marketplace/a1111-metadata-export/frontend/dist/ExportA1111Button.js',
 		props: IMAGE_ACTION_PROPS
 	},
 	{

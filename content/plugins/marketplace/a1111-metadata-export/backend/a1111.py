@@ -1,19 +1,9 @@
-"""Builds the A1111-style `parameters` text blob Civitai auto-parses on upload,
-and embeds it into a PNG's `tEXt` chunk.
-
-Pure/PIL-only - no database or FastAPI dependency, so this module is testable
-in isolation from the endpoint that calls it.
-"""
-
 import io
 from typing import Any, Dict, List, Optional
 
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
-# model_type values that name the base checkpoint / diffusion model, as
-# opposed to a LoRA or a supporting component (text encoder, VAE, ...) that
-# Civitai's parser has no "Model"-shaped field for.
 _CHECKPOINT_MODEL_TYPES = ("checkpoint", "diffusion_model")
 _LORA_MODEL_TYPE = "lora"
 
@@ -27,12 +17,6 @@ def _short_hash(sha256: Optional[str]) -> Optional[str]:
 
 
 def _usable_hash(model: Dict[str, Any]) -> Optional[str]:
-    """The model's hash for A1111 purposes, or None if it has none worth showing.
-
-    A directory-backed model's `sha256` is a cheap fingerprint (config.json +
-    shard names/sizes), not a real content hash - Civitai would silently fail
-    to match it against anything, so it's omitted rather than shown as a lie.
-    """
     if model.get("is_directory"):
         return None
     return _short_hash(model.get("sha256"))
@@ -54,12 +38,6 @@ def _lora_models(models: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _size_from_resolution(resolution: Any) -> Optional[str]:
-    """Render the preset's `resolution` parameter as A1111's `WxH` Size field.
-
-    Presets store it either as an already-formatted "WxH" string or as a
-    `[width, height]` pair - both are accepted; anything else is dropped
-    rather than guessed at.
-    """
     if isinstance(resolution, str) and resolution:
         return resolution
     if isinstance(resolution, (list, tuple)) and len(resolution) == 2:
@@ -69,16 +47,6 @@ def _size_from_resolution(resolution: Any) -> Optional[str]:
 
 
 def build_a1111_parameters(parameters: Dict[str, Any], models: List[Dict[str, Any]]) -> str:
-    """Build the single text blob A1111-compatible tools (Civitai included)
-    parse out of a PNG's `parameters` chunk.
-
-    `parameters` is the per-image parameter dict for one generated file (as
-    returned by `GenerationHistoryFacade.get_params`) - every key is
-    optional, since presets only emit what they actually ran with.
-    `models` is the list of model dicts linked to the generation (as
-    returned by the same call), each carrying at least `model_type` and,
-    for file-backed models, `sha256`.
-    """
     lines: List[str] = [parameters.get("positive_prompt") or ""]
 
     negative_prompt = parameters.get("negative_prompt")
@@ -131,8 +99,6 @@ def build_a1111_parameters(parameters: Dict[str, Any], models: List[Dict[str, An
 
 
 def inject_a1111_parameters(png_bytes: bytes, parameters_text: str) -> bytes:
-    """Re-encode a PNG with `parameters_text` embedded as a `tEXt` chunk under
-    the `parameters` keyword - the one Civitai's upload parser reads."""
     with Image.open(io.BytesIO(png_bytes)) as image:
         image.load()
         png_info = PngInfo()

@@ -35,8 +35,8 @@ const IMAGE_ACTION_PROPS = {
 
 const DISTS = [
 	{
-		name: 'ExportCivitaiButton',
-		path: 'content/plugins/marketplace/civitai-provider/frontend/dist/ExportCivitaiButton.js',
+		name: 'ExportA1111Button',
+		path: 'content/plugins/marketplace/a1111-metadata-export/frontend/dist/ExportA1111Button.js',
 		props: IMAGE_ACTION_PROPS
 	},
 	{
@@ -87,10 +87,10 @@ describe.each(DISTS)('$name mounted via _wrapPluginDistComponent', ({ path, prop
 	});
 });
 
-describe('ExportCivitaiButton via _wrapPluginDistComponent', () => {
+describe('ExportA1111Button via _wrapPluginDistComponent', () => {
 	it('forwards a live prop update to the mounted dist', async () => {
 		const RawComponent = await loadDist(
-			'content/plugins/marketplace/civitai-provider/frontend/dist/ExportCivitaiButton.js'
+			'content/plugins/marketplace/a1111-metadata-export/frontend/dist/ExportA1111Button.js'
 		);
 		const Wrapped = _wrapPluginDistComponent(RawComponent);
 		const el = target();
@@ -102,7 +102,7 @@ describe('ExportCivitaiButton via _wrapPluginDistComponent', () => {
 		const instance = mount(Wrapped, { target: el, props });
 		flushSync();
 
-		// fileType 'video' -> ExportCivitaiButton's `{#if isImage}` renders nothing.
+		// fileType 'video' -> ExportA1111Button's `{#if isImage}` renders nothing.
 		expect(el.querySelector('button')).toBeNull();
 
 		set({ context: { ...IMAGE_ACTION_PROPS.context, fileType: 'image' } });

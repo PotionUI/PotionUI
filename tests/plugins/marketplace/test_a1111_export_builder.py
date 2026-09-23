@@ -1,13 +1,3 @@
-"""Tests for the civitai-provider plugin's A1111 `parameters` builder and PNG
-injection.
-
-Loaded by explicit file spec (not `sys.path` + `import backend.a1111`)
-because several plugins use a top-level `backend` package name; importing
-this one via `sys.path` insertion risks resolving to another plugin's
-`backend` package depending on import order. `a1111.py` has no relative
-imports of its own, so it needs no parent-package scaffolding.
-"""
-
 import importlib.util
 import io
 from pathlib import Path
@@ -20,11 +10,11 @@ _module_path = (
     / "content"
     / "plugins"
     / "marketplace"
-    / "civitai-provider"
+    / "a1111-metadata-export"
     / "backend"
     / "a1111.py"
 )
-_spec = importlib.util.spec_from_file_location("civitai_provider_a1111", _module_path)
+_spec = importlib.util.spec_from_file_location("a1111_metadata_export_a1111", _module_path)
 a1111 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(a1111)
 
@@ -121,7 +111,6 @@ class TestBuildA1111Parameters:
         assert "Lora hashes" not in result
 
     def test_supporting_models_skipped(self):
-        """VAE/text-encoder/embedding rows contribute neither Model nor Lora hashes."""
         supporting = [
             {"model_type": "vae", "name": "vae", "sha256": "1" * 40},
             {"model_type": "text_encoder", "name": "text_encoder", "sha256": "2" * 40},

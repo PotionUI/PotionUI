@@ -39,7 +39,7 @@
 		exporting = true;
 		errorMessage = '';
 		try {
-			const response = await fetch('/api/plugins/civitai-provider/export-zip', {
+			const response = await fetch('/api/plugins/a1111-metadata-export/export-zip', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json', ...authHeaders() },
 				body: JSON.stringify({ generation_ids: generationIds })
@@ -50,17 +50,17 @@
 			const url = URL.createObjectURL(blob);
 			const anchor = document.createElement('a');
 			anchor.href = url;
-			anchor.download = `civitai-export-${generationIds.length}.zip`;
+			anchor.download = `a1111-export-${generationIds.length}.zip`;
 			document.body.appendChild(anchor);
 			anchor.click();
 			anchor.remove();
 			URL.revokeObjectURL(url);
 
-			notify('success', 'CivitAI export downloaded');
+			notify('success', 'A1111 metadata export downloaded');
 			onClose?.();
 		} catch (e) {
 			errorMessage = e instanceof Error ? e.message : 'Export failed.';
-			notify('error', 'CivitAI export failed');
+			notify('error', 'A1111 metadata export failed');
 		} finally {
 			exporting = false;
 		}
@@ -72,7 +72,7 @@
 		{generationCount} generation{generationCount === 1 ? '' : 's'}, {imageCount} image{imageCount === 1 ? '' : 's'} to
 		export.
 	</p>
-	<p class="hint">CivitAI reads the embedded parameters chunk on upload and auto-fills the prompt, sampler, model, and LoRAs.</p>
+	<p class="hint">A1111, Forge and CivitAI read the embedded parameters chunk on upload and auto-fill the prompt, sampler, model, and LoRAs.</p>
 
 	{#if errorMessage}
 		<p class="message message-error">{errorMessage}</p>

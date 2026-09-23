@@ -18,22 +18,6 @@ hooks:
   backend:
     - hook: "provider.register"
       handler: "hooks.provider_hooks.register_provider"
-  frontend:
-    - hook: "image.actions"
-      component: "ExportCivitaiButton.js"
-      position: "top-right"
-      order: 100
-
-history_tools:
-  - id: "export-zip"
-    label: "Download for CivitAI (with metadata)"
-    description: "Download the selected generations as one ZIP of PNGs, each carrying the parameters chunk CivitAI reads on upload"
-    icon: "download"
-    category: "export"
-    component: "CivitaiExportTool.js"
-    applies_to:
-      min_selection: 1
-      media_kinds: ["image"]
 
 contributions:
   - slot: "admin.models.card.actions"

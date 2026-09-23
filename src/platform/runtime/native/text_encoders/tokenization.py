@@ -309,7 +309,8 @@ class Qwen25VLTokenizer:
 
 
 QWEN_IMAGE21_SYSTEM_PROMPT = "Comprehend and analyze the provided prompt."
-QWEN_IMAGE21_PREFIX = f"<|im_start|>system\n{QWEN_IMAGE21_SYSTEM_PROMPT}<|im_end|>\n<|im_start|>user\n"
+QWEN_IMAGE21_SYSTEM_TURN = f"<|im_start|>system\n{QWEN_IMAGE21_SYSTEM_PROMPT}<|im_end|>\n"
+QWEN_IMAGE21_PREFIX = f"{QWEN_IMAGE21_SYSTEM_TURN}<|im_start|>user\n"
 QWEN_IMAGE21_SUFFIX = "<|im_end|>\n<|im_start|>assistant\n"
 QWEN_IMAGE21_VISION_MARKUP = "<|vision_start|><|image_pad|><|vision_end|>"
 
@@ -317,7 +318,7 @@ QWEN_IMAGE21_VISION_MARKUP = "<|vision_start|><|image_pad|><|vision_end|>"
 class QwenImage21Tokenizer:
     def __init__(self) -> None:
         self._tok = _load_tokenizer("qwen3_tokenizer", "Qwen2Tokenizer")
-        self._prefix_len = len(self._tok(QWEN_IMAGE21_PREFIX)["input_ids"])
+        self._prefix_len = len(self._tok(QWEN_IMAGE21_SYSTEM_TURN)["input_ids"])
 
     def __call__(
         self, texts: list[str], device: torch.device | str = "cpu"

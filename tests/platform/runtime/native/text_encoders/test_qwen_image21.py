@@ -97,6 +97,15 @@ def test_template_rendering():
     assert prefix_len == tok._prefix_len
 
 
+def test_prefix_strips_only_the_system_turn():
+    pytest.importorskip("transformers")
+    tok = QwenImage21Tokenizer()
+    ids, _mask, prefix_len = tok(["a cat"], device="cpu")
+    kept = tok._tok.decode(ids[0, prefix_len:].tolist())
+    assert kept.startswith("<|im_start|>user\na cat")
+    assert QWEN_IMAGE21_SYSTEM_PROMPT not in kept
+
+
 def test_prefix_len_unaffected_by_image_count():
     pytest.importorskip("transformers")
     tok = QwenImage21Tokenizer()

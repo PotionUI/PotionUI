@@ -4,6 +4,7 @@ which sizes, at what quality, and (for video) at what frame rate and length."""
 import io
 import random
 import unittest
+import uuid
 from unittest.mock import MagicMock, patch
 
 from PIL import Image
@@ -106,9 +107,11 @@ class TestVideoThumbnailProfile(unittest.TestCase):
         self.driver = _RecordingDriver()
 
     def _argv(self, profile):
+        video_path = f"/tmp/clip-{uuid.uuid4().hex}.mp4"
         with patch("src.features.generation.handlers.video_handler.subprocess.run", side_effect=_ok) as run:
-            generate_video_thumbnails("/tmp/clip.mp4", self.driver, "generations/x", 1, profile)
-        return [call.args[0] for call in run.call_args_list]
+            generate_video_thumbnails(video_path, self.driver, "generations/x", 1, profile)
+        argvs = [call.args[0] for call in run.call_args_list]
+        return [argv for argv in argvs if "-i" in argv and argv[argv.index("-i") + 1] == video_path]
 
     @staticmethod
     def _animated(argvs):

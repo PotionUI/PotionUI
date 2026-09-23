@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Card from '$lib/components/ui/Card.svelte';
 	import { logger, getErrorMessage, getApiErrorMessage } from '$lib/utils/logger';
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
@@ -792,7 +793,7 @@
 		{/snippet}
 	</AdminTabShell>
 
-	<div class="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised">
+	<Card padding="none" class="flex flex-wrap items-center gap-2 px-4 py-2.5">
 		<LibraryFilterBar
 			q={filters.q}
 			onQueryChange={(value) => (filters = { ...filters, q: value })}
@@ -802,7 +803,7 @@
 			onSortChange={(value) => (filters = { ...filters, sortBy: value as BackendSortBy })}
 			filterCount={activeFilterCount}
 		/>
-	</div>
+	</Card>
 
 	<LibraryFilterChipRow
 		chips={filterChips}

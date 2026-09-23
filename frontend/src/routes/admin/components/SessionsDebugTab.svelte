@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Card from '$lib/components/ui/Card.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { logger } from '$lib/utils/logger';
 	import { onMount } from 'svelte';
@@ -273,7 +274,7 @@
 		{/snippet}
 	</AdminTabShell>
 
-	<div class="rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised flex flex-wrap items-center gap-2">
+	<Card padding="none" class="flex flex-wrap items-center gap-2 px-4 py-2.5">
 		<LibraryFilterBar
 			q={filters.q}
 			{onQueryChange}
@@ -282,7 +283,7 @@
 			sortOptions={SESSIONS_SORT_OPTIONS}
 			{onSortChange}
 		/>
-	</div>
+	</Card>
 
 	<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
 		<MasterDetailLayout leftWidth={320} minWidth={280} maxWidth={440} storageKey="admin-chat-sessions-width">

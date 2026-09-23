@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Card from '$lib/components/ui/Card.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
@@ -183,7 +184,7 @@
 		counts={[{ label: total === 1 ? 'generation' : 'generations', value: total }]}
 	/>
 
-	<div class="rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised flex flex-wrap items-center gap-2">
+	<Card padding="none" class="flex flex-wrap items-center gap-2 px-4 py-2.5">
 		<LibraryFilterBar
 			q={filters.q}
 			{onQueryChange}
@@ -197,7 +198,7 @@
 				<GenerationsFiltersPopover {filters} {users} onChange={onPopoverChange} onClose={close} />
 			{/snippet}
 		</LibraryFilterBar>
-	</div>
+	</Card>
 
 	<LibraryFilterChipRow {chips} {onRemoveChip} onClearAll={onClearAllFilters} loadedCount={generations.length} {total} />
 

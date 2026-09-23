@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Card from '$lib/components/ui/Card.svelte';
 	import { logger } from '$lib/utils/logger';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
@@ -270,7 +271,7 @@ Always be creative and helpful while staying focused on the image generation con
 		{/snippet}
 	</AdminTabShell>
 
-	<div class="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised">
+	<Card padding="none" class="flex flex-wrap items-center gap-2 px-4 py-2.5">
 		<LibraryFilterBar
 			q={llmConfigFilters.q}
 			onQueryChange={(value) => updateLLMConfigFilters({ ...llmConfigFilters, q: value })}
@@ -280,7 +281,7 @@ Always be creative and helpful while staying focused on the image generation con
 			onSortChange={(value) => updateLLMConfigFilters({ ...llmConfigFilters, sortBy: value as LLMConfigSortBy })}
 		/>
 		<span class="ml-auto text-sm text-fg-muted whitespace-nowrap font-mono tabular-nums">{filteredConfigurations.length} {filteredConfigurations.length === 1 ? 'configuration' : 'configurations'}</span>
-	</div>
+	</Card>
 
 	<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
 		{#if loading}

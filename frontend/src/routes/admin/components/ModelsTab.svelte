@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Card from '$lib/components/ui/Card.svelte';
 	import { logger } from '$lib/utils/logger';
 	import { onMount } from 'svelte';
 	import { isAxiosError } from 'axios';
@@ -458,7 +459,7 @@
 	{/snippet}
 	</AdminTabShell>
 
-	<div class="rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised flex flex-wrap items-center gap-2">
+	<Card padding="none" class="flex flex-wrap items-center gap-2 px-4 py-2.5">
 			<LibraryFilterBar
 				q={filters.q}
 				onQueryChange={(value) => updateFilters({ ...filters, q: value })}
@@ -557,7 +558,7 @@
 					</FilterPopoverFrame>
 				{/snippet}
 			</LibraryFilterBar>
-		</div>
+		</Card>
 
 		<LibraryFilterChipRow
 			chips={filterChips}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Card from '$lib/components/ui/Card.svelte';
 	import { logger } from '$lib/utils/logger';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
@@ -919,7 +920,7 @@
 	</AdminTabShell>
 
 	{#if subView === 'users'}
-		<div class="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised">
+		<Card padding="none" class="flex flex-wrap items-center gap-2 px-4 py-2.5">
 			<LibraryFilterBar
 				q={usersFilters.q}
 				onQueryChange={(value) => updateUsersFilters({ ...usersFilters, q: value })}
@@ -941,7 +942,7 @@
 				{/snippet}
 			</LibraryFilterBar>
 			<span class="ml-auto text-sm text-fg-muted whitespace-nowrap font-mono tabular-nums">{filteredUsers.length} {filteredUsers.length === 1 ? 'user' : 'users'}</span>
-		</div>
+		</Card>
 
 		<LibraryFilterChipRow
 			chips={userFilterChips}
@@ -1182,7 +1183,7 @@
 			{/if}
 		</section>
 	{:else}
-		<div class="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised">
+		<Card padding="none" class="flex flex-wrap items-center gap-2 px-4 py-2.5">
 			<LibraryFilterBar
 				q={groupsFilters.q}
 				onQueryChange={(value) => updateGroupsFilters({ ...groupsFilters, q: value })}
@@ -1192,7 +1193,7 @@
 				onSortChange={(value) => updateGroupsFilters({ ...groupsFilters, sortBy: value as GroupSortBy })}
 			/>
 			<span class="ml-auto text-sm text-fg-muted whitespace-nowrap font-mono tabular-nums">{filteredGroups.length} {filteredGroups.length === 1 ? 'group' : 'groups'}</span>
-		</div>
+		</Card>
 
 		<LibraryFilterChipRow
 			chips={groupFilterChips}

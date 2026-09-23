@@ -7,6 +7,7 @@
 	can't be deleted, enforced both here (disabled controls) and server-side.
 -->
 <script lang="ts">
+	import Card from '$lib/components/ui/Card.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
@@ -255,7 +256,7 @@
 		{/snippet}
 	</AdminTabShell>
 
-	<div class="rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised flex flex-wrap items-center gap-2">
+	<Card padding="none" class="flex flex-wrap items-center gap-2 px-4 py-2.5">
 		<LibraryFilterBar
 			q={filters.q}
 			onQueryChange={(value) => updateFilters({ ...filters, q: value })}
@@ -267,7 +268,7 @@
 		<span class="ml-auto font-mono text-xs tabular-nums text-fg-subtle whitespace-nowrap">
 			{filteredDefinitions.length} {filteredDefinitions.length === 1 ? 'attribute' : 'attributes'}
 		</span>
-	</div>
+	</Card>
 
 	<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
 		{#if loading}

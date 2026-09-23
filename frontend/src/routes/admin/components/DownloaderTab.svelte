@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Card from '$lib/components/ui/Card.svelte';
 	import { logger } from '$lib/utils/logger';
 	import { onMount, onDestroy } from 'svelte';
 	import { downloadStore, downloads, loading, error, remoteBackends, type Download } from '$lib/stores/downloads';
@@ -229,7 +230,7 @@
 			{/snippet}
 		</EmptyState>
 	{:else}
-		<div class="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised">
+		<Card padding="none" class="flex flex-wrap items-center gap-2 px-4 py-2.5">
 			<LibraryFilterBar
 				q={filters.q}
 				onQueryChange={(value) => (filters = { ...filters, q: value })}
@@ -254,7 +255,7 @@
 					</FilterPopoverFrame>
 				{/snippet}
 			</LibraryFilterBar>
-		</div>
+		</Card>
 
 		<LibraryFilterChipRow
 			chips={filterChips}

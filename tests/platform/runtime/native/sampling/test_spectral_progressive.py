@@ -9,15 +9,18 @@ import torch
 
 from src.platform.runtime.native.sampling.algorithms.euler import sample_euler
 from src.platform.runtime.native.sampling.cfg import NoCFG
+from src.platform.runtime.native.sampling.flow_schedule import resolve_shift_mu
 from src.platform.runtime.native.sampling.spectral_progressive import (
     SpectralProgressiveConfig,
     _fft_expand,
     _seed_stage0,
+    _shifted_subschedule,
     activation_time,
     denoise_spectral_progressive,
     derive_transitions,
     expand_and_align,
     kappa,
+    stage_image_seq_len,
     stage_shape,
 )
 
@@ -134,7 +137,7 @@ def test_orchestrator_grows_to_full_res_and_records_stage_shapes():
     cfg = SpectralProgressiveConfig(scales=(0.5, 1.0), transitions=(0.6,))
     out = denoise_spectral_progressive(
         model_forward, full, cond={}, uncond=None, steps=8, sampler=sample_euler, sampler_name="euler",
-        guidance=NoCFG(), shift=3.0, cfg=cfg, seed_noise=seed,
+        guidance=NoCFG(), shift_settings={"shift": 3.0}, cfg=cfg, seed_noise=seed,
         generator=torch.Generator().manual_seed(0),
     )
     assert out.shape == (1, 4, 32, 32)             # final = full resolution
@@ -153,14 +156,94 @@ def test_orchestrator_single_scale_is_plain_full_res():
     seed = torch.randn(1, 4, 16, 16)
     cfg = SpectralProgressiveConfig(scales=(0.5, 1.0), transitions=(0.6,))
     a = denoise_spectral_progressive(model_forward, full, {}, None, steps=6,
-                                     sampler=sample_euler, sampler_name="euler", guidance=NoCFG(), shift=3.0,
+                                     sampler=sample_euler, sampler_name="euler", guidance=NoCFG(),
+                                     shift_settings={"shift": 3.0},
                                      cfg=cfg, seed_noise=seed,
                                      generator=torch.Generator().manual_seed(1))
     b = denoise_spectral_progressive(model_forward, full, {}, None, steps=6,
-                                     sampler=sample_euler, sampler_name="euler", guidance=NoCFG(), shift=3.0,
+                                     sampler=sample_euler, sampler_name="euler", guidance=NoCFG(),
+                                     shift_settings={"shift": 3.0},
                                      cfg=cfg, seed_noise=seed,
                                      generator=torch.Generator().manual_seed(1))
     assert torch.equal(a, b)  # same seed + generator -> reproducible
+
+
+def test_orchestrator_handles_5d_single_frame_latent_with_dynamic_mu():
+    seen_shapes = []
+
+    def model_forward(x, sigma, cond):
+        seen_shapes.append(tuple(x.shape))
+        return 0.1 * x
+
+    full = torch.zeros(1, 4, 1, 32, 32)
+    seed = torch.randn(1, 4, 1, 32, 32)
+    cfg = SpectralProgressiveConfig(scales=(0.5, 1.0), transitions=(0.6,))
+    dynamic_shift = {"x1_px": 256, "x2_px": 1448.15, "align": 16, "y1": 0.5, "y2": 0.9}
+    out = denoise_spectral_progressive(
+        model_forward, full, cond={}, uncond=None, steps=8, sampler=sample_euler, sampler_name="euler",
+        guidance=NoCFG(), shift_settings={"shift": 2.0, "dynamic_shift": dynamic_shift}, cfg=cfg,
+        seed_noise=seed, generator=torch.Generator().manual_seed(0), patch_multiple=1,
+    )
+    assert out.shape == (1, 4, 1, 32, 32)
+    assert torch.isfinite(out).all()
+    assert (1, 4, 1, 16, 16) in seen_shapes
+    assert seen_shapes[-1] == (1, 4, 1, 32, 32)
+
+
+
+def test_stage_image_seq_len_matches_engine_formula():
+    assert stage_image_seq_len((1, 64, 1, 16, 16), 1) == 256
+    assert stage_image_seq_len((1, 16, 32, 32), 2) == 256
+
+
+def test_shifted_subschedule_constant_shift_matches_closed_form():
+    shift = 2.02
+
+    def inv(sig):
+        return sig / (shift - (shift - 1.0) * sig)
+
+    def fwd(tau):
+        return shift * tau / (1.0 + (shift - 1.0) * tau)
+
+    tau = torch.linspace(inv(0.9), inv(0.2), 5, dtype=torch.float64)
+    expected = torch.tensor([fwd(float(t)) for t in tau], dtype=torch.float32)
+    expected[0], expected[-1] = 0.9, 0.2
+
+    sigmas = _shifted_subschedule(0.9, 0.2, 4, {"shift": shift}, None, "cpu", torch.float32)
+    assert torch.allclose(sigmas, expected, atol=1e-6)
+
+
+def test_shifted_subschedule_dynamic_mu_matches_flux_time_shift_inverse():
+    dynamic_shift = {"x1_px": 256, "x2_px": 1448.15, "align": 16, "y1": 0.5, "y2": 0.9}
+    seq_len = 512
+    mu = resolve_shift_mu(dynamic_shift=dynamic_shift, image_seq_len=seq_len)
+    exp_mu = math.exp(mu)
+
+    def inv(sig):
+        return sig / (exp_mu * (1.0 - sig) + sig)
+
+    def fwd(tau):
+        return exp_mu / (exp_mu + (1.0 / tau - 1.0))
+
+    tau = torch.linspace(inv(0.9), inv(0.1), 4, dtype=torch.float64)
+    expected = torch.tensor([fwd(float(t)) for t in tau], dtype=torch.float32)
+    expected[0], expected[-1] = 0.9, 0.1
+
+    sigmas = _shifted_subschedule(
+        0.9, 0.1, 3, {"shift": 2.0, "dynamic_shift": dynamic_shift}, seq_len, "cpu", torch.float32)
+    assert torch.allclose(sigmas, expected, atol=1e-6)
+
+
+def test_shifted_subschedule_dynamic_mu_varies_with_stage_token_count():
+    dynamic_shift = {"x1_px": 256, "x2_px": 1448.15, "align": 16, "y1": 0.5, "y2": 0.9}
+    settings = {"shift": 2.0, "dynamic_shift": dynamic_shift}
+    small_stage = _shifted_subschedule(0.9, 0.2, 4, settings, 256, "cpu", torch.float32)
+    large_stage = _shifted_subschedule(0.9, 0.2, 4, settings, 4096, "cpu", torch.float32)
+    assert small_stage[0].item() == pytest.approx(0.9)
+    assert small_stage[-1].item() == pytest.approx(0.2)
+    assert large_stage[0].item() == pytest.approx(0.9)
+    assert large_stage[-1].item() == pytest.approx(0.2)
+    assert not torch.allclose(small_stage[1:-1], large_stage[1:-1])
 
 
 # --- engine eligibility gate ----------------------------------------------
@@ -171,14 +254,21 @@ def test_engine_config_gate_eligibility():
     cfg = {"scales": [0.5, 1.0]}
     const = {"shift": 2.02}                       # constant-shift family (Flux2/Z-Image)
     dynamic = {"shift": 1.15, "base_shift": 0.5, "max_shift": 1.15}  # Flux1 dynamic-mu
+    anchored = {"shift": 2.0, "dynamic_shift": {"x1_px": 256, "x2_px": 1448.15, "align": 16,
+                                                 "y1": 0.5, "y2": 0.9}}
     img = torch.zeros(1, 4, 32, 32)
+    still_5d = torch.zeros(1, 16, 1, 32, 32)
+    video_5d = torch.zeros(1, 16, 3, 32, 32)
     # disabled / ineligible -> None
     assert gate(None, None, None, img, const) is None
     assert gate(None, {}, None, img, const) is None
     assert gate(None, {"enabled": False, **cfg}, None, img, const) is None       # explicit off
     assert gate(None, cfg, torch.zeros(1, 4, 32, 32), img, const) is None        # img2img
-    assert gate(None, cfg, None, torch.zeros(1, 16, 1, 32, 32), const) is None   # 5D causal-3D
-    assert gate(None, cfg, None, img, dynamic) is None                           # dynamic-mu excluded
+    assert gate(None, cfg, None, video_5d, const) is None
+    assert gate(None, cfg, None, img, const, [torch.zeros(1, 4, 8, 8)]) is None
     # eligible txt2img 4D constant-shift -> a parsed config (lists coerced to tuples)
     parsed = gate(None, cfg, None, img, const)
     assert parsed is not None and parsed.scales == (0.5, 1.0)
+    assert gate(None, cfg, None, img, dynamic) is not None
+    assert gate(None, cfg, None, img, anchored) is not None
+    assert gate(None, cfg, None, still_5d, anchored) is not None

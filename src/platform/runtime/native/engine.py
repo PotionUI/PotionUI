@@ -1688,16 +1688,10 @@ class NativeGenerator:
 
         with self._run_cache():
             # Spectral Progressive Diffusion (opt-in prototype): run early steps at a
-            # reduced latent resolution and grow. Image families only (4D latent,
-            # constant shift); txt2img only (no init_latent). Mutually exclusive with
-            # warm-start (a different-resolution trajectory can't be resumed) and with
-            # an explicit sigma list (this path builds its own schedule and has no
-            # way to honour a caller-supplied one). When the config is absent this
-            # whole block is skipped and the run is unchanged.
             sp_config = None
             if sigmas_tensor is None:
                 sp_config = self._spectral_progressive_config(
-                    spectral_progressive, init_latent, latents, merged_settings)
+                    spectral_progressive, init_latent, latents, merged_settings, ref_latents)
             if sp_config is not None:
                 return self._sample_spectral_progressive(
                     model_forward, latents, cond, uncond, steps=effective_steps, sampler=sampler,
@@ -1851,25 +1845,19 @@ class NativeGenerator:
         )
         return (plan.resume_step, plan.latent), run_hooks
 
-    def _spectral_progressive_config(self, spectral_progressive, init_latent, latents, settings):
-        """Resolve the opt-in spectral-progressive config, or ``None`` (disabled).
-
-        Eligibility (prototype v1): a non-empty config with ``enabled`` truthy,
-        txt2img (no ``init_latent``), a 4D image latent, and a CONSTANT-shift
-        family. Dynamic-mu families (Flux1's seq-len ``base_shift``/``max_shift``,
-        Krea-2's anchored ``dynamic_shift``) are EXCLUDED v1 — mu shifts with the
-        per-stage token count and the paper's handling isn't ported yet — so this
-        cleanly targets Flux2 (shift 2.02) and Z-Image (shift 3.0). Ineligible/
-        absent -> ``None`` (normal path).
-        """
+    def _spectral_progressive_config(self, spectral_progressive, init_latent, latents, settings,
+                                     ref_latents=None):
         opts = dict(spectral_progressive or {})
         if not opts or not opts.pop("enabled", True):
             return None
-        if init_latent is not None or latents.ndim != 4:
-            logger.debug("[NATIVE] spectral-progressive ignored (needs txt2img + 4D latent)")
+        if init_latent is not None or ref_latents:
+            logger.debug("[NATIVE] spectral-progressive ignored (needs txt2img, no reference latents)")
             return None
-        if any(settings.get(k) is not None for k in ("base_shift", "max_shift", "dynamic_shift")):
-            logger.debug("[NATIVE] spectral-progressive ignored (dynamic-shift family, excluded v1)")
+        if latents.ndim == 5 and latents.shape[-3] != 1:
+            logger.debug("[NATIVE] spectral-progressive ignored (multi-frame video latent)")
+            return None
+        if latents.ndim not in (4, 5):
+            logger.debug("[NATIVE] spectral-progressive ignored (needs a 4D or single-frame 5D latent)")
             return None
         from .sampling.spectral_progressive import SpectralProgressiveConfig
         for k in ("scales", "transitions"):
@@ -1889,10 +1877,14 @@ class NativeGenerator:
             merged_settings, cfg_scale,
             opts.get("cfg_zero_star", True), opts.get("zero_init_steps", 0),
         )
+        shift_settings = {
+            k: merged_settings.get(k)
+            for k in ("shift", "base_shift", "max_shift", "dynamic_shift", "fixed_mu")
+        }
         latent = denoise_spectral_progressive(
             model_forward, latents, cond, uncond, steps=steps,
             sampler=sampler_registry.get(sampler).sample, sampler_name=sampler, guidance=guidance,
-            shift=float(merged_settings.get("shift", 1.0) or 1.0), cfg=sp_config,
+            shift_settings=shift_settings, cfg=sp_config,
             seed_noise=seed_noise, hooks=hooks, is_cancelled=is_cancelled,
             sampler_options=sampler_options,
             generator=(sampler_options or {}).get("generator"),

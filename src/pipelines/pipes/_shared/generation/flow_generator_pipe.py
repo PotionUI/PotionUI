@@ -121,10 +121,12 @@ def spectral_progressive_config_specs() -> List[PipeConfigSpec]:
             "'power_beta': 2.5, 'power_amplitude': 1.0, 'basis': 'fft'|'dct', "
             "'transitions': null, 'enabled': true} -- usually only 'scales' is "
             "worth setting, the rest derive a sensible schedule from it. Off "
-            "by default (needs GPU validation). Only engages on a "
-            "constant-shift, 4D-image, txt2img family (Flux2/Klein, "
-            "Z-Image); every dynamic-mu family (Flux1, Krea-2), video "
-            "family, or img2img run silently falls back to the normal path.",
+            "by default (needs GPU validation). Only engages on a txt2img, "
+            "4D-image (or single-frame 5D causal-3D) family with no reference "
+            "latents; a dynamic-mu family (Flux1, Krea-2, Qwen-Image-2.1) has "
+            "its mu re-resolved per stage from that stage's own token count. "
+            "A multi-frame video latent, an img2img run, or a reference-"
+            "conditioned (edit) run silently falls back to the normal path.",
             required=False,
         ),
     ]

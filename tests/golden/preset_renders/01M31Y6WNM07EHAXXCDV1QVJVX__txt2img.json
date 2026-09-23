@@ -227,6 +227,17 @@
           "type": "str",
           "value": ""
         },
+        "spectral_progressive.enabled": {
+          "type": "bool",
+          "value": false
+        },
+        "spectral_progressive.scales": {
+          "type": "list",
+          "value": [
+            0.5,
+            1.0
+          ]
+        },
         "step_cache.max_consecutive_skips": {
           "type": "int",
           "value": 3

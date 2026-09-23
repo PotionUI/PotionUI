@@ -126,14 +126,11 @@ def derive_transitions(cfg: SpectralProgressiveConfig, height: int, width: int) 
 
 def _fft_expand(x: Tensor, target_hw: tuple[int, int], sigma: float,
                 generator: torch.Generator | None) -> Tensor:
-    """FFT spectral expansion: embed ``x``'s centred spectrum into the target and
-    fill the new high-frequency band with ``sigma``-scaled complex Gaussian noise
-    (orthonormal FFT, matching the reference)."""
-    b, c, h, w = x.shape
+    *lead, h, w = x.shape
     ht, wt = target_hw
     xs = torch.fft.fftshift(torch.fft.fft2(x, norm="ortho"), dim=(-2, -1))
-    nr = _randn((b, c, ht, wt), x, generator)
-    ni = _randn((b, c, ht, wt), x, generator)
+    nr = _randn((*lead, ht, wt), x, generator)
+    ni = _randn((*lead, ht, wt), x, generator)
     big = sigma * torch.complex(nr, ni) / math.sqrt(2.0)
     ph, pw = (ht - h) // 2, (wt - w) // 2
     big[..., ph:ph + h, pw:pw + w] = xs
@@ -142,24 +139,21 @@ def _fft_expand(x: Tensor, target_hw: tuple[int, int], sigma: float,
 
 def _dct_expand(x: Tensor, target_hw: tuple[int, int], sigma: float,
                 generator: torch.Generator | None) -> Tensor:
-    """DCT spectral expansion (paper default): low-res coefficients in the top-left,
-    new band filled with ``sigma``-scaled noise (orthonormal DCT-II via scipy —
-    CPU; a torch-native DCT is the GPU follow-up)."""
     from scipy.fft import dctn, idctn  # local import: only when the DCT basis is used
     import numpy as np
 
-    b, c, h, w = x.shape
+    *lead, h, w = x.shape
     ht, wt = target_hw
-    noise = _randn((b, c, ht, wt), x, generator).cpu().numpy()
-    src = x.detach().float().cpu().numpy()
-    out = np.empty((b, c, ht, wt), dtype=np.float32)
-    for bi in range(b):
-        for ci in range(c):
-            coeffs = dctn(src[bi, ci], type=2, norm="ortho")
-            big = (sigma * noise[bi, ci]).astype(np.float32)
-            big[:h, :w] = coeffs
-            out[bi, ci] = idctn(big, type=2, norm="ortho")
-    return torch.from_numpy(out).to(device=x.device, dtype=x.dtype)
+    n = int(np.prod(lead)) if lead else 1
+    noise = _randn((*lead, ht, wt), x, generator).cpu().numpy().reshape(n, ht, wt)
+    src = x.detach().float().cpu().numpy().reshape(n, h, w)
+    out = np.empty((n, ht, wt), dtype=np.float32)
+    for i in range(n):
+        coeffs = dctn(src[i], type=2, norm="ortho")
+        big = (sigma * noise[i]).astype(np.float32)
+        big[:h, :w] = coeffs
+        out[i] = idctn(big, type=2, norm="ortho")
+    return torch.from_numpy(out.reshape(*lead, ht, wt)).to(device=x.device, dtype=x.dtype)
 
 
 def _randn(shape, ref: Tensor, generator: torch.Generator | None) -> Tensor:
@@ -178,7 +172,7 @@ def expand_and_align(x: Tensor, sigma: float, target_hw: tuple[int, int],
     dim; we use the height ratio (square-preserving) which equals it for the usual
     isotropic growth. Both the latent and sigma are scaled by ``kappa`` (Eq. 6).
     """
-    _, _, h, w = x.shape
+    *_, h, w = x.shape
     ht, wt = target_hw
     if (ht, wt) == (h, w):
         return x, sigma
@@ -204,22 +198,42 @@ def stage_shape(latent_shape: tuple[int, ...], scale: float, multiple: int = 2) 
     return (*lead, sh, sw)
 
 
+def stage_image_seq_len(shape: tuple[int, ...], patch: int) -> int:
+    h, w = shape[-2], shape[-1]
+    h_len = (h + (patch // 2)) // patch
+    w_len = (w + (patch // 2)) // patch
+    return h_len * w_len
+
+
 # --- staged orchestrator --------------------------------------------------
 
-def _shifted_subschedule(start_sigma: float, end_sigma: float, n: int, shift: float,
-                         device, dtype) -> Tensor:
-    """A constant-shift sigma ramp of ``n`` steps from ``start_sigma`` down to
-    ``end_sigma`` (length ``n + 1``).
+def _shifted_subschedule(start_sigma: float, end_sigma: float, n: int, shift_settings: dict,
+                         image_seq_len: int | None, device, dtype) -> Tensor:
+    from .flow_schedule import resolve_shift_mu
 
-    Uses the ``ModelSamplingDiscreteFlow`` map ``σ(τ)=shift·τ/(1+(shift-1)τ)`` and
-    its inverse so a stage's sub-schedule follows the model's shift within its
-    sigma window (rather than a naive linear ramp). ``shift == 1`` is the identity.
-    """
-    def inv(sig):  # τ(σ)
-        return sig / (shift - (shift - 1.0) * sig) if shift != 1.0 else sig
+    mu = resolve_shift_mu(
+        base_shift=shift_settings.get("base_shift"),
+        max_shift=shift_settings.get("max_shift"),
+        dynamic_shift=shift_settings.get("dynamic_shift"),
+        fixed_mu=shift_settings.get("fixed_mu"),
+        image_seq_len=image_seq_len,
+    )
+    if mu is not None:
+        exp_mu = math.exp(mu)
 
-    def fwd(tau):  # σ(τ)
-        return shift * tau / (1.0 + (shift - 1.0) * tau) if shift != 1.0 else tau
+        def inv(sig):
+            return 0.0 if sig <= 0.0 else sig / (exp_mu * (1.0 - sig) + sig)
+
+        def fwd(tau):
+            return 0.0 if tau <= 0.0 else exp_mu / (exp_mu + (1.0 / tau - 1.0))
+    else:
+        shift = 1.0 if shift_settings.get("shift") is None else float(shift_settings["shift"])
+
+        def inv(sig):  # τ(σ)
+            return sig / (shift - (shift - 1.0) * sig) if shift != 1.0 else sig
+
+        def fwd(tau):  # σ(τ)
+            return shift * tau / (1.0 + (shift - 1.0) * tau) if shift != 1.0 else tau
 
     tau = torch.linspace(inv(start_sigma), inv(end_sigma), n + 1, dtype=torch.float64)
     sig = torch.tensor([fwd(float(t)) for t in tau], dtype=torch.float32)
@@ -250,7 +264,7 @@ def denoise_spectral_progressive(
     sampler,
     sampler_name: str,
     guidance,
-    shift: float,
+    shift_settings: dict,
     cfg: SpectralProgressiveConfig,
     seed_noise: Tensor,
     hooks=(),
@@ -259,16 +273,6 @@ def denoise_spectral_progressive(
     generator: torch.Generator | None = None,
     patch_multiple: int = 2,
 ) -> Tensor:
-    """Run a progressive-resolution denoise and return the FULL-res clean latent.
-
-    ``latents_full`` carries the target (full-resolution) shape/device/dtype (its
-    values are unused — txt2img starts from noise). ``seed_noise`` is the
-    full-resolution seed noise; the first (reduced) stage is seeded by spectrally
-    downsampling it so a given seed stays reproducible. ``sampler``/``guidance``
-    are the already-built step algorithm + guidance strategy; ``shift`` is the
-    model's constant sigma shift (dynamic-mu families are a follow-up — see
-    module docstring). Everything else mirrors :func:`~.denoise_loop.denoise`.
-    """
     device, dtype = latents_full.device, latents_full.dtype
     full_shape = tuple(latents_full.shape)
     *_, full_h, full_w = full_shape
@@ -310,7 +314,9 @@ def denoise_spectral_progressive(
     for i, s_i in enumerate(cfg.scales):
         start_sigma, end_sigma = stage_ranges[i]
         n = step_alloc[i]
-        sigmas = _shifted_subschedule(start_sigma, end_sigma, n, shift, device, dtype)
+        stage_hw = stage_shape(full_shape, s_i, patch_multiple)
+        seq_len = stage_image_seq_len(stage_hw, patch_multiple)
+        sigmas = _shifted_subschedule(start_sigma, end_sigma, n, shift_settings, seq_len, device, dtype)
         # Guidance step_index is offset so per-step schedules stay globally indexed.
         x = _run_stage(sampler, model_forward, x, sigmas, guidance, cond, uncond,
                        watched, is_cancelled, sampler_options, step_offset, total_span_steps)
@@ -327,7 +333,7 @@ def _seed_stage0(seed_noise: Tensor, stage0_shape: tuple[int, ...]) -> Tensor:
         return seed_noise
     *_, h, w = stage0_shape
     xs = torch.fft.fftshift(torch.fft.fft2(seed_noise, norm="ortho"), dim=(-2, -1))
-    _, _, H, W = seed_noise.shape
+    *_, H, W = seed_noise.shape
     ph, pw = (H - h) // 2, (W - w) // 2
     cropped = xs[..., ph:ph + h, pw:pw + w]
     return torch.fft.ifft2(torch.fft.ifftshift(cropped, dim=(-2, -1)), norm="ortho").real.to(seed_noise.dtype)

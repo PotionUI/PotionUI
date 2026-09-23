@@ -181,6 +181,23 @@ def _anchored_mu(dynamic_shift: dict, image_seq_len: int) -> float:
     return slope * image_seq_len + (y1 - slope * x1)
 
 
+def resolve_shift_mu(
+    *,
+    base_shift: float | None = None,
+    max_shift: float | None = None,
+    dynamic_shift: dict | None = None,
+    fixed_mu: float | None = None,
+    image_seq_len: int | None = None,
+) -> float | None:
+    if fixed_mu is not None:
+        return float(fixed_mu)
+    if dynamic_shift is not None and image_seq_len is not None:
+        return _anchored_mu(dynamic_shift, int(image_seq_len))
+    if base_shift is not None and max_shift is not None and image_seq_len is not None:
+        return _flux_mu(float(base_shift), float(max_shift), int(image_seq_len))
+    return None
+
+
 def _beta_sigmas(n: int, alpha: float, beta_param: float) -> Tensor:
     """Beta(alpha, beta)-CDF-spaced sigmas, descending, length ``n + 1``.
 

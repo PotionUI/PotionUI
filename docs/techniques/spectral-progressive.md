@@ -3,7 +3,7 @@ type: technique
 title: Spectral Progressive Diffusion
 category_group: Performance
 status: needs-gpu-validation
-families: [flux, z_image]
+families: [flux, z_image, qwen_image21]
 authors: []
 paper: {arxiv: "2605.18736", title: "Spectral Progressive Diffusion for Efficient Image and Video Generation"}
 reference_impl: {name: "howardhx/speed", url: "https://github.com/howardhx/speed", license: "MIT"}
@@ -51,15 +51,21 @@ techniques both change what latent resolution/trajectory the sampler starts from
 not combine them; enabling both on the same request is treated as a conflict and only one takes
 effect per the engine's internal gating.
 
-Eligibility is gated automatically: it only applies to **text-to-image** generations (not img2img)
-on a **constant-shift** family with a **4D image latent**. Families that use a resolution-dependent
-dynamic shift schedule (Flux1's `base_shift`/`max_shift` mu, Krea-2's anchored dynamic shift) are
-excluded — the technique's resolution-growth math isn't ported for a mu that itself depends on token
-count — and families whose stills ride a 5D causal-3D video latent (Qwen-Image, Krea-2, Anima) are
-excluded by the 4D requirement. In practice this currently means it applies to Flux2 (not Flux1 —
-both share the `flux` family, but only the Flux2 variant is eligible) and Z-Image. Requesting it on
-an ineligible generation (img2img, or an excluded family/variant) is not an error — PotionUI logs
-that it was ignored and runs the normal path.
+Eligibility is gated automatically: it only applies to **text-to-image** generations (not img2img,
+and not a reference-conditioned run such as Qwen-Image-2.1's `edit` mode or Krea-2's in-context
+edit — the staged growth only rescales the target latent, not a fixed-size reference block) on a
+**4D image latent**, or a **single-frame** (`T == 1`) **5D causal-3D** image latent (a still on the
+Qwen-Image/Krea-2/Anima VAE family; a real multi-frame video latent is excluded). A
+resolution-dependent dynamic-mu family (Flux1's `base_shift`/`max_shift`, Krea-2's and
+Qwen-Image-2.1's anchored `dynamic_shift`) is eligible too: PotionUI re-resolves mu at each stage
+from THAT stage's own token count — the same anchor/interpolation a native (non-progressive) run
+would use if generating directly at that resolution — rather than the full-resolution mu throughout,
+since the stage boundaries themselves come from the shift-agnostic transition/kappa math and only the
+intra-stage step spacing depends on mu. In practice this currently means it applies to Flux2 (not
+Flux1 — both share the `flux` family, but only the Flux2 variant is eligible), Z-Image, and
+Qwen-Image-2.1's `txt2img` mode (not `edit`). Requesting it on an ineligible generation (img2img, an
+edit/reference run, a multi-frame video latent) is not an error — PotionUI logs that it was ignored
+and runs the normal path.
 
 ## How to enable it
 
@@ -83,9 +89,9 @@ Omit the key entirely to leave the feature off (the default, byte-identical to t
   power-law frequency spectrum, which may not match every model or every kind of content equally
   well.
 - Mutually exclusive with trajectory warm-start (Iterate mode) on the same request.
-- Only applies to text-to-image generation on constant-shift families with a 4D image latent; it
-  silently no-ops (with a log line) on img2img, on dynamic-shift families/variants such as Flux1 and
-  Krea-2, and on families whose still images use a 5D causal-3D VAE latent (Qwen-Image, Krea-2,
-  Anima) — Flux2 and Z-Image are the only currently-eligible families.
+- Only applies to text-to-image generation with no reference latents (no `edit`/img2img) on a 4D
+  image latent or a single-frame 5D causal-3D one; it silently no-ops (with a log line) on img2img,
+  an edit/reference run, or a multi-frame video latent — Flux2, Z-Image, and Qwen-Image-2.1's
+  `txt2img` mode are the currently-eligible families/variants.
 - The `dct` basis path runs on CPU via scipy rather than natively on GPU; prefer `fft` unless you
   specifically need DCT's spectral properties.

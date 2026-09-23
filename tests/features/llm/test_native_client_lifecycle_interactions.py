@@ -32,20 +32,13 @@ import torch
 
 from src.features.llm.clients.native import NativeLLMClient
 from src.features.llm.repository import LLMConfig
-from src.platform.runtime.model_lifecycle import lifecycle as lifecycle_module
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
-from src.platform.runtime.system_memory import SystemMemory
 
 
 @pytest.fixture(autouse=True)
 def _no_real_cuda(monkeypatch):
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     monkeypatch.setattr(torch.cuda, "empty_cache", lambda: None, raising=False)
-    gb = 1024**3
-    monkeypatch.setattr(
-        lifecycle_module, "get_system_memory",
-        lambda: SystemMemory(total=int(256 * gb), available=int(200 * gb)),
-    )
     monkeypatch.setattr(torch.cuda, "synchronize", lambda: None, raising=False)
 
 

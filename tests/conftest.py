@@ -113,6 +113,19 @@ class TestDatabase:
         return instance
 
 
+@pytest.fixture(autouse=True)
+def _plentiful_host_ram(monkeypatch):
+    from src.platform.runtime.model_lifecycle import lifecycle
+    from src.platform.runtime.system_memory import SystemMemory
+
+    gb = 1024**3
+    monkeypatch.setattr(
+        lifecycle,
+        "get_system_memory",
+        lambda: SystemMemory(total=int(256 * gb), available=int(200 * gb)),
+    )
+
+
 @pytest.fixture(scope="session", autouse=True)
 def ephemeral_credential_key():
     """Give the whole test session a throwaway encryption key.

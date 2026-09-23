@@ -10,57 +10,42 @@
 	import AddDownloadModal from './AddDownloadModal.svelte';
 	import DownloadSettingsModal from './DownloadSettingsModal.svelte';
 	import AdminTabShell from './AdminTabShell.svelte';
-	import AdminFilterBar from './AdminFilterBar.svelte';
+	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import LibraryFilterChipRow from '$lib/components/library/LibraryFilterChipRow.svelte';
+	import FilterPopoverFrame from '$lib/components/library/FilterPopoverFrame.svelte';
+	import SegmentedFilterGroup from '$lib/components/library/SegmentedFilterGroup.svelte';
+	import {
+		DEFAULT_DOWNLOADER_FILTERS,
+		DOWNLOADER_SORT_OPTIONS,
+		DOWNLOAD_STATUS_OPTIONS,
+		applyDownloaderFilters,
+		clearAllDownloaderFilters,
+		clearDownloaderFilterChip,
+		downloaderFilterActiveCount,
+		downloaderFilterChips,
+		type DownloaderFilters,
+		type DownloadSortBy,
+		type DownloadStatusFilter
+	} from './downloaderFilters';
 	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
 	import { Pane, PaneGroupHeader } from '$lib/components/pane';
-	import { Button, EmptyState, Alert, Spinner, Input, Kbd } from '$lib/components/ui';
+	import { Button, EmptyState, Alert, Spinner } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 
-	type StatusFilter = 'all' | 'active' | 'pending' | 'completed' | 'failed';
-
-	const SEARCH_INPUT_ID = 'downloads-search';
-
-	let statusFilter: StatusFilter = 'all';
-	let query = '';
+	let filters: DownloaderFilters = { ...DEFAULT_DOWNLOADER_FILTERS };
 	let showAddModal = false;
 	let showSettingsModal = false;
 	let selectedId: string | null = null;
 	let providers: { id: string; name: string }[] = [];
-
-	const statusFilters: { id: StatusFilter; label: string }[] = [
-		{ id: 'all', label: 'All' },
-		{ id: 'active', label: 'Active' },
-		{ id: 'pending', label: 'Pending' },
-		{ id: 'completed', label: 'Done' },
-		{ id: 'failed', label: 'Failed' }
-	];
 
 	$: activeCount = $downloads.filter((d) => d.status === 'downloading' || d.status === 'paused').length;
 	$: pendingCount = $downloads.filter((d) => d.status === 'pending').length;
 	$: completedCount = $downloads.filter((d) => d.status === 'completed').length;
 	$: failedCount = $downloads.filter((d) => d.status === 'failed' || d.status === 'cancelled').length;
 
-	$: normalizedQuery = query.trim().toLowerCase();
-	$: statusFilteredDownloads = (() => {
-		switch (statusFilter) {
-			case 'active':
-				return $downloads.filter((d) => d.status === 'downloading' || d.status === 'paused');
-			case 'pending':
-				return $downloads.filter((d) => d.status === 'pending');
-			case 'completed':
-				return $downloads.filter((d) => d.status === 'completed');
-			case 'failed':
-				return $downloads.filter((d) => d.status === 'failed' || d.status === 'cancelled');
-			default:
-				return $downloads;
-		}
-	})();
-	$: filteredDownloads = normalizedQuery
-		? statusFilteredDownloads.filter(
-				(d) =>
-					d.filename.toLowerCase().includes(normalizedQuery) || d.url.toLowerCase().includes(normalizedQuery)
-			)
-		: statusFilteredDownloads;
+	$: filteredDownloads = applyDownloaderFilters($downloads, filters);
+	$: filterChips = downloaderFilterChips(filters);
+	$: activeFilterCount = downloaderFilterActiveCount(filters);
 
 	// Bucketed in the mock's display order - active/paused surface without a
 	// header (it's "what's happening now"), the rest get a labelled group.
@@ -89,8 +74,6 @@
 	$: providerNameById = new Map(providers.map((p) => [p.id, p.name] as const));
 
 	$: selectedDownload = selectedId ? ($downloads.find((d) => d.id === selectedId) ?? null) : null;
-
-	$: activeFilterCount = Number(!!query.trim()) + Number(statusFilter !== 'all');
 
 	// Default selection to the first row once downloads have loaded; keeps
 	// whatever's already selected stable across WebSocket-driven updates.
@@ -141,15 +124,6 @@
 		downloaderWebSocket.disconnect();
 	});
 
-	function handleGlobalKeydown(e: KeyboardEvent) {
-		if (e.key !== '/') return;
-		const target = e.target as HTMLElement | null;
-		const tag = target?.tagName;
-		if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
-		e.preventDefault();
-		document.getElementById(SEARCH_INPUT_ID)?.focus();
-	}
-
 	function selectDownload(id: string) {
 		selectedId = id;
 	}
@@ -166,8 +140,7 @@
 	}
 
 	function clearFilters() {
-		query = '';
-		statusFilter = 'all';
+		filters = { ...DEFAULT_DOWNLOADER_FILTERS };
 	}
 
 	async function clearCompleted() {
@@ -182,8 +155,6 @@
 		}
 	}
 </script>
-
-<svelte:window on:keydown={handleGlobalKeydown} />
 
 <div class="flex min-h-[calc(100dvh-var(--header-h)-2rem)] flex-col gap-4 sm:min-h-[calc(100dvh-var(--header-h)-3rem)]">
 	<AdminTabShell
@@ -258,43 +229,39 @@
 			{/snippet}
 		</EmptyState>
 	{:else}
-		{#snippet downloadsSearch()}
-			<div class="relative flex-1 min-w-0">
-				<Icon name="search" className="w-3.5 h-3.5 text-fg-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-				<Input
-					id={SEARCH_INPUT_ID}
-					bind:value={query}
-					placeholder="Search downloads..."
-					class="pl-8 pr-8 text-sm h-8"
-				/>
-				{#if !query}
-					<span class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
-						<Kbd keys="/" />
-					</span>
-				{/if}
-			</div>
-		{/snippet}
-		{#snippet downloadStatusFilters()}
-			<div class="flex items-center gap-1 bg-surface-2 border border-line rounded p-0.5">
-				{#each statusFilters as f (f.id)}
-					<button
-						type="button"
-						class="px-2.5 py-1 text-xs font-medium rounded transition-colors {statusFilter === f.id
-							? 'bg-signal/10 text-signal'
-							: 'text-fg-muted hover:text-fg hover:bg-surface-3'}"
-						onclick={() => (statusFilter = f.id)}
+		<div class="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised">
+			<LibraryFilterBar
+				q={filters.q}
+				onQueryChange={(value) => (filters = { ...filters, q: value })}
+				searchPlaceholder="Search downloads…"
+				sortBy={filters.sortBy}
+				sortOptions={DOWNLOADER_SORT_OPTIONS}
+				onSortChange={(value) => (filters = { ...filters, sortBy: value as DownloadSortBy })}
+				filterCount={activeFilterCount}
+			>
+				{#snippet popover(close: () => void)}
+					<FilterPopoverFrame
+						label="Download filters"
+						onClearAll={() => (filters = clearAllDownloaderFilters(filters))}
+						onClose={close}
 					>
-						{f.label}
-					</button>
-				{/each}
-			</div>
-		{/snippet}
+						<SegmentedFilterGroup
+							label="Status"
+							options={DOWNLOAD_STATUS_OPTIONS}
+							value={filters.status}
+							onChange={(status: DownloadStatusFilter) => (filters = { ...filters, status })}
+						/>
+					</FilterPopoverFrame>
+				{/snippet}
+			</LibraryFilterBar>
+		</div>
 
-		<AdminFilterBar
-			search={downloadsSearch}
-			filters={downloadStatusFilters}
-			activeCount={activeFilterCount}
-			onClear={clearFilters}
+		<LibraryFilterChipRow
+			chips={filterChips}
+			onRemoveChip={(key) => (filters = clearDownloaderFilterChip(filters, key))}
+			onClearAll={() => (filters = clearAllDownloaderFilters(filters))}
+			loadedCount={filteredDownloads.length}
+			total={$downloads.length}
 		/>
 
 		<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">

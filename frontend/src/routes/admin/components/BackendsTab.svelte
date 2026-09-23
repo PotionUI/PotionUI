@@ -21,7 +21,7 @@
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { adminWebSocket } from '$lib/services/adminWebsocket';
 	import { timeAgo } from '$lib/utils/relativeTime';
-	import { Button, Badge, Spinner, EmptyState, Input, Switch, Alert } from '$lib/components/ui';
+	import { Button, Badge, Spinner, EmptyState, Switch, Alert } from '$lib/components/ui';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import BackendForm from './BackendForm.svelte';
@@ -31,8 +31,20 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import AdminTabShell from './AdminTabShell.svelte';
-	import AdminFilterBar from './AdminFilterBar.svelte';
+	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import LibraryFilterChipRow from '$lib/components/library/LibraryFilterChipRow.svelte';
 	import type { Backend, BackendHealth } from '$lib/services/admin-api';
+	import {
+		BACKENDS_SORT_OPTIONS,
+		DEFAULT_BACKENDS_FILTERS,
+		applyBackendsFilters,
+		backendsFilterActiveCount,
+		backendsFilterChips,
+		clearAllBackendsFilters,
+		clearBackendsFilterChip,
+		type BackendSortBy,
+		type BackendsFilters
+	} from './backendsFilters';
 	import BackendOptimizations from './BackendOptimizations.svelte';
 	import BackendQuickActions from './BackendQuickActions.svelte';
 	import BackendInfrastructureSection from './BackendInfrastructureSection.svelte';
@@ -64,7 +76,7 @@
 	let engines: EngineDescriptor[] = [];
 	let loading = true;
 	let error: string | null = null;
-	let searchQuery = '';
+	let filters: BackendsFilters = { ...DEFAULT_BACKENDS_FILTERS };
 	let selectedBackendId: string | null = null;
 	let showModal = false;
 	let showDeleteModal = false;
@@ -229,15 +241,13 @@
 		(h) => h.health.status === 'healthy' || h.health.status === 'online' || h.health.status === 'available'
 	).length;
 
-	// Backends grouped by engine, for a clearly-labeled layout. Search filters
-	// cards across the groups; total/enabled/healthy counts above stay based
+	// Backends grouped by engine, for a clearly-labeled layout. Search+sort
+	// apply across the groups; total/enabled/healthy counts above stay based
 	// on the full unfiltered list.
-	$: filteredBackends = backends.filter((b) => {
-		const q = searchQuery.trim().toLowerCase();
-		if (!q) return true;
-		return b.name?.toLowerCase().includes(q) || formatEngineName(b.engine).toLowerCase().includes(q);
-	});
+	$: filteredBackends = applyBackendsFilters(backends, filters, formatEngineName);
 	$: backendsByEngine = groupByEngine(filteredBackends);
+	$: filterChips = backendsFilterChips(filters);
+	$: activeFilterCount = backendsFilterActiveCount(filters);
 	// Derived from the full (unfiltered) list so the detail pane keeps showing
 	// the selected backend even while a search hides it from the list.
 	$: activeBackend = backends.find((b) => b.id === selectedBackendId) ?? null;
@@ -782,21 +792,24 @@
 		{/snippet}
 	</AdminTabShell>
 
-	{#snippet backendSearch()}
-		<div class="relative">
-			<Icon name="search" className="w-4 h-4 text-fg-subtle absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-			<Input bind:value={searchQuery} type="search" class="pl-9" placeholder="Search by name or engine…" aria-label="Search backends" />
-		</div>
-	{/snippet}
-	{#snippet backendSearchTrailing()}
-		<span class="text-sm text-fg-muted whitespace-nowrap font-mono tabular-nums">{filteredBackends.length} {filteredBackends.length === 1 ? 'backend' : 'backends'}</span>
-	{/snippet}
+	<div class="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised">
+		<LibraryFilterBar
+			q={filters.q}
+			onQueryChange={(value) => (filters = { ...filters, q: value })}
+			searchPlaceholder="Search by name or engine…"
+			sortBy={filters.sortBy}
+			sortOptions={BACKENDS_SORT_OPTIONS}
+			onSortChange={(value) => (filters = { ...filters, sortBy: value as BackendSortBy })}
+			filterCount={activeFilterCount}
+		/>
+	</div>
 
-	<AdminFilterBar
-		search={backendSearch}
-		trailing={backendSearchTrailing}
-		activeCount={searchQuery ? 1 : 0}
-		onClear={() => (searchQuery = '')}
+	<LibraryFilterChipRow
+		chips={filterChips}
+		onRemoveChip={(key) => (filters = clearBackendsFilterChip(filters, key))}
+		onClearAll={() => (filters = clearAllBackendsFilters(filters))}
+		loadedCount={filteredBackends.length}
+		total={backends.length}
 	/>
 
 	<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
@@ -837,7 +850,7 @@
 						{#snippet empty()}
 							<div class="p-4 h-full flex items-center justify-center">
 								<EmptyState title="No backends match your search" description="Try a different name or engine." icon="search" compact>
-									{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => (searchQuery = '')}>Clear search</Button>{/snippet}
+									{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => (filters = { ...filters, q: '' })}>Clear search</Button>{/snippet}
 								</EmptyState>
 							</div>
 						{/snippet}
@@ -962,7 +975,7 @@
 											{#if warningCount > 0}
 												<button
 													type="button"
-													class="flex items-center gap-1.5 text-2xs font-mono uppercase tracking-[0.05em] {hasDigestConflicts
+													class="flex items-center gap-1.5 text-xs font-mono uppercase tracking-[0.05em] {hasDigestConflicts
 														? 'text-danger'
 														: 'text-warning'} hover:underline"
 													onclick={() => toggleIndexWarnings(activeBackend.id)}
@@ -973,7 +986,7 @@
 													<span>{indexWarningsOpen[activeBackend.id] ? 'Hide' : 'Show'}</span>
 												</button>
 												{#if indexWarningsOpen[activeBackend.id]}
-													<ul class="space-y-1.5 text-2xs text-fg-subtle leading-relaxed">
+													<ul class="space-y-1.5 text-xs text-fg-subtle leading-relaxed">
 														{#each result.digest_conflicts as conflict}
 															<li class="font-mono text-danger">
 																Digest conflict: <span class="text-fg-muted">{conflict.filename}</span>
@@ -1086,17 +1099,17 @@
 											<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
 												<div class="text-center">
 													<div class="text-2xl font-mono tabular-nums font-semibold text-fg">{backendStats.indexed_models}</div>
-													<div class="font-mono text-2xs uppercase tracking-wider text-fg-muted mt-1">Indexed Models</div>
+													<div class="font-mono text-xs uppercase tracking-wider text-fg-muted mt-1">Indexed Models</div>
 												</div>
 												<div class="text-center">
 													<div class="text-2xl font-mono tabular-nums font-semibold text-fg">{backendStats.total_size_gb.toFixed(1)} GB</div>
-													<div class="font-mono text-2xs uppercase tracking-wider text-fg-muted mt-1">Total Size</div>
+													<div class="font-mono text-xs uppercase tracking-wider text-fg-muted mt-1">Total Size</div>
 												</div>
 												<div class="text-center">
 													<div class="text-2xl font-mono tabular-nums font-semibold text-fg">
 														{backendStats.last_indexed_at ? timeAgo(backendStats.last_indexed_at) : 'Never'}
 													</div>
-													<div class="font-mono text-2xs uppercase tracking-wider text-fg-muted mt-1">Last Indexed</div>
+													<div class="font-mono text-xs uppercase tracking-wider text-fg-muted mt-1">Last Indexed</div>
 												</div>
 											</div>
 										</DetailSection>

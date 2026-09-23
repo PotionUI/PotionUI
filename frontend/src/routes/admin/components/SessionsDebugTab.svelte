@@ -1,6 +1,9 @@
 <script lang="ts">
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { logger } from '$lib/utils/logger';
 	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import * as adminApi from '$lib/services/admin-api';
 	import type {
 		AdminChatSessionSummary,
@@ -15,46 +18,56 @@
 	import { debounce } from '$lib/stores/tabPersistence';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, Badge, EmptyState, Input, Spinner, Alert } from '$lib/components/ui';
+	import { Button, Badge, EmptyState, Spinner, Alert } from '$lib/components/ui';
 	import MasterDetailLayout from '$lib/components/master-detail/MasterDetailLayout.svelte';
 	import { Pane, PaneRow, PanePager } from '$lib/components/pane';
+	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
 	import AdminTabShell from './AdminTabShell.svelte';
-	import AdminFilterBar from './AdminFilterBar.svelte';
+	import {
+		SESSIONS_SORT_OPTIONS,
+		sessionsFiltersFromSearchParams,
+		sessionsFiltersToSearchParams,
+		type SessionsFilters
+	} from './sessionsFilters';
 
 	const PAGE_SIZE = 20;
+	const FILTER_PARAM_KEYS = ['q', 'sort_by'];
 
-	// Left pane: session list
 	let sessions: AdminChatSessionSummary[] = [];
 	let total = 0;
 	let offset = 0;
-	let searchQuery = '';
 	let listLoading = true;
 	let listError: string | null = null;
 	let tracingEnabled = true;
+	let lastFiltersKey = '';
 
-	// Right pane: selected session detail
 	let selectedSessionId: string | null = null;
 	let detail: AdminChatSessionDetailResult | null = null;
 	let detailLoading = false;
 	let detailError: string | null = null;
 
-	// Which trace cards are expanded, keyed by trace id.
 	let expandedTraces: Record<string, boolean> = {};
 
-	// Which metadata sub-sections are expanded, keyed by `${messageId}:tools` / `${messageId}:trace`.
 	let expandedSections: Record<string, boolean> = {};
 
 	let clearingScope: 'session' | 'all' | 'sessions' | null = null;
 
-	onMount(async () => {
-		await loadSessions();
-	});
+	$: filters = sessionsFiltersFromSearchParams($page.url.searchParams);
+	$: filtersKey = JSON.stringify(filters);
+
+	$: {
+		if (filtersKey !== lastFiltersKey) {
+			lastFiltersKey = filtersKey;
+			offset = 0;
+			loadSessions();
+		}
+	}
 
 	async function loadSessions() {
 		listLoading = true;
 		listError = null;
 		try {
-			const response = await adminApi.getAdminChatSessions(searchQuery, PAGE_SIZE, offset);
+			const response = await adminApi.getAdminChatSessions(filters.q, PAGE_SIZE, offset);
 			if (response.success && response.data) {
 				sessions = response.data.sessions;
 				total = response.data.total;
@@ -69,13 +82,21 @@
 		}
 	}
 
-	const debouncedSearch = debounce(() => {
-		offset = 0;
-		loadSessions();
-	}, 300);
+	function applyFilters(next: SessionsFilters) {
+		const url = new URL($page.url);
+		for (const key of FILTER_PARAM_KEYS) url.searchParams.delete(key);
+		for (const [key, value] of sessionsFiltersToSearchParams(next)) url.searchParams.set(key, value);
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	}
 
-	function onSearchInput() {
-		debouncedSearch();
+	const debouncedApplyFilters = debounce(applyFilters, 300);
+
+	function onQueryChange(value: string) {
+		debouncedApplyFilters({ ...filters, q: value });
+	}
+
+	function onSortChange(value: string) {
+		applyFilters({ ...filters, sortBy: value as SessionsFilters['sortBy'] });
 	}
 
 	function nextPage() {
@@ -252,28 +273,16 @@
 		{/snippet}
 	</AdminTabShell>
 
-	{#snippet sessionSearch()}
-		<div class="relative">
-			<Icon name="search" className="w-4 h-4 text-fg-subtle absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-			<Input
-				bind:value={searchQuery}
-				oninput={onSearchInput}
-				type="search"
-				class="pl-9"
-				placeholder="Search name, user, email…"
-				aria-label="Search chat sessions"
-			/>
-		</div>
-	{/snippet}
-
-	<AdminFilterBar
-		search={sessionSearch}
-		activeCount={searchQuery ? 1 : 0}
-		onClear={() => {
-			searchQuery = '';
-			onSearchInput();
-		}}
-	/>
+	<div class="rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised flex flex-wrap items-center gap-2">
+		<LibraryFilterBar
+			q={filters.q}
+			{onQueryChange}
+			searchPlaceholder="Search name, user, email…"
+			sortBy={filters.sortBy}
+			sortOptions={SESSIONS_SORT_OPTIONS}
+			{onSortChange}
+		/>
+	</div>
 
 	<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
 		<MasterDetailLayout leftWidth={320} minWidth={280} maxWidth={440} storageKey="admin-chat-sessions-width">
@@ -293,8 +302,8 @@
 							{:else}
 								<EmptyState
 									icon="chat"
-									title={searchQuery.trim() ? 'No sessions match your search' : 'No chat sessions yet'}
-									description={searchQuery.trim()
+									title={filters.q.trim() ? 'No sessions match your search' : 'No chat sessions yet'}
+									description={filters.q.trim()
 										? 'Try a different name, user, or email.'
 										: 'Chat sessions show up here once someone starts a conversation.'}
 									compact
@@ -313,12 +322,12 @@
 									</Badge>
 								</div>
 								<div class="flex items-center justify-between gap-2 text-xs text-fg-subtle">
-									<span class="truncate" title={session.email}>{session.username}</span>
+									<Tooltip text={session.email} wrapperClass="flex min-w-0"><span class="truncate">{session.username}</span></Tooltip>
 									<span class="font-mono tabular-nums flex-shrink-0">
 										{timeAgo(session.updated_at)}
 									</span>
 								</div>
-								<div class="text-2xs font-mono tabular-nums text-fg-subtle mt-0.5">
+								<div class="text-xs font-mono tabular-nums text-fg-subtle mt-0.5">
 									{session.message_count} msg{session.message_count === 1 ? '' : 's'}
 								</div>
 							{/snippet}
@@ -356,7 +365,6 @@
 					</div>
 				{:else if detail}
 					<div class="p-4 sm:p-5 space-y-4">
-						<!-- Session header -->
 						<div class="flex items-start justify-between gap-3 pb-3 border-b border-line">
 							<div>
 								<h2 class="text-base font-semibold text-fg">{detail.session.name || 'Untitled'}</h2>
@@ -387,7 +395,6 @@
 							</p>
 						{/if}
 
-						<!-- Messages -->
 						{#each detail.session.messages as message (message.id)}
 							{@const traces = tracesForMessage(message.id)}
 							{@const metadata = message.metadata}
@@ -396,7 +403,7 @@
 									<Badge variant={message.role === 'user' ? 'signal' : 'neutral'} size="sm" class="uppercase">
 										{message.role}
 									</Badge>
-									<span class="text-2xs font-mono tabular-nums text-fg-subtle">
+									<span class="text-xs font-mono tabular-nums text-fg-subtle">
 										{message.created_at}
 									</span>
 								</div>
@@ -420,7 +427,6 @@
 							</div>
 						{/each}
 
-						<!-- Unattributed calls -->
 						{#if unattributedTraces.length > 0}
 							<div>
 								<h3 class="text-xs font-mono uppercase tracking-[0.07em] text-fg-subtle mb-2">
@@ -449,7 +455,7 @@
 	{@const traceOpen = !!expandedSections[traceKey]}
 
 	{#if metadata.model || metadata.tokens_used != null || metadata.prompt_tokens != null}
-		<div class="text-2xs font-mono tabular-nums text-fg-subtle flex flex-wrap items-center gap-x-2">
+		<div class="text-xs font-mono tabular-nums text-fg-subtle flex flex-wrap items-center gap-x-2">
 			{#if metadata.model}<span>{metadata.model}</span>{/if}
 			{#if metadata.prompt_tokens != null || metadata.completion_tokens != null}
 				<span>{metadata.prompt_tokens ?? '?'}→{metadata.completion_tokens ?? '?'} tok</span>
@@ -480,7 +486,7 @@
 						<div class="mt-2">
 							<div class="flex items-center gap-2 mb-1">
 								<Badge variant="neutral" size="sm" class="font-mono">{te.tool_name}</Badge>
-								<span class="text-2xs font-mono tabular-nums text-fg-subtle">{te.duration_ms}ms</span>
+								<span class="text-xs font-mono tabular-nums text-fg-subtle">{te.duration_ms}ms</span>
 								{#if te.result && !te.result.success}
 									<Badge variant="danger" size="sm">failed</Badge>
 								{/if}
@@ -517,7 +523,7 @@
 			</button>
 			{#if traceOpen}
 				<div class="px-2.5 pb-2.5 space-y-3 border-t border-line">
-					<div class="mt-2 flex flex-wrap gap-1.5 text-2xs">
+					<div class="mt-2 flex flex-wrap gap-1.5 text-xs">
 						<Badge variant="neutral" size="sm" class="font-mono">mode: {behaviorTrace.mode ?? '—'}</Badge>
 						<Badge variant="neutral" size="sm" class="font-mono">
 							system: {behaviorTrace.system_prompt_source}
@@ -526,7 +532,7 @@
 
 					{#if behaviorTrace.steps.length > 0}
 						<div>
-							<p class="text-2xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">Steps</p>
+							<p class="text-xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">Steps</p>
 							<div class="space-y-1">
 								{#each behaviorTrace.steps as step, i (i)}
 									<div class="flex items-center justify-between text-xs font-mono text-fg-muted">
@@ -549,7 +555,7 @@
 
 					{#if behaviorTrace.tools_used.length > 0}
 						<div>
-							<p class="text-2xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">
+							<p class="text-xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">
 								Tools used
 							</p>
 							<div class="flex flex-wrap gap-1">
@@ -562,7 +568,7 @@
 
 					{#if behaviorTrace.resources.length > 0}
 						<div>
-							<p class="text-2xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">
+							<p class="text-xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">
 								Resources
 							</p>
 							<div class="flex flex-wrap gap-1">
@@ -575,7 +581,7 @@
 
 					{#if behaviorTrace.memory}
 						<div>
-							<p class="text-2xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">Memory</p>
+							<p class="text-xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">Memory</p>
 							<pre
 								class="text-xs font-mono whitespace-pre-wrap overflow-x-auto overflow-y-auto max-h-32 bg-surface-1 border border-line rounded p-2 text-fg-muted">{pretty(behaviorTrace.memory)}</pre>
 						</div>
@@ -608,7 +614,7 @@
 			<div class="px-2.5 pb-2.5 space-y-3 border-t border-line">
 				{#if trace.request_system}
 					<div>
-						<p class="text-2xs font-mono uppercase tracking-[0.05em] text-fg-subtle mt-2 mb-1">
+						<p class="text-xs font-mono uppercase tracking-[0.05em] text-fg-subtle mt-2 mb-1">
 							System prompt
 						</p>
 						<pre
@@ -617,14 +623,12 @@
 				{/if}
 
 				<div>
-					<p class="text-2xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">
+					<p class="text-xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">
 						Request messages
 					</p>
 					<div class="overflow-y-auto max-h-64 space-y-1.5">
 						{#each trace.request_messages as m, i (i)}
 							{#if m.role === 'system' && typeof m.content === 'string' && m.content === trace.request_system}
-								<!-- The system prompt is sent once, as this first message; the
-								     panel above is the same text, so don't repeat it here. -->
 								<pre
 									class="text-xs font-mono whitespace-pre-wrap overflow-x-auto bg-surface-1 border border-line rounded p-2 text-fg-subtle italic"><span class="text-fg font-medium not-italic">{m.role}:</span> same text as the System prompt panel above (this is its actual position in the request — it is sent once)</pre>
 							{:else}
@@ -636,7 +640,7 @@
 				</div>
 
 				<div>
-					<p class="text-2xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">
+					<p class="text-xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">
 						Request params
 					</p>
 					<pre
@@ -645,7 +649,7 @@
 
 				{#if trace.request_tools && trace.request_tools.length > 0}
 					<div>
-						<p class="text-2xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">
+						<p class="text-xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">
 							Tools offered
 						</p>
 						<div class="flex flex-wrap gap-1">
@@ -658,7 +662,7 @@
 
 				{#if trace.response_text}
 					<div>
-						<p class="text-2xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">
+						<p class="text-xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">
 							Response text
 						</p>
 						<pre
@@ -668,7 +672,7 @@
 
 				{#if trace.response_tool_calls && trace.response_tool_calls.length > 0}
 					<div>
-						<p class="text-2xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">
+						<p class="text-xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">
 							Response tool calls
 						</p>
 						<pre

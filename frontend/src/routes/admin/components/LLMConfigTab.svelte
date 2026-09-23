@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import { api } from '$lib/services/api/index';
 	import * as adminApi from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
@@ -8,22 +10,29 @@
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Button, Badge, Spinner, EmptyState, Input, IconButton } from '$lib/components/ui';
+	import { Button, Badge, Spinner, EmptyState, IconButton } from '$lib/components/ui';
 	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
 	import { Pane, PaneRow } from '$lib/components/pane';
 	import { DetailHeader, DetailTabs, DetailBody, DetailFooter } from '$lib/components/detail';
+	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
 	import AdminTabShell from './AdminTabShell.svelte';
-	import AdminFilterBar from './AdminFilterBar.svelte';
 	import LLMConfigForm, { type LLMConfigFormData } from './LLMConfigForm.svelte';
 	import AssignmentCard from '$lib/components/assignment/AssignmentCard.svelte';
 	import { createLLMAssignmentAdapter } from '$lib/components/assignment/llmAssignmentAdapter';
 	import LLMConfigToolsetPanel from './LLMConfigToolsetPanel.svelte';
 	import type { PreChatAction } from '$lib/types/llm';
 	import type { AssignmentSummary } from '$lib/services/admin-api';
+	import {
+		LLM_CONFIG_SORT_OPTIONS,
+		applyLLMConfigFilters,
+		llmConfigFiltersFromSearchParams,
+		llmConfigFiltersToSearchParams,
+		type LLMConfigFilters,
+		type LLMConfigSortBy
+	} from './llmConfigFilters';
 
 	let configurations: any[] = [];
 	let loading = true;
-	let searchQuery = '';
 	let selectedConfigId: string | null = null;
 	let showConfigModal = false;
 	let preChatActions: PreChatAction[] = [];
@@ -91,12 +100,20 @@ Always be creative and helpful while staying focused on the image generation con
 			]
 		: [];
 
+	let llmConfigFiltersDebounce: ReturnType<typeof setTimeout> | undefined;
+	function updateLLMConfigFilters(next: LLMConfigFilters) {
+		clearTimeout(llmConfigFiltersDebounce);
+		llmConfigFiltersDebounce = setTimeout(() => {
+			const url = new URL($page.url);
+			for (const key of ['q', 'sort_by']) url.searchParams.delete(key);
+			for (const [key, value] of llmConfigFiltersToSearchParams(next)) url.searchParams.set(key, value);
+			void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+		}, 250);
+	}
+
 	$: enabledCount = configurations.filter(c => c.enabled).length;
-	$: filteredConfigurations = configurations.filter((c) => {
-		const q = searchQuery.trim().toLowerCase();
-		if (!q) return true;
-		return c.name?.toLowerCase().includes(q) || c.model?.toLowerCase().includes(q);
-	});
+	$: llmConfigFilters = llmConfigFiltersFromSearchParams($page.url.searchParams);
+	$: filteredConfigurations = applyLLMConfigFilters(configurations, llmConfigFilters);
 	// Derived from the full (unfiltered) list so the detail pane keeps showing
 	// the selected item even while a search hides it from the list.
 	$: activeConfig = configurations.find((c) => c.id === selectedConfigId) ?? null;
@@ -253,22 +270,17 @@ Always be creative and helpful while staying focused on the image generation con
 		{/snippet}
 	</AdminTabShell>
 
-	{#snippet configSearch()}
-		<div class="relative">
-			<Icon name="search" className="w-4 h-4 text-fg-subtle absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-			<Input bind:value={searchQuery} type="search" class="pl-9" placeholder="Search by name or model…" aria-label="Search LLM configurations" />
-		</div>
-	{/snippet}
-	{#snippet configSearchTrailing()}
-		<span class="text-sm text-fg-muted whitespace-nowrap font-mono tabular-nums">{filteredConfigurations.length} {filteredConfigurations.length === 1 ? 'configuration' : 'configurations'}</span>
-	{/snippet}
-
-	<AdminFilterBar
-		search={configSearch}
-		trailing={configSearchTrailing}
-		activeCount={searchQuery ? 1 : 0}
-		onClear={() => (searchQuery = '')}
-	/>
+	<div class="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised">
+		<LibraryFilterBar
+			q={llmConfigFilters.q}
+			onQueryChange={(value) => updateLLMConfigFilters({ ...llmConfigFilters, q: value })}
+			searchPlaceholder="Search by name or model…"
+			sortBy={llmConfigFilters.sortBy}
+			sortOptions={LLM_CONFIG_SORT_OPTIONS}
+			onSortChange={(value) => updateLLMConfigFilters({ ...llmConfigFilters, sortBy: value as LLMConfigSortBy })}
+		/>
+		<span class="ml-auto text-sm text-fg-muted whitespace-nowrap font-mono tabular-nums">{filteredConfigurations.length} {filteredConfigurations.length === 1 ? 'configuration' : 'configurations'}</span>
+	</div>
 
 	<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
 		{#if loading}
@@ -304,7 +316,7 @@ Always be creative and helpful while staying focused on the image generation con
 						{#snippet empty()}
 							<div class="p-4 h-full flex items-center justify-center">
 								<EmptyState icon="search" title="No matches" description="Try a different name or model." compact>
-									{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => (searchQuery = '')}>Clear search</Button>{/snippet}
+									{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => updateLLMConfigFilters({ ...llmConfigFilters, q: '' })}>Clear search</Button>{/snippet}
 								</EmptyState>
 							</div>
 						{/snippet}
@@ -322,9 +334,9 @@ Always be creative and helpful while staying focused on the image generation con
 										<Badge variant="warning" size="sm">Vision</Badge>
 									{/if}
 									{#if !(assignmentSummary[config.id]?.assignment_count || 0) && !(assignmentSummary[config.id]?.group_count || 0)}
-										<span title="Only admins can see this — assign users or groups">
+										<Tooltip text="Only admins can see this — assign users or groups">
 											<Badge variant="warning" size="sm">Unassigned</Badge>
-										</span>
+										</Tooltip>
 									{/if}
 								{/snippet}
 								<PaneRow

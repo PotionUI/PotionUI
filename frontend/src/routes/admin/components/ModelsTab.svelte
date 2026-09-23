@@ -26,9 +26,25 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button, IconButton, Badge, Spinner, EmptyState, Pagination, SegmentedControl } from '$lib/components/ui';
+	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import LibraryFilterChipRow from '$lib/components/library/LibraryFilterChipRow.svelte';
+	import FilterPopoverFrame from '$lib/components/library/FilterPopoverFrame.svelte';
 	import AdminTabShell from './AdminTabShell.svelte';
-	import AdminFilterBar from './AdminFilterBar.svelte';
 	import AttributesTab from './AttributesTab.svelte';
+	import {
+		DEFAULT_MODELS_FILTERS,
+		MODELS_SORT_OPTIONS,
+		clearAllModelsFilters,
+		clearModelsFilterChip,
+		modelsFilterActiveCount,
+		modelsFilterChips,
+		modelsFiltersFromSearchParams,
+		modelsFiltersToSearchParams,
+		modelsHasActiveFilters,
+		modelsSortParams,
+		type ModelsFilters,
+		type ModelsSortBy
+	} from './modelsFilters';
 
 	type View = 'models' | 'attributes';
 
@@ -80,14 +96,9 @@
 	let modelTypes: ModelTypeInfo[] = [];
 	let availableModelTypes: string[] = []; // From dictionary endpoint
 	let loading = true;
-	let selectedType = 'all';
-	let selectedTags: string[] = [];
 	let availableTags: ModelTag[] = [];
-	let searchQuery = '';
 	let tagSearchQuery = '';
 	let isTagDropdownOpen = false;
-	let sortBy = 'indexed_at';
-	let sortOrder = 'desc';
 	let unindexedCount: UnindexedModelsCount | null = null;
 	let currentPage = 1;
 	let pageSize = 30;
@@ -133,20 +144,31 @@
 		};
 	});
 
-	// Reload models when filters change
-	$: if (!loading) {
-		loadModels();
+	$: filters = modelsFiltersFromSearchParams($page.url.searchParams);
+
+	// Reload models when the URL-derived filters change, but only while the
+	// models grid (not the embedded Attributes view) is showing.
+	$: {
+		filters;
+		if (!loading && view === 'models') loadModels();
 	}
 
-	$: {
-		// Trigger reload on these dependencies
-		currentPage;
-		selectedType;
-		searchQuery;
-		selectedTags;
-		sortBy;
-		sortOrder;
-		if (!loading) loadModels();
+	let filtersDebounce: ReturnType<typeof setTimeout> | undefined;
+
+	function buildModelsUrl(next: ModelsFilters): string {
+		const params = new URLSearchParams($page.url.searchParams);
+		for (const key of ['q', 'type', 'tags', 'sort_by']) params.delete(key);
+		for (const [key, value] of modelsFiltersToSearchParams(next)) params.set(key, value);
+		const query = params.toString();
+		return query ? `${$page.url.pathname}?${query}` : $page.url.pathname;
+	}
+
+	function updateFilters(next: ModelsFilters) {
+		currentPage = 1;
+		clearTimeout(filtersDebounce);
+		filtersDebounce = setTimeout(() => {
+			void goto(buildModelsUrl(next), { replaceState: true, keepFocus: true, noScroll: true });
+		}, 250);
 	}
 
 	async function loadData() {
@@ -170,12 +192,13 @@
 
 	async function loadModels() {
 		try {
+			const { sort_by, sort_order } = modelsSortParams(filters.sortBy);
 			const response = await api.getModels({
-				model_type: selectedType === 'all' ? undefined : selectedType,
-				search: searchQuery || undefined,
-				tag_ids: selectedTags.length > 0 ? selectedTags.join(',') : undefined,
-				sort_by: sortBy,
-				sort_order: sortOrder,
+				model_type: filters.type === 'all' ? undefined : filters.type,
+				search: filters.q || undefined,
+				tag_ids: filters.tags.length > 0 ? filters.tags.join(',') : undefined,
+				sort_by,
+				sort_order,
 				include_tags: true,
 				limit: pageSize,
 				offset: (currentPage - 1) * pageSize,
@@ -355,17 +378,14 @@
 	}
 
 	function handleToggleTag(tagId: string) {
-		if (selectedTags.includes(tagId)) {
-			selectedTags = selectedTags.filter((id) => id !== tagId);
-		} else {
-			selectedTags = [...selectedTags, tagId];
-		}
-		currentPage = 1;
+		const next = filters.tags.includes(tagId)
+			? filters.tags.filter((id) => id !== tagId)
+			: [...filters.tags, tagId];
+		updateFilters({ ...filters, tags: next });
 	}
 
 	function handleRemoveTag(tagId: string) {
-		selectedTags = selectedTags.filter((id) => id !== tagId);
-		currentPage = 1;
+		updateFilters({ ...filters, tags: filters.tags.filter((id) => id !== tagId) });
 	}
 
 	let deletingTagId: string | null = null;
@@ -382,7 +402,7 @@
 			const response = await api.deleteTag(tag.id);
 			if (!response.success) throw new Error(response.message || 'Could not delete tag');
 			availableTags = availableTags.filter((t) => t.id !== tag.id);
-			selectedTags = selectedTags.filter((id) => id !== tag.id);
+			if (filters.tags.includes(tag.id)) updateFilters({ ...filters, tags: filters.tags.filter((id) => id !== tag.id) });
 			toasts.success(`Tag "${tag.name}" deleted`);
 		} catch (error: unknown) {
 			if (isAxiosError<{ used_by?: TagUsageRef[] }>(error) && error.response?.status === 409) {
@@ -403,12 +423,9 @@
 	);
 
 	$: totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-	$: activeFilterCount = Number(!!searchQuery.trim()) + Number(selectedType !== 'all');
-	function clearPrimaryFilters() {
-		searchQuery = '';
-		selectedType = 'all';
-		currentPage = 1;
-	}
+	$: activeFilterCount = modelsFilterActiveCount(filters);
+	$: filterChips = modelsFilterChips(filters, availableTags);
+	$: hasActiveFilters = modelsHasActiveFilters(filters);
 </script>
 
 <div class="space-y-4">
@@ -441,139 +458,118 @@
 	{/snippet}
 	</AdminTabShell>
 
-	<!-- Per-backend numbers (indexed models / size) live on each backend's own Stats tab in Backends. -->
-	{#snippet modelsSearch()}
-			<div class="relative">
-				<Icon name="search" className="h-4 w-4 text-fg-subtle absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-				<input
-					type="text"
-					placeholder="Search by filename..."
-					bind:value={searchQuery}
-					on:input={() => (currentPage = 1)}
-					class="input pl-10 w-full"
-				/>
-			</div>
-		{/snippet}
-		{#snippet modelsFilters()}
-			<div class="flex items-center gap-2">
-				<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Type</span>
-				<select
-					bind:value={selectedType}
-					on:change={() => (currentPage = 1)}
-					class="input w-48"
-				>
-					<option value="all">All Types</option>
-					{#each modelTypes as type}
-						<option value={type.type}>{type.type.toUpperCase()} ({type.count})</option>
-					{/each}
-				</select>
-			</div>
-			<div class="flex items-center gap-2">
-				<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Sort</span>
-				<select
-					bind:value={sortBy}
-					on:change={() => (currentPage = 1)}
-					class="input w-40"
-				>
-					<option value="indexed_at">Indexed Date</option>
-					<option value="modified_at">Modified Date</option>
-					<option value="filename">Filename</option>
-					<option value="file_size">File Size</option>
-				</select>
-				<select
-					bind:value={sortOrder}
-					on:change={() => (currentPage = 1)}
-					class="input w-32"
-				>
-					<option value="desc">Newest First</option>
-					<option value="asc">Oldest First</option>
-				</select>
-			</div>
-		{/snippet}
-
-		<AdminFilterBar
-			search={modelsSearch}
-			filters={modelsFilters}
-			activeCount={activeFilterCount}
-			onClear={clearPrimaryFilters}
-		/>
-
-		<!-- Tags are a richer stateful control (its own dropdown + selected-tag
-		     chips) than the select/text controls AdminFilterBar's popover
-		     duplicates safely, so it stays its own row rather than joining the
-		     collapse group. -->
-		<div class="bg-surface-1 rounded-lg border border-line shadow-raised p-4 mb-6">
-			<div class="flex items-start gap-4">
-				<div bind:this={tagDropdownRef} class="relative w-64">
-					<input
-						type="text"
-						placeholder="Filter by tags..."
-						bind:value={tagSearchQuery}
-						on:focus={() => (isTagDropdownOpen = true)}
-						class="input"
-					/>
-
-					{#if isTagDropdownOpen}
-						<div
-							class="absolute top-full left-0 right-0 z-50 mt-1 bg-surface-1 border border-line-strong rounded-lg shadow-floating max-h-64 overflow-auto"
-						>
-							{#if filteredTags.length === 0}
-								<div class="p-2 text-sm text-fg-subtle text-center">No tags found</div>
-							{:else}
-								{#each filteredTags as tag}
-									<div
-										class="w-full flex items-center gap-1 pr-1 hover:bg-surface-3 {selectedTags.includes(tag.id)
-											? 'bg-surface-2 text-fg'
-											: ''}"
-									>
-										<button
-											type="button"
-											class="flex-1 min-w-0 text-left px-3 py-2 text-sm flex items-center justify-between"
-											on:click={() => handleToggleTag(tag.id)}
-										>
-											<span class="truncate">{tag.name}</span>
-											<span class="text-fg-subtle ml-2 flex-shrink-0">
-												{tag.model_count ? `(${tag.model_count})` : ''}
-											</span>
-										</button>
-										<IconButton
-											icon="trash"
-											label={`Delete tag ${tag.name}`}
-											size="sm"
-											class="flex-shrink-0 hover:text-danger"
-											disabled={deletingTagId === tag.id}
-											onclick={(e) => handleDeleteTag(tag, e)}
-										/>
-									</div>
+	<div class="rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised flex flex-wrap items-center gap-2">
+			<LibraryFilterBar
+				q={filters.q}
+				onQueryChange={(value) => updateFilters({ ...filters, q: value })}
+				searchPlaceholder="Search by filename…"
+				sortBy={filters.sortBy}
+				sortOptions={MODELS_SORT_OPTIONS}
+				onSortChange={(value) => updateFilters({ ...filters, sortBy: value as ModelsSortBy })}
+				filterCount={activeFilterCount}
+			>
+				{#snippet popover(close: () => void)}
+					<FilterPopoverFrame
+						label="Model filters"
+						onClearAll={() => updateFilters(clearAllModelsFilters(filters))}
+						onClose={close}
+					>
+						<div class="col-span-2 flex flex-col gap-1.5">
+							<span class="text-xs font-medium text-fg-muted">Type</span>
+							<select
+								class="input"
+								value={filters.type}
+								on:change={(event) =>
+									updateFilters({ ...filters, type: (event.currentTarget as HTMLSelectElement).value })}
+							>
+								<option value="all">All Types</option>
+								{#each modelTypes as type (type.type)}
+									<option value={type.type}>{type.type.toUpperCase()} ({type.count})</option>
 								{/each}
+							</select>
+						</div>
+
+						<div class="col-span-2 flex flex-col gap-1.5">
+							<span class="text-xs font-medium text-fg-muted">Tags</span>
+							<div bind:this={tagDropdownRef} class="relative">
+								<input
+									type="text"
+									placeholder="Filter by tags…"
+									bind:value={tagSearchQuery}
+									on:focus={() => (isTagDropdownOpen = true)}
+									class="input"
+								/>
+
+								{#if isTagDropdownOpen}
+									<div
+										class="absolute top-full left-0 right-0 z-50 mt-1 bg-surface-1 border border-line-strong rounded-lg shadow-floating max-h-48 overflow-auto"
+									>
+										{#if filteredTags.length === 0}
+											<div class="p-2 text-sm text-fg-subtle text-center">No tags found</div>
+										{:else}
+											{#each filteredTags as tag (tag.id)}
+												<div
+													class="w-full flex items-center gap-1 pr-1 hover:bg-surface-3 {filters.tags.includes(tag.id)
+														? 'bg-surface-2 text-fg'
+														: ''}"
+												>
+													<button
+														type="button"
+														class="flex-1 min-w-0 text-left px-3 py-2 text-sm flex items-center justify-between"
+														on:click={() => handleToggleTag(tag.id)}
+													>
+														<span class="truncate">{tag.name}</span>
+														<span class="text-fg-subtle ml-2 flex-shrink-0">
+															{tag.model_count ? `(${tag.model_count})` : ''}
+														</span>
+													</button>
+													<IconButton
+														icon="trash"
+														label={`Delete tag ${tag.name}`}
+														size="sm"
+														class="flex-shrink-0 hover:text-danger"
+														disabled={deletingTagId === tag.id}
+														onclick={(e) => handleDeleteTag(tag, e)}
+													/>
+												</div>
+											{/each}
+										{/if}
+									</div>
+								{/if}
+							</div>
+
+							{#if filters.tags.length > 0}
+								<div class="flex flex-wrap gap-1.5">
+									{#each filters.tags as tagId (tagId)}
+										{@const tag = availableTags.find((t) => t.id === tagId)}
+										{#if tag}
+											<Badge variant="neutral">
+												{tag.name}
+												<button type="button" on:click={() => handleRemoveTag(tagId)} aria-label={`Remove tag ${tag.name}`}>
+													<Icon name="close" className="w-3 h-3" />
+												</button>
+											</Badge>
+										{/if}
+									{/each}
+								</div>
 							{/if}
 						</div>
-					{/if}
-				</div>
-
-				<!-- Selected Tags Display -->
-				{#if selectedTags.length > 0}
-					<div class="flex-1 flex flex-wrap gap-1 items-center">
-						<span class="text-sm text-fg-muted mr-2">Selected:</span>
-						{#each selectedTags as tagId}
-							{@const tag = availableTags.find((t) => t.id === tagId)}
-							{#if tag}
-								<Badge variant="neutral">
-									{tag.name}
-									<button on:click={() => handleRemoveTag(tagId)} aria-label="Remove tag">
-										<Icon name="close" className="w-3 h-3" />
-									</button>
-								</Badge>
-							{/if}
-						{/each}
-					</div>
-				{/if}
-			</div>
+					</FilterPopoverFrame>
+				{/snippet}
+			</LibraryFilterBar>
 		</div>
+
+		<LibraryFilterChipRow
+			chips={filterChips}
+			onRemoveChip={(key) => updateFilters(clearModelsFilterChip(filters, key))}
+			onClearAll={() => updateFilters(clearAllModelsFilters(filters))}
+			loadedCount={models.length}
+			total={totalCount}
+		/>
 
 		{#if selectionMode}
 			<div class="flex items-center gap-3 rounded-lg border border-line-strong bg-surface-2 px-4 py-2">
-				<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">
+				<span class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">
 					<span class="tabular-nums text-fg">{selectedModelIds.length}</span> selected
 				</span>
 				<Button variant="ghost" size="sm" onclick={selectAllModelsOnPage}>Select all on page</Button>
@@ -625,24 +621,14 @@
 		{:else}
 			<EmptyState
 				icon="model"
-				title={searchQuery || selectedType !== 'all' || selectedTags.length > 0
-					? 'No models match your filters'
-					: 'No models indexed yet'}
-				description={searchQuery || selectedType !== 'all' || selectedTags.length > 0
+				title={hasActiveFilters ? 'No models match your filters' : 'No models indexed yet'}
+				description={hasActiveFilters
 					? "Try adjusting your search criteria or filters to find what you're looking for."
 					: 'Index models from the backend that loads them. They will appear in this gallery once found.'}
 			>
 				{#snippet actions()}
-					{#if searchQuery || selectedType !== 'all' || selectedTags.length > 0}
-						<Button
-							variant="secondary"
-							icon="close"
-							onclick={() => {
-								searchQuery = '';
-								selectedType = 'all';
-								selectedTags = [];
-							}}
-						>
+					{#if hasActiveFilters}
+						<Button variant="secondary" icon="close" onclick={() => updateFilters(DEFAULT_MODELS_FILTERS)}>
 							Clear All Filters
 						</Button>
 					{:else}
@@ -654,10 +640,16 @@
 			</EmptyState>
 		{/if}
 
-		<!-- Pagination -->
 		{#if totalCount > pageSize && models.length > 0}
 			<div class="flex justify-center items-center mt-8">
-				<Pagination {currentPage} {totalPages} onPageChange={(page) => (currentPage = page)} />
+				<Pagination
+					{currentPage}
+					{totalPages}
+					onPageChange={(page) => {
+						currentPage = page;
+						loadModels();
+					}}
+				/>
 			</div>
 		{/if}
 

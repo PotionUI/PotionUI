@@ -1407,6 +1407,8 @@ export interface AdminGenerationsParams {
 	search?: string;
 	createdFrom?: string;
 	createdTo?: string;
+	sortBy?: string;
+	sortDir?: string;
 }
 
 export async function getAdminGenerations(
@@ -1420,7 +1422,9 @@ export async function getAdminGenerations(
 			user_id: params.userId || undefined,
 			search: params.search || undefined,
 			created_from: params.createdFrom || undefined,
-			created_to: params.createdTo || undefined
+			created_to: params.createdTo || undefined,
+			sort_by: params.sortBy || undefined,
+			sort_dir: params.sortDir || undefined
 		}
 	});
 	return response.data;

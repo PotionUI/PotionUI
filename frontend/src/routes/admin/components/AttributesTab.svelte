@@ -8,6 +8,8 @@
 -->
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import { api } from '$lib/services/api/index';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
@@ -21,8 +23,8 @@
 	import { DetailHeader, DetailBody, DetailFooter } from '$lib/components/detail';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
 	import AdminTabShell from './AdminTabShell.svelte';
-	import AdminFilterBar from './AdminFilterBar.svelte';
 	import type { AttributeDefinition } from '$lib/types/models';
 	import {
 		buildAttributeDefinitionPayload,
@@ -30,13 +32,21 @@
 		emptyAttributeDraft,
 		type AttributeDraft
 	} from './attributeDefinitionForm';
+	import {
+		ATTRIBUTES_SORT_OPTIONS,
+		applyAttributesFilters,
+		attributesFiltersFromSearchParams,
+		attributesFiltersToSearchParams,
+		type AttributesFilters,
+		type AttributesSortBy
+	} from './attributesFilters';
 
 	let definitions: AttributeDefinition[] = [];
 	let modelTypeOptions: string[] = [];
 	let loading = true;
 	let error: string | null = null;
-	let searchQuery = '';
 	let selectedId: string | null = null;
+	let filtersDebounce: ReturnType<typeof setTimeout> | undefined;
 
 	let showCreateModal = false;
 	let createDraft: AttributeDraft = emptyAttributeDraft();
@@ -53,13 +63,25 @@
 	$: activeDefinition = definitions.find((d) => d.id === selectedId) ?? null;
 	$: editDirty = JSON.stringify(editDraft) !== editSnapshot;
 
-	$: filteredDefinitions = definitions.filter((d) => {
-		const q = searchQuery.trim().toLowerCase();
-		if (!q) return true;
-		return d.key.toLowerCase().includes(q) || d.label.toLowerCase().includes(q);
-	});
+	$: filters = attributesFiltersFromSearchParams($page.url.searchParams);
+	$: filteredDefinitions = applyAttributesFilters(definitions, filters);
 	$: systemDefinitions = filteredDefinitions.filter((d) => d.system);
 	$: customDefinitions = filteredDefinitions.filter((d) => !d.system);
+
+	function buildAttributesUrl(next: AttributesFilters): string {
+		const params = new URLSearchParams($page.url.searchParams);
+		for (const key of ['q', 'sort_by']) params.delete(key);
+		for (const [key, value] of attributesFiltersToSearchParams(next)) params.set(key, value);
+		const query = params.toString();
+		return query ? `${$page.url.pathname}?${query}` : $page.url.pathname;
+	}
+
+	function updateFilters(next: AttributesFilters) {
+		clearTimeout(filtersDebounce);
+		filtersDebounce = setTimeout(() => {
+			void goto(buildAttributesUrl(next), { replaceState: true, keepFocus: true, noScroll: true });
+		}, 250);
+	}
 
 	$: totalCount = definitions.length;
 	$: systemCount = definitions.filter((d) => d.system).length;
@@ -233,30 +255,19 @@
 		{/snippet}
 	</AdminTabShell>
 
-	{#snippet attributeSearch()}
-		<div class="relative">
-			<Icon name="search" className="w-4 h-4 text-fg-subtle absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-			<input
-				bind:value={searchQuery}
-				type="search"
-				class="input pl-9"
-				placeholder="Search by key or label…"
-				aria-label="Search attributes"
-			/>
-		</div>
-	{/snippet}
-	{#snippet attributeSearchTrailing()}
-		<span class="text-sm text-fg-muted whitespace-nowrap font-mono tabular-nums">
+	<div class="rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised flex flex-wrap items-center gap-2">
+		<LibraryFilterBar
+			q={filters.q}
+			onQueryChange={(value) => updateFilters({ ...filters, q: value })}
+			searchPlaceholder="Search by key or label…"
+			sortBy={filters.sortBy}
+			sortOptions={ATTRIBUTES_SORT_OPTIONS}
+			onSortChange={(value) => updateFilters({ ...filters, sortBy: value as AttributesSortBy })}
+		/>
+		<span class="ml-auto font-mono text-xs tabular-nums text-fg-subtle whitespace-nowrap">
 			{filteredDefinitions.length} {filteredDefinitions.length === 1 ? 'attribute' : 'attributes'}
 		</span>
-	{/snippet}
-
-	<AdminFilterBar
-		search={attributeSearch}
-		trailing={attributeSearchTrailing}
-		activeCount={searchQuery ? 1 : 0}
-		onClear={() => (searchQuery = '')}
-	/>
+	</div>
 
 	<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
 		{#if loading}
@@ -296,7 +307,7 @@
 						{#snippet empty()}
 							<div class="p-4 h-full flex items-center justify-center">
 								<EmptyState title="No attributes match your search" description="Try a different key or label." icon="search" compact>
-									{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => (searchQuery = '')}>Clear search</Button>{/snippet}
+									{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => updateFilters({ ...filters, q: '' })}>Clear search</Button>{/snippet}
 								</EmptyState>
 							</div>
 						{/snippet}

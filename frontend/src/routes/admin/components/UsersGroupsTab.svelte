@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import * as adminApi from '$lib/services/admin-api';
 	import { api } from '$lib/services/api/index';
 	import { toasts } from '$lib/stores/toast';
@@ -8,14 +10,42 @@
 	import type { User } from '$lib/stores/auth';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import ModelAssignmentPicker from '$lib/components/modals/ModelAssignmentPicker.svelte';
-	import Icon from '$lib/components/Icon.svelte';
 	import { Button, Badge, Input, SegmentedControl, Spinner, EmptyState, Switch } from '$lib/components/ui';
 	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
 	import { Pane, PaneRow } from '$lib/components/pane';
 	import { DetailHeader, DetailTabs, DetailBody, DetailSection, DetailFooter } from '$lib/components/detail';
+	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import LibraryFilterChipRow from '$lib/components/library/LibraryFilterChipRow.svelte';
+	import FilterPopoverFrame from '$lib/components/library/FilterPopoverFrame.svelte';
+	import SegmentedFilterGroup from '$lib/components/library/SegmentedFilterGroup.svelte';
 	import AdminTabShell from './AdminTabShell.svelte';
-	import AdminFilterBar from './AdminFilterBar.svelte';
 	import AssignmentList from './AssignmentList.svelte';
+	import {
+		USER_ACCOUNT_TYPE_OPTIONS,
+		USERS_SORT_OPTIONS,
+		applyUsersFilters,
+		clearAllUsersFilters,
+		clearUsersFilterChip,
+		usersFilterActiveCount,
+		usersFilterChips,
+		usersFiltersFromSearchParams,
+		usersFiltersToSearchParams,
+		type UserAccountTypeFilter,
+		type UserSortBy,
+		type UsersFilters
+	} from './usersFilters';
+	import {
+		GROUPS_SORT_OPTIONS,
+		applyGroupsFilters,
+		clearAllGroupsFilters,
+		clearGroupsFilterChip,
+		groupsFilterActiveCount,
+		groupsFilterChips,
+		groupsFiltersFromSearchParams,
+		groupsFiltersToSearchParams,
+		type GroupSortBy,
+		type GroupsFilters
+	} from './groupsFilters';
 
 	export let currentUser: any;
 
@@ -23,13 +53,48 @@
 	type UserDetailTab = 'overview' | 'groups' | 'presets' | 'llms' | 'models';
 	type GroupDetailTab = 'overview' | 'users' | 'presets' | 'llms' | 'models';
 
-	let subView: SubView = 'users';
+	$: subView = (($page.url.searchParams.get('view') as SubView) || 'users') === 'groups' ? 'groups' : 'users';
+
+	function setSubView(next: SubView) {
+		if (next === subView) return;
+		const url = new URL($page.url);
+		url.searchParams.set('tab', 'users');
+		if (next === 'users') {
+			url.searchParams.delete('view');
+		} else {
+			url.searchParams.set('view', next);
+		}
+		void goto(url, { keepFocus: true, noScroll: true });
+	}
+
+	$: usersFilters = usersFiltersFromSearchParams($page.url.searchParams);
+	$: groupsFilters = groupsFiltersFromSearchParams($page.url.searchParams);
+
+	let usersFiltersDebounce: ReturnType<typeof setTimeout> | undefined;
+	function updateUsersFilters(next: UsersFilters) {
+		clearTimeout(usersFiltersDebounce);
+		usersFiltersDebounce = setTimeout(() => {
+			const url = new URL($page.url);
+			for (const key of ['q', 'account_type', 'sort_by']) url.searchParams.delete(key);
+			for (const [key, value] of usersFiltersToSearchParams(next)) url.searchParams.set(key, value);
+			void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+		}, 250);
+	}
+
+	let groupsFiltersDebounce: ReturnType<typeof setTimeout> | undefined;
+	function updateGroupsFilters(next: GroupsFilters) {
+		clearTimeout(groupsFiltersDebounce);
+		groupsFiltersDebounce = setTimeout(() => {
+			const url = new URL($page.url);
+			for (const key of ['group_q', 'group_sort_by']) url.searchParams.delete(key);
+			for (const [key, value] of groupsFiltersToSearchParams(next)) url.searchParams.set(key, value);
+			void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+		}, 250);
+	}
 
 	// ========== Users ==========
 	let users: User[] = [];
 	let loadingUsers = true;
-	let searchQuery = '';
-	let userTypeFilter = 'all';
 
 	let showUserModal = false; // create-only - editing happens in the detail pane
 	let userFormData = { username: '', email: '', password: '', account_type: 'USER' };
@@ -49,7 +114,6 @@
 	// ========== Groups ==========
 	let groups: adminApi.UserGroup[] = [];
 	let loadingGroups = true;
-	let groupSearchQuery = '';
 
 	let showGroupModal = false; // create-only
 	let groupFormData = { name: '', description: '' };
@@ -783,25 +847,25 @@
 			]
 		: [];
 
-	$: filteredUsers = users.filter((user: any) => {
-		const matchesSearch =
-			user.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			user.email.toLowerCase().includes(searchQuery.toLowerCase());
-		const matchesType = userTypeFilter === 'all' || user.account_type === userTypeFilter;
-		return matchesSearch && matchesType;
-	});
-	$: activeUserFilterCount = Number(!!searchQuery.trim()) + Number(userTypeFilter !== 'all');
+	$: filteredUsers = applyUsersFilters(users, usersFilters);
+	$: userFilterChips = usersFilterChips(usersFilters);
+	$: activeUserFilterCount = usersFilterActiveCount(usersFilters);
 	function clearUserFilters() {
-		searchQuery = '';
-		userTypeFilter = 'all';
+		updateUsersFilters(clearAllUsersFilters(usersFilters));
+	}
+	function removeUserFilterChip(key: string) {
+		updateUsersFilters(clearUsersFilterChip(usersFilters, key));
 	}
 
-	$: filteredGroups = groups.filter((group: any) => {
-		if (!groupSearchQuery.trim()) return true;
-		const q = groupSearchQuery.trim().toLowerCase();
-		return group.name.toLowerCase().includes(q) || (group.description || '').toLowerCase().includes(q);
-	});
-	$: activeGroupFilterCount = Number(!!groupSearchQuery.trim());
+	$: filteredGroups = applyGroupsFilters(groups, groupsFilters);
+	$: groupFilterChips = groupsFilterChips(groupsFilters);
+	$: activeGroupFilterCount = groupsFilterActiveCount(groupsFilters);
+	function clearGroupFilters() {
+		updateGroupsFilters(clearAllGroupsFilters(groupsFilters));
+	}
+	function removeGroupFilterChip(key: string) {
+		updateGroupsFilters(clearGroupsFilterChip(groupsFilters, key));
+	}
 
 	$: if (userDetailTab === 'presets' && selectedUserId && !userPresetAssignments[selectedUserId]) {
 		loadUserPresetAssignments(selectedUserId);
@@ -834,7 +898,7 @@
 			{ id: 'groups', label: 'Groups', icon: 'group', count: groups.length }
 		]}
 		selected={subView}
-		onSelect={(id) => (subView = id as SubView)}
+		onSelect={(id) => setSubView(id as SubView)}
 		ariaLabel="Users / Groups views"
 	/>
 
@@ -855,29 +919,36 @@
 	</AdminTabShell>
 
 	{#if subView === 'users'}
-		{#snippet userSearch()}
-			<div class="relative">
-				<Icon name="search" className="w-4 h-4 text-fg-subtle absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-				<Input bind:value={searchQuery} type="search" class="pl-9" placeholder="Search by name or email…" aria-label="Search users" />
-			</div>
-		{/snippet}
-		{#snippet userFilters()}
-			<select class="input" bind:value={userTypeFilter} aria-label="Filter by account type">
-				<option value="all">All Users</option>
-				<option value="USER">Regular Users</option>
-				<option value="ADMIN">Administrators</option>
-			</select>
-		{/snippet}
-		{#snippet userTrailing()}
-			<span class="text-sm text-fg-muted whitespace-nowrap font-mono tabular-nums">{filteredUsers.length} {filteredUsers.length === 1 ? 'user' : 'users'}</span>
-		{/snippet}
+		<div class="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised">
+			<LibraryFilterBar
+				q={usersFilters.q}
+				onQueryChange={(value) => updateUsersFilters({ ...usersFilters, q: value })}
+				searchPlaceholder="Search by name or email…"
+				sortBy={usersFilters.sortBy}
+				sortOptions={USERS_SORT_OPTIONS}
+				onSortChange={(value) => updateUsersFilters({ ...usersFilters, sortBy: value as UserSortBy })}
+				filterCount={activeUserFilterCount}
+			>
+				{#snippet popover(close: () => void)}
+					<FilterPopoverFrame label="User filters" onClearAll={clearUserFilters} onClose={close}>
+						<SegmentedFilterGroup
+							label="Account type"
+							options={USER_ACCOUNT_TYPE_OPTIONS}
+							value={usersFilters.accountType}
+							onChange={(accountType: UserAccountTypeFilter) => updateUsersFilters({ ...usersFilters, accountType })}
+						/>
+					</FilterPopoverFrame>
+				{/snippet}
+			</LibraryFilterBar>
+			<span class="ml-auto text-sm text-fg-muted whitespace-nowrap font-mono tabular-nums">{filteredUsers.length} {filteredUsers.length === 1 ? 'user' : 'users'}</span>
+		</div>
 
-		<AdminFilterBar
-			search={userSearch}
-			filters={userFilters}
-			trailing={userTrailing}
-			activeCount={activeUserFilterCount}
-			onClear={clearUserFilters}
+		<LibraryFilterChipRow
+			chips={userFilterChips}
+			onRemoveChip={removeUserFilterChip}
+			onClearAll={clearUserFilters}
+			loadedCount={filteredUsers.length}
+			total={users.length}
 		/>
 
 		<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
@@ -1026,7 +1097,7 @@
 												<p class="text-sm font-medium text-fg truncate">{group.name}</p>
 												{#if group.is_system}<Badge variant="neutral" size="sm">Built in</Badge>{/if}
 											</div>
-											{#if group.description}<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{group.description}</p>{/if}
+											{#if group.description}<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{group.description}</p>{/if}
 										{/snippet}
 									</AssignmentList>
 								</DetailBody>
@@ -1051,7 +1122,7 @@
 									>
 										{#snippet row(preset)}
 											<p class="text-sm font-medium text-fg truncate">{preset.name}</p>
-											<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{preset.id}</p>
+											<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{preset.id}</p>
 										{/snippet}
 									</AssignmentList>
 								</DetailBody>
@@ -1079,7 +1150,7 @@
 												<p class="text-sm font-medium text-fg truncate">{llm.name}</p>
 												{#if !llm.enabled}<Badge variant="warning" size="sm">Disabled</Badge>{/if}
 											</div>
-											<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{llm.type} · {llm.model}</p>
+											<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{llm.type} · {llm.model}</p>
 										{/snippet}
 									</AssignmentList>
 								</DetailBody>
@@ -1111,21 +1182,24 @@
 			{/if}
 		</section>
 	{:else}
-		{#snippet groupSearch()}
-			<div class="relative">
-				<Icon name="search" className="w-4 h-4 text-fg-subtle absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-				<Input bind:value={groupSearchQuery} type="search" class="pl-9" placeholder="Search by name or description…" aria-label="Search groups" />
-			</div>
-		{/snippet}
-		{#snippet groupTrailing()}
-			<span class="text-sm text-fg-muted whitespace-nowrap font-mono tabular-nums">{filteredGroups.length} {filteredGroups.length === 1 ? 'group' : 'groups'}</span>
-		{/snippet}
+		<div class="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface-1 px-4 py-2.5 shadow-raised">
+			<LibraryFilterBar
+				q={groupsFilters.q}
+				onQueryChange={(value) => updateGroupsFilters({ ...groupsFilters, q: value })}
+				searchPlaceholder="Search by name or description…"
+				sortBy={groupsFilters.sortBy}
+				sortOptions={GROUPS_SORT_OPTIONS}
+				onSortChange={(value) => updateGroupsFilters({ ...groupsFilters, sortBy: value as GroupSortBy })}
+			/>
+			<span class="ml-auto text-sm text-fg-muted whitespace-nowrap font-mono tabular-nums">{filteredGroups.length} {filteredGroups.length === 1 ? 'group' : 'groups'}</span>
+		</div>
 
-		<AdminFilterBar
-			search={groupSearch}
-			trailing={groupTrailing}
-			activeCount={activeGroupFilterCount}
-			onClear={() => (groupSearchQuery = '')}
+		<LibraryFilterChipRow
+			chips={groupFilterChips}
+			onRemoveChip={removeGroupFilterChip}
+			onClearAll={clearGroupFilters}
+			loadedCount={filteredGroups.length}
+			total={groups.length}
 		/>
 
 		<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
@@ -1158,7 +1232,7 @@
 							{#snippet empty()}
 								<div class="p-4 h-full flex items-center justify-center">
 									<EmptyState title="No groups match your search" description="Try a different name or description." icon="search" compact>
-										{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => (groupSearchQuery = '')}>Clear search</Button>{/snippet}
+										{#snippet actions()}<Button variant="ghost" size="sm" onclick={clearGroupFilters}>Clear search</Button>{/snippet}
 									</EmptyState>
 								</div>
 							{/snippet}
@@ -1241,7 +1315,7 @@
 									>
 										{#snippet row(user)}
 											<p class="text-sm font-medium text-fg truncate">{user.username}</p>
-											<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{user.email}</p>
+											<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{user.email}</p>
 										{/snippet}
 									</AssignmentList>
 								</DetailBody>
@@ -1266,7 +1340,7 @@
 									>
 										{#snippet row(preset)}
 											<p class="text-sm font-medium text-fg truncate">{preset.name}</p>
-											<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{preset.id}</p>
+											<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{preset.id}</p>
 										{/snippet}
 									</AssignmentList>
 								</DetailBody>
@@ -1294,7 +1368,7 @@
 												<p class="text-sm font-medium text-fg truncate">{llm.name}</p>
 												{#if !llm.enabled}<Badge variant="warning" size="sm">Disabled</Badge>{/if}
 											</div>
-											<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{llm.type} · {llm.model}</p>
+											<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{llm.type} · {llm.model}</p>
 										{/snippet}
 									</AssignmentList>
 								</DetailBody>

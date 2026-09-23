@@ -1,14 +1,27 @@
 // @vitest-environment jsdom
-//
-// The plugin list row must show only name, version, and a one-line-clamped
-// description - the source/type/shadow/capability/hook-count/settings-count
-// chips it used to carry move to the detail pane (or get dropped if the
-// detail pane already shows the equivalent, richer information). This mounts
-// the real PluginsTab list against fixtures carrying all of those fields and
-// proves the list omits them while the detail header still surfaces the
-// shadow warning.
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { flushSync } from 'svelte';
+import type { Writable } from 'svelte/store';
+
+type PageStore = Writable<{ url: URL }>;
+
+vi.mock('$app/navigation', async () => {
+	const { page } = await import('$app/stores');
+	const store = page as unknown as PageStore;
+	return {
+		goto: async (href: string) => {
+			store.update((current) => ({ ...current, url: new URL(href, 'http://localhost') }));
+		},
+		invalidate: async () => {},
+		invalidateAll: async () => {},
+		preloadData: async () => {},
+		preloadCode: async () => {},
+		afterNavigate: () => {},
+		beforeNavigate: () => {},
+		pushState: () => {},
+		replaceState: () => {}
+	};
+});
 
 class StubResizeObserver {
 	observe() {}
@@ -64,6 +77,13 @@ vi.mock('$lib/services/api/index', async () => {
 				get: vi.fn(async (url: string) => {
 					if (url === '/api/plugins') return { data: { success: true, data: apiState.plugins } };
 					if (url === '/api/plugins/hooks/frontend') return { data: { success: true, data: {} } };
+					if (url === '/api/plugins/frontend-extensions') {
+						return { data: { success: true, data: { renderers: [], contributions: [], revisions: {} } } };
+					}
+					if (url === '/api/fields/types') return { data: { success: true, data: [] } };
+					if (url === '/api/plugins/pages') return { data: { success: true, data: [] } };
+					if (url === '/api/plugins/quick-actions') return { data: { success: true, data: [] } };
+					if (url === '/api/plugins/sidebar-widgets') return { data: { success: true, data: [] } };
 					const match = apiState.plugins.find((p) => url === `/api/plugins/${p.id}`);
 					if (match) return { data: { success: true, data: { ...match, settings_schema: [], settings_values: {}, hooks: [] } } };
 					throw new Error(`unexpected GET ${url}`);
@@ -76,6 +96,7 @@ vi.mock('$lib/services/api/index', async () => {
 
 const { default: PluginsTab } = await import('../../src/routes/admin/components/PluginsTab.svelte');
 const { createClassComponent } = await import('svelte/legacy');
+const page = (await import('$app/stores')).page as unknown as PageStore;
 
 function mount() {
 	const target = document.createElement('div');
@@ -95,7 +116,7 @@ async function settle() {
 }
 
 function listPane(target: HTMLElement): HTMLElement {
-	const pane = target.querySelector('[role="listbox"]') as HTMLElement | null;
+	const pane = target.querySelector('[role="listbox"][aria-label="Plugins"]') as HTMLElement | null;
 	expect(pane, 'expected a listbox pane for the plugin list').toBeTruthy();
 	return pane!;
 }
@@ -121,10 +142,11 @@ afterEach(() => {
 	mounted = undefined;
 	apiState.plugins = [SHORT_PLUGIN, LONG_PLUGIN];
 	(globalThis as any).ResizeObserver = originalRO;
+	page.update((current) => ({ ...current, url: new URL('http://localhost/admin') }));
 });
 
 describe('PluginsTab list row declutter', () => {
-	it('shows only name, version and description in the list - no source/type/capability/count chips', async () => {
+	it('keeps source, count and shadow chips out of the list row', async () => {
 		mounted = mount();
 		await settle();
 
@@ -134,10 +156,7 @@ describe('PluginsTab list row declutter', () => {
 		expect(pane.textContent).toContain('v1.0.0');
 		expect(pane.textContent).toContain('A brief description.');
 
-		// Chips that used to render in the list must be gone from it.
 		expect(pane.textContent).not.toContain('MARKETPLACE');
-		expect(pane.textContent).not.toContain('BACKEND');
-		expect(pane.textContent).not.toContain('does-a-thing');
 		expect(pane.textContent).not.toContain('HOOKS');
 		expect(pane.textContent).not.toContain('SETTINGS');
 		expect(pane.textContent).not.toContain('SHADOWS MARKETPLACE COPY');
@@ -169,44 +188,15 @@ describe('PluginsTab list row declutter', () => {
 		expect(mounted.target.textContent).toContain('SHADOWS MARKETPLACE COPY');
 	});
 
-	it('reveals a "Show more" toggle only once the description actually overflows, and expands it in place', async () => {
+	it('clamps the row description to two lines', async () => {
 		mounted = mount();
 		await settle();
 
 		const pane = listPane(mounted.target);
-		const shortDescription = Array.from(pane.querySelectorAll('p')).find((el) =>
-			el.textContent?.includes('A brief description.')
-		) as HTMLElement;
-		const longDescription = Array.from(pane.querySelectorAll('p')).find((el) =>
+		const description = Array.from(pane.querySelectorAll('p')).find((el) =>
 			el.textContent?.includes('deliberately long')
 		) as HTMLElement;
-		expect(shortDescription).toBeTruthy();
-		expect(longDescription).toBeTruthy();
-
-		// jsdom never lays text out, so scrollHeight/clientHeight default to 0
-		// for both paragraphs - simulate the long one actually overflowing its
-		// one-line clamp the way a real browser would report it.
-		Object.defineProperty(longDescription, 'scrollHeight', { value: 40, configurable: true });
-		Object.defineProperty(longDescription, 'clientHeight', { value: 16, configurable: true });
-		Object.defineProperty(shortDescription, 'scrollHeight', { value: 16, configurable: true });
-		Object.defineProperty(shortDescription, 'clientHeight', { value: 16, configurable: true });
-		flushSync(() => window.dispatchEvent(new Event('resize')));
-		await settle();
-
-		expect(longDescription.className).toContain('line-clamp-1');
-
-		const showMoreButtons = Array.from(pane.querySelectorAll('button')).filter(
-			(b) => b.getAttribute('aria-label') === 'Show more'
-		);
-		expect(showMoreButtons.length).toBe(1);
-
-		flushSync(() => showMoreButtons[0].click());
-		await settle();
-
-		expect(longDescription.className).not.toContain('line-clamp-1');
-		const showLessButton = Array.from(pane.querySelectorAll('button')).find(
-			(b) => b.getAttribute('aria-label') === 'Show less'
-		);
-		expect(showLessButton).toBeTruthy();
+		expect(description).toBeTruthy();
+		expect(description.className).toContain('line-clamp-2');
 	});
 });

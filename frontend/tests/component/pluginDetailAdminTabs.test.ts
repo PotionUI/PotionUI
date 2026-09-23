@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-//
 // A plugin's `admin_tabs[]` manifest entries reach the frontend as
 // `admin.plugin.tabs` hooks (see src/features/plugins/operations/scan.py and
 // frontend/src/routes/admin/components/pluginDetailTabs.ts). This mounts the
@@ -10,6 +9,27 @@
 // shows the "enable to see its tabs" hint instead.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { flushSync } from 'svelte';
+import type { Writable } from 'svelte/store';
+
+type PageStore = Writable<{ url: URL }>;
+
+vi.mock('$app/navigation', async () => {
+	const { page } = await import('$app/stores');
+	const store = page as unknown as PageStore;
+	return {
+		goto: async (href: string) => {
+			store.update((current) => ({ ...current, url: new URL(href, 'http://localhost') }));
+		},
+		invalidate: async () => {},
+		invalidateAll: async () => {},
+		preloadData: async () => {},
+		preloadCode: async () => {},
+		afterNavigate: () => {},
+		beforeNavigate: () => {},
+		pushState: () => {},
+		replaceState: () => {}
+	};
+});
 
 let StubComponent: any;
 
@@ -106,6 +126,7 @@ vi.mock('$lib/plugin-api/componentResolver', () => ({
 
 const { default: PluginsTab } = await import('../../src/routes/admin/components/PluginsTab.svelte');
 const { createClassComponent } = await import('svelte/legacy');
+const page = (await import('$app/stores')).page as unknown as PageStore;
 StubComponent = (await import('./stubs/StubPluginTab.svelte')).default;
 
 function mount() {
@@ -141,6 +162,7 @@ afterEach(() => {
 	apiState.listEntry = PLUGIN_LIST_ENTRY;
 	apiState.adminTabHooks = [ADMIN_TAB_HOOK];
 	apiState.detail = PLUGIN_DETAIL;
+	page.update((current) => ({ ...current, url: new URL('http://localhost/admin') }));
 });
 
 describe('PluginsTab admin.plugin.tabs contributed tab', () => {

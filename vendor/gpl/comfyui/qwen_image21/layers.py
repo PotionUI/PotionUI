@@ -125,6 +125,16 @@ class _Attention(nn.Module):
     dispatcher unmasked and pick up an accelerated kernel, while prefix rows
     keep the masked SDPA path -- same total attention, a much smaller masked
     call.
+
+    ``prefix_kv``, when given, replaces the whole prefix branch: ``x`` is
+    already target rows only (``prefix_len`` is 0 for this call), and the
+    cached ``(k_prefix, v_prefix)`` -- captured from an earlier step's
+    ``capture_prefix=True`` call, at the same block -- stands in for the
+    prefix K/V this call would otherwise recompute. ``capture_prefix``, when
+    true, slices the freshly computed prefix K/V (already normed/RoPE'd) out
+    of ``k``/``v`` before they're consumed, at no extra compute, and returns
+    them alongside the usual output; the two flags are never both set by a
+    caller in this codebase.
     """
 
     def __init__(self, dim: int, heads: int, dim_head: int, operations, eps: float = 1e-6, dtype=None, device=None):
@@ -140,8 +150,9 @@ class _Attention(nn.Module):
 
     def forward(
         self, x: Tensor, pe: Tensor, mask: Tensor | None, prefix_len: int,
-        target_key_mask: Tensor | None = None,
-    ) -> Tensor:
+        target_key_mask: Tensor | None = None, prefix_kv: tuple[Tensor, Tensor] | None = None,
+        capture_prefix: bool = False,
+    ) -> Tensor | tuple[Tensor, tuple[Tensor, Tensor] | None]:
         b, n, _ = x.shape
 
         def split(t: Tensor) -> Tensor:
@@ -156,15 +167,23 @@ class _Attention(nn.Module):
             raise RuntimeError(
                 "qwen_image21 layers._Attention: no attention backend wired — call set_attention_backend() first"
             )
-        if prefix_len:
+        captured: tuple[Tensor, Tensor] | None = None
+        if prefix_kv is not None:
+            k_prefix, v_prefix = prefix_kv
+            out = _attention_backend(q, torch.cat([k_prefix, k], dim=2), torch.cat([v_prefix, v], dim=2),
+                                      mask=target_key_mask)
+        elif prefix_len:
             prefix_mask = mask[..., :prefix_len, :] if mask is not None else None
             prefix_out = _attention_backend(q[:, :, :prefix_len], k, v, mask=prefix_mask)
             target_out = _attention_backend(q[:, :, prefix_len:], k, v, mask=target_key_mask)
             out = torch.cat([prefix_out, target_out], dim=2)  # (B, H, N, D)
+            if capture_prefix:
+                captured = (k[:, :, :prefix_len].contiguous(), v[:, :, :prefix_len].contiguous())
         else:
-            out = _attention_backend(q, k, v, mask=target_key_mask)  # (B, H, N, D)
+            out = _attention_backend(q, k, v, mask=target_key_mask)
         out = out.transpose(1, 2).reshape(b, n, -1)
-        return self.to_out[0](out)
+        result = self.to_out[0](out)
+        return (result, captured) if capture_prefix else result
 
 
 def _modulated_norm(norm, x: Tensor, scale: tuple[Tensor, Tensor], prefix_len: int) -> Tensor:
@@ -199,17 +218,20 @@ class _Block(nn.Module):
 
     def forward(
         self, x: Tensor, mod, pe: Tensor, mask: Tensor | None, prefix_len: int,
-        target_key_mask: Tensor | None = None,
-    ) -> Tensor:
+        target_key_mask: Tensor | None = None, prefix_kv: tuple[Tensor, Tensor] | None = None,
+        capture_prefix: bool = False,
+    ) -> Tensor | tuple[Tensor, tuple[Tensor, Tensor] | None]:
         scale1, gate1, scale2, gate2 = mod
-        attn_out = self.attn(
-            _modulated_norm(self.img_norm1, x, scale1, prefix_len), pe, mask, prefix_len, target_key_mask,
+        attn_result = self.attn(
+            _modulated_norm(self.img_norm1, x, scale1, prefix_len), pe, mask, prefix_len,
+            target_key_mask, prefix_kv, capture_prefix,
         )
+        attn_out, captured = attn_result if capture_prefix else (attn_result, None)
         x = _gated_residual(x, attn_out, gate1, prefix_len)
         x = _gated_residual(x, self.img_mlp(_modulated_norm(self.img_norm2, x, scale2, prefix_len)), gate2, prefix_len)
         if x.dtype == torch.float16:
             x = x.clip(-65504, 65504)
-        return x
+        return (x, captured) if capture_prefix else x
 
 
 class _LastLayer(nn.Module):

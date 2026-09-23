@@ -57,10 +57,7 @@ every prefix token regardless of which sample it belongs to. Implemented by
 doubling the batch dim of ``timestep`` with a single zero row (not one per
 batch item) before the timestep embedding, then ``_split_rows`` gives every
 block a ``(prefix_row, target_rows)`` pair for each of its four modulation
-tensors. A prefix K/V cache (the checkpoint's ``causal_condition`` design
-exists specifically to make one legal) is NOT implemented here — the
-extension point is ``prefix_len``/``token_kind`` from ``build_sequence``,
-already exactly what a cache would key on; left for a follow-up lane.
+tensors.
 """
 
 from __future__ import annotations
@@ -82,6 +79,7 @@ from vendor.gpl.comfyui.qwen_image21.layers import (
 
 from ...attention import attention as _dispatch_attention
 from ...base import NativeArchModule
+from ...cache_identity import identity_usable, tensor_identity
 from .config import QwenImage21Config
 
 set_attention_backend(_dispatch_attention)
@@ -237,6 +235,19 @@ class QwenImage21DiT(NativeArchModule):
         return hidden_states, pe, prefix_len, token_kind, key_valid
 
 
+    def _prefix_kv_cache(self, x: Tensor, context: Tensor, attention_mask: Tensor | None,
+                        ref_latents: tuple[Tensor, ...], image_slots) -> tuple[Any, tuple | None]:
+        cache = getattr(self, "run_cache", None)
+        if cache is None:
+            return None, None
+        ids = (tensor_identity(context), tensor_identity(attention_mask),
+               *(tensor_identity(ref) for ref in ref_latents))
+        if not identity_usable(*ids):
+            return cache, None
+        key = ("qwen_image21.prefix_kv", cache.revision, tuple(x.shape), x.dtype, x.device,
+               tuple(image_slots) if image_slots else (), *ids)
+        return cache, key
+
     def forward(self, x: Tensor, timestep: Tensor, context: Tensor, attention_mask: Tensor | None = None,
                 ref_latents=None, image_slots=None, **kwargs) -> Tensor:
         ref_latents = list(ref_latents or [])
@@ -256,17 +267,41 @@ class QwenImage21DiT(NativeArchModule):
         mod = (_split_rows(scale1), _split_rows(gate1.tanh()), _split_rows(scale2), _split_rows(gate2.tanh()))
 
         step_cache = kwargs.get("step_cache")
-        probe = None
-        for i, block in enumerate(self.transformer_blocks):
-            hidden_states = block(hidden_states, mod, pe, mask, prefix_len, target_key_mask)
-            if i == 0 and step_cache is not None:
-                probe = hidden_states[:, prefix_len:]
-                if step_cache.should_skip(probe):
-                    return step_cache.record_skip()
+        prefix_cache, prefix_key = self._prefix_kv_cache(x, context, attention_mask, tuple(ref_latents), image_slots)
+        cached_kvs = prefix_cache.get(prefix_key) if prefix_key is not None else None
 
-        hidden_states = self.norm_out(hidden_states[:, prefix_len:], temb[:-1])
-        hidden_states = self.proj_out(hidden_states)
-        out = hidden_states.transpose(1, 2).reshape(b, self.config.out_channels, *x.shape[2:])
+        probe = None
+        if cached_kvs is not None and prefix_len > 0:
+            target = hidden_states[:, prefix_len:]
+            target_pe = pe[:, :, prefix_len:]
+            for i, block in enumerate(self.transformer_blocks):
+                target = block(target, mod, target_pe, None, 0, target_key_mask, cached_kvs[i])
+                if i == 0 and step_cache is not None:
+                    probe = target
+                    if step_cache.should_skip(probe):
+                        return step_cache.record_skip()
+            hidden_out = target
+        else:
+            capture = prefix_key is not None and prefix_len > 0
+            captured_kvs = [] if capture else None
+            for i, block in enumerate(self.transformer_blocks):
+                if capture:
+                    hidden_states, block_kv = block(hidden_states, mod, pe, mask, prefix_len, target_key_mask,
+                                                      capture_prefix=True)
+                    captured_kvs.append(block_kv)
+                else:
+                    hidden_states = block(hidden_states, mod, pe, mask, prefix_len, target_key_mask)
+                if i == 0 and step_cache is not None:
+                    probe = hidden_states[:, prefix_len:]
+                    if step_cache.should_skip(probe):
+                        return step_cache.record_skip()
+            hidden_out = hidden_states[:, prefix_len:]
+            if capture:
+                prefix_cache.put(prefix_key, captured_kvs)
+
+        hidden_out = self.norm_out(hidden_out, temb[:-1])
+        hidden_out = self.proj_out(hidden_out)
+        out = hidden_out.transpose(1, 2).reshape(b, self.config.out_channels, *x.shape[2:])
         if step_cache is not None and probe is not None:
             step_cache.record_compute(probe, out)
         return out

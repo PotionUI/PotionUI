@@ -125,9 +125,10 @@
 
 <svelte:window onpointerdown={handleWindowPointerDown} onkeydown={handleWindowKeydown} />
 
-<span bind:this={chipRef} class="relative flex w-full">
+<span bind:this={chipRef} class="relative flex w-full min-w-0">
 	{#if struckThrough && when}
 		<Tooltip
+			wrapperClass="flex w-full min-w-0"
 			text={mode === 'pin'
 				? 'Pinning wins regardless of this condition.'
 				: 'Per-image ignores conditions — every option is used.'}
@@ -148,7 +149,7 @@
 			Always
 		</button>
 	{:else}
-		<Tooltip text={`$${when.var} = ${when.values.join(', ')}`}>
+		<Tooltip wrapperClass="flex w-full min-w-0" text={`$${when.var} = ${when.values.join(', ')}`}>
 			<span
 				class="flex h-[22px] w-full min-w-0 items-center rounded border px-2 text-xs font-mono {broken
 					? 'border-warning/35 bg-warning/10 text-warning'

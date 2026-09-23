@@ -82,15 +82,14 @@ modes:
 		await apiPost(page, `/api/presets/${familyId}/reload`, token);
 
 		await page.goto('/admin?tab=presets');
-		await expect(page.getByRole('heading', { level: 2 })).toBeVisible({ timeout: 10000 });
+		await expect(page.getByRole('heading', { name: 'Presets', level: 1 })).toBeVisible({ timeout: 10000 });
 
-		await page.getByPlaceholder('Search presets by name, engine, type, or tag…').fill('E2E Requirements Fixture');
-		const row = page.getByRole('option', { name: /E2E Requirements Fixture/ });
-		await expect(row).toBeVisible({ timeout: 10000 });
-		await expect(row).toHaveAttribute('aria-selected', 'true', { timeout: 10000 });
-		await row.click();
+		await page.getByPlaceholder('Search presets by name, id, or tag…').fill('E2E Requirements Fixture');
+		const card = page.getByRole('button', { name: /E2E Requirements Fixture/ });
+		await expect(card).toBeVisible({ timeout: 10000 });
+		await card.click();
 		if (pageErrors.length) console.log('PAGE ERRORS:', JSON.stringify(pageErrors, null, 2));
-		await expect(page.getByRole('heading', { name: 'E2E Requirements Fixture' })).toBeVisible({ timeout: 15000 });
+		await expect(page.getByRole('heading', { name: 'E2E Requirements Fixture' }).first()).toBeVisible({ timeout: 15000 });
 		await screenshot(page, JOURNEY, '00-selected');
 
 		await page.locator('nav[aria-label="Preset details"]').getByRole('button', { name: 'Requirements' }).click();

@@ -230,7 +230,7 @@
 						></span>
 						<span class="text-sm font-medium {isSelected ? 'text-signal' : 'text-fg'}">{backend.name}</span>
 						{#if backend.is_default}
-							<span class="font-mono text-2xs text-fg-subtle">default</span>
+							<span class="font-mono text-xs text-fg-subtle">default</span>
 						{/if}
 						<span
 							class="text-xs {chipVerdict.tone === 'danger'
@@ -281,7 +281,7 @@
 				>
 					{verdict.text}
 				</p>
-				<span class="font-mono text-2xs text-fg-subtle whitespace-nowrap">
+				<span class="font-mono text-xs text-fg-subtle whitespace-nowrap">
 					{checkedAt ? `checked ${timeAgo(new Date(checkedAt * 1000).toISOString())}` : ''}
 				</span>
 				<Tooltip text="Re-check requirements">

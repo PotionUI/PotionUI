@@ -1,80 +1,95 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, untrack } from 'svelte';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { pluginStore, plugins, frontendHooks, loading, error, pendingPluginIds, type Plugin, type PluginSettingSchema } from '$lib/stores/plugins';
 	import { authStore } from '$lib/stores/auth';
-	import { Button, Badge, Spinner, Input, Kbd, EmptyState, Switch, Alert, IconButton } from '$lib/components/ui';
-	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
-	import { Pane, PaneRow, PaneGroupHeader } from '$lib/components/pane';
+	import { Button, Badge, Spinner, Input, EmptyState, Switch, Alert } from '$lib/components/ui';
 	import { DetailHeader, DetailTabs, DetailBody, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
-	import AdminTabShell from './AdminTabShell.svelte';
-	import AdminFilterBar from './AdminFilterBar.svelte';
+	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
+	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { pluginCategories, resolveCategory } from '$lib/plugins/categories';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 	import { refreshPluginExtensions } from '$lib/plugin-api/extensionRefresh';
 	import { pluginDetailTabsFor, isPluginDetailTab, hasHiddenAdminTabs, ADMIN_PLUGIN_TABS_HOOK, type PluginDetailTabId } from './pluginDetailTabs';
+	import { PLUGIN_SECTIONS, pluginSectionFromSearchParams, type PluginSection } from './plugins/pluginSections';
+	import PluginFiltersPopover from './plugins/PluginFiltersPopover.svelte';
+	import PluginRow from './plugins/PluginRow.svelte';
+	import {
+		PLUGIN_SORT_OPTIONS,
+		applyPluginFilters,
+		clearAllPluginFilters,
+		clearPluginFilterChip,
+		pluginCategoryCounts,
+		pluginFilterActiveCount,
+		pluginFilterChips,
+		pluginFiltersFromSearchParams,
+		pluginFiltersToSearchParams,
+		type PluginFilters
+	} from './plugins/pluginFilters';
 
-	let selectedPluginId: string | null = null;
-	let detailTab: PluginDetailTabId = 'overview';
-	// Raw fetch from GET /api/plugins/{id} - the only source for hooks,
-	// settings_schema, tags, author, and the other fields the list endpoint
-	// doesn't return. `enabled`/`state`/`error` are read from the live
-	// `$plugins` store instead (see `liveSelected`) so a toggle reflects here
-	// without a refetch.
-	let selectedPlugin: Plugin | null = null;
-	let detailLoading = false;
-	let settingsValues: Record<string, any> = {};
-	let saving = false;
-	let scanning = false;
-	let scanResult: { newPlugins: number; updatedPlugins: number } | null = null;
+	const SHELL_HEIGHT_CLASS = 'h-[calc(100dvh-var(--header-h)-2rem)] sm:h-[calc(100dvh-var(--header-h)-3rem)]';
 
-	let searchQuery = '';
-	const SEARCH_INPUT_ID = 'plugins-catalogue-search';
-	type StateFilter = 'all' | 'enabled' | 'disabled' | 'error';
-	let stateFilter: StateFilter = 'all';
+	let detailTab = $state<PluginDetailTabId>('overview');
+	let selectedPlugin = $state<Plugin | null>(null);
+	let detailLoading = $state(false);
+	let loadedDetailId = $state<string | null>(null);
+	let settingsValues = $state<Record<string, any>>({});
+	let saving = $state(false);
+	let scanning = $state(false);
+	let scanResult = $state<{ newPlugins: number; updatedPlugins: number } | null>(null);
 
-	const stateFilters: { id: StateFilter; label: string }[] = [
-		{ id: 'all', label: 'All' },
-		{ id: 'enabled', label: 'Enabled' },
-		{ id: 'disabled', label: 'Disabled' },
-		{ id: 'error', label: 'Errored' }
-	];
+	const params = $derived($page.url.searchParams);
+	const section = $derived(pluginSectionFromSearchParams(params));
+	const filters = $derived(pluginFiltersFromSearchParams(params));
+	const selectedPluginId = $derived(params.get('id'));
+	const detailOpen = $derived(!!selectedPluginId);
+
+	const visiblePlugins = $derived(applyPluginFilters($plugins, section, filters));
+	const sectionCounts = $derived(pluginCategoryCounts($plugins));
+	const chips = $derived(pluginFilterChips(filters));
+	const filterCount = $derived(pluginFilterActiveCount(filters));
+
+	const listMatch = $derived(selectedPluginId ? $plugins.find((p) => p.id === selectedPluginId) : undefined);
+	const liveSelected = $derived(
+		selectedPlugin
+			? {
+					...selectedPlugin,
+					enabled: listMatch?.enabled ?? selectedPlugin.enabled,
+					state: listMatch?.state ?? selectedPlugin.state,
+					error: listMatch?.error ?? selectedPlugin.error
+				}
+			: null
+	);
+
+	const adminTabHooks = $derived($frontendHooks[ADMIN_PLUGIN_TABS_HOOK] ?? []);
+	const detailTabs = $derived(liveSelected ? pluginDetailTabsFor(liveSelected, adminTabHooks, $authStore.user?.account_type) : []);
+	const showHiddenAdminTabsHint = $derived(liveSelected ? hasHiddenAdminTabs(liveSelected.hooks, liveSelected.enabled) : false);
+	const activeContributedTab = $derived(detailTabs.find((t) => t.id === detailTab && t.componentPath));
+	const activeTabComponentPromise = $derived(
+		activeContributedTab && liveSelected
+			? resolvePluginComponent(liveSelected.id, activeContributedTab.componentPath as string)
+			: null
+	);
 
 	onMount(async () => {
 		await Promise.all([pluginStore.loadPlugins(), refreshPluginExtensions()]);
-		window.addEventListener('keydown', handleGlobalKeydown);
 		window.addEventListener('potionui:switch-plugin-tab', handleSwitchPluginTab as EventListener);
 	});
 
 	onDestroy(() => {
 		if (typeof window !== 'undefined') {
-			window.removeEventListener('keydown', handleGlobalKeydown);
 			window.removeEventListener('potionui:switch-plugin-tab', handleSwitchPluginTab as EventListener);
 		}
 	});
 
-	// Generic cross-tab bridge: a plugin-contributed tab component (a
-	// separately-mounted dist bundle - no shared module state with a sibling
-	// tab) can ask to switch to one of its own OTHER tabs by dispatching this
-	// on `window`. Not plugin-specific: any admin_tabs contributor can use
-	// it. Ignored when it doesn't target the currently selected plugin, or
-	// names a tab that plugin doesn't have.
 	function handleSwitchPluginTab(e: CustomEvent<{ pluginId?: string; tabId?: string }>) {
 		const { pluginId, tabId } = e.detail || {};
 		if (!liveSelected || !tabId || pluginId !== liveSelected.id) return;
 		if (!isPluginDetailTab(liveSelected, adminTabHooks, tabId, $authStore.user?.account_type)) return;
 		detailTab = tabId;
-	}
-
-	function handleGlobalKeydown(e: KeyboardEvent) {
-		if (e.key !== '/') return;
-		const target = e.target as HTMLElement | null;
-		const tag = target?.tagName;
-		if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
-		e.preventDefault();
-		document.getElementById(SEARCH_INPUT_ID)?.focus();
 	}
 
 	async function scanForPlugins() {
@@ -102,19 +117,6 @@
 		if (await pluginStore.togglePlugin(plugin.id, !plugin.enabled)) {
 			await refreshPluginExtensions();
 		}
-	}
-
-	// Select a plugin for the detail pane - fetches full details (settings
-	// schema/values, hooks) the list endpoint doesn't include.
-	async function selectPlugin(pluginId: string) {
-		selectedPluginId = pluginId;
-		detailTab = 'overview';
-		detailLoading = true;
-		const pluginDetails = await pluginStore.getPluginDetails(pluginId);
-		detailLoading = false;
-		if (!pluginDetails) return;
-		selectedPlugin = pluginDetails;
-		initSettingsValues(pluginDetails);
 	}
 
 	function initSettingsValues(detail: Plugin) {
@@ -151,144 +153,68 @@
 		return 'text';
 	}
 
-	function clearFilters() {
-		searchQuery = '';
-		stateFilter = 'all';
+	function buildUrl(overrides: { filters?: PluginFilters; section?: PluginSection; id?: string | null } = {}): string {
+		const nextFilters = overrides.filters ?? filters;
+		const next = pluginFiltersToSearchParams(nextFilters);
+		next.set('tab', 'plugins');
+		const nextSection = overrides.section !== undefined ? overrides.section : section;
+		if (nextSection !== 'all') next.set('category', nextSection);
+		const id = overrides.id !== undefined ? overrides.id : selectedPluginId;
+		if (id) next.set('id', id);
+		return `/admin?${next.toString()}`;
 	}
 
-	$: filteredPlugins = $plugins.filter((plugin) => {
-		if (stateFilter === 'enabled' && !(plugin.enabled && plugin.state !== 'error')) return false;
-		if (stateFilter === 'disabled' && (plugin.enabled || plugin.state === 'error')) return false;
-		if (stateFilter === 'error' && plugin.state !== 'error') return false;
+	let filtersDebounce: ReturnType<typeof setTimeout> | undefined;
+	function updateFilters(next: PluginFilters) {
+		clearTimeout(filtersDebounce);
+		filtersDebounce = setTimeout(() => {
+			void goto(buildUrl({ filters: next }), { replaceState: true, keepFocus: true, noScroll: true });
+		}, 250);
+	}
 
-		if (searchQuery.trim()) {
-			const q = searchQuery.trim().toLowerCase();
-			const haystack = [
-				plugin.name,
-				plugin.id,
-				plugin.description ?? '',
-				...(plugin.tags ?? []),
-				...(plugin.capabilities ?? [])
-			]
-				.join(' ')
-				.toLowerCase();
-			if (!haystack.includes(q)) return false;
-		}
+	function selectSection(id: PluginSection) {
+		void goto(buildUrl({ section: id, id: null }), { keepFocus: true, noScroll: true });
+	}
 
-		return true;
+	function openPlugin(plugin: Plugin) {
+		void goto(buildUrl({ id: plugin.id }), { noScroll: true });
+	}
+
+	function backToList() {
+		void goto(buildUrl({ id: null }), { noScroll: true });
+	}
+
+	async function loadDetail(id: string) {
+		detailTab = 'overview';
+		detailLoading = true;
+		const detail = await pluginStore.getPluginDetails(id);
+		detailLoading = false;
+		if (!detail) return;
+		selectedPlugin = detail;
+		initSettingsValues(detail);
+	}
+
+	$effect(() => {
+		const id = selectedPluginId;
+		if (id === loadedDetailId) return;
+		loadedDetailId = id;
+		untrack(() => {
+			if (id) void loadDetail(id);
+			else {
+				selectedPlugin = null;
+				detailTab = 'overview';
+			}
+		});
 	});
 
-	// Grouped by category, preserving the canonical category order. Sections
-	// with no matches are omitted entirely.
-	$: groupedPlugins = pluginCategories
-		.map((cat) => ({
-			category: cat,
-			items: filteredPlugins.filter((p) => resolveCategory(p.category).id === cat.id)
-		}))
-		.filter((group) => group.items.length > 0);
-
-	function stateDotClass(plugin: Plugin): string {
-		if (plugin.state === 'error') return 'bg-danger';
-		if (plugin.enabled) return 'bg-success';
-		return 'bg-fg-subtle';
-	}
-
-	// Per-row clamp state for the list description (keyed by plugin id, not
-	// persisted). `overflowingDescriptions` only flips true once the element
-	// actually overflows one line - measured, never guessed from string length.
-	let expandedDescriptions: Record<string, boolean> = {};
-	let overflowingDescriptions: Record<string, boolean> = {};
-
-	function toggleDescription(id: string) {
-		expandedDescriptions = { ...expandedDescriptions, [id]: !expandedDescriptions[id] };
-	}
-
-	function measureDescriptionOverflow(node: HTMLElement, id: string) {
-		function measure() {
-			const isOverflowing = node.scrollHeight > node.clientHeight + 1;
-			if (!!overflowingDescriptions[id] !== isOverflowing) {
-				overflowingDescriptions = { ...overflowingDescriptions, [id]: isOverflowing };
-			}
+	$effect(() => {
+		if (liveSelected && !isPluginDetailTab(liveSelected, adminTabHooks, detailTab, $authStore.user?.account_type)) {
+			detailTab = 'overview';
 		}
-		measure();
-		let observer: ResizeObserver | null = null;
-		if (typeof ResizeObserver !== 'undefined') {
-			observer = new ResizeObserver(measure);
-			observer.observe(node);
-		}
-		// Line-clamp keeps the box height fixed while the wrap width changes
-		// (e.g. the master-detail pane is resized), which a ResizeObserver on
-		// the clamped element itself won't catch - a window resize re-measure
-		// covers that case too.
-		window.addEventListener('resize', measure);
-		return {
-			destroy() {
-				observer?.disconnect();
-				window.removeEventListener('resize', measure);
-			}
-		};
-	}
-
-	$: enabledPluginsCount = $plugins.filter((p) => p.enabled).length;
-	$: activeFilterCount = Number(!!searchQuery.trim()) + Number(stateFilter !== 'all');
-
-	// `selectedPlugin` is a point-in-time fetch; `enabled`/`state`/`error` come
-	// from the live store instead so toggling in the detail header (or a stale
-	// row elsewhere) is reflected without refetching the whole detail payload.
-	$: listMatch = selectedPluginId ? $plugins.find((p) => p.id === selectedPluginId) : undefined;
-	$: liveSelected = selectedPlugin
-		? {
-				...selectedPlugin,
-				enabled: listMatch?.enabled ?? selectedPlugin.enabled,
-				state: listMatch?.state ?? selectedPlugin.state,
-				error: listMatch?.error ?? selectedPlugin.error
-			}
-		: null;
-
-	// Contributed tabs come from `admin.plugin.tabs` frontend hooks, which the
-	// backend only ever populates for an ENABLED plugin - see pluginDetailTabs.ts.
-	$: adminTabHooks = $frontendHooks[ADMIN_PLUGIN_TABS_HOOK] ?? [];
-	$: detailTabs = liveSelected ? pluginDetailTabsFor(liveSelected, adminTabHooks, $authStore.user?.account_type) : [];
-	$: showHiddenAdminTabsHint = liveSelected ? hasHiddenAdminTabs(liveSelected.hooks, liveSelected.enabled) : false;
-	// Fall back to Overview when the selected plugin's tab set no longer
-	// includes the open tab (toggled disabled, or a different plugin selected
-	// whose own contributed/settings tabs differ).
-	$: if (liveSelected && !isPluginDetailTab(liveSelected, adminTabHooks, detailTab, $authStore.user?.account_type)) {
-		detailTab = 'overview';
-	}
-	$: activeContributedTab = detailTabs.find((t) => t.id === detailTab && t.componentPath);
-	$: activeTabComponentPromise =
-		activeContributedTab && liveSelected
-			? resolvePluginComponent(liveSelected.id, activeContributedTab.componentPath as string)
-			: null;
+	});
 </script>
 
-<div class="flex min-h-[calc(100dvh-var(--header-h)-2rem)] flex-col gap-4 sm:min-h-[calc(100dvh-var(--header-h)-3rem)]">
-	<AdminTabShell
-		title="Plugin Management"
-		icon="extension"
-		counts={[
-			{ label: 'plugins', value: $plugins.length },
-			{ label: 'enabled', value: enabledPluginsCount, tone: 'success' }
-		]}
-	>
-		{#snippet actions()}
-			<Button variant="secondary" size="sm" icon={scanning ? undefined : 'search'} loading={scanning || $loading} disabled={scanning || $loading} onclick={scanForPlugins}>
-				{scanning ? 'Scanning...' : 'Scan for Plugins'}
-			</Button>
-		{/snippet}
-	</AdminTabShell>
-
-	{#if scanResult}
-		<Alert variant="success" icon title="Scan Complete">
-			{#if scanResult.newPlugins > 0 || scanResult.updatedPlugins > 0}
-				Found {scanResult.newPlugins} new plugin{scanResult.newPlugins !== 1 ? 's' : ''}{scanResult.updatedPlugins > 0 ? ` and ${scanResult.updatedPlugins} updated plugin${scanResult.updatedPlugins !== 1 ? 's' : ''}` : ''}.
-			{:else}
-				No new plugins found.
-			{/if}
-		</Alert>
-	{/if}
-
+<div class="flex flex-col gap-4">
 	{#if $loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="text-center">
@@ -311,115 +237,52 @@
 			{/snippet}
 		</EmptyState>
 	{:else}
-		{#snippet pluginSearch()}
-			<div class="relative">
-				<Icon name="search" className="w-3.5 h-3.5 text-fg-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-				<Input
-					id={SEARCH_INPUT_ID}
-					bind:value={searchQuery}
-					placeholder="Search plugins..."
-					class="pl-8 pr-8 text-sm h-8"
-				/>
-				{#if !searchQuery}
-					<span class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
-						<Kbd keys="/" />
-					</span>
-				{/if}
-			</div>
-		{/snippet}
-		{#snippet pluginStateFilters()}
-			<div class="flex items-center gap-1 bg-surface-2 border border-line rounded p-0.5">
-				{#each stateFilters as f}
-					<button
-						type="button"
-						class="px-2.5 py-1 text-xs font-medium rounded transition-colors {stateFilter === f.id
-							? 'bg-signal/10 text-signal'
-							: 'text-fg-muted hover:text-fg hover:bg-surface-3'}"
-						on:click={() => (stateFilter = f.id)}
-					>
-						{f.label}
-					</button>
-				{/each}
-			</div>
-		{/snippet}
+		<LibraryShell
+			title="Plugins"
+			persistKey="admin-plugins-library"
+			sections={PLUGIN_SECTIONS}
+			{section}
+			onSelectSection={selectSection}
+			{sectionCounts}
+			count={visiblePlugins.length}
+			{detailOpen}
+			heightClass={SHELL_HEIGHT_CLASS}
+			filterChips={chips}
+			onRemoveChip={(key) => updateFilters(clearPluginFilterChip(filters, key))}
+			onClearFilters={() => updateFilters(clearAllPluginFilters(filters))}
+			loadedCount={visiblePlugins.length}
+			total={$plugins.length}
+		>
+			{#snippet toolbar()}
+				<LibraryFilterBar
+					q={filters.q}
+					onQueryChange={(value) => updateFilters({ ...filters, q: value })}
+					searchPlaceholder="Search plugins by name, id, tag…"
+					sortBy={filters.sortBy}
+					sortOptions={PLUGIN_SORT_OPTIONS}
+					onSortChange={(value) => updateFilters({ ...filters, sortBy: value as PluginFilters['sortBy'] })}
+					{filterCount}
+				>
+					{#snippet popover(close)}
+						<PluginFiltersPopover {filters} onChange={updateFilters} onClose={close} />
+					{/snippet}
+				</LibraryFilterBar>
+			{/snippet}
 
-		<AdminFilterBar
-			search={pluginSearch}
-			filters={pluginStateFilters}
-			activeCount={activeFilterCount}
-			onClear={clearFilters}
-		/>
+			{#snippet primary()}
+				<Button variant="secondary" size="sm" icon={scanning ? undefined : 'search'} loading={scanning || $loading} disabled={scanning || $loading} onclick={scanForPlugins}>
+					{scanning ? 'Scanning...' : 'Scan for plugins'}
+				</Button>
+			{/snippet}
 
-		<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
-			<MasterDetailLayout leftWidth={340} minWidth={280} maxWidth={480} storageKey="admin-plugins-width">
-				<div slot="list" class="h-full min-h-0">
-					<Pane
-						label="Plugins"
-						count={filteredPlugins.length}
-						isEmpty={filteredPlugins.length === 0}
-						bodyRole="listbox"
-						ariaLabel="Plugins"
-					>
-						{#snippet empty()}
-							<div class="p-4 h-full flex items-center justify-center">
-								<EmptyState title="No plugins match" description="No plugins match the current search and filters." icon="search" compact>
-									{#snippet actions()}<Button variant="ghost" size="sm" onclick={clearFilters}>Clear filters</Button>{/snippet}
-								</EmptyState>
-							</div>
-						{/snippet}
-
-						{#snippet children()}
-							{#each groupedPlugins as group (group.category.id)}
-								<PaneGroupHeader icon={group.category.icon} label={group.category.label} count={group.items.length} />
-								{#each group.items as plugin (plugin.id)}
-									{#snippet pluginLeading()}
-										<span class="mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0 {stateDotClass(plugin)}"></span>
-									{/snippet}
-									{#snippet pluginBody()}
-										<div class="flex items-baseline gap-2">
-											<span class="text-[13px] font-medium {plugin.enabled ? 'text-fg' : 'text-fg-muted'} truncate">{plugin.name}</span>
-											<span class="text-xs font-mono tabular-nums text-fg-subtle flex-shrink-0">v{plugin.version}</span>
-										</div>
-										<p
-											use:measureDescriptionOverflow={plugin.id}
-											class="text-xs text-fg-muted mt-0.5 {expandedDescriptions[plugin.id] ? '' : 'line-clamp-1'}"
-										>
-											{plugin.description || 'No description available'}
-										</p>
-									{/snippet}
-									{#snippet pluginTrailing()}
-										{#if overflowingDescriptions[plugin.id]}
-											<IconButton
-												icon={expandedDescriptions[plugin.id] ? 'chevron-up' : 'chevron-down'}
-												label={expandedDescriptions[plugin.id] ? 'Show less' : 'Show more'}
-												size="sm"
-												onclick={(e) => {
-													e.stopPropagation();
-													toggleDescription(plugin.id);
-												}}
-											/>
-										{/if}
-									{/snippet}
-									<PaneRow
-										selected={selectedPluginId === plugin.id}
-										onclick={() => selectPlugin(plugin.id)}
-										leading={pluginLeading}
-										children={pluginBody}
-										trailing={pluginTrailing}
-									/>
-								{/each}
-							{/each}
-						{/snippet}
-					</Pane>
-				</div>
-
-				<div slot="detail" class="h-full min-h-0 flex flex-col">
+			{#if detailOpen}
+				<div class="h-full min-h-0 flex flex-col">
 					{#if detailLoading}
 						<div class="h-full flex items-center justify-center">
 							<Spinner size="lg" />
 						</div>
 					{:else if liveSelected}
-						<DetailHeader title={liveSelected.name}>
+						<DetailHeader title={liveSelected.name} backLabel="Plugins" onBack={backToList}>
 							{#snippet chips()}
 								<Badge variant="neutral" size="sm" class="font-mono tabular-nums">v{liveSelected.version}</Badge>
 								<Badge variant="neutral" size="sm" class="font-mono uppercase">{liveSelected.type}</Badge>
@@ -538,7 +401,14 @@
 							<DetailBody>
 								<DetailSection label="Settings">
 									{#if liveSelected.settings_schema && liveSelected.settings_schema.length > 0}
-										<form id="plugin-settings-form" on:submit|preventDefault={saveSettings} class="space-y-4">
+										<form
+											id="plugin-settings-form"
+											onsubmit={(event) => {
+												event.preventDefault();
+												saveSettings();
+											}}
+											class="space-y-4"
+										>
 											{#each liveSelected.settings_schema as schema}
 												{#if schema.type === 'info'}
 													<div class="rounded-lg border border-line bg-surface-2 p-4">
@@ -604,7 +474,7 @@
 									</div>
 								{:then Component}
 									{#if Component}
-										<svelte:component this={Component} pluginId={liveSelected.id} plugin={liveSelected} />
+										<Component pluginId={liveSelected.id} plugin={liveSelected} />
 									{:else}
 										<Alert variant="danger" icon title="Failed to load tab">
 											Could not load the "{activeContributedTab.label}" component ({activeContributedTab.componentPath}).
@@ -625,10 +495,47 @@
 							</DetailFooter>
 						{/if}
 					{:else}
-						<DetailEmptyState message="Select a plugin to view its details" icon="document" />
+						<div class="flex h-full items-center justify-center">
+							<EmptyState icon="document" title="Plugin not found" description="This plugin may have been removed.">
+								{#snippet actions()}
+									<Button variant="ghost" size="sm" onclick={backToList}>Back to plugins</Button>
+								{/snippet}
+							</EmptyState>
+						</div>
 					{/if}
 				</div>
-			</MasterDetailLayout>
-		</section>
+			{:else}
+				<div class="flex h-full flex-col overflow-hidden">
+					{#if scanResult}
+						<div class="flex-shrink-0 px-4 pt-4 sm:px-6">
+							<Alert variant="success" icon title="Scan Complete">
+								{#if scanResult.newPlugins > 0 || scanResult.updatedPlugins > 0}
+									Found {scanResult.newPlugins} new plugin{scanResult.newPlugins !== 1 ? 's' : ''}{scanResult.updatedPlugins > 0 ? ` and ${scanResult.updatedPlugins} updated plugin${scanResult.updatedPlugins !== 1 ? 's' : ''}` : ''}.
+								{:else}
+									No new plugins found.
+								{/if}
+							</Alert>
+						</div>
+					{/if}
+					<div class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+						{#if visiblePlugins.length === 0}
+							<div class="flex h-full items-center justify-center">
+								<EmptyState icon="search" title="No plugins match" description="No plugins match the current search and filters." compact>
+									{#snippet actions()}
+										<Button variant="ghost" size="sm" onclick={() => updateFilters(clearAllPluginFilters(filters))}>Clear filters</Button>
+									{/snippet}
+								</EmptyState>
+							</div>
+						{:else}
+							<div class="space-y-2" role="listbox" aria-label="Plugins">
+								{#each visiblePlugins as plugin (plugin.id)}
+									<PluginRow {plugin} busy={$pendingPluginIds.has(plugin.id)} onOpen={openPlugin} onToggle={togglePlugin} />
+								{/each}
+							</div>
+						{/if}
+					</div>
+				</div>
+			{/if}
+		</LibraryShell>
 	{/if}
 </div>

@@ -532,3 +532,29 @@ def test_convert_state_dict_fuses_multiple_blocks():
     for i in range(3):
         assert f"transformer_blocks.{i}.img_mlp.gate_up.weight" in out
         assert f"transformer_blocks.{i}.img_mlp.gate_layer.weight" not in out
+
+
+def test_load_dit_fuses_a_split_mlp_checkpoint(tmp_path):
+    from safetensors.torch import save_file
+
+    from src.platform.runtime.native import engine
+
+    seed = _build_ready(TINY)
+    sd = {k: v.detach().clone().contiguous() for k, v in seed.state_dict().items()}
+    fused = {}
+    for i in range(TINY["num_layers"]):
+        prefix = f"transformer_blocks.{i}.img_mlp."
+        fused[i] = sd.pop(prefix + "gate_up.weight")
+        gate, up = fused[i].chunk(2, dim=0)
+        sd[prefix + "gate_layer.weight"] = gate.contiguous()
+        sd[prefix + "proj.weight"] = up.contiguous()
+    path = tmp_path / "qwen_image21_split.safetensors"
+    save_file(sd, str(path))
+
+    loaded = engine.NativeEngineLoader()._load_dit(path)
+
+    state = loaded.module.state_dict()
+    for i in range(TINY["num_layers"]):
+        torch.testing.assert_close(
+            state[f"transformer_blocks.{i}.img_mlp.gate_up.weight"].float(), fused[i].float()
+        )

@@ -275,6 +275,7 @@ _VENDORED_SPECS: list[ModelSpec] = [
         variant="qwen_image21",
         signature={"image_model": "qwen_image21"},
         model_class="src.platform.runtime.native.arch.qwen_image21.model:QwenImage21DiT",
+        state_dict_map="src.platform.runtime.native.arch.qwen_image21.model:convert_qwen_image21_state_dict",
         sampling_settings={
             "prediction": "const",          # flow-matching CONST (ComfyUI QwenImage21)
             "shift": 2.0,

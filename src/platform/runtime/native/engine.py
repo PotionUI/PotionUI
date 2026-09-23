@@ -791,6 +791,9 @@ class NativeEngineLoader:
                 "built by src.platform.runtime.native.arch.trellis2.load."
             )
         spec = match_model_spec(config)
+        remap = spec.resolve_state_dict_map()
+        if remap is not None:
+            sd = remap(sd)
 
         quant_format = detect_quant_format(metadata, sd)
         # storage = TRUE checkpoint dtype (so a fp32 VAE/DiT selects manual_cast

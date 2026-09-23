@@ -117,6 +117,8 @@ function referencedComponents(manifest) {
 		manifest.contributions,
 		manifest.prompt_importers,
 		manifest.admin_tabs,
+		manifest.history_tools,
+		manifest.phrasebook_ops,
 		manifest.hooks?.frontend
 	];
 	for (const section of sections) {

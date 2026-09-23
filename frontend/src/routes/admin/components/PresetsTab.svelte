@@ -599,7 +599,7 @@
 					</EmptyState>
 				</div>
 			{:else}
-				<div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" role="list" aria-label="Preset catalog">
+				<div class="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3" role="list" aria-label="Preset catalog">
 					{#each visiblePresets as preset (preset.id)}
 						<PresetCard {preset} installing={mutatingPresetId === preset.id} onOpen={openPreset} onInstall={handleInstall} />
 					{/each}

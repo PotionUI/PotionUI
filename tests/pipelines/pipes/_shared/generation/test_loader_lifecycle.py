@@ -37,6 +37,7 @@ class _FakeModels:
     def __init__(self) -> None:
         self.acquires: list[tuple[str, str, float | None]] = []
         self.evicted: list[str] = []
+        self.retained: list[tuple[str, str]] = []
         self._entries: dict[str, tuple[str, object]] = {}
 
     def acquire(self, key, fingerprint, loader, estimated_vram_gb=None):
@@ -54,6 +55,10 @@ class _FakeModels:
     def evict_dead_weight(self, key: str) -> bool:
         self.evicted.append(key)
         return self._entries.pop(key, None) is not None
+
+    def retain(self, key: str, fingerprint: str) -> bool:
+        self.retained.append((key, fingerprint))
+        return True
 
 
 class _Recorder:
@@ -236,3 +241,15 @@ def test_progress_advances_once_per_component_in_acquire_order():
         "progress:Loading X — text encoder",
     ]
     assert [s.split("(")[1].split(")")[0] for s in states] == ["1 of 3", "2 of 3", "3 of 3"]
+
+
+def test_deferred_component_is_retained_for_the_generation_without_loading():
+    models, rec = _FakeModels(), _Recorder()
+    lifecycle = _lifecycle(models, rec)
+    te = Component("text encoder", "native/te/t", "t|bf16", rec.loader("te"), 21.0)
+
+    lifecycle.deferred_module(te)
+
+    assert models.retained == [("native/te/t", "t|bf16")]
+    assert models.acquires == []
+    assert rec.events == []

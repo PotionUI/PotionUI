@@ -370,3 +370,39 @@ class TestLeaseHitMissLoadStats:
         manager.end_lease("gen-1")
 
         assert "gen-1" not in manager._lease_stats
+
+
+class TestRetainKeepsAnUnacquiredComponentThroughTheGenerationSweep:
+    def _cache_te(self, manager):
+        manager.begin_generation("presets/A")
+        manager.begin_lease("gen-0")
+        manager.acquire(key="te", fingerprint="fp", loader=lambda: FakeModel("te"))
+        manager.end_lease("gen-0")
+
+    def test_unretained_cached_entry_is_swept(self, manager):
+        self._cache_te(manager)
+        manager.begin_generation("presets/A")
+        manager.begin_lease("gen-1")
+        manager.end_lease("gen-1")
+        assert "te" not in manager._entries
+
+    def test_retained_cached_entry_survives_the_sweep(self, manager):
+        self._cache_te(manager)
+        manager.begin_generation("presets/A")
+        manager.begin_lease("gen-1")
+        assert manager.retain("te", "fp") is True
+        manager.end_lease("gen-1")
+        assert "te" in manager._entries
+
+    def test_retain_with_a_different_fingerprint_does_not_keep_the_old_entry(self, manager):
+        self._cache_te(manager)
+        manager.begin_generation("presets/A")
+        manager.begin_lease("gen-1")
+        assert manager.retain("te", "other") is False
+        manager.end_lease("gen-1")
+        assert "te" not in manager._entries
+
+    def test_retain_without_a_cached_entry_or_lease_is_a_no_op(self, manager):
+        assert manager.retain("te", "fp") is False
+        self._cache_te(manager)
+        assert manager.retain("te", "fp") is False

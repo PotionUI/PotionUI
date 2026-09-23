@@ -928,6 +928,16 @@ class ModelLifecycle:
                 logger.warning(f"[MODEL_LIFECYCLE] Could not get VRAM budget, defaulting to {vram_gb}GB: {e}")
         return MemoryPolicy(vram_gb)
 
+    def retain(self, key: str, fingerprint: str) -> bool:
+        with self._lock:
+            entry = self._entries.get(key)
+            lease_id = _active_lease_id.get()
+            if entry is None or entry.fingerprint != fingerprint or lease_id is None:
+                return False
+            entry.leased_by.add(lease_id)
+            self._leases.setdefault(lease_id, set()).add(key)
+            return True
+
     def evict_dead_weight(self, key: str) -> bool:
         """Explicitly evict ONE cache entry mid-generation because the calling
         pipe already knows it is dead weight for the rest of THIS generation

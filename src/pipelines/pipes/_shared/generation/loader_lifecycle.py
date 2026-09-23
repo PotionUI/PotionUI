@@ -109,6 +109,9 @@ class ComponentLifecycle:
         """The acquire as a thunk yielding the loaded ``module``, for a
         component whose consumer decides whether it is ever needed. Nothing is
         announced, admitted or loaded until the thunk runs."""
+        retain = getattr(self._models, "retain", None)
+        if callable(retain):
+            retain(component.key, component.fingerprint)
         return lambda: self.acquire(component).module
 
 

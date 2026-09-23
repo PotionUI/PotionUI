@@ -115,15 +115,6 @@ class TestExecuteErrors:
         assert result.success is False
 
     @pytest.mark.asyncio
-    async def test_rejects_choice_with_too_many_options(self):
-        ctx = make_context(session_metadata={"form_state": make_form_state()})
-        result = await ManagePromptVariablesTool().execute(
-            ctx,
-            operations=[set_op("mood", type="choice", options=[f"o{i}" for i in range(13)])],
-        )
-        assert result.success is False
-
-    @pytest.mark.asyncio
     async def test_rejects_unknown_mode(self):
         ctx = make_context(session_metadata={"form_state": make_form_state()})
         result = await ManagePromptVariablesTool().execute(

@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.platform.resources.prompt_variables import (
-    MAX_OPTIONS,
     MAX_VARIABLES,
     VALID_MODES,
     dependency_prefix,
@@ -85,9 +84,6 @@ def _build_choice_var(
     raw_options = op.get("options")
     if not isinstance(raw_options, (list, tuple)):
         errors.append(f"'{name}': a choice variable needs at least one non-empty option.")
-        return None
-    if len(raw_options) > MAX_OPTIONS:
-        errors.append(f"'{name}': too many options ({len(raw_options)} > {MAX_OPTIONS}).")
         return None
 
     options: List[Any] = []

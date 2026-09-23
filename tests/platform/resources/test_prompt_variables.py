@@ -294,6 +294,21 @@ class TestValidateVariablesMap:
         })
         assert any("is not a choice variable" in e for e in errors)
 
+    def test_choice_options_and_condition_values_are_uncapped(self):
+        from src.platform.resources.prompt_variables import validate_variables_map
+
+        scenes = [f"scene {i}" for i in range(40)]
+        variables = {
+            "scene": {"type": "choice", "mode": "shuffle", "options": scenes},
+            "outfit": {
+                "type": "choice", "mode": "shuffle", "options": [
+                    {"text": f"outfit {i}", "when": {"var": "scene", "values": scenes[:20]}}
+                    for i in range(40)
+                ],
+            },
+        }
+        assert validate_variables_map(variables) == []
+
     def test_too_many_variables_is_rejected(self):
         from src.platform.resources.prompt_variables import validate_variables_map, MAX_VARIABLES
 

@@ -26,12 +26,10 @@ _MAX_VARIABLES = 24
 _MAX_OPTIONS = 12
 _MAX_VALUE_CHARS = 80
 _MAX_NAME_CHARS = 60
-MAX_CONDITION_VALUES = _MAX_OPTIONS
 
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VALID_MODES = {"shuffle", "pin", "per-image"}
 MAX_NAME_CHARS = _MAX_NAME_CHARS
-MAX_OPTIONS = _MAX_OPTIONS
 MAX_VARIABLES = _MAX_VARIABLES
 
 
@@ -223,11 +221,6 @@ def validate_condition(
             f"'{name}': when.var '{var}' would make a cycle ({var} already resolves after {name})."
         )
 
-    if len(values) > MAX_CONDITION_VALUES:
-        return None, (
-            f"'{name}': when.values has too many entries ({len(values)} > {MAX_CONDITION_VALUES})."
-        )
-
     ref_texts = option_texts(valid_options(ref.get("options")))
     bad = [v for v in values if v not in ref_texts]
     if bad:
@@ -278,10 +271,6 @@ def validate_variables_map(variables: Any) -> List[str]:
         if not isinstance(raw_options, (list, tuple)) or not raw_options:
             errors.append(f"'{name}': a choice variable needs at least one non-empty option.")
             continue
-        if len(raw_options) > MAX_OPTIONS:
-            errors.append(f"'{name}': too many options ({len(raw_options)} > {MAX_OPTIONS}).")
-            continue
-
         texts: List[str] = []
         condition_failed = False
         for raw_opt in raw_options:

@@ -128,7 +128,7 @@ def _fft_expand(x: Tensor, target_hw: tuple[int, int], sigma: float,
                 generator: torch.Generator | None) -> Tensor:
     *lead, h, w = x.shape
     ht, wt = target_hw
-    xs = torch.fft.fftshift(torch.fft.fft2(x, norm="ortho"), dim=(-2, -1))
+    xs = torch.fft.fftshift(torch.fft.fft2(x.float(), norm="ortho"), dim=(-2, -1))
     nr = _randn((*lead, ht, wt), x, generator)
     ni = _randn((*lead, ht, wt), x, generator)
     big = sigma * torch.complex(nr, ni) / math.sqrt(2.0)
@@ -332,7 +332,7 @@ def _seed_stage0(seed_noise: Tensor, stage0_shape: tuple[int, ...]) -> Tensor:
     if tuple(seed_noise.shape) == tuple(stage0_shape):
         return seed_noise
     *_, h, w = stage0_shape
-    xs = torch.fft.fftshift(torch.fft.fft2(seed_noise, norm="ortho"), dim=(-2, -1))
+    xs = torch.fft.fftshift(torch.fft.fft2(seed_noise.float(), norm="ortho"), dim=(-2, -1))
     *_, H, W = seed_noise.shape
     ph, pw = (H - h) // 2, (W - w) // 2
     cropped = xs[..., ph:ph + h, pw:pw + w]

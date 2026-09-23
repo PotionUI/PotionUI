@@ -272,3 +272,15 @@ def test_engine_config_gate_eligibility():
     assert gate(None, cfg, None, img, dynamic) is not None
     assert gate(None, cfg, None, img, anchored) is not None
     assert gate(None, cfg, None, still_5d, anchored) is not None
+
+
+def test_spectral_expansion_and_stage0_seed_accept_bfloat16_latents():
+    import torch
+    from src.platform.runtime.native.sampling.spectral_progressive import _fft_expand, _seed_stage0
+
+    noise = torch.randn(1, 4, 1, 16, 16).to(torch.bfloat16)
+    seeded = _seed_stage0(noise, (1, 4, 1, 8, 8))
+    assert seeded.shape == (1, 4, 1, 8, 8) and seeded.dtype == torch.bfloat16
+
+    grown = _fft_expand(seeded, (16, 16), 0.5, None)
+    assert grown.shape == (1, 4, 1, 16, 16) and grown.dtype == torch.bfloat16

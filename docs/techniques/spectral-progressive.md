@@ -3,7 +3,7 @@ type: technique
 title: Spectral Progressive Diffusion
 category_group: Performance
 status: needs-gpu-validation
-families: [flux, z_image, qwen_image21]
+families: [flux, z_image]
 authors: []
 paper: {arxiv: "2605.18736", title: "Spectral Progressive Diffusion for Efficient Image and Video Generation"}
 reference_impl: {name: "howardhx/speed", url: "https://github.com/howardhx/speed", license: "MIT"}

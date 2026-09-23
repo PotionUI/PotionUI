@@ -137,10 +137,6 @@ pipeline:
         rel_threshold: "{{ form.step_cache_threshold }}"
         warmup_steps: "{{ form.step_cache_warmup_steps }}"
         max_consecutive_skips: "{{ form.step_cache_max_skips }}"
-      spectral_progressive:
-        enabled: "{{ form.spectral_progressive_enabled }}"
-        scales: ["{{ form.spectral_progressive_start_scale }}", 1.0]
-        transitions: ["{{ form.spectral_progressive_switch }}"]
 
   #############
   ## Gallery

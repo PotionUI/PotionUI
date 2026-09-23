@@ -25,10 +25,7 @@ from PIL import Image
 
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec, logger
 from src.pipelines.outputs import GenerationExecutionError, ImageGenerationOutput, Icon
-from src.pipelines.pipes._shared.generation.flow_generator_pipe import (
-    FlowMatchGeneratorPipe,
-    spectral_progressive_config_specs,
-)
+from src.pipelines.pipes._shared.generation.flow_generator_pipe import FlowMatchGeneratorPipe
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
 from src.pipelines.pipes._shared.generation.guidance_options import (
     apply_schedule_settings,
@@ -96,7 +93,6 @@ class GeneratorQwenImage21Pipe(FlowMatchGeneratorPipe):
                 "video pipes use (this family has no such resolver).",
                 required=False,
             ),
-            *spectral_progressive_config_specs(),
         ]
 
     @classmethod

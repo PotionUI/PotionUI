@@ -15,6 +15,7 @@
 		sectionCounts = {},
 		count = null,
 		detailOpen = false,
+		heightClass = 'h-[100dvh]',
 		toolbar,
 		filterChips = [],
 		onRemoveChip,
@@ -34,6 +35,7 @@
 		sectionCounts?: Partial<Record<S, number>>;
 		count?: number | null;
 		detailOpen?: boolean;
+		heightClass?: string;
 		toolbar?: Snippet;
 		filterChips?: readonly FilterChip[];
 		onRemoveChip?: (key: string) => void;
@@ -92,7 +94,7 @@
 
 <svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
 
-<div class="flex h-[100dvh] bg-canvas text-fg">
+<div class="flex {heightClass} bg-canvas text-fg">
 	{#if sidebarOpen}
 		<aside class="hidden w-60 flex-shrink-0 flex-col border-r border-line bg-surface-1 md:flex">
 			<Pane label="Library" onCollapse={() => setSidebarOpen(false)}>

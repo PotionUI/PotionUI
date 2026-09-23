@@ -12,6 +12,7 @@
 		q,
 		onQueryChange,
 		searchPlaceholder,
+		searchAriaLabel = undefined,
 		searchHint = null,
 		searchInputEl = $bindable(undefined),
 		sortBy,
@@ -23,6 +24,7 @@
 		q: string;
 		onQueryChange: (value: string) => void;
 		searchPlaceholder: string;
+		searchAriaLabel?: string;
 		searchHint?: string | null;
 		searchInputEl?: HTMLInputElement;
 		sortBy: string;
@@ -103,6 +105,7 @@
 			type="search"
 			class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-fg-subtle"
 			placeholder={searchPlaceholder}
+			aria-label={searchAriaLabel ?? searchPlaceholder}
 			value={q}
 			oninput={(event) => onQueryChange((event.currentTarget as HTMLInputElement).value)}
 		/>

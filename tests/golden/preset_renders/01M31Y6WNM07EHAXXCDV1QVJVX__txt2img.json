@@ -238,6 +238,12 @@
             1.0
           ]
         },
+        "spectral_progressive.transitions": {
+          "type": "list",
+          "value": [
+            0.7
+          ]
+        },
         "step_cache.max_consecutive_skips": {
           "type": "int",
           "value": 3

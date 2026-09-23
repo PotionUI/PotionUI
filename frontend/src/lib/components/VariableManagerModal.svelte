@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import BaseModal from './modals/BaseModal.svelte';
+	import ConfirmFooter from './modals/ConfirmFooter.svelte';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction } from './modals/confirmKeyboard';
 	import { Button } from '$lib/components/ui';
 	import Icon from './Icon.svelte';
 	import Tooltip from './Tooltip.svelte';
@@ -51,10 +53,35 @@
 	let rows: Row[] = [];
 	let previousOpen = false;
 	let nextKey = 0;
+	let openedWith: VariablesMap = {};
+	const settlementGate = createConfirmSettlementGate();
 
 	$: if (isOpen !== previousOpen) {
 		previousOpen = isOpen;
-		if (isOpen) initialize();
+		if (isOpen) {
+			openedWith = JSON.parse(JSON.stringify(variables ?? {}));
+			initialize();
+			settlementGate.reset();
+		}
+	}
+
+	function handleCancel() {
+		settlementGate.settle(() => {
+			dispatch('change', openedWith);
+			dispatch('close');
+		});
+	}
+
+	function handleConfirm() {
+		settlementGate.settle(() => dispatch('close'));
+	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (!isOpen) return;
+		const { action, suppress } = getConfirmKeyboardAction(event);
+		if (action === 'cancel') handleCancel();
+		else if (action === 'confirm') handleConfirm();
+		if (suppress) event.preventDefault();
 	}
 
 	function initialize() {
@@ -325,7 +352,15 @@
 	}
 </script>
 
-<BaseModal {isOpen} title="Prompt variables" sizeClass="md:max-w-4xl md:w-full" on:close={() => dispatch('close')}>
+<svelte:window on:keydown|capture={handleKeydown} />
+
+<BaseModal
+	{isOpen}
+	title="Prompt variables"
+	sizeClass="md:max-w-5xl md:w-full"
+	handleEscapeKey={false}
+	on:close={handleCancel}
+>
 	<svelte:fragment slot="headerIcon"><Icon name="braces" className="h-5 w-5 text-fg-muted" /></svelte:fragment>
 	<div class="space-y-3 p-4 sm:p-6">
 		<p class="text-xs text-fg-subtle">
@@ -415,7 +450,7 @@
 								<div class="space-y-1.5">
 									<div class="flex items-center gap-1.5 px-0.5">
 										<span class="min-w-0 flex-1 font-mono text-xs uppercase tracking-[0.04em] text-fg-subtle">Option</span>
-										<span class="w-[232px] flex-shrink-0 font-mono text-xs uppercase tracking-[0.04em] text-fg-subtle">When</span>
+										<span class="w-[260px] flex-shrink-0 font-mono text-xs uppercase tracking-[0.04em] text-fg-subtle">When</span>
 										<span class="w-7 flex-shrink-0"></span>
 									</div>
 									{#each row.def.options as option, index (index)}
@@ -428,7 +463,7 @@
 												on:input={(e) => updateOptionText(row.key, index, e.currentTarget.value)}
 												aria-label={`Option ${index + 1}`}
 											/>
-											<div class="w-[232px] flex-shrink-0">
+											<div class="w-[260px] flex-shrink-0">
 												<VariableConditionChip
 													ownerName={row.name.trim()}
 													when={optionWhen(option)}
@@ -506,22 +541,6 @@
 
 		<div class="flex flex-wrap items-center gap-2">
 			<Button variant="secondary" size="xs" icon="plus" onclick={addRow}>Add variable</Button>
-			<Tooltip text="Copy variables as JSON">
-				<Button
-					variant="secondary"
-					size="xs"
-					icon="copy"
-					disabled={Object.keys(liveVariables).length === 0}
-					onclick={copyVariables}
-				>
-					Copy
-				</Button>
-			</Tooltip>
-			<Tooltip text="Paste variables JSON">
-				<Button variant="secondary" size="xs" icon="clipboard-list" onclick={() => (pasteModalOpen = true)}>
-					Paste
-				</Button>
-			</Tooltip>
 		</div>
 	</div>
 
@@ -532,9 +551,26 @@
 		on:confirm={handlePasteConfirm}
 	/>
 	<svelte:fragment slot="footer">
-		<div class="flex w-full items-center justify-between gap-3 px-4 py-3 sm:px-6">
-			<div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+		<ConfirmFooter confirmLabel="Done" onCancel={handleCancel} onConfirm={handleConfirm}>
+			{#snippet leftActions()}
+				<Tooltip text="Copy variables as JSON">
+					<Button
+						variant="secondary"
+						size="xs"
+						icon="copy"
+						disabled={Object.keys(liveVariables).length === 0}
+						onclick={copyVariables}
+					>
+						Copy
+					</Button>
+				</Tooltip>
+				<Tooltip text="Paste variables JSON">
+					<Button variant="secondary" size="xs" icon="clipboard-list" onclick={() => (pasteModalOpen = true)}>
+						Paste
+					</Button>
+				</Tooltip>
 				{#if anyCondition}
+					<span class="mx-1 h-4 w-px flex-shrink-0 bg-line-strong/60"></span>
 					<Button variant="secondary" size="xs" onclick={runRollPreview}>Roll preview</Button>
 					{#each rollPreview ?? [] as entry, i (entry.name)}
 						{#if i > 0}<Icon name="chevron-right" className="h-3 w-3 flex-shrink-0 text-fg-subtle" />{/if}
@@ -547,8 +583,7 @@
 						</span>
 					{/each}
 				{/if}
-			</div>
-			<Button variant="primary" onclick={() => dispatch('close')}>Done</Button>
-		</div>
+			{/snippet}
+		</ConfirmFooter>
 	</svelte:fragment>
 </BaseModal>

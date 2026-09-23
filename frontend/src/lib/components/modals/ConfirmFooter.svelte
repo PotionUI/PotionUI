@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { Button, Kbd } from '$lib/components/ui';
 
 	let {
@@ -13,6 +14,7 @@
 		secondaryBusy = false,
 		secondaryDisabled = false,
 		summary,
+		leftActions,
 		onCancel,
 		onConfirm,
 		onSecondary
@@ -30,6 +32,7 @@
 		secondaryDisabled?: boolean;
 		/** One-line status text shown left of the buttons, e.g. what Confirm will do. */
 		summary?: string;
+		leftActions?: Snippet;
 		onCancel: () => void;
 		onConfirm: () => void;
 		onSecondary?: () => void;
@@ -41,8 +44,15 @@
 </script>
 
 <div class="flex items-center justify-between gap-3 px-6 py-4">
-	{#if summary}
-		<span class="min-w-0 truncate font-mono text-xs text-fg-muted">{summary}</span>
+	{#if leftActions || summary}
+		<div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+			{#if leftActions}
+				{@render leftActions()}
+			{/if}
+			{#if summary}
+				<span class="min-w-0 truncate font-mono text-xs text-fg-muted">{summary}</span>
+			{/if}
+		</div>
 	{/if}
 	<div class="flex flex-shrink-0 items-center gap-3 ml-auto">
 		{#if !hideCancel}

@@ -7,6 +7,7 @@ import pytest
 from PIL import Image
 
 from src.features.presets.style_previews import (
+    STYLE_PREVIEW_WEBP_QUALITY,
     build_style_prompt,
     downscale_and_save_webp,
     form_has_field,
@@ -207,6 +208,29 @@ class TestDownscaleAndSaveWebp:
             assert "exif" not in saved.info
             assert "icc_profile" not in saved.info
             assert "xmp" not in saved.info
+
+    def test_quality_defaults_to_style_preview_constant(self, tmp_path):
+        img = Image.new("RGB", (100, 50), "blue")
+        default_dest = tmp_path / "default.webp"
+        explicit_dest = tmp_path / "explicit.webp"
+
+        downscale_and_save_webp(img, default_dest, 200)
+        downscale_and_save_webp(img, explicit_dest, 200, quality=STYLE_PREVIEW_WEBP_QUALITY)
+
+        assert default_dest.read_bytes() == explicit_dest.read_bytes()
+
+    def test_custom_quality_changes_output(self, tmp_path):
+        img = Image.new("RGB", (400, 300), "blue")
+        for x in range(400):
+            for y in range(300):
+                img.putpixel((x, y), ((x * 7) % 256, (y * 13) % 256, (x + y) % 256))
+        low = tmp_path / "low.webp"
+        high = tmp_path / "high.webp"
+
+        downscale_and_save_webp(img, low, 200, quality=10)
+        downscale_and_save_webp(img, high, 200, quality=95)
+
+        assert low.stat().st_size != high.stat().st_size
 
 
 class TestWriteWebp:

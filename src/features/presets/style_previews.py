@@ -44,7 +44,9 @@ def _fields_contain(fields, name: str) -> bool:
     return False
 
 
-def downscale_and_save_webp(img: Image.Image, dest_path: Path, long_edge: int) -> None:
+def downscale_and_save_webp(
+    img: Image.Image, dest_path: Path, long_edge: int, quality: int = STYLE_PREVIEW_WEBP_QUALITY
+) -> None:
     img = img.convert("RGB")
     width, height = img.size
     scale = long_edge / max(width, height)
@@ -54,7 +56,7 @@ def downscale_and_save_webp(img: Image.Image, dest_path: Path, long_edge: int) -
             Image.Resampling.LANCZOS,
         )
     dest_path.parent.mkdir(parents=True, exist_ok=True)
-    img.save(dest_path, format="WEBP", quality=STYLE_PREVIEW_WEBP_QUALITY)
+    img.save(dest_path, format="WEBP", quality=quality)
 
 
 def write_webp(source_path: Path, dest_path: Path, long_edge: int) -> None:

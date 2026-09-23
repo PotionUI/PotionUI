@@ -52,6 +52,7 @@ from src.features.presets.requirements.contracts import (
     RequirementResult,
 )
 from src.features.presets.schema import GalleryItem, PresetMedia
+from src.features.presets.style_previews import downscale_and_save_webp
 from src.platform.plugins.runtime_registries import get_container
 
 __all__ = [
@@ -64,6 +65,7 @@ __all__ = [
     "RequirementChecker",
     "RequirementContext",
     "RequirementResult",
+    "downscale_and_save_webp",
     "lint_preset_dir",
     "preset_operations",
     "PromptPair",

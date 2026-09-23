@@ -111,6 +111,7 @@ RENDERER_HOOKS = hooks_registry.declare(
 EXTENSION_SLOT_HOOKS = hooks_registry.declare(
     "slot", "frontend",
     "admin.tabs", "nav.primary", "generation.panel.modes", "admin.models.card.actions",
+    "generation.detail.actions",
     specs={
         "admin.tabs": {
             "description": "Populated by a manifest's `contributions: [{slot: 'admin.tabs', component, label, order, require_role}]` entries. Read via `contributionsForSlot('admin.tabs')` and rendered as extra tabs in frontend/src/routes/admin/+page.svelte, alongside the core admin tabs.",
@@ -151,6 +152,19 @@ EXTENSION_SLOT_HOOKS = hooks_registry.declare(
                 "refresh": {"type": "function", "description": "Call after changing the model; the list reloads in place and the card re-renders with the new data"},
             },
             "use_when": ["Adding a per-model icon action to the Admin -> Models card, e.g. fetching provider metadata for that model"],
+        },
+        "generation.detail.actions": {
+            "description": "Populated by a manifest's `contributions: [{slot: 'generation.detail.actions', component, label, order, require_role}]` entries (`label` is shown as the button's tooltip). Mounted via `<PluginSlot hookName=\"generation.detail.actions\" tooltips context={{...}}>` in GenerationDetailsModal.svelte's header, alongside the generation id/status/navigation controls.",
+            "payload": {
+                "generationId": {"type": "string", "description": "ID of the generation being displayed"},
+                "presetId": {"type": "string | null", "description": "The generation's preset_id, null for a generation with no preset (e.g. an upload)"},
+                "mode": {"type": "string", "description": "The generation's mode (e.g. 'txt2img')"},
+                "fileIndex": {"type": "number", "description": "Index of the currently displayed file within the generation"},
+                "filename": {"type": "string", "description": "Basename of the currently displayed file, as served under /api/media/generations/{generationId}/{filename}"},
+                "fileUrl": {"type": "string", "description": "Display URL of the currently displayed file"},
+                "fileType": {"type": "string", "description": "'IMAGE' | 'VIDEO' | 'AUDIO' | 'MESH' - the file record's file_type"},
+            },
+            "use_when": ["Adding a header-level action that operates on the whole generation or its currently displayed file, e.g. a developer/admin tool"],
         },
     },
 )

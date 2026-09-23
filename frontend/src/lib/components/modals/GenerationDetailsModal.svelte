@@ -554,6 +554,23 @@
 				{activeGeneration.status}
 			</Badge>
 		{/if}
+		{#if activeGeneration && currentFile}
+			<div class="flex-shrink-0">
+				<PluginSlot
+					hookName="generation.detail.actions"
+					tooltips
+					context={{
+						generationId: activeGenerationId,
+						presetId: activeGeneration.preset_id ?? null,
+						mode: activeGeneration.mode,
+						fileIndex: currentFileIndex,
+						filename: currentFile.file_path.split('/').pop() || currentFile.file_path,
+						fileUrl: getImageUrl(currentFile),
+						fileType: currentFile.file_type
+					}}
+				/>
+			</div>
+		{/if}
 		{#if canNavigate}
 			<div class="flex items-center gap-1 flex-shrink-0">
 				<Tooltip text="Previous generation" kbd="Shift+←" position="bottom">

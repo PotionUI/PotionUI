@@ -139,8 +139,10 @@ from src.plugin_api.native import (
 # Presets, and starting a generation.
 from src.plugin_api.presets import (
     FilePresetRepository,
+    GalleryItem,
     GenerationRequest,
     PresetCollaborators,
+    PresetMedia,
     lint_preset_dir,
     preset_operations,
     PromptPair,
@@ -306,8 +308,10 @@ __all__ = [
     "native_step_hooks",
     # Presets and generation
     "FilePresetRepository",
+    "GalleryItem",
     "GenerationRequest",
     "PresetCollaborators",
+    "PresetMedia",
     "lint_preset_dir",
     "preset_operations",
     "PromptPair",

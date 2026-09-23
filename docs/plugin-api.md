@@ -59,7 +59,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Backends** — contributing an engine | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate` |
 | **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
 | **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks` |
-| **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair` |
+| **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem` |
 | **Compute** — renting GPU compute for a Remote Native worker | `.compute` | `ComputeProvisioner`, `ComputeProvisionerError`, `ComputeStatus`, `ProvisionRequest`, `ProvisionResult`, `ProvisionProgress`, `ProgressReporter`, `ComputeFieldDescriptorV1`, `ComputeFieldOptionV1`, `COMPUTE_STATES`, `STATE_*`, `STAGE_*`, `COMPUTE_HOOKS` |
 | **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `Settings`, `SettingRepository`, `PluginRepository` |
 | **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel` |
@@ -954,6 +954,27 @@ text, so your button must not set a native `title`.
 card re-renders with the new previews, tags or description. For provider metadata,
 `POST /api/models/info/fetch` with `wait: true` and explicit `model_ids` runs the fetch before
 responding and returns `{successful, failed}`; without `wait` it runs in the background.
+
+## Contributing a Generation Details action
+
+The Generation Details modal's header (`GenerationDetailsModal.svelte`) can carry a
+plugin-contributed icon button, alongside the generation id/status/navigation controls.
+Declare it under `contributions:` in `manifest.yml`:
+
+```yaml
+contributions:
+  - slot: "generation.detail.actions"
+    component: "MyDetailAction.svelte"
+    label: "My action"
+    order: 100
+    require_role: "ADMIN"   # optional
+```
+
+It's mounted via `<PluginSlot hookName="generation.detail.actions" tooltips context={{...}}>`,
+so your component receives `{generationId, presetId, mode, fileIndex, filename, fileUrl,
+fileType}` for the currently displayed file through its `context` prop - full payload in
+`GET /api/plugins/hooks/catalog`. Give the contribution a `label`: the host wraps your
+component in the app's tooltip with that text, so your button must not set a native `title`.
 
 ## Contributing modes to an existing preset
 

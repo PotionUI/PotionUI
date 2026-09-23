@@ -51,12 +51,15 @@ from src.features.presets.requirements.contracts import (
     RequirementContext,
     RequirementResult,
 )
+from src.features.presets.schema import GalleryItem, PresetMedia
 from src.platform.plugins.runtime_registries import get_container
 
 __all__ = [
     "FilePresetRepository",
+    "GalleryItem",
     "GenerationRequest",
     "PresetCollaborators",
+    "PresetMedia",
     "RequirementAction",
     "RequirementChecker",
     "RequirementContext",

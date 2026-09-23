@@ -61,7 +61,7 @@ test('toolbar More actions menu opens the core file/text importer', async ({
 	await page.goto('/prompts');
 	await expect(page.getByRole('button', { name: 'New prompt' })).toBeVisible({ timeout: 15000 });
 
-	await page.getByRole('button', { name: 'More actions' }).click();
+	await page.locator('header').getByRole('button', { name: 'More actions' }).click();
 	const importItem = page.getByRole('menuitem', { name: 'From file or text' });
 	await expect(importItem).toBeVisible();
 	await importItem.click();

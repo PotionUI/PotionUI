@@ -10,7 +10,7 @@ const LABEL = 'Install models';
 const TAB_HREF = '/admin?tab=recipes';
 
 function deepLink(recipeId: string): InstallModelsTarget {
-	return { href: `${TAB_HREF}&recipe=${encodeURIComponent(recipeId)}`, label: LABEL };
+	return { href: `${TAB_HREF}&id=${encodeURIComponent(recipeId)}`, label: LABEL };
 }
 
 /**

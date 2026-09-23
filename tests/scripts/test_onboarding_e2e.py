@@ -255,6 +255,7 @@ def _write_fixture_recipes(marketplace_dir: Path) -> None:
         "version": 1,
         "name": "SDXL Starter",
         "engine": "native",
+        "category": "image",
         "plugins": [{"id": "downloader", "reason": "fetches things"}],
         "backend": {"engine": "native"},
         "artifacts": [
@@ -289,6 +290,7 @@ def _write_fixture_recipes(marketplace_dir: Path) -> None:
         "version": 1,
         "name": "ComfyUI Detect",
         "engine": "comfyui",
+        "category": "utility",
         "presets": [{"preset_id": "p2"}],
         "steps": [{"key": "backend.detect", "kind": "backend.detect", "title": "t", "params": {"engine": "comfyui"}}],
     }

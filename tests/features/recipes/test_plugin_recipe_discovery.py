@@ -23,6 +23,7 @@ id: "{recipe_id}"
 version: 1
 name: "Test Recipe"
 engine: "native"
+category: "utility"
 plugins: []
 presets:
   - preset_id: "PRESET1"
@@ -146,6 +147,7 @@ id: "plugin-kind"
 version: 1
 name: "Plugin Kind Recipe"
 engine: "native"
+category: "utility"
 plugins: []
 presets:
   - preset_id: "PRESET1"

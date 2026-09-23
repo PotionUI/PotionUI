@@ -12,6 +12,7 @@ id: "{recipe_id}"
 version: 1
 name: "Test Recipe"
 engine: "native"
+category: "utility"
 plugins: []
 presets:
   - preset_id: "PRESET1"

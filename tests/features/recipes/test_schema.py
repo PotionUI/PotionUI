@@ -17,6 +17,7 @@ def _valid_recipe(**overrides):
         "version": 1,
         "name": "SDXL Starter",
         "engine": "native",
+        "category": "image",
         "plugins": [{"id": "downloader", "reason": "fetch the checkpoint"}],
         "backend": {"engine": "native"},
         "artifacts": [
@@ -100,12 +101,31 @@ def test_not_a_mapping_is_rejected():
         ({"version": "1"}, "version"),
         ({"name": ""}, "name"),
         ({"engine": ""}, "engine"),
+        ({"category": ""}, "category"),
+        ({"category": "not-a-real-category"}, "category"),
     ],
 )
 def test_top_level_field_violations(overrides, expected_substring):
     issues = validate_recipe_dict(_valid_recipe(**overrides))
     assert issues
     assert any(expected_substring in issue for issue in issues)
+
+
+def test_category_missing_entirely_is_an_issue():
+    data = _valid_recipe()
+    del data["category"]
+    issues = validate_recipe_dict(data)
+    assert any("category" in issue for issue in issues)
+
+
+@pytest.mark.parametrize("category", ["image", "video", "audio", "3d", "utility"])
+def test_every_closed_category_value_is_accepted(category):
+    assert validate_recipe_dict(_valid_recipe(category=category)) == []
+
+
+def test_valid_category_round_trips_through_parse_recipe():
+    recipe = parse_recipe(_valid_recipe(category="video"))
+    assert recipe.category == "video"
 
 
 def test_duplicate_plugin_ids_rejected():

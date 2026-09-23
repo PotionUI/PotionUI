@@ -1,4 +1,4 @@
-const RECIPE_PARAM = 'recipe';
+const RECIPE_PARAM = 'id';
 
 export interface RecipesUrlState {
 	recipeId: string | null;

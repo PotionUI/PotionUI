@@ -25,6 +25,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
+from src.features.presets.schema import CATEGORIES
+
 #: `schema_version` values this module knows how to parse. Bump when the YAML
 #: shape changes in a way older parsing code cannot handle; existing recipe
 #: files keep declaring whichever version they were authored against.
@@ -279,6 +281,10 @@ def validate_recipe_dict(data: Any, extra_kinds: Optional[Iterable[str]] = None)
 
     _require_str(data, "name", "name", issues)
     engine = _require_str(data, "engine", "engine", issues)
+
+    category = data.get("category")
+    if category not in CATEGORIES:
+        _err(issues, "category", f"must be one of {list(CATEGORIES)}, got {category!r}")
 
     # --- plugins ---
     plugin_ids = set()
@@ -590,7 +596,7 @@ def parse_recipe(
         engine=data["engine"],
         summary=data.get("summary", ""),
         description=data.get("description", ""),
-        category=data.get("category", ""),
+        category=data["category"],
         plugins=plugins,
         backend=backend,
         artifacts=artifacts,

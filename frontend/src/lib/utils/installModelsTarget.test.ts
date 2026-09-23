@@ -37,12 +37,12 @@ describe('resolveInstallModelsTarget', () => {
 			'flux/dev',
 			true
 		);
-		expect(target).toEqual({ href: '/admin?tab=recipes&recipe=b', label: 'Install models' });
+		expect(target).toEqual({ href: '/admin?tab=recipes&id=b', label: 'Install models' });
 	});
 
 	it('encodes a recipe id that needs it', () => {
 		const target = resolveInstallModelsTarget([recipe('comfy/detect', ['p'])], 'p', true);
-		expect(target?.href).toBe('/admin?tab=recipes&recipe=comfy%2Fdetect');
+		expect(target?.href).toBe('/admin?tab=recipes&id=comfy%2Fdetect');
 	});
 
 	it('falls back to the catalog when several recipes declare the preset', () => {
@@ -56,7 +56,7 @@ describe('resolveInstallModelsTarget', () => {
 
 	it('deep-links a single-recipe instance even with no preset in scope', () => {
 		expect(resolveInstallModelsTarget([recipe('only')], null, true)?.href).toBe(
-			'/admin?tab=recipes&recipe=only'
+			'/admin?tab=recipes&id=only'
 		);
 	});
 
@@ -78,7 +78,7 @@ describe('resolveInstallModelsTarget', () => {
 	it('survives a recipe whose preset_ids the server omitted', () => {
 		const bare = { ...recipe('a'), preset_ids: undefined as unknown as string[] };
 		expect(resolveInstallModelsTarget([bare], 'sdxl/base', true)?.href).toBe(
-			'/admin?tab=recipes&recipe=a'
+			'/admin?tab=recipes&id=a'
 		);
 	});
 });

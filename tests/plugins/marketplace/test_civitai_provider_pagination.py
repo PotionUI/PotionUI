@@ -144,6 +144,7 @@ async def test_fetch_all_preserves_original_params(provider):
     assert captured_params[0]["period"] == "Month"
     assert captured_params[0]["limit"] == 200
     assert "cursor" not in captured_params[0]
+    assert captured_params[0]["withMeta"] == "true"
 
     # Second request: original params PLUS cursor
     assert captured_params[1]["modelId"] == "999"
@@ -151,6 +152,7 @@ async def test_fetch_all_preserves_original_params(provider):
     assert captured_params[1]["period"] == "Month"
     assert captured_params[1]["limit"] == 200
     assert captured_params[1]["cursor"] == "cur_1"
+    assert captured_params[1]["withMeta"] == "true"
 
 
 @pytest.mark.asyncio

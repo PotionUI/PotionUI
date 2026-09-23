@@ -716,6 +716,7 @@ class CivitaiProvider(MarketplaceProviderBase):
             "limit": min(limit, 200),
             "sort": sort,
             "period": period,
+            "withMeta": "true",
         }
         if model_id:
             params["modelId"] = model_id

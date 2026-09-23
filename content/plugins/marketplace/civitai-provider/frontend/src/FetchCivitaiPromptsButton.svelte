@@ -421,7 +421,7 @@
 	.label {
 		display: block;
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-		font-size: 10px;
+		font-size: 12px;
 		font-weight: 500;
 		text-transform: uppercase;
 		letter-spacing: 0.07em;
@@ -586,7 +586,7 @@
 		gap: 2px;
 	}
 	.stat-label {
-		font-size: 10px;
+		font-size: 12px;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: rgb(var(--fg-subtle, 122 128 144));
@@ -623,7 +623,7 @@
 	}
 	.per-user-table th {
 		text-align: left;
-		font-size: 10px;
+		font-size: 12px;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: rgb(var(--fg-subtle, 122 128 144));
@@ -645,7 +645,7 @@
 		z-index: 10000;
 		transform: translate(-50%, -100%);
 		padding: 4px 8px;
-		font-size: 11px;
+		font-size: 12px;
 		font-weight: 500;
 		color: rgb(var(--fg, 232 234 237));
 		background: rgb(var(--surface-3, 39 42 49));

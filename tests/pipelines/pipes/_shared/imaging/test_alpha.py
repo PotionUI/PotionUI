@@ -9,6 +9,7 @@ from src.pipelines.pipes._shared.imaging.alpha import (
     alpha_bbox,
     apply_matte_strength,
     feather_alpha,
+    flatten_onto,
 )
 
 
@@ -97,3 +98,35 @@ def test_feather_softens_a_hard_edge():
     # Far from the edge, values are unaffected.
     assert blurred[10, 0] == 0
     assert blurred[10, 19] == 255
+
+
+def test_flatten_onto_turns_transparent_pixels_into_the_background():
+    image = Image.new("RGBA", (2, 1), (255, 0, 0, 0))
+    image.putpixel((1, 0), (0, 0, 255, 255))
+
+    flat = flatten_onto(image)
+
+    assert flat.mode == "RGB"
+    assert flat.getpixel((0, 0)) == (255, 255, 255)
+    assert flat.getpixel((1, 0)) == (0, 0, 255)
+
+
+def test_flatten_onto_blends_partial_alpha_with_the_background():
+    flat = flatten_onto(Image.new("RGBA", (1, 1), (0, 0, 0, 128)))
+
+    assert all(126 <= c <= 128 for c in flat.getpixel((0, 0)))
+
+
+def test_flatten_onto_leaves_opaque_rgb_untouched():
+    image = Image.new("RGB", (1, 1), (10, 20, 30))
+
+    assert flatten_onto(image).getpixel((0, 0)) == (10, 20, 30)
+
+
+def test_flatten_onto_honours_palette_transparency():
+    image = Image.new("P", (1, 1), 0)
+    image.putpalette([200, 0, 0] + [0, 0, 0] * 255)
+    image.info["transparency"] = 0
+
+    assert flatten_onto(image).getpixel((0, 0)) == (255, 255, 255)
+

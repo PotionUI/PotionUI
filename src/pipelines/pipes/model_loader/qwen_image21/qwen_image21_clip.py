@@ -7,6 +7,7 @@ import numpy as np
 import torch
 
 from src.pipelines.pipes._shared.generation.clip_batch import SequentialWindowClipTextEncoder
+from src.pipelines.pipes._shared.imaging.alpha import flatten_onto
 from src.platform.runtime.primitives.clip import ConditioningModel
 from src.platform.runtime.native.text_encoders import (
     NativeTextEncoder,
@@ -24,7 +25,7 @@ def _to_image_tensor(image: Any) -> torch.Tensor:
         return image
     if isinstance(image, np.ndarray):
         return torch.from_numpy(image.astype(np.float32) / 255.0 if image.dtype == np.uint8 else image.astype(np.float32))
-    arr = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    arr = np.asarray(flatten_onto(image), dtype=np.float32) / 255.0
     return torch.from_numpy(arr)
 
 

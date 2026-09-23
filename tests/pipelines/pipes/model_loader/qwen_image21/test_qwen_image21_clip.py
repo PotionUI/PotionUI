@@ -240,3 +240,14 @@ def test_eager_encoder_bypasses_te_loader_entirely():
 
     enc = QwenImage21ClipTextEncoder(fake, device="cpu", te_loader=_must_not_run)
     assert enc.encoder is fake
+
+
+def test_transparent_reference_pixels_reach_the_vision_tower_as_white():
+    from PIL import Image
+
+    from src.pipelines.pipes.model_loader.qwen_image21.qwen_image21_clip import _to_image_tensor
+
+    tensor = _to_image_tensor(Image.new("RGBA", (2, 2), (255, 0, 0, 0)))
+
+    assert tensor.shape == (2, 2, 3)
+    assert torch.allclose(tensor, torch.ones_like(tensor))

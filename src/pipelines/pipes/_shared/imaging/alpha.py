@@ -71,3 +71,12 @@ def feather_alpha(alpha: np.ndarray, feather_px: float) -> np.ndarray:
         ImageFilter.GaussianBlur(radius=feather_px / 2.0)
     )
     return np.array(blurred)
+
+
+def flatten_onto(image: Image.Image, background: Tuple[int, int, int] = (255, 255, 255)) -> Image.Image:
+    if image.mode not in ("RGBA", "LA", "PA") and not (image.mode == "P" and "transparency" in image.info):
+        return image.convert("RGB")
+    rgba = image.convert("RGBA")
+    canvas = Image.new("RGBA", rgba.size, (*background, 255))
+    canvas.alpha_composite(rgba)
+    return canvas.convert("RGB")

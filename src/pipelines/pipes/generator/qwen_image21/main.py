@@ -32,6 +32,7 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
     schedule_settings_config_specs,
 )
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter, native_step_hooks
+from src.pipelines.pipes._shared.imaging.alpha import flatten_onto
 from src.platform.runtime.native.engine import Conditioning, NativeGenerator
 
 
@@ -153,12 +154,12 @@ class GeneratorQwenImage21Pipe(FlowMatchGeneratorPipe):
         cond = dict(cond_model.embeds)
         uncond = dict(cond_model.n_embeds) if cond_model.n_embeds else None
 
-        primary = images[0].convert("RGB")
+        primary = flatten_onto(images[0])
         width, height = self._edit_target_size(gen, primary.size)
 
         ref_latents = []
         for i, image in enumerate(images):
-            src = primary if i == 0 else image.convert("RGB")
+            src = primary if i == 0 else flatten_onto(image)
             target = (width, height) if i == 0 else self._edit_target_size(gen, src.size)
             if target != src.size:
                 src = src.resize(target, Image.LANCZOS)

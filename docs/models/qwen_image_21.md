@@ -33,7 +33,7 @@ The text encoder is Qwen3-VL-8B (not Qwen2.5-VL — a different encoder than 1.0
 
 The shipped Qwen-Image-2.1 preset ships `txt2img` and `edit`. `edit` reuses the SAME checkpoint set as `txt2img` — `model_loader/qwen_image21` loads the Qwen3-VL-8B text encoder's vision tower (`vision: true`) so the text conditioning is grounded on up to 10 reference images, and `generator/qwen_image21`'s `GeneratorQwenImage21Pipe.maybe_edit` VAE-encodes each reference (its own area-target aspect, snapped to the 16px granularity) into `ref_latents`. Each reference is spliced INTO the text run at the `image_slots` position the text encoder recorded (`QwenImage21TextEncoder._encode_with_images`), not simply appended after all the text — `QwenImage21DiT.build_sequence` honours those slots (falling back to "after the text" for any reference without one, which keeps a caller that never passes `image_slots` — e.g. a plain txt2img forward — byte-identical to the pre-edit layout).
 
-**Output is always opaque RGB, in both modes**: `generator/qwen_image21` drops the VAE's alpha channel after decode (`Image.convert("RGB")`, a straight channel truncation, not a composite-over-white). True RGBA output would be a further follow-up.
+**Output is RGBA when the checkpoint actually produced transparency, RGB otherwise.** The VAE always decodes 4 channels; `generator/qwen_image21` checks the alpha channel after decode (`drop_opaque_alpha`, `src/pipelines/pipes/_shared/imaging/alpha.py`) and drops it to a plain RGB image only when every pixel is fully opaque — byte-identical to the previous unconditional `Image.convert("RGB")` for every generation that doesn't produce transparency. A genuinely transparent decode (any pixel below full opacity) is kept as RGBA end-to-end: saved as PNG (main output) and WebP-with-alpha (thumbnails), and shown with a checkerboard backdrop in the workbench/gallery/details views. There is no separate "transparent background" toggle — like ComfyUI, whatever the VAE decodes is what gets saved; the checkpoint only produces meaningful alpha when the prompt actually asks for a subject on a transparent background.
 
 ## Sampling
 
@@ -44,7 +44,6 @@ The preset's **Sampler** and **Schedule** pickers (`type: "sampler"` / `type: "s
 ## Limitations
 
 - No img2img mode; only `txt2img` and `edit`.
-- Output is always opaque RGB; the VAE's alpha channel is dropped, never composited, even for `edit`'s reference images.
 - `edit` accepts up to 10 reference images; the first sets the output's size and aspect and is the image being edited, the rest condition the generation without affecting output sizing.
 - Qwen3-VL has a different text-encoder architecture than CLIP-family encoders — there is no CLIP-skip concept for this family. A `clip_skip` setting carried over from an SDXL-style preset has no effect here.
 - No distilled/Lightning LoRA exists yet for Qwen-Image-2.1; the preset's "Turbo" speed profile (20 steps) is a proposed fast profile that expects one to be paired in on the LoRA tab for acceptable quality, same as Qwen-Image 1.0's turbo profile.

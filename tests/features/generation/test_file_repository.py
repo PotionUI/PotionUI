@@ -103,6 +103,22 @@ class TestFileRepository(PersistenceTestBase):
         self.assertIs(retrieved.is_derived, True)
         self.assertIs(retrieved.to_dict()['is_derived'], True)
 
+    def test_create_file_has_alpha_defaults_false(self):
+        created = self.repo.create(self.test_file)
+
+        self.assertIs(created.has_alpha, False)
+        self.assertIs(created.to_dict()['has_alpha'], False)
+
+    def test_create_file_persists_has_alpha(self):
+        self.test_file.has_alpha = True
+        created = self.repo.create(self.test_file)
+
+        self.assertIs(created.has_alpha, True)
+
+        retrieved = self.repo.get_by_id(created.id)
+        self.assertIs(retrieved.has_alpha, True)
+        self.assertIs(retrieved.to_dict()['has_alpha'], True)
+
     def test_create_file_with_existing_id(self):
         """Test creating a file with predefined ID"""
         file_id = generate_ulid()

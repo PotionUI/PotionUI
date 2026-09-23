@@ -224,6 +224,25 @@ class TestGenerationOutputSerializer(unittest.TestCase):
         self.assertIs(result['image_urls_list'][0]['derived'], False)
         self.assertIs(result['image_urls_list'][1]['derived'], False)
 
+    def test_serialize_gallery_output_carries_has_alpha_flag(self):
+        opaque = Image.new('RGB', (10, 10), color='red')
+        transparent = Image.new('RGBA', (10, 10), (0, 0, 0, 128))
+
+        opaque_output = ImageGenerationOutput(image=opaque, temporary=False)
+        opaque_output._saved_path = "outputs/2025-01-26/test_gen_123/0.png"
+
+        transparent_output = ImageGenerationOutput(image=transparent, temporary=False)
+        transparent_output._saved_path = "outputs/2025-01-26/test_gen_123/1.png"
+
+        output = GalleryGenerationOutput(images=[opaque_output, transparent_output])
+        output.pipe_id = 8
+        output.pipe_name = "gallery"
+
+        result = self.mapper.serialize_output(output)
+
+        self.assertIs(result['image_urls_list'][0]['has_alpha'], False)
+        self.assertIs(result['image_urls_list'][1]['has_alpha'], True)
+
     def test_serialize_gallery_output_carries_derived_flag(self):
         """A derived gallery emit (e.g. an enhance pass) flags every item."""
         img = Image.new('RGB', (100, 100), color='green')

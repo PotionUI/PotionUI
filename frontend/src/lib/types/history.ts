@@ -51,6 +51,7 @@ export interface GenerationFile {
 	sample_rate?: number;
 	/** Audio files only - channel count. Same WS-only, never-persisted caveat as `track_type`. */
 	channels?: number;
+	has_alpha?: boolean;
 }
 
 export interface Tag {

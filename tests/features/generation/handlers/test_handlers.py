@@ -253,6 +253,41 @@ class TestImageGenerationOutputHandler:
             assert file_obj.is_derived is True
             assert file_obj.is_final is True
 
+    def test_save_file_record_marks_has_alpha_for_rgba_output(self):
+        file_path = "generations/2024-01-15/test_gen_123/image.png"
+        rgba_image = Image.new('RGBA', (10, 10), (1, 2, 3, 128))
+        output = ImageGenerationOutput(image=rgba_image, temporary=False)
+
+        with patch('src.platform.filesystem.file_store.FileStore') as mock_file_service_class, \
+             patch('src.features.generation.handlers.image_handler.generation_repo') as mock_repo, \
+             patch('src.features.generation.handlers.image_handler.generate_ulid', return_value="ulid_123"):
+
+            mock_file_service_class.return_value = Mock()
+            self.mock_storage_driver.size.return_value = 1024
+            mock_repo.add_file.return_value = Mock()
+
+            self.handler._save_file_record(file_path, output, {})
+
+            file_obj = mock_repo.add_file.call_args[0][1]
+            assert file_obj.has_alpha is True
+
+    def test_save_file_record_rgb_output_has_alpha_false(self):
+        file_path = "generations/2024-01-15/test_gen_123/image.png"
+        output = ImageGenerationOutput(image=self.test_image, temporary=False)
+
+        with patch('src.platform.filesystem.file_store.FileStore') as mock_file_service_class, \
+             patch('src.features.generation.handlers.image_handler.generation_repo') as mock_repo, \
+             patch('src.features.generation.handlers.image_handler.generate_ulid', return_value="ulid_123"):
+
+            mock_file_service_class.return_value = Mock()
+            self.mock_storage_driver.size.return_value = 1024
+            mock_repo.add_file.return_value = Mock()
+
+            self.handler._save_file_record(file_path, output, {})
+
+            file_obj = mock_repo.add_file.call_args[0][1]
+            assert file_obj.has_alpha is False
+
     def test_save_file_record_file_not_exists(self):
         file_path = "generations/2024-01-15/test_gen_123/image.png"
         thumbnail_paths = {'small': 'generations/2024-01-15/test_gen_123/image_thumb_small.png'}

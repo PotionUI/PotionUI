@@ -3,6 +3,7 @@
 	import { api } from '$lib/services/api/index';
 	import { nsfwFilterStore } from '$lib/stores/nsfwFilter';
 	import { nsfwRevealStore, revealKey } from '$lib/stores/nsfwReveal';
+	import { showAlphaCheckerboard } from '$lib/utils/imageAlpha';
 
 	export let file: GenerationFile;
 	export let generationId: string;
@@ -55,6 +56,7 @@
 	}
 
 	$: fitClass = fit === 'contain' ? 'object-contain' : 'object-cover';
+	$: alphaCheckerboard = showAlphaCheckerboard(file);
 
 	function handleImageError() {
 		error = true;
@@ -204,7 +206,7 @@
 	</div>
 {:else if imageUrl}
 	<!-- Image with thumbnail -->
-	<div class="relative overflow-hidden flex items-center justify-center {className}">
+	<div class="relative overflow-hidden flex items-center justify-center {className} {alphaCheckerboard ? 'alpha-checkerboard' : ''}">
 		<img
 			src={imageUrl}
 			alt="Generated content"
@@ -239,3 +241,16 @@
 		{/if}
 	</div>
 {/if}
+
+<style>
+	.alpha-checkerboard {
+		background-image:
+			linear-gradient(45deg, rgb(var(--surface-3)) 25%, transparent 25%),
+			linear-gradient(-45deg, rgb(var(--surface-3)) 25%, transparent 25%),
+			linear-gradient(45deg, transparent 75%, rgb(var(--surface-3)) 75%),
+			linear-gradient(-45deg, transparent 75%, rgb(var(--surface-3)) 75%);
+		background-size: 16px 16px;
+		background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+		background-color: rgb(var(--surface-2));
+	}
+</style>

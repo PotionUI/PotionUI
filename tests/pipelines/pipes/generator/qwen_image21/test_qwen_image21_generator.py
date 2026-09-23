@@ -29,6 +29,7 @@ class _FakeGenerator:
         self.spec = _FakeSpec()
         self.sample_calls = []
         self._decode_channels = 4
+        self._decode_alpha = 255
         _FakeGenerator.instances.append(self)
 
     def snap_resolution(self, width, height):
@@ -43,7 +44,10 @@ class _FakeGenerator:
         return torch.zeros(latents_shape)
 
     def decode(self, latent, **_):
-        return np.zeros((1, 8, 8, self._decode_channels), dtype=np.uint8)
+        pixels = np.zeros((1, 8, 8, self._decode_channels), dtype=np.uint8)
+        if self._decode_channels == 4:
+            pixels[..., 3] = self._decode_alpha
+        return pixels
 
     def encode_image(self, pixels, **_):
         self.encode_image_calls = getattr(self, "encode_image_calls", [])
@@ -217,12 +221,28 @@ def test_output_image_list_matches_quantity():
 
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
-def test_rgba_decode_is_alpha_dropped_to_rgb():
+def test_opaque_rgba_decode_is_dropped_to_rgb():
     pipe = _make_pipe()
     result = pipe.process(_pipe_input(), lambda o: None)
     image = result.output["image"][0]
     assert image.mode == "RGB"
     assert image.getbands() == ("R", "G", "B")
+
+
+class _TransparentGenerator(_FakeGenerator):
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._decode_alpha = 128
+
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _TransparentGenerator)
+def test_transparent_rgba_decode_stays_rgba():
+    pipe = _make_pipe()
+    result = pipe.process(_pipe_input(), lambda o: None)
+    image = result.output["image"][0]
+    assert image.mode == "RGBA"
+    assert image.getbands() == ("R", "G", "B", "A")
 
 
 class _RgbGenerator(_FakeGenerator):
@@ -422,3 +442,13 @@ def test_edit_mode_output_is_rgb():
     result = pipe.process(_edit_pipe_input(image=src), lambda o: None)
     image = result.output["image"][0]
     assert image.mode == "RGB"
+
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _TransparentGenerator)
+def test_edit_mode_output_stays_rgba_when_transparent():
+    src = Image.new("RGB", (64, 64), color=(1, 1, 1))
+    pipe = _make_pipe(mode="edit")
+    result = pipe.process(_edit_pipe_input(image=src), lambda o: None)
+    image = result.output["image"][0]
+    assert image.mode == "RGBA"

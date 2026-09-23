@@ -34,21 +34,20 @@ def create_base64_image(image: Image.Image, max_dimension: int = 768) -> Optiona
 
 def _encode_base64_image(image: Image.Image, max_dimension: int) -> Optional[str]:
     try:
-        # Convert to RGB if image has alpha channel (JPEG doesn't support alpha)
         img_to_save = image
-        if img_to_save.mode == 'RGBA':
-            img_to_save = img_to_save.convert('RGB')
+        has_alpha = img_to_save.mode == 'RGBA'
 
-        # Check if image is larger than max dimension and resize if needed
         if img_to_save.width > max_dimension or img_to_save.height > max_dimension:
             ratio = max_dimension / max(img_to_save.width, img_to_save.height)
             new_width = int(img_to_save.width * ratio)
             new_height = int(img_to_save.height * ratio)
             img_to_save = img_to_save.resize((new_width, new_height), Image.LANCZOS)
 
-        # Save with optimized settings
         buffered = io.BytesIO()
-        img_to_save.save(buffered, format="JPEG", quality=85, optimize=True)
+        if has_alpha:
+            img_to_save.save(buffered, format="PNG", optimize=True)
+        else:
+            img_to_save.save(buffered, format="JPEG", quality=85, optimize=True)
         return base64.b64encode(buffered.getvalue()).decode('utf-8')
     except Exception as e:
         logger.error(f"Failed to create base64 image: {str(e)}")

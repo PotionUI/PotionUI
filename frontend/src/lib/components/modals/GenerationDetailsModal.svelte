@@ -28,6 +28,7 @@
 	import PublishToInspirationsModal from './PublishToInspirationsModal.svelte';
 	import GenerationArtifacts from '$lib/components/generation/artifacts/GenerationArtifacts.svelte';
 	import { filesWithPreview, mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
+	import { showAlphaCheckerboard } from '$lib/utils/imageAlpha';
 
 	// Support both ways of passing generation data
 	export let generation: GenerationHistoryItem | null = null;
@@ -213,6 +214,7 @@
 	$: currentFile = mediaFiles[currentFileIndex];
 	$: canGoPrev = currentFileIndex > 0;
 	$: canGoNext = currentFileIndex < mediaFiles.length - 1;
+	$: currentFileAlphaCheckerboard = currentFile ? showAlphaCheckerboard(currentFile) : false;
 
 	// Auto-tagger output for the file on screen.
 	$: systemTags = currentFile?.system_tags ?? [];
@@ -807,7 +809,7 @@
 						<img
 							src={getImageUrl(currentFile)}
 							alt={`Output ${currentFileIndex + 1}`}
-							class="absolute inset-0 h-full w-full object-contain p-3 md:p-6 {detailBlur ? 'blur-3xl' : ''}"
+							class="absolute inset-0 h-full w-full object-contain p-3 md:p-6 {detailBlur ? 'blur-3xl' : ''} {currentFileAlphaCheckerboard ? 'alpha-checkerboard' : ''}"
 						/>
 					{/if}
 					{#if detailBlur}
@@ -1205,3 +1207,16 @@
 		onClose={() => (showPublishModal = false)}
 	/>
 {/if}
+
+<style>
+	.alpha-checkerboard {
+		background-image:
+			linear-gradient(45deg, rgb(var(--surface-3)) 25%, transparent 25%),
+			linear-gradient(-45deg, rgb(var(--surface-3)) 25%, transparent 25%),
+			linear-gradient(45deg, transparent 75%, rgb(var(--surface-3)) 75%),
+			linear-gradient(-45deg, transparent 75%, rgb(var(--surface-3)) 75%);
+		background-size: 16px 16px;
+		background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+		background-color: rgb(var(--surface-2));
+	}
+</style>

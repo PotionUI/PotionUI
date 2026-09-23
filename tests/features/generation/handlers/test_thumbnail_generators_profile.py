@@ -89,6 +89,15 @@ class TestImageThumbnailProfile(unittest.TestCase):
         self.assertEqual(save.call_args.kwargs["quality"], 33)
         self.assertEqual(save.call_args.kwargs["format"], "WebP")
 
+    def test_rgba_source_keeps_alpha_in_the_thumbnail(self):
+        rgba = Image.new("RGBA", (64, 64), (10, 20, 30, 128))
+
+        generate_thumbnails(rgba, self.driver, "generations/x", 0, PROFILES["balanced"])
+
+        thumb = Image.open(io.BytesIO(self.driver.written["generations/x/thumbnails/0_medium.webp"]))
+        assert thumb.mode == "RGBA"
+        assert thumb.getpixel((0, 0))[3] == 128
+
     def test_a_lower_quality_writes_fewer_bytes(self):
         cheap = _RecordingDriver()
         rich = _RecordingDriver()

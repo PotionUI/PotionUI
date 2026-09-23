@@ -37,6 +37,7 @@ class File:
     # before migration 086 existed.
     duration_seconds: Optional[float] = None
     fps: Optional[float] = None
+    has_alpha: bool = False
 
     @classmethod
     def from_row(cls, row) -> 'File':
@@ -59,7 +60,8 @@ class File:
             width=row_get(row, 'width'),
             height=row_get(row, 'height'),
             duration_seconds=row_get(row, 'duration_seconds'),
-            fps=row_get(row, 'fps')
+            fps=row_get(row, 'fps'),
+            has_alpha=bool(row_get(row, 'has_alpha') or 0)
         )
 
     def to_dict(self) -> dict:
@@ -82,7 +84,8 @@ class File:
             'width': self.width,
             'height': self.height,
             'duration_seconds': self.duration_seconds,
-            'fps': self.fps
+            'fps': self.fps,
+            'has_alpha': self.has_alpha
         }
 
 @dataclass

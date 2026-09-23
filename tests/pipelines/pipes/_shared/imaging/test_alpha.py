@@ -8,6 +8,7 @@ from PIL import Image
 from src.pipelines.pipes._shared.imaging.alpha import (
     alpha_bbox,
     apply_matte_strength,
+    drop_opaque_alpha,
     feather_alpha,
     flatten_onto,
 )
@@ -129,4 +130,30 @@ def test_flatten_onto_honours_palette_transparency():
     image.info["transparency"] = 0
 
     assert flatten_onto(image).getpixel((0, 0)) == (255, 255, 255)
+
+
+
+def test_drop_opaque_alpha_converts_fully_opaque_rgba_to_rgb():
+    image = Image.new("RGBA", (2, 2), (10, 20, 30, 255))
+
+    result = drop_opaque_alpha(image)
+
+    assert result.mode == "RGB"
+    assert result.getpixel((0, 0)) == (10, 20, 30)
+
+
+def test_drop_opaque_alpha_keeps_rgba_with_any_transparent_pixel():
+    image = Image.new("RGBA", (2, 2), (10, 20, 30, 255))
+    image.putpixel((1, 1), (10, 20, 30, 254))
+
+    result = drop_opaque_alpha(image)
+
+    assert result.mode == "RGBA"
+    assert result.getpixel((1, 1)) == (10, 20, 30, 254)
+
+
+def test_drop_opaque_alpha_leaves_rgb_untouched():
+    image = Image.new("RGB", (1, 1), (5, 6, 7))
+
+    assert drop_opaque_alpha(image).getpixel((0, 0)) == (5, 6, 7)
 

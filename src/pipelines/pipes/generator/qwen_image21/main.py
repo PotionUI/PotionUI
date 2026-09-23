@@ -35,7 +35,7 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
     schedule_settings_config_specs,
 )
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter, native_step_hooks
-from src.pipelines.pipes._shared.imaging.alpha import flatten_onto
+from src.pipelines.pipes._shared.imaging.alpha import drop_opaque_alpha, flatten_onto
 from src.platform.runtime.native.engine import Conditioning, NativeGenerator
 
 
@@ -122,7 +122,7 @@ class GeneratorQwenImage21Pipe(FlowMatchGeneratorPipe):
     def generate_one(self, ctx: GeneratorContext, index: int, seed: int, progress: ProgressEmitter):
         edit = self.maybe_edit(ctx, index, seed, progress)
         out = edit if edit is not None else super().generate_one(ctx, index, seed, progress)
-        out.image = out.image.convert("RGB")
+        out.image = drop_opaque_alpha(out.image)
         return out
 
 

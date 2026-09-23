@@ -187,6 +187,7 @@ def serialize_gallery_output(output: GalleryGenerationOutput, ctx: SerializeCont
                         image_data = {
                             'original': api_path,
                             'derived': bool(getattr(img_output, 'derived', False)),
+                            'has_alpha': bool(img_output.image and img_output.image.mode == 'RGBA'),
                             'seed': getattr(img_output, 'seed', None),
                             'resolution': getattr(img_output, 'resolution', None),
                             'sampler': getattr(img_output, 'sampler', None),

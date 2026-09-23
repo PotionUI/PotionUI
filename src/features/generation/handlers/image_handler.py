@@ -70,13 +70,6 @@ def generate_thumbnails(
             # Use thumbnail() method to maintain aspect ratio
             thumb_image.thumbnail((width, width), Image.Resampling.LANCZOS)
 
-            # Convert to RGB if needed for WebP compatibility
-            if thumb_image.mode == 'RGBA':
-                # Create white background for images with transparency
-                background = Image.new('RGB', thumb_image.size, (255, 255, 255))
-                background.paste(thumb_image, mask=thumb_image.split()[-1])  # Use alpha channel as mask
-                thumb_image = background
-
             # Save as WebP for better compression, entirely in memory
             filename = f"{counter}_{size_name}.webp"
             relative_path = f"thumbnails/{filename}"
@@ -248,7 +241,8 @@ class ImageGenerationOutputHandler(BaseGenerationOutputHandler):
                 thumbnail_large=thumbnail_paths.get('large') if thumbnail_paths else None,
                 thumbnail_profile=profile_hash(self.thumbnail_profile),
                 width=width,
-                height=height
+                height=height,
+                has_alpha=bool(output.image and output.image.mode == 'RGBA')
             )
 
             # Save to database and associate with generation

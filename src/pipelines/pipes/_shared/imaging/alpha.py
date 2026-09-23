@@ -73,6 +73,15 @@ def feather_alpha(alpha: np.ndarray, feather_px: float) -> np.ndarray:
     return np.array(blurred)
 
 
+def drop_opaque_alpha(image: Image.Image) -> Image.Image:
+    if image.mode != "RGBA":
+        return image if image.mode == "RGB" else image.convert("RGB")
+    alpha = np.asarray(image)[..., 3]
+    if bool((alpha == 255).all()):
+        return image.convert("RGB")
+    return image
+
+
 def flatten_onto(image: Image.Image, background: Tuple[int, int, int] = (255, 255, 255)) -> Image.Image:
     if image.mode not in ("RGBA", "LA", "PA") and not (image.mode == "P" and "transparency" in image.info):
         return image.convert("RGB")

@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { SegmentCategory } from '$lib/types/segments';
-	import { Button } from '$lib/components/ui';
+	import FilterPopoverFrame from '$lib/components/library/FilterPopoverFrame.svelte';
+	import SegmentedFilterGroup from '$lib/components/library/SegmentedFilterGroup.svelte';
+	import TagCloudFilter from '$lib/components/library/TagCloudFilter.svelte';
 	import {
 		clearAllSegmentFilters,
 		type SegmentEnabledFilter,
@@ -43,92 +45,29 @@
 	}
 </script>
 
-<div
-	class="w-[30rem] max-w-[90vw] rounded-xl border border-line-strong bg-surface-3 p-3.5 shadow-floating"
-	role="dialog"
-	aria-label="Filters"
->
-	<div class="mb-3 flex items-center">
-		<strong class="text-sm font-semibold text-fg">Filters</strong>
-		<button type="button" class="ml-auto text-xs text-fg-subtle hover:text-fg" onclick={() => onChange(clearAllSegmentFilters(filters))}>
-			Clear all
-		</button>
-	</div>
+<FilterPopoverFrame onClearAll={() => onChange(clearAllSegmentFilters(filters))} {onClose}>
+	<SegmentedFilterGroup label="Type" options={typeOptions} value={filters.type} onChange={(type: SegmentTypeFilter) => set({ type })} />
 
-	<div class="grid grid-cols-2 gap-x-4 gap-y-3">
-		<div class="flex flex-col gap-1.5">
-			<span class="text-xs font-medium text-fg-muted">Type</span>
-			<div class="inline-flex gap-0.5 rounded border border-line-strong bg-surface-2 p-0.5">
-				{#each typeOptions as option (option.value)}
-					<button
-						type="button"
-						class="flex-1 rounded px-2 py-1 text-xs font-medium transition-colors {filters.type === option.value
-							? 'bg-surface-1 text-fg shadow-raised'
-							: 'text-fg-muted hover:text-fg'}"
-						onclick={() => set({ type: option.value })}
-					>
-						{option.label}
-					</button>
-				{/each}
-			</div>
-		</div>
+	<label class="flex flex-col gap-1.5">
+		<span class="text-xs font-medium text-fg-muted">Category</span>
+		<select
+			class="input text-xs"
+			value={filters.category}
+			onchange={(event) => set({ category: (event.currentTarget as HTMLSelectElement).value })}
+		>
+			<option value="">Any</option>
+			{#each categories as category (category.id)}
+				<option value={category.id}>{category.name}</option>
+			{/each}
+		</select>
+	</label>
 
-		<label class="flex flex-col gap-1.5">
-			<span class="text-xs font-medium text-fg-muted">Category</span>
-			<select
-				class="input text-xs"
-				value={filters.category}
-				onchange={(event) => set({ category: (event.currentTarget as HTMLSelectElement).value })}
-			>
-				<option value="">Any</option>
-				{#each categories as category (category.id)}
-					<option value={category.id}>{category.name}</option>
-				{/each}
-			</select>
-		</label>
+	<SegmentedFilterGroup
+		label="Enabled"
+		options={enabledOptions}
+		value={filters.enabled}
+		onChange={(enabled: SegmentEnabledFilter) => set({ enabled })}
+	/>
 
-		<div class="flex flex-col gap-1.5">
-			<span class="text-xs font-medium text-fg-muted">Enabled</span>
-			<div class="inline-flex gap-0.5 rounded border border-line-strong bg-surface-2 p-0.5">
-				{#each enabledOptions as option (option.value)}
-					<button
-						type="button"
-						class="flex-1 rounded px-2 py-1 text-xs font-medium transition-colors {filters.enabled === option.value
-							? 'bg-surface-1 text-fg shadow-raised'
-							: 'text-fg-muted hover:text-fg'}"
-						onclick={() => set({ enabled: option.value })}
-					>
-						{option.label}
-					</button>
-				{/each}
-			</div>
-		</div>
-
-		<div class="col-span-2 flex flex-col gap-1.5">
-			<span class="text-xs font-medium text-fg-muted">Tags</span>
-			{#if tags.length === 0}
-				<p class="text-xs text-fg-subtle">No tags yet.</p>
-			{:else}
-				<div class="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto rounded border border-line-strong bg-surface-2 p-1.5">
-					{#each tags as entry (entry.tag)}
-						<button
-							type="button"
-							class="inline-flex h-6 items-center gap-1 rounded border px-1.5 text-xs font-medium {filters.tags.includes(entry.tag)
-								? 'border-signal/28 bg-signal/10 text-signal'
-								: 'border-line-strong text-fg-muted hover:text-fg'}"
-							onclick={() => toggleTag(entry.tag)}
-						>
-							{entry.tag}
-							<span class="font-mono tabular-nums opacity-60">{entry.count}</span>
-						</button>
-					{/each}
-				</div>
-			{/if}
-		</div>
-	</div>
-
-	<div class="mt-3.5 flex items-center justify-between border-t border-line pt-3">
-		<span class="text-xs text-fg-subtle">Filters apply as you change them.</span>
-		<Button size="xs" variant="secondary" onclick={onClose}>Done</Button>
-	</div>
-</div>
+	<TagCloudFilter tags={tags} selected={filters.tags} onToggle={toggleTag} />
+</FilterPopoverFrame>

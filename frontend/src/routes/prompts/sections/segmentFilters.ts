@@ -1,6 +1,7 @@
 import type { SavedSegment, SegmentCategory } from '$lib/types/segments';
 import { parseServerDate } from '$lib/utils/relativeTime';
-import { oneOf, type FilterChip } from '../library/librarySection';
+import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
+import type { FilterChip } from '$lib/components/library/librarySection';
 
 export type SegmentTypeFilter = '' | 'content' | 'break';
 export type SegmentEnabledFilter = '' | 'on' | 'off';
@@ -29,37 +30,50 @@ export const SEGMENT_SORT_OPTIONS: ReadonlyArray<{ value: SegmentSortBy; label: 
 	{ value: 'created', label: 'Created' }
 ];
 
-const TYPE_VALUES: Exclude<SegmentTypeFilter, ''>[] = ['content', 'break'];
-const ENABLED_VALUES: Exclude<SegmentEnabledFilter, ''>[] = ['on', 'off'];
-const SORT_VALUES: SegmentSortBy[] = ['name', 'created'];
+const FIELDS: readonly FilterFieldDescriptor<SegmentFilters>[] = [
+	{ kind: 'text', key: 'category', param: 'category', label: 'Category' },
+	{ kind: 'enum', key: 'type', param: 'type', label: 'Type', values: ['content', 'break'], default: '' },
+	{
+		kind: 'enum',
+		key: 'enabled',
+		param: 'enabled',
+		label: 'Enabled',
+		values: ['on', 'off'],
+		default: '',
+		chipLabel: (value) => (value === 'on' ? 'enabled' : 'disabled')
+	},
+	{ kind: 'tags', key: 'tags', param: 'tags', label: 'Tags' }
+];
 
-function splitTags(value: string | null): string[] {
-	return (value ?? '')
-		.split(',')
-		.map((tag) => tag.trim())
-		.filter(Boolean);
-}
+const codec = createFilterCodec<SegmentFilters>({
+	defaults: DEFAULT_SEGMENT_FILTERS,
+	fields: FIELDS,
+	sortValues: ['name', 'created']
+});
 
 export function segmentFiltersFromSearchParams(params: URLSearchParams): SegmentFilters {
-	return {
-		q: params.get('q') ?? DEFAULT_SEGMENT_FILTERS.q,
-		category: params.get('category') ?? DEFAULT_SEGMENT_FILTERS.category,
-		type: oneOf(params.get('type'), TYPE_VALUES, DEFAULT_SEGMENT_FILTERS.type),
-		enabled: oneOf(params.get('enabled'), ENABLED_VALUES, DEFAULT_SEGMENT_FILTERS.enabled),
-		tags: splitTags(params.get('tags')),
-		sortBy: oneOf(params.get('sort_by'), SORT_VALUES, DEFAULT_SEGMENT_FILTERS.sortBy)
-	};
+	return codec.fromSearchParams(params);
 }
 
 export function segmentFiltersToSearchParams(filters: SegmentFilters): URLSearchParams {
-	const params = new URLSearchParams();
-	if (filters.q) params.set('q', filters.q);
-	if (filters.category) params.set('category', filters.category);
-	if (filters.type) params.set('type', filters.type);
-	if (filters.enabled) params.set('enabled', filters.enabled);
-	if (filters.tags.length) params.set('tags', filters.tags.join(','));
-	if (filters.sortBy !== DEFAULT_SEGMENT_FILTERS.sortBy) params.set('sort_by', filters.sortBy);
-	return params;
+	return codec.toSearchParams(filters);
+}
+
+export function segmentFilterActiveCount(filters: SegmentFilters): number {
+	return codec.activeCount(filters);
+}
+
+export function segmentFilterChips(filters: SegmentFilters, categories: readonly SegmentCategory[]): FilterChip[] {
+	const categoryName = categories.find((category) => category.id === filters.category)?.name ?? filters.category;
+	return codec.chips(filters, { category: () => `category = ${categoryName}` });
+}
+
+export function clearSegmentFilterChip(filters: SegmentFilters, key: string): SegmentFilters {
+	return codec.clearChip(filters, key);
+}
+
+export function clearAllSegmentFilters(filters: SegmentFilters): SegmentFilters {
+	return codec.clearAll(filters);
 }
 
 function segmentTimestamp(segment: SavedSegment): number {
@@ -95,42 +109,6 @@ export function applySegmentFilters(
 	});
 	if (filters.sortBy === 'created') return matched.sort((a, b) => segmentTimestamp(b) - segmentTimestamp(a));
 	return matched.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-}
-
-export function segmentFilterActiveCount(filters: SegmentFilters): number {
-	let count = 0;
-	if (filters.category) count++;
-	if (filters.type) count++;
-	if (filters.enabled) count++;
-	if (filters.tags.length) count++;
-	return count;
-}
-
-export function segmentFilterChips(filters: SegmentFilters, categories: readonly SegmentCategory[]): FilterChip[] {
-	const chips: FilterChip[] = [];
-	if (filters.category) {
-		const name = categories.find((category) => category.id === filters.category)?.name ?? filters.category;
-		chips.push({ key: 'category', label: `category = ${name}` });
-	}
-	if (filters.type) chips.push({ key: 'type', label: filters.type });
-	if (filters.enabled) chips.push({ key: 'enabled', label: filters.enabled === 'on' ? 'enabled' : 'disabled' });
-	for (const tag of filters.tags) chips.push({ key: `tag:${tag}`, label: `#${tag}` });
-	return chips;
-}
-
-export function clearSegmentFilterChip(filters: SegmentFilters, key: string): SegmentFilters {
-	if (key === 'category') return { ...filters, category: '' };
-	if (key === 'type') return { ...filters, type: '' };
-	if (key === 'enabled') return { ...filters, enabled: '' };
-	if (key.startsWith('tag:')) {
-		const tag = key.slice('tag:'.length);
-		return { ...filters, tags: filters.tags.filter((entry) => entry !== tag) };
-	}
-	return filters;
-}
-
-export function clearAllSegmentFilters(filters: SegmentFilters): SegmentFilters {
-	return { ...DEFAULT_SEGMENT_FILTERS, q: filters.q, sortBy: filters.sortBy };
 }
 
 export function segmentTagVocabulary(segments: readonly SavedSegment[]): Array<{ tag: string; count: number }> {

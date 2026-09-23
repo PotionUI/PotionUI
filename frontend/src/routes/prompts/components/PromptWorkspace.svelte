@@ -8,9 +8,11 @@
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 	import { parseComponentRef } from '$lib/plugin-api/componentRef';
 	import { logger } from '$lib/utils/logger';
-	import LibraryShell from '../library/LibraryShell.svelte';
-	import { setLibraryCount } from '../library/libraryCounts';
-	import { withSection, type SortOption } from '../library/librarySection';
+	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
+	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import type { SortOption } from '$lib/components/library/librarySection';
+	import { libraryCounts, setLibraryCount } from '../library/libraryCounts';
+	import { LIBRARY_SECTIONS, sectionHref, withSection } from '../library/librarySection';
 	import PromptsGrid from './PromptsGrid.svelte';
 	import PromptsSidebar from './PromptsSidebar.svelte';
 	import PromptFiltersPopover from '$lib/prompts/PromptFiltersPopover.svelte';
@@ -833,37 +835,48 @@
 </script>
 
 <LibraryShell
+	title="Prompt Library"
+	persistKey="prompt-library"
+	sections={LIBRARY_SECTIONS}
 	section="prompts"
+	onSelectSection={(id) => goto(sectionHref(id))}
+	sectionCounts={$libraryCounts}
 	count={total}
 	{detailOpen}
-	q={filters.q}
-	onQueryChange={updateQuery}
-	{searchHint}
-	sortBy={filters.sortBy}
-	sortOptions={SORT_OPTIONS}
-	onSortChange={updateSort}
-	{filterCount}
-	chips={filterChips}
+	{filterChips}
 	onRemoveChip={removeChip}
 	onClearFilters={clearFilters}
 	loadedCount={prompts.length}
 	{total}
 >
+	{#snippet toolbar()}
+		<LibraryFilterBar
+			q={filters.q}
+			onQueryChange={updateQuery}
+			searchPlaceholder="Search prompts…"
+			{searchHint}
+			sortBy={filters.sortBy}
+			sortOptions={SORT_OPTIONS}
+			onSortChange={updateSort}
+			{filterCount}
+		>
+			{#snippet popover(close)}
+				<PromptFiltersPopover
+					{filters}
+					{modelLabel}
+					onChange={updateFilters}
+					onOpenModelPicker={() => (showModelFilterPicker = true)}
+					onClose={close}
+				/>
+			{/snippet}
+		</LibraryFilterBar>
+	{/snippet}
+
 	{#snippet sidebarTree()}
 		<PromptsSidebar
 			activeId={collectionId}
 			onSelectAll={() => setCollectionFilter(undefined)}
 			onSelectFolder={(id) => setCollectionFilter(id)}
-		/>
-	{/snippet}
-
-	{#snippet filtersPopover(close)}
-		<PromptFiltersPopover
-			{filters}
-			{modelLabel}
-			onChange={updateFilters}
-			onOpenModelPicker={() => (showModelFilterPicker = true)}
-			onClose={close}
 		/>
 	{/snippet}
 

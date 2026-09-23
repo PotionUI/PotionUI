@@ -1,14 +1,11 @@
-import { writable } from 'svelte/store';
 import { api } from '$lib/services/api';
+import { createLibraryCounts } from '$lib/components/library/libraryCounts';
 import type { LibrarySection } from './librarySection';
 
-export type LibraryCounts = Partial<Record<LibrarySection, number>>;
+const store = createLibraryCounts<LibrarySection>();
 
-export const libraryCounts = writable<LibraryCounts>({});
-
-export function setLibraryCount(section: LibrarySection, count: number) {
-	libraryCounts.update((counts) => (counts[section] === count ? counts : { ...counts, [section]: count }));
-}
+export const libraryCounts = store.counts;
+export const setLibraryCount = store.setCount;
 
 let primed = false;
 

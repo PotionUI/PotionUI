@@ -8,9 +8,10 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
-	import LibraryShell from '../library/LibraryShell.svelte';
-	import { setLibraryCount } from '../library/libraryCounts';
-	import { withSection } from '../library/librarySection';
+	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
+	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import { libraryCounts, setLibraryCount } from '../library/libraryCounts';
+	import { LIBRARY_SECTIONS, sectionHref, withSection } from '../library/librarySection';
 	import TemplateCard from './TemplateCard.svelte';
 	import TemplateDetailView from './TemplateDetailView.svelte';
 	import TemplateFiltersPopover from './TemplateFiltersPopover.svelte';
@@ -350,23 +351,34 @@
 <svelte:window onkeydown={handleWindowKeydown} />
 
 <LibraryShell
+	title="Prompt Library"
+	persistKey="prompt-library"
+	sections={LIBRARY_SECTIONS}
 	section="templates"
+	onSelectSection={(id) => goto(sectionHref(id))}
+	sectionCounts={$libraryCounts}
 	count={visible.length}
 	{detailOpen}
-	q={filters.q}
-	onQueryChange={(value) => updateFilters({ ...filters, q: value })}
-	sortBy={filters.sortBy}
-	sortOptions={TEMPLATE_SORT_OPTIONS}
-	onSortChange={(value) => updateFilters({ ...filters, sortBy: value as TemplateSortBy })}
-	filterCount={activeFilterCount}
-	{chips}
+	filterChips={chips}
 	onRemoveChip={(key) => updateFilters(clearTemplateFilterChip(filters, key))}
 	onClearFilters={() => updateFilters(clearAllTemplateFilters(filters))}
 	loadedCount={visible.length}
 	total={templates.length}
 >
-	{#snippet filtersPopover(close: () => void)}
-		<TemplateFiltersPopover {filters} tags={tagVocabulary} onChange={updateFilters} onClose={close} />
+	{#snippet toolbar()}
+		<LibraryFilterBar
+			q={filters.q}
+			onQueryChange={(value) => updateFilters({ ...filters, q: value })}
+			searchPlaceholder="Search templates…"
+			sortBy={filters.sortBy}
+			sortOptions={TEMPLATE_SORT_OPTIONS}
+			onSortChange={(value) => updateFilters({ ...filters, sortBy: value as TemplateSortBy })}
+			filterCount={activeFilterCount}
+		>
+			{#snippet popover(close: () => void)}
+				<TemplateFiltersPopover {filters} tags={tagVocabulary} onChange={updateFilters} onClose={close} />
+			{/snippet}
+		</LibraryFilterBar>
 	{/snippet}
 
 	{#snippet primary()}

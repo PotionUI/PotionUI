@@ -1,6 +1,7 @@
 import type { SegmentTemplate } from '$lib/types/segments';
 import { parseServerDate } from '$lib/utils/relativeTime';
-import { oneOf, type FilterChip, type SortOption } from '../library/librarySection';
+import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
+import type { FilterChip, SortOption } from '$lib/components/library/librarySection';
 
 export type TemplateSlotsFilter = '' | '1' | '2-3' | '4+';
 export type TemplateSortBy = 'name' | 'created';
@@ -19,9 +20,6 @@ export const DEFAULT_TEMPLATE_FILTERS: TemplateFilters = {
 	sortBy: 'name'
 };
 
-const SLOT_VALUES: Exclude<TemplateSlotsFilter, ''>[] = ['1', '2-3', '4+'];
-const SORT_VALUES: TemplateSortBy[] = ['name', 'created'];
-
 export const TEMPLATE_SLOT_OPTIONS: ReadonlyArray<{ value: TemplateSlotsFilter; label: string }> = [
 	{ value: '', label: 'Any' },
 	{ value: '1', label: '1' },
@@ -34,25 +32,47 @@ export const TEMPLATE_SORT_OPTIONS: readonly SortOption<TemplateSortBy>[] = [
 	{ value: 'created', label: 'Created' }
 ];
 
+const FIELDS: readonly FilterFieldDescriptor<TemplateFilters>[] = [
+	{
+		kind: 'enum',
+		key: 'slots',
+		param: 'slots',
+		label: 'Slots',
+		values: ['1', '2-3', '4+'],
+		default: '',
+		chipLabel: (value) => `${value} slot${value === '1' ? '' : 's'}`
+	},
+	{ kind: 'tags', key: 'tags', param: 'tags', label: 'Tags' }
+];
+
+const codec = createFilterCodec<TemplateFilters>({
+	defaults: DEFAULT_TEMPLATE_FILTERS,
+	fields: FIELDS,
+	sortValues: ['name', 'created']
+});
+
 export function templateFiltersFromSearchParams(params: URLSearchParams): TemplateFilters {
-	return {
-		q: params.get('q') ?? DEFAULT_TEMPLATE_FILTERS.q,
-		tags: (params.get('tags') ?? '')
-			.split(',')
-			.map((tag) => tag.trim())
-			.filter(Boolean),
-		slots: oneOf(params.get('slots'), SLOT_VALUES, DEFAULT_TEMPLATE_FILTERS.slots),
-		sortBy: oneOf(params.get('sort_by'), SORT_VALUES, DEFAULT_TEMPLATE_FILTERS.sortBy)
-	};
+	return codec.fromSearchParams(params);
 }
 
 export function templateFiltersToSearchParams(filters: TemplateFilters): URLSearchParams {
-	const params = new URLSearchParams();
-	if (filters.q) params.set('q', filters.q);
-	if (filters.tags.length) params.set('tags', filters.tags.join(','));
-	if (filters.slots) params.set('slots', filters.slots);
-	if (filters.sortBy !== DEFAULT_TEMPLATE_FILTERS.sortBy) params.set('sort_by', filters.sortBy);
-	return params;
+	return codec.toSearchParams(filters);
+}
+
+export function templateFilterChips(filters: TemplateFilters): FilterChip[] {
+	return codec.chips(filters);
+}
+
+export function clearTemplateFilterChip(filters: TemplateFilters, key: string): TemplateFilters {
+	return codec.clearChip(filters, key);
+}
+
+export function clearAllTemplateFilters(filters: TemplateFilters): TemplateFilters {
+	return codec.clearAll(filters);
+}
+
+export function templateFilterActiveCount(filters: TemplateFilters): number {
+	return codec.activeCount(filters);
 }
 
 export function templateSlotCount(template: Pick<SegmentTemplate, 'segments'>): number {
@@ -110,31 +130,4 @@ export function applyTemplateFilters(
 	});
 	if (filters.sortBy === 'created') return rows.sort((a, b) => templateTimestamp(b) - templateTimestamp(a));
 	return rows.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-export function templateFilterChips(filters: TemplateFilters): FilterChip[] {
-	const chips: FilterChip[] = [];
-	if (filters.slots) chips.push({ key: 'slots', label: `${filters.slots} slot${filters.slots === '1' ? '' : 's'}` });
-	for (const tag of filters.tags) chips.push({ key: `tag:${tag}`, label: `#${tag}` });
-	return chips;
-}
-
-export function clearTemplateFilterChip(filters: TemplateFilters, key: string): TemplateFilters {
-	if (key === 'slots') return { ...filters, slots: '' };
-	if (key.startsWith('tag:')) {
-		const tag = key.slice('tag:'.length);
-		return { ...filters, tags: filters.tags.filter((entry) => entry !== tag) };
-	}
-	return filters;
-}
-
-export function clearAllTemplateFilters(filters: TemplateFilters): TemplateFilters {
-	return { ...DEFAULT_TEMPLATE_FILTERS, q: filters.q, sortBy: filters.sortBy };
-}
-
-export function templateFilterActiveCount(filters: TemplateFilters): number {
-	let count = 0;
-	if (filters.slots) count++;
-	if (filters.tags.length) count++;
-	return count;
 }

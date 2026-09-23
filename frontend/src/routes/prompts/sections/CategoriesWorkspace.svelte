@@ -9,9 +9,10 @@
 	import type { SavedSegment, SegmentCategory } from '$lib/types/segments';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
-	import LibraryShell from '../library/LibraryShell.svelte';
-	import { setLibraryCount } from '../library/libraryCounts';
-	import { sectionHref, withSection } from '../library/librarySection';
+	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
+	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import { libraryCounts, setLibraryCount } from '../library/libraryCounts';
+	import { LIBRARY_SECTIONS, sectionHref, withSection } from '../library/librarySection';
 	import CategoryCard from './CategoryCard.svelte';
 	import CategoryDetailView from './CategoryDetailView.svelte';
 	import CategoryFiltersPopover from './CategoryFiltersPopover.svelte';
@@ -367,23 +368,34 @@
 <svelte:window onkeydown={handleWindowKeydown} />
 
 <LibraryShell
+	title="Prompt Library"
+	persistKey="prompt-library"
+	sections={LIBRARY_SECTIONS}
 	section="categories"
+	onSelectSection={(id) => goto(sectionHref(id))}
+	sectionCounts={$libraryCounts}
 	count={visible.length}
 	{detailOpen}
-	q={filters.q}
-	onQueryChange={(value) => updateFilters({ ...filters, q: value })}
-	sortBy={filters.sortBy}
-	sortOptions={CATEGORY_SORT_OPTIONS}
-	onSortChange={(value) => updateFilters({ ...filters, sortBy: value as CategorySortBy })}
-	{filterCount}
-	{chips}
+	filterChips={chips}
 	onRemoveChip={(key) => updateFilters(clearCategoryFilterChip(filters, key))}
 	onClearFilters={() => updateFilters(clearAllCategoryFilters(filters))}
 	loadedCount={visible.length}
 	total={categories.length}
 >
-	{#snippet filtersPopover(close)}
-		<CategoryFiltersPopover {filters} onChange={updateFilters} onClose={close} />
+	{#snippet toolbar()}
+		<LibraryFilterBar
+			q={filters.q}
+			onQueryChange={(value) => updateFilters({ ...filters, q: value })}
+			searchPlaceholder="Search categories…"
+			sortBy={filters.sortBy}
+			sortOptions={CATEGORY_SORT_OPTIONS}
+			onSortChange={(value) => updateFilters({ ...filters, sortBy: value as CategorySortBy })}
+			{filterCount}
+		>
+			{#snippet popover(close)}
+				<CategoryFiltersPopover {filters} onChange={updateFilters} onClose={close} />
+			{/snippet}
+		</LibraryFilterBar>
 	{/snippet}
 
 	{#snippet primary()}

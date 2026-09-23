@@ -12,9 +12,10 @@
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { tabsStore, activeTab } from '$lib/stores/tabs';
-	import LibraryShell from '../library/LibraryShell.svelte';
-	import { setLibraryCount } from '../library/libraryCounts';
-	import { withSection } from '../library/librarySection';
+	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
+	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import { libraryCounts, setLibraryCount } from '../library/libraryCounts';
+	import { LIBRARY_SECTIONS, sectionHref, withSection } from '../library/librarySection';
 	import SegmentCard from './SegmentCard.svelte';
 	import SegmentDetailView from './SegmentDetailView.svelte';
 	import SegmentFiltersPopover from './SegmentFiltersPopover.svelte';
@@ -460,21 +461,36 @@
 <svelte:window onkeydown={handleWindowKeydown} onclick={handleWindowClick} />
 
 <LibraryShell
+	title="Prompt Library"
+	persistKey="prompt-library"
+	sections={LIBRARY_SECTIONS}
 	section="segments"
+	onSelectSection={(id) => goto(sectionHref(id))}
+	sectionCounts={$libraryCounts}
 	count={visible.length}
 	{detailOpen}
-	q={filters.q}
-	onQueryChange={(value) => updateFilters({ ...filters, q: value })}
-	sortBy={filters.sortBy}
-	sortOptions={SEGMENT_SORT_OPTIONS}
-	onSortChange={(value) => updateFilters({ ...filters, sortBy: value as SegmentSortBy })}
-	{filterCount}
-	{chips}
+	filterChips={chips}
 	onRemoveChip={(key) => updateFilters(clearSegmentFilterChip(filters, key))}
 	onClearFilters={() => updateFilters(clearAllSegmentFilters(filters))}
 	loadedCount={visible.length}
 	total={segments.length}
 >
+	{#snippet toolbar()}
+		<LibraryFilterBar
+			q={filters.q}
+			onQueryChange={(value) => updateFilters({ ...filters, q: value })}
+			searchPlaceholder="Search segments…"
+			sortBy={filters.sortBy}
+			sortOptions={SEGMENT_SORT_OPTIONS}
+			onSortChange={(value) => updateFilters({ ...filters, sortBy: value as SegmentSortBy })}
+			{filterCount}
+		>
+			{#snippet popover(close)}
+				<SegmentFiltersPopover {filters} {categories} tags={tagVocabulary} onChange={updateFilters} onClose={close} />
+			{/snippet}
+		</LibraryFilterBar>
+	{/snippet}
+
 	{#snippet sidebarTree()}
 		<div class="p-2" role="listbox" aria-label="Segment categories">
 			<PaneSectionLabel label="Categories" />
@@ -499,10 +515,6 @@
 				{/each}
 			</div>
 		</div>
-	{/snippet}
-
-	{#snippet filtersPopover(close)}
-		<SegmentFiltersPopover {filters} {categories} tags={tagVocabulary} onChange={updateFilters} onClose={close} />
 	{/snippet}
 
 	{#snippet primary()}

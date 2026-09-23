@@ -146,6 +146,7 @@ pipeline:
       # separate presence check here.
       spectral_progressive:
         enabled: "{{ form.spectral_progressive_enabled }}"
+        scales: ["{{ form.spectral_progressive_start_scale }}", 1.0]
 
   #############
   ## Gallery

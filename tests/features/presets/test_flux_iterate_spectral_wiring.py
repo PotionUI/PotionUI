@@ -145,5 +145,5 @@ def test_iterate_mode_checkbox_is_present(advanced_tab):
 def test_spectral_progressive_fields_are_present(advanced_tab):
     enabled = _field_by_name(advanced_tab["fields"], "spectral_progressive_enabled")
     scale = _field_by_name(advanced_tab["fields"], "spectral_progressive_start_scale")
-    assert enabled is not None and enabled["type"] == "checkbox" and enabled["default"] is False
+    assert enabled is not None and enabled["type"] == "gate" and enabled["default"] is False
     assert scale is not None and scale["type"] == "slider" and scale["default"] == 0.5

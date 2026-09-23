@@ -113,8 +113,8 @@ def test_flux2_advanced_tab_keeps_every_field_name(flux2_advanced_tab):
 
 def test_flux2_advanced_tab_top_level_is_named_sections(flux2_advanced_tab):
     top_level = flux2_advanced_tab["children"]
-    assert [c.get("type") for c in top_level] == ["section", "section", "section"]
-    assert [c.get("title") for c in top_level] == [
+    assert [c.get("type") for c in top_level] == ["section", "section", "gate"]
+    assert [c.get("title") or c.get("label") for c in top_level] == [
         "Sampling",
         "Step cache (FBCache)",
         "Spectral Progressive Diffusion",

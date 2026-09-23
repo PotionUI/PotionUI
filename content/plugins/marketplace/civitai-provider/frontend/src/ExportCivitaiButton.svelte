@@ -50,14 +50,44 @@
 </script>
 
 {#if isImage}
-  <button
-    on:click={handleExport}
-    disabled={exporting}
-    class="bg-black/50 hover:bg-black/70 disabled:opacity-50 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-    title="Export for Civitai"
-  >
-    <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-    </svg>
-  </button>
+  <span class="export-wrap">
+    <button
+      on:click={handleExport}
+      disabled={exporting}
+      aria-label="Export for Civitai"
+      class="bg-black/50 hover:bg-black/70 disabled:opacity-50 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
+    >
+      <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+      </svg>
+    </button>
+    <span class="export-tip" role="tooltip">Export for Civitai</span>
+  </span>
 {/if}
+
+<style>
+  .export-wrap {
+    position: relative;
+    display: inline-flex;
+  }
+  .export-tip {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    white-space: nowrap;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: rgb(var(--fg));
+    background: rgb(var(--surface-3));
+    box-shadow: 0 4px 12px rgb(0 0 0 / 0.25);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 150ms;
+  }
+  .export-wrap:hover .export-tip,
+  .export-wrap:focus-within .export-tip {
+    opacity: 1;
+  }
+</style>

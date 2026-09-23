@@ -2,7 +2,7 @@
 
 import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -166,17 +166,18 @@ class TestMediaOverrideValidation:
     @pytest.mark.asyncio
     async def test_rejects_media_override_pointing_outside_storage_root(self, tmp_path):
         preset_collaborators = MagicMock()
-        preset_collaborators.get_form_schema.return_value = {
-            "form_schema": {"properties": {"init_image": {"type": "image"}}},
-        }
         settings = MagicMock()
         settings.get_file_storage_directory.return_value = str(tmp_path)
         orchestrator = make_orchestrator()
         ctx = make_context(
             generation_orchestrator=orchestrator, preset_collaborators=preset_collaborators, settings=settings,
         )
-        result = await StartGenerationTool().execute_confirmed(
-            ctx, preset_id="sdxl/img2img", form_overrides={"init_image": "/etc/passwd"},
-        )
+        with patch(
+            "src.features.presets.operations.get_form_schema",
+            return_value={"form_schema": {"properties": {"init_image": {"type": "image"}}}},
+        ):
+            result = await StartGenerationTool().execute_confirmed(
+                ctx, preset_id="sdxl/img2img", form_overrides={"init_image": "/etc/passwd"},
+            )
         assert result.success is False
         orchestrator.start_generation.assert_not_awaited()

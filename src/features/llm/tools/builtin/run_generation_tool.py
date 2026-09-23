@@ -12,6 +12,7 @@ from src.features.llm.tools.media_values import (
     media_field_names,
     validate_media_changes,
 )
+from src.features.presets import operations
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ class RunGenerationTool(BaseTool):
         if not override_values or not context.preset_collaborators:
             return []
         try:
-            schema_data = context.preset_collaborators.get_form_schema(preset_id, mode=mode)
+            schema_data = operations.get_form_schema(context.preset_collaborators, preset_id, mode=mode)
             media_fields = media_field_names(
                 schema_data.get("form_schema", {}).get("properties", {})
             )

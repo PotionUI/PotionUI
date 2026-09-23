@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import video_director_active
+from src.features.presets import operations
 from src.platform.resources.prompt_variables import render_prompt_variable_lines
 
 logger = logging.getLogger(__name__)
@@ -223,8 +224,8 @@ class GetFormStateTool(BaseTool):
             schema_props = {}
             if preset_id and context.preset_collaborators:
                 try:
-                    schema_data = context.preset_collaborators.get_form_schema(
-                        preset_id, mode=mode
+                    schema_data = operations.get_form_schema(
+                        context.preset_collaborators, preset_id, mode=mode
                     )
                     schema_props = (
                         schema_data.get("form_schema", {}).get("properties", {})

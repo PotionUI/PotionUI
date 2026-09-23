@@ -107,12 +107,15 @@ class TestWriteMemoryTool:
         mock_ops.write_note.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_execute_global_scope_nudges_when_content_names_active_preset(self, mock_ops):
+    async def test_execute_global_scope_nudges_when_content_names_active_preset(self, mock_ops, monkeypatch):
         note = make_note()
         mm = MagicMock()
         mock_ops.write_note.return_value = note
         preset_collaborators = MagicMock()
-        preset_collaborators.get_preset.return_value = {"preset": {"id": "preset-1", "name": "Krea-2 Turbo"}}
+        monkeypatch.setattr(
+            "src.features.presets.operations.get_preset",
+            lambda collaborators, preset_id: {"id": "preset-1", "name": "Krea-2 Turbo"},
+        )
         ctx = make_context(
             llm_memory_repository=mm,
             preset_collaborators=preset_collaborators,
@@ -130,12 +133,15 @@ class TestWriteMemoryTool:
         assert "scope='preset'" in data["scope_hint"]
 
     @pytest.mark.asyncio
-    async def test_execute_global_scope_no_nudge_for_genuinely_global_note(self, mock_ops):
+    async def test_execute_global_scope_no_nudge_for_genuinely_global_note(self, mock_ops, monkeypatch):
         note = make_note()
         mm = MagicMock()
         mock_ops.write_note.return_value = note
         preset_collaborators = MagicMock()
-        preset_collaborators.get_preset.return_value = {"preset": {"id": "preset-1", "name": "Krea-2 Turbo"}}
+        monkeypatch.setattr(
+            "src.features.presets.operations.get_preset",
+            lambda collaborators, preset_id: {"id": "preset-1", "name": "Krea-2 Turbo"},
+        )
         ctx = make_context(
             llm_memory_repository=mm,
             preset_collaborators=preset_collaborators,

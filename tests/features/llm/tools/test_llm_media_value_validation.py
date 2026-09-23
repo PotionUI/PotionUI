@@ -21,6 +21,16 @@ from src.features.llm.tools.builtin.update_form_settings_tool import UpdateFormS
 from src.features.llm.tools.media_values import media_field_names, validate_media_value
 
 
+@pytest.fixture(autouse=True)
+def _route_get_form_schema(monkeypatch):
+    monkeypatch.setattr(
+        "src.features.presets.operations.get_form_schema",
+        lambda collaborators, preset_id, mode=None, form_name=None: collaborators.get_form_schema(
+            preset_id, mode=mode, form_name=form_name
+        ),
+    )
+
+
 @pytest.fixture
 def storage(tmp_path):
     """A storage root holding one real generation output."""

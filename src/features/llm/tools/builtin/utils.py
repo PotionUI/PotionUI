@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.llm.tools.base import ToolApprovalPreview, ToolContext
 from src.features.models.form_refs import is_model_ref, model_id_of
+from src.features.presets import operations
 from src.platform.security.user import AccountType, User
 
 logger = logging.getLogger(__name__)
@@ -169,7 +170,7 @@ def build_model_field_metadata(
     if not preset_id or not preset_collaborators:
         return result
     try:
-        schema_data = preset_collaborators.get_form_schema(preset_id, mode=mode)
+        schema_data = operations.get_form_schema(preset_collaborators, preset_id, mode=mode)
         props = schema_data.get("form_schema", {}).get("properties", {})
         for name, spec in props.items():
             _walk_model_field_metadata(spec, result, fallback_name=name)

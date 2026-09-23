@@ -8,6 +8,7 @@ from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolConte
 from src.features.llm.tools.builtin.utils import resolve_active_model_id, resolve_active_preset_id
 from src.features.llm.tools.errors import unexpected
 from src.features.llm_memory import operations as memory_operations
+from src.features.presets import operations as preset_operations
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +87,7 @@ def _global_scope_nudge(context: ToolContext, content: str) -> Optional[str]:
     preset_id = resolve_active_preset_id(form_state)
     if preset_id and context.preset_collaborators:
         try:
-            preset_data = context.preset_collaborators.get_preset(preset_id)
-            preset_name = preset_data.get("preset", preset_data).get("name")
+            preset_name = preset_operations.get_preset(context.preset_collaborators, preset_id).get("name")
         except Exception:
             preset_name = None
         if _mentions(preset_name, content):

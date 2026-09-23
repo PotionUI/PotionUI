@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set
 
 from src.features.forms.binding import MEDIA_FIELD_TYPES
+from src.features.presets import operations
 from src.platform.util.path_resolution import resolve_within
 
 logger = logging.getLogger(__name__)
@@ -170,7 +171,7 @@ def preset_form_media_errors(
     if not proposed or preset_collaborators is None:
         return []
     try:
-        schema_data = preset_collaborators.get_form_schema(preset_id, mode=mode)
+        schema_data = operations.get_form_schema(preset_collaborators, preset_id, mode=mode)
         media_fields = media_field_names(schema_data.get("form_schema", {}).get("properties", {}))
     except Exception as e:
         logger.debug(f"Could not load form schema for media validation: {e}")

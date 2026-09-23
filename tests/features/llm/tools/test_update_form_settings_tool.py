@@ -2,7 +2,7 @@
 
 import json
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from typing import Any
 
 from src.features.llm.tools.base import ToolContext, ToolResult
@@ -270,21 +270,18 @@ class TestUpdateFormSettingsToolSchemaValidation:
     async def test_accepts_fields_from_schema_not_in_form_data(self):
         """Fields listed in preset schema but absent from form_data should be accepted."""
         preset_collaborators = MagicMock()
-        preset_collaborators.get_form_schema = MagicMock(return_value={
-            "form_schema": {
-                "properties": {
-                    "extra_field": {"type": "integer"},
-                }
-            }
-        })
         # form_data has no "extra_field"
         ctx = make_context(
             session_metadata={"form_state": make_form_state(form_data={})},
             preset_collaborators=preset_collaborators,
         )
-        result = await UpdateFormSettingsTool().execute(
-            ctx, changes=[make_change("extra_field", 42)]
-        )
+        with patch(
+            "src.features.presets.operations.get_form_schema",
+            return_value={"form_schema": {"properties": {"extra_field": {"type": "integer"}}}},
+        ):
+            result = await UpdateFormSettingsTool().execute(
+                ctx, changes=[make_change("extra_field", 42)]
+            )
         assert result.success is True
         payload = json.loads(result.data)
         assert payload["change_count"] == 1

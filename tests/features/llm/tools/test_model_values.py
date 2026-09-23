@@ -6,7 +6,7 @@ map - real presets lay fields out under a `tabs` root whose `children` nest
 Fixtures here mirror that real shape rather than a flattened stand-in.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from src.features.llm.tools.model_values import (
     model_field_names,
@@ -97,22 +97,28 @@ class TestValidateModelValue:
 
 class TestPresetFormModelErrors:
     def _preset_collaborators(self):
-        preset_collaborators = MagicMock()
-        preset_collaborators.get_form_schema.return_value = {"form_schema": {"properties": NESTED_SCHEMA_PROPERTIES}}
-        return preset_collaborators
+        return MagicMock()
 
     def test_rejects_every_unresolvable_model_field(self):
-        errors = preset_form_model_errors(
-            self._preset_collaborators(), _model_index_manager(found=False), "krea2", "txt2img",
-            {"diffusion_model": "a.safetensors", "text_encoder": "b.safetensors", "speed_profile": "turbo"},
-        )
+        with patch(
+            "src.features.presets.operations.get_form_schema",
+            return_value={"form_schema": {"properties": NESTED_SCHEMA_PROPERTIES}},
+        ):
+            errors = preset_form_model_errors(
+                self._preset_collaborators(), _model_index_manager(found=False), "krea2", "txt2img",
+                {"diffusion_model": "a.safetensors", "text_encoder": "b.safetensors", "speed_profile": "turbo"},
+            )
         assert len(errors) == 2
 
     def test_accepts_resolvable_model_fields(self):
-        errors = preset_form_model_errors(
-            self._preset_collaborators(), _model_index_manager(found=True), "krea2", "txt2img",
-            {"diffusion_model": "found.safetensors"},
-        )
+        with patch(
+            "src.features.presets.operations.get_form_schema",
+            return_value={"form_schema": {"properties": NESTED_SCHEMA_PROPERTIES}},
+        ):
+            errors = preset_form_model_errors(
+                self._preset_collaborators(), _model_index_manager(found=True), "krea2", "txt2img",
+                {"diffusion_model": "found.safetensors"},
+            )
         assert errors == []
 
     def test_no_preset_collaborators_skips(self):

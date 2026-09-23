@@ -26,6 +26,7 @@ from src.features.llm.tools.builtin import (
     register_builtin_tools,
 )
 from src.features.llm.tools.registry import ToolRegistry
+from src.features.presets.templates import FieldTemplate, FormTemplate, ModeTemplate, PresetTemplate
 from src.features.segments.dto import RichSegment, SavedSegment, SegmentTemplate
 
 
@@ -678,26 +679,40 @@ class TestGetPresetInfoTool:
         assert "preset_id" in schema["function"]["parameters"]["properties"]
         assert schema["function"]["parameters"]["required"] == []
 
-    def _make_preset_data(self):
-        return {
-            "preset": {
-                "id": "p-1",
-                "name": "SDXL Standard",
-                "description": "Standard SDXL preset",
-                "modes": ["t2i", "i2i"],
-                "form": [
-                    {"name": "prompt", "type": "textarea", "label": "Prompt"},
-                    {"name": "steps", "type": "slider", "label": "Steps"},
-                ],
-                "pipeline": ["checkpoint_loader", "generator"],
-            }
-        }
+    def _make_preset(self):
+        return PresetTemplate(
+            id="p-1",
+            name="SDXL Standard",
+            version="1.0.0",
+            path="/presets/p-1",
+            description="Standard SDXL preset",
+            modes={
+                "t2i": ModeTemplate(
+                    forms=[FormTemplate(
+                        name="default",
+                        fields=[
+                            FieldTemplate(type="textarea", name="prompt", label="Prompt"),
+                            FieldTemplate(type="slider", name="steps", label="Steps"),
+                        ],
+                        default=True,
+                    )],
+                    pipes=[],
+                ),
+                "i2i": ModeTemplate(forms=[FormTemplate(name="default", fields=[], default=True)], pipes=[]),
+            },
+        )
+
+    def _preset_collaborators(self, preset):
+        collaborators = MagicMock()
+        collaborators.file_repo.find_preset_by_id.side_effect = (
+            lambda preset_id: preset if preset_id == preset.id else None
+        )
+        return collaborators
 
     @pytest.mark.asyncio
     async def test_returns_preset_info_with_explicit_id(self):
-        pm = MagicMock()
-        pm.get_preset.return_value = self._make_preset_data()
-        ctx = make_context(preset_collaborators=pm)
+        pm = self._preset_collaborators(self._make_preset())
+        ctx = make_context(preset_collaborators=pm, is_admin=True)
 
         result = await self._tool().execute(ctx, preset_id="p-1")
 
@@ -705,21 +720,20 @@ class TestGetPresetInfoTool:
         data = json.loads(result.data)
         assert data["id"] == "p-1"
         assert data["name"] == "SDXL Standard"
+        assert set(data["modes"]) == {"t2i", "i2i"}
+        assert data["mode"] == "t2i"
         assert len(data["form_fields"]) == 2
         assert data["form_fields"][0]["name"] == "prompt"
-        assert data["pipeline_steps"] == ["checkpoint_loader", "generator"]
-        pm.get_preset.assert_called_once_with("p-1")
 
     @pytest.mark.asyncio
     async def test_falls_back_to_session_metadata(self):
-        pm = MagicMock()
-        pm.get_preset.return_value = self._make_preset_data()
-        ctx = make_context(preset_collaborators=pm, session_metadata={"preset_id": "p-1"})
+        pm = self._preset_collaborators(self._make_preset())
+        ctx = make_context(preset_collaborators=pm, is_admin=True, session_metadata={"preset_id": "p-1"})
 
         result = await self._tool().execute(ctx)
 
         assert result.success is True
-        pm.get_preset.assert_called_once_with("p-1")
+        assert json.loads(result.data)["id"] == "p-1"
 
     @pytest.mark.asyncio
     async def test_no_preset_id_and_no_session_metadata(self):
@@ -737,47 +751,23 @@ class TestGetPresetInfoTool:
         assert "not available" in result.error
 
     @pytest.mark.asyncio
-    async def test_preset_with_pipes_key_instead_of_pipeline(self):
-        raw = {
-            "preset": {
-                "id": "p-2",
-                "name": "Custom",
-                "description": "",
-                "modes": [],
-                "pipes": ["downloader", "generator"],
-            }
-        }
-        pm = MagicMock()
-        pm.get_preset.return_value = raw
-        ctx = make_context(preset_collaborators=pm)
+    async def test_unknown_preset_id_gives_teaching_error(self):
+        pm = self._preset_collaborators(self._make_preset())
+        ctx = make_context(preset_collaborators=pm, is_admin=True)
 
-        result = await self._tool().execute(ctx, preset_id="p-2")
+        result = await self._tool().execute(ctx, preset_id="bad")
 
-        assert result.success is True
-        data = json.loads(result.data)
-        assert data["pipeline_steps"] == ["downloader", "generator"]
-
-    @pytest.mark.asyncio
-    async def test_flat_preset_data_without_preset_key(self):
-        raw = {"id": "p-3", "name": "Flat", "description": "", "modes": []}
-        pm = MagicMock()
-        pm.get_preset.return_value = raw
-        ctx = make_context(preset_collaborators=pm)
-
-        result = await self._tool().execute(ctx, preset_id="p-3")
-
-        assert result.success is True
-        data = json.loads(result.data)
-        assert data["id"] == "p-3"
+        assert result.success is False
+        assert "No preset 'bad'" in result.error
 
     @pytest.mark.asyncio
     async def test_exception_returns_error(self):
         pm = MagicMock()
-        pm.get_preset.side_effect = Exception("preset not found")
-        ctx = make_context(preset_collaborators=pm)
+        pm.file_repo.find_preset_by_id.side_effect = Exception("boom")
+        ctx = make_context(preset_collaborators=pm, is_admin=True)
         result = await self._tool().execute(ctx, preset_id="bad")
         assert result.success is False
-        assert "preset not found" in result.error
+        assert "boom" in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -2403,6 +2393,15 @@ def _make_form_schema_response(fields_dict):
     return {"form_schema": {"properties": props}}
 
 
+def _route_get_form_schema_through(pm, monkeypatch):
+    monkeypatch.setattr(
+        "src.features.presets.operations.get_form_schema",
+        lambda collaborators, preset_id, mode=None, form_name=None: pm.get_form_schema(
+            preset_id, mode=mode, form_name=form_name
+        ),
+    )
+
+
 class TestGetFormStateTool:
     def _tool(self):
         return GetFormStateTool()
@@ -2464,7 +2463,7 @@ class TestGetFormStateTool:
         assert "type" not in data["fields"]["steps"]
 
     @pytest.mark.asyncio
-    async def test_merges_schema_with_form_data_when_preset_collaborators_available(self):
+    async def test_merges_schema_with_form_data_when_preset_collaborators_available(self, monkeypatch):
         """With preset_collaborators that returns schema, returns 'fields' key with merged info."""
         form_state = {
             "preset": "sdxl-standard",
@@ -2475,6 +2474,7 @@ class TestGetFormStateTool:
             },
         }
         pm = MagicMock()
+        _route_get_form_schema_through(pm, monkeypatch)
         pm.get_form_schema.return_value = _make_form_schema_response({
             "checkpoint": {
                 "type": "model",
@@ -2509,10 +2509,10 @@ class TestGetFormStateTool:
         assert steps_field["value"] == 25
         assert "model_type" not in steps_field
 
-        pm.get_form_schema.assert_called_once_with("sdxl-standard", mode="t2i")
+        pm.get_form_schema.assert_called_once_with("sdxl-standard", mode="t2i", form_name=None)
 
     @pytest.mark.asyncio
-    async def test_media_field_value_compacted_to_path_label_name_type(self):
+    async def test_media_field_value_compacted_to_path_label_name_type(self, monkeypatch):
         """A media-loader field's value (single object or `multiple` array) is
         trimmed to path/label/name/type for the tool caller -- dropping the
         verbose url/relative_path/metadata a form value otherwise carries, so
@@ -2550,6 +2550,7 @@ class TestGetFormStateTool:
             },
         }
         pm = MagicMock()
+        _route_get_form_schema_through(pm, monkeypatch)
         pm.get_form_schema.return_value = _make_form_schema_response({
             "reference_image": {"type": "image", "title": "Reference Image"},
             "gallery": {"type": "image", "title": "Gallery"},
@@ -2592,7 +2593,7 @@ class TestGetFormStateTool:
         assert data["fields"]["resolution"]["value"] == {"width": 1024, "height": 1024}
 
     @pytest.mark.asyncio
-    async def test_schema_fields_without_value_are_included_without_value_key(self):
+    async def test_schema_fields_without_value_are_included_without_value_key(self, monkeypatch):
         """Schema fields not present in form_data are included but without a 'value' key."""
         form_state = {
             "preset": "sdxl-standard",
@@ -2600,6 +2601,7 @@ class TestGetFormStateTool:
             "form_data": {"steps": 20},
         }
         pm = MagicMock()
+        _route_get_form_schema_through(pm, monkeypatch)
         pm.get_form_schema.return_value = _make_form_schema_response({
             "checkpoint": {"type": "model", "title": "Checkpoint"},
             "steps": {"type": "slider", "title": "Steps"},
@@ -3171,7 +3173,7 @@ class TestGetActiveModelsTool:
         assert data["models"][0]["type"] == "lora"
 
     @pytest.mark.asyncio
-    async def test_schema_model_type_is_fallback_when_model_record_has_no_type(self):
+    async def test_schema_model_type_is_fallback_when_model_record_has_no_type(self, monkeypatch):
         """Schema model_type is only used when the model record has none — and
         field_label is no longer emitted at all (compact entries dropped
         field_name/field_label)."""
@@ -3183,6 +3185,7 @@ class TestGetActiveModelsTool:
         mim.model_repo = model_repo
 
         pm = MagicMock()
+        _route_get_form_schema_through(pm, monkeypatch)
         pm.get_form_schema.return_value = _make_form_schema_response({
             "vae": {
                 "type": "model",
@@ -3314,7 +3317,7 @@ class TestGetActiveModelsTool:
         assert entry["name"] == "path.safetensors"
 
     @pytest.mark.asyncio
-    async def test_ai_hint_included_from_schema(self):
+    async def test_ai_hint_included_from_schema(self, monkeypatch):
         """When schema has ai_hint, it should appear in the active model entry."""
         model_repo = _make_model_repo_with_model("models/checkpoints/sdxl.safetensors", {
             "id": "m-1", "filename": "sdxl.safetensors", "model_type": "checkpoint",
@@ -3324,6 +3327,7 @@ class TestGetActiveModelsTool:
         mim.model_repo = model_repo
 
         pm = MagicMock()
+        _route_get_form_schema_through(pm, monkeypatch)
         props = {
             "checkpoint": {
                 "type": "model",
@@ -3513,7 +3517,7 @@ class TestGetFormStateToolAiHint:
         return GetFormStateTool()
 
     @pytest.mark.asyncio
-    async def test_ai_hint_included_in_field_when_present(self):
+    async def test_ai_hint_included_in_field_when_present(self, monkeypatch):
         """When schema has ai_hint, it should appear in the merged field entry."""
         form_state = {
             "preset": "sdxl-standard",
@@ -3529,6 +3533,7 @@ class TestGetFormStateToolAiHint:
             }
         }
         pm = MagicMock()
+        _route_get_form_schema_through(pm, monkeypatch)
         pm.get_form_schema.return_value = {"form_schema": {"properties": props}}
         ctx = make_context(preset_collaborators=pm, session_metadata={"form_state": form_state})
 

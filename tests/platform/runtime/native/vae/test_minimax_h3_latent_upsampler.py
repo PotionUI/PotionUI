@@ -222,7 +222,7 @@ class TestLoadMinimaxH3LatentUpsampler:
 
     def test_reads_file_when_sd_not_preloaded(self, tmp_path, monkeypatch):
         module = MiniMaxH3LatentUpsampler.from_config(_TINY_CONFIG, disable_weight_init)
-        sd = module.state_dict()
+        sd = {k: torch.zeros_like(v) for k, v in module.state_dict().items()}
 
         def _fake_load_torch_file(path, device="cpu"):
             return sd, {}

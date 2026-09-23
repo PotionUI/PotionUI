@@ -130,7 +130,7 @@ def seedvr2_dit_sd(
     vid_dim: int = 64, heads: int = 4, head_dim: int = 16, num_layers: int = 4,
     mm_layers: int = 2, vid_in_channels: int = 33, vid_out_channels: int = 16,
     txt_in_dim: int = 5120, emb_dim: int | None = None, mlp_hidden: int = 96,
-    variant: str = "3b",
+    variant: str = "3b", device: str = "cpu",
 ) -> dict[str, torch.Tensor]:
     """Minimal SeedVR2 NaDiT signature -- only the keys ``_detect_seedvr2`` reads.
 
@@ -147,21 +147,21 @@ def seedvr2_dit_sd(
     if emb_dim is None:
         emb_dim = 6 * vid_dim
     sd: dict[str, torch.Tensor] = {
-        "vid_in.proj.weight": torch.zeros(vid_dim, vid_in_channels * pack),
-        "vid_out.proj.weight": torch.zeros(vid_out_channels * pack, vid_dim),
-        "txt_in.weight": torch.zeros(vid_dim, txt_in_dim),
-        "emb_in.proj_out.weight": torch.zeros(emb_dim, vid_dim),
+        "vid_in.proj.weight": torch.zeros(vid_dim, vid_in_channels * pack, device=device),
+        "vid_out.proj.weight": torch.zeros(vid_out_channels * pack, vid_dim, device=device),
+        "txt_in.weight": torch.zeros(vid_dim, txt_in_dim, device=device),
+        "emb_in.proj_out.weight": torch.zeros(emb_dim, vid_dim, device=device),
     }
     if variant == "3b":
-        sd["vid_out_norm.weight"] = torch.zeros(vid_dim)
+        sd["vid_out_norm.weight"] = torch.zeros(vid_dim, device=device)
     for i in range(num_layers):
         tag = "vid" if i < mm_layers else "all"
-        sd[f"blocks.{i}.ada.{tag}.attn_shift"] = torch.zeros(vid_dim)
-        sd[f"blocks.{i}.attn.norm_q.{tag}.weight"] = torch.zeros(head_dim)
-        sd[f"blocks.{i}.attn.proj_qkv.{tag}.weight"] = torch.zeros(heads * head_dim * 3, vid_dim)
-        sd[f"blocks.{i}.mlp.{tag}.proj_in.weight"] = torch.zeros(mlp_hidden, vid_dim)
+        sd[f"blocks.{i}.ada.{tag}.attn_shift"] = torch.zeros(vid_dim, device=device)
+        sd[f"blocks.{i}.attn.norm_q.{tag}.weight"] = torch.zeros(head_dim, device=device)
+        sd[f"blocks.{i}.attn.proj_qkv.{tag}.weight"] = torch.zeros(heads * head_dim * 3, vid_dim, device=device)
+        sd[f"blocks.{i}.mlp.{tag}.proj_in.weight"] = torch.zeros(mlp_hidden, vid_dim, device=device)
         if variant == "3b":
-            sd[f"blocks.{i}.mlp.{tag}.proj_in_gate.weight"] = torch.zeros(mlp_hidden, vid_dim)
+            sd[f"blocks.{i}.mlp.{tag}.proj_in_gate.weight"] = torch.zeros(mlp_hidden, vid_dim, device=device)
     return sd
 
 

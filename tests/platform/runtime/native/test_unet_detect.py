@@ -85,7 +85,7 @@ def test_detect_seedvr2_real_3b_shapes():
     c = detect_unet_config(seedvr2_dit_sd(
         vid_dim=2560, heads=20, head_dim=128, num_layers=32, mm_layers=10,
         vid_in_channels=33, vid_out_channels=16, txt_in_dim=5120,
-        emb_dim=15360, mlp_hidden=6912,
+        emb_dim=15360, mlp_hidden=6912, device="meta",
     ))
     assert (c["vid_dim"], c["heads"], c["head_dim"]) == (2560, 20, 128)
     assert (c["num_layers"], c["mm_layers"]) == (32, 10)

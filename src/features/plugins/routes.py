@@ -130,7 +130,7 @@ class PluginController(BaseController):
         """Get History page selection-bar tools from enabled plugins"""
         try:
             tools = operations.get_active_history_tools(self.repository, self.registry)
-            return self.success_response(data={"tools": tools})
+            return self.success_response(data=tools)
         except Exception as e:
             self.logger.error(f"Failed to get plugin history tools: {str(e)}")
             return self.handle_exception(

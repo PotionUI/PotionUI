@@ -25,7 +25,7 @@ def _user(account_type):
     )
 
 
-def _make_client(user):
+def _make_client(user, registry=None):
     repository = Mock()
     # Open-route return values now read straight from the repository (and, for
     # quick-actions/sidebar-widgets/frontend-extensions, through the
@@ -35,8 +35,9 @@ def _make_client(user):
     repository.get_hooks_by_type.return_value = []
     repository.get_enabled_plugins.return_value = []
 
-    registry = Mock()
-    registry.get_plugin.return_value = None
+    if registry is None:
+        registry = Mock()
+        registry.get_plugin.return_value = None
 
     container = SimpleNamespace(
         plugin_controller=PluginController(
@@ -110,3 +111,22 @@ def test_settings_routes_ignore_caller_supplied_user_id():
     assert response.status_code == 200
     # The route calls the repository with user_id=None regardless of the query.
     repository.get_plugin_settings.assert_called_once_with("p1", None)
+
+
+
+def test_history_tools_route_returns_the_tool_list_as_data():
+    registry = Mock()
+    registry.get_plugin.return_value = SimpleNamespace(
+        id="p1",
+        history_tools=[{
+            "id": "export", "label": "Export", "category": "export", "component": "Export.js",
+            "applies_to": {"min_selection": 1, "media_kinds": ["image"]},
+        }],
+    )
+    client, repository = _make_client(_user(AccountType.USER), registry=registry)
+    repository.get_enabled_plugins.return_value = [SimpleNamespace(id="p1")]
+
+    data = client.get("/api/plugins/history-tools").json()["data"]
+
+    assert isinstance(data, list)
+    assert [tool["id"] for tool in data] == ["p1:export"]

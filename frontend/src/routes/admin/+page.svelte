@@ -18,6 +18,8 @@
 	}));
 
 	let activeTab: string = 'settings';
+	const FULL_BLEED_TABS = new Set(['presets', 'recipes', 'plugins']);
+	$: fullBleed = FULL_BLEED_TABS.has(activeTab);
 	let initialDocId: string | null = null;
 	let loading = true;
 
@@ -191,8 +193,7 @@
 		</div>
 	</div>
 {:else}
-	<div class="min-h-screen bg-canvas">
-		<!-- Top Bar with Title and Tabs -->
+	<div class="{fullBleed ? 'flex h-[100dvh] flex-col overflow-hidden' : 'min-h-screen'} bg-canvas">
 		<PageHeader sticky={false}>
 			<div class="flex items-center gap-6 w-full">
 				<!-- Page Title -->
@@ -315,8 +316,7 @@
 			</div>
 		</PageHeader>
 
-		<!-- Tab Content -->
-		<div class="px-4 sm:px-6 py-4 sm:py-6">
+		<div class={fullBleed ? 'min-h-0 flex-1' : 'px-4 sm:px-6 py-4 sm:py-6'}>
 			{#if tabLoaders[activeTab]}
 				{#key activeTab}
 					<LazyAdminTab

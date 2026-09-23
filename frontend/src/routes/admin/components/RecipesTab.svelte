@@ -311,10 +311,8 @@
 	});
 </script>
 
-<div
-	class="flex min-h-[calc(100dvh-var(--header-h)-2rem)] flex-col sm:min-h-[calc(100dvh-var(--header-h)-3rem)]"
->
-	<div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-surface-1">
+<div class="flex h-full flex-col">
+	<div class="flex min-h-0 flex-1 flex-col">
 		<LibraryShell
 			title="Recipes"
 			persistKey="admin-recipes-library"

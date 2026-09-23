@@ -30,7 +30,6 @@
 		type PluginFilters
 	} from './plugins/pluginFilters';
 
-	const SHELL_HEIGHT_CLASS = 'h-[calc(100dvh-var(--header-h)-2rem)] sm:h-[calc(100dvh-var(--header-h)-3rem)]';
 
 	let detailTab = $state<PluginDetailTabId>('overview');
 	let selectedPlugin = $state<Plugin | null>(null);
@@ -214,7 +213,7 @@
 	});
 </script>
 
-<div class="flex flex-col gap-4">
+<div class="flex h-full flex-col">
 	{#if $loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="text-center">
@@ -246,7 +245,7 @@
 			{sectionCounts}
 			count={visiblePlugins.length}
 			{detailOpen}
-			heightClass={SHELL_HEIGHT_CLASS}
+			heightClass="h-full"
 			filterChips={chips}
 			onRemoveChip={(key) => updateFilters(clearPluginFilterChip(filters, key))}
 			onClearFilters={() => updateFilters(clearAllPluginFilters(filters))}

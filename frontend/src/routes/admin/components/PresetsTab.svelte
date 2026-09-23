@@ -308,7 +308,7 @@
 <LibraryShell
 	title="Presets"
 	persistKey="admin-presets-library"
-	heightClass="h-[calc(100dvh-var(--header-h)-2rem)] sm:h-[calc(100dvh-var(--header-h)-3rem)]"
+	heightClass="h-full"
 	sections={PRESET_LIBRARY_SECTIONS}
 	{section}
 	onSelectSection={selectSection}

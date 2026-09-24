@@ -395,3 +395,91 @@ def test_checksum_match_is_the_fallback_when_the_hinted_source_cannot_resolve():
     assert url == "https://civitai.com/api/download/models/1"
     assert reason == "civitai (matched by checksum)"
     assert registry.calls == ["id", "hash"]
+
+
+def _slot_recipe():
+    from src.features.recipes.schema import RecipeArtifactVariant
+
+    def variant(vid, default=False):
+        return RecipeArtifactVariant(
+            id=vid,
+            label=vid,
+            precision="bf16" if vid == "big" else "fp8",
+            filename=f"{vid}.safetensors",
+            size_bytes=10,
+            checksum=RecipeChecksum(algorithm="sha256", value=f"sha-{vid}"),
+            provider_hint={"download_url": f"https://example.test/{vid}.safetensors"},
+            default=default,
+        )
+
+    slot = RecipeArtifact(
+        id="dit",
+        kind="diffusion_model",
+        model_type="diffusion_model",
+        filename="small.safetensors",
+        display_name="DiT",
+        provider_hint={"download_url": "https://example.test/small.safetensors"},
+        variants=(variant("big"), variant("small", default=True)),
+    )
+    return Recipe(id="x", schema_version=1, version=1, name="X", engine="native", artifacts=[slot])
+
+
+def _slot_context(recipe, selections):
+    context = _context(recipe, ["dit"])
+    context.selections = dict(selections)
+    return context
+
+
+def test_fetches_the_selected_variant_only():
+    service = FakeDownloadService()
+    executor = ArtifactsFetchExecutor(service, FakeModelRepository())
+
+    result = executor.execute(_slot_context(_slot_recipe(), {"dit": "big"}))
+
+    assert result.success is True
+    assert [q["filename"] for q in service.queued] == ["big.safetensors"]
+    assert service.queued[0]["url"] == "https://example.test/big.safetensors"
+    assert service.queued[0]["checksum_sha256"] == "sha-big"
+    assert service.queued[0]["model_type"] == "diffusion_model"
+    assert result.safe_output["fetched"][0]["filename"] == "big.safetensors"
+
+
+def test_selected_variant_already_installed_is_not_fetched():
+    service = FakeDownloadService()
+    repo = FakeModelRepository(present={("diffusion_model", "big.safetensors")})
+    executor = ArtifactsFetchExecutor(service, repo)
+
+    result = executor.execute(_slot_context(_slot_recipe(), {"dit": "big"}))
+
+    assert result.success is True
+    assert service.queued == []
+
+
+def test_a_selection_overrides_another_installed_variant():
+    service = FakeDownloadService()
+    repo = FakeModelRepository(present={("diffusion_model", "small.safetensors")})
+    executor = ArtifactsFetchExecutor(service, repo)
+
+    executor.execute(_slot_context(_slot_recipe(), {"dit": "big"}))
+
+    assert [q["filename"] for q in service.queued] == ["big.safetensors"]
+
+
+def test_without_a_selection_any_installed_variant_satisfies_the_slot():
+    service = FakeDownloadService()
+    repo = FakeModelRepository(present={("diffusion_model", "big.safetensors")})
+    executor = ArtifactsFetchExecutor(service, repo)
+
+    result = executor.execute(_slot_context(_slot_recipe(), {}))
+
+    assert result.success is True
+    assert service.queued == []
+
+
+def test_without_a_selection_or_install_the_recipe_default_is_fetched():
+    service = FakeDownloadService()
+    executor = ArtifactsFetchExecutor(service, FakeModelRepository())
+
+    executor.execute(_slot_context(_slot_recipe(), {}))
+
+    assert [q["filename"] for q in service.queued] == ["small.safetensors"]

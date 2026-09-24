@@ -50,6 +50,7 @@ class StepContext:
     recipe: Recipe
     step: RecipeStep
     report_progress: Callable[..., None] = field(default=_noop_progress)
+    selections: Dict[str, str] = field(default_factory=dict)
 
     @property
     def owner_user_id(self) -> Optional[str]:

@@ -97,6 +97,7 @@ class GenerationSmokeExecutor:
                 overrides=overrides,
                 recipe=context.recipe,
                 model_repository=self.model_repository,
+                selections=context.selections,
             )
         except RequiredModelMissing as exc:
             return StepResult.fail(

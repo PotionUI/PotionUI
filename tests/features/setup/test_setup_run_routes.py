@@ -299,3 +299,79 @@ def test_list_recipes_returns_summaries(file_db):
     body = resp.json()
     assert body["recipes"][0]["id"] == "consent-recipe"
     assert body["recipes"][0]["engine"] == "native"
+
+
+_SLOTS = [
+    {"id": "dit", "recommended_variant_id": "fp8", "variants": [{"id": "bf16"}, {"id": "fp8"}]},
+    {"id": "vae", "recommended_variant_id": "vae", "variants": [{"id": "vae"}]},
+]
+
+
+class _AwaitsVariantConsentExecutor:
+    def execute(self, context):
+        return StepResult.awaiting({"artifacts": [], "total_bytes": 0, "slots": _SLOTS, "gpu": {"generation": "ada"}})
+
+
+class _RecordingFetchExecutor:
+    def __init__(self):
+        self.selections = None
+
+    def execute(self, context):
+        self.selections = dict(context.selections)
+        return StepResult.ok({"fetched": []})
+
+
+def _variant_client():
+    recipe = _consent_recipe()
+    fetch = _RecordingFetchExecutor()
+    registry = RecipeExecutorRegistry(
+        _FakeCatalog([recipe]),
+        {"artifacts.plan": _AwaitsVariantConsentExecutor(), "artifacts.fetch": fetch},
+    )
+    client = _client(_user(AccountType.ADMIN), recipe_catalog=_FakeCatalog([recipe]), executor_registry=registry)
+    run_id = client.post("/api/setup/runs", json={"recipe_id": recipe.id}).json()["id"]
+    _poll_until(client, run_id, lambda b: b["status"] == "awaiting_consent")
+    return client, run_id, fetch
+
+
+def test_grant_consent_selections_reach_the_fetch_step(file_db):
+    client, run_id, fetch = _variant_client()
+
+    resp = client.post(
+        f"/api/setup/runs/{run_id}/actions/grant_consent",
+        json={"step_key": "artifacts.plan", "selections": {"dit": "bf16"}},
+    )
+
+    assert resp.status_code == 200
+    body = _poll_until(client, run_id, lambda b: b["status"] == "completed")
+    assert fetch.selections == {"dit": "bf16", "vae": "vae"}
+    granted = [
+        a for a in body["attempts"] if a["step_key"] == "artifacts.plan" and a["status"] == "succeeded"
+    ][-1]
+    assert granted["safe_output"]["selections"] == {"dit": "bf16", "vae": "vae"}
+
+
+def test_grant_consent_without_selections_uses_the_recommended_variants(file_db):
+    client, run_id, fetch = _variant_client()
+
+    client.post(f"/api/setup/runs/{run_id}/actions/grant_consent", json={"step_key": "artifacts.plan"})
+
+    _poll_until(client, run_id, lambda b: b["status"] == "completed")
+    assert fetch.selections == {"dit": "fp8", "vae": "vae"}
+
+
+@pytest.mark.parametrize(
+    "selections",
+    [{"dit": "int8"}, {"ghost": "fp8"}, {"vae": "fp8"}],
+)
+def test_grant_consent_rejects_unknown_slot_or_variant(file_db, selections):
+    client, run_id, fetch = _variant_client()
+
+    resp = client.post(
+        f"/api/setup/runs/{run_id}/actions/grant_consent",
+        json={"step_key": "artifacts.plan", "selections": selections},
+    )
+
+    assert resp.status_code == 400
+    assert client.get(f"/api/setup/runs/{run_id}").json()["status"] == "awaiting_consent"
+    assert fetch.selections is None

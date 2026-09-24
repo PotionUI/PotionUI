@@ -355,3 +355,122 @@ def test_unknown_run_action_is_400(file_db):
 def test_run_detail_of_missing_run_is_404(file_db):
     client, _ = _client(_user(AccountType.ADMIN))
     assert client.get("/api/recipes/runs/nope").status_code == 404
+
+
+class _AwaitsVariantConsent:
+    def execute(self, context):
+        return StepResult.awaiting(
+            {
+                "artifacts": [],
+                "total_bytes": 0,
+                "slots": [{"id": "dit", "recommended_variant_id": "fp8", "variants": [{"id": "fp8"}, {"id": "nvfp4"}]}],
+            }
+        )
+
+
+class _RecordSelections:
+    def __init__(self, seen):
+        self.seen = seen
+
+    def execute(self, context):
+        self.seen.append(dict(context.selections))
+        return StepResult.ok({})
+
+
+def _variant_recipe():
+    return Recipe(
+        id="demo",
+        schema_version=1,
+        version=3,
+        name="Demo",
+        engine="native",
+        category="image",
+        steps=[
+            RecipeStep(key="artifacts.plan", kind="artifacts.plan", title="Plan"),
+            RecipeStep(key="artifacts.fetch", kind="artifacts.fetch", title="Fetch"),
+        ],
+    )
+
+
+def test_admin_consent_accepts_variant_selections(file_db):
+    seen = []
+    client, _ = _client(
+        _user(AccountType.ADMIN),
+        recipes=[_variant_recipe()],
+        executors={"artifacts.plan": _AwaitsVariantConsent(), "artifacts.fetch": _RecordSelections(seen)},
+    )
+    run_id = client.post("/api/recipes/demo/runs", json={}).json()["id"]
+    _poll_until(client, run_id, lambda b: b["status"] == "awaiting_consent")
+
+    bad = client.post(f"/api/recipes/runs/{run_id}/consent/artifacts.plan", json={"selections": {"dit": "bf16"}})
+    assert bad.status_code == 400
+
+    ok = client.post(f"/api/recipes/runs/{run_id}/consent/artifacts.plan", json={"selections": {"dit": "nvfp4"}})
+    assert ok.status_code == 200
+    _poll_until(client, run_id, lambda b: b["status"] == "completed")
+    assert seen == [{"dit": "nvfp4"}]
+
+
+def test_admin_consent_without_a_body_still_works(file_db):
+    seen = []
+    client, _ = _client(
+        _user(AccountType.ADMIN),
+        recipes=[_variant_recipe()],
+        executors={"artifacts.plan": _AwaitsVariantConsent(), "artifacts.fetch": _RecordSelections(seen)},
+    )
+    run_id = client.post("/api/recipes/demo/runs", json={}).json()["id"]
+    _poll_until(client, run_id, lambda b: b["status"] == "awaiting_consent")
+
+    assert client.post(f"/api/recipes/runs/{run_id}/consent/artifacts.plan").status_code == 200
+    _poll_until(client, run_id, lambda b: b["status"] == "completed")
+    assert seen == [{"dit": "fp8"}]
+
+
+def test_detail_lists_artifact_variants(file_db):
+    from src.features.recipes.schema import RecipeArtifactVariant, RecipeVariantRule
+
+    recipe = _recipe()
+    slot = RecipeArtifact(
+        id="dit",
+        kind="diffusion_model",
+        model_type="diffusion_model",
+        filename="fp8.safetensors",
+        display_name="DiT",
+        size_bytes=12,
+        variants=(
+            RecipeArtifactVariant(
+                id="fp8",
+                label="Balanced",
+                precision="fp8",
+                filename="fp8.safetensors",
+                size_bytes=12,
+                uploader="org",
+                source_url="https://huggingface.co/org/repo",
+                recommended_for=(RecipeVariantRule(min_vram_gb=20, generations=("ada",)),),
+                default=True,
+            ),
+        ),
+    )
+    recipe.artifacts.append(slot)
+    client, _ = _client(_user(AccountType.ADMIN), recipes=[recipe])
+
+    body = client.get("/api/recipes/demo").json()
+
+    dit = next(a for a in body["artifacts"] if a["id"] == "dit")
+    assert dit["variants"] == [
+        {
+            "id": "fp8",
+            "label": "Balanced",
+            "precision": "fp8",
+            "filename": "fp8.safetensors",
+            "size_bytes": 12,
+            "gated": False,
+            "license_url": None,
+            "uploader": "org",
+            "source_url": "https://huggingface.co/org/repo",
+            "default": True,
+            "recommended_for": [{"min_vram_gb": 20.0, "generations": ["ada"]}],
+        }
+    ]
+    ckpt = next(a for a in body["artifacts"] if a["id"] == "ckpt")
+    assert ckpt["variants"] == []

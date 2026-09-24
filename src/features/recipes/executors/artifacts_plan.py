@@ -26,7 +26,7 @@ inside that attempt's `safe_output`, which `artifacts.fetch` reads back out.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from src.features.models.repository import ModelRepository
 from src.features.recipes.executors._provider_credentials import (
@@ -35,16 +35,33 @@ from src.features.recipes.executors._provider_credentials import (
 )
 from src.features.recipes.executors._artifact_lookup import find_artifact_model
 from src.features.recipes.executors.base import StepContext, StepResult
+from src.features.recipes.variants import (
+    VariantChoice,
+    choose_variant,
+    describe_single_file,
+    describe_variant,
+    resolve_selection,
+)
+from src.platform.runtime.gpu_profile import GpuProfile, detect_gpu_profile
+
+
+def _found_as(model: Any, expected_filename: str) -> Optional[str]:
+    found = getattr(model, "file_path", None) if model is not None else None
+    if found and getattr(model, "filename", None) != expected_filename:
+        return found
+    return None
 
 
 class ArtifactsPlanExecutor:
-    def __init__(self, model_repository: ModelRepository, provider_registry_factory=None):
+    def __init__(
+        self,
+        model_repository: ModelRepository,
+        provider_registry_factory=None,
+        gpu_profile_provider: Optional[Callable[[], GpuProfile]] = None,
+    ):
         self.model_repository = model_repository
-        # Lazy/optional, mirrors `ArtifactsFetchExecutor` - see its
-        # docstring on why provider-registry resolution isn't forced in the
-        # constructor. Injectable for tests; defaults to the real
-        # module-level registry.
         self._provider_registry_factory = provider_registry_factory
+        self._gpu_profile_provider = gpu_profile_provider or detect_gpu_profile
 
     def execute(self, context: StepContext) -> StepResult:
         artifact_ids = context.step.params.get("artifact_ids") or []
@@ -54,6 +71,8 @@ class ArtifactsPlanExecutor:
                 "This step doesn't say which artifacts to plan for.",
             )
 
+        gpu = self._gpu_profile_provider()
+        slots: List[Dict[str, Any]] = []
         missing: List[Dict[str, Any]] = []
         missing_artifacts: List[Any] = []
         present: List[Dict[str, Any]] = []
@@ -64,23 +83,26 @@ class ArtifactsPlanExecutor:
                     "ARTIFACTS_PLAN_MISCONFIGURED",
                     f"This step references an artifact ('{artifact_id}') the recipe doesn't declare.",
                 )
-            existing = find_artifact_model(self.model_repository, artifact)
+            slot, choice, installed = self._describe_slot(artifact, gpu)
+            slots.append(slot)
+            chosen = resolve_selection(artifact, choice.variant_id)
             entry = {
                 "id": artifact.id,
-                "display_name": artifact.display_name or artifact.filename,
-                "size_bytes": artifact.size_bytes,
-                "kind": artifact.kind,
-                "gated": artifact.gated,
-                "license_url": artifact.license_url,
+                "variant_id": choice.variant_id,
+                "display_name": chosen.display_name or chosen.filename,
+                "size_bytes": chosen.size_bytes,
+                "kind": chosen.kind,
+                "gated": chosen.gated,
+                "license_url": chosen.license_url,
             }
-            if existing is not None:
-                found_as = getattr(existing, "file_path", None)
-                if found_as and getattr(existing, "filename", None) != artifact.filename:
+            if choice.variant_id in installed:
+                found_as = _found_as(installed[choice.variant_id], chosen.filename)
+                if found_as:
                     entry["found_as"] = found_as
                 present.append(entry)
             else:
                 missing.append(entry)
-                missing_artifacts.append(artifact)
+                missing_artifacts.append(chosen)
 
         if not missing:
             return StepResult.ok(
@@ -92,7 +114,12 @@ class ArtifactsPlanExecutor:
 
         sizes = [a["size_bytes"] for a in missing if a["size_bytes"] is not None]
         total_bytes = sum(sizes) if sizes and len(sizes) == len(missing) else None
-        consent_request: Dict[str, Any] = {"artifacts": missing, "total_bytes": total_bytes}
+        consent_request: Dict[str, Any] = {
+            "artifacts": missing,
+            "total_bytes": total_bytes,
+            "slots": slots,
+            "gpu": gpu.to_dict(),
+        }
         providers = self._unconfigured_credential_providers(missing_artifacts)
         if providers:
             consent_request["providers"] = providers
@@ -103,6 +130,50 @@ class ArtifactsPlanExecutor:
             consent_request,
             safe_output={"already_present": present} if present else None,
         )
+
+    def _describe_slot(self, artifact, gpu: GpuProfile) -> Tuple[Dict[str, Any], VariantChoice, Dict[str, Any]]:
+        installed: Dict[str, Any] = {}
+        if artifact.variants:
+            for variant in artifact.variants:
+                model = find_artifact_model(self.model_repository, artifact.resolve(variant.id))
+                if model is not None:
+                    installed[variant.id] = model
+            choice = choose_variant(artifact, gpu, installed.keys())
+            variants = [
+                describe_variant(
+                    variant,
+                    gpu,
+                    installed=variant.id in installed,
+                    found_as=_found_as(installed.get(variant.id), variant.filename),
+                )
+                for variant in artifact.variants
+            ]
+        else:
+            model = find_artifact_model(self.model_repository, artifact)
+            if model is not None:
+                installed[artifact.id] = model
+            choice = VariantChoice(
+                artifact.id,
+                "Already installed" if model is not None else "The only file this recipe offers here",
+            )
+            variants = [
+                describe_single_file(
+                    artifact,
+                    installed=model is not None,
+                    found_as=_found_as(model, artifact.filename),
+                )
+            ]
+        slot = {
+            "id": artifact.id,
+            "label": artifact.display_name or artifact.filename,
+            "kind": artifact.kind,
+            "model_type": artifact.model_type,
+            "required": artifact.required,
+            "variants": variants,
+            "recommended_variant_id": choice.variant_id,
+            "reason": choice.reason,
+        }
+        return slot, choice, installed
 
     def _get_provider_registry(self):
         return resolve_provider_registry(self._provider_registry_factory)

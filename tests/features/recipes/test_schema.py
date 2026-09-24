@@ -415,3 +415,93 @@ def test_registered_step_kind_validates():
         steps=[{"key": "a", "kind": "collections.ensure", "title": "t", "params": {}}]
     )
     assert validate_recipe_dict(data, extra_kinds={"collections.ensure"}) == []
+
+
+def _variant(vid, precision="fp8", **extra):
+    entry = {
+        "id": vid,
+        "label": "Balanced",
+        "precision": precision,
+        "filename": f"{vid}.safetensors",
+        "size_bytes": 10,
+        "checksum": {"algorithm": "sha256", "value": "ab" * 32},
+        "provider_hint": {"source": "huggingface", "model_id": "org/repo", "version_id": f"main@{vid}.safetensors"},
+        "uploader": "org",
+        "source_url": "https://huggingface.co/org/repo",
+    }
+    entry.update(extra)
+    return entry
+
+
+def _slot(variants, **extra):
+    entry = {"id": "dit", "kind": "diffusion_model", "model_type": "diffusion_model", "display_name": "DiT", "variants": variants}
+    entry.update(extra)
+    return entry
+
+
+def _with_slot(slot):
+    return _valid_recipe(artifacts=[slot])
+
+
+def test_variant_slot_validates_and_parses():
+    data = _with_slot(
+        _slot(
+            [
+                _variant("dit_bf16", "bf16", recommended_for=[{"min_vram_gb": 40}]),
+                _variant("dit_fp8", default=True, recommended_for=[{"min_vram_gb": 20, "generations": ["ada"]}]),
+                _variant("dit_nvfp4", "nvfp4", gated=True, license_url="https://example.com/licence"),
+            ]
+        )
+    )
+    assert validate_recipe_dict(data) == []
+    artifact = parse_recipe(data).get_artifact("dit")
+    assert [v.id for v in artifact.variants] == ["dit_bf16", "dit_fp8", "dit_nvfp4"]
+    assert artifact.filename == "dit_fp8.safetensors"
+    assert artifact.default_variant.id == "dit_fp8"
+    assert artifact.checksum.value == "ab" * 32
+    fp8 = artifact.get_variant("dit_fp8")
+    assert fp8.recommended_for[0].min_vram_gb == 20
+    assert fp8.recommended_for[0].generations == ("ada",)
+    assert fp8.uploader == "org"
+    nvfp4 = artifact.resolve("dit_nvfp4")
+    assert nvfp4.filename == "dit_nvfp4.safetensors"
+    assert nvfp4.gated is True and nvfp4.license_url == "https://example.com/licence"
+    assert nvfp4.display_name == "DiT (Balanced, nvfp4)"
+    assert nvfp4.provider_hint["version_id"] == "main@dit_nvfp4.safetensors"
+
+
+@pytest.mark.parametrize(
+    "slot,expected",
+    [
+        (_slot([]), "'variants' must be a non-empty list"),
+        (_slot([_variant("a"), _variant("b")]), "exactly one variant must be marked 'default: true' (found 0)"),
+        (_slot([_variant("a", default=True), _variant("b", default=True)]), "(found 2)"),
+        (_slot([_variant("a", default=True)], filename="x.safetensors"), "'filename' belongs on each variant"),
+        (_slot([_variant("a", default=True)], checksum={"algorithm": "sha256"}), "'checksum' belongs on each variant"),
+        (_slot([_variant("a", default=True), _variant("a")]), "duplicate variant id 'a'"),
+        (_slot([_variant("a", default=True), _variant("b", filename="a.safetensors")]), "duplicate variant filename"),
+        (_slot([_variant("a", "mxfp8", default=True)]), "'precision' must be one of"),
+        (_slot([_variant("A b", default=True)]), "'id' must be a lowercase slug"),
+        (_slot([_variant("a", default=True, filename="dir/a.safetensors")]), "bare file name"),
+        (_slot([_variant("a", default=True, size_bytes=-1)]), "'size_bytes' must be a non-negative integer"),
+        (_slot([_variant("a", default=True, recommended_for=[{"generations": ["volta"]}])]), "unknown GPU generation"),
+        (_slot([_variant("a", default=True, recommended_for=[{"min_vram_gb": -2}])]), "'min_vram_gb' must be a non-negative number"),
+        (_slot([_variant("a", default=True, recommended_for=[{}])]), "must declare 'min_vram_gb' and/or 'generations'"),
+        (_slot([_variant("a", default=True, recommended_for=[{"vram": 8}])]), "unknown keys ['vram']"),
+        (_slot([_variant("a", default=True, recommended_for={"min_vram_gb": 8})]), "'recommended_for' must be a list"),
+        (_slot([_variant("a", default=True, uploader="")]), "'uploader' must be a non-empty string"),
+        (_slot([_variant("a", default="yes")]), "'default' must be a boolean"),
+        (_slot([_variant("a", default=True, tier="x")]), "unknown keys ['tier']"),
+        (_slot([{"id": "a", "default": True, "filename": "a.safetensors"}]), "'label' is required"),
+    ],
+)
+def test_variant_slot_violations(slot, expected):
+    issues = validate_recipe_dict(_with_slot(slot))
+    assert any(expected in issue for issue in issues), issues
+
+
+def test_single_file_artifact_has_no_variants():
+    recipe = parse_recipe(_valid_recipe())
+    artifact = recipe.get_artifact("sdxl-checkpoint")
+    assert artifact.variants == ()
+    assert artifact.resolve("anything") is artifact

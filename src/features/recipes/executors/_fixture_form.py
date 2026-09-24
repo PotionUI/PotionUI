@@ -24,7 +24,7 @@ failure rules.
 
 from __future__ import annotations
 
-from src.features.recipes.executors._artifact_lookup import find_artifact_model
+from src.features.recipes.executors._artifact_lookup import find_slot_model
 
 from typing import Any, Dict, List, Optional
 
@@ -143,6 +143,7 @@ def _resolve_model_fields(
     *,
     recipe: Any,
     model_repository: Any,
+    selections: Optional[Dict[str, str]] = None,
 ) -> None:
     """Replace every model-typed field's `/SETUP-CHECK` placeholder with a
     REAL indexed model's `file_path`, matched through the recipe's own
@@ -184,7 +185,11 @@ def _resolve_model_fields(
         if artifact is None:
             form_data[name] = ""
             continue
-        model = find_artifact_model(model_repository, artifact) if model_repository is not None else None
+        model = (
+            find_slot_model(model_repository, artifact, (selections or {}).get(artifact.id))
+            if model_repository is not None
+            else None
+        )
         if model is None or not getattr(model, "file_path", None):
             raise RequiredModelMissing(artifact.display_name or artifact.filename, artifact.filename)
         form_data[name] = model.file_path
@@ -199,6 +204,7 @@ def build_fixture_form_data(
     overrides: Optional[Dict[str, Any]] = None,
     recipe: Optional[Any] = None,
     model_repository: Optional[Any] = None,
+    selections: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Fixture form data for `preset_template`'s `mode`, with `overrides`
     (e.g. a recipe's `smoke:` field values) applied on top before binding.
@@ -236,7 +242,9 @@ def build_fixture_form_data(
         repo = model_repository
         if repo is None:
             from src.features.models.repository import model_repo as repo
-        _resolve_model_fields(resolved_fields, form_data, recipe=recipe, model_repository=repo)
+        _resolve_model_fields(
+            resolved_fields, form_data, recipe=recipe, model_repository=repo, selections=selections
+        )
 
     if overrides:
         form_data.update(overrides)

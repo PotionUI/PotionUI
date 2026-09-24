@@ -31,6 +31,7 @@ from src.features.recipes.records import (
 )
 from src.features.recipes.dto import redact_safe_dict
 from src.features.recipes.run_repository import IntegrityError, RecipeRunRepository
+from src.features.recipes.variants import validate_selections
 
 logger = logging.getLogger(__name__)
 
@@ -451,7 +452,25 @@ class RecipeRunner:
         except Exception:
             logger.exception("Failed to mark run '%s' failed after a crashed background drive", run_id)
 
-    def grant_consent(self, run_id: str, step_key: str, *, granted_by: Optional[str] = None) -> RecipeRun:
+    def approved_selections(self, run_id: str) -> Dict[str, str]:
+        selections: Dict[str, str] = {}
+        for attempt in self.repo.list_attempts(run_id):
+            output = attempt.safe_output or {}
+            if attempt.status != RecipeStepStatus.SUCCEEDED or not output.get("consent_granted"):
+                continue
+            chosen = output.get("selections")
+            if isinstance(chosen, dict):
+                selections.update({str(k): str(v) for k, v in chosen.items() if isinstance(v, str)})
+        return selections
+
+    def grant_consent(
+        self,
+        run_id: str,
+        step_key: str,
+        *,
+        granted_by: Optional[str] = None,
+        selections: Optional[Dict[str, str]] = None,
+    ) -> RecipeRun:
         """Approve the artifacts an ``awaiting_consent`` step is parked on.
 
         Only legal while ``run_id`` is AWAITING_CONSENT on exactly ``step_key``
@@ -478,12 +497,25 @@ class RecipeRunner:
         parked_attempts = [a for a in self.repo.list_attempts(run_id) if a.step_key == step_key]
         parked = parked_attempts[-1] if parked_attempts else None
         consent_request = (parked.safe_output or {}).get("consent_request") if parked else None
+        slots = (consent_request or {}).get("slots") or []
+        issues = validate_selections(selections or {}, slots)
+        if issues:
+            raise RecipeRunError(" ".join(issues))
+        effective = {
+            slot["id"]: slot["recommended_variant_id"]
+            for slot in slots
+            if slot.get("id") and slot.get("recommended_variant_id")
+        }
+        effective.update(selections or {})
 
+        safe_output: Dict[str, Any] = {"consent_granted": True, "granted_by": granted_by, "approved": consent_request}
+        if effective:
+            safe_output["selections"] = effective
         self.record_step_attempt(
             run_id,
             step_key,
             RecipeStepStatus.SUCCEEDED,
-            safe_output={"consent_granted": True, "granted_by": granted_by, "approved": consent_request},
+            safe_output=safe_output,
             finished=True,
         )
 

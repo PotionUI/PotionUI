@@ -170,7 +170,13 @@ class RecipeExecutorRegistry:
         else:
             try:
                 result = executor.execute(
-                    StepContext(run=run, recipe=recipe, step=step, report_progress=_report_progress)
+                    StepContext(
+                        run=run,
+                        recipe=recipe,
+                        step=step,
+                        report_progress=_report_progress,
+                        selections=runner.approved_selections(run.id),
+                    )
                 )
             except Exception as exc:  # an executor must never crash the run silently
                 logger.exception("Setup step '%s' (%s) raised", step.key, step.kind)

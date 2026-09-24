@@ -28,13 +28,14 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.models.repository import ModelRepository
-from src.features.recipes.executors._artifact_lookup import find_artifact_model
+from src.features.recipes.executors._artifact_lookup import find_artifact_model, find_slot_model
 from src.features.recipes.executors._async_bridge import run_sync
 from src.features.recipes.executors._provider_credentials import (
     credential_prompt_for_provider,
     resolve_provider_registry,
 )
 from src.features.recipes.executors.base import StepContext, StepResult
+from src.features.recipes.variants import resolve_selection
 
 _POLL_INTERVAL_SECONDS = 2.0
 # A slow-but-moving download (a multi-GB file on a home connection routinely
@@ -83,8 +84,9 @@ class ArtifactsFetchExecutor:
                     "ARTIFACTS_FETCH_MISCONFIGURED",
                     f"This step references an artifact ('{artifact_id}') the recipe doesn't declare.",
                 )
-            if find_artifact_model(self.model_repository, artifact) is None:
-                to_fetch.append(artifact)
+            target = self._target(artifact, context.selections.get(artifact_id))
+            if target is not None:
+                to_fetch.append(target)
 
         if not to_fetch:
             return StepResult.ok({"fetched": [], "message": "Nothing left to download."})
@@ -141,6 +143,7 @@ class ArtifactsFetchExecutor:
             fetched.append(
                 {
                     "id": artifact.id,
+                    "filename": artifact.filename,
                     "display_name": artifact.display_name or artifact.filename,
                     "download_id": download.id,
                     "source": note,
@@ -151,6 +154,15 @@ class ArtifactsFetchExecutor:
 
     def _get_provider_registry(self):
         return resolve_provider_registry(self._provider_registry_factory)
+
+    def _target(self, artifact, variant_id: Optional[str]):
+        if artifact.variants and artifact.get_variant(variant_id) is None:
+            if find_slot_model(self.model_repository, artifact) is not None:
+                return None
+        resolved = resolve_selection(artifact, variant_id)
+        if find_artifact_model(self.model_repository, resolved) is not None:
+            return None
+        return resolved
 
     def _auth_repair_hint(self, artifact, message: str) -> Optional[str]:
         """A concrete repair suggestion when `message` looks like a missing-

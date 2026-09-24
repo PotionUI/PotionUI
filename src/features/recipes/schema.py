@@ -22,10 +22,11 @@ database, a plugin registry, or the filesystem beyond the recipe YAML itself.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional
+from dataclasses import dataclass, field, replace
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from src.features.presets.schema import CATEGORIES
+from src.platform.runtime.gpu_profile import GPU_GENERATIONS, PRECISIONS
 
 #: `schema_version` values this module knows how to parse. Bump when the YAML
 #: shape changes in a way older parsing code cannot handle; existing recipe
@@ -69,6 +70,7 @@ SOURCE_LOCAL = "local"
 SOURCE_PLUGIN = "plugin"
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_VARIANT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 class RecipeError(Exception):
@@ -99,6 +101,29 @@ class RecipeChecksum:
 
 
 @dataclass(frozen=True)
+class RecipeVariantRule:
+    min_vram_gb: Optional[float] = None
+    generations: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RecipeArtifactVariant:
+    id: str
+    label: str
+    precision: str
+    filename: str
+    size_bytes: Optional[int] = None
+    checksum: Optional[RecipeChecksum] = None
+    provider_hint: Dict[str, Any] = field(default_factory=dict)
+    gated: bool = False
+    license_url: Optional[str] = None
+    uploader: str = ""
+    source_url: Optional[str] = None
+    recommended_for: Tuple[RecipeVariantRule, ...] = ()
+    default: bool = False
+
+
+@dataclass(frozen=True)
 class RecipeArtifact:
     """A concrete file this recipe needs available before its content is
     usable (a checkpoint, LoRA, VAE, ...). `capability` is the declared
@@ -124,6 +149,36 @@ class RecipeArtifact:
     gated: bool = False
     #: Where to go accept that licence, shown alongside the `gated` warning.
     license_url: Optional[str] = None
+    variants: Tuple[RecipeArtifactVariant, ...] = ()
+
+    def get_variant(self, variant_id: Optional[str]) -> Optional[RecipeArtifactVariant]:
+        for variant in self.variants:
+            if variant.id == variant_id:
+                return variant
+        return None
+
+    @property
+    def default_variant(self) -> Optional[RecipeArtifactVariant]:
+        for variant in self.variants:
+            if variant.default:
+                return variant
+        return self.variants[0] if self.variants else None
+
+    def resolve(self, variant_id: Optional[str]) -> "RecipeArtifact":
+        variant = self.get_variant(variant_id)
+        if variant is None:
+            return self
+        return replace(
+            self,
+            filename=variant.filename,
+            display_name=f"{self.display_name or self.id} ({variant.label}, {variant.precision})",
+            size_bytes=variant.size_bytes,
+            checksum=variant.checksum,
+            provider_hint=dict(variant.provider_hint),
+            gated=variant.gated,
+            license_url=variant.license_url,
+            variants=(),
+        )
 
 
 @dataclass(frozen=True)
@@ -331,39 +386,14 @@ def validate_recipe_dict(data: Any, extra_kinds: Optional[Iterable[str]] = None)
         aid = _require_str(entry, "id", path, issues)
         _require_str(entry, "kind", path, issues)
         _require_str(entry, "model_type", path, issues)
-        filename = _require_str(entry, "filename", path, issues)
-        if filename and ("/" in filename or "\\" in filename or ".." in filename):
-            _err(issues, path, "'filename' must be a bare file name (no path separators)")
         if aid:
             if aid in artifact_ids:
                 _err(issues, path, f"duplicate artifact id '{aid}'")
             artifact_ids.add(aid)
-
-        size_bytes = entry.get("size_bytes")
-        if size_bytes is not None and (not isinstance(size_bytes, int) or size_bytes < 0):
-            _err(issues, path, "'size_bytes' must be a non-negative integer if given")
-
-        checksum = entry.get("checksum")
-        if checksum is not None:
-            if not isinstance(checksum, dict):
-                _err(issues, path, "'checksum' must be a mapping if given")
-            else:
-                _require_str(checksum, "algorithm", f"{path}.checksum", issues)
-                value = checksum.get("value")
-                if value is not None and not isinstance(value, str):
-                    _err(issues, f"{path}.checksum", "'value' must be a string or null")
-
-        provider_hint = entry.get("provider_hint")
-        if provider_hint is not None and not isinstance(provider_hint, dict):
-            _err(issues, path, "'provider_hint' must be a mapping if given")
-
-        gated = entry.get("gated")
-        if gated is not None and not isinstance(gated, bool):
-            _err(issues, path, "'gated' must be a boolean if given")
-
-        license_url = entry.get("license_url")
-        if license_url is not None and (not isinstance(license_url, str) or not license_url.strip()):
-            _err(issues, path, "'license_url' must be a non-empty string if given")
+        if "variants" in entry:
+            _validate_variant_slot(entry, path, issues)
+        else:
+            _validate_file_fields(entry, path, issues)
 
     # --- presets ---
     preset_ids = set()
@@ -447,6 +477,125 @@ def validate_recipe_dict(data: Any, extra_kinds: Optional[Iterable[str]] = None)
     return issues
 
 
+_FILE_FIELDS = ("filename", "size_bytes", "checksum", "provider_hint", "gated", "license_url")
+_VARIANT_KEYS = frozenset(
+    {"id", "label", "precision", "uploader", "source_url", "recommended_for", "default"} | set(_FILE_FIELDS)
+)
+
+
+def _validate_file_fields(entry: Dict[str, Any], path: str, issues: List[str]) -> None:
+    filename = _require_str(entry, "filename", path, issues)
+    if filename and ("/" in filename or "\\" in filename or ".." in filename):
+        _err(issues, path, "'filename' must be a bare file name (no path separators)")
+
+    size_bytes = entry.get("size_bytes")
+    if size_bytes is not None and (not isinstance(size_bytes, int) or isinstance(size_bytes, bool) or size_bytes < 0):
+        _err(issues, path, "'size_bytes' must be a non-negative integer if given")
+
+    checksum = entry.get("checksum")
+    if checksum is not None:
+        if not isinstance(checksum, dict):
+            _err(issues, path, "'checksum' must be a mapping if given")
+        else:
+            _require_str(checksum, "algorithm", f"{path}.checksum", issues)
+            value = checksum.get("value")
+            if value is not None and not isinstance(value, str):
+                _err(issues, f"{path}.checksum", "'value' must be a string or null")
+
+    provider_hint = entry.get("provider_hint")
+    if provider_hint is not None and not isinstance(provider_hint, dict):
+        _err(issues, path, "'provider_hint' must be a mapping if given")
+
+    gated = entry.get("gated")
+    if gated is not None and not isinstance(gated, bool):
+        _err(issues, path, "'gated' must be a boolean if given")
+
+    license_url = entry.get("license_url")
+    if license_url is not None and (not isinstance(license_url, str) or not license_url.strip()):
+        _err(issues, path, "'license_url' must be a non-empty string if given")
+
+
+def _validate_variant_rule(rule: Any, path: str, issues: List[str]) -> None:
+    if not isinstance(rule, dict):
+        _err(issues, path, "must be a mapping")
+        return
+    unknown = sorted(set(rule) - {"min_vram_gb", "generations"})
+    if unknown:
+        _err(issues, path, f"unknown keys {unknown} (allowed: min_vram_gb, generations)")
+    if not rule:
+        _err(issues, path, "must declare 'min_vram_gb' and/or 'generations'")
+    min_vram = rule.get("min_vram_gb")
+    if min_vram is not None and (
+        isinstance(min_vram, bool) or not isinstance(min_vram, (int, float)) or min_vram < 0
+    ):
+        _err(issues, path, "'min_vram_gb' must be a non-negative number")
+    generations = rule.get("generations")
+    if generations is not None:
+        if not isinstance(generations, list) or not generations:
+            _err(issues, path, "'generations' must be a non-empty list")
+        else:
+            for generation in generations:
+                if generation not in GPU_GENERATIONS:
+                    _err(issues, path, f"unknown GPU generation {generation!r} (known: {list(GPU_GENERATIONS)})")
+
+
+def _validate_variant_slot(entry: Dict[str, Any], path: str, issues: List[str]) -> None:
+    for key in _FILE_FIELDS:
+        if key in entry:
+            _err(issues, path, f"'{key}' belongs on each variant when 'variants' is given")
+    variants = entry.get("variants")
+    if not isinstance(variants, list) or not variants:
+        _err(issues, path, "'variants' must be a non-empty list")
+        return
+    variant_ids = set()
+    filenames = set()
+    defaults = 0
+    for j, variant in enumerate(variants):
+        vpath = f"{path}.variants[{j}]"
+        if not isinstance(variant, dict):
+            _err(issues, vpath, "must be a mapping")
+            continue
+        vid = _require_str(variant, "id", vpath, issues)
+        if vid:
+            if not _VARIANT_ID_RE.match(vid):
+                _err(issues, vpath, "'id' must be a lowercase slug (letters, digits, '-', '_')")
+            if vid in variant_ids:
+                _err(issues, vpath, f"duplicate variant id '{vid}'")
+            variant_ids.add(vid)
+        _require_str(variant, "label", vpath, issues)
+        precision = _require_str(variant, "precision", vpath, issues)
+        if precision and precision not in PRECISIONS:
+            _err(issues, vpath, f"'precision' must be one of {list(PRECISIONS)}, got {precision!r}")
+        _validate_file_fields(variant, vpath, issues)
+        filename = variant.get("filename")
+        if isinstance(filename, str):
+            if filename in filenames:
+                _err(issues, vpath, f"duplicate variant filename '{filename}'")
+            filenames.add(filename)
+        for key in ("uploader", "source_url"):
+            value = variant.get(key)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                _err(issues, vpath, f"'{key}' must be a non-empty string if given")
+        default = variant.get("default")
+        if default is not None and not isinstance(default, bool):
+            _err(issues, vpath, "'default' must be a boolean if given")
+        elif default:
+            defaults += 1
+        rules = variant.get("recommended_for")
+        if rules is not None:
+            if not isinstance(rules, list):
+                _err(issues, vpath, "'recommended_for' must be a list if given")
+            else:
+                for k, rule in enumerate(rules):
+                    _validate_variant_rule(rule, f"{vpath}.recommended_for[{k}]", issues)
+        unknown = sorted(set(variant) - _VARIANT_KEYS)
+        if unknown:
+            _err(issues, vpath, f"unknown keys {unknown}")
+    if defaults != 1:
+        _err(issues, path, f"exactly one variant must be marked 'default: true' (found {defaults})")
+
+
+
 def _validate_step_params(
     kind: str,
     params: Dict[str, Any],
@@ -509,6 +658,67 @@ def _validate_step_params(
             _err(issues, path, "'params.mode' is required")
 
 
+def _parse_checksum(data: Optional[Dict[str, Any]]) -> Optional[RecipeChecksum]:
+    if not data:
+        return None
+    return RecipeChecksum(algorithm=data["algorithm"], value=data.get("value"))
+
+
+def _parse_variant(data: Dict[str, Any]) -> RecipeArtifactVariant:
+    return RecipeArtifactVariant(
+        id=data["id"],
+        label=data["label"],
+        precision=data["precision"],
+        filename=data["filename"],
+        size_bytes=data.get("size_bytes"),
+        checksum=_parse_checksum(data.get("checksum")),
+        provider_hint=dict(data.get("provider_hint") or {}),
+        gated=bool(data.get("gated", False)),
+        license_url=data.get("license_url"),
+        uploader=data.get("uploader") or "",
+        source_url=data.get("source_url"),
+        recommended_for=tuple(
+            RecipeVariantRule(
+                min_vram_gb=rule.get("min_vram_gb"),
+                generations=tuple(rule.get("generations") or ()),
+            )
+            for rule in data.get("recommended_for") or ()
+        ),
+        default=bool(data.get("default", False)),
+    )
+
+
+def _parse_artifact(a: Dict[str, Any]) -> RecipeArtifact:
+    variants = tuple(_parse_variant(v) for v in a.get("variants") or ())
+    artifact = RecipeArtifact(
+        id=a["id"],
+        kind=a["kind"],
+        model_type=a["model_type"],
+        filename=a.get("filename", ""),
+        display_name=a.get("display_name", ""),
+        required=bool(a.get("required", True)),
+        size_bytes=a.get("size_bytes"),
+        checksum=_parse_checksum(a.get("checksum")),
+        capability=a.get("capability"),
+        provider_hint=dict(a.get("provider_hint") or {}),
+        gated=bool(a.get("gated", False)),
+        license_url=a.get("license_url"),
+        variants=variants,
+    )
+    if not variants:
+        return artifact
+    default = artifact.default_variant
+    return replace(
+        artifact,
+        filename=default.filename,
+        size_bytes=default.size_bytes,
+        checksum=default.checksum,
+        provider_hint=dict(default.provider_hint),
+        gated=default.gated,
+        license_url=default.license_url,
+    )
+
+
 def parse_recipe(
     data: Dict[str, Any],
     source_path: str = "",
@@ -529,30 +739,7 @@ def parse_recipe(
     backend_data = data.get("backend")
     backend = RecipeBackendRequirement(engine=backend_data["engine"]) if backend_data else None
 
-    artifacts = []
-    for a in data.get("artifacts", []):
-        checksum_data = a.get("checksum")
-        checksum = (
-            RecipeChecksum(algorithm=checksum_data["algorithm"], value=checksum_data.get("value"))
-            if checksum_data
-            else None
-        )
-        artifacts.append(
-            RecipeArtifact(
-                id=a["id"],
-                kind=a["kind"],
-                model_type=a["model_type"],
-                filename=a["filename"],
-                display_name=a.get("display_name", ""),
-                required=bool(a.get("required", True)),
-                size_bytes=a.get("size_bytes"),
-                checksum=checksum,
-                capability=a.get("capability"),
-                provider_hint=dict(a.get("provider_hint") or {}),
-                gated=bool(a.get("gated", False)),
-                license_url=a.get("license_url"),
-            )
-        )
+    artifacts = [_parse_artifact(a) for a in data.get("artifacts", [])]
 
     presets = [
         RecipePresetRef(

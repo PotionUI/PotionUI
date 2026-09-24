@@ -216,3 +216,69 @@ def test_resolve_model_fields_is_a_noop_with_no_model_fields():
     """No exception, no model_repository calls, when there's simply nothing
     to resolve."""
     _resolve_model_fields([], {}, recipe=_sdxl_recipe(), model_repository=None)
+
+
+def _variant_recipe():
+    from src.features.recipes.schema import RecipeArtifactVariant
+
+    def variant(vid, default=False):
+        return RecipeArtifactVariant(
+            id=vid, label=vid, precision="fp8", filename=f"{vid}.safetensors", default=default
+        )
+
+    slot = RecipeArtifact(
+        id="dit",
+        kind="diffusion_model",
+        model_type="diffusion_model",
+        filename="fp8.safetensors",
+        display_name="DiT",
+        variants=(variant("bf16"), variant("fp8", default=True), variant("nvfp4")),
+    )
+    return Recipe(id="v", schema_version=1, version=1, name="V", engine="native", artifacts=[slot])
+
+
+def _sentinel_form():
+    return {"diffusion_model": "/SETUP-CHECK/models/diffusion_model.safetensors"}
+
+
+def test_resolve_model_fields_uses_the_selected_variant():
+    repo = FakeModelRepository({
+        ("diffusion_model", "fp8.safetensors"): FakeModel("/m/fp8.safetensors"),
+        ("diffusion_model", "nvfp4.safetensors"): FakeModel("/m/nvfp4.safetensors"),
+    })
+    form_data = _sentinel_form()
+
+    _resolve_model_fields(
+        [_field("diffusion_model", "diffusion_model")],
+        form_data,
+        recipe=_variant_recipe(),
+        model_repository=repo,
+        selections={"dit": "nvfp4"},
+    )
+
+    assert form_data["diffusion_model"] == "/m/nvfp4.safetensors"
+
+
+def test_resolve_model_fields_accepts_any_installed_variant_without_a_selection():
+    repo = FakeModelRepository({("diffusion_model", "bf16.safetensors"): FakeModel("/m/bf16.safetensors")})
+    form_data = _sentinel_form()
+
+    _resolve_model_fields(
+        [_field("diffusion_model", "diffusion_model")],
+        form_data,
+        recipe=_variant_recipe(),
+        model_repository=repo,
+    )
+
+    assert form_data["diffusion_model"] == "/m/bf16.safetensors"
+
+
+def test_resolve_model_fields_fails_when_no_variant_is_installed():
+    with pytest.raises(RequiredModelMissing):
+        _resolve_model_fields(
+            [_field("diffusion_model", "diffusion_model")],
+            _sentinel_form(),
+            recipe=_variant_recipe(),
+            model_repository=FakeModelRepository(),
+            selections={"dit": "bf16"},
+        )

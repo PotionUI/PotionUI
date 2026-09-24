@@ -205,7 +205,9 @@ def build_router(container: "AppContainer") -> APIRouter:
                     raise HTTPException(
                         status_code=400, detail="'step_key' is required to grant consent"
                     )
-                run = runner.grant_consent(run_id, step_key, granted_by=current_user.id)
+                run = runner.grant_consent(
+                    run_id, step_key, granted_by=current_user.id, selections=body.selections
+                )
                 # Keep going in the background: the step just approved is
                 # done, so the run may already have more not-yet-gated steps
                 # to run through (e.g. `artifacts.fetch` right after

@@ -116,6 +116,11 @@ class RecipeRunActionRequest(BaseModel):
 
     action: Optional[str] = None
     step_key: Optional[str] = None
+    selections: Optional[Dict[str, str]] = None
+
+
+class GrantConsentRequest(BaseModel):
+    selections: Dict[str, str] = Field(default_factory=dict)
 
 
 # --- response DTOs ---------------------------------------------------------
@@ -339,6 +344,25 @@ class RecipeStepView(BaseModel):
     onboarding_only: bool = False
 
 
+class RecipeVariantRuleView(BaseModel):
+    min_vram_gb: Optional[float] = None
+    generations: List[str] = Field(default_factory=list)
+
+
+class RecipeArtifactVariantView(BaseModel):
+    id: str
+    label: str
+    precision: str
+    filename: str
+    size_bytes: Optional[int] = None
+    gated: bool = False
+    license_url: Optional[str] = None
+    uploader: Optional[str] = None
+    source_url: Optional[str] = None
+    default: bool = False
+    recommended_for: List[RecipeVariantRuleView] = Field(default_factory=list)
+
+
 class RecipeArtifactView(BaseModel):
     """One file a recipe needs before its content is usable."""
 
@@ -351,6 +375,7 @@ class RecipeArtifactView(BaseModel):
     required: bool = True
     gated: bool = False
     license_url: Optional[str] = None
+    variants: List[RecipeArtifactVariantView] = Field(default_factory=list)
 
 
 class RecipePresetView(BaseModel):
@@ -409,6 +434,27 @@ class RecipeDetail(RecipeSummary):
                     required=a.required,
                     gated=a.gated,
                     license_url=a.license_url,
+                    variants=[
+                        RecipeArtifactVariantView(
+                            id=v.id,
+                            label=v.label,
+                            precision=v.precision,
+                            filename=v.filename,
+                            size_bytes=v.size_bytes,
+                            gated=v.gated,
+                            license_url=v.license_url,
+                            uploader=v.uploader or None,
+                            source_url=v.source_url,
+                            default=v.default,
+                            recommended_for=[
+                                RecipeVariantRuleView(
+                                    min_vram_gb=r.min_vram_gb, generations=list(r.generations)
+                                )
+                                for r in v.recommended_for
+                            ],
+                        )
+                        for v in a.variants
+                    ],
                 )
                 for a in recipe.artifacts
             ],

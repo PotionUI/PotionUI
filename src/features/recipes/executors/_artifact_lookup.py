@@ -29,3 +29,18 @@ def find_artifact_model(model_repository: Any, artifact: Any) -> Optional[Any]:
         by_hash.model_type = artifact.model_type
         model_repository.update(by_hash)
     return by_hash
+
+
+def find_slot_model(model_repository: Any, artifact: Any, variant_id: Optional[str] = None) -> Optional[Any]:
+    variants = getattr(artifact, "variants", None) or ()
+    if not variants:
+        return find_artifact_model(model_repository, artifact)
+    ordered = [v.id for v in variants]
+    if variant_id in ordered:
+        ordered.remove(variant_id)
+        ordered.insert(0, variant_id)
+    for candidate in ordered:
+        model = find_artifact_model(model_repository, artifact.resolve(candidate))
+        if model is not None:
+            return model
+    return None

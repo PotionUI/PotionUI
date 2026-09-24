@@ -521,6 +521,19 @@ gated Hugging Face repo, say). `artifacts.plan` then adds a non-fatal warning to
 run's consent request when that artifact's resolved provider has no credential
 configured yet, pointing the owner at the licence and Admin → Plugins.
 
+An `artifacts[]` entry can instead declare `variants:`, the same model slot in several
+precisions. The file fields (`filename`, `size_bytes`, `checksum`, `provider_hint`,
+`gated`, `license_url`) then move onto each variant, next to `id`, `label` (plain words
+such as "Balanced"), `precision` (`bf16`, `fp16`, `fp8`, `int8` or `nvfp4`), `uploader`,
+`source_url` and optional `recommended_for` rules (`min_vram_gb` and/or `generations`
+from `ampere`, `ada`, `hopper`, `blackwell`, `other`). Exactly one variant is marked
+`default: true`; it is used when no GPU is detected. `artifacts.plan` picks the first
+variant (in file order, so list the best quality first) whose rules match the detected
+GPU and whose precision that GPU can run, and falls back to the smallest one that runs
+fast there. A variant already on disk always wins. The owner can override the pick per
+slot when approving the download. `python scripts/hf_variants.py <repo> <glob>...
+--default <id>` prints ready-to-paste `variants:` YAML for a Hugging Face repo.
+
 ### Contributing a step kind
 
 Every step names a `kind:`, and a plugin can add kinds of its own. Declare them under

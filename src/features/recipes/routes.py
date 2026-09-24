@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.features.recipes.dto import (
+    GrantConsentRequest,
     RecipeDetail,
     RecipeRunActionRequest,
     RecipeRunView,
@@ -175,11 +176,17 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def grant_recipe_run_consent(
         run_id: str,
         step_key: str,
+        body: Optional[GrantConsentRequest] = None,
         current_user: User = Depends(get_current_admin_user),
     ) -> RecipeRunView:
         runner = _runner()
         try:
-            runner.grant_consent(run_id, step_key, granted_by=current_user.id)
+            runner.grant_consent(
+                run_id,
+                step_key,
+                granted_by=current_user.id,
+                selections=body.selections if body else None,
+            )
             runner.drive_async(run_id)
             run = runner.get_run_or_raise(run_id)
         except RecipeRunNotFound:

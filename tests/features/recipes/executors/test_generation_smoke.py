@@ -277,10 +277,13 @@ def test_model_repository_and_recipe_are_passed_to_form_building(monkeypatch):
     executor = GenerationSmokeExecutor(loader, object(), FakeOrchestrator(), FakeFileRepository(), sentinel_repo)
 
     recipe = _recipe()
-    executor.execute(_context(recipe))
+    context = _context(recipe)
+    context.selections = {"dit": "nvfp4"}
+    executor.execute(context)
 
     assert captured["recipe"] is recipe
     assert captured["model_repository"] is sentinel_repo
+    assert captured["selections"] == {"dit": "nvfp4"}
 
 
 def test_default_model_repository_is_lazily_constructed():

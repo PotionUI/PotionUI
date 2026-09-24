@@ -12,6 +12,7 @@ from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user, authenticate_websocket_token
 from src.features.system_monitor import SystemMonitorCoordinator
 from src.platform.security.user import User
+from src.platform.runtime.gpu_profile import detect_gpu_profile
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -68,6 +69,10 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_system_stats(current_user=Depends(get_current_active_user)):
         """Get current system statistics including GPU, RAM, and CPU usage."""
         return await controller.get_system_stats(current_user)
+
+    @router.get("/gpu-profile", summary="Get GPU Profile")
+    async def get_gpu_profile(current_user=Depends(get_current_active_user)):
+        return detect_gpu_profile().to_dict()
 
     @router.post("/monitoring/interval", response_model=APIResponse, summary="Set Monitoring Interval")
     async def set_system_monitoring_interval(interval: float, current_user=Depends(get_current_admin_user)):

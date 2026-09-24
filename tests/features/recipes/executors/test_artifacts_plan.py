@@ -5,6 +5,7 @@ from src.features.recipes.executors.artifacts_plan import ArtifactsPlanExecutor
 from src.features.recipes.executors.base import StepContext
 from src.features.recipes.schema import Recipe, RecipeArtifact, RecipeStep
 from src.features.recipes.records import RecipeRun, RecipeRunStatus
+from src.platform.runtime.gpu_profile import GpuProfile
 
 
 class FakeModelRepository:
@@ -104,7 +105,7 @@ def test_missing_artifact_parks_awaiting_consent_with_request_payload():
     artifact = _artifact("ckpt", size_bytes=12345)
     recipe = _recipe([artifact])
     repo = FakeModelRepository(present=set())
-    executor = ArtifactsPlanExecutor(repo)
+    executor = ArtifactsPlanExecutor(repo, gpu_profile_provider=GpuProfile)
 
     result = executor.execute(_context(recipe, ["ckpt"]))
 
@@ -114,6 +115,7 @@ def test_missing_artifact_parks_awaiting_consent_with_request_payload():
     assert result.consent_request["artifacts"] == [
         {
             "id": "ckpt",
+            "variant_id": "ckpt",
             "display_name": "ckpt",
             "size_bytes": 12345,
             "kind": "checkpoint",
@@ -294,3 +296,111 @@ def test_hash_matched_misfiled_row_is_adopted_instead_of_redownloaded():
     assert result.safe_output["already_present"][0]["id"] == artifact.id
     assert row.model_type == artifact.model_type
     assert repo.updated == [row]
+
+
+def _slot_artifact():
+    from src.features.recipes.schema import RecipeArtifactVariant, RecipeVariantRule
+
+    def variant(vid, precision, size, rules=(), default=False, gated=False):
+        return RecipeArtifactVariant(
+            id=vid,
+            label=vid.upper(),
+            precision=precision,
+            filename=f"{vid}.safetensors",
+            size_bytes=size,
+            provider_hint={"source": "huggingface", "model_id": "org/repo", "version_id": f"main@{vid}.safetensors"},
+            gated=gated,
+            license_url="https://huggingface.co/org/repo" if gated else None,
+            uploader="org",
+            source_url="https://huggingface.co/org/repo",
+            recommended_for=tuple(rules),
+            default=default,
+        )
+
+    return RecipeArtifact(
+        id="dit",
+        kind="diffusion_model",
+        model_type="diffusion_model",
+        filename="fp8.safetensors",
+        display_name="DiT",
+        size_bytes=200,
+        variants=(
+            variant("bf16", "bf16", 400, [RecipeVariantRule(min_vram_gb=40)]),
+            variant("fp8", "fp8", 200, [RecipeVariantRule(min_vram_gb=20, generations=("ada", "blackwell"))], default=True),
+            variant("nvfp4", "nvfp4", 100, [RecipeVariantRule(generations=("blackwell",))], gated=True),
+        ),
+    )
+
+
+def _ada24():
+    from src.platform.runtime.gpu_profile import build_gpu_profile
+
+    return build_gpu_profile((8, 9), 24, "RTX 4090")
+
+
+def test_variant_slot_consent_request_carries_slots_gpu_and_recommendation():
+    vae = _artifact("vae", filename="vae.safetensors", size_bytes=5)
+    recipe = _recipe([_slot_artifact(), vae])
+    repo = FakeModelRepository(present={("checkpoint", "vae.safetensors")})
+    executor = ArtifactsPlanExecutor(repo, gpu_profile_provider=_ada24)
+
+    result = executor.execute(_context(recipe, ["dit", "vae"]))
+
+    assert result.awaiting_consent is True
+    request = result.consent_request
+    assert request["gpu"]["generation"] == "ada"
+    assert request["gpu"]["vram_gb"] == 24.0
+    assert [a["variant_id"] for a in request["artifacts"]] == ["fp8"]
+    assert request["total_bytes"] == 200
+    dit, vae_slot = request["slots"]
+    assert dit["id"] == "dit"
+    assert dit["recommended_variant_id"] == "fp8"
+    assert dit["reason"] == "Fits your 24 GB"
+    by_id = {v["id"]: v for v in dit["variants"]}
+    assert set(by_id) == {"bf16", "fp8", "nvfp4"}
+    assert by_id["nvfp4"]["note"] == "nvfp4 needs an RTX 50-series (Blackwell) GPU"
+    assert by_id["nvfp4"]["gated"] is True
+    assert by_id["nvfp4"]["license_url"] == "https://huggingface.co/org/repo"
+    assert by_id["fp8"]["uploader"] == "org"
+    assert by_id["fp8"]["source_url"] == "https://huggingface.co/org/repo"
+    assert by_id["fp8"]["repo_id"] == "org/repo"
+    assert by_id["fp8"]["is_recipe_default"] is True
+    assert by_id["fp8"]["size_bytes"] == 200
+    assert not any(v["installed"] for v in dit["variants"])
+    assert vae_slot["recommended_variant_id"] == "vae"
+    assert vae_slot["variants"][0]["installed"] is True
+    assert result.safe_output["already_present"][0]["id"] == "vae"
+
+
+def test_an_installed_variant_counts_as_present_and_needs_no_download():
+    recipe = _recipe([_slot_artifact()])
+    repo = FakeModelRepository(present={("diffusion_model", "bf16.safetensors")})
+    executor = ArtifactsPlanExecutor(repo, gpu_profile_provider=_ada24)
+
+    result = executor.execute(_context(recipe, ["dit"]))
+
+    assert result.success is True
+    assert result.awaiting_consent is False
+    assert result.safe_output["already_present"][0]["variant_id"] == "bf16"
+
+
+def test_installed_flag_follows_a_hash_match_under_another_name():
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from src.features.recipes.schema import RecipeChecksum
+
+    artifact = _slot_artifact()
+    variants = list(artifact.variants)
+    variants[2] = replace(variants[2], checksum=RecipeChecksum("sha256", "cafe"))
+    artifact = replace(artifact, variants=tuple(variants))
+    row = SimpleNamespace(model_type="diffusion_model", filename="renamed.safetensors", file_path="/m/renamed.safetensors", is_available=True)
+    repo = FakeModelRepository(by_sha256={"cafe": row})
+    executor = ArtifactsPlanExecutor(repo, gpu_profile_provider=_ada24)
+
+    result = executor.execute(_context(_recipe([artifact]), ["dit"]))
+
+    assert result.success is True
+    present = result.safe_output["already_present"][0]
+    assert present["variant_id"] == "nvfp4"
+    assert present["found_as"] == "/m/renamed.safetensors"

@@ -2,6 +2,7 @@
 	import { createEventDispatcher, onMount, onDestroy } from 'svelte';
 	import type { Segment, ChipData } from '$lib/types/segments';
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
+	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import InlineChipEditor from './InlineChipEditor.svelte';
 	import Tooltip from './Tooltip.svelte';
 	import PromptSegmentActionMenu from './PromptSegmentActionMenu.svelte';
@@ -31,6 +32,9 @@
 	export let onVariableDefChange: ((name: string, def: VariableDef) => void) | undefined = undefined;
 	export let onOpenVariableManager: (() => void) | undefined = undefined;
 	export let activeTriggerWords: string[] = [];
+	export let promptResources: PromptResourceSpec[] = [];
+	export let resourceFieldValues: Record<string, unknown> = {};
+	export let resourceFieldLabels: Record<string, string> = {};
 
 	const dispatch = createEventDispatcher();
 	let isDragging = false;
@@ -148,7 +152,9 @@
 		dragEnabled = false;
 	}
 
-	function handleContentChange(e: CustomEvent<{ value: string; chips: Record<string, ChipData> }>) {
+	function handleContentChange(
+		e: CustomEvent<{ value: string; chips: Record<string, ChipData>; resources?: Segment['resources'] }>
+	) {
 		if (isLastApplied) lastAppliedSegment.clear(segment.id);
 		dispatch('change', e.detail);
 		dispatch('contentChange', e.detail.value);
@@ -502,6 +508,7 @@
 					bind:this={inlineEditor}
 					value={segment.content}
 					chips={segment.chips || {}}
+					resources={segment.resources || {}}
 					on:change={handleContentChange}
 					{placeholder}
 					disabled={false}
@@ -513,6 +520,9 @@
 					{onVariableDefChange}
 					{onOpenVariableManager}
 					{activeTriggerWords}
+					{promptResources}
+					{resourceFieldValues}
+					{resourceFieldLabels}
 					variant="segment-composer"
 				/>
 				{#if suffixText}

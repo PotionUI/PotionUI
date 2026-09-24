@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ChipData } from '$lib/types/segments';
+import type { ResourceRef } from '$lib/utils/promptResources';
 import {
 	encodePathForText,
 	decodePathFromMatch,
@@ -161,5 +162,60 @@ describe('parseValueToSegments (full pipeline: #chips -> {group}/${variable})', 
 		const chip = makeChip();
 		const segs = parseValueToSegments('#emotions.happy {a|b}', { [chip.id]: chip });
 		expect(segs.map((s) => s.type)).toEqual(['chip', 'text', 'group']);
+	});
+});
+
+describe('parseChipSegments / parseValueToSegments with @[field:item] resource markers', () => {
+	const references: Record<string, ResourceRef> = {
+		'res-1': { field: 'references', item_key: 'a.png' }
+	};
+
+	it('parses a resource marker matching a resources map entry', () => {
+		const segs = parseChipSegments('a cat @[references:a.png] on a rug', {}, references);
+		expect(segs.map((s) => s.type)).toEqual(['text', 'resource', 'text']);
+		expect(segs[1]).toMatchObject({
+			resourceId: 'res-1',
+			resourceRef: { field: 'references', item_key: 'a.png' },
+			content: '@[references:a.png]'
+		});
+	});
+
+	it('parses a resource marker with no matching map entry as an unmapped resource segment', () => {
+		const segs = parseChipSegments('@[references:missing.png]', {}, {});
+		expect(segs).toHaveLength(1);
+		expect(segs[0]).toMatchObject({
+			type: 'resource',
+			resourceRef: { field: 'references', item_key: 'missing.png' }
+		});
+		expect(segs[0].resourceId).toBeUndefined();
+	});
+
+	it('matches duplicate markers to distinct, not-yet-used resource ids', () => {
+		const twoRefs: Record<string, ResourceRef> = {
+			'res-1': { field: 'references', item_key: 'a.png' },
+			'res-2': { field: 'references', item_key: 'a.png' }
+		};
+		const segs = parseChipSegments('@[references:a.png] and @[references:a.png]', {}, twoRefs);
+		const resourceSegs = segs.filter((s) => s.type === 'resource');
+		expect(resourceSegs).toHaveLength(2);
+		expect(new Set(resourceSegs.map((s) => s.resourceId))).toEqual(new Set(['res-1', 'res-2']));
+	});
+
+	it('interleaves #chips and @[resource] markers in document order', () => {
+		const chip = makeChip();
+		const segs = parseValueToSegments('#emotions.happy near @[references:a.png]', { [chip.id]: chip }, references);
+		expect(segs.map((s) => s.type)).toEqual(['chip', 'text', 'resource']);
+	});
+
+	it('leaves a plain resolved token like <Picture 2> (no @[...] marker) untouched as text', () => {
+		const segs = parseValueToSegments('a cat, <Picture 2>, on a rug', {}, references);
+		expect(segs).toEqual([{ type: 'text', content: 'a cat, <Picture 2>, on a rug' }]);
+	});
+
+	it('does not split a resource marker further as prompt tokens', () => {
+		const segs = parseValueToSegments('@[references:a.png]', {}, references);
+		expect(segs).toEqual([
+			{ type: 'resource', content: '@[references:a.png]', resourceId: 'res-1', resourceRef: { field: 'references', item_key: 'a.png' } }
+		]);
 	});
 });

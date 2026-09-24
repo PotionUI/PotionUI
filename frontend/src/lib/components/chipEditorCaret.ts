@@ -16,6 +16,7 @@ function nodeCharLength(node: Node, chips: Record<string, ChipData>): number {
 	const el = node as HTMLElement;
 	if (el.dataset.groupRaw !== undefined) return el.dataset.groupRaw.length;
 	if (el.dataset.variableRaw !== undefined) return el.dataset.variableRaw.length;
+	if (el.dataset.resourceMarker !== undefined) return el.dataset.resourceMarker.length;
 	if (el.dataset.chipId && chips[el.dataset.chipId]) {
 		return encodePathForText(chips[el.dataset.chipId].categoryPath).length;
 	}
@@ -69,6 +70,8 @@ export function getCaretCharOffset(
 				offset += el.dataset.groupRaw.length;
 			} else if (el.dataset.variableRaw !== undefined) {
 				offset += el.dataset.variableRaw.length;
+			} else if (el.dataset.resourceMarker !== undefined) {
+				offset += el.dataset.resourceMarker.length;
 			} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
 				offset += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
 			} else if (el.tagName === 'BR') {
@@ -118,6 +121,12 @@ export function placeCaretAtCharOffset(
 			}
 			if (el.dataset.variableRaw !== undefined) {
 				const len = el.dataset.variableRaw.length;
+				if (remaining <= len) return { node: el, afterNode: true };
+				remaining -= len;
+				return null;
+			}
+			if (el.dataset.resourceMarker !== undefined) {
+				const len = el.dataset.resourceMarker.length;
 				if (remaining <= len) return { node: el, afterNode: true };
 				remaining -= len;
 				return null;

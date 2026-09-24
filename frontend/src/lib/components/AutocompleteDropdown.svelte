@@ -165,7 +165,11 @@
 	     otherwise both be "specified" at once. -->
 	<div use:portal class="segment-composer" style="display: contents;">
 		<section
-			class="floating picker {triggerChar === '$' ? 'variable-picker' : 'phrasebook-picker'}"
+			class="floating picker {triggerChar === '$'
+				? 'variable-picker'
+				: triggerChar === '@'
+					? 'resource-picker'
+					: 'phrasebook-picker'}"
 			aria-label={contextLabel}
 			style="position: fixed; z-index: 99999; left: {dropdownPosition.left}px; right: auto; width: {dropdownPosition.width}px;
 				{dropdownPosition.openAbove
@@ -187,9 +191,9 @@
 				{@const pathParts = currentPath.split('.').filter(Boolean)}
 				<div class="picker-breadcrumb">
 					{#if onNavigateToPath}
-						<button type="button" class="crumb" on:click={() => onNavigateToPath?.('')}>Phrasebook</button>
+						<button type="button" class="crumb" on:click={() => onNavigateToPath?.('')}>{contextLabel}</button>
 					{:else}
-						<span>Phrasebook</span>
+						<span>{contextLabel}</span>
 					{/if}
 					{#each pathParts as part, i (i)}
 						<span>/</span>

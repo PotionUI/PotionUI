@@ -4,12 +4,15 @@
 	import type { Segment, SegmentCategory } from '$lib/types/segments';
 	import { toRichSegment } from '$lib/utils/richSegments';
 	import { toasts } from '$lib/stores/toast';
+	import { resolveResourceMarkers, textHasResourceMarkers, type PromptResourceSpec } from '$lib/utils/promptResources';
 	import BaseModal from './BaseModal.svelte';
 	import { Button } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 
 	export let isOpen = false;
 	export let segment: Segment;
+	export let promptResources: PromptResourceSpec[] = [];
+	export let resourceFieldValues: Record<string, unknown> = {};
 	const dispatch = createEventDispatcher<{ close: void; saved: void }>();
 	let categories: SegmentCategory[] = [];
 	let name = '';
@@ -19,6 +22,9 @@
 	let tags = '';
 	let saving = false;
 	let previousOpen = false;
+	let convertReferences = true;
+
+	$: hasReferences = textHasResourceMarkers(segment?.content);
 
 	$: if (isOpen !== previousOpen) {
 		previousOpen = isOpen;
@@ -30,6 +36,7 @@
 		description = segment.description || '';
 		color = segment.color || '';
 		tags = '';
+		convertReferences = true;
 		try {
 			categories = (await api.listSegmentCategories()).data?.categories || [];
 			categoryId = categories[0]?.id || '';
@@ -42,7 +49,18 @@
 		if (!name.trim() || !categoryId) return;
 		saving = true;
 		try {
-			const rich = toRichSegment({ ...segment, name: name.trim(), description, color });
+			const shouldConvert = hasReferences && convertReferences;
+			const content = shouldConvert
+				? resolveResourceMarkers(segment.content, promptResources, resourceFieldValues)
+				: segment.content;
+			const rich = toRichSegment({
+				...segment,
+				content,
+				resources: shouldConvert ? {} : segment.resources,
+				name: name.trim(),
+				description,
+				color
+			});
 			const response = await api.createSavedSegment({
 				...rich,
 				name: name.trim(),
@@ -72,6 +90,22 @@
 		<label class="block text-sm font-medium text-fg" for="saved-segment-description">Description</label>
 		<textarea id="saved-segment-description" class="input -mt-3 w-full" rows="2" bind:value={description}></textarea>
 		<div class="grid grid-cols-[7rem_1fr] gap-3"><label class="text-sm font-medium text-fg" for="saved-segment-color">Color</label><label class="text-sm font-medium text-fg" for="saved-segment-tags">Tags</label><input id="saved-segment-color" class="input w-full" bind:value={color} placeholder="Optional" /><input id="saved-segment-tags" class="input w-full" bind:value={tags} placeholder="comma, separated" /></div>
+		{#if hasReferences}
+			<div class="rounded-lg border border-warning/40 bg-warning/10 p-3 space-y-2">
+				<p class="text-xs text-fg">
+					This segment references media uploaded on this tab. Those references only resolve here — a copy saved to
+					the library needs its own choice.
+				</p>
+				<label class="flex items-start gap-2 text-xs text-fg">
+					<input type="radio" name="reference-handling" checked={convertReferences} on:change={() => (convertReferences = true)} class="mt-0.5" />
+					<span>Convert to plain text now (e.g. "Picture 2") — always valid, never dangling</span>
+				</label>
+				<label class="flex items-start gap-2 text-xs text-fg">
+					<input type="radio" name="reference-handling" checked={!convertReferences} on:change={() => (convertReferences = false)} class="mt-0.5" />
+					<span>Keep the references — only works when applied on a tab with the same uploads</span>
+				</label>
+			</div>
+		{/if}
 		<p class="text-xs text-fg-subtle">This creates a detached reusable card; later edits to either copy do not stay linked.</p>
 	</div>
 	<svelte:fragment slot="footer"><div class="flex justify-end gap-2 px-4 py-3 sm:px-6"><Button variant="secondary" onclick={() => dispatch('close')}>Cancel</Button><Button variant="primary" loading={saving} disabled={!name.trim() || !categoryId} onclick={save}>Save Segment</Button></div></svelte:fragment>

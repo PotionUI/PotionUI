@@ -41,6 +41,31 @@ describe('buildSegmentNode', () => {
 		expect(el.className).toBe('inline-chip-container');
 	});
 
+	it('builds a contenteditable=false resource container carrying data-resource-marker and data-resource-id', () => {
+		const node = buildSegmentNode({
+			type: 'resource',
+			content: '@[references:a.png]',
+			resourceId: 'res-1',
+			resourceRef: { field: 'references', item_key: 'a.png' }
+		});
+		const el = node as HTMLElement;
+		expect(el.tagName).toBe('SPAN');
+		expect(el.dataset.resourceMarker).toBe('@[references:a.png]');
+		expect(el.dataset.resourceId).toBe('res-1');
+		expect(el.contentEditable).toBe('false');
+		expect(el.className).toBe('resource-chip-container');
+	});
+
+	it('builds a resource container with no data-resource-id when the segment has no resourceId', () => {
+		const node = buildSegmentNode({
+			type: 'resource',
+			content: '@[references:a.png]',
+			resourceRef: { field: 'references', item_key: 'a.png' }
+		});
+		const el = node as HTMLElement;
+		expect(el.dataset.resourceId).toBeUndefined();
+	});
+
 	it('builds a group container carrying data-group-raw', () => {
 		const node = buildSegmentNode({ type: 'group', content: '{a|b}', groupRaw: '{a|b}' });
 		const el = node as HTMLElement;
@@ -121,6 +146,16 @@ describe('extractContentFromDOM', () => {
 		expect(extractContentFromDOM(editor, {}).value).toBe('${mood}');
 	});
 
+	it('reads a resource container back verbatim from its data-resource-marker attribute, not a map lookup', () => {
+		const editor = document.createElement('div');
+		appendSegments(editor, [
+			{ type: 'text', content: 'a cat ' },
+			{ type: 'resource', content: '@[references:a.png]', resourceId: 'res-1', resourceRef: { field: 'references', item_key: 'a.png' } },
+			{ type: 'text', content: ' sits' }
+		]);
+		expect(extractContentFromDOM(editor, {}).value).toBe('a cat @[references:a.png] sits');
+	});
+
 	it('renders a BR element as a newline', () => {
 		const editor = document.createElement('div');
 		editor.appendChild(document.createTextNode('line1'));
@@ -178,6 +213,18 @@ describe('collectTextNodeSpans', () => {
 		expect(spans[1]).toMatchObject({ start: 1, end: 2 });
 	});
 
+	it('counts a resource container by its marker length, from data-resource-marker', () => {
+		const editor = document.createElement('div');
+		appendSegments(editor, [
+			{ type: 'text', content: 'x' },
+			{ type: 'resource', content: '@[references:a.png]', resourceId: 'res-1', resourceRef: { field: 'references', item_key: 'a.png' } },
+			{ type: 'text', content: 'y' }
+		]);
+		const spans = collectTextNodeSpans(editor, {});
+		expect(spans[0]).toMatchObject({ start: 0, end: 1 });
+		expect(spans[1]).toMatchObject({ start: 20, end: 21 });
+	});
+
 	it('counts a BR as a single-character offset', () => {
 		const editor = document.createElement('div');
 		editor.appendChild(document.createTextNode('a'));
@@ -205,6 +252,16 @@ describe('atomicContainerAt', () => {
 				buildSegmentNode({ type: 'variable', content: '${m}', variableRaw: '${m}', variableName: 'm' })
 			)
 		).toMatchObject({ kind: 'variable' });
+		expect(
+			atomicContainerAt(
+				buildSegmentNode({
+					type: 'resource',
+					content: '@[references:a.png]',
+					resourceId: 'res-1',
+					resourceRef: { field: 'references', item_key: 'a.png' }
+				})
+			)
+		).toMatchObject({ kind: 'resource' });
 	});
 
 	it('is null for text nodes, plain elements and nothing', () => {

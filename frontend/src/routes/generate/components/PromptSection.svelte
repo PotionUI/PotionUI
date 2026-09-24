@@ -19,6 +19,8 @@
 	import StylesPicker from '$lib/components/StylesPicker.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import ResolvedPromptPreview from './ResolvedPromptPreview.svelte';
+	import { getPresetPromptResources } from '$lib/utils/presetPromptResourcesCache';
+	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 
 	// Renders the prompt-relay / multi-prompt / segmented-prompt-pair choice for
 	// a single tab. Extracted verbatim from the mobile (Panel 2) and desktop
@@ -73,6 +75,27 @@
 	// inline in the segment editors below (see activeLoraTriggers.ts).
 	$: activeTriggerWordsStore = activeLoraTriggersForTab(tab.id);
 	$: activeTriggerWords = $activeTriggerWordsStore;
+
+	let promptResourceSpecs: PromptResourceSpec[] = [];
+	let promptResourceFieldLabels: Record<string, string> = {};
+	$: {
+		const preset = tab.selectedPreset;
+		const mode = tab.selectedMode;
+		const formName = tab.selectedVariant ?? undefined;
+		if (preset && mode) {
+			getPresetPromptResources(preset, mode, formName ?? undefined).then((result) => {
+				if (tab.selectedPreset !== preset || tab.selectedMode !== mode || (tab.selectedVariant ?? undefined) !== formName) {
+					return;
+				}
+				promptResourceSpecs = result.specs;
+				promptResourceFieldLabels = result.fieldLabels;
+			});
+		} else {
+			promptResourceSpecs = [];
+			promptResourceFieldLabels = {};
+		}
+	}
+	$: resourceFieldValues = tab.formData || {};
 
 	function handleVariablesChange(vars: VariablesMap) {
 		tabsStore.updateTab(tab.id, { variables: vars });
@@ -175,6 +198,9 @@
 			onOpenVariableManager={openVariableManager}
 			{activeTriggerWords}
 			{presetSegmentTemplates}
+			promptResources={promptResourceSpecs}
+			{resourceFieldValues}
+			resourceFieldLabels={promptResourceFieldLabels}
 			on:tabsChange={(e) => tabHandlers.handlePromptTabsChange(e.detail)}
 			on:activeTabChange={(e) => tabHandlers.handleActivePromptTabChange(e.detail)}
 		/>
@@ -198,11 +224,19 @@
 				{appliedStyleName}
 				{activeTriggerWords}
 				{presetSegmentTemplates}
+				promptResources={promptResourceSpecs}
+				{resourceFieldValues}
+				resourceFieldLabels={promptResourceFieldLabels}
 				on:segmentsChange={(e) => tabHandlers.handlePromptSegmentsChange(e.detail)}
 				on:negativeSegmentsChange={(e) => tabHandlers.handleNegativePromptSegmentsChange(e.detail)}
 			/>
 			<div class="mt-4">
-				<ResolvedPromptPreview prompt={tab.prompt} negativePrompt={tab.negativePrompt} />
+				<ResolvedPromptPreview
+					prompt={tab.prompt}
+					negativePrompt={tab.negativePrompt}
+					promptResources={promptResourceSpecs}
+					{resourceFieldValues}
+				/>
 			</div>
 		</div>
 	{/if}

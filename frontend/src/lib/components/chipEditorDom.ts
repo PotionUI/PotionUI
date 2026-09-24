@@ -32,12 +32,19 @@ export function buildSegmentNode(segment: ContentSegment): Node {
 		el.style.cssText = 'user-select: none; display: inline;';
 		return el;
 	}
+	if (segment.type === 'resource' && segment.resourceRef) {
+		const el = document.createElement('span');
+		el.dataset.resourceMarker = segment.content;
+		if (segment.resourceId) el.dataset.resourceId = segment.resourceId;
+		el.contentEditable = 'false';
+		el.className = 'resource-chip-container';
+		el.style.cssText = 'user-select: none; display: inline;';
+		return el;
+	}
 	return document.createTextNode(segment.content);
 }
 
-/** The three container kinds that are atomic to the caret: contentEditable=false
- *  spans that a single Backspace/Delete must remove whole. */
-export type AtomicKind = 'chip' | 'group' | 'variable';
+export type AtomicKind = 'chip' | 'group' | 'variable' | 'resource';
 
 export interface AtomicTarget {
 	kind: AtomicKind;
@@ -53,6 +60,7 @@ export function atomicContainerAt(node: Node | null | undefined): AtomicTarget |
 	if (el.dataset?.chipId) return { kind: 'chip', el, chipId: el.dataset.chipId };
 	if (el.dataset?.groupRaw !== undefined) return { kind: 'group', el };
 	if (el.dataset?.variableRaw !== undefined) return { kind: 'variable', el };
+	if (el.dataset?.resourceMarker !== undefined) return { kind: 'resource', el };
 	return null;
 }
 
@@ -121,6 +129,8 @@ export function extractContentFromDOM(
 				// Same "raw is truth" rule as a group container — the chip is a
 				// view over the exact `${name}` text, never a second source of it.
 				textContent += el.dataset.variableRaw;
+			} else if (el.dataset.resourceMarker !== undefined) {
+				textContent += el.dataset.resourceMarker;
 			} else if (el.dataset.chipId) {
 				const chipId = el.dataset.chipId;
 				if (chips[chipId]) {
@@ -174,6 +184,8 @@ export function collectTextNodeSpans(
 				offset += el.dataset.groupRaw.length;
 			} else if (el.dataset.variableRaw !== undefined) {
 				offset += el.dataset.variableRaw.length;
+			} else if (el.dataset.resourceMarker !== undefined) {
+				offset += el.dataset.resourceMarker.length;
 			} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
 				offset += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
 			} else if (el.tagName === 'BR') {

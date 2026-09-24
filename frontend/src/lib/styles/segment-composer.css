@@ -285,6 +285,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .variable-picker .picker-symbol, .variable-picker .row-thumb { color: rgb(var(--ai-1)); }
 
+.resource-picker .picker-symbol, .resource-picker .row-thumb { color: rgb(var(--success)); }
+
 .picker-search { min-width: 0; flex: 1; }
 
 .picker-search label { display: block; margin-bottom: 2px; color: rgb(var(--fg-subtle)); font: 400 6px "IBM Plex Mono"; text-transform: uppercase; letter-spacing: .08em; }

@@ -8,6 +8,7 @@ import type {
 	PresetFormOverridesResponse,
 	PresetRequirementsResponse
 } from '$lib/types/api';
+import type { PromptResourceSpec } from '$lib/utils/promptResources';
 
 export function createPresetsApi(client: AxiosInstance) {
 	return {
@@ -41,7 +42,7 @@ export function createPresetsApi(client: AxiosInstance) {
 			presetId: string,
 			mode?: string,
 			formName?: string
-		): Promise<APIResponse<{ preset_id: string; form_schema: any }>> {
+		): Promise<APIResponse<{ preset_id: string; form_schema: any; prompt_resources?: PromptResourceSpec[] }>> {
 			const params = new URLSearchParams();
 			if (mode) params.set('mode', mode);
 			if (formName) params.set('form_name', formName);

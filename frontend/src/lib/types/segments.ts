@@ -1,6 +1,7 @@
 // Segment and prompt editor types
 
 import type { VariablesMap } from '$lib/utils/variableDefs';
+import type { ResourceRef } from '$lib/utils/promptResources';
 
 export interface ChipData {
 	id: string;
@@ -31,6 +32,7 @@ export interface RichSegment {
 	type: RichSegmentType;
 	content: string;
 	chips: Record<string, ChipData>;
+	resources?: Record<string, ResourceRef>;
 	enabled: boolean;
 	name?: string | null;
 	color?: string | null;
@@ -47,6 +49,7 @@ export interface Segment {
 	id: string;
 	content: string;
 	chips?: Record<string, ChipData>; // JSON-serializable version
+	resources?: Record<string, ResourceRef>;
 	type?: RichSegmentType;
 	enabled?: boolean;
 	name?: string | null;

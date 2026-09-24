@@ -3,15 +3,20 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { copyText } from '$lib/utils/clipboard';
 	import { toasts } from '$lib/stores/toast';
+	import { resolveResourceMarkers, type PromptResourceSpec } from '$lib/utils/promptResources';
 
 	export let prompt = '';
 	export let negativePrompt = '';
+	export let promptResources: PromptResourceSpec[] = [];
+	export let resourceFieldValues: Record<string, unknown> = {};
 
 	let open = false;
 	let active: 'prompt' | 'negative' = 'prompt';
 	let copied = false;
 
-	$: activeText = active === 'prompt' ? prompt : negativePrompt;
+	$: resolvedPrompt = resolveResourceMarkers(prompt, promptResources, resourceFieldValues);
+	$: resolvedNegativePrompt = resolveResourceMarkers(negativePrompt, promptResources, resourceFieldValues);
+	$: activeText = active === 'prompt' ? resolvedPrompt : resolvedNegativePrompt;
 	$: wordCount = activeText.trim() ? activeText.trim().split(/\s+/).length : 0;
 
 	async function copyActive() {
@@ -38,7 +43,7 @@
 			<span class="min-w-0 flex-1">
 				<span class="block text-xs font-medium text-fg">Resolved prompt</span>
 				<span class="block truncate font-mono text-2xs text-fg-subtle">
-					{prompt || 'No enabled prompt content'}
+					{resolvedPrompt || 'No enabled prompt content'}
 				</span>
 			</span>
 			<Icon name="chevron-down" className="h-4 w-4 flex-shrink-0 text-fg-subtle transition-transform {open ? 'rotate-180' : ''}" />

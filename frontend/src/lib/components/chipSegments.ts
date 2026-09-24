@@ -2,15 +2,18 @@
 // unchanged — see InlineChipEditor.svelte for the DOM-facing half.
 import type { ChipData } from '$lib/types/segments';
 import { parsePromptTokens } from '$lib/utils/promptTokens';
+import type { ResourceRef } from '$lib/utils/promptResources';
 
 export interface ContentSegment {
-	type: 'text' | 'chip' | 'group' | 'variable';
+	type: 'text' | 'chip' | 'group' | 'variable' | 'resource';
 	content: string;
 	chipId?: string;
 	chipData?: ChipData;
 	groupRaw?: string;
 	variableRaw?: string;
 	variableName?: string;
+	resourceId?: string;
+	resourceRef?: ResourceRef;
 }
 
 // Paths with spaces use bracket format: #[path with spaces]
@@ -46,36 +49,54 @@ export function splitPromptTokensInText(text: string): ContentSegment[] {
 	return out;
 }
 
-/** Original #chip-only segmentation (unchanged), used as the first pass by parseValueToSegments. */
-export function parseChipSegments(text: string, chipsObj: Record<string, ChipData>): ContentSegment[] {
+const CHIP_AND_RESOURCE_PATTERN = /#\[([^\]]+)\]|#([\w][\w.]*)|@\[([A-Za-z_][A-Za-z0-9_-]*):([^\]\r\n]+)\]/g;
+
+export function parseChipSegments(
+	text: string,
+	chipsObj: Record<string, ChipData>,
+	resourcesObj: Record<string, ResourceRef> = {}
+): ContentSegment[] {
 	if (!text) return [];
 
 	const segments: ContentSegment[] = [];
-	// Two formats:
-	// 1. Bracketed for paths with spaces: #[path with spaces]
-	// 2. Simple for paths without spaces: #simplepath.subpath
-	const chipPattern = /#\[([^\]]+)\]|#([\w][\w.]*)/g;
+	const chipPattern = new RegExp(CHIP_AND_RESOURCE_PATTERN.source, 'g');
 	let lastIndex = 0;
 	let match;
 
-	// Track which chips we've used (for handling duplicates)
 	const usedChipIds = new Set<string>();
+	const usedResourceIds = new Set<string>();
 
 	while ((match = chipPattern.exec(text)) !== null) {
-		const categoryPath = decodePathFromMatch(match);
-
-		// Find matching chip (not yet used)
-		const matchingEntry = Object.entries(chipsObj).find(
-			([id, chip]) => chip.categoryPath === categoryPath && !usedChipIds.has(id)
-		);
-
-		// Add text before this match
 		if (match.index > lastIndex) {
 			segments.push({
 				type: 'text',
 				content: text.substring(lastIndex, match.index)
 			});
 		}
+
+		if (match[3] !== undefined) {
+			const field = match[3];
+			const itemKey = match[4];
+			const matchingEntry = Object.entries(resourcesObj).find(
+				([id, ref]) => ref.field === field && ref.item_key === itemKey && !usedResourceIds.has(id)
+			);
+			if (matchingEntry) {
+				const [resourceId, resourceRef] = matchingEntry;
+				usedResourceIds.add(resourceId);
+				segments.push({ type: 'resource', content: match[0], resourceId, resourceRef });
+			} else {
+				segments.push({ type: 'resource', content: match[0], resourceRef: { field, item_key: itemKey } });
+			}
+			lastIndex = match.index + match[0].length;
+			continue;
+		}
+
+		const categoryPath = decodePathFromMatch(match);
+
+		// Find matching chip (not yet used)
+		const matchingEntry = Object.entries(chipsObj).find(
+			([id, chip]) => chip.categoryPath === categoryPath && !usedChipIds.has(id)
+		);
 
 		if (matchingEntry) {
 			const [chipId, chipData] = matchingEntry;
@@ -108,10 +129,14 @@ export function parseChipSegments(text: string, chipsObj: Record<string, ChipDat
 	return segments;
 }
 
-export function parseValueToSegments(text: string, chipsObj: Record<string, ChipData>): ContentSegment[] {
+export function parseValueToSegments(
+	text: string,
+	chipsObj: Record<string, ChipData>,
+	resourcesObj: Record<string, ResourceRef> = {}
+): ContentSegment[] {
 	if (!text) return [];
 
-	const chipSegments = parseChipSegments(text, chipsObj);
+	const chipSegments = parseChipSegments(text, chipsObj, resourcesObj);
 	const out: ContentSegment[] = [];
 	for (const seg of chipSegments) {
 		if (seg.type === 'text') {

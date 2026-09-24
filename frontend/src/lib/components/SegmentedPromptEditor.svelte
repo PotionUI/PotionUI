@@ -30,6 +30,7 @@
 		type SegmentApplyMode
 	} from '$lib/utils/richSegments';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
+	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import { resolvedPromptStats, resolvedPromptTokens } from '$lib/utils/resolvedPrompt';
 	import PromptSegment from './PromptSegment.svelte';
 	import Tooltip from './Tooltip.svelte';
@@ -86,6 +87,9 @@
 	/** Segment Templates the selected preset declares, merged into the apply picker
 	 *  alongside the user's own library. */
 	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
+	export let promptResources: PromptResourceSpec[] = [];
+	export let resourceFieldValues: Record<string, unknown> = {};
+	export let resourceFieldLabels: Record<string, string> = {};
 	// The Video Director's shot stage (StageBeat.svelte) already gives this
 	// editor its own caption/card — the mock's `.composer` shell (toolbar
 	// header + resolved panel) would just be a second, redundant container
@@ -311,11 +315,13 @@
 	function handleSegmentUpdate(
 		target: ApplyTarget,
 		id: string,
-		detail: { value: string; chips: Record<string, ChipData> }
+		detail: { value: string; chips: Record<string, ChipData>; resources?: Segment['resources'] }
 	) {
 		commitList(
 			target,
-			getList(target).map((s) => (s.id === id ? { ...s, content: detail.value, chips: detail.chips } : s))
+			getList(target).map((s) =>
+				s.id === id ? { ...s, content: detail.value, chips: detail.chips, resources: detail.resources } : s
+			)
 		);
 	}
 
@@ -473,6 +479,9 @@
 					{onVariableDefChange}
 					{onOpenVariableManager}
 					{activeTriggerWords}
+					{promptResources}
+					{resourceFieldValues}
+					{resourceFieldLabels}
 					on:change={(e) => handleSegmentUpdate('main', segment.id, e.detail)}
 					on:metadataChange={(e) => handleMetadataUpdate('main', segment.id, e.detail)}
 					on:remove={() => removeSegment('main', segment.id)}
@@ -698,6 +707,9 @@
 						{onVariableDefChange}
 						{onOpenVariableManager}
 						{activeTriggerWords}
+						{promptResources}
+						{resourceFieldValues}
+						{resourceFieldLabels}
 						on:change={(e) => handleSegmentUpdate('negative', segment.id, e.detail)}
 						on:metadataChange={(e) => handleMetadataUpdate('negative', segment.id, e.detail)}
 						on:remove={() => removeSegment('negative', segment.id)}
@@ -808,6 +820,8 @@
 	<SaveSegmentModal
 		isOpen={saveSegmentId !== null}
 		segment={segmentToSave}
+		{promptResources}
+		{resourceFieldValues}
 		on:close={() => (saveSegmentId = null)}
 		on:saved={() => (saveSegmentId = null)}
 	/>

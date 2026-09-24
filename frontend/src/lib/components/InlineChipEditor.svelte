@@ -11,6 +11,21 @@
 	import InlineChip from './InlineChip.svelte';
 	import ChoiceGroupChip from './ChoiceGroupChip.svelte';
 	import VariableUsageChip from './VariableUsageChip.svelte';
+	import PromptResourceChip from './PromptResourceChip.svelte';
+	import {
+		encodeResourceMarker,
+		deriveResourcesFromText,
+		resourceGroupLabel,
+		resourceHandleLabel,
+		resourceMarkerState,
+		kindLabel,
+		mediaFieldItems,
+		mediaItemKey,
+		itemAtPosition,
+		parseResourceMarker,
+		type PromptResourceSpec,
+		type ResourceRef
+	} from '$lib/utils/promptResources';
 	import { countChoiceGroups } from '$lib/utils/choiceGroups';
 	import {
 		detectVariableTrigger,
@@ -88,8 +103,18 @@
 	// `"segment-composer"`; every other host (ChatChipInput today) keeps the
 	// default, unaffected by this port.
 	export let variant: 'default' | 'segment-composer' = 'default';
+	export let resources: Record<string, ResourceRef> = {};
+	export let promptResources: PromptResourceSpec[] = [];
+	export let resourceFieldValues: Record<string, unknown> = {};
+	export let resourceFieldLabels: Record<string, string> = {};
 
 	const dispatch = createEventDispatcher();
+
+	function dispatchChange(newValue: string, newChips: Record<string, ChipData>) {
+		const newResources = deriveResourcesFromText(newValue, resources);
+		resources = newResources;
+		dispatch('change', { value: newValue, chips: newChips, resources: newResources });
+	}
 
 	// DOM references
 	let editorRef: HTMLDivElement;
@@ -156,6 +181,16 @@
 	// analog of lastGroupCount, for noticing a manually-typed `${name}` closing.
 	let lastVariableUsageCount = 0;
 
+	let mountedResourceComponents: Map<string, ReturnType<typeof mount>> = new Map();
+	let resourceSlotCounter = 0;
+
+	let isResourcePickerOpen = false;
+	let resourceGroupField: string | null = null;
+	let resourceQuery = '';
+	let resourceTriggerNode: Text | null = null;
+	let resourceTriggerOffset = -1;
+	let resourceSelectedIndex = 0;
+
 	// Track if we're programmatically updating
 	let isInternalUpdate = false;
 
@@ -163,7 +198,79 @@
 
 	// Parse value into segments (text, #chips, {a|b|c} choice groups, and
 	// ${name} variable usages) — see chipSegments.ts.
-	$: contentSegments = parseValueToSegments(value, chips);
+	$: contentSegments = parseValueToSegments(value, chips, resources);
+
+	function resourceItemCount(field: string): number {
+		return mediaFieldItems(resourceFieldValues[field]).length;
+	}
+
+	function resourceGroupDescription(spec: PromptResourceSpec): string {
+		const count = resourceItemCount(spec.field);
+		if (count === 0) return `No ${kindLabel(spec.kind).toLowerCase()}s added yet`;
+		return `${count} available`;
+	}
+
+	$: resourceGroupCategories = resourceGroupField
+		? []
+		: (promptResources
+				.filter((spec) => {
+					const query = resourceQuery.trim().toLowerCase();
+					if (!query) return true;
+					return resourceGroupLabel(spec).toLowerCase().includes(query) || spec.field.toLowerCase().includes(query);
+				})
+				.map((spec) => ({
+					id: spec.field,
+					name: resourceGroupLabel(spec),
+					path: resourceGroupLabel(spec),
+					description: resourceGroupDescription(spec),
+					created_at: '',
+					updated_at: ''
+				})) as DropdownAutocompleteCategory[]);
+
+	$: activeResourceSpec = resourceGroupField
+		? promptResources.find((spec) => spec.field === resourceGroupField) ?? null
+		: null;
+
+	function itemThumbUrl(item: unknown, kind: PromptResourceSpec['kind']): string | undefined {
+		if (kind !== 'image') return undefined;
+		if (item && typeof item === 'object') {
+			const url = (item as Record<string, unknown>).url;
+			if (typeof url === 'string') return url;
+		}
+		return undefined;
+	}
+
+	function itemDisplayName(item: unknown, itemKey: string): string {
+		if (item && typeof item === 'object') {
+			const name = (item as Record<string, unknown>).name;
+			if (typeof name === 'string' && name) return name;
+		}
+		return itemKey.split('/').pop() || itemKey;
+	}
+
+	$: resourceItemSuggestions = activeResourceSpec
+		? (mediaFieldItems(resourceFieldValues[activeResourceSpec.field])
+				.map((item, index) => {
+					const key = mediaItemKey(item);
+					if (!key) return null;
+					return {
+						id: key,
+						category_id: activeResourceSpec!.field,
+						label: resourceHandleLabel(activeResourceSpec!, index + 1),
+						value: itemDisplayName(item, key),
+						sort_order: index,
+						created_at: '',
+						updated_at: '',
+						preview_file_id: itemThumbUrl(item, activeResourceSpec!.kind)
+					};
+				})
+				.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+				.filter((entry) => {
+					const query = resourceQuery.trim().toLowerCase();
+					if (!query) return true;
+					return entry.label.toLowerCase().includes(query) || entry.value.toLowerCase().includes(query);
+				}) as DropdownAutocompleteValue[])
+		: [];
 
 	// =====================
 	// Trigger-word highlighting
@@ -205,9 +312,9 @@
 
 		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
 
-		// Detect phrasebook/variable-picker triggers (mutually exclusive)
 		detectPhrasebookTrigger();
 		detectVariablePickerTrigger();
+		detectResourceTrigger();
 
 		// A group/variable container is contentEditable=false, so the user can
 		// only ever be typing in plain text here — a newly-*higher* count means
@@ -224,7 +331,7 @@
 		refreshTriggerHighlights(newValue);
 
 		// Emit change
-		dispatch('change', { value: newValue, chips: newChips });
+		dispatchChange(newValue, newChips);
 
 		if (justClosedGroup || justClosedVariable) {
 			chipifyNewTokens(newValue, newChips);
@@ -283,6 +390,28 @@
 			}
 		}
 
+		if (isResourcePickerOpen) {
+			const totalItems = resourceGroupField ? resourceItemSuggestions.length : resourceGroupCategories.length;
+
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				resourceSelectedIndex = totalItems ? (resourceSelectedIndex + 1) % totalItems : 0;
+				return;
+			} else if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				resourceSelectedIndex = resourceSelectedIndex === 0 ? Math.max(totalItems - 1, 0) : resourceSelectedIndex - 1;
+				return;
+			} else if (e.key === 'Enter' && !e.ctrlKey) {
+				e.preventDefault();
+				selectActiveResourceOption();
+				return;
+			} else if (e.key === 'Escape') {
+				e.preventDefault();
+				closeResourcePicker();
+				return;
+			}
+		}
+
 		// Delete a chip/group/variable whole when the caret sits against it.
 		// Both directions: a chip container is contentEditable=false, so the
 		// browser removes it for neither Backspace nor Delete on its own.
@@ -305,6 +434,8 @@
 							handleChipRemove(target.chipId);
 						} else if (target.kind === 'group') {
 							handleGroupRemove(target.el);
+						} else if (target.kind === 'resource') {
+							handleResourceRemove(target.el);
 						} else {
 							handleVariableUsageRemove(target.el);
 						}
@@ -377,6 +508,7 @@
 			// Path should start with a word char and can contain dots/spaces
 			if (/^[\w][\w.\s]*$/.test(path) || /^[\w]*$/.test(path)) {
 				closeVariablePicker(); // mutually exclusive with the $ picker
+				closeResourcePicker(); // mutually exclusive with the @ picker
 				phrasebookPath = path;
 				phrasebookTriggerNode = textNode; // Store the text node
 				phrasebookTriggerOffset = start; // Store the position of #
@@ -521,7 +653,7 @@
 		// Don't call handleInput here - it can trigger DOM sync and lose cursor
 		// Instead, extract and dispatch manually
 		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
-		dispatch('change', { value: newValue, chips: newChips });
+		dispatchChange(newValue, newChips);
 	}
 
 	function handleSelectValue(valueItem: DropdownAutocompleteValue) {
@@ -612,7 +744,7 @@
 		isInternalUpdate = true;
 		editorRef.innerHTML = '';
 
-		const newSegments = parseValueToSegments(newValue, newChips);
+		const newSegments = parseValueToSegments(newValue, newChips, resources);
 		newSegments.forEach((segment) => {
 			editorRef.appendChild(buildSegmentNode(segment));
 		});
@@ -621,6 +753,7 @@
 		mountChips();
 		mountGroups();
 		mountVariables();
+		mountResourceChips();
 		isInternalUpdate = false;
 		refreshTriggerHighlights(newValue);
 
@@ -649,7 +782,7 @@
 		});
 
 		// Emit change to parent
-		dispatch('change', { value: newValue, chips: newChips });
+		dispatchChange(newValue, newChips);
 	}
 
 	/** Rewrites the live `#path` trigger text to `newPath` (trailing dot means
@@ -702,7 +835,7 @@
 
 		// Don't call handleInput - extract and dispatch manually
 		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
-		dispatch('change', { value: newValue, chips: newChips });
+		dispatchChange(newValue, newChips);
 	}
 
 	function handleNavigateUp() {
@@ -757,6 +890,7 @@
 		const match = detectVariableTrigger(text, cursorOffset);
 		if (match) {
 			closePhrasebook(); // mutually exclusive with the # picker
+			closeResourcePicker(); // mutually exclusive with the @ picker
 			variableQuery = match.query;
 			variableTriggerNode = textNode;
 			variableTriggerOffset = match.start;
@@ -774,6 +908,188 @@
 		variableTriggerNode = null;
 		variableTriggerOffset = -1;
 		variableSelectedIndex = 0;
+	}
+
+	function detectResourceTrigger() {
+		const selection = window.getSelection();
+		if (!selection || !selection.rangeCount || !editorRef) return;
+
+		const range = selection.getRangeAt(0);
+		if (range.startContainer.nodeType !== Node.TEXT_NODE) {
+			closeResourcePicker();
+			return;
+		}
+
+		const textNode = range.startContainer as Text;
+		const text = textNode.textContent || '';
+		const cursorOffset = range.startOffset;
+
+		let start = cursorOffset - 1;
+		while (start >= 0 && text[start] !== '@' && text[start] !== '\n') {
+			start--;
+		}
+
+		if (start >= 0 && text[start] === '@') {
+			const query = text.substring(start + 1, cursorOffset);
+			if (/^[\w][\w .-]*$/.test(query) || /^[\w]*$/.test(query)) {
+				closePhrasebook();
+				closeVariablePicker();
+				if (!isResourcePickerOpen) resourceGroupField = null;
+				resourceQuery = query;
+				resourceTriggerNode = textNode;
+				resourceTriggerOffset = start;
+				resourceSelectedIndex = 0;
+				isResourcePickerOpen = true;
+				return;
+			}
+		}
+
+		closeResourcePicker();
+	}
+
+	function handleSelectResourceGroup(field: string) {
+		if (resourceItemCount(field) === 0) return;
+		if (!editorRef) return;
+		const selection = window.getSelection();
+		if (!selection || !selection.rangeCount) return;
+
+		const range = selection.getRangeAt(0);
+		if (range.startContainer.nodeType !== Node.TEXT_NODE) return;
+
+		const textNode = range.startContainer as Text;
+		const text = textNode.textContent || '';
+		const cursorOffset = range.startOffset;
+
+		let triggerStart = cursorOffset - 1;
+		while (triggerStart >= 0 && text[triggerStart] !== '@') triggerStart--;
+		if (triggerStart < 0) return;
+
+		const newText = text.substring(0, triggerStart + 1) + text.substring(cursorOffset);
+		const newCursorPos = triggerStart + 1;
+		textNode.textContent = newText;
+
+		tick().then(() => {
+			const newSelection = window.getSelection();
+			if (newSelection && textNode.parentNode) {
+				const newRange = document.createRange();
+				const safePos = Math.min(newCursorPos, textNode.textContent?.length || 0);
+				newRange.setStart(textNode, safePos);
+				newRange.collapse(true);
+				newSelection.removeAllRanges();
+				newSelection.addRange(newRange);
+			}
+		});
+
+		resourceGroupField = field;
+		resourceQuery = '';
+		resourceSelectedIndex = 0;
+
+		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
+		dispatchChange(newValue, newChips);
+	}
+
+	function handleNavigateUpResource() {
+		if (!resourceGroupField) return;
+		resourceGroupField = null;
+		resourceSelectedIndex = 0;
+	}
+
+	function selectActiveResourceOption() {
+		if (resourceGroupField) {
+			const item = resourceItemSuggestions[resourceSelectedIndex];
+			if (item) handleSelectResourceItem(item.id);
+		} else {
+			const category = resourceGroupCategories[resourceSelectedIndex];
+			if (category) handleSelectResourceGroup(category.id);
+		}
+	}
+
+	function handleSelectResourceItem(itemKey: string) {
+		const field = activeResourceSpec?.field;
+		if (!editorRef || !resourceTriggerNode || resourceTriggerOffset < 0 || !field) {
+			closeResourcePicker();
+			return;
+		}
+
+		const triggerNode = resourceTriggerNode;
+		const triggerNodeOffset = resourceTriggerOffset;
+		const typedLength = 1 + resourceQuery.length;
+
+		let triggerIndex = 0;
+		let foundTrigger = false;
+
+		function countCharsUntilTrigger(node: Node): boolean {
+			if (foundTrigger) return true;
+			if (node === triggerNode) {
+				triggerIndex += triggerNodeOffset;
+				foundTrigger = true;
+				return true;
+			}
+			if (node.nodeType === Node.TEXT_NODE) {
+				triggerIndex += (node.textContent || '').length;
+			} else if (node.nodeType === Node.ELEMENT_NODE) {
+				const el = node as HTMLElement;
+				if (el.dataset.groupRaw !== undefined) {
+					triggerIndex += el.dataset.groupRaw.length;
+				} else if (el.dataset.variableRaw !== undefined) {
+					triggerIndex += el.dataset.variableRaw.length;
+				} else if (el.dataset.resourceMarker !== undefined) {
+					triggerIndex += el.dataset.resourceMarker.length;
+				} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
+					triggerIndex += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
+				} else if (el.tagName === 'BR') {
+					triggerIndex += 1;
+				} else {
+					for (const child of Array.from(node.childNodes)) {
+						if (countCharsUntilTrigger(child)) return true;
+					}
+				}
+			}
+			return false;
+		}
+
+		for (const child of Array.from(editorRef.childNodes)) {
+			if (countCharsUntilTrigger(child)) break;
+		}
+
+		closeResourcePicker();
+		if (!foundTrigger) return;
+
+		const { value: fullText, chips: existingChips } = extractContentFromDOM(editorRef, chips);
+		const marker = encodeResourceMarker(field, itemKey);
+		const newValue = fullText.substring(0, triggerIndex) + marker + fullText.substring(triggerIndex + typedLength);
+		const newCursorOffset = triggerIndex + marker.length;
+
+		const resourceId = `res-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		const newResources = { ...resources, [resourceId]: { field, item_key: itemKey } };
+		resources = newResources;
+
+		isInternalUpdate = true;
+		editorRef.innerHTML = '';
+		const segments = parseValueToSegments(newValue, existingChips, newResources);
+		segments.forEach((segment) => {
+			editorRef.appendChild(buildSegmentNode(segment));
+		});
+		mountChips();
+		mountGroups();
+		mountVariables();
+		mountResourceChips();
+		isInternalUpdate = false;
+		lastSyncedValue = newValue;
+		refreshTriggerHighlights(newValue);
+
+		tick().then(() => placeCaretAtCharOffset(editorRef, chips, newCursorOffset));
+
+		dispatchChange(newValue, existingChips);
+	}
+
+	function closeResourcePicker() {
+		isResourcePickerOpen = false;
+		resourceGroupField = null;
+		resourceQuery = '';
+		resourceTriggerNode = null;
+		resourceTriggerOffset = -1;
+		resourceSelectedIndex = 0;
 	}
 
 	// =====================
@@ -844,6 +1160,12 @@
 		handleInput();
 	}
 
+	export function insertResourceTrigger(): void {
+		if (isDisabled) return;
+		insertTextAtCaret('@');
+		handleInput();
+	}
+
 	/**
 	 * Insert `${name}` at the trigger span. Plain text, not a chip — usages
 	 * don't need their own editable widget, just the correct syntax.
@@ -908,13 +1230,14 @@
 
 		isInternalUpdate = true;
 		editorRef.innerHTML = '';
-		const segments = parseValueToSegments(newValue, existingChips);
+		const segments = parseValueToSegments(newValue, existingChips, resources);
 		segments.forEach((segment) => {
 			editorRef.appendChild(buildSegmentNode(segment));
 		});
 		mountChips();
 		mountGroups();
 		mountVariables();
+		mountResourceChips();
 		isInternalUpdate = false;
 		lastSyncedValue = newValue;
 		lastGroupCount = countChoiceGroups(newValue);
@@ -923,7 +1246,7 @@
 
 		tick().then(() => placeCaretAtCharOffset(editorRef, chips, newCursorOffset));
 
-		dispatch('change', { value: newValue, chips: existingChips });
+		dispatchChange(newValue, existingChips);
 	}
 
 	// =====================
@@ -939,7 +1262,7 @@
 		// value itself changed (shuffle / pick), same as the external sync path.
 		remountChip(chipId, updatedData, valueChanged);
 
-		dispatch('change', { value, chips: newChips });
+		dispatchChange(value, newChips);
 	}
 
 	function remountChip(chipId: string, chipData: ChipData, animate: boolean = false) {
@@ -1007,7 +1330,7 @@
 		// Extract content
 		const { value: newValue } = extractContentFromDOM(editorRef, chips);
 
-		dispatch('change', { value: newValue, chips: newChips });
+		dispatchChange(newValue, newChips);
 	}
 
 	async function handleChipDeactivate(chipId: string, chipData: ChipData) {
@@ -1072,7 +1395,7 @@
 
 		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
 		lastGroupCount = countChoiceGroups(newValue);
-		dispatch('change', { value: newValue, chips: newChips });
+		dispatchChange(newValue, newChips);
 	}
 
 	function handleGroupRemove(container: HTMLElement) {
@@ -1089,7 +1412,7 @@
 
 		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
 		lastGroupCount = countChoiceGroups(newValue);
-		dispatch('change', { value: newValue, chips: newChips });
+		dispatchChange(newValue, newChips);
 	}
 
 	function mountGroups() {
@@ -1165,7 +1488,7 @@
 
 		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
 		lastVariableUsageCount = countVariableUsages(newValue);
-		dispatch('change', { value: newValue, chips: newChips });
+		dispatchChange(newValue, newChips);
 	}
 
 	function mountVariables() {
@@ -1233,6 +1556,89 @@
 		mountVariables();
 	}
 
+	function mountResourceChips() {
+		if (!editorRef) return;
+
+		const currentTrackIds = new Set<string>();
+		const containers = editorRef.querySelectorAll('.resource-chip-container');
+
+		containers.forEach((container) => {
+			const el = container as HTMLElement;
+			if (!el.dataset.resourceTrackId) {
+				el.dataset.resourceTrackId = el.dataset.resourceId || `res-slot-${resourceSlotCounter++}`;
+			}
+			const trackId = el.dataset.resourceTrackId;
+			currentTrackIds.add(trackId);
+
+			if (container.querySelector('.resource-chip')) return;
+
+			const ref =
+				(el.dataset.resourceId && resources[el.dataset.resourceId]) ||
+				parseResourceMarker(el.dataset.resourceMarker || '');
+			if (!ref) return;
+
+			const state = resourceMarkerState(ref, promptResources, resourceFieldValues);
+			const item =
+				state.spec && state.position !== null ? itemAtPosition(resourceFieldValues[ref.field], state.position) : undefined;
+
+			const component = mount(PromptResourceChip, {
+				target: container,
+				props: {
+					field: ref.field,
+					itemKey: ref.item_key,
+					spec: state.spec,
+					position: state.position,
+					item,
+					fieldLabel: resourceFieldLabels[ref.field],
+					disabled: isDisabled,
+					onRemove: () => handleResourceRemove(el)
+				}
+			});
+			mountedResourceComponents.set(trackId, component);
+		});
+
+		for (const [trackId, component] of mountedResourceComponents) {
+			if (!currentTrackIds.has(trackId)) {
+				unmount(component);
+				mountedResourceComponents.delete(trackId);
+			}
+		}
+	}
+
+	function handleResourceRemove(container: HTMLElement) {
+		if (!editorRef) return;
+		const trackId = container.dataset.resourceTrackId;
+		if (trackId) {
+			const existing = mountedResourceComponents.get(trackId);
+			if (existing) {
+				unmount(existing);
+				mountedResourceComponents.delete(trackId);
+			}
+		}
+		container.remove();
+
+		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
+		dispatchChange(newValue, newChips);
+	}
+
+	function remountAllResourceChips() {
+		if (!editorRef) return;
+		const containers = editorRef.querySelectorAll('.resource-chip-container');
+		containers.forEach((container) => {
+			const el = container as HTMLElement;
+			const trackId = el.dataset.resourceTrackId;
+			if (trackId) {
+				const existing = mountedResourceComponents.get(trackId);
+				if (existing) {
+					unmount(existing);
+					mountedResourceComponents.delete(trackId);
+				}
+			}
+			el.innerHTML = '';
+		});
+		mountResourceChips();
+	}
+
 	// =====================
 	// Turning a just-closed {a|b|c} into a chip mid-typing
 	// =====================
@@ -1246,13 +1652,14 @@
 
 		isInternalUpdate = true;
 		editorRef.innerHTML = '';
-		const segments = parseValueToSegments(newValue, newChips);
+		const segments = parseValueToSegments(newValue, newChips, resources);
 		segments.forEach((segment) => {
 			editorRef.appendChild(buildSegmentNode(segment));
 		});
 		mountChips();
 		mountGroups();
 		mountVariables();
+		mountResourceChips();
 		isInternalUpdate = false;
 		lastSyncedValue = newValue;
 		refreshTriggerHighlights(newValue);
@@ -1294,6 +1701,7 @@
 			mountChips();
 			mountGroups();
 			mountVariables();
+			mountResourceChips();
 			isInternalUpdate = false;
 			refreshTriggerHighlights(value);
 		});
@@ -1366,6 +1774,7 @@
 			mountChips();
 			mountGroups();
 			mountVariables();
+			mountResourceChips();
 			isInternalUpdate = false;
 			refreshTriggerHighlights(value);
 		}
@@ -1385,6 +1794,10 @@
 			unmount(component);
 		}
 		mountedVariableComponents.clear();
+		for (const [trackId, component] of mountedResourceComponents) {
+			unmount(component);
+		}
+		mountedResourceComponents.clear();
 		clearOwnerTriggerHighlightRanges(triggerHighlightOwner);
 	});
 
@@ -1497,6 +1910,29 @@
 			}
 		}
 	}
+
+	function hashResourceFieldValues(values: Record<string, unknown>): string {
+		return Object.entries(values)
+			.map(([field, fieldValue]) => `${field}:${mediaFieldItems(fieldValue).map((item) => mediaItemKey(item) ?? '').join(',')}`)
+			.sort()
+			.join('|');
+	}
+
+	function hashPromptResourceSpecs(specs: PromptResourceSpec[]): string {
+		return specs.map((spec) => `${spec.field}:${spec.kind}:${spec.token}`).sort().join('|');
+	}
+
+	let lastResourceFieldValuesHash: string | null = null;
+	$: {
+		const currentHash = `${hashResourceFieldValues(resourceFieldValues)}::${hashPromptResourceSpecs(promptResources)}`;
+		if (editorRef && !isInternalUpdate) {
+			const step = stepVariablesHash(currentHash, lastResourceFieldValuesHash);
+			lastResourceFieldValuesHash = step.nextHash;
+			if (step.shouldRemount) {
+				tick().then(remountAllResourceChips);
+			}
+		}
+	}
 </script>
 
 <div class="relative {flow ? 'inline' : 'w-full'}" bind:this={containerRef}>
@@ -1570,6 +2006,28 @@
 			onClose={closeVariablePicker}
 			parentRef={containerRef}
 			contextLabel="Variables"
+			{variant}
+		/>
+	{/if}
+
+	{#if isResourcePickerOpen}
+		<AutocompleteDropdown
+			categories={resourceGroupField ? [] : resourceGroupCategories}
+			suggestions={resourceGroupField ? resourceItemSuggestions : []}
+			selectedIndex={resourceSelectedIndex}
+			onSelectCategory={(category) => handleSelectResourceGroup(category.id)}
+			onSelectValue={(suggestion) => handleSelectResourceItem(suggestion.id)}
+			isLoading={false}
+			currentPath={resourceGroupField
+				? `${activeResourceSpec ? resourceGroupLabel(activeResourceSpec) : resourceGroupField}.${resourceQuery}`
+				: resourceQuery}
+			triggerChar="@"
+			emptyHint="Prompt references — type @ to pick a picture, video, or audio reference"
+			onClose={closeResourcePicker}
+			onNavigateUp={handleNavigateUpResource}
+			parentRef={containerRef}
+			getImageUrl={(url) => url}
+			contextLabel="References"
 			{variant}
 		/>
 	{/if}

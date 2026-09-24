@@ -65,6 +65,9 @@
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { formValidationStore } from '$lib/stores/formValidation';
 	import { classifyGenerationStartError } from '$lib/utils/formValidationErrors';
+	import { getPresetPromptResources } from '$lib/utils/presetPromptResourcesCache';
+	import type { PromptResourceSpec } from '$lib/utils/promptResources';
+	import { firstResourceIssue } from '$lib/utils/generationResourceReadiness';
 	import { resolveDefaultModeSelection } from '$lib/utils/modeAutoSelect';
 	import { buildModeSwitchPatch, seedModeStateFromSessionData } from '$lib/utils/modeState';
 	import { describePresetsEmptyState } from '$lib/utils/presetsEmptyState';
@@ -506,6 +509,27 @@
 			readiness = null;
 		} finally {
 			readinessLoading = false;
+		}
+	}
+
+	let currentTabPromptResources: PromptResourceSpec[] = [];
+	$: {
+		const preset = currentTab.selectedPreset;
+		const mode = currentTab.selectedMode;
+		const formName = currentTab.selectedVariant ?? undefined;
+		if (preset && mode) {
+			getPresetPromptResources(preset, mode, formName).then((result) => {
+				if (
+					currentTab.selectedPreset !== preset ||
+					currentTab.selectedMode !== mode ||
+					(currentTab.selectedVariant ?? undefined) !== formName
+				) {
+					return;
+				}
+				currentTabPromptResources = result.specs;
+			});
+		} else {
+			currentTabPromptResources = [];
 		}
 	}
 
@@ -1822,12 +1846,30 @@
 			}
 		}
 
-		canGenerate = !!currentTab.selectedPreset && hasPrompt;
+		let resourceIssue: string | undefined;
+		if (!promptlessActive && !videoDirectorActive && !musicDirectorActive && !promptRelayActive) {
+			const currentNumPrompts = presetVars[currentTab.selectedPreset || '']?.num_prompts || 1;
+			const formValues = currentTab.formData || {};
+			resourceIssue =
+				currentNumPrompts > 1 && currentTab.promptTabs && currentTab.promptTabs.length > 0
+					? firstResourceIssue(
+							currentTab.promptTabs.flatMap((promptTab) => [promptTab.promptSegments, promptTab.negativePromptSegments]),
+							currentTabPromptResources,
+							formValues
+						)
+					: firstResourceIssue(
+							[currentTab.promptSegments, currentTab.negativePromptSegments],
+							currentTabPromptResources,
+							formValues
+						);
+		}
+
+		canGenerate = !!currentTab.selectedPreset && hasPrompt && !resourceIssue;
 		generateDisabledReason = canGenerate
 			? undefined
 			: !currentTab.selectedPreset
 				? 'Select a preset to generate'
-				: noPromptReason;
+				: resourceIssue || noPromptReason;
 	}
 
 	// Workbench event handlers

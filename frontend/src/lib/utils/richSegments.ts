@@ -6,6 +6,7 @@ import type {
 	SegmentCategory,
 	SegmentTemplate
 } from '$lib/types/segments';
+import type { ResourceRef } from '$lib/utils/promptResources';
 import { richTextToPlainText } from '$lib/utils/richTextUtils';
 import { randomUUID } from '$lib/utils/uuid';
 
@@ -27,6 +28,12 @@ export function cloneChips(chips: Record<string, ChipData> = {}): Record<string,
 	return Object.fromEntries(Object.entries(chips).map(([id, chip]) => [id, cloneChipData(chip)]));
 }
 
+export function cloneResources(
+	resources: Record<string, ResourceRef> = {}
+): Record<string, ResourceRef> {
+	return Object.fromEntries(Object.entries(resources).map(([id, ref]) => [id, { ...ref }]));
+}
+
 /** Legacy editor sessions may only carry `isDisabled`; the persistent contract uses `enabled`. */
 export function isSegmentEnabled(segment: Pick<Segment, 'enabled' | 'isDisabled'> | RichSegment): boolean {
 	if (typeof segment.enabled === 'boolean') return segment.enabled;
@@ -40,6 +47,9 @@ export function toRichSegment(segment: Segment | RichSegment): RichSegment {
 		type: segment.type === 'break' ? 'break' : 'content',
 		content: segment.content ?? '',
 		chips: cloneChips(segment.chips || {}),
+		...(segment.resources && Object.keys(segment.resources).length
+			? { resources: cloneResources(segment.resources) }
+			: {}),
 		enabled: isSegmentEnabled(segment),
 		...((segment.name ?? editorSegment.title) ? { name: (segment.name ?? editorSegment.title) as string } : {}),
 		...(segment.color ? { color: segment.color } : {}),
@@ -61,6 +71,9 @@ export function toEditorSegment(
 		type: rich.type,
 		content: rich.content,
 		chips: cloneChips(rich.chips),
+		...(rich.resources && Object.keys(rich.resources).length
+			? { resources: cloneResources(rich.resources) }
+			: {}),
 		enabled: rich.enabled,
 		// Keep generation/session callers correct until all legacy readers migrate.
 		isDisabled: !rich.enabled,

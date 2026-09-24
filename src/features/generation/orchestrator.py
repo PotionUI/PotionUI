@@ -83,6 +83,7 @@ from src.features.music_director import (
     normalize_music_director,
 )
 from src.features.forms.binding import bind_form, FormBindingError
+from src.features.prompt.resources import resolve_generation_prompts
 from src.features.generation.memory_advisory import (
     _WEIGHT_LOAD_MARGIN,
     _activation_headroom_gb,
@@ -946,6 +947,14 @@ class GenerationOrchestrator:
 
                 # Update request with potentially modified (and re-validated) form_data
                 request.form_data = form_data
+
+            resolve_generation_prompts(
+                preset_template,
+                mode,
+                getattr(request, 'prompts', None),
+                getattr(request, 'segments', None),
+                request.form_data or {},
+            )
 
             # Rewrite each model reference into the engine-native string the selected
             # backend expects, before anything is persisted: a ModelRefNotAvailableError /

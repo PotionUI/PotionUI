@@ -68,6 +68,7 @@ _KNOWN_SAMPLING_FAMILIES = frozenset({
 # is legitimate even though no field defines it, so the form-reference check
 # treats them as known.
 _INJECTED_FORM_KEYS = frozenset({"video_director", "music_director", "timeline", "llm", "prompt_timeline"})
+_PROMPT_RESOURCE_FIELD_TYPES = frozenset({"image", "video", "audio", "media"})
 
 # `{{ loop.index }}` / `{{ loop.index0 }}` inside a form `@loop` template's
 # field names, expanded statically (1..count / 0..count-1) so the generated
@@ -489,6 +490,8 @@ class PresetLinter:
 
         issues.extend(self._lint_segment_templates(preset_file, manifest))
 
+        issues.extend(self._lint_prompt_resources(preset_file, manifest))
+
         issues.extend(self._lint_requirements(preset_file, manifest))
 
         issues.extend(self._lint_tests_yml(preset_file, manifest))
@@ -667,6 +670,77 @@ class PresetLinter:
 
         return issues
 
+    def _lint_prompt_resources(self, preset_file: Path, manifest) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+        for mode_name, entries in (manifest.prompt_resources or {}).items():
+            loc = f"preset.yml: prompt_resources.{mode_name}"
+            mode_dir = preset_file.parent / "modes" / mode_name
+            if mode_name not in manifest.modes or not mode_dir.exists():
+                issues.append(LintIssue("error", preset_str, f"{loc}: '{mode_name}' is not a mode of this preset"))
+                continue
+            field_types: Dict[str, set] = {}
+            for _variant_name, form_dir in discover_form_variants(mode_dir):
+                try:
+                    with open(form_dir / "form.yml", 'r', encoding='utf-8') as f:
+                        form_data = yaml.safe_load(f) or {}
+                except Exception:
+                    continue
+                self._collect_field_types(form_data.get("fields", []), preset_file.parent, field_types)
+            for entry in entries:
+                types = field_types.get(entry.field)
+                if not types:
+                    issues.append(LintIssue(
+                        "error", preset_str,
+                        f"{loc}: field '{entry.field}' is not a field of any '{mode_name}' form",
+                    ))
+                    continue
+                non_media = sorted(t for t in types if t not in _PROMPT_RESOURCE_FIELD_TYPES)
+                if non_media:
+                    issues.append(LintIssue(
+                        "error", preset_str,
+                        f"{loc}: field '{entry.field}' has type {non_media}; only media picker fields "
+                        f"({sorted(_PROMPT_RESOURCE_FIELD_TYPES)}) can be referenced from the prompt",
+                    ))
+                    continue
+                mismatched = sorted(t for t in types if t != "media" and t != entry.kind)
+                if mismatched:
+                    issues.append(LintIssue(
+                        "error", preset_str,
+                        f"{loc}: field '{entry.field}' is a {mismatched} field but is mapped as kind '{entry.kind}'",
+                    ))
+        return issues
+
+    def _collect_field_types(self, node, preset_root: Path, acc: Dict[str, set]) -> None:
+        if isinstance(node, list):
+            for item in node:
+                self._collect_field_types(item, preset_root, acc)
+            return
+        if not isinstance(node, dict):
+            return
+        if node.get("type") == "@loop":
+            cfg = node.get("configuration") or {}
+            template = cfg.get("template")
+            count = cfg.get("count")
+            if template is not None and isinstance(count, int) and not isinstance(count, bool):
+                for i in range(1, count + 1):
+                    self._collect_field_types(self._expand_loop_indices(template, i), preset_root, acc)
+            return
+        name = node.get("name")
+        field_type = node.get("type")
+        if isinstance(name, str) and "{{" not in name and isinstance(field_type, str):
+            acc.setdefault(name, set()).add(field_type)
+        children = node.get("children")
+        if isinstance(children, str):
+            try:
+                with open(self._resolve_children_path(children, preset_root), 'r', encoding='utf-8') as f:
+                    frag_data = yaml.safe_load(f) or {}
+            except Exception:
+                return
+            self._collect_field_types(frag_data.get("fields", []), preset_root, acc)
+        elif isinstance(children, list):
+            self._collect_field_types(children, preset_root, acc)
+
     def _lint_segment_templates(self, preset_file: Path, manifest) -> List[LintIssue]:
         """Cross-checks `vars.prompt.segment_templates` and its per-mode override
         under `vars.prompt.modes.<mode>.segment_templates` (see
@@ -754,6 +828,15 @@ class PresetLinter:
                             preset_str,
                             f"{segment_path}: 'chips' is not allowed in a preset-declared segment "
                             f"(a preset cannot know a user's phrasebook)",
+                        )
+                    )
+                if "resources" in segment:
+                    issues.append(
+                        LintIssue(
+                            "warning",
+                            preset_str,
+                            f"{segment_path}: 'resources' is not allowed in a preset-declared segment "
+                            f"(a preset cannot know a user's media)",
                         )
                     )
                 segment_type = segment.get("type", "content")

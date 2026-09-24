@@ -102,7 +102,7 @@ back here for the rest, in the order most authors need them:
 
 1. [Tutorial: Your first native preset](presets/tutorial.md) — scaffold, wire, lint, render.
 2. [preset.yml Reference](presets/manifest.md) — the manifest: `vars:`, speed profiles, admin-set
-   `configuration:`, media, hardware guidance, LLM chat context.
+   `configuration:`, media, hardware guidance, LLM chat context, prompt resources.
 3. [Forms](presets/forms.md) — `form.yml`, tabs, variants, field types, typed defaults, external
    option files, reactions, and the `bind_form`/422 validation contract.
 4. [Pipelines](presets/pipelines.md) — `pipeline.yml`: pipe shape, `enabled:`, the three template
@@ -123,6 +123,14 @@ back here for the rest, in the order most authors need them:
 Reaching for a pipe's exact `name:`, inputs, or config keys, or a template global/filter/context
 root, a `model_type` value, or a built-in field type? Those are the two generated reference pages
 linked below, not this list — they're regenerated from the running code, so they're never stale.
+
+## Prompt resources
+
+A mode can let the prompt reference its media pickers: `prompt_resources:` in `preset.yml` maps a
+field to a token such as `"<Picture @>"`, and a segment's `@[field:item key]` marker becomes that
+token with `@` set to the item's current 1-based position in the field. A marker pointing at a
+removed item or an unmapped field fails the submission with a field-level 422. Full contract:
+[preset.yml Reference → Prompt resources](presets/manifest.md#prompt-resources).
 
 ## See also
 

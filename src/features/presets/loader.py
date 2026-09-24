@@ -296,6 +296,10 @@ class PresetTemplateLoader:
         llm = manifest.llm.model_dump(exclude_none=True) if manifest.llm else None
         requires = manifest.requires.model_dump(exclude_none=True) if manifest.requires else None
         requirements = [entry.model_dump(exclude_none=True) for entry in manifest.requirements]
+        prompt_resources = {
+            mode_name: [entry.model_dump(exclude_none=True) for entry in entries]
+            for mode_name, entries in (manifest.prompt_resources or {}).items()
+        }
         styles, styles_preview = self._load_styles(preset_path)
 
         return PresetTemplate(
@@ -318,6 +322,7 @@ class PresetTemplateLoader:
             llm=llm,
             requires=requires,
             requirements=requirements,
+            prompt_resources=prompt_resources,
         )
 
     _NO_STYLES_PREVIEW: Dict[str, str] = {"prompt_prefix": "", "negative": "", "example_prompt": ""}

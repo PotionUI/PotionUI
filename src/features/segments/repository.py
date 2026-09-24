@@ -206,6 +206,7 @@ class SavedSegmentRepository:
             type=row["type"],
             content=row["content"] or "",
             chips=json_column(row["chips"], {}),
+            resources=json_column(row["resources"], {}),
             enabled=bool(row["is_enabled"]),
             color=override_color,
             effective_color=override_color or category_color,
@@ -271,11 +272,11 @@ class SavedSegmentRepository:
             cursor.execute(
                 """
                 INSERT INTO saved_segments (
-                    id, user_id, category_id, name, type, content, chips,
+                    id, user_id, category_id, name, type, content, chips, resources,
                     is_enabled, color, description, prefix, suffix, tags,
                     created_at, updated_at
                 )
-                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 WHERE EXISTS (
                     SELECT 1 FROM segment_categories WHERE id = ? AND user_id = ?
                 )
@@ -288,6 +289,7 @@ class SavedSegmentRepository:
                     segment.type,
                     segment.content,
                     _json_dumps(segment.chips),
+                    _json_dumps(segment.resources),
                     1 if segment.enabled else 0,
                     segment.color,
                     segment.description,
@@ -310,7 +312,7 @@ class SavedSegmentRepository:
             cursor.execute(
                 """
                 UPDATE saved_segments
-                SET category_id = ?, name = ?, type = ?, content = ?, chips = ?,
+                SET category_id = ?, name = ?, type = ?, content = ?, chips = ?, resources = ?,
                     is_enabled = ?, color = ?, description = ?, prefix = ?, suffix = ?,
                     tags = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ? AND user_id = ?
@@ -324,6 +326,7 @@ class SavedSegmentRepository:
                     segment.type,
                     segment.content,
                     _json_dumps(segment.chips),
+                    _json_dumps(segment.resources),
                     1 if segment.enabled else 0,
                     segment.color,
                     segment.description,
@@ -360,6 +363,7 @@ class SegmentTemplateRepository:
             type=row["type"],
             content=row["content"] or "",
             chips=json_column(row["chips"], {}),
+            resources=json_column(row["resources"], {}),
             enabled=bool(row["is_enabled"]),
             name=row["name"],
             color=row["color"],
@@ -438,9 +442,9 @@ class SegmentTemplateRepository:
             cursor.execute(
                 """
                 INSERT INTO segment_template_segments (
-                    id, template_id, position, type, content, chips, is_enabled,
+                    id, template_id, position, type, content, chips, resources, is_enabled,
                     name, color, description, prefix, suffix
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     generate_ulid(),
@@ -449,6 +453,7 @@ class SegmentTemplateRepository:
                     segment.type,
                     segment.content,
                     _json_dumps(segment.chips),
+                    _json_dumps(segment.resources),
                     1 if segment.enabled else 0,
                     segment.name,
                     segment.color,

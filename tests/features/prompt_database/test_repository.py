@@ -111,6 +111,26 @@ class TestPromptRepository(PersistenceTestBase):
         fetched = self.repository.get_by_id(created.id, self.user_1)
         self.assertEqual(fetched.variables, variables)
 
+    def test_segment_resources_round_trip_through_get_and_bulk_read(self):
+        created = self.repository.create(
+            Prompt(
+                id=generate_ulid(), user_id=self.user_1,
+                segments=[
+                    RichSegment(
+                        content="@[references:uploads/a.png] waves",
+                        resources={"res-1": {"field": "references", "item_key": "uploads/a.png"}},
+                    ),
+                    RichSegment(content="a fox"),
+                ],
+            )
+        )
+
+        fetched = self.repository.get_by_id(created.id, self.user_1)
+        self.assertEqual(fetched.segments[0].resources["res-1"].item_key, "uploads/a.png")
+        self.assertEqual(fetched.segments[1].resources, {})
+        bulk = self.repository.get_by_ids([created.id], self.user_1)
+        self.assertEqual(bulk[0].segments[0].resources["res-1"].field, "references")
+
     def test_variables_default_to_none_and_round_trip_none(self):
         created = self.repository.create(
             Prompt(id=generate_ulid(), user_id=self.user_1, segments=[RichSegment(content="a fox")])

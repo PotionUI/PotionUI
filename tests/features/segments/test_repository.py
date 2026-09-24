@@ -306,3 +306,45 @@ class TestSegmentLibraryRepository(PersistenceTestBase):
         assert fetched is not None
         self.assertEqual(fetched.segments[0].prefix, "(")
         self.assertEqual(fetched.segments[0].suffix, ")")
+
+    def test_saved_segment_resources_round_trip_through_create_and_update(self):
+        category = self.categories.get_all(self.user_1)[0]
+        created = self.segments.create(
+            SavedSegment(
+                id=generate_ulid(),
+                user_id=self.user_1,
+                category_id=category.id,
+                name="Referencing",
+                content="@[references:uploads/a.png] waves",
+                resources={"res-1": {"field": "references", "itemKey": "uploads/a.png"}},
+            )
+        )
+        assert created is not None
+        fetched = self.segments.get_by_id(created.id, self.user_1)
+        assert fetched is not None
+        self.assertEqual(fetched.resources["res-1"].field, "references")
+        self.assertEqual(fetched.resources["res-1"].item_key, "uploads/a.png")
+
+        updated = self.segments.update(created.id, created.model_copy(update={"resources": {}}), self.user_1)
+        assert updated is not None
+        self.assertEqual(self.segments.get_by_id(created.id, self.user_1).resources, {})
+
+    def test_template_child_resources_round_trip(self):
+        original = self.templates.create(
+            SegmentTemplate(
+                id=generate_ulid(),
+                user_id=self.user_1,
+                name="Referencing template",
+                segments=[
+                    RichSegment(
+                        content="@[references:uploads/a.png]",
+                        resources={"res-1": {"field": "references", "item_key": "uploads/a.png"}},
+                    ),
+                    RichSegment(content="a hound"),
+                ],
+            )
+        )
+        fetched = self.templates.get_by_id(original.id, self.user_1)
+        assert fetched is not None
+        self.assertEqual(fetched.segments[0].resources["res-1"].item_key, "uploads/a.png")
+        self.assertEqual(fetched.segments[1].resources, {})

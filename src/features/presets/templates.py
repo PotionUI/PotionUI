@@ -168,6 +168,7 @@ class PresetTemplate:
     # Distinct from `requires` above. Raw dicts (mirrors `speed_profiles`) -
     # evaluated by `src.features.presets.requirements.evaluate_preset_requirements`.
     requirements: List[Dict[str, Any]] = field(default_factory=list)
+    prompt_resources: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
 
     def __post_init__(self):
         # Default to the built-in native engine if not specified

@@ -667,6 +667,43 @@ class PresetLLMSpec(BaseModel):
         return self
 
 
+PROMPT_RESOURCE_INDEX_PLACEHOLDER = "@"
+
+
+class PromptResourceSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    kind: Literal["image", "video", "audio"]
+    label: Optional[str] = None
+    token: str
+
+    @model_validator(mode="after")
+    def _validate_shape(self) -> "PromptResourceSpec":
+        if not self.field or not self.field.strip():
+            raise ValueError("prompt_resources entry needs a non-empty field")
+        if PROMPT_RESOURCE_INDEX_PLACEHOLDER not in self.token:
+            raise ValueError(
+                f"prompt_resources token '{self.token}' for field '{self.field}' must contain "
+                f"'{PROMPT_RESOURCE_INDEX_PLACEHOLDER}' where the item's 1-based position goes"
+            )
+        return self
+
+
+def _validate_prompt_resources(prompt_resources: Dict[str, List[PromptResourceSpec]]) -> List[str]:
+    problems = []
+    for mode, entries in prompt_resources.items():
+        if not mode or not mode.strip():
+            problems.append("prompt_resources keys must be non-empty mode names")
+            continue
+        seen = set()
+        for entry in entries:
+            if entry.field in seen:
+                problems.append(f"prompt_resources.{mode}: field '{entry.field}' is mapped more than once")
+            seen.add(entry.field)
+    return problems
+
+
 # ---------------------------------------------------------------------------
 # preset.yml manifest
 # ---------------------------------------------------------------------------
@@ -706,10 +743,13 @@ class PresetManifest(BaseModel):
     # Typed, checkable requirements evaluated live against this instance -
     # distinct from `requires:` above. See docs/presets.md "Requirements".
     requirements: List[RequirementEntry] = Field(default_factory=list)
+    prompt_resources: Optional[Dict[str, List[PromptResourceSpec]]] = None
 
     @model_validator(mode="after")
     def _validate_business_rules(self) -> "PresetManifest":
         problems = []
+        if self.prompt_resources:
+            problems.extend(_validate_prompt_resources(self.prompt_resources))
         if self.schema_version != 1:
             problems.append(f"Unsupported schema version: {self.schema_version}. Only 1 is supported.")
         if not PRESET_ID_RE.match(self.id):

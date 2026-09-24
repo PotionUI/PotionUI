@@ -367,6 +367,21 @@ llm:
         never suggest prompt text unless they explicitly want the refine's own
         conditioning changed.
 
+prompt_resources:
+  refs:
+    - field: "references"
+      kind: "image"
+      label: "Pictures"
+      token: "<Picture @>"
+    - field: "reference_videos"
+      kind: "video"
+      label: "Videos"
+      token: "<Video @>"
+    - field: "reference_audios"
+      kind: "audio"
+      label: "Audio"
+      token: "<Audio @>"
+
 modes:
   - video
   - refs

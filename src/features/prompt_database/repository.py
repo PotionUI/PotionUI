@@ -88,6 +88,7 @@ class PromptRepository:
                 type=row["type"],
                 content=row["content"] or "",
                 chips=json.loads(row["chips"] or "{}"),
+                resources=json.loads(row["resources"] or "{}"),
                 enabled=bool(row["is_enabled"]),
                 name=row["name"],
                 color=row["color"],
@@ -131,7 +132,8 @@ class PromptRepository:
             for row in cursor.fetchall():
                 result[row["prompt_id"]].append(RichSegment(
                     id=row["id"], type=row["type"], content=row["content"] or "",
-                    chips=json.loads(row["chips"] or "{}"), enabled=bool(row["is_enabled"]),
+                    chips=json.loads(row["chips"] or "{}"), resources=json.loads(row["resources"] or "{}"),
+                    enabled=bool(row["is_enabled"]),
                     name=row["name"], color=row["color"], description=row["description"],
                     prefix=row["prefix"], suffix=row["suffix"],
                 ))
@@ -143,12 +145,13 @@ class PromptRepository:
         for position, segment in enumerate(segments):
             cursor.execute(
                 """INSERT INTO prompt_segments
-                   (id, prompt_id, position, type, content, chips, is_enabled, name, color,
+                   (id, prompt_id, position, type, content, chips, resources, is_enabled, name, color,
                     description, prefix, suffix)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     generate_ulid(), prompt_id, position, segment.type, segment.content,
-                    json.dumps(segment.model_dump()["chips"]), int(segment.enabled), segment.name,
+                    json.dumps(segment.model_dump()["chips"]), json.dumps(segment.model_dump()["resources"]),
+                    int(segment.enabled), segment.name,
                     segment.color, segment.description, segment.prefix, segment.suffix,
                 ),
             )

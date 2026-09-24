@@ -128,6 +128,7 @@ class TestPresetOperationsQuery:
         template.name = "Test Preset"
         template.vars = {"key": "value"}
         template.llm = None
+        template.prompt_resources = {}
 
         mock_mode = Mock(spec=ModeTemplate)
         mock_form = Mock()
@@ -420,6 +421,15 @@ class TestPresetOperationsQuery:
         assert result["preset_id"] == "test-preset"
         assert "form_schema" in result
         assert "debug_info" in result
+
+    def test_get_form_schema_carries_the_modes_prompt_resources(self, collaborators, mock_file_repo, mock_preset_template):
+        pictures = {"field": "references", "kind": "image", "label": "Pictures", "token": "<Picture @>"}
+        mock_preset_template.prompt_resources = {"img2img": [pictures]}
+        mock_file_repo.find_preset_by_id.return_value = mock_preset_template
+        collaborators.form_serializer.process_form_fields.return_value = {"fields": []}
+
+        assert operations.get_form_schema(collaborators, "test-preset", "img2img")["prompt_resources"] == [pictures]
+        assert operations.get_form_schema(collaborators, "test-preset", "txt2img")["prompt_resources"] == []
 
     def test_get_form_schema_default_mode(self, collaborators, mock_file_repo, mock_preset_template):
         """Test getting form schema with default mode."""

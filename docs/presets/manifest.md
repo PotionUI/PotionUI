@@ -32,6 +32,7 @@ The manifest is `PresetManifest` in `src/features/presets/schema.py`, validated 
 | `speed_profiles` | no | mapping | Named generation profiles (e.g. `draft`/`standard`/`max`), read via `get_speed_profile()`. See [Speed profiles](#speed-profiles). |
 | `llm` | no | mapping | Preset/family-level prompting guide + chat-workspace context knobs. See [LLM context](#llm-context). |
 | `requires` | no | mapping | Optional VRAM/RAM guidance shown at preset-choice time. See [Hardware requirements](#hardware-requirements). |
+| `prompt_resources` | no | mapping | Per mode, the media picker fields a prompt may reference with `@`. See [Prompt resources](#prompt-resources). |
 | `modes` | yes | list | Non-empty **list** of mode-name strings (each needs a `modes/<name>/` dir). |
 
 **Removed / rejected** (do not use — they fail validation): a top-level `form:`, an inline
@@ -129,6 +130,44 @@ enabled-segment separator) shares the `vars.prompt` namespace but is unrelated t
 a disallowed `chips`/`type`, or a `modes.<key>` naming a mode the preset doesn't declare) but
 `vars:` itself stays untyped — a malformed template silently renders as nothing in the picker
 rather than failing preset validation.
+
+### Prompt resources
+
+`prompt_resources:` lets the prompt reference items of a mode's media picker fields. The user
+types `@` in a segment, picks one uploaded item, and the model receives the token its own prompt
+convention uses for that item. Keys are mode names; each entry maps one field:
+
+```yaml
+prompt_resources:
+  refs:
+    - field: "references"        # an image/video/audio/media field of this mode's form
+      kind: "image"              # image | video | audio: the group in the @ picker
+      label: "Pictures"          # optional group label
+      token: "<Picture @>"       # @ becomes the item's 1-based position in the field
+    - field: "reference_videos"
+      kind: "video"
+      token: "<Video @>"
+```
+
+A segment stores a reference as the marker `@[<field>:<item key>]` in its `content`, plus an
+entry in its `resources` map (beside `chips`), keyed by the editor's marker id:
+`{"field": "references", "item_key": "storage/uploads/cat.png"}`. The item key is the item's
+stored path: `relative_path`, else `path`, else `url` for an object item, or the string itself.
+
+At submit, before prompt expansion, every marker in the positive and negative prompts becomes
+the field's token with `@` replaced by the item's position in the field's **current** value, so
+reordering the pickers renumbers the prompt. Each field counts on its own (`<Picture 1>` and
+`<Video 1>` can both exist). Text that already says `<Picture 2>` is left alone.
+
+A marker whose field this mode does not map, or whose item is no longer in the field, stops the
+generation with the same 422 `form_validation_failed` response as any other form error, keyed by
+the field name. The form endpoint (`GET /api/presets/{id}/form?mode=...`) returns the mode's list
+as `prompt_resources` next to `form_schema`.
+
+`scripts/preset_lint.py` rejects a token without `@`, an unknown `kind`, a field mapped twice, a
+mode the preset does not declare, a field no form of that mode has, a non-media field, and a
+`kind` that contradicts an `image`/`video`/`audio` field's type. Only map a token the model was
+trained on (see its `llm:` guide or model notes); leave a field out rather than invent one.
 
 ## Speed profiles
 

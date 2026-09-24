@@ -50,6 +50,23 @@ class PhrasebookChip(BaseModel):
         return data
 
 
+class PromptResourceRef(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    field: str
+    item_key: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_camel_case(cls, value):
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        if "item_key" not in data and "itemKey" in data:
+            data["item_key"] = data["itemKey"]
+        return data
+
+
 class RichSegment(BaseModel):
     """The persistent, editor-portable subset of a prompt segment.
 
@@ -64,6 +81,7 @@ class RichSegment(BaseModel):
     type: Literal["content", "break"] = "content"
     content: str = ""
     chips: Dict[str, PhrasebookChip] = Field(default_factory=dict)
+    resources: Dict[str, PromptResourceRef] = Field(default_factory=dict)
     enabled: bool = True
     name: Optional[str] = None
     color: Optional[str] = None
@@ -128,6 +146,7 @@ class SavedSegment(BaseModel):
     type: Literal["content", "break"] = "content"
     content: str = ""
     chips: Dict[str, PhrasebookChip] = Field(default_factory=dict)
+    resources: Dict[str, PromptResourceRef] = Field(default_factory=dict)
     enabled: bool = True
     color: Optional[str] = None
     effective_color: Optional[str] = None
@@ -144,6 +163,7 @@ class SavedSegment(BaseModel):
             type=self.type,
             content=self.content,
             chips=self.chips,
+            resources=self.resources,
             enabled=self.enabled,
             name=self.name,
             color=self.effective_color,
@@ -159,6 +179,7 @@ class SavedSegmentRequest(BaseModel):
     type: Literal["content", "break"] = "content"
     content: str = ""
     chips: Dict[str, PhrasebookChip] = Field(default_factory=dict)
+    resources: Dict[str, PromptResourceRef] = Field(default_factory=dict)
     enabled: bool = True
     color: Optional[str] = None
     description: Optional[str] = None

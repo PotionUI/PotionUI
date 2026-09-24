@@ -72,6 +72,13 @@ llm:
     change you want in the prompt (e.g. "change the sign text to ..."), not the
     whole scene from scratch.
 
+prompt_resources:
+  edit:
+    - field: "source_image"
+      kind: "image"
+      label: "Images"
+      token: "<image@>"
+
 modes:
   - txt2img
   - edit

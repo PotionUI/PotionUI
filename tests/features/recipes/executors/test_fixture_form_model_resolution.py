@@ -191,8 +191,8 @@ def test_collect_model_field_specs_recurses_into_children():
 
     specs = _collect_model_field_specs(fields)
 
-    assert {"name": "model", "model_type": "checkpoint"} in specs
-    assert {"name": "upscaler_model", "model_type": "upscaler"} in specs
+    assert {"name": "model", "model_type": "checkpoint", "recommended": set()} in specs
+    assert {"name": "upscaler_model", "model_type": "upscaler", "recommended": set()} in specs
     assert len(specs) == 2
 
 
@@ -282,3 +282,25 @@ def test_resolve_model_fields_fails_when_no_variant_is_installed():
             model_repository=FakeModelRepository(),
             selections={"dit": "bf16"},
         )
+
+
+def test_two_artifacts_of_one_model_type_go_to_the_fields_that_recommend_them():
+    video = RecipeArtifact(id="video-vae", kind="vae", model_type="vae", filename="video_vae.safetensors", display_name="Video VAE")
+    audio = RecipeArtifact(id="audio-vae", kind="vae", model_type="vae", filename="audio_vae.safetensors", display_name="Audio VAE")
+    recipe = Recipe(id="h3", schema_version=1, version=1, name="H3", engine="native", artifacts=[video, audio])
+    fields = [
+        {"name": "vae", "type": "model", "configuration": {"model_type": "vae", "recommendations": [{"name": "video_vae.safetensors"}]}},
+        {"name": "audio_vae", "type": "model", "configuration": {"model_type": "vae", "recommendations": [{"name": "audio_vae.safetensors"}]}},
+    ]
+    repo = FakeModelRepository({
+        ("vae", "video_vae.safetensors"): FakeModel("/m/video_vae.safetensors"),
+        ("vae", "audio_vae.safetensors"): FakeModel("/m/audio_vae.safetensors"),
+    })
+    form_data = {
+        "vae": "/SETUP-CHECK/models/vae.safetensors",
+        "audio_vae": "/SETUP-CHECK/models/audio_vae.safetensors",
+    }
+
+    _resolve_model_fields(fields, form_data, recipe=recipe, model_repository=repo)
+
+    assert form_data == {"vae": "/m/video_vae.safetensors", "audio_vae": "/m/audio_vae.safetensors"}

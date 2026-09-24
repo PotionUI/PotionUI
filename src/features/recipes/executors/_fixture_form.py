@@ -115,11 +115,11 @@ def _inject_unresolvable_defaults(fields: List[Any], form_data: Dict[str, Any]) 
             _inject_unresolvable_defaults(children, form_data)
 
 
-def _collect_model_field_specs(fields: List[Any]) -> List[Dict[str, str]]:
+def _collect_model_field_specs(fields: List[Any]) -> List[Dict[str, Any]]:
     """Flatten every `model`/`models`-typed field in `fields` (recursing into
     `children`) into `{"name", "model_type"}` pairs. `lora_picker` fields are
     handled separately (always `[]`, never a fixture path) and excluded."""
-    specs: List[Dict[str, str]] = []
+    specs: List[Dict[str, Any]] = []
     for field_obj in fields:
         name = _field_get(field_obj, "name")
         field_type = _field_get(field_obj, "type")
@@ -130,11 +130,44 @@ def _collect_model_field_specs(fields: List[Any]) -> List[Dict[str, str]]:
                 if isinstance(configuration, dict)
                 else "checkpoint"
             )
-            specs.append({"name": name, "model_type": model_type})
+            recommendations = configuration.get("recommendations") if isinstance(configuration, dict) else None
+            recommended = set()
+            for entry in recommendations or []:
+                if isinstance(entry, dict):
+                    for key in ("name", "sha256"):
+                        if entry.get(key):
+                            recommended.add(str(entry[key]).lower())
+            specs.append({"name": name, "model_type": model_type, "recommended": recommended})
         children = _field_get(field_obj, "children")
         if children and isinstance(children, list):
             specs.extend(_collect_model_field_specs(children))
     return specs
+
+
+def _artifact_identities(artifact: Any) -> set:
+    identities = {str(artifact.filename).lower()} if getattr(artifact, "filename", None) else set()
+    checksum = getattr(artifact, "checksum", None)
+    value = getattr(checksum, "value", None) if checksum is not None else None
+    if value:
+        identities.add(str(value).lower())
+    for variant in getattr(artifact, "variants", None) or ():
+        if getattr(variant, "filename", None):
+            identities.add(str(variant.filename).lower())
+        variant_checksum = getattr(variant, "checksum", None)
+        variant_value = getattr(variant_checksum, "value", None) if variant_checksum is not None else None
+        if variant_value:
+            identities.add(str(variant_value).lower())
+    return identities
+
+
+def _artifact_for_field(candidates: List[Any], recommended: set) -> Optional[Any]:
+    if not candidates:
+        return None
+    if recommended:
+        for artifact in candidates:
+            if _artifact_identities(artifact) & recommended:
+                return artifact
+    return candidates[0]
 
 
 def _resolve_model_fields(
@@ -173,15 +206,15 @@ def _resolve_model_fields(
     if not specs:
         return
 
-    artifacts_by_type: Dict[str, Any] = {}
+    artifacts_by_type: Dict[str, List[Any]] = {}
     for artifact in getattr(recipe, "artifacts", None) or []:
-        artifacts_by_type.setdefault(artifact.model_type, artifact)
+        artifacts_by_type.setdefault(artifact.model_type, []).append(artifact)
 
     for spec in specs:
         name = spec["name"]
         if form_data.get(name) != _model_sentinel(name):
             continue  # already a real default/value - leave it alone
-        artifact = artifacts_by_type.get(spec["model_type"])
+        artifact = _artifact_for_field(artifacts_by_type.get(spec["model_type"]) or [], spec["recommended"])
         if artifact is None:
             form_data[name] = ""
             continue

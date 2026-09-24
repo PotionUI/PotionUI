@@ -396,7 +396,7 @@
 											<Badge size="sm" variant="success">Installed</Badge>
 										{/if}
 										<span class="font-mono">{recipe.engine}</span>
-										{#each recipe.presets as linkedPreset (linkedPreset.id)}
+										{#each recipe.presets ?? [] as linkedPreset (linkedPreset.id)}
 											<span>{linkedPreset.name}</span>
 										{/each}
 										{#if recipe.total_download_bytes != null}

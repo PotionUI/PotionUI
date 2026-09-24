@@ -141,6 +141,18 @@ describe('RecipesTab card grid', () => {
 		expect(grid.textContent).toContain('installed');
 	});
 
+	it('renders cards when the list payload carries no presets field', async () => {
+		setupApi();
+		const { presets: _omit, ...withoutPresets } = recipe();
+		(api.api.listRecipes as any).mockResolvedValue({ recipes: [withoutPresets] });
+		mounted = mount();
+		await settle();
+
+		const grid = catalogGrid(mounted.target);
+		expect(grid.textContent).toContain('Krea-2 Starter');
+		expect(grid.querySelector('[data-recipe-sets-up]')).toBeNull();
+	});
+
 	it('opens the recipe detail view when a card is activated', async () => {
 		setupApi();
 		mounted = mount();

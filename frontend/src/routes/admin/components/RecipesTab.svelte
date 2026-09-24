@@ -549,11 +549,11 @@
 									</DetailSection>
 
 									<DetailSection label="Sets up">
-										{#if detail.presets.length === 0}
+										{#if (detail.presets ?? []).length === 0}
 											<p class="text-sm text-fg-muted">This recipe installs no presets.</p>
 										{:else}
 											<ul class="space-y-1.5" data-recipe-sets-up>
-												{#each detail.presets as linkedPreset (linkedPreset.id)}
+												{#each detail.presets ?? [] as linkedPreset (linkedPreset.id)}
 													<li>
 														<a
 															class="flex items-center gap-3 rounded border border-line bg-surface-1 px-3 py-2 hover:border-line-hover"

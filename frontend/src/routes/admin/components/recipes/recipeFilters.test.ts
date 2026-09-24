@@ -24,11 +24,10 @@ function recipe(overrides: Partial<RecipeSummary> = {}): RecipeSummary {
 		category: 'image',
 		artifact_count: 1,
 		step_count: 5,
-		preset_ids: ['sdxl/base'],
+		presets: [{ id: 'sdxl/base', name: 'SDXL', cover_url: null, installed: false }],
 		source: 'marketplace',
 		plugin_id: null,
 		total_download_bytes: 1000,
-		preset_name: 'SDXL',
 		last_completed_at: null,
 		...overrides
 	};

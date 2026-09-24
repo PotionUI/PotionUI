@@ -92,6 +92,7 @@ class RecipeCatalog:
         self.plugin_registry = plugin_registry
         self.step_kind_registry = step_kind_registry
         self._recipes: Dict[str, Recipe] = {}
+        self._by_preset: Dict[str, List[str]] = {}
         #: source path (str) -> list of human-readable issue strings, for any
         #: file that failed to parse/validate or collided with another recipe's id.
         self.load_errors: Dict[str, List[str]] = {}
@@ -184,7 +185,15 @@ class RecipeCatalog:
         if not any_root_exists:
             logger.debug("Recipes directory '%s' does not exist; catalog is empty", self.recipes_dir)
 
+        by_preset: Dict[str, List[str]] = {}
+        for recipe in sorted(recipes.values(), key=lambda r: r.id):
+            for preset_ref in recipe.presets:
+                ids = by_preset.setdefault(preset_ref.preset_id, [])
+                if recipe.id not in ids:
+                    ids.append(recipe.id)
+
         self._recipes = recipes
+        self._by_preset = by_preset
         self.load_errors = errors
         self._loaded = True
 
@@ -209,3 +218,14 @@ class RecipeCatalog:
         if version is not None and recipe.version != version:
             return None
         return recipe
+
+    def recipes_for_preset(self, preset_id: str) -> List[Recipe]:
+        self._ensure_loaded()
+        return [self._recipes[recipe_id] for recipe_id in self._by_preset.get(preset_id, [])]
+
+    def preset_recipe_index(self) -> Dict[str, List[Recipe]]:
+        self._ensure_loaded()
+        return {
+            preset_id: [self._recipes[recipe_id] for recipe_id in recipe_ids]
+            for preset_id, recipe_ids in self._by_preset.items()
+        }

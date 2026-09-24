@@ -34,7 +34,7 @@ export function resolveInstallModelsTarget(
 	if (!isAdmin || !recipes || recipes.length === 0) return null;
 
 	if (presetId) {
-		const matches = recipes.filter((recipe) => recipe.preset_ids?.includes(presetId));
+		const matches = recipes.filter((recipe) => (recipe.presets ?? []).some((preset) => preset.id === presetId));
 		if (matches.length === 1) return deepLink(matches[0].id);
 		if (matches.length > 1) return { href: TAB_HREF, label: LABEL };
 	}

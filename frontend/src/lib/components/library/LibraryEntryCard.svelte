@@ -13,6 +13,7 @@
 		description = null,
 		nameSuffix,
 		topRight,
+		details,
 		footer
 	}: {
 		icon: string;
@@ -24,6 +25,7 @@
 		description?: string | null;
 		nameSuffix?: Snippet;
 		topRight?: Snippet;
+		details?: Snippet;
 		footer: Snippet;
 	} = $props();
 
@@ -64,6 +66,8 @@
 	{#if !dense && description}
 		<p class="line-clamp-2 text-xs leading-relaxed {muted ? 'text-fg-subtle' : 'text-fg-muted'}">{description}</p>
 	{/if}
+
+	{@render details?.()}
 
 	<div class="mt-auto flex flex-wrap items-center gap-2 border-t border-line {dense ? 'pt-1.5' : 'pt-2'}">
 		{@render footer()}

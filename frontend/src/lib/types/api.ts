@@ -273,6 +273,14 @@ export interface PresetInfo {
 	preset_db_id?: string;
 	assignment_count?: number;
 	group_count?: number;
+	recipes?: PresetRecipeLink[];
+}
+
+export interface PresetRecipeLink {
+	id: string;
+	name: string;
+	readiness: 'installed' | 'available';
+	total_download_bytes: number | null;
 }
 
 // ── Preset requirements (typed, live-checked entries - distinct from the static

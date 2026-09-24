@@ -49,8 +49,10 @@ class PresetController(BaseController):
         backend_registry: BackendRegistry,
         media_store: Optional["MediaStore"] = None,
         model_access_policy: Optional["ModelAccessPolicy"] = None,
+        recipe_links: Optional[Any] = None,
     ):
         super().__init__()
+        self.recipe_links = recipe_links
         self.collaborators = preset_collaborators
         self.backend_registry = backend_registry
         # Only used to reclaim a reloaded preset's rendered thumbnails. Optional so
@@ -144,14 +146,24 @@ class PresetController(BaseController):
         """Get list of available presets."""
         try:
             data = operations.list_presets(self.collaborators, current_user, include_uninstalled)
+            by_preset = (
+                self.recipe_links.recipes_by_preset(current_user) if self.recipe_links is not None else {}
+            )
+            for preset in data:
+                preset['recipes'] = by_preset.get(preset['id'], [])
             return self.success_response(data=data)
         except Exception as e:
             raise self.handle_exception(e, "preset_list_failed", "Failed to list presets")
 
-    async def get_preset(self, preset_id: str) -> APIResponse:
+    async def get_preset(self, preset_id: str, current_user: User) -> APIResponse:
         """Get specific preset information."""
         try:
             data = operations.get_preset(self.collaborators, preset_id)
+            data['recipes'] = (
+                self.recipe_links.recipes_for_preset(preset_id, current_user)
+                if self.recipe_links is not None
+                else []
+            )
             return self.success_response(data=data)
         except Exception as e:
             return self._handle_preset_exception(e, "preset_get_failed", "Failed to get preset")
@@ -443,7 +455,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("/{preset_id}", response_model=APIResponse, summary="Get Preset Details")
     async def get_preset(preset_id: str, current_user=Depends(get_current_active_user)):
         """Get detailed information about a specific preset including its configuration."""
-        return await controller.get_preset(preset_id)
+        return await controller.get_preset(preset_id, current_user)
 
     @router.get("/{preset_id}/requirements", response_model=APIResponse, summary="Get Preset Requirements")
     async def get_preset_requirements(

@@ -26,6 +26,10 @@
 				}`
 	);
 
+	function presetHref(presetId: string): string {
+		return `/admin?tab=presets&id=${encodeURIComponent(presetId)}`;
+	}
+
 	function stop(event: MouseEvent) {
 		event.stopPropagation();
 		onOpen(recipe.id);
@@ -42,6 +46,20 @@
 >
 	{#snippet topRight()}
 		<Badge variant={readiness.variant} dot class="flex-shrink-0">{readiness.label}</Badge>
+	{/snippet}
+	{#snippet details()}
+		{#if recipe.presets.length}
+			<p class="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-xs text-fg-muted" data-recipe-sets-up>
+				<span class="text-fg-subtle">Sets up:</span>
+				{#each recipe.presets as linkedPreset, index (linkedPreset.id)}
+					<a
+						class="min-w-0 truncate text-fg hover:text-signal"
+						href={presetHref(linkedPreset.id)}
+						onclick={(event) => event.stopPropagation()}
+					>{linkedPreset.name}</a>{#if index < recipe.presets.length - 1}<span class="text-fg-subtle">,</span>{/if}
+				{/each}
+			</p>
+		{/if}
 	{/snippet}
 	{#snippet footer()}
 		<Badge>{recipeCategoryLabel(recipe.category)}</Badge>

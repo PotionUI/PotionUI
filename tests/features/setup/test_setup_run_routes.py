@@ -24,6 +24,7 @@ from tests.fixtures.db_template import copy_template_db
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 from src.features.setup.routes import build_router
+from src.features.recipes.preset_links import RecipePresetLinks
 from src.features.recipes.runner import RecipeRunner
 from src.features.recipes.executors.base import StepResult
 from src.features.recipes.executors.registry import RecipeExecutorRegistry
@@ -95,6 +96,7 @@ def _client(current_user: User, *, recipe_catalog=None, executor_registry=None) 
     )
     if recipe_catalog is not None:
         container.recipe_catalog = recipe_catalog
+        container.recipe_preset_links = RecipePresetLinks(recipe_catalog, runner)
     app = FastAPI()
     app.include_router(build_router(container))
     app.dependency_overrides[get_current_active_user] = lambda: current_user

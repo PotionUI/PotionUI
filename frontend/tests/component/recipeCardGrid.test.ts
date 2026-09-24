@@ -57,12 +57,11 @@ function recipe(overrides: Partial<RecipeSummary> = {}): RecipeSummary {
 		category: 'image',
 		artifact_count: 3,
 		total_download_bytes: 18_600_000_000,
-		preset_name: 'krea-2/turbo',
 		last_completed_at: null,
 		source: 'marketplace',
 		plugin_id: null,
 		step_count: 4,
-		preset_ids: ['krea-2/turbo'],
+		presets: [{ id: 'krea-2/turbo', name: 'Krea-2 Turbo', cover_url: null, installed: false }],
 		...overrides
 	};
 }

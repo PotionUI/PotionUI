@@ -63,6 +63,7 @@ from src.platform.security import (
 from src.features.setup import InstanceClaimRepository
 from src.features.recipes.runner import RecipeRunner
 from src.features.recipes.catalog import RecipeCatalog
+from src.features.recipes.preset_links import RecipePresetLinks
 from src.features.phrasebook.preview_generator import PhrasebookPreviewGenerator
 from src.features.chat import ChatRuntime, ResponseProcessor
 from src.features.downloads import DownloadQueue, DownloadRepository
@@ -289,6 +290,7 @@ class AppContainer:
     external_login: "ExternalLoginManager"
     recipe_runner: RecipeRunner
     recipe_catalog: RecipeCatalog
+    recipe_preset_links: RecipePresetLinks
     user_controller: "UserController"
 
     # Downloads
@@ -1355,9 +1357,16 @@ def build_container() -> AppContainer:
         backend_registry=backend_registry,
         requirements_cache=requirements_cache,
     )
+    recipe_preset_links = RecipePresetLinks(
+        recipe_catalog,
+        recipe_runner,
+        preset_loader=preset_template_loader,
+        preset_db_repo=database_preset_repository,
+    )
     preset_controller = PresetController(
         preset_collaborators, backend_registry, media_store,
         model_access_policy=model_access_policy,
+        recipe_links=recipe_preset_links,
     )
 
     # Recipe executors: wire the built-in step executors (one per recipe step

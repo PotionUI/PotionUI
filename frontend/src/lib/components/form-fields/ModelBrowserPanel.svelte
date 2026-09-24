@@ -18,8 +18,10 @@
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import { authStore } from '$lib/stores/auth';
-	import { Badge, Spinner } from '$lib/components/ui';
+	import { Badge, Button, Spinner } from '$lib/components/ui';
 	import Icon from '../Icon.svelte';
+	import Tooltip from '../Tooltip.svelte';
+	import { loadPresets as loadPresetCatalog } from '$lib/stores/presetsCatalog';
 	import ModelResultRow from './ModelResultRow.svelte';
 	import ModelCollectionBrowser from './ModelCollectionBrowser.svelte';
 	import { buildModelSearchRequest } from '$lib/utils/modelSearchParams';
@@ -30,7 +32,7 @@
 		reduceModelDownloadState,
 		type ModelDownloadState
 	} from '$lib/utils/modelDownloadState';
-	import type { ModelRecommendation } from '$lib/types/api';
+	import type { ModelRecommendation, PresetRecipeLink } from '$lib/types/api';
 
 	export let modelType: string;
 	export let presetId: string = '';
@@ -53,6 +55,7 @@
 	 *  search-input refresh button) can show/disable it against this panel's
 	 *  in-flight fetch. */
 	export let loading = false;
+	export let required: boolean = false;
 
 	let models: any[] = [];
 	let pickerView: 'global' | 'collections' = 'global';
@@ -60,7 +63,22 @@
 	// state can point at Admin -> Models instead of just saying "no models".
 	let unindexedForType = 0;
 
+	let fetchedOnce = false;
+	let presetRecipes: PresetRecipeLink[] = [];
+
 	$: visibleModels = models.filter((m) => !excludeIds.has(m.id));
+	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
+	$: setupRecipe = presetRecipes[0] ?? null;
+	$: showSetupHint =
+		required &&
+		!!presetId &&
+		fetchedOnce &&
+		!loading &&
+		!searchQuery &&
+		tagFilters.length === 0 &&
+		!favoritesOnly &&
+		visibleModels.length === 0 &&
+		(isAdmin ? !!setupRecipe : true);
 	$: pickerEntries = recommendations
 		? buildModelPickerEntries(visibleModels, recommendations)
 		: visibleModels.map((model) => ({ kind: 'model' as const, model }));
@@ -148,6 +166,7 @@
 			if (!isCurrent()) return;
 			if (response.success && response.data?.models) {
 				models = response.data.models;
+				fetchedOnce = true;
 			}
 		} catch (error) {
 			// A superseded fetch's own abort - not a failure worth surfacing.
@@ -266,9 +285,22 @@
 			favoritesOnly
 		};
 		fetchModels();
-		if ($authStore.user?.account_type === 'ADMIN') void loadUnindexedForType();
+		if ($authStore.user?.account_type === 'ADMIN') {
+			void loadUnindexedForType();
+			if (required && presetId) void loadPresetRecipes(presetId);
+		}
 		mounted = true;
 	});
+
+	async function loadPresetRecipes(pid: string) {
+		try {
+			const response = await loadPresetCatalog();
+			if (disposed || pid !== presetId) return;
+			presetRecipes = response.data?.find((preset) => preset.id === pid)?.recipes ?? [];
+		} catch (error) {
+			logger.error('[ModelBrowserPanel] Failed to load preset recipes:', error);
+		}
+	}
 
 	async function loadUnindexedForType() {
 		try {
@@ -409,6 +441,22 @@
 		Global
 	</button>
 </div>
+
+{#if pickerView === 'global' && showSetupHint}
+	<div class="flex items-center gap-3 border-b border-line bg-surface-2 px-3 py-2.5" data-model-setup-hint>
+		<Icon name="info" className="h-4 w-4 shrink-0 text-fg-subtle" />
+		{#if isAdmin && setupRecipe}
+			<p class="min-w-0 flex-1 text-sm text-fg-muted">No model installed for this preset.</p>
+			<Tooltip text={setupRecipe.name}>
+				<Button size="xs" variant="primary" href="/admin?tab=recipes&id={encodeURIComponent(setupRecipe.id)}">
+					Set up with recipe
+				</Button>
+			</Tooltip>
+		{:else}
+			<p class="min-w-0 flex-1 text-sm text-fg-muted">No model installed yet. An admin can set it up.</p>
+		{/if}
+	</div>
+{/if}
 
 {#if pickerView === 'collections'}
 	<ModelCollectionBrowser {modelType} {limit} search={searchQuery} {excludeIds} {onSelect} />

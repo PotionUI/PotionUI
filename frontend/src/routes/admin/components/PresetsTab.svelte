@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, untrack } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/services/api/index';
@@ -12,7 +12,10 @@
 	import { presetRequirementsBadge } from '$lib/utils/presetRequirementsBadge';
 	import { presetCategoryIcon, presetCategoryLabel } from '$lib/utils/presetCategories';
 	import { processMarkdown } from '$lib/utils/markdown';
+	import { formatBytes } from '$lib/utils/format';
+	import { RecipeRunSession } from '$lib/components/recipes/recipeRunSession.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
@@ -28,6 +31,7 @@
 	import PresetRequirementsTab from './presets/PresetRequirementsTab.svelte';
 	import PresetDetailSubHeader from './PresetDetailSubHeader.svelte';
 	import PresetCard from './presets/PresetCard.svelte';
+	import PresetRecipeSetup from './presets/PresetRecipeSetup.svelte';
 	import PresetFiltersPopover from './presets/PresetFiltersPopover.svelte';
 	import { PRESET_LIBRARY_SECTIONS, type PresetLibrarySection } from './presets/presetLibrarySections';
 	import {
@@ -46,7 +50,7 @@
 		type PresetSortBy
 	} from './presets/presetFilters';
 	import { Badge, Button, EmptyState, Spinner, Alert } from '$lib/components/ui';
-	import type { PresetInfo, PresetConfigurationEntry } from '$lib/types/api';
+	import type { PresetInfo, PresetConfigurationEntry, PresetRecipeLink } from '$lib/types/api';
 
 	type DetailTab = 'overview' | 'access' | 'configuration' | 'form' | 'requirements';
 
@@ -94,6 +98,27 @@
 	);
 	const descriptionHtml = $derived(activePreset?.description ? processMarkdown(activePreset.description) : '');
 	const gallery = $derived(activePreset?.media?.gallery || []);
+	const presetRecipes = $derived(activePreset?.recipes ?? []);
+	const headerRecipe = $derived(
+		presetRecipes.length && !(activePreset?.installed && presetRecipes[0].readiness === 'installed')
+			? presetRecipes[0]
+			: null
+	);
+
+	const recipeSession = new RecipeRunSession({
+		onFinished: () => {
+			invalidatePresets();
+			void loadPresets(true);
+			if (viewId) loadPresetDetail(viewId);
+		}
+	});
+
+	onDestroy(() => recipeSession.dispose());
+
+	function startRecipe(recipe: PresetRecipeLink) {
+		detailTab = 'overview';
+		void recipeSession.start(recipe.id);
+	}
 
 	onMount(async () => {
 		await loadPresets();
@@ -113,6 +138,7 @@
 		lastViewId = viewId;
 		untrack(() => {
 			detailTab = 'overview';
+			recipeSession.reset();
 			presetDetail = null;
 			detailError = '';
 			mediaModalOpen = false;
@@ -379,6 +405,20 @@
 						<Badge size="sm" class="font-mono tabular-nums">v{activePreset.version}</Badge>
 					{/snippet}
 					{#snippet actions()}
+						{#if headerRecipe}
+							<Tooltip text={headerRecipe.name}>
+								<Button
+									variant="primary"
+									size="sm"
+									icon="download"
+									loading={recipeSession.starting}
+									disabled={recipeSession.starting || recipeSession.inFlight}
+									onclick={() => startRecipe(headerRecipe)}
+								>
+									Set up with recipe{#if headerRecipe.total_download_bytes != null}<span class="ml-1.5 font-mono tabular-nums">{formatBytes(headerRecipe.total_download_bytes)}</span>{/if}
+								</Button>
+							</Tooltip>
+						{/if}
 						{#if activePreset.installed}
 							<Badge variant="success" dot>Installed</Badge>
 							<Button
@@ -392,9 +432,9 @@
 						{:else}
 							<Badge variant="neutral">Not installed</Badge>
 							<Button
-								variant="primary"
+								variant={headerRecipe ? 'secondary' : 'primary'}
 								size="sm"
-								icon="download"
+								icon={headerRecipe ? undefined : 'download'}
 								loading={mutatingPresetId === activePreset.id}
 								disabled={mutatingPresetId !== null}
 								onclick={() => handleInstall(activePreset)}
@@ -439,6 +479,10 @@
 									{/if}
 								</div>
 							</div>
+
+							{#if presetRecipes.length}
+								<PresetRecipeSetup recipes={presetRecipes} session={recipeSession} onStart={startRecipe} />
+							{/if}
 
 							{#if detailError}
 								<Alert variant="warning" density="compact" live="polite">

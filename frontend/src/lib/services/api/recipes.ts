@@ -1,7 +1,7 @@
 import type { AxiosInstance } from 'axios';
-import type { ReadinessReport, RecipeRunMode, SetupRun, SetupRunAction } from './setup';
+import type { ReadinessReport, RecipePresetLink, RecipeRunMode, SetupRun, SetupRunAction } from './setup';
 
-export type { RecipeRunMode };
+export type { RecipePresetLink, RecipeRunMode };
 
 /** Where a recipe was scanned from — the same three roots presets use. */
 export type RecipeSource = 'marketplace' | 'local' | 'plugin';
@@ -16,16 +16,13 @@ export interface RecipeSummary {
 	category: string;
 	artifact_count: number;
 	total_download_bytes: number | null;
-	preset_name: string | null;
 	/** When set, a run of this recipe has already completed. */
 	last_completed_at: string | null;
 	source: RecipeSource;
 	/** The plugin that ships this recipe, or null for a core one. */
 	plugin_id: string | null;
 	step_count: number;
-	/** Every preset this recipe installs — the mapping the "Install models"
-	 * entry points resolve a preset against. */
-	preset_ids: string[];
+	presets: RecipePresetLink[];
 }
 
 export interface RecipeStepView {
@@ -49,11 +46,6 @@ export interface RecipeArtifact {
 	license_url: string | null;
 }
 
-export interface RecipePresetRef {
-	preset_id: string;
-	path_hint: string;
-}
-
 export interface RecipeSmoke {
 	preset_id: string;
 	mode: string;
@@ -63,7 +55,6 @@ export interface RecipeSmoke {
 export interface RecipeDetail extends RecipeSummary {
 	steps: RecipeStepView[];
 	artifacts: RecipeArtifact[];
-	presets: RecipePresetRef[];
 	smoke: RecipeSmoke | null;
 	/** Problems the loader hit reading this recipe, rendered as-is. */
 	load_errors: string[];

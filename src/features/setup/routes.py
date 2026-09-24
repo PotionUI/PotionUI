@@ -239,24 +239,9 @@ def build_router(container: "AppContainer") -> APIRouter:
     ) -> Dict[str, List[RecipeSummary]]:
         _require_admin_or_404(current_user)
         catalog = _recipe_catalog()
-        recipes = catalog.list_recipes() if catalog is not None else []
-        preset_loader = getattr(container, "preset_template_loader", None)
-        runner = _runner()
-        summaries: List[RecipeSummary] = []
-        for recipe in recipes:
-            preset_name = None
-            if preset_loader is not None and recipe.presets:
-                template = preset_loader.load_preset_by_id(recipe.presets[0].preset_id)
-                preset_name = template.name if template is not None else None
-            completed_run = runner.get_latest_completed_run(recipe.id)
-            summaries.append(
-                RecipeSummary.from_recipe(
-                    recipe,
-                    preset_name=preset_name,
-                    last_completed_at=completed_run.completed_at if completed_run else None,
-                )
-            )
-        return {"recipes": summaries}
+        if catalog is None:
+            return {"recipes": []}
+        return {"recipes": container.recipe_preset_links.summaries(catalog.list_recipes())}
 
     router.include_router(setup_router)
     return router

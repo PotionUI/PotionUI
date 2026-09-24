@@ -18,11 +18,10 @@ function recipe(id: string, category: string): RecipeSummary {
 		category,
 		artifact_count: 0,
 		step_count: 0,
-		preset_ids: [],
+		presets: [],
 		source: 'marketplace',
 		plugin_id: null,
 		total_download_bytes: null,
-		preset_name: null,
 		last_completed_at: null
 	};
 }

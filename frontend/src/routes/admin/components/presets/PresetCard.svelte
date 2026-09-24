@@ -24,6 +24,7 @@
 	const vramLabel = $derived(presetVramLabel(preset));
 	const shownTags = $derived((preset.tags ?? []).slice(0, VISIBLE_TAGS));
 	const hiddenTagCount = $derived(Math.max(0, (preset.tags ?? []).length - VISIBLE_TAGS));
+	const recipeNames = $derived((preset.recipes ?? []).map((recipe) => recipe.name).join(', '));
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Enter' || event.key === ' ') {
@@ -73,6 +74,11 @@
 				<Badge size="sm" variant={requirementsBadge.variant}>{requirementsBadge.label}</Badge>
 			{:else}
 				<Badge size="sm">available</Badge>
+			{/if}
+			{#if recipeNames}
+				<Tooltip text={recipeNames}>
+					<span data-preset-recipe-badge><Badge size="sm" variant="info">Recipe</Badge></span>
+				</Tooltip>
 			{/if}
 		</div>
 

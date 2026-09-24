@@ -108,6 +108,13 @@ export interface SetupRun {
 	attempts: SetupStepAttempt[];
 }
 
+export interface RecipePresetLink {
+	id: string;
+	name: string;
+	cover_url: string | null;
+	installed: boolean;
+}
+
 /** One entry of `GET /api/setup/recipes` — a startable recipe, before any
  * run exists for it. */
 export interface SetupRecipe {
@@ -119,7 +126,7 @@ export interface SetupRecipe {
 	category: string;
 	artifact_count: number;
 	total_download_bytes: number | null;
-	preset_name: string | null;
+	presets: RecipePresetLink[];
 	/** When set, a run of this recipe has already completed — the catalog
 	 * renders it as "Installed" with a "Run again" action instead of "Start". */
 	last_completed_at: string | null;

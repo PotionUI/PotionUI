@@ -282,6 +282,25 @@ class RecipeRunView(BaseModel):
 # --- catalog DTOs ----------------------------------------------------------
 
 
+def recipe_total_download_bytes(recipe: Recipe) -> Optional[int]:
+    sizes = [a.size_bytes for a in recipe.artifacts if a.size_bytes is not None]
+    return sum(sizes) if sizes and len(sizes) == len(recipe.artifacts) else None
+
+
+class RecipeLinkedPresetView(BaseModel):
+    id: str
+    name: str
+    cover_url: Optional[str] = None
+    installed: bool = False
+
+
+class PresetLinkedRecipeView(BaseModel):
+    id: str
+    name: str
+    readiness: str
+    total_download_bytes: Optional[int] = None
+
+
 class RecipeSummary(BaseModel):
     """A recipe as the catalog lists it - not the full parsed `Recipe`
     (steps/params are an execution detail a picker screen doesn't need)."""
@@ -294,11 +313,10 @@ class RecipeSummary(BaseModel):
     category: str
     artifact_count: int
     step_count: int
-    preset_ids: List[str] = Field(default_factory=list)
+    presets: List[RecipeLinkedPresetView] = Field(default_factory=list)
     source: str
     plugin_id: Optional[str] = None
     total_download_bytes: Optional[int] = None
-    preset_name: Optional[str] = None
     # When set, a run of this recipe has already completed - the catalog
     # marks it "Installed" (with a "Run again" action) instead of offering
     # "Start" as if nothing had happened yet.
@@ -309,14 +327,9 @@ class RecipeSummary(BaseModel):
         cls,
         recipe: Recipe,
         *,
-        preset_name: Optional[str] = None,
+        presets: Optional[List[RecipeLinkedPresetView]] = None,
         last_completed_at: Optional[datetime] = None,
     ) -> "RecipeSummary":
-        sizes = [a.size_bytes for a in recipe.artifacts if a.size_bytes is not None]
-        # Only a meaningful total when every artifact declares a size - a
-        # partial sum would understate the real download and mislead the
-        # consent screen this feeds into.
-        total_bytes = sum(sizes) if sizes and len(sizes) == len(recipe.artifacts) else None
         return cls(
             id=recipe.id,
             name=recipe.name,
@@ -326,11 +339,10 @@ class RecipeSummary(BaseModel):
             category=recipe.category,
             artifact_count=len(recipe.artifacts),
             step_count=len(recipe.steps),
-            preset_ids=[p.preset_id for p in recipe.presets],
+            presets=list(presets or []),
             source=recipe.source,
             plugin_id=recipe.plugin_id,
-            total_download_bytes=total_bytes,
-            preset_name=preset_name,
+            total_download_bytes=recipe_total_download_bytes(recipe),
             last_completed_at=last_completed_at,
         )
 
@@ -378,13 +390,6 @@ class RecipeArtifactView(BaseModel):
     variants: List[RecipeArtifactVariantView] = Field(default_factory=list)
 
 
-class RecipePresetView(BaseModel):
-    """One preset a recipe installs."""
-
-    preset_id: str
-    path_hint: str = ""
-
-
 class RecipeSmokeView(BaseModel):
     """The preset/mode a recipe's `generation.smoke` step runs."""
 
@@ -398,7 +403,6 @@ class RecipeDetail(RecipeSummary):
 
     steps: List[RecipeStepView] = Field(default_factory=list)
     artifacts: List[RecipeArtifactView] = Field(default_factory=list)
-    presets: List[RecipePresetView] = Field(default_factory=list)
     smoke: Optional[RecipeSmokeView] = None
     # Issues the catalog recorded for this recipe's own file, if any.
     load_errors: List[str] = Field(default_factory=list)
@@ -408,12 +412,12 @@ class RecipeDetail(RecipeSummary):
         cls,
         recipe: Recipe,
         *,
-        preset_name: Optional[str] = None,
+        presets: Optional[List[RecipeLinkedPresetView]] = None,
         last_completed_at: Optional[datetime] = None,
         load_errors: Optional[List[str]] = None,
     ) -> "RecipeDetail":
         summary = RecipeSummary.from_recipe(
-            recipe, preset_name=preset_name, last_completed_at=last_completed_at
+            recipe, presets=presets, last_completed_at=last_completed_at
         )
         return cls(
             **summary.model_dump(),
@@ -457,10 +461,6 @@ class RecipeDetail(RecipeSummary):
                     ],
                 )
                 for a in recipe.artifacts
-            ],
-            presets=[
-                RecipePresetView(preset_id=p.preset_id, path_hint=p.path_hint)
-                for p in recipe.presets
             ],
             smoke=(
                 RecipeSmokeView(preset_id=recipe.smoke.preset_id, mode=recipe.smoke.mode)

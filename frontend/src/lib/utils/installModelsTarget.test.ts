@@ -12,12 +12,11 @@ function recipe(id: string, presetIds: string[] = []): RecipeSummary {
 		category: 'image',
 		artifact_count: 0,
 		total_download_bytes: null,
-		preset_name: null,
 		last_completed_at: null,
 		source: 'marketplace',
 		plugin_id: null,
 		step_count: 0,
-		preset_ids: presetIds
+		presets: presetIds.map((id) => ({ id, name: id, cover_url: null, installed: false }))
 	};
 }
 
@@ -75,8 +74,8 @@ describe('resolveInstallModelsTarget', () => {
 		);
 	});
 
-	it('survives a recipe whose preset_ids the server omitted', () => {
-		const bare = { ...recipe('a'), preset_ids: undefined as unknown as string[] };
+	it('survives a recipe whose presets the server omitted', () => {
+		const bare = { ...recipe('a'), presets: undefined as unknown as RecipeSummary['presets'] };
 		expect(resolveInstallModelsTarget([bare], 'sdxl/base', true)?.href).toBe(
 			'/admin?tab=recipes&id=a'
 		);

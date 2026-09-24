@@ -108,7 +108,7 @@ class TestPresetController:
     # ===== get_preset tests =====
 
     @pytest.mark.asyncio
-    async def test_get_preset_success(self, controller, mock_preset_collaborators):
+    async def test_get_preset_success(self, controller, mock_preset_collaborators, mock_current_user):
         """Test successful preset retrieval."""
         mock_preset_collaborators.get_preset.return_value = {
             "id": "test-preset",
@@ -116,7 +116,7 @@ class TestPresetController:
             "vars": {"key": "value"},
         }
 
-        result = await controller.get_preset("test-preset")
+        result = await controller.get_preset("test-preset", mock_current_user)
 
         assert isinstance(result, APIResponse)
         assert result.success is True
@@ -124,11 +124,11 @@ class TestPresetController:
         mock_preset_collaborators.get_preset.assert_called_once_with("test-preset")
 
     @pytest.mark.asyncio
-    async def test_get_preset_not_found(self, controller, mock_preset_collaborators):
+    async def test_get_preset_not_found(self, controller, mock_preset_collaborators, mock_current_user):
         """Test preset not found scenario."""
         mock_preset_collaborators.get_preset.side_effect = PresetNotFoundException("non-existent")
 
-        result = await controller.get_preset("non-existent")
+        result = await controller.get_preset("non-existent", mock_current_user)
 
         assert isinstance(result, APIResponse)
         assert result.success is False

@@ -64,12 +64,8 @@ def build_router(container: "AppContainer") -> APIRouter:
     def _catalog():
         return container.recipe_catalog
 
-    def _preset_name(recipe) -> Optional[str]:
-        loader = getattr(container, "preset_template_loader", None)
-        if loader is None or not recipe.presets:
-            return None
-        template = loader.load_preset_by_id(recipe.presets[0].preset_id)
-        return template.name if template is not None else None
+    def _links():
+        return container.recipe_preset_links
 
     def _require_recipe(recipe_id: str):
         recipe = _catalog().get_recipe(recipe_id)
@@ -85,18 +81,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def list_recipes(
         current_user: User = Depends(get_current_admin_user),
     ) -> Dict[str, List[RecipeSummary]]:
-        runner = _runner()
-        summaries: List[RecipeSummary] = []
-        for recipe in _catalog().list_recipes():
-            completed = runner.get_latest_completed_run(recipe.id)
-            summaries.append(
-                RecipeSummary.from_recipe(
-                    recipe,
-                    preset_name=_preset_name(recipe),
-                    last_completed_at=completed.completed_at if completed else None,
-                )
-            )
-        return {"recipes": summaries}
+        return {"recipes": _links().summaries(_catalog().list_recipes())}
 
     @router.get(
         "/step-kinds",
@@ -205,12 +190,8 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user: User = Depends(get_current_admin_user),
     ) -> RecipeDetail:
         recipe = _require_recipe(recipe_id)
-        completed = _runner().get_latest_completed_run(recipe.id)
-        return RecipeDetail.from_recipe(
-            recipe,
-            preset_name=_preset_name(recipe),
-            last_completed_at=completed.completed_at if completed else None,
-            load_errors=_catalog().load_errors.get(recipe.source_path, []),
+        return _links().detail(
+            recipe, load_errors=_catalog().load_errors.get(recipe.source_path, [])
         )
 
     @router.get(

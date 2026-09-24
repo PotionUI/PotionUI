@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from src.features.recipes.executors.base import StepResult
 from src.features.recipes.executors.registry import RecipeExecutorRegistry
+from src.features.recipes.preset_links import RecipePresetLinks
 from src.features.recipes.routes import build_router
 from src.features.recipes.runner import RecipeRunner
 from src.features.recipes.schema import (
@@ -123,6 +124,8 @@ def _client(
     executors=None,
     step_kind_registry=None,
     load_errors=None,
+    preset_loader=None,
+    preset_db_repo=None,
 ):
     catalog = _FakeCatalog(recipes if recipes is not None else [_recipe()], load_errors)
     runner = RecipeRunner()
@@ -145,7 +148,9 @@ def _client(
     container = SimpleNamespace(
         recipe_runner=runner,
         recipe_catalog=catalog,
-        preset_template_loader=None,
+        recipe_preset_links=RecipePresetLinks(
+            catalog, runner, preset_loader=preset_loader, preset_db_repo=preset_db_repo
+        ),
         backend_registry=backend_registry,
         preset_collaborators=preset_collaborators,
         model_repository=MagicMock(),
@@ -196,8 +201,24 @@ def test_non_admin_cannot_start_a_run(file_db):
 # --- catalog ---------------------------------------------------------------
 
 
-def test_list_reports_source_step_count_and_preset_ids(file_db):
-    client, _ = _client(_user(AccountType.ADMIN))
+def _preset_loader(presets):
+    return SimpleNamespace(load_preset_by_id=lambda preset_id: presets.get(preset_id))
+
+
+def _preset_db_repo(installed_ids):
+    return SimpleNamespace(
+        get_all_installed_presets=lambda: [SimpleNamespace(preset_id=i) for i in installed_ids]
+    )
+
+
+def test_list_reports_source_step_count_and_linked_presets(file_db):
+    client, _ = _client(
+        _user(AccountType.ADMIN),
+        preset_loader=_preset_loader(
+            {"PRESET1": SimpleNamespace(name="Demo Preset", media={"cover": "public/cover.webp"})}
+        ),
+        preset_db_repo=_preset_db_repo(["PRESET1"]),
+    )
 
     body = client.get("/api/recipes").json()
 
@@ -206,7 +227,15 @@ def test_list_reports_source_step_count_and_preset_ids(file_db):
     assert row["source"] == "marketplace"
     assert row["plugin_id"] is None
     assert row["step_count"] == 2
-    assert row["preset_ids"] == ["PRESET1"]
+    assert row["presets"] == [
+        {
+            "id": "PRESET1",
+            "name": "Demo Preset",
+            "cover_url": "/api/media/presets/PRESET1/public/cover.webp?size=small",
+            "installed": True,
+        }
+    ]
+    assert row["total_download_bytes"] == 17
     assert row["artifact_count"] == 1
 
 
@@ -216,6 +245,8 @@ def test_detail_lists_steps_artifacts_presets_and_smoke(file_db):
         _user(AccountType.ADMIN),
         recipes=[recipe],
         load_errors={recipe.source_path: ["something odd"]},
+        preset_loader=_preset_loader({"PRESET1": SimpleNamespace(name="Demo Preset", media=None)}),
+        preset_db_repo=_preset_db_repo([]),
     )
 
     body = client.get("/api/recipes/demo").json()
@@ -227,9 +258,21 @@ def test_detail_lists_steps_artifacts_presets_and_smoke(file_db):
     assert body["artifacts"][0]["filename"] == "demo.safetensors"
     assert body["artifacts"][0]["gated"] is True
     assert body["artifacts"][0]["license_url"] == "https://huggingface.co/demo/model"
-    assert body["presets"] == [{"preset_id": "PRESET1", "path_hint": "marketplace/Demo"}]
+    assert body["presets"] == [
+        {"id": "PRESET1", "name": "Demo Preset", "cover_url": None, "installed": False}
+    ]
     assert body["smoke"] == {"preset_id": "PRESET1", "mode": "txt2img"}
     assert body["load_errors"] == ["something odd"]
+
+
+def test_linked_preset_missing_from_disk_is_left_out(file_db):
+    client, _ = _client(
+        _user(AccountType.ADMIN),
+        preset_loader=_preset_loader({}),
+        preset_db_repo=_preset_db_repo([]),
+    )
+
+    assert client.get("/api/recipes/demo").json()["presets"] == []
 
 
 def test_detail_of_unknown_recipe_is_404(file_db):

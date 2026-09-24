@@ -396,9 +396,9 @@
 											<Badge size="sm" variant="success">Installed</Badge>
 										{/if}
 										<span class="font-mono">{recipe.engine}</span>
-										{#if recipe.preset_name}
-											<span>{recipe.preset_name}</span>
-										{/if}
+										{#each recipe.presets as linkedPreset (linkedPreset.id)}
+											<span>{linkedPreset.name}</span>
+										{/each}
 										{#if recipe.total_download_bytes != null}
 											<span class="font-mono tabular-nums">
 												~{formatBytes(recipe.total_download_bytes)} to download

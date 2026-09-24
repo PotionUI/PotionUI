@@ -607,6 +607,7 @@
 					{filterTagIds}
 					{favoritesOnly}
 					{recommendations}
+					required={!!config.required}
 					rowSize="md"
 					onSelect={handleSelectionChange}
 				/>

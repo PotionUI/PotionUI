@@ -148,7 +148,7 @@ export type {
 	RecipeSummary,
 	RecipeStepView,
 	RecipeArtifact,
-	RecipePresetRef,
+	RecipePresetLink,
 	RecipeSmoke,
 	RecipeDetail,
 	RecipeRun,

@@ -56,6 +56,7 @@
 	} from './recipes/recipeFilters';
 	import RecipeFiltersPopover from './recipes/RecipeFiltersPopover.svelte';
 	import RecipeCard from './recipes/RecipeCard.svelte';
+	import PresetCoverTile from './presets/PresetCoverTile.svelte';
 
 	const RUN_HISTORY_LIMIT = 20;
 	const READINESS_CONCURRENCY = 3;
@@ -547,22 +548,30 @@
 										{/if}
 									</DetailSection>
 
-									<DetailSection label="Presets served">
+									<DetailSection label="Sets up">
 										{#if detail.presets.length === 0}
 											<p class="text-sm text-fg-muted">This recipe installs no presets.</p>
 										{:else}
-											<ul class="space-y-1">
-												{#each detail.presets as preset (preset.preset_id)}
-													<li class="flex items-center justify-between gap-3 text-sm">
+											<ul class="space-y-1.5" data-recipe-sets-up>
+												{#each detail.presets as linkedPreset (linkedPreset.id)}
+													<li>
 														<a
-															class="text-fg hover:text-signal truncate"
-															href="/admin?tab=presets&preset={encodeURIComponent(preset.preset_id)}"
+															class="flex items-center gap-3 rounded border border-line bg-surface-1 px-3 py-2 hover:border-line-hover"
+															href="/admin?tab=presets&id={encodeURIComponent(linkedPreset.id)}"
 														>
-															{preset.preset_id}
+															<PresetCoverTile
+																presetId={linkedPreset.id}
+																presetName={linkedPreset.name}
+																cover={linkedPreset.cover_url ? `${api.getBaseURL()}${linkedPreset.cover_url}` : null}
+																class="h-10 w-10 rounded"
+															/>
+															<span class="min-w-0 flex-1 truncate text-sm text-fg">{linkedPreset.name}</span>
+															{#if linkedPreset.installed}
+																<Badge variant="success" size="sm" dot>installed</Badge>
+															{:else}
+																<Badge variant="neutral" size="sm">not installed</Badge>
+															{/if}
 														</a>
-														<span class="font-mono text-xs text-fg-subtle shrink-0 truncate">
-															{preset.path_hint}
-														</span>
 													</li>
 												{/each}
 											</ul>

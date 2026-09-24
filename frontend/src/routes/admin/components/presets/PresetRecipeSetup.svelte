@@ -5,6 +5,7 @@
 	import type { RecipeRunSession } from '$lib/components/recipes/recipeRunSession.svelte';
 	import { Alert, Badge, Button } from '$lib/components/ui';
 	import { formatBytes } from '$lib/utils/format';
+	import { runStatusLabel } from '$lib/utils/setupRunDisplay';
 	import type { PresetRecipeLink } from '$lib/types/api';
 
 	let {
@@ -58,7 +59,27 @@
 		{/each}
 	</div>
 
-	{#if session.error}
+	{#if session.conflict}
+		<div class="mt-3" data-recipe-run-conflict>
+			<Alert variant="warning" density="compact" title="Another recipe is running">
+				{session.conflict.activeRun.recipeName} is still running ({runStatusLabel(
+					session.conflict.activeRun.status
+				).toLowerCase()}).
+				{#snippet actions()}
+					<div class="flex items-center gap-2">
+						<Button
+							variant="secondary"
+							size="sm"
+							href="/admin?tab=recipes&id={encodeURIComponent(session.conflict!.activeRun.recipeId)}"
+						>
+							Open it
+						</Button>
+						<Button variant="secondary" size="sm" onclick={() => session.cancelConflict()}>Cancel it</Button>
+					</div>
+				{/snippet}
+			</Alert>
+		</div>
+	{:else if session.error}
 		<div class="mt-3">
 			<Alert variant="danger" density="compact" title="Couldn't start this recipe">{session.error}</Alert>
 		</div>

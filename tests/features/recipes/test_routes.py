@@ -359,6 +359,26 @@ def test_second_run_while_one_is_active_is_409(file_db):
     assert response.status_code == 409
 
 
+def test_409_detail_carries_the_blocking_run(file_db):
+    client, runner = _client(
+        _user(AccountType.ADMIN), recipes=[_recipe("demo"), _recipe("other")]
+    )
+    blocking = runner.create_run("demo", recipe_version=3)
+
+    response = client.post("/api/recipes/other/runs", json={})
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["message"]
+    assert detail["active_run"] == {
+        "id": blocking.id,
+        "recipe_id": "demo",
+        "recipe_name": "Demo Recipe",
+        "status": "pending",
+        "current_step_key": None,
+    }
+
+
 def test_runs_listing_is_newest_first_and_filters_by_recipe(file_db):
     client, runner = _client(
         _user(AccountType.ADMIN), recipes=[_recipe("demo"), _recipe("other")]

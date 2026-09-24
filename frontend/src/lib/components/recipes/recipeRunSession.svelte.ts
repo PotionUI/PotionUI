@@ -2,11 +2,13 @@ import { api } from '$lib/services/api/index';
 import type { SetupRun } from '$lib/services/api/setup';
 import { getApiErrorMessage, logger } from '$lib/utils/logger';
 import { isRunTerminal, shouldPollRun, RUN_POLL_INTERVAL_MS } from '$lib/utils/setupRunDisplay';
+import { parseActiveRecipeRunConflict, type ActiveRecipeRunConflict } from '$lib/utils/recipeRunConflict';
 
 export class RecipeRunSession {
 	run = $state<SetupRun | null>(null);
 	starting = $state(false);
 	error = $state('');
+	conflict = $state<ActiveRecipeRunConflict | null>(null);
 	#timer: ReturnType<typeof setTimeout> | null = null;
 	#onFinished: ((run: SetupRun) => void) | undefined;
 
@@ -22,12 +24,39 @@ export class RecipeRunSession {
 		if (this.starting || this.inFlight) return;
 		this.starting = true;
 		this.error = '';
+		this.conflict = null;
 		try {
 			this.adopt(await api.createRecipeRun(recipeId));
 		} catch (error) {
-			this.error = getApiErrorMessage(error, 'Could not start this recipe');
+			const conflict = parseActiveRecipeRunConflict(error);
+			if (conflict && conflict.activeRun.recipeId === recipeId) {
+				await this.#attach(conflict.activeRun.id);
+			} else if (conflict) {
+				this.conflict = conflict;
+			} else {
+				this.error = getApiErrorMessage(error, 'Could not start this recipe');
+			}
 		} finally {
 			this.starting = false;
+		}
+	}
+
+	async cancelConflict(): Promise<void> {
+		if (!this.conflict) return;
+		const runId = this.conflict.activeRun.id;
+		try {
+			await api.applyRecipeRunAction(runId, 'cancel');
+			this.conflict = null;
+		} catch (error) {
+			this.error = getApiErrorMessage(error, 'Could not cancel the other run');
+		}
+	}
+
+	async #attach(runId: string): Promise<void> {
+		try {
+			this.adopt(await api.getRecipeRun(runId));
+		} catch (error) {
+			this.error = getApiErrorMessage(error, 'Could not attach to the running recipe');
 		}
 	}
 
@@ -41,6 +70,7 @@ export class RecipeRunSession {
 		this.#clear();
 		this.run = null;
 		this.error = '';
+		this.conflict = null;
 		this.starting = false;
 	}
 

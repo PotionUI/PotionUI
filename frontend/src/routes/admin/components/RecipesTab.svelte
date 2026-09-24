@@ -12,6 +12,7 @@
 	import { recipeCatalog } from '$lib/stores/recipeCatalog';
 	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import { formatBytes } from '$lib/utils/format';
+	import { parseActiveRecipeRunConflict, type ActiveRecipeRunConflict } from '$lib/utils/recipeRunConflict';
 	import {
 		isRunTerminal,
 		shouldPollRun,
@@ -87,6 +88,7 @@
 	let activeRun = $state<RecipeRun | null>(null);
 	let starting = $state(false);
 	let startError = $state('');
+	let startConflict = $state<ActiveRecipeRunConflict | null>(null);
 	let pollTimer: ReturnType<typeof setTimeout> | null = null;
 	let urlRestored = $state(false);
 
@@ -204,6 +206,7 @@
 		runs = [];
 		runsError = '';
 		startError = '';
+		startConflict = null;
 		activeRun = null;
 		clearPoll();
 		if (id) {
@@ -285,12 +288,34 @@
 		if (!selectedRecipe || starting) return;
 		starting = true;
 		startError = '';
+		startConflict = null;
 		try {
 			adoptRun(await api.createRecipeRun(selectedRecipe.id));
 		} catch (error) {
-			startError = getApiErrorMessage(error, 'Could not start this recipe');
+			const conflict = parseActiveRecipeRunConflict(error);
+			if (conflict && conflict.activeRun.recipeId === selectedRecipe.id) {
+				try {
+					adoptRun(await api.getRecipeRun(conflict.activeRun.id));
+				} catch (attachError) {
+					startError = getApiErrorMessage(attachError, 'Could not attach to the running recipe');
+				}
+			} else if (conflict) {
+				startConflict = conflict;
+			} else {
+				startError = getApiErrorMessage(error, 'Could not start this recipe');
+			}
 		} finally {
 			starting = false;
+		}
+	}
+
+	async function cancelStartConflict() {
+		if (!startConflict) return;
+		try {
+			await api.applyRecipeRunAction(startConflict.activeRun.id, 'cancel');
+			startConflict = null;
+		} catch (error) {
+			startError = getApiErrorMessage(error, 'Could not cancel the other run');
 		}
 	}
 
@@ -413,7 +438,27 @@
 									</Alert>
 								{/if}
 
-								{#if startError}
+								{#if startConflict}
+									<div data-recipe-run-conflict>
+										<Alert variant="warning" density="compact" title="Another recipe is running">
+											{startConflict.activeRun.recipeName} is still running ({runStatusLabel(
+												startConflict.activeRun.status
+											).toLowerCase()}).
+											{#snippet actions()}
+												<div class="flex items-center gap-2">
+													<Button
+														variant="secondary"
+														size="sm"
+														onclick={() => openRecipe(startConflict!.activeRun.recipeId)}
+													>
+														Open it
+													</Button>
+													<Button variant="secondary" size="sm" onclick={cancelStartConflict}>Cancel it</Button>
+												</div>
+											{/snippet}
+										</Alert>
+									</div>
+								{:else if startError}
 									<Alert variant="danger" density="compact" title="Couldn't start this recipe">
 										{startError}
 									</Alert>

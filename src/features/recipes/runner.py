@@ -65,6 +65,10 @@ class ActiveRecipeRunExists(RecipeRunError):
     idempotent, while the admin Recipes page reports the conflict instead of
     silently handing back somebody else's run."""
 
+    def __init__(self, run: RecipeRun):
+        self.run = run
+        super().__init__(f"Recipe run '{run.id}' is already active for '{run.recipe_id}'.")
+
 
 # Which action drives which target status. `retry_step` is special (it reopens a
 # failed run and records a new attempt) and handled outside this map.
@@ -151,7 +155,7 @@ class RecipeRunner:
             existing = self.repo.get_active_run()
             if existing is not None:
                 if not reuse_active:
-                    raise ActiveRecipeRunExists(existing.id)
+                    raise ActiveRecipeRunExists(existing)
                 return existing
             try:
                 return self.repo.insert_run(
@@ -167,7 +171,7 @@ class RecipeRunner:
                 if active is None:
                     raise
                 if not reuse_active:
-                    raise ActiveRecipeRunExists(active.id)
+                    raise ActiveRecipeRunExists(active)
                 return active
 
     # --- reads -------------------------------------------------------------

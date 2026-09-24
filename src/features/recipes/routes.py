@@ -229,10 +229,22 @@ def build_router(container: "AppContainer") -> APIRouter:
                 created_by=current_user.id,
                 reuse_active=False,
             )
-        except ActiveRecipeRunExists:
+        except ActiveRecipeRunExists as e:
+            active = e.run
+            other_recipe = _catalog().get_recipe(active.recipe_id)
+            recipe_name = other_recipe.name if other_recipe is not None else active.recipe_id
             raise HTTPException(
                 status_code=409,
-                detail="Another recipe run is already in progress on this instance.",
+                detail={
+                    "message": f"{recipe_name} is already running on this instance.",
+                    "active_run": {
+                        "id": active.id,
+                        "recipe_id": active.recipe_id,
+                        "recipe_name": recipe_name,
+                        "status": active.status.value,
+                        "current_step_key": active.current_step,
+                    },
+                },
             )
         # Drive it forward in the background - a brand-new run is PENDING and
         # nothing else will call `execute_current_step` on its behalf. The

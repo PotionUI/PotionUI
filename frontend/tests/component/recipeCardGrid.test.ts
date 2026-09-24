@@ -1,9 +1,4 @@
 // @vitest-environment jsdom
-// FE-215: RecipesTab moved from a full-width RecipeRow list to a card grid
-// (design-proposals/model-variants.html "Recipes grid"). Proves the card
-// shows name, category, size/artifact summary and readiness, that opening a
-// card navigates into the detail view, and that the density toggle (shared
-// with PluginsTab, see libraryCardDensity.ts) hides the description.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { flushSync } from 'svelte';
 import type { Writable } from 'svelte/store';

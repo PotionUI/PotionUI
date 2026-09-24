@@ -149,6 +149,46 @@ export interface SetupConsentProvider {
 	configured: boolean;
 }
 
+export interface SetupConsentGpuProfile {
+	generation: string;
+	generation_label: string;
+	name: string | null;
+	vram_gb: number;
+	compute_capability: string | null;
+	fast_precisions: string[];
+}
+
+export interface SetupConsentVariant {
+	id: string;
+	label: string;
+	precision: string | null;
+	filename: string;
+	size_bytes: number | null;
+	installed: boolean;
+	found_as?: string;
+	gated: boolean;
+	license_url: string | null;
+	uploader: string | null;
+	source: string | null;
+	repo_id: string | null;
+	source_url: string | null;
+	is_recipe_default: boolean;
+	fast: boolean | null;
+	recommended: boolean;
+	note: string | null;
+}
+
+export interface SetupConsentSlot {
+	id: string;
+	label: string;
+	kind: string;
+	model_type: string;
+	required: boolean;
+	variants: SetupConsentVariant[];
+	recommended_variant_id: string;
+	reason: string;
+}
+
 export interface SetupConsentRequest {
 	artifacts: SetupConsentArtifact[];
 	total_bytes: number | null;
@@ -159,6 +199,8 @@ export interface SetupConsentRequest {
 	 * credential configured yet — see `ArtifactsPlanExecutor._gated_warnings`.
 	 * Non-fatal: the run still proceeds once approved. */
 	warnings?: string[];
+	slots?: SetupConsentSlot[];
+	gpu?: SetupConsentGpuProfile;
 }
 
 export function createSetupApi(client: AxiosInstance) {
@@ -220,9 +262,14 @@ export function createSetupApi(client: AxiosInstance) {
 		 * `consent_request` and resume the run. Only valid while that step is
 		 * awaiting consent — a stale/mismatched `stepKey` 409s with a plain
 		 * message. */
-		async grantSetupRunConsent(runId: string, stepKey: string): Promise<SetupRun> {
+		async grantSetupRunConsent(
+			runId: string,
+			stepKey: string,
+			selections?: Record<string, string>
+		): Promise<SetupRun> {
 			const response = await client.post(`/api/setup/runs/${runId}/actions/grant_consent`, {
-				step_key: stepKey
+				step_key: stepKey,
+				selections: selections ?? {}
 			});
 			return response.data;
 		},

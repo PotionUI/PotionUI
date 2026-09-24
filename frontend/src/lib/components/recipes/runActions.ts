@@ -9,17 +9,17 @@ import type { SetupRun, SetupRunAction } from '$lib/services/api/setup';
  */
 export interface RecipeRunActions {
 	applyAction(runId: string, action: SetupRunAction): Promise<SetupRun>;
-	grantConsent(runId: string, stepKey: string): Promise<SetupRun>;
+	grantConsent(runId: string, stepKey: string, selections?: Record<string, string>): Promise<SetupRun>;
 }
 
 /** Drives `/api/setup/runs/...` — the first-run wizard. */
 export const setupRunActions: RecipeRunActions = {
 	applyAction: (runId, action) => api.applySetupRunAction(runId, action),
-	grantConsent: (runId, stepKey) => api.grantSetupRunConsent(runId, stepKey)
+	grantConsent: (runId, stepKey, selections) => api.grantSetupRunConsent(runId, stepKey, selections)
 };
 
 /** Drives `/api/recipes/runs/...` — Admin → Recipes. */
 export const adminRecipeRunActions: RecipeRunActions = {
 	applyAction: (runId, action) => api.applyRecipeRunAction(runId, action),
-	grantConsent: (runId, stepKey) => api.grantRecipeRunConsent(runId, stepKey)
+	grantConsent: (runId, stepKey, selections) => api.grantRecipeRunConsent(runId, stepKey, selections)
 };

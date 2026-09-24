@@ -1,5 +1,8 @@
 import type {
+	SetupConsentGpuProfile,
 	SetupConsentRequest,
+	SetupConsentSlot,
+	SetupConsentVariant,
 	SetupRun,
 	SetupRunStatus,
 	SetupRunStepView,
@@ -520,12 +523,85 @@ export function extractConsentRequest(
 		? warningsRaw.filter((w): w is string => typeof w === 'string')
 		: undefined;
 
+	const gpu = parseConsentGpuProfile(raw.gpu);
+	const slots = parseConsentSlots(raw.slots);
+
 	return {
 		artifacts,
 		total_bytes: totalBytes,
 		...(providers ? { providers } : {}),
-		...(warnings && warnings.length > 0 ? { warnings } : {})
+		...(warnings && warnings.length > 0 ? { warnings } : {}),
+		...(gpu ? { gpu } : {}),
+		...(slots ? { slots } : {})
 	};
+}
+
+function parseConsentGpuProfile(raw: unknown): SetupConsentGpuProfile | undefined {
+	if (!raw || typeof raw !== 'object') return undefined;
+	const r = raw as Record<string, unknown>;
+	if (typeof r.generation !== 'string') return undefined;
+	return {
+		generation: r.generation,
+		generation_label: typeof r.generation_label === 'string' ? r.generation_label : r.generation,
+		name: typeof r.name === 'string' ? r.name : null,
+		vram_gb: typeof r.vram_gb === 'number' ? r.vram_gb : 0,
+		compute_capability: typeof r.compute_capability === 'string' ? r.compute_capability : null,
+		fast_precisions: Array.isArray(r.fast_precisions)
+			? r.fast_precisions.filter((p): p is string => typeof p === 'string')
+			: []
+	};
+}
+
+function parseConsentVariant(raw: unknown): SetupConsentVariant | null {
+	if (!raw || typeof raw !== 'object') return null;
+	const r = raw as Record<string, unknown>;
+	if (typeof r.id !== 'string' || typeof r.filename !== 'string') return null;
+	const variant: SetupConsentVariant = {
+		id: r.id,
+		label: typeof r.label === 'string' ? r.label : r.id,
+		precision: typeof r.precision === 'string' ? r.precision : null,
+		filename: r.filename,
+		size_bytes: typeof r.size_bytes === 'number' ? r.size_bytes : null,
+		installed: r.installed === true,
+		gated: r.gated === true,
+		license_url: typeof r.license_url === 'string' ? r.license_url : null,
+		uploader: typeof r.uploader === 'string' ? r.uploader : null,
+		source: typeof r.source === 'string' ? r.source : null,
+		repo_id: typeof r.repo_id === 'string' ? r.repo_id : null,
+		source_url: typeof r.source_url === 'string' ? r.source_url : null,
+		is_recipe_default: r.is_recipe_default === true,
+		fast: typeof r.fast === 'boolean' ? r.fast : null,
+		recommended: r.recommended === true,
+		note: typeof r.note === 'string' ? r.note : null
+	};
+	if (typeof r.found_as === 'string') variant.found_as = r.found_as;
+	return variant;
+}
+
+function parseConsentSlots(raw: unknown): SetupConsentSlot[] | undefined {
+	if (!Array.isArray(raw)) return undefined;
+	const slots: SetupConsentSlot[] = [];
+	for (const entry of raw) {
+		if (!entry || typeof entry !== 'object') continue;
+		const r = entry as Record<string, unknown>;
+		if (typeof r.id !== 'string' || !Array.isArray(r.variants)) continue;
+		const variants = r.variants
+			.map((v) => parseConsentVariant(v))
+			.filter((v): v is SetupConsentVariant => v !== null);
+		if (variants.length === 0) continue;
+		slots.push({
+			id: r.id,
+			label: typeof r.label === 'string' ? r.label : r.id,
+			kind: typeof r.kind === 'string' ? r.kind : '',
+			model_type: typeof r.model_type === 'string' ? r.model_type : '',
+			required: r.required !== false,
+			variants,
+			recommended_variant_id:
+				typeof r.recommended_variant_id === 'string' ? r.recommended_variant_id : variants[0].id,
+			reason: typeof r.reason === 'string' ? r.reason : ''
+		});
+	}
+	return slots.length > 0 ? slots : undefined;
 }
 
 // --- first-generation handoff ----------------------------------

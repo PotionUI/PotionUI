@@ -132,8 +132,14 @@ export function createRecipesApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async grantRecipeRunConsent(runId: string, stepKey: string): Promise<RecipeRun> {
-			const response = await client.post(`/api/recipes/runs/${runId}/consent/${stepKey}`);
+		async grantRecipeRunConsent(
+			runId: string,
+			stepKey: string,
+			selections?: Record<string, string>
+		): Promise<RecipeRun> {
+			const response = await client.post(`/api/recipes/runs/${runId}/consent/${stepKey}`, {
+				selections: selections ?? {}
+			});
 			return response.data;
 		},
 

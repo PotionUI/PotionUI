@@ -653,6 +653,107 @@ describe('extractConsentRequest', () => {
 		);
 		expect(result?.warnings).toBeUndefined();
 	});
+
+	it('parses gpu and slots when the plan step sends per-slot variants', () => {
+		const result = extractConsentRequest(
+			attempt({
+				safe_output: {
+					consent_request: {
+						artifacts: [{ id: 'diffusion_model', display_name: 'Balanced' }],
+						total_bytes: 13140000000,
+						gpu: {
+							generation: 'ada',
+							generation_label: 'RTX 40-series (Ada)',
+							name: 'GeForce RTX 4090',
+							vram_gb: 24,
+							compute_capability: '8.9',
+							fast_precisions: ['bf16', 'fp16', 'int8', 'fp8']
+						},
+						slots: [
+							{
+								id: 'diffusion_model',
+								label: 'Diffusion model',
+								kind: 'checkpoint',
+								model_type: 'diffusion_model',
+								required: true,
+								recommended_variant_id: 'balanced',
+								reason: 'Fits your 24 GB',
+								variants: [
+									{
+										id: 'balanced',
+										label: 'Balanced',
+										precision: 'fp8',
+										filename: 'krea2_balanced_fp8.safetensors',
+										size_bytes: 13140000000,
+										installed: false,
+										gated: false,
+										license_url: null,
+										uploader: 'Comfy-Org',
+										source: 'huggingface',
+										repo_id: 'Comfy-Org/Krea-2',
+										source_url: 'https://huggingface.co/Comfy-Org/Krea-2',
+										is_recipe_default: true,
+										fast: true,
+										recommended: true,
+										note: null
+									}
+								]
+							}
+						]
+					}
+				}
+			})
+		);
+		expect(result?.gpu).toEqual({
+			generation: 'ada',
+			generation_label: 'RTX 40-series (Ada)',
+			name: 'GeForce RTX 4090',
+			vram_gb: 24,
+			compute_capability: '8.9',
+			fast_precisions: ['bf16', 'fp16', 'int8', 'fp8']
+		});
+		expect(result?.slots).toHaveLength(1);
+		expect(result?.slots?.[0].recommended_variant_id).toBe('balanced');
+		expect(result?.slots?.[0].variants[0].id).toBe('balanced');
+	});
+
+	it('omits gpu and slots entirely when the plan step is a plain flat plan', () => {
+		const result = extractConsentRequest(
+			attempt({
+				safe_output: {
+					consent_request: { artifacts: [{ id: 'a1', display_name: 'SDXL checkpoint', size_bytes: 123, kind: 'checkpoint' }], total_bytes: 123 }
+				}
+			})
+		);
+		expect(result).toEqual({
+			artifacts: [
+				{
+					id: 'a1',
+					display_name: 'SDXL checkpoint',
+					size_bytes: 123,
+					kind: 'checkpoint',
+					gated: false,
+					license_url: null
+				}
+			],
+			total_bytes: 123
+		});
+	});
+
+	it('drops a slot with no valid variants', () => {
+		const result = extractConsentRequest(
+			attempt({
+				safe_output: {
+					consent_request: {
+						artifacts: [{ id: 'a1' }],
+						total_bytes: null,
+						slots: [{ id: 'broken', label: 'Broken slot', variants: [{ no_id: true }] }]
+					}
+				}
+			})
+		);
+		expect(result?.slots).toBeUndefined();
+	});
 });
 
 describe('extractGenerationHandoff', () => {

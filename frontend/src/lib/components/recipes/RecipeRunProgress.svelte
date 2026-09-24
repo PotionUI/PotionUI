@@ -24,6 +24,7 @@
 	import { formatBytes, formatDuration } from '$lib/utils/format';
 	import { Alert, Badge, Button, Input } from '$lib/components/ui';
 	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
+	import ConsentVariantPicker from './ConsentVariantPicker.svelte';
 
 	/**
 	 * The live view of one recipe run: progress summary, consent gate, failure
@@ -97,6 +98,21 @@
 	let cancelBusy = $state(false);
 	let cancelError = $state('');
 
+	let selections = $state.raw<Record<string, string>>({});
+	let selectionsStepKey = '';
+
+	$effect(() => {
+		const key = consentGroup?.stepKey ?? '';
+		if (key !== selectionsStepKey) {
+			selectionsStepKey = key;
+			selections = {};
+		}
+	});
+
+	function pickVariant(slotId: string, variantId: string) {
+		selections = { ...selections, [slotId]: variantId };
+	}
+
 	// Optional inline "add a provider API key" field the consent gate offers
 	// when `consentRequest.providers` names one that isn't configured yet —
 	// keyed by provider id so more than one can be prompted for at once.
@@ -132,7 +148,7 @@
 		consentBusy = true;
 		consentError = '';
 		try {
-			onRunUpdated(await actions.grantConsent(run.id, consentGroup.stepKey));
+			onRunUpdated(await actions.grantConsent(run.id, consentGroup.stepKey, selections));
 		} catch (err: any) {
 			consentError = errorText(err, "Couldn't approve the download.");
 		} finally {
@@ -197,39 +213,48 @@
 				</p>
 			</div>
 
-			<ul class="space-y-1">
-				{#each consentRequest.artifacts as artifact (artifact.id)}
-					<li class="flex items-center justify-between gap-3 text-sm">
-						<span class="min-w-0 flex items-center gap-1.5">
-							<span class="text-fg truncate">{artifact.display_name}</span>
-							{#if artifact.gated}
-								<Badge variant="warning" size="sm">gated</Badge>
-								{#if artifact.license_url}
-									<a
-										href={artifact.license_url}
-										target="_blank"
-										rel="noreferrer"
-										class="text-2xs text-signal hover:underline shrink-0"
-									>
-										licence
-									</a>
+			{#if consentRequest.slots && consentRequest.slots.length > 0}
+				<ConsentVariantPicker
+					gpu={consentRequest.gpu ?? null}
+					slots={consentRequest.slots}
+					{selections}
+					onPick={pickVariant}
+				/>
+			{:else}
+				<ul class="space-y-1">
+					{#each consentRequest.artifacts as artifact (artifact.id)}
+						<li class="flex items-center justify-between gap-3 text-sm">
+							<span class="min-w-0 flex items-center gap-1.5">
+								<span class="text-fg truncate">{artifact.display_name}</span>
+								{#if artifact.gated}
+									<Badge variant="warning" size="sm">gated</Badge>
+									{#if artifact.license_url}
+										<a
+											href={artifact.license_url}
+											target="_blank"
+											rel="noreferrer"
+											class="text-xs text-signal hover:underline shrink-0"
+										>
+											licence
+										</a>
+									{/if}
 								{/if}
-							{/if}
-						</span>
-						{#if artifact.size_bytes != null}
-							<span class="font-mono tabular-nums text-fg-subtle shrink-0">
-								{formatBytes(artifact.size_bytes)}
 							</span>
-						{/if}
-					</li>
-				{/each}
-			</ul>
+							{#if artifact.size_bytes != null}
+								<span class="font-mono tabular-nums text-fg-subtle shrink-0">
+									{formatBytes(artifact.size_bytes)}
+								</span>
+							{/if}
+						</li>
+					{/each}
+				</ul>
 
-			{#if consentRequest.total_bytes != null}
-				<div class="flex items-center justify-between text-sm border-t border-signal/20 pt-2">
-					<span class="text-fg-muted">Total</span>
-					<span class="font-mono tabular-nums text-fg">{formatBytes(consentRequest.total_bytes)}</span>
-				</div>
+				{#if consentRequest.total_bytes != null}
+					<div class="flex items-center justify-between text-sm border-t border-signal/20 pt-2">
+						<span class="text-fg-muted">Total</span>
+						<span class="font-mono tabular-nums text-fg">{formatBytes(consentRequest.total_bytes)}</span>
+					</div>
+				{/if}
 			{/if}
 
 			{#if consentRequest.warnings && consentRequest.warnings.length > 0}
@@ -362,7 +387,7 @@
 							</Badge>
 						</div>
 						{#if duration}
-							<span class="text-2xs font-mono tabular-nums text-fg-subtle shrink-0">
+							<span class="text-xs font-mono tabular-nums text-fg-subtle shrink-0">
 								{duration}
 							</span>
 						{/if}
@@ -395,7 +420,7 @@
 						{#if group.kind === 'artifacts.fetch'}
 							<a
 								href="/admin?tab=downloads"
-								class="text-2xs text-fg-subtle hover:text-fg-muted underline decoration-dotted mt-1 inline-block"
+								class="text-xs text-fg-subtle hover:text-fg-muted underline decoration-dotted mt-1 inline-block"
 							>
 								View in Downloads
 							</a>
@@ -432,7 +457,7 @@
 										<MeshPreview file={{ url: meshUrl, originalUrl: meshUrl }} />
 									</div>
 								{/if}
-								<span class="text-2xs font-mono text-fg-subtle truncate">{media.filename}</span>
+								<span class="text-xs font-mono text-fg-subtle truncate">{media.filename}</span>
 							</div>
 						{/if}
 					{/if}

@@ -13,8 +13,11 @@ const handler: GenerationMessageHandler = {
 		const targetTab = ctx.tab;
 		const isOwner = isTabsCurrentGeneration(targetTab, ctx.generationId);
 
-		const error = message.error ?? message.data?.message ?? message.data?.error ?? 'Generation failed';
-		const detail = message.detail ?? message.data?.detail ?? null;
+		const error = message.message ?? message.error ?? message.data?.message ?? message.data?.error ?? 'Generation failed';
+		const safeDetail = [message.hint, message.error_id ? `Error ID: ${message.error_id}` : null]
+			.filter(Boolean)
+			.join('\n\n');
+		const detail = message.detail ?? message.data?.detail ?? (safeDetail || null);
 
 		// Cleared regardless of ownership -- a failed/cancelled generation gets
 		// no further gallery_update, so its cache entry would otherwise never

@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from src.features.generation.failure import GenerationFailure
 from src.features.generation.status_tracker import (
     GenerationState,
     GenerationStatusTracker,
@@ -128,16 +129,27 @@ class TestTransition:
 
         tracker.transition('gen1', GenerationState.COMPLETED)
 
-        mock_generation_repo.update_status.assert_called_once_with('gen1', 'completed', error_message=None)
+        mock_generation_repo.update_status.assert_called_once_with('gen1', 'completed', failure=None)
 
     def test_transition_with_error_persists_message(self, tracker, mock_generation_repo):
         tracker.create(id='gen1')
 
-        record = tracker.transition('gen1', GenerationState.FAILED, error='boom')
+        failure = GenerationFailure(
+            error_code='disk_full',
+            message='The disk is full.',
+            raw_error="OSError: No space left on device: '/srv/out/x.png'",
+        )
 
-        assert record.error == 'boom'
-        assert record.message == 'boom'
-        mock_generation_repo.update_status.assert_called_once_with('gen1', 'failed', error_message='boom')
+        record = tracker.transition('gen1', GenerationState.FAILED, failure)
+
+        assert record.error == 'The disk is full.'
+        assert record.message == 'The disk is full.'
+        assert record.error_code == 'disk_full'
+        dumped = record.model_dump()
+        assert dumped['error_code'] == 'disk_full'
+        assert dumped['error_id'] == 'gen1'
+        assert '/srv/' not in str(dumped)
+        mock_generation_repo.update_status.assert_called_once_with('gen1', 'failed', failure=failure.columns())
 
     def test_transition_unknown_generation_returns_none(self, tracker, mock_generation_repo):
         result = tracker.transition('missing', GenerationState.COMPLETED)
@@ -153,7 +165,7 @@ class TestTransition:
         tracker.transition('gen1', GenerationState.CANCELLED)
         mock_generation_repo.update_status.reset_mock()
 
-        record = tracker.transition('gen1', GenerationState.FAILED, error='boom')
+        record = tracker.transition('gen1', GenerationState.FAILED, GenerationFailure(error_code='unclassified', message='boom'))
 
         assert record.state == GenerationState.CANCELLED
         assert tracker.get('gen1').state == GenerationState.CANCELLED
@@ -169,14 +181,14 @@ class TestTransition:
         record = tracker.transition('gen1', GenerationState.CANCELLED)
 
         assert record.state == GenerationState.CANCELLED
-        mock_generation_repo.update_status.assert_called_once_with('gen1', 'cancelled', error_message=None)
+        mock_generation_repo.update_status.assert_called_once_with('gen1', 'cancelled', failure=None)
 
     def test_db_failure_does_not_raise(self, tracker, mock_generation_repo):
         tracker.create(id='gen1')
         mock_generation_repo.update_status.side_effect = Exception("db down")
 
         # Should not raise - db failures are logged, not propagated.
-        record = tracker.transition('gen1', GenerationState.FAILED, error='x')
+        record = tracker.transition('gen1', GenerationState.FAILED, GenerationFailure(error_code='unclassified', message='x'))
         assert record.state == GenerationState.FAILED
 
 
@@ -200,7 +212,7 @@ class TestTransitionAsync:
 
         assert record.state == GenerationState.RUNNING
         assert tracker.transition in recorded
-        mock_generation_repo.update_status.assert_called_once_with('gen1', 'running', error_message=None)
+        mock_generation_repo.update_status.assert_called_once_with('gen1', 'running', failure=None)
 
     @pytest.mark.asyncio
     async def test_sequential_transitions_hit_the_repo_in_call_order(self, tracker, mock_generation_repo):
@@ -212,7 +224,7 @@ class TestTransitionAsync:
         second's if the caller didn't really wait for the thread."""
         calls = []
 
-        def record_write(gen_id, state, error_message=None):
+        def record_write(gen_id, state, failure=None):
             if not calls:
                 time.sleep(0.05)
             calls.append(state)

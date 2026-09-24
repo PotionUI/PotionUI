@@ -301,13 +301,14 @@ class ErrorGenerationOutput(GenerationOutput):
     frontend of the failure (message_type "generation_error") while the
     exception itself propagates so the backend/status tracker can transition
     the generation to FAILED.
-
-    `detail` carries an optional longer body (Python traceback, or a backend's
-    richer error text such as ComfyUI node errors) shown as the expandable body
-    of the failure notification.
     """
     error: str
     detail: str = None
+    error_code: str = None
+    message: str = None
+    hints: List[str] = None
+    pipe_key: str = None
+    failed_at_step: str = None
 
 
 class GenerationExecutionError(Exception):

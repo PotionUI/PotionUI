@@ -38,7 +38,9 @@ from src.features.backends.backend_registry import NoBackendForEngineError
 from src.features.generation.routing.contracts import NoEligibleBackendError
 from src.features.generation.output_serializer import GenerationOutputSerializer
 from src.features.generation.run_report_recorder import RunReportRecorder
-from src.pipelines.outputs import GenerationOutput
+from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput
+from src.features.generation.handlers.error_handler import admin_error_fields
+from src.features.generation.failure import failure_report
 from src.features.generation import (
     GenerationHistoryFacade,
     GenerationNotFoundException,
@@ -284,8 +286,12 @@ class GenerationController(BaseController):
             if not has_subscribers:
                 return
 
+            privileged_message = None
+            if isinstance(output, ErrorGenerationOutput):
+                privileged_message = {**message, **admin_error_fields(output)}
+
             # Broadcast the message
-            await self.connection_hub.broadcast_to_generation(generation_id, message)
+            await self.connection_hub.broadcast_to_generation(generation_id, message, privileged_message)
 
         except Exception as e:
             logging.error(f"Failed to broadcast generation output: {str(e)}")
@@ -297,7 +303,7 @@ class GenerationController(BaseController):
                     'type': 'generation_error',
                     'data': {
                         'generation_id': generation_id,
-                        'error': f"Output processing failed: {str(e)}",
+                        'message': "Output processing failed",
                         'status': status.model_dump()
                     }
                 }
@@ -1289,6 +1295,16 @@ class GenerationController(BaseController):
             'run_report': report,
         })
 
+    async def get_generation_failure(self, generation_id: str) -> APIResponse:
+        generation = generation_repo.get_by_id(generation_id)
+        if generation is None or generation.status != 'failed':
+            return self.error_response(
+                error="failure_not_found",
+                message=f"No failure recorded for generation '{generation_id}'",
+                status_code=404
+            )
+        return self.success_response(data=failure_report(generation))
+
     async def get_run_report(self, generation_id: str, current_user) -> APIResponse:
         """The persisted run report for a generation the caller owns.
 
@@ -1387,6 +1403,10 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_generation_status(generation_id: str, current_user = Depends(get_current_active_user)):
         """Get the current status and progress of a specific generation job."""
         return await controller.get_generation_status(generation_id, current_user)
+
+    @router.get("/{generation_id}/failure", response_model=APIResponse, summary="Get Generation Failure Detail")
+    async def get_generation_failure(generation_id: str, current_user = Depends(get_current_admin_user)):
+        return await controller.get_generation_failure(generation_id)
 
     @router.get("/{generation_id}/run-report", response_model=APIResponse, summary="Get Run Report")
     async def get_run_report(generation_id: str, current_user = Depends(get_current_active_user)):

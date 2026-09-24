@@ -6,7 +6,11 @@ import httpx
 import safetensors
 import torch
 
-from src.features.generation.error_classification import classify_generation_error
+from src.features.generation.error_classification import (
+    classification_for_code,
+    classify_error_text,
+    classify_generation_error,
+)
 from src.features.remote_execution.transport import WorkerUnreachableError
 from src.platform.runtime.native.errors import HostMemoryExhaustedError
 
@@ -130,20 +134,51 @@ def test_an_unrelated_exception_falls_back_to_a_neutral_classification():
 
     classification = classify_generation_error(exc)
 
-    assert classification is not None
     assert classification.category == "unclassified"
-    assert classification.summary == "Something went wrong during generation."
-    # the raw exception text must never leak into the neutral headline
+    assert classification.summary == "Something went wrong while generating."
     assert str(exc) not in classification.summary
+    assert classification.suggestions
 
 
-def test_an_exception_that_already_carries_its_own_detail_is_left_unclassified():
-    """`GenerationExecutionError`-style exceptions attach a `.detail` the
-    raiser deliberately curated - the neutral fallback must not paper over
-    it with a generic message."""
+def test_an_exception_with_a_curated_detail_is_still_classified_safely():
     exc = ValueError("preset form is missing a required field")
     exc.detail = "Node 12 (KSampler): CUDA error"
 
     classification = classify_generation_error(exc)
 
-    assert classification is None
+    assert classification.category == "unclassified"
+    assert "Node 12" not in classification.summary
+
+
+def test_text_classification_recognises_a_rewrapped_missing_model_file():
+    classification = classify_error_text("[Errno 2] No such file or directory: '/models/x/model.safetensors'")
+
+    assert classification.category == "missing_model_file"
+
+
+def test_text_classification_recognises_a_worker_that_cannot_be_reached():
+    classification = classify_error_text("Remote worker unreachable: connection refused")
+
+    assert classification.category == "backend_unreachable"
+
+
+def test_text_classification_of_empty_text_is_unclassified():
+    assert classify_error_text(None).category == "unclassified"
+
+
+def test_an_unknown_code_resolves_to_the_unclassified_classification():
+    classification = classification_for_code("no_such_code")
+
+    assert classification.category == "unclassified"
+    assert classification.summary == "Something went wrong while generating."
+
+
+def test_every_classification_is_free_of_paths_and_exception_names():
+    for code in ("cuda_oom", "host_ram_oom", "missing_model_file", "disk_full",
+                 "corrupt_weights", "auth_required", "backend_unreachable", "unclassified"):
+        classification = classification_for_code(code)
+        text = " ".join([classification.summary, *classification.suggestions])
+        assert classification.category == code
+        assert "/" not in text.replace("models/output", "").replace("URL/port", "")
+        assert "Error" not in text
+        assert "Traceback" not in text

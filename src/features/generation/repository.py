@@ -18,6 +18,16 @@ from src.platform.util.ids import generate_ulid
 # duration_ms, which is why durations land on whole seconds.
 _TIMESTAMP_FMT = '%Y-%m-%d %H:%M:%S'
 
+FAILURE_COLUMNS = (
+    'error_message',
+    'error_code',
+    'error_user_message',
+    'error_detail',
+    'failed_pipe_id',
+    'failed_pipe_name',
+    'failed_at_step',
+)
+
 # Columns allowed for ORDER BY (whitelist to prevent SQL injection).
 # Maps a public sort key to the SQL ORDER BY expression (alias `g`).
 _SORT_COLUMNS = {
@@ -642,7 +652,7 @@ class GenerationRepository:
 
     # --- Status / progress / lifecycle -----------------------------------------
 
-    def update_status(self, generation_id: str, status: str, error_message: Optional[str] = None) -> bool:
+    def update_status(self, generation_id: str, status: str, failure: Optional[Dict[str, Optional[str]]] = None) -> bool:
         """Update generation status.
 
         Timestamps are written in UTC to match `created_at`/`updated_at`, which SQLite fills
@@ -658,6 +668,7 @@ class GenerationRepository:
         and its duration falls back to `created_at`.
         """
         from src.platform.database.database import db
+        failure = failure or {}
         with db.get_cursor() as cursor:
             now = datetime.now(timezone.utc).strftime(_TIMESTAMP_FMT)
 
@@ -675,10 +686,16 @@ class GenerationRepository:
                         duration_ms = CAST(ROUND(
                             (julianday(?) - julianday(COALESCE(started_at, created_at))) * 86400000.0
                         ) AS INTEGER),
-                        error_message = ?
+                        error_message = ?,
+                        error_code = ?,
+                        error_user_message = ?,
+                        error_detail = ?,
+                        failed_pipe_id = ?,
+                        failed_pipe_name = ?,
+                        failed_at_step = ?
                     WHERE id = ?
                     """,
-                    (status, now, now, error_message, generation_id)
+                    (status, now, now, *(failure.get(column) for column in FAILURE_COLUMNS), generation_id)
                 )
             else:
                 cursor.execute(

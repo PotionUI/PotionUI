@@ -63,5 +63,5 @@ class GenerationOutputSerializer:
             return {
                 'type': 'generation_error',
                 'generation_id': self.generation_id,
-                'error': f"Serialization failed: {str(e)}"
+                'message': "Serialization failed"
             }

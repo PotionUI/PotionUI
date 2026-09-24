@@ -105,7 +105,9 @@ class WebSocketHandler:
                                 continue
 
                             # Attempt to subscribe
-                            subscription_success = await self.connection_hub.subscribe_to_generation(client_id, generation_id)
+                            subscription_success = await self.connection_hub.subscribe_to_generation(
+                                client_id, generation_id, privileged=GenerationPolicy.is_admin(user)
+                            )
                             if subscription_success:
                                 # Send subscription confirmation
                                 await websocket.send_text(json.dumps({
@@ -133,7 +135,7 @@ class WebSocketHandler:
                             await websocket.send_text(json.dumps({
                                 'type': 'subscription_error',
                                 'generation_id': generation_id,
-                                'message': f'Error during subscription: {str(e)}'
+                                'message': 'Failed to subscribe to generation'
                             }))
                     else:
                         # Send error message to client

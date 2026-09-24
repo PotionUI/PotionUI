@@ -894,7 +894,9 @@ class TestGenerationEngine:
                 if isinstance(call.args[0], ErrorGenerationOutput)
             ]
             assert len(error_outputs) == 1
-            assert error_outputs[0].error == "Something went wrong during generation."
+            assert error_outputs[0].message == "Something went wrong while generating."
+            assert error_outputs[0].error_code == "unclassified"
+            assert error_outputs[0].error == "RuntimeError: Pipe error"
             assert "Pipe error" in error_outputs[0].detail
 
             # _cancelled must still be reset in the finally block even on error

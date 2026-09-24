@@ -10,7 +10,7 @@ notification wiring.
 import logging
 from typing import Any, Callable, Optional
 
-from src.features.generation.repository import generation_repo
+from src.features.generation.failure import GenerationFailure
 from src.features.generation.status_tracker import GenerationState
 
 logger = logging.getLogger(__name__)
@@ -33,32 +33,28 @@ class GenerationNotifier:
     def notify_failure(
         self,
         generation_id: str,
-        error: str,
-        detail: Optional[str] = None,
+        user_id: Optional[str],
+        failure: GenerationFailure,
+        include_detail: bool = False,
     ) -> None:
-        """
-        Raise a persistent, toast-surfaced notification for a failed generation.
-
-        Reuses the notify operation (the same pipeline as every other app
-        notification): `show_toast=True` fans out to both a transient toast and
-        a persistent bell-panel entry, with the error body carried in
-        `metadata.detail`. Best-effort - a notification failure must never break
-        generation handling, so everything is wrapped in try/except.
-        """
         try:
             from src.platform.plugins.runtime_registries import get_global_notification_manager
 
-            generation = generation_repo.get_by_id(generation_id)
-            user_id = generation.user_id if generation else None
+            metadata = {
+                "generation_id": generation_id,
+                **failure.public_payload(generation_id),
+            }
+            if include_detail:
+                metadata.update(failure.admin_payload())
 
             get_global_notification_manager()(
                 level="error",
                 title="Generation failed",
-                message=error or "Generation failed",
+                message=failure.message,
                 category="generation",
                 type="generation.failed",
                 user_id=user_id,
-                metadata={"generation_id": generation_id, "detail": detail},
+                metadata=metadata,
                 show_toast=True,
             )
         except Exception as e:

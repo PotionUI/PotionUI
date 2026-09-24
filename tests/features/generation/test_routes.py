@@ -1,3 +1,4 @@
+import json
 import pytest
 import asyncio
 import sys
@@ -851,7 +852,8 @@ class TestGenerationController:
             assert call_args[0][0] == "test-gen-123"
             message = call_args[0][1]
             assert message['type'] == 'generation_error'
-            assert 'Serialization failed' in message['data']['error']
+            assert message['data']['message'] == 'Output processing failed'
+            assert 'Serialization failed' not in json.dumps(message, default=str)
 
     @pytest.mark.asyncio
     async def test_handle_websocket(self, controller):

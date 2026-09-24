@@ -223,6 +223,54 @@ def test_failure_reported_only_on_the_status_record_reaches_the_step():
     assert "CUDA out of memory while loading the text encoder" in result.safe_error_detail
 
 
+class SafeAndRawErrorOrchestrator(FakeOrchestrator):
+    async def start_generation(self, request, user_id, output_callback):
+        from src.pipelines.outputs import ErrorGenerationOutput
+
+        await output_callback("gen-1", ErrorGenerationOutput(
+            error="FileNotFoundError: /srv/models/unet.safetensors",
+            message="A model file this preset needs is missing.",
+            error_code="missing_model_file",
+        ))
+        await output_callback("gen-1", None)
+        return {"generation_id": "gen-1"}
+
+    async def get_generation_status(self, generation_id):
+        return {"status": "failed", "message": "A model file this preset needs is missing."}
+
+
+def test_the_admin_step_reports_the_raw_error_not_the_safe_message():
+    executor = GenerationSmokeExecutor(FakePresetLoader(FakePresetTemplate()), object(), SafeAndRawErrorOrchestrator(), FakeFileRepository())
+
+    result = executor.execute(_context(_recipe()))
+
+    assert result.success is False
+    assert "FileNotFoundError: /srv/models/unet.safetensors" in result.safe_error_detail
+
+
+class SafeStatusOnlyFailureOrchestrator(FakeOrchestrator):
+    async def start_generation(self, request, user_id, output_callback):
+        await output_callback("gen-1", None)
+        return {"generation_id": "gen-1"}
+
+    async def get_generation_status(self, generation_id):
+        return {"status": "failed", "message": "Something went wrong while generating."}
+
+
+def test_a_status_only_failure_reports_the_stored_detail(monkeypatch):
+    monkeypatch.setattr(
+        GenerationSmokeExecutor,
+        "_stored_failure_detail",
+        staticmethod(lambda generation_id: "KeyError: 'unet' at /srv/app/src/pipe.py:12"),
+    )
+    executor = GenerationSmokeExecutor(FakePresetLoader(FakePresetTemplate()), object(), SafeStatusOnlyFailureOrchestrator(), FakeFileRepository())
+
+    result = executor.execute(_context(_recipe()))
+
+    assert result.success is False
+    assert "KeyError: 'unet' at /srv/app/src/pipe.py:12" in result.safe_error_detail
+
+
 def test_missing_preset_fails_clearly():
     loader = FakePresetLoader(None)
     executor = GenerationSmokeExecutor(loader, object(), FakeOrchestrator(), FakeFileRepository())

@@ -148,7 +148,9 @@ class OrganizeGalleryTool(BaseTool):
         detail = {
             "id": gen.get("id"),
             "status": gen.get("status"),
-            "error": gen.get("error_message"),
+            "error": gen.get("error_user_message") or gen.get("error_message"),
+            "error_code": gen.get("error_code"),
+            "error_id": gen.get("error_id"),
             "prompt": form_data.get("prompt"),
             "preset_name": gen.get("preset_name"),
             "created_at": gen.get("created_at"),

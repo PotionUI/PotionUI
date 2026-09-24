@@ -178,7 +178,7 @@ class TestWebSocketHandler:
             await handler.handle_websocket(mock_websocket, client_id, generation_statuses, owner_user)
 
         # Should call subscribe_to_generation
-        handler.connection_hub.subscribe_to_generation.assert_called_with(client_id, generation_id)
+        handler.connection_hub.subscribe_to_generation.assert_called_with(client_id, generation_id, privileged=False)
         
         # Should send subscription confirmation and status update
         calls = mock_websocket.send_text.call_args_list
@@ -260,10 +260,29 @@ class TestWebSocketHandler:
 
             await handler.handle_websocket(mock_websocket, client_id, generation_statuses, owner_user)
 
-        handler.connection_hub.subscribe_to_generation.assert_called_with(client_id, generation_id)
+        handler.connection_hub.subscribe_to_generation.assert_called_with(client_id, generation_id, privileged=False)
         calls = mock_websocket.send_text.call_args_list
         subscribed_call = next(call for call in calls if "subscribed" in call[0][0])
         assert json.loads(subscribed_call[0][0])["type"] == "subscribed"
+
+    @pytest.mark.asyncio
+    async def test_admin_subscription_to_another_users_generation_is_privileged(self, handler, mock_websocket, generation_statuses):
+        admin = types.SimpleNamespace(id="admin_1", account_type=AccountType.ADMIN)
+        handler.connection_hub.connect.return_value = True
+        handler.connection_hub.subscribe_to_generation = AsyncMock(return_value=True)
+        mock_websocket.receive_text.side_effect = [
+            json.dumps({"type": "subscribe_generation", "generation_id": "gen_1"}),
+            WebSocketDisconnect(),
+        ]
+
+        async def idle():
+            return None
+
+        with patch('src.features.generation.websocket_handler.WebSocketHandler._send_heartbeat') as mock_heartbeat:
+            mock_heartbeat.return_value = idle()
+            await handler.handle_websocket(mock_websocket, "admin_client", generation_statuses, admin)
+
+        handler.connection_hub.subscribe_to_generation.assert_called_with("admin_client", "gen_1", privileged=True)
 
     @pytest.mark.asyncio
     async def test_subscribe_generation_nonexistent(self, handler, mock_websocket, generation_statuses):

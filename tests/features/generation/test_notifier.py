@@ -11,6 +11,7 @@ failure), which used to trigger a second, redundant notification out of
 
 from unittest.mock import Mock, patch
 
+from src.features.generation.failure import GenerationFailure
 from src.features.generation.notifier import GenerationNotifier
 from src.features.generation.status_tracker import GenerationState
 
@@ -92,10 +93,21 @@ class TestNotifyCompletion:
         )
 
 
+def _failure():
+    return GenerationFailure(
+        error_code="disk_full",
+        message="The disk is full.",
+        hints=("Free up space",),
+        raw_error="OSError: [Errno 28] No space left on device: '/srv/outputs/private/x.png'",
+        detail="Traceback (most recent call last):\n  File \"/srv/app/src/handler.py\", line 9",
+        failed_pipe_id="saver",
+        failed_pipe_name="image_saver",
+        failed_at_step="Saving 1/1",
+    )
+
+
 class TestNotifyFailure:
-    @patch("src.features.generation.notifier.generation_repo")
-    def test_raises_via_global_manager_with_error_and_detail(self, mock_repo):
-        mock_repo.get_by_id.return_value = _generation()
+    def test_regular_owner_gets_the_safe_message_without_detail(self):
         global_manager = Mock()
         notifier = GenerationNotifier(notification_manager=Mock())
 
@@ -103,29 +115,53 @@ class TestNotifyFailure:
             "src.platform.plugins.runtime_registries.get_global_notification_manager",
             return_value=global_manager,
         ):
-            notifier.notify_failure("gen-1", "boom", detail="stack trace")
+            notifier.notify_failure("gen-1", "user-1", _failure())
 
         global_manager.assert_called_once()
         kwargs = global_manager.call_args.kwargs
         assert kwargs["title"] == "Generation failed"
         assert kwargs["type"] == "generation.failed"
-        assert kwargs["metadata"]["detail"] == "stack trace"
+        assert kwargs["user_id"] == "user-1"
+        assert kwargs["message"] == "The disk is full."
+        metadata = kwargs["metadata"]
+        assert metadata["generation_id"] == "gen-1"
+        assert metadata["error_id"] == "gen-1"
+        assert metadata["error_code"] == "disk_full"
+        assert metadata["hint"] == "- Free up space"
+        assert "detail" not in metadata
+        assert "failed_pipe_id" not in metadata
+        rendered = str(kwargs)
+        assert "/srv/" not in rendered
+        assert "Traceback" not in rendered
+        assert "Errno" not in rendered
 
-    @patch("src.features.generation.notifier.generation_repo")
-    def test_exception_is_swallowed(self, mock_repo):
-        mock_repo.get_by_id.side_effect = RuntimeError("db down")
+    def test_admin_owner_gets_the_detail(self):
+        global_manager = Mock()
         notifier = GenerationNotifier(notification_manager=Mock())
 
-        # Must not raise even if looking up the generation fails.
-        notifier.notify_failure("gen-1", "boom")
+        with patch(
+            "src.platform.plugins.runtime_registries.get_global_notification_manager",
+            return_value=global_manager,
+        ):
+            notifier.notify_failure("gen-1", "admin-1", _failure(), include_detail=True)
 
-    @patch("src.features.generation.notifier.generation_repo")
-    def test_only_one_notification_for_a_failed_generation_end_to_end(self, mock_repo):
-        """The two call sites a real failure goes through (notify_failure from
-        the error output, notify_completion from the later completion
-        sentinel) must add up to exactly one notify() call on the shared
-        manager - not two."""
-        mock_repo.get_by_id.return_value = _generation()
+        metadata = global_manager.call_args.kwargs["metadata"]
+        assert "No space left on device: '/srv/outputs/private/x.png'" in metadata["detail"]
+        assert "Traceback" in metadata["detail"]
+        assert metadata["failed_pipe_id"] == "saver"
+        assert metadata["failed_pipe_name"] == "image_saver"
+        assert metadata["failed_at_step"] == "Saving 1/1"
+
+    def test_exception_is_swallowed(self):
+        notifier = GenerationNotifier(notification_manager=Mock())
+
+        with patch(
+            "src.platform.plugins.runtime_registries.get_global_notification_manager",
+            side_effect=RuntimeError("not ready"),
+        ):
+            notifier.notify_failure("gen-1", "user-1", _failure())
+
+    def test_only_one_notification_for_a_failed_generation_end_to_end(self):
         shared_manager = Mock()
         notifier = GenerationNotifier(notification_manager=shared_manager)
 
@@ -133,7 +169,7 @@ class TestNotifyFailure:
             "src.platform.plugins.runtime_registries.get_global_notification_manager",
             return_value=shared_manager,
         ):
-            notifier.notify_failure("gen-1", "boom", detail="stack trace")
+            notifier.notify_failure("gen-1", "user-1", _failure())
 
         notifier.notify_completion(
             "gen-1", _record(GenerationState.FAILED, error="boom"), _generation(), duration=1.0

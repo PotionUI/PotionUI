@@ -1,9 +1,3 @@
-"""A raised torch.cuda.OutOfMemoryError (or refused host-RAM streaming) must
-reach the frontend as an actionable generation_error, not a raw stack trace -
-`generation_error` stays backward compatible: same `error`/`detail` fields,
-enriched rather than replaced.
-"""
-
 from typing import Any, Dict
 from unittest.mock import Mock, patch
 
@@ -86,11 +80,13 @@ def test_cuda_oom_produces_an_actionable_error_with_vram_numbers(mock_dependenci
 
     error = _run(manager, CudaOomPipe, "cuda_oom_pipe")
 
-    assert "GPU memory" in error.error or "VRAM" in error.error
-    assert "0.5GB free of 24.0GB total VRAM" in error.error
-    assert "resolution" in error.detail.lower()
-    # the raw exception text is never discarded
-    assert CUDA_OOM_MESSAGE in error.detail
+    assert error.error_code == "cuda_oom"
+    assert "VRAM" in error.message
+    assert "0.5GB free of 24.0GB total VRAM" in error.message
+    assert any("resolution" in hint.lower() for hint in error.hints)
+    assert CUDA_OOM_MESSAGE in error.error
+    assert CUDA_OOM_MESSAGE not in error.message
+    assert "Traceback" in error.detail
 
 
 def test_host_ram_oom_produces_an_actionable_error(mock_dependencies):
@@ -98,15 +94,14 @@ def test_host_ram_oom_produces_an_actionable_error(mock_dependencies):
 
     error = _run(manager, HostRamOomPipe, "host_ram_oom_pipe")
 
-    assert "host RAM" in error.error
-    assert "smaller model variant" in error.detail.lower()
-    assert HOST_RAM_MESSAGE in error.detail
+    assert error.error_code == "host_ram_oom"
+    assert "host RAM" in error.message
+    assert any("smaller model variant" in hint.lower() for hint in error.hints)
+    assert HOST_RAM_MESSAGE in error.error
+    assert HOST_RAM_MESSAGE not in error.message
 
 
 def test_an_unrelated_exception_gets_the_neutral_fallback_headline(mock_dependencies):
-    """A ValueError with no attached `.detail` would otherwise reach the
-    frontend as raw exception text; it must get the neutral headline
-    instead, with the original message preserved in the detail body."""
     class PlainFailure(CudaOomPipe):
         name = "plain_failure_pipe"
 
@@ -117,5 +112,29 @@ def test_an_unrelated_exception_gets_the_neutral_fallback_headline(mock_dependen
 
     error = _run(manager, PlainFailure, "plain_failure_pipe")
 
-    assert error.error == "Something went wrong during generation."
+    assert error.error_code == "unclassified"
+    assert error.message == "Something went wrong while generating."
+    assert error.error == "ValueError: preset form is missing a required field"
     assert "preset form is missing a required field" in error.detail
+
+
+def test_the_error_names_the_failing_pipe_and_its_last_step(mock_dependencies):
+    from src.pipelines.outputs import Progress, ProgressGenerationOutput
+
+    class SteppingFailure(CudaOomPipe):
+        name = "stepping_pipe"
+        display_title = None
+
+        def process(self, pipe_input, generation_outputs, is_cancelled=None):
+            generation_outputs(ProgressGenerationOutput(state="Sampling", progress=Progress(current=3, max=8)))
+            raise ValueError("/srv/models/private/unet.safetensors exploded")
+
+    manager = GenerationEngine(**mock_dependencies)
+
+    error = _run(manager, SteppingFailure, "stepping_pipe")
+
+    assert error.pipe_id == 0
+    assert error.pipe_name == "stepping_pipe"
+    assert error.pipe_key == "stepping_pipe"
+    assert error.failed_at_step == "Sampling 3/8"
+    assert "/srv/" not in error.message

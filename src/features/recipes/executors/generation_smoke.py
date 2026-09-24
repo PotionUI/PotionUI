@@ -225,7 +225,7 @@ class GenerationSmokeExecutor:
                     if not getattr(item, "temporary", False)
                 )
             elif isinstance(output, ErrorGenerationOutput):
-                error_box["error"] = getattr(output, "error", "generation error")
+                error_box["error"] = output.error or output.message or "generation error"
             elif isinstance(output, ProgressGenerationOutput) and report_progress is not None:
                 # Sampling steps as the step's own progress ("3 of 8 steps"),
                 # throttled to about once a second; the first and last tick
@@ -264,7 +264,7 @@ class GenerationSmokeExecutor:
         state = status.get("status")
         error = error_box.get("error")
         if not error and state == "failed":
-            error = status.get("error") or status.get("message")
+            error = self._stored_failure_detail(generation_id) or status.get("error") or status.get("message")
         return {
             "generation_id": generation_id,
             "state": state,
@@ -300,6 +300,18 @@ class GenerationSmokeExecutor:
             "error": getattr(status, "error", None),
             "message": getattr(status, "message", None),
         }
+
+    @staticmethod
+    def _stored_failure_detail(generation_id: Optional[str]) -> Optional[str]:
+        if generation_id is None:
+            return None
+        from src.features.generation.repository import generation_repo
+
+        try:
+            generation = generation_repo.get_by_id(generation_id)
+        except Exception:
+            return None
+        return getattr(generation, "error_detail", None) if generation is not None else None
 
     async def _terminal_state(self, generation_id: Optional[str]) -> Optional[str]:
         return (await self._status_dict(generation_id)).get("status")

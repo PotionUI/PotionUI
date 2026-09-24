@@ -33,6 +33,7 @@ Example:
 import asyncio
 import logging
 import time
+import traceback
 from functools import partial
 from typing import Dict, Any, List, Optional, Callable, TYPE_CHECKING
 
@@ -56,6 +57,13 @@ from src.features.generation.queue_dispatcher import QueueDispatcher
 from src.features.generation.scheduling import SchedulingPolicy
 from src.features.generation.prompt_expansion import PromptExpander
 from src.features.generation.notifier import GenerationNotifier
+from src.features.generation.policy import GenerationPolicy
+from src.features.generation.failure import (
+    GenerationFailure,
+    apply_failure,
+    failure_from_exception,
+    failure_from_output,
+)
 from src.features.generation.status_tracker import (
     GenerationState,
     GenerationStatusTracker,
@@ -1178,8 +1186,9 @@ class GenerationOrchestrator:
             logger.info(f"Pipeline built with {len(built_pipeline.pipes)} pipes")
         except Exception as e:
             logger.error(f"Failed to build pipeline: {str(e)}", exc_info=True)
-            await self.status_tracker.transition_async(generation_id, GenerationState.FAILED, error=str(e))
-            self._notify_generation_failure(generation_id, str(e))
+            failure = failure_from_exception(e, traceback.format_exc())
+            await self.status_tracker.transition_async(generation_id, GenerationState.FAILED, failure)
+            self._notify_generation_failure(generation_id, failure)
             self._queue_dispatcher.prune_finished()
             raise
 
@@ -1208,15 +1217,24 @@ class GenerationOrchestrator:
         await backend.start_generation(built_pipeline.to_backend_payload(), bridge.emit)
         logger.info(f"Generation {generation_id} started successfully on {backend.name}")
 
-    def _notify_generation_failure(
-        self,
-        generation_id: str,
-        error: str,
-        detail: Optional[str] = None,
-    ) -> None:
-        """Raise a persistent, toast-surfaced notification for a failed
-        generation. Delegates to GenerationNotifier; see notifier.py."""
-        self._notifier.notify_failure(generation_id, error, detail)
+    def _notify_generation_failure(self, generation_id: str, failure: GenerationFailure) -> None:
+        generation = generation_repo.get_by_id(generation_id)
+        user_id = generation.user_id if generation else None
+        self._notifier.notify_failure(
+            generation_id,
+            user_id,
+            failure,
+            include_detail=self._is_admin_user(user_id),
+        )
+
+    def _is_admin_user(self, user_id: Optional[str]) -> bool:
+        if not user_id or self.user_repository is None:
+            return False
+        try:
+            return GenerationPolicy.is_admin(self.user_repository.get_by_id(user_id))
+        except Exception:
+            logger.debug(f"Could not resolve user {user_id} for failure notification", exc_info=True)
+            return False
 
     async def _handle_generation_output(
         self,
@@ -1272,8 +1290,10 @@ class GenerationOrchestrator:
         logger.debug(f"Processing output for {generation_id}: {type(output).__name__}")
 
         if isinstance(output, ErrorGenerationOutput):
-            await self.status_tracker.transition_async(generation_id, GenerationState.FAILED, error=output.error)
-            self._notify_generation_failure(generation_id, output.error, output.detail)
+            failure = failure_from_output(output)
+            apply_failure(output, failure)
+            await self.status_tracker.transition_async(generation_id, GenerationState.FAILED, failure)
+            self._notify_generation_failure(generation_id, failure)
         else:
             self.status_tracker.update_from_output(generation_id, output)
 
@@ -1302,13 +1322,15 @@ class GenerationOrchestrator:
         # update for a file that was never actually written.
         save_error = self._final_save_error(output, handler_metadata)
         if save_error:
-            await self.status_tracker.transition_async(generation_id, GenerationState.FAILED, error=save_error)
-            self._notify_generation_failure(generation_id, save_error)
             output = ErrorGenerationOutput(
                 error=save_error,
                 pipe_id=getattr(output, 'pipe_id', None),
                 pipe_name=getattr(output, 'pipe_name', None),
             )
+            failure = failure_from_output(output)
+            apply_failure(output, failure)
+            await self.status_tracker.transition_async(generation_id, GenerationState.FAILED, failure)
+            self._notify_generation_failure(generation_id, failure)
 
         # Notify callback if provided (this triggers WebSocket broadcast in controller)
         if output_callback:

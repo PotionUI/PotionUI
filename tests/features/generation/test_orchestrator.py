@@ -120,7 +120,6 @@ def mock_output_processor():
 def mock_generation_repo():
     """Mock generation repository (patched everywhere it's imported)."""
     with patch('src.features.generation.orchestrator.generation_repo') as mock_repo, \
-         patch('src.features.generation.notifier.generation_repo', mock_repo), \
          patch('src.features.generation.status_tracker.generation_repo', mock_repo):
         mock_repo.create = Mock()
         mock_repo.update_status = Mock()
@@ -476,9 +475,14 @@ class TestLocalGenerationStartup:
 
         # Verify status was transitioned to failed
         assert orchestrator.status_tracker.get('gen_fail').state.value == 'failed'
-        mock_generation_repo.update_status.assert_called_with(
-            'gen_fail', 'failed', error_message="Invalid preset configuration"
-        )
+        args, kwargs = mock_generation_repo.update_status.call_args
+        assert args == ('gen_fail', 'failed')
+        failure = kwargs['failure']
+        assert failure['error_code'] == 'unclassified'
+        assert failure['error_message'] == 'Something went wrong while generating.'
+        assert 'Invalid preset configuration' not in failure['error_user_message']
+        assert 'Invalid preset configuration' in failure['error_detail']
+        assert 'Traceback' in failure['error_detail']
 
     @pytest.mark.asyncio
     async def test_start_generation_updates_preset_version(
@@ -613,8 +617,6 @@ class TestOutputHandling:
         mock_output_processor,
         mock_generation_repo
     ):
-        """An ErrorGenerationOutput transitions to FAILED and raises a
-        failure notification carrying the error + detail body."""
         from src.pipelines.outputs import ErrorGenerationOutput
         from src.features.generation.status_tracker import GenerationState
 
@@ -644,11 +646,76 @@ class TestOutputHandling:
         kwargs = mock_manager.call_args.kwargs
         assert kwargs['level'] == 'error'
         assert kwargs['type'] == 'generation.failed'
-        assert kwargs['message'] == 'KSampler: CUDA out of memory'
+        assert kwargs['message'] == 'Ran out of GPU memory (VRAM) during generation.'
         assert kwargs['show_toast'] is True
         assert kwargs['user_id'] == user_id
-        assert kwargs['metadata']['generation_id'] == generation_id
-        assert kwargs['metadata']['detail'] == 'Node 12 (KSampler)\nRuntimeError: CUDA out of memory'
+        metadata = kwargs['metadata']
+        assert metadata['generation_id'] == generation_id
+        assert metadata['error_code'] == 'cuda_oom'
+        assert metadata['error_id'] == generation_id
+        assert metadata['hint']
+        assert 'detail' not in metadata
+        assert 'KSampler' not in str(kwargs)
+
+    @pytest.mark.asyncio
+    async def test_error_notification_for_an_admin_owner_carries_the_detail(
+        self,
+        orchestrator,
+        mock_output_processor,
+        mock_generation_repo
+    ):
+        from src.pipelines.outputs import ErrorGenerationOutput
+        from src.platform.security.user import AccountType
+
+        generation_id = 'gen_admin_error'
+        orchestrator.status_tracker.create(id=generation_id)
+        mock_generation_repo.get_by_id.return_value = Mock(user_id='admin_1')
+        orchestrator.user_repository = Mock(get_by_id=Mock(return_value=Mock(account_type=AccountType.ADMIN)))
+
+        output = ErrorGenerationOutput(
+            error='KSampler: CUDA out of memory',
+            detail='Node 12 (KSampler)\nRuntimeError: CUDA out of memory',
+        )
+
+        mock_manager = Mock()
+        with patch('src.platform.plugins.runtime_registries.get_global_notification_manager', return_value=mock_manager):
+            await orchestrator._handle_generation_output(generation_id, output, 'comfyui', AsyncMock())
+
+        metadata = mock_manager.call_args.kwargs['metadata']
+        assert 'KSampler: CUDA out of memory' in metadata['detail']
+        assert 'Node 12 (KSampler)' in metadata['detail']
+
+    @pytest.mark.asyncio
+    async def test_error_notification_for_a_regular_owner_has_no_detail(
+        self,
+        orchestrator,
+        mock_output_processor,
+        mock_generation_repo
+    ):
+        from src.pipelines.outputs import ErrorGenerationOutput
+        from src.platform.security.user import AccountType
+
+        generation_id = 'gen_user_error'
+        orchestrator.status_tracker.create(id=generation_id)
+        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_1')
+        orchestrator.user_repository = Mock(get_by_id=Mock(return_value=Mock(account_type=AccountType.USER)))
+
+        output = ErrorGenerationOutput(
+            error="FileNotFoundError: [Errno 2] No such file or directory: '/srv/models/secret/model.safetensors'",
+            detail='Traceback (most recent call last):\n  File "/srv/app/src/pipe.py", line 3',
+        )
+
+        mock_manager = Mock()
+        with patch('src.platform.plugins.runtime_registries.get_global_notification_manager', return_value=mock_manager):
+            await orchestrator._handle_generation_output(generation_id, output, 'local', AsyncMock())
+
+        kwargs = mock_manager.call_args.kwargs
+        assert kwargs['metadata']['error_code'] == 'missing_model_file'
+        assert 'detail' not in kwargs['metadata']
+        rendered = str(kwargs)
+        assert '/srv/' not in rendered
+        assert 'Traceback' not in rendered
+        assert 'FileNotFoundError' not in rendered
 
     @pytest.mark.asyncio
     async def test_notify_generation_failure_swallows_errors(
@@ -660,7 +727,8 @@ class TestOutputHandling:
         with patch('src.platform.plugins.runtime_registries.get_global_notification_manager',
                    side_effect=RuntimeError('NotificationManager not initialized yet')):
             # Should not raise
-            orchestrator._notify_generation_failure('gen_x', 'boom', 'trace')
+            from src.features.generation.failure import GenerationFailure
+            orchestrator._notify_generation_failure('gen_x', GenerationFailure(error_code='unclassified', message='boom'))
 
     @pytest.mark.asyncio
     async def test_handle_output_completion_signal(
@@ -684,7 +752,7 @@ class TestOutputHandling:
 
         # Verify database was updated
         mock_generation_repo.update_status.assert_called_with(
-            generation_id, 'completed', error_message=None
+            generation_id, 'completed', failure=None
         )
 
         # Verify callback was called with None
@@ -761,7 +829,9 @@ class TestOutputHandling:
 
         status = orchestrator.status_tracker.get(generation_id)
         assert status.state.value == 'failed'
-        assert status.error == 'pipe exploded'
+        assert status.error == 'Something went wrong while generating.'
+        assert status.error_code == 'unclassified'
+        assert 'pipe exploded' not in str(status.model_dump())
 
     @pytest.mark.asyncio
     async def test_completion_after_error_does_not_revert_to_completed(
@@ -870,15 +940,17 @@ class TestFinalSaveFailure:
 
         status = orchestrator.status_tracker.get(generation_id)
         assert status.state.value == 'failed'
-        assert status.error == 'Failed to save image'
+        assert status.error == 'Something went wrong while generating.'
 
         callback.assert_called_once()
         forwarded_output = callback.call_args[0][1]
         assert isinstance(forwarded_output, ErrorGenerationOutput)
         assert forwarded_output.error == 'Failed to save image'
+        assert forwarded_output.error_code == 'unclassified'
+        assert forwarded_output.message == 'Something went wrong while generating.'
 
         mock_manager.assert_called_once()
-        assert mock_manager.call_args.kwargs['message'] == 'Failed to save image'
+        assert mock_manager.call_args.kwargs['message'] == 'Something went wrong while generating.'
 
     @pytest.mark.asyncio
     async def test_processed_false_without_save_error_still_fails(
@@ -907,7 +979,9 @@ class TestFinalSaveFailure:
             await orchestrator._handle_generation_output(generation_id, output, 'local', None)
 
         assert orchestrator.status_tracker.get(generation_id).state.value == 'failed'
-        assert orchestrator.status_tracker.get(generation_id).error == 'disk is full'
+        assert orchestrator.status_tracker.get(generation_id).error == 'Something went wrong while generating.'
+        _args, kwargs = mock_generation_repo.update_status.call_args
+        assert kwargs['failure']['error_detail'] == 'disk is full'
 
     @pytest.mark.asyncio
     async def test_temporary_output_save_metadata_does_not_fail_generation(
@@ -994,7 +1068,7 @@ class TestGenerationCancellation:
 
         # Verify database was updated
         mock_generation_repo.update_status.assert_called_with(
-            generation_id, 'cancelled', error_message=None
+            generation_id, 'cancelled', failure=None
         )
 
         # Verify backend was called

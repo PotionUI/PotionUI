@@ -108,8 +108,9 @@ def test_the_detail_still_reaches_the_frontend(mock_dependencies):
 
     errors = [o for o in outputs if isinstance(o, ErrorGenerationOutput)]
     assert len(errors) == 1
-    assert errors[0].detail == DETAIL
-    assert errors[0].error == SUMMARY
+    assert errors[0].detail.startswith(DETAIL)
+    assert "Traceback" in errors[0].detail
+    assert SUMMARY in errors[0].error
 
 
 def test_an_exception_without_a_detail_logs_no_empty_detail_line(mock_dependencies):

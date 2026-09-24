@@ -337,9 +337,11 @@ remote destination backend by handing the worker a resolved URL to pull
 unrelated to this admin sync surface. A pipeline referencing
 an HF-layout directory model still cannot dispatch (see below) -
 `build_model_bundle`/`resolve_bundle_entry` refuse it before a manifest is
-ever built, and `RemoteNativeBackend` turns that refusal into a
-`generation_error` naming the preset and the offending model file rather than
-a raw exception/stack trace.
+ever built, and `RemoteNativeBackend` turns that refusal into a failed
+generation. The user sees only the safe `generation_error` message; the
+refusal naming the preset and the offending model file is kept as the
+generation's failure detail, readable by administrators at
+`GET /api/generations/{id}/failure`.
 
 **"Where do I put models on a worker?"** is answered by the sync view itself:
 `GET /api/admin/remote-models/{backend_id}` returns `depot_dir` (the worker's

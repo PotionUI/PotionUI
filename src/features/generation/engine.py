@@ -173,6 +173,16 @@ def validate_pipe_configuration(pipe_class: type, config: Dict[str, Any]) -> Dic
     logger.debug(f"[VALIDATION] Configuration validated for pipe '{pipe_class.name}': {len(validated_config)} parameters")
     return validated_config
 
+def _describe_step(output: ProgressGenerationOutput) -> Optional[str]:
+    parts = []
+    if output.state:
+        parts.append(str(output.state))
+    progress = output.progress
+    if progress is not None and getattr(progress, 'max', None):
+        parts.append(f"{progress.current}/{progress.max}")
+    return " ".join(parts) or None
+
+
 class GenerationEngine:
 
     def __init__(
@@ -468,7 +478,7 @@ class GenerationEngine:
 
         logger.info(f"[VALIDATION] Pipeline validation successful for {len(pipes)} pipes")
 
-    def hijack_pipe_generation_output(self, generation_outputs: callable, output: GenerationOutput, pipe: BasePipe, generation_id: str, pipe_id: int = None):
+    def hijack_pipe_generation_output(self, generation_outputs: callable, output: GenerationOutput, pipe: BasePipe, generation_id: str, pipe_id: int = None, failure_point: Optional[Dict[str, Any]] = None):
         """
         Process generation output through the handler system and then pass to the output callback.
 
@@ -489,6 +499,8 @@ class GenerationEngine:
         if isinstance(output, ProgressGenerationOutput):
             title = resolve_display_title(pipe.name, pipe.config.get('display_title') or pipe.display_title)
             output.title = f"<<PIPE:{title}>>"
+            if failure_point is not None:
+                failure_point['step'] = _describe_step(output)
 
         # Pass the output to the callback (application layer will handle processing)
         generation_outputs(output)
@@ -569,6 +581,7 @@ class GenerationEngine:
                 lease_context = None
                 lease_stats = None
 
+        failure_point: Dict[str, Any] = {}
         try:
             # Preset-scoped RAM cache: tag this generation's model-cache entries
             # with its preset and, on a preset switch, evict the previous preset's
@@ -626,6 +639,13 @@ class GenerationEngine:
                     return
 
                 generation_time_pipe_start = time.perf_counter()
+                failure_point.clear()
+                failure_point.update(
+                    pipe_id=pipe_id,
+                    pipe_key=str(pipe_config.get('id', pipe_config['name'])),
+                    pipe_name=pipe_config['name'],
+                    step=None,
+                )
 
                 pipe_class = self.pipe_catalog.get_pipe(pipe_config['name'])
                 pipe_class_configuration = pipe_class.get_default_config() or {}
@@ -755,14 +775,14 @@ class GenerationEngine:
                     # Pipe supports cancellation
                     current_pipe_result = pipe.process(
                         pipe_input=PipeInput(input=pipe_input),
-                        generation_outputs=lambda _output: self.hijack_pipe_generation_output(generation_outputs, _output, pipe, generation_id, pipe_id),
+                        generation_outputs=lambda _output: self.hijack_pipe_generation_output(generation_outputs, _output, pipe, generation_id, pipe_id, failure_point),
                         is_cancelled=is_cancelled,
                     )
                 else:
                     # Legacy pipe without cancellation support
                     current_pipe_result = pipe.process(
                         pipe_input=PipeInput(input=pipe_input),
-                        generation_outputs=lambda _output: self.hijack_pipe_generation_output(generation_outputs, _output, pipe, generation_id, pipe_id),
+                        generation_outputs=lambda _output: self.hijack_pipe_generation_output(generation_outputs, _output, pipe, generation_id, pipe_id, failure_point),
                     )
 
                 profiler.mark("pipe.end", pipe_id=pipe_id, pipe_name=pipe.name, pipe_identifier=pipe_config.get('id'))
@@ -864,24 +884,27 @@ class GenerationEngine:
             # one-line summary and nothing else.
             if attached_detail:
                 logger.error(f"Generation error detail: {attached_detail}")
-            detail = attached_detail or traceback.format_exc()
+            local_traceback = traceback.format_exc()
+            detail = f"{attached_detail}\n\n{local_traceback}" if attached_detail else local_traceback
 
-            # Memory-exhaustion failures (CUDA OOM, refused host-RAM streaming)
-            # otherwise reach the user as a raw PyTorch/native stack trace with
-            # no guidance. Classify and prepend actionable remediation; the raw
-            # exception text stays in `detail` either way.
-            error_message = str(e)
             classification = classify_generation_error(e)
-            if classification is not None:
-                error_message = classification.summary
-                if classification.category == "cuda_oom":
-                    vram_note = self._live_vram_note()
-                    if vram_note:
-                        error_message = f"{error_message} {vram_note}"
-                suggestions = "\n".join(f"- {s}" for s in classification.suggestions)
-                detail = f"Try:\n{suggestions}\n\n{detail}"
+            message = classification.summary
+            if classification.category == "cuda_oom":
+                vram_note = self._live_vram_note()
+                if vram_note:
+                    message = f"{message} {vram_note}"
 
-            generation_outputs(ErrorGenerationOutput(error=error_message, detail=detail))
+            generation_outputs(ErrorGenerationOutput(
+                error=f"{type(e).__name__}: {e}",
+                detail=detail,
+                error_code=classification.category,
+                message=message,
+                hints=list(classification.suggestions),
+                pipe_id=failure_point.get('pipe_id'),
+                pipe_name=failure_point.get('pipe_name'),
+                pipe_key=failure_point.get('pipe_key'),
+                failed_at_step=failure_point.get('step'),
+            ))
             raise
         finally:
             # Release the generation lease (if it was acquired) BEFORE cleanup,

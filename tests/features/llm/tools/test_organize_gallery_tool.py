@@ -337,3 +337,48 @@ class TestExecuteConfirmedRate:
         history_facade = make_history_facade(history={"generations": [], "total": 0})
         result = await OrganizeGalleryTool().execute_confirmed(make_context(history_facade), operation="list_recent")
         assert result.success is True
+
+
+def _failed_generation_dict():
+    from src.features.generation.failure import failure_from_output
+    from src.features.generation.records import Generation
+    from src.pipelines.outputs import ErrorGenerationOutput
+
+    columns = failure_from_output(ErrorGenerationOutput(
+        error="FileNotFoundError: [Errno 2] No such file or directory: '/srv/models/private/unet.safetensors'",
+        detail='Traceback (most recent call last):\n  File "/srv/app/src/loader.py", line 4',
+        pipe_key="loader",
+    )).columns()
+    generation = Generation(
+        id="gen-1", preset_id="p1", form_data={"prompt": "a fox"}, user_id="user-1", status="failed", **columns,
+    )
+    data = generation.to_dict()
+    data.update({"preset_name": "SDXL", "tags": [], "files": []})
+    return data
+
+
+class TestFailedGenerationExposure:
+    @pytest.mark.asyncio
+    async def test_get_returns_only_the_safe_failure_fields(self):
+        history_facade = make_history_facade()
+        history_facade.get_by_id.return_value = _failed_generation_dict()
+
+        result = await OrganizeGalleryTool().execute(make_context(history_facade), operation="get", generation_id="gen-1")
+
+        payload = json.loads(result.data)
+        assert payload["error_code"] == "missing_model_file"
+        assert payload["error_id"] == "gen-1"
+        assert payload["error"].startswith("A model file this preset needs is missing.")
+        for marker in ("/srv/", "Traceback", "Errno", "FileNotFoundError"):
+            assert marker not in result.data
+
+    @pytest.mark.asyncio
+    async def test_list_recent_returns_only_the_safe_failure_message(self):
+        history_facade = make_history_facade(history={"generations": [_failed_generation_dict()], "total": 1})
+
+        result = await OrganizeGalleryTool().execute(make_context(history_facade), operation="list_recent")
+
+        payload = json.loads(result.data)
+        assert payload["generations"][0]["error"] == "A model file this preset needs is missing."
+        for marker in ("/srv/", "Traceback", "Errno", "FileNotFoundError"):
+            assert marker not in result.data

@@ -1,53 +1,18 @@
-"""Classifies a generation-ending exception into a short, user-facing
-category with concrete remediation, without discarding the original error.
-
-`classify_generation_error()` recognizes a fixed set of unambiguous failure
-signatures (CUDA/host-RAM exhaustion, missing or corrupt model weights, a
-full disk, a backend requiring credentials, an unreachable backend). An
-exception that doesn't match any of those but also carries no `.detail` of
-its own (i.e. the caller would otherwise show raw `str(exc)` as the
-headline) gets a neutral fallback classification instead. An exception that
-already attaches a curated `.detail` (e.g. `GenerationExecutionError` from a
-pipe/backend) returns None so the caller keeps using its deliberately
-written message untouched.
-"""
-
 from __future__ import annotations
 
+import errno
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
-_CUDA_OOM_MARKERS = ("CUDA out of memory", "HIP out of memory")
-
-# Matched by substring, not exception type, because a pipe can catch the
-# original torch.cuda.OutOfMemoryError deep in a call stack and re-raise it
-# wrapped in a plain RuntimeError - the type is gone by the time it reaches
-# GenerationEngine, but torch's own wording survives in str(exc).
-_VRAM_SUGGESTIONS = (
-    "Lower the resolution one tier",
-    "Reduce the frame count (video presets only)",
-    "Switch to an fp8 or smaller model variant",
-    "Close other applications using the GPU",
-)
-
-_HOST_RAM_SUGGESTIONS = (
-    "Switch to a smaller model variant",
-    "Try a different model family with a lighter memory footprint",
-)
+_CUDA_OOM_MARKERS = ("cuda out of memory", "hip out of memory")
 
 _MODEL_FILE_EXTENSIONS = (
     ".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".onnx",
 )
 
-_MISSING_MODEL_SUGGESTIONS = (
-    "Re-download the model from Models -> Downloads",
-    "Check the file wasn't moved or deleted on disk",
-)
+_MISSING_FILE_MARKERS = ("no such file or directory", "file not found", "does not exist")
 
-_DISK_FULL_SUGGESTIONS = (
-    "Free up space on the drive backing your models/output directories",
-    "Remove old outputs or unused model checkpoints",
-)
+_DISK_FULL_MARKERS = ("no space left on device",)
 
 _CORRUPT_WEIGHTS_MARKERS = (
     "headertoolarge",
@@ -56,99 +21,126 @@ _CORRUPT_WEIGHTS_MARKERS = (
     "error while deserializing header",
 )
 
-_CORRUPT_WEIGHTS_SUGGESTIONS = (
-    "Delete the local copy and re-download it from Models -> Downloads",
-    "The download may have been interrupted - try again",
-)
-
 _AUTH_REQUIRED_MARKERS = ("401 unauthorized", "403 forbidden", "http 401", "http 403")
 
-_AUTH_REQUIRED_SUGGESTIONS = (
-    "Add or refresh the provider's credentials in Administration -> Plugins",
+_BACKEND_UNREACHABLE_MARKERS = (
+    "worker unreachable",
+    "connection refused",
+    "could not reach",
+    "failed to establish a new connection",
 )
 
-_BACKEND_UNREACHABLE_SUGGESTIONS = (
-    "Check the backend is running and reachable",
-    "Verify the backend's URL/port in Administration -> Backends",
-)
+UNCLASSIFIED = "unclassified"
 
-_NEUTRAL_SUGGESTIONS = (
-    "Check the details below for the underlying error",
-)
+_CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
+    "cuda_oom": (
+        "Ran out of GPU memory (VRAM) during generation.",
+        (
+            "Lower the resolution one tier",
+            "Reduce the frame count (video presets only)",
+            "Switch to an fp8 or smaller model variant",
+            "Close other applications using the GPU",
+        ),
+    ),
+    "host_ram_oom": (
+        "Ran out of host RAM while streaming model weights.",
+        (
+            "Switch to a smaller model variant",
+            "Try a different model family with a lighter memory footprint",
+        ),
+    ),
+    "missing_model_file": (
+        "A model file this preset needs is missing.",
+        (
+            "Re-download the model from Models -> Downloads",
+            "Check the file wasn't moved or deleted on disk",
+        ),
+    ),
+    "disk_full": (
+        "The disk is full.",
+        (
+            "Free up space on the drive backing your models/output directories",
+            "Remove old outputs or unused model checkpoints",
+        ),
+    ),
+    "corrupt_weights": (
+        "A model file appears corrupted or incomplete.",
+        (
+            "Delete the local copy and re-download it from Models -> Downloads",
+            "The download may have been interrupted - try again",
+        ),
+    ),
+    "auth_required": (
+        "The source requires credentials.",
+        ("Add or refresh the provider's credentials in Administration -> Plugins",),
+    ),
+    "backend_unreachable": (
+        "Could not reach the configured backend.",
+        (
+            "Check the backend is running and reachable",
+            "Verify the backend's URL/port in Administration -> Backends",
+        ),
+    ),
+    UNCLASSIFIED: (
+        "Something went wrong while generating.",
+        (
+            "Try again",
+            "If it keeps failing, send the error ID to your administrator",
+        ),
+    ),
+}
 
 
 @dataclass
 class ErrorClassification:
-    # "cuda_oom" | "host_ram_oom" | "missing_model_file" | "disk_full" |
-    # "corrupt_weights" | "auth_required" | "backend_unreachable" |
-    # "unclassified"
     category: str
     summary: str
     suggestions: List[str] = field(default_factory=list)
 
 
-def classify_generation_error(exc: BaseException) -> Optional[ErrorClassification]:
-    if _is_cuda_oom(exc):
-        return ErrorClassification(
-            category="cuda_oom",
-            summary="Ran out of GPU memory (VRAM) during generation.",
-            suggestions=list(_VRAM_SUGGESTIONS),
-        )
-    if _is_host_ram_exhausted(exc):
-        return ErrorClassification(
-            category="host_ram_oom",
-            summary="Ran out of host RAM while streaming model weights.",
-            suggestions=list(_HOST_RAM_SUGGESTIONS),
-        )
-    if _is_missing_model_file(exc):
-        return ErrorClassification(
-            category="missing_model_file",
-            summary="A model file this preset needs is missing.",
-            suggestions=list(_MISSING_MODEL_SUGGESTIONS),
-        )
-    if _is_disk_full(exc):
-        return ErrorClassification(
-            category="disk_full",
-            summary="The disk is full.",
-            suggestions=list(_DISK_FULL_SUGGESTIONS),
-        )
-    if _is_corrupt_weights(exc):
-        return ErrorClassification(
-            category="corrupt_weights",
-            summary="A model file appears corrupted or incomplete.",
-            suggestions=list(_CORRUPT_WEIGHTS_SUGGESTIONS),
-        )
-    if _is_auth_required(exc):
-        return ErrorClassification(
-            category="auth_required",
-            summary="The source requires credentials.",
-            suggestions=list(_AUTH_REQUIRED_SUGGESTIONS),
-        )
-    if _is_backend_unreachable(exc):
-        return ErrorClassification(
-            category="backend_unreachable",
-            summary="Could not reach the configured backend.",
-            suggestions=list(_BACKEND_UNREACHABLE_SUGGESTIONS),
-        )
-    if getattr(exc, "detail", None):
-        return None
-    return ErrorClassification(
-        category="unclassified",
-        summary="Something went wrong during generation.",
-        suggestions=list(_NEUTRAL_SUGGESTIONS),
-    )
+def classification_for_code(code: Optional[str]) -> ErrorClassification:
+    category = code if code in _CATEGORIES else UNCLASSIFIED
+    summary, suggestions = _CATEGORIES[category]
+    return ErrorClassification(category=category, summary=summary, suggestions=list(suggestions))
+
+
+def classify_generation_error(exc: BaseException) -> ErrorClassification:
+    for category, matches in _EXCEPTION_CHECKS:
+        if matches(exc):
+            return classification_for_code(category)
+    return classify_error_text(str(exc))
+
+
+def classify_error_text(text: Optional[str]) -> ErrorClassification:
+    message = (text or "").lower()
+    for category, matches in _TEXT_CHECKS:
+        if matches(message):
+            return classification_for_code(category)
+    return classification_for_code(UNCLASSIFIED)
+
+
+def _has_any(message: str, markers: Tuple[str, ...]) -> bool:
+    return any(marker in message for marker in markers)
+
+
+def _text_is_missing_model_file(message: str) -> bool:
+    return _has_any(message, _MISSING_FILE_MARKERS) and _has_any(message, _MODEL_FILE_EXTENSIONS)
+
+
+_TEXT_CHECKS: Tuple[Tuple[str, Callable[[str], bool]], ...] = (
+    ("cuda_oom", lambda m: _has_any(m, _CUDA_OOM_MARKERS)),
+    ("missing_model_file", _text_is_missing_model_file),
+    ("disk_full", lambda m: _has_any(m, _DISK_FULL_MARKERS)),
+    ("corrupt_weights", lambda m: _has_any(m, _CORRUPT_WEIGHTS_MARKERS)),
+    ("auth_required", lambda m: _has_any(m, _AUTH_REQUIRED_MARKERS)),
+    ("backend_unreachable", lambda m: _has_any(m, _BACKEND_UNREACHABLE_MARKERS)),
+)
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
-    # Deferred import: `torch` (and, below, `src.platform.runtime.native`)
-    # sit on GenerationEngine's import chain, which bootstrap.app must stay
-    # free of at process boot (tests/architecture/test_boot_imports.py) -
-    # both only load once a generation actually fails, not at import time.
     import torch
 
-    if isinstance(exc, torch.cuda.OutOfMemoryError):
-        return True
-    return any(marker in str(exc) for marker in _CUDA_OOM_MARKERS)
+    return isinstance(exc, torch.cuda.OutOfMemoryError)
 
 
 def _is_host_ram_exhausted(exc: BaseException) -> bool:
@@ -158,53 +150,47 @@ def _is_host_ram_exhausted(exc: BaseException) -> bool:
 
 
 def _is_missing_model_file(exc: BaseException) -> bool:
-    if not isinstance(exc, FileNotFoundError):
-        return False
-    message = str(exc).lower()
-    return any(ext in message for ext in _MODEL_FILE_EXTENSIONS)
+    return isinstance(exc, FileNotFoundError) and _has_any(str(exc).lower(), _MODEL_FILE_EXTENSIONS)
 
 
 def _is_disk_full(exc: BaseException) -> bool:
-    import errno
-
-    if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
-        return True
-    return "no space left on device" in str(exc).lower()
+    return isinstance(exc, OSError) and exc.errno == errno.ENOSPC
 
 
 def _is_corrupt_weights(exc: BaseException) -> bool:
     try:
         import safetensors
     except ImportError:
-        pass
-    else:
-        if isinstance(exc, safetensors.SafetensorError):
-            return True
-    message = str(exc).lower()
-    return any(marker in message for marker in _CORRUPT_WEIGHTS_MARKERS)
+        return False
+    return isinstance(exc, safetensors.SafetensorError)
 
 
 def _is_auth_required(exc: BaseException) -> bool:
     try:
         import httpx
     except ImportError:
-        pass
-    else:
-        if isinstance(exc, httpx.HTTPStatusError):
-            return exc.response.status_code in (401, 403)
-    message = str(exc).lower()
-    return any(marker in message for marker in _AUTH_REQUIRED_MARKERS)
+        return False
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (401, 403)
 
 
 def _is_backend_unreachable(exc: BaseException) -> bool:
     from src.features.remote_execution.transport import WorkerUnreachableError
 
-    if isinstance(exc, WorkerUnreachableError):
-        return True
-    if isinstance(exc, ConnectionError):
+    if isinstance(exc, (WorkerUnreachableError, ConnectionError)):
         return True
     try:
         import httpx
     except ImportError:
         return False
     return isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))
+
+
+_EXCEPTION_CHECKS: Tuple[Tuple[str, Callable[[BaseException], bool]], ...] = (
+    ("cuda_oom", _is_cuda_oom),
+    ("host_ram_oom", _is_host_ram_exhausted),
+    ("missing_model_file", _is_missing_model_file),
+    ("disk_full", _is_disk_full),
+    ("corrupt_weights", _is_corrupt_weights),
+    ("auth_required", _is_auth_required),
+    ("backend_unreachable", _is_backend_unreachable),
+)

@@ -18,7 +18,7 @@ class GenerationPolicy:
     """Ownership checks for generations (live records and history rows)."""
 
     @staticmethod
-    def _is_admin(user: Any) -> bool:
+    def is_admin(user: Any) -> bool:
         return getattr(user, "account_type", None) == AccountType.ADMIN
 
     @staticmethod
@@ -31,7 +31,7 @@ class GenerationPolicy:
         """
         if user is None:
             return False
-        if GenerationPolicy._is_admin(user):
+        if GenerationPolicy.is_admin(user):
             return True
         if owner_id is None:
             return False

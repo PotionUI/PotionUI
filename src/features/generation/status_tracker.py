@@ -18,6 +18,7 @@ from threading import RLock
 from typing import Any, Dict, List, Optional
 
 from src.pipelines.outputs import GenerationOutput
+from src.features.generation.failure import GenerationFailure
 from src.features.generation.repository import generation_repo
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ class GenerationRecord:
     segment_id: Optional[str] = None
     message: Optional[str] = None
     error: Optional[str] = None
+    error_code: Optional[str] = None
     created_at: float = field(default_factory=time.time)
     # Set when the queue dispatches the generation. `created_at` is enqueue
     # time, so only `started_at` measures execution rather than queue wait.
@@ -77,6 +79,8 @@ class GenerationRecord:
             'total_steps': self.total_steps,
             'current_step_num': self.current_step_num,
             'message': self.message,
+            'error_code': self.error_code,
+            'error_id': self.id if self.state == GenerationState.FAILED else None,
             'segment_id': self.segment_id,
             'created_at': str(self.created_at),
             'completed_at': str(self.completed_at) if self.completed_at is not None else None,
@@ -144,7 +148,7 @@ class GenerationStatusTracker:
         self,
         id: str,
         state: GenerationState,
-        error: Optional[str] = None,
+        failure: Optional[GenerationFailure] = None,
     ) -> Optional[GenerationRecord]:
         """Transition a generation to a new state and persist it to the database."""
         with self._lock:
@@ -157,16 +161,17 @@ class GenerationStatusTracker:
                 )
                 return record
             record.state = state
-            if error is not None:
-                record.error = error
-                record.message = error
+            if failure is not None:
+                record.error = failure.message
+                record.message = failure.message
+                record.error_code = failure.error_code
             if state == GenerationState.RUNNING and record.started_at is None:
                 record.started_at = time.time()
             if state in (GenerationState.COMPLETED, GenerationState.FAILED, GenerationState.CANCELLED):
                 record.completed_at = time.time()
 
         try:
-            generation_repo.update_status(id, state.value, error_message=error)
+            generation_repo.update_status(id, state.value, failure=failure.columns() if failure else None)
         except Exception as e:
             logger.error(f"[STATUS_TRACKER] Failed to persist status for {id}: {e}")
 
@@ -176,7 +181,7 @@ class GenerationStatusTracker:
         self,
         id: str,
         state: GenerationState,
-        error: Optional[str] = None,
+        failure: Optional[GenerationFailure] = None,
     ) -> Optional[GenerationRecord]:
         """`transition()` off the event loop, for async call sites.
 
@@ -189,7 +194,7 @@ class GenerationStatusTracker:
         write: the next transition doesn't start until this one, DB write
         included, has returned.
         """
-        return await asyncio.to_thread(self.transition, id, state, error)
+        return await asyncio.to_thread(self.transition, id, state, failure)
 
     def get(self, id: str) -> Optional[GenerationRecord]:
         with self._lock:

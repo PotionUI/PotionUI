@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import Mock, patch, MagicMock
 from PIL import Image
@@ -167,11 +168,12 @@ class TestGenerationOutputSerializer(unittest.TestCase):
         self.assertEqual(result['status'], 'running')
         self.assertIsNone(result['progress'])
 
-    def test_serialize_error_output_with_detail(self):
-        """ErrorGenerationOutput serializes to generation_error with the detail body."""
+    def test_serialize_error_output_sends_only_the_safe_fields(self):
         output = ErrorGenerationOutput(
-            error="KSampler: CUDA out of memory",
-            detail="Node 12 (KSampler)\nRuntimeError: CUDA out of memory\n  File ...",
+            error="FileNotFoundError: [Errno 2] No such file or directory: '/srv/models/private/unet.safetensors'",
+            detail="Traceback (most recent call last):\n  File \"/srv/app/src/pipe.py\", line 3\nRuntimeError: boom",
+            pipe_key="generator",
+            failed_at_step="Sampling 3/8",
         )
         output.pipe_id = 4
         output.pipe_name = "generator"
@@ -180,23 +182,29 @@ class TestGenerationOutputSerializer(unittest.TestCase):
 
         self.assertEqual(result['type'], 'generation_error')
         self.assertEqual(result['status'], 'failed')
-        self.assertEqual(result['error'], "KSampler: CUDA out of memory")
-        self.assertEqual(
-            result['detail'],
-            "Node 12 (KSampler)\nRuntimeError: CUDA out of memory\n  File ...",
-        )
+        self.assertEqual(result['error_code'], 'missing_model_file')
+        self.assertEqual(result['message'], 'A model file this preset needs is missing.')
+        self.assertIn('Re-download the model', result['hint'])
+        self.assertEqual(result['error_id'], self.mapper.generation_id)
+        self.assertEqual(result['generation_id'], self.mapper.generation_id)
         self.assertEqual(result['pipe_id'], 4)
+        for key in ('detail', 'error', 'failed_pipe_id', 'failed_pipe_name', 'failed_at_step'):
+            self.assertNotIn(key, result)
+        rendered = json.dumps(result)
+        self.assertNotIn('/srv/', rendered)
+        self.assertNotIn('Traceback', rendered)
+        self.assertNotIn('Errno', rendered)
+        self.assertNotIn('Sampling 3/8', rendered)
 
-    def test_serialize_error_output_without_detail(self):
-        """Detail is omitted from the message when the output carries none."""
-        output = ErrorGenerationOutput(error="Something went wrong")
+    def test_serialize_unclassified_error_output_uses_the_generic_message(self):
+        output = ErrorGenerationOutput(error="ValueError: token sk-live-1234 rejected by /internal/api")
 
         result = self.mapper.serialize_output(output)
 
-        self.assertEqual(result['type'], 'generation_error')
-        self.assertEqual(result['status'], 'failed')
-        self.assertEqual(result['error'], "Something went wrong")
-        self.assertNotIn('detail', result)
+        self.assertEqual(result['error_code'], 'unclassified')
+        self.assertEqual(result['message'], 'Something went wrong while generating.')
+        self.assertIn('error ID', result['hint'])
+        self.assertNotIn('sk-live-1234', json.dumps(result))
 
     def test_serialize_gallery_output(self):
         """Test gallery output serialization"""

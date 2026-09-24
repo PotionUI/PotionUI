@@ -13,6 +13,7 @@ if project_root not in sys.path:
 from tests.fixtures.persistence_base import PersistenceTestBase
 from src.features.generation.records import Generation, File
 from src.features.generation.repository import GenerationRepository
+from src.features.generation.failure import GenerationFailure
 try:
     from src.platform.util.ids import generate_ulid
 except ImportError:
@@ -275,28 +276,61 @@ class TestGenerationRepository(PersistenceTestBase):
         success = self.repo.update_status("nonexistent_id", "running")
         self.assertFalse(success)
 
-    def test_update_status_failed_persists_error_message(self):
-        """A failed transition's error_message must actually land in the
-        database - GenerationStatusTracker.transition() passes it through
-        unconditionally, so any generation that fails with a reason must
-        never read back with error_message NULL."""
+    def test_update_status_failed_persists_every_failure_column(self):
         created = self.repo.create(self.test_generation)
+        failure = GenerationFailure(
+            error_code="missing_model_file",
+            message="A model file this preset needs is missing.",
+            hints=("Re-download the model",),
+            raw_error="FileNotFoundError: /srv/models/foo.safetensors",
+            detail="Traceback (most recent call last):",
+            failed_pipe_id="loader",
+            failed_pipe_name="model_loader",
+            failed_at_step="Loading",
+        )
 
-        success = self.repo.update_status(created.id, "failed", error_message="checkpoint not found: foo.safetensors")
+        success = self.repo.update_status(created.id, "failed", failure=failure.columns())
         self.assertTrue(success)
 
         updated = self.repo.get_by_id(created.id)
         self.assertEqual(updated.status, "failed")
-        self.assertEqual(updated.error_message, "checkpoint not found: foo.safetensors")
+        self.assertEqual(updated.error_message, "A model file this preset needs is missing.")
+        self.assertEqual(updated.error_code, "missing_model_file")
+        self.assertEqual(updated.error_user_message, "A model file this preset needs is missing.\n\n- Re-download the model")
+        self.assertEqual(updated.error_detail, "FileNotFoundError: /srv/models/foo.safetensors\n\nTraceback (most recent call last):")
+        self.assertEqual(updated.failed_pipe_id, "loader")
+        self.assertEqual(updated.failed_pipe_name, "model_loader")
+        self.assertEqual(updated.failed_at_step, "Loading")
 
-    def test_update_status_cancelled_persists_error_message(self):
+        public = updated.to_dict()
+        self.assertEqual(public["error_code"], "missing_model_file")
+        self.assertEqual(public["error_id"], created.id)
+        for key in ("error_detail", "failed_pipe_id", "failed_pipe_name", "failed_at_step"):
+            self.assertNotIn(key, public)
+        self.assertNotIn("/srv/", json.dumps(public, default=str))
+
+    def test_failure_detail_is_deleted_with_the_generation(self):
+        created = self.repo.create(self.test_generation)
+        failure = GenerationFailure(error_code="unclassified", message="m", raw_error="secret raw")
+        self.repo.update_status(created.id, "failed", failure=failure.columns())
+
+        self.repo.delete(created.id)
+
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM generations WHERE error_detail = ?", ("secret raw",))
+            self.assertEqual(cursor.fetchone()[0], 0)
+
+    def test_update_status_cancelled_clears_failure_columns(self):
         created = self.repo.create(self.test_generation)
 
-        self.repo.update_status(created.id, "cancelled", error_message="cancelled by user")
+        self.repo.update_status(created.id, "cancelled")
 
         updated = self.repo.get_by_id(created.id)
         self.assertEqual(updated.status, "cancelled")
-        self.assertEqual(updated.error_message, "cancelled by user")
+        self.assertIsNone(updated.error_message)
+        self.assertIsNone(updated.error_detail)
+        self.assertIsNone(updated.to_dict()["error_id"])
 
     def test_update_status_completed_leaves_error_message_null(self):
         created = self.repo.create(self.test_generation)

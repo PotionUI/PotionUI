@@ -82,3 +82,55 @@ describe('generation_error / generation_cancelled message handler — sound gati
 		expect(isGenerationOutputsRetired('gen-4')).toBe(true);
 	});
 });
+
+describe('generation_error message handler — failure payloads', () => {
+	beforeEach(() => {
+		tabsStore.reset();
+	});
+
+	function failedGeneration(tabId: string) {
+		return get(tabsStore).tabs.find((t) => t.id === tabId)!.generation.currentGeneration as any;
+	}
+
+	it('shows a regular user the safe message with the hint and error id', () => {
+		const tabId = defaultTabId();
+		setCurrentGeneration(tabId, { generation_id: 'gen-u' });
+
+		dispatchGenerationMessage(
+			{
+				type: 'generation_error',
+				generation_id: 'gen-u',
+				error_code: 'cuda_oom',
+				message: 'The GPU ran out of memory.',
+				hint: '- Try a smaller resolution',
+				error_id: 'gen-u'
+			} as any,
+			{ unsubscribe: vi.fn() }
+		);
+
+		const generation = failedGeneration(tabId);
+		expect(generation.message).toBe('The GPU ran out of memory.');
+		expect(generation.errorDetail).toContain('Try a smaller resolution');
+		expect(generation.errorDetail).toContain('Error ID: gen-u');
+		expect(generation.errorDetail).not.toContain('Traceback');
+	});
+
+	it('shows an admin the full detail when the payload carries it', () => {
+		const tabId = defaultTabId();
+		setCurrentGeneration(tabId, { generation_id: 'gen-a' });
+
+		dispatchGenerationMessage(
+			{
+				type: 'generation_error',
+				generation_id: 'gen-a',
+				message: 'The GPU ran out of memory.',
+				hint: '- Try a smaller resolution',
+				error_id: 'gen-a',
+				detail: 'Traceback (most recent call last): ...'
+			} as any,
+			{ unsubscribe: vi.fn() }
+		);
+
+		expect(failedGeneration(tabId).errorDetail).toContain('Traceback');
+	});
+});

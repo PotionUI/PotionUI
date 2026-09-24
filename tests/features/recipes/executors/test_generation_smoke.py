@@ -203,6 +203,26 @@ def test_generation_error_fails_with_plain_message_and_repair():
     assert result.suggested_repair
 
 
+class StatusOnlyFailureOrchestrator(FakeOrchestrator):
+    async def start_generation(self, request, user_id, output_callback):
+        await output_callback("gen-1", None)
+        return {"generation_id": "gen-1"}
+
+    async def get_generation_status(self, generation_id):
+        return {"status": "failed", "error": "CUDA out of memory while loading the text encoder"}
+
+
+def test_failure_reported_only_on_the_status_record_reaches_the_step():
+    template = FakePresetTemplate()
+    loader = FakePresetLoader(template)
+    executor = GenerationSmokeExecutor(loader, object(), StatusOnlyFailureOrchestrator(), FakeFileRepository())
+
+    result = executor.execute(_context(_recipe()))
+
+    assert result.success is False
+    assert "CUDA out of memory while loading the text encoder" in result.safe_error_detail
+
+
 def test_missing_preset_fails_clearly():
     loader = FakePresetLoader(None)
     executor = GenerationSmokeExecutor(loader, object(), FakeOrchestrator(), FakeFileRepository())

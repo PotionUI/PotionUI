@@ -260,12 +260,16 @@ class GenerationSmokeExecutor:
                 "error": f"timed out waiting for completion after {_TIMEOUT_SECONDS}s",
             }
 
-        state = await self._terminal_state(generation_id)
+        status = await self._status_dict(generation_id)
+        state = status.get("status")
+        error = error_box.get("error")
+        if not error and state == "failed":
+            error = status.get("error") or status.get("message")
         return {
             "generation_id": generation_id,
             "state": state,
             "output_count": output_count,
-            "error": error_box.get("error"),
+            "error": error,
         }
 
     async def _wait_for_completion(self, done_event: asyncio.Event, generation_id: Optional[str]) -> None:
@@ -280,15 +284,22 @@ class GenerationSmokeExecutor:
             except asyncio.TimeoutError:
                 continue
 
-    async def _terminal_state(self, generation_id: Optional[str]) -> Optional[str]:
+    async def _status_dict(self, generation_id: Optional[str]) -> Dict[str, Any]:
         if generation_id is None:
-            return None
+            return {}
         status = await self.orchestrator.get_generation_status(generation_id)
         if status is None:
-            return None
+            return {}
         if isinstance(status, dict):
-            return status.get("status")
+            return status
         if hasattr(status, "model_dump"):
-            return status.model_dump().get("status")
+            return status.model_dump()
         state = getattr(status, "state", None)
-        return getattr(state, "value", None)
+        return {
+            "status": getattr(state, "value", None),
+            "error": getattr(status, "error", None),
+            "message": getattr(status, "message", None),
+        }
+
+    async def _terminal_state(self, generation_id: Optional[str]) -> Optional[str]:
+        return (await self._status_dict(generation_id)).get("status")

@@ -56,7 +56,7 @@
 			presetName={preset.name}
 			cover={preset.media?.cover}
 			category={preset.category}
-			class="h-full"
+			class="h-full w-full"
 		/>
 	</div>
 

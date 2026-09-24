@@ -37,7 +37,7 @@
 </script>
 
 <div
-	class="relative w-full flex-shrink-0 overflow-hidden bg-gradient-to-br from-surface-3 via-surface-2 to-surface-3 {className}"
+	class="relative flex-shrink-0 overflow-hidden bg-gradient-to-br from-surface-3 via-surface-2 to-surface-3 {className}"
 >
 	{#if showImage}
 		<img
@@ -49,7 +49,7 @@
 		/>
 	{:else}
 		<div class="flex h-full w-full items-center justify-center text-fg-disabled" aria-hidden="true">
-			<Icon name={iconName} className="h-6 w-6" strokeWidth={1.6} />
+			<Icon name={iconName} className="h-1/2 w-1/2 max-h-6 max-w-6" strokeWidth={1.6} />
 		</div>
 	{/if}
 </div>

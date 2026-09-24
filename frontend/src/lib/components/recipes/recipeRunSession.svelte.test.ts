@@ -119,6 +119,43 @@ describe('RecipeRunSession.start', () => {
 	});
 });
 
+describe('RecipeRunSession.start / onFinished', () => {
+	it('calls onFinished immediately when the created run is already terminal', async () => {
+		vi.mocked(api.createRecipeRun).mockResolvedValue(run({ status: 'completed' }) as never);
+		const onFinished = vi.fn();
+		const session = new RecipeRunSession({ onFinished });
+		sessions.push(session);
+
+		await session.start('krea2-starter');
+
+		expect(onFinished).toHaveBeenCalledTimes(1);
+		expect(onFinished).toHaveBeenCalledWith(expect.objectContaining({ id: 'run-1', status: 'completed' }));
+	});
+
+	it('does not call onFinished while the run is still in flight', async () => {
+		vi.mocked(api.createRecipeRun).mockResolvedValue(run({ status: 'pending' }) as never);
+		const onFinished = vi.fn();
+		const session = new RecipeRunSession({ onFinished });
+		sessions.push(session);
+
+		await session.start('krea2-starter');
+
+		expect(onFinished).not.toHaveBeenCalled();
+	});
+
+	it('does not call onFinished twice for the same run adopted terminal more than once', async () => {
+		vi.mocked(api.createRecipeRun).mockResolvedValue(run({ status: 'completed' }) as never);
+		const onFinished = vi.fn();
+		const session = new RecipeRunSession({ onFinished });
+		sessions.push(session);
+
+		await session.start('krea2-starter');
+		session.adopt(run({ status: 'completed' }) as never);
+
+		expect(onFinished).toHaveBeenCalledTimes(1);
+	});
+});
+
 describe('RecipeRunSession.cancelConflict', () => {
 	it('cancels the blocking run and clears the conflict', async () => {
 		vi.mocked(api.createRecipeRun).mockRejectedValue(

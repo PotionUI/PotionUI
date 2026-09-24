@@ -88,4 +88,4 @@ def test_recipe_id_query_param_is_accepted():
     response = _client(current_user=_user(admin=True)).get("/api/readiness?recipe_id=abc")
     assert response.status_code == 200
     content = next(c for c in response.json()["checks"] if c["area"] == "content")
-    assert content["code"] == "RECIPE_NOT_IMPLEMENTED"
+    assert content["code"] == "RECIPE_NOT_FOUND"

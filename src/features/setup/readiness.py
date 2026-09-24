@@ -16,10 +16,10 @@ Four independent facets, each reported as one row whose shape mirrors the
                          can actually load a model), not merely enabled.
 - ``content``          - the caller has installed/assigned presets AND at least
                          one of them resolves to a model that is indexed and
-                         visible to them. The optional ``recipe_id`` param is the
-                         seam per-recipe readiness plugs into; until recipes exist
-                         it reports a clear not-implemented-yet row rather than
-                         erroring.
+                         visible to them. The optional ``recipe_id`` param narrows
+                         this facet to one recipe: every required artifact must
+                         resolve to an indexed model and every declared preset
+                         must be installed.
 - ``generation_proven`` - some generation has actually completed on this
                          instance. Per the onboarding audit, setup is complete
                          only after a real output, not merely a green config.
@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from src.features.generation.repository import GenerationRepository
     from src.features.models.repository import ModelRepository
     from src.features.presets.collaborators import PresetCollaborators
+    from src.features.recipes.catalog import RecipeCatalog
     from src.features.setup.repository import InstanceClaimRepository
     from src.platform.security.user import User
     from src.platform.database.migration_runner import MigrationRunner
@@ -129,6 +130,7 @@ class ReadinessAggregator:
         generation_repository: "GenerationRepository",
         migration_runner: "MigrationRunner",
         instance_claim_repository: "InstanceClaimRepository",
+        recipe_catalog: Optional["RecipeCatalog"] = None,
     ):
         self.backend_registry = backend_registry
         self.preset_collaborators = preset_collaborators
@@ -136,6 +138,7 @@ class ReadinessAggregator:
         self.generation_repository = generation_repository
         self.migration_runner = migration_runner
         self.instance_claim_repository = instance_claim_repository
+        self.recipe_catalog = recipe_catalog
 
     async def evaluate(self, user: "User", recipe_id: Optional[str] = None) -> ReadinessReport:
         """Assemble the report for `user`, filtered to their role."""
@@ -252,25 +255,13 @@ class ReadinessAggregator:
             admin_action="Open Administration -> Backends and repair or replace the failing backend.",
         )
 
-    # --- content (degenerate recipe check) ----------------------------------
+    # --- content --------------------------------------------------------
 
     def _content(self, user: "User", is_admin: bool, recipe_id: Optional[str]) -> _Row:
         area = "content"
 
-        # Seam: per-recipe readiness plugs in here. Until recipes exist, return a
-        # clear not-implemented-yet row rather than erroring, so callers can
-        # already pass ?recipe_id= and get a stable shape back.
         if recipe_id is not None:
-            return _Row(
-                area=area,
-                status=DEGRADED,
-                code="RECIPE_NOT_IMPLEMENTED",
-                admin_message=(
-                    f"Per-recipe readiness for '{recipe_id}' is not available yet; "
-                    "recipes arrive in a later phase. Showing no recipe verdict."
-                ),
-                user_message="Per-recipe readiness isn't available yet.",
-            )
+            return self._recipe_content(area, recipe_id)
 
         from src.features.presets import operations as preset_operations
 
@@ -335,6 +326,63 @@ class ReadinessAggregator:
                 return True
         return False
 
+    def _recipe_content(self, area: str, recipe_id: str) -> _Row:
+        recipe = self.recipe_catalog.get_recipe(recipe_id) if self.recipe_catalog else None
+        if recipe is None:
+            return _Row(
+                area=area,
+                status=NOT_READY,
+                code="RECIPE_NOT_FOUND",
+                admin_message=f"Recipe '{recipe_id}' was not found.",
+                user_message="This recipe isn't available.",
+            )
+
+        from src.features.recipes.executors._artifact_lookup import find_slot_model
+
+        missing_artifacts = [
+            artifact.display_name or artifact.filename
+            for artifact in recipe.artifacts
+            if artifact.required and find_slot_model(self.model_repository, artifact) is None
+        ]
+        if missing_artifacts:
+            return _Row(
+                area=area,
+                status=NOT_READY,
+                code="RECIPE_MODELS_MISSING",
+                admin_message=f"This recipe is missing {_format_missing(missing_artifacts)}.",
+                user_message="This recipe is missing models it needs.",
+                admin_action="Run this recipe from Administration -> Recipes.",
+            )
+
+        db_repo = self.preset_collaborators.db_repo
+        missing_presets = [
+            self._preset_display_name(ref.preset_id)
+            for ref in recipe.presets
+            if not db_repo.is_preset_installed(ref.preset_id)
+        ]
+        if missing_presets:
+            return _Row(
+                area=area,
+                status=NOT_READY,
+                code="RECIPE_PRESET_NOT_INSTALLED",
+                admin_message=f"This recipe hasn't installed {_format_missing(missing_presets)} yet.",
+                user_message="This recipe hasn't finished setting up yet.",
+                admin_action="Run this recipe from Administration -> Recipes.",
+            )
+
+        return _Row(
+            area=area,
+            status=READY,
+            code="RECIPE_READY",
+            admin_message=f"'{recipe.name}' has every required model indexed and its presets installed.",
+            user_message="This recipe is ready.",
+        )
+
+    def _preset_display_name(self, preset_id: str) -> str:
+        loader = self.preset_collaborators.preset_loader
+        template = loader.load_preset_by_id(preset_id)
+        return template.name if template is not None else preset_id
+
     # --- generation proven --------------------------------------------------
 
     def _generation_proven(self) -> _Row:
@@ -358,6 +406,15 @@ class ReadinessAggregator:
         )
 
 
+def _format_missing(names: List[str]) -> str:
+    shown = names[:3]
+    text = ", ".join(shown)
+    remaining = len(names) - len(shown)
+    if remaining > 0:
+        text += f" and {remaining} more"
+    return text
+
+
 def build_readiness_aggregator(container) -> ReadinessAggregator:
     """Assemble the aggregator from a container. Shared by the setup routes
     (`GET /api/readiness`) and the recipes routes
@@ -370,4 +427,5 @@ def build_readiness_aggregator(container) -> ReadinessAggregator:
         generation_repository=container.generation_repository,
         instance_claim_repository=container.instance_claim_repository,
         migration_runner=container.migration_runner,
+        recipe_catalog=getattr(container, "recipe_catalog", None),
     )

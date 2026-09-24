@@ -81,6 +81,7 @@
 	const readinessQueue: string[] = [];
 	const readinessQueued = new Set<string>();
 	let readinessWorkers = 0;
+	const finishedRunsHandled = new Set<string>();
 
 	let runs = $state<RecipeRun[]>([]);
 	let runsLoading = $state(false);
@@ -264,20 +265,26 @@
 
 	function adoptRun(updated: SetupRun) {
 		activeRun = updated;
-		if (shouldPollRun(updated.status)) schedulePoll(updated.id);
-		else clearPoll();
+		if (shouldPollRun(updated.status)) {
+			schedulePoll(updated.id);
+			return;
+		}
+		clearPoll();
+		if (isRunTerminal(updated.status)) void handleRunFinished(updated);
+	}
+
+	async function handleRunFinished(run: SetupRun) {
+		if (finishedRunsHandled.has(run.id)) return;
+		finishedRunsHandled.add(run.id);
+		await loadRecipes(true);
+		readinessQueued.delete(run.recipe_id);
+		enqueueReadiness(run.recipe_id);
+		if (run.recipe_id === selectedRecipeId) await loadRuns(run.recipe_id);
 	}
 
 	async function refreshRun(runId: string) {
 		try {
-			const fetched = await api.getRecipeRun(runId);
-			adoptRun(fetched);
-			if (isRunTerminal(fetched.status)) {
-				await loadRecipes(true);
-				readinessQueued.delete(fetched.recipe_id);
-				enqueueReadiness(fetched.recipe_id);
-				if (fetched.recipe_id === selectedRecipeId) await loadRuns(fetched.recipe_id);
-			}
+			adoptRun(await api.getRecipeRun(runId));
 		} catch (error) {
 			logger.warn('Recipe run poll failed', runId, error);
 			schedulePoll(runId);

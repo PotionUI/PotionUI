@@ -11,6 +11,7 @@ export class RecipeRunSession {
 	conflict = $state<ActiveRecipeRunConflict | null>(null);
 	#timer: ReturnType<typeof setTimeout> | null = null;
 	#onFinished: ((run: SetupRun) => void) | undefined;
+	#finishedRunIds = new Set<string>();
 
 	constructor(options: { onFinished?: (run: SetupRun) => void } = {}) {
 		this.#onFinished = options.onFinished;
@@ -62,8 +63,15 @@ export class RecipeRunSession {
 
 	adopt = (updated: SetupRun): void => {
 		this.run = updated;
-		if (shouldPollRun(updated.status)) this.#schedule(updated.id);
-		else this.#clear();
+		if (shouldPollRun(updated.status)) {
+			this.#schedule(updated.id);
+			return;
+		}
+		this.#clear();
+		if (isRunTerminal(updated.status) && !this.#finishedRunIds.has(updated.id)) {
+			this.#finishedRunIds.add(updated.id);
+			this.#onFinished?.(updated);
+		}
 	};
 
 	reset(): void {
@@ -95,7 +103,6 @@ export class RecipeRunSession {
 			const fetched = await api.getRecipeRun(runId);
 			if (this.run?.id !== runId) return;
 			this.adopt(fetched);
-			if (isRunTerminal(fetched.status)) this.#onFinished?.(fetched);
 		} catch (error) {
 			logger.warn('Recipe run poll failed', runId, error);
 			if (this.run?.id === runId) this.#schedule(runId);

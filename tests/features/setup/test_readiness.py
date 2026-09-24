@@ -11,11 +11,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.features.recipes.schema import (
+    Recipe,
+    RecipeArtifact,
+    RecipeArtifactVariant,
+    RecipePresetRef,
+)
 from src.features.setup.readiness import (
     DEGRADED,
     NOT_READY,
     READY,
     ReadinessAggregator,
+    _format_missing,
 )
 from src.platform.security.user import AccountType, User
 
@@ -78,6 +85,8 @@ def _manager(
     completed=1,
     pending=False,
     instance_claim_repository=None,
+    recipe_catalog=None,
+    model_repository=None,
 ):
     backend_registry = MagicMock()
     backend_registry.get_all_backends.return_value = (
@@ -87,8 +96,9 @@ def _manager(
     preset_collaborators.list_presets.return_value = (
         [{"id": "p1", "engine": "native"}] if presets is None else presets
     )
-    model_repository = MagicMock()
-    model_repository.get_available_model_ids_for_user.return_value = ["m1"]
+    if model_repository is None:
+        model_repository = MagicMock()
+        model_repository.get_available_model_ids_for_user.return_value = ["m1"]
     generation_repository = MagicMock()
     generation_repository.count_by_status.return_value = completed
     migration_runner = MagicMock()
@@ -100,6 +110,39 @@ def _manager(
         generation_repository=generation_repository,
         migration_runner=migration_runner,
         instance_claim_repository=instance_claim_repository or _OkClaimRepository(),
+        recipe_catalog=recipe_catalog,
+    )
+
+
+class _RecipeModelRepo:
+    def __init__(self, present=()):
+        self._present = set(present)
+
+    def get_by_identity(self, model_type, filename):
+        return object() if (model_type, filename) in self._present else None
+
+    def get_by_sha256(self, sha256):
+        return None
+
+
+class _RecipeCatalog:
+    def __init__(self, recipe):
+        self._recipe = recipe
+
+    def get_recipe(self, recipe_id):
+        return self._recipe if recipe_id == self._recipe.id else None
+
+
+def _recipe(artifacts=(), presets=None, recipe_id="r1"):
+    return Recipe(
+        id=recipe_id,
+        schema_version=1,
+        version=1,
+        name="Test Recipe",
+        engine="native",
+        category="image",
+        artifacts=list(artifacts),
+        presets=[RecipePresetRef(preset_id="p1")] if presets is None else list(presets),
     )
 
 
@@ -190,12 +233,110 @@ def test_presets_without_resolvable_models_is_degraded():
     assert content.code == "PRESETS_WITHOUT_MODELS"
 
 
-def test_recipe_id_seam_returns_not_implemented_without_erroring():
-    report = _run(_manager(), _user(admin=True), recipe_id="some-recipe")
+def test_unknown_recipe_id_is_not_ready():
+    report = _run(_manager(recipe_catalog=_RecipeCatalog(_recipe())), _user(admin=True), recipe_id="does-not-exist")
     content = _by_area(report)["content"]
-    assert content.code == "RECIPE_NOT_IMPLEMENTED"
-    assert content.status == DEGRADED
-    assert "some-recipe" in content.message  # admin phrasing names the recipe
+    assert content.status == NOT_READY
+    assert content.code == "RECIPE_NOT_FOUND"
+
+
+def test_recipe_ready_when_artifacts_indexed_and_presets_installed():
+    artifact = RecipeArtifact(
+        id="ckpt", kind="checkpoint", model_type="checkpoint", filename="model.safetensors", required=True,
+    )
+    recipe = _recipe(artifacts=[artifact])
+    manager = _manager(
+        recipe_catalog=_RecipeCatalog(recipe),
+        model_repository=_RecipeModelRepo(present={("checkpoint", "model.safetensors")}),
+    )
+    manager.preset_collaborators.db_repo.is_preset_installed.return_value = True
+    report = _run(manager, _user(admin=True), recipe_id="r1")
+    content = _by_area(report)["content"]
+    assert content.status == READY
+    assert content.code == "RECIPE_READY"
+    assert report.overall == READY
+
+
+def test_recipe_ready_variant_satisfied_by_non_default_variant():
+    artifact = RecipeArtifact(
+        id="ckpt",
+        kind="checkpoint",
+        model_type="checkpoint",
+        filename="default.safetensors",
+        required=True,
+        variants=(
+            RecipeArtifactVariant(
+                id="fp16", label="fp16", precision="fp16", filename="default.safetensors", default=True,
+            ),
+            RecipeArtifactVariant(
+                id="fp8", label="fp8", precision="fp8", filename="default-fp8.safetensors",
+            ),
+        ),
+    )
+    recipe = _recipe(artifacts=[artifact])
+    manager = _manager(
+        recipe_catalog=_RecipeCatalog(recipe),
+        model_repository=_RecipeModelRepo(present={("checkpoint", "default-fp8.safetensors")}),
+    )
+    manager.preset_collaborators.db_repo.is_preset_installed.return_value = True
+    report = _run(manager, _user(admin=True), recipe_id="r1")
+    content = _by_area(report)["content"]
+    assert content.status == READY
+    assert content.code == "RECIPE_READY"
+
+
+def test_recipe_missing_artifact_is_not_ready():
+    artifact = RecipeArtifact(
+        id="ckpt", kind="checkpoint", model_type="checkpoint", filename="missing.safetensors",
+        display_name="Missing Checkpoint", required=True,
+    )
+    recipe = _recipe(artifacts=[artifact])
+    manager = _manager(recipe_catalog=_RecipeCatalog(recipe), model_repository=_RecipeModelRepo())
+    manager.preset_collaborators.db_repo.is_preset_installed.return_value = True
+    report = _run(manager, _user(admin=True), recipe_id="r1")
+    content = _by_area(report)["content"]
+    assert content.status == NOT_READY
+    assert content.code == "RECIPE_MODELS_MISSING"
+    assert "Missing Checkpoint" in content.message
+    assert report.overall == NOT_READY
+
+
+def test_recipe_optional_artifact_missing_is_still_ready():
+    required = RecipeArtifact(
+        id="ckpt", kind="checkpoint", model_type="checkpoint", filename="model.safetensors", required=True,
+    )
+    optional = RecipeArtifact(
+        id="lora", kind="lora", model_type="lora", filename="extra.safetensors", required=False,
+    )
+    recipe = _recipe(artifacts=[required, optional])
+    manager = _manager(
+        recipe_catalog=_RecipeCatalog(recipe),
+        model_repository=_RecipeModelRepo(present={("checkpoint", "model.safetensors")}),
+    )
+    manager.preset_collaborators.db_repo.is_preset_installed.return_value = True
+    report = _run(manager, _user(admin=True), recipe_id="r1")
+    content = _by_area(report)["content"]
+    assert content.status == READY
+    assert content.code == "RECIPE_READY"
+
+
+def test_recipe_preset_not_installed_is_not_ready():
+    recipe = _recipe(artifacts=[], presets=[RecipePresetRef(preset_id="p1")])
+    manager = _manager(recipe_catalog=_RecipeCatalog(recipe), model_repository=_RecipeModelRepo())
+    manager.preset_collaborators.db_repo.is_preset_installed.return_value = False
+    manager.preset_collaborators.preset_loader.load_preset_by_id.return_value = MagicMock(name="Preset One")
+    manager.preset_collaborators.preset_loader.load_preset_by_id.return_value.name = "Preset One"
+    report = _run(manager, _user(admin=True), recipe_id="r1")
+    content = _by_area(report)["content"]
+    assert content.status == NOT_READY
+    assert content.code == "RECIPE_PRESET_NOT_INSTALLED"
+    assert "Preset One" in content.message
+    assert report.overall == NOT_READY
+
+
+def test_format_missing_caps_at_three_names_then_counts_the_rest():
+    text = _format_missing(["a", "b", "c", "d"])
+    assert text == "a, b, c and 1 more"
 
 
 def test_user_visibility_restricts_model_resolution():

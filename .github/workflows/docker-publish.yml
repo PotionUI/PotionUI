@@ -3,7 +3,7 @@
 # publishes them to GHCR as ghcr.io/<owner>/<repo> and
 # ghcr.io/<owner>/<repo>-worker respectively.
 #
-# Runs on version tags (v0.1.0 -> :0.1.0 + :latest) and on manual dispatch
+# Runs on version tags (v0.1.0 -> :0.1.0 + :v0.1.0 + :0.1 + :latest) and on manual dispatch
 # (-> :sha-<commit>, no :latest) — never on plain pushes: both images are
 # multi-GB and take a while to build, so this is a release artifact, not CI.
 #
@@ -75,6 +75,7 @@ jobs:
           images: ghcr.io/${{ github.repository }}${{ matrix.suffix }}
           tags: |
             type=semver,pattern={{version}}
+            type=semver,pattern=v{{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=sha,enable=${{ github.event_name == 'workflow_dispatch' }}

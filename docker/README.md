@@ -15,6 +15,10 @@ docker run --gpus all -p 7680:7680 \
 # open http://localhost:7680
 ```
 
+To pin a release instead of `latest`, use its version tag: `:0.0.10` (or
+`:v0.0.10` from 0.0.11 on), or `:0.0` for the newest patch of a minor line.
+The worker image, `ghcr.io/potionui/potionui-worker`, carries the same tags.
+
 Unlike the rig-simulation harness below, this image runs exactly one process
 on exactly one port: the backend serves the prebuilt SvelteKit SPA itself
 (`src/bootstrap/static_frontend.py`), so there is no node runtime, no dev

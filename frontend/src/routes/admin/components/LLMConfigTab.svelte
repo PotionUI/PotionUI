@@ -14,7 +14,7 @@
 	import { Button, Badge, Spinner, EmptyState, IconButton } from '$lib/components/ui';
 	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
 	import { Pane, PaneRow } from '$lib/components/pane';
-	import { DetailHeader, DetailTabs, DetailBody, DetailFooter } from '$lib/components/detail';
+	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailFooter } from '$lib/components/detail';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
 	import AdminTabShell from './AdminTabShell.svelte';
 	import LLMConfigForm, { type LLMConfigFormData } from './LLMConfigForm.svelte';
@@ -384,31 +384,43 @@ Always be creative and helpful while staying focused on the image generation con
 
 						{#if detailTab === 'configuration'}
 							<DetailBody>
-								<LLMConfigForm
-									bind:draft={editFormData}
-									mode="edit"
-									layout="panel"
-									idPrefix="edit-config"
-									apiKeySet={!!activeConfig?.api_key_set}
-									{preChatActions}
-								/>
+								<DetailLayout>
+									{#snippet main()}
+										<LLMConfigForm
+											bind:draft={editFormData}
+											mode="edit"
+											layout="panel"
+											idPrefix="edit-config"
+											apiKeySet={!!activeConfig?.api_key_set}
+											{preChatActions}
+										/>
+									{/snippet}
+								</DetailLayout>
 							</DetailBody>
 						{:else if detailTab === 'toolset'}
 							<DetailBody>
-								{#key activeConfig.id}
-									<LLMConfigToolsetPanel configId={activeConfig.id} />
-								{/key}
+								<DetailLayout>
+									{#snippet main()}
+										{#key activeConfig.id}
+											<LLMConfigToolsetPanel configId={activeConfig.id} />
+										{/key}
+									{/snippet}
+								</DetailLayout>
 							</DetailBody>
 						{:else}
 							<DetailBody>
-								{#key activeConfig.id}
-									<AssignmentCard
-										adapter={createLLMAssignmentAdapter(activeConfig.id)}
-										resourceKey={activeConfig.id}
-										resourceName={activeConfig.name}
-										on:changed={(event) => handleAssignmentChanged(activeConfig.id, event)}
-									/>
-								{/key}
+								<DetailLayout>
+									{#snippet main()}
+										{#key activeConfig.id}
+											<AssignmentCard
+												adapter={createLLMAssignmentAdapter(activeConfig.id)}
+												resourceKey={activeConfig.id}
+												resourceName={activeConfig.name}
+												on:changed={(event) => handleAssignmentChanged(activeConfig.id, event)}
+											/>
+										{/key}
+									{/snippet}
+								</DetailLayout>
 							</DetailBody>
 						{/if}
 

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { DetailHeader, DetailBody, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
+	import { DetailHeader, DetailBody, DetailLayout, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
 	import { Badge, Button, IconButton, Input } from '$lib/components/ui';
 	import type { Segment, SegmentTemplate } from '$lib/types/segments';
 	import { flattenRichSegments, hasMeaningfulSegments, isSegmentEnabled } from '$lib/utils/richSegments';
@@ -71,9 +71,9 @@
 		{/snippet}
 	</DetailHeader>
 
-	<DetailBody fullWidth>
-		<div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-			<div class="space-y-4">
+	<DetailBody>
+		<DetailLayout>
+			{#snippet main()}
 				<DetailSection label="Template details">
 					<div class="grid gap-3 sm:grid-cols-2">
 						<label>
@@ -107,9 +107,9 @@
 					showLibraryActions={false}
 					on:segmentsChange={(event) => (editorSegments = event.detail)}
 				/>
-			</div>
+			{/snippet}
 
-			<div class="space-y-4">
+			{#snippet aside()}
 				<DetailSection label="Preview">
 					{#if preview}
 						<p class="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-fg-muted">{preview}</p>
@@ -124,8 +124,8 @@
 						<KVItem label="Enabled" mono>{enabledCount}</KVItem>
 					</KVGrid>
 				</DetailSection>
-			</div>
-		</div>
+			{/snippet}
+		</DetailLayout>
 	</DetailBody>
 
 	<DetailFooter {dirtyCount}>

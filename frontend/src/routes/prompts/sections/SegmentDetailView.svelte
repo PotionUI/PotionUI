@@ -1,7 +1,7 @@
 <script lang="ts">
 	import InlineChipEditor from '$lib/components/InlineChipEditor.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { DetailHeader, DetailBody, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
+	import { DetailHeader, DetailBody, DetailLayout, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
 	import { Badge, Button, IconButton, Input } from '$lib/components/ui';
 	import type { ChipData, RichSegmentType, SavedSegment, SegmentCategory } from '$lib/types/segments';
 	import { PRESET_COLORS } from '$lib/types/segments';
@@ -89,9 +89,9 @@
 		{/snippet}
 	</DetailHeader>
 
-	<DetailBody fullWidth>
-		<div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-			<div class="space-y-4">
+	<DetailBody>
+		<DetailLayout>
+			{#snippet main()}
 				<DetailSection label="Segment details">
 					<div class="grid gap-3 sm:grid-cols-2">
 						<label>
@@ -188,9 +188,9 @@
 						</div>
 					{/if}
 				</DetailSection>
-			</div>
+			{/snippet}
 
-			<div class="space-y-4">
+			{#snippet aside()}
 				<DetailSection label="Category">
 					{#if category}
 						<KVGrid>
@@ -207,8 +207,8 @@
 						<p class="text-xs text-fg-subtle">Pick a category to see its details.</p>
 					{/if}
 				</DetailSection>
-			</div>
-		</div>
+			{/snippet}
+		</DetailLayout>
 	</DetailBody>
 
 	<DetailFooter {dirtyCount}>

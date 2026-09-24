@@ -16,13 +16,12 @@
 	import {
 		isRunTerminal,
 		shouldPollRun,
-		runBadgeVariant,
 		runStatusLabel,
 		RUN_POLL_INTERVAL_MS
 	} from '$lib/utils/setupRunDisplay';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { DetailHeader, DetailBody, DetailSection, DetailFooter } from '$lib/components/detail';
+	import { DetailHeader, DetailBody, DetailLayout, DetailSection, DetailFooter } from '$lib/components/detail';
 	import RecipeRunProgress from '$lib/components/recipes/RecipeRunProgress.svelte';
 	import { adminRecipeRunActions } from '$lib/components/recipes/runActions';
 	import { Alert, Badge, Button, EmptyState, Spinner } from '$lib/components/ui';
@@ -31,7 +30,7 @@
 	import LibraryDensityToggle from '$lib/components/library/LibraryDensityToggle.svelte';
 	import { libraryCardDensity } from '$lib/components/library/libraryCardDensity';
 	import { deriveRecipeReadiness, type RecipeReadinessBadge } from './recipeReadinessBadge';
-	import { runDuration, runStartedLabel, mergeRunHistory } from './recipeRunHistory';
+	import { mergeRunHistory } from './recipeRunHistory';
 	import { readRecipesUrlState } from './recipesUrlState';
 	import {
 		RECIPE_SECTIONS,
@@ -57,6 +56,10 @@
 	} from './recipes/recipeFilters';
 	import RecipeFiltersPopover from './recipes/RecipeFiltersPopover.svelte';
 	import RecipeCard from './recipes/RecipeCard.svelte';
+	import RecipeArtifactCards from './recipes/RecipeArtifactCards.svelte';
+	import RecipeRunsList from './recipes/RecipeRunsList.svelte';
+	import RecipeStepsModal from './recipes/RecipeStepsModal.svelte';
+	import { currentRunStepKey } from './recipes/recipeCurrentStep';
 	import PresetCoverTile from './presets/PresetCoverTile.svelte';
 
 	const RUN_HISTORY_LIMIT = 20;
@@ -92,6 +95,7 @@
 	let startConflict = $state<ActiveRecipeRunConflict | null>(null);
 	let pollTimer: ReturnType<typeof setTimeout> | null = null;
 	let urlRestored = $state(false);
+	let stepsModalOpen = $state(false);
 
 	const sources = $derived(recipeSourceVocabulary(recipes));
 	const engines = $derived(recipeEngineVocabulary(recipes));
@@ -104,6 +108,7 @@
 	const selectedRecipe = $derived(recipes.find((r) => r.id === selectedRecipeId) || null);
 	const runHistory = $derived(mergeRunHistory(runs, activeRun));
 	const runInFlight = $derived(!!activeRun && !isRunTerminal(activeRun.status));
+	const activeRunStepKey = $derived(currentRunStepKey(activeRun));
 
 	function readinessFor(recipeId: string): RecipeReadinessBadge {
 		return deriveRecipeReadiness(readinessById[recipeId] ?? null);
@@ -209,6 +214,7 @@
 		startError = '';
 		startConflict = null;
 		activeRun = null;
+		stepsModalOpen = false;
 		clearPoll();
 		if (id) {
 			void loadDetail(id);
@@ -420,6 +426,16 @@
 									<span class="truncate">{selectedRecipe.id}</span>
 								{/snippet}
 								{#snippet actions()}
+									<Tooltip text="How this recipe works">
+										<button
+											type="button"
+											aria-label="How this recipe works"
+											class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-fg-muted hover:text-fg hover:bg-surface-3/50"
+											onclick={() => (stepsModalOpen = true)}
+										>
+											<Icon name="git-branch" className="w-4 h-4" />
+										</button>
+									</Tooltip>
 									<Tooltip text={runInFlight ? 'A run is already in progress' : 'Install models'}>
 										<button
 											type="button"
@@ -437,231 +453,162 @@
 							</DetailHeader>
 
 							<DetailBody>
-								{#if detailLoading && !detail}
-									<div class="flex justify-center py-10"><Spinner size="md" /></div>
-								{:else if detailError}
-									<Alert variant="danger" density="compact" title="Couldn't load this recipe">
-										{detailError}
-									</Alert>
-								{/if}
+								<DetailLayout>
+									{#snippet lead()}
+										<div class="space-y-5">
+											{#if detailLoading && !detail}
+												<div class="flex justify-center py-10"><Spinner size="md" /></div>
+											{:else if detailError}
+												<Alert variant="danger" density="compact" title="Couldn't load this recipe">
+													{detailError}
+												</Alert>
+											{/if}
 
-								{#if startConflict}
-									<div data-recipe-run-conflict>
-										<Alert variant="warning" density="compact" title="Another recipe is running">
-											{startConflict.activeRun.recipeName} is still running ({runStatusLabel(
-												startConflict.activeRun.status
-											).toLowerCase()}).
-											{#snippet actions()}
-												<div class="flex items-center gap-2">
-													<Button
-														variant="secondary"
-														size="sm"
-														onclick={() => openRecipe(startConflict!.activeRun.recipeId)}
-													>
-														Open it
-													</Button>
-													<Button variant="secondary" size="sm" onclick={cancelStartConflict}>Cancel it</Button>
+											{#if startConflict}
+												<div data-recipe-run-conflict>
+													<Alert variant="warning" density="compact" title="Another recipe is running">
+														{startConflict.activeRun.recipeName} is still running ({runStatusLabel(
+															startConflict.activeRun.status
+														).toLowerCase()}).
+														{#snippet actions()}
+															<div class="flex items-center gap-2">
+																<Button
+																	variant="secondary"
+																	size="sm"
+																	onclick={() => openRecipe(startConflict!.activeRun.recipeId)}
+																>
+																	Open it
+																</Button>
+																<Button variant="secondary" size="sm" onclick={cancelStartConflict}>Cancel it</Button>
+															</div>
+														{/snippet}
+													</Alert>
 												</div>
-											{/snippet}
-										</Alert>
-									</div>
-								{:else if startError}
-									<Alert variant="danger" density="compact" title="Couldn't start this recipe">
-										{startError}
-									</Alert>
-								{/if}
+											{:else if startError}
+												<Alert variant="danger" density="compact" title="Couldn't start this recipe">
+													{startError}
+												</Alert>
+											{/if}
 
-								{#if detail?.load_errors?.length}
-									<Alert variant="warning" density="compact" title="This recipe didn't load cleanly">
-										<ul class="space-y-1">
-											{#each detail.load_errors as loadErrorEntry}
-												<li class="font-mono text-xs">{loadErrorEntry}</li>
-											{/each}
-										</ul>
-									</Alert>
-								{/if}
-
-								<DetailSection label="Summary">
-									<p class="text-sm text-fg">{selectedRecipe.summary}</p>
-									{#if selectedRecipe.description}
-										<p class="text-sm text-fg-muted mt-2">{selectedRecipe.description}</p>
-									{/if}
-									<div
-										class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-xs font-mono tabular-nums text-fg-subtle"
-									>
-										<span>{selectedRecipe.step_count} steps</span>
-										<span>{selectedRecipe.artifact_count} artifacts</span>
-										{#if selectedRecipe.total_download_bytes != null}
-											<span>~{formatBytes(selectedRecipe.total_download_bytes)} to download</span>
-										{/if}
-									</div>
-								</DetailSection>
-
-								{#if activeRun}
-									<DetailSection label="Current run" padded={false}>
-										<div class="px-4 sm:px-5 py-4">
-											<RecipeRunProgress
-												run={activeRun}
-												title="Installing models"
-												actions={adminRecipeRunActions}
-												onRunUpdated={adoptRun}
-											/>
-										</div>
-									</DetailSection>
-								{/if}
-
-								{#if detail}
-									<DetailSection label="Steps">
-										<ul class="space-y-1.5">
-											{#each detail.steps as step (step.key)}
-												<li
-													class="flex items-start justify-between gap-3 rounded border border-line bg-surface-1 px-3 py-2"
-												>
-													<div class="min-w-0">
-														<p
-															class="text-sm {step.onboarding_only
-																? 'text-fg-subtle'
-																: 'text-fg'} truncate"
-														>
-															{step.title}
-														</p>
-														<p class="font-mono text-xs text-fg-subtle mt-0.5">{step.kind}</p>
-														{#if step.onboarding_only}
-															<p class="text-xs text-fg-subtle mt-0.5">
-																Skipped when run from here
-															</p>
-														{/if}
-													</div>
-													{#if step.onboarding_only}
-														<Badge variant="neutral" size="sm">first run only</Badge>
-													{/if}
-												</li>
-											{/each}
-										</ul>
-									</DetailSection>
-
-									<DetailSection label="Artifacts">
-										{#if detail.artifacts.length === 0}
-											<p class="text-sm text-fg-muted">This recipe downloads nothing.</p>
-										{:else}
-											<div class="overflow-x-auto">
-												<table class="w-full text-sm">
-													<thead>
-														<tr class="text-left text-fg-subtle">
-															<th class="font-normal font-mono text-xs uppercase pb-2">Model</th>
-															<th class="font-normal font-mono text-xs uppercase pb-2">Type</th>
-															<th class="font-normal font-mono text-xs uppercase pb-2 text-right">
-																Size
-															</th>
-															<th class="font-normal font-mono text-xs uppercase pb-2 text-right">
-																Required
-															</th>
-														</tr>
-													</thead>
-													<tbody>
-														{#each detail.artifacts as artifact (artifact.id)}
-															<tr class="border-t border-line">
-																<td class="py-1.5 pr-3 text-fg">
-																	<span class="flex items-center gap-1.5">
-																		<span class="truncate">{artifact.display_name}</span>
-																		{#if artifact.gated}
-																			<Badge variant="warning" size="sm">gated</Badge>
-																			{#if artifact.license_url}
-																				<a
-																					href={artifact.license_url}
-																					target="_blank"
-																					rel="noreferrer"
-																					class="text-xs text-signal hover:underline shrink-0"
-																				>
-																					licence
-																				</a>
-																			{/if}
-																		{/if}
-																	</span>
-																</td>
-																<td class="py-1.5 pr-3 font-mono text-xs text-fg-muted">
-																	{artifact.model_type}
-																</td>
-																<td class="py-1.5 pr-3 font-mono tabular-nums text-fg-muted text-right">
-																	{artifact.size_bytes != null ? formatBytes(artifact.size_bytes) : '—'}
-																</td>
-																<td class="py-1.5 text-right">
-																	{#if artifact.required}
-																		<Badge variant="neutral" size="sm">required</Badge>
-																	{:else}
-																		<span class="text-xs text-fg-subtle">optional</span>
-																	{/if}
-																</td>
-															</tr>
+											{#if detail?.load_errors?.length}
+												<Alert variant="warning" density="compact" title="This recipe didn't load cleanly">
+													<ul class="space-y-1">
+														{#each detail.load_errors as loadErrorEntry}
+															<li class="font-mono text-xs">{loadErrorEntry}</li>
 														{/each}
-													</tbody>
-												</table>
-											</div>
-										{/if}
-									</DetailSection>
+													</ul>
+												</Alert>
+											{/if}
 
-									<DetailSection label="Sets up">
-										{#if (detail.presets ?? []).length === 0}
-											<p class="text-sm text-fg-muted">This recipe installs no presets.</p>
-										{:else}
-											<ul class="space-y-1.5" data-recipe-sets-up>
-												{#each detail.presets ?? [] as linkedPreset (linkedPreset.id)}
-													<li>
-														<a
-															class="flex items-center gap-3 rounded border border-line bg-surface-1 px-3 py-2 hover:border-line-hover"
-															href="/admin?tab=presets&id={encodeURIComponent(linkedPreset.id)}"
-														>
-															<PresetCoverTile
-																presetId={linkedPreset.id}
-																presetName={linkedPreset.name}
-																cover={linkedPreset.cover_url ? `${api.getBaseURL()}${linkedPreset.cover_url}` : null}
-																class="h-10 w-10 rounded"
-															/>
-															<span class="min-w-0 flex-1 truncate text-sm text-fg">{linkedPreset.name}</span>
-															{#if linkedPreset.installed}
-																<Badge variant="success" size="sm" dot>installed</Badge>
-															{:else}
-																<Badge variant="neutral" size="sm">not installed</Badge>
-															{/if}
-														</a>
-													</li>
-												{/each}
-											</ul>
-										{/if}
-									</DetailSection>
-								{/if}
-
-								<DetailSection label="Runs">
-									{#if runsLoading && runHistory.length === 0}
-										<div class="flex justify-center py-6"><Spinner size="sm" /></div>
-									{:else if runsError}
-										<p class="text-sm text-danger">{runsError}</p>
-									{:else if runHistory.length === 0}
-										<p class="text-sm text-fg-muted">This recipe hasn't been run yet.</p>
-									{:else}
-										<ul class="space-y-1 max-h-72 overflow-y-auto">
-											{#each runHistory as run (run.id)}
-												<li
-													class="flex items-center justify-between gap-3 rounded border border-line bg-surface-1 px-3 py-2"
+											<DetailSection label="Summary">
+												<p class="text-sm text-fg">{selectedRecipe.summary}</p>
+												{#if selectedRecipe.description}
+													<p class="text-sm text-fg-muted mt-2">{selectedRecipe.description}</p>
+												{/if}
+												<div
+													class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-xs font-mono tabular-nums text-fg-subtle"
 												>
-													<div class="flex items-center gap-2 min-w-0">
-														<Badge variant={runBadgeVariant(run.status)} size="sm">
-															{runStatusLabel(run.status)}
-														</Badge>
-														<span class="font-mono text-xs tabular-nums text-fg-muted truncate">
-															{runStartedLabel(run)}
-														</span>
-														<Badge variant="neutral" size="sm">{run.mode}</Badge>
+													<span>{selectedRecipe.step_count} steps</span>
+													<span>{selectedRecipe.artifact_count} artifacts</span>
+													{#if selectedRecipe.total_download_bytes != null}
+														<span>~{formatBytes(selectedRecipe.total_download_bytes)} to download</span>
+													{/if}
+												</div>
+												{#if (detail?.presets ?? []).length > 0}
+													<div class="mt-3 border-t border-line pt-3">
+														<p class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle mb-1.5">
+															Sets up
+														</p>
+														<div class="flex flex-wrap gap-1.5" data-recipe-sets-up>
+															{#each detail?.presets ?? [] as linkedPreset (linkedPreset.id)}
+																<a
+																	class="flex items-center gap-1.5 rounded border border-line bg-surface-1 py-1 pl-1 pr-2 hover:border-line-hover"
+																	href="/admin?tab=presets&id={encodeURIComponent(linkedPreset.id)}"
+																>
+																	<PresetCoverTile
+																		presetId={linkedPreset.id}
+																		presetName={linkedPreset.name}
+																		cover={linkedPreset.cover_url ? `${api.getBaseURL()}${linkedPreset.cover_url}` : null}
+																		class="h-5 w-5 rounded"
+																	/>
+																	<span class="max-w-[10rem] truncate text-xs text-fg">{linkedPreset.name}</span>
+																	{#if linkedPreset.installed}
+																		<Badge variant="success" size="sm" dot>installed</Badge>
+																	{/if}
+																</a>
+															{/each}
+														</div>
 													</div>
-													<span class="font-mono text-xs tabular-nums text-fg-subtle shrink-0">
-														{runDuration(run) ?? '—'}
-													</span>
-												</li>
-											{/each}
-										</ul>
-									{/if}
-								</DetailSection>
+												{/if}
+											</DetailSection>
+										</div>
+									{/snippet}
+
+									{#snippet main()}
+										{#if detail}
+											<DetailSection label="Run" padded={!activeRun}>
+												{#if activeRun}
+													<div class="px-4 sm:px-5 py-4">
+														<RecipeRunProgress
+															run={activeRun}
+															title="Installing models"
+															actions={adminRecipeRunActions}
+															onRunUpdated={adoptRun}
+														/>
+													</div>
+												{:else}
+													<div class="space-y-3">
+														<p class="text-sm text-fg-muted">
+															{selectedRecipe.total_download_bytes != null
+																? `This recipe downloads ~${formatBytes(selectedRecipe.total_download_bytes)} before it can generate.`
+																: 'This recipe is ready to install.'}
+														</p>
+														<Button
+															variant="primary"
+															size="sm"
+															icon="download"
+															loading={starting}
+															disabled={starting || runInFlight}
+															onclick={startRun}
+														>
+															{selectedRecipe.last_completed_at ? 'Install again' : 'Install models'}
+														</Button>
+													</div>
+												{/if}
+											</DetailSection>
+										{/if}
+									{/snippet}
+
+									{#snippet aside()}
+										{#if detail}
+											<DetailSection label="Artifacts">
+												{#if detail.artifacts.length === 0}
+													<p class="text-sm text-fg-muted">This recipe downloads nothing.</p>
+												{:else}
+													<RecipeArtifactCards artifacts={detail.artifacts} />
+												{/if}
+											</DetailSection>
+
+											<DetailSection label="Runs">
+												{#if runsLoading && runHistory.length === 0}
+													<div class="flex justify-center py-6"><Spinner size="sm" /></div>
+												{:else if runsError}
+													<p class="text-sm text-danger">{runsError}</p>
+												{:else}
+													<RecipeRunsList runs={runHistory} />
+												{/if}
+											</DetailSection>
+										{/if}
+									{/snippet}
+								</DetailLayout>
 							</DetailBody>
+
+							<RecipeStepsModal
+								isOpen={stepsModalOpen}
+								steps={detail?.steps ?? []}
+								currentStepKey={activeRunStepKey}
+								onClose={() => (stepsModalOpen = false)}
+							/>
 
 							<DetailFooter>
 								<Button
@@ -710,7 +657,7 @@
 				{:else}
 					<div class="h-full overflow-y-auto p-4">
 						<div
-							class="grid gap-3 {$libraryCardDensity === 'dense'
+							class="grid gap-3 {$libraryCardDensity === 'compact'
 								? 'grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2'
 								: 'grid-cols-[repeat(auto-fill,minmax(300px,1fr))]'}"
 							role="list"
@@ -720,7 +667,7 @@
 								<RecipeCard
 									{recipe}
 									readiness={readinessFor(recipe.id)}
-									dense={$libraryCardDensity === 'dense'}
+									dense={$libraryCardDensity === 'compact'}
 									onOpen={openRecipe}
 								/>
 							{/each}

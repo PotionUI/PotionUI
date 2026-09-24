@@ -4,7 +4,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import JustifiedGenerationGallery from '$lib/components/JustifiedGenerationGallery.svelte';
 	import GenerationDetailsModal from '$lib/components/modals/GenerationDetailsModal.svelte';
-	import { DetailHeader, DetailBody, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
+	import { DetailHeader, DetailBody, DetailLayout, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
 	import { Badge, Button, IconButton, Input, Spinner } from '$lib/components/ui';
 	import AddToCollectionMenu from '$lib/components/collections/AddToCollectionMenu.svelte';
 	import PromptModelField from './PromptModelField.svelte';
@@ -132,9 +132,9 @@
 		{/snippet}
 	</DetailHeader>
 
-	<DetailBody fullWidth>
-		<div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-			<div class="space-y-4">
+	<DetailBody>
+		<DetailLayout>
+			{#snippet main()}
 				<DetailSection label="Prompt details">
 					<div class="grid items-end gap-3 lg:grid-cols-[minmax(0,1fr)_10rem_minmax(0,18rem)]">
 						<label class="min-w-0">
@@ -204,9 +204,9 @@
 						{/if}
 					</DetailSection>
 				{/if}
-			</div>
+			{/snippet}
 
-			<div class="space-y-4">
+			{#snippet aside()}
 				<DetailSection label="Variables">
 					{#if variableRows.length === 0}
 						<p class="text-xs text-fg-subtle">No variables used in this prompt.</p>
@@ -282,8 +282,8 @@
 						{/if}
 					</DetailSection>
 				{/if}
-			</div>
-		</div>
+			{/snippet}
+		</DetailLayout>
 	</DetailBody>
 
 	<DetailFooter {dirtyCount}>

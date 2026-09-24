@@ -153,14 +153,17 @@ async function switchToTab(label: string) {
 }
 
 describe('CategoryInfoView', () => {
-	it('renders the Overview tab active by default, with Details then Subcategories', async () => {
+	it('renders the Overview tab active by default, with Subcategories in the main column and Details in the side column', async () => {
 		await mountView();
 
 		const overview = tabButton('Overview');
 		const previewImages = tabButton('Preview images');
 		expect(overview.getAttribute('aria-current')).toBe('page');
 		expect(previewImages.getAttribute('aria-current')).toBeNull();
-		expect(sectionLabels()).toEqual(['Details', 'Subcategories']);
+		expect(sectionLabels()).toEqual(['Subcategories', 'Details']);
+		const aside = target.querySelector('[data-detail-layout-aside]');
+		expect(aside?.textContent).toContain('Details');
+		expect(aside?.textContent).not.toContain('Subcategories');
 	});
 
 	it('renders both detail bodies full width, without the narrow max-w-2xl wrapper', async () => {

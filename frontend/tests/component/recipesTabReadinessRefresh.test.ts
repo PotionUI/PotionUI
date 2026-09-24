@@ -120,7 +120,7 @@ afterEach(() => {
 	mounted = undefined;
 	vi.clearAllMocks();
 	page.update((current) => ({ ...current, url: new URL('http://localhost/admin') }));
-	libraryCardDensity.set('compact');
+	libraryCardDensity.set('comfortable');
 });
 
 describe('RecipesTab readiness refresh after a run finishes', () => {

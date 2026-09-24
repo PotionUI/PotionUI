@@ -2,8 +2,8 @@
 	import { libraryCardDensity, type LibraryCardDensity } from './libraryCardDensity';
 
 	const options: readonly { value: LibraryCardDensity; label: string }[] = [
-		{ value: 'compact', label: 'Compact' },
-		{ value: 'dense', label: 'Dense' }
+		{ value: 'comfortable', label: 'Comfortable' },
+		{ value: 'compact', label: 'Compact' }
 	];
 </script>
 

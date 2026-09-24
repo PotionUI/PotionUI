@@ -21,7 +21,7 @@
 	import AttributeDefinitionForm from './AttributeDefinitionForm.svelte';
 	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
 	import { Pane, PaneRow, PaneGroupHeader } from '$lib/components/pane';
-	import { DetailHeader, DetailBody, DetailFooter } from '$lib/components/detail';
+	import { DetailHeader, DetailBody, DetailLayout, DetailFooter } from '$lib/components/detail';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
@@ -378,15 +378,19 @@
 						</DetailHeader>
 
 						<DetailBody>
-							{#key activeDefinition.id}
-								<AttributeDefinitionForm
-									bind:draft={editDraft}
-									layout="panel"
-									idPrefix="edit-attr"
-									locked={activeDefinition.system}
-									{modelTypeOptions}
-								/>
-							{/key}
+							<DetailLayout>
+								{#snippet main()}
+									{#key activeDefinition.id}
+										<AttributeDefinitionForm
+											bind:draft={editDraft}
+											layout="panel"
+											idPrefix="edit-attr"
+											locked={activeDefinition.system}
+											{modelTypeOptions}
+										/>
+									{/key}
+								{/snippet}
+							</DetailLayout>
 						</DetailBody>
 
 						<DetailFooter dirtyCount={editDirty ? 1 : 0} dirtyLabel={editDirty ? 'Unsaved changes' : undefined}>

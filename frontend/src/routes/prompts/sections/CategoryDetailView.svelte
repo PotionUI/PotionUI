@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { DetailHeader, DetailBody, DetailSection, DetailFooter } from '$lib/components/detail';
+	import { DetailHeader, DetailBody, DetailLayout, DetailSection, DetailFooter } from '$lib/components/detail';
 	import { Badge, Button, IconButton, Input } from '$lib/components/ui';
 	import type { SavedSegment, SegmentCategory } from '$lib/types/segments';
 	import { PRESET_COLORS } from '$lib/types/segments';
@@ -73,9 +73,9 @@
 		{/snippet}
 	</DetailHeader>
 
-	<DetailBody fullWidth>
-		<div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-			<div class="space-y-4">
+	<DetailBody>
+		<DetailLayout>
+			{#snippet main()}
 				<DetailSection label="Category details">
 					<div class="space-y-3">
 						<label>
@@ -147,9 +147,9 @@
 						{/if}
 					</DetailSection>
 				{/if}
-			</div>
+			{/snippet}
 
-			<div class="space-y-4">
+			{#snippet aside()}
 				<DetailSection label="Deleting">
 					<div class="rounded border border-info/25 bg-info/5 p-3 text-xs text-fg-muted">
 						<div class="flex items-start gap-2">
@@ -161,8 +161,8 @@
 						</div>
 					</div>
 				</DetailSection>
-			</div>
-		</div>
+			{/snippet}
+		</DetailLayout>
 	</DetailBody>
 
 	<DetailFooter {dirtyCount}>

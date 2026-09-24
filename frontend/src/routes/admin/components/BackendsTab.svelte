@@ -28,7 +28,7 @@
 	import BackendForm from './BackendForm.svelte';
 	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
 	import { Pane, PaneRow, PaneGroupHeader } from '$lib/components/pane';
-	import { DetailHeader, DetailTabs, DetailBody, DetailSection, DetailFooter } from '$lib/components/detail';
+	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailSection, DetailFooter } from '$lib/components/detail';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import AdminTabShell from './AdminTabShell.svelte';
@@ -949,6 +949,8 @@
 						<div class="flex-1 min-h-0 flex flex-col {backendIsOffline ? 'backend-card-offline' : ''}">
 							{#if detailTab === 'overview'}
 								<DetailBody>
+									<DetailLayout>
+										{#snippet main()}
 									{#if testResult}
 										<Alert variant={testResult.success ? 'success' : 'danger'} density="compact" title={testResult.success ? 'Connection successful' : 'Connection failed'}>
 											{#if testResult.message}{testResult.message}{/if}
@@ -1036,9 +1038,13 @@
 											? { base_url: workerUrlEditHint }
 											: {}}
 									/>
+										{/snippet}
+									</DetailLayout>
 								</DetailBody>
 							{:else if detailTab === 'infrastructure' && activeBackend.driver === NATIVE_REMOTE_DRIVER}
 								<DetailBody>
+									<DetailLayout>
+										{#snippet main()}
 									{#key activeBackend.id}
 										<BackendInfrastructureSection
 											backendId={activeBackend.id}
@@ -1054,9 +1060,13 @@
 											onEnableBackend={() => activeBackend && toggleEnabled(activeBackend)}
 										/>
 									{/key}
+										{/snippet}
+									</DetailLayout>
 								</DetailBody>
 							{:else if detailTab === 'models' && activeBackend.driver === NATIVE_REMOTE_DRIVER}
-								<DetailBody fullWidth>
+								<DetailBody>
+									<DetailLayout>
+										{#snippet main()}
 									{#if !activeBackend.configured}
 										<EmptyState
 											icon="cube"
@@ -1078,15 +1088,23 @@
 											/>
 										{/key}
 									{/if}
+										{/snippet}
+									</DetailLayout>
 								</DetailBody>
 							{:else if detailTab === 'optimizations' && activeBackend.driver === NATIVE_LOCAL_DRIVER}
 								<DetailBody>
+									<DetailLayout>
+										{#snippet main()}
 									{#key activeBackend.id}
 										<BackendOptimizations backendId={activeBackend.id} />
 									{/key}
+										{/snippet}
+									</DetailLayout>
 								</DetailBody>
 							{:else if detailTab === 'stats'}
 								<DetailBody>
+									<DetailLayout>
+										{#snippet main()}
 									{#if backendStatsLoading}
 										<div class="flex items-center justify-center py-12">
 											<Spinner size="lg" />
@@ -1121,6 +1139,8 @@
 											</p>
 										{/if}
 									{/if}
+							{/snippet}
+						</DetailLayout>
 								</DetailBody>
 							{/if}
 						</div>

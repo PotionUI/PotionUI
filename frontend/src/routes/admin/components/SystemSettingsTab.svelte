@@ -9,7 +9,7 @@
 	import { Button, Spinner } from '$lib/components/ui';
 	import { MasterDetailLayout } from '$lib/components/master-detail';
 	import { Pane, PaneRow } from '$lib/components/pane';
-	import { DetailHeader, DetailBody, DetailFooter } from '$lib/components/detail';
+	import { DetailHeader, DetailBody, DetailLayout, DetailFooter } from '$lib/components/detail';
 	import AdminTabShell from './AdminTabShell.svelte';
 	import AccessPanel from './settings/AccessPanel.svelte';
 	import ContentSafetyPanel from './settings/ContentSafetyPanel.svelte';
@@ -181,30 +181,34 @@
 				<div slot="detail" class="h-full min-h-0 flex flex-col">
 					<DetailHeader title={activeGroupLabel} />
 
-					<DetailBody fullWidth={activeGroup === 'logs'}>
-						{#if activeGroup === 'access'}
-							<AccessPanel {settings} onSettingChange={handleSettingChange} />
-						{:else if activeGroup === 'content_safety'}
-							<ContentSafetyPanel {settings} onSettingChange={handleSettingChange} />
-						{:else if activeGroup === 'storage'}
-							<FileStoragePanel {settings} onSettingChange={handleSettingChange} />
-							<ThumbnailsPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
-							<HousekeepingPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
-							<BackupsPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
-							<ModelsLocationPanel />
-						{:else if activeGroup === 'search_tagging'}
-							<AiPanelFrame>
-								<PromptSearchPanel {settings} onSettingChange={handleSettingChange} />
-								<MediaTaggingPanel {settings} onSettingChange={handleSettingChange} />
-								<VisualSearchPanel {settings} onSettingChange={handleSettingChange} />
-							</AiPanelFrame>
-						{:else if activeGroup === 'generation'}
-							<GenerationPanel {settings} onSettingChange={handleSettingChange} />
-						{:else if activeGroup === 'external_login'}
-							<ExternalLoginPanel {settings} onSettingChange={handleSettingChange} />
-						{:else if activeGroup === 'logs'}
-							<LogsPanel />
-						{/if}
+					<DetailBody>
+						<DetailLayout>
+							{#snippet main()}
+								{#if activeGroup === 'access'}
+									<AccessPanel {settings} onSettingChange={handleSettingChange} />
+								{:else if activeGroup === 'content_safety'}
+									<ContentSafetyPanel {settings} onSettingChange={handleSettingChange} />
+								{:else if activeGroup === 'storage'}
+									<FileStoragePanel {settings} onSettingChange={handleSettingChange} />
+									<ThumbnailsPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
+									<HousekeepingPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
+									<BackupsPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
+									<ModelsLocationPanel />
+								{:else if activeGroup === 'search_tagging'}
+									<AiPanelFrame>
+										<PromptSearchPanel {settings} onSettingChange={handleSettingChange} />
+										<MediaTaggingPanel {settings} onSettingChange={handleSettingChange} />
+										<VisualSearchPanel {settings} onSettingChange={handleSettingChange} />
+									</AiPanelFrame>
+								{:else if activeGroup === 'generation'}
+									<GenerationPanel {settings} onSettingChange={handleSettingChange} />
+								{:else if activeGroup === 'external_login'}
+									<ExternalLoginPanel {settings} onSettingChange={handleSettingChange} />
+								{:else if activeGroup === 'logs'}
+									<LogsPanel />
+								{/if}
+							{/snippet}
+						</DetailLayout>
 					</DetailBody>
 
 					<DetailFooter dirtyCount={dirtyKeys.length}>

@@ -1,16 +1,16 @@
 import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
 
-export type LibraryCardDensity = 'compact' | 'dense';
+export type LibraryCardDensity = 'comfortable' | 'compact';
 
-const STORAGE_KEY = 'admin-library-card-density';
+const STORAGE_KEY = 'admin-library-card-density-v2';
 
 function load(): LibraryCardDensity {
-	if (!browser) return 'compact';
+	if (!browser) return 'comfortable';
 	try {
-		return localStorage.getItem(STORAGE_KEY) === 'dense' ? 'dense' : 'compact';
+		return localStorage.getItem(STORAGE_KEY) === 'compact' ? 'compact' : 'comfortable';
 	} catch {
-		return 'compact';
+		return 'comfortable';
 	}
 }
 

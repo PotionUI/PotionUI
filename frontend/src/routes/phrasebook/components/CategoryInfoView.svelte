@@ -4,7 +4,7 @@
 	import { Alert, Badge, IconButton, CopyButton, Spinner } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { DetailHeader, DetailTabs, DetailBody, DetailSection, KVGrid, KVItem } from '$lib/components/detail';
+	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailSection, KVGrid, KVItem } from '$lib/components/detail';
 	import {
 		phrasebookStore,
 		selectedCategory,
@@ -112,105 +112,113 @@
 		/>
 
 		{#if current.categoryDetailTab === 'overview'}
-			<DetailBody fullWidth>
-				<div class="space-y-5">
-				<DetailSection label="Details">
-					<div class="flex flex-col gap-3.5">
-						<Alert variant="info" density="compact">
-							A category is a named bag of interchangeable phrases; insert it into a prompt as
-							<span
-								class="inline-flex items-center gap-1 mx-0.5 rounded bg-surface-2 border border-line-strong px-1.5 py-0.5 align-middle font-mono text-2xs font-semibold text-fg"
-							>
-								<Icon name="folder" className="w-3 h-3" />#{category.path}
-							</span>
-							<CopyButton text={'#' + category.path} ariaLabel="Copy phrasebook reference" size="xs" />
-							and a value is picked for you &mdash; shuffle, pinned, or per image.
-						</Alert>
-
-						<KVGrid>
-							<KVItem label="Path" mono>{category.path}</KVItem>
-							<KVItem label="Parent" mono>{parentCategory?.name ?? '—'}</KVItem>
-							<KVItem label="Description" full>
-								{#if category.description}
-									<div class="flex items-baseline gap-2">
-										<span>{category.description}</span>
+			<DetailBody>
+				<DetailLayout>
+					{#snippet main()}
+						<DetailSection label="Subcategories">
+							{#if !category.childrenLoaded && current.loadingCategories.has(category.id)}
+								<div class="flex items-center justify-center py-6">
+									<Spinner size="sm" />
+								</div>
+							{:else if category.children && category.children.length > 0}
+								<div class="flex flex-col -mx-4 sm:-mx-5">
+									{#each category.children as child (child.id)}
 										<button
 											type="button"
-											class="text-2xs text-fg-subtle hover:text-fg underline decoration-line-strong hover:decoration-fg-muted flex-shrink-0"
-											onclick={() => phrasebookStore.handleEditCategory()}
+											class="flex items-center gap-2.5 px-4 sm:px-5 py-2.5 text-left hover:bg-surface-2 transition-colors"
+											onclick={() => phrasebookStore.handleSelectCategory(child.id)}
 										>
-											Edit
+											<span
+												class="flex-shrink-0 flex items-center justify-center w-7 h-7 rounded bg-surface-2 border border-line-strong text-fg-subtle"
+											>
+												<Icon name="folder" className="w-3.5 h-3.5" />
+											</span>
+											<span class="min-w-0 flex-1">
+												<span class="block text-sm text-fg font-medium truncate">{child.name}</span>
+												<span class="block font-mono text-xs text-fg-subtle truncate">{child.path}</span>
+											</span>
+											<Icon name="chevron-right" className="w-3.5 h-3.5 text-fg-disabled flex-shrink-0" />
 										</button>
-									</div>
-								{:else}
-									<div class="flex items-baseline gap-2">
-										<span class="italic text-fg-subtle">No description</span>
-										<button
-											type="button"
-											class="text-2xs text-fg-subtle hover:text-fg underline decoration-line-strong hover:decoration-fg-muted flex-shrink-0"
-											onclick={() => phrasebookStore.handleEditCategory()}
-										>
-											Edit
-										</button>
-									</div>
-								{/if}
-							</KVItem>
-							<KVItem label="Status">
-								<Badge variant={category.is_active ? 'success' : 'neutral'} size="sm">
-									{category.is_active ? 'Active' : 'Inactive'}
-								</Badge>
-							</KVItem>
-							<KVItem label="Updated" mono>{formatDate(category.updated_at)}</KVItem>
-						</KVGrid>
-					</div>
-				</DetailSection>
+									{/each}
+								</div>
+							{:else}
+								<p class="text-xs text-fg-subtle italic">No subcategories</p>
+							{/if}
 
-				<DetailSection label="Subcategories">
-					{#if !category.childrenLoaded && current.loadingCategories.has(category.id)}
-						<div class="flex items-center justify-center py-6">
-							<Spinner size="sm" />
-						</div>
-					{:else if category.children && category.children.length > 0}
-						<div class="flex flex-col -mx-4 sm:-mx-5">
-							{#each category.children as child (child.id)}
+							{#snippet footer()}
 								<button
 									type="button"
-									class="flex items-center gap-2.5 px-4 sm:px-5 py-2.5 text-left hover:bg-surface-2 transition-colors"
-									onclick={() => phrasebookStore.handleSelectCategory(child.id)}
+									class="flex items-center gap-1.5 text-xs text-fg-subtle hover:text-fg"
+									onclick={() => phrasebookStore.handleNewCategory()}
 								>
-									<span
-										class="flex-shrink-0 flex items-center justify-center w-7 h-7 rounded bg-surface-2 border border-line-strong text-fg-subtle"
-									>
-										<Icon name="folder" className="w-3.5 h-3.5" />
-									</span>
-									<span class="min-w-0 flex-1">
-										<span class="block text-sm text-fg font-medium truncate">{child.name}</span>
-										<span class="block font-mono text-2xs text-fg-subtle truncate">{child.path}</span>
-									</span>
-									<Icon name="chevron-right" className="w-3.5 h-3.5 text-fg-disabled flex-shrink-0" />
+									<Icon name="plus" className="w-3.5 h-3.5" />
+									Add subcategory
 								</button>
-							{/each}
-						</div>
-					{:else}
-						<p class="text-xs text-fg-subtle italic">No subcategories</p>
-					{/if}
-
-					{#snippet footer()}
-						<button
-							type="button"
-							class="flex items-center gap-1.5 text-xs text-fg-subtle hover:text-fg"
-							onclick={() => phrasebookStore.handleNewCategory()}
-						>
-							<Icon name="plus" className="w-3.5 h-3.5" />
-							Add subcategory
-						</button>
+							{/snippet}
+						</DetailSection>
 					{/snippet}
-				</DetailSection>
-				</div>
+					{#snippet aside()}
+						<DetailSection label="Details">
+							<div class="flex flex-col gap-3.5">
+								<Alert variant="info" density="compact">
+									A category is a named bag of interchangeable phrases; insert it into a prompt as
+									<span
+										class="inline-flex items-center gap-1 mx-0.5 rounded bg-surface-2 border border-line-strong px-1.5 py-0.5 align-middle font-mono text-xs font-semibold text-fg"
+									>
+										<Icon name="folder" className="w-3 h-3" />#{category.path}
+									</span>
+									<CopyButton text={'#' + category.path} ariaLabel="Copy phrasebook reference" size="xs" />
+									and a value is picked for you &mdash; shuffle, pinned, or per image.
+								</Alert>
+
+								<KVGrid>
+									<KVItem label="Path" mono>{category.path}</KVItem>
+									<KVItem label="Parent" mono>{parentCategory?.name ?? '—'}</KVItem>
+									<KVItem label="Description" full>
+										{#if category.description}
+											<div class="flex items-baseline gap-2">
+												<span>{category.description}</span>
+												<button
+													type="button"
+													class="text-xs text-fg-subtle hover:text-fg underline decoration-line-strong hover:decoration-fg-muted flex-shrink-0"
+													onclick={() => phrasebookStore.handleEditCategory()}
+												>
+													Edit
+												</button>
+											</div>
+										{:else}
+											<div class="flex items-baseline gap-2">
+												<span class="italic text-fg-subtle">No description</span>
+												<button
+													type="button"
+													class="text-xs text-fg-subtle hover:text-fg underline decoration-line-strong hover:decoration-fg-muted flex-shrink-0"
+													onclick={() => phrasebookStore.handleEditCategory()}
+												>
+													Edit
+												</button>
+											</div>
+										{/if}
+									</KVItem>
+									<KVItem label="Status">
+										<Badge variant={category.is_active ? 'success' : 'neutral'} size="sm">
+											{category.is_active ? 'Active' : 'Inactive'}
+										</Badge>
+									</KVItem>
+									<KVItem label="Updated" mono>{formatDate(category.updated_at)}</KVItem>
+								</KVGrid>
+							</div>
+						</DetailSection>
+					{/snippet}
+				</DetailLayout>
 			</DetailBody>
 		{:else if current.selectedCategoryId}
-			<DetailBody fullWidth>
-				<PreviewImagesSection categoryId={current.selectedCategoryId} />
+			{@const selectedCategoryId = current.selectedCategoryId}
+			<DetailBody>
+				<DetailLayout>
+					{#snippet main()}
+						<PreviewImagesSection categoryId={selectedCategoryId} />
+					{/snippet}
+				</DetailLayout>
 			</DetailBody>
 		{/if}
 	</div>

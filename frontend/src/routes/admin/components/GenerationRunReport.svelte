@@ -13,7 +13,7 @@
 	import { timeAgo, parseServerDate } from '$lib/utils/relativeTime';
 	import { formatDurationMs } from '$lib/components/generation-panel/barState';
 	import { Alert, Badge, EmptyState } from '$lib/components/ui';
-	import { DetailHeader, DetailBody, DetailSection, KVGrid, KVItem } from '$lib/components/detail';
+	import { DetailHeader, DetailBody, DetailLayout, DetailSection, KVGrid, KVItem } from '$lib/components/detail';
 	import Icon from '$lib/components/Icon.svelte';
 	import GenerationRoutingPanel from './GenerationRoutingPanel.svelte';
 	import GenerationPipeTimeline from './GenerationPipeTimeline.svelte';
@@ -126,9 +126,11 @@
 		{/snippet}
 	</DetailHeader>
 
-	<DetailBody fullWidth>
-		<div class="space-y-5">
-			{#if generation.status === 'failed' && generation.error_message}
+	<DetailBody>
+		<DetailLayout>
+			{#snippet main()}
+			<div class="space-y-5">
+				{#if generation.status === 'failed' && generation.error_message}
 				<Alert variant="danger" icon="warning" title="Generation failed">
 					<p class="text-xs leading-relaxed">{generation.error_message}</p>
 				</Alert>
@@ -235,5 +237,7 @@
 				</DetailSection>
 			{/if}
 		</div>
+			{/snippet}
+		</DetailLayout>
 	</DetailBody>
 </div>

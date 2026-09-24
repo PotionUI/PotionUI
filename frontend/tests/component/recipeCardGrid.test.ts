@@ -123,7 +123,7 @@ afterEach(() => {
 	mounted = undefined;
 	vi.clearAllMocks();
 	page.update((current) => ({ ...current, url: new URL('http://localhost/admin') }));
-	libraryCardDensity.set('compact');
+	libraryCardDensity.set('comfortable');
 });
 
 describe('RecipesTab card grid', () => {
@@ -180,15 +180,15 @@ describe('RecipesTab card grid', () => {
 		expect(grid.className).toContain('minmax(300px');
 		expect(grid.textContent).toContain('Fetches Krea-2 Turbo');
 
-		const denseButton = Array.from(mounted.target.querySelectorAll('button[role="radio"]')).find(
-			(el) => el.textContent?.trim() === 'Dense'
+		const compactButton = Array.from(mounted.target.querySelectorAll('button[role="radio"]')).find(
+			(el) => el.textContent?.trim() === 'Compact'
 		) as HTMLButtonElement | undefined;
-		expect(denseButton, 'expected a Dense option in the density toggle').toBeTruthy();
-		flushSync(() => denseButton!.click());
+		expect(compactButton, 'expected a Compact option in the density toggle').toBeTruthy();
+		flushSync(() => compactButton!.click());
 		await settle();
 
-		const denseGrid = catalogGrid(mounted.target);
-		expect(denseGrid.className).toContain('minmax(240px');
-		expect(denseGrid.textContent).not.toContain('Fetches Krea-2 Turbo');
+		const compactGrid = catalogGrid(mounted.target);
+		expect(compactGrid.className).toContain('minmax(240px');
+		expect(compactGrid.textContent).not.toContain('Fetches Krea-2 Turbo');
 	});
 });

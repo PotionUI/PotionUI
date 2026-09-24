@@ -14,7 +14,7 @@
 	import { Button, Badge, Input, SegmentedControl, Spinner, EmptyState, Switch } from '$lib/components/ui';
 	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
 	import { Pane, PaneRow } from '$lib/components/pane';
-	import { DetailHeader, DetailTabs, DetailBody, DetailSection, DetailFooter } from '$lib/components/detail';
+	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailSection, DetailFooter } from '$lib/components/detail';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
 	import LibraryFilterChipRow from '$lib/components/library/LibraryFilterChipRow.svelte';
 	import FilterPopoverFrame from '$lib/components/library/FilterPopoverFrame.svelte';
@@ -1037,6 +1037,8 @@
 
 							{#if userDetailTab === 'overview'}
 								<DetailBody>
+									<DetailLayout>
+										{#snippet main()}
 									<DetailSection label="Identity">
 										<div class="space-y-4">
 											<div>
@@ -1060,7 +1062,9 @@
 											</div>
 										</div>
 									</DetailSection>
+										{/snippet}
 
+										{#snippet aside()}
 									<DetailSection label="MCP Access">
 										<div class="flex items-start justify-between gap-6">
 											<div>
@@ -1077,9 +1081,13 @@
 											/>
 										</div>
 									</DetailSection>
+										{/snippet}
+									</DetailLayout>
 								</DetailBody>
 							{:else if userDetailTab === 'groups'}
-								<DetailBody fullWidth>
+								<DetailBody>
+									<DetailLayout>
+										{#snippet main()}
 									<AssignmentList
 										items={groups}
 										getId={(g) => g.id}
@@ -1101,9 +1109,13 @@
 											{#if group.description}<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{group.description}</p>{/if}
 										{/snippet}
 									</AssignmentList>
+										{/snippet}
+									</DetailLayout>
 								</DetailBody>
 							{:else if userDetailTab === 'presets'}
-								<DetailBody fullWidth>
+								<DetailBody>
+									<DetailLayout>
+										{#snippet main()}
 									<AssignmentList
 										items={allPresets}
 										getId={(p) => p.id}
@@ -1126,9 +1138,13 @@
 											<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{preset.id}</p>
 										{/snippet}
 									</AssignmentList>
+										{/snippet}
+									</DetailLayout>
 								</DetailBody>
 							{:else if userDetailTab === 'llms'}
-								<DetailBody fullWidth>
+								<DetailBody>
+									<DetailLayout>
+										{#snippet main()}
 									<AssignmentList
 										items={allLLMConfigs}
 										getId={(l) => l.id}
@@ -1154,9 +1170,13 @@
 											<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{llm.type} · {llm.model}</p>
 										{/snippet}
 									</AssignmentList>
+										{/snippet}
+									</DetailLayout>
 								</DetailBody>
 							{:else if userDetailTab === 'models'}
-								<DetailBody fullWidth>
+								<DetailBody>
+									<DetailLayout>
+										{#snippet main()}
 									<div class="rounded-lg border border-line bg-surface-1 overflow-hidden">
 										<ModelAssignmentPicker
 											assignedModelIds={userModelAssignments[activeUser.id] || []}
@@ -1166,6 +1186,8 @@
 											onUnassign={(modelId) => unassignUserModel(modelId)}
 										/>
 									</div>
+										{/snippet}
+									</DetailLayout>
 								</DetailBody>
 							{/if}
 
@@ -1286,6 +1308,8 @@
 
 							{#if groupDetailTab === 'overview'}
 								<DetailBody>
+									<DetailLayout>
+										{#snippet main()}
 									<DetailSection label="Identity">
 										<div class="space-y-4">
 											<div>
@@ -1298,9 +1322,13 @@
 											</div>
 										</div>
 									</DetailSection>
+										{/snippet}
+									</DetailLayout>
 								</DetailBody>
 							{:else if groupDetailTab === 'users'}
-								<DetailBody fullWidth>
+								<DetailBody>
+									<DetailLayout>
+										{#snippet main()}
 									<AssignmentList
 										items={users}
 										getId={(u) => u.id}
@@ -1319,9 +1347,13 @@
 											<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{user.email}</p>
 										{/snippet}
 									</AssignmentList>
+										{/snippet}
+									</DetailLayout>
 								</DetailBody>
 							{:else if groupDetailTab === 'presets'}
-								<DetailBody fullWidth>
+								<DetailBody>
+									<DetailLayout>
+										{#snippet main()}
 									<AssignmentList
 										items={allPresets}
 										getId={(p) => p.id}
@@ -1344,9 +1376,13 @@
 											<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{preset.id}</p>
 										{/snippet}
 									</AssignmentList>
+										{/snippet}
+									</DetailLayout>
 								</DetailBody>
 							{:else if groupDetailTab === 'llms'}
-								<DetailBody fullWidth>
+								<DetailBody>
+									<DetailLayout>
+										{#snippet main()}
 									<AssignmentList
 										items={allLLMConfigs}
 										getId={(l) => l.id}
@@ -1372,9 +1408,13 @@
 											<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{llm.type} · {llm.model}</p>
 										{/snippet}
 									</AssignmentList>
+										{/snippet}
+									</DetailLayout>
 								</DetailBody>
 							{:else if groupDetailTab === 'models'}
-								<DetailBody fullWidth>
+								<DetailBody>
+									<DetailLayout>
+										{#snippet main()}
 									<div class="rounded-lg border border-line bg-surface-1 overflow-hidden">
 										<ModelAssignmentPicker
 											assignedModelIds={groupModels.map((gm) => gm.model_id)}
@@ -1384,6 +1424,8 @@
 											onUnassign={(modelId) => handleUnassignGroupModel(modelId)}
 										/>
 									</div>
+										{/snippet}
+									</DetailLayout>
 								</DetailBody>
 							{/if}
 

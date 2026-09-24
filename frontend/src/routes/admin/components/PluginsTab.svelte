@@ -6,7 +6,7 @@
 	import { pluginStore, plugins, frontendHooks, loading, error, pendingPluginIds, type Plugin, type PluginSettingSchema } from '$lib/stores/plugins';
 	import { authStore } from '$lib/stores/auth';
 	import { Button, Badge, Spinner, Input, EmptyState, Switch, Alert } from '$lib/components/ui';
-	import { DetailHeader, DetailTabs, DetailBody, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
+	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
 	import LibraryDensityToggle from '$lib/components/library/LibraryDensityToggle.svelte';
@@ -321,7 +321,7 @@
 						<DetailTabs tabs={detailTabs} active={detailTab} onSelect={(id) => (detailTab = id)} ariaLabel="Plugin details" />
 
 						{#if detailTab === 'overview'}
-							<DetailBody>
+							{#snippet overviewMain()}
 								{#if liveSelected.state === 'error' && liveSelected.error}
 									<Alert variant="danger" icon title="Invalid manifest">{liveSelected.error}</Alert>
 								{/if}
@@ -358,22 +358,24 @@
 											{#if liveSelected.homepage}
 												<KVItem label="Homepage">
 													<a href={liveSelected.homepage} target="_blank" rel="noreferrer" class="text-signal hover:underline truncate block">
-														{liveSelected.homepage}
-													</a>
+													{liveSelected.homepage}
+												</a>
 												</KVItem>
 											{/if}
 											{#if liveSelected.repository}
 												<KVItem label="Repository">
 													<a href={liveSelected.repository} target="_blank" rel="noreferrer" class="text-signal hover:underline truncate block">
-														{liveSelected.repository}
-													</a>
+													{liveSelected.repository}
+												</a>
 												</KVItem>
 											{/if}
 										</KVGrid>
 									</div>
 								</DetailSection>
+							{/snippet}
 
-								{#if liveSelected.hooks && liveSelected.hooks.length > 0}
+							{#if liveSelected.hooks && liveSelected.hooks.length > 0}
+								{#snippet hooksAside()}
 									<DetailSection label="Registered Hooks">
 										<div class="space-y-2">
 											{#each liveSelected.hooks as hook}
@@ -397,10 +399,19 @@
 											{/each}
 										</div>
 									</DetailSection>
-								{/if}
-							</DetailBody>
+								{/snippet}
+								<DetailBody>
+									<DetailLayout main={overviewMain} aside={hooksAside} />
+								</DetailBody>
+							{:else}
+								<DetailBody>
+									<DetailLayout main={overviewMain} />
+								</DetailBody>
+							{/if}
 						{:else if detailTab === 'settings'}
 							<DetailBody>
+								<DetailLayout>
+									{#snippet main()}
 								<DetailSection label="Settings">
 									{#if liveSelected.settings_schema && liveSelected.settings_schema.length > 0}
 										<form
@@ -467,9 +478,13 @@
 										</div>
 									{/if}
 								</DetailSection>
+								{/snippet}
+							</DetailLayout>
 							</DetailBody>
 						{:else if activeContributedTab && activeTabComponentPromise}
-							<DetailBody fullWidth>
+							<DetailBody>
+								<DetailLayout>
+									{#snippet main()}
 								{#await activeTabComponentPromise}
 									<div class="flex items-center justify-center py-10">
 										<Spinner size="lg" />
@@ -485,6 +500,8 @@
 								{:catch err}
 									<Alert variant="danger" icon title="Failed to load tab">{err?.message || 'Unknown error'}</Alert>
 								{/await}
+									{/snippet}
+								</DetailLayout>
 							</DetailBody>
 						{/if}
 
@@ -530,7 +547,7 @@
 							</div>
 						{:else}
 							<div
-								class="grid gap-3 {$libraryCardDensity === 'dense'
+								class="grid gap-3 {$libraryCardDensity === 'compact'
 									? 'grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2'
 									: 'grid-cols-[repeat(auto-fill,minmax(300px,1fr))]'}"
 								role="list"
@@ -540,7 +557,7 @@
 									<PluginCard
 										{plugin}
 										busy={$pendingPluginIds.has(plugin.id)}
-										dense={$libraryCardDensity === 'dense'}
+										dense={$libraryCardDensity === 'compact'}
 										onOpen={openPlugin}
 										onToggle={togglePlugin}
 									/>

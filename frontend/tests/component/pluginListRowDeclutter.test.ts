@@ -144,7 +144,7 @@ afterEach(() => {
 	apiState.plugins = [SHORT_PLUGIN, LONG_PLUGIN];
 	(globalThis as any).ResizeObserver = originalRO;
 	page.update((current) => ({ ...current, url: new URL('http://localhost/admin') }));
-	libraryCardDensity.set('compact');
+	libraryCardDensity.set('comfortable');
 });
 
 describe('PluginsTab list row declutter', () => {
@@ -202,7 +202,7 @@ describe('PluginsTab list row declutter', () => {
 		expect(description.className).toContain('line-clamp-2');
 	});
 
-	it('the density toggle switches the grid to dense cards and hides descriptions', async () => {
+	it('the density toggle switches the grid to compact cards and hides descriptions', async () => {
 		mounted = mount();
 		await settle();
 
@@ -210,16 +210,16 @@ describe('PluginsTab list row declutter', () => {
 		expect(pane.className).toContain('minmax(300px');
 		expect(pane.textContent).toContain('A brief description.');
 
-		const denseButton = Array.from(mounted.target.querySelectorAll('button[role="radio"]')).find(
-			(el) => el.textContent?.trim() === 'Dense'
+		const compactButton = Array.from(mounted.target.querySelectorAll('button[role="radio"]')).find(
+			(el) => el.textContent?.trim() === 'Compact'
 		) as HTMLButtonElement | undefined;
-		expect(denseButton, 'expected a Dense option in the density toggle').toBeTruthy();
-		flushSync(() => denseButton!.click());
+		expect(compactButton, 'expected a Compact option in the density toggle').toBeTruthy();
+		flushSync(() => compactButton!.click());
 		await settle();
 
-		const densePane = listPane(mounted.target);
-		expect(densePane.className).toContain('minmax(240px');
-		expect(densePane.textContent).not.toContain('A brief description.');
+		const compactPane = listPane(mounted.target);
+		expect(compactPane.className).toContain('minmax(240px');
+		expect(compactPane.textContent).not.toContain('A brief description.');
 	});
 
 	it('clicking the enable switch on a card toggles the plugin without opening its detail view', async () => {

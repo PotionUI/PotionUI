@@ -315,3 +315,109 @@ class TestValidateVariablesMap:
         variables = {f"v{i}": {"type": "text", "value": "x"} for i in range(MAX_VARIABLES + 1)}
         errors = validate_variables_map(variables)
         assert any("Too many prompt variables" in e for e in errors)
+
+
+class TestBuildVariablesForSubmit:
+    def test_absent_or_malformed_returns_empty_map(self):
+        from src.platform.resources.prompt_variables import build_variables_for_submit
+
+        assert build_variables_for_submit(None) == {}
+        assert build_variables_for_submit("nope") == {}
+        assert build_variables_for_submit([123, "x", None]) == {}
+
+    def test_text_variable_sends_its_value(self):
+        from src.platform.resources.prompt_variables import build_variables_for_submit
+
+        wire_map = build_variables_for_submit([{"name": "subject", "type": "text", "value": "a red fox"}])
+        assert wire_map == {"subject": "a red fox"}
+
+    def test_blank_text_variable_is_omitted(self):
+        from src.platform.resources.prompt_variables import build_variables_for_submit
+
+        wire_map = build_variables_for_submit([{"name": "subject", "type": "text", "value": ""}])
+        assert wire_map == {}
+
+    def test_pin_variable_sends_pinned_option(self):
+        from src.platform.resources.prompt_variables import build_variables_for_submit
+
+        wire_map = build_variables_for_submit([{
+            "name": "mood", "type": "choice", "options": ["noir", "sunlit"],
+            "mode": "pin", "pinnedIndex": 1,
+        }])
+        assert wire_map == {"mood": "sunlit"}
+
+    def test_per_image_variable_sends_the_choice_group_template(self):
+        from src.platform.resources.prompt_variables import build_variables_for_submit
+
+        wire_map = build_variables_for_submit([{
+            "name": "mood", "type": "choice", "options": ["noir", "sunlit"], "mode": "per-image",
+        }])
+        assert wire_map == {"mood": "{noir|sunlit}"}
+
+    def test_shuffle_picks_one_option_deterministically(self):
+        from src.platform.resources.prompt_variables import build_variables_for_submit
+
+        wire_map = build_variables_for_submit(
+            [{"name": "mood", "type": "choice", "options": ["noir", "sunlit"], "mode": "shuffle"}],
+            random_fn=lambda: 0.0,
+        )
+        assert wire_map == {"mood": "noir"}
+
+        wire_map = build_variables_for_submit(
+            [{"name": "mood", "type": "choice", "options": ["noir", "sunlit"], "mode": "shuffle"}],
+            random_fn=lambda: 0.99,
+        )
+        assert wire_map == {"mood": "sunlit"}
+
+    def test_shuffle_resolves_music_before_dance_and_filters_to_eligible_options(self):
+        from src.platform.resources.prompt_variables import build_variables_for_submit
+
+        variables = [
+            {"name": "dance", "type": "choice", "mode": "shuffle", "options": [
+                {"text": "breaking", "when": {"var": "music", "values": ["hip hop"]}},
+                {"text": "waltz", "when": {"var": "music", "values": ["classical"]}},
+                "freestyle",
+            ]},
+            {"name": "music", "type": "choice", "mode": "shuffle", "options": ["hip hop", "classical", "latin"]},
+        ]
+        wire_map = build_variables_for_submit(variables, random_fn=lambda: 0.0)
+        assert wire_map["music"] == "hip hop"
+        assert wire_map["dance"] in ("breaking", "freestyle")
+
+    def test_shuffle_omits_variable_with_no_eligible_option(self):
+        from src.platform.resources.prompt_variables import build_variables_for_submit
+
+        variables = [
+            {"name": "music", "type": "choice", "mode": "shuffle", "options": ["latin"]},
+            {"name": "dance", "type": "choice", "mode": "shuffle", "options": [
+                {"text": "waltz", "when": {"var": "music", "values": ["classical"]}},
+            ]},
+        ]
+        wire_map = build_variables_for_submit(variables, random_fn=lambda: 0.0)
+        assert "dance" not in wire_map
+
+    def test_pin_wins_regardless_of_its_own_condition(self):
+        from src.platform.resources.prompt_variables import build_variables_for_submit
+
+        variables = [
+            {"name": "music", "type": "choice", "mode": "shuffle", "options": ["latin"]},
+            {"name": "dance", "type": "choice", "mode": "pin", "pinnedIndex": 0, "options": [
+                {"text": "breaking", "when": {"var": "music", "values": ["hip hop"]}},
+                {"text": "waltz", "when": {"var": "music", "values": ["classical"]}},
+            ]},
+        ]
+        wire_map = build_variables_for_submit(variables)
+        assert wire_map["dance"] == "breaking"
+
+    def test_per_image_ignores_conditions_and_wires_every_option(self):
+        from src.platform.resources.prompt_variables import build_variables_for_submit
+
+        variables = [
+            {"name": "music", "type": "choice", "mode": "shuffle", "options": ["latin"]},
+            {"name": "dance", "type": "choice", "mode": "per-image", "options": [
+                {"text": "breaking", "when": {"var": "music", "values": ["hip hop"]}},
+                {"text": "waltz", "when": {"var": "music", "values": ["classical"]}},
+            ]},
+        ]
+        wire_map = build_variables_for_submit(variables)
+        assert wire_map["dance"] == "{breaking|waltz}"

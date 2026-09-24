@@ -7,6 +7,7 @@ from typing import Any
 
 from src.features.llm.tools.base import ToolContext, ToolResult
 from src.features.llm.tools.builtin.run_generation_tool import RunGenerationTool
+from src.features.prompt.expander import expand_prompts
 
 
 # ---------------------------------------------------------------------------
@@ -467,3 +468,128 @@ class TestRunGenerationToolExecuteConfirmed:
         )
         await RunGenerationTool().execute_confirmed(ctx)
         orchestrator.start_generation.assert_awaited_once()
+
+
+
+class TestRunGenerationToolPromptVariables:
+    @pytest.mark.asyncio
+    async def test_text_variable_resolves_to_its_value(self):
+        form_state = make_form_state(form_data={"prompt": "a portrait of ${subject}"})
+        form_state["variables"] = [{"name": "subject", "type": "text", "value": "a red fox"}]
+        orchestrator = make_orchestrator()
+        ctx = make_context(session_metadata={"form_state": form_state}, generation_orchestrator=orchestrator)
+        await RunGenerationTool().execute_confirmed(ctx)
+        request = orchestrator.start_generation.call_args[1]["request"]
+        assert request.variables == {"subject": "a red fox"}
+        expanded = expand_prompts(
+            request.prompts[0].positive, request.prompts[0].negative,
+            count=1, base_seed=0, variables=request.variables,
+        )
+        assert "a red fox" in expanded[0].positive
+        assert "${subject}" not in expanded[0].positive
+
+    @pytest.mark.asyncio
+    async def test_pin_variable_resolves_to_pinned_option(self):
+        form_state = make_form_state(form_data={"prompt": "${mood} lighting"})
+        form_state["variables"] = [{
+            "name": "mood", "type": "choice", "options": ["noir", "sunlit"],
+            "mode": "pin", "pinnedIndex": 1,
+        }]
+        orchestrator = make_orchestrator()
+        ctx = make_context(session_metadata={"form_state": form_state}, generation_orchestrator=orchestrator)
+        await RunGenerationTool().execute_confirmed(ctx)
+        request = orchestrator.start_generation.call_args[1]["request"]
+        assert request.variables == {"mood": "sunlit"}
+
+    @pytest.mark.asyncio
+    async def test_shuffle_variable_resolves_to_one_eligible_option(self):
+        form_state = make_form_state(form_data={"prompt": "${mood} lighting"})
+        form_state["variables"] = [{
+            "name": "mood", "type": "choice", "options": ["noir", "sunlit"], "mode": "shuffle",
+        }]
+        orchestrator = make_orchestrator()
+        ctx = make_context(session_metadata={"form_state": form_state}, generation_orchestrator=orchestrator)
+        await RunGenerationTool().execute_confirmed(ctx)
+        request = orchestrator.start_generation.call_args[1]["request"]
+        assert request.variables["mood"] in ("noir", "sunlit")
+        expanded = expand_prompts(
+            request.prompts[0].positive, request.prompts[0].negative,
+            count=1, base_seed=0, variables=request.variables,
+        )
+        assert expanded[0].positive == f"{request.variables['mood']} lighting"
+
+    @pytest.mark.asyncio
+    async def test_per_image_variable_wires_the_choice_group_and_expands_per_image(self):
+        form_state = make_form_state(form_data={"prompt": "${mood} lighting", "quantity": 5})
+        form_state["variables"] = [{
+            "name": "mood", "type": "choice", "options": ["noir", "sunlit"], "mode": "per-image",
+        }]
+        orchestrator = make_orchestrator()
+        ctx = make_context(session_metadata={"form_state": form_state}, generation_orchestrator=orchestrator)
+        await RunGenerationTool().execute_confirmed(ctx)
+        request = orchestrator.start_generation.call_args[1]["request"]
+        assert request.variables == {"mood": "{noir|sunlit}"}
+        expanded = expand_prompts(
+            request.prompts[0].positive, request.prompts[0].negative,
+            count=5, base_seed=0, variables=request.variables,
+        )
+        seen = {e.positive for e in expanded}
+        assert seen <= {"noir lighting", "sunlit lighting"}
+        assert len(seen) > 0
+
+    @pytest.mark.asyncio
+    async def test_shuffle_respects_when_condition_in_dependency_order(self):
+        form_state = make_form_state(form_data={"prompt": "${music}: ${dance}"})
+        form_state["variables"] = [
+            {"name": "music", "type": "choice", "options": ["hip hop"], "mode": "shuffle"},
+            {
+                "name": "dance", "type": "choice", "mode": "shuffle",
+                "options": [
+                    {"text": "breaking", "when": {"var": "music", "values": ["hip hop"]}},
+                    {"text": "waltz", "when": {"var": "music", "values": ["classical"]}},
+                ],
+            },
+        ]
+        orchestrator = make_orchestrator()
+        ctx = make_context(session_metadata={"form_state": form_state}, generation_orchestrator=orchestrator)
+        await RunGenerationTool().execute_confirmed(ctx)
+        request = orchestrator.start_generation.call_args[1]["request"]
+        assert request.variables["music"] == "hip hop"
+        assert request.variables["dance"] == "breaking"
+
+    @pytest.mark.asyncio
+    async def test_no_variables_defined_leaves_request_variables_none(self):
+        form_state = make_form_state(form_data={"prompt": "no variables here"})
+        orchestrator = make_orchestrator()
+        ctx = make_context(session_metadata={"form_state": form_state}, generation_orchestrator=orchestrator)
+        await RunGenerationTool().execute_confirmed(ctx)
+        request = orchestrator.start_generation.call_args[1]["request"]
+        assert request.variables is None
+
+
+
+class TestRunGenerationToolPreviewResolvesVariables:
+    @pytest.mark.asyncio
+    async def test_preview_prompt_substitutes_pinned_variable(self):
+        form_state = make_form_state(form_data={"prompt": "${mood} lighting on the subject"})
+        form_state["variables"] = [{
+            "name": "mood", "type": "choice", "options": ["noir", "sunlit"],
+            "mode": "pin", "pinnedIndex": 0,
+        }]
+        ctx = make_context(session_metadata={"form_state": form_state})
+        result = await RunGenerationTool().execute(ctx)
+        payload = json.loads(result.data)
+        assert "${mood}" not in payload["prompt"]
+        assert "noir lighting on the subject" == payload["prompt"]
+
+    @pytest.mark.asyncio
+    async def test_preview_text_block_also_resolves_variables(self):
+        form_state = make_form_state(form_data={"prompt": "${mood} lighting"})
+        form_state["variables"] = [{
+            "name": "mood", "type": "choice", "options": ["noir", "sunlit"],
+            "mode": "pin", "pinnedIndex": 1,
+        }]
+        ctx = make_context(session_metadata={"form_state": form_state})
+        result = await RunGenerationTool().execute(ctx)
+        prompt_block = next(b for b in result.preview.text_blocks if b["label"] == "Prompt")
+        assert prompt_block["text"] == "sunlit lighting"

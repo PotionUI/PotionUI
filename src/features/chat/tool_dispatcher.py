@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 from src.features.chat.exceptions import MessageCreationFailedException
 from src.features.chat.reply_contract import TOOL_LOOP_CONTINUATION_NUDGE
 from src.features.llm.tools.base import ToolContext, serialize_approval_preview
+from src.platform.resources.prompt_variables import apply_variable_operations
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,7 @@ class ToolCallDispatcher:
             execution["pending_approval"] = False
             execution["rejected"] = False
             execution["result"] = result_data
+            self._apply_action_to_context_metadata(result_data, context_metadata)
         else:
             execution["pending_approval"] = False
             execution["rejected"] = not approved
@@ -177,6 +179,40 @@ class ToolCallDispatcher:
             "result": result_data,
             "assistant_message": assistant_message.model_dump() if assistant_message else None,
         }
+
+    @staticmethod
+    def _apply_action_to_context_metadata(
+        result_data: Dict[str, Any],
+        context_metadata: Dict[str, Any],
+    ) -> None:
+        if not result_data.get("success") or not isinstance(context_metadata, dict):
+            return
+        data = result_data.get("data")
+        if not isinstance(data, str) or not data.strip():
+            return
+        try:
+            payload = json.loads(data)
+        except (json.JSONDecodeError, TypeError):
+            return
+        if not isinstance(payload, dict):
+            return
+
+        form_state = context_metadata.get("form_state")
+        if not isinstance(form_state, dict):
+            return
+
+        action = payload.get("action")
+        if action == "apply_variable_changes":
+            form_state["variables"] = apply_variable_operations(
+                form_state.get("variables"), payload.get("operations")
+            )
+        elif action == "apply_form_changes":
+            form_data = dict(form_state.get("form_data") or {})
+            for change in payload.get("applied_changes") or []:
+                field_name = change.get("field_name") if isinstance(change, dict) else None
+                if isinstance(field_name, str) and field_name:
+                    form_data[field_name] = change.get("new_value")
+            form_state["form_data"] = form_data
 
     def _rebuild_history_with_resolved_tool(
         self,

@@ -13,6 +13,8 @@ from src.features.llm.tools.media_values import (
     validate_media_changes,
 )
 from src.features.presets import operations
+from src.features.prompt.expander import expand_prompts
+from src.platform.resources.prompt_variables import build_variables_for_submit
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +91,29 @@ class RunGenerationTool(BaseTool):
             return []
         return validate_media_changes(override_values, media_fields, context.storage_dir())
 
+    @staticmethod
+    def _resolve_prompt(context, form_state, form_data, prompt_text, negative_text):
+        variables_map = build_variables_for_submit(form_state.get("variables"))
+        if not variables_map:
+            return prompt_text, negative_text, variables_map
+        try:
+            seed = int(form_data.get("seed", -1))
+        except (TypeError, ValueError):
+            seed = -1
+        try:
+            expanded = expand_prompts(
+                prompt_text,
+                negative_text,
+                count=1,
+                base_seed=seed if seed != -1 else 0,
+                variables=variables_map,
+                plugin_registry=context.plugin_registry,
+            )[0]
+        except Exception as e:
+            logger.warning(f"Prompt variable resolution failed, using template: {e}")
+            return prompt_text, negative_text, variables_map
+        return expanded.positive, expanded.negative, variables_map
+
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
         """Build a generation preview for user approval."""
         form_state = context.session_metadata.get("form_state")
@@ -137,6 +162,9 @@ class RunGenerationTool(BaseTool):
 
         prompt_text = " ".join(prompt_parts) if prompt_parts else form_data.get("prompt", "")
         negative_text = " ".join(negative_parts) if negative_parts else form_data.get("negative_prompt", "")
+        prompt_text, negative_text, _variables_map = self._resolve_prompt(
+            context, form_state, form_data, prompt_text, negative_text
+        )
 
         # Build a human-readable preview
         preview = {
@@ -218,6 +246,7 @@ class RunGenerationTool(BaseTool):
 
         prompt_text = " ".join(prompt_parts) if prompt_parts else form_data.get("prompt", "")
         negative_text = " ".join(negative_parts) if negative_parts else form_data.get("negative_prompt", "")
+        variables_map = build_variables_for_submit(form_state.get("variables"))
 
         try:
             from src.features.generation.dto import GenerationRequest, PromptPair
@@ -227,6 +256,7 @@ class RunGenerationTool(BaseTool):
                 mode=mode,
                 form_data=form_data,
                 prompts=[PromptPair(positive=prompt_text, negative=negative_text)],
+                variables=variables_map or None,
             )
 
             result = await context.generation_orchestrator.start_generation(

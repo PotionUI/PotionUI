@@ -18,8 +18,9 @@ bloat the prompt.
 """
 
 import json
+import random
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # Caps mirror FormResourceProvider's discipline (small-model payload budget).
 _MAX_VARIABLES = 24
@@ -303,3 +304,153 @@ def validate_variables_map(variables: Any) -> List[str]:
             errors.append(f"'{name}': pinnedIndex must be a valid index into options.")
 
     return errors
+
+
+def _submit_dependencies(var: Optional[Dict[str, Any]], variables_by_name: Dict[str, Any]) -> List[str]:
+    return [dep for dep in variable_dependencies(var) if dep in variables_by_name]
+
+
+def resolve_variable_order(variables_by_name: Dict[str, Any]) -> List[str]:
+    order: List[str] = []
+    done: set = set()
+    active: set = set()
+
+    def visit(name: str) -> None:
+        if name in done or name in active:
+            return
+        active.add(name)
+        for dep in _submit_dependencies(variables_by_name.get(name), variables_by_name):
+            visit(dep)
+        active.discard(name)
+        done.add(name)
+        order.append(name)
+
+    for name in variables_by_name:
+        visit(name)
+    return order
+
+
+def build_variable_wire_value(var: Dict[str, Any]) -> str:
+    if var.get("type") != "choice":
+        value = var.get("value")
+        return value if isinstance(value, str) else ""
+
+    texts = option_texts(valid_options(var.get("options")))
+    if not texts:
+        return ""
+
+    mode = var.get("mode") or "shuffle"
+    pinned_index = var.get("pinnedIndex")
+    if mode == "pin" and isinstance(pinned_index, int) and 0 <= pinned_index < len(texts):
+        pinned_text = texts[pinned_index]
+        if pinned_text:
+            return pinned_text
+
+    if len(texts) == 1:
+        return texts[0]
+    return "{" + "|".join(texts) + "}"
+
+
+def _option_eligible(option: Dict[str, Any], resolved: Dict[str, str]) -> bool:
+    when = option.get("when")
+    if not when:
+        return True
+    actual = resolved.get(when["var"])
+    return actual is not None and actual in when["values"]
+
+
+def build_variables_for_submit(
+    variables: Any,
+    random_fn: Optional[Callable[[], float]] = None,
+) -> Dict[str, str]:
+    by_name: Dict[str, Dict[str, Any]] = {}
+    if isinstance(variables, (list, tuple)):
+        for var in variables:
+            if not isinstance(var, dict):
+                continue
+            name = var.get("name")
+            if isinstance(name, str) and name.strip():
+                by_name[name.strip()] = var
+
+    rand = random_fn or random.random
+    resolved: Dict[str, str] = {}
+    wire_map: Dict[str, str] = {}
+
+    for name in resolve_variable_order(by_name):
+        var = by_name[name]
+
+        if var.get("type") != "choice":
+            value = var.get("value")
+            value = value if isinstance(value, str) else ""
+            if value:
+                wire_map[name] = value
+            resolved[name] = value.strip()
+            continue
+
+        mode = var.get("mode") or "shuffle"
+
+        if mode == "shuffle":
+            eligible = [o for o in valid_options(var.get("options")) if _option_eligible(o, resolved)]
+            if not eligible:
+                continue
+            pick = eligible[int(rand() * len(eligible))]
+            wire_map[name] = pick["text"]
+            resolved[name] = pick["text"]
+            continue
+
+        value = build_variable_wire_value(var)
+        if value:
+            wire_map[name] = value
+        if mode == "pin":
+            resolved[name] = value
+
+    return wire_map
+
+
+def apply_variable_operations(variables: Any, operations: Any) -> List[Dict[str, Any]]:
+    by_name: Dict[str, Dict[str, Any]] = {}
+    order: List[str] = []
+    if isinstance(variables, (list, tuple)):
+        for var in variables:
+            if not isinstance(var, dict):
+                continue
+            name = var.get("name")
+            if isinstance(name, str) and name.strip():
+                name = name.strip()
+                by_name[name] = dict(var)
+                order.append(name)
+
+    for op in operations or []:
+        if not isinstance(op, dict):
+            continue
+        name = op.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        name = name.strip()
+
+        if op.get("op") == "remove":
+            if name in by_name:
+                del by_name[name]
+                order = [n for n in order if n != name]
+            continue
+
+        if op.get("op") != "set":
+            continue
+
+        if op.get("type") == "choice":
+            mode = op.get("mode") or "shuffle"
+            entry: Dict[str, Any] = {
+                "name": name,
+                "type": "choice",
+                "options": op.get("options") or ["", ""],
+                "mode": mode,
+                "pinnedIndex": op.get("pinned_index") if mode == "pin" else None,
+            }
+        else:
+            entry = {"name": name, "type": "text", "value": op.get("value") or ""}
+
+        if name not in by_name:
+            order.append(name)
+        by_name[name] = entry
+
+    return [by_name[n] for n in order]

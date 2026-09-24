@@ -27,6 +27,8 @@
 	import { Alert, Badge, Button, EmptyState, Spinner } from '$lib/components/ui';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import LibraryDensityToggle from '$lib/components/library/LibraryDensityToggle.svelte';
+	import { libraryCardDensity } from '$lib/components/library/libraryCardDensity';
 	import { deriveRecipeReadiness, type RecipeReadinessBadge } from './recipeReadinessBadge';
 	import { runDuration, runStartedLabel, mergeRunHistory } from './recipeRunHistory';
 	import { readRecipesUrlState } from './recipesUrlState';
@@ -53,7 +55,7 @@
 		type RecipeSortBy
 	} from './recipes/recipeFilters';
 	import RecipeFiltersPopover from './recipes/RecipeFiltersPopover.svelte';
-	import RecipeRow from './recipes/RecipeRow.svelte';
+	import RecipeCard from './recipes/RecipeCard.svelte';
 
 	const RUN_HISTORY_LIMIT = 20;
 	const READINESS_CONCURRENCY = 3;
@@ -346,6 +348,7 @@
 			{/snippet}
 
 			{#snippet primary()}
+				<LibraryDensityToggle />
 				<Button variant="secondary" size="sm" icon="refresh" loading={refreshing} onclick={() => loadRecipes(true)}>
 					Refresh
 				</Button>
@@ -644,14 +647,20 @@
 						</EmptyState>
 					</div>
 				{:else}
-					<div class="h-full overflow-y-auto p-4" role="listbox" aria-label="Recipe catalog">
-						<div class="space-y-2">
+					<div class="h-full overflow-y-auto p-4">
+						<div
+							class="grid gap-3 {$libraryCardDensity === 'dense'
+								? 'grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2'
+								: 'grid-cols-[repeat(auto-fill,minmax(300px,1fr))]'}"
+							role="list"
+							aria-label="Recipe catalog"
+						>
 							{#each filteredRecipes as recipe (recipe.id)}
-								<RecipeRow
+								<RecipeCard
 									{recipe}
 									readiness={readinessFor(recipe.id)}
-									selected={selectedRecipeId === recipe.id}
-									onSelect={() => openRecipe(recipe.id)}
+									dense={$libraryCardDensity === 'dense'}
+									onOpen={openRecipe}
 								/>
 							{/each}
 						</div>

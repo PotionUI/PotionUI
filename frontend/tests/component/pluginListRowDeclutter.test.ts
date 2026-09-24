@@ -97,6 +97,7 @@ vi.mock('$lib/services/api/index', async () => {
 const { default: PluginsTab } = await import('../../src/routes/admin/components/PluginsTab.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const page = (await import('$app/stores')).page as unknown as PageStore;
+const { libraryCardDensity } = await import('$lib/components/library/libraryCardDensity');
 
 function mount() {
 	const target = document.createElement('div');
@@ -116,16 +117,16 @@ async function settle() {
 }
 
 function listPane(target: HTMLElement): HTMLElement {
-	const pane = target.querySelector('[role="listbox"][aria-label="Plugins"]') as HTMLElement | null;
-	expect(pane, 'expected a listbox pane for the plugin list').toBeTruthy();
+	const pane = target.querySelector('[role="list"][aria-label="Plugin catalog"]') as HTMLElement | null;
+	expect(pane, 'expected a card grid for the plugin list').toBeTruthy();
 	return pane!;
 }
 
 function clickPluginRow(target: HTMLElement, name: string) {
-	const row = Array.from(target.querySelectorAll('[role="option"]')).find((el) => el.textContent?.includes(name)) as
+	const row = Array.from(target.querySelectorAll('[data-library-card]')).find((el) => el.textContent?.includes(name)) as
 		| HTMLElement
 		| undefined;
-	expect(row, `expected a row for ${name}`).toBeTruthy();
+	expect(row, `expected a card for ${name}`).toBeTruthy();
 	flushSync(() => row!.click());
 }
 
@@ -143,6 +144,7 @@ afterEach(() => {
 	apiState.plugins = [SHORT_PLUGIN, LONG_PLUGIN];
 	(globalThis as any).ResizeObserver = originalRO;
 	page.update((current) => ({ ...current, url: new URL('http://localhost/admin') }));
+	libraryCardDensity.set('compact');
 });
 
 describe('PluginsTab list row declutter', () => {
@@ -198,5 +200,46 @@ describe('PluginsTab list row declutter', () => {
 		) as HTMLElement;
 		expect(description).toBeTruthy();
 		expect(description.className).toContain('line-clamp-2');
+	});
+
+	it('the density toggle switches the grid to dense cards and hides descriptions', async () => {
+		mounted = mount();
+		await settle();
+
+		const pane = listPane(mounted.target);
+		expect(pane.className).toContain('minmax(300px');
+		expect(pane.textContent).toContain('A brief description.');
+
+		const denseButton = Array.from(mounted.target.querySelectorAll('button[role="radio"]')).find(
+			(el) => el.textContent?.trim() === 'Dense'
+		) as HTMLButtonElement | undefined;
+		expect(denseButton, 'expected a Dense option in the density toggle').toBeTruthy();
+		flushSync(() => denseButton!.click());
+		await settle();
+
+		const densePane = listPane(mounted.target);
+		expect(densePane.className).toContain('minmax(240px');
+		expect(densePane.textContent).not.toContain('A brief description.');
+	});
+
+	it('clicking the enable switch on a card toggles the plugin without opening its detail view', async () => {
+		mounted = mount();
+		await settle();
+
+		const pane = listPane(mounted.target);
+		const card = Array.from(pane.querySelectorAll('[data-library-card]')).find((el) =>
+			el.textContent?.includes('Short Plugin')
+		) as HTMLElement | undefined;
+		expect(card, 'expected a card for Short Plugin').toBeTruthy();
+
+		const switchInput = card!.querySelector('input[type="checkbox"][role="switch"]') as HTMLInputElement | null;
+		expect(switchInput, 'expected the card to carry the enable switch').toBeTruthy();
+		expect(switchInput!.checked).toBe(true);
+
+		flushSync(() => switchInput!.click());
+		await settle();
+
+		expect(mounted.target.querySelector('[role="list"][aria-label="Plugin catalog"]')).toBeTruthy();
+		expect(mounted.target.querySelector('nav[aria-label="Plugin details"]')).toBeFalsy();
 	});
 });

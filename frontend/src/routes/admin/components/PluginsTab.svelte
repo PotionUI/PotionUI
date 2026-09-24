@@ -9,6 +9,8 @@
 	import { DetailHeader, DetailTabs, DetailBody, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import LibraryDensityToggle from '$lib/components/library/LibraryDensityToggle.svelte';
+	import { libraryCardDensity } from '$lib/components/library/libraryCardDensity';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
@@ -16,7 +18,7 @@
 	import { pluginDetailTabsFor, isPluginDetailTab, hasHiddenAdminTabs, ADMIN_PLUGIN_TABS_HOOK, type PluginDetailTabId } from './pluginDetailTabs';
 	import { PLUGIN_SECTIONS, pluginSectionFromSearchParams, type PluginSection } from './plugins/pluginSections';
 	import PluginFiltersPopover from './plugins/PluginFiltersPopover.svelte';
-	import PluginRow from './plugins/PluginRow.svelte';
+	import PluginCard from './plugins/PluginCard.svelte';
 	import {
 		PLUGIN_SORT_OPTIONS,
 		applyPluginFilters,
@@ -269,6 +271,7 @@
 			{/snippet}
 
 			{#snippet primary()}
+				<LibraryDensityToggle />
 				<Button variant="secondary" size="sm" icon={scanning ? undefined : 'search'} loading={scanning || $loading} disabled={scanning || $loading} onclick={scanForPlugins}>
 					{scanning ? 'Scanning...' : 'Scan for plugins'}
 				</Button>
@@ -526,9 +529,21 @@
 								</EmptyState>
 							</div>
 						{:else}
-							<div class="space-y-2" role="listbox" aria-label="Plugins">
+							<div
+								class="grid gap-3 {$libraryCardDensity === 'dense'
+									? 'grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2'
+									: 'grid-cols-[repeat(auto-fill,minmax(300px,1fr))]'}"
+								role="list"
+								aria-label="Plugin catalog"
+							>
 								{#each visiblePlugins as plugin (plugin.id)}
-									<PluginRow {plugin} busy={$pendingPluginIds.has(plugin.id)} onOpen={openPlugin} onToggle={togglePlugin} />
+									<PluginCard
+										{plugin}
+										busy={$pendingPluginIds.has(plugin.id)}
+										dense={$libraryCardDensity === 'dense'}
+										onOpen={openPlugin}
+										onToggle={togglePlugin}
+									/>
 								{/each}
 							</div>
 						{/if}

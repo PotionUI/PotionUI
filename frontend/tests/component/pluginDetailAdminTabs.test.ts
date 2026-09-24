@@ -147,7 +147,7 @@ async function settle() {
 }
 
 function clickPluginRow(target: HTMLElement, name: string) {
-	const row = Array.from(target.querySelectorAll('button, [role="option"]')).find((el) =>
+	const row = Array.from(target.querySelectorAll('button, [role="option"], [data-library-card]')).find((el) =>
 		el.textContent?.includes(name)
 	) as HTMLElement | undefined;
 	expect(row).toBeTruthy();

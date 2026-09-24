@@ -34,6 +34,10 @@ export function recipeCategoryLabel(category: string): string {
 	return CATEGORY_LABELS[category as RecipeCategory] ?? category;
 }
 
+export function recipeCategoryIcon(category: string): string {
+	return CATEGORY_ICONS[category as RecipeCategory] ?? 'list-checks';
+}
+
 export function recipeSectionFromParam(value: string | null): RecipeSection {
 	return oneOf(value, RECIPE_SECTIONS.map((entry) => entry.id), 'all');
 }

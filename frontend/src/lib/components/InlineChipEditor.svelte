@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
-	import { createEventDispatcher, onMount, onDestroy, tick, mount, unmount } from 'svelte';
+	import { createEventDispatcher, onMount, onDestroy, getContext, tick, mount, unmount } from 'svelte';
 	import { api, type PhrasebookCategory, type PhrasebookValue } from '$lib/services/api/index';
 	import type { ChipData } from '$lib/types/segments';
 	import AutocompleteDropdown from './AutocompleteDropdown.svelte';
@@ -62,6 +62,8 @@
 		type VariableRoll,
 		type ChoiceVariableMode
 	} from '$lib/utils/variableDefs';
+	import { EMPTY_RESOURCE_NUMBERING, RESOURCE_NUMBERING_CONTEXT_KEY, type ResourceNumbering } from '$lib/utils/resourceNumbering';
+	import type { Readable } from 'svelte/store';
 	import { encodePathForText, parseValueToSegments } from './chipSegments';
 	import {
 		buildSegmentNode,
@@ -124,6 +126,9 @@
 	export let resourceFieldValues: Record<string, unknown> = {};
 	export let resourceFieldLabels: Record<string, string> = {};
 	export let promptSyntax: PromptSyntaxSpec[] = [];
+
+	const resourceNumbering =
+		getContext<Readable<ResourceNumbering | null> | undefined>(RESOURCE_NUMBERING_CONTEXT_KEY) ?? EMPTY_RESOURCE_NUMBERING;
 
 	const dispatch = createEventDispatcher();
 
@@ -432,7 +437,9 @@
 			parseResourceMarker(resourceSwitchContainer.dataset.resourceMarker || '')
 		: null;
 
-	$: resourceSwitchState = resourceSwitchRef ? resourceMarkerState(resourceSwitchRef, promptResources, resourceFieldValues) : null;
+	$: resourceSwitchState = resourceSwitchRef
+		? resourceMarkerState(resourceSwitchRef, promptResources, resourceFieldValues, $resourceNumbering)
+		: null;
 
 	// =====================
 	// Trigger-word highlighting
@@ -2104,7 +2111,7 @@
 				parseResourceMarker(el.dataset.resourceMarker || '');
 			if (!ref) return;
 
-			const state = resourceMarkerState(ref, promptResources, resourceFieldValues);
+			const state = resourceMarkerState(ref, promptResources, resourceFieldValues, $resourceNumbering);
 			const item =
 				state.spec && state.position !== null ? itemAtPosition(resourceFieldValues[ref.field], state.position) : undefined;
 
@@ -2469,6 +2476,20 @@
 			const step = stepVariablesHash(currentHash, lastResourceFieldValuesHash);
 			lastResourceFieldValuesHash = step.nextHash;
 			if (step.shouldRemount) {
+				tick().then(remountAllResourceChips);
+			}
+		}
+	}
+
+	let lastResourceNumbering: ResourceNumbering | null = null;
+	let resourceNumberingSeeded = false;
+	$: {
+		if (editorRef && !isInternalUpdate) {
+			if (!resourceNumberingSeeded) {
+				resourceNumberingSeeded = true;
+				lastResourceNumbering = $resourceNumbering;
+			} else if ($resourceNumbering !== lastResourceNumbering) {
+				lastResourceNumbering = $resourceNumbering;
 				tick().then(remountAllResourceChips);
 			}
 		}

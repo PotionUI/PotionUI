@@ -113,6 +113,22 @@ describe('resourceMarkerState', () => {
 		expect(state.spec).toBe(specs[0]);
 		expect(state.position).toBeNull();
 	});
+
+	it('uses the numbering override instead of the raw array index when given one', () => {
+		const formValues = { references: [{ relative_path: 'a.png' }, { relative_path: 'b.png' }] };
+		const numbering = { positionFor: () => 7 };
+		const state = resourceMarkerState({ field: 'references', item_key: 'b.png' }, specs, formValues, numbering);
+		expect(state.position).toBe(7);
+		expect(state.dangling).toBe(false);
+	});
+
+	it('is dangling when the numbering override reports no position', () => {
+		const formValues = { references: [{ relative_path: 'a.png' }] };
+		const numbering = { positionFor: () => null };
+		const state = resourceMarkerState({ field: 'references', item_key: 'a.png' }, specs, formValues, numbering);
+		expect(state.position).toBeNull();
+		expect(state.dangling).toBe(true);
+	});
 });
 
 describe('resolveResourceMarkers', () => {
@@ -140,6 +156,14 @@ describe('resolveResourceMarkers', () => {
 
 	it('is a no-op on text without markers', () => {
 		expect(resolveResourceMarkers('plain text', specs, formValues)).toBe('plain text');
+	});
+
+	it('substitutes the numbering override position instead of the raw array index', () => {
+		const text = '@[references:a.png] and @[references:b.png]';
+		const numbering = {
+			positionFor: (field: string, itemKey: string) => (field === 'references' && itemKey === 'b.png' ? 1 : null)
+		};
+		expect(resolveResourceMarkers(text, specs, formValues, numbering)).toBe('@[references:a.png] and <Picture 1>');
 	});
 
 	it('substitutes every @ occurrence in a token', () => {

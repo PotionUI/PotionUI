@@ -1,3 +1,5 @@
+import type { ResourceNumbering } from './resourceNumbering';
+
 export type PromptResourceKind = 'image' | 'video' | 'audio';
 
 export interface PromptResourceSpec {
@@ -99,26 +101,28 @@ export interface ResourceMarkerState {
 export function resourceMarkerState(
 	ref: ResourceRef,
 	specs: readonly PromptResourceSpec[],
-	formValues: Record<string, unknown>
+	formValues: Record<string, unknown>,
+	numbering: ResourceNumbering | null = null
 ): ResourceMarkerState {
 	const spec = findResourceSpec(specs, ref.field) ?? null;
 	if (!spec) {
 		return { field: ref.field, itemKey: ref.item_key, spec: null, position: null, dangling: true };
 	}
-	const position = itemPosition(formValues[ref.field], ref.item_key);
+	const position = numbering ? numbering.positionFor(ref.field, ref.item_key) : itemPosition(formValues[ref.field], ref.item_key);
 	return { field: ref.field, itemKey: ref.item_key, spec, position, dangling: position === null };
 }
 
 export function resolveResourceMarkers(
 	text: string,
 	specs: readonly PromptResourceSpec[],
-	formValues: Record<string, unknown>
+	formValues: Record<string, unknown>,
+	numbering: ResourceNumbering | null = null
 ): string {
 	if (!text || !text.includes('@[')) return text;
 	return text.replace(resourceMarkerRegex(), (full, field: string, itemKey: string) => {
 		const spec = findResourceSpec(specs, field);
 		if (!spec) return full;
-		const position = itemPosition(formValues[field], itemKey);
+		const position = numbering ? numbering.positionFor(field, itemKey) : itemPosition(formValues[field], itemKey);
 		if (position === null) return full;
 		return renderResourceToken(spec, position);
 	});

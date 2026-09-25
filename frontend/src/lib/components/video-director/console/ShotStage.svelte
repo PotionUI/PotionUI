@@ -14,6 +14,10 @@
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
+	import { setContext } from 'svelte';
+	import { writable } from 'svelte/store';
+	import { RESOURCE_NUMBERING_CONTEXT_KEY, type ResourceNumbering } from '$lib/utils/resourceNumbering';
+	import { shotResourceNumbering } from '$lib/utils/shotReferences';
 	import { deriveStageModel } from '../stage-rail/stageModel';
 	import type { RailSelectionId } from '../stage-rail/railModel';
 	import StageBeat from './StageBeat.svelte';
@@ -62,6 +66,12 @@
 		resourceFieldLabels?: Record<string, string>;
 		promptSyntax?: PromptSyntaxSpec[];
 	} = $props();
+
+	const resourceNumbering = writable<ResourceNumbering | null>(null);
+	setContext(RESOURCE_NUMBERING_CONTEXT_KEY, resourceNumbering);
+	$effect(() => {
+		resourceNumbering.set(shotResourceNumbering(doc, caps, shot.id, formData, promptResources));
+	});
 
 	let activeTab: ConsoleShot['tabs'][number]['id'] = $state('selection');
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { ChainSegment, DirectorCapabilities, VideoDirectorValue } from '$lib/types/videoDirector';
 import type { Segment } from '$lib/types/segments';
 import type { PromptResourceSpec } from './promptResources';
-import { shotReferenceOverview, withMarkerAppendedToShot } from './shotReferences';
+import { shotReferenceOverview, shotResourceNumbering, withMarkerAppendedToShot } from './shotReferences';
 
 const specs: PromptResourceSpec[] = [
 	{ field: 'references', kind: 'image', label: 'Pictures', token: '<Picture @>' },
@@ -89,6 +89,36 @@ describe('shotReferenceOverview', () => {
 		const doc = chainDoc([segment('s1', [])], [{ id: 'g', content: 'style of @[references:/pool/b.png]' }]);
 		const { used } = shotReferenceOverview(doc, chainCaps, 's1', formData, specs);
 		expect(used.map((e) => e.itemKey)).toEqual(['/pool/b.png']);
+	});
+});
+
+describe('shotResourceNumbering', () => {
+	it('numbers per-shot in film pool order, ahead of an uncited item in between', () => {
+		const doc = chainDoc([
+			segment('s1', [{ id: 'p1', content: '@[references:/pool/c.png] and @[references:/pool/a.png]' }])
+		]);
+		const numbering = shotResourceNumbering(doc, chainCaps, 's1', formData, specs);
+		expect(numbering.positionFor('references', '/pool/a.png')).toBe(1);
+		expect(numbering.positionFor('references', '/pool/c.png')).toBe(2);
+		expect(numbering.positionFor('references', '/pool/b.png')).toBeNull();
+	});
+
+	it('renumbers once the in-between item is also cited', () => {
+		const doc = chainDoc([
+			segment('s1', [
+				{ id: 'p1', content: '@[references:/pool/c.png] and @[references:/pool/a.png] and @[references:/pool/b.png]' }
+			])
+		]);
+		const numbering = shotResourceNumbering(doc, chainCaps, 's1', formData, specs);
+		expect(numbering.positionFor('references', '/pool/a.png')).toBe(1);
+		expect(numbering.positionFor('references', '/pool/b.png')).toBe(2);
+		expect(numbering.positionFor('references', '/pool/c.png')).toBe(3);
+	});
+
+	it('returns null for an item that no longer exists in the field', () => {
+		const doc = chainDoc([segment('s1', [{ id: 'p1', content: '@[references:/pool/missing.png]' }])]);
+		const numbering = shotResourceNumbering(doc, chainCaps, 's1', formData, specs);
+		expect(numbering.positionFor('references', '/pool/missing.png')).toBeNull();
 	});
 });
 

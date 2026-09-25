@@ -1,9 +1,12 @@
 <script lang="ts">
+	import { getContext } from 'svelte';
+	import type { Readable } from 'svelte/store';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { copyText } from '$lib/utils/clipboard';
 	import { toasts } from '$lib/stores/toast';
 	import { resolveResourceMarkers, type PromptResourceSpec } from '$lib/utils/promptResources';
+	import { EMPTY_RESOURCE_NUMBERING, RESOURCE_NUMBERING_CONTEXT_KEY, type ResourceNumbering } from '$lib/utils/resourceNumbering';
 	import { buildSyntaxSegments, syntaxColorStyle, syntaxToneClasses, type PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 
 	export let prompt = '';
@@ -12,12 +15,15 @@
 	export let resourceFieldValues: Record<string, unknown> = {};
 	export let promptSyntax: PromptSyntaxSpec[] = [];
 
+	const resourceNumbering =
+		getContext<Readable<ResourceNumbering | null> | undefined>(RESOURCE_NUMBERING_CONTEXT_KEY) ?? EMPTY_RESOURCE_NUMBERING;
+
 	let open = false;
 	let active: 'prompt' | 'negative' = 'prompt';
 	let copied = false;
 
-	$: resolvedPrompt = resolveResourceMarkers(prompt, promptResources, resourceFieldValues);
-	$: resolvedNegativePrompt = resolveResourceMarkers(negativePrompt, promptResources, resourceFieldValues);
+	$: resolvedPrompt = resolveResourceMarkers(prompt, promptResources, resourceFieldValues, $resourceNumbering);
+	$: resolvedNegativePrompt = resolveResourceMarkers(negativePrompt, promptResources, resourceFieldValues, $resourceNumbering);
 	$: activeText = active === 'prompt' ? resolvedPrompt : resolvedNegativePrompt;
 	$: wordCount = activeText.trim() ? activeText.trim().split(/\s+/).length : 0;
 	$: activeSegments = buildSyntaxSegments(activeText, promptSyntax);

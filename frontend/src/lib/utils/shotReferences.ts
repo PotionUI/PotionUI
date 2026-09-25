@@ -12,6 +12,7 @@ import {
 } from './promptResources';
 import { countResourceReferences, resourceUseCount, type UsageSegment } from './promptResourceUsage';
 import { resolvePromptSegments } from './promptSegments';
+import type { ResourceNumbering } from './resourceNumbering';
 
 export interface ShotReferenceEntry {
 	field: string;
@@ -69,6 +70,52 @@ export function shotReferenceSegmentGroups(
 	return [shotPromptSegments(doc, caps, shotId), doc.global_prompt_segments ?? [], doc.negative_prompt_segments ?? []];
 }
 
+function resourceIdentity(field: string, itemKey: string): string {
+	return `${field}\u0000${itemKey}`;
+}
+
+export function shotResourcePositions(
+	doc: VideoDirectorValue,
+	caps: DirectorCapabilities,
+	shotId: string,
+	formData: Record<string, unknown> | null | undefined,
+	specs: readonly PromptResourceSpec[]
+): Map<string, number> {
+	const counts = countResourceReferences(shotReferenceSegmentGroups(doc, caps, shotId));
+	const positions = new Map<string, number>();
+	const perKind: Partial<Record<PromptResourceKind, number>> = {};
+	const seen = new Set<string>();
+	for (const field of caps.referenceFields) {
+		const spec = findResourceSpec(specs, field);
+		for (const item of mediaFieldItems(formData?.[field])) {
+			const itemKey = mediaItemKey(item);
+			if (!itemKey) continue;
+			const identity = resourceIdentity(field, itemKey);
+			if (seen.has(identity)) continue;
+			seen.add(identity);
+			if (resourceUseCount(counts, field, itemKey) <= 0) continue;
+			const kind = itemKind(item, spec);
+			const position = (perKind[kind] ?? 0) + 1;
+			perKind[kind] = position;
+			positions.set(identity, position);
+		}
+	}
+	return positions;
+}
+
+export function shotResourceNumbering(
+	doc: VideoDirectorValue,
+	caps: DirectorCapabilities,
+	shotId: string,
+	formData: Record<string, unknown> | null | undefined,
+	specs: readonly PromptResourceSpec[]
+): ResourceNumbering {
+	const positions = shotResourcePositions(doc, caps, shotId, formData, specs);
+	return {
+		positionFor: (field, itemKey) => positions.get(resourceIdentity(field, itemKey)) ?? null
+	};
+}
+
 export function shotReferenceOverview(
 	doc: VideoDirectorValue,
 	caps: DirectorCapabilities,
@@ -77,20 +124,21 @@ export function shotReferenceOverview(
 	specs: readonly PromptResourceSpec[]
 ): ShotReferenceOverview {
 	const counts = countResourceReferences(shotReferenceSegmentGroups(doc, caps, shotId));
+	const positions = shotResourcePositions(doc, caps, shotId, formData, specs);
 	const used: ShotReferenceEntry[] = [];
 	const unused: ShotReferenceEntry[] = [];
-	const perKind: Partial<Record<PromptResourceKind, number>> = {};
 	const seen = new Set<string>();
 	for (const field of caps.referenceFields) {
 		const spec = findResourceSpec(specs, field);
 		for (const item of mediaFieldItems(formData?.[field])) {
 			const itemKey = mediaItemKey(item);
 			if (!itemKey) continue;
-			const identity = `${field}\u0000${itemKey}`;
+			const identity = resourceIdentity(field, itemKey);
 			if (seen.has(identity)) continue;
 			seen.add(identity);
 			const kind = itemKind(item, spec);
 			const count = resourceUseCount(counts, field, itemKey);
+			const position = positions.get(identity) ?? null;
 			const entry: ShotReferenceEntry = {
 				field,
 				itemKey,
@@ -98,13 +146,10 @@ export function shotReferenceOverview(
 				name: itemName(item, itemKey),
 				url: itemUrl(item),
 				count,
-				handle: null,
+				handle: position !== null && spec ? resourceHandleLabel(spec, position) : null,
 				marker: encodeResourceMarker(field, itemKey)
 			};
 			if (count > 0) {
-				const position = (perKind[kind] ?? 0) + 1;
-				perKind[kind] = position;
-				entry.handle = spec ? resourceHandleLabel(spec, position) : null;
 				used.push(entry);
 			} else {
 				unused.push(entry);

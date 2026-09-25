@@ -152,17 +152,13 @@ describe('StageShot per-shot reference picker: non-image pool items', () => {
 		cleanup = () => unmount(instance);
 		await settle();
 
-		const labels = Array.from(target.querySelectorAll('label'));
-		const imageRow = labels.find((l) => l.textContent?.includes('References'));
-		const audioRow = labels.find((l) => l.textContent?.includes('Reference Audios'));
+		const rows = Array.from(target.querySelectorAll<HTMLElement>('[data-testid="shot-reference-unused"]'));
+		const imageRow = rows.find((r) => r.dataset.marker?.includes('references:'));
+		const audioRow = rows.find((r) => r.dataset.marker?.includes('reference_audios:'));
 
 		expect(imageRow).toBeTruthy();
 		expect(audioRow).toBeTruthy();
-
-		// The image pool item gets a real thumbnail...
 		expect(imageRow!.querySelector('img')).toBeTruthy();
-		// ...the audio one must never reach an <img src="...mp3"> (a broken-image
-		// icon in a real browser) - it renders through the Icon fallback instead.
 		expect(audioRow!.querySelector('img')).toBeNull();
 		expect(audioRow!.querySelector('svg')).toBeTruthy();
 	});

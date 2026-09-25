@@ -265,25 +265,24 @@ class TestReferenceIndices:
         form_data = {
             "references": [
                 {"relative_path": "image.png", "path": str(storage_dir / "image.png")},
-                {"relative_path": "audio.wav", "path": str(storage_dir / "audio.wav")},
+                {"relative_path": "other.png", "path": str(storage_dir / "other.png")},
             ],
         }
         raw = _chain_doc(
             segments=[
-                _segment("seg-0"),
-                # A non-empty proper subset -- must survive compilation
-                # exactly, never collapsing back to "every reference".
-                _segment("seg-1", references=[{"path": str(storage_dir / "audio.wav")}]),
-                # references omitted entirely -- "every reference" (None).
-                _segment("seg-2", sub_type="t2v"),
+                _segment("seg-0", prompt="@[references:image.png]"),
+                _segment("seg-1", prompt="@[references:other.png]"),
+                _segment("seg-2", prompt="no references", sub_type="t2v"),
             ],
         )
-        return normalize_video_director(raw, REFS_CAPS, str(storage_dir), form_data)
+        resources = [{"field": "references", "kind": "image", "token": "<Picture @>"}]
+        return normalize_video_director(raw, REFS_CAPS, str(storage_dir), form_data, resources)
 
     def test_a_subset_never_collapses_to_none(self, refs_doc):
         compiled = compile_shot_plan(refs_doc, ["seg-1"])
         assert compiled["segments"][0]["reference_indices"] == [1]
 
-    def test_none_stays_none(self, refs_doc):
+    def test_an_empty_subset_stays_empty(self, refs_doc):
         compiled = compile_shot_plan(refs_doc, ["seg-2"])
-        assert compiled["segments"][0]["reference_indices"] is None
+        assert compiled["segments"][0]["reference_indices"] == []
+

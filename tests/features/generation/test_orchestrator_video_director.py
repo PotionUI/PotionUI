@@ -99,6 +99,7 @@ def mock_preset_template_loader():
     preset = Mock()
     preset.engine = 'native'
     preset.vars = {'video_director': {'modes': {'t2v': {}}, 'limits': {}}}
+    preset.prompt_resources = {}
     loader.load_preset_by_id = Mock(return_value=preset)
     return loader
 
@@ -163,6 +164,7 @@ class TestNormalizationWiring:
             {'modes': {'t2v': {}}, 'limits': {}},
             '/storage',
             {'video_director': canonical},
+            [],
         )
         assert request.form_data['video_director'] == canonical
 
@@ -345,6 +347,7 @@ class TestTimingProfileAttachment:
         preset.vars = {'video_director': {
             'family': 'wan', 'modes': {'director': {}}, 'limits': {}, 'timing': timing_capability,
         }}
+        preset.prompt_resources = {}
         loader.load_preset_by_id = Mock(return_value=preset)
         return GenerationOrchestrator(
             pipeline_builder=mock_pipeline_builder,

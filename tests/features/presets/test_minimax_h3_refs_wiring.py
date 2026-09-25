@@ -362,7 +362,7 @@ def refs_director_capabilities(h3_template):
     return apply_preset_mode_overlay(base, "refs")
 
 
-def _director_document(capabilities, storage_dir, segments, form_data=None):
+def _director_document(capabilities, storage_dir, segments, form_data=None, prompt_resources=None):
     return normalize_video_director({
         "schema_version": 1,
         "mode": "director",
@@ -370,7 +370,7 @@ def _director_document(capabilities, storage_dir, segments, form_data=None):
         "segments": segments,
         "media": [],
         "audio": [],
-    }, capabilities, storage_dir, form_data or {})
+    }, capabilities, storage_dir, form_data or {}, prompt_resources)
 
 
 def test_a_director_request_in_refs_mode_gets_one_conditioning_per_shot(h3_template, refs_director_capabilities, tmp_path):
@@ -398,21 +398,49 @@ def test_a_director_request_in_refs_mode_gets_one_conditioning_per_shot(h3_templ
 
 
 def test_a_director_request_in_refs_mode_carries_per_shot_reference_selections(h3_template, refs_director_capabilities, tmp_path):
-    storage_dir = str(tmp_path)
-    ref1 = Path(storage_dir) / "woman.png"
-    ref1.write_bytes(b"")
-    ref2 = Path(storage_dir) / "cafe.png"
-    ref2.write_bytes(b"")
-    references = [{"path": str(ref1)}, {"path": str(ref2)}]
-
-    document = _director_document(refs_director_capabilities, storage_dir, [
-        {"id": "seg-0", "prompt": "the woman", "frames": 124, "references": [{"path": str(ref1)}]},
-        {"id": "seg-1", "prompt": "the cafe", "frames": 124, "references": [{"path": str(ref2)}]},
-    ], {"references": references})
+    references = [{"path": "/media/woman.png"}, {"path": "/media/cafe.png"}]
+    document = _director_document(refs_director_capabilities, str(tmp_path), [
+        {"id": "seg-0", "prompt": "@[references:/media/woman.png] walks", "frames": 124},
+        {"id": "seg-1", "prompt": "@[references:/media/cafe.png] at dusk", "frames": 124},
+        {"id": "seg-2", "prompt": "an empty street", "frames": 124},
+    ], {"references": references}, h3_template.prompt_resources["refs"])
     pipes = _process(h3_template, {"references": references, "video_director": document})
 
     encoder = _pipe(pipes, "prompt_encoder", "prompt_encoder_director")
-    assert encoder["config"]["reference_selections"] == [[0], [1]]
+    assert encoder["config"]["reference_selections"] == [[0], [1], []]
+    assert [pair["positive"] for pair in encoder["config"]["pairs"]] == [
+        "<Picture 1> walks", "<Picture 1> at dusk", "an empty street",
+    ]
+
+
+def test_each_shot_s_picture_numbers_name_the_images_its_text_encoder_receives(h3_template, refs_director_capabilities, tmp_path):
+    references = [{"path": "/media/a.png"}, {"path": "/media/b.png"}, {"path": "/media/c.png"}]
+    document = _director_document(refs_director_capabilities, str(tmp_path), [
+        {"id": "seg-0", "prompt": "@[references:/media/c.png] hugs @[references:/media/a.png]", "frames": 124},
+        {"id": "seg-1", "prompt": "no one", "frames": 124},
+    ], {"references": references}, h3_template.prompt_resources["refs"])
+    config = _pipe(_process(h3_template, {"references": references, "video_director": document}),
+                   "prompt_encoder", "prompt_encoder_director")["config"]
+
+    captured = []
+
+    class _StubClip:
+        def encode_prompts(self, requests):
+            captured.extend(requests)
+            return [Mock(embeds={"context": Mock(), "token_tags": Mock()}) for _ in requests]
+
+    images = ["A", "B", "C"]
+    PromptEncoderPipe(config).process(PipeInput(input={
+        "text_encoder": _StubClip(), "reference_image": images, "reference_video": [], "reference_audio": [],
+        "MODELS": None,
+    }), lambda output: None)
+
+    first, second = captured
+    received = [entry["media"] for entry in first["references"] if entry["kind"] == "image"]
+    assert first["prompt"] == "<Picture 2> hugs <Picture 1>"
+    assert received[2 - 1] == "C"
+    assert received[1 - 1] == "A"
+    assert "references" not in second
 
 
 def test_the_director_encoder_sends_the_shot_s_own_prompt_to_the_text_encoder(h3_template, refs_director_capabilities, tmp_path):

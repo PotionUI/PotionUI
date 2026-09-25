@@ -126,12 +126,7 @@ downstream (pipes, history, the persisted `Generation` row).
       "seed": null, "steps": null, "cfg": null,   // chain style: per-segment overrides
       "loras": { "high": [{"model": "...", "strength": 1.0}], "low": [] },
       "sub_type": "t2v" | "i2v" | "flf" | "chain",  // chain style: optional override, see below
-      "references": [                     // capability-gated, see "references" below
-        { "path": "...", "relative_path": "...", "type": "image" | "video" | "audio" } |
-        { "form_media": { "field": "...", "label": "..." } } |
-        { "form_media": { "field": "...", "path": "..." } }
-      ],
-      "reference_indices": [0, 2]          // DERIVED, never sent -- see "Derived blocks"
+      "reference_indices": [0, 2]          // DERIVED from the prompt's markers, never sent -- see "references" below
     }
   ],
   "media": [
@@ -274,42 +269,29 @@ for the same reason.
 ### `references` (segment)
 
 Gated by the top-level `references`/`reference_fields` capability (see [Preset capability
-declaration](#preset-capability-declaration)), not by mode or director style — every
-segment in every mode carries this key. It is a per-shot **selection** from a whole-film
-reference pool that lives on the preset's own form fields (named by
-`capabilities.reference_fields`); the pool itself is never duplicated into the document.
+declaration](#preset-capability-declaration)). The whole-film reference pool lives on the
+preset's own form fields (named by `capabilities.reference_fields`) and is never
+duplicated into the document. A segment carries no reference selection of its own: a
+stored `references` key is ignored in every mode.
 
-- Capability absent (`null`) — a segment may not carry `references` at all; a non-null
-  value is an error ("references are not supported by this preset").
-- Capability `"whole"` — the entire pool applies to every segment uniformly, so there is
-  nothing to select: a segment's `references` must be absent/`null`. Sending a non-null
-  value (even `[]`) is an error, not a silent drop.
-- Capability `"per_shot"` — a segment's `references` is `null`/absent to inherit the full
-  pool, or a list to select from it. Each entry is either:
-  - `{ path | relative_path, ... }` — a direct media reference, resolved exactly like
-    `media[].media` (see [Path resolution](#path-resolution-and-traversal)); or
-  - `{ form_media: { field, label? | path? } }` — a pointer into one of the fields named by
-    `capabilities.reference_fields`, addressed the same way the chat tool's
-    `upsert_media.form_media` addresses a picker item: `field` must be one of the declared
-    reference fields, and exactly one of `label` (matched case-insensitively against the
-    item's label/filename) or `path` picks the item out of that field's current value.
-
-  Giving both `path`/`relative_path` and `form_media` on one entry, or neither, is an
-  error, as is a `field` outside `reference_fields`, an unmatched `label`/`path`, or a
-  malformed entry. Every problem is collected, the same as everywhere else in this
-  contract. The canonical output resolves every entry's `media` reference to an absolute,
-  on-disk path exactly like `media[].media`.
-
-  **Every entry must resolve to an item that is actually in the pool** — a `path`-style
-  entry that names a real, on-disk, storage-contained file is still rejected if that file
-  isn't one of `reference_fields`' current items. `references` is a SELECTION from the
-  pool, not a way to condition on an arbitrary extra file the pool never embedded; see
-  [Derived blocks](#derived-blocks) for why (`reference_indices` only has positions to
-  point at for pool members).
-
-  An explicitly **empty** list (`references: []`, as opposed to `null`/absent) is also
-  rejected — selecting zero references has no defined meaning; omit the field to use the
-  whole pool, or list at least one selection.
+- Capability absent (`null`) — no pool; `reference_indices` is always `null`.
+- Capability `"whole"` — the entire pool applies to every segment uniformly;
+  `reference_indices` is `null` ("every reference").
+- Capability `"per_shot"` — in `director` mode, a shot's references are **derived from its
+  own prompt**: the distinct pool items its `@[field:item]` resource markers cite, across
+  `prompt` and `negative_prompt`. Only the text that reaches the wire counts, so a marker
+  in a disabled prompt segment (which the editor leaves out of the compiled text) does not.
+  `reference_indices` lists them in the pool's PACKED order (every item of the first
+  `reference_fields` field, then the second, and so on — MiniMax-H3: images, then videos,
+  then audio), deduplicated. A shot that cites nothing gets `reference_indices: []` and
+  runs without references. The normalizer then rewrites each marker to the preset mode's
+  `prompt_resources` token numbered within that shot's own subset, per kind — the same
+  numbering the text encoder gives the subset it receives, so `<Picture 2>` in a shot's
+  text is the second image that shot is conditioned on. A marker whose field the mode's
+  `prompt_resources` does not map, or whose item is no longer on the form, is an error, and
+  so is a shot citing only audio references (the released checkpoint needs a visual
+  reference to anchor a soundtrack). Single-shot modes (`t2v`/`i2v`/`flf`) keep the whole
+  pool and leave their markers to the generation's own prompt resolution.
 
 ### `media`
 
@@ -475,17 +457,12 @@ requested. An explicit `sub_type: "chain"` override, in contrast, IS an error un
 same capability (checked earlier, before this derivation ever runs) — the difference is
 between a document that never asked for continuation and one that did.
 
-**Reference indices** — only on a segment whose `references` (see [`references`
-(segment)](#references-segment) above) is a non-null selection. `reference_indices` is the
-list of each selected entry's position in the PACKED reference pool — every item of the
-first `reference_fields` field, then the second, and so on, each field's own item order
-preserved (MiniMax-H3: images, then videos, then audio, matching the generator's own
-`<Picture i>`/`<Video k>`/`<Audio j>` numbering). Duplicate selections collapse to one
-index; the surviving order is the SELECTION's own order (by first occurrence), never
-sorted — a generator that re-labels a subset in its presented order needs to know which
-entry the caller meant first. A segment whose `references` is `null`/absent gets
-`reference_indices: null` too, meaning "every reference" (the whole-pool case) — the same
-convention `WindowPlan.reference_indices` uses on the generator side
+**Reference indices** — derived from the segment's prompt markers under
+`references: "per_shot"` in `director` mode (see [`references`
+(segment)](#references-segment) above): each cited item's position in the PACKED reference
+pool, deduplicated and in pool order. `[]` means the shot cites nothing and runs without
+references; `null` (every other case) means "every reference" — the same convention
+`WindowPlan.reference_indices` uses on the generator side
 (`src/pipelines/pipes/generator/video_minimax_h3/windows.py`).
 
 **Media fields** — always, for every mode and both styles. `media_images` (ordered: image
@@ -517,7 +494,7 @@ explicitly before slicing:
   routing](#derived-blocks) during normalization, never re-derived from the span's own
   (different) segment positions.
 - **`reference_indices`** — carried through unchanged: `null` (the whole pool) stays
-  `null`, an explicit subset stays exactly that subset.
+  `null`, a derived subset (even an empty one) stays exactly that subset.
 - **`sequence_index`** — the segment's position in the FULL film (new field, provenance
   only — nothing downstream branches on it yet).
 - **Media/audio `at`/`start`** — a free-floating (`keyframes: "anywhere"`) keyframe or an
@@ -725,8 +702,8 @@ vars:
   Director to just its video-producing one(s). Frontend-only; the normalizer ignores it.
 - `references`/`reference_fields` — the whole-film reference pool capability: `null`
   (default, no pool), `"whole"` (every segment uses the same pool implicitly, no
-  per-segment selection), or `"per_shot"` (a segment may select a subset — see
-  [`references` (segment)](#references-segment) above). `reference_fields` names the
+  per-segment selection), or `"per_shot"` (each director shot uses exactly the items its
+  own prompt cites — see [`references` (segment)](#references-segment) above). `reference_fields` names the
   preset's own form fields that hold the pool (e.g. a set of image/video/audio pickers);
   required whenever `references` is set, ignored otherwise.
 - `segment_routing` — the fork described in [The two director styles](#the-two-director-styles).

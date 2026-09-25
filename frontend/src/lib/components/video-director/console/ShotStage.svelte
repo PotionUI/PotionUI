@@ -164,7 +164,7 @@
 	{:else if activeTab === 'loras'}
 		<StageLorasTab {doc} {caps} shotId={shot.id} {presetId} {onDoc} />
 	{:else if activeTab === 'references'}
-		<StageReferencesTab {doc} {caps} {formData} shotId={shot.id} {onDoc} />
+		<StageReferencesTab {doc} {caps} {formData} shotId={shot.id} {onDoc} {promptResources} />
 	{:else if activeTab === 'ic_lora'}
 		<StageIcLora {doc} timelineShotId={shot.id} {formData} {presetId} {onDoc} />
 	{/if}

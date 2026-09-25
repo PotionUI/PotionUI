@@ -48,8 +48,7 @@ import type {
 	DirectorLoraRef,
 	DirectorMediaValue,
 	DirectorTimelineShot,
-	SegmentSubType,
-	SegmentReference
+	SegmentSubType
 } from '$lib/types/videoDirector';
 import type { MediaRef } from '$lib/types/tabs';
 import type { Segment } from '$lib/types/segments';
@@ -82,6 +81,7 @@ import {
 	type DirectorEdgeAllowances
 } from '$lib/utils/videoDirector';
 import { resolvePromptSegments } from '$lib/utils/promptSegments';
+import { shotReferenceOverview } from '$lib/utils/shotReferences';
 import { mintId, clamp } from '../timelineCore';
 
 // ─── Gates ────────────────────────────────────────────────────────────────
@@ -175,9 +175,6 @@ export interface StageShotReferencesInfo {
 	 * one of the mode's `reference_fields`), independent of any per-shot
 	 * selection. */
 	poolCount: number;
-	/** null means "All" -- either because capability is 'whole' (there is no
-	 * per-shot concept), or because this shot has no explicit selection yet
-	 * (absent/empty always reads as the whole pool, never a hidden zero). */
 	selectedCount: number | null;
 }
 
@@ -516,19 +513,16 @@ export function overCapTrimSeconds(shot: Pick<RailShotBlock, 'overCapBy' | 'capF
 	return shot.capFrames / fps;
 }
 
-/** The footer's References cell -- null (cell doesn't render) whenever the
- * mode has no reference pool at all. `poolCount` reads the live form (so it
- * tracks pool edits made on the form's own References tab); `selectedCount`
- * is null for "All", matching the wire's absent-means-whole-pool rule. */
 function shotReferencesInfo(
+	doc: VideoDirectorValue,
 	caps: DirectorCapabilities,
 	formData: Record<string, unknown> | null | undefined,
-	references: SegmentReference[] | undefined
+	shotId: string
 ): StageShotReferencesInfo | null {
 	const capability = caps.references;
 	if (capability == null) return null;
 	const poolCount = collectFormMediaOptions(formData).filter((o) => caps.referenceFields.includes(o.field)).length;
-	const selectedCount = capability === 'per_shot' && references && references.length > 0 ? references.length : null;
+	const selectedCount = capability === 'per_shot' ? shotReferenceOverview(doc, caps, shotId, formData, []).used.length : null;
 	return { capability, poolCount, selectedCount };
 }
 
@@ -568,7 +562,7 @@ function buildShotModel(
 			showLoras: directorCap?.perSegmentLoras === true,
 			loraSummary: loraSummary(segment.loras),
 			joinOutLabel: chainJoinOutLabel(rail.seams, block.index, rail.shots.length),
-			references: shotReferencesInfo(caps, formData, segment.references)
+			references: shotReferencesInfo(doc, caps, formData, segment.id)
 		};
 		return {
 			kind: 'shot',
@@ -610,7 +604,7 @@ function buildShotModel(
 		showLoras: false,
 		loraSummary: 'None',
 		joinOutLabel: null,
-		references: shotReferencesInfo(caps, formData, segment.references)
+		references: shotReferencesInfo(doc, caps, formData, timelineShot.id)
 	};
 	return {
 		kind: 'shot',
@@ -1007,46 +1001,6 @@ export function withShotPromptSegments(
 export function withShotLoras(doc: VideoDirectorValue, caps: DirectorCapabilities, id: string, loras: DirectorLoraStacks | null): VideoDirectorValue {
 	if (!caps.segmentRouting) return doc;
 	return { ...doc, chain: { ...doc.chain, segments: doc.chain.segments.map((s) => (s.id === id ? { ...s, loras } : s)) } };
-}
-
-/**
- * Writes the References picker's checkbox selection onto one shot. An empty
- * selection is never stored as `[]` -- the picker cannot leave a shot with an
- * explicit "none" state, so a deselect-to-zero click falls back to "All"
- * (the field is cleared, same as the shot never having a selection at all).
- * Mirrors `parseOpSegmentReferences` in videoDirector.ts, the chat-op path
- * onto the same field.
- */
-export function withShotReferences(
-	doc: VideoDirectorValue,
-	caps: DirectorCapabilities,
-	id: string,
-	references: SegmentReference[]
-): VideoDirectorValue {
-	const next = references.length > 0 ? references : undefined;
-	if (caps.segmentRouting) {
-		return {
-			...doc,
-			chain: { ...doc.chain, segments: doc.chain.segments.map((s) => (s.id === id ? { ...s, references: next } : s)) }
-		};
-	}
-	// `id` here is the SHOT's own id (StageReferencesTab passes it exactly
-	// like chain routing does), not one of its beats -- `references` has no
-	// shot-level field of its own on DirectorTimelineShot, so it lands on the
-	// shot's first beat (mirrors `extractSingleShot`'s own read of
-	// `shot.segments[0]?.references`). A shot with no beats yet has nowhere
-	// to put it -- a no-op rather than minting one.
-	return {
-		...doc,
-		timeline: {
-			...doc.timeline,
-			shots: doc.timeline.shots.map((shot) =>
-				shot.id !== id || shot.segments.length === 0
-					? shot
-					: { ...shot, segments: shot.segments.map((s, i) => (i === 0 ? { ...s, references: next } : s)) }
-			)
-		}
-	};
 }
 
 export function withDuplicatedShot(doc: VideoDirectorValue, caps: DirectorCapabilities, id: string): VideoDirectorValue {

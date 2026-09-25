@@ -26,9 +26,10 @@ validator gains nothing from being an object.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from src.pipelines.pipes._shared.media.frame_extract import extract_frame
+from src.features.video_director.shot_references import derive_shot_references, packed_reference_pool
 from src.platform.util.latents import generate_seed
 from src.platform.util.path_resolution import apply_preset_mode_overlay, resolve_media_ref as _resolve_media_ref
 
@@ -164,6 +165,7 @@ def normalize_video_director(
     capabilities: Dict[str, Any],
     storage_dir: str,
     form_data: Optional[Dict[str, Any]] = None,
+    prompt_resources: Optional[Sequence[Mapping[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
     Validate `document` against `capabilities` and return a NEW canonical dict.
@@ -171,9 +173,10 @@ def normalize_video_director(
     `capabilities` is expected to already be the EFFECTIVE, post-overlay set
     (see `apply_preset_mode_overlay`) -- this function does not apply an
     overlay itself, it only reads the merged result. `form_data` is the
-    submitting user's bound form values, needed only to resolve a segment's
-    `references[].form_media` selections (see `_resolve_reference_entry`);
-    every other document shape ignores it.
+    submitting user's bound form values, needed only to build the reference
+    pool a `per_shot` segment's prompt markers cite (see
+    `shot_references.derive_shot_references`, fed `prompt_resources`);
+    every other document shape ignores both.
 
     Raises `VideoDirectorValidationError` carrying every error found. Never
     mutates `document`; unknown top-level keys are preserved verbatim, unknown
@@ -187,7 +190,7 @@ def normalize_video_director(
     routing_enabled = bool(capabilities.get("segment_routing"))
     references_capability = capabilities.get("references")
     reference_fields = capabilities.get("reference_fields") or []
-    reference_pool = _packed_reference_pool(reference_fields, form_data)
+    reference_pool = packed_reference_pool(reference_fields, form_data)
     storage_path = Path(storage_dir).resolve()
 
     out: Dict[str, Any] = {
@@ -247,11 +250,9 @@ def normalize_video_director(
 
     segments = _normalize_segments(
         document.get("segments") or [], chain_style, timeline_style, mode_caps, duration, errors, routing_enabled,
-        references_capability=references_capability,
-        reference_fields=reference_fields,
+        references_capability=references_capability if mode == "director" else None,
         reference_pool=reference_pool,
-        form_data=form_data,
-        storage_path=storage_path,
+        prompt_resources=prompt_resources or [],
         continuation_disabled=chain_continuation_disabled,
     )
     out["segments"] = segments
@@ -565,15 +566,11 @@ def _normalize_segments(
     routing_enabled: bool = False,
     *,
     references_capability: Optional[str] = None,
-    reference_fields: Optional[List[str]] = None,
-    reference_pool: Optional[List[Dict[str, Any]]] = None,
-    form_data: Optional[Dict[str, Any]] = None,
-    storage_path: Optional[Path] = None,
+    reference_pool: Optional[List[Tuple[str, Any]]] = None,
+    prompt_resources: Sequence[Mapping[str, Any]] = (),
     continuation_disabled: bool = False,
 ) -> List[Dict[str, Any]]:
-    reference_fields = reference_fields or []
     reference_pool = reference_pool or []
-    form_data = form_data or {}
     if not segments:
         errors.append("segments: at least one segment is required")
         return []
@@ -663,10 +660,19 @@ def _normalize_segments(
             normalized["steps"] = None
             normalized["cfg"] = None
 
-        normalized["references"], normalized["reference_indices"] = _normalize_segment_references(
-            segment.get("references"), references_capability, reference_fields, reference_pool,
-            form_data, storage_path, context, errors,
-        )
+        normalized["reference_indices"] = None
+        if references_capability == "per_shot":
+            derived = derive_shot_references(
+                [normalized["prompt"], normalized["negative_prompt"]], reference_pool, prompt_resources,
+            )
+            normalized["prompt"], normalized["negative_prompt"] = derived.texts
+            normalized["reference_indices"] = derived.indices
+            errors.extend(f"{context}.prompt: {problem}" for problem in derived.problems)
+            if derived.kinds and set(derived.kinds) == {"audio"}:
+                errors.append(
+                    f"{context}.prompt: cites only audio references -- an audio reference has to be cited "
+                    "together with at least one picture or video reference"
+                )
 
         out.append(normalized)
 
@@ -683,212 +689,6 @@ def _normalize_segments(
         out = sortable + unsortable
 
     return out
-
-
-def _field_pool_items(field: str, form_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """The media item(s) sitting on `form_data[field]` -- a single field's
-    value, or every entry of a `multiple` field's array. Mirrors the chat
-    tool's `_form_media_items` (`video_director_tool.py`) -- reimplemented
-    here since this module cannot import the LLM tools package."""
-    raw = form_data.get(field)
-    items = raw if isinstance(raw, list) else ([raw] if raw is not None else [])
-    return [i for i in items if isinstance(i, dict) and (i.get("path") or i.get("relative_path"))]
-
-
-def _packed_reference_pool(reference_fields: List[str], form_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """The whole-film reference pool in PACKED order -- every item of the
-    first `reference_fields` field, then the second, etc, each field's own
-    item order preserved. This is the exact order/numbering MiniMax-H3's
-    generator packs and labels its reference rows in
-    (`content/presets/marketplace/MiniMax-H3/modes/refs/tabs/references.yml`: images, then
-    videos, then audio; `reference_order.pack_references` in the pipe), so a
-    segment's `reference_indices` (see `_normalize_segment_references`)
-    indexes into exactly this list."""
-    pool: List[Dict[str, Any]] = []
-    for field in reference_fields:
-        pool.extend(_field_pool_items(field, form_data))
-    return pool
-
-
-def _pool_index_of(item: Dict[str, Any], pool: List[Dict[str, Any]]) -> Optional[int]:
-    """`item`'s position in the packed pool: identity match first (a
-    `form_media`-resolved item IS one of the pool's own objects), falling
-    back to a path/relative_path match (a direct `{path}` entry is a
-    caller-constructed dict, never the same object as the pool's)."""
-    for idx, candidate in enumerate(pool):
-        if candidate is item:
-            return idx
-    target = item.get("path") or item.get("relative_path")
-    if target is None:
-        return None
-    for idx, candidate in enumerate(pool):
-        if (candidate.get("path") or candidate.get("relative_path")) == target:
-            return idx
-    return None
-
-
-def _normalize_segment_references(
-    raw_references: Any,
-    references_capability: Optional[str],
-    reference_fields: List[str],
-    reference_pool: List[Dict[str, Any]],
-    form_data: Dict[str, Any],
-    storage_path: Optional[Path],
-    context: str,
-    errors: List[str],
-) -> tuple:
-    """A segment's `references` -- a per-shot SELECTION from the preset's
-    whole-film reference pool (the pool itself lives on the form fields named
-    in `capabilities.reference_fields`, never duplicated into the document) --
-    and the derived `reference_indices` the generator actually consumes
-    (`segment.get("reference_indices")`): each selected entry's position in
-    the PACKED pool (`_packed_reference_pool`), deduplicated but in SELECTION
-    order (never sorted -- a family's generator re-labels a subset in its
-    presented order, e.g. MiniMax-H3's `<Picture i>` renumbering, so which
-    entry came first is meaningful).
-
-    `None`/absent `references` means "inherit the full pool" and returns
-    `(None, None)` for both -- the generator's own convention for the same
-    thing (`WindowPlan.reference_indices is None`). Gated by
-    `capabilities.references` exactly like every other optional document
-    shape: off (`None`) rejects the key outright; `"whole"` rejects it too --
-    the pool is implicit for every segment, there is nothing per-segment to
-    select; only `"per_shot"` accepts a selection. An explicitly EMPTY list
-    is also rejected -- selecting zero references has no defined meaning
-    (mirrors the generator's own `_validate_refs_director_plan` backstop).
-    """
-    if raw_references is None:
-        return None, None
-
-    if references_capability != "per_shot":
-        reason = (
-            "references are not supported by this preset" if references_capability is None
-            else "this preset's references capability is 'whole' -- segments inherit the full reference "
-            "pool and cannot select a subset (omit segments[].references)"
-        )
-        errors.append(f"{context}.references: {reason}")
-        return None, None
-
-    if not isinstance(raw_references, list):
-        errors.append(f"{context}.references: must be a list")
-        return None, None
-
-    if not raw_references:
-        errors.append(
-            f"{context}.references: is empty -- omit the field to use every reference, or list at least "
-            "one selection"
-        )
-        return None, None
-
-    resolved: List[Dict[str, Any]] = []
-    indices: List[int] = []
-    seen_indices: set = set()
-    for i, entry in enumerate(raw_references):
-        result = _resolve_reference_entry(
-            entry, reference_fields, reference_pool, form_data, storage_path, f"{context}.references[{i}]", errors,
-        )
-        if result is None:
-            continue
-        media_ref, pool_index = result
-        resolved.append(media_ref)
-        if pool_index not in seen_indices:
-            seen_indices.add(pool_index)
-            indices.append(pool_index)
-    return resolved, indices
-
-
-def _resolve_reference_entry(
-    entry: Any,
-    reference_fields: List[str],
-    reference_pool: List[Dict[str, Any]],
-    form_data: Dict[str, Any],
-    storage_path: Optional[Path],
-    context: str,
-    errors: List[str],
-) -> Optional[tuple]:
-    """Resolve one `segments[].references[]` entry to `(media_ref, pool_index)`,
-    or `None` on any failure (the error is appended to `errors`). An entry is
-    either a direct `{path|relative_path}` media reference or a `{form_media:
-    {field, label?|path?}}` pointer into one of the preset's `reference_fields`
-    pool fields on the SUBMITTED form -- the same `field`+`label`/`path`
-    addressing the chat tool's `upsert_media.form_media` uses
-    (`src/features/llm/tools/builtin/video_director_tool.py`'s
-    `_resolve_form_media`), reimplemented here against `form_data` rather than
-    the live editor state, since this module cannot import the LLM tools
-    package.
-
-    Either shape MUST resolve to an item already sitting in the packed
-    reference pool -- a `references` selection is a pick from the pool, not
-    an escape hatch to condition on an arbitrary extra file the pool never
-    embedded. An entry that resolves to a real, on-disk file but isn't part
-    of the pool is still rejected, naming the pool.
-    """
-    if not isinstance(entry, dict):
-        errors.append(f"{context}: must be an object")
-        return None
-
-    raw_path = entry.get("path") or entry.get("relative_path")
-    form_media = entry.get("form_media")
-    if raw_path and form_media is not None:
-        errors.append(f"{context}: give either 'path'/'relative_path' or 'form_media', not both")
-        return None
-
-    pool_source: Optional[Dict[str, Any]] = None
-
-    if form_media is not None:
-        if not isinstance(form_media, dict):
-            errors.append(f"{context}: 'form_media' must be an object")
-            return None
-
-        field = form_media.get("field")
-        if not isinstance(field, str) or field not in reference_fields:
-            errors.append(
-                f"{context}: form_media.field must be one of this preset's reference_fields "
-                f"{reference_fields}, got {field!r}"
-            )
-            return None
-
-        label, path = form_media.get("label"), form_media.get("path")
-        if (label is None) == (path is None):
-            errors.append(f"{context}: form_media needs exactly one of 'label' or 'path'")
-            return None
-
-        items = _field_pool_items(field, form_data)
-        if not items:
-            errors.append(f"{context}: form field {field!r} has no media on it")
-            return None
-
-        if path is not None:
-            match = next((i for i in items if i.get("path") == path or i.get("relative_path") == path), None)
-            if match is None:
-                errors.append(f"{context}: no item at path {path!r} on form field {field!r}")
-                return None
-        else:
-            needle = label.strip().lower() if isinstance(label, str) else ""
-            matches = [i for i in items if str(i.get("label") or i.get("name") or "").strip().lower() == needle]
-            if len(matches) != 1:
-                errors.append(
-                    f"{context}: {'no' if not matches else 'ambiguous'} item on form field {field!r} labeled {label!r}"
-                )
-                return None
-            match = matches[0]
-
-        pool_source = match
-    elif raw_path:
-        pool_source = entry
-    else:
-        errors.append(f"{context}: provide either 'path'/'relative_path' or 'form_media'")
-        return None
-
-    pool_index = _pool_index_of(pool_source, reference_pool)
-    if pool_index is None:
-        errors.append(f"{context}: is not part of this preset's reference pool")
-        return None
-
-    media_ref = _resolve_media_ref(pool_source, storage_path, context, errors)
-    if media_ref is None:
-        return None
-    return media_ref, pool_index
 
 
 def _normalize_media(

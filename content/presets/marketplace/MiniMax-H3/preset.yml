@@ -312,7 +312,8 @@ llm:
         Reference mode uses a SIX-SECTION prompt that REPLACES the three-field format.
         Each reference picker numbers its own items by order: images are <Picture 1>,
         <Picture 2>...; videos <Video 1>...; audio <Audio 1>.... Their labels name the
-        subjects. Write all sections in English, in exactly this order:
+        subjects. A Director shot uses only the references its own prompt cites,
+        renumbered within the shot. Write all sections in English, in this order:
 
         subject_definitions: define each referenced thing and its label. <Subject N>
         is an abstraction over the assets (it has NO attachment of its own); images

@@ -183,7 +183,6 @@ def _flatten(doc: Dict[str, Any], capabilities: Dict[str, Any], form_data: Dict[
                 "seed": None, "steps": None, "cfg": None,
                 "sub_type_override": override,
                 "sub_type": _derive_chain_sub_type(index, has_first, override, continuation_disabled, has_last),
-                "references": s.get("references"),
             })
             if has_first:
                 media.append({
@@ -228,7 +227,6 @@ def _flatten(doc: Dict[str, Any], capabilities: Dict[str, Any], form_data: Dict[
                     "prompt": s.get("text") or "",
                     "negative_prompt": None, "start": s.get("start"), "end": s.get("end"),
                     "frames": None, "seed": None, "steps": None, "cfg": None,
-                    "references": s.get("references"),
                 })
             for kf in shot.get("keyframes") or []:
                 role = "keyframe" if kf.get("role") == "free" else kf.get("role")
@@ -248,7 +246,6 @@ def _flatten(doc: Dict[str, Any], capabilities: Dict[str, Any], form_data: Dict[
             "id": "seg-1", "prompt": global_prompt, "negative_prompt": negative_prompt,
             "start": 0, "end": duration, "frames": None,
             "seed": None, "steps": None, "cfg": None,
-            "references": simple.get("references"),
         })
         if mode == "i2v":
             start_image_path = _media_ref_path(simple.get("start_image"), form_data)
@@ -506,11 +503,17 @@ def _references_capability(capabilities: Dict[str, Any]) -> Dict[str, Any]:
     references = capabilities.get("references")
     if not references:
         return {"supported": False}
-    return {
+    summary = {
         "supported": True,
         "selection": references,
         "fields": capabilities.get("reference_fields") or [],
     }
+    if references == "per_shot":
+        summary["per_shot_rule"] = (
+            "a shot uses exactly the references its own prompt cites with resource tokens; a shot that "
+            "cites none runs without references"
+        )
+    return summary
 
 
 def _available_ops(mode: str, style: str, capabilities: Dict[str, Any]) -> List[str]:

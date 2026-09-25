@@ -21,14 +21,12 @@ import {
 	resolveDirectorEdgeAllowances,
 	evaluateDirectorTiming,
 	validateDirector,
-	isSegmentFormMediaReference,
 	DEFAULT_TIMELINE_SHOT_ID
 } from './videoDirector';
 import type {
 	VideoDirectorValue,
 	DirectorCapabilities,
-	DirectorTimelineShot,
-	SegmentReference
+	DirectorTimelineShot
 } from '$lib/types/videoDirector';
 
 export interface DirectorShotReadiness {
@@ -53,22 +51,6 @@ export interface DirectorSelectionPlan {
 	 * "Shot N: " the same way `validateDirector` already does -- what a
 	 * caller shows as the single disabled-button reason or error toast. */
 	blockingReasons: string[];
-}
-
-function segmentReferenceReasons(
-	segments: { references?: SegmentReference[] }[],
-	caps: DirectorCapabilities
-): string[] {
-	const reasons: string[] = [];
-	if (caps.references === 'per_shot') {
-		const badField = segments
-			.flatMap((s) => s.references ?? [])
-			.find((ref) => isSegmentFormMediaReference(ref) && !caps.referenceFields.includes(ref.form_media.field));
-		if (badField) reasons.push("A per-shot reference points at a field this mode doesn't declare as a reference field");
-	} else if (segments.some((s) => s.references && s.references.length > 0)) {
-		reasons.push('Per-shot references are not supported in this mode');
-	}
-	return reasons;
 }
 
 /** A single LTX timeline shot's OWN reasons -- everything `validateDirector`'s
@@ -107,7 +89,6 @@ function timelineShotOwnReasons(
 	if (!edgeAllowances.freePlacementAllowed && shot.keyframes.some((k) => k.role === 'free')) {
 		reasons.push('Free keyframe placement is not supported in this mode');
 	}
-	reasons.push(...segmentReferenceReasons(shot.segments, caps));
 	return reasons;
 }
 

@@ -261,7 +261,7 @@ def test_build_context_accepts_references_with_a_hard_cut_director_document():
 def test_validate_refs_director_plan_names_the_continuing_segment():
     plan = build_director_plan(_director_document(2), default_seed=-1)
     with pytest.raises(DirectorPlanError, match="seg-1.*continues the previous window"):
-        GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, num_references=1)
+        GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, reference_kinds=["image"])
 
 
 def test_validate_refs_director_plan_names_the_segment_with_its_own_keyframe():
@@ -275,16 +275,32 @@ def test_validate_refs_director_plan_names_the_segment_with_its_own_keyframe():
     plan = build_director_plan(document, default_seed=-1)
     assert plan.windows[0].keyframes
     with pytest.raises(DirectorPlanError, match="seg-0.*its own Director keyframe"):
-        GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, num_references=1)
+        GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, reference_kinds=["image"])
 
 
-def test_validate_refs_director_plan_rejects_an_empty_reference_selection():
+def test_validate_refs_director_plan_accepts_an_empty_reference_selection():
     from dataclasses import replace
 
     plan = build_director_plan(_director_document(1), default_seed=-1)
     plan = replace(plan, windows=(replace(plan.windows[0], reference_indices=()),))
-    with pytest.raises(DirectorPlanError, match="empty"):
-        GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, num_references=2)
+    GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, reference_kinds=["image", "image"])
+
+
+def test_validate_refs_director_plan_rejects_an_audio_only_window():
+    from dataclasses import replace
+
+    plan = build_director_plan(_director_document(1), default_seed=-1)
+    plan = replace(plan, windows=(replace(plan.windows[0], reference_indices=(1,)),))
+    with pytest.raises(DirectorPlanError, match="seg-0.*only audio"):
+        GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, reference_kinds=["image", "audio"])
+
+
+def test_validate_refs_director_plan_accepts_audio_paired_with_an_image():
+    from dataclasses import replace
+
+    plan = build_director_plan(_director_document(1), default_seed=-1)
+    plan = replace(plan, windows=(replace(plan.windows[0], reference_indices=(0, 1)),))
+    GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, reference_kinds=["image", "audio"])
 
 
 def test_validate_refs_director_plan_rejects_an_out_of_range_reference_index():
@@ -293,13 +309,13 @@ def test_validate_refs_director_plan_rejects_an_out_of_range_reference_index():
     plan = build_director_plan(_director_document(1), default_seed=-1)
     plan = replace(plan, windows=(replace(plan.windows[0], reference_indices=(0, 5)),))
     with pytest.raises(DirectorPlanError, match="out of range"):
-        GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, num_references=2)
+        GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, reference_kinds=["image", "image"])
 
 
 def test_validate_refs_director_plan_accepts_a_valid_hard_cut_plan():
     document = _director_document(2, sub_types={1: "t2v"})
     plan = build_director_plan(document, default_seed=-1)
-    GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, num_references=1)  # must not raise
+    GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, reference_kinds=["image"])  # must not raise
 
 
 def test_bite_check_the_hard_cut_plan_would_fail_the_continuation_guard_unmodified():
@@ -310,7 +326,7 @@ def test_bite_check_the_hard_cut_plan_would_fail_the_continuation_guard_unmodifi
     document = _director_document(2)  # segment 1 defaults to 'chain'
     plan = build_director_plan(document, default_seed=-1)
     with pytest.raises(DirectorPlanError):
-        GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, num_references=1)
+        GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, reference_kinds=["image"])
 
 
 def _pipe_input(**kwargs):
@@ -2532,6 +2548,8 @@ def _run_refs_director(document, references, *, steps=2, config_overrides=None):
         references=tuple(references), audio_source="generate", decode=True, plan=plan,
     ))
 
+    import src.pipelines.pipes.generator.video_minimax_h3.main as main_module
+
     pipe = _RecordingPipe({
         **GeneratorMinimaxH3Pipe.get_default_config(), "mode": "references", "preview": False, "steps": steps,
         **(config_overrides or {}),
@@ -2561,9 +2579,11 @@ def _run_refs_director(document, references, *, steps=2, config_overrides=None):
         ),
         patch(
             "src.pipelines.pipes.generator.video_minimax_h3.main.prepare_keyframe_condition_rows",
+            wraps=main_module.prepare_keyframe_condition_rows,
         ) as mock_prepare_keyframes,
         patch(
             "src.pipelines.pipes.generator.video_minimax_h3.main.build_packed_sequence",
+            wraps=main_module.build_packed_sequence,
         ) as mock_build_t2va,
     ):
         mock_encode.side_effect = lambda frames, path, **kw: path
@@ -2594,6 +2614,18 @@ def test_a_per_shot_selection_narrows_that_windows_reference_set():
     assert plan.windows[1].reference_indices == (1,)
     assert list(calls[0]) == references           # window 0: no selection -> every reference
     assert list(calls[1]) == [references[1]]       # window 1: 2-of-2 subset -> index 1 alone
+
+
+def test_a_shot_with_an_empty_selection_runs_without_references():
+    references = [_ref_image_media((4, 4)), _ref_image_media((4, 4))]
+    document = _director_document(2, sub_types={1: "t2v"})
+    document["segments"][0]["reference_indices"] = [0]
+    document["segments"][1]["reference_indices"] = []
+    pipe, calls, plan, mock_keyframes, mock_t2va = _run_refs_director(document, references)
+
+    assert plan.windows[1].reference_indices == ()
+    assert [list(call) for call in calls] == [[references[0]]]
+    assert mock_t2va.call_count == 1
 
 
 def test_bite_check_no_selection_would_also_pass_a_vacuous_subset_assertion():

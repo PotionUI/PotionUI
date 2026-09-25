@@ -166,8 +166,9 @@ class PromptEncoderPipe(BasePipe):
             PipeConfigSpec("reference_selections", list, [], "Per-request reference SUBSET, index-aligned "
                           "with 'pairs' -- entry i is a list of indices into the packed "
                           "'reference_image'/'reference_video'/'reference_audio' order for output i. An "
-                          "absent or empty entry presents every packed reference (the default, and the "
-                          "only shape a non-Director ref2va request uses). The H3 adapter numbers "
+                          "absent or null entry presents every packed reference (the default, and the "
+                          "only shape a non-Director ref2va request uses); an empty list presents none, "
+                          "so that output encodes as plain text. The H3 adapter numbers "
                           "'<Picture i>'/'<Video k>'/'<Audio j>' against whichever list it is actually "
                           "handed, so a selection RE-LABELS that output's subset from 1 rather than "
                           "keeping the packed set's own numbering. Inert without 'references'",
@@ -597,7 +598,7 @@ class PromptEncoderPipe(BasePipe):
                 # with the frame-group timestamps only the encoder computes).
                 selections = self.config.get("reference_selections") or []
                 selection = selections[_] if _ < len(selections) else None
-                if selection:
+                if selection is not None:
                     out_of_range = [i for i in selection if not 0 <= i < len(references)]
                     if out_of_range:
                         raise ValueError(
@@ -607,6 +608,9 @@ class PromptEncoderPipe(BasePipe):
                     selected_references = [references[i] for i in selection]
                 else:
                     selected_references = references
+                if not selected_references:
+                    requests.append(request)
+                    continue
                 request["references"] = [
                     {"kind": kind, "media": self._resolve_reference_media(kind, media, vae=vae)}
                     for kind, media in selected_references

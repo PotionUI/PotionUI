@@ -206,10 +206,10 @@ def compile_shot_plan(
         # carried through unchanged so a segment mid-span that happens to
         # look like a fresh segment-0 at its NEW local position never gets
         # relabeled.
-        # `reference_indices` was already resolved per-segment by
-        # `_normalize_segment_references` -- `None` (whole pool) stays
-        # `None`, an explicit subset stays exactly that subset; neither is
-        # touched here.
+        # `reference_indices` was already derived per-segment from the
+        # segment's prompt markers (`shot_references.derive_shot_references`)
+        # -- `None` (whole pool) stays `None`, a derived subset (even an
+        # empty one) stays exactly that subset; neither is touched here.
         compiled_segment["sequence_index"] = original_index
         compiled_segments.append(compiled_segment)
 

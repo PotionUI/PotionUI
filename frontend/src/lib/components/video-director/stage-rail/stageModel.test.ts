@@ -8,7 +8,6 @@ import {
 	withChainTrailingMedia,
 	withTimelineKeyframeMedia,
 	withIcLoraPatch,
-	withShotReferences,
 	withShotDuration,
 	withShotFrames,
 	withFilmFps,
@@ -698,30 +697,6 @@ describe('withChainLeadingMedia / withTimelineKeyframeMedia / withIcLoraPatch', 
 	});
 });
 
-describe('withShotReferences', () => {
-	it('writes a per-shot selection onto a chain segment', () => {
-		const doc = wanDoc();
-		const next = withShotReferences(doc, wanCaps(), 'chain-2', [{ path: '/pool/a.png' }]);
-		expect(next.chain.segments[1].references).toEqual([{ path: '/pool/a.png' }]);
-		expect(next.chain.segments[0].references).toBeUndefined();
-	});
-
-	it('an empty selection falls back to "All" (undefined), never a stored []', () => {
-		const doc = wanDoc();
-		doc.chain.segments[1].references = [{ path: '/pool/a.png' }];
-		const next = withShotReferences(doc, wanCaps(), 'chain-2', []);
-		expect(next.chain.segments[1].references).toBeUndefined();
-	});
-
-	it("writes onto a timeline shot's first beat under non-segment-routing caps -- `id` names the SHOT, not the beat", () => {
-		const doc = baseDoc();
-		doc.timeline = { ...doc.timeline, shots: [{ ...doc.timeline.shots[0], segments: [tlSegment('s1', 'a', 0, 5)] }] };
-		const caps: DirectorCapabilities = { ...wanCaps(), segmentRouting: false };
-		const next = withShotReferences(doc, caps, 'shot-1', [{ path: '/pool/b.png' }]);
-		expect(next.timeline.shots[0].segments[0].references).toEqual([{ path: '/pool/b.png' }]);
-	});
-});
-
 describe('StageShotFooter.references — existence per capability', () => {
 	const formData = {
 		references: [{ path: '/pool/a.png' }, { path: '/pool/b.png' }],
@@ -742,16 +717,16 @@ describe('StageShotFooter.references — existence per capability', () => {
 		expect(shot.footer.references).toEqual({ capability: 'whole', poolCount: 3, selectedCount: null });
 	});
 
-	it('per_shot with no explicit selection reads as "All (poolCount)"', () => {
+	it('per_shot with no prompt markers reads zero used against the pool', () => {
 		const doc = wanDoc();
 		const caps: DirectorCapabilities = { ...wanCaps(), references: 'per_shot', referenceFields: ['references', 'reference_videos'] };
 		const shot = deriveStageModel(doc, caps, { kind: 'shot', id: 'chain-1' }, formData).selected as StageShotModel;
-		expect(shot.footer.references).toEqual({ capability: 'per_shot', poolCount: 3, selectedCount: null });
+		expect(shot.footer.references).toEqual({ capability: 'per_shot', poolCount: 3, selectedCount: 0 });
 	});
 
-	it('per_shot with an explicit selection reads its count against the pool count', () => {
+	it('per_shot counts the distinct items the shot prompt cites against the pool count', () => {
 		const doc = wanDoc();
-		doc.chain.segments[0].references = [{ path: '/pool/a.png' }];
+		doc.chain.segments[0].prompt_segments = [{ id: 'p0', content: '@[references:/pool/a.png] and @[references:/pool/a.png]' }];
 		const caps: DirectorCapabilities = { ...wanCaps(), references: 'per_shot', referenceFields: ['references', 'reference_videos'] };
 		const shot = deriveStageModel(doc, caps, { kind: 'shot', id: 'chain-1' }, formData).selected as StageShotModel;
 		expect(shot.footer.references).toEqual({ capability: 'per_shot', poolCount: 3, selectedCount: 1 });

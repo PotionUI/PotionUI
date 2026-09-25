@@ -3501,42 +3501,42 @@ describe('resolveDirectorCapabilities', () => {
 	});
 });
 
-describe('buildDirectorSubmission: per-shot references', () => {
-	const refsCaps = resolveDirectorCapabilities(H3_RAW_CAPS, 'refs')!; // chain routing, references = 'per_shot'
-	const wanCaps = parseDirectorCapabilities(WAN_RAW_CAPS)!; // chain routing, references capability null
+describe('per-shot references come from prompt markers, never a stored selection', () => {
+	const refsCaps = resolveDirectorCapabilities(H3_RAW_CAPS, 'refs')!;
+	const wanCaps = parseDirectorCapabilities(WAN_RAW_CAPS)!;
 
-	// Two segments so the document derives to 'director' rather than a bare
-	// t2v/i2v single shot (buildDirectorSubmission's single-shot branches never
-	// read `.references` at all -- see the neutrality tests below for why a
-	// lone segment must NOT be forced into 'director' by carrying one).
 	function twoShotChainDoc(first: Partial<ChainSegment>, c: NonNullable<ReturnType<typeof resolveDirectorCapabilities>>): VideoDirectorValue {
 		const base = normalizeDirectorValue({ mode: 'director' }, c);
 		return { ...base, chain: { ...base.chain, segments: [chainSegment({ id: 'c1', ...first }), chainSegment({ id: 'c2' })] } };
 	}
 
-	it('emits a resolved-path selection as {path}', () => {
-		const doc = twoShotChainDoc({ references: [{ path: '/ref1.png' }] }, refsCaps);
+	it('the wire carries the shot prompt with its markers and no references field', () => {
+		const doc = twoShotChainDoc({ prompt: 'hero @[references:/pool/a.png]' }, refsCaps);
 		const wire = buildDirectorSubmission(doc, refsCaps)[0];
-		expect(wire.segments[0].references).toEqual([{ path: '/ref1.png' }]);
-		expect(wire.segments[1].references).toBeUndefined();
+		expect(wire.segments[0].prompt).toContain('@[references:/pool/a.png]');
+		expect(wire.segments[0]).not.toHaveProperty('references');
+		expect(wire.segments[1]).not.toHaveProperty('references');
 	});
 
-	it('emits a form-pool selection as {form_media: {field, path}} verbatim -- no path resolution at build time', () => {
-		const doc = twoShotChainDoc({ references: [{ form_media: { field: 'references', path: '/pool/a.png' } }] }, refsCaps);
-		const wire = buildDirectorSubmission(doc, refsCaps)[0];
-		expect(wire.segments[0].references).toEqual([{ form_media: { field: 'references', path: '/pool/a.png' } }]);
+	it('a stored selection on an old document is dropped on load', () => {
+		const stored = {
+			mode: 'director',
+			chain: { fps: 24, segments: [{ id: 'c1', prompt: 'a', duration: 5, references: [{ path: '/pool/a.png' }] }] }
+		};
+		const doc = normalizeDirectorValue(stored, refsCaps);
+		expect(doc.chain.segments[0]).not.toHaveProperty('references');
+		expect(buildDirectorSubmission(doc, refsCaps)[0].segments[0]).not.toHaveProperty('references');
 	});
 
-	it('omits references on a shot with no explicit selection -- absent means the whole pool', () => {
+	it('an upsert_segment op carrying references only updates the prompt', () => {
 		const doc = twoShotChainDoc({}, refsCaps);
-		const wire = buildDirectorSubmission(doc, refsCaps)[0];
-		expect(wire.segments[0].references).toBeUndefined();
-	});
-
-	it('never emits references when the capability is null', () => {
-		const doc = twoShotChainDoc({ references: [{ path: '/ref1.png' }] }, wanCaps);
-		const wire = buildDirectorSubmission(doc, wanCaps)[0];
-		expect(wire.segments[0].references).toBeUndefined();
+		const next = applyDirectorOperations(
+			doc,
+			[{ op: 'upsert_segment', segment: { id: 'c1', prompt: 'b', references: [{ path: '/r.png' }] } as never }],
+			refsCaps
+		);
+		expect(next.chain.segments[0].prompt).toBe('b');
+		expect(next.chain.segments[0]).not.toHaveProperty('references');
 	});
 
 	it('never emits settings.continuation when continuation is disabled -- the backend hard-rejects it', () => {
@@ -3549,204 +3549,6 @@ describe('buildDirectorSubmission: per-shot references', () => {
 		const doc = twoShotChainDoc({}, wanCaps);
 		const wire = buildDirectorSubmission(doc, wanCaps)[0];
 		expect(wire.settings).toHaveProperty('continuation');
-	});
-
-	it('timeline-routed director also emits per-shot references', () => {
-		const timelineRefsCaps = parseDirectorCapabilities({
-			...RAW_CAPS,
-			references: 'per_shot',
-			reference_fields: ['references']
-		})!;
-		const doc = normalizeDirectorValue(
-			{
-				mode: 'director',
-				timeline: {
-					duration: 10,
-					fps: 24,
-					segments: [
-						{ id: 's1', start: 0, end: 5, text: 'a', prompt_segments: [], references: [{ path: '/r.png' }] },
-						{ id: 's2', start: 5, end: 10, text: 'b', prompt_segments: [] }
-					],
-					keyframes: [],
-					audio: [],
-					ic_lora: []
-				}
-			},
-			timelineRefsCaps
-		);
-		const wire = buildDirectorSubmission(doc, timelineRefsCaps)[0];
-		expect(wire.segments[0].references).toEqual([{ path: '/r.png' }]);
-		expect(wire.segments[1].references).toBeUndefined();
-	});
-});
-
-describe('validateDirector: per-shot references', () => {
-	const refsCaps = resolveDirectorCapabilities(H3_RAW_CAPS, 'refs')!;
-	const wanCaps = parseDirectorCapabilities(WAN_RAW_CAPS)!; // no references capability at all
-
-	function twoShotChainDoc(first: Partial<ChainSegment>, c: NonNullable<ReturnType<typeof resolveDirectorCapabilities>>): VideoDirectorValue {
-		const base = normalizeDirectorValue({ mode: 'director' }, c);
-		return { ...base, chain: { ...base.chain, segments: [chainSegment({ id: 'c1', ...first }), chainSegment({ id: 'c2' })] } };
-	}
-
-	it('a selection against a declared reference field is valid', () => {
-		const doc = twoShotChainDoc({ references: [{ form_media: { field: 'references', path: '/a.png' } }] }, refsCaps);
-		expect(validateDirector(doc, refsCaps).ok).toBe(true);
-	});
-
-	it('a selection against an undeclared field is rejected', () => {
-		const doc = twoShotChainDoc({ references: [{ form_media: { field: 'not_a_reference_field', path: '/a.png' } }] }, refsCaps);
-		const result = validateDirector(doc, refsCaps);
-		expect(result.ok).toBe(false);
-		expect(result.reasons).toContain("A per-shot reference points at a field this mode doesn't declare as a reference field");
-	});
-
-	it('no selection at all is valid under per_shot -- absent means All, not missing', () => {
-		const doc = twoShotChainDoc({}, refsCaps);
-		expect(validateDirector(doc, refsCaps).ok).toBe(true);
-	});
-
-	it('a stored selection is rejected once the mode has no reference pool at all', () => {
-		const doc = twoShotChainDoc({ references: [{ path: '/a.png' }] }, wanCaps);
-		const result = validateDirector(doc, wanCaps);
-		expect(result.ok).toBe(false);
-		expect(result.reasons).toContain('Per-shot references are not supported in this mode');
-	});
-});
-
-// `references` is a TOP-LEVEL capability (like segment_routing), not scoped to
-// the 'director' composition mode -- a single-shot t2v/i2v/flf document reads
-// and emits it exactly like a multi-shot chain/timeline segment does.
-describe('references on single-shot t2v/i2v/flf documents', () => {
-	const refsCaps = resolveDirectorCapabilities(H3_RAW_CAPS, 'refs')!; // segmentRouting, references = 'per_shot'
-	const wanCaps = parseDirectorCapabilities(WAN_RAW_CAPS)!; // no reference pool at all
-
-	function oneShotChainDoc(overrides: Partial<ChainSegment>, c: NonNullable<ReturnType<typeof resolveDirectorCapabilities>> = refsCaps): VideoDirectorValue {
-		const base = normalizeDirectorValue({ mode: 'director' }, c);
-		return { ...base, chain: { ...base.chain, segments: [chainSegment({ id: 'c1', ...overrides })] } };
-	}
-
-	it('a t2v single shot (no edge media) still emits its per-shot selection on the wire', () => {
-		const doc = oneShotChainDoc({ references: [{ path: '/ref.png' }] });
-		expect(deriveDirectorMode(doc, refsCaps)).toBe('t2v');
-		const wire = buildDirectorSubmission(doc, refsCaps)[0];
-		expect(wire.mode).toBe('t2v');
-		expect(wire.segments[0].references).toEqual([{ path: '/ref.png' }]);
-	});
-
-	it('an i2v single shot (leading keyframe + references) emits both', () => {
-		const doc = oneShotChainDoc({ keyframe: media('/start.png'), references: [{ path: '/ref.png' }] });
-		expect(deriveDirectorMode(doc, refsCaps)).toBe('i2v');
-		const wire = buildDirectorSubmission(doc, refsCaps)[0];
-		expect(wire.mode).toBe('i2v');
-		expect(wire.segments[0].references).toEqual([{ path: '/ref.png' }]);
-	});
-
-	it('validateDirector rejects a single-shot selection against an undeclared field', () => {
-		const doc = oneShotChainDoc({ references: [{ form_media: { field: 'not_a_reference_field', path: '/a.png' } }] });
-		const result = validateDirector(doc, refsCaps);
-		expect(result.ok).toBe(false);
-		expect(result.reasons).toContain("A per-shot reference points at a field this mode doesn't declare as a reference field");
-	});
-
-	it('validateDirector rejects a single-shot selection once the mode has no reference pool at all', () => {
-		const doc = oneShotChainDoc({ references: [{ path: '/a.png' }] }, wanCaps);
-		const result = validateDirector(doc, wanCaps);
-		expect(result.ok).toBe(false);
-		expect(result.reasons).toContain('Per-shot references are not supported in this mode');
-	});
-
-	it('timeline-routed t2v single shot also emits references', () => {
-		const timelineRefsCaps = parseDirectorCapabilities({ ...RAW_CAPS, references: 'per_shot', reference_fields: ['references'] })!;
-		const doc = normalizeDirectorValue(
-			{
-				mode: 'director',
-				timeline: {
-					duration: 5,
-					fps: 24,
-					segments: [{ id: 's1', start: 0, end: 5, text: '', prompt_segments: [], references: [{ path: '/r.png' }] }],
-					keyframes: [],
-					audio: [],
-					ic_lora: []
-				},
-				global_prompt: 'a shot'
-			},
-			timelineRefsCaps
-		);
-		expect(deriveDirectorMode(doc, timelineRefsCaps)).toBe('t2v');
-		const wire = buildDirectorSubmission(doc, timelineRefsCaps)[0];
-		expect(wire.mode).toBe('t2v');
-		expect(wire.segments[0].references).toEqual([{ path: '/r.png' }]);
-	});
-});
-
-describe('applyDirectorOperations: upsert_segment references', () => {
-	const wanCaps = parseDirectorCapabilities(WAN_RAW_CAPS)!; // chain routing
-	const ltxCaps = parseDirectorCapabilities(RAW_CAPS)!; // timeline routing
-
-	function chainDoc(segment: ChainSegment, c = wanCaps): VideoDirectorValue {
-		const base = normalizeDirectorValue({ mode: 'director' }, c);
-		return { ...base, chain: { ...base.chain, segments: [segment] } };
-	}
-
-	it('a resolved-path reference round-trips onto a chain segment', () => {
-		const doc = chainDoc(chainSegment({ id: 'c1' }));
-		const next = applyDirectorOperations(doc, [{ op: 'upsert_segment', segment: { id: 'c1', references: [{ path: '/pool/a.png' }] } }], wanCaps);
-		expect(next.chain.segments[0].references).toEqual([{ path: '/pool/a.png' }]);
-	});
-
-	it('a form_media-addressed reference round-trips verbatim -- get_video_director reads it straight off the document', () => {
-		const doc = chainDoc(chainSegment({ id: 'c1' }));
-		const next = applyDirectorOperations(
-			doc,
-			[{ op: 'upsert_segment', segment: { id: 'c1', references: [{ form_media: { field: 'references', path: '/pool/a.png' } }] } }],
-			wanCaps
-		);
-		expect(next.chain.segments[0].references).toEqual([{ form_media: { field: 'references', path: '/pool/a.png' } }]);
-	});
-
-	it('an empty references array clears the selection back to "All" (undefined), not []', () => {
-		const doc = chainDoc(chainSegment({ id: 'c1', references: [{ path: '/pool/a.png' }] }));
-		const next = applyDirectorOperations(doc, [{ op: 'upsert_segment', segment: { id: 'c1', references: [] } }], wanCaps);
-		expect(next.chain.segments[0].references).toBeUndefined();
-	});
-
-	it('omitting `references` from the op leaves an existing selection untouched', () => {
-		const doc = chainDoc(chainSegment({ id: 'c1', references: [{ path: '/pool/a.png' }] }));
-		const next = applyDirectorOperations(doc, [{ op: 'upsert_segment', segment: { id: 'c1', prompt: 'new prompt' } }], wanCaps);
-		expect(next.chain.segments[0].references).toEqual([{ path: '/pool/a.png' }]);
-	});
-
-	it('round-trips on a timeline-routed segment too', () => {
-		const doc = normalizeDirectorValue(
-			{ mode: 'director', timeline: { duration: 5, fps: 24, segments: [{ id: 's1', start: 0, end: 5, text: 'x', prompt_segments: [] }], keyframes: [], audio: [], ic_lora: [] } },
-			ltxCaps
-		);
-		const next = applyDirectorOperations(doc, [{ op: 'upsert_segment', segment: { id: 's1', references: [{ path: '/r.png' }] } }], ltxCaps);
-		expect(next.timeline.shots[0].segments[0].references).toEqual([{ path: '/r.png' }]);
-	});
-});
-
-describe('deriveDirectorMode / buildDirectorSubmission: references is conditioning, not structure', () => {
-	const refsCaps = resolveDirectorCapabilities(H3_RAW_CAPS, 'refs')!;
-
-	it('a lone segment carrying a per-shot reference selection still derives t2v (references is conditioning, not structure -- but IS still emitted, since the capability is top-level, not director-only)', () => {
-		const base = normalizeDirectorValue({ mode: 'director' }, refsCaps);
-		const doc = { ...base, chain: { ...base.chain, segments: [chainSegment({ id: 'c1', references: [{ path: '/ref.png' }] })] } };
-		expect(deriveDirectorMode(doc, refsCaps)).toBe('t2v');
-		expect(buildDirectorSubmission(doc, refsCaps)[0].segments[0].references).toEqual([{ path: '/ref.png' }]);
-	});
-
-	it('a lone segment with a leading keyframe AND references still derives i2v, not director', () => {
-		const base = normalizeDirectorValue({ mode: 'director' }, refsCaps);
-		const doc = {
-			...base,
-			chain: {
-				...base.chain,
-				segments: [chainSegment({ id: 'c1', keyframe: media('/start.png'), references: [{ path: '/ref.png' }] })]
-			}
-		};
-		expect(deriveDirectorMode(doc, refsCaps)).toBe('i2v');
 	});
 });
 

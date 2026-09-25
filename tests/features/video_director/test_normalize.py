@@ -1204,10 +1204,10 @@ def test_wan_chain_document_output_pinned(storage_dir):
             {"id": "seg-1", "prompt": "a", "negative_prompt": "n", "start": None, "end": None,
              "frames": 81, "seed": None, "steps": 30, "cfg": 5.0,
              "loras": {"high": [{"model": "lora-a", "strength": 1.0}], "low": []},
-             "sub_type": "i2v", "references": None, "reference_indices": None},
+             "sub_type": "i2v", "reference_indices": None},
             {"id": "seg-2", "prompt": "b", "negative_prompt": "", "start": None, "end": None,
              "frames": 49, "seed": None, "steps": None, "cfg": None, "loras": None,
-             "sub_type": "chain", "references": None, "reference_indices": None},
+             "sub_type": "chain", "reference_indices": None},
         ],
         "media": [{"id": "m-1", "role": "first", "segment_id": "seg-1", "at": 0.0, "strength": 1.0,
                    "media": {"relative_path": "image.png", "type": "image",
@@ -1251,10 +1251,10 @@ def test_ltx_timeline_document_output_pinned(storage_dir):
         "segments": [
             {"id": "seg-1", "prompt": "a", "negative_prompt": "", "start": 0.0, "end": 2.0,
              "frames": None, "seed": None, "steps": None, "cfg": None, "loras": None,
-             "references": None, "reference_indices": None},
+             "reference_indices": None},
             {"id": "seg-2", "prompt": "b", "negative_prompt": "", "start": 2.0, "end": 5.0,
              "frames": None, "seed": None, "steps": None, "cfg": None, "loras": None,
-             "references": None, "reference_indices": None},
+             "reference_indices": None},
         ],
         "media": [{"id": "kf-1", "role": "keyframe", "segment_id": None, "at": 1.0, "strength": 0.8,
                    "media": {"relative_path": "image.png", "type": "image",
@@ -1500,15 +1500,10 @@ def test_overlay_on_capabilities_with_no_overrides_declared_at_all():
     assert merged == WAN_CAPS
 
 
-# ---------------------------------------------------------------------------
-# `references` capability -- a per-segment SELECTION from a whole-film pool
-# held on named form fields (see apply_preset_mode_overlay/H3_VIDEO_CAPS above).
-# ---------------------------------------------------------------------------
-
 H3_REFS_CAPS = {
     "modes": {
         "t2v": {}, "i2v": {}, "flf": {},
-        "director": {"max_segments": 6, "max_frames_per_segment": 345},
+        "director": {"max_segments": 6, "max_frames_per_segment": 345, "continuation": None},
     },
     "limits": _LIMITS,
     "segment_routing": True,
@@ -1518,135 +1513,141 @@ H3_REFS_CAPS = {
 
 H3_WHOLE_CAPS = {**H3_REFS_CAPS, "references": "whole"}
 
+H3_PROMPT_RESOURCES = [
+    {"field": "references", "kind": "image", "label": "Pictures", "token": "<Picture @>"},
+    {"field": "reference_videos", "kind": "video", "label": "Videos", "token": "<Video @>"},
+    {"field": "reference_audios", "kind": "audio", "label": "Audio", "token": "<Audio @>"},
+]
 
-def test_references_capability_off_rejects_a_segment_selection(storage_dir):
-    doc = _base_doc("t2v", segments=[{"id": "seg-1", "prompt": "a", "references": [{"path": "image.png"}]}])
+H3_POOL = {
+    "references": [
+        {"relative_path": "a.png", "label": "A"},
+        {"relative_path": "b.png", "label": "B"},
+        {"relative_path": "c.png", "label": "C"},
+    ],
+    "reference_videos": [{"relative_path": "v.mp4", "label": "V"}],
+    "reference_audios": [{"relative_path": "t.wav", "label": "T"}],
+}
+
+
+def _refs_director(*prompts, caps=H3_REFS_CAPS, form_data=H3_POOL, storage_dir=None, extra=None):
+    segments = [
+        {"id": f"seg-{i}", "prompt": prompt, "frames": 81, **(extra or {})}
+        for i, prompt in enumerate(prompts)
+    ]
+    doc = _base_doc(
+        "director",
+        settings={"fps": 24, "duration": None, "resolution": "", "seed": 7},
+        segments=segments,
+    )
+    return normalize_video_director(doc, caps, str(storage_dir), form_data, H3_PROMPT_RESOURCES)
+
+
+def test_shot_references_are_the_cited_items_in_film_order_deduplicated(storage_dir):
+    out = _refs_director(
+        "@[references:c.png] meets @[references:a.png], then @[references:c.png] again",
+        storage_dir=storage_dir,
+    )
+    assert out["segments"][0]["reference_indices"] == [0, 2]
+
+
+def test_shot_marker_numbering_follows_the_shot_s_own_subset_per_kind(storage_dir):
+    out = _refs_director(
+        "@[references:c.png] meets @[references:a.png] in @[reference_videos:v.mp4] over @[reference_audios:t.wav]",
+        storage_dir=storage_dir,
+    )
+    segment = out["segments"][0]
+    assert segment["reference_indices"] == [0, 2, 3, 4]
+    assert segment["prompt"] == "<Picture 2> meets <Picture 1> in <Video 1> over <Audio 1>"
+
+
+def test_picture_numbers_match_the_position_of_the_image_in_the_conditioning_list(storage_dir):
+    out = _refs_director("@[references:c.png] and @[references:b.png]", storage_dir=storage_dir)
+    segment = out["segments"][0]
+    pool_images = [item["relative_path"] for item in H3_POOL["references"]]
+    conditioning_images = [pool_images[i] for i in segment["reference_indices"]]
+    assert conditioning_images == ["b.png", "c.png"]
+    assert segment["prompt"] == "<Picture 2> and <Picture 1>"
+
+
+def test_each_shot_derives_its_own_subset(storage_dir):
+    out = _refs_director("@[references:a.png] walks", "@[references:b.png] sits", storage_dir=storage_dir)
+    assert [s["reference_indices"] for s in out["segments"]] == [[0], [1]]
+    assert [s["prompt"] for s in out["segments"]] == ["<Picture 1> walks", "<Picture 1> sits"]
+
+
+def test_a_shot_with_no_markers_gets_no_references(storage_dir):
+    out = _refs_director("an empty street at dawn", storage_dir=storage_dir)
+    assert out["segments"][0]["reference_indices"] == []
+    assert out["segments"][0]["prompt"] == "an empty street at dawn"
+
+
+def test_the_stored_manual_selection_is_ignored(storage_dir):
+    out = _refs_director(
+        "an empty street at dawn",
+        storage_dir=storage_dir,
+        extra={"references": [{"form_media": {"field": "references", "label": "A"}}]},
+    )
+    assert out["segments"][0]["reference_indices"] == []
+    assert "references" not in out["segments"][0]
+
+
+def test_a_malformed_stored_selection_does_not_fail_the_document(storage_dir):
+    out = _refs_director("@[references:b.png]", storage_dir=storage_dir, extra={"references": "not-a-list"})
+    assert out["segments"][0]["reference_indices"] == [1]
+
+
+def test_a_marker_for_a_removed_item_is_an_error(storage_dir):
     with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-    assert "references are not supported" in str(excinfo.value)
+        _refs_director("@[references:gone.png] walks", storage_dir=storage_dir)
+    assert "segments[0].prompt" in str(excinfo.value)
+    assert "removed from this field (gone.png)" in str(excinfo.value)
 
 
-def test_references_capability_whole_rejects_a_segment_selection(storage_dir):
-    doc = _base_doc("t2v", segments=[{"id": "seg-1", "prompt": "a", "references": [{"path": "image.png"}]}])
+def test_a_marker_for_an_unmapped_field_is_an_error(storage_dir):
     with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, H3_WHOLE_CAPS, str(storage_dir))
-    assert "'whole'" in str(excinfo.value)
+        _refs_director("@[keyframes:a.png] walks", storage_dir=storage_dir)
+    assert "cannot reference" in str(excinfo.value)
 
 
-def test_references_capability_whole_allows_an_absent_selection(storage_dir):
-    doc = _base_doc("t2v", segments=[{"id": "seg-1", "prompt": "a"}])
-    out = normalize_video_director(doc, H3_WHOLE_CAPS, str(storage_dir))
-    assert out["segments"][0]["references"] is None
+def test_a_shot_citing_only_audio_is_an_error(storage_dir):
+    with pytest.raises(VideoDirectorValidationError) as excinfo:
+        _refs_director("a song @[reference_audios:t.wav]", storage_dir=storage_dir)
+    assert "only audio references" in str(excinfo.value)
 
 
-def test_references_per_shot_absent_selection_inherits_the_pool(storage_dir):
-    doc = _base_doc("t2v", segments=[{"id": "seg-1", "prompt": "a"}])
-    out = normalize_video_director(doc, H3_REFS_CAPS, str(storage_dir))
-    assert out["segments"][0]["references"] is None
+def test_negative_prompt_markers_join_the_shot_s_references(storage_dir):
+    doc = _base_doc(
+        "director",
+        settings={"fps": 24, "duration": None, "resolution": "", "seed": 7},
+        segments=[{
+            "id": "seg-0", "prompt": "@[references:c.png]", "negative_prompt": "not @[references:a.png]", "frames": 81,
+        }],
+    )
+    out = normalize_video_director(doc, H3_REFS_CAPS, str(storage_dir), H3_POOL, H3_PROMPT_RESOURCES)
+    segment = out["segments"][0]
+    assert segment["reference_indices"] == [0, 2]
+    assert segment["prompt"] == "<Picture 2>"
+    assert segment["negative_prompt"] == "not <Picture 1>"
+
+
+def test_whole_capability_keeps_the_full_pool_and_leaves_markers_alone(storage_dir):
+    out = _refs_director("@[references:c.png]", caps=H3_WHOLE_CAPS, storage_dir=storage_dir)
     assert out["segments"][0]["reference_indices"] is None
+    assert out["segments"][0]["prompt"] == "@[references:c.png]"
 
 
-def test_references_per_shot_path_entry_resolves(storage_dir):
-    # A `path`/`relative_path` entry must still name an item already sitting
-    # in the pool (form_data's reference_fields) -- see
-    # test_references_per_shot_path_entry_not_in_pool_is_rejected below for
-    # what happens when it doesn't.
-    doc = _base_doc(
-        "t2v",
-        segments=[{"id": "seg-1", "prompt": "a", "references": [{"relative_path": "image.png"}]}],
-    )
-    form_data = {"references": [{"relative_path": "image.png"}]}
-    out = normalize_video_director(doc, H3_REFS_CAPS, str(storage_dir), form_data)
-    assert out["segments"][0]["references"][0]["path"] == str(storage_dir / "image.png")
-    assert out["segments"][0]["reference_indices"] == [0]
+def test_a_single_shot_document_does_not_derive_a_subset(storage_dir):
+    doc = _base_doc("t2v", segments=[{"id": "seg-1", "prompt": "@[references:c.png]"}])
+    out = normalize_video_director(doc, H3_REFS_CAPS, str(storage_dir), H3_POOL, H3_PROMPT_RESOURCES)
+    assert out["segments"][0]["reference_indices"] is None
+    assert out["segments"][0]["prompt"] == "@[references:c.png]"
 
 
-def test_references_per_shot_path_entry_not_in_pool_is_rejected(storage_dir):
-    # The file exists on disk and inside storage_dir -- it's just not part of
-    # ANY reference_fields item, so it isn't a valid pool selection.
-    doc = _base_doc(
-        "t2v",
-        segments=[{"id": "seg-1", "prompt": "a", "references": [{"relative_path": "image.png"}]}],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, H3_REFS_CAPS, str(storage_dir), form_data={})
-    assert "not part of this preset's reference pool" in str(excinfo.value)
-
-
-def test_references_per_shot_form_media_entry_resolves(storage_dir):
-    doc = _base_doc(
-        "t2v",
-        segments=[{
-            "id": "seg-1", "prompt": "a",
-            "references": [{"form_media": {"field": "references", "label": "Hero"}}],
-        }],
-    )
-    form_data = {"references": [{"path": "storage/uploads/hero.png", "relative_path": "image.png", "label": "Hero"}]}
-    out = normalize_video_director(doc, H3_REFS_CAPS, str(storage_dir), form_data)
-    assert out["segments"][0]["references"][0]["path"] == str(storage_dir / "image.png")
-    assert out["segments"][0]["reference_indices"] == [0]
-
-
-def test_references_per_shot_indices_pack_multiple_fields_in_declared_order(storage_dir):
-    # reference_fields = ["references", "reference_videos", "reference_audios"]:
-    # the packed pool is every "references" item, then every "reference_videos"
-    # item, then every "reference_audios" item -- an entry from the SECOND
-    # field lands at an index offset by the first field's own item count.
-    doc = _base_doc(
-        "t2v",
-        segments=[{
-            "id": "seg-1", "prompt": "a",
-            "references": [
-                {"form_media": {"field": "reference_videos", "label": "Clip"}},
-                {"form_media": {"field": "references", "label": "Hero"}},
-            ],
-        }],
-    )
-    form_data = {
-        "references": [
-            {"relative_path": "image.png", "label": "Hero"},
-            {"relative_path": "nested/ref.png", "label": "Other"},
-        ],
-        "reference_videos": [{"relative_path": "clip.mp4", "label": "Clip"}],
-    }
-    out = normalize_video_director(doc, H3_REFS_CAPS, str(storage_dir), form_data)
-    # "Clip" is reference_videos[0], which sits AFTER both "references" items
-    # in the packed pool (index 2); "Hero" is references[0] (index 0).
-    # Order is the SELECTION's order (Clip requested first), not sorted.
-    assert out["segments"][0]["reference_indices"] == [2, 0]
-
-
-def test_references_per_shot_indices_dedup_but_preserve_selection_order(storage_dir):
-    doc = _base_doc(
-        "t2v",
-        segments=[{
-            "id": "seg-1", "prompt": "a",
-            "references": [
-                {"form_media": {"field": "references", "label": "Second"}},
-                {"form_media": {"field": "references", "label": "First"}},
-                {"form_media": {"field": "references", "label": "Second"}},
-            ],
-        }],
-    )
-    form_data = {
-        "references": [
-            {"relative_path": "image.png", "label": "First"},
-            {"relative_path": "nested/ref.png", "label": "Second"},
-        ],
-    }
-    out = normalize_video_director(doc, H3_REFS_CAPS, str(storage_dir), form_data)
-    # "Second" (index 1) selected first, then "First" (index 0), then
-    # "Second" again -- the duplicate collapses, and the surviving order is
-    # first-occurrence, not the pool's own 0..1 order.
-    assert out["segments"][0]["reference_indices"] == [1, 0]
-    assert len(out["segments"][0]["references"]) == 3
-
-
-def test_references_per_shot_empty_list_is_rejected(storage_dir):
-    doc = _base_doc("t2v", segments=[{"id": "seg-1", "prompt": "a", "references": []}])
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, H3_REFS_CAPS, str(storage_dir))
-    assert "is empty" in str(excinfo.value)
+def test_a_preset_without_references_ignores_a_stored_selection(storage_dir):
+    doc = _base_doc("t2v", segments=[{"id": "seg-1", "prompt": "a", "references": [{"path": "image.png"}]}])
+    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+    assert out["segments"][0]["reference_indices"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -1722,50 +1723,3 @@ def test_continuation_absent_key_does_not_disable_chain_derivation(storage_dir):
     )
     out = normalize_video_director(doc, WAN_CAPS, str(storage_dir))
     assert [s["sub_type"] for s in out["segments"]] == ["t2v", "chain"]
-
-
-def test_references_per_shot_form_media_field_must_be_declared(storage_dir):
-    doc = _base_doc(
-        "t2v",
-        segments=[{
-            "id": "seg-1", "prompt": "a",
-            "references": [{"form_media": {"field": "not_a_reference_field", "label": "Hero"}}],
-        }],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, H3_REFS_CAPS, str(storage_dir), form_data={})
-    assert "reference_fields" in str(excinfo.value)
-
-
-def test_references_per_shot_form_media_unmatched_label_errors(storage_dir):
-    doc = _base_doc(
-        "t2v",
-        segments=[{
-            "id": "seg-1", "prompt": "a",
-            "references": [{"form_media": {"field": "references", "label": "Nope"}}],
-        }],
-    )
-    form_data = {"references": [{"relative_path": "image.png", "label": "Hero"}]}
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, H3_REFS_CAPS, str(storage_dir), form_data)
-    assert "no item on form field" in str(excinfo.value)
-
-
-def test_references_per_shot_both_path_and_form_media_is_an_error(storage_dir):
-    doc = _base_doc(
-        "t2v",
-        segments=[{
-            "id": "seg-1", "prompt": "a",
-            "references": [{"relative_path": "image.png", "form_media": {"field": "references", "label": "Hero"}}],
-        }],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, H3_REFS_CAPS, str(storage_dir), form_data={})
-    assert "not both" in str(excinfo.value)
-
-
-def test_references_per_shot_must_be_a_list(storage_dir):
-    doc = _base_doc("t2v", segments=[{"id": "seg-1", "prompt": "a", "references": "not-a-list"}])
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, H3_REFS_CAPS, str(storage_dir))
-    assert "must be a list" in str(excinfo.value)

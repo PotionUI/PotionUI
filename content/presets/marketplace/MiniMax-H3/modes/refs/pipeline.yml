@@ -218,15 +218,15 @@ pipeline:
           template:
             positive: "{{ item.prompt }}"
             negative: ""
-      # Per-shot reference SUBSET, index-aligned with `pairs` above. A
-      # segment with no `reference_indices` (the common, whole-film case)
-      # renders an empty list here, which `prompt_encoder` reads as "present
-      # every packed reference" -- same default the single-window node above
-      # gets by never setting this key at all.
+      # Per-shot reference SUBSET, index-aligned with `pairs` above: the
+      # items the shot's own prompt markers cite, in the pool's packed order.
+      # A shot that cites nothing renders an empty list, which
+      # `prompt_encoder` reads as "present no reference" -- that shot runs as
+      # plain text-to-video.
       reference_selections:
         "@loop":
           items: "{{ form.video_director.segments if form.video_director is defined else [] }}"
-          template: "{{ item.reference_indices | default([]) }}"
+          template: "{{ item.reference_indices }}"
       quantity: "{{ (form.video_director.segments | length) if form.video_director is defined else 1 }}"
       guidance_scale: 1.0
       image_pixel_budget: "{{ form.reference_pixel_budget }}"

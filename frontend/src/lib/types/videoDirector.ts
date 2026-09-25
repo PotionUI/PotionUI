@@ -14,23 +14,6 @@ export type DirectorMode = 't2v' | 'i2v' | 'flf' | 'director';
 // retired `chain` MODE.
 export type SegmentSubType = 't2v' | 'i2v' | 'flf' | 'chain';
 
-// One entry of a segment's per-shot SELECTION from the preset's whole-form
-// reference pool (`references` capability 'per_shot' only): either a
-// resolved storage path, or a `{field, label?|path?}` pointer into one of the
-// preset's `reference_fields` pool fields on the submitted form -- the same
-// addressing the chat tool's `upsert_media.form_media` already uses
-// (src/features/llm/tools/builtin/video_director_tool.py). This ONE shape is
-// used identically in three places: on the editor segment itself
-// (`ChainSegment.references`/`DirectorPromptSegment.references` -- the chat
-// tool's `get_video_director` read model reads it directly off the document,
-// same as `sub_type_override`, so it is never translated to a different
-// editor-local shape), in the `upsert_segment` chat op, and on the wire
-// (`WireSegment.references`). `dereferenceFormMediaRefs` resolves a
-// `form_media` entry against the live form before submission
-// (src/features/video_director/normalize.py's `_resolve_reference_entry`
-// mirrors the same resolution server-side against `form_data` as a backstop).
-export type SegmentReference = { path: string } | { form_media: { field: string; label?: string; path?: string } };
-
 export interface DirectorLoraRef {
 	model: string;
 	strength: number;
@@ -50,9 +33,6 @@ export interface DirectorPromptSegment {
 	end: number;
 	text: string;
 	prompt_segments: Segment[];
-	/** Per-shot selection from the whole-form reference pool -- see the same
-	 * field on ChainSegment. */
-	references?: SegmentReference[];
 }
 
 // A Director media entry's value can point at an item living on the
@@ -151,10 +131,6 @@ export interface ChainSegment {
 	// only override the editor exposes is forcing a prompt-only segment that
 	// would otherwise continue the previous one to a fresh t2v shot instead.
 	sub_type_override: 't2v' | null;
-	/** Per-shot selection from the whole-form reference pool (`references`
-	 * capability 'per_shot' only). Absent/empty means "the whole pool" -- see
-	 * `withShotReferences` in stageModel.ts for the empty-selection rule. */
-	references?: SegmentReference[];
 	/** Explicit per-segment override of the wire settings.steps/cfg -- null
 	 * (the default) means "let the backend use its own default", mirroring
 	 * `WireSegment.steps`/`cfg`. Surfaced by the Overrides disclosure. */
@@ -243,9 +219,9 @@ export interface VideoDirectorValue {
 // and any future family that conditions on a set of reference images/videos/
 // audio rather than a single keyframe): null means the preset (mode) has no
 // such pool at all, 'whole' means every shot always conditions on the entire
-// pool (no wire field, no per-shot UI), 'per_shot' means each shot may select
-// a subset (see `references` on ChainSegment/DirectorPromptSegment and
-// WireSegment). Lives on `DirectorCapabilities` (not per DirectorMode) --
+// pool (no wire field, no per-shot UI), 'per_shot' means each shot uses
+// exactly the items its own prompt cites through resource markers (derived
+// server-side, see src/features/video_director/shot_references.py). Lives on `DirectorCapabilities` (not per DirectorMode) --
 // mirrors `capabilities.references`/`reference_fields` read at the top level
 // in src/features/video_director/normalize.py, alongside `segment_routing`.
 export type DirectorReferencesCapability = 'whole' | 'per_shot' | null;
@@ -347,11 +323,6 @@ export interface WireSegment {
 	// means the backend derives it (derive_segment_sub_type). Never send the
 	// derived value.
 	sub_type?: SegmentSubType;
-	// Per-shot reference-pool selection (`references` capability 'per_shot'
-	// only) -- absent means "the whole pool" for this shot. Same `SegmentReference`
-	// shape as the editor segment carries; `dereferenceFormMediaRefs` resolves
-	// any `form_media` entry to `{ path }` before submission.
-	references?: SegmentReference[];
 }
 
 // `media`/`media` below stay `DirectorMediaValue` (possibly a `form_ref`)
@@ -477,10 +448,6 @@ export interface DirectorOpUpsertSegment {
 		steps?: number | null;
 		cfg?: number | null;
 		title?: string;
-		/** Per-shot reference-pool selection -- same `SegmentReference` shape the
-		 * document itself carries; the chat tool's `get_video_director` read
-		 * model reads `segment.references` directly off the editor document. */
-		references?: SegmentReference[];
 	};
 	/** Timeline style only: which shot's own beat list `segment.id` addresses
 	 * -- a beat id is only unique WITHIN its shot (`mintId` scopes to one

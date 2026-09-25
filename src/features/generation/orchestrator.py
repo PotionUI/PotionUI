@@ -92,7 +92,7 @@ from src.features.music_director import (
     normalize_music_director,
 )
 from src.features.forms.binding import bind_form, FormBindingError
-from src.features.prompt.resources import resolve_generation_prompts
+from src.features.prompt.resources import mode_prompt_resources, resolve_generation_prompts
 from src.features.generation.memory_advisory import (
     _WEIGHT_LOAD_MARGIN,
     _activation_headroom_gb,
@@ -216,7 +216,9 @@ def _prepare_director_form_data(
         if isinstance(form_seed, int) and form_seed != -1:
             raw_doc = {**raw_doc, 'settings': {**(raw_doc.get('settings') or {}), 'seed': form_seed}}
 
-        normalized_doc = normalize_video_director(raw_doc, capabilities, storage_dir, form_data)
+        normalized_doc = normalize_video_director(
+            raw_doc, capabilities, storage_dir, form_data, mode_prompt_resources(preset_template, mode),
+        )
 
         # A capability-declared `timing` block names a sibling FORM FIELD --
         # never part of the video_director document itself -- that carries a

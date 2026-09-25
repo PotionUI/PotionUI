@@ -1508,7 +1508,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 # module docstring ("ref2va Director runs are hard-cut-only")
                 # for why continuation and per-window keyframes are refused
                 # here rather than combined with the reference prefix.
-                self._validate_refs_director_plan(plan, num_references=len(packed))
+                self._validate_refs_director_plan(plan, reference_kinds=[kind for kind, _ in packed])
             else:
                 self._validate_director_images(plan, director_images)
             # One composed clip per request: the window loop already consumes
@@ -1621,7 +1621,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             )
 
     @staticmethod
-    def _validate_refs_director_plan(plan: DirectorPlan, *, num_references: int) -> None:
+    def _validate_refs_director_plan(plan: DirectorPlan, *, reference_kinds: List[str]) -> None:
         """A refs-conditioned Director run is hard-cut-only (windows.py's
         module docstring, "ref2va Director runs are hard-cut-only"):
         continuation and per-window Director keyframes both build their
@@ -1649,16 +1649,19 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     f"window. Remove the segment's keyframe or drop the references"
                 )
             if window.reference_indices is not None:
-                if not window.reference_indices:
-                    raise DirectorPlanError(
-                        f"generator/video_minimax_h3: segment {window.segment_id!r}'s 'reference_indices' "
-                        f"is empty -- omit the field to use every reference, or list at least one index"
-                    )
+                num_references = len(reference_kinds)
                 out_of_range = [i for i in window.reference_indices if not 0 <= i < num_references]
                 if out_of_range:
                     raise DirectorPlanError(
                         f"generator/video_minimax_h3: segment {window.segment_id!r}'s 'reference_indices' "
                         f"{out_of_range} is out of range for {num_references} packed reference(s)"
+                    )
+                window_kinds = {reference_kinds[i] for i in window.reference_indices}
+                if window_kinds == {"audio"}:
+                    raise DirectorPlanError(
+                        f"generator/video_minimax_h3: segment {window.segment_id!r} cites only audio "
+                        f"references -- an audio reference has to be paired with at least one image or "
+                        f"video reference"
                     )
 
     @staticmethod
@@ -2383,8 +2386,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             # shot regardless of what ran before it.
             generator = torch.Generator(device=c.device).manual_seed(int(window.seed))
 
-            if c.references:
-                window_references = self._window_references(c, window)
+            window_references = self._window_references(c, window) if c.references else ()
+            if window_references:
                 ref2va_layout, condition_rows, condition_audio_rows = self._build_ref2va_layout(
                     c, window_references, text_token_tags,
                     num_latent_frames=window.num_latent_frames, num_audio_latents=window.num_audio_latents,

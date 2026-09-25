@@ -487,11 +487,10 @@ class TestVideoDirectorPresetModeOverlay:
         payload = json.loads((await GetVideoDirectorTool().execute(ctx)).data)
         caps = payload["capabilities"]
 
-        assert caps["references"] == {
-            "supported": True,
-            "selection": "per_shot",
-            "fields": ["references", "reference_videos", "reference_audios"],
-        }
+        assert caps["references"]["supported"] is True
+        assert caps["references"]["selection"] == "per_shot"
+        assert caps["references"]["fields"] == ["references", "reference_videos", "reference_audios"]
+        assert "cites none runs without references" in caps["references"]["per_shot_rule"]
         assert caps["audio"] == {"supported": False}
         assert "upsert_audio" not in caps["available_operations"]
         assert "not available" in caps["media_rules"]["director"]

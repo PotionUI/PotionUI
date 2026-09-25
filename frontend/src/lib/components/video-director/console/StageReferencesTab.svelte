@@ -1,51 +1,57 @@
 <script lang="ts">
-	// References stage tab -- `references: 'per_shot'` OR `'whole'` shots (a
-	// shot's tabs never include 'references' for a null capability). Per-shot
-	// is the picker grid lifted from StageShot.svelte:336-369; 'whole' has no
-	// per-shot selection at all, so it renders read-only -- the same
-	// `.stage-cap` idiom the Selection variants use, captioned "This shot
-	// inherits every reference in the pool", listing the pool with the same
-	// thumbs and no checkboxes (replaces the deleted Rail "Refs" lane, which
-	// used to be the only place a whole-film pool rendered at all).
 	import type { VideoDirectorValue, DirectorCapabilities } from '$lib/types/videoDirector';
-	import { collectFormMediaOptions, formMediaOptionKeys, isSegmentFormMediaReference } from '$lib/utils/videoDirector';
-	import { withShotReferences } from '../stage-rail/stageModel';
+	import type { PromptResourceSpec } from '$lib/utils/promptResources';
+	import { collectFormMediaOptions, formMediaOptionKeys } from '$lib/utils/videoDirector';
+	import { shotReferenceOverview, withMarkerAppendedToShot, type ShotReferenceEntry } from '$lib/utils/shotReferences';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { Badge, IconButton } from '$lib/components/ui';
+	import StageCard from '../stage-rail/StageCard.svelte';
 
 	let {
 		doc,
 		caps,
 		formData,
 		shotId,
-		onDoc
+		onDoc,
+		promptResources = []
 	}: {
 		doc: VideoDirectorValue;
 		caps: DirectorCapabilities;
 		formData: Record<string, unknown> | null | undefined;
 		shotId: string;
 		onDoc: (next: VideoDirectorValue) => void;
+		promptResources?: PromptResourceSpec[];
 	} = $props();
 
-	let referenceSegment = $derived(
-		caps.segmentRouting ? doc.chain.segments.find((s) => s.id === shotId) : doc.timeline.shots.find((s) => s.id === shotId)?.segments[0]
-	);
-	let currentReferences = $derived(referenceSegment?.references ?? []);
 	let referencePool = $derived(collectFormMediaOptions(formData).filter((o) => caps.referenceFields.includes(o.field)));
 	let referencePoolKeys = $derived(formMediaOptionKeys(referencePool));
+	let overview = $derived(shotReferenceOverview(doc, caps, shotId, formData, promptResources));
+	let poolSize = $derived(overview.used.length + overview.unused.length);
 
-	function isReferenceSelected(field: string, path: string): boolean {
-		return currentReferences.some((r) => isSegmentFormMediaReference(r) && r.form_media.field === field && r.form_media.path === path);
-	}
-	function toggleReference(field: string, path: string) {
-		const next = isReferenceSelected(field, path)
-			? currentReferences.filter((r) => !(isSegmentFormMediaReference(r) && r.form_media.field === field && r.form_media.path === path))
-			: [...currentReferences, { form_media: { field, path } }];
-		onDoc(withShotReferences(doc, caps, shotId, next));
-	}
-	function selectAllReferences() {
-		onDoc(withShotReferences(doc, caps, shotId, []));
+	const WAVE_BARS = [30, 55, 80, 45, 95, 60, 35, 70, 90, 50, 25, 65, 85, 40, 60, 30];
+
+	function insert(entry: ShotReferenceEntry) {
+		onDoc(withMarkerAppendedToShot(doc, caps, shotId, entry.marker));
 	}
 </script>
+
+{#snippet tile(entry: ShotReferenceEntry, size: 'lg' | 'sm')}
+	<div class="thumb {size}" class:audio={entry.kind === 'audio'}>
+		{#if entry.kind === 'image' && entry.url}
+			<img src={entry.url} alt="" />
+		{:else if entry.kind === 'audio'}
+			<div class="wave" aria-hidden="true">
+				{#each WAVE_BARS as height, i (i)}
+					<span style="height: {height}%"></span>
+				{/each}
+			</div>
+			<Icon name="audio" className="kind-icon" />
+		{:else}
+			<Icon name={entry.kind === 'video' ? 'video' : 'image'} className="kind-icon" />
+		{/if}
+	</div>
+{/snippet}
 
 {#if caps.references === 'whole'}
 	<div class="ref-tab">
@@ -56,7 +62,7 @@
 			<div class="grid">
 				{#each referencePool as opt, i (referencePoolKeys[i])}
 					<div class="item readonly">
-						<div class="thumb">
+						<div class="pool-thumb">
 							{#if opt.item.type === 'image' && opt.item.url}
 								<img src={opt.item.url} alt="" />
 							{:else}
@@ -70,30 +76,58 @@
 		{/if}
 	</div>
 {:else}
-	<div class="ref-tab">
-		<div class="ref-head">
-			<span class="fl">References for this shot</span>
-			<button type="button" class="all-btn" onclick={selectAllReferences}>All</button>
-		</div>
-		{#if referencePool.length === 0}
-			<p class="empty">No items on the reference pool yet — add some on the form's References tab.</p>
+	<div class="flex flex-col gap-3" data-testid="shot-references">
+		{#if poolSize === 0}
+			<p class="text-xs text-fg-subtle">No items on the reference pool yet — add some on the form's References tab.</p>
 		{:else}
-			<div class="grid">
-				{#each referencePool as opt, i (referencePoolKeys[i])}
-					{@const checked = isReferenceSelected(opt.field, opt.item.path)}
-					<label class="item" class:checked>
-						<input type="checkbox" {checked} onchange={() => toggleReference(opt.field, opt.item.path)} />
-						<div class="thumb">
-							{#if opt.item.type === 'image' && opt.item.url}
-								<img src={opt.item.url} alt="" />
-							{:else}
-								<Icon name={opt.item.type === 'video' ? 'video' : opt.item.type === 'audio' ? 'audio' : 'image'} className="icon" />
-							{/if}
-						</div>
-						<span class="label">{opt.item.label || opt.item.name || opt.fieldLabel}</span>
-					</label>
-				{/each}
-			</div>
+			<StageCard>
+				{#snippet title()}
+					<span class="text-xs font-semibold text-fg">Used in this shot</span>
+					<span class="font-mono text-xs tabular-nums text-fg-subtle">{overview.used.length} of {poolSize}</span>
+				{/snippet}
+				{#if overview.used.length === 0}
+					<p class="text-xs leading-5 text-fg-muted" data-testid="shot-references-empty">
+						This shot's prompt cites no reference, so it is generated without any. Type @ in the prompt or insert one below.
+					</p>
+				{:else}
+					<div class="used-grid" data-testid="shot-references-used">
+						{#each overview.used as entry (`${entry.field}:${entry.itemKey}`)}
+							<div class="flex min-w-0 flex-col gap-1.5" data-testid="shot-reference-used" data-marker={entry.marker}>
+								{@render tile(entry, 'lg')}
+								<div class="flex items-center justify-between gap-2">
+									{#if entry.handle}<Badge variant="signal">{entry.handle}</Badge>{/if}
+									<span class="font-mono text-xs tabular-nums text-fg-muted" data-testid="shot-reference-count">×{entry.count}</span>
+								</div>
+								<Tooltip text={entry.name} position="bottom" wrapperClass="flex min-w-0">
+									<span class="truncate text-xs text-fg">{entry.name}</span>
+								</Tooltip>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</StageCard>
+
+			{#if overview.unused.length > 0}
+				<StageCard>
+					{#snippet title()}
+						<span class="text-xs font-semibold text-fg-muted">Not used</span>
+						<span class="font-mono text-xs tabular-nums text-fg-subtle">{overview.unused.length}</span>
+					{/snippet}
+					<div class="flex flex-col gap-1.5" data-testid="shot-references-unused">
+						{#each overview.unused as entry (`${entry.field}:${entry.itemKey}`)}
+							<div class="unused-row" data-testid="shot-reference-unused" data-marker={entry.marker}>
+								{@render tile(entry, 'sm')}
+								<Tooltip text={entry.name} position="bottom" wrapperClass="flex min-w-0 flex-1">
+									<span class="truncate text-xs text-fg-muted">{entry.name}</span>
+								</Tooltip>
+								<Tooltip text="Insert reference into this shot's prompt" position="top">
+									<IconButton icon="plus" label="Insert @{entry.name}" size="sm" onclick={() => insert(entry)} />
+								</Tooltip>
+							</div>
+						{/each}
+					</div>
+				</StageCard>
+			{/if}
 		{/if}
 	</div>
 {/if}
@@ -104,35 +138,12 @@
 		flex-direction: column;
 		gap: 10px;
 	}
-	.ref-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-	}
-	.fl {
-		font-family: 'IBM Plex Mono', monospace;
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: rgb(var(--fg-subtle));
-	}
 	.stage-cap {
 		font-family: 'IBM Plex Mono', monospace;
-		font-size: 10px;
+		font-size: 12px;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 		color: rgb(var(--fg-subtle));
-	}
-	.all-btn {
-		font-family: 'IBM Plex Mono', monospace;
-		font-size: 10px;
-		background: none;
-		border: none;
-		color: rgb(var(--fg-subtle));
-		cursor: pointer;
-	}
-	.all-btn:hover {
-		color: rgb(var(--fg));
 	}
 	.empty {
 		font-size: 12px;
@@ -149,23 +160,9 @@
 		gap: 8px;
 		border-radius: 4px;
 		padding: 6px 8px;
-		cursor: pointer;
 		box-shadow: inset 0 0 0 1px rgb(var(--line));
 	}
-	.item:hover {
-		box-shadow: inset 0 0 0 1px rgb(var(--line-hover));
-	}
-	.item.checked {
-		box-shadow: inset 0 0 0 1px rgb(var(--signal));
-		background: rgb(var(--signal) / 0.1);
-	}
-	.item.readonly {
-		cursor: default;
-	}
-	.item.readonly:hover {
-		box-shadow: inset 0 0 0 1px rgb(var(--line));
-	}
-	.thumb {
+	.pool-thumb {
 		width: 32px;
 		height: 32px;
 		flex: none;
@@ -176,12 +173,12 @@
 		align-items: center;
 		justify-content: center;
 	}
-	.thumb img {
+	.pool-thumb img {
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
 	}
-	.thumb :global(.icon) {
+	.pool-thumb :global(.icon) {
 		width: 14px;
 		height: 14px;
 		color: rgb(var(--fg-subtle));
@@ -192,5 +189,71 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.used-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(9rem, 10rem));
+		gap: 12px;
+	}
+	.unused-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-width: 0;
+		opacity: 0.72;
+		transition: opacity 120ms ease;
+	}
+	.unused-row:hover,
+	.unused-row:focus-within {
+		opacity: 1;
+	}
+	.thumb {
+		position: relative;
+		flex: none;
+		border-radius: 4px;
+		overflow: hidden;
+		background: rgb(var(--surface-2));
+		box-shadow: inset 0 0 0 1px rgb(var(--line));
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.thumb.lg {
+		width: 100%;
+		aspect-ratio: 1 / 1;
+	}
+	.thumb.sm {
+		width: 3rem;
+		height: 3rem;
+	}
+	.thumb img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+	.thumb :global(.kind-icon) {
+		position: relative;
+		width: 20px;
+		height: 20px;
+		color: rgb(var(--fg-muted));
+	}
+	.thumb.lg :global(.kind-icon) {
+		width: 28px;
+		height: 28px;
+	}
+	.wave {
+		position: absolute;
+		inset: 20% 10%;
+		display: flex;
+		align-items: center;
+		gap: 3%;
+	}
+	.wave span {
+		flex: 1;
+		border-radius: 1px;
+		background: rgb(var(--fg-subtle) / 0.35);
+	}
+	.thumb.audio :global(.kind-icon) {
+		color: rgb(var(--fg));
 	}
 </style>

@@ -295,10 +295,28 @@ class TestReferenceSelections:
         )
         # Output 0: subset [1] -> only REF2, re-labeled to its own list.
         assert clip.requests[0]["references"] == [{"kind": "image", "media": "REF2"}]
-        # Output 1: empty selection -> every packed reference, same as no selection at all.
-        assert clip.requests[1]["references"] == [
+        assert "references" not in clip.requests[1]
+
+    def test_a_null_selection_presents_every_reference(self):
+        clip = _FakeClipFullImageBatch()
+        pipe = PromptEncoderPipe(config=_config(quantity=2, reference_selections=[None, [0]]))
+        pipe.process(
+            PipeInput(input={"text_encoder": clip, "reference_image": ["REF1", "REF2"]}), lambda o: None,
+        )
+        assert clip.requests[0]["references"] == [
             {"kind": "image", "media": "REF1"}, {"kind": "image", "media": "REF2"},
         ]
+        assert clip.requests[1]["references"] == [{"kind": "image", "media": "REF1"}]
+
+    def test_an_empty_selection_encodes_that_output_as_plain_text(self):
+        clip = _FakeClipFullImageBatch()
+        pipe = PromptEncoderPipe(config=_config(quantity=2, reference_selections=[[], [1]]))
+        pipe.process(
+            PipeInput(input={"text_encoder": clip, "reference_image": ["REF1", "REF2"]}), lambda o: None,
+        )
+        assert "references" not in clip.requests[0]
+        assert "grounding_px" not in clip.requests[0]
+        assert clip.requests[1]["references"] == [{"kind": "image", "media": "REF2"}]
 
     def test_a_selection_reorders_the_subset_to_the_order_given(self):
         clip = _FakeClipFullImageBatch()

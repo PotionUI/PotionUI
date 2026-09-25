@@ -121,6 +121,7 @@ import {
 	type DirectorShotIdentityContext,
 	type DirectorGenerationContext
 } from '$lib/utils/directorInputIdentity';
+import { shotReferenceOverview } from '$lib/utils/shotReferences';
 
 // ─── Public types (verbatim from W1-BRIEF.md's contract) ───────────────────
 
@@ -218,13 +219,13 @@ function referencesPoolCount(caps: DirectorCapabilities, formData: Record<string
 }
 
 function referencesTabLabel(
+	doc: VideoDirectorValue,
 	caps: DirectorCapabilities,
 	formData: Record<string, unknown> | null | undefined,
-	references: { length: number } | undefined
+	shotId: string
 ): string {
-	const poolCount = referencesPoolCount(caps, formData);
-	const selected = references && references.length > 0 ? references.length : null;
-	return selected != null ? `References · ${selected} of ${poolCount}` : `References · All`;
+	const used = shotReferenceOverview(doc, caps, shotId, formData, []).used.length;
+	return `References · ${used} of ${referencesPoolCount(caps, formData)}`;
 }
 
 /** `references: 'whole'` shots have no per-shot selection at all -- every
@@ -471,7 +472,7 @@ function buildChainShots(
 			tabs.push({ id: 'loras', label: `LoRAs · ${count}` });
 		}
 		if (caps.references === 'per_shot') {
-			tabs.push({ id: 'references', label: referencesTabLabel(caps, formData, segment.references) });
+			tabs.push({ id: 'references', label: referencesTabLabel(doc, caps, formData, segment.id) });
 		} else if (caps.references === 'whole') {
 			tabs.push({ id: 'references', label: referencesWholeTabLabel(caps, formData) });
 		}
@@ -642,8 +643,7 @@ function buildTimelineShots(
 
 		const tabs: ConsoleShot['tabs'] = [{ id: 'selection', label: 'Selection' }];
 		if (caps.references === 'per_shot') {
-			const references = shot.segments[0]?.references;
-			tabs.push({ id: 'references', label: referencesTabLabel(caps, formData, references) });
+			tabs.push({ id: 'references', label: referencesTabLabel(doc, caps, formData, shot.id) });
 		} else if (caps.references === 'whole') {
 			tabs.push({ id: 'references', label: referencesWholeTabLabel(caps, formData) });
 		}

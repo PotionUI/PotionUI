@@ -32,8 +32,7 @@ import type {
 	WireAudio,
 	WireIcLora,
 	DirectorMediaValue,
-	FormMediaRef,
-	SegmentReference
+	FormMediaRef
 } from '$lib/types/videoDirector';
 
 const MODE_ORDER: DirectorMode[] = ['t2v', 'i2v', 'flf', 'director'];
@@ -254,70 +253,7 @@ export function dereferenceFormMediaRefs(
 		e.reference ? { ...e, reference: resolve(e.reference, `ic_lora[${i}].reference`) as MediaRef } : e
 	);
 
-	// A segment's `references` entries address the whole-form reference pool by
-	// `form_media` (field + label-or-path) -- resolved here the same way
-	// `_resolve_form_media` resolves it server-side (exact path match, or a
-	// case-insensitive trimmed label match).
-	function resolveSegmentReference(value: SegmentReference, context: string): SegmentReference {
-		if (!isSegmentFormMediaReference(value)) return value;
-		const { field, label, path } = value.form_media;
-		const options = collectFormMediaOptions(formData).filter((o) => o.field === field);
-		let resolved: MediaRef | undefined;
-		if (path) {
-			resolved = options.find((o) => o.item.path === path)?.item;
-		} else if (label) {
-			const needle = label.trim().toLowerCase();
-			resolved = options.find((o) => (o.item.label ?? o.item.name ?? '').trim().toLowerCase() === needle)?.item;
-		}
-		if (!resolved) {
-			errors.push(`${context}: missing from form field "${field}"`);
-			return value;
-		}
-		return { path: resolved.path };
-	}
-	const segments = document.segments.map((s, i) =>
-		s.references
-			? { ...s, references: s.references.map((r, j) => resolveSegmentReference(r, `segments[${i}].references[${j}]`)) }
-			: s
-	);
-
-	return { doc: { ...document, segments, media, audio, ic_lora }, errors };
-}
-
-export function isSegmentFormMediaReference(v: unknown): v is { form_media: { field: string; label?: string; path?: string } } {
-	return isRecord(v) && isRecord(v.form_media) && typeof v.form_media.field === 'string';
-}
-
-/** Defensively narrows one raw `segments[].references[]` entry to a
- * `SegmentReference` -- the ONE shape used identically on the editor segment,
- * the `upsert_segment` chat op, and the wire (see the type's own doc comment
- * in types/videoDirector.ts). Anything that isn't `{path: string}` or
- * `{form_media: {field: string, ...}}` is dropped. */
-function parseSegmentReferenceEntry(raw: unknown): SegmentReference | null {
-	if (isSegmentFormMediaReference(raw)) {
-		const { field, label, path } = raw.form_media;
-		return {
-			form_media: {
-				field,
-				...(typeof label === 'string' ? { label } : {}),
-				...(typeof path === 'string' ? { path } : {})
-			}
-		};
-	}
-	if (isRecord(raw) && typeof raw.path === 'string') return { path: raw.path };
-	return null;
-}
-
-/**
- * Normalizes a possibly-stale/garbage stored per-shot reference selection.
- * An empty (or all-garbage) list is never stored as `[]` -- it collapses to
- * `undefined`, meaning "the whole pool", the same rule `withShotReferences`
- * (stageModel.ts) and the `upsert_segment` op applier enforce on every write.
- */
-function normSegmentReferences(v: unknown): SegmentReference[] | undefined {
-	if (!Array.isArray(v)) return undefined;
-	const parsed = v.map(parseSegmentReferenceEntry).filter((r): r is SegmentReference => r !== null);
-	return parsed.length > 0 ? parsed : undefined;
+	return { doc: { ...document, media, audio, ic_lora }, errors };
 }
 
 function normLoraRef(v: unknown): DirectorLoraRef | null {
@@ -886,14 +822,12 @@ function normTimelineShot(sR: Record<string, unknown>, fallbackDuration: number)
 				.map((s) => {
 					const legacyText = str(s.text);
 					const promptSegments = normPromptSegments(s.prompt_segments, legacyText, `${s.id}-prompt-0`);
-					const references = normSegmentReferences(s.references);
 					return {
 						id: s.id as string,
 						start: num(s.start, 0),
 						end: num(s.end, 0),
 						text: Array.isArray(s.prompt_segments) ? resolvePromptSegments(promptSegments) : legacyText,
-						prompt_segments: promptSegments,
-						...(references ? { references } : {})
+						prompt_segments: promptSegments
 					};
 				})
 		: [];
@@ -999,7 +933,6 @@ export function normalizeDirectorValue(raw: unknown, caps: DirectorCapabilities)
 				.map((s, i) => {
 					const legacyPrompt = str(s.prompt);
 					const promptSegments = normPromptSegments(s.prompt_segments, legacyPrompt, `${s.id}-prompt-0`);
-					const references = normSegmentReferences(s.references);
 					const title = typeof s.title === 'string' && s.title.trim() !== '' ? s.title : undefined;
 					const seg: ChainSegment = {
 						id: s.id as string,
@@ -1014,8 +947,7 @@ export function normalizeDirectorValue(raw: unknown, caps: DirectorCapabilities)
 						sub_type_override: s.sub_type_override === 't2v' ? 't2v' : null,
 						steps: typeof s.steps === 'number' ? s.steps : null,
 						cfg: typeof s.cfg === 'number' ? s.cfg : null,
-						...(title ? { title } : {}),
-						...(references ? { references } : {})
+						...(title ? { title } : {})
 					};
 					// Reordering or gaining edge media can leave a stale override behind
 					// (it only ever makes sense on an ambiguous, prompt-only segment) --
@@ -1252,10 +1184,6 @@ interface SingleShot {
 	 * `toModelessDirectorValue` from a legacy `simple.*` composition, which
 	 * never had a per-shot prompt field of its own. */
 	promptText: string;
-	/** Per-shot reference-pool selection -- the `references` capability is
-	 * top-level, not `director`-only, so a t2v/i2v/flf single shot reads/emits
-	 * it exactly like a multi-shot chain/timeline segment does. */
-	references?: SegmentReference[];
 }
 
 function extractSingleShot(value: VideoDirectorValue, caps: DirectorCapabilities): SingleShot {
@@ -1266,8 +1194,7 @@ function extractSingleShot(value: VideoDirectorValue, caps: DirectorCapabilities
 			fps: value.chain.fps,
 			leading: seg?.keyframe ?? null,
 			trailing: seg?.last_keyframe ?? null,
-			promptText: seg?.prompt ?? '',
-			references: seg?.references
+			promptText: seg?.prompt ?? ''
 		};
 	}
 	const shot = value.timeline.shots[0];
@@ -1278,8 +1205,7 @@ function extractSingleShot(value: VideoDirectorValue, caps: DirectorCapabilities
 		fps: value.timeline.fps,
 		leading: first?.media ?? null,
 		trailing: last?.media ?? null,
-		promptText: shot?.segments[0]?.text ?? '',
-		references: shot?.segments[0]?.references
+		promptText: shot?.segments[0]?.text ?? ''
 	};
 }
 
@@ -1419,31 +1345,6 @@ export function toModelessDirectorValue(value: VideoDirectorValue, caps: Directo
 // ─── Validation ───────────────────────────────────────────────────────────────
 
 /**
- * Checks every segment's per-shot reference selection against the preset's
- * top-level `references` capability: under 'per_shot', a `form_media` entry
- * must point at one of the declared `reference_fields`; under 'whole'/null no
- * segment may carry a selection at all (the wire field would have nowhere
- * legal to land -- mirrors the audio/keyframes "not supported in this mode"
- * checks above, and normalize.py's `_normalize_segment_references`). A plain
- * `{path}` reference is never checked against `reference_fields` -- only a
- * form pointer's field name is validated here.
- */
-function validateSegmentReferences(
-	segments: { references?: SegmentReference[] }[],
-	caps: DirectorCapabilities,
-	reasons: string[]
-): void {
-	if (caps.references === 'per_shot') {
-		const badField = segments
-			.flatMap((s) => s.references ?? [])
-			.find((ref) => isSegmentFormMediaReference(ref) && !caps.referenceFields.includes(ref.form_media.field));
-		if (badField) reasons.push("A per-shot reference points at a field this mode doesn't declare as a reference field");
-	} else if (segments.some((s) => s.references && s.references.length > 0)) {
-		reasons.push('Per-shot references are not supported in this mode');
-	}
-}
-
-/**
  * Validates an editor value against its capabilities. Projects through
  * `toModelessDirectorValue` first: a document that never passed through the
  * Stage & Rail editor (a chat tool's `applyDirectorOperations` writes
@@ -1480,7 +1381,6 @@ export function validateDirector(
 			const shot = extractSingleShot(value, caps);
 			addTimingReasons(shot.duration, shot.fps);
 			if (!value.global_prompt.trim() && !shot.promptText.trim()) reasons.push('Missing prompt');
-			validateSegmentReferences([shot], caps, reasons);
 			break;
 		}
 		case 'i2v': {
@@ -1488,7 +1388,6 @@ export function validateDirector(
 			addTimingReasons(shot.duration, shot.fps);
 			if (!shot.leading) reasons.push('Missing start image');
 			if (!value.global_prompt.trim() && !shot.promptText.trim()) reasons.push('Missing prompt');
-			validateSegmentReferences([shot], caps, reasons);
 			break;
 		}
 		case 'flf': {
@@ -1497,7 +1396,6 @@ export function validateDirector(
 			if (!shot.leading) reasons.push('Missing first frame');
 			if (!shot.trailing) reasons.push('Missing last frame');
 			if (!value.global_prompt.trim() && !shot.promptText.trim()) reasons.push('Missing prompt');
-			validateSegmentReferences([shot], caps, reasons);
 			break;
 		}
 		case 'director': {
@@ -1556,16 +1454,12 @@ export function validateDirector(
 				if (!cap?.perSegmentLoras && segs.some((s) => s.loras)) {
 					reasons.push('Per-segment LoRAs are not supported in this mode');
 				}
-				validateSegmentReferences(segs, caps, reasons);
 			} else {
 				// LTX's keyframe/audio timeline generation -- one wire doc PER SHOT
 				// (buildDirectorSubmission). A single-shot document (the common/
 				// legacy case, and every document `normalizeDirectorValue` lifts a
 				// pre-W2 stored value into) keeps its messages exactly as before;
 				// once a document has 2+ shots each shot's own reasons carry a
-				// "Shot n: " prefix so a multi-shot readiness list reads like
-				// `validateSegmentReferences`'s single global "not supported"
-				// message never needed to.
 				const shots = value.timeline.shots;
 				const multi = shots.length > 1;
 				if (shots.length === 0) reasons.push('At least one shot is required');
@@ -1620,11 +1514,6 @@ export function validateDirector(
 						}
 					}
 				});
-				validateSegmentReferences(
-					shots.flatMap((s) => s.segments),
-					caps,
-					reasons
-				);
 			}
 			break;
 		}
@@ -1662,26 +1551,12 @@ export function directorShotWirePrompt(
 	return routing === 'chain' ? directorSegmentPrompt(globalPrompt, segmentText, isFirst) : joinPrompt(globalPrompt, segmentText);
 }
 
-// A segment's `references` is already the exact wire shape (see SegmentReference's
-// doc comment) -- only ever populated under the top-level 'per_shot' capability
-// ('whole'/null never emit the field, the pool is implicit from the form), and
-// an empty/absent per-shot selection means "the whole pool" for that one shot,
-// so it stays absent too rather than serializing as `[]`.
-function wireSegmentReferences(
-	references: SegmentReference[] | undefined,
-	caps: DirectorCapabilities
-): SegmentReference[] | undefined {
-	if (caps.references !== 'per_shot' || !references || references.length === 0) return undefined;
-	return references;
-}
-
 function emptyWireSegment(
 	id: string,
 	prompt: string,
 	negativePrompt: string,
 	start: number | null,
-	end: number | null,
-	references?: SegmentReference[]
+	end: number | null
 ): WireSegment {
 	return {
 		id,
@@ -1693,8 +1568,7 @@ function emptyWireSegment(
 		seed: null,
 		steps: null,
 		cfg: null,
-		loras: null,
-		...(references ? { references } : {})
+		loras: null
 	};
 }
 
@@ -1729,7 +1603,6 @@ function buildTimelineShotWireDoc(
 	const duration = shot.duration;
 	const sorted = sortByStart(shot.segments);
 	let wireSegments: WireSegment[] = sorted.map((s, i) => {
-		const references = wireSegmentReferences(s.references, caps);
 		return {
 			id: s.id,
 			prompt: directorSegmentPrompt(value.global_prompt, s.text, i === 0),
@@ -1740,8 +1613,7 @@ function buildTimelineShotWireDoc(
 			seed: null,
 			steps: null,
 			cfg: null,
-			loras: null,
-			...(references ? { references } : {})
+			loras: null
 		};
 	});
 	if (wireSegments.length === 0) {
@@ -1850,7 +1722,7 @@ export function buildDirectorSubmission(
 					mode: 't2v',
 					settings: { fps: shot.fps, duration: shot.duration, seed: -1 },
 					segments: [
-						emptyWireSegment('seg-1', prompt, value.negative_prompt, 0, shot.duration, wireSegmentReferences(shot.references, caps))
+						emptyWireSegment('seg-1', prompt, value.negative_prompt, 0, shot.duration)
 					],
 					media: [],
 					audio: [],
@@ -1870,7 +1742,7 @@ export function buildDirectorSubmission(
 					mode: 'i2v',
 					settings: { fps: shot.fps, duration: shot.duration, seed: -1 },
 					segments: [
-						emptyWireSegment('seg-1', prompt, value.negative_prompt, 0, shot.duration, wireSegmentReferences(shot.references, caps))
+						emptyWireSegment('seg-1', prompt, value.negative_prompt, 0, shot.duration)
 					],
 					media,
 					audio: [],
@@ -1890,7 +1762,7 @@ export function buildDirectorSubmission(
 					mode: 'flf',
 					settings: { fps: shot.fps, duration: shot.duration, seed: -1 },
 					segments: [
-						emptyWireSegment('seg-1', prompt, value.negative_prompt, 0, shot.duration, wireSegmentReferences(shot.references, caps))
+						emptyWireSegment('seg-1', prompt, value.negative_prompt, 0, shot.duration)
 					],
 					media,
 					audio: [],
@@ -1938,7 +1810,6 @@ function buildChainDirectorSubmission(value: VideoDirectorValue, caps: DirectorC
 	const cap = caps.modes.director;
 	const totalDuration = value.chain.segments.reduce((sum, s) => sum + s.duration, 0);
 	const segments: WireSegment[] = value.chain.segments.map((s, i) => {
-		const references = wireSegmentReferences(s.references, caps);
 		return {
 			id: s.id,
 			prompt: joinPrompt(value.global_prompt, s.prompt),
@@ -1954,8 +1825,7 @@ function buildChainDirectorSubmission(value: VideoDirectorValue, caps: DirectorC
 			// "New shot" -- never the derived value (keeps the document minimal
 			// and the backend authoritative). A stale override left over from a
 			// reorder or a keyframe add is dropped here even if normalize missed it.
-			...(s.sub_type_override && chainSegmentIsAmbiguous(s, i) ? { sub_type: s.sub_type_override } : {}),
-			...(references ? { references } : {})
+			...(s.sub_type_override && chainSegmentIsAmbiguous(s, i) ? { sub_type: s.sub_type_override } : {})
 		};
 	});
 	// Every segment's own leading/trailing frame reaches the wire, not just
@@ -2167,17 +2037,6 @@ export function applySetNegativePrompt(value: VideoDirectorValue, negativePrompt
 	return { ...value, negative_prompt_segments: segments, negative_prompt: resolvePromptSegments(segments) };
 }
 
-// The `get_video_director` chat tool reads `segment.references` directly off
-// the editor document (same as `sub_type_override`), so an op's entries are
-// already the exact `SegmentReference` shape -- `parseSegmentReferenceEntry`
-// just defensively narrows them, no translation. Same empty-selection-means-
-// "All" rule as `withShotReferences` (stageModel.ts).
-function parseOpSegmentReferences(raw: unknown, existing: SegmentReference[] | undefined): SegmentReference[] | undefined {
-	if (!Array.isArray(raw)) return existing;
-	const parsed = raw.map(parseSegmentReferenceEntry).filter((v): v is SegmentReference => v !== null);
-	return parsed.length > 0 ? parsed : undefined;
-}
-
 function applyUpsertSegmentChain(value: VideoDirectorValue, raw: unknown, caps: DirectorCapabilities): VideoDirectorValue {
 	if (!isRecord(raw) || typeof raw.id !== 'string') return value;
 	const id = raw.id;
@@ -2203,7 +2062,6 @@ function applyUpsertSegmentChain(value: VideoDirectorValue, raw: unknown, caps: 
 				? 't2v'
 				: null
 			: existing?.sub_type_override ?? null;
-	const references = 'references' in raw ? parseOpSegmentReferences(raw.references, existing?.references) : existing?.references;
 	const title = typeof raw.title === 'string' && raw.title.trim() !== '' ? raw.title : existing?.title;
 	const seg: ChainSegment = {
 		id,
@@ -2218,11 +2076,9 @@ function applyUpsertSegmentChain(value: VideoDirectorValue, raw: unknown, caps: 
 		sub_type_override: subTypeOverride,
 		// 'steps' in raw distinguishes an explicit clear (raw.steps === null,
 		// stays null) from the key being absent entirely (keep existing) --
-		// same idiom sub_type_override/references already use above.
 		steps: 'steps' in raw ? (typeof raw.steps === 'number' ? raw.steps : null) : (existing?.steps ?? null),
 		cfg: 'cfg' in raw ? (typeof raw.cfg === 'number' ? raw.cfg : null) : (existing?.cfg ?? null),
-		...(title ? { title } : {}),
-		...(references ? { references } : {})
+		...(title ? { title } : {})
 	};
 	const nextSegments = idx === -1 ? [...segments, seg] : segments.map((s, i) => (i === idx ? seg : s));
 	return { ...value, chain: { ...value.chain, segments: nextSegments } };
@@ -2243,14 +2099,12 @@ function applyUpsertSegmentTimeline(value: VideoDirectorValue, raw: unknown, raw
 			typeof raw.prompt === 'string'
 				? singleTextSegmentList(raw.prompt, existing?.prompt_segments ?? [], `${id}-prompt-0`)
 				: (existing?.prompt_segments ?? []);
-		const references = 'references' in raw ? parseOpSegmentReferences(raw.references, existing?.references) : existing?.references;
-		const seg: DirectorPromptSegment = {
+			const seg: DirectorPromptSegment = {
 			id,
 			start,
 			end,
 			text: resolvePromptSegments(promptSegments),
-			prompt_segments: promptSegments,
-			...(references ? { references } : {})
+			prompt_segments: promptSegments
 		};
 		const nextSegments = idx === -1 ? [...segments, seg] : segments.map((s, i) => (i === idx ? seg : s));
 		// `title`/`continue_from_previous` describe the SHOT `shot_id` names, not

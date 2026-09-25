@@ -420,12 +420,12 @@ describe('deriveConsoleModel — H3 refs (continuationDisabled + per_shot refere
 		const doc = wanDoc();
 		const model = deriveConsoleModel(doc, refsCaps, { activeShotId: null });
 		expect(model.shots.every((s) => s.tabs.some((t) => t.id === 'references'))).toBe(true);
-		expect(model.shots[0].tabs.find((t) => t.id === 'references')?.label).toBe('References · All');
+		expect(model.shots[0].tabs.find((t) => t.id === 'references')?.label).toBe('References · 0 of 0');
 	});
 
-	it('a per-shot selection is counted against the live form pool', () => {
+	it('the prompt markers a shot cites are counted against the live form pool', () => {
 		const doc = wanDoc();
-		doc.chain.segments[0].references = [{ path: '/pool/a.png' }];
+		doc.chain.segments[0].prompt_segments = [{ id: 'p0', content: 'hero @[references:/pool/a.png] twice @[references:/pool/a.png]' }];
 		const formData = { references: [{ path: '/pool/a.png' }, { path: '/pool/b.png' }] };
 		const model = deriveConsoleModel(doc, refsCaps, { activeShotId: null }, formData);
 		expect(model.shots[0].tabs.find((t) => t.id === 'references')?.label).toBe('References · 1 of 2');

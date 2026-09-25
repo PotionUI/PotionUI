@@ -9,6 +9,7 @@ export type SegmentActionId =
 	| 'insertPhrasebook'
 	| 'insertVariable'
 	| 'insertChoice'
+	| 'insertResource'
 	| 'insertSyntax';
 
 export interface SegmentAction {
@@ -25,10 +26,11 @@ export interface SegmentActionContext {
 	total: number;
 	segmentDisabled: boolean;
 	hasPromptSyntax?: boolean;
+	hasPromptResources?: boolean;
 }
 
 export function segmentMenuActions(segment: Segment, context: SegmentActionContext): SegmentAction[] {
-	const { index, total, segmentDisabled, hasPromptSyntax = false } = context;
+	const { index, total, segmentDisabled, hasPromptSyntax = false, hasPromptResources = false } = context;
 	const footer = segmentFooterActions(segment);
 	const byId = (id: SegmentFooterActionId): SegmentAction => {
 		const action = footer.find((a) => a.id === id);
@@ -49,6 +51,10 @@ export function segmentMenuActions(segment: Segment, context: SegmentActionConte
 		{ id: 'insertChoice', label: 'Insert a choice group', glyph: '{}', glyphClass: 'choice', disabled: segmentDisabled }
 	];
 
+	if (hasPromptResources) {
+		actions.push({ id: 'insertResource', label: 'Insert a reference…', glyph: '@', glyphClass: 'resource', disabled: segmentDisabled });
+	}
+
 	if (hasPromptSyntax) {
 		actions.push({ id: 'insertSyntax', label: 'Insert syntax…', glyph: '/', glyphClass: 'syntax', disabled: segmentDisabled });
 	}
@@ -60,5 +66,5 @@ export const SEGMENT_ACTION_GROUPS: SegmentActionId[][] = [
 	['moveUp', 'moveDown'],
 	['editDetails', 'saveAsSegment', 'replaceFromSaved'],
 	['duplicate', 'toggleDisabled'],
-	['insertPhrasebook', 'insertVariable', 'insertChoice', 'insertSyntax']
+	['insertPhrasebook', 'insertVariable', 'insertChoice', 'insertResource', 'insertSyntax']
 ];

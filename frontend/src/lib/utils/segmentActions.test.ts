@@ -84,11 +84,35 @@ describe('segmentMenuActions', () => {
 			index: 0,
 			total: 2,
 			segmentDisabled: false,
-			hasPromptSyntax: true
+			hasPromptSyntax: true,
+			hasPromptResources: true
 		});
 		for (const action of actions) {
 			const groupsContaining = SEGMENT_ACTION_GROUPS.filter((group) => group.includes(action.id));
 			expect(groupsContaining).toHaveLength(1);
 		}
+	});
+
+	it('omits insertResource when the preset declares no prompt resources', () => {
+		const ids = segmentMenuActions(segment(), { index: 0, total: 2, segmentDisabled: false }).map((a) => a.id);
+		expect(ids).not.toContain('insertResource');
+	});
+
+	it('includes insertResource before insertSyntax when the preset declares both', () => {
+		const actions = segmentMenuActions(segment(), {
+			index: 0,
+			total: 2,
+			segmentDisabled: false,
+			hasPromptSyntax: true,
+			hasPromptResources: true
+		});
+		const ids = actions.map((a) => a.id);
+		expect(actions.find((a) => a.id === 'insertResource')).toMatchObject({ glyph: '@', disabled: false });
+		expect(ids.indexOf('insertResource')).toBeLessThan(ids.indexOf('insertSyntax'));
+	});
+
+	it('disables insertResource when the segment is disabled', () => {
+		const actions = segmentMenuActions(segment(), { index: 0, total: 2, segmentDisabled: true, hasPromptResources: true });
+		expect(actions.find((a) => a.id === 'insertResource')?.disabled).toBe(true);
 	});
 });

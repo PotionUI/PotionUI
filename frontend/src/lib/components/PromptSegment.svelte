@@ -113,7 +113,8 @@
 		index,
 		total,
 		segmentDisabled,
-		hasPromptSyntax: promptSyntax.length > 0
+		hasPromptSyntax: promptSyntax.length > 0,
+		hasPromptResources: promptResources.length > 0
 	});
 	$: pinnedIds = new Set($promptSegmentActionPins.ids);
 	$: pinnedActions = menuActions.filter((action) => pinnedIds.has(action.id));
@@ -274,6 +275,9 @@
 				break;
 			case 'insertChoice':
 				inlineEditor?.insertChoiceGroup();
+				break;
+			case 'insertResource':
+				inlineEditor?.insertResourceTrigger();
 				break;
 			case 'insertSyntax':
 				inlineEditor?.insertSyntaxTrigger();
@@ -442,6 +446,7 @@
 							style={menuStyle}
 							{pinnedIds}
 							hasPromptSyntax={promptSyntax.length > 0}
+							hasPromptResources={promptResources.length > 0}
 							on:run={(e) => runAction(e.detail)}
 							on:togglePin={(e) => togglePin(e.detail)}
 						/>

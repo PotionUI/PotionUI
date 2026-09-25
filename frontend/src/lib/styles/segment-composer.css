@@ -413,6 +413,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .menu-glyph.choice { color: rgb(var(--warning)); }
 
+.menu-glyph.resource { color: rgb(var(--success)); }
+
+.menu-glyph.syntax { color: rgb(var(--warning)); }
+
 .modal-backdrop { position: fixed; z-index: 60; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(0,0,0,.62); backdrop-filter: blur(3px); }
 
 .modal { width: min(520px, calc(100vw - 30px)); background: rgb(var(--surface-1)); border: 1px solid rgb(var(--line-strong)); border-radius: 10px; box-shadow: var(--shadow-overlay); }

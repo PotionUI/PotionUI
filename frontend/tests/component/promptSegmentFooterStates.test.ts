@@ -228,6 +228,7 @@ describe('pinning an action', () => {
 		await tick();
 
 		expect(card.byLabel('Duplicate')).toBeTruthy();
+		expect(card.byLabel('Duplicate')?.classList.contains('reveal')).toBe(true);
 		expect(pinToggle('Duplicate')?.getAttribute('aria-pressed')).toBe('true');
 	});
 

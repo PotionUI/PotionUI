@@ -395,7 +395,7 @@
 						>
 							<button
 								type="button"
-								class="icon-btn head-action"
+								class="icon-btn head-action reveal"
 								aria-label={action.label}
 								disabled={action.disabled}
 								on:click={() => runAction(action.id)}

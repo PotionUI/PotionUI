@@ -77,6 +77,10 @@ export function resourceHandleLabel(spec: PromptResourceSpec, position: number):
 	return `${kindLabel(spec.kind)} ${position}`;
 }
 
+export function renderResourceToken(spec: PromptResourceSpec, position: number): string {
+	return spec.token.split(RESOURCE_INDEX_PLACEHOLDER).join(String(position));
+}
+
 export function findResourceSpec(
 	specs: readonly PromptResourceSpec[],
 	field: string
@@ -116,7 +120,7 @@ export function resolveResourceMarkers(
 		if (!spec) return full;
 		const position = itemPosition(formValues[field], itemKey);
 		if (position === null) return full;
-		return spec.token.split(RESOURCE_INDEX_PLACEHOLDER).join(String(position));
+		return renderResourceToken(spec, position);
 	});
 }
 

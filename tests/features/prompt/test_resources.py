@@ -4,6 +4,7 @@ from src.features.forms.binding import FormBindingError
 from src.features.generation.dto import PromptPair, SegmentInput
 from src.features.presets import PresetTemplateLoader
 from src.features.prompt.resources import (
+    describe_prompt_resources,
     media_item_keys,
     resolve_generation_prompts,
     resolve_prompt_pairs,
@@ -215,3 +216,30 @@ class TestResolveGenerationPromptsWithoutMarkers:
         pairs = [PromptPair(positive="<Picture 1> in a cafe", negative="blurry")]
         resolve_generation_prompts(NoResources(), "refs", pairs, [SegmentInput(text="plain")], {})
         assert pairs[0].positive == "<Picture 1> in a cafe"
+
+
+def test_describe_lists_each_item_with_its_current_token():
+    form = {**FORM, "references": [{**_upload("storage/uploads/a.png"), "label": "the woman"}, *FORM["references"][1:]]}
+    lines = describe_prompt_resources(RESOURCES, form)
+    text = "\n".join(lines)
+    assert '<Picture 1> "the woman"' in text
+    assert "<Picture 2> b.png" in text
+    assert "<Picture 3> c.png" in text
+    assert "<Picture N> · Pictures (references), 3 items" in text
+    assert "<Video N> · reference_videos (reference_videos), 1 item: <Video 1> walk.mp4" in text
+
+
+def test_describe_flags_an_empty_field_and_skips_nothing_declared():
+    lines = describe_prompt_resources(RESOURCES, {"references": [], "reference_videos": None})
+    assert any("<Picture N>" in line and "no items yet" in line for line in lines)
+    assert any("<Video N>" in line and "no items yet" in line for line in lines)
+    assert describe_prompt_resources([], FORM) == []
+
+
+def test_describe_caps_long_fields():
+    many = [_upload(f"storage/uploads/{index}.png") for index in range(15)]
+    lines = describe_prompt_resources(RESOURCES[:1], {"references": many})
+    item_line = next(line for line in lines if line.startswith("- <Picture N>"))
+    assert "<Picture 12> 11.png" in item_line
+    assert "<Picture 13>" not in item_line
+    assert "…3 more" in item_line

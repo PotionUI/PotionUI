@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, getContext } from 'svelte';
 	import { storage } from '$lib/utils/storage';
 	import { api } from '$lib/services/api/index';
 	import type { EditedMediaItem, UploadFileInfo } from '$lib/services/api/media';
@@ -35,6 +35,16 @@
 	import { EDITOR_ICON_PATHS, META_ICON_PATHS, TOOL_ICON_PATHS } from './mediaLoaderIcons';
 	import { originFileIndex } from './mediaLoaderOrigin';
 	import { buildEditedMediaItem } from './mediaLoaderEdited';
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { Badge } from '$lib/components/ui';
+	import { findResourceSpec, mediaItemKey, renderResourceToken, resourceHandleLabel } from '$lib/utils/promptResources';
+	import {
+		EMPTY_PROMPT_RESOURCE_USAGE,
+		PROMPT_RESOURCE_USAGE_CONTEXT_KEY,
+		resourceUseCount,
+		type PromptResourceUsage
+	} from '$lib/utils/promptResourceUsage';
+	import type { Readable } from 'svelte/store';
 
 	// Props
 	export let name: string | null;
@@ -79,6 +89,11 @@
 	$: atMax = maxItems != null && multiItems.length >= maxItems;
 	$: laneMode = usesLanes(limits);
 	$: lanes = groupIntoLanes(multiItems, kinds, (item) => kindOfMediaItem(item));
+
+	const resourceUsage =
+		getContext<Readable<PromptResourceUsage> | undefined>(PROMPT_RESOURCE_USAGE_CONTEXT_KEY) ??
+		EMPTY_PROMPT_RESOURCE_USAGE;
+	$: resourceSpec = name && !compact ? (findResourceSpec($resourceUsage.specs, name) ?? null) : null;
 
 	// State
 	let fileInput: HTMLInputElement;
@@ -904,8 +919,12 @@
 			tiles: lane.items.map((item: Record<string, unknown>, laneIndex: number) => {
 				const itemKind = kindOfMediaItem(item);
 				const meta = itemMetadata(item);
+				const position = lane.indices[laneIndex] + 1;
 				return {
 					item,
+					handle: resourceSpec ? resourceHandleLabel(resourceSpec, position) : null,
+					token: resourceSpec ? renderResourceToken(resourceSpec, position) : null,
+					uses: resourceSpec && name ? resourceUseCount($resourceUsage.counts, name, mediaItemKey(item)) : 0,
 					laneIndex,
 					flatIndex: lane.indices[laneIndex],
 					kind: itemKind,
@@ -1265,11 +1284,29 @@
 									<Icon name={tile.kind ? KIND_ICON[tile.kind] : 'image'} className="w-6 h-6 text-fg-subtle" />
 								{/if}
 
-								<span
-									class="absolute top-1.5 left-1.5 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded bg-canvas/75 font-mono text-2xs font-semibold tabular-nums text-fg"
-								>
-									{tile.laneIndex + 1}
-								</span>
+								{#if tile.handle}
+									<div class="absolute top-1.5 left-1.5 max-w-[calc(100%-2.5rem)]" data-resource-handle={tile.handle}>
+										<Tooltip
+											text={tile.uses
+												? `${tile.token} in the prompt, used ${tile.uses} ${tile.uses === 1 ? 'time' : 'times'}`
+												: `${tile.token} in the prompt, not used yet`}
+											position="bottom"
+										>
+											<Badge class="font-mono tabular-nums whitespace-nowrap">
+												<span>{tile.handle}</span>
+												{#if tile.uses > 0}
+													<span class="text-fg" data-resource-uses>×{tile.uses}</span>
+												{/if}
+											</Badge>
+										</Tooltip>
+									</div>
+								{:else}
+									<span
+										class="absolute top-1.5 left-1.5 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded bg-canvas/75 font-mono text-2xs font-semibold tabular-nums text-fg"
+									>
+										{tile.laneIndex + 1}
+									</span>
+								{/if}
 
 								<button
 									type="button"

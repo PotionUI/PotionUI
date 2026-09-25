@@ -26,6 +26,7 @@ from src.features.llm.tools.governance import ToolGovernanceRepository, compute_
 from src.features.llm.ttl_cache import TTLCache
 from src.features.llm_memory import operations as memory_operations
 from src.features.presets import operations
+from src.features.prompt.resources import describe_prompt_resources
 from src.platform.resources import ResolvedResource, ResourceContext, ResourceSuggestion
 
 logger = logging.getLogger(__name__)
@@ -828,6 +829,8 @@ class ChatContextBuilder:
             if form_context_mode != "off" and preset_id:
                 lines.extend(self._render_form_context(preset_id, mode, variant, form_context_mode))
 
+            lines.extend(self._render_prompt_resources(preset_template, mode, form_data))
+
             block = "\n".join(lines)
             context_budget.attach_context_block(conversation_history, block)
 
@@ -922,6 +925,20 @@ class ChatContextBuilder:
             if parts:
                 lines.append("  Settings: " + ", ".join(parts))
         return lines
+
+    @staticmethod
+    def _render_prompt_resources(
+        preset_template: Any,
+        mode: Optional[str],
+        form_data: Any,
+    ) -> List[str]:
+        declared = getattr(preset_template, "prompt_resources", None) if preset_template else None
+        if not isinstance(declared, dict) or not mode:
+            return []
+        resources = declared.get(mode)
+        if not isinstance(resources, list) or not resources:
+            return []
+        return describe_prompt_resources(resources, form_data if isinstance(form_data, dict) else {})
 
     def _render_form_context(
         self,

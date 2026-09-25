@@ -2013,6 +2013,47 @@ class TestInjectWorkspaceBlockLLMContext:
         assert "Preset: Qwen Image · Mode: txt2img" in block
         assert "01K0W24A3RADXXABH16YQ7KF00" not in block
 
+    def test_prompt_resources_listed_with_current_handles(self):
+        template = _make_preset_template(name="MiniMax H3")
+        template.prompt_resources = {
+            "refs": [{"field": "references", "kind": "image", "label": "Pictures", "token": "<Picture @>"}]
+        }
+        self._wire_preset(template)
+        history = [{"role": "user", "content": "hello"}]
+        context_metadata = {
+            "form_state": {
+                "preset": "MiniMax-H3",
+                "mode": "refs",
+                "form_data": {
+                    "references": [
+                        {"path": "uploads/a.png", "label": "the woman"},
+                        {"path": "uploads/b.png", "name": "cafe.png"},
+                    ]
+                },
+            }
+        }
+
+        self.manager._context.inject_workspace_block(history, context_metadata)
+
+        block = history[0]["content"]
+        assert "Prompt resources" in block
+        assert '<Picture 1> "the woman" · <Picture 2> cafe.png' in block
+
+    def test_prompt_resources_absent_for_other_modes(self):
+        template = _make_preset_template(name="MiniMax H3")
+        template.prompt_resources = {
+            "refs": [{"field": "references", "kind": "image", "token": "<Picture @>"}]
+        }
+        self._wire_preset(template)
+        history = [{"role": "user", "content": "hello"}]
+        context_metadata = {
+            "form_state": {"preset": "MiniMax-H3", "mode": "t2v", "form_data": {"references": ["uploads/a.png"]}}
+        }
+
+        self.manager._context.inject_workspace_block(history, context_metadata)
+
+        assert "Prompt resources" not in history[0]["content"]
+
     def test_header_falls_back_to_raw_id_when_preset_not_found(self):
         """No plugin-manager resolution possible - degrade to exactly the old
         behavior instead of showing nothing."""

@@ -81,6 +81,8 @@
 		saveDisabledTools
 	} from '$lib/utils/chatConfig';
 	import { loadHistoryRailCollapsed, saveHistoryRailCollapsed } from '$lib/utils/chatHistoryRail';
+	import { getPresetPromptResources, type PresetPromptResourcesResult } from '$lib/utils/presetPromptResourcesCache';
+	import type { ResourceTokenContext } from '$lib/utils/promptResourceTokens';
 
 	// Props
 	export let onClose: (() => void) | undefined = undefined;
@@ -261,6 +263,30 @@
 
 	// Resolved context tab: pinned or active
 	$: contextTab = resolveChatContextTab(allTabs, pinnedTabId, $activeTab);
+
+	let chatResources: PresetPromptResourcesResult = { specs: [], fieldLabels: {} };
+	let chatResourcesKey = '';
+	$: {
+		const key = `${contextTab?.selectedPreset ?? ''}::${contextTab?.selectedMode ?? ''}::${contextTab?.selectedVariant ?? ''}`;
+		if (key !== chatResourcesKey) {
+			chatResourcesKey = key;
+			chatResources = { specs: [], fieldLabels: {} };
+			getPresetPromptResources(
+				contextTab?.selectedPreset,
+				contextTab?.selectedMode,
+				contextTab?.selectedVariant ?? undefined
+			).then((result) => {
+				if (chatResourcesKey === key) chatResources = result;
+			});
+		}
+	}
+
+	async function resourceTokenContextFor(tab: typeof contextTab): Promise<ResourceTokenContext | undefined> {
+		if (!tab) return undefined;
+		const result = await getPresetPromptResources(tab.selectedPreset, tab.selectedMode, tab.selectedVariant ?? undefined);
+		if (!result.specs.length) return undefined;
+		return { specs: result.specs, formValues: tab.formData ?? {}, fieldLabels: result.fieldLabels };
+	}
 
 	// Preset display names for the context strip / pin picker, resolved once
 	// (same lookup ChatMemoryPanel does per-preset via loadPresets().find) and
@@ -1120,7 +1146,7 @@
 			? tab.videoDirector?.global_prompt_segments || []
 			: tab.promptSegments || [];
 
-		const result = await applySegmentUpdate(sourceSegments, action);
+		const result = await applySegmentUpdate(sourceSegments, action, await resourceTokenContextFor(tab));
 		if (!result) return;
 		const { segments, index: idx } = result;
 
@@ -1293,12 +1319,17 @@
 
 		let segments: Segment[] = tab.promptSegments || [];
 		let lastAppliedId: string | null = null;
+		const resourceContext = await resourceTokenContextFor(tab);
 		for (const update of updates) {
-			const result = await applySegmentUpdate(segments, {
-				segmentId: update.segment_id,
-				segmentIndex: update.segment_index,
-				content: update.content
-			});
+			const result = await applySegmentUpdate(
+				segments,
+				{
+					segmentId: update.segment_id,
+					segmentIndex: update.segment_index,
+					content: update.content
+				},
+				resourceContext
+			);
 			if (!result) continue;
 			segments = result.segments;
 			lastAppliedId = segments[result.index].id;
@@ -1712,6 +1743,9 @@
 							parsedContent={message.parsed_content}
 							variables={contextTab?.variables}
 							variableRolls={contextTab?.variableRolls}
+							promptResources={chatResources.specs}
+							resourceFieldLabels={chatResources.fieldLabels}
+							resourceFormValues={contextTab?.formData ?? {}}
 						/>
 					{/if}
 					<!-- Tab-switch divider: same idiom as a date divider, not a system

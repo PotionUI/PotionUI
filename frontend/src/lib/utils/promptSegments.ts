@@ -2,6 +2,8 @@ import type { ChipData, Segment } from '$lib/types/segments';
 import { flattenRichSegments, type SegmentJoin } from '$lib/utils/richSegments';
 import { parseChipsFromText } from '$lib/utils/chipParser';
 import { logger } from '$lib/utils/logger';
+import { deriveResourcesFromText, textHasResourceMarkers } from '$lib/utils/promptResources';
+import { convertResourceTokens, type ResourceTokenContext } from '$lib/utils/promptResourceTokens';
 
 /** Resolve enabled segments; collapsed state is presentation-only. */
 export function resolvePromptSegments(segments: Segment[] = [], join: SegmentJoin = 'space'): string {
@@ -69,20 +71,29 @@ export function mergeChipSelections(
  */
 export async function applySegmentUpdate(
 	sourceSegments: Segment[],
-	target: { segmentId: string; segmentIndex: number; content: string }
+	target: { segmentId: string; segmentIndex: number; content: string },
+	resourceContext?: ResourceTokenContext
 ): Promise<{ segments: Segment[]; index: number } | null> {
 	const idx = locateSegmentIndex(sourceSegments, target);
 	if (idx === -1) return null;
 
+	const content = resourceContext?.specs.length
+		? convertResourceTokens(target.content, resourceContext.specs, resourceContext.formValues).text
+		: target.content;
+
 	let newChips: Record<string, ChipData> = {};
 	try {
-		newChips = await parseChipsFromText(target.content, { shuffleCategoryChips: true });
+		newChips = await parseChipsFromText(content, { shuffleCategoryChips: true });
 	} catch (err) {
 		logger.error('Failed to parse chips from applied segment content:', err);
 	}
 
 	const mergedChips = mergeChipSelections(sourceSegments[idx].chips || {}, newChips);
+	const previousResources = sourceSegments[idx].resources;
 	const segments = [...sourceSegments];
-	segments[idx] = { ...segments[idx], content: target.content, chips: mergedChips };
+	segments[idx] = { ...segments[idx], content, chips: mergedChips };
+	if (previousResources || textHasResourceMarkers(content)) {
+		segments[idx].resources = deriveResourcesFromText(content, previousResources || {});
+	}
 	return { segments, index: idx };
 }

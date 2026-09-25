@@ -124,3 +124,56 @@ def resolve_generation_prompts(
     resources = preset_template.prompt_resources.get(mode, [])
     resolve_prompt_pairs(prompts, resources, form_values)
     resolve_segment_texts(segments, resources, form_values)
+
+
+_DESCRIBE_MAX_ITEMS = 12
+_DESCRIBE_MAX_NAME_CHARS = 60
+
+
+def _item_display_name(item: Any) -> str:
+    if isinstance(item, dict):
+        label = item.get("label")
+        if isinstance(label, str) and label.strip():
+            return f'"{label.strip()[:_DESCRIBE_MAX_NAME_CHARS]}"'
+        name = item.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()[:_DESCRIBE_MAX_NAME_CHARS]
+    keys = media_item_keys(item)
+    if keys:
+        return keys[0].replace("\\", "/").rsplit("/", 1)[-1][:_DESCRIBE_MAX_NAME_CHARS]
+    return "unnamed"
+
+
+def describe_prompt_resources(
+    resources: Sequence[Mapping[str, Any]],
+    form_values: Mapping[str, Any],
+) -> List[str]:
+    entries = [entry for entry in resources or [] if isinstance(entry, Mapping) and entry.get("field") and entry.get("token")]
+    if not entries:
+        return []
+    lines = [
+        "Prompt resources (write the token with the item's number; applying your text links each token "
+        "to the item at that position, and a number with no item stays plain text):"
+    ]
+    for entry in entries:
+        field = str(entry["field"])
+        token = str(entry["token"])
+        label = entry.get("label") or field
+        items = _field_items(form_values.get(field))
+        pattern = token.replace(PROMPT_RESOURCE_INDEX_PLACEHOLDER, "N")
+        if not items:
+            lines.append(f"- {pattern} · {label} ({field}): no items yet, do not write this token")
+            continue
+        shown = [
+            f"{token.replace(PROMPT_RESOURCE_INDEX_PLACEHOLDER, str(index))} {_item_display_name(item)}"
+            for index, item in enumerate(items[:_DESCRIBE_MAX_ITEMS], start=1)
+        ]
+        line = f"- {pattern} · {label} ({field}), {len(items)} {'item' if len(items) == 1 else 'items'}: " + " · ".join(shown)
+        if len(items) > _DESCRIBE_MAX_ITEMS:
+            line += f" · …{len(items) - _DESCRIBE_MAX_ITEMS} more"
+        lines.append(line)
+    lines.append(
+        "A segment marker @[field:item] is already a link to one of these items; "
+        "keep it as written or replace it with the item's token."
+    )
+    return lines

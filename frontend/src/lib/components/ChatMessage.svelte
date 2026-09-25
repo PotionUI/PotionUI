@@ -11,6 +11,8 @@
 	import type { ToolExecution, ResourceRef, TraceStep, ReplyContract } from '$lib/types/chat';
 	import { splitResourceTokens } from '$lib/utils/resourceTokens';
 	import { splitMarkerTokens } from '$lib/chat/previewTokens';
+	import type { PromptResourceSpec } from '$lib/utils/promptResources';
+	import { resourceTokenWarnings, splitResourceTokenPreview } from '$lib/utils/promptResourceTokens';
 	import { buildVariableChipTooltips } from '$lib/utils/variableSnapshot';
 	import type { VariablesMap, VariableRoll } from '$lib/utils/variableDefs';
 	import ChatBehaviorTrace from '$lib/components/chat/ChatBehaviorTrace.svelte';
@@ -47,6 +49,9 @@
 	// message text render as read-only chips for names known here.
 	export let variables: VariablesMap | undefined = undefined;
 	export let variableRolls: Record<string, VariableRoll> | undefined = undefined;
+	export let promptResources: PromptResourceSpec[] = [];
+	export let resourceFormValues: Record<string, unknown> = {};
+	export let resourceFieldLabels: Record<string, string> = {};
 	export let onApplyAction:
 		| ((
 				action: { type: string; segmentIndex: number; segmentId: string; content: string },
@@ -329,8 +334,13 @@
 							</div>
 						{/if}
 						<div class="prompt-copy">
-							{#each splitMarkerTokens(action.content) as token}{#if token.kind === 'phrasebook'}<span class="prompt-token" title="Phrasebook: {token.label}"><span class="prompt-token-mark">#</span>{token.label}</span>{:else if token.kind === 'variable'}<span class="prompt-token variable" title={variableChips[token.label] ?? `Variable: ${token.label}`}><span class="prompt-token-mark">$</span>{token.label}</span>{:else}{token.text}{/if}{/each}
+							{#each splitMarkerTokens(action.content) as token}{#if token.kind === 'phrasebook'}<span class="prompt-token" title="Phrasebook: {token.label}"><span class="prompt-token-mark">#</span>{token.label}</span>{:else if token.kind === 'variable'}<span class="prompt-token variable" title={variableChips[token.label] ?? `Variable: ${token.label}`}><span class="prompt-token-mark">$</span>{token.label}</span>{:else}{#each splitResourceTokenPreview(token.text, promptResources, resourceFormValues) as part}{#if part.kind === 'linked'}<span class="prompt-token resource" data-resource-token="linked"><span class="prompt-token-mark">@</span>{part.label}</span>{:else if part.kind === 'unresolved'}<span class="prompt-token-unresolved" data-resource-token="unresolved">{part.text}</span>{:else}{part.text}{/if}{/each}{/if}{/each}
 						</div>
+						{#if promptResources.length}
+							{#each resourceTokenWarnings(action.content, { specs: promptResources, formValues: resourceFormValues, fieldLabels: resourceFieldLabels }) as warning (warning)}
+								<p class="prompt-resource-warning" data-resource-warning>{warning}</p>
+							{/each}
+						{/if}
 					</div>
 				{/each}
 

@@ -219,3 +219,39 @@ describe('applySegmentUpdate', () => {
 		});
 	});
 });
+
+describe('applySegmentUpdate resource tokens', () => {
+	const specs = [{ field: 'references', kind: 'image' as const, label: 'Pictures', token: '<Picture @>' }];
+	const formValues = { references: [{ path: 'uploads/a.png' }, { path: 'uploads/b.png' }] };
+
+	beforeEach(() => {
+		searchPhrasebook.mockReset();
+	});
+
+	it('links plain tokens to the items at their positions and records the references', async () => {
+		const result = await applySegmentUpdate(
+			[{ id: 'a', content: 'old' }],
+			{ segmentId: 'a', segmentIndex: 0, content: '<Picture 2> hugs <Picture 1>, then <Picture 5>' },
+			{ specs, formValues }
+		);
+
+		expect(result?.segments[0].content).toBe(
+			'@[references:uploads/b.png] hugs @[references:uploads/a.png], then <Picture 5>'
+		);
+		expect(Object.values(result?.segments[0].resources ?? {})).toEqual([
+			{ field: 'references', item_key: 'uploads/b.png' },
+			{ field: 'references', item_key: 'uploads/a.png' }
+		]);
+	});
+
+	it('leaves tokens as text without a resource context', async () => {
+		const result = await applySegmentUpdate([{ id: 'a', content: 'old' }], {
+			segmentId: 'a',
+			segmentIndex: 0,
+			content: '<Picture 1> smiles'
+		});
+
+		expect(result?.segments[0].content).toBe('<Picture 1> smiles');
+		expect(result?.segments[0].resources).toBeUndefined();
+	});
+});

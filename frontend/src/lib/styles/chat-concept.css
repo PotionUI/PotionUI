@@ -1008,6 +1008,20 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       color: rgb(var(--ai-1));
     }
 
+.prompt-token-unresolved {
+      color: rgb(var(--warning));
+      text-decoration: underline dashed rgb(var(--warning));
+      text-underline-offset: 3px;
+    }
+
+.prompt-resource-warning {
+      margin: 0;
+      padding: 0 13px 10px;
+      color: rgb(var(--warning));
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
 .message-actions {
       height: 27px;
       margin-top: 8px;

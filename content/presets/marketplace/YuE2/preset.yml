@@ -112,3 +112,41 @@ llm:
 
 modes:
   - song
+
+prompt_syntax:
+  song:
+    - token: "[Intro]"
+      kind: "marker"
+      pattern: '\[[Ii]ntro(?: \d+)?\]'
+      help: "Opening section, usually instrumental or a short vocal hook"
+      color: "lightslategray"
+    - token: "[Verse]"
+      kind: "marker"
+      pattern: '\[[Vv]erse(?: \d+)?\]'
+      help: "Verse: new lyrics each time, the story of the song"
+      color: "cornflowerblue"
+    - token: "[Pre-Chorus]"
+      kind: "marker"
+      pattern: '\[[Pp]re-[Cc]horus(?: \d+)?\]'
+      help: "Build-up that lifts into the chorus"
+      color: "mediumorchid"
+    - token: "[Chorus]"
+      kind: "marker"
+      pattern: '\[[Cc]horus(?: \d+)?\]'
+      help: "Chorus: the repeated hook, same lyrics each time"
+      color: "goldenrod"
+    - token: "[Post-Chorus]"
+      kind: "marker"
+      pattern: '\[[Pp]ost-[Cc]horus(?: \d+)?\]'
+      help: "Short tag after the chorus that echoes the hook"
+      color: "darkorange"
+    - token: "[Bridge]"
+      kind: "marker"
+      pattern: '\[[Bb]ridge(?: \d+)?\]'
+      help: "Contrasting section before the last chorus"
+      color: "mediumseagreen"
+    - token: "[Outro]"
+      kind: "marker"
+      pattern: '\[[Oo]utro(?: \d+)?\]'
+      help: "Closing section; the song ends after it"
+      color: "lightslategray"

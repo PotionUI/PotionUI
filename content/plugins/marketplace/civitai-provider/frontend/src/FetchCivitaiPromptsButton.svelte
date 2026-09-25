@@ -27,13 +27,13 @@
 	let hoverTip = $state(null);
 
 	let modalHostEl = $state(null);
-	let modalApi = null;
-	let modalInstance = null;
+	let modalApi = $state.raw(null);
+	let modalInstance = $state.raw(null);
 	let bodyEl = $state(null);
 
 	let userPickerEl = $state(null);
-	let userPickerApi = null;
-	let userPickerInstance = null;
+	let userPickerApi = $state.raw(null);
+	let userPickerInstance = $state.raw(null);
 
 	let usersById = $derived(Object.fromEntries(users.map((u) => [u.id, u])));
 

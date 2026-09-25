@@ -193,7 +193,8 @@
 		if (!formState || !isFormValid(formState) || phase === 'submitting') return;
 		phase = 'submitting';
 		submitError = '';
-		try {
+
+		const run = async () => {
 			const body = buildFetchRequestBody(model.id, formState);
 			const data = await fetchJson(`/api/plugins/${pluginId}/prompts/fetch`, {
 				method: 'POST',
@@ -202,7 +203,15 @@
 			});
 			result = summarizeFetchResult(data);
 			phase = 'result';
-			context.refresh?.();
+			await context.refresh?.();
+		};
+
+		try {
+			if (context.track) {
+				await context.track(run);
+			} else {
+				await run();
+			}
 		} catch (e) {
 			submitError = e instanceof Error ? e.message : 'Fetching prompts failed.';
 			phase = 'form';

@@ -176,7 +176,7 @@
 
 	<ComponentExample
 		title="ModelCard"
-		description="Checkpoint, LoRA, missing-media, indexed availability, unknown availability, multiple media, and selection states."
+		description="Checkpoint, LoRA, missing-media, indexed availability, unknown availability, multiple media, working, and selection states."
 		code={`<ModelCard\n  {model}\n  showTechnical\n  availabilityIndexed\n  selectable\n  showCheckbox\n  selected={selectedIds.has(model.id)}\n  onSelect={toggleModel}\n/>`}
 	>
 		<div class="grid w-full grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
@@ -186,6 +186,7 @@
 					showTechnical
 					availabilityIndexed={model.id !== 'kit-model-unknown'}
 					backendNames={{ 'native-0': 'Native GPU', 'comfy-main': 'ComfyUI Main' }}
+					working={model.id === 'kit-model-vae'}
 					selectable
 					showCheckbox
 					selected={selectedModelIds.has(model.id)}

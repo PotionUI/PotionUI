@@ -20,7 +20,7 @@
     if (fetching || !eligible || !model.id) return;
     fetching = true;
 
-    try {
+    const run = async () => {
       const token = localStorage.getItem('auth_token');
       const response = await fetch('/api/models/info/fetch', {
         method: 'POST',
@@ -43,9 +43,17 @@
       const result = await response.json();
       if (result?.data?.successful > 0) {
         notify('success', 'CivitAI data added');
-        context.refresh?.();
+        await context.refresh?.();
       } else {
         notify('warning', 'Not found on CivitAI');
+      }
+    };
+
+    try {
+      if (context.track) {
+        await context.track(run);
+      } else {
+        await run();
       }
     } catch (e) {
       notify('error', 'Fetching CivitAI data failed');

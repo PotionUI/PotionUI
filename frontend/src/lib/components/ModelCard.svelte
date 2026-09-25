@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { fade } from 'svelte/transition';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import { filesWithPreview, mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
@@ -39,10 +40,33 @@
 	export let showManagementActions: boolean = false;
 	/** No direct or group assignment exists - only admins can currently see this model. */
 	export let unassigned: boolean = false;
+	export let working: boolean = false;
+	export let onRefresh: (() => Promise<unknown> | unknown) | null = null;
 
 	const dispatch = createEventDispatcher();
 
 	let currentMediaIndex = 0;
+	let workCount = 0;
+	$: isWorking = workCount > 0 || working;
+
+	async function track<T>(promiseOrFn: (() => T | Promise<T>) | Promise<T>): Promise<T> {
+		workCount++;
+		try {
+			return await (typeof promiseOrFn === 'function'
+				? (promiseOrFn as () => T | Promise<T>)()
+				: promiseOrFn);
+		} finally {
+			workCount--;
+		}
+	}
+
+	async function refresh() {
+		if (onRefresh) {
+			await onRefresh();
+		} else {
+			dispatch('refresh', model);
+		}
+	}
 
 	// Media counter shifts right to clear the checkbox badge, exactly like GenerationCard.
 	$: counterOffsetClass = showCheckbox ? 'left-9' : 'left-2';
@@ -142,7 +166,11 @@
 		class="relative rounded-lg overflow-hidden bg-surface-1 border transition-colors duration-100 {selected
 			? 'border-line-hover'
 			: 'border-line-strong hover:border-line-hover'}"
+		aria-busy={isWorking}
 	>
+		{#if isWorking}
+			<div class="work-ring" aria-hidden="true" transition:fade={{ duration: 150 }}></div>
+		{/if}
 		<!-- Selection wash when selected -->
 		{#if selected}
 			<div class="absolute inset-0 bg-signal/15 z-40 pointer-events-none"></div>
@@ -228,7 +256,7 @@
 			{#if !selectable}
 				<div class="absolute top-2 right-2 z-40 flex items-center gap-1">
 					{#if showManagementActions}
-						<PluginSlot hookName="admin.models.card.actions" tooltips context={{ model, refresh: () => dispatch('refresh', model) }}>
+						<PluginSlot hookName="admin.models.card.actions" tooltips context={{ model, refresh, track }}>
 							<svelte:fragment slot="loading" />
 						</PluginSlot>
 						<Tooltip text="Assign access">
@@ -346,6 +374,52 @@
 		}
 		.group:hover .media-zoom :global(img) {
 			transform: none;
+		}
+	}
+
+	@property --work-angle {
+		syntax: '<angle>';
+		inherits: false;
+		initial-value: 0deg;
+	}
+
+	.work-ring {
+		position: absolute;
+		inset: 0;
+		z-index: 30;
+		pointer-events: none;
+		border-radius: inherit;
+		padding: 2px;
+		--work-angle: 0deg;
+		background:
+			conic-gradient(
+				from var(--work-angle),
+				transparent 0deg,
+				rgb(var(--signal)) 40deg,
+				transparent 100deg,
+				transparent 200deg,
+				rgb(var(--signal)) 240deg,
+				transparent 300deg,
+				transparent 360deg
+			),
+			rgb(var(--signal) / 0.25);
+		-webkit-mask: linear-gradient(black 0 0) content-box, linear-gradient(black 0 0);
+		mask: linear-gradient(black 0 0) content-box, linear-gradient(black 0 0);
+		-webkit-mask-composite: xor;
+		mask-composite: exclude;
+		animation: work-ring-spin 2.4s linear infinite;
+	}
+
+	@keyframes work-ring-spin {
+		to {
+			--work-angle: 360deg;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.work-ring {
+			animation: none;
+			background: rgb(var(--signal) / 0.35);
 		}
 	}
 </style>

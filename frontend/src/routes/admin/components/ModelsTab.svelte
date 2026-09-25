@@ -940,7 +940,7 @@
 							on:view={(e) => openModelId(e.detail.id)}
 							on:delete={(e) => handleDeleteModel(e.detail.id, e.detail.name || e.detail.filename)}
 							on:assign={(e) => openAssignModal(e.detail)}
-							on:refresh={loadModels}
+							onRefresh={loadModels}
 						/>
 					{/each}
 				</div>

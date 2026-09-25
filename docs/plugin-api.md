@@ -964,9 +964,23 @@ Give the contribution a `label`: the host wraps your component in the app's tool
 text, so your button must not set a native `title`.
 
 `context.refresh()` reloads the list in place after your action changed the model, so the
-card re-renders with the new previews, tags or description. For provider metadata,
+card re-renders with the new previews, tags or description; it's awaitable, so `await
+context.refresh()` resolves once the reload has landed. For provider metadata,
 `POST /api/models/info/fetch` with `wait: true` and explicit `model_ids` runs the fetch before
 responding and returns `{successful, failed}`; without `wait` it runs in the background.
+
+`context.track(promiseOrFn)` drives the card's "working" state - a moving border around the
+card - while your action is in flight. Pass it a function or a promise; it increments the
+card's busy counter, awaits the result, decrements the counter in a `finally`, and returns
+whatever you passed in resolved. Wrap the network call and the awaited `context.refresh()`
+together so the border keeps animating until the refreshed data has actually landed:
+
+```js
+await context.track(async () => {
+  await fetch(/* ... */);
+  await context.refresh();
+});
+```
 
 ## Contributing a Generation Details action
 

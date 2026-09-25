@@ -426,7 +426,8 @@ The three most recent releases; older history lives in the
   failure alerts); install the new `google-re2` dependency (`pip install -r
   requirements.txt`); Docker images are also tagged with the v-prefixed version; log files written by earlier versions may contain session tokens,
   so delete or rotate them; images generated before this version can be tagged once from
-  Admin → media index.
+  Admin → media index; the Spectral Progressive Diffusion option is gone from the Flux2 and
+  Z-Image presets (saved settings that still carry it keep working).
 
 ### 0.0.10 — 2026-09-23
 

@@ -1,7 +1,8 @@
-import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import List, Optional, Tuple
+
+from src.platform.database.sql_functions import InvalidRegex, compile_regex
 
 REGEX_MAX_LENGTH = 200
 USAGE_STATES = ("any", "used", "never")
@@ -23,6 +24,7 @@ class InvalidModelSearch(ValueError):
 @dataclass(frozen=True)
 class ModelSearchFilter:
     regex: Optional[str] = None
+    wildcard: Optional[str] = None
     indexed_from: Optional[date] = None
     indexed_to: Optional[date] = None
     used: str = "any"
@@ -41,7 +43,7 @@ class ModelSearchFilter:
 
     @property
     def is_empty(self) -> bool:
-        return not self.regex and self.indexed_from is None and self.indexed_to is None and not self.needs_usage
+        return not self.regex and not self.wildcard and self.indexed_from is None and self.indexed_to is None and not self.needs_usage
 
 
 def _parse_day(value: Optional[str], label: str) -> Optional[date]:
@@ -78,10 +80,17 @@ def parse_model_search(
         if len(search) > REGEX_MAX_LENGTH:
             raise InvalidModelSearch(f"Regular expression is longer than {REGEX_MAX_LENGTH} characters")
         try:
-            re.compile(search)
-        except re.error as exc:
-            raise InvalidModelSearch(f"Invalid regular expression: {exc}")
+            compile_regex(search)
+        except InvalidRegex as exc:
+            raise InvalidModelSearch(
+                f"Invalid regular expression: {exc}. Backreferences and lookarounds are not supported."
+            )
         regex = search
+        search = None
+
+    wildcard = None
+    if mode == "substring" and search and ("*" in search or "?" in search):
+        wildcard = search
         search = None
 
     usage = (used or "any").strip().lower()
@@ -103,6 +112,7 @@ def parse_model_search(
 
     return search, ModelSearchFilter(
         regex=regex,
+        wildcard=wildcard,
         indexed_from=parsed_indexed_from,
         indexed_to=parsed_indexed_to,
         used=usage,
@@ -120,6 +130,20 @@ def _day_after(day: date) -> str:
     return _day_start(day + timedelta(days=1))
 
 
+def wildcard_like_pattern(wildcard: str) -> str:
+    translated = []
+    for char in wildcard:
+        if char in ("\\", "%", "_"):
+            translated.append("\\" + char)
+        elif char == "*":
+            translated.append("%")
+        elif char == "?":
+            translated.append("_")
+        else:
+            translated.append(char)
+    return "".join(translated)
+
+
 def search_filter_clauses(search_filter: Optional[ModelSearchFilter], has_library: bool) -> Tuple[List[str], List]:
     clauses: List[str] = []
     params: List = []
@@ -135,6 +159,19 @@ def search_filter_clauses(search_filter: Optional[ModelSearchFilter], has_librar
         if has_library:
             alternatives.append("umm.custom_name REGEXP ?")
             params.append(search_filter.regex)
+        clauses.append("(" + " OR ".join(alternatives) + ")")
+
+    if search_filter.wildcard:
+        pattern = wildcard_like_pattern(search_filter.wildcard)
+        alternatives = [
+            "m.filename LIKE ? ESCAPE '\\'",
+            "m.filename LIKE ? ESCAPE '\\'",
+            "EXISTS (SELECT 1 FROM providers pr WHERE pr.model_id = m.id AND pr.name LIKE ? ESCAPE '\\')",
+        ]
+        params.extend([pattern, pattern + ".%", pattern])
+        if has_library:
+            alternatives.append("umm.custom_name LIKE ? ESCAPE '\\'")
+            params.append(pattern)
         clauses.append("(" + " OR ".join(alternatives) + ")")
 
     if search_filter.indexed_from:

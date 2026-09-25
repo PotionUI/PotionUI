@@ -44,6 +44,7 @@ peft>=0.13.2
 injector>=0.3.0
 fastapi==0.115.6
 dctorch>=0.1.2
+google-re2==1.1.20251105
 einops>=0.8.0
 torchdiffeq>=0.2.3
 torchsde>=0.2.5

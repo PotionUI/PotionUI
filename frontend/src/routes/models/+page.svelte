@@ -1,10 +1,12 @@
 <script lang="ts">
-	import { logger } from '$lib/utils/logger';
+	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
+	import { isAxiosError } from 'axios';
 	import { api } from '$lib/services/api/index';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { authStore } from '$lib/stores/auth';
 	import { resolveInstallModelsTarget } from '$lib/utils/installModelsTarget';
 	import { recipeCatalog, loadRecipeCatalog } from '$lib/stores/recipeCatalog';
@@ -26,6 +28,9 @@
 	let selectedType = 'all';
 	let selectedTags: string[] = [];
 	let searchQuery = '';
+	let searchMode: 'substring' | 'regex' = 'substring';
+	let searchError: string | null = null;
+	let typesRequest: AbortController | undefined;
 	let sortBy = 'filename';
 	let sortOrder = 'desc';
 	let currentPage = 1;
@@ -77,7 +82,7 @@
 	$: installModels = resolveInstallModelsTarget($recipeCatalog, null, isAdmin);
 
 	// Update URL when filters change (after initialization)
-	$: if (browser && initialized && (selectedType || searchQuery !== undefined || selectedTags || sortBy || sortOrder || currentPage || itemsPerPage || favoritesOnly || collectionId)) {
+	$: if (browser && initialized && (selectedType || searchQuery !== undefined || searchMode || selectedTags || sortBy || sortOrder || currentPage || itemsPerPage || favoritesOnly || collectionId)) {
 		updateUrlParams();
 	}
 
@@ -85,6 +90,7 @@
 		const params = new URLSearchParams();
 		if (selectedType !== 'all') params.set('type', selectedType);
 		if (searchQuery) params.set('q', searchQuery);
+		if (searchMode === 'regex') params.set('q_mode', 'regex');
 		if (selectedTags.length > 0) params.set('tags', selectedTags.join(','));
 		if (sortBy !== 'filename') params.set('sort', sortBy);
 		if (sortOrder !== 'desc') params.set('order', sortOrder);
@@ -101,6 +107,7 @@
 		const params = $page.url.searchParams;
 		selectedType = params.get('type') || 'all';
 		searchQuery = params.get('q') || '';
+		searchMode = params.get('q_mode') === 'regex' ? 'regex' : 'substring';
 		const tagsParam = params.get('tags');
 		selectedTags = tagsParam ? tagsParam.split(',') : [];
 		sortBy = params.get('sort') || 'filename';
@@ -143,13 +150,17 @@
 		currentPage;
 		selectedType;
 		searchQuery;
+		searchMode;
 		selectedTags;
 		sortBy;
 		sortOrder;
 		itemsPerPage;
 		favoritesOnly;
 		collectionId;
-		if (!loading) loadModels();
+		if (!loading) {
+			loadModels();
+			loadModelTypes();
+		}
 	}
 
 	async function loadModels() {
@@ -157,6 +168,7 @@
 			const response = await api.getModels({
 				model_type: selectedType !== 'all' ? selectedType : undefined,
 				search: searchQuery || undefined,
+				q_mode: searchQuery && searchMode === 'regex' ? 'regex' : undefined,
 				sort_by: sortBy,
 				sort_order: sortOrder,
 				limit: itemsPerPage,
@@ -170,19 +182,41 @@
 			if (response.success && response.data) {
 				models = response.data.models;
 				totalCount = response.data.total;
+				searchError = null;
 			}
 		} catch (error) {
+			if (isAxiosError(error) && error.response?.status === 422) {
+				searchError = getApiErrorMessage(error, 'Invalid search');
+				models = [];
+				totalCount = 0;
+				return;
+			}
 			logger.error('Failed to load models:', error);
 		}
 	}
 
 	async function loadModelTypes() {
+		typesRequest?.abort();
+		const request = new AbortController();
+		typesRequest = request;
 		try {
-			const response = await api.getModelTypes({ user_scoped: true });
+			const response = await api.getModelTypes(
+				{
+					user_scoped: true,
+					search: searchQuery || undefined,
+					q_mode: searchQuery && searchMode === 'regex' ? 'regex' : undefined,
+					tag_ids: selectedTags.length > 0 ? selectedTags.join(',') : undefined,
+					favorites_only: favoritesOnly || undefined,
+					collection_id: collectionId
+				},
+				request.signal
+			);
+			if (request.signal.aborted) return;
 			if (response.success && response.data) {
 				modelTypes = response.data.types;
 			}
 		} catch (error) {
+			if (request.signal.aborted || (isAxiosError(error) && error.response?.status === 422)) return;
 			logger.error('Failed to load model types:', error);
 		}
 	}
@@ -227,8 +261,14 @@
 
 	function handleClearAllFilters() {
 		searchQuery = '';
+		searchMode = 'substring';
 		selectedType = 'all';
 		selectedTags = [];
+		currentPage = 1;
+	}
+
+	function toggleSearchMode() {
+		searchMode = searchMode === 'regex' ? 'substring' : 'regex';
 		currentPage = 1;
 	}
 
@@ -288,11 +328,27 @@
 				/>
 				<input
 					type="text"
-					class="input text-xs py-1.5 pl-8 pr-3 bg-surface-2/50 w-full"
-					placeholder="Search models..."
+					class="input text-xs py-1.5 pl-8 pr-9 bg-surface-2/50 w-full {searchError ? 'border-danger' : ''}"
+					placeholder={searchMode === 'regex' ? 'Regular expression…' : 'Search models · * and ? are wildcards'}
+					aria-invalid={searchError ? 'true' : undefined}
 					bind:value={searchQuery}
 				/>
+				<div class="absolute right-1 top-1/2 -translate-y-1/2">
+					<Tooltip text="Regular expression" position="bottom">
+						<IconButton
+							icon="regex"
+							label="Regular expression"
+							size="xs"
+							active={searchMode === 'regex'}
+							ariaPressed={searchMode === 'regex'}
+							onclick={toggleSearchMode}
+						/>
+					</Tooltip>
+				</div>
 			</div>
+			{#if searchError}
+				<span class="text-xs text-danger min-w-0 truncate">{searchError}</span>
+			{/if}
 
 			<!-- Filters cluster -->
 			<div class="hidden md:flex items-center gap-2 flex-wrap">
@@ -310,7 +366,9 @@
 						<button
 							class="px-2 py-1 text-xs rounded-sm transition-colors duration-100 whitespace-nowrap {selectedType === type.type
 								? 'bg-signal/10 text-signal'
-								: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
+								: type.count === 0
+									? 'text-fg-subtle hover:bg-surface-3/50'
+									: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
 							on:click={() => handleTypeChange(type.type)}
 						>
 							{type.type.charAt(0).toUpperCase() + type.type.slice(1)}

@@ -36,6 +36,7 @@ peft>=0.13.2
 injector>=0.3.0
 fastapi==0.115.6  # Holds starlette <0.42; bumping fastapi/starlette together is planned work
 dctorch>=0.1.2  # For DCT operations
+google-re2==1.1.20251105
 einops>=0.8.0  # For tensor operations
 torchdiffeq>=0.2.3  # For differential equation solvers
 torchsde>=0.2.5  # For stochastic differential equations

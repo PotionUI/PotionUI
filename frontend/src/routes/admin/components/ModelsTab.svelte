@@ -108,6 +108,8 @@
 
 	let models = $state<ModelListItem[]>([]);
 	let modelTypes = $state<ModelTypeInfo[]>([]);
+	let tagCounts = $state<Record<string, number> | null>(null);
+	let typesRequest: AbortController | undefined;
 	let loading = $state(true);
 	let availableTags = $state<ModelTag[]>([]);
 	let tagSearchQuery = $state('');
@@ -267,7 +269,10 @@
 		void filters;
 		void section;
 		currentPage = 1;
-		if (!loading && !isAttributesSection) loadModels();
+		if (!loading && !isAttributesSection) {
+			loadModels();
+			loadModelTypes();
+		}
 	});
 
 	async function loadModels() {
@@ -358,12 +363,33 @@
 	}
 
 	async function loadModelTypes() {
+		typesRequest?.abort();
+		const request = new AbortController();
+		typesRequest = request;
 		try {
-			const response = await api.getModelTypes();
-			if (response.success) modelTypes = response.data?.types || [];
+			const response = await api.getModelTypes(
+				{
+					...modelsQueryParams(filters),
+					tag_ids: filters.tags.length > 0 ? filters.tags.join(',') : undefined,
+					model_type: section === 'all' || isAttributesSection ? undefined : section,
+					include_tag_counts: true
+				},
+				request.signal
+			);
+			if (request.signal.aborted) return;
+			if (response.success) {
+				modelTypes = response.data?.types || [];
+				tagCounts = response.data?.tag_counts ?? null;
+			}
 		} catch (error) {
+			if (request.signal.aborted || (isAxiosError(error) && error.response?.status === 422)) return;
 			logger.error('Error loading model types:', error);
 		}
+	}
+
+	function tagCountFor(tag: ModelTag): number | null {
+		if (tagCounts) return tagCounts[tag.id] ?? 0;
+		return tag.model_count ?? null;
 	}
 
 	async function loadAvailableTags() {
@@ -702,6 +728,7 @@
 						<PaneRow
 							title={row.label}
 							count={row.count}
+							inactive={row.count === 0 && section !== row.type}
 							selected={section === row.type}
 							onclick={() => selectSection(section === row.type ? MODELS_ALL_SECTION : row.type)}
 						/>
@@ -725,7 +752,7 @@
 			<LibraryFilterBar
 				q={filters.q}
 				onQueryChange={(value) => updateFilters({ ...filters, q: value })}
-				searchPlaceholder={filters.qMode === 'regex' ? 'Regular expression on filename or name…' : 'Search by filename…'}
+				searchPlaceholder={filters.qMode === 'regex' ? 'Regular expression on filename or name…' : 'Search by filename · * and ? are wildcards'}
 				sortBy={filters.sortBy}
 				sortOptions={MODELS_SORT_OPTIONS}
 				onSortChange={(value) => updateFilters({ ...filters, sortBy: value as ModelsSortBy })}
@@ -761,14 +788,15 @@
 											<div class="p-2 text-sm text-fg-subtle text-center">No tags found</div>
 										{:else}
 											{#each filteredTags as tag (tag.id)}
-												<div class="w-full flex items-center gap-1 pr-1 hover:bg-surface-3 {filters.tags.includes(tag.id) ? 'bg-surface-2 text-fg' : ''}">
+													{@const tagCount = tagCountFor(tag)}
+												<div class="w-full flex items-center gap-1 pr-1 hover:bg-surface-3 {filters.tags.includes(tag.id) ? 'bg-surface-2 text-fg' : tagCount === 0 ? 'text-fg-subtle' : ''}">
 													<button
 														type="button"
 														class="flex-1 min-w-0 text-left px-3 py-2 text-sm flex items-center justify-between"
 														onclick={() => handleToggleTag(tag.id)}
 													>
 														<span class="truncate">{tag.name}</span>
-														<span class="text-fg-subtle ml-2 flex-shrink-0">{tag.model_count ? `(${tag.model_count})` : ''}</span>
+														<span class="text-fg-subtle ml-2 flex-shrink-0 font-mono tabular-nums">{tagCount ?? ''}</span>
 													</button>
 													<IconButton
 														icon="trash"

@@ -55,59 +55,64 @@ export interface BulkModelTagsResult {
 	tags: BulkModelTagsResultItem[];
 }
 
+export interface ModelFilterParams {
+	search?: string;
+	tag_ids?: string;
+	assignment_filter?: string;
+	assigned_user_id?: string;
+	assigned_group_id?: string;
+	favorites_only?: boolean;
+	collection_id?: string;
+	in_any_collection?: boolean;
+	q_mode?: 'substring' | 'regex';
+	indexed_from?: string;
+	indexed_to?: string;
+	used?: 'any' | 'used' | 'never';
+	min_uses?: number;
+	last_used_from?: string;
+	last_used_to?: string;
+}
+
+export function appendModelFilterParams(searchParams: URLSearchParams, params?: ModelFilterParams): void {
+	if (!params) return;
+	if (params.search) searchParams.append('search', params.search);
+	if (params.tag_ids) searchParams.append('tag_ids', params.tag_ids);
+	if (params.assignment_filter) searchParams.append('assignment_filter', params.assignment_filter);
+	if (params.assigned_user_id) searchParams.append('assigned_user_id', params.assigned_user_id);
+	if (params.assigned_group_id) searchParams.append('assigned_group_id', params.assigned_group_id);
+	if (params.favorites_only) searchParams.append('favorites_only', 'true');
+	if (params.collection_id) searchParams.append('collection_id', params.collection_id);
+	if (params.in_any_collection) searchParams.append('in_any_collection', 'true');
+	if (params.q_mode) searchParams.append('q_mode', params.q_mode);
+	if (params.indexed_from) searchParams.append('indexed_from', params.indexed_from);
+	if (params.indexed_to) searchParams.append('indexed_to', params.indexed_to);
+	if (params.used) searchParams.append('used', params.used);
+	if (params.min_uses) searchParams.append('min_uses', params.min_uses.toString());
+	if (params.last_used_from) searchParams.append('last_used_from', params.last_used_from);
+	if (params.last_used_to) searchParams.append('last_used_to', params.last_used_to);
+}
+
 export function createModelsApi(client: AxiosInstance) {
 	return {
-		async getModels(params?: {
+		async getModels(params?: ModelFilterParams & {
 			model_type?: string;
-			search?: string;
 			sort_by?: string;
 			sort_order?: string;
 			limit?: number;
 			offset?: number;
 			include_tags?: boolean;
-			tag_ids?: string;
 			all_models?: boolean;
-			assignment_filter?: string;
-			assigned_user_id?: string;
-			assigned_group_id?: string;
-			favorites_only?: boolean;
-			collection_id?: string;
-			in_any_collection?: boolean;
-			q_mode?: 'substring' | 'regex';
-			indexed_from?: string;
-			indexed_to?: string;
-			used?: 'any' | 'used' | 'never';
-			min_uses?: number;
-			last_used_from?: string;
-			last_used_to?: string;
 		}, signal?: AbortSignal): Promise<APIResponse<{ models: any[]; total: number; availability_indexed: boolean }>> {
 			const searchParams = new URLSearchParams();
 			if (params?.model_type) searchParams.append('model_type', params.model_type);
-			if (params?.search) searchParams.append('search', params.search);
 			if (params?.sort_by) searchParams.append('sort_by', params.sort_by);
 			if (params?.sort_order) searchParams.append('sort_order', params.sort_order);
 			if (params?.limit) searchParams.append('limit', params.limit.toString());
 			if (params?.offset) searchParams.append('offset', params.offset.toString());
 			if (params?.include_tags !== undefined)
 				searchParams.append('include_tags', params.include_tags.toString());
-			if (params?.tag_ids) searchParams.append('tag_ids', params.tag_ids);
 			if (params?.all_models) searchParams.append('all_models', 'true');
-			if (params?.assignment_filter)
-				searchParams.append('assignment_filter', params.assignment_filter);
-			if (params?.assigned_user_id)
-				searchParams.append('assigned_user_id', params.assigned_user_id);
-			if (params?.assigned_group_id)
-				searchParams.append('assigned_group_id', params.assigned_group_id);
-			if (params?.favorites_only) searchParams.append('favorites_only', 'true');
-			if (params?.collection_id) searchParams.append('collection_id', params.collection_id);
-			if (params?.in_any_collection) searchParams.append('in_any_collection', 'true');
-			if (params?.q_mode) searchParams.append('q_mode', params.q_mode);
-			if (params?.indexed_from) searchParams.append('indexed_from', params.indexed_from);
-			if (params?.indexed_to) searchParams.append('indexed_to', params.indexed_to);
-			if (params?.used) searchParams.append('used', params.used);
-			if (params?.min_uses) searchParams.append('min_uses', params.min_uses.toString());
-			if (params?.last_used_from) searchParams.append('last_used_from', params.last_used_from);
-			if (params?.last_used_to) searchParams.append('last_used_to', params.last_used_to);
+			appendModelFilterParams(searchParams, params);
 
 			const queryString = searchParams.toString();
 			const response = await client.get(`/api/models${queryString ? `?${queryString}` : ''}`, { signal });
@@ -332,16 +337,25 @@ export function createModelsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async getModelTypes(params?: {
-			user_scoped?: boolean;
-			include_empty?: boolean;
-		}): Promise<APIResponse<{ types: any[] }>> {
+		async getModelTypes(
+			params?: ModelFilterParams & {
+				user_scoped?: boolean;
+				include_empty?: boolean;
+				model_type?: string;
+				include_tag_counts?: boolean;
+			},
+			signal?: AbortSignal
+		): Promise<APIResponse<{ types: any[]; total: number; tag_counts?: Record<string, number> }>> {
 			const searchParams = new URLSearchParams();
 			if (params?.user_scoped) searchParams.append('user_scoped', 'true');
 			if (params?.include_empty) searchParams.append('include_empty', 'true');
+			if (params?.model_type) searchParams.append('model_type', params.model_type);
+			if (params?.include_tag_counts) searchParams.append('include_tag_counts', 'true');
+			appendModelFilterParams(searchParams, params);
 			const queryString = searchParams.toString();
 			const response = await client.get(
-				`/api/models/types${queryString ? `?${queryString}` : ''}`
+				`/api/models/types${queryString ? `?${queryString}` : ''}`,
+				{ signal }
 			);
 			return response.data;
 		},

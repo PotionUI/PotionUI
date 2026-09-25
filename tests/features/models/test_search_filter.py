@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import date
 from unittest.mock import Mock
 
@@ -15,6 +16,7 @@ from src.features.models.search_filter import (
     InvalidModelSearch,
     ModelSearchFilter,
     parse_model_search,
+    wildcard_like_pattern,
 )
 from src.platform.database.sql_functions import regexp
 from src.platform.security.current_user import get_current_active_user
@@ -35,6 +37,22 @@ class TestParseModelSearch:
     def test_invalid_regex_is_rejected_with_reason(self):
         with pytest.raises(InvalidModelSearch, match="Invalid regular expression"):
             parse_model_search(search="([a-z", q_mode="regex")
+
+    @pytest.mark.parametrize("pattern", [r"(a)\1", r"foo(?=bar)", r"(?<!x)y"])
+    def test_backrefs_and_lookarounds_are_rejected(self, pattern):
+        with pytest.raises(InvalidModelSearch, match="not supported"):
+            parse_model_search(search=pattern, q_mode="regex")
+
+    def test_wildcards_in_substring_mode_become_a_wildcard_filter(self):
+        search, search_filter = parse_model_search(search="krea2_*_onetrainer", q_mode=None)
+        assert search is None
+        assert search_filter.wildcard == "krea2_*_onetrainer"
+        assert not search_filter.is_empty
+
+    def test_wildcard_characters_stay_literal_in_regex_mode(self):
+        _, search_filter = parse_model_search(search="a.*b", q_mode="regex")
+        assert search_filter.wildcard is None
+        assert search_filter.regex == "a.*b"
 
     def test_overlong_regex_is_rejected(self):
         with pytest.raises(InvalidModelSearch, match="longer than"):
@@ -76,6 +94,22 @@ class TestRegexpFunction:
 
     def test_invalid_pattern_never_matches(self):
         assert not regexp("([", "anything")
+
+    def test_pathological_pattern_runs_in_linear_time(self):
+        started = time.perf_counter()
+        assert not regexp("(a+)+$", "a" * 100_000 + "!")
+        assert time.perf_counter() - started < 1.0
+
+    def test_backreference_pattern_never_matches(self):
+        assert not regexp(r"(a)\1", "aa")
+
+
+class TestWildcardLikePattern:
+    def test_translates_star_and_question_mark(self):
+        assert wildcard_like_pattern("a*b?c") == "a%b_c"
+
+    def test_escapes_like_metacharacters(self):
+        assert wildcard_like_pattern("50%_off\\x") == "50\\%\\_off\\\\x"
 
 
 class TestModelSearchRepository(PersistenceTestBase):
@@ -128,6 +162,31 @@ class TestModelSearchRepository(PersistenceTestBase):
         UserModelMetaRepository().set_custom_name(user_id, self.sdxl.id, "My Portrait Base")
         self.assertEqual(self._names(ModelSearchFilter(regex=r"portrait"), library_user_id=user_id), {"sdxl-base.safetensors"})
         self.assertEqual(self._names(ModelSearchFilter(regex=r"portrait")), set())
+
+    def test_wildcard_matches_the_filename_stem_whole(self):
+        self._model("krea2_alice_onetrainer.safetensors", "2026-03-02 00:00:00")
+        self._model("krea2_bob_onetrainer_v2.safetensors", "2026-03-02 00:00:00")
+        self.assertEqual(
+            self._names(ModelSearchFilter(wildcard="KREA2_*_onetrainer")), {"krea2_alice_onetrainer.safetensors"}
+        )
+        self.assertEqual(
+            self._names(ModelSearchFilter(wildcard="krea2_???_onetrainer*")),
+            {"krea2_bob_onetrainer_v2.safetensors"},
+        )
+
+    def test_wildcard_treats_percent_and_underscore_literally(self):
+        self._model("50%_off.safetensors", "2026-03-02 00:00:00")
+        self._model("50xxoff.safetensors", "2026-03-02 00:00:00")
+        self.assertEqual(self._names(ModelSearchFilter(wildcard="50%_*")), {"50%_off.safetensors"})
+
+    def test_wildcard_matches_display_name(self):
+        self.assertEqual(self._names(ModelSearchFilter(wildcard="juggernaut *")), {"detail-tweaker.safetensors"})
+
+    def test_regex_scan_stays_fast_on_pathological_pattern(self):
+        self._model("a" * 5000 + "!", "2026-03-02 00:00:00")
+        started = time.perf_counter()
+        self.assertEqual(self._names(ModelSearchFilter(regex="(a+)+$")), set())
+        self.assertLess(time.perf_counter() - started, 1.0)
 
     def test_indexed_range_is_inclusive_by_day(self):
         found = self._names(ModelSearchFilter(indexed_from=date(2026, 1, 10), indexed_to=date(2026, 2, 15)))
@@ -219,6 +278,13 @@ class TestListModelsSearchRoute:
         response = await self._get(app, {"search": "([", "q_mode": "regex"})
         assert response.status_code == 422
         assert "Invalid regular expression" in response.text
+        assert "params" not in captured
+
+    @pytest.mark.asyncio
+    async def test_backreference_regex_returns_422(self, app, captured):
+        response = await self._get(app, {"search": r"(\w)\1", "q_mode": "regex"})
+        assert response.status_code == 422
+        assert "not supported" in response.text
         assert "params" not in captured
 
     @pytest.mark.asyncio

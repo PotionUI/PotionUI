@@ -827,122 +827,107 @@ class ModelRepository:
                     in_any_collection: bool = False,
                     search_filter: Optional[ModelSearchFilter] = None) -> int:
         """Count total models with optional tag, search, type, and access filtering"""
-        in_any_collection_sql = (
-            "m.id IN (SELECT mcm.model_id FROM model_collection_members mcm "
-            "JOIN model_collections mc ON mc.id = mcm.collection_id WHERE mc.user_id = ?)"
+        rows = self._filtered_aggregate(
+            "COUNT(DISTINCT m.id) AS count", "", "",
+            tag_ids=tag_ids, search=search, model_type=model_type, allowed_model_ids=allowed_model_ids,
+            assignment_filter=assignment_filter, assigned_user_id=assigned_user_id,
+            assigned_group_id=assigned_group_id, library_user_id=library_user_id,
+            favorites_only=favorites_only, collection_id=collection_id,
+            in_any_collection=in_any_collection, search_filter=search_filter,
         )
-        use_in_any_collection = in_any_collection and bool(library_user_id)
-        library_join = ""
-        library_params: List = []
+        return rows[0]['count'] if rows else 0
+
+    def count_filtered_by_type(self, **filters: Any) -> Dict[str, int]:
+        rows = self._filtered_aggregate(
+            "m.model_type AS model_type, COUNT(DISTINCT m.id) AS count", "", " GROUP BY m.model_type", **filters
+        )
+        return {row['model_type']: row['count'] for row in rows}
+
+    def count_filtered_by_tag(self, **filters: Any) -> Dict[str, int]:
+        rows = self._filtered_aggregate(
+            "fmt.tag_id AS tag_id, COUNT(DISTINCT m.id) AS count",
+            " INNER JOIN model_tags fmt ON fmt.model_id = m.id",
+            " GROUP BY fmt.tag_id",
+            **filters,
+        )
+        return {row['tag_id']: row['count'] for row in rows}
+
+    def _filtered_aggregate(self, select_sql: str, extra_join: str, group_sql: str,
+                            tag_ids: Optional[List[str]] = None, search: Optional[str] = None,
+                            model_type: Optional[str] = None, allowed_model_ids: Optional[List[str]] = None,
+                            assignment_filter: Optional[str] = None, assigned_user_id: Optional[str] = None,
+                            assigned_group_id: Optional[str] = None, library_user_id: Optional[str] = None,
+                            favorites_only: bool = False, collection_id: Optional[str] = None,
+                            in_any_collection: bool = False,
+                            search_filter: Optional[ModelSearchFilter] = None) -> List[Any]:
+        if allowed_model_ids is not None and len(allowed_model_ids) == 0:
+            return []
+
+        joins = ""
+        params: List = []
         if library_user_id:
-            library_join = " LEFT JOIN user_model_meta umm ON umm.model_id = m.id AND umm.user_id = ?"
-            library_params = [library_user_id]
-
-        collection_join = ""
-        collection_params: List = []
+            joins += " LEFT JOIN user_model_meta umm ON umm.model_id = m.id AND umm.user_id = ?"
+            params.append(library_user_id)
         if collection_id:
-            collection_join = " INNER JOIN model_collection_members mcm ON mcm.model_id = m.id AND mcm.collection_id = ?"
-            collection_params = [collection_id]
-
-        library_where_clauses = []
-        if favorites_only and library_user_id:
-            library_where_clauses.append("COALESCE(umm.is_favorite, 0) = 1")
-
-        advanced_clauses, advanced_params = search_filter_clauses(search_filter, bool(library_user_id))
-        library_where_clauses.extend(advanced_clauses)
+            joins += " INNER JOIN model_collection_members mcm ON mcm.model_id = m.id AND mcm.collection_id = ?"
+            params.append(collection_id)
         if search_filter and search_filter.needs_usage:
-            collection_join += USAGE_JOIN
+            joins += USAGE_JOIN
+        joins += extra_join
+
+        where_clauses: List[str] = []
+        if tag_ids:
+            placeholders = ','.join('?' * len(tag_ids))
+            where_clauses.append(
+                f"m.id IN (SELECT model_id FROM model_tags WHERE tag_id IN ({placeholders}) "
+                "GROUP BY model_id HAVING COUNT(DISTINCT tag_id) = ?)"
+            )
+            params.extend(tag_ids)
+            params.append(len(tag_ids))
+        if favorites_only and library_user_id:
+            where_clauses.append("COALESCE(umm.is_favorite, 0) = 1")
+        advanced_clauses, advanced_params = search_filter_clauses(search_filter, bool(library_user_id))
+        where_clauses.extend(advanced_clauses)
+        params.extend(advanced_params)
+        if search:
+            where_clauses.append("LOWER(m.filename) LIKE LOWER(?)")
+            params.append(f"%{search}%")
+        if in_any_collection and library_user_id:
+            where_clauses.append(
+                "m.id IN (SELECT mcm2.model_id FROM model_collection_members mcm2 "
+                "JOIN model_collections mc ON mc.id = mcm2.collection_id WHERE mc.user_id = ?)"
+            )
+            params.append(library_user_id)
+        if model_type:
+            where_clauses.append("m.model_type = ?")
+            params.append(model_type)
+        if allowed_model_ids is not None:
+            where_clauses.append(f"m.id IN ({','.join('?' * len(allowed_model_ids))})")
+            params.extend(allowed_model_ids)
+        if assignment_filter and assigned_user_id:
+            subquery = "SELECT model_id FROM user_models WHERE user_id = ?"
+            if assignment_filter == 'assigned':
+                where_clauses.append(f"m.id IN ({subquery})")
+            elif assignment_filter == 'unassigned':
+                where_clauses.append(f"m.id NOT IN ({subquery})")
+            params.append(assigned_user_id)
+        if assignment_filter and assigned_group_id:
+            subquery = "SELECT model_id FROM user_group_models WHERE group_id = ?"
+            if assignment_filter == 'assigned':
+                where_clauses.append(f"m.id IN ({subquery})")
+            elif assignment_filter == 'unassigned':
+                where_clauses.append(f"m.id NOT IN ({subquery})")
+            params.append(assigned_group_id)
+
+        query = f"SELECT {select_sql} FROM models m{joins}"
+        if where_clauses:
+            query += " WHERE " + " AND ".join(where_clauses)
+        query += group_sql
 
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
-            if tag_ids and len(tag_ids) > 0:
-                placeholders = ','.join('?' * len(tag_ids))
-                query = f"""
-                    SELECT COUNT(DISTINCT m.id) as count
-                    FROM models m{library_join}{collection_join}
-                    WHERE m.id IN (
-                        SELECT model_id FROM model_tags
-                        WHERE tag_id IN ({placeholders})
-                        GROUP BY model_id
-                        HAVING COUNT(DISTINCT tag_id) = ?
-                    )
-                """
-                params = list(library_params) + list(collection_params) + list(tag_ids) + [len(tag_ids)] + list(advanced_params)
-
-                for clause in library_where_clauses:
-                    query += f" AND {clause}"
-                if search:
-                    query += " AND LOWER(m.filename) LIKE LOWER(?)"
-                    params.append(f"%{search}%")
-                if use_in_any_collection:
-                    query += f" AND {in_any_collection_sql}"
-                    params.append(library_user_id)
-                if model_type:
-                    query += " AND m.model_type = ?"
-                    params.append(model_type)
-                if allowed_model_ids is not None:
-                    if len(allowed_model_ids) == 0:
-                        return 0
-                    id_placeholders = ','.join('?' * len(allowed_model_ids))
-                    query += f" AND m.id IN ({id_placeholders})"
-                    params.extend(allowed_model_ids)
-                if assignment_filter and assigned_user_id:
-                    subquery = "SELECT model_id FROM user_models WHERE user_id = ?"
-                    if assignment_filter == 'assigned':
-                        query += f" AND m.id IN ({subquery})"
-                    elif assignment_filter == 'unassigned':
-                        query += f" AND m.id NOT IN ({subquery})"
-                    params.append(assigned_user_id)
-                if assignment_filter and assigned_group_id:
-                    subquery = "SELECT model_id FROM user_group_models WHERE group_id = ?"
-                    if assignment_filter == 'assigned':
-                        query += f" AND m.id IN ({subquery})"
-                    elif assignment_filter == 'unassigned':
-                        query += f" AND m.id NOT IN ({subquery})"
-                    params.append(assigned_group_id)
-
-                cursor.execute(query, params)
-            else:
-                query = f"SELECT COUNT(DISTINCT m.id) as count FROM models m{library_join}{collection_join}"
-                where_clauses = list(library_where_clauses)
-                params = list(library_params) + list(collection_params) + list(advanced_params)
-
-                if search:
-                    where_clauses.append("LOWER(m.filename) LIKE LOWER(?)")
-                    params.append(f"%{search}%")
-                if use_in_any_collection:
-                    where_clauses.append(in_any_collection_sql)
-                    params.append(library_user_id)
-                if model_type:
-                    where_clauses.append("m.model_type = ?")
-                    params.append(model_type)
-                if allowed_model_ids is not None:
-                    if len(allowed_model_ids) == 0:
-                        return 0
-                    id_placeholders = ','.join('?' * len(allowed_model_ids))
-                    where_clauses.append(f"m.id IN ({id_placeholders})")
-                    params.extend(allowed_model_ids)
-                if assignment_filter and assigned_user_id:
-                    subquery = "SELECT model_id FROM user_models WHERE user_id = ?"
-                    if assignment_filter == 'assigned':
-                        where_clauses.append(f"m.id IN ({subquery})")
-                    elif assignment_filter == 'unassigned':
-                        where_clauses.append(f"m.id NOT IN ({subquery})")
-                    params.append(assigned_user_id)
-                if assignment_filter and assigned_group_id:
-                    subquery = "SELECT model_id FROM user_group_models WHERE group_id = ?"
-                    if assignment_filter == 'assigned':
-                        where_clauses.append(f"m.id IN ({subquery})")
-                    elif assignment_filter == 'unassigned':
-                        where_clauses.append(f"m.id NOT IN ({subquery})")
-                    params.append(assigned_group_id)
-
-                if where_clauses:
-                    query += " WHERE " + " AND ".join(where_clauses)
-
-                cursor.execute(query, params)
-
-            return cursor.fetchone()['count']
+            cursor.execute(query, params)
+            return cursor.fetchall()
 
     # Model Files Methods
     def get_model_file_by_id(self, model_file_id: str) -> Optional[ModelFile]:

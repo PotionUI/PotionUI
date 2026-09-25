@@ -70,15 +70,10 @@ class ModelCatalog:
         # Determine allowed model IDs based on user permissions
         allowed_model_ids = self.access_policy.get_allowed_model_ids(user, params.all_models)
         is_admin = user.account_type == AccountType.ADMIN
-        search_filter = params.search_filter
+        search_filter = self._visible_search_filter(params.search_filter, is_admin)
         sort_by = params.sort_by
-        if not is_admin:
-            if search_filter is not None:
-                search_filter = replace(
-                    search_filter, used="any", min_uses=None, last_used_from=None, last_used_to=None
-                )
-            if sort_by in USAGE_SORT_FIELDS:
-                sort_by = "indexed_at"
+        if not is_admin and sort_by in USAGE_SORT_FIELDS:
+            sort_by = "indexed_at"
 
         # Get models
         models = self.model_repo.get_all(
@@ -163,6 +158,14 @@ class ModelCatalog:
 
         return result
 
+    @staticmethod
+    def _visible_search_filter(
+        search_filter: Optional[ModelSearchFilter], is_admin: bool
+    ) -> Optional[ModelSearchFilter]:
+        if is_admin or search_filter is None:
+            return search_filter
+        return replace(search_filter, used="any", min_uses=None, last_used_from=None, last_used_to=None)
+
     def get_model_availability(self, model_id: str) -> Dict[str, Any]:
         """Where this model can be loaded, and under what name on each backend.
 
@@ -241,6 +244,8 @@ class ModelCatalog:
         user: User,
         user_scoped: bool = False,
         include_empty: bool = False,
+        facets: Optional[ListModelsParams] = None,
+        include_tag_counts: bool = False,
     ) -> Dict[str, Any]:
         """Available model types and their counts.
 
@@ -264,14 +269,35 @@ class ModelCatalog:
         type_counts = self.model_repo.count_by_type(allowed_model_ids=allowed_model_ids)
         type_sizes = self.model_repo.get_total_size_by_type()
 
+        facet_filters = None
+        if facets is not None:
+            facet_filters = {
+                "tag_ids": facets.tag_ids,
+                "search": facets.search,
+                "allowed_model_ids": allowed_model_ids,
+                "assignment_filter": facets.assignment_filter,
+                "assigned_user_id": facets.assigned_user_id,
+                "assigned_group_id": facets.assigned_group_id,
+                "library_user_id": user.id,
+                "favorites_only": facets.favorites_only,
+                "collection_id": facets.collection_id,
+                "in_any_collection": facets.in_any_collection,
+                "search_filter": self._visible_search_filter(
+                    facets.search_filter, user.account_type == AccountType.ADMIN
+                ),
+            }
+            matched_counts = self.model_repo.count_filtered_by_type(**facet_filters)
+        else:
+            matched_counts = type_counts
+
         types = []
-        for model_type, count in type_counts.items():
+        for model_type in type_counts:
             size_bytes = type_sizes.get(model_type, 0)
             types.append({
                 "type": model_type,
                 "directory": self._type_directory(model_type),
                 "subdirectories": self._type_subdirectories(model_type),
-                "count": count,
+                "count": matched_counts.get(model_type, 0),
                 "size_bytes": size_bytes,
                 "size_mb": round(size_bytes / (1024 * 1024), 2) if size_bytes > 0 else 0,
                 "size_gb": round(size_bytes / (1024 * 1024 * 1024), 2) if size_bytes > 0 else 0
@@ -290,10 +316,17 @@ class ModelCatalog:
                     "size_gb": 0
                 })
 
-        return {
+        result: Dict[str, Any] = {
             "types": types,
-            "total_types": len(types)
+            "total_types": len(types),
+            "total": sum(matched_counts.values()),
         }
+        if include_tag_counts:
+            tag_filters = dict(facet_filters or {"allowed_model_ids": allowed_model_ids})
+            if facets is not None and facets.model_type:
+                tag_filters["model_type"] = facets.model_type
+            result["tag_counts"] = self.model_repo.count_filtered_by_tag(**tag_filters)
+        return result
 
     def get_model_by_hash(self, sha256: str) -> Dict[str, Any]:
         """Look up a model by its SHA256 hash. Raises ModelNotFoundException if absent."""

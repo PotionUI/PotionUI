@@ -206,11 +206,60 @@ class ModelController(BaseController):
         self,
         user: User,
         user_scoped: bool = False,
-        include_empty: bool = False
+        include_empty: bool = False,
+        model_type: Optional[str] = None,
+        tag_ids: Optional[str] = None,
+        search: Optional[str] = None,
+        assignment_filter: Optional[str] = None,
+        assigned_user_id: Optional[str] = None,
+        assigned_group_id: Optional[str] = None,
+        favorites_only: bool = False,
+        collection_id: Optional[str] = None,
+        in_any_collection: bool = False,
+        q_mode: Optional[str] = None,
+        indexed_from: Optional[str] = None,
+        indexed_to: Optional[str] = None,
+        used: Optional[str] = None,
+        min_uses: Optional[int] = None,
+        last_used_from: Optional[str] = None,
+        last_used_to: Optional[str] = None,
+        include_tag_counts: bool = False,
     ) -> APIResponse:
         """Get available model types and their counts."""
         try:
-            data = await operations.get_model_types(self.collaborators, user, user_scoped, include_empty)
+            search, search_filter = parse_model_search(
+                search=search,
+                q_mode=q_mode,
+                indexed_from=indexed_from,
+                indexed_to=indexed_to,
+                used=used,
+                min_uses=min_uses,
+                last_used_from=last_used_from,
+                last_used_to=last_used_to,
+            )
+        except InvalidModelSearch as exc:
+            self.error_response(error="invalid_model_search", message=str(exc), status_code=422)
+        parsed_tag_ids = [tid.strip() for tid in tag_ids.split(',') if tid.strip()] if tag_ids else None
+        faceted = bool(
+            parsed_tag_ids or search or not search_filter.is_empty or assignment_filter
+            or favorites_only or collection_id or in_any_collection or model_type
+        )
+        facets = ListModelsParams(
+            model_type=model_type,
+            tag_ids=parsed_tag_ids,
+            search=search,
+            assignment_filter=assignment_filter,
+            assigned_user_id=assigned_user_id,
+            assigned_group_id=assigned_group_id,
+            favorites_only=favorites_only,
+            collection_id=collection_id,
+            in_any_collection=in_any_collection,
+            search_filter=search_filter,
+        ) if faceted else None
+        try:
+            data = await operations.get_model_types(
+                self.collaborators, user, user_scoped, include_empty, facets, include_tag_counts
+            )
             return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error getting model types: {e}")
@@ -1108,10 +1157,48 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_model_types(
         user_scoped: bool = Query(False, description="When true, counts only models assigned to the current user"),
         include_empty: bool = Query(False, description="When true (admin, non-user_scoped only), also include known model types with zero indexed models"),
+        model_type: Optional[str] = Query(None, description="Narrows `tag_counts` only; type counts always ignore it"),
+        tag_ids: Optional[str] = Query(None, description="Comma-separated tag IDs every counted model must carry"),
+        search: Optional[str] = Query(None, description="Same as the list endpoint's `search`"),
+        assignment_filter: Optional[str] = Query(None, description="Filter by assignment: 'assigned' or 'unassigned'"),
+        assigned_user_id: Optional[str] = Query(None, description="User ID for assignment filtering"),
+        assigned_group_id: Optional[str] = Query(None, description="Group ID for assignment filtering"),
+        favorites_only: bool = Query(False, description="Only count models favorited by the current user"),
+        collection_id: Optional[str] = Query(None, description="Only count models in this model collection"),
+        in_any_collection: bool = Query(False, description="Only count models in any of the current user's collections"),
+        q_mode: Optional[str] = Query(None, description="How `search` matches: 'substring' (default) or 'regex'"),
+        indexed_from: Optional[str] = Query(None, description="Indexed on or after this day (YYYY-MM-DD, UTC)"),
+        indexed_to: Optional[str] = Query(None, description="Indexed on or before this day (YYYY-MM-DD, UTC)"),
+        used: Optional[str] = Query(None, description="Usage filter: 'any', 'used' or 'never'"),
+        min_uses: Optional[int] = Query(None, description="Only models used in at least this many generations"),
+        last_used_from: Optional[str] = Query(None, description="Last used on or after this day (YYYY-MM-DD, UTC)"),
+        last_used_to: Optional[str] = Query(None, description="Last used on or before this day (YYYY-MM-DD, UTC)"),
+        include_tag_counts: bool = Query(False, description="Also return `tag_counts`: matching models per tag id"),
         current_user: User = Depends(get_current_active_user)
     ):
         """Get available model types and their counts."""
-        return await controller.get_model_types(current_user, user_scoped, include_empty)
+        return await controller.get_model_types(
+            current_user,
+            user_scoped,
+            include_empty,
+            model_type=model_type,
+            tag_ids=tag_ids,
+            search=search,
+            assignment_filter=assignment_filter,
+            assigned_user_id=assigned_user_id,
+            assigned_group_id=assigned_group_id,
+            favorites_only=favorites_only,
+            collection_id=collection_id,
+            in_any_collection=in_any_collection,
+            q_mode=q_mode,
+            indexed_from=indexed_from,
+            indexed_to=indexed_to,
+            used=used,
+            min_uses=min_uses,
+            last_used_from=last_used_from,
+            last_used_to=last_used_to,
+            include_tag_counts=include_tag_counts,
+        )
 
 
     @router.get("/unindexed-count", response_model=APIResponse, summary="Count Unindexed Models")

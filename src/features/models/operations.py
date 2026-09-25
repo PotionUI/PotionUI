@@ -56,9 +56,16 @@ async def get_model_stats(collaborators: ModelIndexCollaborators) -> Dict[str, A
 
 
 async def get_model_types(
-    collaborators: ModelIndexCollaborators, user: User, user_scoped: bool = False, include_empty: bool = False
+    collaborators: ModelIndexCollaborators,
+    user: User,
+    user_scoped: bool = False,
+    include_empty: bool = False,
+    facets: Optional[ListModelsParams] = None,
+    include_tag_counts: bool = False,
 ) -> Dict[str, Any]:
-    return await asyncio.to_thread(collaborators.catalog.get_model_types, user, user_scoped, include_empty)
+    return await asyncio.to_thread(
+        collaborators.catalog.get_model_types, user, user_scoped, include_empty, facets, include_tag_counts
+    )
 
 
 async def get_model_by_hash(collaborators: ModelIndexCollaborators, sha256: str) -> Dict[str, Any]:

@@ -205,4 +205,31 @@ describe('ModelsTab advanced search', () => {
 		expect(target.querySelector('button[aria-label="Remove filter Never used"]')).not.toBeNull();
 		expect(target.querySelector('button[aria-label="Remove filter Indexed from 2026-01-01"]')).not.toBeNull();
 	});
+
+	it('narrows the By type counts with the active search and dims types with no matches', async () => {
+		mockGetModelTypes.mockImplementation(async (params?: { search?: string }) => ({
+			success: true,
+			data: params?.search
+				? { types: [{ type: 'lora', count: 15 }, { type: 'vae', count: 0 }], total: 15 }
+				: { types: [{ type: 'lora', count: 132 }, { type: 'vae', count: 5 }], total: 137 }
+		}));
+		mountTab();
+		await settle();
+
+		expect(target.textContent).toContain('132');
+
+		await typeQuery('krea2_*_onetrainer');
+
+		const lastCall = mockGetModelTypes.mock.calls.at(-1)?.[0];
+		expect(lastCall).toMatchObject({ search: 'krea2_*_onetrainer', include_tag_counts: true });
+		expect(lastCall).not.toHaveProperty('q_mode');
+		const rows = Array.from(target.querySelectorAll('[role="option"]'));
+		const lora = rows.find((el) => el.textContent?.includes('LoRA'))!;
+		const vae = rows.find((el) => el.textContent?.includes('VAE'))!;
+		expect(lora.textContent).toContain('15');
+		expect(lora.textContent).not.toContain('132');
+		expect(vae.textContent).toContain('0');
+		expect(vae.querySelector('.opacity-50')).not.toBeNull();
+		expect(lora.querySelector('.opacity-50')).toBeNull();
+	});
 });

@@ -69,7 +69,7 @@
 								value={entry.ref_media}
 								{formData}
 								kind="image"
-								compactFullWidth
+								fill
 								onChange={(v) => setReference(entry.id, v)}
 								config={{ accept: 'image/*' }}
 							/>
@@ -96,7 +96,7 @@
 										value={entry.strength}
 										oninput={(e) => setStrength(entry.id, parseFloat((e.currentTarget as HTMLInputElement).value))}
 									/>
-									<span class="w-10 shrink-0 text-right font-mono text-xs tabular-nums text-fg-muted">
+									<span class="w-12 shrink-0 text-right font-mono text-xs tabular-nums text-fg-muted">
 										{entry.strength.toFixed(2)}
 									</span>
 								</div>
@@ -129,8 +129,24 @@
 	@container icl-card (min-width: 30rem) {
 		.icl-body {
 			grid-template-columns: 16rem minmax(0, 1fr);
-			align-items: start;
+			align-items: stretch;
 		}
+	}
+
+	.icl-media {
+		display: flex;
+		min-width: 0;
+		min-height: 11rem;
+	}
+
+	.icl-media > :global(*) {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	.icl-controls {
+		min-width: 0;
+		padding-right: 2px;
 	}
 
 	.add-icl {

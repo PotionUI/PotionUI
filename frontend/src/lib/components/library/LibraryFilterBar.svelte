@@ -19,6 +19,7 @@
 		sortOptions,
 		onSortChange,
 		filterCount = 0,
+		searchAddon,
 		popover
 	}: {
 		q: string;
@@ -31,6 +32,7 @@
 		sortOptions: readonly SortOption[];
 		onSortChange: (value: string) => void;
 		filterCount?: number;
+		searchAddon?: Snippet;
 		popover?: Snippet<[() => void]>;
 	} = $props();
 
@@ -112,6 +114,7 @@
 		{#if searchHint}
 			<span class="whitespace-nowrap font-mono text-xs tabular-nums text-fg-subtle">{searchHint}</span>
 		{/if}
+		{@render searchAddon?.()}
 	</div>
 </div>
 

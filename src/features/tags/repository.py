@@ -327,6 +327,82 @@ class TagRepository:
                 logger.error(f"Error setting model tags: {e}")
                 return False
 
+    def bulk_update_model_tags(self, model_ids: List[str], add: List[str], remove: List[str]) -> Dict:
+        from src.platform.database.database import db
+        unique_model_ids = list(dict.fromkeys(model_ids))
+        with db.get_cursor() as cursor:
+            known: set = set()
+            for start in range(0, len(unique_model_ids), _SQLITE_IN_CHUNK_SIZE):
+                chunk = unique_model_ids[start:start + _SQLITE_IN_CHUNK_SIZE]
+                placeholders = ','.join('?' * len(chunk))
+                cursor.execute(f"SELECT id FROM models WHERE id IN ({placeholders})", chunk)
+                known.update(row['id'] for row in cursor.fetchall())
+            target_ids = [model_id for model_id in unique_model_ids if model_id in known]
+            unknown_model_ids = [model_id for model_id in unique_model_ids if model_id not in known]
+
+            def resolve(ref: str, create: bool) -> Optional[Tag]:
+                cursor.execute("""
+                    SELECT id, name, type, user_id, created_at FROM tags
+                    WHERE type = 'MODEL' AND user_id IS NULL AND (id = ? OR LOWER(name) = LOWER(?))
+                    ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END
+                    LIMIT 1
+                """, (ref, ref, ref))
+                row = cursor.fetchone()
+                if row:
+                    return self._row_to_tag(row)
+                if not create:
+                    return None
+                tag_id = generate_ulid()
+                now = now_utc()
+                cursor.execute("""
+                    INSERT INTO tags (id, name, type, user_id, created_at)
+                    VALUES (?, ?, 'MODEL', NULL, ?)
+                """, (tag_id, ref, now.isoformat()))
+                return Tag(id=tag_id, name=ref, type=TagType.MODEL, user_id=None, created_at=now)
+
+            results: Dict[str, Dict] = {}
+            unknown_tags: List[str] = []
+
+            def entry(tag: Tag) -> Dict:
+                return results.setdefault(tag.id, {
+                    "id": tag.id, "name": tag.name, "added": 0, "already_present": 0, "removed": 0,
+                })
+
+            for ref in add:
+                tag = resolve(ref, create=True)
+                item = entry(tag)
+                for model_id in target_ids:
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO model_tags (model_id, tag_id, created_at)
+                        VALUES (?, ?, CURRENT_TIMESTAMP)
+                    """, (model_id, tag.id))
+                    if cursor.rowcount > 0:
+                        item["added"] += 1
+                    else:
+                        item["already_present"] += 1
+
+            for ref in remove:
+                tag = resolve(ref, create=False)
+                if not tag:
+                    unknown_tags.append(ref)
+                    continue
+                item = entry(tag)
+                for start in range(0, len(target_ids), _SQLITE_IN_CHUNK_SIZE):
+                    chunk = target_ids[start:start + _SQLITE_IN_CHUNK_SIZE]
+                    placeholders = ','.join('?' * len(chunk))
+                    cursor.execute(
+                        f"DELETE FROM model_tags WHERE tag_id = ? AND model_id IN ({placeholders})",
+                        [tag.id, *chunk],
+                    )
+                    item["removed"] += max(cursor.rowcount, 0)
+
+        return {
+            "models": len(target_ids),
+            "unknown_model_ids": unknown_model_ids,
+            "unknown_tags": unknown_tags,
+            "tags": list(results.values()),
+        }
+
     # Generation-Tag relationship methods
 
     def add_tag_to_generation(self, generation_id: str, tag_id: str) -> bool:

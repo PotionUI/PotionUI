@@ -12,6 +12,7 @@
 	import { formatBytes } from '$lib/utils/format';
 	import { isAvailabilityKnown } from '$lib/utils/modelAvailability';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
+	import { timeAgo } from '$lib/utils/relativeTime';
 	import type { TagUsageRef } from '$lib/types/api';
 	import type { UnindexedModelsCount } from '$lib/services/api/models';
 	import type { AttributeDefinition } from '$lib/types/models';
@@ -38,6 +39,7 @@
 	import AttributesList from './models/AttributesList.svelte';
 	import AttributeDetailPage from './models/AttributeDetailPage.svelte';
 	import ModelDetailPage from './models/ModelDetailPage.svelte';
+	import BulkTagModal from './models/BulkTagModal.svelte';
 	import {
 		MODEL_LIBRARY_SECTIONS,
 		MODELS_ALL_SECTION,
@@ -68,9 +70,12 @@
 		modelsFiltersFromSearchParams,
 		modelsFiltersToSearchParams,
 		modelsHasActiveFilters,
+		modelsQueryParams,
 		modelsSortParams,
+		withModelsUsage,
 		type ModelsFilters,
-		type ModelsSortBy
+		type ModelsSortBy,
+		type ModelsUsage
 	} from './modelsFilters';
 
 	interface ModelListItem {
@@ -110,6 +115,7 @@
 	let unindexedCount = $state<UnindexedModelsCount | null>(null);
 	let totalCount = $state(0);
 	let modelsError = $state<string | null>(null);
+	let searchError = $state<string | null>(null);
 	let availabilityIndexed = $state(false);
 	let backendNames = $state<Record<string, string>>({});
 	let assignmentSummary = $state<AssignmentSummary>({});
@@ -123,6 +129,7 @@
 	let bulkModelIds = $state<string[]>([]);
 	let bulkAdapter = $state<AssignmentAdapter | null>(null);
 	let isBulkAssignOpen = $state(false);
+	let bulkTagModelIds = $state<string[] | null>(null);
 	let bulkProgress = $state({ done: 0, total: 0 });
 	const bulkBusy = $derived(bulkProgress.total > 0 && bulkProgress.done < bulkProgress.total);
 
@@ -268,7 +275,7 @@
 			const { sort_by, sort_order } = modelsSortParams(filters.sortBy);
 			const response = await api.getModels({
 				model_type: section === 'all' || isAttributesSection ? undefined : section,
-				search: filters.q || undefined,
+				...modelsQueryParams(filters),
 				tag_ids: filters.tags.length > 0 ? filters.tags.join(',') : undefined,
 				sort_by,
 				sort_order,
@@ -282,13 +289,41 @@
 				totalCount = response.data?.total || 0;
 				availabilityIndexed = response.data?.availability_indexed ?? false;
 				modelsError = null;
+				searchError = null;
 			} else {
 				modelsError = response.message || 'Failed to load models';
 			}
 		} catch (error) {
+			if (isAxiosError(error) && error.response?.status === 422) {
+				searchError = getApiErrorMessage(error, 'Invalid search');
+				models = [];
+				totalCount = 0;
+				modelsError = null;
+				return;
+			}
 			logger.error('Error loading models:', error);
 			modelsError = getApiErrorMessage(error, 'Failed to load models');
 		}
+	}
+
+	const USAGE_OPTIONS: { value: ModelsUsage; label: string }[] = [
+		{ value: 'any', label: 'Any' },
+		{ value: 'used', label: 'Used' },
+		{ value: 'never', label: 'Never used' }
+	];
+
+	function setMinUses(raw: string) {
+		const parsed = Number.parseInt(raw, 10);
+		updateFilters({ ...filters, minUses: Number.isFinite(parsed) && parsed >= 1 ? String(parsed) : '' });
+	}
+
+	function usesLabel(model: ModelListItem): string {
+		return typeof model.use_count === 'number' ? String(model.use_count) : '—';
+	}
+
+	function lastUsedLabel(model: ModelListItem): string {
+		if (typeof model.use_count !== 'number') return '—';
+		return timeAgo(model.last_used_at as string | undefined) || 'Never';
 	}
 
 	function changeModelsPage(next: number) {
@@ -584,6 +619,8 @@
 		{ key: 'size', label: 'Size', width: '90px', mono: true, priority: 1, accessor: (m) => (m.file_size ? formatBytes(m.file_size as number) : '—') },
 		{ key: 'availability', label: 'Availability', width: '140px', priority: 1, cell: availabilityCell },
 		{ key: 'tags', label: 'Tags', width: 'minmax(120px,1.2fr)', priority: 2, cell: tagsCell },
+		{ key: 'uses', label: 'Uses', width: '70px', mono: true, align: 'right', priority: 1, accessor: usesLabel },
+		{ key: 'last_used', label: 'Last used', width: '100px', mono: true, priority: 1, accessor: lastUsedLabel },
 		{ key: 'assigned', label: 'Assigned', width: '90px', mono: true, priority: 2, accessor: (m) => assignedCountFor(m.id) }
 	]);
 </script>
@@ -688,12 +725,24 @@
 			<LibraryFilterBar
 				q={filters.q}
 				onQueryChange={(value) => updateFilters({ ...filters, q: value })}
-				searchPlaceholder="Search by filename…"
+				searchPlaceholder={filters.qMode === 'regex' ? 'Regular expression on filename or name…' : 'Search by filename…'}
 				sortBy={filters.sortBy}
 				sortOptions={MODELS_SORT_OPTIONS}
 				onSortChange={(value) => updateFilters({ ...filters, sortBy: value as ModelsSortBy })}
 				filterCount={activeFilterCount}
 			>
+				{#snippet searchAddon()}
+					<Tooltip text="Regular expression" position="bottom">
+						<IconButton
+							icon="regex"
+							label="Regular expression"
+							size="xs"
+							active={filters.qMode === 'regex'}
+							ariaPressed={filters.qMode === 'regex'}
+							onclick={() => updateFilters({ ...filters, qMode: filters.qMode === 'regex' ? 'substring' : 'regex' })}
+						/>
+					</Tooltip>
+				{/snippet}
 				{#snippet popover(close: () => void)}
 					<FilterPopoverFrame label="Model filters" onClearAll={() => updateFilters(clearAllModelsFilters(filters))} onClose={close}>
 						<div class="col-span-2 flex flex-col gap-1.5">
@@ -751,6 +800,79 @@
 								</div>
 							{/if}
 						</div>
+
+						<label class="flex flex-col gap-1.5">
+							<span class="text-xs font-medium text-fg-muted">Indexed from</span>
+							<input
+								type="date"
+								class="input font-mono tabular-nums"
+								value={filters.indexedFrom}
+								onchange={(event) => updateFilters({ ...filters, indexedFrom: (event.currentTarget as HTMLInputElement).value })}
+							/>
+						</label>
+						<label class="flex flex-col gap-1.5">
+							<span class="text-xs font-medium text-fg-muted">Indexed to</span>
+							<input
+								type="date"
+								class="input font-mono tabular-nums"
+								value={filters.indexedTo}
+								onchange={(event) => updateFilters({ ...filters, indexedTo: (event.currentTarget as HTMLInputElement).value })}
+							/>
+						</label>
+
+						<div class="col-span-2 flex flex-col gap-1.5">
+							<span id="models-usage-label" class="text-xs font-medium text-fg-muted">Usage</span>
+							<div class="flex items-center gap-0.5 self-start rounded bg-surface-2 p-0.5" role="radiogroup" aria-labelledby="models-usage-label">
+								{#each USAGE_OPTIONS as option (option.value)}
+									<button
+										type="button"
+										role="radio"
+										aria-checked={filters.used === option.value}
+										class="rounded px-3 py-1 text-xs font-medium transition-colors {filters.used === option.value ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-3 hover:text-fg'}"
+										onclick={() => updateFilters(withModelsUsage(filters, option.value))}
+									>
+										{option.label}
+									</button>
+								{/each}
+							</div>
+						</div>
+
+						{#if filters.used === 'used'}
+							<label class="col-span-2 flex flex-col gap-1.5">
+								<span class="text-xs font-medium text-fg-muted">At least this many uses</span>
+								<input
+									type="number"
+									min="1"
+									step="1"
+									inputmode="numeric"
+									placeholder="1"
+									class="input w-32 font-mono tabular-nums"
+									value={filters.minUses}
+									onchange={(event) => setMinUses((event.currentTarget as HTMLInputElement).value)}
+								/>
+							</label>
+						{/if}
+
+						{#if filters.used !== 'never'}
+							<label class="flex flex-col gap-1.5">
+								<span class="text-xs font-medium text-fg-muted">Last used from</span>
+								<input
+									type="date"
+									class="input font-mono tabular-nums"
+									value={filters.lastUsedFrom}
+									onchange={(event) => updateFilters({ ...filters, lastUsedFrom: (event.currentTarget as HTMLInputElement).value })}
+								/>
+							</label>
+							<label class="flex flex-col gap-1.5">
+								<span class="text-xs font-medium text-fg-muted">Last used to</span>
+								<input
+									type="date"
+									class="input font-mono tabular-nums"
+									value={filters.lastUsedTo}
+									onchange={(event) => updateFilters({ ...filters, lastUsedTo: (event.currentTarget as HTMLInputElement).value })}
+								/>
+							</label>
+						{/if}
 					</FilterPopoverFrame>
 				{/snippet}
 			</LibraryFilterBar>
@@ -893,6 +1015,12 @@
 		<LoadErrorState message={modelsError} onRetry={loadModels} retrying={loading} />
 	{:else}
 		<div class="flex flex-col gap-3 p-4">
+			{#if searchError}
+				<p role="alert" class="flex items-center gap-2 font-mono text-xs text-danger">
+					<Icon name="warning" className="w-3.5 h-3.5 flex-shrink-0" />
+					<span class="min-w-0 break-words">{searchError}</span>
+				</p>
+			{/if}
 			<SelectionActionBar
 				active={selectedModelIds.size > 0}
 				selectedCount={selectedModelIds.size}
@@ -908,6 +1036,13 @@
 					>
 						<Icon name="group" className="w-4 h-4" />
 						Assign access
+					</button>
+					<button
+						class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
+						onclick={() => (bulkTagModelIds = [...selectedModelIds])}
+					>
+						<Icon name="tag" className="w-4 h-4" />
+						Tags
 					</button>
 				</svelte:fragment>
 			</SelectionActionBar>
@@ -1024,6 +1159,17 @@
 			<ConfirmFooter confirmLabel="Done" onCancel={closeAssignModal} onConfirm={closeAssignModal} />
 		</svelte:fragment>
 	</BaseModal>
+{/if}
+
+{#if bulkTagModelIds}
+	<BulkTagModal
+		isOpen={true}
+		modelIds={bulkTagModelIds}
+		onClose={() => (bulkTagModelIds = null)}
+		onApplied={async () => {
+			await Promise.all([loadModels(), loadAvailableTags()]);
+		}}
+	/>
 {/if}
 
 {#if isBulkAssignOpen && bulkAdapter}

@@ -21,9 +21,12 @@ package (`from src.features.tags import operations`), never from a submodule
 directly.
 """
 from src.features.tags.operations.crud import create_tag, update_tag, delete_tag
+from src.features.tags.operations.model_bulk import bulk_update_model_tags, model_selection_tags
 
 __all__ = [
     "create_tag",
     "update_tag",
     "delete_tag",
+    "bulk_update_model_tags",
+    "model_selection_tags",
 ]

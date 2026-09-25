@@ -57,6 +57,7 @@ from src.features.models.attributes.repository import AttributeDefinitionReposit
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
 from src.features.models.location import ModelsLocationError
 from src.features.models.catalog import ListModelsParams
+from src.features.models.search_filter import InvalidModelSearch, parse_model_search
 from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
 from src.platform.security.user import User, AccountType
 
@@ -110,9 +111,29 @@ class ModelController(BaseController):
         assigned_group_id: Optional[str] = None,
         favorites_only: bool = False,
         collection_id: Optional[str] = None,
-        in_any_collection: bool = False
+        in_any_collection: bool = False,
+        q_mode: Optional[str] = None,
+        indexed_from: Optional[str] = None,
+        indexed_to: Optional[str] = None,
+        used: Optional[str] = None,
+        min_uses: Optional[int] = None,
+        last_used_from: Optional[str] = None,
+        last_used_to: Optional[str] = None,
     ) -> APIResponse:
         """List all indexed models with optional filtering."""
+        try:
+            search, search_filter = parse_model_search(
+                search=search,
+                q_mode=q_mode,
+                indexed_from=indexed_from,
+                indexed_to=indexed_to,
+                used=used,
+                min_uses=min_uses,
+                last_used_from=last_used_from,
+                last_used_to=last_used_to,
+            )
+        except InvalidModelSearch as exc:
+            self.error_response(error="invalid_model_search", message=str(exc), status_code=422)
         try:
             # Parse tag_ids if provided
             parsed_tag_ids = None
@@ -134,7 +155,8 @@ class ModelController(BaseController):
                 assigned_group_id=assigned_group_id,
                 favorites_only=favorites_only,
                 collection_id=collection_id,
-                in_any_collection=in_any_collection
+                in_any_collection=in_any_collection,
+                search_filter=search_filter,
             )
 
             data = await operations.list_models(self.collaborators, params, user)
@@ -1039,6 +1061,13 @@ def build_router(container: "AppContainer") -> APIRouter:
         favorites_only: bool = Query(False, description="Only return models favorited by the current user"),
         collection_id: Optional[str] = Query(None, description="Only return models in this model collection"),
         in_any_collection: bool = Query(False, description="Only return models that belong to any of the current user's collections"),
+        q_mode: Optional[str] = Query(None, description="How `search` matches: 'substring' (default) or 'regex'"),
+        indexed_from: Optional[str] = Query(None, description="Indexed on or after this day (YYYY-MM-DD, UTC)"),
+        indexed_to: Optional[str] = Query(None, description="Indexed on or before this day (YYYY-MM-DD, UTC)"),
+        used: Optional[str] = Query(None, description="Usage filter: 'any', 'used' or 'never'"),
+        min_uses: Optional[int] = Query(None, description="Only models used in at least this many generations"),
+        last_used_from: Optional[str] = Query(None, description="Last used on or after this day (YYYY-MM-DD, UTC)"),
+        last_used_to: Optional[str] = Query(None, description="Last used on or before this day (YYYY-MM-DD, UTC)"),
         current_user: User = Depends(get_current_active_user)
     ):
         """List all indexed models with optional filtering."""
@@ -1058,7 +1087,14 @@ def build_router(container: "AppContainer") -> APIRouter:
             assigned_group_id=assigned_group_id,
             favorites_only=favorites_only,
             collection_id=collection_id,
-            in_any_collection=in_any_collection
+            in_any_collection=in_any_collection,
+            q_mode=q_mode,
+            indexed_from=indexed_from,
+            indexed_to=indexed_to,
+            used=used,
+            min_uses=min_uses,
+            last_used_from=last_used_from,
+            last_used_to=last_used_to,
         )
 
 

@@ -6,7 +6,7 @@ model. Writes live in the metadata, assignment, indexing and job role classes.
 
 from pathlib import Path
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -16,6 +16,7 @@ from src.features.models.exceptions import ModelNotFoundException
 from src.features.models.indexer import ModelScanner
 from src.features.models.jobs import TYPE_DIR_MAP
 from src.features.models.repository import ModelRepository
+from src.features.models.search_filter import USAGE_SORT_FIELDS, ModelSearchFilter
 from src.features.tags.repository import tag_repo
 from src.features.models.availability_repository import model_availability_repo
 from src.platform.security.user import User, AccountType
@@ -41,6 +42,7 @@ class ListModelsParams:
     favorites_only: bool = False
     collection_id: Optional[str] = None
     in_any_collection: bool = False
+    search_filter: Optional[ModelSearchFilter] = None
 
 
 class ModelCatalog:
@@ -67,6 +69,16 @@ class ModelCatalog:
         """List models with filtering, pagination, and access control."""
         # Determine allowed model IDs based on user permissions
         allowed_model_ids = self.access_policy.get_allowed_model_ids(user, params.all_models)
+        is_admin = user.account_type == AccountType.ADMIN
+        search_filter = params.search_filter
+        sort_by = params.sort_by
+        if not is_admin:
+            if search_filter is not None:
+                search_filter = replace(
+                    search_filter, used="any", min_uses=None, last_used_from=None, last_used_to=None
+                )
+            if sort_by in USAGE_SORT_FIELDS:
+                sort_by = "indexed_at"
 
         # Get models
         models = self.model_repo.get_all(
@@ -75,7 +87,7 @@ class ModelCatalog:
             model_type=params.model_type,
             tag_ids=params.tag_ids,
             search=params.search,
-            sort_by=params.sort_by,
+            sort_by=sort_by,
             sort_order=params.sort_order,
             include_providers=True,
             include_tags=params.include_tags,
@@ -86,7 +98,9 @@ class ModelCatalog:
             library_user_id=user.id,
             favorites_only=params.favorites_only,
             collection_id=params.collection_id,
-            in_any_collection=params.in_any_collection
+            in_any_collection=params.in_any_collection,
+            search_filter=search_filter,
+            include_usage=is_admin,
         )
 
         # Get total count for pagination
@@ -101,7 +115,8 @@ class ModelCatalog:
             library_user_id=user.id,
             favorites_only=params.favorites_only,
             collection_id=params.collection_id,
-            in_any_collection=params.in_any_collection
+            in_any_collection=params.in_any_collection,
+            search_filter=search_filter,
         )
 
         # Get statistics
@@ -109,7 +124,6 @@ class ModelCatalog:
 
         # Where a model lives, how big it is and which backends hold it are operational
         # facts. A generating user needs none of them; an admin needs all of them.
-        is_admin = user.account_type == AccountType.ADMIN
 
         models_data = [
             model.to_dict(

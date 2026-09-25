@@ -7,6 +7,8 @@ import threading
 from pathlib import Path
 import os
 
+from src.platform.database.sql_functions import register_sql_functions
+
 logger = logging.getLogger(__name__)
 
 LIVE_DATABASE_PATH = Path("storage/db.sqlite")
@@ -60,6 +62,7 @@ class Database:
             timeout=30.0  # Wait up to 30 seconds for locks to clear
         )
         conn.row_factory = sqlite3.Row  # Enable dict-like access to rows
+        register_sql_functions(conn)
 
         # Enable WAL mode for better concurrent access. `PRAGMA journal_mode=WAL`
         # (unlike the two setter pragmas below) returns a one-row result even when

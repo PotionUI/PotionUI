@@ -23,6 +23,38 @@ export interface UnindexedModelsCount {
 	by_type: Record<string, number>;
 }
 
+export interface ModelSelectionTag {
+	id: string;
+	name: string;
+	count: number;
+}
+
+export interface ModelSelectionTags {
+	models: number;
+	tags: ModelSelectionTag[];
+}
+
+export interface BulkModelTagsBody {
+	model_ids: string[];
+	add: string[];
+	remove: string[];
+}
+
+export interface BulkModelTagsResultItem {
+	id: string;
+	name: string;
+	added: number;
+	already_present: number;
+	removed: number;
+}
+
+export interface BulkModelTagsResult {
+	models: number;
+	unknown_model_ids: string[];
+	unknown_tags: string[];
+	tags: BulkModelTagsResultItem[];
+}
+
 export function createModelsApi(client: AxiosInstance) {
 	return {
 		async getModels(params?: {
@@ -41,6 +73,13 @@ export function createModelsApi(client: AxiosInstance) {
 			favorites_only?: boolean;
 			collection_id?: string;
 			in_any_collection?: boolean;
+			q_mode?: 'substring' | 'regex';
+			indexed_from?: string;
+			indexed_to?: string;
+			used?: 'any' | 'used' | 'never';
+			min_uses?: number;
+			last_used_from?: string;
+			last_used_to?: string;
 		}, signal?: AbortSignal): Promise<APIResponse<{ models: any[]; total: number; availability_indexed: boolean }>> {
 			const searchParams = new URLSearchParams();
 			if (params?.model_type) searchParams.append('model_type', params.model_type);
@@ -62,6 +101,13 @@ export function createModelsApi(client: AxiosInstance) {
 			if (params?.favorites_only) searchParams.append('favorites_only', 'true');
 			if (params?.collection_id) searchParams.append('collection_id', params.collection_id);
 			if (params?.in_any_collection) searchParams.append('in_any_collection', 'true');
+			if (params?.q_mode) searchParams.append('q_mode', params.q_mode);
+			if (params?.indexed_from) searchParams.append('indexed_from', params.indexed_from);
+			if (params?.indexed_to) searchParams.append('indexed_to', params.indexed_to);
+			if (params?.used) searchParams.append('used', params.used);
+			if (params?.min_uses) searchParams.append('min_uses', params.min_uses.toString());
+			if (params?.last_used_from) searchParams.append('last_used_from', params.last_used_from);
+			if (params?.last_used_to) searchParams.append('last_used_to', params.last_used_to);
 
 			const queryString = searchParams.toString();
 			const response = await client.get(`/api/models${queryString ? `?${queryString}` : ''}`, { signal });
@@ -265,6 +311,16 @@ export function createModelsApi(client: AxiosInstance) {
 			tagIds: string[]
 		): Promise<APIResponse<{ model: any }>> {
 			const response = await client.put(`/api/models/${modelId}/tags`, { tag_ids: tagIds });
+			return response.data;
+		},
+
+		async getModelSelectionTags(modelIds: string[]): Promise<APIResponse<ModelSelectionTags>> {
+			const response = await client.post('/api/tags/models/selection', { model_ids: modelIds });
+			return response.data;
+		},
+
+		async bulkUpdateModelTags(body: BulkModelTagsBody): Promise<APIResponse<BulkModelTagsResult>> {
+			const response = await client.post('/api/tags/models/bulk', body);
 			return response.data;
 		},
 

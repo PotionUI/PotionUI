@@ -15,6 +15,7 @@
 		disabled = false,
 		onclick,
 		ariaExpanded,
+		ariaPressed,
 		class: className = ''
 	}: {
 		icon: string;
@@ -25,6 +26,7 @@
 		disabled?: boolean;
 		onclick?: (e: MouseEvent) => void;
 		ariaExpanded?: boolean;
+		ariaPressed?: boolean;
 		class?: string;
 	} = $props();
 
@@ -59,6 +61,7 @@
 	class={classes}
 	aria-label={label}
 	aria-expanded={ariaExpanded}
+	aria-pressed={ariaPressed}
 	title={insideTooltip ? undefined : label}
 	{disabled}
 	{onclick}

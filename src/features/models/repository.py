@@ -1,6 +1,13 @@
 from typing import List, Optional, Dict, Any
 from src.features.models.records import Model, ModelInfo, ModelFile, UserModel
 from src.platform.util.ids import generate_ulid
+from src.features.models.search_filter import (
+    ModelSearchFilter,
+    USAGE_JOIN,
+    USAGE_SELECT,
+    USAGE_SORT_FIELDS,
+    search_filter_clauses,
+)
 import json
 import logging
 
@@ -175,7 +182,9 @@ class ModelRepository:
                 library_user_id: Optional[str] = None,
                 favorites_only: bool = False,
                 collection_id: Optional[str] = None,
-                in_any_collection: bool = False) -> List[Model]:
+                in_any_collection: bool = False,
+                search_filter: Optional[ModelSearchFilter] = None,
+                include_usage: bool = False) -> List[Model]:
         """Get all models with optional filtering.
 
         `tag_ids` requires ALL listed tags (AND, used by the library's multi-tag
@@ -215,6 +224,17 @@ class ModelRepository:
         if favorites_only and library_user_id:
             library_where_clauses.append("COALESCE(umm.is_favorite, 0) = 1")
 
+        advanced_clauses, advanced_params = search_filter_clauses(search_filter, bool(library_user_id))
+        library_where_clauses.extend(advanced_clauses)
+        use_usage = (
+            include_usage
+            or sort_by in USAGE_SORT_FIELDS
+            or bool(search_filter and search_filter.needs_usage)
+        )
+        if use_usage:
+            library_select += USAGE_SELECT
+            collection_join += USAGE_JOIN
+
         query = f"SELECT DISTINCT m.*{library_select} FROM models m"
         params = []
         where_clauses = []
@@ -238,6 +258,7 @@ class ModelRepository:
 
             # Add additional filters
             additional_clauses = list(library_where_clauses)
+            params.extend(advanced_params)
             if model_type:
                 additional_clauses.append("m.model_type = ?")
                 params.append(model_type)
@@ -283,6 +304,7 @@ class ModelRepository:
             params.extend(collection_params)
 
             where_clauses.extend(library_where_clauses)
+            params.extend(advanced_params)
             if model_type:
                 where_clauses.append("m.model_type = ?")
                 params.append(model_type)
@@ -328,14 +350,15 @@ class ModelRepository:
             'modified_at': 'm.updated_at',
             'filename': 'm.filename',
             'file_size': 'm.file_size',
-            'model_type': 'm.model_type'
+            'model_type': 'm.model_type',
+            **USAGE_SORT_FIELDS,
         }
 
         # Default to indexed_at if sort_by is invalid
         sort_field = valid_sort_fields.get(sort_by, 'm.indexed_at')
         sort_direction = 'DESC' if sort_order.lower() == 'desc' else 'ASC'
 
-        query += f" ORDER BY {sort_field} {sort_direction}"
+        query += f" ORDER BY {sort_field} {sort_direction}, m.id {sort_direction}"
 
         if limit:
             query += " LIMIT ? OFFSET ?"
@@ -801,7 +824,8 @@ class ModelRepository:
                     assignment_filter: Optional[str] = None, assigned_user_id: Optional[str] = None,
                     assigned_group_id: Optional[str] = None, library_user_id: Optional[str] = None,
                     favorites_only: bool = False, collection_id: Optional[str] = None,
-                    in_any_collection: bool = False) -> int:
+                    in_any_collection: bool = False,
+                    search_filter: Optional[ModelSearchFilter] = None) -> int:
         """Count total models with optional tag, search, type, and access filtering"""
         in_any_collection_sql = (
             "m.id IN (SELECT mcm.model_id FROM model_collection_members mcm "
@@ -824,6 +848,11 @@ class ModelRepository:
         if favorites_only and library_user_id:
             library_where_clauses.append("COALESCE(umm.is_favorite, 0) = 1")
 
+        advanced_clauses, advanced_params = search_filter_clauses(search_filter, bool(library_user_id))
+        library_where_clauses.extend(advanced_clauses)
+        if search_filter and search_filter.needs_usage:
+            collection_join += USAGE_JOIN
+
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if tag_ids and len(tag_ids) > 0:
@@ -838,7 +867,7 @@ class ModelRepository:
                         HAVING COUNT(DISTINCT tag_id) = ?
                     )
                 """
-                params = list(library_params) + list(collection_params) + list(tag_ids) + [len(tag_ids)]
+                params = list(library_params) + list(collection_params) + list(tag_ids) + [len(tag_ids)] + list(advanced_params)
 
                 for clause in library_where_clauses:
                     query += f" AND {clause}"
@@ -876,7 +905,7 @@ class ModelRepository:
             else:
                 query = f"SELECT COUNT(DISTINCT m.id) as count FROM models m{library_join}{collection_join}"
                 where_clauses = list(library_where_clauses)
-                params = list(library_params) + list(collection_params)
+                params = list(library_params) + list(collection_params) + list(advanced_params)
 
                 if search:
                     where_clauses.append("LOWER(m.filename) LIKE LOWER(?)")

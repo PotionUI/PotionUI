@@ -2,7 +2,7 @@
 Tag DTOs for request/response models.
 """
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
 
@@ -74,3 +74,13 @@ class CreateTagRequest(BaseModel):
 class UpdateTagRequest(BaseModel):
     """Request model for updating a tag."""
     name: str
+
+
+class BulkModelTagsRequest(BaseModel):
+    model_ids: List[str] = Field(default_factory=list)
+    add: List[str] = Field(default_factory=list)
+    remove: List[str] = Field(default_factory=list)
+
+
+class ModelSelectionTagsRequest(BaseModel):
+    model_ids: List[str] = Field(default_factory=list)

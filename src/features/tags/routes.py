@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Query, Depends, HTTPException
 
 from src.platform.http.base_controller import BaseController, APIResponse
-from src.platform.security.current_user import get_current_active_user
+from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.presets.file_repository import FilePresetRepository
 from src.features.presets.repository import DatabasePresetRepository
 from src.features.tags import operations
-from src.features.tags.dto import CreateTagRequest, UpdateTagRequest, TagType, USER_SCOPED_TAG_TYPES, effective_user_id_for_type
+from src.features.tags.dto import BulkModelTagsRequest, ModelSelectionTagsRequest, CreateTagRequest, UpdateTagRequest, TagType, USER_SCOPED_TAG_TYPES, effective_user_id_for_type
 from src.features.tags.errors import TagInUseByPresetError
 from src.features.tags.repository import TagRepository
 from src.platform.plugins import PluginRegistry
@@ -158,6 +158,23 @@ class TagController(BaseController):
             self.logger.error(f"Error deleting tag: {e}")
             return self.error_api_response(error="delete_tag_failed", message=str(e))
 
+    async def bulk_update_model_tags(self, request: BulkModelTagsRequest) -> APIResponse:
+        try:
+            result = operations.bulk_update_model_tags(self.repository, request.model_ids, request.add, request.remove)
+            return self.success_response(data=result)
+        except ValueError as e:
+            return self.error_api_response(error="bulk_model_tags_failed", message=str(e))
+        except Exception as e:
+            self.logger.error(f"Error bulk updating model tags: {e}")
+            return self.error_api_response(error="bulk_model_tags_failed", message=str(e))
+
+    async def model_selection_tags(self, request: ModelSelectionTagsRequest) -> APIResponse:
+        try:
+            return self.success_response(data=operations.model_selection_tags(self.repository, request.model_ids))
+        except Exception as e:
+            self.logger.error(f"Error reading selection tags: {e}")
+            return self.error_api_response(error="model_selection_tags_failed", message=str(e))
+
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.tag_controller
@@ -188,6 +205,20 @@ def build_router(container: "AppContainer") -> APIRouter:
     ) -> APIResponse:
         """Search tags for autocomplete."""
         return await controller.search_tags(q, type, limit, current_user)
+
+    @router.post("/models/selection", response_model=APIResponse, summary="Tags On Selected Models")
+    async def model_selection_tags(
+        request: ModelSelectionTagsRequest,
+        current_user: User = Depends(get_current_admin_user)
+    ) -> APIResponse:
+        return await controller.model_selection_tags(request)
+
+    @router.post("/models/bulk", response_model=APIResponse, summary="Bulk Add/Remove Model Tags")
+    async def bulk_update_model_tags(
+        request: BulkModelTagsRequest,
+        current_user: User = Depends(get_current_admin_user)
+    ) -> APIResponse:
+        return await controller.bulk_update_model_tags(request)
 
     @router.put("/{tag_id}", response_model=APIResponse, summary="Update Tag")
     async def update_tag(

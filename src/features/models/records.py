@@ -91,6 +91,8 @@ class Model:
     # survive; a later scan that finds the file again sets this back to True.
     is_available: bool = True
     unavailable_at: Optional[datetime] = None
+    use_count: Optional[int] = None
+    last_used_at: Optional[datetime] = None
 
     @classmethod
     def from_row(cls, row) -> 'Model':
@@ -120,6 +122,8 @@ class Model:
                 dt_column(row['unavailable_at'])
                 if 'unavailable_at' in row_keys else None
             ),
+            use_count=int(row['use_count'] or 0) if 'use_count' in row_keys else None,
+            last_used_at=dt_column(row['last_used_at']) if 'last_used_at' in row_keys else None,
         )
 
     @property
@@ -190,6 +194,9 @@ class Model:
                 'is_available': self.is_available,
                 'unavailable_at': dt_iso(self.unavailable_at),
             })
+            if self.use_count is not None:
+                result['use_count'] = self.use_count
+                result['last_used_at'] = dt_iso(self.last_used_at)
 
         if include_providers:
             # Include providers array

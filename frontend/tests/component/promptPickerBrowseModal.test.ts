@@ -129,7 +129,7 @@ describe('PromptPickerBrowseModal', () => {
 		row!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		flushSync();
 
-		const insertButton = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Insert');
+		const insertButton = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('Insert'));
 		expect(insertButton).toBeTruthy();
 		insertButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		flushSync();

@@ -47,7 +47,7 @@ function mountEditor(value: string, props: Record<string, unknown> = {}) {
 }
 
 function findButton(text: string) {
-	return Array.from(document.querySelectorAll<HTMLElement>('button')).find((b) => b.textContent?.trim() === text);
+	return Array.from(document.querySelectorAll<HTMLElement>('button')).find((b) => b.textContent?.includes(text));
 }
 
 async function openSwitcher(mockedValues: Array<{ id: string; label: string; value: string }>, overrides: Partial<ChipData> = {}) {
@@ -103,7 +103,6 @@ describe('clicking a # phrasebook chip to change its value', () => {
 
 		expect(findButton('Save')).toBeTruthy();
 		expect(findButton('Insert')).toBeFalsy();
-		expect(findButton('Replace')).toBeFalsy();
 	});
 
 	it('shows the footer behavior controls: segmented value mode, Shuffle now, Exclude from shuffles, Remove chip', async () => {

@@ -10,6 +10,8 @@
 
 <script lang="ts">
 	import BaseModal from './modals/BaseModal.svelte';
+	import ConfirmFooter from './modals/ConfirmFooter.svelte';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './modals/confirmKeyboard';
 	import Icon from './Icon.svelte';
 	import Button from './ui/Button.svelte';
 	import SegmentedControl from './ui/SegmentedControl.svelte';
@@ -79,6 +81,7 @@
 	let previewIndex = $state(0);
 	let previewPaneRef = $state<HTMLDivElement | null>(null);
 	let lastFocusedBeforePreview: HTMLElement | null = null;
+	const settlementGate = createConfirmSettlementGate();
 
 	let filteredCategories = $derived.by(() => {
 		if (categories.length <= 1) return categories;
@@ -146,6 +149,14 @@
 		selectedId = filteredValues[nextIndex].id;
 	}
 
+	function handleConfirm() {
+		settleIfEligible(settlementGate, !!selectedId, commitSelection);
+	}
+
+	function handleCancel() {
+		settlementGate.settle(onClose);
+	}
+
 	function handleWindowKeydown(e: KeyboardEvent) {
 		if (previewOpen) {
 			if (e.key === 'ArrowLeft') {
@@ -164,6 +175,19 @@
 			}
 			return;
 		}
+
+		const { action, suppress } = getConfirmKeyboardAction(e);
+		if (action === 'cancel') {
+			handleCancel();
+		} else if (action === 'confirm') {
+			handleConfirm();
+		} else if (e.key === 'Enter' && !e.repeat && (e.target as HTMLElement | null)?.tagName === 'INPUT') {
+			e.preventDefault();
+			handleConfirm();
+			return;
+		}
+		if (suppress) e.preventDefault();
+		if (action !== null) return;
 
 		if (!showPreviewGrid) return;
 		const activeTag = (e.target as HTMLElement | null)?.tagName;
@@ -189,12 +213,6 @@
 			moveGridSelection(currentIndex, -PGRID_COLUMNS);
 		}
 	}
-
-	$effect(() => {
-		if (!showPreviewGrid && !previewOpen) return;
-		window.addEventListener('keydown', handleWindowKeydown);
-		return () => window.removeEventListener('keydown', handleWindowKeydown);
-	});
 
 	function rowLabel(value: AutocompleteValue): string {
 		return triggerChar === '@' ? `<${value.label}>` : value.label;
@@ -232,18 +250,16 @@
 		onRemove?.();
 		onClose();
 	}
-
-	function handleClose() {
-		onClose();
-	}
 </script>
 
+<svelte:window on:keydown|capture={handleWindowKeydown} />
 
 <BaseModal
 	isOpen={true}
 	closeable={!previewOpen}
-	sizeClass="w-full md:w-[48rem] md:max-w-[calc(100vw-3rem)]"
-	on:close={handleClose}
+	handleEscapeKey={false}
+	sizeClass="w-full md:w-[64rem] md:max-w-[calc(100vw-2rem)]"
+	on:close={handleCancel}
 >
 	<svelte:fragment slot="headerIcon">
 		<span class="picker-chip" style="--trig: {TRIGGER_COLOR[triggerChar]}">{triggerChar}</span>
@@ -303,8 +319,8 @@
 				</div>
 				<div class="picker-preview-foot">
 					<div class="picker-preview-copy">
-						<strong>{current?.label}</strong>
-						{#if current?.value && current.value !== current.label}<p>{current.value}</p>{/if}
+						<strong class="picker-preview-value">{current?.value}</strong>
+						{#if current?.label && current.label !== current.value}<p class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> {current.label}</p>{/if}
 					</div>
 					<Button variant="primary" onclick={useThisValue}>Use this value</Button>
 				</div>
@@ -352,8 +368,8 @@
 										{/if}
 									</span>
 									<span class="picker-pgcopy">
-										<strong>{rowLabel(value)}</strong>
-										{#if value.value !== value.label}<span>{value.value}</span>{/if}
+										<strong class="picker-value-primary">{value.value}</strong>
+										{#if value.label && value.label !== value.value}<span class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> {value.label}</span>{/if}
 									</span>
 									{#if isCurrent}
 										<span class="picker-vbadge" class:signal={isSelected} class:neutral={!isSelected}>Current</span>
@@ -427,8 +443,13 @@
 								{/if}
 							</span>
 							<span class="picker-vcopy">
-								<strong>{rowLabel(value)}</strong>
-								{#if value.description || value.value !== value.label}<span>{value.description ?? value.value}</span>{/if}
+								{#if triggerChar === '#'}
+									<strong class="picker-value-primary">{value.value}</strong>
+									{#if value.label && value.label !== value.value}<span class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> {value.label}</span>{/if}
+								{:else}
+									<strong class="picker-label-primary">{rowLabel(value)}</strong>
+									{#if value.description || value.value !== value.label}<span class="picker-label-secondary">{value.description ?? value.value}</span>{/if}
+								{/if}
 							</span>
 							{#if isCurrent}
 								<span class="picker-vbadge" class:signal={isSelected} class:neutral={!isSelected}>Current</span>
@@ -443,14 +464,17 @@
 	</div>
 
 	<svelte:fragment slot="footer">
-		<div class="picker-modal-foot" class:ctl={footerLeft !== 'none' || showPreviewGrid}>
-			{#if footerLeft === 'none' && showPreviewGrid}
-				<div class="fleft">
+		<ConfirmFooter
+			confirmLabel={insertHint}
+			confirmDisabled={!selectedId}
+			onCancel={handleCancel}
+			onConfirm={handleConfirm}
+		>
+			{#snippet leftActions()}
+				{#if footerLeft === 'none' && showPreviewGrid}
 					<span class="picker-kbd-hint"><Kbd keys="Space" /> preview</span>
-				</div>
-			{/if}
-			{#if footerLeft === 'phrasebook'}
-				<div class="fleft">
+				{/if}
+				{#if footerLeft === 'phrasebook'}
 					{#if showPreviewGrid}
 						<span class="picker-kbd-hint"><Kbd keys="Space" /> preview</span>
 						<span class="fsep"></span>
@@ -466,32 +490,34 @@
 							pendingShuffle = id === 'shuffle';
 						}}
 					/>
-					<Button variant="secondary" size="sm" icon="shuffle" disabled={!canShuffle} onclick={shuffleNow}>
-						Shuffle now
-					</Button>
+					<span class="fsep"></span>
+					<Tooltip text="Pick a different value now">
+						<Button variant="secondary" size="sm" icon="shuffle" disabled={!canShuffle} onclick={shuffleNow}>
+							Shuffle now
+						</Button>
+					</Tooltip>
 					{#if canShuffle}
-						<span class="fsep"></span>
 						<Tooltip text="This value won't be picked by Auto-shuffle again">
-							<Button variant="ghost" size="sm" onclick={handleExcludeClick}>Exclude from shuffles</Button>
+							<Button variant="ghost" size="sm" icon="eye-off" onclick={handleExcludeClick}>
+								Exclude from shuffles
+							</Button>
 						</Tooltip>
 					{/if}
 					<span class="fsep"></span>
-					<Button variant="ghost" size="sm" class="text-danger hover:bg-danger/10" icon="close" onclick={handleRemoveClick}>
-						Remove chip
-					</Button>
-				</div>
-			{:else if footerLeft === 'resource'}
-				<div class="fleft">
-					<Button variant="ghost" size="sm" class="text-danger hover:bg-danger/10" icon="close" onclick={handleRemoveClick}>
-						Remove reference
-					</Button>
-				</div>
-			{/if}
-			<div class="fright">
-				<Button variant="ghost" onclick={handleClose}>Cancel</Button>
-				<Button variant="primary" disabled={!selectedId} onclick={commitSelection}>{insertHint}</Button>
-			</div>
-		</div>
+					<Tooltip text="Remove this chip from the prompt">
+						<Button variant="ghost" size="sm" class="text-danger hover:bg-danger/10" icon="trash" onclick={handleRemoveClick}>
+							Remove chip
+						</Button>
+					</Tooltip>
+				{:else if footerLeft === 'resource'}
+					<Tooltip text="Remove this reference from the prompt">
+						<Button variant="ghost" size="sm" class="text-danger hover:bg-danger/10" icon="trash" onclick={handleRemoveClick}>
+							Remove reference
+						</Button>
+					</Tooltip>
+				{/if}
+			{/snippet}
+		</ConfirmFooter>
 	</svelte:fragment>
 </BaseModal>
 
@@ -698,14 +724,14 @@
 		flex: 1;
 	}
 
-	.picker-vcopy strong {
+	.picker-label-primary {
 		display: block;
 		font-size: 14px;
 		font-weight: 600;
 		font-family: 'IBM Plex Mono', monospace;
 	}
 
-	.picker-vcopy span {
+	.picker-label-secondary {
 		display: block;
 		margin-top: 3px;
 		font-size: 12px;
@@ -713,6 +739,31 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.picker-value-primary {
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+		font-size: 14px;
+		font-weight: 500;
+		color: rgb(var(--fg));
+		overflow: hidden;
+	}
+
+	.picker-value-secondary {
+		display: block;
+		margin-top: 3px;
+		font-size: 12px;
+		color: rgb(var(--fg-muted));
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.picker-value-secondary-prefix {
+		color: rgb(var(--fg-subtle));
 	}
 
 	.picker-vcheck {
@@ -869,37 +920,6 @@
 		white-space: nowrap;
 	}
 
-	.picker-modal-foot {
-		display: flex;
-		align-items: center;
-		justify-content: flex-end;
-		gap: 8px;
-		min-height: 52px;
-		padding: 10px 14px;
-		flex-wrap: wrap;
-	}
-
-	.picker-modal-foot.ctl {
-		justify-content: flex-start;
-	}
-
-	.fleft {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		flex: 1 1 auto;
-		flex-wrap: wrap;
-		min-width: 0;
-	}
-
-	.fright {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		flex-shrink: 0;
-		margin-left: auto;
-	}
-
 	.fsep {
 		width: 1px;
 		height: 20px;
@@ -975,24 +995,6 @@
 
 	.picker-pgcopy {
 		padding: 8px 9px 10px;
-	}
-
-	.picker-pgcopy strong {
-		display: block;
-		font-size: 14px;
-		font-weight: 600;
-		font-family: 'IBM Plex Mono', monospace;
-	}
-
-	.picker-pgcopy span {
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-		line-clamp: 2;
-		overflow: hidden;
-		margin-top: 3px;
-		font-size: 12px;
-		color: rgb(var(--fg-subtle));
 	}
 
 	.picker-pgpreview-btn {
@@ -1116,16 +1118,11 @@
 		min-width: 0;
 	}
 
-	.picker-preview-copy strong {
+	.picker-preview-value {
 		display: block;
 		font-size: 14px;
-		font-weight: 600;
-		font-family: 'IBM Plex Mono', monospace;
-	}
-
-	.picker-preview-copy p {
-		margin: 4px 0 0;
-		font-size: 12px;
-		color: rgb(var(--fg-muted));
+		font-weight: 500;
+		color: rgb(var(--fg));
+		white-space: normal;
 	}
 </style>

@@ -329,8 +329,13 @@
 									{/if}
 								</span>
 								<span class="row-copy">
-									<strong>{triggerChar === '@' ? `<${suggestion.label}>` : suggestion.label}</strong>
-									{#if suggestion.label !== suggestion.value}<span>{suggestion.value}</span>{/if}
+									{#if triggerChar === '#'}
+										<strong class="row-copy-value">{suggestion.value}</strong>
+										{#if suggestion.label && suggestion.label !== suggestion.value}<span class="row-copy-label"><span class="row-copy-label-prefix">Title:</span> {suggestion.label}</span>{/if}
+									{:else}
+										<strong>{triggerChar === '@' ? `<${suggestion.label}>` : suggestion.label}</strong>
+										{#if suggestion.label !== suggestion.value}<span>{suggestion.value}</span>{/if}
+									{/if}
 								</span>
 								<span class="row-meta">{isSelected ? 'Enter' : 'Value'}</span>
 							</button>
@@ -370,9 +375,16 @@
 			>
 				<div class="picker-preview-image" style="background-image: url('{selectedPreviewUrl}')"></div>
 				<div class="picker-preview-cap">
-					<strong>{selectedValueItem.label}</strong>
-					{#if selectedValueItem.value && selectedValueItem.value !== selectedValueItem.label}
-						<span>{selectedValueItem.value}</span>
+					{#if triggerChar === '#'}
+						<strong>{selectedValueItem.value}</strong>
+						{#if selectedValueItem.label && selectedValueItem.label !== selectedValueItem.value}
+							<span><span class="picker-preview-cap-prefix">Title:</span> {selectedValueItem.label}</span>
+						{/if}
+					{:else}
+						<strong>{selectedValueItem.label}</strong>
+						{#if selectedValueItem.value && selectedValueItem.value !== selectedValueItem.label}
+							<span>{selectedValueItem.value}</span>
+						{/if}
 					{/if}
 				</div>
 			</div>
@@ -516,19 +528,30 @@
 										</svg>
 									{/if}
 									<div class="flex-1 min-w-0">
-										<div class="font-medium text-sm truncate">
-											{suggestion.label}
-										</div>
-										{#if suggestion.badge}
-											{#if suggestion.description}
-												<div class="font-mono text-xs text-fg-subtle mt-0.5 truncate">
-													{suggestion.description}
-												</div>
-											{/if}
-										{:else if suggestion.label !== suggestion.value}
-											<div class="text-xs text-fg-subtle mt-0.5 truncate">
+										{#if triggerChar === '#'}
+											<div class="text-sm text-fg font-medium line-clamp-3">
 												{suggestion.value}
 											</div>
+											{#if suggestion.label && suggestion.label !== suggestion.value}
+												<div class="text-xs text-fg-muted mt-0.5 truncate">
+													<span class="text-fg-subtle">Title:</span> {suggestion.label}
+												</div>
+											{/if}
+										{:else}
+											<div class="font-medium text-sm truncate">
+												{suggestion.label}
+											</div>
+											{#if suggestion.badge}
+												{#if suggestion.description}
+													<div class="font-mono text-xs text-fg-subtle mt-0.5 truncate">
+														{suggestion.description}
+													</div>
+												{/if}
+											{:else if suggestion.label !== suggestion.value}
+												<div class="text-xs text-fg-subtle mt-0.5 truncate">
+													{suggestion.value}
+												</div>
+											{/if}
 										{/if}
 									</div>
 									{#if suggestion.badge}

@@ -2658,7 +2658,7 @@
 			values={resourceItemSuggestions}
 			getImageUrl={(url) => url}
 			initialSelectedId={resourceSwitchRef?.item_key ?? null}
-			insertHint={resourceSwitchContainer ? 'Replace' : 'Insert'}
+			insertHint={resourceSwitchContainer ? 'Save' : 'Insert'}
 			footerLeft={resourceSwitchContainer ? 'resource' : 'none'}
 			onSelectCategory={(category) => handleSelectResourceGroup(category.id)}
 			onInsertValue={(value) => handleSelectResourceItem(value.id)}

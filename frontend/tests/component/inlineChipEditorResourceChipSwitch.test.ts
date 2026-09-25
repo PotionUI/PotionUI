@@ -26,7 +26,7 @@ function mountEditor(value: string, props: Record<string, unknown> = {}) {
 }
 
 function findButton(text: string) {
-	return Array.from(document.querySelectorAll<HTMLElement>('button')).find((b) => b.textContent?.trim() === text);
+	return Array.from(document.querySelectorAll<HTMLElement>('button')).find((b) => b.textContent?.includes(text));
 }
 
 afterEach(() => {
@@ -36,7 +36,7 @@ afterEach(() => {
 });
 
 describe('clicking an @ resource chip to change its value', () => {
-	it('opens the browse modal with the field\'s items, groups on the left, current one badged, Replace as the action', async () => {
+	it('opens the browse modal with the field\'s items, groups on the left, current one badged, Save as the action', async () => {
 		mountEditor('@[references:a.png]', {
 			resources: { 'res-1': { field: 'references', item_key: 'a.png' } },
 			promptResources: specs,
@@ -70,8 +70,7 @@ describe('clicking an @ resource chip to change its value', () => {
 		const selected = rows.find((r) => r.className.includes('sel'));
 		expect(selected?.textContent).toContain('Picture 1');
 
-		expect(findButton('Replace')).toBeTruthy();
-		expect(findButton('Save')).toBeFalsy();
+		expect(findButton('Save')).toBeTruthy();
 		expect(findButton('Insert')).toBeFalsy();
 	});
 
@@ -90,7 +89,7 @@ describe('clicking an @ resource chip to change its value', () => {
 		expect(findButton('Remove reference')).toBeTruthy();
 	});
 
-	it('Replace swaps the marker in place, byte-exact — pending until then', async () => {
+	it('Save swaps the marker in place, byte-exact — pending until then', async () => {
 		const onChange = vi.fn();
 		mountEditor('a cat @[references:a.png] on a rug', {
 			resources: { 'res-1': { field: 'references', item_key: 'a.png' } },
@@ -116,7 +115,7 @@ describe('clicking an @ resource chip to change its value', () => {
 
 		expect(onChange).not.toHaveBeenCalled();
 
-		findButton('Replace')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		findButton('Save')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		flushSync();
 
 		expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -127,7 +126,7 @@ describe('clicking an @ resource chip to change its value', () => {
 		expect(chipAfter?.textContent).toContain('Picture 2');
 	});
 
-	it('Remove reference removes the marker immediately, without needing Replace', async () => {
+	it('Remove reference removes the marker immediately, without needing Save', async () => {
 		const onChange = vi.fn();
 		mountEditor('a cat @[references:a.png] on a rug', {
 			resources: { 'res-1': { field: 'references', item_key: 'a.png' } },

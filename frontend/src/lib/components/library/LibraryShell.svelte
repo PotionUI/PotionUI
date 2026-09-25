@@ -14,6 +14,7 @@
 		onSelectSection,
 		sectionCounts = {},
 		count = null,
+		titleLabel,
 		detailOpen = false,
 		heightClass = 'h-[100dvh]',
 		toolbar,
@@ -35,6 +36,7 @@
 		onSelectSection: (id: S) => void;
 		sectionCounts?: Partial<Record<S, number>>;
 		count?: number | null;
+		titleLabel?: string;
 		detailOpen?: boolean;
 		heightClass?: string;
 		toolbar?: Snippet;
@@ -156,7 +158,7 @@
 		{#if !detailOpen}
 			<PageHeader sticky={false} wrap>
 				<div class="flex w-full flex-wrap items-center gap-2 xl:gap-4">
-					<PageTitle title={meta.label} count={count ?? undefined}>
+					<PageTitle title={titleLabel ?? meta.label} count={count ?? undefined}>
 						{#if hasSidebar}
 							<label class="block md:hidden">
 								<span class="sr-only">Section</span>

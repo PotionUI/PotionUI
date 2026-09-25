@@ -66,6 +66,7 @@
 
 	let fetchedOnce = false;
 	let presetRecipes: PresetRecipeLink[] = [];
+	let recipeVariantFilenames: Set<string> = new Set();
 
 	$: visibleModels = models.filter((m) => !excludeIds.has(m.id));
 	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
@@ -80,8 +81,13 @@
 		!favoritesOnly &&
 		visibleModels.length === 0 &&
 		(isAdmin ? !!setupRecipe : true);
-	$: pickerEntries = recommendations
-		? buildModelPickerEntries(visibleModels, recommendations)
+	$: showVariantSuggestions = pickerView === 'global' && isAdmin && !!presetId && !searchQuery;
+	$: if (!showVariantSuggestions) recipeVariantFilenames = new Set();
+	$: dedupedRecommendations = recommendations && recipeVariantFilenames.size > 0
+		? recommendations.filter((r) => !recipeVariantFilenames.has(r.name))
+		: recommendations;
+	$: pickerEntries = dedupedRecommendations
+		? buildModelPickerEntries(visibleModels, dedupedRecommendations)
 		: visibleModels.map((model) => ({ kind: 'model' as const, model }));
 
 	async function resolveTagIds(names: string[], signal: AbortSignal): Promise<string[]> {
@@ -459,8 +465,8 @@
 	</div>
 {/if}
 
-{#if pickerView === 'global' && isAdmin && presetId && !searchQuery}
-	<PickerVariantSuggestions {presetId} {modelType} onInstalled={() => fetchModels()} />
+{#if showVariantSuggestions}
+	<PickerVariantSuggestions {presetId} {modelType} onInstalled={() => fetchModels()} onSlotFilenames={(f) => (recipeVariantFilenames = f)} />
 {/if}
 
 {#if pickerView === 'collections'}
@@ -528,13 +534,7 @@
 				{onSelect}
 				onToggleFavorite={toggleFavorite}
 				accented={entry.kind === 'recommended-model'}
-			>
-				<svelte:fragment slot="badge">
-					{#if entry.kind === 'recommended-model'}
-						<Badge variant="info" size="sm">Suggested</Badge>
-					{/if}
-				</svelte:fragment>
-			</ModelResultRow>
+			/>
 		{/if}
 	{/each}
 {:else if unindexedForType > 0}

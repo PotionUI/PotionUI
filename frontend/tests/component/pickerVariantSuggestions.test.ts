@@ -178,3 +178,49 @@ describe('model picker Suggested variants', () => {
 		expect(mounted.target.querySelector('[data-picker-variant-suggestions]')).toBeNull();
 	});
 });
+
+describe('model picker static recommendations vs. recipe variants', () => {
+	it('does not badge an already-installed model matched by a static recommendation', async () => {
+		authState.user = { account_type: 'USER' };
+		setup([]);
+		vi.mocked(api.getPresetModels).mockResolvedValue({
+			success: true,
+			data: {
+				models: [{ id: '1', name: 'Krea Turbo FP8', filename: 'krea2_turbo_fp8_scaled.safetensors' }],
+				total: 1
+			}
+		} as never);
+		mounted = mountPanel({
+			recommendations: [{ name: 'krea2_turbo_fp8_scaled.safetensors', installed: true, link: 'https://x', sha256: 'a' }]
+		});
+		await settle();
+
+		expect(mounted.target.textContent).toContain('Krea Turbo FP8');
+		expect(mounted.target.textContent).not.toContain('Suggested');
+	});
+
+	it('still badges and offers a download for a recommendation matching nothing installed', async () => {
+		authState.user = { account_type: 'USER' };
+		setup([]);
+		mounted = mountPanel({
+			recommendations: [{ name: 'krea2_raw_bf16.safetensors', installed: false, link: 'https://x', sha256: 'a' }]
+		});
+		await settle();
+
+		expect(mounted.target.textContent).toContain('Suggested');
+		expect(mounted.target.textContent).toContain('krea2_raw_bf16.safetensors');
+		expect(mounted.target.querySelector('button[title="Download this model"]')).not.toBeNull();
+	});
+
+	it('renders a static recommendation only once when its filename matches a recipe slot variant', async () => {
+		authState.user = { account_type: 'ADMIN' };
+		setup([slot([variant('raw_bf16', 'bf16', { filename: 'krea2_raw_bf16.safetensors' })])]);
+		mounted = mountPanel({
+			recommendations: [{ name: 'krea2_raw_bf16.safetensors', installed: false, link: 'https://x', sha256: 'a' }]
+		});
+		await settle();
+
+		expect(mounted.target.querySelector('[data-slot-variant="raw_bf16"]')).not.toBeNull();
+		expect(mounted.target.textContent).not.toContain('krea2_raw_bf16.safetensors');
+	});
+});

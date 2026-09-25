@@ -172,6 +172,9 @@
 	const isAttributesSection = $derived(section === MODELS_ATTRIBUTES_SECTION);
 
 	const typeRows = $derived(modelTypeRows(modelTypes));
+	const selectedTypeLabel = $derived(
+		!isAttributesSection ? (typeRows.find((row) => row.type === section)?.label ?? undefined) : undefined
+	);
 	const sectionCounts = $derived(modelLibrarySectionCounts(modelTypes, definitions.length));
 
 	const filters = $derived(modelsFiltersFromSearchParams($page.url.searchParams));
@@ -710,6 +713,7 @@
 	sections={MODEL_LIBRARY_SECTIONS}
 	section={modelLibraryShellSection(section)}
 	onSelectSection={selectSection}
+	titleLabel={selectedTypeLabel}
 	{sectionCounts}
 	count={isAttributesSection ? filteredAttributeDefinitions.length : models.length}
 	{detailOpen}

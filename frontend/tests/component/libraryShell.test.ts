@@ -166,6 +166,23 @@ describe('LibraryShell', () => {
 		expect(heading).not.toContain('Prompt Library');
 	});
 
+	it('lets titleLabel override the PageTitle text without changing which section row is selected', () => {
+		mountShell({ section: 'prompts', titleLabel: 'LoRA', sectionCounts: { prompts: 12, segments: 7, templates: 3, categories: 2 } });
+		const heading = target.querySelector('h1')?.textContent ?? '';
+		expect(heading).toContain('LoRA');
+		expect(heading).not.toContain('Prompts');
+		const rows = sectionRows();
+		const selected = rows.filter((row) => row.getAttribute('aria-selected') === 'true');
+		expect(selected).toHaveLength(1);
+		expect(selected[0].textContent).toContain('Prompts');
+	});
+
+	it('falls back to the section label when titleLabel is not passed', () => {
+		mountShell({ section: 'segments' });
+		const heading = target.querySelector('h1')?.textContent ?? '';
+		expect(heading).toContain('Segments');
+	});
+
 	it('renders the chip row with N of M only while chips exist', () => {
 		mountShell({ filterChips: [], loadedCount: 5, total: 40 });
 		expect(target.textContent).not.toContain('5 of 40');

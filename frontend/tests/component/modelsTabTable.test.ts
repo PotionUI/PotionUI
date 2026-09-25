@@ -156,6 +156,27 @@ describe('ModelsTab', () => {
 		expect(lastCall?.model_type).toBe('lora');
 	});
 
+	it('selecting a type row swaps the page title to that type while All models stays highlighted', async () => {
+		mountTab();
+		await flush();
+		flushSync();
+
+		expect(target.querySelector('h1')?.textContent).toContain('All models');
+
+		const typeRows = Array.from(target.querySelectorAll('[data-pane-row]'));
+		const loraRow = typeRows.find((el) => el.textContent?.trim().startsWith('LoRA'))!;
+		(loraRow as HTMLElement).click();
+		await flush();
+		flushSync();
+
+		expect(target.querySelector('h1')?.textContent).toContain('LoRA');
+		expect(target.querySelector('h1')?.textContent).not.toContain('All models');
+
+		const sectionRows = Array.from(target.querySelectorAll('[role="option"]'));
+		const allModelsRow = sectionRows.find((el) => el.textContent?.includes('All models'))!;
+		expect(allModelsRow.getAttribute('aria-selected')).toBe('true');
+	});
+
 	it('checking a model row surfaces the selection bar offering Assign access', async () => {
 		mountTab();
 		await flush();

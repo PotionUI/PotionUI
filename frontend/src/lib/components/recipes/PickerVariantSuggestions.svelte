@@ -12,11 +12,13 @@
 	let {
 		presetId,
 		modelType,
-		onInstalled = () => {}
+		onInstalled = () => {},
+		onSlotFilenames = () => {}
 	}: {
 		presetId: string;
 		modelType: string;
 		onInstalled?: () => void;
+		onSlotFilenames?: (filenames: Set<string>) => void;
 	} = $props();
 
 	let slots = $state<RecipeSlotVariants[]>([]);
@@ -30,7 +32,10 @@
 		api
 			.getPresetSlotVariants(pid, type)
 			.then((result) => {
-				if (!cancelled) slots = result.slots ?? [];
+				if (cancelled) return;
+				const loaded = result.slots ?? [];
+				slots = loaded;
+				onSlotFilenames(new Set(loaded.flatMap((slot) => slot.variants.map((v) => v.filename))));
 			})
 			.catch((error) => {
 				if (!cancelled) logger.error('[PickerVariantSuggestions] Failed to load variants:', error);

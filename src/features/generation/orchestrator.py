@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from src.features.generation.routing.router import GenerationRouter
 
 from src.platform.util.ids import generate_ulid
+from src.features.media_index.indexer import PASS_TAGS
 from src.features.media_index.mesh_thumbnails import render_and_store_mesh_thumbnail
 from src.features.generation.pipeline_builder import PipelineBuilder
 from src.features.generation.output_processor import OutputProcessor
@@ -396,6 +397,13 @@ def _validate_generation_origins(origins: List[Dict[str, Any]], user_id: str) ->
             )
 
 
+def _drain_media_tagging(media_indexer, generation_id: str, pass_type: str) -> None:
+    try:
+        media_indexer.process_generation(generation_id, pass_type)
+    except Exception:
+        logger.exception(f"media tagging drain failed for generation {generation_id}")
+
+
 def _render_mesh_thumbnails(file_service, repository, files: List['File']) -> None:
     """Runs on a worker thread via `asyncio.to_thread` - render is CPU/GL
     work, and several meshes from one generation render serially here, one
@@ -533,6 +541,7 @@ class GenerationOrchestrator:
         # fires a background render off the completion path, and nothing else
         # holds a reference to that task.
         self._mesh_thumbnail_tasks: set = set()
+        self._media_tag_tasks: set = set()
 
         logger.debug("GenerationOrchestrator initialized")
 
@@ -1465,6 +1474,7 @@ class GenerationOrchestrator:
 
             if record.state == GenerationState.COMPLETED:
                 self._schedule_mesh_thumbnails(generation_id)
+                self._schedule_media_tagging(generation_id)
 
         # Execute generation.after_complete hook
         if self.plugin_registry:
@@ -1529,6 +1539,15 @@ class GenerationOrchestrator:
         )
         self._mesh_thumbnail_tasks.add(task)
         task.add_done_callback(self._mesh_thumbnail_tasks.discard)
+
+    def _schedule_media_tagging(self, generation_id: str) -> None:
+        task = asyncio.create_task(
+            asyncio.to_thread(
+                _drain_media_tagging, self.media_indexer, generation_id, PASS_TAGS
+            )
+        )
+        self._media_tag_tasks.add(task)
+        task.add_done_callback(self._media_tag_tasks.discard)
 
     async def get_generation_status(self, generation_id: str) -> Optional[Any]:
         """

@@ -183,12 +183,22 @@ class MediaIndexer:
         Returns ``{"processed": n, "failed": n}``. Synchronous and CPU-bound;
         callers on the event loop should wrap it in a thread.
         """
-        processor = self._processors.get(pass_type)
-        batch_processor = self._batch_processors.get(pass_type)
-        if processor is None and batch_processor is None:
+        self._require_pass_type(pass_type)
+        items = self.repository.claim_batch(pass_type, batch_size, MAX_ATTEMPTS)
+        return self._drain(pass_type, items)
+
+    def process_generation(self, generation_id: str, pass_type: str = PASS_TAGS) -> Dict[str, int]:
+        self._require_pass_type(pass_type)
+        items = self.repository.claim_generation_batch(generation_id, pass_type, MAX_ATTEMPTS)
+        return self._drain(pass_type, items)
+
+    def _require_pass_type(self, pass_type: str) -> None:
+        if pass_type not in self._processors and pass_type not in self._batch_processors:
             raise ValueError(f"Unknown media index pass type: {pass_type}")
 
-        items = self.repository.claim_batch(pass_type, batch_size, MAX_ATTEMPTS)
+    def _drain(self, pass_type: str, items: List[MediaIndexQueueItem]) -> Dict[str, int]:
+        processor = self._processors.get(pass_type)
+        batch_processor = self._batch_processors.get(pass_type)
         processed = 0
         failed = 0
 

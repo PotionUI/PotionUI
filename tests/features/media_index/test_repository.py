@@ -120,6 +120,30 @@ class TestQueue(MediaIndexTestBase):
 
         assert item.prompt_text is None
 
+    def test_claim_generation_batch_only_claims_that_generations_items(self):
+        gen1 = self.create_test_generation("gen1", self.user_id)
+        gen2 = self.create_test_generation("gen2", self.user_id)
+        self._make_file("f1", gen1)
+        self._make_file("f2", gen2)
+        self.repo.enqueue_files(["f1", "f2"], "tags")
+
+        items = self.repo.claim_generation_batch(gen1, "tags", 3)
+
+        assert [item.file_id for item in items] == ["f1"]
+        assert self._queue_row("f1")["status"] == "processing"
+        assert self._queue_row("f2")["status"] == "pending"
+
+    def test_claim_generation_batch_ignores_max_attempts_exhausted_rows(self):
+        gen = self.create_test_generation("gen1", self.user_id)
+        self._make_file("f1", gen)
+        self.repo.enqueue_files(["f1"], "tags")
+        for _ in range(3):
+            item = self.repo.claim_batch("tags", 10, 3)[0]
+            self.repo.mark_failed(item.id, "boom", 3)
+
+        assert self._queue_row("f1")["status"] == "failed"
+        assert self.repo.claim_generation_batch(gen, "tags", 3) == []
+
     def test_mark_failed_retries_until_attempts_exhaust(self):
         self._make_file("f1")
         self.repo.enqueue_files(["f1"], "tags")

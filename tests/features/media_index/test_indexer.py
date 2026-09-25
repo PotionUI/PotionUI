@@ -318,6 +318,51 @@ class TestProcessPending(IndexerTestBase):
             manager.process_pending("face_embed", batch_size=10)
 
 
+class TestProcessGeneration(IndexerTestBase):
+    def test_drains_only_this_generations_files_and_writes_tags(self):
+        gen = self.create_test_generation("gen1", self.user_id)
+        self._make_file("f1", gen)
+        other_gen = self.create_test_generation("gen2", self.user_id)
+        self._make_file("f2", other_gen)
+        manager = self._indexer()
+        manager.on_generation_complete(gen, "completed")
+        manager.on_generation_complete(other_gen, "completed")
+
+        result = manager.process_generation(gen, PASS_TAGS)
+
+        assert result == {"processed": 1, "failed": 0}
+        assert self.tagger.calls == ["/storage/generations/g/f1.png"]
+        assert self._queue_row("f1")["status"] == "done"
+        assert self._queue_row("f2")["status"] == "pending"
+
+    def test_backlog_ahead_of_it_is_never_touched(self):
+        for i in range(5):
+            self._make_file(f"backlog{i}")
+        self.repo.enqueue_files([f"backlog{i}" for i in range(5)], PASS_TAGS)
+        gen = self.create_test_generation("gen1", self.user_id)
+        self._make_file("f1", gen)
+        manager = self._indexer()
+        manager.on_generation_complete(gen, "completed")
+
+        result = manager.process_generation(gen, PASS_TAGS)
+
+        assert result == {"processed": 1, "failed": 0}
+        for i in range(5):
+            assert self._queue_row(f"backlog{i}")["status"] == "pending"
+
+    def test_unknown_pass_type_raises(self):
+        gen = self.create_test_generation("gen1", self.user_id)
+        manager = self._indexer()
+        with pytest.raises(ValueError, match="face_embed"):
+            manager.process_generation(gen, "face_embed")
+
+    def test_no_queued_items_is_a_noop(self):
+        gen = self.create_test_generation("gen1", self.user_id)
+        manager = self._indexer()
+
+        assert manager.process_generation(gen, PASS_TAGS) == {"processed": 0, "failed": 0}
+
+
 class TestRetagStale(IndexerTestBase):
     def test_model_switch_deletes_old_provenance_and_requeues(self):
         self._make_file("f1")

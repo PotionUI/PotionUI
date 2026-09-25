@@ -249,7 +249,7 @@
 			{/if}
 
 
-			<!-- Actions - top right on hover (favorite persists when set). Hidden while selecting,
+			<!-- Actions - top right on hover. Hidden while selecting,
 			     exactly like GenerationCard's `{#if showActions && !selectable}`. Removing a model
 			     belongs to the admin management context (showManagementActions); the library gets
 			     favorite/view only. -->
@@ -279,9 +279,7 @@
 						</Tooltip>
 					{:else}
 						<div
-							class="bg-black/60 hover:bg-black/80 rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 flex items-center {isFavorite
-								? 'opacity-100'
-								: 'opacity-0 group-hover:opacity-100'}"
+							class="bg-black/60 hover:bg-black/80 rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 flex items-center opacity-0 group-hover:opacity-100 focus-within:opacity-100"
 						>
 							<FavoriteButton active={isFavorite} tone="onMedia" onToggle={toggleFavorite} />
 						</div>

@@ -117,36 +117,36 @@ prompt_syntax:
   song:
     - token: "[Intro]"
       kind: "marker"
-      pattern: '\[[Ii]ntro(?: \d+)?\]'
-      help: "Opening section, usually instrumental or a short vocal hook"
+      pattern: '\[[Ii]ntro\]'
+      help: "Opening section (community convention; upstream documents only [Verse] and [Chorus])"
       color: "lightslategray"
     - token: "[Verse]"
       kind: "marker"
-      pattern: '\[[Vv]erse(?: \d+)?\]'
-      help: "Verse: new lyrics each time, the story of the song"
+      pattern: '\[[Vv]erse\]'
+      help: "Verse, on its own line; documented in the upstream YuE2 example"
       color: "cornflowerblue"
     - token: "[Pre-Chorus]"
       kind: "marker"
-      pattern: '\[[Pp]re-[Cc]horus(?: \d+)?\]'
-      help: "Build-up that lifts into the chorus"
+      pattern: '\[[Pp]re-[Cc]horus\]'
+      help: "Build-up into the chorus (community convention, not an upstream guarantee)"
       color: "mediumorchid"
     - token: "[Chorus]"
       kind: "marker"
-      pattern: '\[[Cc]horus(?: \d+)?\]'
-      help: "Chorus: the repeated hook, same lyrics each time"
+      pattern: '\[[Cc]horus\]'
+      help: "Chorus, on its own line; documented in the upstream YuE2 example"
       color: "goldenrod"
     - token: "[Post-Chorus]"
       kind: "marker"
-      pattern: '\[[Pp]ost-[Cc]horus(?: \d+)?\]'
-      help: "Short tag after the chorus that echoes the hook"
+      pattern: '\[[Pp]ost-[Cc]horus\]'
+      help: "Tag after the chorus; not a documented YuE2 section, the model may treat it loosely"
       color: "darkorange"
     - token: "[Bridge]"
       kind: "marker"
-      pattern: '\[[Bb]ridge(?: \d+)?\]'
-      help: "Contrasting section before the last chorus"
+      pattern: '\[[Bb]ridge\]'
+      help: "Contrasting section (community convention, not an upstream guarantee)"
       color: "mediumseagreen"
     - token: "[Outro]"
       kind: "marker"
-      pattern: '\[[Oo]utro(?: \d+)?\]'
-      help: "Closing section; the song ends after it"
+      pattern: '\[[Oo]utro\]'
+      help: "Closing section (community convention, not an upstream guarantee)"
       color: "lightslategray"

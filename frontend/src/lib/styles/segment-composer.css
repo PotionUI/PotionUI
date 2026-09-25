@@ -183,6 +183,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .phrase-chip, .variable-chip, .choice-chip, .resource-chip { padding: 0; overflow: hidden; }
 
+.resource-chip { vertical-align: middle; }
+
 .resource-chip .chip-mark { color: rgb(var(--success)); }
 
 .resource-chip .chip-thumb { width: 24px; height: 24px; flex: 0 0 auto; margin-right: 6px; overflow: hidden; display: grid; place-items: center; color: rgb(var(--success)); background: color-mix(in srgb, rgb(var(--fg)) 9%, rgb(var(--surface-2))); border: 1px solid rgb(var(--line)); border-radius: 4px; }

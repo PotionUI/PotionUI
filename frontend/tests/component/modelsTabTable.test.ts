@@ -141,14 +141,14 @@ describe('ModelsTab', () => {
 		expect(attributesRow?.textContent).toContain(String(DEFINITIONS.length));
 	});
 
-	it('selecting a type section asks the API for that model_type', async () => {
+	it('selecting a type row asks the API for that model_type', async () => {
 		mountTab();
 		await flush();
 		flushSync();
 
-		const sidebarRows = Array.from(target.querySelectorAll('[role="option"]'));
-		const loraSection = sidebarRows.find((el) => el.textContent?.includes('LORA'))!;
-		(loraSection as HTMLElement).click();
+		const typeRows = Array.from(target.querySelectorAll('[data-pane-row]'));
+		const loraRow = typeRows.find((el) => el.textContent?.trim().startsWith('LoRA'))!;
+		(loraRow as HTMLElement).click();
 		await flush();
 		flushSync();
 

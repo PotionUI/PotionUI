@@ -38,7 +38,15 @@
 	import AttributesList from './models/AttributesList.svelte';
 	import AttributeDetailPage from './models/AttributeDetailPage.svelte';
 	import ModelDetailPage from './models/ModelDetailPage.svelte';
-	import { buildModelLibrarySections, modelLibrarySectionCounts, MODELS_ATTRIBUTES_SECTION } from './models/modelLibrarySections';
+	import {
+		MODEL_LIBRARY_SECTIONS,
+		MODELS_ALL_SECTION,
+		MODELS_ATTRIBUTES_SECTION,
+		modelLibraryShellSection,
+		modelLibrarySectionCounts,
+		modelTypeRows
+	} from './models/modelLibrarySections';
+	import { PaneRow } from '$lib/components/pane';
 	import { deletableAttributeIds, selectionHasBuiltIn } from './models/attributeBulkActions';
 	import { buildAttributeDefinitionPayload, emptyAttributeDraft, type AttributeDraft } from './attributeDefinitionForm';
 	import {
@@ -153,7 +161,7 @@
 	const detailOpen = $derived(!!viewId);
 	const isAttributesSection = $derived(section === MODELS_ATTRIBUTES_SECTION);
 
-	const sections = $derived(buildModelLibrarySections(modelTypes));
+	const typeRows = $derived(modelTypeRows(modelTypes));
 	const sectionCounts = $derived(modelLibrarySectionCounts(modelTypes, definitions.length));
 
 	const filters = $derived(modelsFiltersFromSearchParams($page.url.searchParams));
@@ -631,8 +639,8 @@
 	title="Models"
 	persistKey="admin-models-library"
 	heightClass="h-full"
-	{sections}
-	{section}
+	sections={MODEL_LIBRARY_SECTIONS}
+	section={modelLibraryShellSection(section)}
 	onSelectSection={selectSection}
 	{sectionCounts}
 	count={isAttributesSection ? filteredAttributeDefinitions.length : models.length}
@@ -643,6 +651,24 @@
 	loadedCount={isAttributesSection ? filteredAttributeDefinitions.length : models.length}
 	total={isAttributesSection ? definitions.length : totalCount}
 >
+	{#snippet sidebarTree()}
+		{#if !isAttributesSection && typeRows.length > 0}
+			<div class="border-t border-line">
+				<div class="px-3 pb-1 pt-2 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">By type</div>
+				<div class="space-y-0.5 p-2 pt-0">
+					{#each typeRows as row (row.type)}
+						<PaneRow
+							title={row.label}
+							count={row.count}
+							selected={section === row.type}
+							onclick={() => selectSection(section === row.type ? MODELS_ALL_SECTION : row.type)}
+						/>
+					{/each}
+				</div>
+			</div>
+		{/if}
+	{/snippet}
+
 	{#snippet toolbar()}
 		{#if isAttributesSection}
 			<LibraryFilterBar

@@ -2,29 +2,41 @@ import { describe, it, expect } from 'vitest';
 import {
 	MODELS_ALL_SECTION,
 	MODELS_ATTRIBUTES_SECTION,
-	buildModelLibrarySections,
-	modelLibrarySectionCounts
+	MODEL_LIBRARY_SECTIONS,
+	modelLibraryShellSection,
+	modelLibrarySectionCounts,
+	modelTypeRows
 } from './modelLibrarySections';
 
-describe('buildModelLibrarySections', () => {
-	it('always starts with All models and ends with Attributes', () => {
-		const sections = buildModelLibrarySections([{ type: 'lora', count: 3 }]);
-		expect(sections[0]).toEqual({ id: MODELS_ALL_SECTION, label: 'All models', icon: 'cube' });
-		expect(sections.at(-1)).toEqual({ id: MODELS_ATTRIBUTES_SECTION, label: 'Attributes', icon: 'sliders' });
-		expect(sections).toHaveLength(3);
+describe('MODEL_LIBRARY_SECTIONS', () => {
+	it('is All models then Attributes', () => {
+		expect(MODEL_LIBRARY_SECTIONS.map((s) => s.id)).toEqual([MODELS_ALL_SECTION, MODELS_ATTRIBUTES_SECTION]);
+		expect(MODEL_LIBRARY_SECTIONS.map((s) => s.label)).toEqual(['All models', 'Attributes']);
 	});
+});
 
-	it('emits one section per model type, uppercased', () => {
-		const sections = buildModelLibrarySections([
-			{ type: 'checkpoint', count: 1 },
+describe('modelTypeRows', () => {
+	it('emits one readable row per model type with its count', () => {
+		const rows = modelTypeRows([
+			{ type: 'text_encoder', count: 1 },
 			{ type: 'lora', count: 2 }
 		]);
-		expect(sections.map((s) => s.id)).toEqual(['all', 'checkpoint', 'lora', 'attributes']);
-		expect(sections.map((s) => s.label)).toEqual(['All models', 'CHECKPOINT', 'LORA', 'Attributes']);
+		expect(rows.map((r) => r.type)).toEqual(['text_encoder', 'lora']);
+		expect(rows.map((r) => r.count)).toEqual([1, 2]);
+		expect(rows[0].label).not.toBe('TEXT_ENCODER');
+		expect(rows[0].label).not.toContain('_');
 	});
 
-	it('is just All models + Attributes with no model types', () => {
-		expect(buildModelLibrarySections([]).map((s) => s.id)).toEqual(['all', 'attributes']);
+	it('is empty with no model types', () => {
+		expect(modelTypeRows([])).toEqual([]);
+	});
+});
+
+describe('modelLibraryShellSection', () => {
+	it('keeps All models highlighted while a type narrows the list', () => {
+		expect(modelLibraryShellSection('lora')).toBe(MODELS_ALL_SECTION);
+		expect(modelLibraryShellSection(MODELS_ALL_SECTION)).toBe(MODELS_ALL_SECTION);
+		expect(modelLibraryShellSection(MODELS_ATTRIBUTES_SECTION)).toBe(MODELS_ATTRIBUTES_SECTION);
 	});
 });
 
@@ -37,7 +49,7 @@ describe('modelLibrarySectionCounts', () => {
 			],
 			7
 		);
-		expect(counts).toEqual({ all: 17, checkpoint: 5, lora: 12, attributes: 7 });
+		expect(counts).toEqual({ all: 17, attributes: 7 });
 	});
 
 	it('is zero for All models and Attributes with no model types', () => {

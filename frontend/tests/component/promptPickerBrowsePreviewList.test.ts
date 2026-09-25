@@ -33,6 +33,14 @@ function mountModal(props: Record<string, unknown> = {}) {
 	return target;
 }
 
+function rows() {
+	return Array.from(document.querySelectorAll<HTMLElement>('.picker-vrow'));
+}
+
+function rowFor(label: string) {
+	return rows().find((r) => r.textContent?.includes(label));
+}
+
 afterEach(() => {
 	if (component) unmount(component);
 	component = undefined;
@@ -41,22 +49,21 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-describe('PromptPickerBrowseModal — phrasebook preview grid', () => {
-	it('renders an image card for values with a preview and a glyph tile for values without one', () => {
+describe('PromptPickerBrowseModal — phrasebook value list previews', () => {
+	it('renders a thumbnail image for values with a preview and a plain glyph for values without one', () => {
 		mountModal({ values: valuesWithMixedPreviews, initialSelectedId: 'v1' });
 
-		const cards = Array.from(document.querySelectorAll<HTMLElement>('.picker-pgitem'));
-		expect(cards.length).toBe(3);
+		expect(rows().length).toBe(3);
 
-		const golden = cards.find((c) => c.textContent?.includes('golden hour'));
-		const blue = cards.find((c) => c.textContent?.includes('blue hour'));
+		const golden = rowFor('golden hour');
+		const blue = rowFor('blue hour');
 
-		expect(golden?.querySelector('img')).not.toBeNull();
-		expect(blue?.querySelector('img')).toBeNull();
-		expect(blue?.querySelector('.picker-pgglyph')).not.toBeNull();
+		expect(golden?.querySelector('.picker-vthumb img')).not.toBeNull();
+		expect(blue?.querySelector('.picker-vthumb img')).toBeNull();
+		expect(blue?.querySelector('.picker-vthumb')?.classList.contains('clickable')).toBe(false);
 	});
 
-	it('falls back to the list layout when no value in the category has a preview', () => {
+	it('shows the Space / → preview hint in the list header only when a value has a preview', () => {
 		mountModal({
 			values: [
 				{ id: 'v1', category_id: 'c1', label: 'golden hour', value: 'warm rim light', sort_order: 0, created_at: '', updated_at: '' }
@@ -64,53 +71,96 @@ describe('PromptPickerBrowseModal — phrasebook preview grid', () => {
 			initialSelectedId: 'v1'
 		});
 
-		expect(document.querySelector('.picker-pgrid')).toBeNull();
+		expect(document.querySelector('.picker-values-head')).toBeNull();
 		expect(document.querySelector('.picker-vrow')).not.toBeNull();
 	});
 
-	it('opens the preview viewer by clicking a card\'s preview button', () => {
+	it('shows the Space / → preview hint when at least one value has a preview', () => {
 		mountModal({ values: valuesWithMixedPreviews, initialSelectedId: 'v1' });
 
-		document.querySelector<HTMLElement>('button[aria-label="Preview golden hour"]')!.dispatchEvent(
+		const hint = document.querySelector('.picker-values-head');
+		expect(hint).not.toBeNull();
+		expect(hint?.textContent).toContain('preview');
+	});
+
+	it("opens the preview viewer by clicking a row's thumbnail", () => {
+		mountModal({ values: valuesWithMixedPreviews, initialSelectedId: 'v1' });
+
+		rowFor('golden hour')!.querySelector<HTMLElement>('.picker-vthumb')!.dispatchEvent(
 			new MouseEvent('click', { bubbles: true })
 		);
 		flushSync();
 
 		expect(document.querySelector('.picker-preview-pane')).not.toBeNull();
 		expect(document.querySelector('.picker-preview-pane')?.textContent).toContain('golden hour');
-		expect(document.querySelector('.picker-preview-pos')?.textContent?.trim()).toBe('1 / 3');
+		expect(document.querySelector('.picker-preview-pos')?.textContent?.trim()).toBe('1 / 2');
 	});
 
-	it('opens the preview viewer with Space when a card is selected', () => {
-		mountModal({ values: valuesWithMixedPreviews, initialSelectedId: 'v2' });
-
-		window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
-		flushSync();
-
-		expect(document.querySelector('.picker-preview-pane')?.textContent).toContain('blue hour');
-	});
-
-	it('← / → move through the values as a carousel, updating position and stopping at the ends', () => {
+	it('opens the preview viewer with Space when a row with a preview is selected', () => {
 		mountModal({ values: valuesWithMixedPreviews, initialSelectedId: 'v1' });
 
 		window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
 		flushSync();
-		expect(document.querySelector('.picker-preview-pos')?.textContent?.trim()).toBe('1 / 3');
+
+		expect(document.querySelector('.picker-preview-pane')?.textContent).toContain('golden hour');
+	});
+
+	it('opens the preview viewer with → when a row with a preview is selected', () => {
+		mountModal({ values: valuesWithMixedPreviews, initialSelectedId: 'v3' });
+
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+		flushSync();
+
+		expect(document.querySelector('.picker-preview-pane')?.textContent).toContain('hard noon');
+	});
+
+	it('Space/→ do nothing when the selected row has no preview', () => {
+		mountModal({ values: valuesWithMixedPreviews, initialSelectedId: 'v2' });
+
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+		flushSync();
+		expect(document.querySelector('.picker-preview-pane')).toBeNull();
+
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+		flushSync();
+		expect(document.querySelector('.picker-preview-pane')).toBeNull();
+	});
+
+	it('↑ / ↓ move the list selection', () => {
+		mountModal({ values: valuesWithMixedPreviews, initialSelectedId: 'v1' });
+
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+		flushSync();
+		expect(rowFor('blue hour')?.classList.contains('sel')).toBe(true);
+
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+		flushSync();
+		expect(rowFor('hard noon')?.classList.contains('sel')).toBe(true);
+
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+		flushSync();
+		expect(rowFor('blue hour')?.classList.contains('sel')).toBe(true);
+	});
+
+	it('← / → move only through values with previews, updating position and stopping at the ends', () => {
+		mountModal({ values: valuesWithMixedPreviews, initialSelectedId: 'v1' });
+
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+		flushSync();
+		expect(document.querySelector('.picker-preview-pos')?.textContent?.trim()).toBe('1 / 2');
 
 		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
 		flushSync();
-		expect(document.querySelector('.picker-preview-pos')?.textContent?.trim()).toBe('1 / 3');
+		expect(document.querySelector('.picker-preview-pos')?.textContent?.trim()).toBe('1 / 2');
 
 		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
 		flushSync();
-		expect(document.querySelector('.picker-preview-pos')?.textContent?.trim()).toBe('2 / 3');
-		expect(document.querySelector('.picker-preview-pane')?.textContent).toContain('blue hour');
+		expect(document.querySelector('.picker-preview-pos')?.textContent?.trim()).toBe('2 / 2');
+		expect(document.querySelector('.picker-preview-pane')?.textContent).toContain('hard noon');
 
 		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
 		flushSync();
-		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
-		flushSync();
-		expect(document.querySelector('.picker-preview-pos')?.textContent?.trim()).toBe('3 / 3');
+		expect(document.querySelector('.picker-preview-pos')?.textContent?.trim()).toBe('2 / 2');
 	});
 
 	it('"Use this value" sets the pending selection and closes the viewer, keeping the modal open', () => {
@@ -130,8 +180,7 @@ describe('PromptPickerBrowseModal — phrasebook preview grid', () => {
 		expect(document.querySelector('.picker-preview-pane')).toBeNull();
 		expect(document.querySelector('[role="dialog"]')).not.toBeNull();
 
-		const selected = document.querySelector<HTMLElement>('.picker-pgitem.sel');
-		expect(selected?.textContent).toContain('blue hour');
+		expect(rowFor('hard noon')?.classList.contains('sel')).toBe(true);
 	});
 
 	it('Esc closes the viewer only, not the whole modal', () => {

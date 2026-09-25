@@ -74,12 +74,12 @@ describe('phrasebook picker search highlighting', () => {
 		expect(marks(document.querySelector('.picker-values')!)).toEqual(['light', 'light']);
 	});
 
-	it('marks the query in preview grid cards', () => {
+	it('marks the query in list rows with a preview thumbnail', () => {
 		mountModal();
 		typeQuery('sha');
-		const cards = document.querySelectorAll('.picker-pgitem');
-		expect(cards.length).toBe(1);
-		expect(marks(cards[0])).toEqual(['sha']);
+		const rows = document.querySelectorAll('.picker-vrow');
+		expect(rows.length).toBe(1);
+		expect(marks(rows[0])).toEqual(['sha']);
 	});
 
 	it('regex toggle filters and marks with a regular expression', () => {

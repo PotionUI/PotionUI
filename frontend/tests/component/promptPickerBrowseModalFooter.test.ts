@@ -115,3 +115,63 @@ describe('PromptPickerBrowseModal footer', () => {
 		expect(onInsertValue).toHaveBeenCalledTimes(1);
 	});
 });
+
+describe('PromptPickerBrowseModal footer — phrasebook actions stay on one row', () => {
+	it('renders the left action group without a wrap class', () => {
+		mountModal({ footerLeft: 'phrasebook', initialSelectedId: 'v1', canShuffle: true });
+
+		const left = document.querySelector<HTMLElement>('.picker-footer-left');
+		expect(left).not.toBeNull();
+		expect(left!.className).not.toContain('flex-wrap');
+	});
+
+	it('renders Fixed value / Auto-shuffle as a segmented control with aria-pressed', () => {
+		mountModal({ footerLeft: 'phrasebook', initialSelectedId: 'v1', canShuffle: true });
+
+		const group = document.querySelector<HTMLElement>('.picker-footer-left [role="group"]');
+		expect(group).not.toBeNull();
+
+		const segments = Array.from(group!.querySelectorAll<HTMLButtonElement>('button'));
+		expect(segments.map((b) => b.textContent?.trim())).toEqual(['Fixed value', 'Auto-shuffle']);
+		expect(segments[0].getAttribute('aria-pressed')).toBe('true');
+		expect(segments[1].getAttribute('aria-pressed')).toBe('false');
+
+		segments[1].click();
+		flushSync();
+
+		expect(segments[1].getAttribute('aria-pressed')).toBe('true');
+		expect(segments[0].getAttribute('aria-pressed')).toBe('false');
+	});
+
+	it('disables the Auto-shuffle segment and hides Exclude when the value cannot shuffle', () => {
+		mountModal({ footerLeft: 'phrasebook', initialSelectedId: 'v1', canShuffle: false });
+
+		const segments = Array.from(
+			document.querySelectorAll<HTMLButtonElement>('.picker-footer-left [role="group"] button')
+		);
+		expect(segments[1].disabled).toBe(true);
+
+		const exclude = Array.from(document.querySelectorAll('button')).find((b) =>
+			b.textContent?.includes('Exclude from shuffles')
+		);
+		expect(exclude).toBeUndefined();
+	});
+
+	it('Remove chip is a danger IconButton with a tooltip label, calling onRemove and closing', () => {
+		const onRemove = vi.fn();
+		const onClose = vi.fn();
+		mountModal({ footerLeft: 'phrasebook', initialSelectedId: 'v1', canShuffle: true, onRemove, onClose });
+
+		const removeButton = document.querySelector<HTMLButtonElement>(
+			'.picker-footer-left button[aria-label="Remove chip"]'
+		);
+		expect(removeButton).not.toBeNull();
+		expect(removeButton!.className).toContain('text-danger');
+
+		removeButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		flushSync();
+
+		expect(onRemove).toHaveBeenCalledTimes(1);
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+});

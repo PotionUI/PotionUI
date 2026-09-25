@@ -47,7 +47,9 @@ function mountEditor(value: string, props: Record<string, unknown> = {}) {
 }
 
 function findButton(text: string) {
-	return Array.from(document.querySelectorAll<HTMLElement>('button')).find((b) => b.textContent?.includes(text));
+	return Array.from(document.querySelectorAll<HTMLElement>('button')).find(
+		(b) => b.textContent?.includes(text) || b.getAttribute('aria-label') === text
+	);
 }
 
 async function openSwitcher(mockedValues: Array<{ id: string; label: string; value: string }>, overrides: Partial<ChipData> = {}) {

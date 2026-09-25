@@ -30,8 +30,6 @@
 		'/': 'rgb(var(--warning))'
 	};
 
-	const PGRID_COLUMNS = 4;
-
 	let {
 		triggerChar,
 		title,
@@ -113,7 +111,12 @@
 		selectedId = filteredValues[0]?.id ?? null;
 	});
 
-	let showPreviewGrid = $derived(triggerChar === '#' && layout === 'list' && filteredValues.some((v) => v.preview_file_id));
+	let previewableValues = $derived(filteredValues.filter((v) => v.preview_file_id));
+	let hasPreviewValues = $derived(triggerChar === '#' && layout !== 'grid' && previewableValues.length > 0);
+
+	function previewIndexOf(value: AutocompleteValue): number {
+		return previewableValues.findIndex((v) => v.id === value.id);
+	}
 
 	$effect(() => {
 		if (previewOpen) previewPaneRef?.focus();
@@ -135,16 +138,18 @@
 	}
 
 	function previewNext() {
-		if (previewIndex < filteredValues.length - 1) previewIndex += 1;
+		if (previewIndex < previewableValues.length - 1) previewIndex += 1;
 	}
 
 	function useThisValue() {
-		const picked = filteredValues[previewIndex];
+		const picked = previewableValues[previewIndex];
 		if (picked) selectedId = picked.id;
 		closePreview();
 	}
 
-	function moveGridSelection(currentIndex: number, delta: number) {
+	function moveListSelection(delta: number) {
+		const currentIndex = filteredValues.findIndex((v) => v.id === selectedId);
+		if (currentIndex === -1) return;
 		const nextIndex = currentIndex + delta;
 		if (nextIndex < 0 || nextIndex >= filteredValues.length) return;
 		selectedId = filteredValues[nextIndex].id;
@@ -190,28 +195,22 @@
 		if (suppress) e.preventDefault();
 		if (action !== null) return;
 
-		if (!showPreviewGrid) return;
+		if (triggerChar !== '#' || layout === 'grid') return;
 		const activeTag = (e.target as HTMLElement | null)?.tagName;
 		if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
 
-		const currentIndex = filteredValues.findIndex((v) => v.id === selectedId);
-		if (currentIndex === -1) return;
-
-		if (e.key === ' ') {
+		if (e.key === 'ArrowDown') {
 			e.preventDefault();
-			openPreviewAt(currentIndex);
-		} else if (e.key === 'ArrowRight') {
-			e.preventDefault();
-			moveGridSelection(currentIndex, 1);
-		} else if (e.key === 'ArrowLeft') {
-			e.preventDefault();
-			moveGridSelection(currentIndex, -1);
-		} else if (e.key === 'ArrowDown') {
-			e.preventDefault();
-			moveGridSelection(currentIndex, PGRID_COLUMNS);
+			moveListSelection(1);
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
-			moveGridSelection(currentIndex, -PGRID_COLUMNS);
+			moveListSelection(-1);
+		} else if (e.key === ' ' || e.key === 'ArrowRight') {
+			const current = filteredValues.find((v) => v.id === selectedId);
+			if (current?.preview_file_id) {
+				e.preventDefault();
+				openPreviewAt(previewIndexOf(current));
+			}
 		}
 	}
 
@@ -298,13 +297,13 @@
 
 	<div class="picker-modal-body">
 		{#if previewOpen}
-			{@const current = filteredValues[previewIndex]}
+			{@const current = previewableValues[previewIndex]}
 			<div class="picker-preview-pane" role="dialog" aria-label="Preview {current?.label ?? ''}" tabindex="-1" bind:this={previewPaneRef}>
 				<div class="picker-preview-head">
-					<Tooltip text="Back to the grid">
+					<Tooltip text="Back to the list">
 						<Button variant="ghost" size="sm" icon="arrow-left" onclick={closePreview}>Back</Button>
 					</Tooltip>
-					<span class="picker-preview-pos">{previewIndex + 1} / {filteredValues.length}</span>
+					<span class="picker-preview-pos">{previewIndex + 1} / {previewableValues.length}</span>
 				</div>
 				<div class="picker-preview-body">
 					<Tooltip text="Previous (←)">
@@ -329,7 +328,7 @@
 						<button
 							type="button"
 							class="picker-preview-nav"
-							disabled={previewIndex === filteredValues.length - 1}
+							disabled={previewIndex === previewableValues.length - 1}
 							onclick={previewNext}
 							aria-label="Next value"
 						>
@@ -365,54 +364,7 @@
 				</div>
 			{/if}
 
-			{#if showPreviewGrid}
-				<div class="picker-gridwrap" class:full={categories.length === 0}>
-					<div class="picker-pgrid">
-						{#each filteredValues as value, index (value.id)}
-							{@const isCurrent = value.id === initialSelectedId}
-							{@const isSelected = value.id === selectedId}
-							<div class="picker-pgitem-wrap">
-								<button
-									type="button"
-									class="picker-pgitem"
-									class:sel={isSelected}
-									use:scrollCurrentIntoView={isCurrent}
-									onclick={() => (selectedId = value.id)}
-									ondblclick={() => pickValue(value)}
-								>
-									<span class="picker-pgthumb">
-										{#if value.preview_file_id && getImageUrl}
-											<img src={getImageUrl(value.preview_file_id)} alt={value.label} loading="lazy" />
-										{:else}
-											<span class="picker-pgglyph">{triggerChar}</span>
-										{/if}
-									</span>
-									<span class="picker-pgcopy">
-										<strong class="picker-value-primary"><HighlightedText text={value.value} matcher={searchMatcher} /></strong>
-										{#if value.label && value.label !== value.value}<span class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> <HighlightedText text={value.label} matcher={searchMatcher} /></span>{/if}
-									</span>
-									{#if isCurrent}
-										<span class="picker-vbadge" class:signal={isSelected} class:neutral={!isSelected}>Current</span>
-									{/if}
-								</button>
-								<Tooltip text="Preview (Space)">
-									<button
-										type="button"
-										class="picker-pgpreview-btn"
-										aria-label="Preview {value.label}"
-										onclick={(e) => {
-											e.stopPropagation();
-											openPreviewAt(index);
-										}}
-									>
-										<Icon name="eyes" className="icon" />
-									</button>
-								</Tooltip>
-							</div>
-						{/each}
-					</div>
-				</div>
-			{:else if layout === 'grid'}
+			{#if layout === 'grid'}
 				<div class="picker-gridwrap" class:full={categories.length === 0}>
 					<div class="picker-grid">
 						{#each filteredValues as value (value.id)}
@@ -446,41 +398,55 @@
 					</div>
 				</div>
 			{:else}
-				<div class="picker-values" class:full={categories.length === 0}>
-					{#each filteredValues as value (value.id)}
-						{@const isCurrent = value.id === initialSelectedId}
-						{@const isSelected = value.id === selectedId}
-						<button
-							type="button"
-							class="picker-vrow"
-							class:sel={isSelected}
-							use:scrollCurrentIntoView={isCurrent}
-							onclick={() => (selectedId = value.id)}
-							ondblclick={() => pickValue(value)}
-						>
-							<span class="picker-vthumb">
-								{#if value.preview_file_id && getImageUrl}
-									<img src={getImageUrl(value.preview_file_id)} alt={value.label} loading="lazy" />
+				<div class="picker-valuecol" class:full={categories.length === 0}>
+					{#if hasPreviewValues}
+						<div class="picker-values-head">
+							<span class="picker-kbd-hint"><Kbd keys="Space" /> / <Kbd keys="→" /> preview</span>
+						</div>
+					{/if}
+					<div class="picker-values">
+						{#each filteredValues as value (value.id)}
+							{@const isCurrent = value.id === initialSelectedId}
+							{@const isSelected = value.id === selectedId}
+							{@const hasPreview = !!(value.preview_file_id && getImageUrl)}
+							<button
+								type="button"
+								class="picker-vrow"
+								class:sel={isSelected}
+								use:scrollCurrentIntoView={isCurrent}
+								onclick={(e) => {
+									if (hasPreview && (e.target as HTMLElement).closest('.picker-vthumb')) {
+										openPreviewAt(previewIndexOf(value));
+										return;
+									}
+									selectedId = value.id;
+								}}
+								ondblclick={() => pickValue(value)}
+							>
+								<span class="picker-vthumb" class:clickable={hasPreview}>
+									{#if hasPreview}
+										<img src={getImageUrl(value.preview_file_id!)} alt={value.label} loading="lazy" />
+									{:else}
+										{triggerChar}
+									{/if}
+								</span>
+								<span class="picker-vcopy">
+									{#if triggerChar === '#'}
+										<strong class="picker-value-primary"><HighlightedText text={value.value} matcher={searchMatcher} /></strong>
+										{#if value.label && value.label !== value.value}<span class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> <HighlightedText text={value.label} matcher={searchMatcher} /></span>{/if}
+									{:else}
+										<strong class="picker-label-primary"><HighlightedText text={rowLabel(value)} matcher={searchMatcher} /></strong>
+										{#if value.description || value.value !== value.label}<span class="picker-label-secondary"><HighlightedText text={value.description ?? value.value} matcher={searchMatcher} /></span>{/if}
+									{/if}
+								</span>
+								{#if isCurrent}
+									<span class="picker-vbadge" class:signal={isSelected} class:neutral={!isSelected}>Current</span>
 								{:else}
-									{triggerChar}
+									<span class="picker-vcheck"><Icon name="check" className="icon" /></span>
 								{/if}
-							</span>
-							<span class="picker-vcopy">
-								{#if triggerChar === '#'}
-									<strong class="picker-value-primary"><HighlightedText text={value.value} matcher={searchMatcher} /></strong>
-									{#if value.label && value.label !== value.value}<span class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> <HighlightedText text={value.label} matcher={searchMatcher} /></span>{/if}
-								{:else}
-									<strong class="picker-label-primary"><HighlightedText text={rowLabel(value)} matcher={searchMatcher} /></strong>
-									{#if value.description || value.value !== value.label}<span class="picker-label-secondary"><HighlightedText text={value.description ?? value.value} matcher={searchMatcher} /></span>{/if}
-								{/if}
-							</span>
-							{#if isCurrent}
-								<span class="picker-vbadge" class:signal={isSelected} class:neutral={!isSelected}>Current</span>
-							{:else}
-								<span class="picker-vcheck"><Icon name="check" className="icon" /></span>
-							{/if}
-						</button>
-					{/each}
+							</button>
+						{/each}
+					</div>
 				</div>
 			{/if}
 		{/if}
@@ -494,44 +460,39 @@
 			onConfirm={handleConfirm}
 		>
 			{#snippet leftActions()}
-				{#if footerLeft === 'none' && showPreviewGrid}
-					<span class="picker-kbd-hint"><Kbd keys="Space" /> preview</span>
-				{/if}
 				{#if footerLeft === 'phrasebook'}
-					{#if showPreviewGrid}
-						<span class="picker-kbd-hint"><Kbd keys="Space" /> preview</span>
+					<div class="picker-footer-left">
+						<SegmentedControl
+							variant="toggle"
+							ariaLabel="Value behavior"
+							items={[
+								{ id: 'fixed', label: 'Fixed value' },
+								{ id: 'shuffle', label: 'Auto-shuffle', disabled: !canShuffle }
+							]}
+							selected={pendingShuffle ? 'shuffle' : 'fixed'}
+							onSelect={(id) => {
+								if (id === 'shuffle' && !canShuffle) return;
+								pendingShuffle = id === 'shuffle';
+							}}
+						/>
 						<span class="fsep"></span>
-					{/if}
-					<SegmentedControl
-						items={[
-							{ id: 'fixed', label: 'Fixed value' },
-							{ id: 'shuffle', label: 'Auto-shuffle' }
-						]}
-						selected={pendingShuffle ? 'shuffle' : 'fixed'}
-						onSelect={(id) => {
-							if (id === 'shuffle' && !canShuffle) return;
-							pendingShuffle = id === 'shuffle';
-						}}
-					/>
-					<span class="fsep"></span>
-					<Tooltip text="Pick a different value now">
-						<Button variant="secondary" size="sm" icon="shuffle" disabled={!canShuffle} onclick={shuffleNow}>
-							Shuffle now
-						</Button>
-					</Tooltip>
-					{#if canShuffle}
-						<Tooltip text="This value won't be picked by Auto-shuffle again">
-							<Button variant="ghost" size="sm" icon="eye-off" onclick={handleExcludeClick}>
-								Exclude from shuffles
+						<Tooltip text="Pick a different value now">
+							<Button variant="ghost" size="sm" icon="shuffle" disabled={!canShuffle} onclick={shuffleNow}>
+								Shuffle now
 							</Button>
 						</Tooltip>
-					{/if}
-					<span class="fsep"></span>
-					<Tooltip text="Remove this chip from the prompt">
-						<Button variant="ghost" size="sm" class="text-danger hover:bg-danger/10" icon="trash" onclick={handleRemoveClick}>
-							Remove chip
-						</Button>
-					</Tooltip>
+						{#if canShuffle}
+							<Tooltip text="This value won't be picked by Auto-shuffle again">
+								<Button variant="ghost" size="sm" icon="eye-off" onclick={handleExcludeClick}>
+									Exclude from shuffles
+								</Button>
+							</Tooltip>
+						{/if}
+						<span class="fsep"></span>
+						<Tooltip text="Remove chip">
+							<IconButton icon="trash" label="Remove chip" size="sm" class="text-danger hover:bg-danger/10" onclick={handleRemoveClick} />
+						</Tooltip>
+					</div>
 				{:else if footerLeft === 'resource'}
 					<Tooltip text="Remove this reference from the prompt">
 						<Button variant="ghost" size="sm" class="text-danger hover:bg-danger/10" icon="trash" onclick={handleRemoveClick}>
@@ -694,15 +655,32 @@
 		flex: none;
 	}
 
-	.picker-values {
+	.picker-valuecol {
 		flex: 1;
 		min-width: 0;
-		padding: 8px;
-		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
 	}
 
-	.picker-values.full {
+	.picker-valuecol.full {
 		width: 100%;
+	}
+
+	.picker-values-head {
+		flex: 0 0 auto;
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		height: 32px;
+		padding: 0 12px;
+		border-bottom: 1px solid rgb(var(--line));
+	}
+
+	.picker-values {
+		flex: 1;
+		min-height: 0;
+		padding: 8px;
+		overflow-y: auto;
 	}
 
 	.picker-vrow {
@@ -740,6 +718,14 @@
 		border: 1px solid rgb(var(--line));
 		border-radius: 5px;
 		font: 600 14px 'IBM Plex Mono', monospace;
+	}
+
+	.picker-vthumb.clickable {
+		cursor: zoom-in;
+	}
+
+	.picker-vthumb.clickable:hover {
+		border-color: rgb(var(--line-strong));
 	}
 
 	.picker-vthumb img {
@@ -964,88 +950,12 @@
 		white-space: nowrap;
 	}
 
-	.picker-pgrid {
-		display: grid;
-		grid-template-columns: repeat(4, 1fr);
-		gap: 12px;
-		padding: 4px;
-	}
-
-	.picker-pgitem-wrap {
-		position: relative;
-	}
-
-	.picker-pgitem {
-		position: relative;
+	.picker-footer-left {
 		display: flex;
-		flex-direction: column;
-		width: 100%;
-		border-radius: 8px;
-		overflow: hidden;
-		border: 1px solid rgb(var(--line));
-		background: rgb(var(--surface-2));
-		text-align: left;
-	}
-
-	.picker-pgitem:hover {
-		border-color: rgb(var(--line-strong));
-	}
-
-	.picker-pgitem.sel {
-		box-shadow: 0 0 0 2px rgb(var(--signal));
-		border-color: transparent;
-	}
-
-	.picker-pgthumb {
-		height: 9rem;
-		width: 100%;
-		display: grid;
-		place-items: center;
-		background: linear-gradient(
-			135deg,
-			rgb(var(--surface-3)) 0%,
-			rgb(var(--surface-2)) 55%,
-			rgb(var(--surface-3)) 100%
-		);
-		overflow: hidden;
-	}
-
-	.picker-pgthumb img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
-	.picker-pgglyph {
-		color: var(--trig);
-		font: 600 20px 'IBM Plex Mono', monospace;
-	}
-
-	.picker-pgcopy {
-		padding: 8px 9px 10px;
-	}
-
-	.picker-pgpreview-btn {
-		position: absolute;
-		top: 8px;
-		right: 8px;
-		width: 26px;
-		height: 26px;
-		display: grid;
-		place-items: center;
-		color: rgb(var(--fg));
-		background: rgb(var(--surface-1) / 0.75);
-		border: 1px solid rgb(var(--line-strong));
-		border-radius: 5px;
-	}
-
-	.picker-pgpreview-btn:hover {
-		background: rgb(var(--surface-1));
-	}
-
-	.picker-pgpreview-btn :global(.icon) {
-		width: 14px;
-		height: 14px;
+		flex-wrap: nowrap;
+		align-items: center;
+		gap: 8px;
+		min-width: 0;
 	}
 
 	.picker-preview-pane {

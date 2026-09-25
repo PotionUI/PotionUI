@@ -53,6 +53,21 @@ export function countResourceReferences(
 	return counts;
 }
 
+export function resourceUseCountsEqual(a: ResourceUseCounts, b: ResourceUseCounts): boolean {
+	if (a === b) return true;
+	const fields = Object.keys(a);
+	if (fields.length !== Object.keys(b).length) return false;
+	for (const field of fields) {
+		const left = a[field];
+		const right = b[field];
+		if (!right) return false;
+		const items = Object.keys(left);
+		if (items.length !== Object.keys(right).length) return false;
+		for (const item of items) if (left[item] !== right[item]) return false;
+	}
+	return true;
+}
+
 export function tabResourceSegmentGroups(tab: UsageTab | null | undefined): (UsageSegment[] | null | undefined)[] {
 	if (!tab) return [];
 	if (tab.promptTabs && tab.promptTabs.length > 0) {

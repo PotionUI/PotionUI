@@ -516,23 +516,22 @@
 	}
 
 	let currentTabPromptResources: PromptResourceSpec[] = [];
+	let currentTabPromptResourcesKey: string | null = null;
 	$: {
 		const preset = currentTab.selectedPreset;
 		const mode = currentTab.selectedMode;
 		const formName = currentTab.selectedVariant ?? undefined;
-		if (preset && mode) {
-			getPresetPromptResources(preset, mode, formName).then((result) => {
-				if (
-					currentTab.selectedPreset !== preset ||
-					currentTab.selectedMode !== mode ||
-					(currentTab.selectedVariant ?? undefined) !== formName
-				) {
-					return;
-				}
-				currentTabPromptResources = result.specs;
-			});
-		} else {
-			currentTabPromptResources = [];
+		const key = `${preset ?? ''}::${mode ?? ''}::${formName ?? ''}`;
+		if (key !== currentTabPromptResourcesKey) {
+			currentTabPromptResourcesKey = key;
+			if (preset && mode) {
+				getPresetPromptResources(preset, mode, formName).then((result) => {
+					if (currentTabPromptResourcesKey !== key) return;
+					currentTabPromptResources = result.specs;
+				});
+			} else {
+				currentTabPromptResources = [];
+			}
 		}
 	}
 

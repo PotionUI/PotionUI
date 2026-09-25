@@ -2,6 +2,8 @@
 	import { setContext } from 'svelte';
 	import { writable } from 'svelte/store';
 	import { tabsStore } from '$lib/stores/tabs';
+	import type { VariableRoll } from '$lib/utils/variableDefs';
+	import type { Segment } from '$lib/types/segments';
 	import { activeLoraTriggersForTab } from '$lib/stores/activeLoraTriggers';
 	import type { Tab, DirectorRunState } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
@@ -24,12 +26,7 @@
 	import { getPresetPromptSyntax } from '$lib/utils/presetPromptSyntaxCache';
 	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 
-	// Renders the prompt-relay / multi-prompt / segmented-prompt-pair choice for
-	// a single tab. Extracted verbatim from the mobile (Panel 2) and desktop
-	// (right panel) copies in generate/+page.svelte, which were identical apart
-	// from the outer spacing class.
-	export let tab: Tab;
-	export let tabHandlers: {
+	type TabHandlers = {
 		handlePromptChange: (prompt: string) => void;
 		handlePromptSegmentsChange: (segments: any[]) => void;
 		handleNegativePromptChange: (prompt: string) => void;
@@ -37,98 +34,127 @@
 		handlePromptTabsChange: (promptTabs: any[]) => void;
 		handleActivePromptTabChange: (activePromptTab: number) => void;
 	};
-	export let promptRelayActive: boolean;
-	export let videoDirectorActive: boolean = false;
-	export let videoDirectorCaps: DirectorCapabilities | null = null;
-	/** `Tab.directorRuns` -- see VideoDirectorEditor.svelte's own doc comment. */
-	export let directorRuns: Record<string, DirectorRunState> | undefined = undefined;
-	/** See ShotConsole.svelte's own doc comments -- passed straight through to
-	 *  VideoDirectorEditor. */
-	export let onDirectorCheckedChange: ((checked: Set<string>) => void) | undefined = undefined;
-	export let onDirectorGenerateShots: ((shotIds: string[]) => void) | undefined = undefined;
-	export let musicDirectorActive: boolean = false;
-	export let musicDirectorCaps: MusicDirectorCapabilities | null = null;
-	export let numPrompts: number;
-	export let negativePromptSupported = true;
-	export let negativeInert = false;
-	/** Segment Templates the tab's preset declares for its selected mode --
-	 *  resolved on the page and merged into the apply picker here. */
-	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
+
+	const EMPTY_VARIABLES: VariablesMap = {};
+	const EMPTY_ROLLS: Record<string, VariableRoll> = {};
+	const EMPTY_FORM_DATA: Record<string, unknown> = {};
+	const EMPTY_SEGMENTS: Segment[] = [];
+	const EMPTY_PROMPT_TABS: NonNullable<Tab['promptTabs']> = [];
+	const EMPTY_RESOURCE_SPECS: PromptResourceSpec[] = [];
+	const EMPTY_FIELD_LABELS: Record<string, string> = {};
+	const EMPTY_SYNTAX_SPECS: PromptSyntaxSpec[] = [];
+
+	let {
+		tab,
+		tabHandlers,
+		promptRelayActive,
+		videoDirectorActive = false,
+		videoDirectorCaps = null,
+		directorRuns = undefined,
+		onDirectorCheckedChange = undefined,
+		onDirectorGenerateShots = undefined,
+		musicDirectorActive = false,
+		musicDirectorCaps = null,
+		numPrompts,
+		negativePromptSupported = true,
+		negativeInert = false,
+		presetSegmentTemplates = [],
+		presetStyles = [],
+		spacingClass = 'mt-4'
+	}: {
+		tab: Tab;
+		tabHandlers: TabHandlers;
+		promptRelayActive: boolean;
+		videoDirectorActive?: boolean;
+		videoDirectorCaps?: DirectorCapabilities | null;
+		directorRuns?: Record<string, DirectorRunState> | undefined;
+		onDirectorCheckedChange?: ((checked: Set<string>) => void) | undefined;
+		onDirectorGenerateShots?: ((shotIds: string[]) => void) | undefined;
+		musicDirectorActive?: boolean;
+		musicDirectorCaps?: MusicDirectorCapabilities | null;
+		numPrompts: number;
+		negativePromptSupported?: boolean;
+		negativeInert?: boolean;
+		presetSegmentTemplates?: PresetSegmentTemplate[];
+		presetStyles?: PresetStyle[];
+		spacingClass?: string;
+	} = $props();
+
 	const presetSegmentTemplatesContext = writable<PresetSegmentTemplate[]>([]);
 	setContext('presetSegmentTemplates', presetSegmentTemplatesContext);
-	$: presetSegmentTemplatesContext.set(presetSegmentTemplates);
-	/** Styles the tab's preset curates -- resolved on the page from the preset
-	 *  detail response and offered through the Styles picker below. Only the
-	 *  standard single-prompt segment editor supports styles today. */
-	export let presetStyles: PresetStyle[] = [];
-	export let spacingClass: string = 'mt-4';
-	let variablesModalOpen = false;
-	let stylesPickerOpen = false;
+	$effect.pre(() => {
+		presetSegmentTemplatesContext.set(presetSegmentTemplates);
+	});
 
-	$: variableCount = Object.keys(tab.variables || {}).length;
-	// Derived from the tagged prepend/append segment pair, never tracked separately --
-	// see styleSegments.ts. Deleting either card through the ordinary segment delete
-	// action clears this with no extra bookkeeping.
-	$: appliedStyleTagValue = appliedStyleTag(tab.promptSegments || []);
-	$: appliedStyleId =
-		appliedStyleTagValue && appliedStyleTagValue.presetId === tab.selectedPreset ? appliedStyleTagValue.styleId : null;
-	$: appliedStyleName = appliedStyleId ? presetStyles.find((s) => s.id === appliedStyleId)?.name ?? null : null;
-	// LoRA trigger words for this tab's own lora_picker field(s) — highlighted
-	// inline in the segment editors below (see activeLoraTriggers.ts).
-	$: activeTriggerWordsStore = activeLoraTriggersForTab(tab.id);
-	$: activeTriggerWords = $activeTriggerWordsStore;
+	let variablesModalOpen = $state(false);
+	let stylesPickerOpen = $state(false);
 
-	let promptResourceSpecs: PromptResourceSpec[] = [];
-	let promptResourceFieldLabels: Record<string, string> = {};
-	$: {
-		const preset = tab.selectedPreset;
-		const mode = tab.selectedMode;
-		const formName = tab.selectedVariant ?? undefined;
-		if (preset && mode) {
-			getPresetPromptResources(preset, mode, formName ?? undefined).then((result) => {
-				if (tab.selectedPreset !== preset || tab.selectedMode !== mode || (tab.selectedVariant ?? undefined) !== formName) {
-					return;
-				}
-				promptResourceSpecs = result.specs;
-				promptResourceFieldLabels = result.fieldLabels;
-			});
-		} else {
-			promptResourceSpecs = [];
-			promptResourceFieldLabels = {};
+	const tabId = $derived(tab.id);
+	const selectedPreset = $derived(tab.selectedPreset);
+	const selectedMode = $derived(tab.selectedMode);
+	const selectedVariant = $derived(tab.selectedVariant ?? undefined);
+	const variables = $derived(tab.variables || EMPTY_VARIABLES);
+	const variableRolls = $derived(tab.variableRolls || EMPTY_ROLLS);
+	const resourceFieldValues = $derived(tab.formData || EMPTY_FORM_DATA);
+	const promptSegments = $derived(tab.promptSegments || EMPTY_SEGMENTS);
+	const negativePromptSegments = $derived(tab.negativePromptSegments || EMPTY_SEGMENTS);
+	const promptTabs = $derived(tab.promptTabs || EMPTY_PROMPT_TABS);
+	const activePromptTab = $derived(tab.activePromptTab || 0);
+	const formData = $derived(tab.formData);
+	const videoDirectorValue = $derived(tab.videoDirector);
+	const musicDirectorValue = $derived(tab.musicDirector);
+	const promptRelayValue = $derived(tab.promptRelay);
+
+	const variableCount = $derived(Object.keys(variables).length);
+	const appliedStyleTagValue = $derived(appliedStyleTag(promptSegments));
+	const appliedStyleId = $derived(
+		appliedStyleTagValue && appliedStyleTagValue.presetId === selectedPreset ? appliedStyleTagValue.styleId : null
+	);
+	const appliedStyleName = $derived(
+		appliedStyleId ? presetStyles.find((s) => s.id === appliedStyleId)?.name ?? null : null
+	);
+	const activeTriggerWordsStore = $derived(activeLoraTriggersForTab(tabId));
+	const activeTriggerWords = $derived($activeTriggerWordsStore);
+	const openStyles = $derived(presetStyles.length > 0 ? () => (stylesPickerOpen = true) : null);
+
+	let promptResourceSpecs = $state.raw<PromptResourceSpec[]>(EMPTY_RESOURCE_SPECS);
+	let promptResourceFieldLabels = $state.raw<Record<string, string>>(EMPTY_FIELD_LABELS);
+	let promptSyntaxSpecs = $state.raw<PromptSyntaxSpec[]>(EMPTY_SYNTAX_SPECS);
+
+	$effect.pre(() => {
+		const preset = selectedPreset;
+		const mode = selectedMode;
+		const formName = selectedVariant;
+		if (!preset || !mode) {
+			promptResourceSpecs = EMPTY_RESOURCE_SPECS;
+			promptResourceFieldLabels = EMPTY_FIELD_LABELS;
+			promptSyntaxSpecs = EMPTY_SYNTAX_SPECS;
+			return;
 		}
-	}
-	$: resourceFieldValues = tab.formData || {};
-
-	let promptSyntaxSpecs: PromptSyntaxSpec[] = [];
-	$: {
-		const preset = tab.selectedPreset;
-		const mode = tab.selectedMode;
-		const formName = tab.selectedVariant ?? undefined;
-		if (preset && mode) {
-			getPresetPromptSyntax(preset, mode, formName ?? undefined).then((specs) => {
-				if (tab.selectedPreset !== preset || tab.selectedMode !== mode || (tab.selectedVariant ?? undefined) !== formName) {
-					return;
-				}
-				promptSyntaxSpecs = specs;
-			});
-		} else {
-			promptSyntaxSpecs = [];
-		}
-	}
+		let live = true;
+		getPresetPromptResources(preset, mode, formName).then((result) => {
+			if (!live) return;
+			promptResourceSpecs = result.specs;
+			promptResourceFieldLabels = result.fieldLabels;
+		});
+		getPresetPromptSyntax(preset, mode, formName).then((specs) => {
+			if (live) promptSyntaxSpecs = specs;
+		});
+		return () => {
+			live = false;
+		};
+	});
 
 	function handleVariablesChange(vars: VariablesMap) {
-		tabsStore.updateTab(tab.id, { variables: vars });
+		tabsStore.updateTab(tabId, { variables: vars });
 	}
 
-	// A usage chip's popover edits ONE variable's definition — merge it into the
-	// tab's map rather than replacing the whole thing, so it composes cleanly with
-	// concurrent edits from the Variable Manager modal.
 	function handleVariableDefChange(name: string, def: VariableDef) {
-		tabsStore.updateTab(tab.id, { variables: { ...(tab.variables || {}), [name]: def } });
+		tabsStore.updateTab(tabId, { variables: { ...(tab.variables || {}), [name]: def } });
 	}
 
 	function handleSourcePromptChange(id: string | null) {
-		tabsStore.updateTab(tab.id, { sourcePromptId: id });
+		tabsStore.updateTab(tabId, { sourcePromptId: id });
 	}
 
 	function openVariableManager() {
@@ -159,7 +185,7 @@
 			<button
 				type="button"
 				class="inline-flex h-8 items-center gap-1.5 rounded border border-line px-2.5 text-xs font-medium text-fg-muted transition-colors hover:border-line-hover hover:bg-surface-2 hover:text-fg"
-				on:click={() => (variablesModalOpen = true)}
+				onclick={() => (variablesModalOpen = true)}
 			>
 				<Icon name="braces" className="h-3.5 w-3.5" />
 				<span>Variables</span>
@@ -173,18 +199,18 @@
 	{#if videoDirectorActive && videoDirectorCaps}
 		<!-- Video Director Mode -->
 		<VideoDirectorEditor
-			value={tab.videoDirector}
+			value={videoDirectorValue}
 			capabilities={videoDirectorCaps}
-			presetId={tab.selectedPreset || ''}
+			presetId={selectedPreset || ''}
 			selectedVariant={tab.selectedVariant}
-			selectedMode={tab.selectedMode}
-			formData={tab.formData}
+			selectedMode={selectedMode}
+			{formData}
 			runs={directorRuns}
-			variables={tab.variables || {}}
-			variableRolls={tab.variableRolls || {}}
+			variables={variables}
+			variableRolls={variableRolls}
 			onVariableDefChange={handleVariableDefChange}
 			onVariablesImport={handleVariablesChange}
-			onChange={(v) => tabsStore.updateTab(tab.id, { videoDirector: v })}
+			onChange={(v) => tabsStore.updateTab(tabId, { videoDirector: v })}
 			onOpenVariables={openVariableManager}
 			{variableCount}
 			onCheckedChange={onDirectorCheckedChange}
@@ -196,24 +222,24 @@
 	{:else if musicDirectorActive && musicDirectorCaps}
 		<!-- Music Director Mode -->
 		<MusicDirectorEditor
-			value={tab.musicDirector}
+			value={musicDirectorValue}
 			capabilities={musicDirectorCaps}
-			onChange={(v) => tabsStore.updateTab(tab.id, { musicDirector: v })}
+			onChange={(v) => tabsStore.updateTab(tabId, { musicDirector: v })}
 		/>
 	{:else if promptRelayActive}
 		<!-- Prompt Relay (timeline) Mode -->
 		<PromptRelayEditor
-			value={tab.promptRelay}
-			on:change={(e) => tabsStore.updateTab(tab.id, { promptRelay: e.detail })}
+			value={promptRelayValue}
+			on:change={(e) => tabsStore.updateTab(tabId, { promptRelay: e.detail })}
 		/>
 	{:else if numPrompts > 1}
 		<!-- Multi-Prompt Editor -->
 		<MultiPromptEditor
-			promptTabs={tab.promptTabs || []}
-			activeTab={tab.activePromptTab || 0}
+			promptTabs={promptTabs}
+			activeTab={activePromptTab}
 			{numPrompts}
-			variables={tab.variables || {}}
-			variableRolls={tab.variableRolls || {}}
+			variables={variables}
+			variableRolls={variableRolls}
 			onVariableDefChange={handleVariableDefChange}
 			onVariablesImport={handleVariablesChange}
 			onSourcePromptChange={handleSourcePromptChange}
@@ -232,19 +258,19 @@
 		<!-- Single Prompt Mode (Default) -->
 		<div class="prompt-composer">
 			<SegmentedPromptEditor
-				segments={tab.promptSegments || []}
+				segments={promptSegments}
 				isNegative={false}
-				negativeSegments={tab.negativePromptSegments || []}
+				negativeSegments={negativePromptSegments}
 				negativePromptUnavailable={!negativePromptSupported}
 				negativeInert={negativeInert}
 				showPreview={false}
-				variables={tab.variables || {}}
-				variableRolls={tab.variableRolls || {}}
+				variables={variables}
+				variableRolls={variableRolls}
 				onVariableDefChange={handleVariableDefChange}
 				onVariablesImport={handleVariablesChange}
 				onSourcePromptChange={handleSourcePromptChange}
 				onOpenVariableManager={openVariableManager}
-				onOpenStyles={presetStyles.length > 0 ? () => (stylesPickerOpen = true) : null}
+				onOpenStyles={openStyles}
 				{appliedStyleName}
 				{activeTriggerWords}
 				{presetSegmentTemplates}
@@ -271,7 +297,7 @@
 
 <VariableManagerModal
 	isOpen={variablesModalOpen}
-	variables={tab.variables || {}}
+	variables={variables}
 	on:close={() => (variablesModalOpen = false)}
 	on:change={(e) => handleVariablesChange(e.detail)}
 />
@@ -279,7 +305,7 @@
 {#if presetStyles.length > 0}
 	<StylesPicker
 		isOpen={stylesPickerOpen}
-		presetId={tab.selectedPreset || ''}
+		presetId={selectedPreset || ''}
 		styles={presetStyles}
 		{appliedStyleId}
 		onClose={() => (stylesPickerOpen = false)}

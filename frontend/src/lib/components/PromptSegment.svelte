@@ -1,3 +1,5 @@
+<svelte:options immutable />
+
 <script lang="ts">
 	import { createEventDispatcher, onMount, onDestroy } from 'svelte';
 	import type { Segment, ChipData } from '$lib/types/segments';

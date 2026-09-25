@@ -9,58 +9,88 @@
 	import {
 		PROMPT_RESOURCE_USAGE_CONTEXT_KEY,
 		countResourceReferences,
+		resourceUseCountsEqual,
 		tabResourceSegmentGroups,
-		type PromptResourceUsage
+		type PromptResourceUsage,
+		type ResourceUseCounts
 	} from '$lib/utils/promptResourceUsage';
 	import type { Tab } from '$lib/types/tabs';
 
-	// The generation form, wired the same way at every mount site (mobile
-	// Panel 1, desktop GenerationPanels left pane). `formRef` is a two-way
-	// binding so the caller's `dynamicFormRefs[tab.id]` map keeps working
-	// (handlePresetReload reads `.forceReload()` off it).
-	export let tab: Tab;
-	export let onFormDataChange: (data: Record<string, unknown>) => void;
-	export let formRef: DynamicForm | undefined = undefined;
-	export let videoDirectorActive = false;
+	const NO_FIELD_ERRORS: Record<string, string[]> = {};
+	const NO_COUNTS: ResourceUseCounts = {};
+
+	let {
+		tab,
+		onFormDataChange,
+		formRef = $bindable(undefined),
+		videoDirectorActive = false
+	}: {
+		tab: Tab;
+		onFormDataChange: (data: Record<string, unknown>) => void;
+		formRef?: DynamicForm | undefined;
+		videoDirectorActive?: boolean;
+	} = $props();
 
 	const resourceUsage = writable<PromptResourceUsage>({ specs: [], counts: {} });
 	setContext(PROMPT_RESOURCE_USAGE_CONTEXT_KEY, resourceUsage);
 
-	let resourceSpecs: PromptResourceSpec[] = [];
-	let specsKey = '';
+	const tabId = $derived(tab.id);
+	const presetId = $derived(tab.selectedPreset);
+	const mode = $derived(tab.selectedMode);
+	const variant = $derived(tab.selectedVariant ?? undefined);
+	const formData = $derived(tab.formData);
+	const promptSegments = $derived(tab.promptSegments);
+	const negativePromptSegments = $derived(tab.negativePromptSegments);
+	const promptTabs = $derived(tab.promptTabs);
+	const fieldErrors = $derived($formValidationStore[tabId] ?? NO_FIELD_ERRORS);
+	const sectionCollapsedContext = $derived(createSectionCollapsedController(tabId));
 
-	$: {
-		const preset = tab.selectedPreset;
-		const mode = tab.selectedMode;
-		const variant = tab.selectedVariant ?? undefined;
-		const key = `${preset ?? ''}::${mode ?? ''}::${variant ?? ''}`;
-		if (key !== specsKey) {
-			specsKey = key;
-			resourceSpecs = [];
-			getPresetPromptResources(preset, mode, variant).then((result) => {
-				if (specsKey === key) resourceSpecs = result.specs;
-			});
-		}
-	}
+	let resourceSpecs = $state.raw<PromptResourceSpec[]>([]);
 
-	$: resourceUsage.set({
-		specs: resourceSpecs,
-		counts: resourceSpecs.length ? countResourceReferences(tabResourceSegmentGroups(tab)) : {}
+	$effect(() => {
+		const key = `${presetId ?? ''}::${mode ?? ''}::${variant ?? ''}`;
+		let live = true;
+		resourceSpecs = [];
+		getPresetPromptResources(presetId, mode, variant).then((result) => {
+			if (live && key === `${presetId ?? ''}::${mode ?? ''}::${variant ?? ''}`) resourceSpecs = result.specs;
+		});
+		return () => {
+			live = false;
+		};
+	});
+
+	const resourceCounts = $derived.by(() => {
+		if (!resourceSpecs.length) return NO_COUNTS;
+		return countResourceReferences(
+			tabResourceSegmentGroups({ promptSegments, negativePromptSegments, promptTabs })
+		);
+	});
+
+	let publishedCounts: ResourceUseCounts = NO_COUNTS;
+	let publishedSpecs: PromptResourceSpec[] = [];
+
+	$effect(() => {
+		const specs = resourceSpecs;
+		const counts = resourceCounts;
+		if (specs === publishedSpecs && resourceUseCountsEqual(counts, publishedCounts)) return;
+		publishedSpecs = specs;
+		publishedCounts = counts;
+		resourceUsage.set({ specs, counts });
 	});
 </script>
 
 <DynamicForm
 	bind:this={formRef}
-	tabId={tab.id}
-	presetId={tab.selectedPreset ?? ''}
-	mode={tab.selectedMode ?? undefined}
+	{tabId}
+	presetId={presetId ?? ''}
+	mode={mode ?? undefined}
 	formName="generation_form"
-	variant={tab.selectedVariant ?? undefined}
-	initialData={tab.formData}
+	{variant}
+	initialData={formData}
 	{videoDirectorActive}
 	{onFormDataChange}
-	fieldErrors={$formValidationStore[tab.id] ?? {}}
-	onFieldEdit={(name) => formValidationStore.clearField(tab.id, name)}
-	onSchemaKeyChange={() => formValidationStore.clearAll(tab.id)}
-	sectionCollapsedContext={createSectionCollapsedController(tab.id)}
+	{fieldErrors}
+	onFieldEdit={(name) => formValidationStore.clearField(tabId, name)}
+	onSchemaKeyChange={() => formValidationStore.clearAll(tabId)}
+	{sectionCollapsedContext}
 />

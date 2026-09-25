@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countResourceReferences, resourceUseCount, tabResourceSegmentGroups } from './promptResourceUsage';
+import { countResourceReferences, resourceUseCount, resourceUseCountsEqual, tabResourceSegmentGroups } from './promptResourceUsage';
 
 describe('countResourceReferences', () => {
 	it('counts every marker per field and item across segment groups', () => {
@@ -61,5 +61,23 @@ describe('resourceUseCount', () => {
 		expect(resourceUseCount(counts, 'references', 'b.png')).toBe(0);
 		expect(resourceUseCount(counts, 'reference_videos', 'a.png')).toBe(0);
 		expect(resourceUseCount(counts, 'references', null)).toBe(0);
+	});
+});
+
+describe('resourceUseCountsEqual', () => {
+	it('treats freshly counted but identical tallies as equal', () => {
+		const a = countResourceReferences([[{ content: '@[refs:img-1] and @[refs:img-1] @[audio:a]' }]]);
+		const b = countResourceReferences([[{ content: '@[audio:a] @[refs:img-1] then @[refs:img-1]' }]]);
+		expect(a).not.toBe(b);
+		expect(resourceUseCountsEqual(a, b)).toBe(true);
+	});
+
+	it('spots a changed count, a new item and a dropped field', () => {
+		const base = { refs: { 'img-1': 2 } };
+		expect(resourceUseCountsEqual(base, { refs: { 'img-1': 1 } })).toBe(false);
+		expect(resourceUseCountsEqual(base, { refs: { 'img-1': 2, 'img-2': 1 } })).toBe(false);
+		expect(resourceUseCountsEqual(base, {})).toBe(false);
+		expect(resourceUseCountsEqual({}, base)).toBe(false);
+		expect(resourceUseCountsEqual({ refs: { 'img-1': 2 } }, { audio: { 'img-1': 2 } })).toBe(false);
 	});
 });

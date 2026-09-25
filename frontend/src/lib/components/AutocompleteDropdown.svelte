@@ -225,7 +225,7 @@
 						<div class="picker-section-title">Categories <span>Browse deeper</span></div>
 						{#each categories as category, index}
 							{@const isSelected = index === selectedIndex}
-							{@const displayName = category.path.split('.').pop() || category.name}
+							{@const displayName = category.name || category.path.split('.').pop()}
 							<button
 								type="button"
 								use:trackSelectedItem={isSelected}
@@ -343,7 +343,7 @@
 					{/if}
 					{#each categories as category, index}
 						{@const isSelected = index === selectedIndex}
-						{@const displayName = category.path.split('.').pop() || category.name}
+						{@const displayName = category.name || category.path.split('.').pop()}
 						{@const canAttach = onAttachCategory !== undefined && resolveMentionRowAction({ hasChildren: true, attachable: category.attachable }) === 'attach-category'}
 						<div
 							use:trackSelectedItem={isSelected}

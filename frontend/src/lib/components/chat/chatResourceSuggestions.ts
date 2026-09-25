@@ -97,7 +97,7 @@ export function buildLoraRowSuggestions(
 	if (!needle) {
 		out.push({
 			uri: `form.${field}`,
-			label: field,
+			label: `All LoRAs (${rows.length})`,
 			kind: 'lora_picker',
 			description: `Attach all ${rows.length} selected LoRA${rows.length === 1 ? '' : 's'}`,
 			has_children: true,
@@ -172,7 +172,7 @@ export function buildFormSuggestions(
 				kind: 'lora_picker',
 				description: `${loraRows.length} LoRA${loraRows.length === 1 ? '' : 's'} selected`,
 				has_children: true,
-				attachable: true,
+				attachable: false,
 				icon: FORM_ICON
 			});
 			continue;

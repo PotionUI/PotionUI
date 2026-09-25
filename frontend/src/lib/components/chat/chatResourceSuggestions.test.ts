@@ -153,11 +153,11 @@ describe('buildFormSuggestions', () => {
 		expect(out.map((s) => s.uri)).toEqual(['form.prompt']);
 	});
 
-	it('a field with active LoRA selections becomes a browsable lora_picker row instead of a form_value row', () => {
+	it('a field with active LoRA selections becomes a browsable lora_picker row instead of a form_value row, without attaching directly', () => {
 		const loraSelections = { char_lora: [{ id: 'l1', name: 'X', strength: 1 }] };
 		const out = buildFormSuggestions('', { char_lora: 'unused-placeholder' }, loraSelections);
 		const row = out.find((s) => s.uri === 'form.char_lora');
-		expect(row).toMatchObject({ kind: 'lora_picker', has_children: true, attachable: true });
+		expect(row).toMatchObject({ kind: 'lora_picker', has_children: true, attachable: false });
 	});
 
 	it('delegates to buildLoraRowSuggestions when the partial contains a dot (browsing into a field)', () => {

@@ -120,4 +120,92 @@ describe('ChatChipInput model mentions', () => {
 		expect(last.value).toBe('tune @form.loras.l-1');
 		expect(Object.values(last.resources)).toEqual([{ uri: 'form.loras.l-1', label: 'form.loras:Detail LoRA' }]);
 	});
+
+	it('drills into an @form.loras field on Enter instead of attaching the whole list, then attaches a picked row', async () => {
+		suggestChatResources.mockResolvedValue({ success: true, data: { suggestions: [] } });
+
+		const target = document.createElement('div');
+		document.body.appendChild(target);
+		const changes: Array<{ value: string; resources: Record<string, { uri: string; label: string }> }> = [];
+		const component = createClassComponent({
+			component: ChatChipInput as never,
+			target,
+			props: {
+				value: '',
+				resources: {},
+				mode: 'generation',
+				formData: { loras: [{ model: 'model:l-1', strength: 0.8 }, { model: 'model:l-2', strength: 0.5 }] },
+				loraSelections: {
+					loras: [
+						{ id: 'l-1', name: 'Detail LoRA', strength: 0.8 },
+						{ id: 'l-2', name: 'Style LoRA', strength: 0.5 }
+					]
+				}
+			}
+		});
+		component.$on('change', (e: CustomEvent) => changes.push(e.detail));
+		cleanup = () => component.$destroy();
+
+		const editor = target.querySelector('.chat-chip-input') as HTMLElement;
+		typeInto(editor, 'use @form.lo');
+		await wait(260);
+
+		let categoryRow = document.querySelector('[role="option"]') as HTMLElement;
+		expect(categoryRow.textContent).toContain('loras');
+
+		editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+		await wait(0);
+
+		const rows = Array.from(document.querySelectorAll('[role="option"]')) as HTMLElement[];
+		expect(rows[0].textContent).toContain('All LoRAs (2)');
+		expect(rows[1].textContent).toContain('Detail LoRA');
+		expect(rows[2].textContent).toContain('Style LoRA');
+
+		rows[1].click();
+		await wait(0);
+
+		const last = changes[changes.length - 1];
+		expect(last.value).toBe('use @form.loras.l-1');
+		expect(Object.values(last.resources)).toEqual([{ uri: 'form.loras.l-1', label: 'form.loras:Detail LoRA' }]);
+	});
+
+	it('lists rows directly when @form.loras. is typed manually, filterable by name', async () => {
+		suggestChatResources.mockResolvedValue({ success: true, data: { suggestions: [] } });
+
+		const target = document.createElement('div');
+		document.body.appendChild(target);
+		const component = createClassComponent({
+			component: ChatChipInput as never,
+			target,
+			props: {
+				value: '',
+				resources: {},
+				mode: 'generation',
+				formData: { loras: [{ model: 'model:l-1', strength: 0.8 }, { model: 'model:l-2', strength: 0.5 }] },
+				loraSelections: {
+					loras: [
+						{ id: 'l-1', name: 'Detail LoRA', strength: 0.8 },
+						{ id: 'l-2', name: 'Style LoRA', strength: 0.5 }
+					]
+				}
+			}
+		});
+		cleanup = () => component.$destroy();
+
+		const editor = target.querySelector('.chat-chip-input') as HTMLElement;
+		typeInto(editor, 'use @form.loras.');
+		await wait(260);
+
+		let rows = Array.from(document.querySelectorAll('[role="option"]')) as HTMLElement[];
+		expect(rows[0].textContent).toContain('All LoRAs (2)');
+		expect(rows[1].textContent).toContain('Detail LoRA');
+		expect(rows[2].textContent).toContain('Style LoRA');
+
+		typeInto(editor, 'use @form.loras.det');
+		await wait(260);
+
+		rows = Array.from(document.querySelectorAll('[role="option"]')) as HTMLElement[];
+		expect(rows).toHaveLength(1);
+		expect(rows[0].textContent).toContain('Detail LoRA');
+	});
 });

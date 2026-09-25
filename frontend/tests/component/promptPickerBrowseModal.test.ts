@@ -161,3 +161,48 @@ describe('PromptPickerBrowseModal', () => {
 		expect(editorEl.textContent).not.toContain('something else entirely');
 	});
 });
+
+describe('PromptPickerBrowseModal — categories column for every trigger, browsing fresh', () => {
+	it('@ references: groups on the left, that group\'s grid on the right, no drill-down step', async () => {
+		const editor = mountEditor({
+			promptResources: [
+				{ field: 'references', kind: 'image', label: 'Pictures', token: '<Picture @>' },
+				{ field: 'reference_videos', kind: 'video', label: 'Videos', token: '<Video @>' }
+			],
+			resourceFieldValues: {
+				references: [{ relative_path: 'a.png', name: 'a.png' }],
+				reference_videos: []
+			}
+		}) as unknown as { insertResourceTrigger: () => void };
+		editor.insertResourceTrigger();
+		flushSync();
+
+		const editorEl = document.querySelector('.inline-chip-editor')!;
+		editorEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+		flushSync();
+
+		const groups = Array.from(document.querySelectorAll<HTMLElement>('.picker-tree-row'));
+		expect(groups.some((g) => g.textContent?.includes('Pictures'))).toBe(true);
+		expect(groups.some((g) => g.textContent?.includes('Videos'))).toBe(true);
+
+		const rows = Array.from(document.querySelectorAll<HTMLElement>('.picker-gitem'));
+		expect(rows.length).toBe(1);
+		expect(rows[0]?.textContent).toContain('Picture 1');
+	});
+
+	it('/ syntax: shows a single "Tokens" group alongside the flat list', async () => {
+		const editor = mountEditor({
+			promptSyntax: [{ token: 'BREAK', kind: 'marker', help: 'Splits into CLIP chunks' }]
+		}) as unknown as { insertSyntaxTrigger: () => void };
+		editor.insertSyntaxTrigger();
+		flushSync();
+
+		const editorEl = document.querySelector('.inline-chip-editor')!;
+		editorEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+		flushSync();
+
+		const groups = Array.from(document.querySelectorAll<HTMLElement>('.picker-tree-row'));
+		expect(groups.some((g) => g.textContent?.includes('Tokens'))).toBe(true);
+		expect(document.querySelector('.picker-values')?.textContent).toContain('BREAK');
+	});
+});

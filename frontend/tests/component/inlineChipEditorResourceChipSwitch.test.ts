@@ -10,7 +10,8 @@ let target: HTMLDivElement;
 let component: ReturnType<typeof createClassComponent> | undefined;
 
 const specs: PromptResourceSpec[] = [
-	{ field: 'references', kind: 'image', label: 'Pictures', token: '<Picture @>' }
+	{ field: 'references', kind: 'image', label: 'Pictures', token: '<Picture @>' },
+	{ field: 'reference_videos', kind: 'video', label: 'Videos', token: '<Video @>' }
 ];
 
 function mountEditor(value: string, props: Record<string, unknown> = {}) {
@@ -35,7 +36,7 @@ afterEach(() => {
 });
 
 describe('clicking an @ resource chip to change its value', () => {
-	it('opens the browse modal with a Current card and the field\'s items, current one marked, Replace as the action', async () => {
+	it('opens the browse modal with the field\'s items, groups on the left, current one badged, Replace as the action', async () => {
 		mountEditor('@[references:a.png]', {
 			resources: { 'res-1': { field: 'references', item_key: 'a.png' } },
 			promptResources: specs,
@@ -43,7 +44,8 @@ describe('clicking an @ resource chip to change its value', () => {
 				references: [
 					{ relative_path: 'a.png', name: 'a.png' },
 					{ relative_path: 'b.png', name: 'b.png' }
-				]
+				],
+				reference_videos: []
 			}
 		});
 		await new Promise((r) => setTimeout(r, 0));
@@ -56,10 +58,12 @@ describe('clicking an @ resource chip to change its value', () => {
 
 		const dialog = document.querySelector('[role="dialog"]');
 		expect(dialog).not.toBeNull();
+		expect(document.querySelector('.pm-current')).toBeNull();
 
-		const current = document.querySelector('.pm-current');
-		expect(current).not.toBeNull();
-		expect(current!.textContent).toContain('Picture 1');
+		const groups = Array.from(document.querySelectorAll<HTMLElement>('.picker-tree-row'));
+		expect(groups.some((g) => g.textContent?.includes('Pictures'))).toBe(true);
+		expect(groups.some((g) => g.textContent?.includes('Videos'))).toBe(true);
+		expect(groups.find((g) => g.textContent?.includes('Pictures'))?.className).toContain('on');
 
 		const rows = Array.from(document.querySelectorAll<HTMLElement>('.picker-gitem'));
 		expect(rows.length).toBe(2);
@@ -67,10 +71,26 @@ describe('clicking an @ resource chip to change its value', () => {
 		expect(selected?.textContent).toContain('Picture 1');
 
 		expect(findButton('Replace')).toBeTruthy();
+		expect(findButton('Save')).toBeFalsy();
 		expect(findButton('Insert')).toBeFalsy();
 	});
 
-	it('Replace swaps the marker in place, byte-exact', async () => {
+	it('shows Remove reference on the footer left', async () => {
+		mountEditor('@[references:a.png]', {
+			resources: { 'res-1': { field: 'references', item_key: 'a.png' } },
+			promptResources: specs,
+			resourceFieldValues: { references: [{ relative_path: 'a.png' }, { relative_path: 'b.png' }] }
+		});
+		await new Promise((r) => setTimeout(r, 0));
+		flushSync();
+
+		target.querySelector<HTMLElement>('.resource-chip')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		flushSync();
+
+		expect(findButton('Remove reference')).toBeTruthy();
+	});
+
+	it('Replace swaps the marker in place, byte-exact — pending until then', async () => {
 		const onChange = vi.fn();
 		mountEditor('a cat @[references:a.png] on a rug', {
 			resources: { 'res-1': { field: 'references', item_key: 'a.png' } },
@@ -94,6 +114,8 @@ describe('clicking an @ resource chip to change its value', () => {
 		other!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		flushSync();
 
+		expect(onChange).not.toHaveBeenCalled();
+
 		findButton('Replace')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		flushSync();
 
@@ -103,6 +125,29 @@ describe('clicking an @ resource chip to change its value', () => {
 
 		const chipAfter = target.querySelector('.resource-chip');
 		expect(chipAfter?.textContent).toContain('Picture 2');
+	});
+
+	it('Remove reference removes the marker immediately, without needing Replace', async () => {
+		const onChange = vi.fn();
+		mountEditor('a cat @[references:a.png] on a rug', {
+			resources: { 'res-1': { field: 'references', item_key: 'a.png' } },
+			promptResources: specs,
+			resourceFieldValues: { references: [{ relative_path: 'a.png' }] }
+		});
+		component!.$on?.('change', onChange);
+		await new Promise((r) => setTimeout(r, 0));
+		flushSync();
+
+		target.querySelector<HTMLElement>('.resource-chip')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		flushSync();
+
+		findButton('Remove reference')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		flushSync();
+
+		expect(document.querySelector('[role="dialog"]')).toBeNull();
+		expect(target.querySelector('.resource-chip-container')).toBeNull();
+		const detail = onChange.mock.calls.at(-1)![0].detail;
+		expect(detail.value).toBe('a cat  on a rug');
 	});
 
 	it('Esc closes the modal without changing the marker', async () => {
@@ -132,5 +177,49 @@ describe('clicking an @ resource chip to change its value', () => {
 		expect(onChange).not.toHaveBeenCalled();
 		const container = target.querySelector<HTMLElement>('.resource-chip-container');
 		expect(container?.dataset.resourceMarker).toBe('@[references:a.png]');
+	});
+});
+
+describe('resource chip dangling state, without an inline remove button', () => {
+	it('opens the editor straight to Remove reference', async () => {
+		mountEditor('@[references:gone.png]', {
+			resources: { 'res-1': { field: 'references', item_key: 'gone.png' } },
+			promptResources: specs,
+			resourceFieldValues: { references: [] },
+			resourceFieldLabels: { references: 'References' }
+		});
+		await new Promise((r) => setTimeout(r, 0));
+		flushSync();
+
+		const chip = target.querySelector<HTMLElement>('.resource-chip');
+		expect(chip).not.toBeNull();
+		expect(chip?.querySelector('.chip-config')).toBeNull();
+
+		chip!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		flushSync();
+
+		expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+		expect(findButton('Remove reference')).toBeTruthy();
+	});
+
+	it('removing a dangling chip from the modal drops its marker from the emitted value', async () => {
+		const onChange = vi.fn();
+		mountEditor('a cat @[references:gone.png] on a rug', {
+			resources: { 'res-1': { field: 'references', item_key: 'gone.png' } },
+			promptResources: specs,
+			resourceFieldValues: { references: [] }
+		});
+		component!.$on?.('change', onChange);
+		await new Promise((r) => setTimeout(r, 0));
+		flushSync();
+
+		target.querySelector<HTMLElement>('.resource-chip')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		flushSync();
+		findButton('Remove reference')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		flushSync();
+
+		expect(target.querySelector('.resource-chip-container')).toBeNull();
+		const detail = onChange.mock.calls.at(-1)![0].detail;
+		expect(detail.value).toBe('a cat  on a rug');
 	});
 });

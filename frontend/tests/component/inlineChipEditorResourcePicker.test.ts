@@ -137,7 +137,7 @@ describe('InlineChipEditor @ prompt-resource picker', () => {
 });
 
 describe('InlineChipEditor resource chip dangling state', () => {
-	it('renders a dangling chip with a remove control when the referenced item is gone', async () => {
+	it('renders a dangling chip, opening the browse modal to remove it (see inlineChipEditorResourceChipSwitch.test.ts)', async () => {
 		mountEditor({
 			value: '@[references:gone.png]',
 			resources: { 'res-1': { field: 'references', item_key: 'gone.png' } },
@@ -151,7 +151,7 @@ describe('InlineChipEditor resource chip dangling state', () => {
 		const chip = target.querySelector('.resource-chip');
 		expect(chip).not.toBeNull();
 		expect(chip?.className).toContain('text-danger');
-		expect(target.querySelector('button[aria-label="Remove reference"]')).not.toBeNull();
+		expect(target.querySelector('button[aria-label="Remove reference"]')).toBeNull();
 	});
 
 	it('renders a normal (non-dangling) chip when the item is present', async () => {
@@ -168,36 +168,5 @@ describe('InlineChipEditor resource chip dangling state', () => {
 		expect(chip).not.toBeNull();
 		expect(chip?.className).not.toContain('text-danger');
 		expect(chip?.textContent).toContain('Picture 1');
-	});
-
-	it('removing a dangling chip drops its marker from the emitted value', async () => {
-		const onChange = vi.fn();
-		target = document.createElement('div');
-		document.body.appendChild(target);
-		component = createClassComponent({
-			component: InlineChipEditor as never,
-			target,
-			props: {
-				value: 'a cat @[references:gone.png] on a rug',
-				resources: { 'res-1': { field: 'references', item_key: 'gone.png' } },
-				chips: {},
-				variant: 'segment-composer',
-				borderless: true,
-				promptResources: specs,
-				resourceFieldValues: { references: [] }
-			}
-		});
-		component.$on?.('change', onChange);
-		await new Promise((r) => setTimeout(r, 0));
-		flushSync();
-
-		const removeButton = target.querySelector<HTMLButtonElement>('button[aria-label="Remove reference"]');
-		expect(removeButton).not.toBeNull();
-		removeButton?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-		flushSync();
-
-		expect(target.querySelector('.resource-chip-container')).toBeNull();
-		const detail = onChange.mock.calls.at(-1)![0].detail;
-		expect(detail.value).toBe('a cat  on a rug');
 	});
 });

@@ -229,6 +229,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .chip-config .icon { width: 11px; height: 11px; margin: 0; }
 
+.chip-chev { width: 11px; height: 11px; margin-left: 3px; color: rgb(var(--fg-subtle)); opacity: 0.55; transition: opacity .1s; }
+
+.chip:hover .chip-chev, .chip:focus-within .chip-chev { opacity: 1; }
+
 .add-segment { width: 100%; height: 40px; margin: 0; display: flex; align-items: center; justify-content: center; gap: 6px; color: rgb(var(--fg-muted)); background: transparent; border: 1px dashed rgb(var(--line-strong)); border-radius: 6px; font-size: 8px; }
 
 .add-segment:hover { color: rgb(var(--fg)); background: rgb(var(--surface-1)); border-color: rgb(var(--line-strong)); }
@@ -700,6 +704,10 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 	padding: 3px 5px;
 }
 .chip .icon {
+	width: 12px;
+	height: 12px;
+}
+.chip-chev {
 	width: 12px;
 	height: 12px;
 }

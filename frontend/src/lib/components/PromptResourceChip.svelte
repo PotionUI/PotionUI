@@ -15,7 +15,7 @@
 	export let variant: 'default' | 'segment-composer' = 'default';
 
 	$: dangling = !spec || position === null;
-	$: canSwitch = Boolean(onSwitch) && !dangling && !disabled;
+	$: canSwitch = Boolean(onSwitch) && !disabled;
 
 	function handleChipClick() {
 		if (canSwitch) onSwitch?.();
@@ -68,18 +68,6 @@
 				<span class="chip-label">{displayLabel}</span>
 			</span>
 		</Tooltip>
-		{#if dangling && !disabled}
-			<Tooltip text="Remove reference">
-				<button
-					type="button"
-					class="chip-config"
-					on:mousedown|preventDefault|stopPropagation={() => onRemove?.()}
-					aria-label="Remove reference"
-				>
-					<Icon name="close" className="icon" />
-				</button>
-			</Tooltip>
-		{/if}
 	</span>
 {:else}
 	<span

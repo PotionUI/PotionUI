@@ -5,8 +5,6 @@
 	import Icon from './Icon.svelte';
 	import FuzzyFindModal from './modals/FuzzyFindModal.svelte';
 	import type { FuzzyFindItem } from './modals/FuzzyFindModal.svelte';
-	import portal from '$lib/actions/portal';
-	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 
 	// Max characters before truncating
 	const MAX_LABEL_LENGTH = 25;
@@ -92,22 +90,6 @@
 		onchange?.({ ...data, shuffle: !data.shuffle });
 	}
 
-	/** Segment-composer's segmented Fixed/Auto-shuffle control sets explicitly
-	 *  rather than toggling — clicking the already-active side is a no-op. */
-	function setFixed(e: MouseEvent) {
-		e.preventDefault();
-		e.stopPropagation();
-		if (!data.shuffle) return;
-		onchange?.({ ...data, shuffle: false });
-	}
-
-	function setShuffle(e: MouseEvent) {
-		e.preventDefault();
-		e.stopPropagation();
-		if (data.shuffle || !hasAlternatives) return;
-		onchange?.({ ...data, shuffle: true });
-	}
-
 	function handleLabelClick(e: MouseEvent) {
 		e.preventDefault();
 		e.stopPropagation();
@@ -115,13 +97,19 @@
 		if (disabled) return;
 
 		if (variant === 'segment-composer') {
-			closeConfig();
 			onSwitch?.();
 			return;
 		}
 
 		if (data.allValues.length <= 1) return;
 		showModal = true;
+	}
+
+	function handleChipMainKeydown(e: KeyboardEvent) {
+		if (e.key !== 'Enter' && e.key !== ' ') return;
+		e.preventDefault();
+		e.stopPropagation();
+		handleLabelClick(e as unknown as MouseEvent);
 	}
 
 	function handleRemove(e: MouseEvent) {
@@ -154,66 +142,18 @@
 		showModal = false;
 	}
 
-	// =====================
-	// segment-composer variant: the `#` chip's settings popover
-	// (`.chip-config` → `.phrase-popover`), replacing the default variant's
-	// inline shuffle/AUTO/deactivate/remove button row.
-	// =====================
-	let configOpen = false;
-	let configTriggerRef: HTMLButtonElement;
-	let popoverRef: HTMLDivElement;
-	let configPos: FlippedMenuPosition = { left: 0, maxHeight: 0 };
-
 	function capitalize(part: string): string {
 		return part ? part.charAt(0).toUpperCase() + part.slice(1) : part;
 	}
 
 	$: categoryParts = (data.categoryPath || '').split('.').filter(Boolean);
 	$: categoryContext = categoryParts.length ? capitalize(categoryParts[categoryParts.length - 1]) : '';
-	$: categoryTitle = categoryParts.length ? categoryParts.map(capitalize).join(' · ') : data.categoryPath;
-
-	$: currentAlternative = data.allValues.find((v) => v.id === data.valueId);
-	$: currentPreviewUrl = currentAlternative?.preview_file_id
-		? api.getFileURL(currentAlternative.preview_file_id, 'small')
-		: null;
-
-	function updateConfigPos() {
-		if (!configTriggerRef) return;
-		configPos = computeFlippedMenuPosition(configTriggerRef, { width: 350, heightEstimate: 260, gap: 8 });
-	}
-
-	function toggleConfig(e: MouseEvent) {
-		e.preventDefault();
-		e.stopPropagation();
-		if (disabled) return;
-		if (!configOpen) updateConfigPos();
-		configOpen = !configOpen;
-	}
-
-	function closeConfig() {
-		configOpen = false;
-	}
-
-	function handleConfigWindowPointerDown(e: PointerEvent) {
-		if (!configOpen) return;
-		const target = e.target as Node;
-		if (chipRef?.contains(target)) return;
-		if (popoverRef?.contains(target)) return;
-		configOpen = false;
-	}
-
-	function handleConfigWindowKeydown(e: KeyboardEvent) {
-		if (configOpen && e.key === 'Escape') configOpen = false;
-	}
 </script>
-
-<svelte:window on:pointerdown={handleConfigWindowPointerDown} on:keydown={handleConfigWindowKeydown} />
 
 {#if variant === 'segment-composer'}
 	<span
 		bind:this={chipRef}
 		class="chip phrase-chip"
-		class:active={configOpen}
 		class:shuffle-enabled={data.shuffle}
 		class:shuffling={animate === 'shuffle'}
 		class:opacity-50={disabled}
@@ -226,114 +166,14 @@
 			type="button"
 			class="chip-main"
 			disabled={disabled}
-			title="Choose another value"
 			on:mousedown|preventDefault|stopPropagation={handleLabelClick}
+			on:keydown={handleChipMainKeydown}
 		>
 			<span class="chip-mark">#</span>
 			<span class="chip-context">{categoryContext}</span>
 			<span class="chip-label">{displayLabel}</span>
+			<Icon name="chevron-down" className="icon chip-chev" strokeWidth={2} />
 		</button>
-		{#if !disabled}
-			<button
-				type="button"
-				class="chip-config"
-				bind:this={configTriggerRef}
-				title="Phrasebook chip settings"
-				aria-label="Phrasebook chip settings"
-				on:mousedown|preventDefault|stopPropagation={toggleConfig}
-			>
-				<svg class="icon"><use href="#i-sliders" /></svg>
-			</button>
-		{/if}
-
-		{#if configOpen}
-			<!-- `display: contents` on the wrapper: a pure CSS-scope carrier, not a
-			     positioned box — the mock's `.popover` class carries its own static
-			     prototype `right`/`top`, so the real caret-anchored position has to be
-			     inline on the SAME element as `.popover`, with every offset set
-			     explicitly (not just the ones in use) so the mock's own values can
-			     never leak through a `left`+`width`+`right`(all-specified) or a
-			     `top`+`bottom`(with no explicit height) resolution. -->
-			<div class="segment-composer" use:portal style="display: contents;">
-				<div
-					bind:this={popoverRef}
-					class="floating popover phrase-popover"
-					style="position: fixed; left: {configPos.left}px; right: auto; {configPos.top !== undefined
-						? `top: ${configPos.top}px; bottom: auto;`
-						: `bottom: ${configPos.bottom}px; top: auto;`}"
-					role="dialog"
-					aria-label="Phrasebook chip settings"
-				>
-					<header class="popover-head">
-						<span class="popover-mark">#</span>
-						<div class="popover-title">
-							<strong>{categoryTitle}</strong>
-							<span
-								>#{data.categoryPath} · {data.allValues.length} available value{data.allValues.length === 1
-									? ''
-									: 's'}</span
-							>
-						</div>
-						<button type="button" class="close" aria-label="Close" on:click={closeConfig}>
-							<svg class="icon"><use href="#i-close" /></svg>
-						</button>
-					</header>
-					<div class="popover-body">
-						<div class="section-label">Selected value</div>
-						<div class="current-value-card">
-							{#if currentPreviewUrl}
-								<div class="current-value-thumb">
-									<img src={currentPreviewUrl} alt={data.label} />
-								</div>
-							{/if}
-							<div class="current-value-copy">
-								<span>Used in this prompt</span>
-								<strong>{data.label}</strong>
-								{#if data.value && data.value !== data.label}
-									<p class="current-value-text">{data.value}</p>
-								{/if}
-								<span class="current-value-path">#{data.categoryPath}</span>
-							</div>
-							{#if hasAlternatives}
-								<button type="button" class="small-button" on:click={handleLabelClick}>Change value…</button>
-							{/if}
-						</div>
-						<div class="behavior">
-							<div class="section-label">Generation behavior</div>
-							<div class="segmented two">
-								<button type="button" class="behavior-button" class:active={!data.shuffle} on:click={setFixed}
-									>Fixed value</button
-								>
-								<button
-									type="button"
-									class="behavior-button"
-									class:active={data.shuffle}
-									disabled={!hasAlternatives}
-									on:click={setShuffle}>Auto-shuffle</button
-								>
-							</div>
-							<p class="helper">
-								{data.shuffle
-									? 'A new value is selected each time Generate is clicked.'
-									: 'This value remains fixed until you choose another one.'}
-							</p>
-						</div>
-					</div>
-					<footer class="popover-actions">
-						{#if hasAlternatives}
-							<button type="button" class="small-button" on:click={handleShuffle}>
-								<svg class="icon"><use href="#i-shuffle" /></svg>
-								Shuffle now
-							</button>
-						{/if}
-						{#if ondeactivate && hasAlternatives}
-							<button type="button" class="small-button" on:click={handleDeactivate}>Deactivate value</button>
-						{/if}
-						<button type="button" class="small-button danger" on:click={handleRemove}>Remove</button>
-					</footer>
-				</div>
-			</div>
-		{/if}
 	</span>
 {:else}
 	<span
@@ -450,47 +290,6 @@
 />
 
 <style>
-	.current-value-card {
-		align-items: flex-start;
-	}
-
-	.current-value-thumb {
-		width: 40px;
-		height: 40px;
-		flex: 0 0 auto;
-		overflow: hidden;
-		border-radius: 6px;
-		border: 1px solid rgb(var(--line));
-		background: rgb(var(--surface-3));
-	}
-
-	.current-value-thumb img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		display: block;
-	}
-
-	.current-value-copy strong {
-		font-size: 14px;
-	}
-
-	.current-value-text {
-		margin: 4px 0 0;
-		color: rgb(var(--fg-muted));
-		font-size: 12px;
-		line-height: 1.5;
-		overflow-wrap: anywhere;
-	}
-
-	.current-value-path {
-		display: block;
-		margin-top: 4px;
-		color: rgb(var(--fg-subtle));
-		font-family: 'IBM Plex Mono', monospace;
-		font-size: 12px;
-	}
-
 	.inline-chip {
 		position: relative;
 		display: inline-flex;

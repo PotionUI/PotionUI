@@ -1,119 +1,125 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { flushSync } from 'svelte';
-import type { ChipData } from '$lib/types/segments';
+import { mount, unmount, flushSync } from 'svelte';
 
-const { default: InlineChip } = await import('$lib/components/InlineChip.svelte');
-const { createClassComponent } = await import('svelte/legacy');
+const { default: PromptPickerBrowseModal } = await import('$lib/components/PromptPickerBrowseModal.svelte');
 
 let target: HTMLDivElement;
-let component: ReturnType<typeof createClassComponent> | undefined;
+let component: ReturnType<typeof mount> | undefined;
 
-function makeChip(overrides: Partial<ChipData> = {}): ChipData {
-	return {
-		id: 'chip-1',
-		categoryPath: 'lighting.mood',
-		valueId: 'v1',
-		label: 'golden hour',
-		value: 'golden hour lighting, warm rim light',
-		allValues: [
-			{ id: 'v1', label: 'golden hour', value: 'golden hour lighting, warm rim light', preview_file_id: 'file-1' },
-			{ id: 'v2', label: 'blue hour', value: 'blue hour, cool ambient light' }
-		],
-		shuffle: false,
-		autoRegen: false,
-		...overrides
-	};
-}
-
-function mount(data: ChipData, props: Record<string, unknown> = {}) {
+function mountModal(props: Record<string, unknown>) {
 	target = document.createElement('div');
 	document.body.appendChild(target);
-	component = createClassComponent({
-		component: InlineChip as never,
+	component = mount(PromptPickerBrowseModal as never, {
 		target,
-		props: { data, variant: 'segment-composer', ...props }
+		props: {
+			triggerChar: '#',
+			title: 'Change value',
+			contextMarker: '#lighting.mood',
+			onInsertValue: vi.fn(),
+			onClose: vi.fn(),
+			...props
+		}
 	});
 	flushSync();
 	return target;
 }
 
 afterEach(() => {
-	component?.$destroy();
+	if (component) unmount(component);
 	component = undefined;
 	target?.remove();
 	document.body.innerHTML = '';
 	vi.restoreAllMocks();
 });
 
-describe('phrasebook chip settings popover — current value card', () => {
-	it('shows the current value text and its preview image when the settings popover opens', () => {
-		mount(makeChip());
-		target.querySelector<HTMLElement>('.chip-config')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-		flushSync();
+describe('PromptPickerBrowseModal — current value is the selected row, not a summary card', () => {
+	it('renders no separate current-value card', () => {
+		mountModal({
+			values: [
+				{ id: 'v1', category_id: 'c1', label: 'golden hour', value: 'golden hour lighting', sort_order: 0, created_at: '', updated_at: '' }
+			],
+			initialSelectedId: 'v1'
+		});
 
-		const card = document.querySelector('.current-value-card');
-		expect(card).not.toBeNull();
-		expect(card!.textContent).toContain('golden hour');
-		expect(card!.textContent).toContain('golden hour lighting, warm rim light');
-		expect(card!.textContent).toContain('lighting.mood');
-
-		const img = card!.querySelector('img');
-		expect(img).not.toBeNull();
-		expect(img!.getAttribute('src')).toContain('file-1');
+		expect(document.querySelector('.pm-current')).toBeNull();
+		expect(document.querySelector('.current-value-card')).toBeNull();
 	});
 
-	it('omits the thumbnail when the current value has no preview image', () => {
-		mount(
-			makeChip({
-				valueId: 'v2',
-				label: 'blue hour',
-				value: 'blue hour, cool ambient light'
-			})
-		);
-		target.querySelector<HTMLElement>('.chip-config')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-		flushSync();
+	it('marks the current value both selected and with a signal "Current" badge', () => {
+		mountModal({
+			values: [
+				{ id: 'v1', category_id: 'c1', label: 'golden hour', value: 'golden hour lighting', sort_order: 0, created_at: '', updated_at: '' },
+				{ id: 'v2', category_id: 'c1', label: 'blue hour', value: 'blue hour lighting', sort_order: 1, created_at: '', updated_at: '' }
+			],
+			initialSelectedId: 'v1'
+		});
 
-		const card = document.querySelector('.current-value-card');
-		expect(card).not.toBeNull();
-		expect(card!.querySelector('img')).toBeNull();
-	});
-});
+		const rows = Array.from(document.querySelectorAll<HTMLElement>('.picker-vrow'));
+		const current = rows.find((r) => r.textContent?.includes('golden hour'));
+		const other = rows.find((r) => r.textContent?.includes('blue hour'));
 
-describe('phrasebook chip — clicking opens the switcher instead of the old modal', () => {
-	it('calls onSwitch (not the value-chooser modal) when the chip body is clicked', () => {
-		const onSwitch = vi.fn();
-		mount(makeChip(), { onSwitch });
-		target.querySelector<HTMLElement>('.chip-main')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-		flushSync();
-
-		expect(onSwitch).toHaveBeenCalledTimes(1);
-		expect(document.querySelector('[role="dialog"]')).toBeNull();
+		expect(current?.className).toContain('sel');
+		const badge = current?.querySelector('.picker-vbadge');
+		expect(badge?.textContent).toContain('Current');
+		expect(badge?.className).toContain('signal');
+		expect(other?.querySelector('.picker-vbadge')).toBeNull();
 	});
 
-	it('routes the settings popover\'s "Change value…" button through the same onSwitch, closing the popover', () => {
-		const onSwitch = vi.fn();
-		mount(makeChip(), { onSwitch });
-		target.querySelector<HTMLElement>('.chip-config')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-		flushSync();
-		expect(document.querySelector('.phrase-popover')).not.toBeNull();
+	it('marks the original current row with a neutral badge once a different row is picked', () => {
+		mountModal({
+			values: [
+				{ id: 'v1', category_id: 'c1', label: 'golden hour', value: 'golden hour lighting', sort_order: 0, created_at: '', updated_at: '' },
+				{ id: 'v2', category_id: 'c1', label: 'blue hour', value: 'blue hour lighting', sort_order: 1, created_at: '', updated_at: '' }
+			],
+			initialSelectedId: 'v1'
+		});
 
-		const changeButton = Array.from(document.querySelectorAll<HTMLElement>('.small-button')).find((b) =>
-			b.textContent?.includes('Change value')
-		);
-		changeButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		const rows = Array.from(document.querySelectorAll<HTMLElement>('.picker-vrow'));
+		rows.find((r) => r.textContent?.includes('blue hour'))!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		flushSync();
 
-		expect(onSwitch).toHaveBeenCalledTimes(1);
-		expect(document.querySelector('.phrase-popover')).toBeNull();
+		const refreshed = Array.from(document.querySelectorAll<HTMLElement>('.picker-vrow'));
+		const current = refreshed.find((r) => r.textContent?.includes('golden hour'));
+		const picked = refreshed.find((r) => r.textContent?.includes('blue hour'));
+
+		expect(current?.className).not.toContain('sel');
+		expect(current?.querySelector('.picker-vbadge')?.className).toContain('neutral');
+		expect(picked?.className).toContain('sel');
+		expect(picked?.querySelector('.picker-vcheck')).not.toBeNull();
 	});
 
-	it('does nothing when disabled', () => {
-		const onSwitch = vi.fn();
-		mount(makeChip(), { onSwitch, disabled: true });
-		target.querySelector<HTMLElement>('.chip-main')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-		flushSync();
+	it('scrolls the current row into view on open', () => {
+		const scrollIntoView = vi.fn();
+		Element.prototype.scrollIntoView = scrollIntoView;
 
-		expect(onSwitch).not.toHaveBeenCalled();
+		mountModal({
+			values: [
+				{ id: 'v1', category_id: 'c1', label: 'golden hour', value: 'golden hour lighting', sort_order: 0, created_at: '', updated_at: '' },
+				{ id: 'v2', category_id: 'c1', label: 'blue hour', value: 'blue hour lighting', sort_order: 1, created_at: '', updated_at: '' }
+			],
+			initialSelectedId: 'v2'
+		});
+
+		expect(scrollIntoView).toHaveBeenCalled();
+	});
+
+	it('marks the active category row in the tree', () => {
+		mountModal({
+			categories: [
+				{ id: 'lighting', name: 'Lighting' },
+				{ id: 'mood', name: 'Mood' }
+			],
+			activeCategoryId: 'lighting',
+			values: [{ id: 'v1', category_id: 'c1', label: 'golden hour', value: 'golden hour lighting', sort_order: 0, created_at: '', updated_at: '' }],
+			initialSelectedId: 'v1'
+		});
+
+		const rows = Array.from(document.querySelectorAll<HTMLElement>('.picker-tree-row'));
+		const active = rows.find((r) => r.textContent?.includes('Lighting'));
+		const other = rows.find((r) => r.textContent?.includes('Mood'));
+
+		expect(active?.className).toContain('on');
+		expect(other?.className).not.toContain('on');
 	});
 });

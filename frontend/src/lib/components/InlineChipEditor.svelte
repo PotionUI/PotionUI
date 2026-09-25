@@ -6,8 +6,7 @@
 	import AutocompleteDropdown from './AutocompleteDropdown.svelte';
 	import type {
 		AutocompleteCategory as DropdownAutocompleteCategory,
-		AutocompleteValue as DropdownAutocompleteValue,
-		AutocompleteCurrentValue
+		AutocompleteValue as DropdownAutocompleteValue
 	} from './AutocompleteDropdown.svelte';
 	import PromptPickerBrowseModal from './PromptPickerBrowseModal.svelte';
 	import { buildPromptPickerContext } from '$lib/utils/promptPickerContext';
@@ -365,8 +364,25 @@
 					updated_at: ''
 				})) as DropdownAutocompleteCategory[]);
 
-	$: activeResourceSpec = resourceGroupField
-		? promptResources.find((spec) => spec.field === resourceGroupField) ?? null
+	$: resourceGroupCategoriesAlways = promptResources
+		.filter((spec) => {
+			const query = resourceQuery.trim().toLowerCase();
+			if (!query) return true;
+			return resourceGroupLabel(spec).toLowerCase().includes(query) || spec.field.toLowerCase().includes(query);
+		})
+		.map((spec) => ({
+			id: spec.field,
+			name: resourceGroupLabel(spec),
+			description: resourceGroupDescription(spec),
+			icon: spec.kind === 'image' ? 'image' : spec.kind === 'video' ? 'video' : 'audio',
+			count: resourceItemCount(spec.field)
+		}));
+
+	$: effectiveResourceField =
+		resourceGroupField ?? promptResources.find((s) => resourceItemCount(s.field) > 0)?.field ?? promptResources[0]?.field ?? null;
+
+	$: activeResourceSpec = effectiveResourceField
+		? promptResources.find((spec) => spec.field === effectiveResourceField) ?? null
 		: null;
 
 	function itemThumbUrl(item: unknown, kind: PromptResourceSpec['kind']): string | undefined {
@@ -417,41 +433,6 @@
 		: null;
 
 	$: resourceSwitchState = resourceSwitchRef ? resourceMarkerState(resourceSwitchRef, promptResources, resourceFieldValues) : null;
-
-	$: resourceCurrentValue = (resourceSwitchRef && resourceSwitchState?.spec
-		? {
-				label:
-					resourceSwitchState.position !== null
-						? resourceHandleLabel(resourceSwitchState.spec, resourceSwitchState.position)
-						: resourceSwitchRef.item_key,
-				value: itemDisplayName(
-					resourceSwitchState.position !== null
-						? itemAtPosition(resourceFieldValues[resourceSwitchRef.field], resourceSwitchState.position)
-						: undefined,
-					resourceSwitchRef.item_key
-				),
-				imageUrl: itemThumbUrl(
-					resourceSwitchState.position !== null
-						? itemAtPosition(resourceFieldValues[resourceSwitchRef.field], resourceSwitchState.position)
-						: undefined,
-					resourceSwitchState.spec.kind
-				),
-				categoryLabel: resourceFieldLabels[resourceSwitchRef.field] || resourceGroupLabel(resourceSwitchState.spec)
-			}
-		: null) as AutocompleteCurrentValue | null;
-
-	$: phrasebookCurrentValue = (phrasebookSwitchChipId && chips[phrasebookSwitchChipId]
-		? (() => {
-				const current = chips[phrasebookSwitchChipId!];
-				const alt = current.allValues.find((v) => v.id === current.valueId);
-				return {
-					label: current.label,
-					value: current.value !== current.label ? current.value : undefined,
-					imageUrl: alt?.preview_file_id ? api.getFileURL(alt.preview_file_id, 'small') : undefined,
-					categoryLabel: current.categoryPath
-				};
-			})()
-		: null) as AutocompleteCurrentValue | null;
 
 	// =====================
 	// Trigger-word highlighting
@@ -916,7 +897,11 @@
 		dispatchChange(newValue, newChips);
 	}
 
-	function finishPhrasebookSwitch(chipId: string, valueItem: DropdownAutocompleteValue) {
+	function finishPhrasebookSwitch(
+		chipId: string,
+		valueItem: DropdownAutocompleteValue,
+		extra?: { shuffle: boolean }
+	) {
 		const current = chips[chipId];
 		if (!current) {
 			closePhrasebook();
@@ -932,7 +917,8 @@
 				label: v.label,
 				value: v.value,
 				preview_file_id: v.preview_file_id
-			}))
+			})),
+			...(extra ? { shuffle: extra.shuffle } : {})
 		};
 		const container = editorRef?.querySelector<HTMLElement>(`[data-chip-id="${chipId}"]`) ?? null;
 		const span = container && editorRef ? chipContainerSpan(editorRef, chips, container) : null;
@@ -943,9 +929,9 @@
 		}
 	}
 
-	function handleSelectValue(valueItem: DropdownAutocompleteValue) {
+	function handleSelectValue(valueItem: DropdownAutocompleteValue, extra?: { shuffle: boolean }) {
 		if (phrasebookSwitchChipId) {
-			finishPhrasebookSwitch(phrasebookSwitchChipId, valueItem);
+			finishPhrasebookSwitch(phrasebookSwitchChipId, valueItem, extra);
 			return;
 		}
 		if (!editorRef || !phrasebookTriggerNode || phrasebookTriggerOffset < 0) return;
@@ -2133,7 +2119,7 @@
 					fieldLabel: resourceFieldLabels[ref.field],
 					disabled: isDisabled,
 					onRemove: () => handleResourceRemove(el),
-					onSwitch: state.spec ? () => openResourceSwitcher(el, ref.field) : undefined,
+					onSwitch: () => openResourceSwitcher(el, ref.field),
 					variant
 				}
 			});
@@ -2348,8 +2334,16 @@
 
 	// React to the active-trigger-word list changing (LoRA added/removed/edited)
 	// independently of the text itself.
-	$: if (editorRef && activeTriggerWords) refreshTriggerHighlights(value);
-	$: if (editorRef && promptSyntax) refreshSyntaxHighlights(value);
+	$: if (editorRef && activeTriggerWords) refreshTriggerHighlightsForValue();
+	$: if (editorRef && promptSyntax) refreshSyntaxHighlightsForValue();
+
+	function refreshTriggerHighlightsForValue() {
+		refreshTriggerHighlights(value);
+	}
+
+	function refreshSyntaxHighlightsForValue() {
+		refreshSyntaxHighlights(value);
+	}
 
 	// React to external value/chips changes (not from our own edits)
 	let lastSyncedValue = '';
@@ -2611,18 +2605,27 @@
 			contextBefore={browseContext.before}
 			contextMarker={`#${phrasebookPath}`}
 			contextAfter={browseContext.after}
-			mode="tree"
+			layout="list"
 			categories={phrasebookCategories.map((c) => ({ id: c.id, name: c.name || c.path.split('.').pop() || c.path, description: c.description }))}
 			values={phrasebookSuggestions}
 			getImageUrl={(fileId) => api.getFileURL(fileId, 'small')}
-			currentValue={phrasebookCurrentValue}
 			initialSelectedId={phrasebookSwitchChipId ? chips[phrasebookSwitchChipId]?.valueId ?? null : null}
-			insertHint={phrasebookSwitchChipId ? 'Replace' : 'Insert'}
+			insertHint={phrasebookSwitchChipId ? 'Save' : 'Insert'}
+			footerLeft={phrasebookSwitchChipId ? 'phrasebook' : 'none'}
+			initialShuffle={phrasebookSwitchChipId ? chips[phrasebookSwitchChipId]?.shuffle ?? false : false}
+			canShuffle={phrasebookSwitchChipId ? (chips[phrasebookSwitchChipId]?.allValues.length ?? 0) > 1 : false}
 			onSelectCategory={(category) => {
 				const full = phrasebookCategories.find((c) => c.id === category.id);
 				if (full) handleSelectCategory(full);
 			}}
-			onInsertValue={(value) => handleSelectValue(value)}
+			onInsertValue={(value, extra) => handleSelectValue(value, extra)}
+			onRemove={phrasebookSwitchChipId ? () => handleChipRemove(phrasebookSwitchChipId!) : undefined}
+			onExclude={phrasebookSwitchChipId
+				? () => {
+						const current = chips[phrasebookSwitchChipId!];
+						if (current) handleChipDeactivate(phrasebookSwitchChipId!, current);
+					}
+				: undefined}
 			onClose={phrasebookSwitchChipId ? closePhrasebookSwitcher : closeBrowseModal}
 		/>
 	{:else if browseModalTrigger === '$'}
@@ -2633,7 +2636,9 @@
 			contextBefore={browseContext.before}
 			contextMarker={`$${variableQuery}`}
 			contextAfter={browseContext.after}
-			mode="list"
+			layout="list"
+			categories={[{ id: 'shared', name: 'Shared by every segment', description: `${variableSuggestions.length} available` }]}
+			activeCategoryId="shared"
 			values={variableSuggestions}
 			insertHint="Insert ${name}"
 			onInsertValue={(value) => handleSelectVariable(value)}
@@ -2647,15 +2652,17 @@
 			contextBefore={browseContext.before}
 			contextMarker={`@${resourceQuery}`}
 			contextAfter={browseContext.after}
-			mode="grid"
-			categories={resourceGroupField ? [] : resourceGroupCategories.map((c) => ({ id: c.id, name: c.name, description: c.description }))}
-			values={resourceGroupField ? resourceItemSuggestions : []}
+			layout="grid"
+			categories={resourceGroupCategoriesAlways}
+			activeCategoryId={effectiveResourceField}
+			values={resourceItemSuggestions}
 			getImageUrl={(url) => url}
-			currentValue={resourceCurrentValue}
 			initialSelectedId={resourceSwitchRef?.item_key ?? null}
 			insertHint={resourceSwitchContainer ? 'Replace' : 'Insert'}
+			footerLeft={resourceSwitchContainer ? 'resource' : 'none'}
 			onSelectCategory={(category) => handleSelectResourceGroup(category.id)}
 			onInsertValue={(value) => handleSelectResourceItem(value.id)}
+			onRemove={resourceSwitchContainer ? () => handleResourceRemove(resourceSwitchContainer!) : undefined}
 			onClose={resourceSwitchContainer ? closeResourceSwitcher : closeBrowseModal}
 		/>
 	{:else if browseModalTrigger === '/'}
@@ -2666,7 +2673,9 @@
 			contextBefore={browseContext.before}
 			contextMarker={`/${syntaxQuery}`}
 			contextAfter={browseContext.after}
-			mode="list"
+			layout="list"
+			categories={[{ id: 'tokens', name: 'Tokens', description: `${syntaxSuggestionItems.length} available` }]}
+			activeCategoryId="tokens"
 			values={syntaxSuggestionItems}
 			onInsertValue={(value) => {
 				const spec = syntaxSuggestions[value.sort_order];

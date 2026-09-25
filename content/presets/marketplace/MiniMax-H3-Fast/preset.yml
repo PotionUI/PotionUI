@@ -184,31 +184,31 @@ prompt_syntax:
     - token: "integrated_multimodal_description:"
       kind: "label"
       help: "Opens the three-field document: shots, camera, speakers and dialogue"
-      tone: "info"
+      color: "cornflowerblue"
     - token: "overall_soundscape:"
       kind: "label"
       help: "Ambient sound and physical action sounds for the whole video (no dialogue or music)"
-      tone: "info"
+      color: "cornflowerblue"
     - token: "non_diegetic_music:"
       kind: "label"
       help: "Background score by instrumentation, tempo, rhythm and dynamics"
-      tone: "info"
+      color: "cornflowerblue"
     - token: "[Shot 1]"
       kind: "marker"
       pattern: '\[Shot \d+\]'
       help: "Marks a new shot; Shot 1 opens the timeline, later shots carry a timestamp"
-      tone: "accent"
+      color: "goldenrod"
     - token: "(S1)"
       kind: "marker"
       pattern: '\(S\d+(?:,S\d+)*\)'
       help: "Stable speaker ID, established at first appearance"
-      tone: "accent"
+      color: "mediumorchid"
     - token: "<d></d>"
       kind: "wrap"
       pattern: '<d>[\s\S]*?</d>'
       insert: "<d>{}</d>"
       help: "Wraps a speaker's exact words, preserved verbatim"
-      tone: "signal"
+      color: "mediumseagreen"
 
 modes:
   - video

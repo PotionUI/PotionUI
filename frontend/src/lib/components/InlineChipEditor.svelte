@@ -344,8 +344,8 @@
 		}
 
 		const spans = collectTextNodeSpans(editorRef, chips);
-		const rangesByTone = buildSyntaxHighlightRanges(matches, spans);
-		setOwnerSyntaxHighlightRanges(syntaxHighlightOwner, rangesByTone);
+		const ranges = buildSyntaxHighlightRanges(matches, spans);
+		setOwnerSyntaxHighlightRanges(syntaxHighlightOwner, ranges);
 	}
 
 	function refreshAllHighlights(text: string) {

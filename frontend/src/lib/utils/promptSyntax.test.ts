@@ -6,6 +6,8 @@ import {
 	filterSyntaxSpecs,
 	findSyntaxMatches,
 	parseWeightNumber,
+	sanitizeSyntaxColor,
+	syntaxColorStyle,
 	syntaxToneClasses,
 	weightTone,
 	type PromptSyntaxSpec
@@ -234,6 +236,69 @@ describe('syntaxToneClasses', () => {
 			expect(classes).not.toMatch(/zinc|gray|#/);
 			expect(classes.length).toBeGreaterThan(0);
 		}
+	});
+});
+
+describe('sanitizeSyntaxColor', () => {
+	it('accepts hex colors in every declared shape and lowercases them', () => {
+		expect(sanitizeSyntaxColor('#ABC')).toBe('#abc');
+		expect(sanitizeSyntaxColor('#AABBCC')).toBe('#aabbcc');
+		expect(sanitizeSyntaxColor('#AABBCCDD')).toBe('#aabbccdd');
+	});
+
+	it('accepts a lowercase CSS named color as-is', () => {
+		expect(sanitizeSyntaxColor('cornflowerblue')).toBe('cornflowerblue');
+	});
+
+	it('rejects a mixed-case named color', () => {
+		expect(sanitizeSyntaxColor('CornflowerBlue')).toBeNull();
+	});
+
+	it('rejects anything that is not a plain hex or letters-only string', () => {
+		expect(sanitizeSyntaxColor('red; } body { display: none')).toBeNull();
+		expect(sanitizeSyntaxColor('rgb(0,0,0)')).toBeNull();
+		expect(sanitizeSyntaxColor('#gggggg')).toBeNull();
+		expect(sanitizeSyntaxColor('')).toBeNull();
+		expect(sanitizeSyntaxColor(null)).toBeNull();
+		expect(sanitizeSyntaxColor(undefined)).toBeNull();
+	});
+});
+
+describe('syntaxColorStyle', () => {
+	it('builds a background+color declaration for a valid color', () => {
+		const style = syntaxColorStyle('coral');
+		expect(style).toBe('background-color: color-mix(in srgb, coral 16%, transparent); color: coral;');
+	});
+
+	it('returns null for an unsanitizable color', () => {
+		expect(syntaxColorStyle('not a color!')).toBeNull();
+	});
+});
+
+describe('findSyntaxMatches color resolution', () => {
+	const speakerWithColor: PromptSyntaxSpec = {
+		token: '(S1)',
+		kind: 'marker',
+		pattern: '\\(S\\d+\\)',
+		color: 'mediumorchid'
+	};
+
+	it('resolves the spec color onto the match, leaving tone as the kind default', () => {
+		const [match] = findSyntaxMatches('(S1) says hi', [speakerWithColor]);
+		expect(match.color).toBe('mediumorchid');
+		expect(match.tone).toBe('signal');
+	});
+
+	it('resolves color to null when the spec has none', () => {
+		const [match] = findSyntaxMatches('(S1) says hi', [speakerSpec]);
+		expect(match.color).toBeNull();
+	});
+
+	it('never carries a color for a weight kind, even if one were declared', () => {
+		const weightWithColor: PromptSyntaxSpec = { ...weightSpec, color: 'coral' };
+		const matches = findSyntaxMatches('(tag:1.2)', [weightWithColor]);
+		expect(matches[0].color).toBeNull();
+		expect(matches[0].tone).toBe('warning');
 	});
 });
 

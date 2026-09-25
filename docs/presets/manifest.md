@@ -187,6 +187,12 @@ prompt_syntax:
       tone: "accent"                      # signal | success | warning | info | accent | danger | muted; omit to use the kind's default
 ```
 
+`tone` picks one of the design system's semantic colors. For a preset whose own notation calls for
+something the seven tones don't cover, `color` is an alternative: a hex color (`#rgb`, `#rgba`,
+`#rrggbb` or `#rrggbbaa`) or a lowercase CSS named color (e.g. `"cornflowerblue"`). `tone` and
+`color` are mutually exclusive - declaring both is rejected. Neither set falls back to the kind's
+default tone, same as today.
+
 `kind` shapes how the `/` picker inserts the token: `label` and `marker` insert `insert` (or
 `token`) as-is at the caret; `wrap` and `weight` wrap the current selection in `insert`'s `{}` when
 there is one, otherwise place the caret there, and select any `{name=default}` param so the user

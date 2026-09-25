@@ -19,6 +19,8 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from src.features.presets.css_named_colors import CSS_NAMED_COLORS
+
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -707,6 +709,7 @@ def _validate_prompt_resources(prompt_resources: Dict[str, List[PromptResourceSp
 PROMPT_SYNTAX_TONES = ("signal", "success", "warning", "info", "accent", "danger", "muted")
 
 _JS_LOOKBEHIND_RE = re.compile(r"\(\?<[=!]")
+_HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 
 
 class PromptSyntaxSpec(BaseModel):
@@ -718,6 +721,7 @@ class PromptSyntaxSpec(BaseModel):
     insert: Optional[str] = None
     help: Optional[str] = None
     tone: Optional[Literal["signal", "success", "warning", "info", "accent", "danger", "muted"]] = None
+    color: Optional[str] = None
 
     @model_validator(mode="after")
     def _validate_shape(self) -> "PromptSyntaxSpec":
@@ -740,6 +744,17 @@ class PromptSyntaxSpec(BaseModel):
         insert = self.insert if self.insert is not None else self.token
         if insert.count("{") != insert.count("}"):
             problems.append(f"prompt_syntax token '{self.token}': insert template '{insert}' has unbalanced braces")
+
+        if self.tone is not None and self.color is not None:
+            problems.append(
+                f"prompt_syntax token '{self.token}': 'tone' and 'color' are mutually exclusive"
+            )
+        elif self.color is not None:
+            if not _HEX_COLOR_RE.match(self.color) and self.color not in CSS_NAMED_COLORS:
+                problems.append(
+                    f"prompt_syntax token '{self.token}': color '{self.color}' must be a hex color "
+                    f"(#rgb, #rgba, #rrggbb or #rrggbbaa) or a lowercase CSS named color"
+                )
 
         if problems:
             raise ValueError("; ".join(problems))

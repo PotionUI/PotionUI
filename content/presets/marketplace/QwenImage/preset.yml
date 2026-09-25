@@ -72,6 +72,29 @@ llm:
     cinematic composition." Negative prompts are supported; keep them short and
     targeted, or empty when nothing needs suppressing.
 
+prompt_syntax:
+  txt2img:
+    - token: '"…"'
+      kind: "wrap"
+      pattern: '"[^"\n]*"'
+      insert: '"{}"'
+      help: "Exact text to render in the image, verbatim"
+      color: "coral"
+  img2img:
+    - token: '"…"'
+      kind: "wrap"
+      pattern: '"[^"\n]*"'
+      insert: '"{}"'
+      help: "Exact text to render in the image, verbatim"
+      color: "coral"
+  edit:
+    - token: '"…"'
+      kind: "wrap"
+      pattern: '"[^"\n]*"'
+      insert: '"{}"'
+      help: "Exact text to render in the image, verbatim"
+      color: "coral"
+
 modes:
   - txt2img
   - img2img

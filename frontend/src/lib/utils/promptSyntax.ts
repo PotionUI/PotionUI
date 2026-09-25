@@ -8,6 +8,7 @@ export interface PromptSyntaxSpec {
 	insert?: string | null;
 	help?: string | null;
 	tone?: PromptSyntaxTone | null;
+	color?: string | null;
 }
 
 export interface PromptSyntaxMatch {
@@ -16,6 +17,23 @@ export interface PromptSyntaxMatch {
 	text: string;
 	spec: PromptSyntaxSpec;
 	tone: PromptSyntaxTone;
+	color: string | null;
+}
+
+const HEX_COLOR_RE = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+const NAMED_COLOR_RE = /^[a-z]+$/;
+
+export function sanitizeSyntaxColor(color: string | null | undefined): string | null {
+	if (!color) return null;
+	if (HEX_COLOR_RE.test(color)) return color.toLowerCase();
+	if (NAMED_COLOR_RE.test(color)) return color;
+	return null;
+}
+
+export function syntaxColorStyle(color: string): string | null {
+	const sanitized = sanitizeSyntaxColor(color);
+	if (!sanitized) return null;
+	return `background-color: color-mix(in srgb, ${sanitized} 16%, transparent); color: ${sanitized};`;
 }
 
 export interface SyntaxTriggerMatch {
@@ -97,6 +115,11 @@ function resolveTone(spec: PromptSyntaxSpec, match: RegExpMatchArray): PromptSyn
 	return spec.tone ?? kindDefaultTone(spec.kind);
 }
 
+function resolveColor(spec: PromptSyntaxSpec): string | null {
+	if (spec.kind === 'weight') return null;
+	return sanitizeSyntaxColor(spec.color);
+}
+
 export function findSyntaxMatches(text: string, specs: readonly PromptSyntaxSpec[]): PromptSyntaxMatch[] {
 	if (!text || specs.length === 0) return [];
 
@@ -119,7 +142,8 @@ export function findSyntaxMatches(text: string, specs: readonly PromptSyntaxSpec
 				end: match.index + match[0].length,
 				text: match[0],
 				spec,
-				tone: resolveTone(spec, match)
+				tone: resolveTone(spec, match),
+				color: resolveColor(spec)
 			});
 		}
 	}

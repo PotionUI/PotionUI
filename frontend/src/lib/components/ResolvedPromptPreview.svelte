@@ -4,7 +4,7 @@
 	import { copyText } from '$lib/utils/clipboard';
 	import { toasts } from '$lib/stores/toast';
 	import { resolveResourceMarkers, type PromptResourceSpec } from '$lib/utils/promptResources';
-	import { buildSyntaxSegments, syntaxToneClasses, type PromptSyntaxSpec } from '$lib/utils/promptSyntax';
+	import { buildSyntaxSegments, syntaxColorStyle, syntaxToneClasses, type PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 
 	export let prompt = '';
 	export let negativePrompt = '';
@@ -72,10 +72,16 @@
 						{#if segment.match}
 							{#if segment.match.spec.help}
 								<Tooltip text={segment.match.spec.help} wrapperClass="inline">
-									<span class="rounded px-0.5 {syntaxToneClasses(segment.match.tone)}">{segment.text}</span>
+									<span
+										class="rounded px-0.5 {segment.match.color ? '' : syntaxToneClasses(segment.match.tone)}"
+										style={segment.match.color ? syntaxColorStyle(segment.match.color) : undefined}
+									>{segment.text}</span>
 								</Tooltip>
 							{:else}
-								<span class="rounded px-0.5 {syntaxToneClasses(segment.match.tone)}">{segment.text}</span>
+								<span
+									class="rounded px-0.5 {segment.match.color ? '' : syntaxToneClasses(segment.match.tone)}"
+									style={segment.match.color ? syntaxColorStyle(segment.match.color) : undefined}
+								>{segment.text}</span>
 							{/if}
 						{:else}
 							{segment.text}

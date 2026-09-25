@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { buildSyntaxHighlightRanges, type SyntaxHighlightSpan } from './promptSyntaxHighlight';
+import { buildSyntaxHighlightRanges, syntaxColorHighlightName, type SyntaxHighlightSpan } from './promptSyntaxHighlight';
 
 function textNode(text: string): Text {
 	return document.createTextNode(text);
@@ -13,8 +13,8 @@ describe('buildSyntaxHighlightRanges', () => {
 
 		const ranges = buildSyntaxHighlightRanges([{ start: 0, end: 4, tone: 'accent' }], spans);
 
-		expect(ranges.get('accent')).toHaveLength(1);
-		const range = ranges.get('accent')![0];
+		expect(ranges.tone.get('accent')).toHaveLength(1);
+		const range = ranges.tone.get('accent')![0];
 		expect(range.startContainer).toBe(node);
 		expect(range.startOffset).toBe(0);
 		expect(range.endContainer).toBe(node);
@@ -40,8 +40,8 @@ describe('buildSyntaxHighlightRanges', () => {
 
 		const ranges = buildSyntaxHighlightRanges([{ start: dialogueStart, end: dialogueEnd, tone: 'signal' }], spans);
 
-		expect(ranges.get('signal')).toHaveLength(1);
-		const range = ranges.get('signal')![0];
+		expect(ranges.tone.get('signal')).toHaveLength(1);
+		const range = ranges.tone.get('signal')![0];
 		expect(range.startContainer).toBe(before);
 		expect(range.endContainer).toBe(after);
 		expect(range.toString()).toBe('<d>I cryUnderneath</d>');
@@ -53,7 +53,8 @@ describe('buildSyntaxHighlightRanges', () => {
 
 		const ranges = buildSyntaxHighlightRanges([{ start: 0, end: 10, tone: 'info' }], spans);
 
-		expect(ranges.size).toBe(0);
+		expect(ranges.tone.size).toBe(0);
+		expect(ranges.color.size).toBe(0);
 	});
 
 	it('groups ranges by tone', () => {
@@ -68,7 +69,53 @@ describe('buildSyntaxHighlightRanges', () => {
 			spans
 		);
 
-		expect(ranges.get('accent')).toHaveLength(1);
-		expect(ranges.get('warning')).toHaveLength(1);
+		expect(ranges.tone.get('accent')).toHaveLength(1);
+		expect(ranges.tone.get('warning')).toHaveLength(1);
+		expect(ranges.color.size).toBe(0);
+	});
+
+	it('routes a match with a color into the color map, keyed by the sanitized color, not the tone map', () => {
+		const node = textNode('(S1) and (S2)');
+		const spans: SyntaxHighlightSpan[] = [{ node, start: 0, end: node.textContent!.length }];
+
+		const ranges = buildSyntaxHighlightRanges(
+			[
+				{ start: 0, end: 4, tone: 'accent', color: 'mediumorchid' },
+				{ start: 9, end: 13, tone: 'accent', color: '#ABC' }
+			],
+			spans
+		);
+
+		expect(ranges.tone.size).toBe(0);
+		expect(ranges.color.get('mediumorchid')).toHaveLength(1);
+		expect(ranges.color.get('#abc')).toHaveLength(1);
+	});
+
+	it('drops an invalid color and falls back to the tone map', () => {
+		const node = textNode('(S1)');
+		const spans: SyntaxHighlightSpan[] = [{ node, start: 0, end: 4 }];
+
+		const ranges = buildSyntaxHighlightRanges(
+			[{ start: 0, end: 4, tone: 'accent', color: 'red; } body { display: none' }],
+			spans
+		);
+
+		expect(ranges.color.size).toBe(0);
+		expect(ranges.tone.get('accent')).toHaveLength(1);
+	});
+});
+
+describe('syntaxColorHighlightName', () => {
+	it('builds a deterministic, sanitized name for a hex color', () => {
+		expect(syntaxColorHighlightName('#7dd3fc')).toBe('potionui-syntax-c-7dd3fc');
+	});
+
+	it('builds a deterministic name for a named color', () => {
+		expect(syntaxColorHighlightName('coral')).toBe('potionui-syntax-c-coral');
+	});
+
+	it('returns null for a value that fails sanitization', () => {
+		expect(syntaxColorHighlightName('not a color!')).toBeNull();
+		expect(syntaxColorHighlightName('Red')).toBeNull();
 	});
 });

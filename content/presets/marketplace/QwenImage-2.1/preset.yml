@@ -79,6 +79,22 @@ prompt_resources:
       label: "Images"
       token: "<image@>"
 
+prompt_syntax:
+  txt2img:
+    - token: '"…"'
+      kind: "wrap"
+      pattern: '"[^"\n]*"'
+      insert: '"{}"'
+      help: "Exact text to render in the image, verbatim"
+      color: "coral"
+  edit:
+    - token: '"…"'
+      kind: "wrap"
+      pattern: '"[^"\n]*"'
+      insert: '"{}"'
+      help: "Exact text to render in the image, verbatim"
+      color: "coral"
+
 modes:
   - txt2img
   - edit

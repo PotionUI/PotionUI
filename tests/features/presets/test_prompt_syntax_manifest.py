@@ -117,6 +117,29 @@ class TestPromptSyntaxSchema:
         ]})
         assert manifest is None
 
+    @pytest.mark.parametrize("color", ["#fff", "#ffffff", "#ffffffff", "#f0f0", "red", "cornflowerblue"])
+    def test_valid_color_is_accepted(self, color):
+        manifest, errors = _manifest({"video": [
+            {"token": "X", "kind": "marker", "color": color},
+        ]})
+        assert errors == []
+        assert manifest.prompt_syntax["video"][0].color == color
+
+    @pytest.mark.parametrize("color", ["#ff", "#gggggg", "Red", "RED", "not-a-color", "cornflower-blue"])
+    def test_invalid_color_is_rejected(self, color):
+        manifest, errors = _manifest({"video": [
+            {"token": "X", "kind": "marker", "color": color},
+        ]})
+        assert manifest is None
+        assert any("must be a hex color" in error for error in errors)
+
+    def test_tone_and_color_together_is_rejected(self):
+        manifest, errors = _manifest({"video": [
+            {"token": "X", "kind": "marker", "tone": "accent", "color": "red"},
+        ]})
+        assert manifest is None
+        assert any("mutually exclusive" in error for error in errors)
+
 
 class TestPromptSyntaxLint:
     def test_declared_mode_is_clean(self, tmp_path):

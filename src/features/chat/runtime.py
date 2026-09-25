@@ -254,6 +254,9 @@ class ChatRuntime:
     def delete_session(self, session_id: str, user_id: str) -> bool:
         return self._sessions.delete_session(session_id, user_id)
 
+    def admin_delete_session(self, session_id: str) -> bool:
+        return self._sessions.admin_delete_session(session_id)
+
     def delete_all_sessions(self) -> int:
         return self._m.chat_repository.delete_all_sessions()
 

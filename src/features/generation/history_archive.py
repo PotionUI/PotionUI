@@ -339,6 +339,14 @@ class GenerationHistoryArchive:
         }
 
     def bulk_delete(self, generation_ids: List[str], user_id: str) -> Dict[str, Any]:
+        if not user_id:
+            raise ValueError("bulk_delete requires an owner user_id")
+        return self._bulk_delete(generation_ids, user_id, any_owner=False)
+
+    def admin_bulk_delete(self, generation_ids: List[str], admin_user_id: str) -> Dict[str, Any]:
+        return self._bulk_delete(generation_ids, admin_user_id, any_owner=True)
+
+    def _bulk_delete(self, generation_ids: List[str], user_id: str, *, any_owner: bool) -> Dict[str, Any]:
         """Delete multiple generations and their files.
 
         Executes hooks:
@@ -389,7 +397,7 @@ class GenerationHistoryArchive:
             try:
                 # Get generation to check ownership and get files
                 generation = self.generation_repo.get_by_id(
-                    generation_id, user_id=user_id, include_files=True
+                    generation_id, user_id=None if any_owner else user_id, include_files=True
                 )
 
                 if not generation:
@@ -398,12 +406,14 @@ class GenerationHistoryArchive:
                     failed_ids.append(generation_id)
                     continue
 
+                owner_id = generation.user_id
+
                 # Get file records from database
-                db_files = self.generation_repo.get_files(generation_id, user_id=user_id)
+                db_files = self.generation_repo.get_files(generation_id, user_id=owner_id)
                 total_files_deleted_db += len(db_files)
 
                 # Delete files from filesystem
-                files_deleted_fs, files_failed_fs = self._delete_generation_files(generation_id, user_id)
+                files_deleted_fs, files_failed_fs = self._delete_generation_files(generation_id, owner_id)
                 total_files_deleted_fs += files_deleted_fs
                 total_files_failed_fs += files_failed_fs
 

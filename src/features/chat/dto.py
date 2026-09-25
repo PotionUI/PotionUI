@@ -1,7 +1,7 @@
 """Chat Data Transfer Objects for API requests and responses."""
 
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CreateSessionRequest(BaseModel):
@@ -72,6 +72,10 @@ class UpdateSessionRequest(BaseModel):
     """Request model for updating a chat session"""
     name: Optional[str] = None
     llm_config_id: Optional[str] = None
+
+
+class AdminBulkDeleteSessionsRequest(BaseModel):
+    session_ids: List[str] = Field(..., min_length=1, max_length=1000)
 
 
 class ToolApprovalRequest(BaseModel):

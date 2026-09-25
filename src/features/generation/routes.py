@@ -802,7 +802,9 @@ class GenerationController(BaseController):
     async def bulk_delete_generations(
         self,
         generation_ids: List[str],
-        current_user
+        current_user,
+        *,
+        any_owner: bool = False,
     ) -> APIResponse:
         """Delete multiple generations and their files"""
         if not generation_ids:
@@ -813,10 +815,20 @@ class GenerationController(BaseController):
             )
 
         try:
-            result = self.history_facade.bulk_delete(
-                generation_ids=generation_ids,
-                user_id=current_user.id
-            )
+            if any_owner:
+                result = self.history_facade.admin_bulk_delete(
+                    generation_ids=generation_ids,
+                    admin_user_id=current_user.id
+                )
+                logging.info(
+                    f"Admin {current_user.id} bulk-deleted {result['deleted_count']} generation(s), "
+                    f"{result['failed_count']} failed"
+                )
+            else:
+                result = self.history_facade.bulk_delete(
+                    generation_ids=generation_ids,
+                    user_id=current_user.id
+                )
 
             # Build response message
             message = f"Successfully deleted {result['deleted_count']} generation(s). "
@@ -1709,6 +1721,10 @@ def build_admin_router(container: "AppContainer") -> APIRouter:
     controller = _get_generation_controller(container)
 
     admin_router = APIRouter(prefix="/api/admin/generations", tags=["Generation"])
+
+    @admin_router.post("/bulk-delete", response_model=APIResponse, summary="Bulk Delete Generations (Admin)")
+    async def admin_bulk_delete_generations(request: BulkDeleteRequest, current_user = Depends(get_current_admin_user)):
+        return await controller.bulk_delete_generations(request.generation_ids, current_user, any_owner=True)
 
     @admin_router.get("", response_model=APIResponse, summary="List All Generations (Admin)")
     async def admin_list_generations(

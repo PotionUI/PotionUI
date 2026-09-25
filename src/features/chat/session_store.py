@@ -267,8 +267,13 @@ class ChatSessionStore:
         """
         session = self.get_or_raise(session_id)
         self._m._verify_ownership(session, user_id)
+        return self._delete(session_id, user_id)
 
-        # Execute before_delete hook
+    def admin_delete_session(self, session_id: str) -> bool:
+        session = self.get_or_raise(session_id)
+        return self._delete(session_id, session.user_id)
+
+    def _delete(self, session_id: str, user_id: str) -> bool:
         hook_data, blocked, _ctx = self._m._execute_hook(
             CHAT_SESSION_HOOKS.before_delete,
             {

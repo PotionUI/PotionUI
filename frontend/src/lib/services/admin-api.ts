@@ -1305,6 +1305,21 @@ export async function clearAdminChatSessions(): Promise<APIResponse<{ deleted: n
 	return response.data;
 }
 
+export interface AdminBulkDeleteChatSessionsResult {
+	deleted_count: number;
+	failed_count: number;
+	failed_ids: string[];
+}
+
+export async function adminBulkDeleteChatSessions(
+	sessionIds: string[]
+): Promise<APIResponse<AdminBulkDeleteChatSessionsResult>> {
+	const response = await api.getClient().post('/api/chat/admin/sessions/bulk-delete', {
+		session_ids: sessionIds
+	});
+	return response.data;
+}
+
 export async function clearChatCallTraces(
 	sessionId?: string
 ): Promise<APIResponse<{ deleted: number }>> {
@@ -1434,6 +1449,22 @@ export async function getAdminGenerationDetail(
 	generationId: string
 ): Promise<APIResponse<AdminGenerationDetailResult>> {
 	const response = await api.getClient().get(`/api/admin/generations/${generationId}`);
+	return response.data;
+}
+
+export interface AdminBulkDeleteGenerationsResult {
+	deleted_count: number;
+	failed_count: number;
+	failed_ids: string[];
+	total_files_deleted: number;
+}
+
+export async function adminBulkDeleteGenerations(
+	generationIds: string[]
+): Promise<APIResponse<AdminBulkDeleteGenerationsResult>> {
+	const response = await api.getClient().post('/api/admin/generations/bulk-delete', {
+		generation_ids: generationIds
+	});
 	return response.data;
 }
 

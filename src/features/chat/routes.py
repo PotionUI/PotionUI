@@ -19,6 +19,7 @@ from fastapi.responses import StreamingResponse
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.chat.dto import (
+    AdminBulkDeleteSessionsRequest,
     CreateSessionRequest,
     MemoryUpdateRequest,
     MemoryWriteRequest,
@@ -840,6 +841,32 @@ class ChatController(BaseController):
                 message=f"Failed to get session detail: {str(e)}"
             )
 
+    def admin_bulk_delete_sessions(self, session_ids: list[str], admin_user: User) -> APIResponse:
+        deleted_count = 0
+        failed_ids: list[str] = []
+        for session_id in dict.fromkeys(session_ids):
+            try:
+                if self.chat_runtime.admin_delete_session(session_id):
+                    deleted_count += 1
+                else:
+                    failed_ids.append(session_id)
+            except SessionNotFoundException:
+                failed_ids.append(session_id)
+            except Exception as e:
+                logger.warning(f"Admin delete of chat session {session_id} failed: {e}")
+                failed_ids.append(session_id)
+        logger.info(
+            f"Admin {admin_user.id} bulk-deleted {deleted_count} chat session(s), "
+            f"{len(failed_ids)} failed"
+        )
+        return self.success_response(
+            data={
+                "deleted_count": deleted_count,
+                "failed_count": len(failed_ids),
+                "failed_ids": failed_ids,
+            }
+        )
+
     def clear_sessions(self) -> APIResponse:
         """Delete every chat session of every user (the whole chat history)."""
         try:
@@ -1096,6 +1123,13 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def clear_sessions(admin_user: User = Depends(get_current_admin_user)):
         """Delete every chat session of every user - the whole chat history."""
         return controller.clear_sessions()
+
+    @router.post("/admin/sessions/bulk-delete", response_model=APIResponse, summary="[Admin] Delete chat sessions of any owner")
+    async def admin_bulk_delete_sessions(
+        request: AdminBulkDeleteSessionsRequest,
+        admin_user: User = Depends(get_current_admin_user)
+    ):
+        return controller.admin_bulk_delete_sessions(request.session_ids, admin_user)
 
     @router.delete("/admin/traces", response_model=APIResponse, summary="[Admin] Clear LLM call traces")
     async def clear_traces(

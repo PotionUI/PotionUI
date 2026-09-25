@@ -150,6 +150,125 @@ class TestAdminGenerationsController(PersistenceTestBase):
         self.assertEqual(ctx.exception.detail["error"], "generation_not_found")
 
 
+def _passthrough_plugins():
+    plugins = Mock()
+    plugins.execute_hook.side_effect = lambda hook, initial_data: (SimpleNamespace(data=dict(initial_data)), None)
+    return plugins
+
+
+class TestAdminBulkDelete(PersistenceTestBase):
+
+    def setUp(self):
+        super().setUp()
+        self.generation_repo = GenerationRepository()
+        self.file_service = Mock()
+        self.file_service.delete_generation_outputs.side_effect = lambda paths: (len(paths), 0)
+        run_report_repository = Mock()
+        run_report_repository.get.return_value = None
+        self.history_facade = GenerationHistoryFacade(
+            generation_repo=self.generation_repo,
+            file_service=self.file_service,
+            plugin_registry=_passthrough_plugins(),
+            run_report_repository=run_report_repository,
+        )
+        self.controller = GenerationController(Mock(), self.history_facade, Mock(), Mock(spec=RunReportRecorder))
+
+        self.owner = self.create_test_user("owner-1", "owner", "owner@example.com")
+        self.other = self.create_test_user("other-1", "other", "other@example.com")
+        self.generation = Generation(
+            id=generate_ulid(), preset_id="preset-1", form_data={"prompt": "a cat"},
+            user_id=self.owner, status="completed",
+        )
+        self.generation_repo.create(self.generation)
+        self.create_test_file("file-1", self.owner, "owner-1/gen/out.png")
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO generation_files (id, generation_id, file_id) VALUES (?, ?, ?)",
+                (generate_ulid(), self.generation.id, "file-1"),
+            )
+
+    def _generation_row_count(self):
+        with self.db.get_cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM generations WHERE id = ?", (self.generation.id,))
+            return cursor.fetchone()[0]
+
+    def _link_row_count(self):
+        with self.db.get_cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM generation_files WHERE generation_id = ?", (self.generation.id,))
+            return cursor.fetchone()[0]
+
+    def test_admin_deletes_another_users_generation_with_its_files(self):
+        admin = _user(AccountType.ADMIN, "admin-1")
+
+        response = asyncio.run(
+            self.controller.bulk_delete_generations([self.generation.id], admin, any_owner=True)
+        )
+
+        assert response.success
+        assert response.data == {
+            "deleted_count": 1, "failed_count": 0, "failed_ids": [], "total_files_deleted": 1,
+        }
+        self.file_service.delete_generation_outputs.assert_called_once_with(["owner-1/gen/out.png"])
+        assert self._generation_row_count() == 0
+        assert self._link_row_count() == 0
+
+    def test_user_path_still_refuses_another_users_generation(self):
+        stranger = _user(AccountType.USER, self.other)
+
+        response = asyncio.run(self.controller.bulk_delete_generations([self.generation.id], stranger))
+
+        assert response.data["deleted_count"] == 0
+        assert response.data["failed_ids"] == [self.generation.id]
+        self.file_service.delete_generation_outputs.assert_not_called()
+        assert self._generation_row_count() == 1
+        assert self._link_row_count() == 1
+
+    def test_user_path_deletes_own_generation(self):
+        owner = _user(AccountType.USER, self.owner)
+
+        response = asyncio.run(self.controller.bulk_delete_generations([self.generation.id], owner))
+
+        assert response.data["deleted_count"] == 1
+        assert self._generation_row_count() == 0
+
+    def test_owner_scoped_bulk_delete_rejects_a_missing_user_id(self):
+        with self.assertRaises(ValueError):
+            self.history_facade.bulk_delete([self.generation.id], user_id=None)
+        assert self._generation_row_count() == 1
+
+
+class TestAdminBulkDeleteRouteGating:
+
+    @pytest.fixture
+    def controller(self):
+        controller = GenerationController(Mock(), Mock(), Mock(), Mock(spec=RunReportRecorder))
+        controller.bulk_delete_generations = AsyncMock(
+            return_value=APIResponse(success=True, data={
+                "deleted_count": 1, "failed_count": 0, "failed_ids": [], "total_files_deleted": 0,
+            })
+        )
+        return controller
+
+    @pytest.fixture
+    def app(self, controller):
+        app = FastAPI()
+        app.include_router(build_admin_router(SimpleNamespace(_generation_controller=controller)))
+        return app
+
+    def test_non_admin_is_forbidden(self, app, controller):
+        app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.USER, "regular")
+        resp = TestClient(app).post("/api/admin/generations/bulk-delete", json={"generation_ids": ["g1"]})
+        assert resp.status_code == 403
+        controller.bulk_delete_generations.assert_not_called()
+
+    def test_admin_route_deletes_across_owners(self, app, controller):
+        admin = _user(AccountType.ADMIN)
+        app.dependency_overrides[get_current_admin_user] = lambda: admin
+        resp = TestClient(app).post("/api/admin/generations/bulk-delete", json={"generation_ids": ["g1"]})
+        assert resp.status_code == 200
+        controller.bulk_delete_generations.assert_awaited_once_with(["g1"], admin, any_owner=True)
+
+
 class TestAdminGenerationsRouteGating:
     """Route-level admin gate - doesn't need real data."""
 

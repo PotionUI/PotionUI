@@ -202,6 +202,9 @@ class GenerationHistoryFacade:
     def bulk_delete(self, generation_ids: List[str], user_id: str) -> Dict[str, Any]:
         return self._archive.bulk_delete(generation_ids, user_id)
 
+    def admin_bulk_delete(self, generation_ids: List[str], admin_user_id: str) -> Dict[str, Any]:
+        return self._archive.admin_bulk_delete(generation_ids, admin_user_id)
+
     def export_zip(
         self,
         generation_ids: List[str],

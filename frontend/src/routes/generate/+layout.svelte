@@ -1,6 +1,17 @@
-<!--
-  This layout is for the /generate route.
-  Auth guard and Sidebar are now handled in root +layout.svelte
-  This layout can be used for generate-specific setup if needed in the future.
--->
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { get } from 'svelte/store';
+	import { tabsStore } from '$lib/stores/tabs';
+	import { handleBeforeUnload } from '$lib/utils/unsavedChangesGuard';
+
+	function onBeforeUnload(event: BeforeUnloadEvent) {
+		handleBeforeUnload(event, get(tabsStore).tabs);
+	}
+
+	onMount(() => {
+		window.addEventListener('beforeunload', onBeforeUnload);
+		return () => window.removeEventListener('beforeunload', onBeforeUnload);
+	});
+</script>
+
 <slot />

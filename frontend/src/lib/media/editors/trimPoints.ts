@@ -42,7 +42,7 @@ export function fullTrim(duration: number | null | undefined): TrimPoints {
 	return { start: 0, end: safeDuration(duration) };
 }
 
-function clamp(value: number, low: number, high: number): number {
+export function clamp(value: number, low: number, high: number): number {
 	if (!Number.isFinite(value)) return low;
 	return Math.min(high, Math.max(low, value));
 }

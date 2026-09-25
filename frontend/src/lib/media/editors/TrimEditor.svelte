@@ -33,6 +33,7 @@
 		type TrimPoints
 	} from './trimPoints';
 	import { formatClipLength, formatPreciseTime, formatTimecode } from './timecode';
+	import { commitTrimIn, commitTrimOut } from './trimTimeEntry';
 	import { describeRejection } from './editOperations';
 	import type { EditorCommitFn, MediaEditorSource } from './types';
 
@@ -84,11 +85,63 @@
 	$: endFraction = fractionOfTime(points.end, duration);
 	$: playheadFraction = fractionOfTime(playhead, duration);
 
-	$: readouts = [
-		{ key: 'in', label: 'In', value: formatPreciseTime(points.start), tone: 'text-fg' },
-		{ key: 'out', label: 'Out', value: formatPreciseTime(points.end), tone: 'text-fg' },
-		{ key: 'len', label: 'Length', value: formatClipLength(trimLength(points)), tone: 'text-success' }
-	];
+	let inFieldValue = '';
+	let outFieldValue = '';
+	let inFieldFocused = false;
+	let outFieldFocused = false;
+	let inFieldError: string | null = null;
+	let outFieldError: string | null = null;
+
+	$: if (!inFieldFocused) inFieldValue = formatPreciseTime(points.start);
+	$: if (!outFieldFocused) outFieldValue = formatPreciseTime(points.end);
+
+	function commitInField() {
+		const result = commitTrimIn(inFieldValue, points, duration);
+		points = result.points;
+		inFieldError = result.error;
+		inFieldValue = formatPreciseTime(points.start);
+	}
+
+	function commitOutField() {
+		const result = commitTrimOut(outFieldValue, points, duration);
+		points = result.points;
+		outFieldError = result.error;
+		outFieldValue = formatPreciseTime(points.end);
+	}
+
+	function handleInFieldFocus() {
+		inFieldFocused = true;
+		inFieldError = null;
+	}
+
+	function handleOutFieldFocus() {
+		outFieldFocused = true;
+		outFieldError = null;
+	}
+
+	function handleInFieldBlur() {
+		inFieldFocused = false;
+		commitInField();
+	}
+
+	function handleOutFieldBlur() {
+		outFieldFocused = false;
+		commitOutField();
+	}
+
+	function handleInFieldKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Enter') return;
+		event.preventDefault();
+		commitInField();
+		(event.currentTarget as HTMLInputElement).blur();
+	}
+
+	function handleOutFieldKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Enter') return;
+		event.preventDefault();
+		commitOutField();
+		(event.currentTarget as HTMLInputElement).blur();
+	}
 
 	function handleMetadata() {
 		if (!mediaElement) return;
@@ -318,14 +371,60 @@
 		</div>
 
 		<div class="flex flex-wrap items-center gap-2">
-			{#each readouts as readout (readout.key)}
-				<div class="flex flex-col gap-0.5 px-2.5 py-1.5 rounded bg-surface-1 ring-1 ring-inset ring-line">
-					<span class="font-mono text-2xs uppercase tracking-[0.08em] text-fg-subtle">
-						{readout.label}
-					</span>
-					<span class="font-mono text-sm tabular-nums {readout.tone}">{readout.value}</span>
-				</div>
-			{/each}
+			<div class="flex flex-col gap-0.5">
+				<label
+					class="flex flex-col gap-0.5 px-2.5 py-1.5 rounded bg-surface-1 ring-1 ring-inset {inFieldError
+						? 'ring-danger'
+						: 'ring-line'}"
+				>
+					<span class="font-mono text-sm uppercase tracking-[0.06em] text-fg-subtle">In</span>
+					<input
+						type="text"
+						inputmode="decimal"
+						bind:value={inFieldValue}
+						disabled={duration <= 0}
+						aria-label="Trim in point, as seconds or m:ss"
+						aria-invalid={inFieldError !== null}
+						on:focus={handleInFieldFocus}
+						on:blur={handleInFieldBlur}
+						on:keydown={handleInFieldKeydown}
+						class="input w-24 h-6 px-1.5 py-0 min-h-0 font-mono text-sm tabular-nums text-fg disabled:opacity-50"
+					/>
+				</label>
+				{#if inFieldError}
+					<span class="font-mono text-sm text-danger">{inFieldError}</span>
+				{/if}
+			</div>
+
+			<div class="flex flex-col gap-0.5">
+				<label
+					class="flex flex-col gap-0.5 px-2.5 py-1.5 rounded bg-surface-1 ring-1 ring-inset {outFieldError
+						? 'ring-danger'
+						: 'ring-line'}"
+				>
+					<span class="font-mono text-sm uppercase tracking-[0.06em] text-fg-subtle">Out</span>
+					<input
+						type="text"
+						inputmode="decimal"
+						bind:value={outFieldValue}
+						disabled={duration <= 0}
+						aria-label="Trim out point, as seconds or m:ss"
+						aria-invalid={outFieldError !== null}
+						on:focus={handleOutFieldFocus}
+						on:blur={handleOutFieldBlur}
+						on:keydown={handleOutFieldKeydown}
+						class="input w-24 h-6 px-1.5 py-0 min-h-0 font-mono text-sm tabular-nums text-fg disabled:opacity-50"
+					/>
+				</label>
+				{#if outFieldError}
+					<span class="font-mono text-sm text-danger">{outFieldError}</span>
+				{/if}
+			</div>
+
+			<div class="flex flex-col gap-0.5 px-2.5 py-1.5 rounded bg-surface-1 ring-1 ring-inset ring-line">
+				<span class="font-mono text-sm uppercase tracking-[0.06em] text-fg-subtle">Length</span>
+				<span class="font-mono text-sm tabular-nums text-success">{formatClipLength(trimLength(points))}</span>
+			</div>
 
 			<div class="flex flex-col gap-1">
 				<button

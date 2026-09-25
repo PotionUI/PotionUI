@@ -459,6 +459,47 @@ class TestRunGenerationToolExecuteConfirmed:
         assert "failed" in result.error.lower() or "backend unavailable" in result.error.lower()
 
     @pytest.mark.asyncio
+    async def test_confirmed_passes_tab_id_to_request(self):
+        form_state = make_form_state()
+        form_state["tab_id"] = "tab-42"
+        orchestrator = make_orchestrator()
+        ctx = make_context(
+            session_metadata={"form_state": form_state},
+            generation_orchestrator=orchestrator,
+        )
+        await RunGenerationTool().execute_confirmed(ctx)
+        request = orchestrator.start_generation.call_args[1]["request"]
+        assert request.tab_id == "tab-42"
+
+    @pytest.mark.asyncio
+    async def test_confirmed_returns_tab_id_in_payload(self):
+        form_state = make_form_state()
+        form_state["tab_id"] = "tab-42"
+        orchestrator = make_orchestrator(generation_id="gen-abc")
+        ctx = make_context(
+            session_metadata={"form_state": form_state},
+            generation_orchestrator=orchestrator,
+        )
+        result = await RunGenerationTool().execute_confirmed(ctx)
+        payload = json.loads(result.data)
+        assert payload["tab_id"] == "tab-42"
+        assert payload["generation_id"] == "gen-abc"
+
+    @pytest.mark.asyncio
+    async def test_confirmed_tab_id_defaults_to_none_when_absent(self):
+        form_state = make_form_state()
+        orchestrator = make_orchestrator()
+        ctx = make_context(
+            session_metadata={"form_state": form_state},
+            generation_orchestrator=orchestrator,
+        )
+        result = await RunGenerationTool().execute_confirmed(ctx)
+        request = orchestrator.start_generation.call_args[1]["request"]
+        assert request.tab_id is None
+        payload = json.loads(result.data)
+        assert payload["tab_id"] is None
+
+    @pytest.mark.asyncio
     async def test_confirmed_awaits_orchestrator_exactly_once(self):
         form_state = make_form_state()
         orchestrator = make_orchestrator()

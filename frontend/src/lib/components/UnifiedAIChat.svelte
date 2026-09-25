@@ -1009,6 +1009,7 @@
 				],
 				form_state: {
 					preset: generationPresetActive ? tab?.selectedPreset || null : null,
+					tab_id: generatePageActive ? tab?.id ?? null : null,
 					session_id: chatFormSessionId(tab, currentMode),
 					mode: tab?.selectedMode || null,
 					variant: tab?.selectedVariant || null,

@@ -26,6 +26,8 @@
 	import StudioView from './components/studio/StudioView.svelte';
 	import { resolveNegativeApplicability } from '$lib/generation/negativeApplied';
 	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
+	import { attachChatStartedGeneration } from '$lib/generation/restore/chatGeneration';
+	import { onToolApplied } from '$lib/chat/pageContext';
 	import { ensureSubscribed, releaseSubscription, clearSubscriptionOwner } from '$lib/generation/restore/subscriptions';
 	import { retireConfirmedCancellations, applyConfirmedCancellations } from '$lib/generation/cancelRetirement';
 	import { pressFloatingForm, pressFloatingWorkbench } from '$lib/generation/floatingOverlays';
@@ -80,6 +82,7 @@
 	let ws: WebSocketService | null = null;
 	let isConnected = false;
 	let presets: any[] = [];
+	let unregisterChatRunGeneration: (() => void) | null = null;
 
 	// Video Director's Shot Console mirrors its own transient row-checkbox
 	// selection up here (per tab id, since every tab keeps its own
@@ -764,6 +767,7 @@
 			}
 		});
 		ws.connect();
+		unregisterChatRunGeneration = onToolApplied('run_generation', handleChatRunGeneration);
 
 		// Register generate-context keybinding handlers
 		keybindingsStore.registerHandler('start_generation', () => {
@@ -957,8 +961,25 @@
 		);
 	}
 
+	function handleChatRunGeneration(result: Record<string, unknown>) {
+		attachChatStartedGeneration(result, {
+			api,
+			tabsStore,
+			signal: restoreController.signal,
+			subscriptionOwner: ws,
+			onSubscribe: (id) => {
+				ws?.subscribe(id, (message: WebSocketMessage) => {
+					handleGenerationMessage(message);
+				});
+			},
+			unsubscribe: unsubscribeGeneration
+		});
+	}
+
 	onDestroy(() => {
 		restoreController.abort();
+		unregisterChatRunGeneration?.();
+		unregisterChatRunGeneration = null;
 		setGenerationUnsubscribeHandler(null);
 		if (ws) {
 			clearSubscriptionOwner(ws);

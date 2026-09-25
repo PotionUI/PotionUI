@@ -251,12 +251,14 @@ class RunGenerationTool(BaseTool):
         try:
             from src.features.generation.dto import GenerationRequest, PromptPair
 
+            tab_id = form_state.get("tab_id")
             request = GenerationRequest(
                 preset_id=preset_id,
                 mode=mode,
                 form_data=form_data,
                 prompts=[PromptPair(positive=prompt_text, negative=negative_text)],
                 variables=variables_map or None,
+                tab_id=tab_id,
             )
 
             result = await context.generation_orchestrator.start_generation(
@@ -270,6 +272,7 @@ class RunGenerationTool(BaseTool):
                     "message": "Generation started successfully",
                     "generation_id": result.get("generation_id", ""),
                     "status": result.get("status", {}).get("status", "pending"),
+                    "tab_id": tab_id,
                 }),
             )
         except Exception as e:

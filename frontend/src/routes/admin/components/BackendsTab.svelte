@@ -1,10 +1,9 @@
 <script lang="ts">
-	import Card from '$lib/components/ui/Card.svelte';
-	import { logger, getErrorMessage, getApiErrorMessage } from '$lib/utils/logger';
-	import { onMount, onDestroy } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { isAxiosError } from 'axios';
+	import { logger, getErrorMessage, getApiErrorMessage } from '$lib/utils/logger';
 	import type { EngineDescriptor, EngineField, IndexModelsResult, BackendStats } from '$lib/services/admin-api';
 	import {
 		indexBackendModels,
@@ -22,23 +21,26 @@
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { adminWebSocket } from '$lib/services/adminWebsocket';
 	import { timeAgo } from '$lib/utils/relativeTime';
-	import { Button, Badge, Spinner, EmptyState, Switch, Alert } from '$lib/components/ui';
+	import { Button, Badge, Spinner, EmptyState, Switch, Alert, IconButton } from '$lib/components/ui';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import BackendForm from './BackendForm.svelte';
-	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
-	import { Pane, PaneRow, PaneGroupHeader } from '$lib/components/pane';
-	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailSection, DetailFooter } from '$lib/components/detail';
+	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailSection, KVGrid, KVItem, DetailFooter } from '$lib/components/detail';
+	import type { DetailHeaderChip, DetailHeaderChipTone } from '$lib/components/detail/detailHeaderChips';
+	import { DataTable, StatusCell, type DataTableColumn } from '$lib/components/table';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import AdminTabShell from './AdminTabShell.svelte';
+	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
-	import LibraryFilterChipRow from '$lib/components/library/LibraryFilterChipRow.svelte';
+	import { PaneRow } from '$lib/components/pane';
+	import { adminSectionIcon } from '../adminSections';
 	import type { Backend, BackendHealth } from '$lib/services/admin-api';
 	import {
 		BACKENDS_SORT_OPTIONS,
 		DEFAULT_BACKENDS_FILTERS,
 		applyBackendsFilters,
+		backendEngineCounts,
+		backendEngines,
 		backendsFilterActiveCount,
 		backendsFilterChips,
 		clearAllBackendsFilters,
@@ -50,19 +52,12 @@
 	import BackendQuickActions from './BackendQuickActions.svelte';
 	import BackendInfrastructureSection from './BackendInfrastructureSection.svelte';
 	import BackendModelsSection from './BackendModelsSection.svelte';
-	import { backendDetailTabsFor, isBackendDetailTab, type BackendDetailTabId } from './backendDetailTabs';
+	import { backendDetailTabsFor, backendDetailTabHasFooter, isBackendDetailTab, type BackendDetailTabId } from './backendDetailTabs';
 	import { readBackendsUrlState, writeBackendsUrlState } from './backendsUrlState';
+	import { BACKENDS_LIBRARY_SECTIONS, type BackendLibrarySection } from './backends/backendsLibrarySections';
 
 	type DetailTab = BackendDetailTabId;
 
-	// The two built-in `native` drivers (see backend_config.py). Both are core,
-	// not plugin-contributed, so - like the pre-existing `engine === 'native'`
-	// checks below - naming them here isn't the kind of plugin-name hardcoding
-	// CLAUDE.md forbids. `native.local` is the always-present, in-process,
-	// singleton driver; `native.remote` is the user-creatable Remote Native
-	// worker driver. A capability gated on running in-process (Optimizations,
-	// delete-protection) must check the DRIVER, not the engine - both drivers
-	// report engine="native".
 	const NATIVE_LOCAL_DRIVER = 'native.local';
 	const NATIVE_REMOTE_DRIVER = 'native.remote';
 
@@ -71,66 +66,41 @@
 		message?: string;
 	}
 
-	// State
-	let backends: Backend[] = [];
-	let backendsHealth: BackendHealth[] = [];
-	let engines: EngineDescriptor[] = [];
-	let loading = true;
-	let error: string | null = null;
-	let filters: BackendsFilters = { ...DEFAULT_BACKENDS_FILTERS };
-	let selectedBackendId: string | null = null;
-	let showModal = false;
-	let showDeleteModal = false;
-	let saving = false;
-	let testing = false;
-	let testResult: TestConnectionResult | null = null;
-	let deleteTarget: Backend | null = null;
-	let detailTab: DetailTab = 'overview';
-	let togglingBackendId: string | null = null;
-	// Set once the mount-time restore from ?backend=/&view= has run (whether
-	// it found a backend or not) - gates the write-effect below so it can't
-	// strip those params from a freshly-loaded URL before restoreFromUrl has
-	// had a chance to read them.
-	let urlRestored = false;
-
-	// Stats tab: how many models this backend has reported and how much disk
-	// space they total - fetched fresh whenever the tab is opened, so
-	// it reflects the latest "Index models" run without a manual refresh.
-	let backendStats: BackendStats | null = null;
-	let backendStatsLoading = false;
-	let backendStatsError: string | null = null;
-
-	// Model indexing, keyed by backend id: which backend is currently indexing, the
-	// last result it produced (kept until the next run or a page reload — the server
-	// doesn't expose a "last indexed at" field, so this is the only record we have),
-	// and any "this backend can't list its models" notice.
-	let indexingBackendId: string | null = null;
-	let indexResults: Record<string, IndexModelsResult> = {};
-	let indexUnsupported: Record<string, string> = {};
-	let indexWarningsOpen: Record<string, boolean> = {};
-
-	// Which engines exist, what they're called, and what settings they need is
-	// reported by the server (`GET /api/backends/engines`). Nothing here may
-	// hardcode an engine name: `comfyui` is contributed by a plugin and may be
-	// absent entirely.
-
-	// Form state. Engine-specific keys are not known statically (the engine declares
-	// them), so the form model is an open record rather than a strict Backend.
 	type BackendFormData = Partial<Backend> & Record<string, any>;
 
-	// Create-modal form (unsaved, new backend only — the modal never edits).
-	let formData: BackendFormData = emptyFormData();
+	let backends = $state<Backend[]>([]);
+	let backendsHealth = $state<BackendHealth[]>([]);
+	let engines = $state<EngineDescriptor[]>([]);
+	let loading = $state(true);
+	let loadError = $state<string | null>(null);
+	let filters = $state<BackendsFilters>({ ...DEFAULT_BACKENDS_FILTERS });
+	let selectedBackendId = $state<string | null>(null);
+	let showModal = $state(false);
+	let showDeleteModal = $state(false);
+	let saving = $state(false);
+	let testing = $state(false);
+	let testResult = $state<TestConnectionResult | null>(null);
+	let deleteTarget = $state<Backend | null>(null);
+	let detailTab = $state<DetailTab>('overview');
+	let togglingBackendId = $state<string | null>(null);
+	let urlRestored = $state(false);
+	let detailOverflowOpen = $state(false);
+	let detailOverflowEl: HTMLDivElement | undefined = $state();
 
-	// Detail-pane edit form: a live draft for the selected backend, edited
-	// directly in the pane. A separate draft from `formData`, snapshotted on
-	// load/save/discard to drive `editDirty` without a heavier dirty-tracking system.
-	let editFormData: BackendFormData = emptyFormData();
-	let editSnapshot = JSON.stringify(editFormData);
-	let editSaving = false;
+	let backendStats = $state<BackendStats | null>(null);
+	let backendStatsLoading = $state(false);
+	let backendStatsError = $state<string | null>(null);
 
-	// `driver` is passed in rather than derived here: this runs during component
-	// init, before any `$:` statement has executed and before onMount has fetched
-	// the engine list, so a derived value would still be undefined.
+	let indexingBackendId = $state<string | null>(null);
+	let indexResults = $state<Record<string, IndexModelsResult>>({});
+	let indexUnsupported = $state<Record<string, string>>({});
+	let indexWarningsOpen = $state<Record<string, boolean>>({});
+
+	let formData = $state<BackendFormData>(emptyFormData());
+	let editFormData = $state<BackendFormData>(emptyFormData());
+	let editSnapshot = $state(untrack(() => JSON.stringify(editFormData)));
+	let editSaving = $state(false);
+
 	function emptyFormData(driver = ''): BackendFormData {
 		const descriptor = engines.find((e) => e.driver === driver);
 		const data: BackendFormData = {
@@ -146,10 +116,6 @@
 		return applyEngineDefaults(data, driver);
 	}
 
-	/** Seed the driver's own fields with the defaults the server declared for them.
-	 * Every declared field ends up DEFINED: a field without a stored value or a
-	 * server default gets a type-appropriate empty — `bind:value={undefined}`
-	 * crashes at runtime against the Input primitive's fallback default. */
 	function applyEngineDefaults(data: BackendFormData, driver: string): BackendFormData {
 		for (const field of fieldsFor(driver)) {
 			if (data[field.name] !== null && data[field.name] !== undefined) continue;
@@ -170,10 +136,6 @@
 		return engines.find((e) => e.driver === driver)?.fields ?? [];
 	}
 
-	/** Construct a PUT/POST body from a form-shaped source: common fields plus whatever the
-	 * driver declares. `driver` is included only on create - it's immutable after that, and
-	 * (unlike `engine`) the update route doesn't re-pin it to the stored value, so an update
-	 * payload must never carry a driver that could ever be misread as a request to change it. */
 	function buildBackendPayload(source: BackendFormData, opts: { includeDriver?: boolean } = {}): Record<string, unknown> {
 		const payload: Record<string, unknown> = {
 			name: source.name,
@@ -194,100 +156,78 @@
 		return payload;
 	}
 
-	/** The driver to preselect when the create modal opens (engines load on mount). */
 	function defaultCreatableDriver(): string {
 		return creatableEngines[0]?.driver ?? '';
 	}
-
-	// Drivers the "create backend" dropdown may offer (native.local is auto-provisioned,
-	// never creatable). native.remote sorts last - it's always registered before any
-	// plugin engine load, so without this it would otherwise win the default selection
-	// over the engine an admin more commonly wants (e.g. a just-enabled comfyui plugin).
-	$: creatableEngines = engines
-		.filter((e) => e.creatable)
-		.sort((a, b) => (a.driver === NATIVE_REMOTE_DRIVER ? 1 : b.driver === NATIVE_REMOTE_DRIVER ? -1 : 0));
-
-	// Fields declared by the driver currently selected in the create form.
-	// `engines` is named explicitly so this recomputes once the engine list arrives;
-	// Svelte derives dependencies syntactically and would not see it inside fieldsFor().
-	$: activeEngineFields = engines.length ? fieldsFor(formData.driver ?? '') : [];
-
-	// Fields declared by the driver of the backend currently being edited in the pane.
-	$: activeEditEngineFields = engines.length ? fieldsFor(editFormData.driver ?? '') : [];
-
-	// Gates the create modal's "Create Backend" button. Its inputs are plain
-	// onclick handlers, not a <form> submit, so the HTML `required` attributes
-	// BackendForm sets never block a click - without this, a required field left
-	// empty submits anyway and 400s server-side. native.remote's own connection
-	// fields (Worker URL/Token) are NOT required here - the server accepts a
-	// bare, unconfigured native.remote row (see BaseBackendConfig.is_configured);
-	// they're connected by hand later or filled by BackendInfrastructureSection's
-	// provision form.
-	$: canCreateBackend =
-		!saving &&
-		!isBlank(formData.name) &&
-		activeEngineFields.every((field) => !field.required || !isBlank(formData[field.name]));
 
 	function isBlank(value: unknown): boolean {
 		return value === undefined || value === null || value === '';
 	}
 
-	// True once the pane's draft diverges from the last loaded/saved snapshot.
-	$: editDirty = JSON.stringify(editFormData) !== editSnapshot;
-
-	// Stats
-	$: totalBackends = backends.length;
-	$: enabledBackends = backends.filter((b) => b.enabled).length;
-	$: healthyBackends = backendsHealth.filter(
-		(h) => h.health.status === 'healthy' || h.health.status === 'online' || h.health.status === 'available'
-	).length;
-
-	// Backends grouped by engine, for a clearly-labeled layout. Search+sort
-	// apply across the groups; total/enabled/healthy counts above stay based
-	// on the full unfiltered list.
-	$: filteredBackends = applyBackendsFilters(backends, filters, formatEngineName);
-	$: backendsByEngine = groupByEngine(filteredBackends);
-	$: filterChips = backendsFilterChips(filters);
-	$: activeFilterCount = backendsFilterActiveCount(filters);
-	// Derived from the full (unfiltered) list so the detail pane keeps showing
-	// the selected backend even while a search hides it from the list.
-	$: activeBackend = backends.find((b) => b.id === selectedBackendId) ?? null;
-	$: activeHealth = activeBackend
-		? backendsHealth.find((h) => h.backend_id === activeBackend!.id)
-		: undefined;
-	$: activeIsHealthy = !!activeHealth && isHealthy(activeHealth.health.status);
-
-	// Per-driver tab set — see backendDetailTabs.ts for the rules (Infrastructure
-	// + Models only for native.remote, Optimizations only for native.local).
-	$: backendDetailTabs = backendDetailTabsFor(activeBackend?.driver ?? '');
-
-	// If the selected backend changes to one whose tab set doesn't include the
-	// currently open tab (e.g. leaving a native.remote's Infrastructure tab for
-	// a comfyui backend), fall back to Overview rather than showing a blank pane.
-	$: if (activeBackend && !isBackendDetailTab(activeBackend.driver, detailTab)) {
-		detailTab = 'overview';
+	function capitalize(value: string): string {
+		return value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 	}
 
-	const dotColorClasses: Record<string, string> = {
-		success: 'bg-success-solid',
-		warning: 'bg-warning',
-		danger: 'bg-danger',
-		neutral: 'bg-line-strong'
-	};
+	const section: BackendLibrarySection = 'all';
 
-	function groupByEngine(list: Backend[]): { engine: string; items: Backend[] }[] {
-		const groups = new Map<string, Backend[]>();
-		for (const b of list) {
-			const key = b.engine;
-			if (!groups.has(key)) groups.set(key, []);
-			groups.get(key)!.push(b);
+	const creatableEngines = $derived(
+		engines
+			.filter((e) => e.creatable)
+			.sort((a, b) => (a.driver === NATIVE_REMOTE_DRIVER ? 1 : b.driver === NATIVE_REMOTE_DRIVER ? -1 : 0))
+	);
+	const activeEngineFields = $derived(engines.length ? fieldsFor(formData.driver ?? '') : []);
+	const activeEditEngineFields = $derived(engines.length ? fieldsFor(editFormData.driver ?? '') : []);
+	const canCreateBackend = $derived(
+		!saving &&
+			!isBlank(formData.name) &&
+			activeEngineFields.every((field) => !field.required || !isBlank(formData[field.name]))
+	);
+	const editDirty = $derived(JSON.stringify(editFormData) !== editSnapshot);
+
+	const filteredBackends = $derived(applyBackendsFilters(backends, filters, formatEngineName));
+	const filterChips = $derived(backendsFilterChips(filters));
+	const activeFilterCount = $derived(backendsFilterActiveCount(filters));
+	const engineList = $derived(backendEngines(backends));
+	const engineCounts = $derived(backendEngineCounts(backends));
+	const activeBackend = $derived(backends.find((b) => b.id === selectedBackendId) ?? null);
+	const activeHealth = $derived(activeBackend ? backendsHealth.find((h) => h.backend_id === activeBackend.id) : undefined);
+	const detailOpen = $derived(selectedBackendId !== null);
+	const backendDetailTabs = $derived(backendDetailTabsFor(activeBackend?.driver ?? ''));
+	const showFooter = $derived(backendDetailTabHasFooter(detailTab));
+
+	const headerChips = $derived.by((): DetailHeaderChip[] => {
+		if (!activeBackend) return [];
+		const chips: DetailHeaderChip[] = [{ key: 'engine', label: formatEngineName(activeBackend.engine), tone: 'signal' }];
+		const healthTone: DetailHeaderChipTone = activeHealth ? getHealthVariant(activeHealth.health.status) : 'neutral';
+		chips.push({ key: 'health', label: activeHealth ? capitalize(activeHealth.health.status) : 'Health unknown', tone: healthTone });
+		if (activeBackend.is_default) chips.push({ key: 'default', label: 'Default', tone: 'signal' });
+		if (!activeBackend.configured) chips.push({ key: 'not-configured', label: 'Not configured', tone: 'warning' });
+		return chips;
+	});
+
+	$effect(() => {
+		if (activeBackend && !isBackendDetailTab(activeBackend.driver, detailTab)) {
+			detailTab = 'overview';
 		}
-		return Array.from(groups.entries())
-			.map(([engine, items]) => ({ engine, items }))
-			.sort((a, b) => a.engine.localeCompare(b.engine));
-	}
+	});
 
-	// Load backends on mount
+	$effect(() => {
+		if (detailTab === 'stats' && activeBackend) {
+			loadBackendStats(activeBackend.id);
+		}
+	});
+
+	$effect(() => {
+		if (!urlRestored) return;
+		const nextUrl = writeBackendsUrlState($page.url, {
+			backendId: selectedBackendId,
+			view: selectedBackendId ? detailTab : null
+		});
+		if (nextUrl.search !== $page.url.search) {
+			void goto(nextUrl, { replaceState: true, keepFocus: true, noScroll: true });
+		}
+	});
+
 	onMount(async () => {
 		await loadEngines();
 		await loadBackends();
@@ -296,11 +236,6 @@
 		await loadBackendsHealth();
 	});
 
-	// Select the backend named by ?backend= (if it still exists) and its
-	// ?view= tab (if valid for that backend's driver), so a page reload
-	// doesn't lose the view onto a backend the admin was watching. A stale id
-	// (backend deleted since the link was made) is ignored silently - the
-	// write effect below then clears the params once `urlRestored` flips on.
 	async function restoreFromUrl() {
 		const { backendId, view } = readBackendsUrlState($page.url.searchParams);
 		if (!backendId) return;
@@ -312,41 +247,28 @@
 		}
 	}
 
-	// Keep ?backend=/&view= in sync with the current selection, using
-	// replaceState so browsing between backends/tabs never piles up history
-	// entries. Held off until the mount-time restore has run, and a no-op
-	// once the URL already matches (comparing the built search string, not
-	// the individual fields, keeps this correct for every case: nothing
-	// selected or an overview tab both collapse to the params being absent).
-	$: if (urlRestored) {
-		const nextUrl = writeBackendsUrlState($page.url, {
-			backendId: selectedBackendId,
-			view: selectedBackendId ? detailTab : null
-		});
-		if (nextUrl.search !== $page.url.search) {
-			void goto(nextUrl, { replaceState: true, keepFocus: true, noScroll: true });
-		}
-	}
-
-	// `onMount` above is async, so a returned cleanup wouldn't be picked up by
-	// Svelte (it only recognizes a synchronously-returned function) - subscribe
-	// separately, outside the async callback.
 	const unsubscribeComputeStatus = adminWebSocket.onComputeStatus(() => {
 		loadBackends();
 		loadBackendsHealth();
 	});
 	onDestroy(unsubscribeComputeStatus);
 
-	// Load supported backend engines
+	function handleWindowClick(event: MouseEvent) {
+		const target = event.target as Element | null;
+		if (target?.closest('[role="dialog"], [role="alertdialog"], [aria-label="Close modal"]')) return;
+		if (detailOverflowOpen && detailOverflowEl && !detailOverflowEl.contains(event.target as Node)) {
+			detailOverflowOpen = false;
+		}
+	}
+
+	function handleWindowKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape') detailOverflowOpen = false;
+	}
+
 	async function loadEngines() {
 		try {
 			const response = await getBackendEngines();
 			if (!response.success || !Array.isArray(response.data)) return;
-
-			// `/engines` returns one descriptor per DRIVER (not deduped by engine -
-			// see EngineDescriptor). An older server returned bare name strings or
-			// omitted `driver`; rather than silently degrading (which would key the
-			// engine <select> on `undefined` and crash), reject the payload and say why.
 			const received = response.data;
 			const valid = received.filter(
 				(e: unknown): e is EngineDescriptor =>
@@ -355,72 +277,60 @@
 					typeof (e as EngineDescriptor).engine === 'string' &&
 					typeof (e as EngineDescriptor).driver === 'string'
 			);
-
 			if (valid.length !== received.length) {
 				logger.error('Unexpected /api/backends/engines payload:', received);
-				error = 'The API returned an outdated engine list. Restart the API server.';
+				loadError = 'The API returned an outdated engine list. Restart the API server.';
 				engines = [];
 				return;
 			}
-
 			engines = valid;
 		} catch (e: unknown) {
 			logger.warn('Failed to load backend engines:', getErrorMessage(e));
 		}
 	}
 
-	// Load backends
 	async function loadBackends() {
 		loading = true;
-		error = null;
+		loadError = null;
 		try {
 			const response = await getBackends();
 			if (response.success) {
 				backends = response.data ?? [];
 			} else {
-				error = response.message || 'Failed to load backends';
+				loadError = response.message || 'Failed to load backends';
 			}
 		} catch (e: unknown) {
-			error = getApiErrorMessage(e, 'Failed to load backends');
+			loadError = getApiErrorMessage(e, 'Failed to load backends');
 		} finally {
 			loading = false;
 		}
 	}
 
-	// Load backends health
 	async function loadBackendsHealth() {
 		try {
 			const response = await getAllBackendsHealth();
 			if (response.success) {
 				backendsHealth = response.data ?? [];
-				// Force re-render of backends to update health status
-				backends = [...backends];
 			}
 		} catch (e) {
 			logger.error('Failed to load backends health:', e);
 		}
 	}
 
-	// Open create modal
 	function openCreateModal() {
 		formData = emptyFormData(defaultCreatableDriver());
 		showModal = true;
 	}
 
-	/** Reseed driver-declared defaults when the admin picks a different engine/driver. */
 	function onDriverChange(driver: string) {
 		formData = emptyFormData(driver);
 	}
 
-	// Close modal
 	function closeModal() {
 		showModal = false;
 		formData = emptyFormData();
 	}
 
-	// Create a new backend from the modal form. For native.remote this creates
-	// a bare, unconfigured row (connection fields are optional) - connecting or
-	// provisioning it happens afterward, in the detail pane.
 	async function saveBackend() {
 		if (!canCreateBackend) return;
 		saving = true;
@@ -437,18 +347,12 @@
 				toasts.error(response.message || 'Failed to save backend');
 			}
 		} catch (e: unknown) {
-			// The server also refuses driver: "native.local" (400) — surface its message
-			// rather than assuming success, since the UI shouldn't have offered this anyway.
 			toasts.error(getApiErrorMessage(e, 'Failed to save backend'));
 		} finally {
 			saving = false;
 		}
 	}
 
-	// Called by BackendInfrastructureSection once it has provisioned compute into
-	// the selected backend (POST /api/admin/provisioning) - the backend row itself
-	// is unchanged in identity, just now configured+enabled, so refresh the list
-	// and the pane's edit draft rather than re-selecting.
 	async function handleInfrastructureProvisioned() {
 		await loadBackends();
 		await loadBackendsHealth();
@@ -457,9 +361,6 @@
 		}
 	}
 
-	// Terminating provisioned infrastructure clears the linked backend's connection
-	// and disables it (see provisioning.operations.terminate_compute) - the row
-	// survives as "Not configured", so keep it selected and refresh its edit draft.
 	async function handleInfrastructureTerminated() {
 		await loadBackends();
 		await loadBackendsHealth();
@@ -468,9 +369,6 @@
 		}
 	}
 
-	// Select a backend for the detail pane, loading its edit draft. If the
-	// current draft has unsaved changes, confirm before discarding them —
-	// a lightweight guard rather than a full dirty-tracking system.
 	async function selectBackend(id: string) {
 		if (
 			editDirty &&
@@ -484,6 +382,26 @@
 		selectedBackendId = id;
 		detailTab = 'overview';
 		loadEditForm(backends.find((b) => b.id === id) ?? null);
+	}
+
+	async function backToList() {
+		if (
+			editDirty &&
+			!(await confirmDialog({
+				title: 'Discard unsaved changes',
+				message: 'Discard unsaved changes to this backend?',
+				variant: 'warning'
+			}))
+		)
+			return;
+		selectedBackendId = null;
+		detailTab = 'overview';
+		loadEditForm(null);
+	}
+
+	function toggleEngineFilter(engine: string) {
+		filters = { ...filters, engine: filters.engine === engine ? '' : engine };
+		selectedBackendId = null;
 	}
 
 	async function loadBackendStats(backendId: string) {
@@ -503,27 +421,19 @@
 		}
 	}
 
-	// Fetch fresh stats whenever the Stats tab becomes active for a backend.
-	$: if (detailTab === 'stats' && activeBackend) {
-		loadBackendStats(activeBackend.id);
-	}
-
 	function loadEditForm(backend: Backend | null) {
-		// A stored backend record doesn't necessarily carry every field its
-		// driver declares (fields added later, never-set optionals) — seed the
-		// gaps so no bind target is ever undefined.
 		editFormData = backend
 			? applyEngineDefaults({ ...backend }, backend.driver ?? backend.engine ?? '')
 			: emptyFormData();
 		editSnapshot = JSON.stringify(editFormData);
 		testResult = null;
+		backendStats = null;
 	}
 
 	function discardEditForm() {
 		loadEditForm(activeBackend);
 	}
 
-	// Save the detail pane's edit draft.
 	async function saveEditForm() {
 		if (!activeBackend) return;
 		editSaving = true;
@@ -546,22 +456,19 @@
 		}
 	}
 
-	// Open delete modal
 	function openDeleteModal(backend: Backend) {
+		detailOverflowOpen = false;
 		deleteTarget = backend;
 		showDeleteModal = true;
 	}
 
-	// Close delete modal
 	function closeDeleteModal() {
 		showDeleteModal = false;
 		deleteTarget = null;
 	}
 
-	// Delete backend
 	async function deleteBackend() {
 		if (!deleteTarget) return;
-
 		try {
 			const response = await deleteBackendRequest(deleteTarget.id);
 			if (response.success) {
@@ -577,13 +484,10 @@
 				toasts.error(response.message || 'Failed to delete backend');
 			}
 		} catch (e: unknown) {
-			// The server refuses to delete the native backend (400) — surface its message
-			// rather than assuming success, since the UI shouldn't have offered this anyway.
 			toasts.error(getApiErrorMessage(e, 'Failed to delete backend'));
 		}
 	}
 
-	// Set backend as default for its engine
 	async function makeDefault(backend: Backend) {
 		try {
 			const response = await setDefaultBackend(backend.id);
@@ -597,7 +501,6 @@
 		}
 	}
 
-	// Flip enabled/disabled immediately — a toolbar action, not part of the edit draft.
 	async function toggleEnabled(backend: Backend) {
 		togglingBackendId = backend.id;
 		const backendData = buildBackendPayload({ ...backend, enabled: !backend.enabled });
@@ -620,7 +523,6 @@
 		}
 	}
 
-	// Test connection for an existing (already-saved) backend.
 	async function testConnection(backendId: string) {
 		testing = true;
 		testResult = null;
@@ -636,8 +538,6 @@
 		}
 	}
 
-	// Ask a backend what models it can see and reconcile that against known models.
-	// Can take several seconds: native walks the filesystem, ComfyUI does HTTP.
 	async function indexModels(backend: Backend) {
 		indexingBackendId = backend.id;
 		if (indexUnsupported[backend.id]) {
@@ -655,6 +555,9 @@
 					`Indexed ${r.listed} models on "${backend.name}" — ${r.created} new, ${r.matched} matched, ${r.removed} removed` +
 						(warnings > 0 ? ` (${warnings} warning${warnings === 1 ? '' : 's'})` : '')
 				);
+				if (selectedBackendId === backend.id && detailTab === 'stats') {
+					loadBackendStats(backend.id);
+				}
 			} else {
 				toasts.error(response.message || `Failed to index models for "${backend.name}"`);
 			}
@@ -681,7 +584,6 @@
 		indexWarningsOpen = { ...indexWarningsOpen, [backendId]: !indexWarningsOpen[backendId] };
 	}
 
-	// Get health status badge variant
 	function getHealthVariant(status: string): 'success' | 'warning' | 'danger' | 'neutral' {
 		if (status === 'healthy' || status === 'online' || status === 'available') return 'success';
 		if (status === 'degraded') return 'warning';
@@ -689,76 +591,44 @@
 		return 'neutral';
 	}
 
-	// Display name for an engine, as declared by the server. Used where backends are
-	// grouped/searched at engine granularity (a pane group holds every driver of an
-	// engine together) - falls back to the first descriptor sharing that engine name
-	// if more than one does, which is fine at this granularity.
+	function healthStatusCellTone(status: string | undefined): 'success' | 'danger' | 'warning' | 'muted' {
+		if (!status) return 'muted';
+		const variant = getHealthVariant(status);
+		return variant === 'neutral' ? 'muted' : variant;
+	}
+
 	function formatEngineName(engine: string): string {
 		const label = engines.find((e) => e.engine === engine)?.label;
 		return label || engine.charAt(0).toUpperCase() + engine.slice(1).replace(/_/g, ' ');
 	}
 
-	// Display name for a specific DRIVER - distinguishes "Native" from "Native
-	// (Remote Worker)", which share engine="native" and would collide under
-	// formatEngineName. Used wherever a single backend's own identity is shown.
 	function formatDriverLabel(driver: string): string {
 		const label = engines.find((e) => e.driver === driver)?.label;
 		return label || formatEngineName(driver);
 	}
 
-	// Check if backend is healthy/available
-	function isHealthy(status: string): boolean {
-		return status === 'healthy' || status === 'online' || status === 'available';
+	function hostPortLabel(backend: Backend): string {
+		return backend.host && backend.port ? `${backend.host}:${backend.port}` : '—';
 	}
+
+	function healthLabelFor(backend: Backend): string {
+		const health = backendsHealth.find((h) => h.backend_id === backend.id);
+		return health ? capitalize(health.health.status) : 'Unknown';
+	}
+
+	function healthStatusFor(backend: Backend): string | undefined {
+		return backendsHealth.find((h) => h.backend_id === backend.id)?.health.status;
+	}
+
+	const columns: DataTableColumn<Backend>[] = $derived.by(() => [
+		{ key: 'name', label: 'Name', width: 'minmax(160px,2fr)', cell: nameCell },
+		{ key: 'engine', label: 'Engine', width: '110px', accessor: (b) => formatEngineName(b.engine) },
+		{ key: 'driver', label: 'Driver', width: '160px', accessor: (b) => formatDriverLabel(b.driver) },
+		{ key: 'hostPort', label: 'Host:port', width: '150px', mono: true, priority: 1, accessor: hostPortLabel },
+		{ key: 'health', label: 'Health', width: '110px', cell: healthCell },
+		{ key: 'enabled', label: 'Enabled', width: '100px', priority: 1, cell: enabledCell }
+	]);
 </script>
-
-<style>
-	/* Subtle pulsing glow animation for healthy backends */
-	:global(.backend-card-healthy) {
-		animation: backend-pulse-glow 3s ease-in-out infinite;
-		border-color: rgb(var(--success-solid) / 0.5) !important;
-	}
-
-	@keyframes backend-pulse-glow {
-		0%, 100% {
-			box-shadow: 0 0 2px rgb(var(--success-solid) / 0.2), 0 0 6px rgb(var(--success-solid) / 0.1);
-		}
-		50% {
-			box-shadow: 0 0 4px rgb(var(--success-solid) / 0.3), 0 0 12px rgb(var(--success-solid) / 0.15);
-		}
-	}
-
-	/* Subtle pulsing glow for offline/error backends */
-	:global(.backend-card-offline) {
-		animation: backend-pulse-offline 2s ease-in-out infinite;
-		border-color: rgb(var(--danger-solid) / 0.5) !important;
-	}
-
-	@keyframes backend-pulse-offline {
-		0%, 100% {
-			box-shadow: 0 0 2px rgb(var(--danger-solid) / 0.2), 0 0 6px rgb(var(--danger-solid) / 0.1);
-		}
-		50% {
-			box-shadow: 0 0 4px rgb(var(--danger-solid) / 0.35), 0 0 10px rgb(var(--danger-solid) / 0.15);
-		}
-	}
-
-	:global(.health-dot-pulse) {
-		animation: health-dot-pulse 2s ease-in-out infinite;
-		display: inline-block;
-	}
-
-	@keyframes health-dot-pulse {
-		0%, 100% {
-			transform: scale(1);
-			opacity: 1;
-		}
-		50% {
-			transform: scale(1.1);
-			opacity: 0.8;
-		}
-	}
-</style>
 
 {#snippet workerUrlEditHint()}
 	<Alert variant="info" density="compact">
@@ -778,22 +648,66 @@
 	</Alert>
 {/snippet}
 
-<div class="flex min-h-[calc(100dvh-var(--header-h)-2rem)] flex-col gap-4 sm:min-h-[calc(100dvh-var(--header-h)-3rem)]">
-	<AdminTabShell
-		title="Backends"
-		icon="cpu"
-		counts={[
-			{ label: 'backends', value: totalBackends },
-			{ label: 'healthy', value: healthyBackends, tone: 'success' },
-			{ label: 'enabled', value: enabledBackends, tone: 'info' }
-		]}
-	>
-		{#snippet actions()}
-			<Button variant="primary" size="sm" icon="plus" onclick={openCreateModal}>Add Backend</Button>
-		{/snippet}
-	</AdminTabShell>
+{#snippet nameCell(backend: Backend)}
+	<div class="flex items-center gap-2 min-w-0">
+		<span class="truncate">{backend.name}</span>
+		{#if backend.is_default}<Badge variant="signal" size="sm">Default</Badge>{/if}
+	</div>
+{/snippet}
 
-	<Card padding="none" class="flex flex-wrap items-center gap-2 px-4 py-2.5">
+{#snippet healthCell(backend: Backend)}
+	<StatusCell tone={healthStatusCellTone(healthStatusFor(backend))} label={healthLabelFor(backend)} />
+{/snippet}
+
+{#snippet enabledCell(backend: Backend)}
+	<StatusCell tone={backend.enabled ? 'success' : 'muted'} label={backend.enabled ? 'Enabled' : 'Disabled'} />
+{/snippet}
+
+{#snippet rowCard(backend: Backend)}
+	<div class="truncate text-sm font-semibold text-fg">{backend.name}</div>
+	<div class="mt-1 flex items-center gap-2">
+		<StatusCell tone={healthStatusCellTone(healthStatusFor(backend))} label={healthLabelFor(backend)} />
+		<span class="font-mono text-2xs text-fg-subtle">{formatEngineName(backend.engine)}</span>
+	</div>
+{/snippet}
+
+<svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
+
+<LibraryShell
+	title="Backends"
+	persistKey="admin-backends-library"
+	heightClass="h-full"
+	sections={BACKENDS_LIBRARY_SECTIONS}
+	{section}
+	onSelectSection={() => {}}
+	sectionCounts={{ all: backends.length }}
+	count={filteredBackends.length}
+	{detailOpen}
+	filterChips={filterChips}
+	onRemoveChip={(key) => (filters = clearBackendsFilterChip(filters, key))}
+	onClearFilters={() => (filters = clearAllBackendsFilters(filters))}
+	loadedCount={filteredBackends.length}
+	total={backends.length}
+>
+	{#snippet sidebarTree()}
+		{#if engineList.length}
+			<div class="border-t border-line">
+				<div class="px-3 pb-1 pt-2 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">By engine</div>
+				<div class="space-y-0.5 p-2 pt-0">
+					{#each engineList as engine (engine)}
+						<PaneRow
+							title={engine}
+							count={engineCounts[engine] ?? 0}
+							selected={filters.engine === engine}
+							onclick={() => toggleEngineFilter(engine)}
+						/>
+					{/each}
+				</div>
+			</div>
+		{/if}
+	{/snippet}
+
+	{#snippet toolbar()}
 		<LibraryFilterBar
 			q={filters.q}
 			onQueryChange={(value) => (filters = { ...filters, q: value })}
@@ -803,166 +717,111 @@
 			onSortChange={(value) => (filters = { ...filters, sortBy: value as BackendSortBy })}
 			filterCount={activeFilterCount}
 		/>
-	</Card>
+	{/snippet}
 
-	<LibraryFilterChipRow
-		chips={filterChips}
-		onRemoveChip={(key) => (filters = clearBackendsFilterChip(filters, key))}
-		onClearAll={() => (filters = clearAllBackendsFilters(filters))}
-		loadedCount={filteredBackends.length}
-		total={backends.length}
-	/>
+	{#snippet primary()}
+		<Button variant="primary" size="sm" icon="plus" onclick={openCreateModal}>Add backend</Button>
+	{/snippet}
 
-	<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
-		{#if loading}
-			<div class="h-full flex flex-col items-center justify-center">
-				<Spinner size="lg" />
-				<p class="text-sm text-fg-muted mt-4">Loading backends…</p>
-			</div>
-		{:else if error}
-			<div class="h-full p-5 flex items-center justify-center">
-				<EmptyState title="Error loading backends" description={error ?? ''} icon="warning" compact>
-					{#snippet actions()}<Button variant="secondary" size="sm" icon="refresh" onclick={loadBackends}>Try again</Button>{/snippet}
-				</EmptyState>
-			</div>
-		{:else if backends.length === 0}
-			<div class="h-full p-5 flex items-center justify-center">
-				<EmptyState
-					icon="cpu"
-					title="No backends configured yet"
-					description="A backend tells PotionUI where to run generations for an engine — for example, the built-in native engine or a ComfyUI server. Add one to start generating."
-					compact
-				>
-					{#snippet actions()}
-						<Button variant="primary" size="sm" icon="plus" onclick={openCreateModal}>Add Backend</Button>
-					{/snippet}
-				</EmptyState>
+	{#if detailOpen}
+		{#if !activeBackend}
+			<div class="flex h-full items-center justify-center">
+				{#if loading}
+					<Spinner size="lg" />
+				{:else}
+					<EmptyState title="Backend not found" description="This backend may have been removed." icon="server" compact>
+						{#snippet actions()}<Button variant="ghost" size="sm" onclick={backToList}>Back to backends</Button>{/snippet}
+					</EmptyState>
+				{/if}
 			</div>
 		{:else}
-			<MasterDetailLayout leftWidth={340} minWidth={280} maxWidth={480} storageKey="admin-backends-width">
-				<div slot="list" class="h-full min-h-0">
-					<Pane
-						label="Backends"
-						count={filteredBackends.length}
-						isEmpty={filteredBackends.length === 0}
-						bodyRole="listbox"
-						ariaLabel="Backends"
-					>
-						{#snippet empty()}
-							<div class="p-4 h-full flex items-center justify-center">
-								<EmptyState title="No backends match your search" description="Try a different name or engine." icon="search" compact>
-									{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => (filters = { ...filters, q: '' })}>Clear search</Button>{/snippet}
-								</EmptyState>
+			<div class="flex h-full flex-col">
+				<DetailHeader
+					title={activeBackend.name}
+					icon={adminSectionIcon('backends')}
+					backLabel="Backends"
+					onBack={backToList}
+					chipItems={headerChips}
+				>
+					{#snippet subtitle()}{hostPortLabel(activeBackend)}{/snippet}
+					{#snippet enabledSwitch()}
+						<label class="flex items-center gap-1.5">
+							<span class="text-2xs text-fg-subtle">Enabled</span>
+							<Switch
+								checked={activeBackend.enabled}
+								busy={togglingBackendId === activeBackend.id}
+								size="lg"
+								onchange={() => activeBackend && toggleEnabled(activeBackend)}
+								label="Backend enabled"
+							/>
+						</label>
+					{/snippet}
+					{#snippet actions()}
+						<Tooltip text={testing ? 'Testing…' : 'Test connection'}>
+							<IconButton icon="check" label="Test connection" disabled={testing} onclick={() => activeBackend && testConnection(activeBackend.id)} />
+						</Tooltip>
+						<Tooltip text={indexingBackendId === activeBackend.id ? 'Indexing…' : 'Index models'}>
+							<IconButton
+								icon="refresh"
+								label="Index models"
+								disabled={indexingBackendId !== null && indexingBackendId !== activeBackend.id}
+								onclick={() => activeBackend && indexModels(activeBackend)}
+							/>
+						</Tooltip>
+						<BackendQuickActions
+							actions={activeBackend.quick_actions ?? []}
+							backendName={activeBackend.name}
+							onDone={() => {
+								loadBackends();
+								loadBackendsHealth();
+							}}
+						/>
+						{#if !activeBackend.is_default}
+							<Button variant="primary" size="sm" icon="star" onclick={() => activeBackend && makeDefault(activeBackend)}>Make default</Button>
+						{/if}
+						{#if activeBackend.driver !== NATIVE_LOCAL_DRIVER}
+							<div class="relative" bind:this={detailOverflowEl}>
+								<Tooltip text="More actions">
+									<IconButton icon="more" label="More actions" ariaExpanded={detailOverflowOpen} active={detailOverflowOpen} onclick={() => (detailOverflowOpen = !detailOverflowOpen)} />
+								</Tooltip>
+								{#if detailOverflowOpen}
+									<div class="absolute right-0 top-[calc(100%+6px)] z-40 min-w-[200px] overflow-hidden rounded-xl border border-line-strong bg-surface-2 py-1 shadow-floating" role="menu">
+										<button
+											type="button"
+											role="menuitem"
+											class="w-full px-3 py-2 text-left text-xs flex items-center gap-2 text-danger hover:bg-danger/10"
+											onclick={() => activeBackend && openDeleteModal(activeBackend)}
+										>
+											<Icon name="trash" className="w-3.5 h-3.5" />
+											Delete backend
+										</button>
+									</div>
+								{/if}
 							</div>
-						{/snippet}
+						{/if}
+					{/snippet}
+				</DetailHeader>
 
-						{#snippet children()}
-							{#each backendsByEngine as group (group.engine)}
-								<PaneGroupHeader label={formatEngineName(group.engine)} count={group.items.length} />
-								{#each group.items as backend (backend.id)}
-									{@const health = backendsHealth.find((h) => h.backend_id === backend.id)}
-									{#snippet backendLeading()}
-										<span
-											class="w-2 h-2 rounded-full flex-shrink-0 {health ? dotColorClasses[getHealthVariant(health.health.status)] : 'bg-line-strong'}"
-											title={health ? health.health.status : 'Health unknown'}
-										></span>
-									{/snippet}
-									{#snippet backendBadges()}
-										{#if backend.is_default}<Badge variant="signal" size="sm">Default</Badge>{/if}
-									{/snippet}
-									<PaneRow
-										selected={selectedBackendId === backend.id}
-										onclick={() => selectBackend(backend.id)}
-										leading={backendLeading}
-										title={backend.name}
-										subtitle={backend.host ? `${backend.host}:${backend.port}` : formatEngineName(backend.engine)}
-										subtitleMono
-										badges={backendBadges}
-									/>
-								{/each}
-							{/each}
-						{/snippet}
-					</Pane>
-				</div>
+				<DetailTabs tabs={backendDetailTabs} active={detailTab} onSelect={(id) => (detailTab = id as DetailTab)} ariaLabel="Backend details" />
 
-				<div slot="detail" class="h-full min-h-0 flex flex-col">
-					{#if activeBackend}
-						{@const backendIsOffline = activeHealth && (activeHealth.health.status === 'offline' || activeHealth.health.status === 'error')}
-						<DetailHeader title={activeBackend.name} icon="server">
-							{#snippet chips()}
-								{#if activeIsHealthy && activeBackend.enabled}
-									<span class="relative flex h-2.5 w-2.5">
-										<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success-solid opacity-75"></span>
-										<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-success-solid"></span>
-									</span>
-								{/if}
-								<Badge variant="neutral" size="sm" class="font-mono uppercase">{formatDriverLabel(activeBackend.driver)}</Badge>
-								{#if activeBackend.is_default}<Badge variant="signal" size="sm" class="uppercase">Default</Badge>{/if}
-								{#if !activeBackend.configured}<Badge variant="warning" size="sm" class="uppercase">Not configured</Badge>{/if}
-								{#if activeHealth}<Badge variant={getHealthVariant(activeHealth.health.status)} size="sm" dot class="{activeIsHealthy ? 'health-dot-pulse' : ''} uppercase">{activeHealth.health.status}</Badge>{/if}
-							{/snippet}
-							{#snippet actions()}
-								<Switch
-									checked={activeBackend.enabled}
-									busy={togglingBackendId === activeBackend.id}
-									size="lg"
-									onchange={() => activeBackend && toggleEnabled(activeBackend)}
-									label="Backend enabled"
-								/>
-								{#if !activeBackend.is_default}
-									<Tooltip text="Make default">
-										<button type="button" aria-label="Make default" class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-fg-muted hover:text-fg hover:bg-surface-3/50" onclick={() => activeBackend && makeDefault(activeBackend)}>
-											<Icon name="star" className="w-4 h-4" />
-										</button>
-									</Tooltip>
-								{/if}
-								<Tooltip text={indexingBackendId === activeBackend.id ? 'Indexing…' : 'Index models'}>
-									<button type="button" aria-label="Index models" class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-fg-muted hover:text-fg hover:bg-surface-3/50 disabled:opacity-50 disabled:cursor-not-allowed" disabled={indexingBackendId !== null && indexingBackendId !== activeBackend.id} onclick={() => activeBackend && indexModels(activeBackend)}>
-										{#if indexingBackendId === activeBackend.id}<Spinner size="sm" />{:else}<Icon name="refresh" className="w-4 h-4" />{/if}
-									</button>
-								</Tooltip>
-								<Tooltip text="Test connection">
-									<button type="button" aria-label="Test connection" class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-fg-muted hover:text-fg hover:bg-surface-3/50 disabled:opacity-50 disabled:cursor-not-allowed" disabled={testing} onclick={() => activeBackend && testConnection(activeBackend.id)}>
-										{#if testing}<Spinner size="sm" />{:else}<Icon name="check" className="w-4 h-4" />{/if}
-									</button>
-								</Tooltip>
-								<BackendQuickActions
-									actions={activeBackend.quick_actions ?? []}
-									backendName={activeBackend.name}
-									onDone={() => {
-										loadBackends();
-										loadBackendsHealth();
-									}}
-								/>
-								{#if activeBackend.driver !== NATIVE_LOCAL_DRIVER}
-									<Tooltip text="Delete backend">
-										<button type="button" aria-label="Delete backend" class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-danger hover:text-danger hover:bg-danger/10" onclick={() => activeBackend && openDeleteModal(activeBackend)}>
-											<Icon name="trash" className="w-4 h-4" />
-										</button>
-									</Tooltip>
-								{/if}
-							{/snippet}
-						</DetailHeader>
-
-						<DetailTabs tabs={backendDetailTabs} active={detailTab} onSelect={(id) => (detailTab = id as DetailTab)} ariaLabel="Backend details" />
-
-						<div class="flex-1 min-h-0 flex flex-col {backendIsOffline ? 'backend-card-offline' : ''}">
-							{#if detailTab === 'overview'}
-								<DetailBody>
-									<DetailLayout>
-										{#snippet main()}
+				<div class="flex-1 min-h-0 flex flex-col">
+					{#if detailTab === 'overview'}
+						<DetailBody>
+							<DetailLayout>
+								{#snippet lead()}
 									{#if testResult}
 										<Alert variant={testResult.success ? 'success' : 'danger'} density="compact" title={testResult.success ? 'Connection successful' : 'Connection failed'}>
 											{#if testResult.message}{testResult.message}{/if}
 										</Alert>
 									{/if}
-
-									<!-- Model Indexing: cannot-list notice, or the last run's summary + warnings -->
 									{#if indexUnsupported[activeBackend.id]}
 										<Alert variant="warning" density="compact">
 											{indexUnsupported[activeBackend.id]}
 										</Alert>
-									{:else if indexResults[activeBackend.id]}
+									{/if}
+								{/snippet}
+								{#snippet main()}
+									{#if indexResults[activeBackend.id] && !indexUnsupported[activeBackend.id]}
 										{@const result = indexResults[activeBackend.id]}
 										{@const warningCount =
 											result.size_conflicts.length +
@@ -970,7 +829,7 @@
 											result.duplicates.length +
 											result.ambiguous.length}
 										{@const hasDigestConflicts = result.digest_conflicts.length > 0}
-										<div class="rounded border border-line bg-surface-1 px-3 py-2 space-y-2">
+										<DetailSection label="Last index run">
 											<p class="text-xs font-mono tabular-nums text-fg-muted">
 												Indexed {result.listed} models — {result.created} new, {result.matched} matched,
 												{result.removed} removed
@@ -978,7 +837,7 @@
 											{#if warningCount > 0}
 												<button
 													type="button"
-													class="flex items-center gap-1.5 text-xs font-mono uppercase tracking-[0.05em] {hasDigestConflicts
+													class="mt-2 flex items-center gap-1.5 text-xs font-mono uppercase tracking-[0.05em] {hasDigestConflicts
 														? 'text-danger'
 														: 'text-warning'} hover:underline"
 													onclick={() => toggleIndexWarnings(activeBackend.id)}
@@ -989,7 +848,7 @@
 													<span>{indexWarningsOpen[activeBackend.id] ? 'Hide' : 'Show'}</span>
 												</button>
 												{#if indexWarningsOpen[activeBackend.id]}
-													<ul class="space-y-1.5 text-xs text-fg-subtle leading-relaxed">
+													<ul class="mt-2 space-y-1.5 text-xs text-fg-subtle leading-relaxed">
 														{#each result.digest_conflicts as conflict}
 															<li class="font-mono text-danger">
 																Digest conflict: <span class="text-fg-muted">{conflict.filename}</span>
@@ -1022,7 +881,7 @@
 													</ul>
 												{/if}
 											{/if}
-										</div>
+										</DetailSection>
 									{/if}
 
 									<BackendForm
@@ -1038,13 +897,26 @@
 											? { base_url: workerUrlEditHint }
 											: {}}
 									/>
-										{/snippet}
-									</DetailLayout>
-								</DetailBody>
-							{:else if detailTab === 'infrastructure' && activeBackend.driver === NATIVE_REMOTE_DRIVER}
-								<DetailBody>
-									<DetailLayout>
-										{#snippet main()}
+								{/snippet}
+								{#snippet aside()}
+									<DetailSection label="Metadata">
+										<KVGrid>
+											<KVItem label="Engine" mono>{formatEngineName(activeBackend.engine)}</KVItem>
+											<KVItem label="Driver" mono>{formatDriverLabel(activeBackend.driver)}</KVItem>
+											<KVItem label="Models indexed" mono>
+												{backendStats && backendStats.backend_id === activeBackend.id
+													? backendStats.indexed_models
+													: (indexResults[activeBackend.id]?.listed ?? '—')}
+											</KVItem>
+										</KVGrid>
+									</DetailSection>
+								{/snippet}
+							</DetailLayout>
+						</DetailBody>
+					{:else if detailTab === 'infrastructure' && activeBackend.driver === NATIVE_REMOTE_DRIVER}
+						<DetailBody>
+							<DetailLayout>
+								{#snippet main()}
 									{#key activeBackend.id}
 										<BackendInfrastructureSection
 											backendId={activeBackend.id}
@@ -1060,13 +932,13 @@
 											onEnableBackend={() => activeBackend && toggleEnabled(activeBackend)}
 										/>
 									{/key}
-										{/snippet}
-									</DetailLayout>
-								</DetailBody>
-							{:else if detailTab === 'models' && activeBackend.driver === NATIVE_REMOTE_DRIVER}
-								<DetailBody>
-									<DetailLayout>
-										{#snippet main()}
+								{/snippet}
+							</DetailLayout>
+						</DetailBody>
+					{:else if detailTab === 'models' && activeBackend.driver === NATIVE_REMOTE_DRIVER}
+						<DetailBody>
+							<DetailLayout>
+								{#snippet main()}
 									{#if !activeBackend.configured}
 										<EmptyState
 											icon="cube"
@@ -1088,23 +960,23 @@
 											/>
 										{/key}
 									{/if}
-										{/snippet}
-									</DetailLayout>
-								</DetailBody>
-							{:else if detailTab === 'optimizations' && activeBackend.driver === NATIVE_LOCAL_DRIVER}
-								<DetailBody>
-									<DetailLayout>
-										{#snippet main()}
+								{/snippet}
+							</DetailLayout>
+						</DetailBody>
+					{:else if detailTab === 'optimizations' && activeBackend.driver === NATIVE_LOCAL_DRIVER}
+						<DetailBody>
+							<DetailLayout>
+								{#snippet main()}
 									{#key activeBackend.id}
 										<BackendOptimizations backendId={activeBackend.id} />
 									{/key}
-										{/snippet}
-									</DetailLayout>
-								</DetailBody>
-							{:else if detailTab === 'stats'}
-								<DetailBody>
-									<DetailLayout>
-										{#snippet main()}
+								{/snippet}
+							</DetailLayout>
+						</DetailBody>
+					{:else if detailTab === 'stats'}
+						<DetailBody>
+							<DetailLayout>
+								{#snippet main()}
 									{#if backendStatsLoading}
 										<div class="flex items-center justify-center py-12">
 											<Spinner size="lg" />
@@ -1115,22 +987,13 @@
 										</EmptyState>
 									{:else if backendStats}
 										<DetailSection label="Stats">
-											<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-												<div class="text-center">
-													<div class="text-2xl font-mono tabular-nums font-semibold text-fg">{backendStats.indexed_models}</div>
-													<div class="font-mono text-xs uppercase tracking-wider text-fg-muted mt-1">Indexed Models</div>
-												</div>
-												<div class="text-center">
-													<div class="text-2xl font-mono tabular-nums font-semibold text-fg">{backendStats.total_size_gb.toFixed(1)} GB</div>
-													<div class="font-mono text-xs uppercase tracking-wider text-fg-muted mt-1">Total Size</div>
-												</div>
-												<div class="text-center">
-													<div class="text-2xl font-mono tabular-nums font-semibold text-fg">
-														{backendStats.last_indexed_at ? timeAgo(backendStats.last_indexed_at) : 'Never'}
-													</div>
-													<div class="font-mono text-xs uppercase tracking-wider text-fg-muted mt-1">Last Indexed</div>
-												</div>
-											</div>
+											<KVGrid>
+												<KVItem label="Indexed models" mono>{backendStats.indexed_models}</KVItem>
+												<KVItem label="Total size" mono>{backendStats.total_size_gb.toFixed(1)} GB</KVItem>
+												<KVItem label="Last indexed" mono>
+													{backendStats.last_indexed_at ? timeAgo(backendStats.last_indexed_at) : 'Never'}
+												</KVItem>
+											</KVGrid>
 										</DetailSection>
 										{#if backendStats.indexed_models === 0}
 											<p class="text-sm text-fg-muted">
@@ -1139,33 +1002,65 @@
 											</p>
 										{/if}
 									{/if}
-							{/snippet}
-						</DetailLayout>
-								</DetailBody>
-							{/if}
-						</div>
-
-						<DetailFooter dirtyCount={editDirty ? 1 : 0} dirtyLabel={editDirty ? 'Unsaved changes' : undefined}>
-							<Button variant="ghost" size="sm" disabled={!editDirty} onclick={discardEditForm}>Discard</Button>
-							<Button variant="primary" size="sm" loading={editSaving} disabled={!editDirty} onclick={saveEditForm}>Save</Button>
-						</DetailFooter>
-					{:else}
-						<DetailEmptyState message="Select a backend to view its details" icon="document" />
+								{/snippet}
+							</DetailLayout>
+						</DetailBody>
 					{/if}
 				</div>
-			</MasterDetailLayout>
+
+				{#if showFooter}
+					<DetailFooter
+						dirtyCount={editDirty ? 1 : 0}
+						mode="edit"
+						saving={editSaving}
+						canSave={true}
+						onSave={saveEditForm}
+						onDiscard={discardEditForm}
+					/>
+				{/if}
+			</div>
 		{/if}
-	</section>
-</div>
+	{:else}
+		<div class="flex flex-col gap-3 p-4">
+			{#if loadError}
+				<Alert variant="danger" icon title="Error">
+					{loadError}
+				</Alert>
+			{/if}
 
+			<DataTable
+				{columns}
+				rows={filteredBackends}
+				getRowId={(b) => b.id}
+				onRowClick={(b) => selectBackend(b.id)}
+				loading={loading && backends.length === 0}
+				isFiltered={filteredBackends.length !== backends.length}
+				card={rowCard}
+			>
+				{#snippet emptyState()}
+					<EmptyState
+						icon="server"
+						title="No backends configured yet"
+						description="A backend tells PotionUI where to run generations for an engine — for example, the built-in native engine or a ComfyUI server. Add one to start generating."
+					>
+						{#snippet actions()}
+							<Button variant="primary" icon="plus" onclick={openCreateModal}>Add backend</Button>
+						{/snippet}
+					</EmptyState>
+				{/snippet}
+				{#snippet filteredEmptyState()}
+					<EmptyState icon="search" title="No backends match" description="Try a different name or engine." compact>
+						{#snippet actions()}
+							<Button variant="ghost" size="sm" onclick={() => (filters = clearAllBackendsFilters(filters))}>Clear filters</Button>
+						{/snippet}
+					</EmptyState>
+				{/snippet}
+			</DataTable>
+		</div>
+	{/if}
+</LibraryShell>
 
-<!-- Create Backend Modal (create only — editing happens directly in the detail pane) -->
-<BaseModal
-	isOpen={showModal}
-	title="Add Backend"
-	sizeClass="md:max-w-2xl md:w-full"
-	on:close={closeModal}
->
+<BaseModal isOpen={showModal} title="Add Backend" sizeClass="md:max-w-2xl md:w-full" on:close={closeModal}>
 	<div class="px-6 py-4">
 		<BackendForm
 			bind:draft={formData}
@@ -1191,7 +1086,6 @@
 	</svelte:fragment>
 </BaseModal>
 
-<!-- Delete Confirmation Modal -->
 <ConfirmModal
 	isOpen={showDeleteModal && !!deleteTarget}
 	title="Delete Backend"

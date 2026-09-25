@@ -1,9 +1,6 @@
 <script lang="ts">
-	import Card from '$lib/components/ui/Card.svelte';
 	import { logger } from '$lib/utils/logger';
 	import { onMount } from 'svelte';
-	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
 	import { api } from '$lib/services/api/index';
 	import * as adminApi from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
@@ -11,34 +8,44 @@
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Button, Badge, Spinner, EmptyState, IconButton } from '$lib/components/ui';
-	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
-	import { Pane, PaneRow } from '$lib/components/pane';
+	import { Button, Badge, EmptyState, IconButton, Switch } from '$lib/components/ui';
 	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailFooter } from '$lib/components/detail';
-	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
-	import AdminTabShell from './AdminTabShell.svelte';
+	import { DataTable, StatusCell } from '$lib/components/table';
+	import { selectPage, clearAll } from '$lib/components/table/selection';
+	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
 	import LLMConfigForm, { type LLMConfigFormData } from './LLMConfigForm.svelte';
 	import AssignmentCard from '$lib/components/assignment/AssignmentCard.svelte';
 	import { createLLMAssignmentAdapter } from '$lib/components/assignment/llmAssignmentAdapter';
 	import LLMConfigToolsetPanel from './LLMConfigToolsetPanel.svelte';
 	import type { PreChatAction } from '$lib/types/llm';
 	import type { AssignmentSummary } from '$lib/services/admin-api';
-	import {
-		LLM_CONFIG_SORT_OPTIONS,
-		applyLLMConfigFilters,
-		llmConfigFiltersFromSearchParams,
-		llmConfigFiltersToSearchParams,
-		type LLMConfigFilters,
-		type LLMConfigSortBy
-	} from './llmConfigFilters';
+	import { adminSectionIcon } from '../adminSections';
+	import { applyLLMConfigFilters, DEFAULT_LLM_CONFIG_FILTERS, type LLMConfigFilters } from './llmConfigFilters';
+	import { llmConfigDetailTabHasFooter, type LLMConfigDetailTab } from './llmConfigDetailTabs';
+	import { assignmentCountLabel } from './llm/llmConfigColumns';
+	import { summarizeBulkOutcome, bulkOutcomeMessage } from './llm/bulkResult';
 
-	let configurations: any[] = [];
-	let loading = true;
-	let selectedConfigId: string | null = null;
-	let showConfigModal = false;
-	let preChatActions: PreChatAction[] = [];
-	let assignmentSummary: AssignmentSummary = {};
-	let detailTab: 'configuration' | 'toolset' | 'access' = 'configuration';
+	let {
+		filters = DEFAULT_LLM_CONFIG_FILTERS,
+		total = $bindable(0),
+		visibleCount = $bindable(0),
+		detailOpen = $bindable(false)
+	}: {
+		filters?: LLMConfigFilters;
+		total?: number;
+		visibleCount?: number;
+		detailOpen?: boolean;
+	} = $props();
+
+	let configurations = $state<any[]>([]);
+	let loading = $state(true);
+	let selectedConfigId = $state<string | null>(null);
+	let showConfigModal = $state(false);
+	let preChatActions = $state<PreChatAction[]>([]);
+	let assignmentSummary = $state<AssignmentSummary>({});
+	let detailTab = $state<LLMConfigDetailTab>('configuration');
+	let selected = $state<Set<string>>(new Set());
+	let togglingEnabled = $state(false);
 
 	const defaultSystemMessage = `You are a helpful AI assistant specialized in generating image prompts and tags.
 When asked for prompts, provide clear, descriptive, and well-structured responses.
@@ -51,13 +58,6 @@ Examples:
 
 Always be creative and helpful while staying focused on the image generation context.`;
 
-	/**
-	 * Build a form draft from a stored config (or `null` for a blank one), with optional overrides.
-	 *
-	 * The API key is never part of a stored config's response (see `api_key_set`
-	 * on the config object) — the draft always starts blank, and an edit only
-	 * sends a replacement key when the admin types one in.
-	 */
 	function configFormFrom(config: any, overrides: Partial<LLMConfigFormData> = {}): LLMConfigFormData {
 		return {
 			name: config?.name ?? '',
@@ -78,49 +78,38 @@ Always be creative and helpful while staying focused on the image generation con
 		};
 	}
 
-	// Create-modal form (new configuration or a duplicate — the modal never edits an existing one).
-	let configFormData: LLMConfigFormData = configFormFrom(null);
+	let configFormData = $state<LLMConfigFormData>(configFormFrom(null));
+	let editFormData = $state<LLMConfigFormData>(configFormFrom(null));
+	let editSnapshot = $state(JSON.stringify(editFormData));
+	let editSaving = $state(false);
 
-	// Detail-pane edit form: a live draft for the selected configuration. Editing
-	// happens directly in the pane, snapshotted on load/save/discard to drive
-	// `editDirty` without a heavier dirty-tracking system.
-	let editFormData: LLMConfigFormData = configFormFrom(null);
-	let editSnapshot = JSON.stringify(editFormData);
-	let editSaving = false;
+	const filteredConfigurations = $derived(applyLLMConfigFilters(configurations, filters));
+	const activeConfig = $derived(configurations.find((c) => c.id === selectedConfigId) ?? null);
+	const editDirty = $derived(JSON.stringify(editFormData) !== editSnapshot);
+	const llmDetailTabs = $derived(
+		activeConfig
+			? [
+					{ id: 'configuration', label: 'Configuration', icon: 'sliders' },
+					{ id: 'toolset', label: 'Toolset', icon: 'shield' },
+					{
+						id: 'access',
+						label: 'Access',
+						icon: 'group',
+						count: (assignmentSummary[activeConfig.id]?.assignment_count || 0) + (assignmentSummary[activeConfig.id]?.group_count || 0)
+					}
+				]
+			: []
+	);
 
-	$: llmDetailTabs = activeConfig
-		? [
-				{ id: 'configuration', label: 'Configuration', icon: 'sliders' },
-				{ id: 'toolset', label: 'Toolset', icon: 'shield' },
-				{
-					id: 'access',
-					label: 'Access',
-					icon: 'group',
-					count: (assignmentSummary[activeConfig.id]?.assignment_count || 0) + (assignmentSummary[activeConfig.id]?.group_count || 0)
-				}
-			]
-		: [];
+	$effect(() => {
+		total = configurations.length;
+		visibleCount = filteredConfigurations.length;
+		detailOpen = !!activeConfig;
+	});
 
-	let llmConfigFiltersDebounce: ReturnType<typeof setTimeout> | undefined;
-	function updateLLMConfigFilters(next: LLMConfigFilters) {
-		clearTimeout(llmConfigFiltersDebounce);
-		llmConfigFiltersDebounce = setTimeout(() => {
-			const url = new URL($page.url);
-			for (const key of ['q', 'sort_by']) url.searchParams.delete(key);
-			for (const [key, value] of llmConfigFiltersToSearchParams(next)) url.searchParams.set(key, value);
-			void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
-		}, 250);
+	export function openCreateModal() {
+		handleCreateConfig();
 	}
-
-	$: enabledCount = configurations.filter(c => c.enabled).length;
-	$: llmConfigFilters = llmConfigFiltersFromSearchParams($page.url.searchParams);
-	$: filteredConfigurations = applyLLMConfigFilters(configurations, llmConfigFilters);
-	// Derived from the full (unfiltered) list so the detail pane keeps showing
-	// the selected item even while a search hides it from the list.
-	$: activeConfig = configurations.find((c) => c.id === selectedConfigId) ?? null;
-
-	// True once the pane's draft diverges from the last loaded/saved snapshot.
-	$: editDirty = JSON.stringify(editFormData) !== editSnapshot;
 
 	onMount(async () => {
 		await loadConfigurations();
@@ -181,7 +170,6 @@ Always be creative and helpful while staying focused on the image generation con
 		showConfigModal = true;
 	}
 
-	// Create a new configuration (or a duplicate) from the modal form.
 	async function handleSaveConfig() {
 		try {
 			await adminApi.createLLMConfiguration(configFormData);
@@ -193,9 +181,6 @@ Always be creative and helpful while staying focused on the image generation con
 		}
 	}
 
-	// Select a configuration for the detail pane, loading its edit draft. If the
-	// current draft has unsaved changes, confirm before discarding them —
-	// a lightweight guard rather than a full dirty-tracking system.
 	async function selectConfig(id: string) {
 		if (editDirty && !(await confirmDialog({
 			title: 'Discard unsaved changes',
@@ -207,6 +192,15 @@ Always be creative and helpful while staying focused on the image generation con
 		loadEditForm(configurations.find((c) => c.id === id) ?? null);
 	}
 
+	async function backToList() {
+		if (editDirty && !(await confirmDialog({
+			title: 'Discard unsaved changes',
+			message: 'Discard unsaved changes to this configuration?',
+			variant: 'warning'
+		}))) return;
+		selectedConfigId = null;
+	}
+
 	function loadEditForm(config: any | null) {
 		editFormData = configFormFrom(config);
 		editSnapshot = JSON.stringify(editFormData);
@@ -216,7 +210,6 @@ Always be creative and helpful while staying focused on the image generation con
 		loadEditForm(activeConfig);
 	}
 
-	// Save the detail pane's edit draft.
 	async function saveEditForm() {
 		if (!activeConfig) return;
 		editSaving = true;
@@ -230,6 +223,23 @@ Always be creative and helpful while staying focused on the image generation con
 			toasts.error('Failed to save LLM configuration');
 		} finally {
 			editSaving = false;
+		}
+	}
+
+	async function toggleEnabledImmediate(next: boolean) {
+		if (!activeConfig) return;
+		togglingEnabled = true;
+		try {
+			await adminApi.updateLLMConfiguration(activeConfig.id, configFormFrom(activeConfig, { enabled: next }));
+			toasts.success(`${activeConfig.name} ${next ? 'enabled' : 'disabled'}`);
+			editFormData = { ...editFormData, enabled: next };
+			editSnapshot = JSON.stringify({ ...JSON.parse(editSnapshot), enabled: next });
+			await loadConfigurations();
+		} catch (error) {
+			logger.error('Failed to update configuration:', error);
+			toasts.error('Failed to update configuration');
+		} finally {
+			togglingEnabled = false;
 		}
 	}
 
@@ -253,191 +263,202 @@ Always be creative and helpful while staying focused on the image generation con
 			toasts.error('Failed to delete LLM configuration');
 		}
 	}
+
+	async function bulkSetEnabled(next: boolean) {
+		const rows = configurations.filter((c) => selected.has(c.id));
+		if (!rows.length) return;
+		const results = await Promise.allSettled(
+			rows.map((row) => adminApi.updateLLMConfiguration(row.id, configFormFrom(row, { enabled: next })))
+		);
+		const outcome = summarizeBulkOutcome(results);
+		const { ok, text } = bulkOutcomeMessage(outcome, next ? 'enabled' : 'disabled', 'configuration');
+		if (text) (ok ? toasts.success : toasts.error)(text);
+		selected = new Set();
+		await loadConfigurations();
+	}
+
+	async function bulkDelete() {
+		const ids = [...selected];
+		if (!ids.length) return;
+		if (!(await confirmDialog({
+			title: `Delete ${ids.length} configuration${ids.length === 1 ? '' : 's'}?`,
+			message: 'This cannot be undone.',
+			variant: 'danger'
+		}))) return;
+		const results = await Promise.allSettled(ids.map((id) => adminApi.deleteLLMConfiguration(id)));
+		const outcome = summarizeBulkOutcome(results);
+		const { ok, text } = bulkOutcomeMessage(outcome, 'deleted', 'configuration');
+		if (text) (ok ? toasts.success : toasts.error)(text);
+		selected = new Set();
+		await loadConfigurations();
+	}
 </script>
 
-<div class="flex min-h-[calc(100dvh-var(--header-h)-2rem)] flex-col gap-4 sm:min-h-[calc(100dvh-var(--header-h)-3rem)]">
-	<AdminTabShell
-		title="LLM Configurations"
-		icon="model"
-		counts={[
-			{ label: 'total', value: configurations.length },
-			{ label: 'enabled', value: enabledCount, tone: 'success' }
-		]}
-	>
-		{#snippet actions()}
-			<Button variant="primary" size="sm" icon="plus" onclick={handleCreateConfig}>
-				Add Configuration
-			</Button>
-		{/snippet}
-	</AdminTabShell>
+{#snippet enabledCell(row: any)}
+	<StatusCell tone={row.enabled ? 'success' : 'muted'} label={row.enabled ? 'Enabled' : 'Disabled'} />
+{/snippet}
 
-	<Card padding="none" class="flex flex-wrap items-center gap-2 px-4 py-2.5">
-		<LibraryFilterBar
-			q={llmConfigFilters.q}
-			onQueryChange={(value) => updateLLMConfigFilters({ ...llmConfigFilters, q: value })}
-			searchPlaceholder="Search by name or model…"
-			sortBy={llmConfigFilters.sortBy}
-			sortOptions={LLM_CONFIG_SORT_OPTIONS}
-			onSortChange={(value) => updateLLMConfigFilters({ ...llmConfigFilters, sortBy: value as LLMConfigSortBy })}
-		/>
-		<span class="ml-auto text-sm text-fg-muted whitespace-nowrap font-mono tabular-nums">{filteredConfigurations.length} {filteredConfigurations.length === 1 ? 'configuration' : 'configurations'}</span>
-	</Card>
+{#snippet assignedCell(row: any)}
+	{@const label = assignmentCountLabel(assignmentSummary, row.id)}
+	{#if label === 'Unassigned'}
+		<Tooltip text="Only admins can see this — assign users or groups">
+			<span class="font-mono text-xs text-warning">Unassigned</span>
+		</Tooltip>
+	{:else}
+		<span class="font-mono text-xs tabular-nums text-fg-muted">{label}</span>
+	{/if}
+{/snippet}
 
-	<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
-		{#if loading}
-			<div class="h-full flex flex-col items-center justify-center">
-				<Spinner size="lg" />
-				<p class="text-sm text-fg-muted mt-4">Loading configurations…</p>
-			</div>
-		{:else if configurations.length === 0}
-			<div class="h-full p-5 flex items-center justify-center">
-				<EmptyState
-					icon="model"
-					title="No LLM configurations yet"
-					description="Connect an LLM provider to power AI features like prompt generation, chat, and content improvement."
-					compact
-				>
-					{#snippet actions()}
-						<Button variant="primary" size="sm" icon="plus" onclick={handleCreateConfig}>
-							Add Configuration
-						</Button>
+<div class="h-full min-h-0 flex flex-col">
+	{#if activeConfig}
+		<DetailHeader title={activeConfig.name} icon={adminSectionIcon('llm')} backLabel="Configurations" onBack={backToList}>
+			{#snippet subtitle()}{activeConfig.type} · {activeConfig.model}{/snippet}
+			{#snippet chips()}
+				{#if activeConfig.supports_vision}<Badge size="sm" variant="warning">Vision</Badge>{/if}
+				{#if activeConfig.is_default}<Badge size="sm" variant="signal">Default</Badge>{/if}
+			{/snippet}
+			{#snippet enabledSwitch()}
+				<label class="flex items-center gap-1.5">
+					<span class="text-2xs text-fg-subtle">Enabled</span>
+					<Switch label="Enabled" checked={activeConfig.enabled} busy={togglingEnabled} onchange={toggleEnabledImmediate} />
+				</label>
+			{/snippet}
+			{#snippet actions()}
+				<Tooltip text="Duplicate configuration">
+					<IconButton icon="copy" label="Duplicate configuration" onclick={() => handleDuplicateConfig(activeConfig)} />
+				</Tooltip>
+				<Tooltip text="Delete configuration">
+					<IconButton
+						icon="trash"
+						label="Delete configuration"
+						class="text-danger hover:text-danger hover:bg-danger/10"
+						onclick={() => handleDeleteConfig(activeConfig.id)}
+					/>
+				</Tooltip>
+			{/snippet}
+		</DetailHeader>
+
+		<DetailTabs tabs={llmDetailTabs} active={detailTab} onSelect={(id) => (detailTab = id as LLMConfigDetailTab)} ariaLabel="LLM configuration details" />
+
+		{#if detailTab === 'configuration'}
+			<DetailBody>
+				<DetailLayout>
+					{#snippet main()}
+						<LLMConfigForm
+							bind:draft={editFormData}
+							mode="edit"
+							layout="panel"
+							idPrefix="edit-config"
+							apiKeySet={!!activeConfig?.api_key_set}
+							{preChatActions}
+						/>
 					{/snippet}
-				</EmptyState>
-			</div>
+				</DetailLayout>
+			</DetailBody>
+		{:else if detailTab === 'toolset'}
+			<DetailBody>
+				<DetailLayout>
+					{#snippet main()}
+						{#key activeConfig.id}
+							<LLMConfigToolsetPanel configId={activeConfig.id} />
+						{/key}
+					{/snippet}
+				</DetailLayout>
+			</DetailBody>
 		{:else}
-			<MasterDetailLayout leftWidth={340} minWidth={280} maxWidth={480} storageKey="admin-llm-config-width">
-				<div slot="list" class="h-full min-h-0">
-					<Pane
-						label="Configurations"
-						count={filteredConfigurations.length}
-						isEmpty={filteredConfigurations.length === 0}
-						bodyRole="listbox"
-						ariaLabel="LLM configurations"
-					>
-						{#snippet empty()}
-							<div class="p-4 h-full flex items-center justify-center">
-								<EmptyState icon="search" title="No matches" description="Try a different name or model." compact>
-									{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => updateLLMConfigFilters({ ...llmConfigFilters, q: '' })}>Clear search</Button>{/snippet}
-								</EmptyState>
-							</div>
-						{/snippet}
-
-						{#snippet children()}
-							{#each filteredConfigurations as config (config.id)}
-								{#snippet configLeading()}
-									<span
-										class="w-2 h-2 rounded-full flex-shrink-0 {config.enabled ? 'bg-success-solid' : 'bg-line-strong'}"
-										title={config.enabled ? 'Enabled' : 'Disabled'}
-									></span>
-								{/snippet}
-								{#snippet configBadges()}
-									{#if config.supports_vision}
-										<Badge variant="warning" size="sm">Vision</Badge>
-									{/if}
-									{#if !(assignmentSummary[config.id]?.assignment_count || 0) && !(assignmentSummary[config.id]?.group_count || 0)}
-										<Tooltip text="Only admins can see this — assign users or groups">
-											<Badge variant="warning" size="sm">Unassigned</Badge>
-										</Tooltip>
-									{/if}
-								{/snippet}
-								<PaneRow
-									selected={selectedConfigId === config.id}
-									onclick={() => selectConfig(config.id)}
-									leading={configLeading}
-									title={config.name}
-									subtitle="{config.type} · {config.model}"
-									subtitleMono
-									badges={configBadges}
-								/>
-							{/each}
-						{/snippet}
-					</Pane>
-				</div>
-
-				<div slot="detail" class="h-full min-h-0 flex flex-col">
-					{#if activeConfig}
-						<DetailHeader title={activeConfig.name}>
-							{#snippet subtitle()}
-								{activeConfig.id}
-							{/snippet}
-							{#snippet chips()}
-								<Badge variant={editFormData.enabled ? 'success' : 'neutral'} dot>
-									{editFormData.enabled ? 'Enabled' : 'Disabled'}
-								</Badge>
-							{/snippet}
-							{#snippet actions()}
-								<Tooltip text="Duplicate configuration">
-									<IconButton icon="copy" label="Duplicate configuration" onclick={() => handleDuplicateConfig(activeConfig)} />
-								</Tooltip>
-								<Tooltip text="Delete configuration">
-									<IconButton
-										icon="trash"
-										label="Delete configuration"
-										class="text-danger hover:text-danger hover:bg-danger/10"
-										onclick={() => handleDeleteConfig(activeConfig.id)}
-									/>
-								</Tooltip>
-							{/snippet}
-						</DetailHeader>
-
-						<DetailTabs tabs={llmDetailTabs} active={detailTab} onSelect={(id) => (detailTab = id as typeof detailTab)} ariaLabel="LLM configuration details" />
-
-						{#if detailTab === 'configuration'}
-							<DetailBody>
-								<DetailLayout>
-									{#snippet main()}
-										<LLMConfigForm
-											bind:draft={editFormData}
-											mode="edit"
-											layout="panel"
-											idPrefix="edit-config"
-											apiKeySet={!!activeConfig?.api_key_set}
-											{preChatActions}
-										/>
-									{/snippet}
-								</DetailLayout>
-							</DetailBody>
-						{:else if detailTab === 'toolset'}
-							<DetailBody>
-								<DetailLayout>
-									{#snippet main()}
-										{#key activeConfig.id}
-											<LLMConfigToolsetPanel configId={activeConfig.id} />
-										{/key}
-									{/snippet}
-								</DetailLayout>
-							</DetailBody>
-						{:else}
-							<DetailBody>
-								<DetailLayout>
-									{#snippet main()}
-										{#key activeConfig.id}
-											<AssignmentCard
-												adapter={createLLMAssignmentAdapter(activeConfig.id)}
-												resourceKey={activeConfig.id}
-												resourceName={activeConfig.name}
-												on:changed={(event) => handleAssignmentChanged(activeConfig.id, event)}
-											/>
-										{/key}
-									{/snippet}
-								</DetailLayout>
-							</DetailBody>
-						{/if}
-
-						<DetailFooter dirtyCount={editDirty ? 1 : 0} dirtyLabel={editDirty ? 'Unsaved changes' : undefined}>
-							<Button variant="ghost" size="sm" disabled={!editDirty} onclick={discardEditForm}>Discard</Button>
-							<Button variant="primary" size="sm" loading={editSaving} disabled={!editDirty} onclick={saveEditForm}>Save</Button>
-						</DetailFooter>
-					{:else}
-						<DetailEmptyState message="Select a configuration to view its details" icon="document" />
-					{/if}
-				</div>
-			</MasterDetailLayout>
+			<DetailBody>
+				<DetailLayout>
+					{#snippet main()}
+						{#key activeConfig.id}
+							<AssignmentCard
+								adapter={createLLMAssignmentAdapter(activeConfig.id)}
+								resourceKey={activeConfig.id}
+								resourceName={activeConfig.name}
+								on:changed={(event) => handleAssignmentChanged(activeConfig.id, event)}
+							/>
+						{/key}
+					{/snippet}
+				</DetailLayout>
+			</DetailBody>
 		{/if}
-	</section>
+
+		{#if llmConfigDetailTabHasFooter(detailTab)}
+			<DetailFooter
+				dirtyCount={editDirty ? 1 : 0}
+				saving={editSaving}
+				onSave={saveEditForm}
+				onDiscard={discardEditForm}
+			/>
+		{/if}
+	{:else}
+		<div class="flex flex-col gap-3 p-4">
+			<SelectionActionBar
+				active={selected.size > 0}
+				selectedCount={selected.size}
+				totalCount={filteredConfigurations.length}
+				onSelectAll={() => (selected = selectPage(selected, filteredConfigurations.map((c) => c.id)))}
+				onClearSelection={() => (selected = clearAll())}
+				onClose={() => (selected = clearAll())}
+			>
+				<svelte:fragment slot="actionsBeforeCollection">
+					<button
+						class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors"
+						onclick={() => bulkSetEnabled(true)}
+					>
+						Enable
+					</button>
+					<button
+						class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors"
+						onclick={() => bulkSetEnabled(false)}
+					>
+						Disable
+					</button>
+					<button
+						class="px-4 py-1.5 bg-danger-solid text-white text-sm rounded hover:bg-danger-solid/90 transition-colors font-medium"
+						onclick={bulkDelete}
+					>
+						Delete
+					</button>
+				</svelte:fragment>
+			</SelectionActionBar>
+			<DataTable
+				columns={[
+					{ key: 'name', label: 'Name', width: 'minmax(160px,1.6fr)', accessor: (r) => r.name },
+					{ key: 'type', label: 'Provider', width: '110px', accessor: (r) => r.type },
+					{ key: 'model', label: 'Model', width: 'minmax(140px,1.4fr)', mono: true, accessor: (r) => r.model },
+					{ key: 'enabled', label: 'Enabled', width: '110px', cell: enabledCell },
+					{ key: 'supports_vision', label: 'Vision', width: '90px', priority: 1, accessor: (r) => (r.supports_vision ? 'Vision' : null) },
+					{ key: 'assigned', label: 'Assigned', width: '180px', priority: 1, cell: assignedCell },
+					{ key: 'is_default', label: 'Default', width: '100px', priority: 1, accessor: (r) => (r.is_default ? 'Default' : null) }
+				]}
+				rows={filteredConfigurations}
+				getRowId={(r) => r.id}
+				{loading}
+				selected={selected}
+				onSelectedChange={(next) => (selected = next)}
+				onRowClick={(r) => selectConfig(r.id)}
+				isFiltered={!!filters.q.trim()}
+			>
+				{#snippet emptyState()}
+					<EmptyState
+						icon="model"
+						title="No LLM configurations yet"
+						description="Connect an LLM provider to power AI features like prompt generation, chat, and content improvement."
+						compact
+					>
+						{#snippet actions()}
+							<Button variant="primary" size="sm" icon="plus" onclick={handleCreateConfig}>Add configuration</Button>
+						{/snippet}
+					</EmptyState>
+				{/snippet}
+				{#snippet filteredEmptyState()}
+					<EmptyState icon="search" title="No matches" description="Try a different name or model." compact />
+				{/snippet}
+			</DataTable>
+		</div>
+	{/if}
 </div>
 
-<!-- Create/Duplicate Config Modal (create only — editing an existing configuration happens directly in the detail pane) -->
 <BaseModal
 	isOpen={showConfigModal}
 	title="Create LLM Configuration"

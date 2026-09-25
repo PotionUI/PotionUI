@@ -38,7 +38,7 @@ test('toolbar New prompt selects the created prompt, and the section tabs round-
 
 	await screenshot(page, JOURNEY, 'created-and-selected');
 
-	const sections = page.getByRole('listbox', { name: 'Library sections' });
+	const sections = page.getByRole('listbox', { name: 'Prompt Library sections' });
 	await sections.getByRole('option', { name: 'Segments' }).click();
 	await expect(page.getByRole('button', { name: 'New segment' })).toBeVisible({ timeout: 10000 });
 	await expect(page).toHaveURL(/section=segments/);

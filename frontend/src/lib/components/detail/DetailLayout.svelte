@@ -29,8 +29,6 @@
 	.detail-layout {
 		container-type: inline-size;
 		container-name: detail-layout;
-		max-width: 100rem;
-		margin: 0 auto;
 	}
 
 	.detail-layout-lead {

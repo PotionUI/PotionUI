@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+	attributeDraftsAreDirty,
 	coerceAttributeInput,
 	definitionsForModelType,
+	draftValuesForFields,
 	extractUpdatedSharedMetadata,
 	extractUpdatedUserMetadata,
 	formatAttributeValue,
 	inputConfigForAttribute,
-	resolveEffectiveAttributeValue
+	resolveEffectiveAttributeValue,
+	toDraftValue
 } from './ModelAttributesCard';
 import type { AttributeDefinition } from '$lib/types/models';
 
@@ -224,5 +227,53 @@ describe('extractUpdatedUserMetadata', () => {
 
 	it('falls back to the locally-computed values when the response has none', () => {
 		expect(extractUpdatedUserMetadata(undefined, { strength: 1.5 })).toEqual({ strength: 1.5 });
+	});
+});
+
+describe('toDraftValue', () => {
+	it('coerces a checkbox value to a real boolean', () => {
+		expect(toDraftValue(definition({ field_type: 'checkbox' }), 1)).toBe(true);
+		expect(toDraftValue(definition({ field_type: 'checkbox' }), undefined)).toBe(false);
+	});
+
+	it('coerces a tags value to an array, defaulting to empty', () => {
+		expect(toDraftValue(definition({ field_type: 'tags' }), ['a'])).toEqual(['a']);
+		expect(toDraftValue(definition({ field_type: 'tags' }), null)).toEqual([]);
+	});
+
+	it('coerces a range value to a [lo, hi] string tuple', () => {
+		const def = definition({ field_type: 'range', config: { min: -2, max: 2, step: 0.05 } });
+		expect(toDraftValue(def, [0.7, 1])).toEqual(['0.7', '1']);
+		expect(toDraftValue(def, null)).toEqual(['', '']);
+	});
+
+	it('stringifies a number/text value, defaulting to an empty string', () => {
+		expect(toDraftValue(definition(), 0.7)).toBe('0.7');
+		expect(toDraftValue(definition(), null)).toBe('');
+	});
+});
+
+describe('draftValuesForFields', () => {
+	it('seeds every field from its effective value, in edit-buffer shape', () => {
+		const defs = [definition({ key: 'strength' }), definition({ key: 'nsfw', field_type: 'checkbox' })];
+		expect(draftValuesForFields(defs, { strength: 0.7, nsfw: true }, null)).toEqual({
+			strength: '0.7',
+			nsfw: true
+		});
+	});
+
+	it('falls back to the definition default when neither value layer has one', () => {
+		const defs = [definition({ key: 'strength' })];
+		expect(draftValuesForFields(defs, null, null)).toEqual({ strength: '1' });
+	});
+});
+
+describe('attributeDraftsAreDirty', () => {
+	it('is false when the edit buffer matches the baseline', () => {
+		expect(attributeDraftsAreDirty({ strength: '1' }, { strength: '1' })).toBe(false);
+	});
+
+	it('is true when any field differs from the baseline', () => {
+		expect(attributeDraftsAreDirty({ strength: '1.5' }, { strength: '1' })).toBe(true);
 	});
 });

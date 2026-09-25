@@ -1,7 +1,5 @@
 <script lang="ts">
-	import Card from '$lib/components/ui/Card.svelte';
-	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import * as adminApi from '$lib/services/admin-api';
@@ -9,15 +7,21 @@
 	import type { User } from '$lib/stores/auth';
 	import { debounce } from '$lib/stores/tabPersistence';
 	import { timeAgo, parseServerDate } from '$lib/utils/relativeTime';
-	import { formatDurationMs } from '$lib/components/generation-panel/barState';
-	import { Badge, EmptyState, Spinner } from '$lib/components/ui';
-	import MasterDetailLayout from '$lib/components/master-detail/MasterDetailLayout.svelte';
-	import { Pane, PaneRow, PanePager } from '$lib/components/pane';
+	import { toasts } from '$lib/stores/toast';
+	import { confirmDialog } from '$lib/stores/confirm';
+	import { logger } from '$lib/utils/logger';
+	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
-	import LibraryFilterChipRow from '$lib/components/library/LibraryFilterChipRow.svelte';
-	import AdminTabShell from './AdminTabShell.svelte';
+	import { Button, EmptyState, Spinner } from '$lib/components/ui';
+	import { DataTable, StatusCell, TablePager, pageCount, type SortState } from '$lib/components/table';
+	import { selectPage, clearAll } from '$lib/components/table/selection';
+	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
 	import GenerationRunReport from './GenerationRunReport.svelte';
 	import GenerationsFiltersPopover from './GenerationsFiltersPopover.svelte';
+	import { GENERATION_LIBRARY_SECTIONS, sectionFromStatus, statusFromSection, type GenerationSection } from './generations/generationsSections';
+	import { durationFor, presetTitleFor, sortByFromSortState, sortStateFromSortBy } from './generations/generationsColumns';
 	import {
 		GENERATION_SORT_OPTIONS,
 		clearAllGenerationsFilters,
@@ -31,44 +35,66 @@
 		type GenerationsFilters
 	} from './generationsFilters';
 
-	const PAGE_SIZE = 20;
 	const FILTER_PARAM_KEYS = ['q', 'status', 'user', 'from', 'to', 'sort_by'];
 
-	const STATUS_VARIANT: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | 'info'> = {
+	const STATUS_TONE: Record<string, 'success' | 'info' | 'muted' | 'danger' | 'warning'> = {
 		completed: 'success',
 		running: 'info',
-		pending: 'neutral',
+		pending: 'muted',
 		failed: 'danger',
 		cancelled: 'warning'
 	};
 
-	let generations: AdminGenerationListItem[] = [];
-	let total = 0;
-	let offset = 0;
-	let listLoading = true;
-	let listError: string | null = null;
+	let generations = $state<AdminGenerationListItem[]>([]);
+	let total = $state(0);
+	let pageIndex = $state(1);
+	let pageSize = $state(25);
+	let listLoading = $state(true);
+	let listError = $state<string | null>(null);
 	let lastFiltersKey = '';
 
-	let users: User[] = [];
-	$: usersById = new Map(users.map((u) => [u.id, u]));
+	let users = $state<User[]>([]);
+	let usersById = $derived(new Map(users.map((u) => [u.id, u])));
 
-	let selectedGenerationId: string | null = null;
-	let detail: AdminGenerationDetailResult | null = null;
-	let detailLoading = false;
-	let detailError: string | null = null;
+	let selected = $state<Set<string>>(new Set());
+	let bulkDeleting = $state(false);
 
-	$: filters = generationsFiltersFromSearchParams($page.url.searchParams);
-	$: filtersKey = JSON.stringify(filters);
-	$: activeFilterCount = generationsFilterActiveCount(filters);
-	$: chips = generationsFilterChips(filters, (userId) => usersById.get(userId)?.username ?? userId);
+	let detail = $state<AdminGenerationDetailResult | null>(null);
+	let detailLoading = $state(false);
+	let detailError = $state<string | null>(null);
+	let detailRequestVersion = 0;
+	let lastViewId: string | null = null;
 
-	$: {
+	const viewId = $derived($page.url.searchParams.get('id'));
+	const detailOpen = $derived(!!viewId);
+
+	const filters = $derived(generationsFiltersFromSearchParams($page.url.searchParams));
+	const filtersKey = $derived(JSON.stringify(filters));
+	const activeFilterCount = $derived(generationsFilterActiveCount(filters));
+	const chips = $derived(generationsFilterChips(filters, (userId) => usersById.get(userId)?.username ?? userId));
+	const section = $derived(sectionFromStatus(filters.status));
+	const sort = $derived(sortStateFromSortBy(filters.sortBy));
+
+	let sectionCountsCache = $state<Partial<Record<GenerationSection, number>>>({});
+
+	$effect(() => {
 		if (filtersKey !== lastFiltersKey) {
 			lastFiltersKey = filtersKey;
-			offset = 0;
-			loadGenerations();
+			pageIndex = 1;
+			void loadGenerations();
 		}
-	}
+	});
+
+	$effect(() => {
+		if (viewId === untrack(() => lastViewId)) return;
+		lastViewId = viewId;
+		untrack(() => {
+			detail = null;
+			detailError = null;
+			selected = new Set();
+			if (viewId) void loadDetail(viewId);
+		});
+	});
 
 	onMount(async () => {
 		const usersResponse = await adminApi.getUsers();
@@ -79,29 +105,63 @@
 		listLoading = true;
 		listError = null;
 		try {
-			const sort = generationsSortParams(filters.sortBy);
+			const sortParams = generationsSortParams(filters.sortBy);
 			const response = await adminApi.getAdminGenerations({
-				limit: PAGE_SIZE,
-				offset,
+				limit: pageSize,
+				offset: (pageIndex - 1) * pageSize,
 				status: filters.status || undefined,
 				userId: filters.userId || undefined,
 				search: filters.q || undefined,
 				createdFrom: filters.createdFrom || undefined,
 				createdTo: filters.createdTo || undefined,
-				sortBy: sort.sortBy,
-				sortDir: sort.sortDir
+				sortBy: sortParams.sortBy,
+				sortDir: sortParams.sortDir
 			});
 			if (response.success && response.data) {
 				generations = response.data.generations;
 				total = response.data.total;
+				if (!filters.q && !filters.userId && !filters.createdFrom && !filters.createdTo) {
+					sectionCountsCache = { ...sectionCountsCache, [section]: total };
+				}
 			} else {
 				listError = response.message || 'Failed to load generations';
 			}
 		} catch (e: any) {
-			listError = e.response?.data?.message || e.message || 'Failed to load generations';
+			listError = e?.response?.data?.message || e?.message || 'Failed to load generations';
 		} finally {
 			listLoading = false;
 		}
+	}
+
+	async function loadDetail(id: string) {
+		const version = ++detailRequestVersion;
+		detailLoading = true;
+		detailError = null;
+		try {
+			const response = await adminApi.getAdminGenerationDetail(id);
+			if (version !== detailRequestVersion || id !== viewId) return;
+			if (response.success && response.data) {
+				detail = response.data;
+			} else {
+				detailError = response.message || 'Failed to load generation detail';
+			}
+		} catch (e: any) {
+			if (version !== detailRequestVersion || id !== viewId) return;
+			detailError = e?.response?.data?.message || e?.message || 'Failed to load generation detail';
+		} finally {
+			if (version === detailRequestVersion && id === viewId) detailLoading = false;
+		}
+	}
+
+	function usernameFor(userId: string): string {
+		return usersById.get(userId)?.username ?? userId;
+	}
+
+	function absoluteTime(iso: string | undefined): string {
+		if (!iso) return '—';
+		const date = parseServerDate(iso);
+		if (!date) return '—';
+		return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
 	}
 
 	function applyFilters(next: GenerationsFilters) {
@@ -121,6 +181,10 @@
 		applyFilters({ ...filters, sortBy: value as GenerationSortBy });
 	}
 
+	function onTableSortChange(next: SortState | null) {
+		applyFilters({ ...filters, sortBy: sortByFromSortState(next) });
+	}
+
 	function onPopoverChange(next: GenerationsFilters) {
 		applyFilters(next);
 	}
@@ -133,62 +197,111 @@
 		applyFilters(clearAllGenerationsFilters(filters));
 	}
 
-	function nextPage() {
-		if (offset + PAGE_SIZE >= total) return;
-		offset += PAGE_SIZE;
-		loadGenerations();
+	function selectSection(id: GenerationSection) {
+		applyFilters({ ...filters, status: statusFromSection(id) });
 	}
 
-	function prevPage() {
-		if (offset === 0) return;
-		offset = Math.max(0, offset - PAGE_SIZE);
-		loadGenerations();
+	function onPageChange(next: number) {
+		pageIndex = next;
+		void loadGenerations();
 	}
 
-	async function selectGeneration(generationId: string) {
-		selectedGenerationId = generationId;
-		detail = null;
-		detailError = null;
-		detailLoading = true;
+	function onPageSizeChange(next: number) {
+		pageSize = next;
+		pageIndex = 1;
+		void loadGenerations();
+	}
+
+	function openGenerationId(id: string) {
+		const url = new URL($page.url);
+		url.searchParams.set('id', id);
+		void goto(url);
+	}
+
+	function backToList() {
+		const url = new URL($page.url);
+		url.searchParams.delete('id');
+		void goto(url);
+	}
+
+	async function handleBulkDelete() {
+		const ids = [...selected];
+		if (ids.length === 0) return;
+		const confirmed = await confirmDialog({
+			title: `Delete ${ids.length} generation${ids.length === 1 ? '' : 's'}?`,
+			message:
+				'Their files are removed from disk. This cannot be undone.',
+			variant: 'danger'
+		});
+		if (!confirmed) return;
+		bulkDeleting = true;
 		try {
-			const response = await adminApi.getAdminGenerationDetail(generationId);
+			const response = await adminApi.adminBulkDeleteGenerations(ids);
 			if (response.success && response.data) {
-				detail = response.data;
+				const { deleted_count, failed_count } = response.data;
+				if (failed_count > 0) {
+					toasts.error(`Deleted ${deleted_count}, failed to delete ${failed_count}`);
+				} else {
+					toasts.success(`Deleted ${deleted_count} generation${deleted_count === 1 ? '' : 's'}`);
+				}
 			} else {
-				detailError = response.message || 'Failed to load generation detail';
+				toasts.error(response.message || 'Failed to delete generations');
 			}
 		} catch (e: any) {
-			detailError = e.response?.data?.message || e.message || 'Failed to load generation detail';
+			logger.error('Failed to bulk delete generations:', e);
+			toasts.error(e?.response?.data?.message || e?.message || 'Failed to delete generations');
 		} finally {
-			detailLoading = false;
+			bulkDeleting = false;
+			selected = new Set();
+			void loadGenerations();
 		}
-	}
-
-	function usernameFor(userId: string): string {
-		return usersById.get(userId)?.username ?? userId;
-	}
-
-	function durationFor(row: AdminGenerationListItem): string {
-		if (!row.completed_at) return row.status === 'running' ? 'running' : '-';
-		const completed = parseServerDate(row.completed_at)?.getTime();
-		const created = parseServerDate(row.created_at)?.getTime();
-		const ms = completed != null && created != null ? completed - created : NaN;
-		return Number.isFinite(ms) && ms >= 0 ? formatDurationMs(ms) : '-';
 	}
 </script>
 
-<div class="flex min-h-[calc(100dvh-var(--header-h)-2rem)] flex-col gap-4 sm:min-h-[calc(100dvh-var(--header-h)-3rem)]">
-	<AdminTabShell
-		title="Generations"
-		icon="generation"
-		counts={[{ label: total === 1 ? 'generation' : 'generations', value: total }]}
-	/>
+{#snippet statusCell(row: AdminGenerationListItem)}
+	<StatusCell tone={STATUS_TONE[row.status] ?? 'muted'} label={row.status} />
+{/snippet}
 
-	<Card padding="none" class="flex flex-wrap items-center gap-2 px-4 py-2.5">
+{#snippet createdCell(row: AdminGenerationListItem)}
+	<Tooltip text={absoluteTime(row.created_at)}><span>{timeAgo(row.created_at)}</span></Tooltip>
+{/snippet}
+
+{#snippet ratingCell(row: AdminGenerationListItem)}
+	<span class="inline-flex items-center gap-1 justify-end w-full">
+		{#if row.is_favorite}<Icon name="star" className="w-3 h-3 text-warning" strokeWidth={2.5} />{/if}
+		<span>{row.rating > 0 ? row.rating : '—'}</span>
+	</span>
+{/snippet}
+
+{#snippet cardBody(row: AdminGenerationListItem)}
+	<div class="flex items-center justify-between gap-2 mb-1">
+		<span class="truncate text-sm font-semibold text-fg">{presetTitleFor(row)}</span>
+		<StatusCell tone={STATUS_TONE[row.status] ?? 'muted'} label={row.status} />
+	</div>
+	<div class="font-mono text-xs text-fg-subtle">{usernameFor(row.user_id)} · {timeAgo(row.created_at)} · {durationFor(row)}</div>
+{/snippet}
+
+<LibraryShell
+	title="Generations"
+	persistKey="admin-generations-library"
+	heightClass="h-full"
+	sections={GENERATION_LIBRARY_SECTIONS}
+	{section}
+	onSelectSection={selectSection}
+	sectionCounts={sectionCountsCache}
+	count={total}
+	{detailOpen}
+	filterChips={chips}
+	{onRemoveChip}
+	onClearFilters={onClearAllFilters}
+	loadedCount={generations.length}
+	{total}
+>
+	{#snippet toolbar()}
 		<LibraryFilterBar
 			q={filters.q}
 			{onQueryChange}
-			searchPlaceholder="Search prompt, preset…"
+			searchPlaceholder="Search by user, preset, id…"
 			sortBy={filters.sortBy}
 			sortOptions={GENERATION_SORT_OPTIONS}
 			{onSortChange}
@@ -198,98 +311,111 @@
 				<GenerationsFiltersPopover {filters} {users} onChange={onPopoverChange} onClose={close} />
 			{/snippet}
 		</LibraryFilterBar>
-	</Card>
+	{/snippet}
 
-	<LibraryFilterChipRow {chips} {onRemoveChip} onClearAll={onClearAllFilters} loadedCount={generations.length} {total} />
-
-	<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
-		<MasterDetailLayout leftWidth={360} minWidth={300} maxWidth={480} storageKey="admin-generations-width">
-			<div slot="list" class="h-full min-h-0">
-				<Pane
-					label="Generations"
-					count={total}
-					loading={listLoading}
-					isEmpty={!listLoading && (Boolean(listError) || generations.length === 0)}
-					bodyRole="listbox"
-					ariaLabel="Generations"
-				>
-					{#snippet empty()}
-						<div class="p-4 h-full flex items-center justify-center">
-							{#if listError}
-								<EmptyState title="Could not load generations" description={listError} icon="warning" compact />
-							{:else}
-								<EmptyState
-									icon="generation"
-									title={activeFilterCount > 0 ? 'No generations match your filters' : 'No generations yet'}
-									description={activeFilterCount > 0
-										? 'Try a different status, user, or date range.'
-										: 'Generations show up here once a user runs one.'}
-									compact
-								/>
-							{/if}
-						</div>
-					{/snippet}
-
-					{#snippet children()}
-						{#each generations as row (row.id)}
-							{#snippet rowBody()}
-								<div class="flex items-center justify-between gap-2 mb-1">
-									<span class="text-sm font-medium truncate text-fg">{row.preset_name || row.mode || 'Untitled generation'}</span>
-									<Badge variant={STATUS_VARIANT[row.status] ?? 'neutral'} size="sm" dot class="uppercase flex-shrink-0">
-										{row.status}
-									</Badge>
-								</div>
-								<div class="flex items-center justify-between gap-2 text-xs text-fg-subtle">
-									<span class="truncate">{usernameFor(row.user_id)}</span>
-									<span class="font-mono tabular-nums flex-shrink-0">{timeAgo(row.created_at)}</span>
-								</div>
-								<div class="flex items-center justify-between gap-2 text-xs font-mono tabular-nums text-fg-subtle mt-0.5">
-									<span>{durationFor(row)} · {row.files?.length ?? 0} file{(row.files?.length ?? 0) === 1 ? '' : 's'}</span>
-									{#if !row.has_run_report}
-										<Tooltip text="No run report recorded for this generation"><span class="text-fg-disabled normal-case">no report</span></Tooltip>
-									{/if}
-								</div>
-							{/snippet}
-							<PaneRow
-								selected={selectedGenerationId === row.id}
-								onclick={() => selectGeneration(row.id)}
-								children={rowBody}
-							/>
-						{/each}
-					{/snippet}
-
-					{#snippet footer()}
-						<PanePager {offset} limit={PAGE_SIZE} {total} onPrev={prevPage} onNext={nextPage} />
-					{/snippet}
-				</Pane>
+	{#if detailOpen}
+		{#if detailLoading && !detail}
+			<div class="flex h-full items-center justify-center">
+				<Spinner size="lg" />
 			</div>
-
-			<div slot="detail" class="h-full min-h-0 flex flex-col">
-				{#if !selectedGenerationId}
-					<div class="flex-1 p-5 flex items-center justify-center bg-surface-2">
+		{:else if detailError && !detail}
+			<div class="flex h-full items-center justify-center">
+				<EmptyState title="Could not load generation" description={detailError} icon="warning" compact>
+					{#snippet actions()}<Button variant="ghost" size="sm" onclick={backToList}>Back to generations</Button>{/snippet}
+				</EmptyState>
+			</div>
+		{:else if detail}
+			<GenerationRunReport
+				generation={detail.generation}
+				report={detail.run_report}
+				username={usernameFor(detail.generation.user_id)}
+				backLabel="Generations"
+				onBack={backToList}
+			/>
+		{/if}
+	{:else}
+		<div class="flex flex-col p-4 gap-3">
+			<DataTable
+				columns={[
+					{ key: 'status', label: 'Status', width: '110px', cell: statusCell },
+					{ key: 'preset', label: 'Preset', width: 'minmax(160px,1.4fr)', accessor: presetTitleFor },
+					{ key: 'mode', label: 'Mode', width: '90px', priority: 1, mono: true, accessor: (r) => r.mode || '—' },
+					{ key: 'user', label: 'User', width: '140px', priority: 1, accessor: (r) => usernameFor(r.user_id) },
+					{ key: 'created', label: 'Created', width: '130px', sortable: true, mono: true, cell: createdCell },
+					{ key: 'duration', label: 'Duration', width: '90px', priority: 1, mono: true, accessor: durationFor },
+					{
+						key: 'files',
+						label: 'Files',
+						width: '70px',
+						priority: 1,
+						align: 'right',
+						mono: true,
+						accessor: (r) => r.files?.length ?? 0
+					},
+					{ key: 'rating', label: 'Rating', width: '80px', priority: 1, align: 'right', cell: ratingCell }
+				]}
+				rows={generations}
+				getRowId={(row) => row.id}
+				{sort}
+				onSortChange={onTableSortChange}
+				onRowClick={(row) => openGenerationId(row.id)}
+				selected={selected}
+				onSelectedChange={(next) => (selected = next)}
+				loading={listLoading}
+				isFiltered={activeFilterCount > 0}
+				card={cardBody}
+			>
+				{#snippet emptyState()}
+					{#if listError}
+						<EmptyState title="Could not load generations" description={listError} icon="warning" compact />
+					{:else}
 						<EmptyState
 							icon="generation"
-							title="Select a generation"
-							description="Choose a generation from the list to inspect its run report."
+							title="No generations yet"
+							description="Generations show up here once a user runs one."
 							compact
 						/>
-					</div>
-				{:else if detailLoading}
-					<div class="flex-1 flex items-center justify-center bg-surface-2">
-						<Spinner size="lg" />
-					</div>
-				{:else if detailError}
-					<div class="flex-1 p-5 flex items-center justify-center bg-surface-2">
-						<EmptyState title="Could not load generation" description={detailError} icon="warning" compact />
-					</div>
-				{:else if detail}
-					<GenerationRunReport
-						generation={detail.generation}
-						report={detail.run_report}
-						username={usernameFor(detail.generation.user_id)}
-					/>
-				{/if}
-			</div>
-		</MasterDetailLayout>
-	</section>
-</div>
+					{/if}
+				{/snippet}
+				{#snippet filteredEmptyState()}
+					<EmptyState
+						icon="search"
+						title="No generations match your filters"
+						description="Try a different search, status, or date range."
+						compact
+					>
+						{#snippet actions()}<Button variant="ghost" size="sm" onclick={onClearAllFilters}>Clear filters</Button>{/snippet}
+					</EmptyState>
+				{/snippet}
+			</DataTable>
+
+			<TablePager
+				page={pageIndex}
+				pageCount={pageCount(total, pageSize)}
+				{pageSize}
+				{onPageChange}
+				{onPageSizeChange}
+			/>
+		</div>
+	{/if}
+</LibraryShell>
+
+<SelectionActionBar
+	active={selected.size > 0}
+	selectedCount={selected.size}
+	totalCount={generations.length}
+	onSelectAll={() => (selected = selectPage(selected, generations.map((g) => g.id)))}
+	onClearSelection={() => (selected = clearAll())}
+	onClose={() => (selected = clearAll())}
+>
+	<svelte:fragment slot="actionsBeforeCollection">
+		<button
+			class="px-4 py-1.5 bg-danger-solid text-white text-sm rounded hover:bg-danger-solid/90 transition-colors flex items-center gap-2 font-medium disabled:opacity-50"
+			disabled={bulkDeleting}
+			onclick={handleBulkDelete}
+		>
+			<Icon name="trash" className="w-4 h-4" />
+			{bulkDeleting ? 'Deleting…' : 'Delete'}
+		</button>
+	</svelte:fragment>
+</SelectionActionBar>

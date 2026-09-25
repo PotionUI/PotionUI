@@ -6,24 +6,18 @@
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import type { ModelAvailabilityResponse } from '$lib/types/models';
 	import { formatBytes, formatDate } from './formatters';
+	import { DETAIL_INSET_CLASS } from '$lib/components/detail';
 
 	export let availability: ModelAvailabilityResponse | null = null;
 	export let loading: boolean = false;
 	/** The model's canonical sha256, for the `conflict` badge tooltip's "expected" value. */
 	export let expectedDigest: string | null | undefined = undefined;
+	export let bare: boolean = false;
+
+	$: entryClass = bare ? `${DETAIL_INSET_CLASS} p-2 text-xs space-y-1.5` : 'rounded border border-line-strong p-2 text-xs space-y-1.5';
 </script>
 
-<div class="bg-surface-2 rounded-lg p-3">
-	<div class="flex items-center gap-2 mb-2">
-		<Icon name="database" className="w-4 h-4 text-fg-muted" />
-		<h3 class="text-sm font-semibold text-fg">Availability</h3>
-		{#if availability && availability.availability.length > 0}
-			<span class="font-mono tabular-nums text-2xs text-fg-subtle">
-				({availability.availability.length})
-			</span>
-		{/if}
-	</div>
-
+{#snippet body()}
 	{#if loading}
 		<div class="flex items-center justify-center py-4">
 			<Spinner size="sm" />
@@ -61,7 +55,7 @@
 			<div class="space-y-2">
 				{#each availability.availability as entry (entry.id)}
 					{@const cd = confidenceDisplay(entry.confidence)}
-					<div class="rounded border border-line-strong p-2 text-xs space-y-1.5">
+					<div class={entryClass}>
 						<div class="flex items-center justify-between gap-2">
 							<span class="font-medium text-fg truncate" title={entry.backend_name}>
 								{entry.backend_name}
@@ -107,4 +101,21 @@
 	{:else}
 		<p class="text-sm text-fg-subtle italic">Unable to load availability.</p>
 	{/if}
-</div>
+{/snippet}
+
+{#if bare}
+	{@render body()}
+{:else}
+	<div class="bg-surface-2 rounded-lg p-3">
+		<div class="flex items-center gap-2 mb-2">
+			<Icon name="database" className="w-4 h-4 text-fg-muted" />
+			<h3 class="text-sm font-semibold text-fg">Availability</h3>
+			{#if availability && availability.availability.length > 0}
+				<span class="font-mono tabular-nums text-2xs text-fg-subtle">
+					({availability.availability.length})
+				</span>
+			{/if}
+		</div>
+		{@render body()}
+	</div>
+{/if}

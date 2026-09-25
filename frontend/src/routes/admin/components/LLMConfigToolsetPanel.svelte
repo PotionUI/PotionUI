@@ -71,11 +71,13 @@
 {:else if tools.length === 0}
 	<EmptyState icon="shield" title="No tools registered" description="No chat tools are registered yet." compact />
 {:else}
-	<div class="space-y-5">
-		<p class="text-xs text-fg-muted max-w-2xl">
-			Tools this configuration can use in chat. Off removes a tool from every session using this
-			configuration; Locked keeps it on for everyone using this configuration — users can't opt out.
-		</p>
+	<div class="space-y-4">
+		<DetailSection label="Toolset">
+			<p class="text-xs text-fg-muted max-w-2xl">
+				Tools this configuration can use in chat. Off removes a tool from every session using this
+				configuration; Locked keeps it on for everyone using this configuration — users can't opt out.
+			</p>
+		</DetailSection>
 		{#each groupedTools as [group, groupTools] (group)}
 			<DetailSection label={group} padded={false}>
 				<div class="divide-y divide-line">
@@ -96,7 +98,7 @@
 							</div>
 							<div class="flex items-center gap-4 flex-shrink-0">
 								<label class="flex items-center gap-1.5" for={`toolset-enabled-${tool.name}`}>
-									<span class="text-2xs text-fg-subtle">Enabled</span>
+									<span class="text-xs text-fg-subtle">Enabled</span>
 									<Switch
 										id={`toolset-enabled-${tool.name}`}
 										label="Enabled"
@@ -106,7 +108,7 @@
 									/>
 								</label>
 								<label class="flex items-center gap-1.5" for={`toolset-locked-${tool.name}`}>
-									<span class="text-2xs text-fg-subtle">Locked</span>
+									<span class="text-xs text-fg-subtle">Locked</span>
 									<Switch
 										id={`toolset-locked-${tool.name}`}
 										label="Locked"

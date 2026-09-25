@@ -6,6 +6,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { Button, Alert, Spinner, SegmentedControl, Switch, Badge, Input } from '$lib/components/ui';
 	import { DetailSection } from '$lib/components/detail';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import { formatBytes, formatCount } from '$lib/utils/format';
 	import { matchProfile, parseThumbnailSettings, type ThumbnailValues } from './thumbnailProfiles';
@@ -352,30 +353,34 @@
 						<div class="h-1 rounded-full bg-surface-3 overflow-hidden">
 							<div class="h-full bg-signal rounded-full transition-[width]" style="width: {jobPercent}%"></div>
 						</div>
-						<div class="flex items-center justify-between gap-3">
-							<span class="font-mono text-xs tabular-nums text-fg-muted">
-								{formatCount(job.done)} / {formatCount(job.total)} · {formatCount(job.failed)} failed
-							</span>
-							<Button variant="secondary" size="sm" loading={cancelling} disabled={cancelling || job.status === 'cancelling'} onclick={cancel}>
-								Cancel
-							</Button>
-						</div>
+						<span class="font-mono text-xs tabular-nums text-fg-muted">
+							{formatCount(job.done)} / {formatCount(job.total)} · {formatCount(job.failed)} failed
+						</span>
 						{#if jobCurrentBasename}
-							<p class="text-2xs text-fg-subtle truncate" title={job.current ?? ''}>{jobCurrentBasename}</p>
+							<Tooltip text={job.current ?? ''} wrapperClass="block">
+								<p class="text-2xs text-fg-subtle truncate">{jobCurrentBasename}</p>
+							</Tooltip>
 						{/if}
 					</div>
 				{:else}
 					{#if job?.status === 'failed' && job.last_error}
 						<Alert variant="danger" icon>{job.last_error}</Alert>
 					{/if}
-					<div class="flex items-center justify-between gap-3">
-						<p class="text-sm text-fg-muted">
-							{formatCount(staleCount)} files use older thumbnail settings.
-						</p>
-						<Button variant="secondary" size="sm" disabled={staleCount === 0} onclick={openConfirm}>Regenerate</Button>
-					</div>
+					<p class="text-sm text-fg-muted">
+						{formatCount(staleCount)} files use older thumbnail settings.
+					</p>
 				{/if}
 			</div>
+
+			{#snippet footer()}
+				{#if jobActive && job}
+					<Button variant="secondary" size="sm" loading={cancelling} disabled={cancelling || job.status === 'cancelling'} onclick={cancel}>
+						Cancel
+					</Button>
+				{:else}
+					<Button variant="secondary" size="sm" disabled={staleCount === 0} onclick={openConfirm}>Regenerate</Button>
+				{/if}
+			{/snippet}
 		</DetailSection>
 	{/if}
 </div>

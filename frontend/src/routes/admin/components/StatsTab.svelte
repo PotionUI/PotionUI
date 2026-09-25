@@ -18,8 +18,9 @@
 		PresetResourcesItem
 	} from '$lib/services/api/stats';
 	import { Button, Input, Spinner, EmptyState, Alert } from '$lib/components/ui';
-	import AdminTabShell from './AdminTabShell.svelte';
-	import AdminFilterBar from './AdminFilterBar.svelte';
+	import { DetailBody, DetailSection } from '$lib/components/detail';
+	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
+	import type { LibrarySectionMeta } from '$lib/components/library/librarySection';
 	import {
 		StatTile,
 		ChartCard,
@@ -29,6 +30,7 @@
 		RowLimitSelect
 	} from '$lib/components/charts';
 	import { formatBytes, formatDuration, formatCount } from '$lib/utils/format';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { statsRowLimits, type StatsSection } from '$lib/stores/statsRowLimits';
 
 	/** MB values (peak_vram_mb, peak_ram_mb, ...) reuse the byte formatter. */
@@ -203,16 +205,25 @@
 			...((storage?.over_time ?? []).map((d) => d.image_bytes + d.video_bytes) ?? [0])
 		)
 	);
+
+	const STATS_SECTIONS: readonly LibrarySectionMeta<'overview'>[] = [{ id: 'overview', label: 'Overview', icon: 'gauge' }];
+
+	function clearRange() {
+		dateFrom = '';
+		dateTo = '';
+		load();
+	}
 </script>
 
-<div class="space-y-4">
-	<AdminTabShell title="Stats" icon="gauge" />
-
-	<!-- Date-range labels aren't paired via `for`/`id` — AdminFilterBar renders
-	     `filters` twice (inline at lg+, again inside the below-lg popover), and
-	     duplicate ids would break label association whenever the popover is
-	     open on a narrow screen. -->
-	{#snippet dateRangeFilters()}
+<LibraryShell
+	title="Stats"
+	persistKey="admin-stats-library"
+	heightClass="h-full"
+	sections={STATS_SECTIONS}
+	section="overview"
+	onSelectSection={() => {}}
+>
+	{#snippet toolbar()}
 		<div class="flex items-end gap-2 flex-wrap">
 			<div>
 				<span class="block text-xs font-medium text-fg-muted mb-1">From</span>
@@ -223,63 +234,60 @@
 				<Input type="date" bind:value={dateTo} class="w-40" aria-label="To date" />
 			</div>
 			<Button variant="primary" size="sm" onclick={load} disabled={loading}>Apply</Button>
+			{#if dateFrom || dateTo}
+				<Button variant="ghost" size="sm" icon="close" onclick={clearRange}>Clear</Button>
+			{/if}
 		</div>
 	{/snippet}
-	{#snippet dateRangeTrailing()}
+
+	{#snippet primary()}
 		{#if loading}<Spinner size="sm" />{/if}
 	{/snippet}
 
-	<AdminFilterBar
-		filters={dateRangeFilters}
-		trailing={dateRangeTrailing}
-		activeCount={Number(!!dateFrom) + Number(!!dateTo)}
-		onClear={() => {
-			dateFrom = '';
-			dateTo = '';
-			load();
-		}}
-	/>
-
+<DetailBody>
+<div class="space-y-4">
 	{#if error}
 		<Alert variant="danger" density="compact" live="polite">{error}</Alert>
 	{/if}
 
 	{#if overview}
-		<!-- KPI row -->
-		<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-			<StatTile label="Generations" value={formatCount(overview.total_generations)} hero />
-			<StatTile
-				label="Completed"
-				value={formatCount(overview.completed)}
-				hint="{overview.total_generations
-					? Math.round((overview.completed / overview.total_generations) * 100)
-					: 0}% of total"
-			/>
-			<StatTile
-				label="Failed"
-				value={formatCount(overview.failed)}
-				hint="{overview.total_generations
-					? Math.round((overview.failed / overview.total_generations) * 100)
-					: 0}% of total"
-			/>
-			<StatTile label="Distinct models" value={formatCount(overview.distinct_models)} />
-			<StatTile
-				label="Outputs"
-				value={formatCount(overview.total_outputs)}
-				hint={formatBytes(overview.total_bytes)}
-			/>
-			<StatTile
-				label="Median duration"
-				value={overview.median_duration_ms !== null
-					? formatDuration(overview.median_duration_ms)
-					: '—'}
-				hint={overview.p95_duration_ms !== null
-					? `p95 ${formatDuration(overview.p95_duration_ms)}`
-					: undefined}
-			/>
-		</div>
+		<DetailSection label="Overview">
+			<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+				<StatTile label="Generations" value={formatCount(overview.total_generations)} hero />
+				<StatTile
+					label="Completed"
+					value={formatCount(overview.completed)}
+					hint="{overview.total_generations
+						? Math.round((overview.completed / overview.total_generations) * 100)
+						: 0}% of total"
+				/>
+				<StatTile
+					label="Failed"
+					value={formatCount(overview.failed)}
+					hint="{overview.total_generations
+						? Math.round((overview.failed / overview.total_generations) * 100)
+						: 0}% of total"
+				/>
+				<StatTile label="Distinct models" value={formatCount(overview.distinct_models)} />
+				<StatTile
+					label="Outputs"
+					value={formatCount(overview.total_outputs)}
+					hint={formatBytes(overview.total_bytes)}
+				/>
+				<StatTile
+					label="Median duration"
+					value={overview.median_duration_ms !== null
+						? formatDuration(overview.median_duration_ms)
+						: '—'}
+					hint={overview.p95_duration_ms !== null
+						? `p95 ${formatDuration(overview.p95_duration_ms)}`
+						: undefined}
+				/>
+			</div>
+		</DetailSection>
 	{/if}
 
+	<DetailSection label="Activity">
 	<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
 		{#if timeseries}
 			<ChartCard
@@ -455,8 +463,9 @@
 			</ChartCard>
 		{/if}
 	</div>
+	</DetailSection>
 
-	<h3 class="text-sm font-semibold text-fg mt-2">Generation parameters</h3>
+	<DetailSection label="Generation parameters">
 	<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 		{#if samplers}
 			<ChartCard
@@ -554,23 +563,21 @@
 			</ChartCard>
 		{/if}
 	</div>
+	</DetailSection>
 
-	<h3 class="text-sm font-semibold text-fg mt-2">Per-preset performance (durable)</h3>
 	<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-		<div class="rounded-lg border border-line bg-surface-1 shadow-raised p-4">
-			<div class="flex items-start justify-between gap-2 mb-3">
-				<div class="min-w-0">
-					<h4 class="text-sm font-semibold text-fg truncate">Cold vs. warm start</h4>
-					<p class="mt-0.5 text-xs text-fg-muted truncate">
-						Cold = at least one model had to load from disk. Warm = every model came from cache.
-					</p>
-				</div>
+		<DetailSection label="Cold vs. warm start">
+			{#snippet headerExtra()}
 				<RowLimitSelect
 					section="presetTiming"
 					value={$statsRowLimits.presetTiming}
 					onchange={(limit) => reloadPresetTiming(limit)}
 				/>
-			</div>
+			{/snippet}
+			<p class="mb-3 text-xs text-fg-muted">
+				Cold = at least one model had to load from disk. Warm = every model came from cache. Durable —
+				keeps reporting after the generation is deleted.
+			</p>
 			{#if presetTiming && presetTiming.length > 0}
 				<div class="overflow-x-auto">
 					<table class="w-full text-xs">
@@ -587,9 +594,11 @@
 						<tbody>
 							{#each presetTiming as item (item.preset_id)}
 								<tr class="border-b border-line/50 last:border-0">
-									<td class="py-1.5 px-2 text-fg truncate max-w-40" title={item.preset_id}
-										>{item.preset_name}</td
-									>
+									<td class="py-1.5 px-2 text-fg max-w-40">
+										<Tooltip text={item.preset_id} wrapperClass="block">
+											<span class="block truncate">{item.preset_name}</span>
+										</Tooltip>
+									</td>
 									<td class="py-1.5 px-2 text-right font-mono tabular-nums text-fg"
 										>{formatCount(item.total_runs)}</td
 									>
@@ -622,20 +631,17 @@
 					compact
 				/>
 			{/if}
-		</div>
+		</DetailSection>
 
-		<div class="rounded-lg border border-line bg-surface-1 shadow-raised p-4">
-			<div class="flex items-start justify-between gap-2 mb-3">
-				<div class="min-w-0">
-					<h4 class="text-sm font-semibold text-fg truncate">Resources per preset</h4>
-					<p class="mt-0.5 text-xs text-fg-muted truncate">Peak and average VRAM/RAM/CPU.</p>
-				</div>
+		<DetailSection label="Resources per preset">
+			{#snippet headerExtra()}
 				<RowLimitSelect
 					section="presetResources"
 					value={$statsRowLimits.presetResources}
 					onchange={(limit) => reloadPresetResources(limit)}
 				/>
-			</div>
+			{/snippet}
+			<p class="mb-3 text-xs text-fg-muted">Peak and average VRAM/RAM/CPU. Durable — keeps reporting after the generation is deleted.</p>
 			{#if presetResources && presetResources.length > 0}
 				<div class="overflow-x-auto">
 					<table class="w-full text-xs">
@@ -651,9 +657,11 @@
 						<tbody>
 							{#each presetResources as item (item.preset_id)}
 								<tr class="border-b border-line/50 last:border-0">
-									<td class="py-1.5 px-2 text-fg truncate max-w-40" title={item.preset_id}
-										>{item.preset_name}</td
-									>
+									<td class="py-1.5 px-2 text-fg max-w-40">
+										<Tooltip text={item.preset_id} wrapperClass="block">
+											<span class="block truncate">{item.preset_name}</span>
+										</Tooltip>
+									</td>
 									<td class="py-1.5 px-2 text-right font-mono tabular-nums text-fg"
 										>{formatMb(item.peak_vram_mb)}</td
 									>
@@ -679,6 +687,8 @@
 					compact
 				/>
 			{/if}
-		</div>
+		</DetailSection>
 	</div>
 </div>
+</DetailBody>
+</LibraryShell>

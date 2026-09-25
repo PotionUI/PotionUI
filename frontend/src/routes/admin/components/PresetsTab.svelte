@@ -20,7 +20,7 @@
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
 	import { PaneRow } from '$lib/components/pane';
-	import { DetailHeader, DetailTabs } from '$lib/components/detail';
+	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailSection, DetailFooter, KVGrid, KVItem, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import PresetThumbnail from '$lib/components/preset/PresetThumbnail.svelte';
 	import PresetExampleCard from '$lib/components/preset/PresetExampleCard.svelte';
 	import PresetMediaModal from '$lib/components/preset/PresetMediaModal.svelte';
@@ -29,7 +29,6 @@
 	import PresetConfigurationTab from './PresetConfigurationTab.svelte';
 	import PresetFormOverridesTab from './PresetFormOverridesTab.svelte';
 	import PresetRequirementsTab from './presets/PresetRequirementsTab.svelte';
-	import PresetDetailSubHeader from './PresetDetailSubHeader.svelte';
 	import PresetCard from './presets/PresetCard.svelte';
 	import PresetRecipeSetup from './presets/PresetRecipeSetup.svelte';
 	import PresetFiltersPopover from './presets/PresetFiltersPopover.svelte';
@@ -49,7 +48,7 @@
 		type PresetFilters,
 		type PresetSortBy
 	} from './presets/presetFilters';
-	import { Badge, Button, EmptyState, Spinner, Alert } from '$lib/components/ui';
+	import { Badge, Button, EmptyState, Spinner, Alert, IconButton } from '$lib/components/ui';
 	import type { PresetInfo, PresetConfigurationEntry, PresetRecipeLink } from '$lib/types/api';
 
 	type DetailTab = 'overview' | 'access' | 'configuration' | 'form' | 'requirements';
@@ -67,6 +66,14 @@
 	let presetConfigEntries = $state<PresetConfigurationEntry[]>([]);
 	let lastViewId: string | null = null;
 	let detailRequestVersion = 0;
+	let headerOverflowOpen = $state(false);
+	let headerOverflowEl: HTMLDivElement | undefined = $state();
+	let configurationTabRef: any = $state();
+	let configDirtyCount = $state(0);
+	let configSaving = $state(false);
+	let formTabRef: any = $state();
+	let formDirtyCount = $state(0);
+	let formSaving = $state(false);
 
 	const section = $derived(($page.url.searchParams.get('section') as PresetLibrarySection) || 'all');
 	const filters = $derived(presetFiltersFromSearchParams($page.url.searchParams));
@@ -103,6 +110,18 @@
 		presetRecipes.length && !(activePreset?.installed && presetRecipes[0].readiness === 'installed')
 			? presetRecipes[0]
 			: null
+	);
+	const requirementsBadge = $derived(presetRequirementsBadge(activePreset?.requirements_summary));
+	const headerChips = $derived(
+		activePreset
+			? [
+					...(activePreset.engine ? [{ key: 'engine', label: activePreset.engine, tone: 'signal' as const }] : []),
+					{ key: 'version', label: `v${activePreset.version}`, tone: 'neutral' as const },
+					activePreset.installed
+						? { key: 'installed', label: 'Installed', tone: 'success' as const }
+						: { key: 'installed', label: 'Not installed', tone: 'neutral' as const }
+				]
+			: []
 	);
 
 	const recipeSession = new RecipeRunSession({
@@ -143,6 +162,9 @@
 			detailError = '';
 			mediaModalOpen = false;
 			presetConfigEntries = [];
+			headerOverflowOpen = false;
+			configDirtyCount = 0;
+			formDirtyCount = 0;
 			if (viewId) {
 				loadPresetDetail(viewId);
 				if (presets.find((preset) => preset.id === viewId)?.installed) loadPresetConfigEntries(viewId);
@@ -318,6 +340,18 @@
 		}
 	}
 
+	function closeHeaderOverflow() {
+		headerOverflowOpen = false;
+	}
+
+	function handleWindowClick(event: MouseEvent) {
+		if (headerOverflowOpen && headerOverflowEl && !headerOverflowEl.contains(event.target as Node)) closeHeaderOverflow();
+	}
+
+	function handleWindowKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape') closeHeaderOverflow();
+	}
+
 	function handleAccessChanged(presetId: string, event: CustomEvent<{ userCount: number; groupCount: number }>) {
 		presets = presets.map((preset) =>
 			preset.id === presetId
@@ -330,6 +364,8 @@
 		);
 	}
 </script>
+
+<svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
 
 <LibraryShell
 	title="Presets"
@@ -399,11 +435,7 @@
 			</div>
 		{:else}
 			<div class="flex h-full flex-col">
-				<DetailHeader title={activePreset.name} icon={presetCategoryIcon(activePreset.category)} backLabel="Presets" onBack={backToGrid}>
-					{#snippet chips()}
-						{#if activePreset.engine}<Badge size="sm" variant="signal">{activePreset.engine}</Badge>{/if}
-						<Badge size="sm" class="font-mono tabular-nums">v{activePreset.version}</Badge>
-					{/snippet}
+				<DetailHeader title={activePreset.name} icon={presetCategoryIcon(activePreset.category)} backLabel="Presets" onBack={backToGrid} chipItems={headerChips}>
 					{#snippet actions()}
 						{#if headerRecipe}
 							<Tooltip text={headerRecipe.name}>
@@ -418,27 +450,49 @@
 									Set up with recipe{#if headerRecipe.total_download_bytes != null}<span class="ml-1.5 font-mono tabular-nums">{formatBytes(headerRecipe.total_download_bytes)}</span>{/if}
 								</Button>
 							</Tooltip>
-						{/if}
-						{#if activePreset.installed}
-							<Badge variant="success" dot>Installed</Badge>
+						{:else if !activePreset.installed}
 							<Button
-								variant="ghost"
+								variant="primary"
 								size="sm"
-								class="text-danger hover:text-danger hover:bg-danger/10"
-								loading={mutatingPresetId === activePreset.id}
-								disabled={mutatingPresetId !== null}
-								onclick={() => handleUninstall(activePreset)}
-							>Uninstall</Button>
-						{:else}
-							<Badge variant="neutral">Not installed</Badge>
-							<Button
-								variant={headerRecipe ? 'secondary' : 'primary'}
-								size="sm"
-								icon={headerRecipe ? undefined : 'download'}
+								icon="download"
 								loading={mutatingPresetId === activePreset.id}
 								disabled={mutatingPresetId !== null}
 								onclick={() => handleInstall(activePreset)}
 							>Install preset</Button>
+						{/if}
+						{#if activePreset.installed}
+							<div class="relative" bind:this={headerOverflowEl}>
+								<Tooltip text="More actions">
+									<IconButton
+										icon="more"
+										label="More actions"
+										size="sm"
+										ariaExpanded={headerOverflowOpen}
+										active={headerOverflowOpen}
+										onclick={() => (headerOverflowOpen = !headerOverflowOpen)}
+									/>
+								</Tooltip>
+								{#if headerOverflowOpen}
+									<div
+										class="absolute right-0 top-[calc(100%+6px)] z-40 min-w-[180px] overflow-hidden rounded-xl border border-line-strong bg-surface-2 py-1 shadow-floating"
+										role="menu"
+									>
+										<button
+											type="button"
+											role="menuitem"
+											class="w-full px-3 py-2 text-left text-xs flex items-center gap-2 text-danger hover:bg-danger/10 disabled:opacity-50"
+											disabled={mutatingPresetId !== null}
+											onclick={() => {
+												closeHeaderOverflow();
+												handleUninstall(activePreset);
+											}}
+										>
+											<Icon name="trash" className="w-3.5 h-3.5" />
+											Uninstall
+										</button>
+									</div>
+								{/if}
+							</div>
 						{/if}
 					{/snippet}
 				</DetailHeader>
@@ -450,174 +504,195 @@
 					ariaLabel="Preset details"
 				/>
 
-				<div class="flex-1 min-h-0 overflow-y-auto bg-surface-2">
-					{#if detailTab === 'overview'}
-						<div class="p-5 sm:p-7 space-y-7">
-							<div class="flex flex-col md:flex-row gap-5 md:gap-7">
-								<button
-									type="button"
-									class="self-start rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 {hasPresetMedia(activePreset) ? 'cursor-zoom-in' : 'cursor-default'}"
-									onclick={() => hasPresetMedia(activePreset) && (mediaModalOpen = true)}
-									aria-label={hasPresetMedia(activePreset) ? `View ${activePreset.name} media` : `${activePreset.name} has no media`}
-								>
-									<PresetThumbnail presetId={activePreset.id} presetName={activePreset.name} cover={activePreset.media?.cover} category={activePreset.category} size="w-40 h-40 sm:w-48 sm:h-48" variant="medium" />
-								</button>
+				{#if detailTab === 'overview'}
+					<DetailBody>
+						<DetailLayout>
+							{#snippet lead()}
+								{#if detailError}
+									<Alert variant="warning" density="compact" live="polite">
+										{detailError}. Catalog metadata is shown below.
+										{#snippet actions()}
+											<Button variant="ghost" size="xs" icon="refresh" onclick={() => loadPresetDetail(activePreset.id)}>Retry</Button>
+										{/snippet}
+									</Alert>
+								{/if}
+							{/snippet}
 
-								<div class="min-w-0 flex-1 pt-1">
-									<p class="label mb-1.5 inline-flex items-center gap-1.5"><Icon name={presetCategoryIcon(activePreset.category)} className="w-3.5 h-3.5" />{presetCategoryLabel(activePreset.category)}</p>
-									<h2 class="text-2xl font-semibold text-fg leading-tight">{activePreset.name}</h2>
-									<div class="flex flex-wrap items-center gap-2 mt-3">
-										{#if activePreset.engine}<Badge variant="info">{activePreset.engine}</Badge>{/if}
-										<Badge variant="neutral">v{activePreset.version}</Badge>
-										{#if activePreset.source}<Badge variant="neutral">{activePreset.source}</Badge>{/if}
-									</div>
-									<p class="font-mono text-xs text-fg-subtle mt-4 break-all">{activePreset.id}</p>
-									{#if activePreset.tags?.length}
-										<div class="flex flex-wrap gap-1.5 mt-4">
-											{#each activePreset.tags as tag}<Badge variant="neutral" size="sm">{tag}</Badge>{/each}
-										</div>
-									{/if}
-								</div>
-							</div>
-
-							{#if presetRecipes.length}
-								<PresetRecipeSetup recipes={presetRecipes} session={recipeSession} onStart={startRecipe} />
-							{/if}
-
-							{#if detailError}
-								<Alert variant="warning" density="compact" live="polite">
-									{detailError}. Catalog metadata is shown below.
-									{#snippet actions()}
-										<Button variant="ghost" size="xs" icon="refresh" onclick={() => loadPresetDetail(activePreset.id)}>Retry</Button>
-									{/snippet}
-								</Alert>
-							{/if}
-
-							<section>
-								<div class="flex items-center gap-2 mb-3">
-									<div class="w-7 h-7 rounded bg-surface-1 border border-line flex items-center justify-center text-fg-muted"><Icon name="document" className="w-3.5 h-3.5" /></div>
-									<h3 class="text-sm font-semibold text-fg">About this preset</h3>
-								</div>
-								<div class="rounded-lg border border-line bg-surface-1 p-4 sm:p-5">
+							{#snippet main()}
+								<DetailSection label="Description">
 									{#if descriptionHtml}
 										<div class="text-sm leading-relaxed text-fg-muted">{@html descriptionHtml}</div>
 									{:else}
 										<p class="text-sm text-fg-subtle">No description has been provided for this preset yet.</p>
 									{/if}
-								</div>
-							</section>
+								</DetailSection>
 
-							<section>
-								<div class="flex items-center gap-2 mb-3">
-									<div class="w-7 h-7 rounded bg-surface-1 border border-line flex items-center justify-center text-fg-muted"><Icon name="photo" className="w-3.5 h-3.5" /></div>
-									<h3 class="text-sm font-semibold text-fg">Examples</h3>
-									{#if gallery.length}<span class="font-mono text-xs text-fg-subtle">{gallery.length}</span>{/if}
-									{#if gallery.length > 6}<Button variant="ghost" size="xs" class="ml-auto" onclick={() => (mediaModalOpen = true)}>View all</Button>{/if}
-								</div>
-								{#if detailLoading}
-									<div class="rounded-lg border border-line bg-surface-1 py-12 flex flex-col items-center justify-center">
-										<Spinner size="md" />
-										<p class="text-sm text-fg-muted mt-3">Loading examples…</p>
-									</div>
-								{:else if gallery.length}
-									<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-										{#each gallery.slice(0, 6) as item}
-											<PresetExampleCard presetId={activePreset.id} presetName={activePreset.name} {item} onSelect={() => (mediaModalOpen = true)} />
-										{/each}
-									</div>
-								{:else}
-									<div class="rounded-lg border border-dashed border-line-strong bg-surface-1/60 px-5 py-8 text-center">
-										<Icon name={presetCategoryIcon(activePreset.category)} className="w-7 h-7 text-fg-subtle mx-auto mb-2" />
-										<p class="text-sm text-fg-muted">Examples will appear here when they are included with the preset.</p>
-									</div>
-								{/if}
-							</section>
+								<DetailSection label="Media">
+									<div class="flex flex-col sm:flex-row gap-5">
+										<button
+											type="button"
+											class="self-start rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 {hasPresetMedia(activePreset) ? 'cursor-zoom-in' : 'cursor-default'}"
+											onclick={() => hasPresetMedia(activePreset) && (mediaModalOpen = true)}
+											aria-label={hasPresetMedia(activePreset) ? `View ${activePreset.name} media` : `${activePreset.name} has no media`}
+										>
+											<PresetThumbnail presetId={activePreset.id} presetName={activePreset.name} cover={activePreset.media?.cover} category={activePreset.category} size="w-28 h-28 sm:w-32 sm:h-32" variant="medium" />
+										</button>
 
-							{#if activePreset.styles?.length}
-								<section>
-									<div class="flex items-center gap-2 mb-3">
-										<div class="w-7 h-7 rounded bg-surface-1 border border-line flex items-center justify-center text-fg-muted"><Icon name="sparkles" className="w-3.5 h-3.5" /></div>
-										<h3 class="text-sm font-semibold text-fg">Styles</h3>
-										<span class="font-mono text-xs text-fg-subtle">{activePreset.styles.length}</span>
-									</div>
-									<div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
-										{#each activePreset.styles as presetStyle}
-											<div class="rounded-lg border border-line bg-surface-1 overflow-hidden">
-												<div class="relative aspect-square w-full bg-surface-2">
-													{#if presetStyle.preview}
-														<img src={api.getPresetAssetURL(activePreset.id, presetStyle.preview, 'small')} alt={presetStyle.name} class="w-full h-full object-cover" loading="lazy" />
-													{:else}
-														<div class="flex h-full w-full items-center justify-center text-lg font-semibold text-fg-subtle">{presetStyle.name.charAt(0).toUpperCase()}</div>
-													{/if}
-												</div>
-												<p class="px-2 py-1.5 truncate text-xs font-medium text-fg">{presetStyle.name}</p>
+										<div class="min-w-0 flex-1">
+											<div class="flex items-center gap-2 mb-2">
+												<p class="text-xs font-medium text-fg-muted">Examples</p>
+												{#if gallery.length}<span class="font-mono text-xs text-fg-subtle">{gallery.length}</span>{/if}
+												{#if gallery.length > 6}<Button variant="ghost" size="xs" class="ml-auto" onclick={() => (mediaModalOpen = true)}>View all</Button>{/if}
 											</div>
-										{/each}
+											{#if detailLoading}
+												<div class="flex items-center justify-center py-12">
+													<Spinner size="md" />
+												</div>
+											{:else if gallery.length}
+												<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+													{#each gallery.slice(0, 6) as item}
+														<PresetExampleCard presetId={activePreset.id} presetName={activePreset.name} {item} onSelect={() => (mediaModalOpen = true)} />
+													{/each}
+												</div>
+											{:else}
+												<EmptyState title="No examples yet" description="Examples will appear here when they are included with the preset." icon={presetCategoryIcon(activePreset.category)} compact />
+											{/if}
+										</div>
 									</div>
-								</section>
-							{/if}
-						</div>
-					{:else if detailTab === 'configuration'}
-						<div class="p-5 sm:p-7">
-							<PresetDetailSubHeader
-								icon="sliders"
-								title="Configuration for {activePreset.name}"
-								description="Preset-declared configuration that isn't part of the user-facing generation form."
-							/>
-						{#key activePreset.id}
-							<PresetConfigurationTab presetId={activePreset.id} initialEntries={presetConfigEntries} />
-						{/key}
-						</div>
-					{:else if detailTab === 'form'}
-						<div class="p-5 sm:p-7">
-							<PresetDetailSubHeader
-								icon="document"
-								title="Form for {activePreset.name}"
-								description="Set per-field defaults, editability, and visibility for the user-facing generation form."
-							/>
-						{#key activePreset.id}
-							<PresetFormOverridesTab presetId={activePreset.id} />
-						{/key}
-						</div>
-					{:else if detailTab === 'requirements'}
-						<div class="p-5 sm:p-7">
-							<PresetDetailSubHeader
-								icon="check"
-								title="Requirements for {activePreset.name}"
-								description="Typed, live-checked requirements this preset declares against this instance."
-							/>
-						{#key activePreset.id}
-							<PresetRequirementsTab presetId={activePreset.id} />
-						{/key}
-						</div>
-					{:else}
-						<div class="p-5 sm:p-7">
-							<PresetDetailSubHeader
-								icon="shield"
-								title="Access to {activePreset.name}"
-								description="Assign the preset directly to specific users or grant it to every member of a user group."
-							/>
+								</DetailSection>
 
-							{#if activePreset.installed}
+								{#if activePreset.styles?.length}
+									<DetailSection label="Styles">
+										<div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+											{#each activePreset.styles as presetStyle}
+												<div class="{DETAIL_INSET_CLASS} overflow-hidden">
+													<div class="relative aspect-square w-full bg-surface-3">
+														{#if presetStyle.preview}
+															<img src={api.getPresetAssetURL(activePreset.id, presetStyle.preview, 'small')} alt={presetStyle.name} class="w-full h-full object-cover" loading="lazy" />
+														{:else}
+															<div class="flex h-full w-full items-center justify-center text-lg font-semibold text-fg-subtle">{presetStyle.name.charAt(0).toUpperCase()}</div>
+														{/if}
+													</div>
+													<p class="px-2 py-1.5 truncate text-xs font-medium text-fg">{presetStyle.name}</p>
+												</div>
+											{/each}
+										</div>
+									</DetailSection>
+								{/if}
+							{/snippet}
+
+							{#snippet aside()}
+								<DetailSection label="Metadata">
+									<KVGrid>
+										<KVItem label="ID" mono full>{activePreset.id}</KVItem>
+										{#if activePreset.engine}<KVItem label="Engine">{activePreset.engine}</KVItem>{/if}
+										<KVItem label="Version" mono>v{activePreset.version}</KVItem>
+										{#if activePreset.source}<KVItem label="Source">{activePreset.source}</KVItem>{/if}
+										{#if activePreset.category}<KVItem label="Category">{presetCategoryLabel(activePreset.category)}</KVItem>{/if}
+									</KVGrid>
+									{#if activePreset.tags?.length}
+										<div class="flex flex-wrap gap-1.5 mt-3">
+											{#each activePreset.tags as tag}<Badge variant="neutral" size="sm">{tag}</Badge>{/each}
+										</div>
+									{/if}
+								</DetailSection>
+
+								<DetailSection label="Requirements">
+									{#if requirementsBadge}
+										<div class="flex items-center justify-between gap-2">
+											<Badge variant={requirementsBadge.variant} size="sm">{requirementsBadge.label}</Badge>
+											<Button variant="ghost" size="xs" onclick={() => (detailTab = 'requirements')}>View</Button>
+										</div>
+									{:else}
+										<p class="text-sm text-fg-muted">Not checked yet.</p>
+									{/if}
+								</DetailSection>
+
+								{#if presetRecipes.length}
+									<DetailSection label="Recipe">
+										<PresetRecipeSetup recipes={presetRecipes} session={recipeSession} />
+									</DetailSection>
+								{/if}
+							{/snippet}
+						</DetailLayout>
+					</DetailBody>
+				{:else if detailTab === 'configuration'}
+					<DetailBody>
+						<DetailLayout>
+							{#snippet main()}
 								{#key activePreset.id}
-									<AssignmentCard
-										adapter={createPresetAssignmentAdapter(activePreset.id)}
-										resourceKey={activePreset.id}
-										resourceName={activePreset.name}
-										on:changed={(event) => handleAccessChanged(activePreset.id, event)}
+									<PresetConfigurationTab
+										bind:this={configurationTabRef}
+										presetId={activePreset.id}
+										initialEntries={presetConfigEntries}
+										bind:dirtyCount={configDirtyCount}
+										bind:saving={configSaving}
 									/>
 								{/key}
-							{:else}
-								<div class="rounded-xl border border-line bg-surface-1 p-7 text-center">
-									<div class="w-12 h-12 rounded-full bg-surface-3 text-fg-muted flex items-center justify-center mx-auto mb-3"><Icon name="download" className="w-5 h-5" /></div>
-									<h3 class="text-sm font-semibold text-fg">Install before assigning access</h3>
-									<p class="text-sm text-fg-muted mt-1 max-w-md mx-auto">Only installed presets can be made available to users and groups.</p>
-									<Button variant="primary" size="sm" icon="download" class="mt-4" loading={mutatingPresetId === activePreset.id} onclick={() => handleInstall(activePreset)}>Install preset</Button>
-								</div>
-							{/if}
-						</div>
-					{/if}
-				</div>
+							{/snippet}
+						</DetailLayout>
+					</DetailBody>
+					<DetailFooter
+						dirtyCount={configDirtyCount}
+						saving={configSaving}
+						onSave={() => configurationTabRef?.save()}
+						onDiscard={() => configurationTabRef?.discard()}
+					/>
+				{:else if detailTab === 'form'}
+					<DetailBody>
+						<DetailLayout>
+							{#snippet main()}
+								{#key activePreset.id}
+									<PresetFormOverridesTab
+										bind:this={formTabRef}
+										presetId={activePreset.id}
+										bind:dirtyCount={formDirtyCount}
+										bind:saving={formSaving}
+									/>
+								{/key}
+							{/snippet}
+						</DetailLayout>
+					</DetailBody>
+					<DetailFooter
+						dirtyCount={formDirtyCount}
+						saving={formSaving}
+						onSave={() => formTabRef?.save()}
+						onDiscard={() => formTabRef?.discard()}
+					/>
+				{:else if detailTab === 'requirements'}
+					<DetailBody>
+						<DetailLayout>
+							{#snippet main()}
+								{#key activePreset.id}
+									<PresetRequirementsTab presetId={activePreset.id} />
+								{/key}
+							{/snippet}
+						</DetailLayout>
+					</DetailBody>
+				{:else}
+					<DetailBody>
+						<DetailLayout>
+							{#snippet main()}
+								{#if activePreset.installed}
+									{#key activePreset.id}
+										<AssignmentCard
+											adapter={createPresetAssignmentAdapter(activePreset.id)}
+											resourceKey={activePreset.id}
+											resourceName={activePreset.name}
+											on:changed={(event) => handleAccessChanged(activePreset.id, event)}
+										/>
+									{/key}
+								{:else}
+									<EmptyState title="Install before assigning access" description="Only installed presets can be made available to users and groups." icon="download">
+										{#snippet actions()}
+											<Button variant="primary" size="sm" icon="download" loading={mutatingPresetId === activePreset.id} onclick={() => handleInstall(activePreset)}>Install preset</Button>
+										{/snippet}
+									</EmptyState>
+								{/if}
+							{/snippet}
+						</DetailLayout>
+					</DetailBody>
+				{/if}
 			</div>
 		{/if}
 	{:else}

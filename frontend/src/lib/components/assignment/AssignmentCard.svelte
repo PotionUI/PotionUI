@@ -4,7 +4,9 @@
 	import type { User } from '$lib/stores/auth';
 	import { logger } from '$lib/utils/logger';
 	import { toasts } from '$lib/stores/toast';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge, Button, Input, Spinner, EmptyState, SegmentedControl } from '$lib/components/ui';
+	import { DetailSection } from '$lib/components/detail';
 	import { toGroupAccessRows, toUserAccessRows } from './accessRows';
 	import type { AssignmentAdapter } from './types';
 
@@ -44,7 +46,6 @@
 			? {
 					searchPlaceholder: 'Find a user…',
 					searchLabel: 'Search users',
-					heading: 'Direct user access',
 					description: `Add individual users who should see ${resourceName} directly.`,
 					addLabel: 'Add user',
 					emptyIcon: 'user',
@@ -55,7 +56,6 @@
 			: {
 					searchPlaceholder: 'Find a group…',
 					searchLabel: 'Search groups',
-					heading: 'User group access',
 					description: `Every member of an assigned group can use ${resourceName}.`,
 					addLabel: 'Add group',
 					emptyIcon: 'group',
@@ -180,34 +180,33 @@
 	}
 </script>
 
-<div class="space-y-4" data-testid="assignment-card">
-	<div class="flex flex-col sm:flex-row sm:items-center gap-3">
-		<SegmentedControl
-			items={[
-				{ id: 'users', label: 'Users', icon: 'user', count: assignedUserIds.size },
-				{ id: 'groups', label: 'Groups', icon: 'group', count: assignedGroupIds.size }
-			]}
-			selected={accessView}
-			onSelect={(id) => (accessView = id as AccessView)}
-			ariaLabel="Access type"
-		/>
-		<div class="sm:ml-auto sm:w-72">
-			<Input
-				bind:value={searchQuery}
-				type="search"
-				placeholder={view.searchPlaceholder}
-				aria-label={view.searchLabel}
-			/>
-		</div>
-	</div>
+<div data-testid="assignment-card">
+	<DetailSection label="Access" padded={false}>
+		{#snippet headerExtra()}
+			<span class="font-mono text-2xs text-fg-subtle">{rows.length} of {total} shown</span>
+		{/snippet}
 
-	<div class="rounded-lg border border-line bg-surface-1 overflow-hidden">
-		<div class="px-4 py-3 border-b border-line bg-surface-2/60">
-			<p class="text-sm font-medium text-fg">{view.heading}</p>
-			<p class="text-xs text-fg-muted mt-0.5">
-				{view.description}
-				<span class="font-mono text-2xs text-fg-subtle">{rows.length} of {total} shown</span>
-			</p>
+		<div class="border-b border-line px-4 py-3">
+			<div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+				<SegmentedControl
+					items={[
+						{ id: 'users', label: 'Users', icon: 'user', count: assignedUserIds.size },
+						{ id: 'groups', label: 'Groups', icon: 'group', count: assignedGroupIds.size }
+					]}
+					selected={accessView}
+					onSelect={(id) => (accessView = id as AccessView)}
+					ariaLabel="Access type"
+				/>
+				<div class="sm:ml-auto sm:w-72">
+					<Input
+						bind:value={searchQuery}
+						type="search"
+						placeholder={view.searchPlaceholder}
+						aria-label={view.searchLabel}
+					/>
+				</div>
+			</div>
+			<p class="mt-2 text-xs text-fg-muted">{view.description}</p>
 		</div>
 
 		{#if loading}
@@ -232,10 +231,11 @@
 			<div class="divide-y divide-line/70">
 				{#each rows as row (row.id)}
 					<div class="flex items-center gap-3 px-4 py-3" data-testid="assignment-row" data-key={row.key}>
-						<span
-							class="w-2 h-2 rounded-full flex-shrink-0 {row.assigned ? 'bg-success-solid' : 'bg-line-strong'}"
-							title={row.assigned ? 'Has access' : 'No access'}
-						></span>
+						<Tooltip text={row.assigned ? 'Has access' : 'No access'}>
+							<span
+								class="w-2 h-2 rounded-full flex-shrink-0 {row.assigned ? 'bg-success-solid' : 'bg-line-strong'}"
+							></span>
+						</Tooltip>
 						<div class="min-w-0 flex-1">
 							<div class="flex items-center gap-2 min-w-0">
 								<p class="text-sm font-medium text-fg truncate">{row.title}</p>
@@ -259,5 +259,5 @@
 				{/each}
 			</div>
 		{/if}
-	</div>
+	</DetailSection>
 </div>

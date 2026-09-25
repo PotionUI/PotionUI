@@ -6,16 +6,26 @@
 	import { pluginStore, plugins, frontendHooks, loading, error, pendingPluginIds, type Plugin, type PluginSettingSchema } from '$lib/stores/plugins';
 	import { authStore } from '$lib/stores/auth';
 	import { Button, Badge, Spinner, Input, EmptyState, Switch, Alert } from '$lib/components/ui';
-	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
+	import {
+		DetailHeader,
+		DetailTabs,
+		DetailBody,
+		DetailLayout,
+		DetailSection,
+		DetailFooter,
+		KVGrid,
+		KVItem,
+		DETAIL_INSET_CLASS
+	} from '$lib/components/detail';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
 	import LibraryDensityToggle from '$lib/components/library/LibraryDensityToggle.svelte';
 	import { libraryCardDensity } from '$lib/components/library/libraryCardDensity';
 	import Icon from '$lib/components/Icon.svelte';
-	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 	import { refreshPluginExtensions } from '$lib/plugin-api/extensionRefresh';
 	import { pluginDetailTabsFor, isPluginDetailTab, hasHiddenAdminTabs, ADMIN_PLUGIN_TABS_HOOK, type PluginDetailTabId } from './pluginDetailTabs';
+	import { resolveCategory } from '$lib/plugins/categories';
 	import { PLUGIN_SECTIONS, pluginSectionFromSearchParams, type PluginSection } from './plugins/pluginSections';
 	import PluginFiltersPopover from './plugins/PluginFiltersPopover.svelte';
 	import PluginCard from './plugins/PluginCard.svelte';
@@ -38,6 +48,7 @@
 	let detailLoading = $state(false);
 	let loadedDetailId = $state<string | null>(null);
 	let settingsValues = $state<Record<string, any>>({});
+	let settingsSnapshot = $state('{}');
 	let saving = $state(false);
 	let scanning = $state(false);
 	let scanResult = $state<{ newPlugins: number; updatedPlugins: number } | null>(null);
@@ -68,6 +79,23 @@
 	const adminTabHooks = $derived($frontendHooks[ADMIN_PLUGIN_TABS_HOOK] ?? []);
 	const detailTabs = $derived(liveSelected ? pluginDetailTabsFor(liveSelected, adminTabHooks, $authStore.user?.account_type) : []);
 	const showHiddenAdminTabsHint = $derived(liveSelected ? hasHiddenAdminTabs(liveSelected.hooks, liveSelected.enabled) : false);
+	const pluginIcon = $derived(liveSelected ? resolveCategory(liveSelected.category).icon : undefined);
+	const pluginChips = $derived(
+		liveSelected
+			? [
+					...(liveSelected.shadows ? [{ key: 'shadows', label: 'SHADOWS MARKETPLACE COPY', tone: 'warning' as const }] : []),
+					...(liveSelected.state === 'error' ? [{ key: 'error', label: 'ERROR', tone: 'danger' as const }] : []),
+					{ key: 'version', label: `v${liveSelected.version}`, tone: 'neutral' as const },
+					{ key: 'type', label: liveSelected.type.toUpperCase(), tone: 'neutral' as const },
+					...(liveSelected.source ? [{ key: 'source', label: liveSelected.source.toUpperCase(), tone: 'neutral' as const }] : [])
+				]
+			: []
+	);
+	const settingsDirtyKeys = $derived.by(() => {
+		const before = JSON.parse(settingsSnapshot) as Record<string, any>;
+		const keys = new Set([...Object.keys(before), ...Object.keys(settingsValues)]);
+		return [...keys].filter((k) => JSON.stringify(settingsValues[k]) !== JSON.stringify(before[k]));
+	});
 	const activeContributedTab = $derived(detailTabs.find((t) => t.id === detailTab && t.componentPath));
 	const activeTabComponentPromise = $derived(
 		activeContributedTab && liveSelected
@@ -127,6 +155,7 @@
 			if (!(s.name in values) && s.default !== undefined) values[s.name] = s.default;
 		}
 		settingsValues = values;
+		settingsSnapshot = JSON.stringify(values);
 	}
 
 	async function saveSettings() {
@@ -138,7 +167,7 @@
 			const pluginDetails = await pluginStore.getPluginDetails(selectedPlugin.id);
 			if (pluginDetails) {
 				selectedPlugin = pluginDetails;
-				settingsValues = { ...(pluginDetails.settings_values || {}) };
+				initSettingsValues(pluginDetails);
 			}
 		}
 	}
@@ -284,23 +313,8 @@
 							<Spinner size="lg" />
 						</div>
 					{:else if liveSelected}
-						<DetailHeader title={liveSelected.name} backLabel="Plugins" onBack={backToList}>
-							{#snippet chips()}
-								<Badge variant="neutral" size="sm" class="font-mono tabular-nums">v{liveSelected.version}</Badge>
-								<Badge variant="neutral" size="sm" class="font-mono uppercase">{liveSelected.type}</Badge>
-								{#if liveSelected.source}
-									<Badge variant="neutral" size="sm" class="font-mono uppercase">{liveSelected.source}</Badge>
-								{/if}
-								{#if liveSelected.state === 'error'}
-									<Badge variant="danger" size="sm" dot class="uppercase">Error</Badge>
-								{/if}
-								{#if liveSelected.shadows}
-									<Tooltip text="Shadows marketplace copy at {liveSelected.shadows}">
-										<Badge variant="warning" size="sm">SHADOWS MARKETPLACE COPY</Badge>
-									</Tooltip>
-								{/if}
-							{/snippet}
-							{#snippet actions()}
+						<DetailHeader title={liveSelected.name} icon={pluginIcon} backLabel="Plugins" onBack={backToList} chipItems={pluginChips}>
+							{#snippet enabledSwitch()}
 								<Switch
 									checked={liveSelected.enabled}
 									busy={$pendingPluginIds.has(liveSelected.id)}
@@ -379,7 +393,7 @@
 									<DetailSection label="Registered Hooks">
 										<div class="space-y-2">
 											{#each liveSelected.hooks as hook}
-												<div class="bg-surface-2 rounded-lg p-3 border border-line">
+												<div class="p-3 {DETAIL_INSET_CLASS}">
 													<div class="flex items-center justify-between mb-1 gap-2">
 														<span class="font-medium text-sm text-fg truncate">{hook.hook_name}</span>
 														<Badge variant={hook.hook_type === 'frontend' ? 'signal' : 'neutral'} size="sm" class="uppercase flex-shrink-0">
@@ -424,7 +438,7 @@
 										>
 											{#each liveSelected.settings_schema as schema}
 												{#if schema.type === 'info'}
-													<div class="rounded-lg border border-line bg-surface-2 p-4">
+													<div class="p-4 {DETAIL_INSET_CLASS}">
 														<div class="flex items-start gap-3">
 															<Icon name="info" className="mt-0.5 h-4 w-4 flex-shrink-0 text-fg-subtle" />
 															<div class="min-w-0 flex-1">
@@ -473,9 +487,7 @@
 											{/each}
 										</form>
 									{:else}
-										<div class="bg-surface-2 rounded-lg p-4 text-center text-sm text-fg-subtle">
-											This plugin has no configurable settings
-										</div>
+										<EmptyState icon="settings" title="No configurable settings" compact />
 									{/if}
 								</DetailSection>
 								{/snippet}
@@ -506,12 +518,12 @@
 						{/if}
 
 						{#if detailTab === 'settings' && liveSelected.settings_schema && liveSelected.settings_schema.length > 0}
-							<DetailFooter>
-								<Button type="button" variant="ghost" size="sm" onclick={resetSettings}>Reset</Button>
-								<Button type="button" variant="primary" size="sm" loading={saving} onclick={saveSettings}>
-									{saving ? 'Saving...' : 'Save Settings'}
-								</Button>
-							</DetailFooter>
+							<DetailFooter
+								dirtyCount={settingsDirtyKeys.length}
+								{saving}
+								onSave={saveSettings}
+								onDiscard={resetSettings}
+							/>
 						{/if}
 					{:else}
 						<div class="flex h-full items-center justify-center">

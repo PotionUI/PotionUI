@@ -5,6 +5,7 @@
 	export let modelId: string = '';
 	export let modelType: string = '';
 	export let createdAt: string | null | undefined = undefined;
+	export let bare: boolean = false;
 
 	$: rows = [
 		{ label: 'Model ID', value: `${modelId.slice(0, 8)}...`, copyValue: modelId, copyLabel: 'Copy model ID' },
@@ -13,4 +14,4 @@
 	] satisfies MetadataRow[];
 </script>
 
-<MetadataCard icon="information-circle" iconClass="text-info" title="Information" {rows} />
+<MetadataCard icon="information-circle" iconClass="text-info" title="Information" {rows} {bare} />

@@ -33,10 +33,7 @@ test('admin can assign a group to an LLM configuration from its detail pane', as
 
 	await page.goto('/admin?tab=llm');
 
-	const configList = page.locator('[role="listbox"][aria-label="LLM configurations"]');
-	await expect(configList).toBeVisible({ timeout: 15000 });
-
-	const configOption = configList.getByRole('option').filter({ hasText: configName });
+	const configOption = page.getByRole('row').filter({ hasText: configName });
 	await expect(configOption).toBeVisible({ timeout: 15000 });
 
 	// A freshly created, unassigned configuration carries the warning badge.
@@ -70,8 +67,8 @@ test('admin can assign a group to an LLM configuration from its detail pane', as
 
 	// Reload: the toggle must have actually persisted server-side, not just in local state.
 	await page.goto('/admin?tab=llm');
-	await expect(configList).toBeVisible({ timeout: 15000 });
-	await configList.getByRole('option').filter({ hasText: configName }).click();
+	await expect(page.getByRole('row').filter({ hasText: configName })).toBeVisible({ timeout: 15000 });
+	await page.getByRole('row').filter({ hasText: configName }).click();
 	await page.locator('nav[aria-label="LLM configuration details"]').getByRole('button', { name: /Access/ }).click();
 	await expect(assignmentCard).toBeVisible({ timeout: 15000 });
 	await assignmentCard.locator('nav[aria-label="Access type"]').getByRole('button', { name: /Groups/ }).click();

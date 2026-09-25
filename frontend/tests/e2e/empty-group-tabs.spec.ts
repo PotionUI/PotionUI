@@ -28,13 +28,11 @@ test('empty group Presets tab settles without a request loop', async ({ page }) 
 	const groupId = (await created.json())?.data?.id as string;
 	expect(groupId, 'group create returned an id').toBeTruthy();
 
-	// Admin → Users tab → Groups sub-view.
 	await page.goto('/admin?tab=users');
-	await page.locator('nav[aria-label="Users / Groups views"]').getByRole('button', { name: /Groups/ }).click();
+	await page.locator('[role="listbox"][aria-label="Users sections"]').getByText('Groups', { exact: true }).click();
 
-	const groupList = page.locator('[role="listbox"][aria-label="Groups"]');
-	await expect(groupList).toBeVisible({ timeout: 15000 });
-	await groupList.getByText(groupName, { exact: true }).click();
+	await expect(page.getByText(groupName, { exact: true }).first()).toBeVisible({ timeout: 15000 });
+	await page.getByText(groupName, { exact: true }).first().click();
 
 	// Group detail → Presets tab.
 	const detailTabs = page.locator('nav[aria-label="Group details"]');

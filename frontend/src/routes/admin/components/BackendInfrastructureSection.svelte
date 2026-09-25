@@ -461,22 +461,9 @@
 					</div>
 				{/if}
 				{@render timeline(row.progress, true)}
-				<div class="flex items-center justify-end">
-					<Button variant="danger" size="sm" icon="trash" disabled={acting} onclick={requestTerminate}>
-						Terminate
-					</Button>
-				</div>
 			{:else if row.status === 'failed'}
 				<Alert variant="danger" density="compact" title="Provisioning failed">
 					{row.status_detail}
-					{#snippet actions()}
-						<div class="flex items-center gap-2">
-							<Button variant="secondary" size="sm" onclick={startReprovision}>Provision again</Button>
-							<Button variant="danger" size="sm" icon="trash" disabled={acting} onclick={requestTerminate}>
-								Terminate
-							</Button>
-						</div>
-					{/snippet}
 				</Alert>
 				{@render timeline(row.progress, false, 'danger')}
 			{:else}
@@ -532,35 +519,46 @@
 					</div>
 				{/if}
 
-				<div class="flex items-center justify-end gap-2">
-					{#if canStart(row.status)}
-						<Button
-							variant="secondary"
-							size="sm"
-							icon="play"
-							loading={starting}
-							disabled={acting || starting}
-							onclick={startCompute}
-						>
-							Start
-						</Button>
-					{:else}
-						<Button
-							variant="secondary"
-							size="sm"
-							icon="pause"
-							disabled={acting || row.status !== 'running'}
-							onclick={requestStop}
-						>
-							Stop
-						</Button>
-					{/if}
-					<Button variant="danger" size="sm" icon="trash" disabled={acting || starting} onclick={requestTerminate}>
-						Terminate
-					</Button>
-				</div>
 			{/if}
 		</div>
+		{#snippet footer()}
+			{#if isBringingUp(row!.status)}
+				<Button variant="danger" size="sm" icon="trash" disabled={acting} onclick={requestTerminate}>
+					Terminate
+				</Button>
+			{:else if row!.status === 'failed'}
+				<Button variant="secondary" size="sm" onclick={startReprovision}>Provision again</Button>
+				<Button variant="danger" size="sm" icon="trash" disabled={acting} onclick={requestTerminate}>
+					Terminate
+				</Button>
+			{:else}
+				{#if canStart(row!.status)}
+					<Button
+						variant="secondary"
+						size="sm"
+						icon="play"
+						loading={starting}
+						disabled={acting || starting}
+						onclick={startCompute}
+					>
+						Start
+					</Button>
+				{:else}
+					<Button
+						variant="secondary"
+						size="sm"
+						icon="pause"
+						disabled={acting || row!.status !== 'running'}
+						onclick={requestStop}
+					>
+						Stop
+					</Button>
+				{/if}
+				<Button variant="danger" size="sm" icon="trash" disabled={acting || starting} onclick={requestTerminate}>
+					Terminate
+				</Button>
+			{/if}
+		{/snippet}
 	</DetailSection>
 
 	<ConfirmModal
@@ -672,13 +670,14 @@
 						{#if field.help_text}<p class="text-xs text-fg-subtle mt-1">{field.help_text}</p>{/if}
 					</div>
 				{/each}
-
-				<div class="flex items-center justify-end">
-					<Button variant="primary" size="sm" loading={provisioning} disabled={!canProvision} onclick={submitProvision}>
-						{provisioning ? 'Provisioning…' : 'Provision'}
-					</Button>
-				</div>
 			{/if}
 		</div>
+		{#snippet footer()}
+			{#if !providersLoading && providers.length > 0}
+				<Button variant="primary" size="sm" loading={provisioning} disabled={!canProvision} onclick={submitProvision}>
+					{provisioning ? 'Provisioning…' : 'Provision'}
+				</Button>
+			{/if}
+		{/snippet}
 	</DetailSection>
 {/if}

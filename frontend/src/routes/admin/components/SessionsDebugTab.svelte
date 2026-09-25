@@ -1,66 +1,123 @@
 <script lang="ts">
-	import Card from '$lib/components/ui/Card.svelte';
-	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { logger } from '$lib/utils/logger';
-	import { onMount } from 'svelte';
-	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
 	import * as adminApi from '$lib/services/admin-api';
 	import type {
 		AdminChatSessionSummary,
 		AdminChatSessionDetailResult,
 		AdminChatCallTrace,
 		AdminChatMessage,
-		AdminChatToolExecution,
 		AdminChatBehaviorTrace
 	} from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
-	import { debounce } from '$lib/stores/tabPersistence';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, Badge, EmptyState, Spinner, Alert } from '$lib/components/ui';
-	import MasterDetailLayout from '$lib/components/master-detail/MasterDetailLayout.svelte';
-	import { Pane, PaneRow, PanePager } from '$lib/components/pane';
-	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
-	import AdminTabShell from './AdminTabShell.svelte';
-	import {
-		SESSIONS_SORT_OPTIONS,
-		sessionsFiltersFromSearchParams,
-		sessionsFiltersToSearchParams,
-		type SessionsFilters
-	} from './sessionsFilters';
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { Badge, EmptyState, Spinner, IconButton } from '$lib/components/ui';
+	import { DetailHeader, DetailBody, DetailLayout, DetailSection, KVGrid, KVItem } from '$lib/components/detail';
+	import { sectionBoxClass } from '$lib/components/detail/detailSection';
+	import { DataTable, TablePager, pageCount, clampPage } from '$lib/components/table';
+	import { selectPage, clearAll } from '$lib/components/table/selection';
+	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
+	import { DEFAULT_SESSIONS_FILTERS, type SessionsFilters } from './sessionsFilters';
+	import { summarizeBulkOutcome, bulkOutcomeMessage } from './llm/bulkResult';
 
-	const PAGE_SIZE = 20;
-	const FILTER_PARAM_KEYS = ['q', 'sort_by'];
+	const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 
-	let sessions: AdminChatSessionSummary[] = [];
-	let total = 0;
-	let offset = 0;
-	let listLoading = true;
-	let listError: string | null = null;
-	let tracingEnabled = true;
-	let lastFiltersKey = '';
+	let {
+		filters = DEFAULT_SESSIONS_FILTERS,
+		total = $bindable(0),
+		detailOpen = $bindable(false),
+		clearingScope = $bindable<'session' | 'all' | 'sessions' | null>(null)
+	}: {
+		filters?: SessionsFilters;
+		total?: number;
+		detailOpen?: boolean;
+		clearingScope?: 'session' | 'all' | 'sessions' | null;
+	} = $props();
 
-	let selectedSessionId: string | null = null;
-	let detail: AdminChatSessionDetailResult | null = null;
-	let detailLoading = false;
-	let detailError: string | null = null;
+	let sessions = $state<AdminChatSessionSummary[]>([]);
+	let offset = $state(0);
+	let pageSize = $state<number>(PAGE_SIZE_OPTIONS[0]);
+	let listLoading = $state(true);
+	let listError = $state<string | null>(null);
+	let tracingEnabled = $state(true);
+	let lastFiltersKey = $state('');
+	let selected = $state<Set<string>>(new Set());
 
-	let expandedTraces: Record<string, boolean> = {};
+	let selectedSessionId = $state<string | null>(null);
+	let detail = $state<AdminChatSessionDetailResult | null>(null);
+	let detailLoading = $state(false);
+	let detailError = $state<string | null>(null);
 
-	let expandedSections: Record<string, boolean> = {};
+	let expandedTraces = $state<Record<string, boolean>>({});
+	let expandedSections = $state<Record<string, boolean>>({});
 
-	let clearingScope: 'session' | 'all' | 'sessions' | null = null;
+	const page = $derived(Math.floor(offset / pageSize) + 1);
+	const pageCountValue = $derived(pageCount(total, pageSize));
+	const unattributedTraces = $derived(detail ? detail.traces.filter((t) => t.message_id === null) : []);
+	const sessionHasNoTraces = $derived(detail ? detail.traces.length === 0 : false);
 
-	$: filters = sessionsFiltersFromSearchParams($page.url.searchParams);
-	$: filtersKey = JSON.stringify(filters);
+	$effect(() => {
+		detailOpen = !!selectedSessionId;
+	});
 
-	$: {
-		if (filtersKey !== lastFiltersKey) {
-			lastFiltersKey = filtersKey;
+	$effect(() => {
+		const key = JSON.stringify(filters);
+		if (key !== lastFiltersKey) {
+			lastFiltersKey = key;
 			offset = 0;
 			loadSessions();
+		}
+	});
+
+	export async function clearAllTraces() {
+		const confirmed = await confirmDialog({
+			title: 'Clear LLM call traces for ALL sessions?',
+			message: 'This cannot be undone.',
+			variant: 'danger'
+		});
+		if (!confirmed) return;
+		clearingScope = 'all';
+		try {
+			const result = await adminApi.clearChatCallTraces();
+			if (result.success) {
+				toasts.success(`Cleared ${result.data?.deleted ?? 0} trace(s)`);
+				if (selectedSessionId) await selectSession(selectedSessionId);
+			} else {
+				toasts.error(result.message || 'Failed to clear traces');
+			}
+		} catch (e: any) {
+			logger.error('Failed to clear all traces:', e);
+			toasts.error(e.response?.data?.message || e.message || 'Failed to clear traces');
+		} finally {
+			clearingScope = null;
+		}
+	}
+
+	export async function clearAllSessions() {
+		const confirmed = await confirmDialog({
+			title: 'Delete ALL chat sessions?',
+			message: `Every conversation of every user will be deleted. Memory notes stay. This cannot be undone.`,
+			variant: 'danger'
+		});
+		if (!confirmed) return;
+		clearingScope = 'sessions';
+		try {
+			const result = await adminApi.clearAdminChatSessions();
+			if (result.success) {
+				toasts.success(`Deleted ${result.data?.deleted ?? 0} session(s)`);
+				selectedSessionId = null;
+				detail = null;
+				await loadSessions();
+			} else {
+				toasts.error(result.message || 'Failed to clear chat sessions');
+			}
+		} catch (e: any) {
+			logger.error('Failed to clear chat sessions:', e);
+			toasts.error(e.response?.data?.message || e.message || 'Failed to clear chat sessions');
+		} finally {
+			clearingScope = null;
 		}
 	}
 
@@ -68,7 +125,7 @@
 		listLoading = true;
 		listError = null;
 		try {
-			const response = await adminApi.getAdminChatSessions(filters.q, PAGE_SIZE, offset);
+			const response = await adminApi.getAdminChatSessions(filters.q, pageSize, offset);
 			if (response.success && response.data) {
 				sessions = response.data.sessions;
 				total = response.data.total;
@@ -83,32 +140,14 @@
 		}
 	}
 
-	function applyFilters(next: SessionsFilters) {
-		const url = new URL($page.url);
-		for (const key of FILTER_PARAM_KEYS) url.searchParams.delete(key);
-		for (const [key, value] of sessionsFiltersToSearchParams(next)) url.searchParams.set(key, value);
-		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
-	}
-
-	const debouncedApplyFilters = debounce(applyFilters, 300);
-
-	function onQueryChange(value: string) {
-		debouncedApplyFilters({ ...filters, q: value });
-	}
-
-	function onSortChange(value: string) {
-		applyFilters({ ...filters, sortBy: value as SessionsFilters['sortBy'] });
-	}
-
-	function nextPage() {
-		if (offset + PAGE_SIZE >= total) return;
-		offset += PAGE_SIZE;
+	function onPageChange(next: number) {
+		offset = (clampPage(next, pageCountValue) - 1) * pageSize;
 		loadSessions();
 	}
 
-	function prevPage() {
-		if (offset === 0) return;
-		offset = Math.max(0, offset - PAGE_SIZE);
+	function onPageSizeChange(next: number) {
+		pageSize = next;
+		offset = 0;
 		loadSessions();
 	}
 
@@ -132,6 +171,11 @@
 		}
 	}
 
+	function backToList() {
+		selectedSessionId = null;
+		detail = null;
+	}
+
 	function toggleTrace(traceId: string) {
 		expandedTraces = { ...expandedTraces, [traceId]: !expandedTraces[traceId] };
 	}
@@ -144,9 +188,6 @@
 		if (!detail) return [];
 		return detail.traces.filter((t) => t.message_id === messageId);
 	}
-
-	$: unattributedTraces = detail ? detail.traces.filter((t) => t.message_id === null) : [];
-	$: sessionHasNoTraces = detail ? detail.traces.length === 0 : false;
 
 	async function clearSessionTraces() {
 		if (!selectedSessionId) return;
@@ -173,54 +214,43 @@
 		}
 	}
 
-	async function clearAllTraces() {
-		const confirmed = await confirmDialog({
-			title: 'Clear LLM call traces for ALL sessions?',
+	async function bulkClearTraces() {
+		const ids = [...selected];
+		if (!ids.length) return;
+		if (!(await confirmDialog({
+			title: `Clear traces for ${ids.length} session${ids.length === 1 ? '' : 's'}?`,
 			message: 'This cannot be undone.',
 			variant: 'danger'
-		});
-		if (!confirmed) return;
-		clearingScope = 'all';
-		try {
-			const result = await adminApi.clearChatCallTraces();
-			if (result.success) {
-				toasts.success(`Cleared ${result.data?.deleted ?? 0} trace(s)`);
-				if (selectedSessionId) await selectSession(selectedSessionId);
-			} else {
-				toasts.error(result.message || 'Failed to clear traces');
-			}
-		} catch (e: any) {
-			logger.error('Failed to clear all traces:', e);
-			toasts.error(e.response?.data?.message || e.message || 'Failed to clear traces');
-		} finally {
-			clearingScope = null;
-		}
+		}))) return;
+		const results = await Promise.allSettled(ids.map((id) => adminApi.clearChatCallTraces(id)));
+		const outcome = summarizeBulkOutcome(results);
+		const { ok, text } = bulkOutcomeMessage(outcome, 'cleared', 'session');
+		if (text) (ok ? toasts.success : toasts.error)(text);
+		selected = new Set();
+		if (selectedSessionId && ids.includes(selectedSessionId)) await selectSession(selectedSessionId);
 	}
 
-	async function clearAllSessions() {
-		const confirmed = await confirmDialog({
-			title: 'Delete ALL chat sessions?',
-			message: `Every conversation of every user will be deleted. Memory notes stay. This cannot be undone.`,
+	async function bulkDeleteSessions() {
+		const ids = [...selected];
+		if (!ids.length) return;
+		if (!(await confirmDialog({
+			title: `Delete ${ids.length} session${ids.length === 1 ? '' : 's'}?`,
+			message: 'Every message in the selected sessions will be deleted. This cannot be undone.',
 			variant: 'danger'
-		});
-		if (!confirmed) return;
-		clearingScope = 'sessions';
+		}))) return;
+		let succeeded = 0;
 		try {
-			const result = await adminApi.clearAdminChatSessions();
-			if (result.success) {
-				toasts.success(`Deleted ${result.data?.deleted ?? 0} session(s)`);
-				selectedSessionId = null;
-				detail = null;
-				await loadSessions();
-			} else {
-				toasts.error(result.message || 'Failed to clear chat sessions');
-			}
-		} catch (e: any) {
-			logger.error('Failed to clear chat sessions:', e);
-			toasts.error(e.response?.data?.message || e.message || 'Failed to clear chat sessions');
-		} finally {
-			clearingScope = null;
+			const response = await adminApi.adminBulkDeleteChatSessions(ids);
+			if (response.success && response.data) succeeded = response.data.deleted_count;
+		} catch (e) {
+			logger.error('Failed to bulk delete chat sessions:', e);
 		}
+		const outcome = { total: ids.length, succeeded, failed: ids.length - succeeded };
+		const { ok, text } = bulkOutcomeMessage(outcome, 'deleted', 'session');
+		if (text) (ok ? toasts.success : toasts.error)(text);
+		if (selectedSessionId && ids.includes(selectedSessionId)) backToList();
+		selected = new Set();
+		await loadSessions();
 	}
 
 	function pretty(value: unknown): string {
@@ -234,10 +264,18 @@
 	}
 </script>
 
-<div class="flex min-h-[calc(100dvh-var(--header-h)-2rem)] flex-col gap-4 sm:min-h-[calc(100dvh-var(--header-h)-3rem)]">
+{#snippet userCell(row: AdminChatSessionSummary)}
+	<Tooltip text={row.email}><span class="truncate">{row.username}</span></Tooltip>
+{/snippet}
+
+{#snippet modeCell(row: AdminChatSessionSummary)}
+	<Badge variant="neutral" size="sm" class="font-mono uppercase">{row.mode}</Badge>
+{/snippet}
+
+<div class="h-full min-h-0 flex flex-col">
 	{#if !listLoading && !tracingEnabled}
 		<div
-			class="flex-shrink-0 flex items-center gap-2 rounded-lg border border-warning bg-warning/10 px-3 py-2 text-sm text-warning"
+			class="flex-shrink-0 flex items-center gap-2 border-b border-line bg-warning/10 px-4 py-2 text-sm text-warning"
 		>
 			<Icon name="warning" className="w-4 h-4 flex-shrink-0" />
 			<span>
@@ -248,159 +286,52 @@
 		</div>
 	{/if}
 
-	<AdminTabShell
-		title="Chat Sessions"
-		icon="chat"
-		counts={[{ label: total === 1 ? 'session' : 'sessions', value: total }]}
-	>
-		{#snippet actions()}
-			<Button
-				variant="danger"
-				size="sm"
-				loading={clearingScope === 'all'}
-				onclick={clearAllTraces}
-			>
-				Clear all traces
-			</Button>
-			<Button
-				variant="danger"
-				size="sm"
-				loading={clearingScope === 'sessions'}
-				disabled={total === 0}
-				onclick={clearAllSessions}
-			>
-				Clear chat history
-			</Button>
-		{/snippet}
-	</AdminTabShell>
-
-	<Card padding="none" class="flex flex-wrap items-center gap-2 px-4 py-2.5">
-		<LibraryFilterBar
-			q={filters.q}
-			{onQueryChange}
-			searchPlaceholder="Search name, user, email…"
-			sortBy={filters.sortBy}
-			sortOptions={SESSIONS_SORT_OPTIONS}
-			{onSortChange}
-		/>
-	</Card>
-
-	<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
-		<MasterDetailLayout leftWidth={320} minWidth={280} maxWidth={440} storageKey="admin-chat-sessions-width">
-			<div slot="list" class="h-full min-h-0">
-				<Pane
-					label="Sessions"
-					count={total}
-					loading={listLoading}
-					isEmpty={!listLoading && (Boolean(listError) || sessions.length === 0)}
-					bodyRole="listbox"
-					ariaLabel="Chat sessions"
-				>
-					{#snippet empty()}
-						<div class="p-4 h-full flex items-center justify-center">
-							{#if listError}
-								<EmptyState title="Could not load sessions" description={listError} icon="warning" compact />
-							{:else}
-								<EmptyState
-									icon="chat"
-									title={filters.q.trim() ? 'No sessions match your search' : 'No chat sessions yet'}
-									description={filters.q.trim()
-										? 'Try a different name, user, or email.'
-										: 'Chat sessions show up here once someone starts a conversation.'}
-									compact
-								/>
-							{/if}
-						</div>
-					{/snippet}
-
-					{#snippet children()}
-						{#each sessions as session (session.id)}
-							{#snippet sessionRow()}
-								<div class="flex items-center justify-between gap-2 mb-1">
-									<span class="text-sm font-medium truncate text-fg">{session.name || 'Untitled'}</span>
-									<Badge variant="neutral" size="sm" class="font-mono uppercase flex-shrink-0">
-										{session.mode}
-									</Badge>
-								</div>
-								<div class="flex items-center justify-between gap-2 text-xs text-fg-subtle">
-									<Tooltip text={session.email} wrapperClass="flex min-w-0"><span class="truncate">{session.username}</span></Tooltip>
-									<span class="font-mono tabular-nums flex-shrink-0">
-										{timeAgo(session.updated_at)}
-									</span>
-								</div>
-								<div class="text-xs font-mono tabular-nums text-fg-subtle mt-0.5">
-									{session.message_count} msg{session.message_count === 1 ? '' : 's'}
-								</div>
-							{/snippet}
-							<PaneRow
-								selected={selectedSessionId === session.id}
-								onclick={() => selectSession(session.id)}
-								children={sessionRow}
-							/>
-						{/each}
-					{/snippet}
-
-					{#snippet footer()}
-						<PanePager {offset} limit={PAGE_SIZE} {total} onPrev={prevPage} onNext={nextPage} />
-					{/snippet}
-				</Pane>
+	{#if selectedSessionId}
+		{#if detailLoading}
+			<div class="flex-1 flex items-center justify-center">
+				<Spinner size="lg" />
 			</div>
-
-			<div slot="detail" class="h-full min-h-0 flex flex-col overflow-y-auto">
-				{#if !selectedSessionId}
-					<div class="flex-1 p-5 flex items-center justify-center">
-						<EmptyState
-							icon="chat"
-							title="Select a session"
-							description="Choose a session from the list to inspect its LLM calls."
-							compact
+		{:else if detailError}
+			<div class="flex-1 p-5 flex items-center justify-center">
+				<EmptyState title="Could not load session" description={detailError} icon="warning" compact />
+			</div>
+		{:else if detail}
+			{@const sessionDetail = detail}
+			<DetailHeader title={sessionDetail.session.name || 'Untitled'} icon="chat" backLabel="Sessions" onBack={backToList}>
+				{#snippet subtitle()}{sessionDetail.session.username} · {timeAgo(sessionDetail.session.updated_at)}{/snippet}
+				{#snippet chips()}
+					<Badge variant="neutral" size="sm" class="font-mono uppercase">{sessionDetail.session.mode}</Badge>
+				{/snippet}
+				{#snippet actions()}
+					<Tooltip text="Clear this session's traces">
+						<IconButton
+							icon="trash"
+							label="Clear this session's traces"
+							class="text-danger hover:text-danger hover:bg-danger/10"
+							disabled={clearingScope !== null}
+							onclick={clearSessionTraces}
 						/>
-					</div>
-				{:else if detailLoading}
-					<div class="flex-1 flex items-center justify-center">
-						<Spinner size="lg" />
-					</div>
-				{:else if detailError}
-					<div class="flex-1 p-5 flex items-center justify-center">
-						<EmptyState title="Could not load session" description={detailError} icon="warning" compact />
-					</div>
-				{:else if detail}
-					<div class="p-4 sm:p-5 space-y-4">
-						<div class="flex items-start justify-between gap-3 pb-3 border-b border-line">
-							<div>
-								<h2 class="text-base font-semibold text-fg">{detail.session.name || 'Untitled'}</h2>
-								<div class="flex items-center gap-2 mt-1 text-xs text-fg-subtle">
-									<span>{detail.session.username} ({detail.session.email})</span>
-									<span>·</span>
-									<Badge variant="neutral" size="sm" class="font-mono uppercase">
-										{detail.session.mode}
-									</Badge>
-									<span>·</span>
-									<Badge variant="neutral" size="sm" class="uppercase">{detail.session.status}</Badge>
-								</div>
-							</div>
-							<Button
-								variant="danger"
-								size="sm"
-								loading={clearingScope === 'session'}
-								onclick={clearSessionTraces}
-							>
-								Clear this session's traces
-							</Button>
-						</div>
+					</Tooltip>
+				{/snippet}
+			</DetailHeader>
 
+			<DetailBody>
+				<DetailLayout>
+					{#snippet main()}
 						{#if sessionHasNoTraces}
-							<p class="text-xs text-fg-subtle">
-								No wire-level call traces for this session — traces are recorded only for turns
-								sent while call tracing is enabled.
-							</p>
+							<EmptyState
+								icon="chat"
+								title="No wire-level call traces"
+								description="Traces are recorded only for turns sent while call tracing is enabled."
+								compact
+							/>
 						{/if}
 
-						{#each detail.session.messages as message (message.id)}
+						{#each sessionDetail.session.messages as message (message.id)}
 							{@const traces = tracesForMessage(message.id)}
 							{@const metadata = message.metadata}
-							<div class="border border-line rounded-lg overflow-hidden">
-								<div class="px-3 py-2 bg-surface-2 flex items-center justify-between">
+							<div id="message-{message.id}" class={sectionBoxClass(false)}>
+								<div class="px-3 py-2 border-b border-line flex items-center justify-between">
 									<Badge variant={message.role === 'user' ? 'signal' : 'neutral'} size="sm" class="uppercase">
 										{message.role}
 									</Badge>
@@ -429,22 +360,115 @@
 						{/each}
 
 						{#if unattributedTraces.length > 0}
-							<div>
-								<h3 class="text-xs font-mono uppercase tracking-[0.07em] text-fg-subtle mb-2">
-									Unattributed calls
-								</h3>
+							<DetailSection label="Unattributed calls">
 								<div class="space-y-2">
 									{#each unattributedTraces as trace (trace.id)}
 										{@render traceCard(trace)}
 									{/each}
 								</div>
-							</div>
+							</DetailSection>
 						{/if}
-					</div>
-				{/if}
-			</div>
-		</MasterDetailLayout>
-	</section>
+					{/snippet}
+
+					{#snippet aside()}
+						<DetailSection label="Contents">
+							{#if sessionDetail.session.messages.length === 0}
+								<EmptyState icon="chat" title="No messages" description="This session has no messages yet." compact />
+							{:else}
+								<nav class="space-y-1">
+									{#each sessionDetail.session.messages as message, i (message.id)}
+										{@const messageTraces = tracesForMessage(message.id)}
+										<a
+											href="#message-{message.id}"
+											class="block truncate text-xs text-fg-muted hover:text-fg"
+										>
+											{i + 1}. {message.role}{messageTraces.length ? ` (${messageTraces.length} call${messageTraces.length === 1 ? '' : 's'})` : ''}
+										</a>
+									{/each}
+								</nav>
+							{/if}
+						</DetailSection>
+						<DetailSection label="Session">
+							<KVGrid>
+								<KVItem label="ID" mono full>{sessionDetail.session.id}</KVItem>
+								<KVItem label="Status">{sessionDetail.session.status}</KVItem>
+								{#if sessionDetail.session.llm_config_id}
+									<KVItem label="LLM config" mono full>{sessionDetail.session.llm_config_id}</KVItem>
+								{/if}
+								<KVItem label="Created" mono>{sessionDetail.session.created_at}</KVItem>
+							</KVGrid>
+						</DetailSection>
+					{/snippet}
+				</DetailLayout>
+			</DetailBody>
+		{/if}
+	{:else}
+		<div class="flex flex-col gap-3 p-4">
+			<SelectionActionBar
+				active={selected.size > 0}
+				selectedCount={selected.size}
+				totalCount={sessions.length}
+				onSelectAll={() => (selected = selectPage(selected, sessions.map((s) => s.id)))}
+				onClearSelection={() => (selected = clearAll())}
+				onClose={() => (selected = clearAll())}
+			>
+				<svelte:fragment slot="actionsBeforeCollection">
+					<button
+						class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors"
+						onclick={bulkClearTraces}
+					>
+						Clear traces
+					</button>
+					<button
+						class="px-4 py-1.5 bg-danger-solid text-white text-sm rounded hover:bg-danger-solid/90 transition-colors font-medium"
+						onclick={bulkDeleteSessions}
+					>
+						Delete
+					</button>
+				</svelte:fragment>
+			</SelectionActionBar>
+			<DataTable
+				columns={[
+					{ key: 'name', label: 'Name', width: 'minmax(160px,1.6fr)', accessor: (r) => r.name || 'Untitled' },
+					{ key: 'user', label: 'User', width: 'minmax(120px,1.2fr)', priority: 1, cell: userCell },
+					{ key: 'mode', label: 'Mode', width: '110px', cell: modeCell },
+					{ key: 'messages', label: 'Messages', width: '100px', mono: true, priority: 1, accessor: (r) => r.message_count },
+					{ key: 'updated', label: 'Updated', width: '120px', mono: true, accessor: (r) => timeAgo(r.updated_at) }
+				]}
+				rows={sessions}
+				getRowId={(r) => r.id}
+				loading={listLoading}
+				selected={selected}
+				onSelectedChange={(next) => (selected = next)}
+				onRowClick={(r) => selectSession(r.id)}
+				isFiltered={!!filters.q.trim()}
+			>
+				{#snippet emptyState()}
+					{#if listError}
+						<EmptyState title="Could not load sessions" description={listError} icon="warning" compact />
+					{:else}
+						<EmptyState
+							icon="chat"
+							title="No chat sessions yet"
+							description="Chat sessions show up here once someone starts a conversation."
+							compact
+						/>
+					{/if}
+				{/snippet}
+				{#snippet filteredEmptyState()}
+					<EmptyState icon="search" title="No sessions match your search" description="Try a different name, user, or email." compact />
+				{/snippet}
+			</DataTable>
+			<TablePager
+				{page}
+				pageCount={pageCountValue}
+				{pageSize}
+				pageSizeOptions={PAGE_SIZE_OPTIONS}
+				{onPageChange}
+				{onPageSizeChange}
+			/>
+		</div>
+	{/if}
 </div>
 
 {#snippet metadataSection(message: AdminChatMessage, metadata: NonNullable<AdminChatMessage['metadata']>)}

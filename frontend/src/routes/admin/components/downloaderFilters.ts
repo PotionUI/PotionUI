@@ -1,69 +1,31 @@
-import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
-import type { FilterChip, SortOption } from '$lib/components/library/librarySection';
+import type { SortOption } from '$lib/components/library/librarySection';
 import type { Download } from '$lib/stores/downloads';
+import type { DownloadLibrarySection } from './downloads/downloadLibrarySections';
 
-export type DownloadStatusFilter = 'all' | 'active' | 'pending' | 'completed' | 'failed';
 export type DownloadSortBy = 'created_at' | 'filename';
 
 export interface DownloaderFilters {
 	q: string;
-	status: DownloadStatusFilter;
 	sortBy: DownloadSortBy;
 }
 
 export const DEFAULT_DOWNLOADER_FILTERS: DownloaderFilters = {
 	q: '',
-	status: 'all',
 	sortBy: 'created_at'
 };
-
-export const DOWNLOAD_STATUS_OPTIONS: ReadonlyArray<{ value: DownloadStatusFilter; label: string }> = [
-	{ value: 'all', label: 'All' },
-	{ value: 'active', label: 'Active' },
-	{ value: 'pending', label: 'Pending' },
-	{ value: 'completed', label: 'Done' },
-	{ value: 'failed', label: 'Failed' }
-];
 
 export const DOWNLOADER_SORT_OPTIONS: readonly SortOption<DownloadSortBy>[] = [
 	{ value: 'created_at', label: 'Newest' },
 	{ value: 'filename', label: 'Name A–Z' }
 ];
 
-const STATUS_FIELD: FilterFieldDescriptor<DownloaderFilters> = {
-	kind: 'enum',
-	key: 'status',
-	param: 'status',
-	label: 'Status',
-	values: ['active', 'pending', 'completed', 'failed'],
-	default: 'all',
-	chipLabel: (value) => DOWNLOAD_STATUS_OPTIONS.find((option) => option.value === value)?.label ?? value
-};
+const NON_ALL_SECTIONS: readonly DownloadLibrarySection[] = ['active', 'pending', 'completed', 'failed'];
 
-const codec = createFilterCodec<DownloaderFilters>({
-	defaults: DEFAULT_DOWNLOADER_FILTERS,
-	fields: [STATUS_FIELD],
-	sortValues: ['created_at', 'filename']
-});
-
-export function downloaderFilterChips(filters: DownloaderFilters): FilterChip[] {
-	return codec.chips(filters);
-}
-
-export function clearDownloaderFilterChip(filters: DownloaderFilters, key: string): DownloaderFilters {
-	return codec.clearChip(filters, key);
-}
-
-export function clearAllDownloaderFilters(filters: DownloaderFilters): DownloaderFilters {
-	return codec.clearAll(filters);
-}
-
-export function downloaderFilterActiveCount(filters: DownloaderFilters): number {
-	return codec.activeCount(filters);
-}
-
-function matchesStatus(download: Pick<Download, 'status'>, status: DownloadStatusFilter): boolean {
-	switch (status) {
+export function matchesDownloadSection(
+	download: Pick<Download, 'status'>,
+	section: DownloadLibrarySection
+): boolean {
+	switch (section) {
 		case 'active':
 			return download.status === 'downloading' || download.status === 'paused';
 		case 'pending':
@@ -77,13 +39,24 @@ function matchesStatus(download: Pick<Download, 'status'>, status: DownloadStatu
 	}
 }
 
+export function downloadSectionCounts(
+	downloads: readonly Download[]
+): Partial<Record<DownloadLibrarySection, number>> {
+	const counts: Partial<Record<DownloadLibrarySection, number>> = { all: downloads.length };
+	for (const section of NON_ALL_SECTIONS) {
+		counts[section] = downloads.filter((download) => matchesDownloadSection(download, section)).length;
+	}
+	return counts;
+}
+
 export function applyDownloaderFilters(
 	downloads: readonly Download[],
-	filters: DownloaderFilters
+	filters: DownloaderFilters,
+	section: DownloadLibrarySection
 ): Download[] {
 	const query = filters.q.trim().toLowerCase();
 	const rows = downloads.filter((download) => {
-		if (!matchesStatus(download, filters.status)) return false;
+		if (!matchesDownloadSection(download, section)) return false;
 		if (!query) return true;
 		return (
 			download.filename.toLowerCase().includes(query) || download.url.toLowerCase().includes(query)

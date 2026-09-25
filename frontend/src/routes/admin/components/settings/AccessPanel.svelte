@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { DetailSection } from '$lib/components/detail';
+	import { Switch } from '$lib/components/ui';
 
 	let {
 		settings,
@@ -18,13 +19,11 @@
 					When off, only the owner can create accounts in Administration → Users.
 				</p>
 			</div>
-			<input
-				type="checkbox"
+			<Switch
 				id="allow-registration"
-				class="w-4 h-4 mt-1 text-signal border-line-strong rounded focus:ring-signal flex-shrink-0"
+				label="Allow anyone to register"
 				checked={settings.registration_policy === 'open'}
-				onchange={(e) =>
-					onSettingChange('registration_policy', e.currentTarget.checked ? 'open' : 'closed')}
+				onchange={(checked) => onSettingChange('registration_policy', checked ? 'open' : 'closed')}
 			/>
 		</div>
 
@@ -35,12 +34,11 @@
 					Allow external MCP clients to connect and act as PotionUI users via their tokens
 				</p>
 			</div>
-			<input
-				type="checkbox"
+			<Switch
 				id="mcp-enabled"
-				class="w-4 h-4 mt-1 text-signal border-line-strong rounded focus:ring-signal flex-shrink-0"
+				label="MCP Access"
 				checked={settings.mcp_enabled || false}
-				onchange={(e) => onSettingChange('mcp_enabled', e.currentTarget.checked)}
+				onchange={(checked) => onSettingChange('mcp_enabled', checked)}
 			/>
 		</div>
 	</div>

@@ -2,6 +2,8 @@
 	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { Badge } from '$lib/components/ui';
+	import { splitDetailHeaderChips, type DetailHeaderChip } from './detailHeaderChips';
 
 	let {
 		title,
@@ -9,7 +11,9 @@
 		backLabel,
 		onBack,
 		chips,
+		chipItems,
 		subtitle,
+		enabledSwitch,
 		actions
 	}: {
 		title: string;
@@ -17,14 +21,17 @@
 		backLabel?: string;
 		onBack?: () => void;
 		chips?: Snippet;
+		chipItems?: DetailHeaderChip[];
 		subtitle?: Snippet;
+		enabledSwitch?: Snippet;
 		actions?: Snippet;
 	} = $props();
 
 	const showBack = $derived(Boolean(backLabel && onBack));
+	const chipSplit = $derived(chipItems ? splitDetailHeaderChips(chipItems) : null);
 </script>
 
-<div class="flex items-center gap-3 px-4 sm:px-5 py-2.5 border-b border-line bg-surface-1 flex-shrink-0">
+<div class="flex min-h-header items-center gap-3 px-4 sm:px-6 py-2.5 border-b border-line bg-surface-1 flex-shrink-0">
 	{#if showBack}
 		<Tooltip text="Back to {backLabel}">
 			<button
@@ -51,6 +58,16 @@
 		<div class="flex items-center gap-2 min-w-0 flex-wrap">
 			<h2 class="text-base font-semibold text-fg truncate">{title}</h2>
 			{@render chips?.()}
+			{#if chipSplit}
+				{#each chipSplit.visible as chip (chip.key)}
+					<Badge size="sm" variant={chip.tone ?? 'neutral'}>{chip.label}</Badge>
+				{/each}
+				{#if chipSplit.overflow.length}
+					<Tooltip text={chipSplit.overflow.map((chip) => chip.label).join(', ')}>
+						<Badge size="sm" variant="neutral">+{chipSplit.overflow.length}</Badge>
+					</Tooltip>
+				{/if}
+			{/if}
 		</div>
 		{#if subtitle}
 			<div class="mt-0.5 font-mono text-xs text-fg-subtle flex items-center gap-1.5">
@@ -58,9 +75,10 @@
 			</div>
 		{/if}
 	</div>
-	{#if actions}
+	{#if enabledSwitch || actions}
 		<div class="ml-auto flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
-			{@render actions()}
+			{@render enabledSwitch?.()}
+			{@render actions?.()}
 		</div>
 	{/if}
 </div>

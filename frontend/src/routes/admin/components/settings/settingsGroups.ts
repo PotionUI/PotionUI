@@ -30,12 +30,28 @@ export const SETTINGS_GROUPS: SettingsGroupDescriptor[] = [
 	{ id: 'logs', label: 'Logs', icon: 'clipboard-list' }
 ];
 
-/** Storage's S3 fields and Models Location manage their own apply flow (see
- * `FileStoragePanel`/`ModelsLocationPanel`), and Logs manages no settings at
- * all (`LogsPanel` just tails a file) — both are deliberately absent here,
- * they never ride the shared save bar. */
+export function settingsGroupHasFooter(id: SettingsGroupId): boolean {
+	return id !== 'logs';
+}
+
+export function computeDirtyGroups(dirtyKeys: readonly string[]): Set<SettingsGroupId> {
+	return new Set(
+		dirtyKeys
+			.map((key) => SETTINGS_KEY_GROUP[key])
+			.filter((group): group is SettingsGroupId => group !== undefined)
+	);
+}
+
 export const SETTINGS_KEY_GROUP: Record<string, SettingsGroupId> = {
 	file_storage_directory: 'storage',
+	storage_backend: 'storage',
+	s3_bucket: 'storage',
+	s3_prefix: 'storage',
+	s3_endpoint_url: 'storage',
+	s3_region: 'storage',
+	s3_access_key_id: 'storage',
+	s3_secret_key: 'storage',
+	s3_path_style: 'storage',
 	thumbnail_sizes: 'storage',
 	thumbnail_video_fps: 'storage',
 	thumbnail_video_seconds: 'storage',

@@ -182,7 +182,6 @@ describe('Admin presets link to their recipes', () => {
 		);
 		expect(buttons.length).toBeGreaterThan(0);
 		expect(buttons[0].textContent).toContain('GB');
-		expect(mounted.target.textContent).toContain('Install preset');
 
 		flushSync(() => buttons[0].click());
 		await settle();

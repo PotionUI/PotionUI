@@ -12,10 +12,10 @@
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { Input } from '$lib/components/ui';
+	import { Input, Switch } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { DetailSection } from '$lib/components/detail';
+	import { DetailField, DetailSection } from '$lib/components/detail';
 	import TagsChipInput from '$lib/components/form-fields/TagsChipInput.svelte';
 	import type { AttributeFieldType } from '$lib/types/models';
 	import {
@@ -95,120 +95,178 @@
 	{/if}
 {/snippet}
 
+{#snippet fieldTypeSelect()}
+	<select
+		id="{idPrefix}-field-type"
+		class="input"
+		value={draft.field_type}
+		onchange={(e) => handleFieldTypeChange((e.target as HTMLSelectElement).value as AttributeFieldType)}
+		disabled={locked}
+	>
+		{#each FIELD_TYPES as option (option.value)}
+			<option value={option.value}>{option.label}</option>
+		{/each}
+	</select>
+{/snippet}
+
 {#snippet identityFields()}
-	<div class="space-y-4">
-		<div>
-			<label for="{idPrefix}-label" class={labelClass}>Label <span class="text-danger">*</span></label>
-			<input
-				id="{idPrefix}-label"
-				type="text"
-				class="input"
-				bind:value={draft.label}
-				oninput={() => handleLabelInput()}
-				required
-			/>
-		</div>
-		<div>
-			<div class="flex items-center gap-1.5 mb-1">
-				<label for="{idPrefix}-key" class={labelClass + ' !mb-0'}>Key <span class="text-danger">*</span></label>
-				{#if locked}
-					<Tooltip text="A system definition's key can't be changed.">
-						<Icon name="shield" className="w-3 h-3 text-fg-subtle" />
-					</Tooltip>
-				{/if}
-			</div>
-			<input
+	{#if isPanel}
+		<div class="space-y-4">
+			<DetailField id="{idPrefix}-label" label="Label *">
+				<input
+					id="{idPrefix}-label"
+					type="text"
+					class="input"
+					bind:value={draft.label}
+					oninput={() => handleLabelInput()}
+					required
+				/>
+			</DetailField>
+			<DetailField
 				id="{idPrefix}-key"
-				type="text"
-				class="input font-mono"
-				bind:value={draft.key}
-				oninput={() => (keyManuallyEdited = true)}
-				disabled={locked}
-				required
-			/>
-			<p class="text-xs text-fg-subtle mt-1">The `model_metadata` key values are stored under.</p>
-		</div>
-		<div>
-			<div class="flex items-center gap-1.5 mb-1">
-				<span class={labelClass + ' !mb-0'}>Field type <span class="text-danger">*</span></span>
-				{#if locked}
-					<Tooltip text="A system definition's field type can't be changed.">
-						<Icon name="shield" className="w-3 h-3 text-fg-subtle" />
-					</Tooltip>
-				{/if}
-			</div>
-			<select
-				id="{idPrefix}-field-type"
-				class="input"
-				value={draft.field_type}
-				onchange={(e) => handleFieldTypeChange((e.target as HTMLSelectElement).value as AttributeFieldType)}
-				disabled={locked}
+				label="Key *"
+				help={locked
+					? "A system definition's key can't be changed."
+					: 'The `model_metadata` key values are stored under.'}
 			>
-				{#each FIELD_TYPES as option (option.value)}
-					<option value={option.value}>{option.label}</option>
-				{/each}
-			</select>
+				<input
+					id="{idPrefix}-key"
+					type="text"
+					class="input font-mono"
+					bind:value={draft.key}
+					oninput={() => (keyManuallyEdited = true)}
+					disabled={locked}
+					required
+				/>
+			</DetailField>
+			<DetailField
+				id="{idPrefix}-field-type"
+				label="Field type *"
+				help={locked ? "A system definition's field type can't be changed." : undefined}
+			>
+				{@render fieldTypeSelect()}
+			</DetailField>
+			<DetailField id="{idPrefix}-description" label="Description" wide>
+				<textarea
+					id="{idPrefix}-description"
+					class="input"
+					rows="2"
+					bind:value={draft.description}
+					placeholder="Shown to admins under the value..."
+				></textarea>
+			</DetailField>
 		</div>
-		<div>
-			<label for="{idPrefix}-description" class={labelClass}>Description</label>
-			<textarea
-				id="{idPrefix}-description"
-				class="input"
-				rows="2"
-				bind:value={draft.description}
-				placeholder="Shown to admins under the value..."
-			></textarea>
+	{:else}
+		<div class="space-y-4">
+			<div>
+				<label for="{idPrefix}-label" class={labelClass}>Label <span class="text-danger">*</span></label>
+				<input
+					id="{idPrefix}-label"
+					type="text"
+					class="input"
+					bind:value={draft.label}
+					oninput={() => handleLabelInput()}
+					required
+				/>
+			</div>
+			<div>
+				<div class="flex items-center gap-1.5 mb-1">
+					<label for="{idPrefix}-key" class={labelClass + ' !mb-0'}>Key <span class="text-danger">*</span></label>
+					{#if locked}
+						<Tooltip text="A system definition's key can't be changed.">
+							<Icon name="shield" className="w-3 h-3 text-fg-subtle" />
+						</Tooltip>
+					{/if}
+				</div>
+				<input
+					id="{idPrefix}-key"
+					type="text"
+					class="input font-mono"
+					bind:value={draft.key}
+					oninput={() => (keyManuallyEdited = true)}
+					disabled={locked}
+					required
+				/>
+				<p class="text-xs text-fg-subtle mt-1">The `model_metadata` key values are stored under.</p>
+			</div>
+			<div>
+				<div class="flex items-center gap-1.5 mb-1">
+					<span class={labelClass + ' !mb-0'}>Field type <span class="text-danger">*</span></span>
+					{#if locked}
+						<Tooltip text="A system definition's field type can't be changed.">
+							<Icon name="shield" className="w-3 h-3 text-fg-subtle" />
+						</Tooltip>
+					{/if}
+				</div>
+				{@render fieldTypeSelect()}
+			</div>
+			<div>
+				<label for="{idPrefix}-description" class={labelClass}>Description</label>
+				<textarea
+					id="{idPrefix}-description"
+					class="input"
+					rows="2"
+					bind:value={draft.description}
+					placeholder="Shown to admins under the value..."
+				></textarea>
+			</div>
 		</div>
+	{/if}
+{/snippet}
+
+{#snippet modelTypeChips()}
+	<div class="flex flex-wrap gap-1.5">
+		{#each modelTypeOptions as type (type)}
+			<button
+				type="button"
+				class="px-2 py-0.5 text-xs rounded border transition-colors {draft.model_types.includes(type)
+					? 'bg-signal/10 text-signal border-signal/25'
+					: 'text-fg-muted border-line-strong hover:text-fg hover:border-line-hover'}"
+				aria-pressed={draft.model_types.includes(type)}
+				onclick={() => toggleModelType(type)}
+			>
+				{type}
+			</button>
+		{/each}
 	</div>
 {/snippet}
 
 {#snippet scopeFields()}
 	<div class="space-y-4">
-		<div>
-			<span class={labelClass}>Applies to</span>
-			<div class="flex flex-wrap gap-1.5">
-				{#each modelTypeOptions as type (type)}
-					<button
-						type="button"
-						class="px-2 py-0.5 text-xs rounded border transition-colors {draft.model_types.includes(type)
-							? 'bg-signal/10 text-signal border-signal/25'
-							: 'text-fg-muted border-line-strong hover:text-fg hover:border-line-hover'}"
-						aria-pressed={draft.model_types.includes(type)}
-						onclick={() => toggleModelType(type)}
-					>
-						{type}
-					</button>
-				{/each}
-			</div>
-			<p class="text-xs text-fg-subtle mt-1">
-				{draft.model_types.length === 0
+		{#if isPanel}
+			<DetailField
+				label="Applies to"
+				help={draft.model_types.length === 0
 					? 'No types selected — applies to every model type.'
 					: `Applies only to: ${draft.model_types.join(', ')}`}
-			</p>
-		</div>
-		<div class="flex items-center gap-2">
-			<input
-				id="{idPrefix}-per-user"
-				type="checkbox"
-				bind:checked={draft.per_user}
-				class="h-4 w-4 rounded border-line-strong bg-surface-2 text-signal focus:ring-signal"
-			/>
+				wide
+			>
+				{@render modelTypeChips()}
+			</DetailField>
+		{:else}
+			<div>
+				<span class={labelClass}>Applies to</span>
+				{@render modelTypeChips()}
+				<p class="text-xs text-fg-subtle mt-1">
+					{draft.model_types.length === 0
+						? 'No types selected — applies to every model type.'
+						: `Applies only to: ${draft.model_types.join(', ')}`}
+				</p>
+			</div>
+		{/if}
+		<div class="flex items-center justify-between gap-3">
 			<label for="{idPrefix}-per-user" class="text-sm font-medium text-fg-muted">
 				Per-user
 				<span class="block text-xs font-normal text-fg-subtle">Each user may set their own value, on top of the shared one.</span>
 			</label>
+			<Switch id="{idPrefix}-per-user" bind:checked={draft.per_user} label="Per-user" />
 		</div>
-		<div class="flex items-center gap-2">
-			<input
-				id="{idPrefix}-admin-only"
-				type="checkbox"
-				bind:checked={draft.admin_only}
-				class="h-4 w-4 rounded border-line-strong bg-surface-2 text-signal focus:ring-signal"
-			/>
+		<div class="flex items-center justify-between gap-3">
 			<label for="{idPrefix}-admin-only" class="text-sm font-medium text-fg-muted">
 				Admin-only
 				<span class="block text-xs font-normal text-fg-subtle">Hidden from non-admins entirely.</span>
 			</label>
+			<Switch id="{idPrefix}-admin-only" bind:checked={draft.admin_only} label="Admin-only" />
 		</div>
 	</div>
 {/snippet}
@@ -289,48 +347,58 @@
 	</div>
 {/snippet}
 
+{#snippet defaultValueControl()}
+	{#if draft.field_type === 'checkbox'}
+		<Switch
+			id="{idPrefix}-default"
+			checked={!!draft.default_value}
+			label="Default value"
+			onchange={(checked) => (draft.default_value = checked)}
+		/>
+	{:else if draft.field_type === 'select'}
+		<select id="{idPrefix}-default" class="input" bind:value={draft.default_value}>
+			<option value="">—</option>
+			{#each draft.config.options as option (option.value)}
+				<option value={option.value}>{option.label || option.value}</option>
+			{/each}
+		</select>
+	{:else if draft.field_type === 'tags'}
+		<TagsChipInput
+			value={draft.default_value as string[]}
+			onChange={(next) => (draft.default_value = next)}
+		/>
+	{:else if isNumericType}
+		<input
+			id="{idPrefix}-default"
+			type="number"
+			min={draft.config.min}
+			max={draft.config.max}
+			step={draft.config.step}
+			class="input font-mono tabular-nums"
+			value={draft.default_value}
+			oninput={(e) => (draft.default_value = (e.target as HTMLInputElement).value)}
+		/>
+	{:else}
+		<Input
+			id="{idPrefix}-default"
+			type="text"
+			value={draft.default_value as string}
+			oninput={(e: Event) => (draft.default_value = (e.target as HTMLInputElement).value)}
+		/>
+	{/if}
+{/snippet}
+
 {#snippet defaultValueField()}
-	<div>
-		<label for="{idPrefix}-default" class={labelClass}>Default value</label>
-		{#if draft.field_type === 'checkbox'}
-			<input
-				id="{idPrefix}-default"
-				type="checkbox"
-				checked={!!draft.default_value}
-				onchange={(e) => (draft.default_value = (e.target as HTMLInputElement).checked)}
-			/>
-		{:else if draft.field_type === 'select'}
-			<select id="{idPrefix}-default" class="input" bind:value={draft.default_value}>
-				<option value="">—</option>
-				{#each draft.config.options as option (option.value)}
-					<option value={option.value}>{option.label || option.value}</option>
-				{/each}
-			</select>
-		{:else if draft.field_type === 'tags'}
-			<TagsChipInput
-				value={draft.default_value as string[]}
-				onChange={(next) => (draft.default_value = next)}
-			/>
-		{:else if isNumericType}
-			<input
-				id="{idPrefix}-default"
-				type="number"
-				min={draft.config.min}
-				max={draft.config.max}
-				step={draft.config.step}
-				class="input font-mono tabular-nums"
-				value={draft.default_value}
-				oninput={(e) => (draft.default_value = (e.target as HTMLInputElement).value)}
-			/>
-		{:else}
-			<Input
-				id="{idPrefix}-default"
-				type="text"
-				value={draft.default_value as string}
-				oninput={(e: Event) => (draft.default_value = (e.target as HTMLInputElement).value)}
-			/>
-		{/if}
-	</div>
+	{#if isPanel}
+		<DetailField id="{idPrefix}-default" label="Default value">
+			{@render defaultValueControl()}
+		</DetailField>
+	{:else}
+		<div>
+			<label for="{idPrefix}-default" class={labelClass}>Default value</label>
+			{@render defaultValueControl()}
+		</div>
+	{/if}
 {/snippet}
 
 <div class="space-y-5">

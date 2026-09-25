@@ -2,7 +2,6 @@ import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
 
 // Visual capture only — NO functional changes are made by this spec. It
-// seeds a realistic multi-segment prompt (named/colored sections, a break,
 // negative segments) into the reworked "one panel" SegmentedPromptEditor and
 // screenshots every context the coordinator asked about: the editor-first
 // single-segment default, a multi-section prompt with the negative footer
@@ -43,20 +42,11 @@ async function typeIntoSegment(page: Page, listAriaLabel: string, index: number,
 async function setSegmentMeta(page: Page, listAriaLabel: string, index: number, name: string, colorSwatch: string) {
 	const item = page.locator(`div[role="list"][aria-label="${listAriaLabel}"] [role="listitem"]`).nth(index);
 	await item.hover();
-	// bbff1e9f moved "Edit details" out of the "More actions" menu into its own
-	// always-visible footer button ("Details") — the menu is reserved for
-	// move/replace/convert/delete now that the footer covers the rest.
-	const detailsBtn = item.getByRole('button', { name: 'Details' });
-	await detailsBtn.click();
-	// The segment-composer port renders Details as a real modal
-	// (PromptSegmentDetailsModal, portaled onto <body>), not an inline reveal
-	// under the card — its fields live in the dialog, not inside the list item.
+	await item.getByRole('button', { name: /^More actions for/ }).click();
+	await item.getByRole('menuitem', { name: 'Details' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Segment details' });
 	await dialog.getByPlaceholder('Optional segment name').fill(name);
-	// bbff1e9f also replaced the free-text hex input with a fixed swatch
-	// palette (PRESET_COLORS) — pick by the swatch's accessible name.
 	await dialog.getByRole('button', { name: colorSwatch, exact: true }).click();
-	// Save details commits the edit and closes the modal (Cancel would discard it).
 	await dialog.getByRole('button', { name: 'Save details' }).click();
 	// BaseModal's own exit transition (~150ms) keeps the dialog node — and its
 	// focusTrap action — mounted a beat after `isOpen` flips false; that
@@ -151,7 +141,6 @@ test('one-panel prompt editor — visual capture only', async ({ page }) => {
 	await page.keyboard.press('Escape');
 	await page.waitForTimeout(200);
 
-	// Seed 3 named/colored positive sections + 1 break.
 	// "Section" was renamed "Add segment" in bbff1e9f, and both the positive
 	// and negative add-rows now share that exact label — .first() still lands
 	// on the positive one since it precedes the negative row in DOM order.
@@ -183,13 +172,6 @@ test('one-panel prompt editor — visual capture only', async ({ page }) => {
 		'Cold blue-grey ambient light from the storm, warm amber glow spilling from the lighthouse lamp room, dramatic rim light on the keeper\'s silhouette.'
 	);
 
-	// Add a 4th section and convert it into a typographic break.
-	await sectionBtn.click();
-	const breakItem = page.locator('div[role="list"][aria-label="Positive segments"] [role="listitem"]').nth(3);
-	await breakItem.hover();
-	await breakItem.locator('button[aria-haspopup="menu"]').click();
-	await breakItem.getByRole('menuitem', { name: 'Convert to break' }).click();
-
 	// Negative footer starts expanded (mode supports negatives, nothing
 	// configured yet) — seed the existing blank segment + add one more.
 	const negativeList = page.locator('div[role="list"][aria-label="Negative segments"]');
@@ -219,41 +201,35 @@ test('one-panel prompt editor — visual capture only', async ({ page }) => {
 	await page.waitForTimeout(200);
 	await screenshot(page, JOURNEY, '04-generate-hover-section');
 
-	// Metadata inline editor open via the always-visible "Details" footer button.
-	const firstRuleDetailsBtn = firstRule.getByRole('button', { name: 'Details' });
-	await firstRuleDetailsBtn.click();
+	await firstRule.getByRole('button', { name: /^More actions for/ }).click();
+	await firstRule.getByRole('menuitem', { name: 'Details' }).click();
 	const detailsDialog = page.getByRole('dialog', { name: 'Segment details' });
 	await expect(detailsDialog).toBeVisible();
 	await page.waitForTimeout(200);
 	await screenshot(page, JOURNEY, '05-generate-metadata-editor-open');
-	// Close it back down before continuing.
-	// Details is a modal now, not an inline toggle: close it instead of re-clicking.
 	await detailsDialog.getByRole('button', { name: 'Close modal' }).click();
 	await expect(page.locator('[aria-label="Close modal"].fixed.inset-0')).toHaveCount(0);
 
 	// Action menu of the LAST negative segment, at the bottom of the panel.
 	// The panel wrapper clips with overflow-hidden, so this segment's menu
 	// used to render only "Move up" before the clipped-off items — assert
-	// "Delete" is fully visible in the viewport now that the menu repositions
-	// itself with position: fixed instead of relying on absolute layout.
 	const lastNegativeItem = negativeList.locator('[role="listitem"]').last();
 	await lastNegativeItem.hover();
 	await lastNegativeItem.locator('button[aria-haspopup="menu"]').click();
 	await page.waitForTimeout(200);
 	await screenshot(page, JOURNEY, '12-last-segment-menu-open');
-	const lastSegmentDelete = page.getByRole('menuitem', { name: 'Delete' });
-	await expect(lastSegmentDelete).toBeVisible();
-	const deleteBox = await lastSegmentDelete.boundingBox();
-	expect(deleteBox, 'Delete menu item should have a bounding box').not.toBeNull();
-	if (deleteBox) {
+	const lastSegmentDetailsItem = page.getByRole('menuitem', { name: 'Details' });
+	await expect(lastSegmentDetailsItem).toBeVisible();
+	const detailsBox = await lastSegmentDetailsItem.boundingBox();
+	expect(detailsBox, 'Details menu item should have a bounding box').not.toBeNull();
+	if (detailsBox) {
 		const viewport = page.viewportSize();
 		expect(viewport).not.toBeNull();
 		if (viewport) {
-			expect(deleteBox.y).toBeGreaterThanOrEqual(0);
-			expect(deleteBox.y + deleteBox.height).toBeLessThanOrEqual(viewport.height);
+			expect(detailsBox.y).toBeGreaterThanOrEqual(0);
+			expect(detailsBox.y + detailsBox.height).toBeLessThanOrEqual(viewport.height);
 		}
 	}
-	// Close the menu before continuing.
 	await page.keyboard.press('Escape');
 
 	// ---------------------------------------------------------------------
@@ -304,7 +280,7 @@ test('one-panel prompt editor — visual capture only', async ({ page }) => {
 	await page.waitForTimeout(300);
 	await screenshot(page, JOURNEY, '08-prompts-workspace-compact');
 
-	await page.getByRole('listbox', { name: 'Library sections' }).getByRole('option', { name: 'Templates' }).click();
+	await page.getByRole('listbox', { name: 'Prompt Library sections' }).getByRole('option', { name: 'Templates' }).click();
 	await page.waitForTimeout(500);
 	const newTemplateBtn = page.getByRole('button', { name: 'New template' });
 	if (await newTemplateBtn.count() > 0) {

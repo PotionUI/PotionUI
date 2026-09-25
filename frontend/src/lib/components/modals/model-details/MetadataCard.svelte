@@ -19,17 +19,20 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { copyText } from '$lib/utils/clipboard';
 	import { toasts } from '$lib/stores/toast';
+	import { KVGrid, KVItem } from '$lib/components/detail';
 
 	let {
 		icon,
 		iconClass = 'text-fg-muted',
 		title,
-		rows
+		rows,
+		bare = false
 	}: {
 		icon: string;
 		iconClass?: string;
 		title: string;
 		rows: MetadataRow[];
+		bare?: boolean;
 	} = $props();
 
 	/** Label of the row most recently copied, to flash its icon. */
@@ -48,37 +51,51 @@
 	}
 </script>
 
-<div class="bg-surface-2 rounded-lg p-3">
-	<div class="flex items-center gap-2 mb-2">
-		<Icon name={icon} className="w-4 h-4 {iconClass}" />
-		<h3 class="text-sm font-semibold text-fg">{title}</h3>
-	</div>
-	<div class="space-y-1.5 text-xs">
+{#snippet rowValue(row: MetadataRow)}
+	{#if row.copyValue !== undefined}
+		<div class="flex items-center gap-1 min-w-0">
+			<code
+				class="text-xs font-mono bg-surface-3 px-1.5 py-0.5 rounded truncate max-w-[280px] text-fg"
+				title={row.title}
+			>
+				{row.value}
+			</code>
+			<button
+				class="text-fg-subtle hover:text-fg-muted flex-shrink-0"
+				onclick={() => copyRow(row)}
+				aria-label={row.copyLabel ?? `Copy ${row.label}`}
+			>
+				<Icon name={copiedLabel === row.label ? 'check' : 'copy'} className="w-3 h-3" />
+			</button>
+		</div>
+	{:else}
+		<span class="font-medium font-mono tabular-nums text-fg {row.uppercase ? 'uppercase' : ''}">
+			{row.value}
+		</span>
+	{/if}
+{/snippet}
+
+{#if bare}
+	<KVGrid>
 		{#each rows as row (row.label)}
-			<div class="flex items-center justify-between py-1 gap-2">
-				<span class="text-fg-muted flex-shrink-0">{row.label}</span>
-				{#if row.copyValue !== undefined}
-					<div class="flex items-center gap-1 min-w-0">
-						<code
-							class="text-xs font-mono bg-surface-3 px-1.5 py-0.5 rounded truncate max-w-[280px] text-fg"
-							title={row.title}
-						>
-							{row.value}
-						</code>
-						<button
-							class="text-fg-subtle hover:text-fg-muted flex-shrink-0"
-							onclick={() => copyRow(row)}
-							aria-label={row.copyLabel ?? `Copy ${row.label}`}
-						>
-							<Icon name={copiedLabel === row.label ? 'check' : 'copy'} className="w-3 h-3" />
-						</button>
-					</div>
-				{:else}
-					<span class="font-medium font-mono tabular-nums text-fg {row.uppercase ? 'uppercase' : ''}">
-						{row.value}
-					</span>
-				{/if}
-			</div>
+			<KVItem label={row.label} full={row.copyValue !== undefined}>
+				{@render rowValue(row)}
+			</KVItem>
 		{/each}
+	</KVGrid>
+{:else}
+	<div class="bg-surface-2 rounded-lg p-3">
+		<div class="flex items-center gap-2 mb-2">
+			<Icon name={icon} className="w-4 h-4 {iconClass}" />
+			<h3 class="text-sm font-semibold text-fg">{title}</h3>
+		</div>
+		<div class="space-y-1.5 text-xs">
+			{#each rows as row (row.label)}
+				<div class="flex items-center justify-between py-1 gap-2">
+					<span class="text-fg-muted flex-shrink-0">{row.label}</span>
+					{@render rowValue(row)}
+				</div>
+			{/each}
+		</div>
 	</div>
-</div>
+{/if}

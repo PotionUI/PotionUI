@@ -8,12 +8,13 @@
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import type { GenerationHistoryItem } from '$lib/types/history';
-	import Icon from '$lib/components/Icon.svelte';
-	import { IconButton, Spinner } from '$lib/components/ui';
+	import { EmptyState, IconButton, Spinner } from '$lib/components/ui';
 	import JustifiedGenerationGallery from '$lib/components/JustifiedGenerationGallery.svelte';
 	import GenerationDetailsModal from '$lib/components/modals/GenerationDetailsModal.svelte';
 
 	export let modelId: string | null | undefined = null;
+	export let headerless: boolean = false;
+	export let onTotalChange: ((total: number) => void) | undefined = undefined;
 
 	const PAGE_SIZE = 20;
 
@@ -46,6 +47,7 @@
 			if (response.success && response.data) {
 				generations = response.data.generations;
 				total = response.data.total;
+				onTotalChange?.(total);
 			}
 		} catch (error) {
 			logger.error('Failed to load model generations:', error);
@@ -72,15 +74,17 @@
 </script>
 
 <div>
-	<div class="flex items-baseline gap-3 mb-3">
-		<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted whitespace-nowrap">
-			Generations
-		</span>
-		{#if total > 0}
-			<span class="font-mono tabular-nums text-2xs text-fg-subtle">{total}</span>
-		{/if}
-		<div class="flex-1 h-px bg-line self-center"></div>
-	</div>
+	{#if !headerless}
+		<div class="flex items-baseline gap-3 mb-3">
+			<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted whitespace-nowrap">
+				Generations
+			</span>
+			{#if total > 0}
+				<span class="font-mono tabular-nums text-2xs text-fg-subtle">{total}</span>
+			{/if}
+			<div class="flex-1 h-px bg-line self-center"></div>
+		</div>
+	{/if}
 
 	{#if loading}
 		<div class="flex items-center justify-center py-10">
@@ -111,14 +115,7 @@
 			</div>
 		{/if}
 	{:else}
-		<div class="dot-grid text-center py-10 rounded-lg">
-			<div
-				class="w-12 h-12 flex items-center justify-center mx-auto mb-3 rounded-lg bg-surface-2 border border-line"
-			>
-				<Icon name="image" className="h-6 w-6 text-fg-subtle" strokeWidth={1.5} />
-			</div>
-			<p class="text-sm text-fg-subtle">No generations have used this model yet.</p>
-		</div>
+		<EmptyState compact icon="image" title="No generations yet" description="This model hasn't been used in any generation yet." />
 	{/if}
 </div>
 

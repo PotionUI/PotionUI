@@ -13,7 +13,6 @@ export type ModelsSortBy =
 
 export interface ModelsFilters {
 	q: string;
-	type: string;
 	tags: string[];
 	sortBy: ModelsSortBy;
 }
@@ -25,7 +24,6 @@ export interface ModelTagRef {
 
 export const DEFAULT_MODELS_FILTERS: ModelsFilters = {
 	q: '',
-	type: 'all',
 	tags: [],
 	sortBy: 'indexed_at_desc'
 };
@@ -52,17 +50,7 @@ export const MODELS_SORT_OPTIONS: readonly SortOption<ModelsSortBy>[] = [
 	{ value: 'file_size_asc', label: 'Smallest first' }
 ];
 
-const FIELDS: readonly FilterFieldDescriptor<ModelsFilters>[] = [
-	{
-		kind: 'text',
-		key: 'type',
-		param: 'type',
-		label: 'Type',
-		default: 'all',
-		chipLabel: (value) => value.toUpperCase()
-	},
-	{ kind: 'tags', key: 'tags', param: 'tags', label: 'Tags' }
-];
+const FIELDS: readonly FilterFieldDescriptor<ModelsFilters>[] = [{ kind: 'tags', key: 'tags', param: 'tags', label: 'Tags' }];
 
 const codec = createFilterCodec<ModelsFilters>({
 	defaults: DEFAULT_MODELS_FILTERS,
@@ -95,7 +83,7 @@ export function modelsFilterActiveCount(filters: ModelsFilters): number {
 }
 
 export function modelsHasActiveFilters(filters: ModelsFilters): boolean {
-	return !!filters.q.trim() || filters.type !== DEFAULT_MODELS_FILTERS.type || filters.tags.length > 0;
+	return !!filters.q.trim() || filters.tags.length > 0;
 }
 
 export function modelsSortParams(sortBy: ModelsSortBy): {

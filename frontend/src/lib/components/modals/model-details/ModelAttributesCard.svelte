@@ -33,17 +33,20 @@
 	import { onMount } from 'svelte';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Spinner } from '$lib/components/ui';
+	import { Spinner, Switch } from '$lib/components/ui';
 	import TagsChipInput from '$lib/components/form-fields/TagsChipInput.svelte';
-	import { normalizeRange } from '$lib/utils/attributeRange';
 	import {
+		attributeDraftsAreDirty,
 		coerceAttributeInput,
 		definitionsForModelType,
+		draftValuesForFields,
 		extractUpdatedSharedMetadata,
 		extractUpdatedUserMetadata,
 		formatAttributeValue,
 		inputConfigForAttribute,
-		resolveEffectiveAttributeValue
+		resolveEffectiveAttributeValue,
+		toDraftValue,
+		type DraftValue
 	} from './ModelAttributesCard';
 
 	export let model:
@@ -58,8 +61,9 @@
 	 * read-only. The per-user "yours" overlay below is independent of this -
 	 * any signed-in user may set their own regardless of `editable`. */
 	export let editable: boolean = false;
-
-	type DraftValue = string | boolean | string[];
+	export let footerMode: boolean = false;
+	export let dirty: boolean = false;
+	export let saving: boolean = false;
 
 	let definitions: AttributeDefinition[] = [];
 
@@ -81,36 +85,20 @@
 		return model?.user_model_metadata;
 	}
 
-	function toDraftValue(field: AttributeDefinition, value: unknown): DraftValue {
-		const config = inputConfigForAttribute(field);
-		if (config.type === 'checkbox') return !!value;
-		if (config.type === 'tags') return Array.isArray(value) ? (value as string[]) : [];
-		if (config.type === 'range') {
-			const range = normalizeRange(value);
-			return range ? [String(range[0]), String(range[1])] : ['', ''];
-		}
-		return value === undefined || value === null ? '' : String(value);
-	}
-
 	function extractApiErrorMessage(err: unknown): string {
 		const data = (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data;
 		return data?.error || data?.message || getErrorMessage(err, 'Failed to save attributes');
 	}
 
-	// --- SHARED values: batch edit behind the pencil toggle (admin only) ---
 
 	let isEditing = false;
 	let editValues: Record<string, DraftValue> = {};
-	let saving = false;
 	let error: string | null = null;
 
+	$: baselineValues = draftValuesForFields(fields, currentMetadata(), currentUserMetadata());
+
 	function startEdit() {
-		editValues = Object.fromEntries(
-			fields.map((field) => [
-				field.key,
-				toDraftValue(field, resolveEffectiveAttributeValue(field, currentMetadata(), currentUserMetadata()))
-			])
-		);
+		editValues = { ...baselineValues };
 		error = null;
 		isEditing = true;
 	}
@@ -142,6 +130,24 @@
 		} finally {
 			saving = false;
 		}
+	}
+
+	let footerSeededFor: string | null = null;
+
+	$: if (footerMode && model && fields.length > 0 && footerSeededFor !== model.id) {
+		footerSeededFor = model.id;
+		editValues = { ...baselineValues };
+	}
+
+	$: if (footerMode) dirty = attributeDraftsAreDirty(editValues, baselineValues);
+
+	export function commit(): Promise<void> {
+		return save();
+	}
+
+	export function discard(): void {
+		editValues = { ...baselineValues };
+		error = null;
 	}
 
 	// --- Per-user overlay: independent, saved immediately per field ---
@@ -190,10 +196,11 @@
 	<div class="mt-1 pl-2 border-l-2 border-line-strong flex items-center gap-2">
 		<span class="text-2xs uppercase tracking-wide text-fg-subtle flex-shrink-0">Yours</span>
 		{#if userConfig.type === 'checkbox'}
-			<input
-				type="checkbox"
+			<Switch
 				checked={!!draft}
-				on:change={(e) => commitUserValue(field, (e.target as HTMLInputElement).checked)}
+				size="sm"
+				label={`Yours: ${field.label}`}
+				onchange={(checked) => commitUserValue(field, checked)}
 			/>
 		{:else if userConfig.type === 'select'}
 			<select
@@ -258,112 +265,151 @@
 	</div>
 {/snippet}
 
-{#if fields.length > 0}
-	<div class="bg-surface-2 rounded-lg p-4">
-		<div class="flex items-center justify-between mb-3">
-			<div class="flex items-center gap-2">
-				<Icon name="settings" className="w-5 h-5 text-fg-muted" />
-				<h3 class="text-base font-semibold text-fg">Attributes</h3>
-			</div>
-			{#if editable}
-				<button
-					class="text-fg-subtle hover:text-fg-muted p-2"
-					on:click={() => (isEditing ? cancelEdit() : startEdit())}
-					aria-label={isEditing ? 'Cancel editing' : 'Edit attributes'}
-				>
-					<Icon name={isEditing ? 'close' : 'edit'} className="w-4 h-4" />
-				</button>
-			{/if}
-		</div>
-
-		{#if editable && isEditing}
-			<div class="space-y-3">
-				{#each fields as field (field.key)}
-					{@const inputConfig = inputConfigForAttribute(field)}
-					<div>
-						<label class="block text-xs text-fg-muted mb-1" for={`attr-${field.key}`}>
-							{field.label}
-						</label>
-						{#if inputConfig.type === 'checkbox'}
-							<input
-								id={`attr-${field.key}`}
-								type="checkbox"
-								checked={!!editValues[field.key]}
-								on:change={(e) => (editValues[field.key] = (e.target as HTMLInputElement).checked)}
-							/>
-						{:else if inputConfig.type === 'select'}
-							<select
-								id={`attr-${field.key}`}
-								class="input text-sm"
-								bind:value={editValues[field.key]}
-							>
-								{#each inputConfig.options ?? [] as option (option.value)}
-									<option value={option.value}>{option.label}</option>
-								{/each}
-							</select>
-						{:else if inputConfig.type === 'tags'}
-							<TagsChipInput
-								value={editValues[field.key] as string[]}
-								onChange={(next) => (editValues[field.key] = next)}
-							/>
-						{:else if inputConfig.type === 'number'}
-							<input
-								id={`attr-${field.key}`}
-								type="number"
-								min={inputConfig.min}
-								max={inputConfig.max}
-								step={inputConfig.step}
-								value={editValues[field.key]}
-								on:input={(e) => (editValues[field.key] = (e.target as HTMLInputElement).value)}
-								class="input text-sm font-mono tabular-nums"
-							/>
-						{:else if inputConfig.type === 'range'}
-							{@const rangeDraft = (editValues[field.key] as string[]) ?? ['', '']}
-							<div class="flex items-center gap-2">
-								<input
-									id={`attr-${field.key}`}
-									type="number"
-									min={inputConfig.min}
-									max={inputConfig.max}
-									step={inputConfig.step}
-									value={rangeDraft[0] ?? ''}
-									aria-label={`${field.label} minimum`}
-									on:input={(e) =>
-										(editValues[field.key] = [(e.target as HTMLInputElement).value, rangeDraft[1] ?? ''])}
-									class="input text-sm font-mono tabular-nums w-24"
-								/>
-								<span class="text-fg-subtle">–</span>
-								<input
-									type="number"
-									min={inputConfig.min}
-									max={inputConfig.max}
-									step={inputConfig.step}
-									value={rangeDraft[1] ?? ''}
-									aria-label={`${field.label} maximum`}
-									on:input={(e) =>
-										(editValues[field.key] = [rangeDraft[0] ?? '', (e.target as HTMLInputElement).value])}
-									class="input text-sm font-mono tabular-nums w-24"
-								/>
-							</div>
-						{:else}
-							<input
-								id={`attr-${field.key}`}
-								type="text"
-								value={editValues[field.key]}
-								on:input={(e) => (editValues[field.key] = (e.target as HTMLInputElement).value)}
-								class="input text-sm"
-							/>
-						{/if}
-						{#if field.description}
-							<p class="text-2xs text-fg-subtle mt-1">{field.description}</p>
-						{/if}
+{#snippet editForm()}
+	<div class="space-y-3">
+		{#each fields as field (field.key)}
+			{@const inputConfig = inputConfigForAttribute(field)}
+			<div>
+				<label class="block text-xs text-fg-muted mb-1" for={`attr-${field.key}`}>
+					{field.label}
+				</label>
+				{#if inputConfig.type === 'checkbox'}
+					<Switch
+						id={`attr-${field.key}`}
+						checked={!!editValues[field.key]}
+						size="sm"
+						label={field.label}
+						onchange={(checked) => (editValues[field.key] = checked)}
+					/>
+				{:else if inputConfig.type === 'select'}
+					<select
+						id={`attr-${field.key}`}
+						class="input text-sm"
+						bind:value={editValues[field.key]}
+					>
+						{#each inputConfig.options ?? [] as option (option.value)}
+							<option value={option.value}>{option.label}</option>
+						{/each}
+					</select>
+				{:else if inputConfig.type === 'tags'}
+					<TagsChipInput
+						value={editValues[field.key] as string[]}
+						onChange={(next) => (editValues[field.key] = next)}
+					/>
+				{:else if inputConfig.type === 'number'}
+					<input
+						id={`attr-${field.key}`}
+						type="number"
+						min={inputConfig.min}
+						max={inputConfig.max}
+						step={inputConfig.step}
+						value={editValues[field.key]}
+						on:input={(e) => (editValues[field.key] = (e.target as HTMLInputElement).value)}
+						class="input text-sm font-mono tabular-nums"
+					/>
+				{:else if inputConfig.type === 'range'}
+					{@const rangeDraft = (editValues[field.key] as string[]) ?? ['', '']}
+					<div class="flex items-center gap-2">
+						<input
+							id={`attr-${field.key}`}
+							type="number"
+							min={inputConfig.min}
+							max={inputConfig.max}
+							step={inputConfig.step}
+							value={rangeDraft[0] ?? ''}
+							aria-label={`${field.label} minimum`}
+							on:input={(e) =>
+								(editValues[field.key] = [(e.target as HTMLInputElement).value, rangeDraft[1] ?? ''])}
+							class="input text-sm font-mono tabular-nums w-24"
+						/>
+						<span class="text-fg-subtle">–</span>
+						<input
+							type="number"
+							min={inputConfig.min}
+							max={inputConfig.max}
+							step={inputConfig.step}
+							value={rangeDraft[1] ?? ''}
+							aria-label={`${field.label} maximum`}
+							on:input={(e) =>
+								(editValues[field.key] = [rangeDraft[0] ?? '', (e.target as HTMLInputElement).value])}
+							class="input text-sm font-mono tabular-nums w-24"
+						/>
 					</div>
-					{#if field.per_user}{@render yoursControl(field)}{/if}
-				{/each}
-				{#if error}
-					<p class="text-xs text-danger">{error}</p>
+				{:else}
+					<input
+						id={`attr-${field.key}`}
+						type="text"
+						value={editValues[field.key]}
+						on:input={(e) => (editValues[field.key] = (e.target as HTMLInputElement).value)}
+						class="input text-sm"
+					/>
 				{/if}
-				<div class="flex gap-2 justify-end">
+				{#if field.description}
+					<p class="text-2xs text-fg-subtle mt-1">{field.description}</p>
+				{/if}
+			</div>
+			{#if field.per_user}{@render yoursControl(field)}{/if}
+		{/each}
+		{#if error}
+			<p class="text-xs text-danger">{error}</p>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet readView()}
+	<div class="space-y-2 text-xs">
+		{#each fields as field (field.key)}
+			{@const value = resolveEffectiveAttributeValue(field, currentMetadata(), currentUserMetadata())}
+			{#if field.field_type === 'tags'}
+				<div>
+					<span class="text-fg-muted block mb-1">{field.label}</span>
+					<TagsChipInput
+						value={Array.isArray(value) ? (value as string[]) : []}
+						editable={false}
+						emptyText="None set"
+						copyable
+					/>
+				</div>
+			{:else}
+				<div class="flex flex-wrap items-center justify-between py-1 gap-2">
+					<span class="text-fg-muted flex-shrink-0">{field.label}</span>
+					<span class="font-medium font-mono tabular-nums text-fg break-words text-right">
+						{formatAttributeValue(field, value)}
+					</span>
+				</div>
+			{/if}
+			{#if field.per_user}{@render yoursControl(field)}{/if}
+		{/each}
+		{#if userError}
+			<p class="text-xs text-danger">{userError}</p>
+		{/if}
+	</div>
+{/snippet}
+
+{#if fields.length > 0}
+	{#if footerMode}
+		{@render editForm()}
+	{:else}
+		<div class="bg-surface-2 rounded-lg p-4">
+			<div class="flex items-center justify-between mb-3">
+				<div class="flex items-center gap-2">
+					<Icon name="settings" className="w-5 h-5 text-fg-muted" />
+					<h3 class="text-base font-semibold text-fg">Attributes</h3>
+				</div>
+				{#if editable}
+					<button
+						class="text-fg-subtle hover:text-fg-muted p-2"
+						on:click={() => (isEditing ? cancelEdit() : startEdit())}
+						aria-label={isEditing ? 'Cancel editing' : 'Edit attributes'}
+					>
+						<Icon name={isEditing ? 'close' : 'edit'} className="w-4 h-4" />
+					</button>
+				{/if}
+			</div>
+
+			{#if editable && isEditing}
+				{@render editForm()}
+				<div class="flex gap-2 justify-end mt-3">
 					<button
 						class="px-3 py-1.5 text-sm text-fg-muted hover:bg-surface-3 rounded transition-colors"
 						on:click={cancelEdit}
@@ -378,35 +424,9 @@
 						{saving ? 'Saving...' : 'Save'}
 					</button>
 				</div>
-			</div>
-		{:else}
-			<div class="space-y-2 text-xs">
-				{#each fields as field (field.key)}
-					{@const value = resolveEffectiveAttributeValue(field, currentMetadata(), currentUserMetadata())}
-					{#if field.field_type === 'tags'}
-						<div>
-							<span class="text-fg-muted block mb-1">{field.label}</span>
-							<TagsChipInput
-								value={Array.isArray(value) ? (value as string[]) : []}
-								editable={false}
-								emptyText="None set"
-								copyable
-							/>
-						</div>
-					{:else}
-						<div class="flex flex-wrap items-center justify-between py-1 gap-2">
-							<span class="text-fg-muted flex-shrink-0">{field.label}</span>
-							<span class="font-medium font-mono tabular-nums text-fg break-words text-right">
-								{formatAttributeValue(field, value)}
-							</span>
-						</div>
-					{/if}
-					{#if field.per_user}{@render yoursControl(field)}{/if}
-				{/each}
-				{#if userError}
-					<p class="text-xs text-danger">{userError}</p>
-				{/if}
-			</div>
-		{/if}
-	</div>
+			{:else}
+				{@render readView()}
+			{/if}
+		</div>
+	{/if}
 {/if}

@@ -35,14 +35,10 @@ async function typeIntoSegment(page: Page, listAriaLabel: string, index: number,
 }
 
 async function setSegmentMeta(page: Page, listAriaLabel: string, index: number, name: string, colorName: string) {
-	// Content cards surface "Details" as a footer button directly rather than
-	// through the "…" popup menu (the menu drops it — and Duplicate/Disable —
-	// once a footer already offers them, see PromptSegmentActionMenu's
-	// footerActionsShown gate). Colour is one of the PRESET_COLORS swatches,
-	// not a free-text field.
 	const item = page.locator(`div[role="list"][aria-label="${listAriaLabel}"] [role="listitem"]`).nth(index);
 	await item.hover();
-	await item.getByRole('button', { name: 'Details' }).click();
+	await item.getByRole('button', { name: /^More actions for/ }).click();
+	await item.getByRole('menuitem', { name: 'Details' }).click();
 	// The segment-composer port renders Details as a real modal
 	// (PromptSegmentDetailsModal, portaled onto <body>), not an inline reveal
 	// under the card — its fields live in the dialog, not inside the list item,

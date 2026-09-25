@@ -1,8 +1,8 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import type { EngineField, EngineDescriptor } from '$lib/services/admin-api';
-	import { Input } from '$lib/components/ui';
-	import { DetailSection } from '$lib/components/detail';
+	import { Input, Switch } from '$lib/components/ui';
+	import { DetailSection, DetailField } from '$lib/components/detail';
 
 	/**
 	 * Shared Identity / Connection / Behavior field set for both the create
@@ -74,82 +74,109 @@
 
 {#snippet identityFields()}
 	<div class="space-y-4">
-		<div>
-			<label for="{idPrefix}-name" class={labelClass}>Name <span class="text-danger">*</span></label>
-			<Input id="{idPrefix}-name" type="text" bind:value={draft.name} required />
-		</div>
-		<div>
+		{#if isPanel}
+			<DetailField label="Name *" id="{idPrefix}-name">
+				<Input id="{idPrefix}-name" type="text" bind:value={draft.name} required />
+			</DetailField>
 			{#if engineMutable}
-				<label for="{idPrefix}-engine" class={labelClass}>Engine <span class="text-danger">*</span></label>
-				<select
-					id="{idPrefix}-engine"
-					class="input"
-					value={draft.driver}
-					onchange={(e) => onDriverChange?.((e.target as HTMLSelectElement).value)}
-					required
-				>
-					{#each creatableEngines as descriptor (descriptor.driver)}
-						<option value={descriptor.driver}>{descriptor.label}</option>
-					{/each}
-				</select>
+				<DetailField label="Engine *" id="{idPrefix}-engine">
+					<select
+						id="{idPrefix}-engine"
+						class="input"
+						value={draft.driver}
+						onchange={(e) => onDriverChange?.((e.target as HTMLSelectElement).value)}
+						required
+					>
+						{#each creatableEngines as descriptor (descriptor.driver)}
+							<option value={descriptor.driver}>{descriptor.label}</option>
+						{/each}
+					</select>
+				</DetailField>
 			{:else}
-				<span class={labelClass}>Engine</span>
-				<p class="text-sm font-mono text-fg">{engineLabel}</p>
-				<p class="text-xs text-fg-subtle mt-1">Cannot be changed after creation.</p>
+				<DetailField label="Engine" help="Cannot be changed after creation.">
+					<p class="text-sm font-mono text-fg">{engineLabel}</p>
+				</DetailField>
 			{/if}
-		</div>
+		{:else}
+			<div>
+				<label for="{idPrefix}-name" class={labelClass}>Name <span class="text-danger">*</span></label>
+				<Input id="{idPrefix}-name" type="text" bind:value={draft.name} required />
+			</div>
+			<div>
+				{#if engineMutable}
+					<label for="{idPrefix}-engine" class={labelClass}>Engine <span class="text-danger">*</span></label>
+					<select
+						id="{idPrefix}-engine"
+						class="input"
+						value={draft.driver}
+						onchange={(e) => onDriverChange?.((e.target as HTMLSelectElement).value)}
+						required
+					>
+						{#each creatableEngines as descriptor (descriptor.driver)}
+							<option value={descriptor.driver}>{descriptor.label}</option>
+						{/each}
+					</select>
+				{:else}
+					<span class={labelClass}>Engine</span>
+					<p class="text-sm font-mono text-fg">{engineLabel}</p>
+					<p class="text-xs text-fg-subtle mt-1">Cannot be changed after creation.</p>
+				{/if}
+			</div>
+		{/if}
 	</div>
+{/snippet}
+
+{#snippet connectionFieldControl(field: EngineField)}
+	{#if field.options}
+		<select id="{idPrefix}-{field.name}" bind:value={draft[field.name]} class="input">
+			{#each field.options as option (option)}
+				<option value={option}>{option}</option>
+			{/each}
+		</select>
+	{:else if field.type === 'number'}
+		<input
+			id="{idPrefix}-{field.name}"
+			type="number"
+			bind:value={draft[field.name]}
+			class="input font-mono tabular-nums"
+			placeholder={field.default != null ? String(field.default) : ''}
+			required={field.required}
+		/>
+	{:else}
+		<Input
+			id="{idPrefix}-{field.name}"
+			type={field.secret ? 'password' : 'text'}
+			bind:value={draft[field.name]}
+			placeholder={field.default != null ? String(field.default) : ''}
+			required={field.required}
+		/>
+	{/if}
 {/snippet}
 
 {#snippet connectionFields()}
 	<div class="space-y-4">
 		{#each fieldDescriptors as field (field.name)}
 			<div>
-				{#if field.options}
-					<label for="{idPrefix}-{field.name}" class={labelClass}>
-						{field.label}{#if field.required}<span class="text-danger"> *</span>{/if}
-					</label>
-					<select id="{idPrefix}-{field.name}" bind:value={draft[field.name]} class="input">
-						{#each field.options as option (option)}
-							<option value={option}>{option}</option>
-						{/each}
-					</select>
-				{:else if field.type === 'boolean'}
+				{#if field.type === 'boolean'}
 					<div class="flex items-center gap-2">
-						<input
-							id="{idPrefix}-{field.name}"
-							type="checkbox"
-							bind:checked={draft[field.name]}
-							class="h-4 w-4 rounded border-line-strong bg-surface-2 text-signal focus:ring-signal"
-						/>
+						<Switch id="{idPrefix}-{field.name}" bind:checked={draft[field.name]} label={field.label} />
 						<label for="{idPrefix}-{field.name}" class="text-sm font-medium text-fg-muted">{field.label}</label>
 					</div>
-				{:else if field.type === 'number'}
-					<label for="{idPrefix}-{field.name}" class={labelClass}>
-						{field.label}{#if field.required}<span class="text-danger"> *</span>{/if}
-					</label>
-					<input
-						id="{idPrefix}-{field.name}"
-						type="number"
-						bind:value={draft[field.name]}
-						class="input font-mono tabular-nums"
-						placeholder={field.default != null ? String(field.default) : ''}
-						required={field.required}
-					/>
+					{#if field.description}
+						<p class="text-xs text-fg-subtle mt-1">{field.description}</p>
+					{/if}
+				{:else if isPanel}
+					<DetailField label="{field.label}{field.required ? ' *' : ''}" help={field.description ?? undefined} id="{idPrefix}-{field.name}">
+						{@render connectionFieldControl(field)}
+					</DetailField>
 				{:else}
 					<label for="{idPrefix}-{field.name}" class={labelClass}>
 						{field.label}{#if field.required}<span class="text-danger"> *</span>{/if}
 					</label>
-					<Input
-						id="{idPrefix}-{field.name}"
-						type={field.secret ? 'password' : 'text'}
-						bind:value={draft[field.name]}
-						placeholder={field.default != null ? String(field.default) : ''}
-						required={field.required}
-					/>
-				{/if}
-				{#if field.description}
-					<p class="text-xs text-fg-subtle mt-1">{field.description}</p>
+					{@render connectionFieldControl(field)}
+					{#if field.description}
+						<p class="text-xs text-fg-subtle mt-1">{field.description}</p>
+					{/if}
 				{/if}
 				{#if fieldHints[field.name]}
 					<div class="mt-2">{@render fieldHints[field.name]()}</div>
@@ -161,52 +188,82 @@
 
 {#snippet schedulingFields()}
 	<div class="space-y-4">
-		<div>
-			<label for="{idPrefix}-scheduling-policy" class={labelClass}>Policy</label>
-			<select id="{idPrefix}-scheduling-policy" bind:value={draft.scheduling_policy} class="input">
-				<option value="fifo">FIFO</option>
-				<option value="fair">Fair</option>
-			</select>
-			<p class="text-xs text-fg-subtle mt-1">
-				FIFO runs jobs in arrival order. Fair rotates between users after each job and prefers jobs
-				for the model already loaded, up to the allowance, before reloading.
-			</p>
-		</div>
-		{#if draft.scheduling_policy === 'fair'}
+		{#if isPanel}
+			<DetailField
+				label="Policy"
+				id="{idPrefix}-scheduling-policy"
+				help="FIFO runs jobs in arrival order. Fair rotates between users after each job and prefers jobs for the model already loaded, up to the allowance, before reloading."
+			>
+				<select id="{idPrefix}-scheduling-policy" bind:value={draft.scheduling_policy} class="input">
+					<option value="fifo">FIFO</option>
+					<option value="fair">Fair</option>
+				</select>
+			</DetailField>
+			{#if draft.scheduling_policy === 'fair'}
+				<DetailField label="Max Consecutive Same-Model Jobs" id="{idPrefix}-scheduling-allowance">
+					<input
+						id="{idPrefix}-scheduling-allowance"
+						type="number"
+						bind:value={draft.scheduling_max_consecutive_same_model}
+						class="input font-mono tabular-nums"
+						min="1"
+					/>
+				</DetailField>
+			{/if}
+		{:else}
 			<div>
-				<label for="{idPrefix}-scheduling-allowance" class={labelClass}>Max Consecutive Same-Model Jobs</label>
-				<input
-					id="{idPrefix}-scheduling-allowance"
-					type="number"
-					bind:value={draft.scheduling_max_consecutive_same_model}
-					class="input font-mono tabular-nums"
-					min="1"
-				/>
+				<label for="{idPrefix}-scheduling-policy" class={labelClass}>Policy</label>
+				<select id="{idPrefix}-scheduling-policy" bind:value={draft.scheduling_policy} class="input">
+					<option value="fifo">FIFO</option>
+					<option value="fair">Fair</option>
+				</select>
+				<p class="text-xs text-fg-subtle mt-1">
+					FIFO runs jobs in arrival order. Fair rotates between users after each job and prefers jobs
+					for the model already loaded, up to the allowance, before reloading.
+				</p>
 			</div>
+			{#if draft.scheduling_policy === 'fair'}
+				<div>
+					<label for="{idPrefix}-scheduling-allowance" class={labelClass}>Max Consecutive Same-Model Jobs</label>
+					<input
+						id="{idPrefix}-scheduling-allowance"
+						type="number"
+						bind:value={draft.scheduling_max_consecutive_same_model}
+						class="input font-mono tabular-nums"
+						min="1"
+					/>
+				</div>
+			{/if}
 		{/if}
 	</div>
 {/snippet}
 
 {#snippet behaviorFields()}
 	<div class="space-y-4">
-		<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-			<div>
-				<label for="{idPrefix}-priority" class={labelClass}>Priority</label>
-				<input id="{idPrefix}-priority" type="number" bind:value={draft.priority} class="input font-mono tabular-nums" min="1" />
+		{#if isPanel}
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+				<DetailField label="Priority" id="{idPrefix}-priority">
+					<input id="{idPrefix}-priority" type="number" bind:value={draft.priority} class="input font-mono tabular-nums" min="1" />
+				</DetailField>
+				<DetailField label="Timeout (seconds)" id="{idPrefix}-timeout">
+					<input id="{idPrefix}-timeout" type="number" bind:value={draft.timeout_seconds} class="input font-mono tabular-nums" min="30" />
+				</DetailField>
 			</div>
-			<div>
-				<label for="{idPrefix}-timeout" class={labelClass}>Timeout (seconds)</label>
-				<input id="{idPrefix}-timeout" type="number" bind:value={draft.timeout_seconds} class="input font-mono tabular-nums" min="30" />
+		{:else}
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+				<div>
+					<label for="{idPrefix}-priority" class={labelClass}>Priority</label>
+					<input id="{idPrefix}-priority" type="number" bind:value={draft.priority} class="input font-mono tabular-nums" min="1" />
+				</div>
+				<div>
+					<label for="{idPrefix}-timeout" class={labelClass}>Timeout (seconds)</label>
+					<input id="{idPrefix}-timeout" type="number" bind:value={draft.timeout_seconds} class="input font-mono tabular-nums" min="30" />
+				</div>
 			</div>
-		</div>
+		{/if}
 		{#if enabledPlacement === 'inline'}
 			<div class="flex items-center gap-2">
-				<input
-					id="{idPrefix}-enabled"
-					type="checkbox"
-					bind:checked={draft.enabled}
-					class="h-4 w-4 rounded border-line-strong bg-surface-2 text-signal focus:ring-signal"
-				/>
+				<Switch id="{idPrefix}-enabled" bind:checked={draft.enabled} label="Enabled" />
 				<label for="{idPrefix}-enabled" class="text-sm font-medium text-fg-muted">Enabled</label>
 			</div>
 		{/if}

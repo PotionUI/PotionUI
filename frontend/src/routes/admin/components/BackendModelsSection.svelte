@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { Alert, Badge, Button, CopyButton, Input, Spinner, EmptyState } from '$lib/components/ui';
+	import { DetailSection } from '$lib/components/detail';
 	import Icon from '$lib/components/Icon.svelte';
 	import { getApiErrorMessage } from '$lib/utils/logger';
 	import { toasts } from '$lib/stores/toast';
@@ -275,9 +276,9 @@
 		</div>
 	</Alert>
 {:else if sectionError?.kind !== 'invalid_backend'}
-	<div class="h-full flex flex-col min-h-0 rounded-lg border border-line bg-surface-1 overflow-hidden">
+	<DetailSection label="Models" padded={false}>
 		{#if depotDir}
-			<div class="px-3 py-2.5 border-b border-line flex-shrink-0 space-y-1.5">
+			<div class="px-3 py-2.5 border-b border-line space-y-1.5">
 				<div class="flex items-center gap-2">
 					<span class="font-mono text-2xs uppercase tracking-[0.06em] text-fg-subtle flex-shrink-0">Worker depot</span>
 					<span class="font-mono text-xs text-fg truncate" title={depotDir}>{depotDir}</span>
@@ -302,7 +303,7 @@
 				{/if}
 			</div>
 		{:else}
-			<p class="px-3 py-2 border-b border-line flex-shrink-0 text-2xs text-fg-subtle">
+			<p class="px-3 py-2 border-b border-line text-2xs text-fg-subtle">
 				This worker doesn't report its depot root. Models are looked up under
 				<span class="font-mono">POTIONUI_WORKER_MODEL_DIR</span> (default <span class="font-mono">/models</span>),
 				one folder per model type — the same layout as this host's models folder.
@@ -311,7 +312,7 @@
 		{#if rows.length === 0}
 			<p class="px-4 py-6 text-sm text-fg-muted">No models are known on the host yet.</p>
 		{:else}
-			<div class="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-line flex-shrink-0">
+			<div class="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-line">
 				<div class="relative w-56">
 					<Icon name="search" className="w-3.5 h-3.5 text-fg-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
 					<Input
@@ -376,7 +377,7 @@
 				</div>
 			</div>
 
-			<div class="flex-1 min-h-0 overflow-y-auto">
+			<div>
 				{#if filteredRows.length === 0}
 					<EmptyState compact icon="search" title="No models match" description="Try a different search or filter.">
 						{#snippet actions()}
@@ -447,14 +448,13 @@
 					</div>
 				{/if}
 			</div>
-
-			<div class="flex items-center gap-3 px-3 py-2 border-t border-line flex-shrink-0">
+		{/if}
+		{#snippet footer()}
+			{#if rows.length > 0}
 				{#if selectedRows.length > 0}
 					<span class="font-mono text-2xs tabular-nums text-fg-subtle mr-auto">
 						{selectedRows.length} selected · {formatBytes(selectedBytes)}
 					</span>
-				{:else}
-					<span class="mr-auto"></span>
 				{/if}
 				<Button
 					variant="secondary"
@@ -466,7 +466,7 @@
 				>
 					Upload from this machine
 				</Button>
-			</div>
-		{/if}
-	</div>
+			{/if}
+		{/snippet}
+	</DetailSection>
 {/if}

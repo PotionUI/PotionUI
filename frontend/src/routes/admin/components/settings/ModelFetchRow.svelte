@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button, Badge } from '$lib/components/ui';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { downloadStore } from '$lib/stores/downloads';
 	import { isFetchDisabled, type FetchState } from './modelFetch.svelte';
 
@@ -12,9 +13,9 @@
 			Ready{#if state.size}&nbsp;&middot; {downloadStore.formatBytes(state.size)}{/if}
 		</Badge>
 		{#if state.loaded}
-			<span title="Currently resident in memory">
+			<Tooltip text="Currently resident in memory">
 				<Badge variant="signal" size="sm" dot>In memory</Badge>
-			</span>
+			</Tooltip>
 		{/if}
 	{:else if state.status === 'downloading' || state.status === 'queued'}
 		<span class="font-mono text-xs tabular-nums text-fg-muted"
@@ -22,7 +23,11 @@
 		>
 		<Badge variant="info">Downloading</Badge>
 	{:else if state.status === 'failed'}
-		<span title={state.error ?? undefined}><Badge variant="danger">Failed</Badge></span>
+		{#if state.error}
+			<Tooltip text={state.error}><Badge variant="danger">Failed</Badge></Tooltip>
+		{:else}
+			<Badge variant="danger">Failed</Badge>
+		{/if}
 	{:else if state.status === 'checking'}
 		<span class="text-xs text-fg-muted">Checking...</span>
 	{/if}

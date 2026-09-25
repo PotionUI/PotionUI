@@ -37,7 +37,7 @@ function mountShell(overrides: Record<string, unknown> = {}) {
 }
 
 function sectionRows(): HTMLElement[] {
-	return Array.from(target.querySelectorAll('[aria-label="Library sections"] [role="option"]'));
+	return Array.from(target.querySelectorAll('[aria-label="Prompt Library sections"] [role="option"]'));
 }
 
 function buttonByText(text: string): HTMLButtonElement | undefined {
@@ -88,14 +88,14 @@ describe('LibraryShell', () => {
 		expect(aside.className).toContain('w-60');
 		expect(aside.contains(heading)).toBe(false);
 		expect(aside.nextElementSibling?.contains(heading)).toBe(true);
-		expect(aside.querySelector('[aria-label="Library sections"]')).not.toBeNull();
+		expect(aside.querySelector('[aria-label="Prompt Library sections"]')).not.toBeNull();
 	});
 
 	it('renders the sidebar label inside the Pane header at the 12px floor', () => {
 		mountShell({ section: 'prompts' });
 		const aside = target.querySelector('aside') as HTMLElement;
 		const header = aside.querySelector('.min-h-header') as HTMLElement;
-		const label = Array.from(header.querySelectorAll('span')).find((el) => el.textContent?.trim() === 'Library') as HTMLElement;
+		const label = Array.from(header.querySelectorAll('span')).find((el) => el.textContent?.trim() === 'Prompt Library') as HTMLElement;
 		const classes = label.className.split(/\s+/);
 		expect(classes).toEqual(expect.arrayContaining(['font-mono', 'text-xs', 'uppercase']));
 		expect(header.querySelector('button[aria-label="Collapse"]')).not.toBeNull();
@@ -107,7 +107,7 @@ describe('LibraryShell', () => {
 		flushSync();
 		const rail = target.querySelector('aside') as HTMLElement;
 		expect(rail.className).toContain('w-8');
-		expect(rail.querySelector('[aria-label="Library sections"]')).toBeNull();
+		expect(rail.querySelector('[aria-label="Prompt Library sections"]')).toBeNull();
 		const sectionButtons = ['Prompts', 'Segments', 'Templates', 'Categories'].map(
 			(label) => rail.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement
 		);
@@ -126,7 +126,7 @@ describe('LibraryShell', () => {
 		expect(target.querySelector('[data-testid="toolbar"]')).not.toBeNull();
 		expect(target.querySelector('button[aria-label="More actions"]')).not.toBeNull();
 		expect(buttonByText('New prompt')).toBeTruthy();
-		expect(target.textContent).toContain('12 prompts');
+		expect(target.querySelector('h1')?.parentElement?.parentElement?.textContent).toContain('12');
 	});
 
 	it('places the overflow menu button to the right of the primary action', () => {
@@ -149,6 +149,23 @@ describe('LibraryShell', () => {
 		expect(target.querySelector('[data-testid="body"]')).not.toBeNull();
 	});
 
+	it('does not render its own PageTitle row while the detail view is open, leaving only the body', () => {
+		mountShell({ detailOpen: true });
+		const main = target.querySelector('main') as HTMLElement;
+		expect(main.previousElementSibling).toBeNull();
+		expect(target.querySelector('h1')).toBeNull();
+		expect(main.textContent).not.toContain('Prompt Library');
+	});
+
+	it('renders its PageTitle row above the body when the detail view is closed', () => {
+		mountShell({ detailOpen: false });
+		const main = target.querySelector('main') as HTMLElement;
+		expect(main.previousElementSibling).not.toBeNull();
+		const heading = target.querySelector('h1')?.textContent ?? '';
+		expect(heading).toContain('Prompts');
+		expect(heading).not.toContain('Prompt Library');
+	});
+
 	it('renders the chip row with N of M only while chips exist', () => {
 		mountShell({ filterChips: [], loadedCount: 5, total: 40 });
 		expect(target.textContent).not.toContain('5 of 40');
@@ -164,5 +181,9 @@ describe('LibraryShell', () => {
 		expect(buttonByText('Clear all')).toBeTruthy();
 		(target.querySelector('button[aria-label="Remove filter #dance"]') as HTMLButtonElement).click();
 		expect(onRemoveChip).toHaveBeenCalledWith('tag:dance');
+	});
+	it('renders no sidebar when there is a single section and no sidebar tree', () => {
+		mountShell({ sections: [SECTIONS[0]], section: 'prompts' });
+		expect(target.querySelector('aside')).toBeNull();
 	});
 });

@@ -116,7 +116,7 @@ describe('Backends admin: scheduling fields reach the API payload', () => {
 		mounted = mountTab();
 		await settle();
 
-		clickButtonWithText(mounted.target, 'Add Backend');
+		clickButtonWithText(mounted.target, 'Add backend');
 		await settle();
 
 		// BaseModal renders through the `portal` action, onto document.body -
@@ -146,7 +146,7 @@ describe('Backends admin: scheduling fields reach the API payload', () => {
 		mounted = mountTab();
 		await settle();
 
-		const row = Array.from(mounted.target.querySelectorAll('[role="option"]')).find((r) =>
+		const row = Array.from(mounted.target.querySelectorAll('[role="row"]')).find((r) =>
 			r.textContent?.includes('Worker 1')
 		);
 		expect(row).toBeTruthy();

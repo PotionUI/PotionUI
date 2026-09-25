@@ -2,6 +2,23 @@ import { describe, it, expect } from 'vitest';
 import { runDuration, runStartedLabel, mergeRunHistory } from './recipeRunHistory';
 
 describe('runDuration', () => {
+	it('ends a finished run without completed_at at its last update, not now', () => {
+		const now = () => Date.parse('2026-09-24T10:00:00Z');
+		expect(
+			runDuration(
+				{ created_at: '2026-09-11T09:00:00Z', completed_at: null, status: 'cancelled', updated_at: '2026-09-11T09:01:30Z' },
+				now
+			)
+		).toBe('1m 30s');
+	});
+
+	it('shows no duration for a finished run with no end timestamp at all', () => {
+		const now = () => Date.parse('2026-09-24T10:00:00Z');
+		expect(
+			runDuration({ created_at: '2026-09-11T09:00:00Z', completed_at: null, status: 'failed', updated_at: null }, now)
+		).toBeNull();
+	});
+
 	it('measures a finished run between its two timestamps', () => {
 		expect(
 			runDuration({

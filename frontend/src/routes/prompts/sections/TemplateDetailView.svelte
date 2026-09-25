@@ -128,16 +128,5 @@
 		</DetailLayout>
 	</DetailBody>
 
-	<DetailFooter {dirtyCount}>
-		<Button size="sm" variant="secondary" onclick={onDiscard}>Discard</Button>
-		<Button
-			size="sm"
-			variant="primary"
-			loading={saving}
-			disabled={!name.trim() || !hasMeaningfulSegments(editorSegments)}
-			onclick={onSave}
-		>
-			{mode === 'create' ? 'Create' : 'Save'}
-		</Button>
-	</DetailFooter>
+	<DetailFooter {dirtyCount} {mode} {saving} canSave={!!name.trim() && hasMeaningfulSegments(editorSegments)} {onSave} {onDiscard} />
 </div>

@@ -42,11 +42,11 @@ test('tool governance is scoped per LLM config, admin UI and API alike', async (
 
 	await page.goto('/admin?tab=llm');
 
-	const configList = page.locator('[role="listbox"][aria-label="LLM configurations"]');
-	await expect(configList).toBeVisible({ timeout: 15000 });
+	const configRow = (name: string) => page.getByRole('row').filter({ hasText: name });
+	await expect(configRow(configABody.name)).toBeVisible({ timeout: 15000 });
 
 	// --- Config A: disable Search Gallery, lock Get Active Models ---
-	await configList.getByRole('option').filter({ hasText: configABody.name }).click();
+	await configRow(configABody.name).click();
 	await page.getByRole('button', { name: 'Toolset' }).click();
 
 	const searchGalleryRowA = page.locator('[data-testid="toolset-row"][data-tool="search_gallery"]');
@@ -61,7 +61,8 @@ test('tool governance is scoped per LLM config, admin UI and API alike', async (
 	await screenshot(page, JOURNEY, 'config-a-after-changes');
 
 	// --- Config B: untouched - same two tools must show no badges ---
-	await configList.getByRole('option').filter({ hasText: configBBody.name }).click();
+	await page.getByRole('button', { name: 'Back to Configurations' }).click();
+	await configRow(configBBody.name).click();
 	await page.getByRole('button', { name: 'Toolset' }).click();
 
 	const searchGalleryRowB = page.locator('[data-testid="toolset-row"][data-tool="search_gallery"]');
@@ -74,8 +75,8 @@ test('tool governance is scoped per LLM config, admin UI and API alike', async (
 
 	// Reload config A: changes must have persisted server-side.
 	await page.goto('/admin?tab=llm');
-	await expect(configList).toBeVisible({ timeout: 15000 });
-	await configList.getByRole('option').filter({ hasText: configABody.name }).click();
+	await expect(configRow(configABody.name)).toBeVisible({ timeout: 15000 });
+	await configRow(configABody.name).click();
 	await page.getByRole('button', { name: 'Toolset' }).click();
 	await expect(
 		page.locator('[data-testid="toolset-row"][data-tool="search_gallery"]').locator('[data-testid="tool-status-badge"]').getByText('Off', { exact: true })

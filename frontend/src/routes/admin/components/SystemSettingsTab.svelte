@@ -5,12 +5,9 @@
 	import { page } from '$app/stores';
 	import * as adminApi from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
-	import { formatBytes } from '$lib/utils/format';
-	import { Button, Spinner } from '$lib/components/ui';
-	import { MasterDetailLayout } from '$lib/components/master-detail';
-	import { Pane, PaneRow } from '$lib/components/pane';
+	import { Spinner } from '$lib/components/ui';
+	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import { DetailHeader, DetailBody, DetailLayout, DetailFooter } from '$lib/components/detail';
-	import AdminTabShell from './AdminTabShell.svelte';
 	import AccessPanel from './settings/AccessPanel.svelte';
 	import ContentSafetyPanel from './settings/ContentSafetyPanel.svelte';
 	import FileStoragePanel from './settings/FileStoragePanel.svelte';
@@ -21,11 +18,16 @@
 	import PromptSearchPanel from './settings/PromptSearchPanel.svelte';
 	import MediaTaggingPanel from './settings/MediaTaggingPanel.svelte';
 	import VisualSearchPanel from './settings/VisualSearchPanel.svelte';
-	import AiPanelFrame from './settings/AiPanelFrame.svelte';
 	import GenerationPanel from './settings/GenerationPanel.svelte';
 	import ExternalLoginPanel from './settings/ExternalLoginPanel.svelte';
 	import LogsPanel from './settings/LogsPanel.svelte';
-	import { SETTINGS_GROUPS, SETTINGS_KEY_GROUP, type SettingsGroupId } from './settings/settingsGroups';
+	import {
+		SETTINGS_GROUPS,
+		SETTINGS_KEY_GROUP,
+		settingsGroupHasFooter,
+		computeDirtyGroups,
+		type SettingsGroupId
+	} from './settings/settingsGroups';
 
 	// The PUT body System Settings sends - unchanged from the pre-rebuild
 	// dict, just derived from the group map so there's one source of truth.
@@ -42,10 +44,6 @@
 	let activeGroup = $state<SettingsGroupId>(
 		SETTINGS_GROUPS.find((g) => g.id === requestedGroup)?.id ?? 'access'
 	);
-	// The Logs row's subtitle needs a live read from the log file, which is
-	// not part of `settings` - fetched once alongside it, not folded into the
-	// shared save-bar snapshot.
-	let logsSummary = $state<{ file: string | null; size_bytes: number; lines: number } | null>(null);
 
 	function snapshotOf(s: Record<string, any>): string {
 		return JSON.stringify(Object.fromEntries(USER_CONFIGURABLE_KEYS.map((k) => [k, s[k]])));
@@ -55,29 +53,13 @@
 		const before = JSON.parse(snapshot) as Record<string, any>;
 		return USER_CONFIGURABLE_KEYS.filter((k) => JSON.stringify(settings[k]) !== JSON.stringify(before[k]));
 	});
-	let dirtyGroups = $derived(new Set(dirtyKeys.map((k) => SETTINGS_KEY_GROUP[k])));
+	let dirtyGroups = $derived(computeDirtyGroups(dirtyKeys));
 	let unsavedChanges = $derived(dirtyKeys.length > 0);
 	let activeGroupLabel = $derived(SETTINGS_GROUPS.find((g) => g.id === activeGroup)?.label ?? '');
 
 	onMount(() => {
 		loadSettings();
-		loadLogsSummary();
 	});
-
-	async function loadLogsSummary() {
-		try {
-			const response = await adminApi.getLogTail(500);
-			if (response.success && response.data) {
-				logsSummary = {
-					file: response.data.file,
-					size_bytes: response.data.size_bytes,
-					lines: response.data.lines.length
-				};
-			}
-		} catch (error) {
-			logger.error('Failed to load the log summary:', error);
-		}
-	}
 
 	async function loadSettings() {
 		try {
@@ -98,6 +80,11 @@
 		settings = { ...settings, [key]: value };
 	}
 
+	function discardSettings() {
+		const before = JSON.parse(snapshot) as Record<string, any>;
+		settings = { ...settings, ...before };
+	}
+
 	async function saveSettings() {
 		try {
 			saving = true;
@@ -116,109 +103,69 @@
 		}
 	}
 
-	/** Bare mono hint per section, never prose - matches the pane family's
-	 * subtitle idiom elsewhere in admin. Every branch returns a real string:
-	 * a row with no subtitle would be the only single-line row in the rail. */
-	function subtitleFor(id: SettingsGroupId): string {
-		switch (id) {
-			case 'access':
-				return `${settings.registration_policy === 'open' ? 'open' : 'closed'} · mcp ${settings.mcp_enabled ? 'on' : 'off'}`;
-			case 'content_safety':
-				return `nsfw ${settings.nsfw ? 'on' : 'off'} · blur ${settings.media_nsfw_blur_threshold ?? 0.6}`;
-			case 'storage':
-				return settings.storage_backend === 's3' ? 's3' : 'local';
-			case 'search_tagging':
-				return '3 models';
-			case 'generation':
-				return `single-result gallery ${settings.workbench_single_result_gallery ? 'on' : 'off'}`;
-			case 'external_login':
-				return `auto-create ${settings.external_login_auto_create === 'true' ? 'on' : 'off'}`;
-			case 'logs':
-				if (!logsSummary) return '…';
-				return logsSummary.file === null ? 'off' : `${formatBytes(logsSummary.size_bytes)} · ${logsSummary.lines} lines`;
-		}
-	}
 </script>
 
-<div class="flex min-h-[calc(100dvh-var(--header-h)-2rem)] flex-col gap-4 sm:min-h-[calc(100dvh-var(--header-h)-3rem)]">
-	<AdminTabShell title="System Settings" icon="settings" />
-
-	<section class="flex flex-1 flex-col rounded-lg border border-line bg-surface-1 overflow-hidden">
-		{#if loading}
-			<div class="h-full flex flex-col items-center justify-center">
-				<Spinner size="lg" />
-				<p class="text-sm text-fg-muted mt-4">Loading settings…</p>
-			</div>
-		{:else}
-			<MasterDetailLayout leftWidth={300} minWidth={240} maxWidth={400} storageKey="admin-settings-width">
-				<div slot="list" class="h-full min-h-0">
-					<Pane label="Settings" bodyRole="listbox" ariaLabel="Settings sections">
-						{#snippet children()}
-							{#each SETTINGS_GROUPS as group (group.id)}
-								{#snippet rowTrailing()}
-									{#if dirtyGroups.has(group.id)}
-										<span
-											class="w-1.5 h-1.5 rounded-full bg-warning-solid flex-shrink-0"
-											title="Unsaved changes"
-											aria-hidden="true"
-										></span>
-									{/if}
-								{/snippet}
-								<PaneRow
-									selected={activeGroup === group.id}
-									onclick={() => (activeGroup = group.id)}
-									icon={group.icon}
-									title={group.label}
-									subtitle={subtitleFor(group.id)}
-									subtitleMono
-									trailing={rowTrailing}
-								/>
-							{/each}
-						{/snippet}
-					</Pane>
-				</div>
-
-				<div slot="detail" class="h-full min-h-0 flex flex-col">
-					<DetailHeader title={activeGroupLabel} />
-
-					<DetailBody>
-						<DetailLayout>
-							{#snippet main()}
-								{#if activeGroup === 'access'}
-									<AccessPanel {settings} onSettingChange={handleSettingChange} />
-								{:else if activeGroup === 'content_safety'}
-									<ContentSafetyPanel {settings} onSettingChange={handleSettingChange} />
-								{:else if activeGroup === 'storage'}
-									<FileStoragePanel {settings} onSettingChange={handleSettingChange} />
-									<ThumbnailsPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
-									<HousekeepingPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
-									<BackupsPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
-									<ModelsLocationPanel />
-								{:else if activeGroup === 'search_tagging'}
-									<AiPanelFrame>
-										<PromptSearchPanel {settings} onSettingChange={handleSettingChange} />
-										<MediaTaggingPanel {settings} onSettingChange={handleSettingChange} />
-										<VisualSearchPanel {settings} onSettingChange={handleSettingChange} />
-									</AiPanelFrame>
-								{:else if activeGroup === 'generation'}
-									<GenerationPanel {settings} onSettingChange={handleSettingChange} />
-								{:else if activeGroup === 'external_login'}
-									<ExternalLoginPanel {settings} onSettingChange={handleSettingChange} />
-								{:else if activeGroup === 'logs'}
-									<LogsPanel />
-								{/if}
-							{/snippet}
-						</DetailLayout>
-					</DetailBody>
-
-					<DetailFooter dirtyCount={dirtyKeys.length}>
-						<Button variant="ghost" size="sm" disabled={!unsavedChanges || saving} onclick={loadSettings}>Reset</Button>
-						<Button variant="primary" size="sm" loading={saving} disabled={!unsavedChanges || saving} onclick={saveSettings}>
-							{saving ? 'Saving...' : 'Save Changes'}
-						</Button>
-					</DetailFooter>
-				</div>
-			</MasterDetailLayout>
+<LibraryShell
+	title="Settings"
+	persistKey="admin-settings-library"
+	heightClass="h-full"
+	sections={SETTINGS_GROUPS}
+	section={activeGroup}
+	onSelectSection={(id) => (activeGroup = id)}
+	detailOpen
+>
+	{#snippet sectionTrailing(id)}
+		{#if dirtyGroups.has(id)}
+			<span class="w-1.5 h-1.5 rounded-full bg-warning-solid flex-shrink-0" aria-hidden="true"></span>
 		{/if}
-	</section>
-</div>
+	{/snippet}
+
+	{#if loading}
+		<div class="flex h-full flex-col items-center justify-center">
+			<Spinner size="lg" />
+			<p class="text-sm text-fg-muted mt-4">Loading settings…</p>
+		</div>
+	{:else}
+		<div class="flex h-full min-h-0 flex-col">
+			<DetailHeader title={activeGroupLabel} />
+
+			<DetailBody>
+				<DetailLayout>
+					{#snippet main()}
+						{#if activeGroup === 'access'}
+							<AccessPanel {settings} onSettingChange={handleSettingChange} />
+						{:else if activeGroup === 'content_safety'}
+							<ContentSafetyPanel {settings} onSettingChange={handleSettingChange} />
+						{:else if activeGroup === 'storage'}
+							<FileStoragePanel {settings} onSettingChange={handleSettingChange} />
+							<ThumbnailsPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
+							<HousekeepingPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
+							<BackupsPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
+							<ModelsLocationPanel />
+						{:else if activeGroup === 'search_tagging'}
+							<PromptSearchPanel {settings} onSettingChange={handleSettingChange} />
+							<MediaTaggingPanel {settings} onSettingChange={handleSettingChange} />
+							<VisualSearchPanel {settings} onSettingChange={handleSettingChange} />
+						{:else if activeGroup === 'generation'}
+							<GenerationPanel {settings} onSettingChange={handleSettingChange} />
+						{:else if activeGroup === 'external_login'}
+							<ExternalLoginPanel {settings} onSettingChange={handleSettingChange} />
+						{:else if activeGroup === 'logs'}
+							<LogsPanel />
+						{/if}
+					{/snippet}
+				</DetailLayout>
+			</DetailBody>
+
+			{#if settingsGroupHasFooter(activeGroup)}
+				<DetailFooter
+					dirtyCount={dirtyKeys.length}
+					{saving}
+					canSave={unsavedChanges}
+					onSave={saveSettings}
+					onDiscard={discardSettings}
+				/>
+			{/if}
+		</div>
+	{/if}
+</LibraryShell>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { backendDetailTabsFor, isBackendDetailTab } from './backendDetailTabs';
+import { backendDetailTabsFor, isBackendDetailTab, backendDetailTabHasFooter } from './backendDetailTabs';
 
 describe('backendDetailTabsFor', () => {
 	it('gives native.remote an Infrastructure and Models tab', () => {
@@ -38,5 +38,18 @@ describe('isBackendDetailTab', () => {
 			expect(isBackendDetailTab(driver, 'overview')).toBe(true);
 			expect(isBackendDetailTab(driver, 'stats')).toBe(true);
 		}
+	});
+});
+
+describe('backendDetailTabHasFooter', () => {
+	it('shows the footer only on the editable Overview tab', () => {
+		expect(backendDetailTabHasFooter('overview')).toBe(true);
+	});
+
+	it('hides the footer on every other tab', () => {
+		expect(backendDetailTabHasFooter('infrastructure')).toBe(false);
+		expect(backendDetailTabHasFooter('models')).toBe(false);
+		expect(backendDetailTabHasFooter('optimizations')).toBe(false);
+		expect(backendDetailTabHasFooter('stats')).toBe(false);
 	});
 });

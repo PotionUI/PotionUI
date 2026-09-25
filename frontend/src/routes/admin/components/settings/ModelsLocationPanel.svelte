@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { toasts } from '$lib/stores/toast';
 	import { Button, Input, Alert, Spinner } from '$lib/components/ui';
-	import { DetailSection } from '$lib/components/detail';
+	import { DetailSection, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import { ModelsLocationState, overrideDraftsFor } from '$lib/models-location/state.svelte';
 
 	const location = new ModelsLocationState();
@@ -70,7 +70,7 @@
 			</button>
 
 			{#if overridesOpen && location.config}
-				<div class="mt-2 space-y-2 border border-line rounded p-3">
+				<div class="mt-2 space-y-2 p-3 {DETAIL_INSET_CLASS}">
 					{#each location.config.directories as dir (dir.directory)}
 						<div>
 							<label for="override-{dir.directory}" class="block text-xs text-fg-muted mb-1"
@@ -86,18 +86,18 @@
 					{/each}
 				</div>
 			{/if}
-
-			<div class="flex items-center gap-3 mt-3">
-				<Button variant="primary" onclick={apply} loading={location.applying} disabled={location.applying}
-					>Apply</Button
-				>
-				{#if location.config}
-					<span class="text-xs text-fg-subtle">
-						{location.config.directories.filter((d) => d.linked).length} of {location.config
-							.directories.length} type directories linked
-					</span>
-				{/if}
-			</div>
 		{/if}
 	</div>
+
+	{#snippet footer()}
+		{#if location.config}
+			<span class="mr-auto text-xs text-fg-subtle">
+				{location.config.directories.filter((d) => d.linked).length} of {location.config.directories.length} type
+				directories linked
+			</span>
+		{/if}
+		<Button variant="primary" size="sm" onclick={apply} loading={location.applying} disabled={location.loading || location.applying}>
+			Apply
+		</Button>
+	{/snippet}
 </DetailSection>

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { logger, getApiErrorMessage } from '$lib/utils/logger';
-	import { Button, Badge, Spinner } from '$lib/components/ui';
+	import { Button, Badge, Spinner, Switch } from '$lib/components/ui';
+	import { DetailSection, KVGrid, KVItem, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import { api } from '$lib/services/api/index';
 	import {
@@ -135,9 +136,8 @@
 		}
 	}
 
-	async function onFlagChange(flag: EngineFlagId, event: Event) {
+	async function onFlagChange(flag: EngineFlagId, checked: boolean) {
 		if (!data) return;
-		const checked = (event.currentTarget as HTMLInputElement).checked;
 		savingFlag = flag;
 		try {
 			const response = await setEngineFlags(backendId, { [flag]: checked ? 'on' : 'off' });
@@ -302,236 +302,216 @@
 	});
 </script>
 
-<div>
-	{#if data}
-		<div class="flex items-center gap-2 mb-3">
-			<span class="text-xs font-mono uppercase tracking-[0.07em] text-fg-subtle">Active attention backend</span>
-			<Badge variant="signal" size="sm" class="font-mono">
-				{data.system.active_backend}
-			</Badge>
+{#if loading}
+	<DetailSection label="Optimizations">
+		<div class="flex items-center gap-2 py-3">
+			<Spinner size="sm" />
+			<span class="text-xs text-fg-muted">Probing system…</span>
 		</div>
-	{/if}
-
-	<div class="space-y-3">
-			{#if loading}
-				<div class="flex items-center gap-2 py-3">
-					<Spinner size="sm" />
-					<span class="text-xs text-fg-muted">Probing system…</span>
-				</div>
-			{:else if error}
-				<div class="rounded border border-danger/25 bg-danger/10 text-danger px-3 py-2 text-xs">
-					{error}
-				</div>
-			{:else if data}
-				<!-- System report -->
-				<div class="rounded border border-line bg-surface-1 px-3 py-2">
-					<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-2xs font-mono tabular-nums text-fg-muted">
-						<span
-							>GPU: <span class="text-fg"
-								>{data.system.gpu_name ?? 'none'} ({smLabel(data.system.compute_capability)})</span
-							></span
-						>
-						<span
-							>nvcc: <span class="text-fg"
-								>{data.system.nvcc_found
-									? data.system.nvcc_version
-										? `${data.system.nvcc_version[0]}.${data.system.nvcc_version[1]}`
-										: 'found'
-									: 'not found'}{data.system.nvcc_source === 'venv' ? ' (venv)' : ''}</span
-							></span
-						>
-						<span
-							>torch: <span class="text-fg">{data.system.torch_version}</span></span
-						>
-						<span
-							>cuda: <span class="text-fg">{data.system.torch_cuda_version ?? 'unknown'}</span></span
-						>
-					</div>
-					{#if !data.system.nvcc_found}
-						{@const toolchain = cudaToolchainOpt(data)}
-						<div class="flex items-center gap-2 mt-1.5">
-							<p class="text-2xs text-warning leading-relaxed flex-1">
-								Install the CUDA toolkit matching your torch build (cuda {data.system
-									.torch_cuda_version ?? '?'}) to compile optimizations from source.
-							</p>
-							{#if toolchain && toolchain.installable}
-								<Button variant="secondary" size="xs" onclick={() => openInstallModal(toolchain)}>
-									Align
-								</Button>
-							{/if}
-						</div>
-					{:else if !data.system.nvcc_cuda_matches_torch}
-						{@const toolchain = cudaToolchainOpt(data)}
-						<div class="flex items-center gap-2 mt-1.5">
-							<p class="text-2xs text-warning leading-relaxed flex-1">
-								nvcc CUDA version doesn't match torch's CUDA build — compiled extensions may fail
-								to load.
-							</p>
-							{#if toolchain && toolchain.installable}
-								<Button variant="secondary" size="xs" onclick={() => openInstallModal(toolchain)}>
-									Align
-								</Button>
-							{/if}
-						</div>
+	</DetailSection>
+{:else if error}
+	<DetailSection label="Optimizations">
+		<div class="rounded border border-danger/25 bg-danger/10 text-danger px-3 py-2 text-xs">
+			{error}
+		</div>
+	</DetailSection>
+{:else if data}
+	<div class="space-y-4">
+		<DetailSection label="System">
+			<KVGrid>
+				<KVItem label="GPU" mono>{data.system.gpu_name ?? 'none'} ({smLabel(data.system.compute_capability)})</KVItem>
+				<KVItem label="nvcc" mono>
+					{data.system.nvcc_found
+						? data.system.nvcc_version
+							? `${data.system.nvcc_version[0]}.${data.system.nvcc_version[1]}`
+							: 'found'
+						: 'not found'}{data.system.nvcc_source === 'venv' ? ' (venv)' : ''}
+				</KVItem>
+				<KVItem label="Torch" mono>{data.system.torch_version}</KVItem>
+				<KVItem label="CUDA" mono>{data.system.torch_cuda_version ?? 'unknown'}</KVItem>
+			</KVGrid>
+			{#if !data.system.nvcc_found}
+				{@const toolchain = cudaToolchainOpt(data)}
+				<div class="flex items-center gap-2 mt-3">
+					<p class="text-2xs text-warning leading-relaxed flex-1">
+						Install the CUDA toolkit matching your torch build (cuda {data.system
+							.torch_cuda_version ?? '?'}) to compile optimizations from source.
+					</p>
+					{#if toolchain && toolchain.installable}
+						<Button variant="secondary" size="xs" onclick={() => openInstallModal(toolchain)}>
+							Align
+						</Button>
 					{/if}
 				</div>
-
-				<!-- Attention backend pin -->
-				<div class="flex items-center gap-2">
-					<label for="attn-pin-{backendId}" class="text-xs text-fg-muted whitespace-nowrap">
-						Attention backend
-					</label>
-					<select
-						id="attn-pin-{backendId}"
-						class="input text-xs font-mono py-1"
-						value={data.pinned_backend ?? 'auto'}
-						on:change={onPinChange}
-						disabled={pinning}
-					>
-						<option value="auto">auto</option>
-						{#each data.system.available_backends as backend (backend)}
-							<option value={backend}>{backend}</option>
-						{/each}
-					</select>
-					{#if pinning}<Spinner size="sm" />{/if}
-					<span class="text-2xs font-mono tabular-nums text-fg-subtle ml-auto"
-						>active: {data.system.active_backend}</span
-					>
-					<Button
-						variant="secondary"
-						size="xs"
-						loading={benchmarking}
-						disabled={modalOpt !== null && jobStatus === 'running'}
-						onclick={runBenchmark}
-					>
-						{benchmarking ? 'Benchmarking…' : 'Benchmark'}
-					</Button>
-				</div>
-
-				{#if benchmarkError}
-					<div class="rounded border border-warning/25 bg-warning/10 text-warning px-3 py-2 text-2xs">
-						{benchmarkError}
-					</div>
-				{:else if benchmark}
-					<div class="rounded border border-line bg-surface-1 px-3 py-2 overflow-x-auto">
-						<table class="w-full text-2xs font-mono tabular-nums">
-							<thead>
-								<tr class="text-fg-subtle text-left">
-									<th class="font-normal pb-1 pr-3">backend</th>
-									<th class="font-normal pb-1 pr-3">ms</th>
-									<th class="font-normal pb-1">speedup</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each benchmark.results as row (row.backend)}
-									<tr
-										class={row.backend === benchmark.active_backend
-											? 'text-signal'
-											: row.ok
-												? 'text-fg'
-												: 'text-danger'}
-									>
-										<td class="pr-3 py-0.5">{row.backend}</td>
-										<td class="pr-3 py-0.5">{row.ok ? row.ms?.toFixed(2) : '—'}</td>
-										<td class="py-0.5">
-											{#if !row.ok}
-												<span title={row.error ?? undefined}
-													>{(row.error ?? 'error').slice(0, 40)}</span
-												>
-											{:else if row.speedup != null}
-												{row.speedup.toFixed(2)}x
-											{:else}
-												—
-											{/if}
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-						<p class="text-2xs text-fg-subtle mt-1.5">
-							attention only, shape {benchmark.shape.join('x')} {benchmark.dtype}, {benchmark.iterations}
-							iters — not end-to-end step time
-						</p>
-					</div>
-				{/if}
-
-				<!-- Engine flags -->
-				<div class="space-y-1.5">
-					<span class="text-xs font-mono uppercase tracking-[0.07em] text-fg-subtle">Engine flags</span>
-					<div class="rounded border border-line bg-surface-1 divide-y divide-line">
-						{#each engineFlagDefs as flag (flag.id)}
-							<div class="flex items-center justify-between gap-4 px-3 py-2.5">
-								<div class="flex-1 min-w-0">
-									<label for="engine-flag-{flag.id}-{backendId}" class="text-sm font-medium text-fg">
-										{flag.name}
-									</label>
-									<p class="text-xs text-fg-muted mt-0.5 leading-relaxed">{flag.description}</p>
-								</div>
-								{#if savingFlag === flag.id}<Spinner size="sm" />{/if}
-								<input
-									type="checkbox"
-									id="engine-flag-{flag.id}-{backendId}"
-									class="w-4 h-4 text-signal border-line-strong rounded focus:ring-signal flex-shrink-0"
-									checked={data.engine_flags[flag.id]}
-									disabled={savingFlag !== null}
-									on:change={(e) => onFlagChange(flag.id, e)}
-								/>
-							</div>
-						{/each}
-					</div>
-				</div>
-
-				<!-- Optimizations list -->
-				<div class="space-y-2">
-					{#each data.optimizations as opt (opt.opt_id)}
-						<div class="rounded border border-line bg-surface-1 px-3 py-2.5">
-							<div class="flex items-start justify-between gap-2">
-								<div class="flex-1 min-w-0">
-									<div class="flex items-center gap-2 flex-wrap">
-										<span class="text-sm font-medium text-fg">{opt.name}</span>
-										<Badge variant={statusVariant(opt)} size="sm">{statusLabel(opt)}</Badge>
-										{#if opt.needs_restart}
-											<Badge variant="warning" size="sm">Restart required</Badge>
-										{/if}
-									</div>
-									<p class="text-xs text-fg-muted mt-1 leading-relaxed">{opt.description}</p>
-									<p class="text-2xs text-fg-subtle mt-0.5">{opt.benefit}</p>
-									{#if !opt.installable}
-										{@const unmet = opt.requirements.filter((r) => !r.met)}
-										{#if unmet.length > 0}
-											<ul class="mt-1.5 space-y-0.5">
-												{#each unmet as req (req.id)}
-													<li class="text-2xs text-warning leading-relaxed">
-														{req.label}{req.detail ? ` — ${req.detail}` : ''}
-													</li>
-												{/each}
-											</ul>
-										{/if}
-									{/if}
-								</div>
-								<Button
-									variant="secondary"
-									size="sm"
-									disabled={!opt.installable}
-									onclick={() => openInstallModal(opt)}
-								>
-									Install
-								</Button>
-							</div>
-						</div>
-					{/each}
-				</div>
-
-				<!-- Restart -->
-				<div class="flex items-center justify-between pt-1">
-					<span class="text-2xs text-fg-subtle">Some changes need an app restart to take effect.</span>
-					<Button variant="secondary" size="sm" loading={restarting} onclick={confirmRestart}>
-						{restarting ? 'Restarting…' : 'Restart app'}
-					</Button>
+			{:else if !data.system.nvcc_cuda_matches_torch}
+				{@const toolchain = cudaToolchainOpt(data)}
+				<div class="flex items-center gap-2 mt-3">
+					<p class="text-2xs text-warning leading-relaxed flex-1">
+						nvcc CUDA version doesn't match torch's CUDA build — compiled extensions may fail
+						to load.
+					</p>
+					{#if toolchain && toolchain.installable}
+						<Button variant="secondary" size="xs" onclick={() => openInstallModal(toolchain)}>
+							Align
+						</Button>
+					{/if}
 				</div>
 			{/if}
+		</DetailSection>
+
+		<DetailSection label="Attention backend">
+			{#snippet headerExtra()}
+				<Badge variant="signal" size="sm" class="font-mono">{data!.system.active_backend}</Badge>
+			{/snippet}
+			<div class="flex items-center gap-2">
+				<label for="attn-pin-{backendId}" class="text-xs text-fg-muted whitespace-nowrap">
+					Pinned backend
+				</label>
+				<select
+					id="attn-pin-{backendId}"
+					class="input text-xs font-mono py-1"
+					value={data.pinned_backend ?? 'auto'}
+					on:change={onPinChange}
+					disabled={pinning}
+				>
+					<option value="auto">auto</option>
+					{#each data.system.available_backends as backend (backend)}
+						<option value={backend}>{backend}</option>
+					{/each}
+				</select>
+				{#if pinning}<Spinner size="sm" />{/if}
+			</div>
+
+			{#if benchmarkError}
+				<div class="rounded border border-warning/25 bg-warning/10 text-warning px-3 py-2 text-2xs mt-3">
+					{benchmarkError}
+				</div>
+			{:else if benchmark}
+				<div class="{DETAIL_INSET_CLASS} px-3 py-2 overflow-x-auto mt-3">
+					<table class="w-full text-2xs font-mono tabular-nums">
+						<thead>
+							<tr class="text-fg-subtle text-left">
+								<th class="font-normal pb-1 pr-3">backend</th>
+								<th class="font-normal pb-1 pr-3">ms</th>
+								<th class="font-normal pb-1">speedup</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each benchmark.results as row (row.backend)}
+								<tr
+									class={row.backend === benchmark.active_backend
+										? 'text-signal'
+										: row.ok
+											? 'text-fg'
+											: 'text-danger'}
+								>
+									<td class="pr-3 py-0.5">{row.backend}</td>
+									<td class="pr-3 py-0.5">{row.ok ? row.ms?.toFixed(2) : '—'}</td>
+									<td class="py-0.5">
+										{#if !row.ok}
+											<span title={row.error ?? undefined}
+												>{(row.error ?? 'error').slice(0, 40)}</span
+											>
+										{:else if row.speedup != null}
+											{row.speedup.toFixed(2)}x
+										{:else}
+											—
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+					<p class="text-2xs text-fg-subtle mt-1.5">
+						attention only, shape {benchmark.shape.join('x')} {benchmark.dtype}, {benchmark.iterations}
+						iters — not end-to-end step time
+					</p>
+				</div>
+			{/if}
+
+			{#snippet footer()}
+				<Button
+					variant="secondary"
+					size="sm"
+					loading={benchmarking}
+					disabled={modalOpt !== null && jobStatus === 'running'}
+					onclick={runBenchmark}
+				>
+					{benchmarking ? 'Benchmarking…' : 'Benchmark'}
+				</Button>
+			{/snippet}
+		</DetailSection>
+
+		<DetailSection label="Engine flags" padded={false}>
+			<div class="divide-y divide-line">
+				{#each engineFlagDefs as flag (flag.id)}
+					<div class="flex items-center justify-between gap-4 px-4 sm:px-5 py-3">
+						<div class="flex-1 min-w-0">
+							<label for="engine-flag-{flag.id}-{backendId}" class="text-sm font-medium text-fg">
+								{flag.name}
+							</label>
+							<p class="text-xs text-fg-muted mt-0.5 leading-relaxed">{flag.description}</p>
+						</div>
+						{#if savingFlag === flag.id}<Spinner size="sm" />{/if}
+						<Switch
+							id="engine-flag-{flag.id}-{backendId}"
+							checked={data.engine_flags[flag.id]}
+							disabled={savingFlag !== null}
+							label={flag.name}
+							onchange={(checked) => onFlagChange(flag.id, checked)}
+						/>
+					</div>
+				{/each}
+			</div>
+		</DetailSection>
+
+		<DetailSection label="Optimizations" padded={false}>
+			<div class="divide-y divide-line">
+				{#each data.optimizations as opt (opt.opt_id)}
+					<div class="flex items-start justify-between gap-2 px-4 sm:px-5 py-3">
+						<div class="flex-1 min-w-0">
+							<div class="flex items-center gap-2 flex-wrap">
+								<span class="text-sm font-medium text-fg">{opt.name}</span>
+								<Badge variant={statusVariant(opt)} size="sm">{statusLabel(opt)}</Badge>
+								{#if opt.needs_restart}
+									<Badge variant="warning" size="sm">Restart required</Badge>
+								{/if}
+							</div>
+							<p class="text-xs text-fg-muted mt-1 leading-relaxed">{opt.description}</p>
+							<p class="text-2xs text-fg-subtle mt-0.5">{opt.benefit}</p>
+							{#if !opt.installable}
+								{@const unmet = opt.requirements.filter((r) => !r.met)}
+								{#if unmet.length > 0}
+									<ul class="mt-1.5 space-y-0.5">
+										{#each unmet as req (req.id)}
+											<li class="text-2xs text-warning leading-relaxed">
+												{req.label}{req.detail ? ` — ${req.detail}` : ''}
+											</li>
+										{/each}
+									</ul>
+								{/if}
+							{/if}
+						</div>
+						<Button
+							variant="secondary"
+							size="sm"
+							disabled={!opt.installable}
+							onclick={() => openInstallModal(opt)}
+						>
+							Install
+						</Button>
+					</div>
+				{/each}
+			</div>
+			{#snippet footer()}
+				<span class="mr-auto text-2xs text-fg-subtle">Some changes need an app restart to take effect.</span>
+				<Button variant="secondary" size="sm" loading={restarting} onclick={confirmRestart}>
+					{restarting ? 'Restarting…' : 'Restart app'}
+				</Button>
+			{/snippet}
+		</DetailSection>
 	</div>
-</div>
+{/if}
 
 <!-- Install Modal -->
 <BaseModal

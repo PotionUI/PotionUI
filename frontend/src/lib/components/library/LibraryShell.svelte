@@ -23,6 +23,7 @@
 		loadedCount = 0,
 		total = 0,
 		sidebarTree,
+		sectionTrailing,
 		overflow,
 		primary,
 		children
@@ -43,6 +44,7 @@
 		loadedCount?: number;
 		total?: number;
 		sidebarTree?: Snippet;
+		sectionTrailing?: Snippet<[S]>;
 		overflow?: Snippet<[() => void]>;
 		primary?: Snippet;
 		children: Snippet;
@@ -52,6 +54,7 @@
 	const meta = $derived(sections.find((entry) => entry.id === section) ?? sections[0]);
 
 	let sidebarOpen = $state(readSidebarOpen());
+	const hasSidebar = $derived(sections.length > 1 || !!sidebarTree);
 	let overflowOpen = $state(false);
 	let overflowEl: HTMLDivElement | undefined = $state();
 
@@ -95,18 +98,22 @@
 <svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
 
 <div class="flex {heightClass} bg-canvas text-fg">
-	{#if sidebarOpen}
+	{#if hasSidebar && sidebarOpen}
 		<aside class="hidden w-60 flex-shrink-0 flex-col border-r border-line bg-surface-1 md:flex">
-			<Pane label="Library" onCollapse={() => setSidebarOpen(false)}>
+			<Pane label={title} onCollapse={() => setSidebarOpen(false)}>
 				{#snippet subheader()}
-					<div class="flex-shrink-0 space-y-0.5 border-b border-line p-2" role="listbox" aria-label="Library sections">
+					<div class="flex-shrink-0 space-y-0.5 border-b border-line p-2" role="listbox" aria-label="{title} sections">
 						{#each sections as entry (entry.id)}
+							{#snippet entryTrailing()}
+								{@render sectionTrailing?.(entry.id)}
+							{/snippet}
 							<PaneRow
 								icon={entry.icon}
 								title={entry.label}
 								count={sectionCounts[entry.id]}
 								selected={entry.id === section}
 								onclick={() => selectSection(entry.id)}
+								trailing={sectionTrailing ? entryTrailing : undefined}
 							/>
 						{/each}
 					</div>
@@ -114,7 +121,7 @@
 				{@render sidebarTree?.()}
 			</Pane>
 		</aside>
-	{:else}
+	{:else if hasSidebar}
 		<aside class="hidden w-8 flex-shrink-0 flex-col items-center gap-2 border-r border-line bg-surface-1 pt-3 md:flex">
 			<Tooltip text="Show sidebar" position="right">
 				<button
@@ -146,24 +153,26 @@
 	{/if}
 
 	<div class="flex min-w-0 flex-1 flex-col">
-		<PageHeader sticky={false} wrap>
-			<div class="flex w-full flex-wrap items-center gap-2 xl:gap-4">
-				<PageTitle {title} count={count ?? undefined} countLabel={meta.label.toLowerCase()}>
-					<label class="block md:hidden">
-						<span class="sr-only">Section</span>
-						<select
-							class="input h-7 appearance-none py-0 pr-6 text-xs font-medium"
-							value={section}
-							onchange={(event) => selectSection((event.currentTarget as HTMLSelectElement).value as S)}
-						>
-							{#each sections as entry (entry.id)}
-								<option value={entry.id}>{entry.label}</option>
-							{/each}
-						</select>
-					</label>
-				</PageTitle>
+		{#if !detailOpen}
+			<PageHeader sticky={false} wrap>
+				<div class="flex w-full flex-wrap items-center gap-2 xl:gap-4">
+					<PageTitle title={meta.label} count={count ?? undefined}>
+						{#if hasSidebar}
+							<label class="block md:hidden">
+								<span class="sr-only">Section</span>
+								<select
+									class="input h-7 appearance-none py-0 pr-6 text-xs font-medium"
+									value={section}
+									onchange={(event) => selectSection((event.currentTarget as HTMLSelectElement).value as S)}
+								>
+									{#each sections as entry (entry.id)}
+										<option value={entry.id}>{entry.label}</option>
+									{/each}
+								</select>
+							</label>
+						{/if}
+					</PageTitle>
 
-				{#if !detailOpen}
 					<div class="hidden h-6 w-px flex-shrink-0 bg-line-strong md:block"></div>
 
 					{@render toolbar?.()}
@@ -192,11 +201,9 @@
 							</div>
 						{/if}
 					</div>
-				{:else}
-					<div class="ml-auto"></div>
-				{/if}
-			</div>
-		</PageHeader>
+				</div>
+			</PageHeader>
+		{/if}
 
 		{#if !detailOpen && filterChips.length > 0}
 			<div class="flex flex-shrink-0 flex-wrap items-center gap-1.5 border-b border-line bg-surface-1 px-4 py-2 sm:px-6">
@@ -218,7 +225,7 @@
 			</div>
 		{/if}
 
-		<main class="min-h-0 min-w-0 flex-1 overflow-hidden">
+		<main class="min-h-0 min-w-0 flex-1 overflow-y-auto">
 			{@render children()}
 		</main>
 	</div>

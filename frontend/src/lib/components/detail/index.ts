@@ -6,3 +6,5 @@ export { default as DetailSection } from './DetailSection.svelte';
 export { default as KVGrid } from './KVGrid.svelte';
 export { default as KVItem } from './KVItem.svelte';
 export { default as DetailFooter } from './DetailFooter.svelte';
+export { default as DetailField } from './DetailField.svelte';
+export { DETAIL_INSET_CLASS } from './detailSection';

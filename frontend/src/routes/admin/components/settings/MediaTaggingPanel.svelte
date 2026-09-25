@@ -2,6 +2,7 @@
 	import { createModelFetchController, modelNameLookup } from './modelFetch.svelte';
 	import ModelFetchRow from './ModelFetchRow.svelte';
 	import { DetailSection } from '$lib/components/detail';
+	import { Switch } from '$lib/components/ui';
 
 	let {
 		settings,
@@ -56,12 +57,11 @@
 					</label>
 					<p class="text-sm text-fg-muted">Fetch weights automatically on first use</p>
 				</div>
-				<input
-					type="checkbox"
+				<Switch
 					id="media-tagger-auto-download"
-					class="w-4 h-4 mt-1 text-signal border-line-strong rounded focus:ring-signal flex-shrink-0"
+					label="Auto-download"
 					checked={settings.media_tagger_auto_download ?? false}
-					onchange={(e) => onSettingChange('media_tagger_auto_download', e.currentTarget.checked)}
+					onchange={(checked) => onSettingChange('media_tagger_auto_download', checked)}
 				/>
 			</div>
 

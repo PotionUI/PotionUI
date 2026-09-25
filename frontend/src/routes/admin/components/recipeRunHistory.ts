@@ -1,4 +1,5 @@
 import type { SetupRun } from '$lib/services/api/setup';
+import { isRunTerminal } from '$lib/utils/setupRunDisplay';
 import { formatDuration } from '$lib/utils/format';
 import { parseServerDate } from '$lib/utils/relativeTime';
 
@@ -6,13 +7,16 @@ import { parseServerDate } from '$lib/utils/relativeTime';
  * when the timestamps are unusable (unparseable, or finishing before it
  * began), so a nonsense negative duration is never rendered. */
 export function runDuration(
-	run: Pick<SetupRun, 'created_at' | 'completed_at'>,
+	run: Pick<SetupRun, 'created_at' | 'completed_at'> & Partial<Pick<SetupRun, 'status' | 'updated_at'>>,
 	now: () => number = Date.now
 ): string | null {
 	if (!run.created_at) return null;
 	const start = parseServerDate(run.created_at)?.getTime() ?? NaN;
 	if (Number.isNaN(start)) return null;
-	const end = run.completed_at ? (parseServerDate(run.completed_at)?.getTime() ?? NaN) : now();
+	const finished = run.status ? isRunTerminal(run.status) : false;
+	const endStamp = run.completed_at ?? (finished ? run.updated_at : null);
+	if (finished && !endStamp) return null;
+	const end = endStamp ? (parseServerDate(endStamp)?.getTime() ?? NaN) : now();
 	if (Number.isNaN(end) || end < start) return null;
 	return formatDuration(end - start);
 }

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { DetailSection } from '$lib/components/detail';
+	import { Switch } from '$lib/components/ui';
 
 	let {
 		settings,
@@ -19,12 +20,11 @@
 					strip below it.
 				</p>
 			</div>
-			<input
-				type="checkbox"
+			<Switch
 				id="workbench-single-result-gallery"
-				class="w-4 h-4 mt-1 text-signal border-line-strong rounded focus:ring-signal flex-shrink-0"
+				label="Show gallery for single-output runs"
 				checked={settings.workbench_single_result_gallery || false}
-				onchange={(e) => onSettingChange('workbench_single_result_gallery', e.currentTarget.checked)}
+				onchange={(checked) => onSettingChange('workbench_single_result_gallery', checked)}
 			/>
 		</div>
 	</div>

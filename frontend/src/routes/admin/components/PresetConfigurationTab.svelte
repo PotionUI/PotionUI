@@ -6,23 +6,28 @@
 	import { invalidatePresets } from '$lib/stores/presetsCatalog';
 	import TagSelector from '$lib/components/TagSelector.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, Spinner, EmptyState } from '$lib/components/ui';
+	import { Spinner, EmptyState, Button } from '$lib/components/ui';
+	import { DetailSection, DETAIL_INSET_CLASS } from '$lib/components/detail';
+	import { valuesFrom, dirtyKeysOf, buildSavePayload } from './presetConfigurationDraft';
 	import type { PresetConfigurationEntry } from '$lib/types/api';
 
-	export let presetId: string;
-	export let initialEntries: PresetConfigurationEntry[] = [];
+	let {
+		presetId,
+		initialEntries = [],
+		dirtyCount = $bindable(0),
+		saving = $bindable(false)
+	}: {
+		presetId: string;
+		initialEntries?: PresetConfigurationEntry[];
+		dirtyCount?: number;
+		saving?: boolean;
+	} = $props();
 
-	let entries: PresetConfigurationEntry[] = initialEntries;
-	let pendingValues: Record<string, unknown> = valuesFrom(initialEntries);
-	let loading = initialEntries.length === 0;
-	let loadError = '';
-	let savingKey: string | null = null;
-	let savedKey: string | null = null;
-	let savedTimer: ReturnType<typeof setTimeout> | null = null;
-
-	function valuesFrom(list: PresetConfigurationEntry[]): Record<string, unknown> {
-		return Object.fromEntries(list.map((entry) => [entry.key, entry.value]));
-	}
+	let entries = $state<PresetConfigurationEntry[]>(initialEntries);
+	let originalValues = $state<Record<string, unknown>>(valuesFrom(initialEntries));
+	let pendingValues = $state<Record<string, unknown>>(valuesFrom(initialEntries));
+	let loading = $state(initialEntries.length === 0);
+	let loadError = $state('');
 
 	onMount(() => {
 		if (initialEntries.length === 0) load();
@@ -37,6 +42,7 @@
 				throw new Error(response.message || 'Could not load configuration');
 			}
 			entries = response.data.entries || [];
+			originalValues = valuesFrom(entries);
 			pendingValues = valuesFrom(entries);
 		} catch (error) {
 			logger.error('Failed to load preset configuration:', error);
@@ -55,36 +61,42 @@
 		pendingValues = { ...pendingValues, [key]: event.detail };
 	}
 
-	async function save(entry: PresetConfigurationEntry) {
-		savingKey = entry.key;
+	const dirtyKeys = $derived(dirtyKeysOf(entries, pendingValues, originalValues));
+	$effect(() => {
+		dirtyCount = dirtyKeys.length;
+	});
+
+	export async function save() {
+		if (dirtyKeys.length === 0) return;
+		saving = true;
 		try {
-			const response = await api.updatePresetConfiguration(presetId, {
-				[entry.key]: pendingValues[entry.key]
-			});
+			const values = buildSavePayload(dirtyKeys, pendingValues);
+			const response = await api.updatePresetConfiguration(presetId, values);
 			if (!response.success || !response.data) {
 				throw new Error(response.message || 'Could not save configuration');
 			}
 			entries = response.data.entries || entries;
+			originalValues = valuesFrom(entries);
 			pendingValues = valuesFrom(entries);
 			invalidatePresets();
-			toasts.success(`${entry.label} saved`);
-			savedKey = entry.key;
-			if (savedTimer) clearTimeout(savedTimer);
-			savedTimer = setTimeout(() => (savedKey = null), 2000);
+			toasts.success('Configuration saved');
 		} catch (error) {
 			logger.error('Failed to save preset configuration:', error);
 			toasts.error(error instanceof Error ? error.message : 'Could not save configuration');
 		} finally {
-			savingKey = null;
+			saving = false;
 		}
+	}
+
+	export function discard() {
+		pendingValues = valuesFrom(entries);
 	}
 </script>
 
-<div class="space-y-5">
+<div class="space-y-4">
 	{#if loading}
-		<div class="rounded-lg border border-line bg-surface-1 py-10 flex flex-col items-center justify-center">
+		<div class="flex items-center justify-center py-10">
 			<Spinner size="md" />
-			<p class="text-sm text-fg-muted mt-3">Loading configuration…</p>
 		</div>
 	{:else if loadError}
 		<EmptyState title="Configuration unavailable" description={loadError} icon="warning" compact>
@@ -94,23 +106,10 @@
 		<EmptyState title="No configuration" description="This preset does not declare any configuration entries." icon="sliders" compact />
 	{:else}
 		{#each entries as entry (entry.key)}
-			<div class="rounded-lg border border-line bg-surface-1 p-4 sm:p-5">
-				<div class="flex items-start justify-between gap-3 mb-3">
-					<div class="min-w-0">
-						<p class="text-sm font-medium text-fg">{entry.label}</p>
-						{#if entry.description}
-							<p class="text-xs text-fg-muted mt-0.5">{entry.description}</p>
-						{/if}
-					</div>
-					<Button
-						variant="secondary"
-						size="sm"
-						icon={savedKey === entry.key ? 'check' : 'save'}
-						loading={savingKey === entry.key}
-						disabled={savingKey !== null}
-						onclick={() => save(entry)}
-					>{savedKey === entry.key ? 'Saved' : 'Save'}</Button>
-				</div>
+			<DetailSection label={entry.label}>
+				{#if entry.description}
+					<p class="text-xs text-fg-muted mb-3">{entry.description}</p>
+				{/if}
 
 				{#if entry.type === 'model_tags'}
 					<TagSelector
@@ -120,12 +119,12 @@
 						on:change={(event) => handleTagsChange(entry.key, event)}
 					/>
 				{:else}
-					<div class="flex items-center gap-2 text-xs text-fg-subtle rounded border border-dashed border-line-strong px-3 py-2">
+					<div class="{DETAIL_INSET_CLASS} flex items-center gap-2 px-3 py-2 text-xs text-fg-subtle">
 						<Icon name="info" className="w-3.5 h-3.5 flex-shrink-0" />
 						Unsupported configuration type "{entry.type}".
 					</div>
 				{/if}
-			</div>
+			</DetailSection>
 		{/each}
 	{/if}
 </div>

@@ -7,6 +7,7 @@
 	export let sha256: string | null | undefined = undefined;
 	export let fileSize: number | null | undefined = undefined;
 	export let indexedAt: string | null | undefined = undefined;
+	export let bare: boolean = false;
 
 	$: rows = [
 		{ label: 'Filename', value: filename, copyValue: filename, title: filename, copyLabel: 'Copy filename' },
@@ -29,4 +30,4 @@
 	] satisfies MetadataRow[];
 </script>
 
-<MetadataCard icon="shield" title="Technical Details" {rows} />
+<MetadataCard icon="shield" title="Technical Details" {rows} {bare} />

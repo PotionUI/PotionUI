@@ -21,8 +21,8 @@
 	import type { Snippet } from 'svelte';
 	import type { NativeCheckpoint, PreChatAction } from '$lib/types/llm';
 	import { api } from '$lib/services/api/index';
-	import { Badge, Input, Spinner } from '$lib/components/ui';
-	import { DetailSection } from '$lib/components/detail';
+	import { Badge, Input, Spinner, Switch } from '$lib/components/ui';
+	import { DetailSection, DetailField, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import { coerceProviderOptionText } from './llmProviderOptions';
 
 	/**
@@ -240,82 +240,97 @@
 	{/if}
 {/snippet}
 
+{#snippet field(label: string, id: string, body: Snippet, opts?: { required?: boolean; help?: string })}
+	{#if isPanel}
+		<DetailField label={opts?.required ? `${label} *` : label} {id} help={opts?.help}>
+			{@render body()}
+		</DetailField>
+	{:else}
+		<div>
+			<label for={id} class={labelClass}>{label}{#if opts?.required}<span class="text-danger"> *</span>{/if}</label>
+			{@render body()}
+			{#if opts?.help}<p class="text-xs text-fg-subtle mt-1">{opts.help}</p>{/if}
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet nameInput()}
+	<Input id="{idPrefix}-name" type="text" bind:value={draft.name} placeholder="e.g. GPT-4o, Claude Sonnet" />
+{/snippet}
+
+{#snippet typeSelect()}
+	<select id="{idPrefix}-type" class="input" bind:value={draft.type}>
+		{#each llmTypes as type}
+			<option value={type.value}>{type.label}</option>
+		{/each}
+	</select>
+{/snippet}
+
+{#snippet modelInput()}
+	{#if draft.type === 'native'}
+		{#if nativeCheckpointsLoading}
+			<div class="input flex items-center gap-2 text-fg-subtle text-sm">
+				<Spinner size="sm" /> Loading checkpoints…
+			</div>
+		{:else if nativeCheckpointsError}
+			<div class="space-y-1.5">
+				<p class="text-sm text-danger">{nativeCheckpointsError}</p>
+				<button type="button" class="text-xs text-signal hover:underline" onclick={loadNativeCheckpoints}>
+					Retry
+				</button>
+			</div>
+		{:else if checkpointSelectOptions.length === 0}
+			<p class="input text-sm text-fg-subtle">No checkpoints found under models/llm/. Add one, then reopen this form.</p>
+		{:else}
+			<select id="{idPrefix}-model" class="input" bind:value={draft.model}>
+				<option value="" disabled>Select a checkpoint…</option>
+				{#each checkpointSelectOptions as cp}
+					<option value={cp.name} disabled={!cp.supported}>
+						{cp.name}{cp.missing ? ' (no longer listed)' : !cp.supported ? ` — ${cp.reason}` : ''}
+					</option>
+				{/each}
+			</select>
+		{/if}
+		{#if savedCheckpointMissing}
+			<p class="text-xs text-warning/70 mt-1">
+				The saved checkpoint "{draft.model}" is no longer listed under models/llm/ — kept as-is; pick a different one below to replace it.
+			</p>
+		{/if}
+	{:else}
+		<Input id="{idPrefix}-model" type="text" bind:value={draft.model} placeholder="e.g. gpt-4o, claude-sonnet-4-20250514" />
+	{/if}
+{/snippet}
+
+{#snippet apiKeyInput()}
+	<Input
+		id="{idPrefix}-api-key"
+		type="password"
+		bind:value={draft.api_key}
+		placeholder={apiKeySet ? 'Stored — leave blank to keep' : 'Optional'}
+	/>
+{/snippet}
+
+{#snippet baseUrlInput()}
+	<Input id="{idPrefix}-base-url" type="text" bind:value={draft.base_url} placeholder="e.g. http://localhost:11434" />
+{/snippet}
+
 {#snippet modelFields()}
 	<div class="space-y-4">
-		<div>
-			<label for="{idPrefix}-name" class={labelClass}>Name <span class="text-danger">*</span></label>
-			<Input id="{idPrefix}-name" type="text" bind:value={draft.name} placeholder="e.g. GPT-4o, Claude Sonnet" />
+		{@render field('Name', `${idPrefix}-name`, nameInput, { required: true })}
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+			{@render field('Type', `${idPrefix}-type`, typeSelect)}
+			{@render field(draft.type === 'native' ? 'Checkpoint' : 'Model', `${idPrefix}-model`, modelInput, { required: true })}
 		</div>
 		<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-			<div>
-				<label for="{idPrefix}-type" class={labelClass}>Type</label>
-				<select id="{idPrefix}-type" class="input" bind:value={draft.type}>
-					{#each llmTypes as type}
-						<option value={type.value}>{type.label}</option>
-					{/each}
-				</select>
-			</div>
-			<div>
-				<label for="{idPrefix}-model" class={labelClass}>{draft.type === 'native' ? 'Checkpoint' : 'Model'} <span class="text-danger">*</span></label>
-				{#if draft.type === 'native'}
-					{#if nativeCheckpointsLoading}
-						<div class="input flex items-center gap-2 text-fg-subtle text-sm">
-							<Spinner size="sm" /> Loading checkpoints…
-						</div>
-					{:else if nativeCheckpointsError}
-						<div class="space-y-1.5">
-							<p class="text-sm text-danger">{nativeCheckpointsError}</p>
-							<button type="button" class="text-xs text-signal hover:underline" onclick={loadNativeCheckpoints}>
-								Retry
-							</button>
-						</div>
-					{:else if checkpointSelectOptions.length === 0}
-						<p class="input text-sm text-fg-subtle">No checkpoints found under models/llm/. Add one, then reopen this form.</p>
-					{:else}
-						<select id="{idPrefix}-model" class="input" bind:value={draft.model}>
-							<option value="" disabled>Select a checkpoint…</option>
-							{#each checkpointSelectOptions as cp}
-								<option value={cp.name} disabled={!cp.supported}>
-									{cp.name}{cp.missing ? ' (no longer listed)' : !cp.supported ? ` — ${cp.reason}` : ''}
-								</option>
-							{/each}
-						</select>
-					{/if}
-					{#if savedCheckpointMissing}
-						<p class="text-xs text-warning/70 mt-1">
-							The saved checkpoint "{draft.model}" is no longer listed under models/llm/ — kept as-is; pick a different one below to replace it.
-						</p>
-					{/if}
-				{:else}
-					<Input id="{idPrefix}-model" type="text" bind:value={draft.model} placeholder="e.g. gpt-4o, claude-sonnet-4-20250514" />
-				{/if}
-			</div>
-		</div>
-		<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-			<div>
-				<label for="{idPrefix}-api-key" class={labelClass}>API Key</label>
-				<Input
-					id="{idPrefix}-api-key"
-					type="password"
-					bind:value={draft.api_key}
-					placeholder={apiKeySet ? 'Stored — leave blank to keep' : 'Optional'}
-				/>
-			</div>
-			<div>
-				<label for="{idPrefix}-base-url" class={labelClass}>Base URL</label>
-				<Input id="{idPrefix}-base-url" type="text" bind:value={draft.base_url} placeholder="e.g. http://localhost:11434" />
-			</div>
+			{@render field('API Key', `${idPrefix}-api-key`, apiKeyInput)}
+			{@render field('Base URL', `${idPrefix}-base-url`, baseUrlInput)}
 		</div>
 	</div>
 {/snippet}
 
 {#snippet promptingHeaderExtra()}
 	<label class="flex items-center gap-2 cursor-pointer">
-		<input
-			type="checkbox"
-			class="h-4 w-4 rounded border-line-strong bg-surface-2 text-signal focus:ring-signal"
-			bind:checked={draft.disable_system_prompt}
-		/>
+		<Switch label="Disable system prompt" size="sm" bind:checked={draft.disable_system_prompt} />
 		<span class="text-xs text-fg-muted">Disable system prompt</span>
 	</label>
 {/snippet}
@@ -333,118 +348,118 @@
 	{/if}
 {/snippet}
 
+{#snippet temperatureInput()}
+	<input id="{idPrefix}-temperature" type="number" class="input font-mono tabular-nums" bind:value={draft.temperature} min="0" max="2" step="0.1" />
+{/snippet}
+
+{#snippet maxTokensInput()}
+	<input id="{idPrefix}-max-tokens" type="number" class="input font-mono tabular-nums" bind:value={draft.max_tokens} min="1" max="4096" />
+{/snippet}
+
+{#snippet timeoutInput()}
+	<input id="{idPrefix}-timeout" type="number" class="input font-mono tabular-nums" bind:value={draft.timeout} min="1" max="300" />
+{/snippet}
+
 {#snippet samplingFields()}
 	<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-		<div>
-			<label for="{idPrefix}-temperature" class={labelClass}>Temperature</label>
-			<input id="{idPrefix}-temperature" type="number" class="input font-mono tabular-nums" bind:value={draft.temperature} min="0" max="2" step="0.1" />
-		</div>
-		<div>
-			<label for="{idPrefix}-max-tokens" class={labelClass}>Max Tokens</label>
-			<input id="{idPrefix}-max-tokens" type="number" class="input font-mono tabular-nums" bind:value={draft.max_tokens} min="1" max="4096" />
-		</div>
-		<div>
-			<label for="{idPrefix}-timeout" class={labelClass}>Timeout (s)</label>
-			<input id="{idPrefix}-timeout" type="number" class="input font-mono tabular-nums" bind:value={draft.timeout} min="1" max="300" />
-		</div>
+		{@render field('Temperature', `${idPrefix}-temperature`, temperatureInput)}
+		{@render field('Max Tokens', `${idPrefix}-max-tokens`, maxTokensInput)}
+		{@render field('Timeout (s)', `${idPrefix}-timeout`, timeoutInput)}
 	</div>
 {/snippet}
 
 {#snippet capabilityFields()}
-	<div class="flex flex-wrap items-center gap-x-6 gap-y-2">
-		<div class="flex items-center gap-2">
-			<input
-				id="{idPrefix}-enabled"
-				type="checkbox"
-				class="h-4 w-4 rounded border-line-strong bg-surface-2 text-signal focus:ring-signal"
-				bind:checked={draft.enabled}
-			/>
-			<label for="{idPrefix}-enabled" class="text-sm font-medium text-fg-muted">Enabled</label>
-		</div>
-		<div class="flex items-center gap-2">
-			<input
-				id="{idPrefix}-vision"
-				type="checkbox"
-				class="h-4 w-4 rounded border-line-strong bg-surface-2 text-signal focus:ring-signal"
-				bind:checked={draft.supports_vision}
-			/>
-			<label for="{idPrefix}-vision" class="text-sm font-medium text-fg-muted">Supports Vision</label>
-		</div>
-		<div class="flex items-center gap-2">
-			<input
-				id="{idPrefix}-memory-reflection"
-				type="checkbox"
-				class="h-4 w-4 rounded border-line-strong bg-surface-2 text-signal focus:ring-signal"
-				bind:checked={draft.memory_reflection}
-			/>
-			<label for="{idPrefix}-memory-reflection" class="text-sm font-medium text-fg-muted">Memory Reflection</label>
-		</div>
+	<div class="flex flex-wrap items-center gap-x-6 gap-y-3">
+		{#if mode === 'create'}
+			<label class="flex items-center gap-2">
+				<Switch label="Enabled" bind:checked={draft.enabled} />
+				<span class="text-sm font-medium text-fg-muted">Enabled</span>
+			</label>
+		{/if}
+		<label class="flex items-center gap-2">
+			<Switch label="Supports Vision" bind:checked={draft.supports_vision} />
+			<span class="text-sm font-medium text-fg-muted">Supports Vision</span>
+		</label>
+		<label class="flex items-center gap-2">
+			<Switch label="Memory Reflection" bind:checked={draft.memory_reflection} />
+			<span class="text-sm font-medium text-fg-muted">Memory Reflection</span>
+		</label>
 	</div>
 	<p class="text-xs text-fg-subtle mt-1">
 		Memory reflection extracts durable facts from the conversation into memory notes — costs one extra LLM call per conversation.
 	</p>
 {/snippet}
 
+{#snippet optionControl(key: string, opt: any, namespace: string)}
+	{#if opt.type === 'select' && 'options' in opt}
+		<select
+			id="{idPrefix}-{namespace}-{key}"
+			class="input text-sm"
+			value={draft.provider_options[key] ?? opt.default}
+			onchange={(e) => {
+				const target = e.target as HTMLSelectElement;
+				let value: any = target.value;
+				if (value === 'true') value = true;
+				else if (value === 'false') value = false;
+				else if (value === '' && opt.default === null) value = null;
+				else if (!isNaN(Number(value))) value = Number(value);
+				setProviderOption(key, value, value === opt.default);
+			}}
+		>
+			{#each opt.options as option}
+				<option value={option.value}>{option.label}</option>
+			{/each}
+		</select>
+	{:else if opt.type === 'number'}
+		<input
+			id="{idPrefix}-{namespace}-{key}"
+			type="number"
+			class="input text-sm"
+			value={draft.provider_options[key] ?? ''}
+			placeholder={opt.default !== null ? String(opt.default) : 'auto'}
+			step={key === 'min_p' ? '0.01' : key.includes('penalty') || key === 'top_p' || key === 'mirostat_eta' || key === 'mirostat_tau' ? '0.1' : '1'}
+			oninput={(e) => {
+				const value = (e.target as HTMLInputElement).value;
+				if (value === '') {
+					setProviderOption(key, undefined, true);
+				} else {
+					setProviderOption(key, parseFloat(value), false);
+				}
+			}}
+		/>
+	{:else}
+		<input
+			id="{idPrefix}-{namespace}-{key}"
+			type="text"
+			class="input text-sm"
+			value={draft.provider_options[key] ?? ''}
+			placeholder={opt.default !== null ? String(opt.default) : ''}
+			oninput={(e) => {
+				const value = (e.target as HTMLInputElement).value;
+				if (value === '') {
+					setProviderOption(key, undefined, true);
+				} else {
+					setProviderOption(key, coerceProviderOptionText(value), false);
+				}
+			}}
+		/>
+	{/if}
+{/snippet}
+
 {#snippet optionsFields(opts: Record<string, any>, namespace: string)}
 	<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 		{#each Object.entries(opts) as [key, opt]}
-			<div>
-				<label for="{idPrefix}-{namespace}-{key}" class={labelClass}>{opt.label}</label>
-				{#if opt.type === 'select' && 'options' in opt}
-					<select
-						id="{idPrefix}-{namespace}-{key}"
-						class="input text-sm"
-						value={draft.provider_options[key] ?? opt.default}
-						onchange={(e) => {
-							const target = e.target as HTMLSelectElement;
-							let value: any = target.value;
-							if (value === 'true') value = true;
-							else if (value === 'false') value = false;
-							else if (value === '' && opt.default === null) value = null;
-							else if (!isNaN(Number(value))) value = Number(value);
-							setProviderOption(key, value, value === opt.default);
-						}}
-					>
-						{#each opt.options as option}
-							<option value={option.value}>{option.label}</option>
-						{/each}
-					</select>
-				{:else if opt.type === 'number'}
-					<input
-						id="{idPrefix}-{namespace}-{key}"
-						type="number"
-						class="input text-sm"
-						value={draft.provider_options[key] ?? ''}
-						placeholder={opt.default !== null ? String(opt.default) : 'auto'}
-						step={key === 'min_p' ? '0.01' : key.includes('penalty') || key === 'top_p' || key === 'mirostat_eta' || key === 'mirostat_tau' ? '0.1' : '1'}
-						oninput={(e) => {
-							const value = (e.target as HTMLInputElement).value;
-							if (value === '') {
-								setProviderOption(key, undefined, true);
-							} else {
-								setProviderOption(key, parseFloat(value), false);
-							}
-						}}
-					/>
-				{:else}
-					<input
-						id="{idPrefix}-{namespace}-{key}"
-						type="text"
-						class="input text-sm"
-						value={draft.provider_options[key] ?? ''}
-						placeholder={opt.default !== null ? String(opt.default) : ''}
-						oninput={(e) => {
-							const value = (e.target as HTMLInputElement).value;
-							if (value === '') {
-								setProviderOption(key, undefined, true);
-							} else {
-								setProviderOption(key, coerceProviderOptionText(value), false);
-							}
-						}}
-					/>
-				{/if}
-				<p class="text-xs text-fg-subtle mt-1">{opt.description}</p>
-			</div>
+			{#if isPanel}
+				<DetailField label={opt.label} id="{idPrefix}-{namespace}-{key}" help={opt.description}>
+					{@render optionControl(key, opt, namespace)}
+				</DetailField>
+			{:else}
+				<div>
+					<label for="{idPrefix}-{namespace}-{key}" class={labelClass}>{opt.label}</label>
+					{@render optionControl(key, opt, namespace)}
+					<p class="text-xs text-fg-subtle mt-1">{opt.description}</p>
+				</div>
+			{/if}
 		{/each}
 	</div>
 {/snippet}
@@ -457,48 +472,51 @@
 	{@render optionsFields(openaiOptions, 'openai')}
 {/snippet}
 
+{#snippet quantizationSelect()}
+	<select
+		id="{idPrefix}-native-quantization"
+		class="input text-sm"
+		disabled={quantOptions.length === 0}
+		value={draft.provider_options.quantization ?? 'none'}
+		onchange={(e) => {
+			const value = (e.target as HTMLSelectElement).value;
+			setProviderOption('quantization', value, value === 'none');
+		}}
+	>
+		{#if quantOptions.length === 0}
+			<option value="none">none</option>
+		{:else}
+			{#each quantOptions as mode}
+				<option value={mode}>{mode}</option>
+			{/each}
+		{/if}
+	</select>
+{/snippet}
+
+{#snippet checkpointMetadata()}
+	<div class="flex flex-wrap items-center gap-2 h-[38px]">
+		{#if selectedCheckpoint}
+			<Badge variant={selectedCheckpoint.vision ? 'success' : 'neutral'} size="sm">
+				{selectedCheckpoint.vision ? 'Vision' : 'Text only'}
+			</Badge>
+			{#if selectedCheckpoint.shared_te}
+				<Badge variant="neutral" size="sm">Shared text encoder</Badge>
+			{/if}
+		{:else}
+			<span class="text-xs text-fg-subtle">Select a checkpoint above to see its capabilities.</span>
+		{/if}
+	</div>
+{/snippet}
+
 {#snippet nativeFields()}
 	{@render optionsFields(nativeOptions, 'native')}
 	<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-		<div>
-			<label for="{idPrefix}-native-quantization" class={labelClass}>Quantization</label>
-			<select
-				id="{idPrefix}-native-quantization"
-				class="input text-sm"
-				disabled={quantOptions.length === 0}
-				value={draft.provider_options.quantization ?? 'none'}
-				onchange={(e) => {
-					const value = (e.target as HTMLSelectElement).value;
-					setProviderOption('quantization', value, value === 'none');
-				}}
-			>
-				{#if quantOptions.length === 0}
-					<option value="none">none</option>
-				{:else}
-					{#each quantOptions as mode}
-						<option value={mode}>{mode}</option>
-					{/each}
-				{/if}
-			</select>
-			<p class="text-xs text-fg-subtle mt-1">
-				{quantOptions.length === 0 ? 'Select a supported checkpoint to see its quantization choices.' : 'Load modes this checkpoint can be quantized to.'}
-			</p>
-		</div>
-		<div>
-			<span class={labelClass}>Checkpoint metadata</span>
-			<div class="flex flex-wrap items-center gap-2 h-[38px]">
-				{#if selectedCheckpoint}
-					<Badge variant={selectedCheckpoint.vision ? 'success' : 'neutral'} size="sm">
-						{selectedCheckpoint.vision ? 'Vision' : 'Text only'}
-					</Badge>
-					{#if selectedCheckpoint.shared_te}
-						<Badge variant="neutral" size="sm">Shared text encoder</Badge>
-					{/if}
-				{:else}
-					<span class="text-xs text-fg-subtle">Select a checkpoint above to see its capabilities.</span>
-				{/if}
-			</div>
-		</div>
+		{@render field('Quantization', `${idPrefix}-native-quantization`, quantizationSelect, {
+			help: quantOptions.length === 0
+				? 'Select a supported checkpoint to see its quantization choices.'
+				: 'Load modes this checkpoint can be quantized to.'
+		})}
+		{@render field('Checkpoint metadata', `${idPrefix}-native-checkpoint-metadata`, checkpointMetadata)}
 	</div>
 {/snippet}
 
@@ -506,12 +524,11 @@
 	<p class="text-xs text-fg-subtle mb-3">Actions that run before each LLM call (e.g., freeing GPU memory)</p>
 	<div class="space-y-3">
 		{#each preChatActions as action (action.id)}
-			<label class="flex items-start gap-3 p-3 {isPanel ? 'bg-surface-2/60' : 'bg-surface-1'} rounded-lg cursor-pointer hover:bg-surface-3/50 transition-colors">
-				<input
-					type="checkbox"
-					class="mt-0.5 h-4 w-4 rounded border-line-strong bg-surface-2 text-signal focus:ring-signal"
+			<div class="flex items-start gap-3 p-3 {isPanel ? DETAIL_INSET_CLASS : 'rounded-lg bg-surface-1'}">
+				<Switch
+					label={action.name}
 					checked={draft.provider_options.pre_chat_actions?.[action.id] ?? action.default_enabled}
-					onchange={(e) => togglePreChatAction(action.id, (e.target as HTMLInputElement).checked)}
+					onchange={(checked) => togglePreChatAction(action.id, checked)}
 				/>
 				<div class="flex-1 min-w-0">
 					<div class="flex items-center gap-2">
@@ -523,7 +540,7 @@
 					</div>
 					<p class="text-xs text-fg-subtle mt-0.5">{action.description}</p>
 				</div>
-			</label>
+			</div>
 		{/each}
 	</div>
 {/snippet}

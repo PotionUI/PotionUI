@@ -82,7 +82,7 @@ modes:
 		await apiPost(page, `/api/presets/${familyId}/reload`, token);
 
 		await page.goto('/admin?tab=presets');
-		await expect(page.getByRole('heading', { name: 'Presets', level: 1 })).toBeVisible({ timeout: 10000 });
+		await expect(page.getByRole('heading', { name: 'All presets', level: 1 })).toBeVisible({ timeout: 10000 });
 
 		await page.getByPlaceholder('Search presets by name, id, or tag…').fill('E2E Requirements Fixture');
 		const card = page.getByRole('button', { name: /E2E Requirements Fixture/ });

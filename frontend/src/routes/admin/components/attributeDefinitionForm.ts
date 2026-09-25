@@ -1,4 +1,3 @@
-// Pure form-shaping logic for AttributeDefinitionForm.svelte / AttributesTab.svelte,
 // kept separate so it's unit-testable without mounting a component.
 
 import type { AttributeDefinition, AttributeFieldType, AttributeSelectOption } from '$lib/types/models';

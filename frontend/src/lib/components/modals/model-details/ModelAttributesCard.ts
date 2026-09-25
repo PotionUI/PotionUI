@@ -153,3 +153,36 @@ export function extractUpdatedUserMetadata(
 export function isTagsAttribute(fieldType: AttributeFieldType): boolean {
 	return fieldType === 'tags';
 }
+
+export type DraftValue = string | boolean | string[];
+
+export function toDraftValue(definition: AttributeDefinition, value: unknown): DraftValue {
+	const config = inputConfigForAttribute(definition);
+	if (config.type === 'checkbox') return !!value;
+	if (config.type === 'tags') return Array.isArray(value) ? (value as string[]) : [];
+	if (config.type === 'range') {
+		const range = normalizeRange(value);
+		return range ? [String(range[0]), String(range[1])] : ['', ''];
+	}
+	return value === undefined || value === null ? '' : String(value);
+}
+
+export function draftValuesForFields(
+	fields: AttributeDefinition[],
+	sharedValues: Record<string, unknown> | null | undefined,
+	userValues: Record<string, unknown> | null | undefined
+): Record<string, DraftValue> {
+	return Object.fromEntries(
+		fields.map((field) => [
+			field.key,
+			toDraftValue(field, resolveEffectiveAttributeValue(field, sharedValues, userValues))
+		])
+	);
+}
+
+export function attributeDraftsAreDirty(
+	editValues: Record<string, DraftValue>,
+	baselineValues: Record<string, DraftValue>
+): boolean {
+	return JSON.stringify(editValues) !== JSON.stringify(baselineValues);
+}

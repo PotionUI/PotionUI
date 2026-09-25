@@ -11,3 +11,5 @@ export function sectionBoxClass(padded: boolean): string {
 export function sectionBodyClass(padded: boolean): string {
 	return padded ? 'px-4 sm:px-5 py-4' : '';
 }
+
+export const DETAIL_INSET_CLASS = 'rounded border border-line bg-surface-2';

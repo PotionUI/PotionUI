@@ -101,10 +101,8 @@ describe('GenerationRunReport', () => {
 		// The status log itself starts collapsed - its grouped progress text
 		// only shows once expanded.
 		expect(text).not.toContain('10%');
-		const statusLogToggle = Array.from(mounted.target.querySelectorAll('button')).find((b) =>
-			b.textContent?.includes('Status log')
-		);
-		statusLogToggle?.click();
+		const statusLogToggle = mounted.target.querySelector('button[aria-label="Expand"]');
+		(statusLogToggle as HTMLButtonElement | null)?.click();
 		await settle();
 
 		text = mounted.text();

@@ -178,13 +178,13 @@ describe('prompt workspace create mode', () => {
 		expect(heading(mounted.target)).toBe('a lone lighthouse');
 	});
 
-	it('Discard drops the draft and returns to the grid without calling the API', async () => {
+	it('Cancel drops the draft and returns to the grid without calling the API', async () => {
 		mounted = mountWorkspace();
 		await settle();
 		await mounted.component.startNewPrompt();
 		await settle();
 
-		findButton(mounted.target, 'Discard')?.click();
+		findButton(mounted.target, 'Cancel')?.click();
 		await settle();
 
 		expect(api.createPrompt).not.toHaveBeenCalled();

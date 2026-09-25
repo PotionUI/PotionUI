@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Icon from '$lib/components/Icon.svelte';
 	import RecipeRunProgress from '$lib/components/recipes/RecipeRunProgress.svelte';
 	import { adminRecipeRunActions } from '$lib/components/recipes/runActions';
 	import type { RecipeRunSession } from '$lib/components/recipes/recipeRunSession.svelte';
@@ -10,22 +9,14 @@
 
 	let {
 		recipes,
-		session,
-		onStart
+		session
 	}: {
 		recipes: PresetRecipeLink[];
 		session: RecipeRunSession;
-		onStart: (recipe: PresetRecipeLink) => void;
 	} = $props();
 </script>
 
 <section data-preset-recipe-setup>
-	<div class="flex items-center gap-2 mb-3">
-		<div class="w-7 h-7 rounded bg-surface-1 border border-line flex items-center justify-center text-fg-muted">
-			<Icon name="list-checks" className="w-3.5 h-3.5" />
-		</div>
-		<h3 class="text-sm font-semibold text-fg">Setup recipe</h3>
-	</div>
 	<div class="rounded-lg border border-line bg-surface-1 divide-y divide-line">
 		{#each recipes as recipe (recipe.id)}
 			<div class="flex flex-wrap items-center gap-3 px-4 py-3">
@@ -45,16 +36,6 @@
 				{#if recipe.readiness === 'installed'}
 					<Badge variant="success" size="sm" dot>ran before</Badge>
 				{/if}
-				<Button
-					variant={recipe.readiness === 'installed' ? 'secondary' : 'primary'}
-					size="sm"
-					icon="download"
-					loading={session.starting}
-					disabled={session.starting || session.inFlight}
-					onclick={() => onStart(recipe)}
-				>
-					Set up with recipe
-				</Button>
 			</div>
 		{/each}
 	</div>

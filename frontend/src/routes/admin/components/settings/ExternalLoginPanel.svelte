@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { DetailSection } from '$lib/components/detail';
+	import { Switch } from '$lib/components/ui';
 	import * as adminApi from '$lib/services/admin-api';
 	import type { UserGroup } from '$lib/services/admin-api';
 
@@ -41,13 +42,11 @@
 					An external login with no linked account creates a new PotionUI user.
 				</p>
 			</div>
-			<input
-				type="checkbox"
+			<Switch
 				id="external-login-auto-create"
-				class="w-4 h-4 mt-1 text-signal border-line-strong rounded focus:ring-signal flex-shrink-0"
+				label="Create accounts on first external login"
 				checked={isEnabled('external_login_auto_create')}
-				onchange={(e) =>
-					onSettingChange('external_login_auto_create', e.currentTarget.checked ? 'true' : 'false')}
+				onchange={(checked) => onSettingChange('external_login_auto_create', checked ? 'true' : 'false')}
 			/>
 		</div>
 
@@ -61,13 +60,11 @@
 					provider says the email is verified.
 				</p>
 			</div>
-			<input
-				type="checkbox"
+			<Switch
 				id="external-login-link-by-email"
-				class="w-4 h-4 mt-1 text-signal border-line-strong rounded focus:ring-signal flex-shrink-0"
+				label="Link by verified email"
 				checked={isEnabled('external_login_link_by_email')}
-				onchange={(e) =>
-					onSettingChange('external_login_link_by_email', e.currentTarget.checked ? 'true' : 'false')}
+				onchange={(checked) => onSettingChange('external_login_link_by_email', checked ? 'true' : 'false')}
 			/>
 		</div>
 

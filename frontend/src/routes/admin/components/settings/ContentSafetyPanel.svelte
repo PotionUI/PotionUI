@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { DetailSection } from '$lib/components/detail';
+	import { Switch } from '$lib/components/ui';
 
 	let {
 		settings,
@@ -19,12 +20,11 @@
 				<label for="nsfw" class="block text-sm font-medium text-fg mb-1">NSFW Content</label>
 				<p class="text-sm text-fg-muted">Allow generation of NSFW content</p>
 			</div>
-			<input
-				type="checkbox"
+			<Switch
 				id="nsfw"
-				class="w-4 h-4 mt-1 text-signal border-line-strong rounded focus:ring-signal flex-shrink-0"
+				label="NSFW Content"
 				checked={settings.nsfw || false}
-				onchange={(e) => onSettingChange('nsfw', e.currentTarget.checked)}
+				onchange={(checked) => onSettingChange('nsfw', checked)}
 			/>
 		</div>
 

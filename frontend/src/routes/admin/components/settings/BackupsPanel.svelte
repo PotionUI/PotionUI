@@ -6,7 +6,8 @@
 	import type { BackupArchive, BackupJob, BackupOverview, BackupTier } from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
 	import { Button, IconButton, Alert, Spinner, Input, Badge, SegmentedControl, CopyButton } from '$lib/components/ui';
-	import { DetailSection } from '$lib/components/detail';
+	import { DetailSection, DETAIL_INSET_CLASS } from '$lib/components/detail';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import { formatBytes } from '$lib/utils/format';
 
@@ -290,32 +291,30 @@
 				</div>
 			</div>
 
-			<div class="px-4 sm:px-5 py-4 border-t border-line space-y-2">
-				<div class="flex items-center justify-between gap-3">
-					<p class="font-mono text-xs tabular-nums text-fg-muted">{lastBackupLabel(overview)}</p>
-					<Button variant="secondary" size="sm" loading={runInFlight} disabled={runInFlight || jobRunning} onclick={runNow}>
-						Backup now
-					</Button>
-				</div>
-				{#if job && jobRunning}
+			{#if job && jobRunning}
+				<div class="px-4 sm:px-5 py-4 border-t border-line">
 					<p class="font-mono text-2xs tabular-nums text-fg-subtle truncate">
 						{job.tier} · running · {elapsed}{job.bytes > 0 ? ` · ${formatBytes(job.bytes)}` : ''}
 					</p>
-				{:else if job?.status === 'failed' && job.last_error}
+				</div>
+			{:else if job?.status === 'failed' && job.last_error}
+				<div class="px-4 sm:px-5 py-4 border-t border-line">
 					<Alert variant="danger" icon density="compact">{job.last_error}</Alert>
-				{/if}
-			</div>
+				</div>
+			{/if}
 
 			<div class="px-4 sm:px-5 py-4 border-t border-line space-y-2">
 				<p class="text-sm font-medium text-fg">Archives</p>
 				{#if archives.length === 0}
 					<p class="text-sm text-fg-muted">No archives yet.</p>
 				{:else}
-					<ul class="max-h-64 overflow-y-auto divide-y divide-line rounded border border-line-strong">
+					<ul class="max-h-64 overflow-y-auto divide-y divide-line {DETAIL_INSET_CLASS}">
 						{#each archives as archive (archive.name)}
 							<li class="flex items-center gap-3 px-3 py-2">
 								<div class="min-w-0 flex-1">
-									<p class="font-mono text-xs tabular-nums text-fg truncate" title={archive.name}>{archive.name}</p>
+									<Tooltip text={archive.name} wrapperClass="block">
+										<p class="font-mono text-xs tabular-nums text-fg truncate">{archive.name}</p>
+									</Tooltip>
 									<p class="font-mono text-2xs tabular-nums text-fg-subtle">
 										{formatTime(archive.created_at)} · {formatBytes(archive.bytes)}{archive.app_version
 											? ` · ${archive.app_version}`
@@ -362,6 +361,15 @@
 			</div>
 		{/if}
 	{/if}
+
+	{#snippet footer()}
+		{#if overview}
+			<p class="mr-auto font-mono text-xs tabular-nums text-fg-muted">{lastBackupLabel(overview)}</p>
+			<Button variant="secondary" size="sm" loading={runInFlight} disabled={runInFlight || jobRunning} onclick={runNow}>
+				Backup now
+			</Button>
+		{/if}
+	{/snippet}
 </DetailSection>
 
 <ConfirmModal

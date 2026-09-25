@@ -71,7 +71,7 @@ async function settle() {
 }
 
 function selectFirstRow(target: HTMLElement) {
-	const row = target.querySelector('[data-pane-row]') as HTMLElement | null;
+	const row = target.querySelector('.dt-scroll > [role="row"]') as HTMLElement | null;
 	expect(row).toBeTruthy();
 	row!.click();
 }
@@ -177,13 +177,20 @@ describe('LLMConfigTab — zero-valued temperature survives the real draft/save 
 		mounted = mount();
 		await settle();
 
-		const rows = mounted.target.querySelectorAll('[data-pane-row]');
+		let rows = mounted.target.querySelectorAll('.dt-scroll > [role="row"]');
 		expect(rows).toHaveLength(2);
 
 		(rows[0] as HTMLElement).click();
 		await settle();
 		expect((mounted.target.querySelector('#edit-config-temperature') as HTMLInputElement).value).toBe('0.7');
 
+		const backButton = mounted.target.querySelector('[data-detail-back]') as HTMLButtonElement;
+		expect(backButton).toBeTruthy();
+		backButton.click();
+		await settle();
+
+		rows = mounted.target.querySelectorAll('.dt-scroll > [role="row"]');
+		expect(rows).toHaveLength(2);
 		(rows[1] as HTMLElement).click();
 		await settle();
 		expect((mounted.target.querySelector('#edit-config-temperature') as HTMLInputElement).value).toBe('0.3');

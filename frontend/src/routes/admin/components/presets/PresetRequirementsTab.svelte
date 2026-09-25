@@ -4,9 +4,9 @@
 	import { api } from '$lib/services/api/index';
 	import { logger } from '$lib/utils/logger';
 	import { timeAgo } from '$lib/utils/relativeTime';
-	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge, Button, EmptyState, IconButton, Spinner } from '$lib/components/ui';
+	import { DetailSection } from '$lib/components/detail';
 	import type { RequirementBackendInfo, RequirementResultInfo } from '$lib/types/api';
 
 	export let presetId: string;
@@ -72,7 +72,7 @@
 	// Sections a user has manually expanded/collapsed, overriding the default
 	// (a section with any non-ok item starts expanded; an all-ok one starts
 	// collapsed to its one-line header).
-	let manualExpand: Partial<Record<SectionName, boolean>> = {};
+	let openSections: Partial<Record<SectionName, boolean>> = {};
 
 	$: total = summary.ok + summary.missing + summary.unknown + summary.optional_missing;
 	// Priority: a hard miss always blocks (danger); short of that, an optional
@@ -124,12 +124,12 @@
 		};
 	}).filter((section) => section.items.length > 0);
 
-	function isExpanded(section: { name: SectionName; hasProblem: boolean }): boolean {
-		return manualExpand[section.name] ?? section.hasProblem;
-	}
-
-	function toggleSection(section: { name: SectionName; hasProblem: boolean }) {
-		manualExpand = { ...manualExpand, [section.name]: !isExpanded(section) };
+	$: {
+		for (const section of sections) {
+			if (!(section.name in openSections)) {
+				openSections = { ...openSections, [section.name]: section.hasProblem };
+			}
+		}
 	}
 
 	onMount(() => {
@@ -164,7 +164,7 @@
 				selectedBackendId = backends.find((backend) => backend.is_default)?.id ?? backends[0]?.id;
 			}
 			checkedAt = response.data.checked_at ?? null;
-			manualExpand = {};
+			openSections = {};
 		} catch (error) {
 			logger.error('Failed to check preset requirements:', error);
 			loadError = error instanceof Error ? error.message : 'Could not check requirements';
@@ -198,11 +198,10 @@
 	}
 </script>
 
-<div>
+<div class="space-y-4">
 	{#if loading}
-		<div class="rounded-lg border border-line bg-surface-1 py-10 flex flex-col items-center justify-center">
+		<div class="flex items-center justify-center py-10">
 			<Spinner size="md" />
-			<p class="text-sm text-fg-muted mt-3">Checking requirements…</p>
 		</div>
 	{:else if loadError}
 		<EmptyState title="Requirements check unavailable" description={loadError} icon="warning" compact>
@@ -212,7 +211,7 @@
 		<EmptyState title="No requirements declared" description="This preset declares no requirements." icon="check" compact />
 	{:else}
 		{#if backends.length > 1}
-			<div class="flex flex-wrap gap-1.5 mb-3" role="tablist" aria-label="Backend">
+			<div class="flex flex-wrap gap-1.5" role="tablist" aria-label="Backend">
 				{#each backends as backend (backend.id)}
 					{@const chipVerdict = backendVerdict(backend.summary)}
 					{@const isSelected = backend.id === selectedBackendId}
@@ -246,10 +245,23 @@
 			</div>
 		{/if}
 
-		<div
-			class="rounded-lg border border-line-strong bg-canvas p-4 sm:p-5 mb-4"
-			data-testid="requirements-hero"
-		>
+		<DetailSection label="Summary">
+			{#snippet headerExtra()}
+				<span class="font-mono text-xs text-fg-subtle whitespace-nowrap">
+					{checkedAt ? `checked ${timeAgo(new Date(checkedAt * 1000).toISOString())}` : ''}
+				</span>
+				<Tooltip text="Re-check requirements">
+					<IconButton
+						icon="refresh"
+						label="Re-check requirements"
+						size="sm"
+						disabled={refreshing}
+						class={refreshing ? 'animate-spin' : ''}
+						onclick={() => load('refresh')}
+					/>
+				</Tooltip>
+			{/snippet}
+
 			<div class="flex items-end gap-3.5">
 				<div class="font-mono tabular-nums text-2xl font-semibold text-fg leading-none">
 					{summary.ok}<span class="text-sm font-medium text-fg-subtle ml-1">/ {total} satisfied</span>
@@ -271,87 +283,53 @@
 				{/each}
 			</div>
 
-			<div class="flex items-center gap-2.5 mt-3">
-				<p
-					class="text-sm font-semibold flex-1 {verdict.tone === 'danger'
-						? 'text-danger'
-						: verdict.tone === 'warning'
-							? 'text-warning'
-							: 'text-success'}"
-				>
-					{verdict.text}
-				</p>
-				<span class="font-mono text-xs text-fg-subtle whitespace-nowrap">
-					{checkedAt ? `checked ${timeAgo(new Date(checkedAt * 1000).toISOString())}` : ''}
-				</span>
-				<Tooltip text="Re-check requirements">
-					<IconButton
-						icon="refresh"
-						label="Re-check requirements"
-						size="sm"
-						disabled={refreshing}
-						class={refreshing ? 'animate-spin' : ''}
-						onclick={() => load('refresh')}
-					/>
-				</Tooltip>
-			</div>
-		</div>
+			<p
+				class="text-sm font-semibold mt-3 {verdict.tone === 'danger'
+					? 'text-danger'
+					: verdict.tone === 'warning'
+						? 'text-warning'
+						: 'text-success'}"
+			>
+				{verdict.text}
+			</p>
+		</DetailSection>
 
-		<div class="space-y-2.5">
-			{#each sections as section (section.name)}
-				<div class="rounded-lg border border-line bg-surface-1 overflow-hidden">
-					<button
-						type="button"
-						class="w-full flex items-center gap-2 px-3.5 py-2.5 text-left {isExpanded(section)
-							? 'border-b border-line bg-canvas'
-							: ''}"
-						onclick={() => toggleSection(section)}
-						aria-expanded={isExpanded(section)}
-					>
-						<Icon
-							name="chevron-right"
-							className="w-3.5 h-3.5 text-fg-subtle transition-transform {isExpanded(section) ? 'rotate-90' : ''}"
-						/>
-						<span class="text-sm font-semibold text-fg">{section.name}</span>
-						<span class="flex-1"></span>
-						{#if section.danger > 0}
-							<Badge variant="danger" size="sm">{section.ok}/{section.items.length}</Badge>
-						{:else if section.unknown > 0}
-							<Badge variant="warning" size="sm">? {section.unknown}</Badge>
-						{:else if section.optionalMissing > 0}
-							<Badge variant="warning" size="sm">{section.ok}/{section.items.length}</Badge>
-						{:else}
-							<Badge variant="success" size="sm">{section.ok}/{section.items.length}</Badge>
-						{/if}
-					</button>
-
-					{#if isExpanded(section)}
-						<div class="px-3.5 py-1">
-							{#each section.items as item, index}
-								{@const itemSeverity = severity(item)}
-								<div class="flex items-start gap-2.5 py-2.5 {index > 0 ? 'border-t border-line' : ''}">
-									<span class="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 {SEVERITY_DOT[itemSeverity]}"></span>
-									<div class="min-w-0 flex-1">
-										<div class="flex items-baseline gap-2 flex-wrap">
-											<span class="font-mono text-sm font-semibold text-fg">{item.name || item.type || 'requirement'}</span>
-											<span class="text-xs text-fg-muted">{item.detail}</span>
-											{#if item.optional}<Badge variant="neutral" size="sm">optional</Badge>{/if}
-										</div>
-										{#if item.hint && item.status !== 'ok'}
-											<p class="text-xs mt-1 {SEVERITY_HINT[itemSeverity]}">→ {item.hint}</p>
-										{/if}
-									</div>
-									{#if item.action}
-										<Button variant="secondary" size="sm" icon={actionIcon(item.action.kind)} onclick={() => runAction(item.action!)}>
-											{actionLabel(item.action.kind)}
-										</Button>
-									{/if}
-								</div>
-							{/each}
-						</div>
+		{#each sections as section (section.name)}
+			<DetailSection label={section.name} collapsible bind:open={openSections[section.name]}>
+				{#snippet headerExtra()}
+					{#if section.danger > 0}
+						<Badge variant="danger" size="sm">{section.ok}/{section.items.length}</Badge>
+					{:else if section.unknown > 0}
+						<Badge variant="warning" size="sm">? {section.unknown}</Badge>
+					{:else if section.optionalMissing > 0}
+						<Badge variant="warning" size="sm">{section.ok}/{section.items.length}</Badge>
+					{:else}
+						<Badge variant="success" size="sm">{section.ok}/{section.items.length}</Badge>
 					{/if}
-				</div>
-			{/each}
-		</div>
+				{/snippet}
+
+				{#each section.items as item, index}
+					{@const itemSeverity = severity(item)}
+					<div class="flex items-start gap-2.5 py-2.5 {index > 0 ? 'border-t border-line' : ''}">
+						<span class="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 {SEVERITY_DOT[itemSeverity]}"></span>
+						<div class="min-w-0 flex-1">
+							<div class="flex items-baseline gap-2 flex-wrap">
+								<span class="font-mono text-sm font-semibold text-fg">{item.name || item.type || 'requirement'}</span>
+								<span class="text-xs text-fg-muted">{item.detail}</span>
+								{#if item.optional}<Badge variant="neutral" size="sm">optional</Badge>{/if}
+							</div>
+							{#if item.hint && item.status !== 'ok'}
+								<p class="text-xs mt-1 {SEVERITY_HINT[itemSeverity]}">→ {item.hint}</p>
+							{/if}
+						</div>
+						{#if item.action}
+							<Button variant="secondary" size="sm" icon={actionIcon(item.action.kind)} onclick={() => runAction(item.action!)}>
+								{actionLabel(item.action.kind)}
+							</Button>
+						{/if}
+					</div>
+				{/each}
+			</DetailSection>
+		{/each}
 	{/if}
 </div>

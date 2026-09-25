@@ -1,7 +1,9 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Input, Spinner, EmptyState } from '$lib/components/ui';
+	import { DetailSection } from '$lib/components/detail';
 
 	let {
 		items = [],
@@ -41,7 +43,7 @@
 	);
 </script>
 
-<div class="rounded-lg border border-line bg-surface-1 overflow-hidden">
+<DetailSection label={ariaLabel} padded={false}>
 	{#if items.length > 0}
 		<div class="px-4 py-3 border-b border-line">
 			<div class="relative">
@@ -71,16 +73,17 @@
 					onclick={() => onToggle(item)}
 					onkeydown={(e) => { if (e.key === 'Enter') onToggle(item); }}
 				>
-					<span
-						class="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-full {assigned ? 'bg-signal text-white' : 'border border-line-strong text-fg-subtle'}"
-						title={assigned ? 'Added' : 'Not added'}
-					>
-						{#if toggling}
-							<Spinner size="sm" />
-						{:else}
-							<Icon name={assigned ? 'check' : 'plus'} className="w-3 h-3" strokeWidth={3} />
-						{/if}
-					</span>
+					<Tooltip text={assigned ? 'Added' : 'Not added'}>
+						<span
+							class="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-full {assigned ? 'bg-signal text-white' : 'border border-line-strong text-fg-subtle'}"
+						>
+							{#if toggling}
+								<Spinner size="sm" />
+							{:else}
+								<Icon name={assigned ? 'check' : 'plus'} className="w-3 h-3" strokeWidth={3} />
+							{/if}
+						</span>
+					</Tooltip>
 					<div class="min-w-0 flex-1">
 						{@render row(item)}
 					</div>
@@ -88,4 +91,4 @@
 			{/each}
 		</div>
 	{/if}
-</div>
+</DetailSection>

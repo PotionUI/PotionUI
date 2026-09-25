@@ -54,3 +54,7 @@ export function backendDetailTabsFor(driver: string): BackendDetailTabDescriptor
 export function isBackendDetailTab(driver: string, tab: string): boolean {
 	return backendDetailTabsFor(driver).some((t) => t.id === tab);
 }
+
+export function backendDetailTabHasFooter(tab: BackendDetailTabId): boolean {
+	return tab === 'overview';
+}

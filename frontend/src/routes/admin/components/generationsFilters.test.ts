@@ -16,6 +16,7 @@ describe('generationsFiltersFromSearchParams / generationsFiltersToSearchParams'
 		const filters: GenerationsFilters = {
 			q: 'portrait',
 			status: 'completed',
+			category: '',
 			userId: 'user-1',
 			createdFrom: '2026-09-01',
 			createdTo: '2026-09-20',
@@ -24,6 +25,7 @@ describe('generationsFiltersFromSearchParams / generationsFiltersToSearchParams'
 		const params = generationsFiltersToSearchParams(filters);
 		expect(params.get('q')).toBe('portrait');
 		expect(params.get('status')).toBe('completed');
+		expect(params.get('category')).toBeNull();
 		expect(params.get('user')).toBe('user-1');
 		expect(params.get('from')).toBe('2026-09-01');
 		expect(params.get('to')).toBe('2026-09-20');
@@ -31,14 +33,30 @@ describe('generationsFiltersFromSearchParams / generationsFiltersToSearchParams'
 		expect(generationsFiltersFromSearchParams(params)).toEqual(filters);
 	});
 
+	it('round-trips the category filter through the URL', () => {
+		const filters: GenerationsFilters = {
+			q: '',
+			status: 'failed',
+			category: 'cuda_oom',
+			userId: '',
+			createdFrom: '',
+			createdTo: '',
+			sortBy: 'created_desc'
+		};
+		const params = generationsFiltersToSearchParams(filters);
+		expect(params.get('category')).toBe('cuda_oom');
+		expect(generationsFiltersFromSearchParams(params)).toEqual(filters);
+	});
+
 	it('omits defaults from the URL so a clean list has no query string', () => {
 		expect(generationsFiltersToSearchParams(DEFAULT_GENERATIONS_FILTERS).toString()).toBe('');
 	});
 
-	it('falls back to the defaults for an unknown status or sort value', () => {
-		const params = new URLSearchParams({ status: 'archived', sort_by: 'rating' });
+	it('falls back to the defaults for an unknown status, category or sort value', () => {
+		const params = new URLSearchParams({ status: 'archived', category: 'not_a_real_category', sort_by: 'rating' });
 		const filters = generationsFiltersFromSearchParams(params);
 		expect(filters.status).toBe('');
+		expect(filters.category).toBe('');
 		expect(filters.sortBy).toBe('created_desc');
 	});
 });
@@ -48,6 +66,7 @@ describe('generations filter chips', () => {
 		const filters: GenerationsFilters = {
 			q: 'x',
 			status: 'failed',
+			category: 'cuda_oom',
 			userId: 'user-1',
 			createdFrom: '2026-09-01',
 			createdTo: '2026-09-20',
@@ -56,11 +75,13 @@ describe('generations filter chips', () => {
 		const chips = generationsFilterChips(filters, (userId) => `user:${userId}`);
 		expect(chips).toEqual([
 			{ key: 'status', label: 'Failed' },
+			{ key: 'category', label: 'GPU out of memory' },
 			{ key: 'userId', label: 'user:user-1' },
 			{ key: 'createdFrom', label: 'From 2026-09-01' },
 			{ key: 'createdTo', label: 'To 2026-09-20' }
 		]);
 		expect(clearGenerationsFilterChip(filters, 'status').status).toBe('');
+		expect(clearGenerationsFilterChip(filters, 'category').category).toBe('');
 		expect(clearGenerationsFilterChip(filters, 'userId').userId).toBe('');
 		expect(clearGenerationsFilterChip(filters, 'nothing')).toBe(filters);
 	});
@@ -69,15 +90,17 @@ describe('generations filter chips', () => {
 		const filters: GenerationsFilters = {
 			q: 'keep me',
 			status: 'running',
+			category: 'disk_full',
 			userId: 'user-2',
 			createdFrom: '2026-09-01',
 			createdTo: '',
 			sortBy: 'created_asc'
 		};
-		expect(generationsFilterActiveCount(filters)).toBe(3);
+		expect(generationsFilterActiveCount(filters)).toBe(4);
 		expect(clearAllGenerationsFilters(filters)).toEqual({
 			q: 'keep me',
 			status: '',
+			category: '',
 			userId: '',
 			createdFrom: '',
 			createdTo: '',

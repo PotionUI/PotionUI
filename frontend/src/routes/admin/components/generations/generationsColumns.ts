@@ -3,6 +3,16 @@ import { parseServerDate } from '$lib/utils/relativeTime';
 import { formatDurationMs } from '$lib/components/generation-panel/barState';
 import type { SortState } from '$lib/components/table';
 import type { GenerationSortBy } from '../generationsFilters';
+import { FAILURE_ALERT_CATEGORIES } from '../settings/failureAlerts';
+
+const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
+	FAILURE_ALERT_CATEGORIES.map((category) => [category.value, category.label])
+);
+
+export function categoryLabel(code: string | null | undefined): string {
+	if (!code) return '—';
+	return CATEGORY_LABELS[code] ?? code;
+}
 
 export function durationFor(row: Pick<AdminGenerationListItem, 'completed_at' | 'created_at' | 'status'>): string {
 	if (!row.completed_at) return row.status === 'running' ? 'running' : '—';

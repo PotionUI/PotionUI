@@ -202,6 +202,8 @@ export interface ActiveGeneration {
 	path?: string;
 	temporary?: boolean;
 	message?: string;
+	hint?: string | null;
+	errorId?: string | null;
 	errorDetail?: string | null;
 	[key: string]: unknown;
 }

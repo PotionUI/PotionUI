@@ -224,7 +224,30 @@ class TestGenerationRepository(PersistenceTestBase):
         self.assertNotIn(gen1.id, completed_ids)
         self.assertIn(gen2.id, completed_ids)
         self.assertNotIn(gen2.id, pending_ids)
-    
+
+    def test_get_all_with_error_category_filter(self):
+        gen1 = self.repo.create(self.test_generation)
+        self.repo.update_status(
+            gen1.id, "failed",
+            failure=GenerationFailure(error_code="cuda_oom", message="m").columns(),
+        )
+
+        gen2_data = self.test_generation
+        gen2_data.id = generate_ulid()
+        gen2 = self.repo.create(gen2_data)
+        self.repo.update_status(
+            gen2.id, "failed",
+            failure=GenerationFailure(error_code="disk_full", message="m").columns(),
+        )
+
+        oom_generations = self.repo.get_all(error_category="cuda_oom")
+        oom_ids = [g.id for g in oom_generations]
+        self.assertIn(gen1.id, oom_ids)
+        self.assertNotIn(gen2.id, oom_ids)
+
+        self.assertEqual(self.repo.count_by_status(error_category="cuda_oom"), 1)
+        self.assertEqual(self.repo.count_by_status(error_category="disk_full"), 1)
+
     def test_get_all_with_limit_offset(self):
         """Test getting generations with pagination"""
         # Create multiple generations

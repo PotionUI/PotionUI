@@ -3,6 +3,7 @@
 	import SegmentedFilterGroup from '$lib/components/library/SegmentedFilterGroup.svelte';
 	import type { User } from '$lib/stores/auth';
 	import {
+		GENERATION_CATEGORY_OPTIONS,
 		GENERATION_STATUS_OPTIONS,
 		clearAllGenerationsFilters,
 		type GenerationsFilters,
@@ -40,6 +41,19 @@
 			onChange={(status: GenerationStatusFilter) => set({ status })}
 		/>
 	</div>
+
+	<label class="col-span-2 flex flex-col gap-1.5">
+		<span class="text-xs font-medium text-fg-muted">Failure category</span>
+		<select
+			class="input"
+			value={filters.category}
+			onchange={(event) => set({ category: (event.currentTarget as HTMLSelectElement).value })}
+		>
+			{#each GENERATION_CATEGORY_OPTIONS as option (option.value)}
+				<option value={option.value}>{option.label}</option>
+			{/each}
+		</select>
+	</label>
 
 	<label class="col-span-2 flex flex-col gap-1.5">
 		<span class="text-xs font-medium text-fg-muted">User</span>

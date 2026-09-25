@@ -98,6 +98,23 @@ class TestAdminGenerationsController(PersistenceTestBase):
         self.assertIn(self.gen_a.id, ids)
         self.assertNotIn(self.gen_b.id, ids)
 
+    def test_list_error_category_filters_to_that_failure_classification(self):
+        from src.features.generation.failure import GenerationFailure
+
+        self.generation_repo.update_status(
+            self.gen_a.id, "failed",
+            failure=GenerationFailure(error_code="cuda_oom", message="m").columns(),
+        )
+        self.generation_repo.update_status(
+            self.gen_b.id, "failed",
+            failure=GenerationFailure(error_code="disk_full", message="m").columns(),
+        )
+
+        response = asyncio.run(self.controller.admin_list_generations(error_category="cuda_oom"))
+        ids = {g['id'] for g in response.data['generations']}
+        self.assertIn(self.gen_a.id, ids)
+        self.assertNotIn(self.gen_b.id, ids)
+
     def test_list_rows_carry_owner_and_has_run_report(self):
         self.run_report_recorder.flush(self.gen_a.id, terminal_status="completed")
 

@@ -23,7 +23,7 @@
 	import AudioPreview from '$lib/components/workbench/renderers/AudioPreview.svelte';
 	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
 	import '$lib/components/workbench/renderers/builtin'; // registers the image/video/audio core defaults
-	import { IconButton, Button } from '$lib/components/ui';
+	import { IconButton, Button, CopyButton } from '$lib/components/ui';
 	import { copyText } from '$lib/utils/clipboard';
 	import {
 		isAudioFileType,
@@ -1289,11 +1289,26 @@
 					{currentGeneration?.message || 'Something went wrong while generating. Try again, or check the details below.'}
 				</p>
 
+				{#if currentGeneration?.hint}
+					<p class="text-fg-subtle text-sm max-w-[320px] mt-1.5 whitespace-pre-line">{currentGeneration.hint}</p>
+				{/if}
+
+				{#if currentGeneration?.errorId}
+					<div class="mt-3 flex flex-col items-center gap-1">
+						<div class="flex items-center gap-1.5 rounded bg-surface-3 px-2 py-1">
+							<span class="text-sm text-fg-muted">Error ID</span>
+							<span class="font-mono text-sm tabular-nums text-fg">{currentGeneration.errorId}</span>
+							<CopyButton text={currentGeneration.errorId} ariaLabel="Copy error ID" size="sm" />
+						</div>
+						<p class="text-sm text-fg-subtle">Give this to your admin</p>
+					</div>
+				{/if}
+
 				{#if currentGeneration?.errorDetail}
 					<details class="mt-3 w-full max-w-sm text-left select-text">
-						<summary class="text-2xs text-fg-subtle cursor-pointer select-none w-fit mx-auto">Error details</summary>
+						<summary class="text-sm text-fg-subtle cursor-pointer select-none w-fit mx-auto">Traceback</summary>
 						<div class="relative mt-1.5">
-							<pre class="font-mono text-2xs bg-surface-3 text-fg-muted rounded px-2 py-1.5 pr-8 overflow-x-auto whitespace-pre-wrap break-words max-h-32 overflow-y-auto text-left">{currentGeneration.errorDetail}</pre>
+							<pre class="font-mono text-sm bg-surface-3 text-fg-muted rounded px-2 py-1.5 pr-8 overflow-x-auto whitespace-pre-wrap break-words max-h-32 overflow-y-auto text-left">{currentGeneration.errorDetail}</pre>
 							<div class="absolute top-1 right-1">
 								<IconButton
 									icon={copiedErrorDetail ? 'check' : 'copy'}

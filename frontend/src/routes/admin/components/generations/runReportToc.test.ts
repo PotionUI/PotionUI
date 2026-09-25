@@ -21,6 +21,7 @@ describe('buildTocSections', () => {
 	it('inserts every present section in reading order', () => {
 		expect(
 			buildTocSections({
+				hasFailure: true,
 				hasRouting: true,
 				hasTimeline: true,
 				hasArtifacts: true,
@@ -30,6 +31,7 @@ describe('buildTocSections', () => {
 			})
 		).toEqual([
 			{ id: 'overview', label: 'Overview' },
+			{ id: 'failure', label: 'Failure' },
 			{ id: 'routing', label: 'Routing' },
 			{ id: 'timeline', label: 'Pipe timeline' },
 			{ id: 'outputs', label: 'Outputs' },
@@ -37,6 +39,22 @@ describe('buildTocSections', () => {
 			{ id: 'prompt', label: 'Prompt' },
 			{ id: 'status-log', label: 'Status log' },
 			{ id: 'plugin-output', label: 'Plugin output' }
+		]);
+	});
+
+	it('omits the Failure section when hasFailure is left unset', () => {
+		expect(
+			buildTocSections({
+				hasRouting: false,
+				hasTimeline: false,
+				hasArtifacts: false,
+				hasPrompt: false,
+				hasStatusLog: false,
+				hasPluginOutput: false
+			})
+		).toEqual([
+			{ id: 'overview', label: 'Overview' },
+			{ id: 'outputs', label: 'Outputs' }
 		]);
 	});
 });

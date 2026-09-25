@@ -101,6 +101,7 @@ class GenerationRepository:
         self, alias: str = 'g', *,
         user_id: Optional[str] = None,
         status: Optional[str] = None,
+        error_category: Optional[str] = None,
         media_type: Optional[str] = None,
         created_from: Optional[str] = None,
         created_to: Optional[str] = None,
@@ -147,6 +148,10 @@ class GenerationRepository:
         if status:
             conditions.append(f"{a}status = ?")
             params.append(status)
+
+        if error_category:
+            conditions.append(f"{a}error_code = ?")
+            params.append(error_category)
 
         def _date_cond(value, column, op, day_suffix):
             if not value:
@@ -284,7 +289,8 @@ class GenerationRepository:
     # --- Listing ----------------------------------------------------------------
 
     def get_all(self, user_id: Optional[str] = None, limit: Optional[int] = None, offset: int = 0,
-                status: Optional[str] = None, include_files: bool = False,
+                status: Optional[str] = None, error_category: Optional[str] = None,
+                include_files: bool = False,
                 include_tags: bool = False, tag_ids: Optional[List[str]] = None,
                 created_from: Optional[str] = None, created_to: Optional[str] = None,
                 completed_from: Optional[str] = None, completed_to: Optional[str] = None,
@@ -300,7 +306,7 @@ class GenerationRepository:
         """Get all generations with optional filtering, searching and sorting."""
 
         conditions, params = self._build_filters(
-            'g', user_id=user_id, status=status, media_type=media_type,
+            'g', user_id=user_id, status=status, error_category=error_category, media_type=media_type,
             created_from=created_from, created_to=created_to,
             completed_from=completed_from, completed_to=completed_to,
             search=search, mode=mode, preset_id=preset_id, model_name=model_name,
@@ -342,6 +348,7 @@ class GenerationRepository:
 
     def count_by_status(self, user_id: Optional[str] = None, status: Optional[str] = None,
                         tag_ids: Optional[List[str]] = None,
+                        error_category: Optional[str] = None,
                         created_from: Optional[str] = None, created_to: Optional[str] = None,
                         completed_from: Optional[str] = None, completed_to: Optional[str] = None,
                         media_type: Optional[str] = None,
@@ -354,7 +361,7 @@ class GenerationRepository:
         """Count generations matching the same filters as get_all (for pagination total)."""
 
         conditions, params = self._build_filters(
-            'g', user_id=user_id, status=status, media_type=media_type,
+            'g', user_id=user_id, status=status, error_category=error_category, media_type=media_type,
             created_from=created_from, created_to=created_to,
             completed_from=completed_from, completed_to=completed_to,
             search=search, mode=mode, preset_id=preset_id, model_name=model_name,

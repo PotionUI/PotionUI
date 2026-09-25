@@ -192,6 +192,7 @@ class GenerationHistoryQuery:
         limit: Optional[int] = 50,
         offset: int = 0,
         status: Optional[str] = None,
+        error_category: Optional[str] = None,
         created_from: Optional[str] = None,
         created_to: Optional[str] = None,
         completed_from: Optional[str] = None,
@@ -219,6 +220,8 @@ class GenerationHistoryQuery:
             limit: Maximum number of results
             offset: Result offset for pagination
             status: Filter by status
+            error_category: Filter by the failure classification category
+                (`error_code`), for the failed-status admin listing
             created_from: Filter by creation start date
             created_to: Filter by creation end date
             completed_from: Filter by completion start date
@@ -246,6 +249,7 @@ class GenerationHistoryQuery:
         filter_kwargs = dict(
             user_id=user_id,
             status=status,
+            error_category=error_category,
             tag_ids=tag_ids,
             created_from=created_from,
             created_to=created_to,

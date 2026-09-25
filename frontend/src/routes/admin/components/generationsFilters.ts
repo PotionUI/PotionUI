@@ -1,5 +1,6 @@
 import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
 import type { FilterChip, SortOption } from '$lib/components/library/librarySection';
+import { FAILURE_ALERT_CATEGORIES } from './settings/failureAlerts';
 
 export type GenerationStatusFilter = '' | 'completed' | 'running' | 'pending' | 'failed' | 'cancelled';
 export type GenerationSortBy = 'created_desc' | 'created_asc';
@@ -7,6 +8,7 @@ export type GenerationSortBy = 'created_desc' | 'created_asc';
 export interface GenerationsFilters {
 	q: string;
 	status: GenerationStatusFilter;
+	category: string;
 	userId: string;
 	createdFrom: string;
 	createdTo: string;
@@ -16,6 +18,7 @@ export interface GenerationsFilters {
 export const DEFAULT_GENERATIONS_FILTERS: GenerationsFilters = {
 	q: '',
 	status: '',
+	category: '',
 	userId: '',
 	createdFrom: '',
 	createdTo: '',
@@ -36,6 +39,11 @@ export const GENERATION_SORT_OPTIONS: readonly SortOption<GenerationSortBy>[] = 
 	{ value: 'created_asc', label: 'Oldest first' }
 ];
 
+export const GENERATION_CATEGORY_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+	{ value: '', label: 'All' },
+	...FAILURE_ALERT_CATEGORIES
+];
+
 const STATUS_CHIP_LABELS: Record<Exclude<GenerationStatusFilter, ''>, string> = {
 	completed: 'Completed',
 	running: 'Running',
@@ -43,6 +51,10 @@ const STATUS_CHIP_LABELS: Record<Exclude<GenerationStatusFilter, ''>, string> = 
 	failed: 'Failed',
 	cancelled: 'Cancelled'
 };
+
+const CATEGORY_CHIP_LABELS: Record<string, string> = Object.fromEntries(
+	FAILURE_ALERT_CATEGORIES.map((category) => [category.value, category.label])
+);
 
 const FIELDS: readonly FilterFieldDescriptor<GenerationsFilters>[] = [
 	{
@@ -53,6 +65,15 @@ const FIELDS: readonly FilterFieldDescriptor<GenerationsFilters>[] = [
 		values: ['completed', 'running', 'pending', 'failed', 'cancelled'],
 		default: '',
 		chipLabel: (value) => STATUS_CHIP_LABELS[value as Exclude<GenerationStatusFilter, ''>] ?? value
+	},
+	{
+		kind: 'enum',
+		key: 'category',
+		param: 'category',
+		label: 'Category',
+		values: FAILURE_ALERT_CATEGORIES.map((category) => category.value),
+		default: '',
+		chipLabel: (value) => CATEGORY_CHIP_LABELS[value as string] ?? value
 	},
 	{ kind: 'text', key: 'userId', param: 'user', label: 'User', default: '' },
 	{

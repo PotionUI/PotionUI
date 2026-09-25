@@ -21,7 +21,7 @@
 	import GenerationRunReport from './GenerationRunReport.svelte';
 	import GenerationsFiltersPopover from './GenerationsFiltersPopover.svelte';
 	import { GENERATION_LIBRARY_SECTIONS, sectionFromStatus, statusFromSection, type GenerationSection } from './generations/generationsSections';
-	import { durationFor, presetTitleFor, sortByFromSortState, sortStateFromSortBy } from './generations/generationsColumns';
+	import { categoryLabel, durationFor, presetTitleFor, sortByFromSortState, sortStateFromSortBy } from './generations/generationsColumns';
 	import {
 		GENERATION_SORT_OPTIONS,
 		clearAllGenerationsFilters,
@@ -35,7 +35,7 @@
 		type GenerationsFilters
 	} from './generationsFilters';
 
-	const FILTER_PARAM_KEYS = ['q', 'status', 'user', 'from', 'to', 'sort_by'];
+	const FILTER_PARAM_KEYS = ['q', 'status', 'category', 'user', 'from', 'to', 'sort_by'];
 
 	const STATUS_TONE: Record<string, 'success' | 'info' | 'muted' | 'danger' | 'warning'> = {
 		completed: 'success',
@@ -110,6 +110,7 @@
 				limit: pageSize,
 				offset: (pageIndex - 1) * pageSize,
 				status: filters.status || undefined,
+				category: filters.category || undefined,
 				userId: filters.userId || undefined,
 				search: filters.q || undefined,
 				createdFrom: filters.createdFrom || undefined,
@@ -120,7 +121,7 @@
 			if (response.success && response.data) {
 				generations = response.data.generations;
 				total = response.data.total;
-				if (!filters.q && !filters.userId && !filters.createdFrom && !filters.createdTo) {
+				if (!filters.q && !filters.category && !filters.userId && !filters.createdFrom && !filters.createdTo) {
 					sectionCountsCache = { ...sectionCountsCache, [section]: total };
 				}
 			} else {
@@ -262,6 +263,12 @@
 	<StatusCell tone={STATUS_TONE[row.status] ?? 'muted'} label={row.status} />
 {/snippet}
 
+{#snippet categoryCell(row: AdminGenerationListItem)}
+	<span class="font-mono text-xs {row.error_code ? 'text-danger' : 'text-fg-subtle'}">
+		{categoryLabel(row.error_code)}
+	</span>
+{/snippet}
+
 {#snippet createdCell(row: AdminGenerationListItem)}
 	<Tooltip text={absoluteTime(row.created_at)}><span>{timeAgo(row.created_at)}</span></Tooltip>
 {/snippet}
@@ -338,6 +345,7 @@
 			<DataTable
 				columns={[
 					{ key: 'status', label: 'Status', width: '110px', cell: statusCell },
+					{ key: 'category', label: 'Category', width: '150px', priority: 1, cell: categoryCell },
 					{ key: 'preset', label: 'Preset', width: 'minmax(160px,1.4fr)', accessor: presetTitleFor },
 					{ key: 'mode', label: 'Mode', width: '90px', priority: 1, mono: true, accessor: (r) => r.mode || '—' },
 					{ key: 'user', label: 'User', width: '140px', priority: 1, accessor: (r) => usernameFor(r.user_id) },

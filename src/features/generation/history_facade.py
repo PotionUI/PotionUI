@@ -134,14 +134,15 @@ class GenerationHistoryFacade:
         sort_by: Optional[str] = None,
         sort_dir: Optional[str] = None,
         system_tag: Optional[str] = None,
-        semantic_query: Optional[str] = None
+        semantic_query: Optional[str] = None,
+        error_category: Optional[str] = None
     ) -> Dict[str, Any]:
         return self._query.get_history(
-            user_id, limit, offset, status, created_from, created_to,
+            user_id, limit, offset, status, error_category, created_from, created_to,
             completed_from, completed_to, tag_ids, include_tags, media_type,
             search, mode, preset_id, model_name, min_rating, favorites_only,
             collection_id, used_phrasebook_value_id, sort_by, sort_dir,
-            system_tag=system_tag, semantic_query=semantic_query
+            system_tag=system_tag, semantic_query=semantic_query,
         )
 
     async def get_history_async(self, **filters: Any) -> Dict[str, Any]:

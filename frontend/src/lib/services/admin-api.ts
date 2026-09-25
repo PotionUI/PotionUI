@@ -1418,6 +1418,7 @@ export interface AdminGenerationsParams {
 	limit?: number;
 	offset?: number;
 	status?: string;
+	category?: string;
 	userId?: string;
 	search?: string;
 	createdFrom?: string;
@@ -1434,6 +1435,7 @@ export async function getAdminGenerations(
 			limit: params.limit,
 			offset: params.offset,
 			status: params.status || undefined,
+			error_category: params.category || undefined,
 			user_id: params.userId || undefined,
 			search: params.search || undefined,
 			created_from: params.createdFrom || undefined,
@@ -1442,6 +1444,26 @@ export async function getAdminGenerations(
 			sort_dir: params.sortDir || undefined
 		}
 	});
+	return response.data;
+}
+
+export interface GenerationFailureDetail {
+	generation_id: string;
+	error_id: string;
+	error_code: string | null;
+	message: string | null;
+	hint: string | null;
+	detail: string | null;
+	failed_pipe_id: string | null;
+	failed_pipe_name: string | null;
+	failed_at_step: string | null;
+	occurred_at: string | null;
+}
+
+export async function getGenerationFailure(
+	generationId: string
+): Promise<APIResponse<GenerationFailureDetail>> {
+	const response = await api.getClient().get(`/api/generations/${generationId}/failure`);
 	return response.data;
 }
 

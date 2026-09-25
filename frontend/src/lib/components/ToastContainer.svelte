@@ -71,7 +71,7 @@
 					<p class="text-[12.5px] font-medium leading-snug text-fg">{toastDisplayTitle(toast)}</p>
 				{/if}
 				{#if showsMessage(toast)}
-					<p class="mt-px text-xs leading-[1.4] text-fg-muted">{toast.message}</p>
+					<p class="mt-px text-xs leading-[1.4] text-fg-muted whitespace-pre-line">{toast.message}</p>
 				{/if}
 				{#if toast.action}
 					<div class="mt-2 flex items-center gap-2">

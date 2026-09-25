@@ -4,6 +4,7 @@ export interface TocSection {
 }
 
 export function buildTocSections(flags: {
+	hasFailure?: boolean;
 	hasRouting: boolean;
 	hasTimeline: boolean;
 	hasArtifacts: boolean;
@@ -12,6 +13,7 @@ export function buildTocSections(flags: {
 	hasPluginOutput: boolean;
 }): TocSection[] {
 	const sections: TocSection[] = [{ id: 'overview', label: 'Overview' }];
+	if (flags.hasFailure) sections.push({ id: 'failure', label: 'Failure' });
 	if (flags.hasRouting) sections.push({ id: 'routing', label: 'Routing' });
 	if (flags.hasTimeline) sections.push({ id: 'timeline', label: 'Pipe timeline' });
 	sections.push({ id: 'outputs', label: 'Outputs' });

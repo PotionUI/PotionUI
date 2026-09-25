@@ -110,9 +110,9 @@ describe('generation_error message handler — failure payloads', () => {
 
 		const generation = failedGeneration(tabId);
 		expect(generation.message).toBe('The GPU ran out of memory.');
-		expect(generation.errorDetail).toContain('Try a smaller resolution');
-		expect(generation.errorDetail).toContain('Error ID: gen-u');
-		expect(generation.errorDetail).not.toContain('Traceback');
+		expect(generation.hint).toBe('- Try a smaller resolution');
+		expect(generation.errorId).toBe('gen-u');
+		expect(generation.errorDetail).toBeNull();
 	});
 
 	it('shows an admin the full detail when the payload carries it', () => {
@@ -132,5 +132,26 @@ describe('generation_error message handler — failure payloads', () => {
 		);
 
 		expect(failedGeneration(tabId).errorDetail).toContain('Traceback');
+	});
+
+	it('carries the hint and error id as discrete fields, independent of the detail blob', () => {
+		const tabId = defaultTabId();
+		setCurrentGeneration(tabId, { generation_id: 'gen-b' });
+
+		dispatchGenerationMessage(
+			{
+				type: 'generation_error',
+				generation_id: 'gen-b',
+				message: 'The GPU ran out of memory.',
+				hint: '- Lower the resolution one tier\n- Close other GPU applications',
+				error_id: 'gen-b'
+			} as any,
+			{ unsubscribe: vi.fn() }
+		);
+
+		const generation = failedGeneration(tabId);
+		expect(generation.hint).toBe('- Lower the resolution one tier\n- Close other GPU applications');
+		expect(generation.errorId).toBe('gen-b');
+		expect(generation.errorDetail).toBeNull();
 	});
 });

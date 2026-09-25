@@ -115,6 +115,9 @@ export interface GenerationHistoryItem {
 	completed_at?: string;
 	updated_at: string;
 	error_message?: string;
+	error_code?: string | null;
+	error_user_message?: string | null;
+	error_id?: string | null;
 	files: GenerationFile[];
 	tags?: Tag[];
 	rating: number;

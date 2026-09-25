@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { durationFor, presetTitleFor, sortByFromSortState, sortStateFromSortBy } from './generationsColumns';
+import { categoryLabel, durationFor, presetTitleFor, sortByFromSortState, sortStateFromSortBy } from './generationsColumns';
 
 describe('durationFor', () => {
 	it('formats the wall-clock gap between created and completed', () => {
@@ -32,6 +32,22 @@ describe('presetTitleFor', () => {
 		expect(presetTitleFor({ preset_name: 'SDXL', mode: 't2i' })).toBe('SDXL');
 		expect(presetTitleFor({ preset_name: undefined, mode: 't2i' })).toBe('t2i');
 		expect(presetTitleFor({ preset_name: undefined, mode: undefined })).toBe('Untitled generation');
+	});
+});
+
+describe('categoryLabel', () => {
+	it('maps a failure category code to its friendly label', () => {
+		expect(categoryLabel('cuda_oom')).toBe('GPU out of memory');
+		expect(categoryLabel('disk_full')).toBe('Disk full');
+	});
+
+	it('falls back to the raw code for an unrecognized category', () => {
+		expect(categoryLabel('some_new_category')).toBe('some_new_category');
+	});
+
+	it('falls back to an em dash for a generation with no failure category', () => {
+		expect(categoryLabel(null)).toBe('—');
+		expect(categoryLabel(undefined)).toBe('—');
 	});
 });
 

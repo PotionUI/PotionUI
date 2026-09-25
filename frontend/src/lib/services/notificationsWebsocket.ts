@@ -16,6 +16,8 @@ import { notifications } from '$lib/stores/notifications';
 import { toasts, type ToastType } from '$lib/stores/toast';
 import { playNotificationChime } from '$lib/utils/notificationChime';
 import type { AppNotification } from '$lib/services/api/notifications';
+import { generationFailureErrorId, generationFailureToastMessage } from '$lib/generation/failureToast';
+import { copyText } from '$lib/utils/clipboard';
 
 class NotificationsWebSocketService extends BaseWebSocket {
 	private intentionalDisconnect = false;
@@ -61,8 +63,12 @@ class NotificationsWebSocketService extends BaseWebSocket {
 				const showToast = message.show_toast !== false;
 				notifications.add(notification);
 				if (showToast && notification) {
-					toasts.show(this.toToastType(notification.level), notification.message || '', {
-						title: notification.title
+					const errorId = generationFailureErrorId(notification);
+					toasts.show(this.toToastType(notification.level), generationFailureToastMessage(notification), {
+						title: notification.title,
+						action: errorId
+							? { label: 'Copy error ID', onClick: () => void copyText(errorId) }
+							: undefined
 					});
 				}
 				this.maybeChime();

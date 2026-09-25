@@ -9,12 +9,15 @@
 	 * `generation` alone.
 	 */
 	import { browser } from '$app/environment';
-	import type { AdminGenerationListItem, RunReport } from '$lib/services/admin-api';
+	import * as adminApi from '$lib/services/admin-api';
+	import type { AdminGenerationListItem, GenerationFailureDetail, RunReport } from '$lib/services/admin-api';
 	import { groupStatusHistory, groupByPipe, findRunningPipeKey, resolveRunEnd } from './runReport';
 	import { buildTocSections, pickActiveSectionId } from './generations/runReportToc';
+	import { categoryLabel } from './generations/generationsColumns';
 	import { timeAgo, parseServerDate } from '$lib/utils/relativeTime';
 	import { formatDurationMs } from '$lib/components/generation-panel/barState';
-	import { Alert, Badge, EmptyState } from '$lib/components/ui';
+	import { authStore } from '$lib/stores/auth';
+	import { Alert, Badge, CopyButton, EmptyState, Spinner } from '$lib/components/ui';
 	import { DetailHeader, DetailBody, DetailLayout, DetailSection, KVGrid, KVItem, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -64,6 +67,43 @@
 	let pluginOutputEntries = $derived(report ? Object.entries(report.plugin_outputs ?? {}) : []);
 	let hasArtifacts = $derived((report?.artifacts?.length ?? 0) > 0);
 
+	let isAdmin = $derived($authStore.user?.account_type === 'ADMIN');
+	let failure = $state<GenerationFailureDetail | null>(null);
+	let failureLoading = $state(false);
+	let failureError = $state<string | null>(null);
+	let failureLoadedFor: string | null = null;
+
+	$effect(() => {
+		if (generation.status !== 'failed' || !isAdmin) {
+			failure = null;
+			failureError = null;
+			failureLoadedFor = null;
+			return;
+		}
+		if (failureLoadedFor === generation.id) return;
+		failureLoadedFor = generation.id;
+		void loadFailure(generation.id);
+	});
+
+	async function loadFailure(id: string) {
+		failureLoading = true;
+		failureError = null;
+		try {
+			const response = await adminApi.getGenerationFailure(id);
+			if (response.success && response.data) {
+				failure = response.data;
+			} else {
+				failureError = response.message || 'Failed to load failure detail';
+			}
+		} catch (e: any) {
+			failureError = e?.response?.data?.message || e?.message || 'Failed to load failure detail';
+		} finally {
+			failureLoading = false;
+		}
+	}
+
+	let hasFailureSection = $derived(generation.status === 'failed' && isAdmin);
+
 	let title = $derived(generation.preset_name || generation.mode || 'Untitled generation');
 	let durationMs = $derived.by(() => {
 		if (!generation.completed_at) return null;
@@ -81,6 +121,7 @@
 
 	let tocSections = $derived(
 		buildTocSections({
+			hasFailure: hasFailureSection,
 			hasRouting: !!generation.routing,
 			hasTimeline: !!report && hasTimelineData,
 			hasArtifacts,
@@ -211,6 +252,52 @@
 						</KVGrid>
 					</DetailSection>
 				</div>
+
+				{#if hasFailureSection}
+					<div id="failure" use:observeSection={'failure'}>
+						<DetailSection label="Failure">
+							{#if failureLoading && !failure}
+								<div class="flex items-center gap-2 px-1 py-2 text-sm text-fg-subtle">
+									<Spinner size="sm" />
+									<span>Loading failure detail…</span>
+								</div>
+							{:else if failureError}
+								<Alert variant="danger" icon="warning" density="compact">
+									<p class="text-sm">{failureError}</p>
+								</Alert>
+							{:else if failure}
+								<div class="space-y-3">
+									<KVGrid>
+										<KVItem label="Category">
+											<Badge variant="danger" size="sm" class="font-mono">{categoryLabel(failure.error_code)}</Badge>
+										</KVItem>
+										<KVItem label="Failed pipe" mono>
+											{failure.failed_pipe_name || failure.failed_pipe_id || '—'}
+										</KVItem>
+										<KVItem label="Failed at step" mono>{failure.failed_at_step || '—'}</KVItem>
+										<KVItem label="Error id" mono full>
+											<span class="break-all">{failure.error_id}</span>
+										</KVItem>
+									</KVGrid>
+
+									{#if failure.detail}
+										<details class="text-left">
+											<summary class="text-sm text-fg-subtle cursor-pointer select-none w-fit">Traceback</summary>
+											<div class="relative mt-1.5">
+												<pre class="{DETAIL_INSET_CLASS} font-mono text-sm text-fg-muted px-3 py-2.5 pr-10 overflow-x-auto whitespace-pre-wrap break-words max-h-72 overflow-y-auto">{failure.detail}</pre>
+												<div class="absolute top-1.5 right-1.5">
+													<Tooltip text="Copy traceback">
+														<CopyButton text={failure.detail} ariaLabel="Copy traceback" size="sm" />
+													</Tooltip>
+												</div>
+											</div>
+										</details>
+									{/if}
+								</div>
+							{/if}
+						</DetailSection>
+					</div>
+				{/if}
 
 				{#if generation.routing}
 					<div id="routing" use:observeSection={'routing'}>

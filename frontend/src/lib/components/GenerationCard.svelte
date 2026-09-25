@@ -8,7 +8,7 @@
 	import { resolveMeshFormat } from '$lib/components/workbench/renderers/meshUrl';
 	import StarRating from './StarRating.svelte';
 	import FavoriteButton from './FavoriteButton.svelte';
-	import { Badge } from '$lib/components/ui';
+	import { Badge, CopyButton } from '$lib/components/ui';
 	import { historyStore } from '$lib/stores/history';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { formatBytes, formatSeconds } from '$lib/utils/format';
@@ -669,11 +669,21 @@
 		{/if}
 
 		<!-- Error Message Footer -->
-		{#if generation.error_message}
-			<div class="px-2 py-2 bg-surface-1">
-				<div class="p-1.5 bg-danger/10 border border-danger/25 rounded text-2xs text-danger truncate" title={generation.error_message}>
-					{generation.error_message}
-				</div>
+		{#if generation.error_user_message || generation.error_message}
+			<div class="px-2 py-2 bg-surface-1 space-y-1.5">
+				<Tooltip text={generation.error_user_message || generation.error_message || ''}>
+					<div class="p-1.5 bg-danger/10 border border-danger/25 rounded text-sm text-danger whitespace-pre-line line-clamp-2">
+						{generation.error_user_message || generation.error_message}
+					</div>
+				</Tooltip>
+				{#if generation.error_id}
+					<div class="flex items-center gap-1.5">
+						<span class="text-sm text-fg-subtle whitespace-nowrap">Error ID</span>
+						<span class="font-mono text-sm tabular-nums text-fg truncate">{generation.error_id}</span>
+						<CopyButton text={generation.error_id} ariaLabel="Copy error ID" size="xs" />
+					</div>
+					<p class="text-sm text-fg-subtle">Give this to your admin</p>
+				{/if}
 			</div>
 		{/if}
 	</div>

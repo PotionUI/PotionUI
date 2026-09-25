@@ -128,6 +128,7 @@ from src.features.segments.repository import (
 )
 from src.features.llm.gateway import LLMGateway
 from src.bootstrap.composition import ChatDeps, build_chat
+from src.bootstrap.composition.chat import register_session_memory_cleanup
 
 if TYPE_CHECKING:
     # Types constructed inside build_container via lazy imports; referenced only
@@ -1526,6 +1527,7 @@ def build_container() -> AppContainer:
         )
     )
     chat.pre_chat_action_registry.discover_actions()
+    register_session_memory_cleanup(plugin_registry, llm_memory_repository)
 
     # Stats components (depends on file_preset_repository for preset display names)
     from src.features.stats.repository import StatsRepository

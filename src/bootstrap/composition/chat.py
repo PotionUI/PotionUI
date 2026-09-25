@@ -20,7 +20,10 @@ from src.features.chat.routes import ChatController
 from src.features.chat.turns import ChatTurnRegistry
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.repository import LLMRepository
+from src.features.llm_memory import operations as memory_operations
+from src.features.sessions.hooks import SESSION_HOOKS
 from src.platform.plugins import PluginRegistry
+from src.platform.plugins.hooks import HookContext
 from src.platform.settings.settings import Settings
 
 if TYPE_CHECKING:
@@ -44,6 +47,7 @@ if TYPE_CHECKING:
 
 
 DEFAULT_TURN_TIMEOUT_SECONDS = 1800
+SESSION_MEMORY_CLEANUP_HANDLER_ID = "core.session_memory_cleanup"
 
 
 @dataclass(frozen=True)
@@ -96,6 +100,24 @@ def _turn_timeout_seconds(settings: Settings) -> int:
         return int(settings.get_setting("chat_turn_timeout_seconds", DEFAULT_TURN_TIMEOUT_SECONDS))
     except (TypeError, ValueError):
         return DEFAULT_TURN_TIMEOUT_SECONDS
+
+
+def register_session_memory_cleanup(plugin_registry: PluginRegistry, llm_memory_repository: Any) -> None:
+    if llm_memory_repository is None:
+        return
+
+    def _delete_session_notes(context: HookContext) -> HookContext:
+        session_id = context.data.get("session_id")
+        user_id = context.data.get("user_id")
+        if session_id and user_id:
+            memory_operations.delete_notes_for_scope_ref(
+                llm_memory_repository, user_id=user_id, scope="session", scope_ref=session_id,
+            )
+        return context
+
+    plugin_registry.hook_chain.register(
+        SESSION_HOOKS.after_delete, SESSION_MEMORY_CLEANUP_HANDLER_ID, _delete_session_notes,
+    )
 
 
 def build_chat(deps: ChatDeps) -> ChatComponents:

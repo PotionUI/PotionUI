@@ -23,7 +23,7 @@ from src.features.llm_memory.repository import LLMMemoryRepository
 
 logger = logging.getLogger(__name__)
 
-VALID_SCOPES = {"global", "preset", "model", "mode"}
+VALID_SCOPES = {"global", "preset", "model", "mode", "session"}
 
 MAX_CONTENT_LENGTH = 500
 _CONTENT_TOO_LONG_MESSAGE = (
@@ -116,7 +116,7 @@ def write_note(
     if scope not in VALID_SCOPES:
         raise ValueError(f"Invalid scope '{scope}'. Must be one of: {', '.join(VALID_SCOPES)}")
 
-    if scope in ("preset", "model", "mode") and not scope_ref:
+    if scope in ("preset", "model", "mode", "session") and not scope_ref:
         raise ValueError(f"scope_ref is required when scope is '{scope}'")
 
     # Clear scope_ref for global scope
@@ -220,7 +220,7 @@ def get_note_by_key(
     if scope not in VALID_SCOPES:
         raise ValueError(f"Invalid scope '{scope}'. Must be one of: {', '.join(VALID_SCOPES)}")
 
-    if scope in ("preset", "model", "mode") and not scope_ref:
+    if scope in ("preset", "model", "mode", "session") and not scope_ref:
         raise ValueError(f"scope_ref is required when scope is '{scope}'")
 
     return repository.get_by_key(user_id, key, scope, scope_ref)
@@ -238,3 +238,9 @@ def delete_note(repository: LLMMemoryRepository, user_id: str, note_id: str) -> 
         True if deleted, False if not found.
     """
     return repository.delete(note_id, user_id)
+
+
+def delete_notes_for_scope_ref(repository: LLMMemoryRepository, user_id: str, scope: str, scope_ref: str) -> int:
+    if scope not in VALID_SCOPES or scope == "global" or not scope_ref:
+        raise ValueError(f"Cannot bulk-delete notes for scope '{scope}' without a scope_ref")
+    return repository.delete_by_scope_ref(user_id, scope, scope_ref)

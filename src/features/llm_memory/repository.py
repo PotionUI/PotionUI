@@ -120,3 +120,12 @@ class LLMMemoryRepository:
                 (id, user_id)
             )
             return cursor.rowcount > 0
+
+    def delete_by_scope_ref(self, user_id: str, scope: str, scope_ref: str) -> int:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM llm_memory WHERE user_id = ? AND scope = ? AND scope_ref = ?",
+                (user_id, scope, scope_ref),
+            )
+            return cursor.rowcount

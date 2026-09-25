@@ -37,3 +37,24 @@ export function isGeneratePageContext(pageModeId: string | null): boolean {
 export function isGenerationPresetContext(sessionModeId: string | null): boolean {
 	return sessionModeId === DEFAULT_CHAT_MODE;
 }
+
+interface ContextTabLike {
+	id: string;
+	selectedSessionId?: string | null;
+}
+
+export function resolveChatContextTab<T extends ContextTabLike>(
+	tabs: T[],
+	pinnedTabId: string | null,
+	activeTab: T | null | undefined
+): T | null {
+	if (pinnedTabId) return tabs.find((t) => t.id === pinnedTabId) ?? activeTab ?? null;
+	return activeTab ?? null;
+}
+
+export function chatFormSessionId(
+	tab: ContextTabLike | null | undefined,
+	sessionModeId: string | null
+): string | null {
+	return isGenerationPresetContext(sessionModeId) ? (tab?.selectedSessionId ?? null) : null;
+}

@@ -7,7 +7,12 @@
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import type { MemoryNote, MemoryScope } from '$lib/types/chat';
-	import { buildMemoryGroups, memoryGroupTitle, notesForGroup } from '$lib/chat/memoryGroups';
+	import {
+		buildMemoryGroups,
+		memoryGroupTitle,
+		notesForGroup,
+		unavailableGroupHint
+	} from '$lib/chat/memoryGroups';
 	import { MODEL_REF_PREFIX } from '$lib/utils/modelRef';
 
 	// The panel resolves the preset name + active model itself from the chat's
@@ -21,6 +26,8 @@
 	// DEFAULT_CHAT_MODE), so this group is always available.
 	export let modeId: string | null = null;
 	export let modeLabel: string | null = null;
+	export let sessionId: string | null = null;
+	export let sessionName: string | null = null;
 	export let onClose: () => void;
 	// Lets the composer's "Memory" button show a live count without this panel
 	// needing to be mounted just to read one.
@@ -30,6 +37,8 @@
 	let presetName: string | null = null;
 	let modelId: string | null = null;
 	let modelName: string | null = null;
+	let resolvedSessionName: string | null = null;
+	let resolvedSessionFor: string | null = null;
 
 	// Notes + status
 	let notes: MemoryNote[] = [];
@@ -57,7 +66,20 @@
 
 	let scrollEl: HTMLDivElement;
 
-	$: groups = buildMemoryGroups({ presetId, modelId, modeId });
+	$: groups = buildMemoryGroups({ presetId, modelId, modeId, sessionId });
+
+	$: if (sessionId && !sessionName && resolvedSessionFor !== sessionId) resolveSessionName(sessionId);
+
+	async function resolveSessionName(id: string) {
+		resolvedSessionFor = id;
+		resolvedSessionName = null;
+		try {
+			const response = await api.getSessionById(id);
+			if (resolvedSessionFor === id && response.success) resolvedSessionName = response.data?.name || null;
+		} catch (err) {
+			logger.error('Failed to resolve session name:', err);
+		}
+	}
 
 	// Notes per scope group, keyed by `group.scope` (the `{#each}` below is keyed by
 	// `group.scope`). `notes` starts empty and is populated asynchronously by
@@ -356,7 +378,12 @@
 				<section class="memory-group">
 					<div class="memory-group-head">
 						<span>
-							{memoryGroupTitle(group, groupNotes.length, { presetName, modelName, modeLabel })}
+							{memoryGroupTitle(group, groupNotes.length, {
+								presetName,
+								modelName,
+								modeLabel,
+								sessionName: sessionName || resolvedSessionName
+							})}
 							{#if footprint && footprint.overCap}
 								<span class="memory-footprint-badge">{footprint.injectedCount}/{footprint.total} injected</span>
 							{/if}
@@ -369,13 +396,7 @@
 					</div>
 
 					{#if !group.available}
-						<div class="memory-empty">
-							{group.scope === 'model'
-								? 'No active model'
-								: group.scope === 'mode'
-									? 'No active mode'
-									: 'No active preset'}
-						</div>
+						<div class="memory-empty">{unavailableGroupHint(group.scope)}</div>
 					{:else}
 						{#if addingScope === group.scope}
 							<div class="memory-add-form">

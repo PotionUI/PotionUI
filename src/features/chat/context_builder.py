@@ -539,8 +539,8 @@ class ChatContextBuilder:
         """
         empty: Dict[str, Any] = {
             "note_ids": [],
-            "by_scope": {"global": 0, "preset": 0, "model": 0, "mode": 0},
-            "by_scope_dropped": {"global": 0, "preset": 0, "model": 0, "mode": 0},
+            "by_scope": {"global": 0, "preset": 0, "model": 0, "mode": 0, "session": 0},
+            "by_scope_dropped": {"global": 0, "preset": 0, "model": 0, "mode": 0, "session": 0},
             "injected_chars": 0,
         }
         if not self._m.llm_memory_repository:
@@ -552,7 +552,7 @@ class ChatContextBuilder:
             )
 
             groups: List[tuple] = []
-            by_scope = {"global": 0, "preset": 0, "model": 0, "mode": 0}
+            by_scope = {"global": 0, "preset": 0, "model": 0, "mode": 0, "session": 0}
             note_ids: List[str] = []
 
             global_notes = memory_operations.read_notes(self._m.llm_memory_repository, user_id=user_id, scope="global")
@@ -592,6 +592,16 @@ class ChatContextBuilder:
                     by_scope["mode"] = len(mode_notes)
                     note_ids.extend(note.id for note in mode_notes if note.id)
 
+            session_ref = form_state.get("session_id") if isinstance(form_state, dict) else None
+            if session_ref:
+                session_notes = memory_operations.read_notes(
+                    self._m.llm_memory_repository, user_id=user_id, scope="session", scope_ref=session_ref,
+                )
+                if session_notes:
+                    groups.append(("this session", session_notes))
+                    by_scope["session"] = len(session_notes)
+                    note_ids.extend(note.id for note in session_notes if note.id)
+
             if not groups:
                 return empty
 
@@ -611,8 +621,9 @@ class ChatContextBuilder:
             )
             scope_by_label = {
                 "global": "global", "this preset": "preset", "this model": "model", "this mode": "mode",
+                "this session": "session",
             }
-            by_scope_dropped = {"global": 0, "preset": 0, "model": 0, "mode": 0}
+            by_scope_dropped = {"global": 0, "preset": 0, "model": 0, "mode": 0, "session": 0}
             lines = [header]
             for label, notes in groups:
                 lines.append(f"[{label}]")

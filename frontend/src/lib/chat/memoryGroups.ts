@@ -15,6 +15,7 @@ export interface MemoryGroupContext {
 	presetId: string | null;
 	modelId: string | null;
 	modeId: string | null;
+	sessionId?: string | null;
 }
 
 /**
@@ -28,7 +29,8 @@ export function buildMemoryGroups(ctx: MemoryGroupContext): MemoryGroupSpec[] {
 		{ scope: 'global', ref: null, available: true },
 		{ scope: 'mode', ref: ctx.modeId, available: !!ctx.modeId },
 		{ scope: 'preset', ref: ctx.presetId, available: !!ctx.presetId },
-		{ scope: 'model', ref: ctx.modelId, available: !!ctx.modelId }
+		{ scope: 'model', ref: ctx.modelId, available: !!ctx.modelId },
+		{ scope: 'session', ref: ctx.sessionId ?? null, available: !!ctx.sessionId }
 	];
 }
 
@@ -43,6 +45,7 @@ export interface MemoryGroupLabels {
 	presetName: string | null;
 	modelName: string | null;
 	modeLabel: string | null;
+	sessionName?: string | null;
 }
 
 /** The group header text, e.g. "Global · 3 notes", "Mode · lora-dataset", "Preset". */
@@ -50,5 +53,18 @@ export function memoryGroupTitle(group: MemoryGroupSpec, count: number, labels: 
 	if (group.scope === 'global') return `Global · ${count} note${count === 1 ? '' : 's'}`;
 	if (group.scope === 'mode') return labels.modeLabel ? `Mode · ${labels.modeLabel}` : 'Mode';
 	if (group.scope === 'preset') return labels.presetName ? `Preset · ${labels.presetName}` : 'Preset';
+	if (group.scope === 'session') return labels.sessionName ? `Session · ${labels.sessionName}` : 'Session';
 	return labels.modelName ? `Model · ${labels.modelName}` : 'Model';
+}
+
+const UNAVAILABLE_HINTS: Record<MemoryScope, string> = {
+	global: '',
+	mode: 'No active mode',
+	preset: 'No active preset',
+	model: 'No active model',
+	session: "Save this tab's session to keep session notes"
+};
+
+export function unavailableGroupHint(scope: MemoryScope): string {
+	return UNAVAILABLE_HINTS[scope];
 }

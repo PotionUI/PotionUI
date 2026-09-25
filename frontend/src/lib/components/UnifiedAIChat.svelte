@@ -18,7 +18,12 @@
 	import { chatComposerDrafts } from '$lib/stores/chatComposerDrafts';
 	import { chatModes, resolveModeForRoute, resolveModeName, toolsForMode } from '$lib/stores/chatModes';
 	import { declaredMode, collectProvidedContext, dispatchToolApplied } from '$lib/chat/pageContext';
-	import { isGeneratePageContext, isGenerationPresetContext } from '$lib/chat/activeFormContext';
+	import {
+		chatFormSessionId,
+		isGeneratePageContext,
+		isGenerationPresetContext,
+		resolveChatContextTab
+	} from '$lib/chat/activeFormContext';
 	import ChatHeader from '$lib/components/chat/ChatHeader.svelte';
 	import ChatMemoryPanel from '$lib/components/chat/ChatMemoryPanel.svelte';
 	import ChatToolPreferencesPanel from '$lib/components/chat/ChatToolPreferencesPanel.svelte';
@@ -255,9 +260,7 @@
 	}
 
 	// Resolved context tab: pinned or active
-	$: contextTab = pinnedTabId
-		? (allTabs.find((t: any) => t.id === pinnedTabId) || $activeTab)
-		: $activeTab;
+	$: contextTab = resolveChatContextTab(allTabs, pinnedTabId, $activeTab);
 
 	// Preset display names for the context strip / pin picker, resolved once
 	// (same lookup ChatMemoryPanel does per-preset via loadPresets().find) and
@@ -1006,6 +1009,7 @@
 				],
 				form_state: {
 					preset: generationPresetActive ? tab?.selectedPreset || null : null,
+					session_id: chatFormSessionId(tab, currentMode),
 					mode: tab?.selectedMode || null,
 					variant: tab?.selectedVariant || null,
 					form_data: generatePageActive ? tab?.formData || {} : {},
@@ -1858,6 +1862,7 @@
 			formData={contextTab?.formData ?? {}}
 			modeId={currentMode}
 			modeLabel={resolveModeName(currentMode, $chatModes.modes)}
+			sessionId={chatFormSessionId(contextTab, currentMode)}
 			onClose={closeMemoryPanel}
 			onCountChange={(n) => (memoryNoteCount = n)}
 		/>

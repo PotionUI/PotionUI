@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMemoryGroups, memoryGroupTitle, notesForGroup } from './memoryGroups';
+import { buildMemoryGroups, memoryGroupTitle, notesForGroup, unavailableGroupHint } from './memoryGroups';
 import type { MemoryNote } from '$lib/types/chat';
 
 function note(overrides: Partial<MemoryNote>): MemoryNote {
@@ -19,8 +19,8 @@ function note(overrides: Partial<MemoryNote>): MemoryNote {
 describe('buildMemoryGroups', () => {
 	it('orders global, mode, preset, model and marks each available by its ref', () => {
 		const groups = buildMemoryGroups({ presetId: 'p1', modelId: 'm1', modeId: 'lora-dataset' });
-		expect(groups.map((g) => g.scope)).toEqual(['global', 'mode', 'preset', 'model']);
-		expect(groups.every((g) => g.available)).toBe(true);
+		expect(groups.map((g) => g.scope)).toEqual(['global', 'mode', 'preset', 'model', 'session']);
+		expect(groups.filter((g) => g.scope !== 'session').every((g) => g.available)).toBe(true);
 	});
 
 	it('a mode group is available whenever a mode id resolved, independent of preset/model', () => {
@@ -71,5 +71,36 @@ describe('memoryGroupTitle', () => {
 	it('still labels global with its live count', () => {
 		const group = { scope: 'global' as const, ref: null, available: true };
 		expect(memoryGroupTitle(group, 1, labels)).toBe('Global · 1 note');
+	});
+});
+
+describe('session memory group', () => {
+	const base = { presetId: 'p1', modelId: 'm1', modeId: 'generation' };
+
+	it('is available with the tab session id as its ref', () => {
+		const session = buildMemoryGroups({ ...base, sessionId: 's-1' }).find((g) => g.scope === 'session')!;
+		expect(session).toEqual({ scope: 'session', ref: 's-1', available: true });
+	});
+
+	it('is unavailable for an unsaved tab and hints to save the session', () => {
+		const session = buildMemoryGroups({ ...base, sessionId: null }).find((g) => g.scope === 'session')!;
+		expect(session.available).toBe(false);
+		expect(unavailableGroupHint('session')).toBe("Save this tab's session to keep session notes");
+	});
+
+	it('only takes notes of the same session', () => {
+		const notes = [
+			note({ id: 'a', scope: 'session', scope_ref: 's-1' }),
+			note({ id: 'b', scope: 'session', scope_ref: 's-2' })
+		];
+		const group = { scope: 'session' as const, ref: 's-2', available: true };
+		expect(notesForGroup(notes, group).map((n) => n.id)).toEqual(['b']);
+	});
+
+	it('labels with the session name and falls back to the bare word', () => {
+		const group = { scope: 'session' as const, ref: 's-1', available: true };
+		const labels = { presetName: null, modelName: null, modeLabel: null };
+		expect(memoryGroupTitle(group, 1, { ...labels, sessionName: 'Castle series' })).toBe('Session · Castle series');
+		expect(memoryGroupTitle(group, 1, labels)).toBe('Session');
 	});
 });

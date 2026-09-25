@@ -17,6 +17,21 @@ def _truncate(text: str, limit: int = 200) -> str:
     return text[:limit] + ("..." if len(text) > limit else "")
 
 
+NO_SESSION_ERROR = "No saved session in the active tab — save the session first."
+
+SESSION_SCOPE_TEXT = (
+    "'session' is for facts tied to the saved Generate session of the current tab (not this chat "
+    "conversation) -- scope_ref auto-resolves to that session, omit it."
+)
+
+
+def _active_session_id(context: ToolContext) -> Optional[str]:
+    form_state = context.session_metadata.get("form_state")
+    if not isinstance(form_state, dict):
+        return None
+    return form_state.get("session_id") or None
+
+
 def _resolve_scope_ref(scope: str, scope_ref: Any, context: ToolContext) -> Any:
     """Auto-resolve scope_ref from the active preset/model/mode when omitted.
 
@@ -25,6 +40,8 @@ def _resolve_scope_ref(scope: str, scope_ref: Any, context: ToolContext) -> Any:
     chat mode isn't a Generate-form concept, so there's nothing to read out
     of the form for it.
     """
+    if scope == "session":
+        return _active_session_id(context)
     if scope_ref:
         return scope_ref
     form_state = context.session_metadata.get("form_state")
@@ -57,6 +74,8 @@ def _resolve_target_note(context: ToolContext, kwargs: Dict[str, Any]):
         return None, "Provide either note_id, or both scope and key, to address the note"
 
     scope_ref = _resolve_scope_ref(scope, kwargs.get("scope_ref"), context)
+    if scope == "session" and not scope_ref:
+        return None, NO_SESSION_ERROR
     try:
         note = memory_operations.get_note_by_key(
             context.llm_memory_repository, user_id=context.user_id, key=key, scope=scope, scope_ref=scope_ref,
@@ -200,7 +219,7 @@ class WriteMemoryTool(BaseTool):
                 },
                 "scope": {
                     "type": "string",
-                    "enum": ["global", "preset", "model", "mode"],
+                    "enum": ["global", "preset", "model", "mode", "session"],
                     "description": (
                         "REQUIRED, choose deliberately -- do not default to 'global'. 'global' is "
                         "only for facts true regardless of preset, model, or chat mode. 'preset' is "
@@ -209,8 +228,8 @@ class WriteMemoryTool(BaseTool):
                         "for anything tied to the active checkpoint/LoRA -- scope_ref auto-resolves, "
                         "omit it. 'mode' is for anything tied to this chat mode's own workflow (not "
                         "the Generate form) -- scope_ref auto-resolves to the session's mode, omit "
-                        "it. If the note names or only applies to one preset/model/mode, it MUST "
-                        "use that scope."
+                        "it. " + SESSION_SCOPE_TEXT + " If the note names or only applies to one "
+                        "preset/model/mode/session, it MUST use that scope."
                     ),
                 },
                 "scope_ref": {
@@ -249,6 +268,9 @@ class WriteMemoryTool(BaseTool):
                 ),
             )
         scope_ref = _resolve_scope_ref(scope, kwargs.get("scope_ref"), context)
+
+        if scope == "session" and not scope_ref:
+            return ToolResult(success=False, data="", error=NO_SESSION_ERROR)
 
         if scope in ("preset", "model", "mode") and not scope_ref:
             return ToolResult(
@@ -314,8 +336,9 @@ class ReadMemoryTool(BaseTool):
     def description(self) -> str:
         return (
             "Read persistent memory notes from previous sessions. "
-            "Can filter by scope ('global', 'preset', 'model', 'mode', or 'all' for every scope) "
-            "and optionally by scope_ref (preset, model, or mode ID). Returns all matching notes."
+            "Can filter by scope ('global', 'preset', 'model', 'mode', 'session', or 'all' for every "
+            "scope) and optionally by scope_ref (preset, model, or mode ID). 'session' means the saved "
+            "Generate session of the current tab, not this chat conversation. Returns all matching notes."
         )
 
     @property
@@ -325,10 +348,10 @@ class ReadMemoryTool(BaseTool):
             "properties": {
                 "scope": {
                     "type": "string",
-                    "enum": ["all", "global", "preset", "model", "mode"],
+                    "enum": ["all", "global", "preset", "model", "mode", "session"],
                     "description": (
-                        "Filter by scope. 'all' returns global, active-preset, active-model, and "
-                        "active-mode notes."
+                        "Filter by scope. 'all' returns global, active-preset, active-model, "
+                        "active-mode, and active-session notes."
                     ),
                     "default": "all",
                 },
@@ -353,6 +376,10 @@ class ReadMemoryTool(BaseTool):
         preset_ref = scope_ref or resolve_active_preset_id(form_state)
         model_ref = scope_ref or resolve_active_model_id(form_state, context.model_index_manager)
         mode_ref = scope_ref or context.mode_id
+        session_ref = _active_session_id(context)
+
+        if scope == "session" and not session_ref:
+            return ToolResult(success=False, data="", error=NO_SESSION_ERROR)
 
         try:
             if scope == "all":
@@ -382,11 +409,19 @@ class ReadMemoryTool(BaseTool):
                         scope="mode",
                         scope_ref=mode_ref,
                     )
+                if session_ref:
+                    all_notes += memory_operations.read_notes(
+                        context.llm_memory_repository,
+                        user_id=context.user_id,
+                        scope="session",
+                        scope_ref=session_ref,
+                    )
             else:
                 resolved_ref = (
                     preset_ref if scope == "preset"
                     else model_ref if scope == "model"
                     else mode_ref if scope == "mode"
+                    else session_ref if scope == "session"
                     else None
                 )
                 filter_kwargs = {"user_id": context.user_id, "scope": scope}
@@ -591,10 +626,12 @@ class UpdateMemoryTool(BaseTool):
                 },
                 "scope": {
                     "type": "string",
-                    "enum": ["global", "preset", "model", "mode"],
+                    "enum": ["global", "preset", "model", "mode", "session"],
                     "description": (
                         "The scope of the note to edit, as shown alongside it in your injected "
-                        "memory context. Required (with 'key') when note_id is not given."
+                        "memory context. Required (with 'key') when note_id is not given. "
+                        "'session' is the saved Generate session of the current tab, not this chat "
+                        "conversation."
                     ),
                 },
                 "key": {

@@ -11,9 +11,23 @@
 	export let fieldLabel: string | undefined = undefined;
 	export let disabled: boolean = false;
 	export let onRemove: (() => void) | undefined = undefined;
+	export let onSwitch: (() => void) | undefined = undefined;
 	export let variant: 'default' | 'segment-composer' = 'default';
 
 	$: dangling = !spec || position === null;
+	$: canSwitch = Boolean(onSwitch) && !dangling && !disabled;
+
+	function handleChipClick() {
+		if (canSwitch) onSwitch?.();
+	}
+
+	function handleChipKeydown(e: KeyboardEvent) {
+		if (!canSwitch) return;
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			onSwitch?.();
+		}
+	}
 	$: displayLabel = spec && position !== null ? resourceHandleLabel(spec, position) : field;
 	$: resolvedFieldLabel = fieldLabel || field;
 	$: itemThumbUrl = item && typeof item === 'object' && typeof (item as Record<string, unknown>).url === 'string'
@@ -37,6 +51,10 @@
 			? 'opacity-50'
 			: ''}"
 		contenteditable="false"
+		role="button"
+		tabindex={canSwitch ? 0 : -1}
+		on:click={handleChipClick}
+		on:keydown={handleChipKeydown}
 	>
 		<Tooltip text={tooltipText}>
 			<span class="chip-main">

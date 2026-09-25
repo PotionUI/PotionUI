@@ -6,7 +6,8 @@
 	import AutocompleteDropdown from './AutocompleteDropdown.svelte';
 	import type {
 		AutocompleteCategory as DropdownAutocompleteCategory,
-		AutocompleteValue as DropdownAutocompleteValue
+		AutocompleteValue as DropdownAutocompleteValue,
+		AutocompleteCurrentValue
 	} from './AutocompleteDropdown.svelte';
 	import PromptPickerBrowseModal from './PromptPickerBrowseModal.svelte';
 	import { buildPromptPickerContext } from '$lib/utils/promptPickerContext';
@@ -67,6 +68,8 @@
 		buildSegmentNode,
 		extractContentFromDOM,
 		collectTextNodeSpans,
+		resourceContainerSpan,
+		chipContainerSpan,
 		atomicDeletionTarget
 	} from './chipEditorDom';
 	import { getCaretCharOffset, placeCaretAtCharOffset } from './chipEditorCaret';
@@ -148,6 +151,7 @@
 	let phrasebookPath = '';
 	let phrasebookTriggerNode: Text | null = null; // The text node containing the # trigger
 	let phrasebookTriggerOffset = -1; // Position of # in that text node
+	let phrasebookSwitchChipId: string | null = null;
 	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 	let phrasebookCache = new Map<string, any>();
 
@@ -217,6 +221,7 @@
 	let resourceTriggerNode: Text | null = null;
 	let resourceTriggerOffset = -1;
 	let resourceSelectedIndex = 0;
+	let resourceSwitchContainer: HTMLElement | null = null;
 
 	let isSyntaxPickerOpen = false;
 	let syntaxQuery = '';
@@ -405,6 +410,48 @@
 					return entry.label.toLowerCase().includes(query) || entry.value.toLowerCase().includes(query);
 				}) as DropdownAutocompleteValue[])
 		: [];
+
+	$: resourceSwitchRef = resourceSwitchContainer
+		? (resourceSwitchContainer.dataset.resourceId && resources[resourceSwitchContainer.dataset.resourceId]) ||
+			parseResourceMarker(resourceSwitchContainer.dataset.resourceMarker || '')
+		: null;
+
+	$: resourceSwitchState = resourceSwitchRef ? resourceMarkerState(resourceSwitchRef, promptResources, resourceFieldValues) : null;
+
+	$: resourceCurrentValue = (resourceSwitchRef && resourceSwitchState?.spec
+		? {
+				label:
+					resourceSwitchState.position !== null
+						? resourceHandleLabel(resourceSwitchState.spec, resourceSwitchState.position)
+						: resourceSwitchRef.item_key,
+				value: itemDisplayName(
+					resourceSwitchState.position !== null
+						? itemAtPosition(resourceFieldValues[resourceSwitchRef.field], resourceSwitchState.position)
+						: undefined,
+					resourceSwitchRef.item_key
+				),
+				imageUrl: itemThumbUrl(
+					resourceSwitchState.position !== null
+						? itemAtPosition(resourceFieldValues[resourceSwitchRef.field], resourceSwitchState.position)
+						: undefined,
+					resourceSwitchState.spec.kind
+				),
+				categoryLabel: resourceFieldLabels[resourceSwitchRef.field] || resourceGroupLabel(resourceSwitchState.spec)
+			}
+		: null) as AutocompleteCurrentValue | null;
+
+	$: phrasebookCurrentValue = (phrasebookSwitchChipId && chips[phrasebookSwitchChipId]
+		? (() => {
+				const current = chips[phrasebookSwitchChipId!];
+				const alt = current.allValues.find((v) => v.id === current.valueId);
+				return {
+					label: current.label,
+					value: current.value !== current.label ? current.value : undefined,
+					imageUrl: alt?.preview_file_id ? api.getFileURL(alt.preview_file_id, 'small') : undefined,
+					categoryLabel: current.categoryPath
+				};
+			})()
+		: null) as AutocompleteCurrentValue | null;
 
 	// =====================
 	// Trigger-word highlighting
@@ -766,6 +813,26 @@
 	}
 
 	function handleSelectCategory(category: DropdownAutocompleteCategory) {
+		if (phrasebookSwitchChipId) {
+			const categoryName = category.path || category.name || '';
+			if (!categoryName) return;
+			const isInsideCategory = phrasebookPath.endsWith('.');
+			let fullPath: string;
+			if (isInsideCategory) {
+				const parentPath = phrasebookPath.slice(0, -1);
+				if (categoryName.startsWith(parentPath + '.') || categoryName.includes('.')) {
+					fullPath = categoryName;
+				} else {
+					fullPath = parentPath + '.' + categoryName;
+				}
+			} else {
+				fullPath = categoryName;
+			}
+			phrasebookPath = fullPath + '.';
+			fetchPhrasebookSuggestions(phrasebookPath);
+			return;
+		}
+
 		const selection = window.getSelection();
 		if (!selection || !selection.rangeCount) return;
 
@@ -849,7 +916,38 @@
 		dispatchChange(newValue, newChips);
 	}
 
+	function finishPhrasebookSwitch(chipId: string, valueItem: DropdownAutocompleteValue) {
+		const current = chips[chipId];
+		if (!current) {
+			closePhrasebook();
+			return;
+		}
+		const updated: ChipData = {
+			...current,
+			valueId: valueItem.id,
+			label: valueItem.label,
+			value: valueItem.value,
+			allValues: phrasebookSuggestions.map((v) => ({
+				id: v.id,
+				label: v.label,
+				value: v.value,
+				preview_file_id: v.preview_file_id
+			}))
+		};
+		const container = editorRef?.querySelector<HTMLElement>(`[data-chip-id="${chipId}"]`) ?? null;
+		const span = container && editorRef ? chipContainerSpan(editorRef, chips, container) : null;
+		closePhrasebook();
+		handleChipChange(chipId, updated);
+		if (span && editorRef) {
+			tick().then(() => placeCaretAtCharOffset(editorRef!, chips, span.end));
+		}
+	}
+
 	function handleSelectValue(valueItem: DropdownAutocompleteValue) {
+		if (phrasebookSwitchChipId) {
+			finishPhrasebookSwitch(phrasebookSwitchChipId, valueItem);
+			return;
+		}
 		if (!editorRef || !phrasebookTriggerNode || phrasebookTriggerOffset < 0) return;
 
 		// Calculate the trigger index in the full extracted text
@@ -986,6 +1084,12 @@
 	 *  the segment-composer picker's breadcrumb (jump straight to any ancestor
 	 *  crumb, not just the immediate parent). */
 	function navigateToPath(newPath: string) {
+		if (phrasebookSwitchChipId) {
+			phrasebookPath = newPath;
+			fetchPhrasebookSuggestions(newPath.endsWith('.') ? newPath.slice(0, -1) : newPath);
+			return;
+		}
+
 		const selection = window.getSelection();
 		if (!selection || !selection.rangeCount) return;
 
@@ -1057,6 +1161,7 @@
 		phrasebookPath = '';
 		phrasebookTriggerNode = null;
 		phrasebookTriggerOffset = -1;
+		phrasebookSwitchChipId = null;
 
 		if (debounceTimer) {
 			clearTimeout(debounceTimer);
@@ -1146,6 +1251,12 @@
 
 	function handleSelectResourceGroup(field: string) {
 		if (resourceItemCount(field) === 0) return;
+		if (resourceSwitchContainer) {
+			resourceGroupField = field;
+			resourceQuery = '';
+			resourceSelectedIndex = 0;
+			return;
+		}
 		if (!editorRef) return;
 		const selection = window.getSelection();
 		if (!selection || !selection.rangeCount) return;
@@ -1201,9 +1312,111 @@
 		}
 	}
 
+	function applyResourceSelection(
+		startIndex: number,
+		endIndex: number,
+		field: string,
+		itemKey: string,
+		resourceIdToReuse?: string
+	) {
+		if (!editorRef) return;
+
+		const { value: fullText, chips: existingChips } = extractContentFromDOM(editorRef, chips);
+		const marker = encodeResourceMarker(field, itemKey);
+		const newValue = fullText.substring(0, startIndex) + marker + fullText.substring(endIndex);
+		const newCursorOffset = startIndex + marker.length;
+
+		const resourceId = resourceIdToReuse ?? `res-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		const newResources = { ...resources, [resourceId]: { field, item_key: itemKey } };
+		resources = newResources;
+
+		const editor = editorRef;
+		isInternalUpdate = true;
+		editor.innerHTML = '';
+		const segments = parseValueToSegments(newValue, existingChips, newResources);
+		segments.forEach((segment) => {
+			editor.appendChild(buildSegmentNode(segment));
+		});
+		mountChips();
+		mountGroups();
+		mountVariables();
+		mountResourceChips();
+		isInternalUpdate = false;
+		lastSyncedValue = newValue;
+		refreshAllHighlights(newValue);
+
+		tick().then(() => placeCaretAtCharOffset(editor, chips, newCursorOffset));
+
+		dispatchChange(newValue, existingChips);
+	}
+
+	function openPhrasebookSwitcher(chipId: string) {
+		if (isDisabled) return;
+		const chipData = chips[chipId];
+		if (!chipData) return;
+		closeVariablePicker();
+		closeResourcePicker();
+		closeSyntaxPicker();
+		phrasebookSwitchChipId = chipId;
+		phrasebookPath = chipData.categoryPath;
+		phrasebookTriggerNode = null;
+		phrasebookTriggerOffset = -1;
+		browseContext = { before: '', after: '' };
+		fetchPhrasebookSuggestions(chipData.categoryPath);
+		browseModalTrigger = '#';
+	}
+
+	function closePhrasebookSwitcher() {
+		browseModalTrigger = null;
+		closePhrasebook();
+	}
+
+	function closeResourceSwitcher() {
+		browseModalTrigger = null;
+		closeResourcePicker();
+	}
+
+	function openResourceSwitcher(container: HTMLElement, field: string) {
+		if (isDisabled) return;
+		closePhrasebook();
+		closeVariablePicker();
+		closeSyntaxPicker();
+		resourceSwitchContainer = container;
+		resourceGroupField = field;
+		resourceQuery = '';
+		resourceTriggerNode = null;
+		resourceTriggerOffset = -1;
+		resourceSelectedIndex = 0;
+		browseContext = { before: '', after: '' };
+		browseModalTrigger = '@';
+	}
+
+	function finishResourceSwitch(container: HTMLElement, field: string, itemKey: string) {
+		if (!editorRef) {
+			closeResourcePicker();
+			return;
+		}
+		const span = resourceContainerSpan(editorRef, chips, container);
+		const resourceIdToReuse =
+			container.dataset.resourceId && resources[container.dataset.resourceId] ? container.dataset.resourceId : undefined;
+		closeResourcePicker();
+		if (!span) return;
+		applyResourceSelection(span.start, span.end, field, itemKey, resourceIdToReuse);
+	}
+
 	function handleSelectResourceItem(itemKey: string) {
 		const field = activeResourceSpec?.field;
-		if (!editorRef || !resourceTriggerNode || resourceTriggerOffset < 0 || !field) {
+		if (!field) {
+			closeResourcePicker();
+			return;
+		}
+
+		if (resourceSwitchContainer) {
+			finishResourceSwitch(resourceSwitchContainer, field, itemKey);
+			return;
+		}
+
+		if (!editorRef || !resourceTriggerNode || resourceTriggerOffset < 0) {
 			closeResourcePicker();
 			return;
 		}
@@ -1252,32 +1465,7 @@
 		closeResourcePicker();
 		if (!foundTrigger) return;
 
-		const { value: fullText, chips: existingChips } = extractContentFromDOM(editorRef, chips);
-		const marker = encodeResourceMarker(field, itemKey);
-		const newValue = fullText.substring(0, triggerIndex) + marker + fullText.substring(triggerIndex + typedLength);
-		const newCursorOffset = triggerIndex + marker.length;
-
-		const resourceId = `res-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-		const newResources = { ...resources, [resourceId]: { field, item_key: itemKey } };
-		resources = newResources;
-
-		isInternalUpdate = true;
-		editorRef.innerHTML = '';
-		const segments = parseValueToSegments(newValue, existingChips, newResources);
-		segments.forEach((segment) => {
-			editorRef.appendChild(buildSegmentNode(segment));
-		});
-		mountChips();
-		mountGroups();
-		mountVariables();
-		mountResourceChips();
-		isInternalUpdate = false;
-		lastSyncedValue = newValue;
-		refreshAllHighlights(newValue);
-
-		tick().then(() => placeCaretAtCharOffset(editorRef, chips, newCursorOffset));
-
-		dispatchChange(newValue, existingChips);
+		applyResourceSelection(triggerIndex, triggerIndex + typedLength, field, itemKey);
 	}
 
 	function closeResourcePicker() {
@@ -1287,6 +1475,7 @@
 		resourceTriggerNode = null;
 		resourceTriggerOffset = -1;
 		resourceSelectedIndex = 0;
+		resourceSwitchContainer = null;
 	}
 
 	function detectSyntaxTrigger() {
@@ -1658,7 +1847,8 @@
 				},
 				ondeactivate: (data: ChipData) => {
 					handleChipDeactivate(chipId, data);
-				}
+				},
+				onSwitch: () => openPhrasebookSwitcher(chipId)
 			}
 		});
 
@@ -1943,6 +2133,7 @@
 					fieldLabel: resourceFieldLabels[ref.field],
 					disabled: isDisabled,
 					onRemove: () => handleResourceRemove(el),
+					onSwitch: state.spec ? () => openResourceSwitcher(el, ref.field) : undefined,
 					variant
 				}
 			});
@@ -2094,7 +2285,8 @@
 					},
 					ondeactivate: (data: ChipData) => {
 						handleChipDeactivate(chipId, data);
-					}
+					},
+					onSwitch: () => openPhrasebookSwitcher(chipId)
 				}
 			});
 
@@ -2414,8 +2606,8 @@
 	{#if browseModalTrigger === '#'}
 		<PromptPickerBrowseModal
 			triggerChar="#"
-			title="Insert from Phrasebook"
-			initialQuery={phrasebookPath}
+			title={phrasebookSwitchChipId ? 'Change value' : 'Insert from Phrasebook'}
+			initialQuery={phrasebookSwitchChipId ? '' : phrasebookPath}
 			contextBefore={browseContext.before}
 			contextMarker={`#${phrasebookPath}`}
 			contextAfter={browseContext.after}
@@ -2423,12 +2615,15 @@
 			categories={phrasebookCategories.map((c) => ({ id: c.id, name: c.name || c.path.split('.').pop() || c.path, description: c.description }))}
 			values={phrasebookSuggestions}
 			getImageUrl={(fileId) => api.getFileURL(fileId, 'small')}
+			currentValue={phrasebookCurrentValue}
+			initialSelectedId={phrasebookSwitchChipId ? chips[phrasebookSwitchChipId]?.valueId ?? null : null}
+			insertHint={phrasebookSwitchChipId ? 'Replace' : 'Insert'}
 			onSelectCategory={(category) => {
 				const full = phrasebookCategories.find((c) => c.id === category.id);
 				if (full) handleSelectCategory(full);
 			}}
 			onInsertValue={(value) => handleSelectValue(value)}
-			onClose={closeBrowseModal}
+			onClose={phrasebookSwitchChipId ? closePhrasebookSwitcher : closeBrowseModal}
 		/>
 	{:else if browseModalTrigger === '$'}
 		<PromptPickerBrowseModal
@@ -2447,7 +2642,7 @@
 	{:else if browseModalTrigger === '@'}
 		<PromptPickerBrowseModal
 			triggerChar="@"
-			title="Insert a reference"
+			title={resourceSwitchContainer ? 'Change reference' : 'Insert a reference'}
 			initialQuery={resourceQuery}
 			contextBefore={browseContext.before}
 			contextMarker={`@${resourceQuery}`}
@@ -2456,9 +2651,12 @@
 			categories={resourceGroupField ? [] : resourceGroupCategories.map((c) => ({ id: c.id, name: c.name, description: c.description }))}
 			values={resourceGroupField ? resourceItemSuggestions : []}
 			getImageUrl={(url) => url}
+			currentValue={resourceCurrentValue}
+			initialSelectedId={resourceSwitchRef?.item_key ?? null}
+			insertHint={resourceSwitchContainer ? 'Replace' : 'Insert'}
 			onSelectCategory={(category) => handleSelectResourceGroup(category.id)}
 			onInsertValue={(value) => handleSelectResourceItem(value.id)}
-			onClose={closeBrowseModal}
+			onClose={resourceSwitchContainer ? closeResourceSwitcher : closeBrowseModal}
 		/>
 	{:else if browseModalTrigger === '/'}
 		<PromptPickerBrowseModal

@@ -33,6 +33,7 @@
 	export let onchange: ((data: ChipData) => void) | undefined = undefined;
 	export let onremove: (() => void) | undefined = undefined;
 	export let ondeactivate: ((data: ChipData) => void) | undefined = undefined;
+	export let onSwitch: (() => void) | undefined = undefined;
 
 	let showModal = false;
 	let chipRef: HTMLSpanElement;
@@ -111,8 +112,15 @@
 		e.preventDefault();
 		e.stopPropagation();
 
-		if (disabled || data.allValues.length <= 1) return;
+		if (disabled) return;
 
+		if (variant === 'segment-composer') {
+			closeConfig();
+			onSwitch?.();
+			return;
+		}
+
+		if (data.allValues.length <= 1) return;
 		showModal = true;
 	}
 
@@ -163,6 +171,11 @@
 	$: categoryParts = (data.categoryPath || '').split('.').filter(Boolean);
 	$: categoryContext = categoryParts.length ? capitalize(categoryParts[categoryParts.length - 1]) : '';
 	$: categoryTitle = categoryParts.length ? categoryParts.map(capitalize).join(' · ') : data.categoryPath;
+
+	$: currentAlternative = data.allValues.find((v) => v.id === data.valueId);
+	$: currentPreviewUrl = currentAlternative?.preview_file_id
+		? api.getFileURL(currentAlternative.preview_file_id, 'small')
+		: null;
 
 	function updateConfigPos() {
 		if (!configTriggerRef) return;
@@ -268,9 +281,18 @@
 					<div class="popover-body">
 						<div class="section-label">Selected value</div>
 						<div class="current-value-card">
+							{#if currentPreviewUrl}
+								<div class="current-value-thumb">
+									<img src={currentPreviewUrl} alt={data.label} />
+								</div>
+							{/if}
 							<div class="current-value-copy">
 								<span>Used in this prompt</span>
 								<strong>{data.label}</strong>
+								{#if data.value && data.value !== data.label}
+									<p class="current-value-text">{data.value}</p>
+								{/if}
+								<span class="current-value-path">#{data.categoryPath}</span>
 							</div>
 							{#if hasAlternatives}
 								<button type="button" class="small-button" on:click={handleLabelClick}>Change value…</button>
@@ -423,12 +445,52 @@
 	placeholder="Search values..."
 	emptyMessage="No values match your search"
 	size="lg"
-	variant={variant === 'segment-composer' ? 'segment-composer' : 'default'}
 	on:select={handleModalSelect}
 	on:close={handleModalClose}
 />
 
 <style>
+	.current-value-card {
+		align-items: flex-start;
+	}
+
+	.current-value-thumb {
+		width: 40px;
+		height: 40px;
+		flex: 0 0 auto;
+		overflow: hidden;
+		border-radius: 6px;
+		border: 1px solid rgb(var(--line));
+		background: rgb(var(--surface-3));
+	}
+
+	.current-value-thumb img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
+	}
+
+	.current-value-copy strong {
+		font-size: 14px;
+	}
+
+	.current-value-text {
+		margin: 4px 0 0;
+		color: rgb(var(--fg-muted));
+		font-size: 12px;
+		line-height: 1.5;
+		overflow-wrap: anywhere;
+	}
+
+	.current-value-path {
+		display: block;
+		margin-top: 4px;
+		color: rgb(var(--fg-subtle));
+		font-family: 'IBM Plex Mono', monospace;
+		font-size: 12px;
+	}
+
 	.inline-chip {
 		position: relative;
 		display: inline-flex;

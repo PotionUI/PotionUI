@@ -33,6 +33,13 @@
 		description?: string;
 		kind?: 'image' | 'video' | 'audio';
 	}
+
+	export interface AutocompleteCurrentValue {
+		label: string;
+		value?: string;
+		imageUrl?: string;
+		categoryLabel?: string;
+	}
 </script>
 
 <script lang="ts">
@@ -44,7 +51,9 @@
 	import {
 		computeAutocompletePlacement,
 		computeDockedPreviewPlacement,
-		caretLineAnchor
+		computeSegmentPickerPlacement,
+		caretLineAnchor,
+		caretPointAnchor
 	} from '$lib/utils/autocompleteAnchor';
 
 	// Props
@@ -120,11 +129,14 @@
 
 	function updatePosition() {
 		if (!parentRef) return;
+		const viewport = { width: window.innerWidth, height: window.innerHeight };
+		if (variant === 'segment-composer') {
+			const point = caretPointAnchor(parentRef, window.getSelection());
+			dropdownPosition = computeSegmentPickerPlacement(point, viewport);
+			return;
+		}
 		const rect = caretLineAnchor(parentRef, window.getSelection());
-		dropdownPosition = computeAutocompletePlacement(rect, {
-			width: window.innerWidth,
-			height: window.innerHeight
-		});
+		dropdownPosition = computeAutocompletePlacement(rect, viewport);
 	}
 
 	onMount(() => {

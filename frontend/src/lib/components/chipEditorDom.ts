@@ -105,6 +105,97 @@ export function atomicDeletionTarget(
 	return null;
 }
 
+export function chipContainerSpan(
+	root: HTMLElement,
+	chips: Record<string, ChipData>,
+	target: HTMLElement
+): { start: number; end: number } | null {
+	let offset = 0;
+	let result: { start: number; end: number } | null = null;
+
+	function walk(node: Node): boolean {
+		if (node === target) {
+			const chipId = target.dataset.chipId;
+			const len = chipId && chips[chipId] ? encodePathForText(chips[chipId].categoryPath).length : 0;
+			result = { start: offset, end: offset + len };
+			return true;
+		}
+		if (node.nodeType === Node.TEXT_NODE) {
+			offset += (node.textContent || '').length;
+			return false;
+		}
+		if (node.nodeType === Node.ELEMENT_NODE) {
+			const el = node as HTMLElement;
+			if (el.dataset.groupRaw !== undefined) {
+				offset += el.dataset.groupRaw.length;
+			} else if (el.dataset.variableRaw !== undefined) {
+				offset += el.dataset.variableRaw.length;
+			} else if (el.dataset.resourceMarker !== undefined) {
+				offset += el.dataset.resourceMarker.length;
+			} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
+				offset += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
+			} else if (el.tagName === 'BR') {
+				offset += 1;
+			} else {
+				for (const child of Array.from(node.childNodes)) {
+					if (walk(child)) return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	for (const child of Array.from(root.childNodes)) {
+		if (walk(child)) break;
+	}
+	return result;
+}
+
+export function resourceContainerSpan(
+	root: HTMLElement,
+	chips: Record<string, ChipData>,
+	target: HTMLElement
+): { start: number; end: number } | null {
+	let offset = 0;
+	let result: { start: number; end: number } | null = null;
+
+	function walk(node: Node): boolean {
+		if (node === target) {
+			const marker = (target.dataset.resourceMarker || '').length;
+			result = { start: offset, end: offset + marker };
+			return true;
+		}
+		if (node.nodeType === Node.TEXT_NODE) {
+			offset += (node.textContent || '').length;
+			return false;
+		}
+		if (node.nodeType === Node.ELEMENT_NODE) {
+			const el = node as HTMLElement;
+			if (el.dataset.groupRaw !== undefined) {
+				offset += el.dataset.groupRaw.length;
+			} else if (el.dataset.variableRaw !== undefined) {
+				offset += el.dataset.variableRaw.length;
+			} else if (el.dataset.resourceMarker !== undefined) {
+				offset += el.dataset.resourceMarker.length;
+			} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
+				offset += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
+			} else if (el.tagName === 'BR') {
+				offset += 1;
+			} else {
+				for (const child of Array.from(node.childNodes)) {
+					if (walk(child)) return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	for (const child of Array.from(root.childNodes)) {
+		if (walk(child)) break;
+	}
+	return result;
+}
+
 export function extractContentFromDOM(
 	editorRef: HTMLElement | undefined | null,
 	chips: Record<string, ChipData>

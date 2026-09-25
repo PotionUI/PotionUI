@@ -3,8 +3,12 @@ import { describe, expect, it } from 'vitest';
 import {
 	AUTOCOMPLETE_ESTIMATED_HEIGHT,
 	AUTOCOMPLETE_MIN_WIDTH,
+	AUTOCOMPLETE_SEGMENT_WIDTH,
+	AUTOCOMPLETE_SEGMENT_MIN_WIDTH,
 	computeAutocompletePlacement,
-	caretLineAnchor
+	computeSegmentPickerPlacement,
+	caretLineAnchor,
+	caretPointAnchor
 } from './autocompleteAnchor';
 
 const VIEWPORT = { width: 1440, height: 900 };
@@ -133,5 +137,65 @@ describe('caretLineAnchor', () => {
 		};
 		expect(caretLineAnchor(parent, selection)).toEqual({ top: 50, bottom: 900, left: 80, width: 1500 });
 		expect(caretLineAnchor(parent, null)).toEqual({ top: 50, bottom: 900, left: 80, width: 1500 });
+	});
+});
+
+describe('caretPointAnchor', () => {
+	function parentAt(box: { top: number; bottom: number; left: number; width: number }) {
+		const parent = document.createElement('div');
+		const text = document.createTextNode('hello');
+		parent.appendChild(text);
+		parent.getBoundingClientRect = () => ({ ...box, right: box.left + box.width, height: box.bottom - box.top, x: box.left, y: box.top, toJSON: () => ({}) }) as DOMRect;
+		return { parent, text };
+	}
+
+	it('reports the caret x, not the editor box left', () => {
+		const { parent, text } = parentAt({ top: 50, bottom: 900, left: 80, width: 1500 });
+		const selection = {
+			rangeCount: 1,
+			getRangeAt: () => ({ startContainer: text, getBoundingClientRect: () => ({ top: 600, bottom: 620, left: 940, height: 20 }) })
+		};
+		expect(caretPointAnchor(parent, selection)).toEqual({ top: 600, bottom: 620, left: 940 });
+	});
+
+	it('falls back to the editor box left when the caret is elsewhere', () => {
+		const { parent } = parentAt({ top: 50, bottom: 900, left: 80, width: 1500 });
+		const outside = document.createTextNode('x');
+		const selection = {
+			rangeCount: 1,
+			getRangeAt: () => ({ startContainer: outside, getBoundingClientRect: () => ({ top: 600, bottom: 620, left: 940, height: 20 }) })
+		};
+		expect(caretPointAnchor(parent, selection)).toEqual({ top: 50, bottom: 900, left: 80 });
+		expect(caretPointAnchor(parent, null)).toEqual({ top: 50, bottom: 900, left: 80 });
+	});
+});
+
+describe('computeSegmentPickerPlacement', () => {
+	const VIEWPORT = { width: 1440, height: 900 };
+
+	it('fixes the width at 27rem regardless of the segment/editor box', () => {
+		const placement = computeSegmentPickerPlacement({ top: 300, bottom: 320, left: 700 }, VIEWPORT);
+		expect(placement.width).toBe(AUTOCOMPLETE_SEGMENT_WIDTH);
+	});
+
+	it('left-anchors at the caret x, not the editor box left', () => {
+		const placement = computeSegmentPickerPlacement({ top: 300, bottom: 320, left: 700 }, VIEWPORT);
+		expect(placement.left).toBe(700);
+	});
+
+	it('flips to the caret\'s left when the fixed width would overflow the right edge', () => {
+		const placement = computeSegmentPickerPlacement({ top: 300, bottom: 320, left: 1300 }, VIEWPORT);
+		expect(placement.left).toBeLessThan(1300);
+		expect(placement.left + placement.width).toBeLessThanOrEqual(VIEWPORT.width - 8);
+	});
+
+	it('never shrinks below the 24rem floor even on a narrow viewport', () => {
+		const placement = computeSegmentPickerPlacement({ top: 100, bottom: 120, left: 40 }, { width: 500, height: 900 });
+		expect(placement.width).toBeGreaterThanOrEqual(AUTOCOMPLETE_SEGMENT_MIN_WIDTH);
+	});
+
+	it('never places the list off the left edge', () => {
+		const placement = computeSegmentPickerPlacement({ top: 100, bottom: 120, left: -240 }, VIEWPORT);
+		expect(placement.left).toBeGreaterThanOrEqual(0);
 	});
 });

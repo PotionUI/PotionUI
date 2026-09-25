@@ -6,6 +6,7 @@ import {
 	buildSegmentNode,
 	extractContentFromDOM,
 	collectTextNodeSpans,
+	resourceContainerSpan,
 	atomicContainerAt,
 	atomicDeletionTarget
 } from './chipEditorDom';
@@ -233,6 +234,38 @@ describe('collectTextNodeSpans', () => {
 		const spans = collectTextNodeSpans(editor, {});
 		expect(spans[0]).toMatchObject({ start: 0, end: 1 });
 		expect(spans[1]).toMatchObject({ start: 2, end: 3 });
+	});
+});
+
+describe('resourceContainerSpan', () => {
+	it('finds the [start, end) span of a resource container by its marker length', () => {
+		const editor = document.createElement('div');
+		appendSegments(editor, [
+			{ type: 'text', content: 'a cat ' },
+			{ type: 'resource', content: '@[references:a.png]', resourceId: 'res-1', resourceRef: { field: 'references', item_key: 'a.png' } },
+			{ type: 'text', content: ' on a rug' }
+		]);
+		const container = editor.querySelector<HTMLElement>('.resource-chip-container')!;
+		expect(resourceContainerSpan(editor, {}, container)).toEqual({ start: 6, end: 25 });
+	});
+
+	it('accounts for other atomic containers before it', () => {
+		const chip = makeChip();
+		const editor = document.createElement('div');
+		appendSegments(editor, [
+			{ type: 'chip', content: '#emotions.happy', chipId: chip.id, chipData: chip },
+			{ type: 'resource', content: '@[references:a.png]', resourceId: 'res-1', resourceRef: { field: 'references', item_key: 'a.png' } }
+		]);
+		const container = editor.querySelector<HTMLElement>('.resource-chip-container')!;
+		expect(resourceContainerSpan(editor, { [chip.id]: chip }, container)).toEqual({ start: 15, end: 34 });
+	});
+
+	it('returns null for a container that is not under root', () => {
+		const editor = document.createElement('div');
+		appendSegments(editor, [{ type: 'text', content: 'a' }]);
+		const detached = document.createElement('span');
+		detached.dataset.resourceMarker = '@[references:a.png]';
+		expect(resourceContainerSpan(editor, {}, detached)).toBeNull();
 	});
 });
 

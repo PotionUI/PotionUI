@@ -49,7 +49,7 @@ export function splitPromptTokensInText(text: string): ContentSegment[] {
 	return out;
 }
 
-const CHIP_AND_RESOURCE_PATTERN = /#\[([^\]]+)\]|#([\w][\w.]*)|@\[([A-Za-z_][A-Za-z0-9_-]*):([^\]\r\n]+)\]/g;
+const CHIP_AND_RESOURCE_PATTERN = /#\[([^\]]+)\]|#([\w]+(?:[.-][\w]+)*)|@\[([A-Za-z_][A-Za-z0-9_-]*):([^\]\r\n]+)\]/g;
 
 export function parseChipSegments(
 	text: string,

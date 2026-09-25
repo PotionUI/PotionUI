@@ -8,6 +8,7 @@ from src.features.prompt_database.records import Prompt
 from src.features.prompt_database.repository import (
     PromptRepository,
     flatten_segments,
+    resolve_rich_segment_text,
 )
 from src.platform.util.ids import generate_ulid
 from tests.fixtures.persistence_base import PersistenceTestBase
@@ -330,6 +331,30 @@ class TestPromptRepository(PersistenceTestBase):
             ),
             "omega",
         )
+
+    def test_resolve_rich_segment_text_hyphenated_path(self):
+        chip = _chip()
+        chip["categoryPath"] = "potion-light"
+        chip["value"] = "warm glow"
+        segment = RichSegment(content="#potion-light scene", chips={"chip-1": chip})
+
+        self.assertEqual(resolve_rich_segment_text(segment), "warm glow scene")
+
+    def test_resolve_rich_segment_text_leaves_trailing_period_as_prose(self):
+        chip = _chip()
+        chip["categoryPath"] = "potion-light"
+        chip["value"] = "warm glow"
+        segment = RichSegment(content="#potion-light.", chips={"chip-1": chip})
+
+        self.assertEqual(resolve_rich_segment_text(segment), "warm glow.")
+
+    def test_resolve_rich_segment_text_leaves_trailing_hyphen_as_prose(self):
+        chip = _chip()
+        chip["categoryPath"] = "potion-light"
+        chip["value"] = "warm glow"
+        segment = RichSegment(content="#potion-light-", chips={"chip-1": chip})
+
+        self.assertEqual(resolve_rich_segment_text(segment), "warm glow-")
 
     def test_segment_prefix_and_suffix_round_trip(self):
         created = self.repository.create(

@@ -22,7 +22,7 @@ export async function parseChipsFromText(
 	// Find all chip patterns - supports two formats:
 	// 1. Bracketed for paths with spaces: #[path with spaces]
 	// 2. Simple for paths without spaces: #simplepath.subpath
-	const chipPatternRegex = /#\[([^\]]+)\]|#([\w][\w.]*)/g;
+	const chipPatternRegex = /#\[([^\]]+)\]|#([\w]+(?:[.-][\w]+)*)/g;
 	const rawMatches = [...text.matchAll(chipPatternRegex)];
 
 	// Transform matches to extract the actual path (from either capture group)
@@ -184,7 +184,7 @@ async function hydrateSegmentChips<T extends { content: string; chips?: Record<s
 	if (segment.chips && Object.keys(segment.chips).length > 0) return segment;
 
 	// Check if content has chip markers (both formats)
-	const hasChipMarkers = /#\[[^\]]+\]|#[\w][\w.]*/.test(segment.content);
+	const hasChipMarkers = /#\[[^\]]+\]|#[\w]+(?:[.-][\w]+)*/.test(segment.content);
 	if (!hasChipMarkers) return segment;
 
 	// Parse and create chips

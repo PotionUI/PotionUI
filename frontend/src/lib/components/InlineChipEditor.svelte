@@ -578,9 +578,9 @@
 		if (start >= 0 && text[start] === '#') {
 			const path = text.substring(start + 1, cursorOffset);
 
-			// Validate path format - allow word chars, dots, and spaces
-			// Path should start with a word char and can contain dots/spaces
-			if (/^[\w][\w.\s]*$/.test(path) || /^[\w]*$/.test(path)) {
+			// Validate path format - allow word chars, dots, hyphens, and spaces
+			// Path should start with a word char and can contain dots/hyphens/spaces
+			if (/^[\w][\w.\s-]*$/.test(path) || /^[\w]*$/.test(path)) {
 				closeVariablePicker(); // mutually exclusive with the $ picker
 				closeResourcePicker(); // mutually exclusive with the @ picker
 				closeSyntaxPicker();

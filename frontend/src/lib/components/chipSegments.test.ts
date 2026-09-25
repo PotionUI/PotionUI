@@ -131,6 +131,34 @@ describe('parseChipSegments', () => {
 		expect(chipSegs).toHaveLength(2);
 		expect(new Set(chipSegs.map((s) => s.chipId))).toEqual(new Set(['chip-a', 'chip-b']));
 	});
+
+	it('resolves a bare #path marker whose category path contains a hyphen', () => {
+		const chip = makeChip({ id: 'chip-3', categoryPath: 'potion-light' });
+		const segs = parseChipSegments('a #potion-light glow', { [chip.id]: chip });
+		expect(segs).toEqual([
+			{ type: 'text', content: 'a ' },
+			{ type: 'chip', content: '#potion-light', chipId: 'chip-3', chipData: chip },
+			{ type: 'text', content: ' glow' }
+		]);
+	});
+
+	it('does not swallow a trailing period that ends the sentence, not the path', () => {
+		const chip = makeChip({ id: 'chip-3', categoryPath: 'potion-light' });
+		const segs = parseChipSegments('#potion-light.', { [chip.id]: chip });
+		expect(segs).toEqual([
+			{ type: 'chip', content: '#potion-light', chipId: 'chip-3', chipData: chip },
+			{ type: 'text', content: '.' }
+		]);
+	});
+
+	it('does not swallow a trailing hyphen that is prose, not part of the path', () => {
+		const chip = makeChip({ id: 'chip-3', categoryPath: 'potion-light' });
+		const segs = parseChipSegments('#potion-light-', { [chip.id]: chip });
+		expect(segs).toEqual([
+			{ type: 'chip', content: '#potion-light', chipId: 'chip-3', chipData: chip },
+			{ type: 'text', content: '-' }
+		]);
+	});
 });
 
 describe('parseValueToSegments (full pipeline: #chips -> {group}/${variable})', () => {

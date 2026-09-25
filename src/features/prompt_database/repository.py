@@ -12,7 +12,7 @@ from src.features.prompt_database.records import Prompt
 from src.platform.util.ids import generate_ulid
 
 
-_CHIP_MARKER = re.compile(r"#\[([^\]]+)\]|#([\w][\w.]*)")
+_CHIP_MARKER = re.compile(r"#\[([^\]]+)\]|#([\w]+(?:[.-][\w]+)*)")
 
 _SQLITE_IN_CHUNK_SIZE = 500
 

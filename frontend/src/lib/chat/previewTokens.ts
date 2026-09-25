@@ -6,7 +6,7 @@
  */
 export type PreviewToken = { kind: 'text' | 'phrasebook' | 'variable'; text: string; label: string };
 
-const MARKER_RE = /#\[([^\]]+)\]|#([\w][\w.]*)|\$\{([^}]+)\}/g;
+const MARKER_RE = /#\[([^\]]+)\]|#([\w]+(?:[.-][\w]+)*)|\$\{([^}]+)\}/g;
 
 export function splitMarkerTokens(text: string): PreviewToken[] {
 	const tokens: PreviewToken[] = [];

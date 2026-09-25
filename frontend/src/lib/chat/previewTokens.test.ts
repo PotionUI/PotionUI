@@ -24,4 +24,19 @@ describe('splitMarkerTokens', () => {
 	it('leaves plain text untouched', () => {
 		expect(splitMarkerTokens('no markers here')).toEqual([{ kind: 'text', text: 'no markers here', label: '' }]);
 	});
+
+	it('renders a bare marker with a hyphenated category path as a phrasebook chip', () => {
+		expect(splitMarkerTokens('a #potion-light glow')).toEqual([
+			{ kind: 'text', text: 'a ', label: '' },
+			{ kind: 'phrasebook', text: '#potion-light', label: 'potion-light' },
+			{ kind: 'text', text: ' glow', label: '' }
+		]);
+	});
+
+	it('does not swallow a trailing period that ends the sentence, not the path', () => {
+		expect(splitMarkerTokens('#potion-light.')).toEqual([
+			{ kind: 'phrasebook', text: '#potion-light', label: 'potion-light' },
+			{ kind: 'text', text: '.', label: '' }
+		]);
+	});
 });

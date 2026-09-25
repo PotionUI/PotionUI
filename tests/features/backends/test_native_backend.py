@@ -1,5 +1,6 @@
 """Tests for the native engine's backend."""
 
+import threading
 import unittest
 from unittest.mock import Mock, patch
 
@@ -144,6 +145,30 @@ class TestNativeBackendListModels(unittest.IsolatedAsyncioTestCase):
             models = await backend.list_models()
 
         self.assertEqual(len(models), 1)
+
+
+class TestNativeBackendListModelsOffTheEventLoop(unittest.IsolatedAsyncioTestCase):
+    async def test_scan_runs_off_the_event_loop_thread(self):
+        backend = _backend()
+        settings = Mock()
+        settings.get_models_dir.return_value = "models"
+        loop_thread = threading.get_ident()
+        scan_threads = []
+
+        def recording_scan(models_dir):
+            scan_threads.append(threading.get_ident())
+            return []
+
+        with patch("src.platform.settings.settings.Settings", return_value=settings), \
+             patch("src.platform.settings.repository.SettingRepository"), \
+             patch(
+                 "src.features.backends.native_backend.scan_native_models",
+                 side_effect=recording_scan,
+             ):
+            await backend.list_models()
+
+        self.assertEqual(len(scan_threads), 1)
+        self.assertNotEqual(scan_threads[0], loop_thread)
 
 
 class TestNativeEngineFields(unittest.TestCase):

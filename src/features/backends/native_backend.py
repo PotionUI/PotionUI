@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, ClassVar, Dict, List, Optional
 
 from src.platform.observability.logger import logger
@@ -133,7 +134,8 @@ class NativeBackend(InProcessBackend):
         from src.platform.settings.repository import SettingRepository
 
         models_dir = Settings(SettingRepository()).get_models_dir()
-        return deduplicate(scan_native_models(models_dir))
+        entries = await asyncio.to_thread(scan_native_models, models_dir)
+        return deduplicate(entries)
 
     def prepare_pipes(self, pipes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """

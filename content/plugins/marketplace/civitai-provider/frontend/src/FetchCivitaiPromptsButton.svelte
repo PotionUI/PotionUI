@@ -154,6 +154,8 @@
 			return {
 				...base,
 				confirmLabel: 'Close',
+				confirmDisabled: false,
+				busy: false,
 				hideCancel: true,
 				onConfirm: closeModal
 			};

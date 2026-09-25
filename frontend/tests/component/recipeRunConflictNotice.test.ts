@@ -274,7 +274,9 @@ describe('Starting a recipe while another one is active', () => {
 		mounted = mount(RecipesTab);
 		await settle();
 
-		const installButton = mounted.target.querySelector('[aria-label="Install models"]') as HTMLButtonElement;
+		const installButton = Array.from(mounted.target.querySelectorAll('button')).find(
+			(button) => button.textContent?.trim() === 'Install models'
+		) as HTMLButtonElement;
 		flushSync(() => installButton.click());
 		await settle();
 

@@ -153,8 +153,8 @@ describe('RecipesTab readiness refresh after a run finishes', () => {
 
 		expect(mounted.target.textContent).toContain('Missing models');
 
-		const installButton = mounted.target.querySelector(
-			'button[aria-label="Install models"]'
+		const installButton = Array.from(mounted.target.querySelectorAll('button')).find(
+			(button) => button.textContent?.trim() === 'Install models'
 		) as HTMLButtonElement;
 		expect(installButton, 'expected an Install models action').toBeTruthy();
 

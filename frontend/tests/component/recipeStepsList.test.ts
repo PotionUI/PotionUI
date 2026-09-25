@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import type { RecipeStepView } from '$lib/services/api/recipes';
 
-const { default: RecipeStepsModal } = await import(
-	'../../src/routes/admin/components/recipes/RecipeStepsModal.svelte'
+const { default: RecipeStepsList } = await import(
+	'../../src/routes/admin/components/recipes/RecipeStepsList.svelte'
 );
 
 let target: HTMLDivElement;
@@ -17,12 +17,12 @@ const steps: RecipeStepView[] = [
 	{ key: 'generation_smoke', kind: 'generation.smoke', title: 'Run a test generation', onboarding_only: false }
 ];
 
-function mountModal(props: Record<string, unknown> = {}) {
+function mountList(props: Record<string, unknown> = {}) {
 	target = document.createElement('div');
 	document.body.appendChild(target);
-	component = mount(RecipeStepsModal, {
+	component = mount(RecipeStepsList, {
 		target,
-		props: { isOpen: true, steps, onClose: vi.fn(), ...props }
+		props: { steps, ...props }
 	});
 	flushSync();
 }
@@ -35,9 +35,9 @@ afterEach(() => {
 	target?.remove();
 });
 
-describe('RecipeStepsModal', () => {
+describe('RecipeStepsList', () => {
 	it('lists every step with its title, in order', () => {
-		mountModal();
+		mountList();
 		const rows = document.querySelectorAll('[data-recipe-step]');
 		expect(rows.length).toBe(steps.length);
 		rows.forEach((row, index) => {
@@ -47,24 +47,12 @@ describe('RecipeStepsModal', () => {
 	});
 
 	it('marks onboarding-only steps', () => {
-		mountModal();
+		mountList();
 		const backendStep = document.querySelector('[data-recipe-step="backend_ensure"]') as HTMLElement;
 		expect(backendStep.textContent).toContain('first run only');
 		const pluginStep = document.querySelector('[data-recipe-step="plugins_ensure"]') as HTMLElement;
 		expect(pluginStep.textContent).not.toContain('first run only');
 	});
 
-	it('highlights the current step of an active run', () => {
-		mountModal({ currentStepKey: 'artifacts_fetch' });
-		const currentStep = document.querySelector('[data-recipe-step="artifacts_fetch"]') as HTMLElement;
-		expect(currentStep.getAttribute('data-current')).toBe('true');
-		expect(currentStep.textContent).toContain('current');
-		const otherStep = document.querySelector('[data-recipe-step="preset_ensure"]') as HTMLElement;
-		expect(otherStep.getAttribute('data-current')).toBe('false');
-	});
 
-	it('renders nothing when closed', () => {
-		mountModal({ isOpen: false });
-		expect(document.querySelector('[data-recipe-step]')).toBeNull();
-	});
 });

@@ -49,13 +49,13 @@ afterEach(() => {
 describe('RecipeRunsList', () => {
 	it('shows every run when the history is short', () => {
 		mountList([run(), run(), run()], 5);
-		expect(target.querySelectorAll('[data-recipe-runs] > li').length).toBe(3);
+		expect(target.querySelectorAll('[data-recipe-runs] .dt-row:not(.dt-row--head)').length).toBe(3);
 		expect(target.querySelector('button')).toBeNull();
 	});
 
 	it('collapses to the limit and offers Show all when the history is long', () => {
 		mountList(Array.from({ length: 8 }, () => run()), 5);
-		expect(target.querySelectorAll('[data-recipe-runs] > li').length).toBe(5);
+		expect(target.querySelectorAll('[data-recipe-runs] .dt-row:not(.dt-row--head)').length).toBe(5);
 		const button = target.querySelector('button') as HTMLButtonElement;
 		expect(button.textContent?.trim()).toBe('Show all 8 runs');
 	});
@@ -64,7 +64,7 @@ describe('RecipeRunsList', () => {
 		mountList(Array.from({ length: 8 }, () => run()), 5);
 		(target.querySelector('button') as HTMLButtonElement).click();
 		flushSync();
-		expect(target.querySelectorAll('[data-recipe-runs] > li').length).toBe(8);
+		expect(target.querySelectorAll('[data-recipe-runs] .dt-row:not(.dt-row--head)').length).toBe(8);
 		expect(target.querySelector('button')).toBeNull();
 	});
 

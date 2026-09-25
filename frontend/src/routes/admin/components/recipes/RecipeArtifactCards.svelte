@@ -3,6 +3,7 @@
 	import { formatBytes } from '$lib/utils/format';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge } from '$lib/components/ui';
+	import { DETAIL_INSET_CLASS } from '$lib/components/detail';
 
 	let { artifacts }: { artifacts: RecipeArtifact[] } = $props();
 
@@ -13,7 +14,7 @@
 
 <ul class="space-y-1.5" data-recipe-artifact-cards>
 	{#each artifacts as artifact (artifact.id)}
-		<li class="rounded-lg border border-line bg-surface-1 px-3 py-2.5" data-recipe-artifact-card>
+		<li class="px-3 py-2.5 {DETAIL_INSET_CLASS}" data-recipe-artifact-card>
 			<div class="flex items-center gap-1.5 min-w-0">
 				<Tooltip text={artifact.display_name} wrapperClass="min-w-0 flex-1">
 					<span class="block truncate text-sm text-fg">{artifact.display_name}</span>

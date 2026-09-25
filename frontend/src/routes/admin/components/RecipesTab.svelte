@@ -19,9 +19,7 @@
 		runStatusLabel,
 		RUN_POLL_INTERVAL_MS
 	} from '$lib/utils/setupRunDisplay';
-	import Icon from '$lib/components/Icon.svelte';
-	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { DetailHeader, DetailBody, DetailLayout, DetailSection, DetailFooter } from '$lib/components/detail';
+	import { DetailHeader, DetailBody, DetailLayout, DetailSection, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import RecipeRunProgress from '$lib/components/recipes/RecipeRunProgress.svelte';
 	import { adminRecipeRunActions } from '$lib/components/recipes/runActions';
 	import { Alert, Badge, Button, EmptyState, Spinner } from '$lib/components/ui';
@@ -58,8 +56,7 @@
 	import RecipeCard from './recipes/RecipeCard.svelte';
 	import RecipeArtifactCards from './recipes/RecipeArtifactCards.svelte';
 	import RecipeRunsList from './recipes/RecipeRunsList.svelte';
-	import RecipeStepsModal from './recipes/RecipeStepsModal.svelte';
-	import { currentRunStepKey } from './recipes/recipeCurrentStep';
+	import RecipeStepsList from './recipes/RecipeStepsList.svelte';
 	import PresetCoverTile from './presets/PresetCoverTile.svelte';
 
 	const RUN_HISTORY_LIMIT = 20;
@@ -95,7 +92,6 @@
 	let startConflict = $state<ActiveRecipeRunConflict | null>(null);
 	let pollTimer: ReturnType<typeof setTimeout> | null = null;
 	let urlRestored = $state(false);
-	let stepsModalOpen = $state(false);
 
 	const sources = $derived(recipeSourceVocabulary(recipes));
 	const engines = $derived(recipeEngineVocabulary(recipes));
@@ -108,7 +104,6 @@
 	const selectedRecipe = $derived(recipes.find((r) => r.id === selectedRecipeId) || null);
 	const runHistory = $derived(mergeRunHistory(runs, activeRun));
 	const runInFlight = $derived(!!activeRun && !isRunTerminal(activeRun.status));
-	const activeRunStepKey = $derived(currentRunStepKey(activeRun));
 
 	function readinessFor(recipeId: string): RecipeReadinessBadge {
 		return deriveRecipeReadiness(readinessById[recipeId] ?? null);
@@ -214,7 +209,6 @@
 		startError = '';
 		startConflict = null;
 		activeRun = null;
-		stepsModalOpen = false;
 		clearPoll();
 		if (id) {
 			void loadDetail(id);
@@ -426,36 +420,23 @@
 									<span class="truncate">{selectedRecipe.id}</span>
 								{/snippet}
 								{#snippet actions()}
-									<Tooltip text="How this recipe works">
-										<button
-											type="button"
-											aria-label="How this recipe works"
-											class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-fg-muted hover:text-fg hover:bg-surface-3/50"
-											onclick={() => (stepsModalOpen = true)}
-										>
-											<Icon name="git-branch" className="w-4 h-4" />
-										</button>
-									</Tooltip>
-									<Tooltip text={runInFlight ? 'A run is already in progress' : 'Install models'}>
-										<button
-											type="button"
-											aria-label="Install models"
-											class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-fg-muted hover:text-fg hover:bg-surface-3/50 disabled:opacity-50 disabled:cursor-not-allowed"
-											disabled={starting || runInFlight}
-											onclick={startRun}
-										>
-											{#if starting}<Spinner size="sm" />{:else}
-												<Icon name="download" className="w-4 h-4" />
-											{/if}
-										</button>
-									</Tooltip>
+									<Button
+										variant="primary"
+										size="sm"
+										icon="download"
+										loading={starting}
+										disabled={starting || runInFlight}
+										onclick={startRun}
+									>
+										{selectedRecipe.last_completed_at ? 'Install again' : 'Install models'}
+									</Button>
 								{/snippet}
 							</DetailHeader>
 
 							<DetailBody>
 								<DetailLayout>
 									{#snippet lead()}
-										<div class="space-y-5">
+										<div class="space-y-4">
 											{#if detailLoading && !detail}
 												<div class="flex justify-center py-10"><Spinner size="md" /></div>
 											{:else if detailError}
@@ -522,7 +503,7 @@
 														<div class="flex flex-wrap gap-1.5" data-recipe-sets-up>
 															{#each detail?.presets ?? [] as linkedPreset (linkedPreset.id)}
 																<a
-																	class="flex items-center gap-1.5 rounded border border-line bg-surface-1 py-1 pl-1 pr-2 hover:border-line-hover"
+																	class="flex items-center gap-1.5 py-1 pl-1 pr-2 hover:border-line-hover {DETAIL_INSET_CLASS}"
 																	href="/admin?tab=presets&id={encodeURIComponent(linkedPreset.id)}"
 																>
 																	<PresetCoverTile
@@ -546,16 +527,14 @@
 
 									{#snippet main()}
 										{#if detail}
-											<DetailSection label="Run" padded={!activeRun}>
+											<DetailSection label="Run">
 												{#if activeRun}
-													<div class="px-4 sm:px-5 py-4">
-														<RecipeRunProgress
-															run={activeRun}
-															title="Installing models"
-															actions={adminRecipeRunActions}
-															onRunUpdated={adoptRun}
-														/>
-													</div>
+													<RecipeRunProgress
+														run={activeRun}
+														title="Installing models"
+														actions={adminRecipeRunActions}
+														onRunUpdated={adoptRun}
+													/>
 												{:else}
 													<div class="space-y-3">
 														<p class="text-sm text-fg-muted">
@@ -563,29 +542,8 @@
 																? `This recipe downloads ~${formatBytes(selectedRecipe.total_download_bytes)} before it can generate.`
 																: 'This recipe is ready to install.'}
 														</p>
-														<Button
-															variant="primary"
-															size="sm"
-															icon="download"
-															loading={starting}
-															disabled={starting || runInFlight}
-															onclick={startRun}
-														>
-															{selectedRecipe.last_completed_at ? 'Install again' : 'Install models'}
-														</Button>
+														<RecipeStepsList steps={detail.steps} />
 													</div>
-												{/if}
-											</DetailSection>
-										{/if}
-									{/snippet}
-
-									{#snippet aside()}
-										{#if detail}
-											<DetailSection label="Artifacts">
-												{#if detail.artifacts.length === 0}
-													<p class="text-sm text-fg-muted">This recipe downloads nothing.</p>
-												{:else}
-													<RecipeArtifactCards artifacts={detail.artifacts} />
 												{/if}
 											</DetailSection>
 
@@ -600,28 +558,21 @@
 											</DetailSection>
 										{/if}
 									{/snippet}
+
+									{#snippet aside()}
+										{#if detail}
+											<DetailSection label="Artifacts">
+												{#if detail.artifacts.length === 0}
+													<p class="text-sm text-fg-muted">This recipe downloads nothing.</p>
+												{:else}
+													<RecipeArtifactCards artifacts={detail.artifacts} />
+												{/if}
+											</DetailSection>
+										{/if}
+									{/snippet}
 								</DetailLayout>
 							</DetailBody>
 
-							<RecipeStepsModal
-								isOpen={stepsModalOpen}
-								steps={detail?.steps ?? []}
-								currentStepKey={activeRunStepKey}
-								onClose={() => (stepsModalOpen = false)}
-							/>
-
-							<DetailFooter>
-								<Button
-									variant="primary"
-									size="sm"
-									icon="download"
-									loading={starting}
-									disabled={starting || runInFlight}
-									onclick={startRun}
-								>
-									{selectedRecipe.last_completed_at ? 'Install again' : 'Install models'}
-								</Button>
-							</DetailFooter>
 						</div>
 					{:else}
 						<div class="flex h-full items-center justify-center p-5">

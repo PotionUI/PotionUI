@@ -11,17 +11,25 @@
 	import { api } from '$lib/services/api/index';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Spinner, IconButton } from '$lib/components/ui';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import MediaLoaderField from '$lib/components/form-fields/MediaLoaderField.svelte';
 	import type { ModelPreviewMediaItem } from '$lib/utils/modelPreview';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
+	import MediaPreviewModal from '$lib/components/modals/MediaPreviewModal.svelte';
 
 	export let modelId: string;
+	export let bare: boolean = false;
 
 	const dispatch = createEventDispatcher<{
 		primarychange: { file_id?: string | null; url: string; type: string; name?: string | null } | null;
 	}>();
 
 	let previews: ModelPreviewMediaItem[] = [];
+	let viewing: ModelPreviewMediaItem | null = null;
+
+	function viewKind(item: ModelPreviewMediaItem): 'image' | 'video' | 'audio' {
+		return item.type === 'video' ? 'video' : item.type === 'audio' ? 'audio' : 'image';
+	}
 	let loading = true;
 	let listError: string | null = null;
 
@@ -175,15 +183,8 @@
 	}
 </script>
 
-<div>
-	<div class="flex items-baseline gap-3 mb-3">
-		<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted whitespace-nowrap">
-			Previews
-		</span>
-		<div class="flex-1 h-px bg-line self-center"></div>
-	</div>
-
-	<div class="bg-surface-1 border border-line rounded-lg shadow-raised p-4 space-y-3">
+{#snippet body()}
+	<div class="space-y-3">
 		<MediaLoaderField
 			name="model_preview_add"
 			value={pendingValue}
@@ -192,12 +193,12 @@
 			compact
 			compactFullWidth
 		/>
-		<p class="text-2xs text-fg-subtle">
+		<p class="text-sm text-fg-subtle">
 			The first preview is shown everywhere this model's preview appears.
 		</p>
 
 		{#if listError}
-			<p class="text-2xs text-danger">{listError}</p>
+			<p class="text-sm text-danger">{listError}</p>
 		{/if}
 
 		{#if loading}
@@ -205,13 +206,13 @@
 				<Spinner size="sm" />
 			</div>
 		{:else if previews.length === 0}
-			<p class="text-2xs text-fg-subtle text-center py-2">No previews yet.</p>
+			<p class="text-sm text-fg-subtle text-center py-2">No previews yet.</p>
 		{:else}
-			<div class="grid grid-cols-4 gap-2">
+			<div class="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-3">
 				{#each previews as preview, index (preview.id)}
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<div
-						class="group relative aspect-square rounded border overflow-hidden bg-surface-2 cursor-grab active:cursor-grabbing {index ===
+						class="group relative aspect-square rounded-lg border overflow-hidden bg-surface-2 cursor-grab active:cursor-grabbing {index ===
 						0
 							? 'border-accent'
 							: 'border-line'}"
@@ -220,56 +221,98 @@
 						on:dragstart={(e) => onTileDragStart(e, preview.id)}
 						on:dragover={onTileDragOver}
 						on:drop={(e) => onTileDrop(e, preview.id)}
-						title={preview.name || preview.type}
+						role="button"
+						tabindex="0"
+						aria-label="View {preview.name || 'preview'} full size"
+						on:click={() => (viewing = preview)}
+						on:keydown={(e) => {
+							if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+								e.preventDefault();
+								viewing = preview;
+							}
+						}}
 					>
 						{#if preview.type === 'image'}
 							<img
-								src="{preview.url}?size=small"
+								src="{preview.url}?size=medium"
 								alt={preview.name || 'Model preview'}
 								class="w-full h-full object-cover pointer-events-none"
 							/>
 						{:else}
-							<div class="w-full h-full flex flex-col items-center justify-center gap-1 pointer-events-none">
-								<Icon name={preview.type === 'video' ? 'video' : 'audio'} className="w-5 h-5 text-fg-muted" />
-								<span class="text-2xs text-fg-subtle px-1 truncate max-w-full">{preview.name || preview.type}</span>
+							<div class="w-full h-full flex flex-col items-center justify-center gap-1.5 pointer-events-none">
+								<Icon name={preview.type === 'video' ? 'video' : 'audio'} className="w-6 h-6 text-fg-muted" />
+								<span class="text-xs text-fg-subtle px-2 truncate max-w-full">{preview.name || preview.type}</span>
 							</div>
 						{/if}
 
 						{#if index === 0}
 							<span
-								class="absolute top-1 left-1 bg-accent text-canvas text-2xs font-mono px-1 rounded pointer-events-none"
+								class="absolute top-1.5 left-1.5 bg-accent text-canvas text-xs font-mono px-1.5 py-0.5 rounded pointer-events-none"
 							>
 								Primary
 							</span>
 						{/if}
 
 						<div
-							class="absolute inset-0 bg-canvas/60 opacity-0 group-hover:opacity-100 transition-opacity duration-100 flex items-center justify-center gap-1"
+							class="absolute inset-x-0 bottom-0 flex items-center gap-1 px-1.5 py-1.5 bg-canvas/80 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-100"
+							on:click|stopPropagation
+							on:keydown|stopPropagation
 						>
-							<div class="absolute top-1 right-1">
-								<IconButton
-									icon="trash"
-									label="Remove preview"
-									size="sm"
-									onclick={() => removePreview(preview.id)}
-								/>
+							<Tooltip text="Drag to reorder">
+								<span class="flex h-7 w-7 items-center justify-center text-fg-subtle">
+									<Icon name="grip" className="w-4 h-4" />
+								</span>
+							</Tooltip>
+							<div class="ml-auto flex items-center gap-1">
+								{#if index !== 0}
+									<Tooltip text="Make primary">
+										<IconButton
+											icon="star"
+											label="Make primary"
+											size="sm"
+											onclick={() => makePrimary(preview.id)}
+										/>
+									</Tooltip>
+								{/if}
+								<Tooltip text="Remove preview">
+									<IconButton
+										icon="trash"
+										label="Remove preview"
+										size="sm"
+										onclick={() => removePreview(preview.id)}
+									/>
+								</Tooltip>
 							</div>
-							{#if index !== 0}
-								<IconButton
-									icon="star"
-									label="Make primary"
-									size="sm"
-									variant="secondary"
-									onclick={() => makePrimary(preview.id)}
-								/>
-							{/if}
-							<span class="absolute bottom-1 left-1 text-fg-subtle" title="Drag to reorder">
-								<Icon name="grip" className="w-3.5 h-3.5" />
-							</span>
 						</div>
 					</div>
 				{/each}
 			</div>
 		{/if}
 	</div>
-</div>
+{/snippet}
+
+{#if viewing}
+	<MediaPreviewModal
+		isOpen={true}
+		kind={viewKind(viewing)}
+		url={viewing.url}
+		label={viewing.name || 'Model preview'}
+		onClose={() => (viewing = null)}
+	/>
+{/if}
+
+{#if bare}
+	{@render body()}
+{:else}
+	<div>
+		<div class="flex items-baseline gap-3 mb-3">
+			<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted whitespace-nowrap">
+				Previews
+			</span>
+			<div class="flex-1 h-px bg-line self-center"></div>
+		</div>
+		<div class="bg-surface-1 border border-line rounded-lg shadow-raised p-4">
+			{@render body()}
+		</div>
+	</div>
+{/if}

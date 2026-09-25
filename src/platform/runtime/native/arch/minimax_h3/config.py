@@ -28,6 +28,7 @@ MINIMAX_H3 = "minimax_h3"
 # Every AdaLN modulation table (per-block and final) holds one row per
 # (distinct timestep, modality) pair; modality is always one of these three.
 MINIMAX_H3_MODALITY_NUM = 3
+MINIMAX_H3_AUDIO_MODALITY = 2
 
 
 @dataclass(frozen=True)

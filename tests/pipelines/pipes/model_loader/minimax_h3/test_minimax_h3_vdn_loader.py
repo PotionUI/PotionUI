@@ -266,6 +266,44 @@ def test_the_translated_rows_actually_change_the_pruned_adaln_weights(tmp_path):
     assert reports[0].unmatched_keys == 0
 
 
+def test_an_adapter_kept_out_of_the_audio_spares_every_audio_weight(tmp_path):
+    adapter = _adaln_adapter_file(tmp_path / "turbo.safetensors", TINY_PRUNED)
+    sidecar = _time_embedder_file(tmp_path / "te_sidecar.safetensors")
+    width = 6 * TINY_PRUNED["hidden_size"]
+
+    baseline = _build_ready(TINY_PRUNED)
+    adaln = baseline.blocks[0].adaln_proj.linear
+    before_weight, before_bias = adaln.weight.clone(), adaln.bias.clone()
+    before_final_bias = baseline.final_layer.adaln_proj.linear.bias.clone()
+    before_qkv = baseline.blocks[0].attn.qkv_proj.weight.clone()
+
+    model = NativeModel("diffusion_model", baseline, estimated_vram_gb=1.0, compute_dtype=torch.float32)
+    reports, _ = loader_vdn.apply_loras_with_adaln_translation(
+        model, [{"file_path": adapter, "weight": 1.0, "audio": False}], "TEST",
+        dense_time_embedder_path=sidecar,
+    )
+
+    assert torch.equal(adaln.weight[2 * width:], before_weight[2 * width:])
+    assert torch.equal(adaln.bias[2 * width:], before_bias[2 * width:])
+    assert not torch.equal(adaln.weight[:2 * width], before_weight[:2 * width])
+    assert not torch.equal(adaln.bias[:2 * width], before_bias[:2 * width])
+    assert torch.equal(baseline.final_layer.adaln_proj.linear.bias, before_final_bias)
+    assert torch.equal(baseline.blocks[0].attn.qkv_proj.weight, before_qkv)
+    assert baseline.blocks[0].attn.qkv_proj.lora_masked_deltas
+    assert reports[0].masked_params == 1
+
+
+def test_the_audio_flag_is_part_of_the_dit_identity(tmp_path):
+    adapter = _adaln_adapter_file(tmp_path / "turbo.safetensors", TINY_FULL)
+    with_audio, _, _ = _run(tmp_path, TINY_FULL, loras=[{"file_path": adapter, "weight": 1.0}])
+    without_audio, out, _ = _run(tmp_path, TINY_FULL, loras=[{"file_path": adapter, "weight": 1.0, "audio": False}])
+
+    with_fp = next(fp for key, fp in with_audio.calls if key.startswith("native/dit/"))
+    without_fp = next(fp for key, fp in without_audio.calls if key.startswith("native/dit/"))
+    assert with_fp != without_fp
+    assert out.output["model"].dit.module.blocks[0].attn.qkv_proj.lora_masked_deltas
+
+
 def test_a_translation_is_reported_even_with_no_branch_attached(tmp_path):
     """The two halves are independent: a pruned DiT can need the AdaLN
     translation without anyone asking for the VDN branch."""

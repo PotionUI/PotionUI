@@ -269,7 +269,11 @@ pattern of six hand-written `lora_N` / `lora_N_strength` field pairs):
     strength_step: 0.1
     strength_default: 1.0         # strength for newly added rows (default: 1.0)
     max_items: 6                  # maximum number of rows (default: 6)
-    allow_step_window: false      # per-row step-window controls (default: false)
+    row_fields:                    # per-row configuration fields (default: none) - see below
+      - name: "step_start"
+        type: "number"
+        label: "From step"
+        default: null
   default:                        # optional default rows (same shape as the runtime value)
     - { model: "some_lora.safetensors", strength: 1.0 }
 ```
@@ -279,12 +283,14 @@ selected model — it may be empty (`[]`). Consume it in `pipeline.yml` with an 
 `@loop` (see "The `@loop` recipe" below); no `when:` filtering is needed because unselected rows
 are never submitted.
 
-`allow_step_window: true` adds a per-row advanced control that also submits `step_start`/`step_end`
-on the rows that set one (see "Step-windowed LoRAs" below). It is **off by default and must stay
-off** for any preset whose model family bakes LoRAs in at load time — those loaders reject a
-windowed entry rather than applying it for the whole run, so offering the control there builds a
-form that can only fail. A field that leaves the flag off drops the two keys even if they somehow
-arrive on the wire.
+`row_fields` declares extra per-row controls, shown behind a Configuration gear on each row,
+using any registered field type: `{name, type, label, default, description, configuration}` -
+the same shape as a top-level field declaration. A submitted row's value lands under `name`
+(falling back to `default`); a key with no matching declaration is dropped even if it somehow
+arrives on the wire. Only correct for a row key the target model family's loader/generator
+actually reads — Krea-2's `step_start`/`step_end` (see "Step-windowed LoRAs" below) and
+MiniMax-H3's `audio` — a family that ignores the key rejects a non-default value outright rather
+than silently applying it.
 
 Camera-shot autocomplete (`type: "camera_shot"` — a display-only viewfinder picker that inserts or
 copies a shot-describing phrase into the prompt, for when you know the shot you want but forget how

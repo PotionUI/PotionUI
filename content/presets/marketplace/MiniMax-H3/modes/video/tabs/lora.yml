@@ -31,6 +31,12 @@ fields:
       strength_step: 0.05
       strength_default: 1.0
       max_items: 6
+      row_fields:
+        - name: "audio"
+          type: "checkbox"
+          label: "Affects audio"
+          default: true
+          description: "Off keeps this LoRA away from the soundtrack; the video still shapes the sound through the model."
       # No `recommendations:` here on purpose, even though the turbo LoRA is
       # exactly the kind of file one would offer: `recommendations` is a
       # `model`-field feature only. `lora_picker.output()`

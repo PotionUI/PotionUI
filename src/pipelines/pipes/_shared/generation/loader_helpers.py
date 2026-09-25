@@ -13,7 +13,7 @@ import hashlib
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple
 
 from src.platform.observability.profiling import get_profiler
 from src.platform.runtime.native.engine import NativeModel
@@ -76,7 +76,27 @@ class ComponentProgress:
         self._step += 1
 
 
-def active_loras(loras: Any, *, step_windows: bool = False, log_tag: str = "") -> List[Dict[str, Any]]:
+def _affects_audio(value: Any, path: Any, log_tag: str) -> bool:
+    if value is None or isinstance(value, bool):
+        return value is not False
+    text = str(value).strip().lower()
+    if text in ("", "true", "1", "yes"):
+        return True
+    if text in ("false", "0", "no"):
+        return False
+    raise ValueError(
+        f"[{log_tag or 'model_loader'}] LoRA {Path(str(path)).name} has an unreadable 'audio' "
+        f"setting {value!r}; use true or false"
+    )
+
+
+LORA_OPTION_STEP_WINDOW = "step_window"
+LORA_OPTION_AUDIO = "audio"
+
+
+def active_loras(
+    loras: Any, *, supported_options: FrozenSet[str] = frozenset(), log_tag: str = "",
+) -> List[Dict[str, Any]]:
     """Selected LoRA entries with a real file and a non-zero weight.
 
     Each returned entry carries ``window``: a
@@ -84,13 +104,14 @@ def active_loras(loras: Any, *, step_windows: bool = False, log_tag: str = "") -
     asked for one via ``step_start``/``step_end``, else ``None`` (the entry is
     baked into the model at load time, exactly as before windows existed).
 
-    ``step_windows`` is the caller's declaration that it can honour a window —
-    i.e. that it hands windowed entries to the generator's step loop instead of
-    baking them. A loader that leaves it False and receives a windowed entry
-    raises: silently baking a LoRA the preset asked to switch off mid-run is
-    the failure mode this contract exists to prevent (for the motivating
-    ``krea2-turbo-sda``, an always-on application is a documented quality
-    collapse, not a mild approximation).
+    ``supported_options`` is the caller's declaration of which row options its
+    loader/generator can actually honour (``LORA_OPTION_STEP_WINDOW``,
+    ``LORA_OPTION_AUDIO``). An entry that asks for an option outside that set —
+    a step window, or ``audio: false`` — raises rather than being silently
+    baked/applied anyway: for the motivating ``krea2-turbo-sda`` case, an
+    always-on application is a documented quality collapse, not a mild
+    approximation, and the same reasoning holds for a LoRA a preset asked to
+    keep out of the audio track.
     """
     out: List[Dict[str, Any]] = []
     for lora in loras or []:
@@ -104,14 +125,24 @@ def active_loras(loras: Any, *, step_windows: bool = False, log_tag: str = "") -
         except (TypeError, ValueError):
             continue
         window = parse_lora_window(lora)
-        if window is not None and not step_windows:
+        if window is not None and LORA_OPTION_STEP_WINDOW not in supported_options:
             raise ValueError(
                 f"[{log_tag or 'model_loader'}] LoRA {Path(str(path)).name} requests a step window "
                 f"({window.describe()}), but this model family bakes LoRAs into the model at load "
                 f"time and cannot switch one off mid-generation. Remove step_start/step_end, or use "
                 f"a family whose generator supports step windows."
             )
-        out.append({"file_path": str(path), "weight": float(weight), "window": window})
+        audio = _affects_audio(lora.get("audio"), path, log_tag)
+        if not audio and LORA_OPTION_AUDIO not in supported_options:
+            raise ValueError(
+                f"[{log_tag or 'model_loader'}] LoRA {Path(str(path)).name} is set to leave the audio "
+                f"alone, but this model family cannot keep a LoRA out of its audio. Remove the "
+                f"'audio: false' setting from this LoRA."
+            )
+        entry = {"file_path": str(path), "weight": float(weight), "window": window}
+        if not audio:
+            entry["audio"] = False
+        out.append(entry)
     return out
 
 
@@ -224,7 +255,8 @@ def _entry_stamp(lora: Dict[str, Any]) -> str:
     """
     identity = file_identity(lora["file_path"])
     state = "?" if identity is None else f"{identity[1]}:{identity[2]}"
-    return f"{lora['file_path']}@{lora['weight']}#{state}"
+    audio = "" if lora.get("audio", True) else "~no-audio"
+    return f"{lora['file_path']}@{lora['weight']}#{state}{audio}"
 
 
 def lora_stack_fingerprint(loras: List[Dict[str, Any]]) -> str:
@@ -302,12 +334,14 @@ def describe_lora_stack(reports: Sequence[AdapterApplication]) -> str:
     source_mb = sum(r.source_bytes for r in reports) / (1024 ** 2)
     staged_mb = sum(r.staged_bytes for r in reports) / (1024 ** 2)
     devices = sorted({r.staged_device for r in reports if r.staged_device})
+    masked = sum(r.masked_params for r in reports)
     return (
         f"loras: {len(reports)} files, {source_mb:.1f} MB, "
         f"load {sum(r.load_seconds for r in reports):.2f}s, "
         f"apply {sum(r.apply_seconds for r in reports):.2f}s, "
         f"in-place {sum(r.inplace_params for r in reports)} / "
-        f"runtime {sum(r.runtime_params for r in reports)} linears, "
+        f"runtime {sum(r.runtime_params for r in reports)}"
+        f"{f' / row-masked {masked}' if masked else ''} linears, "
         f"delta tensors on {'+'.join(devices) or 'none'} ({staged_mb:.1f} MB)"
     )
 

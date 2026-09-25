@@ -28,9 +28,10 @@ import type { LoraPickerItem } from '$lib/types/models';
  * `setLoraStrength`, which carries the row's existing keys through unchanged,
  * so it can never be `strength === 0` that flips a row's disabled-ness - only
  * the toggle can. These helpers COPY the rest of the row rather than rebuilding
- * it from `{model, strength}`, because a row now carries settings that are
- * nothing to do with strength (`step_start`/`step_end` - see loraStepWindow.ts)
- * and moving a slider must not silently discard them.
+ * it from `{model, strength}`, because a row now carries preset-declared
+ * `row_fields` settings (e.g. Krea-2's `step_start`/`step_end`) that are
+ * nothing to do with strength, and moving a slider must not silently discard
+ * them.
  *
  * The remembered strength lives ON THE ROW ITSELF (`saved_strength`), not in
  * component state, so it survives a page reload - it round-trips through the
@@ -41,9 +42,9 @@ import type { LoraPickerItem } from '$lib/types/models';
  * a wholesale dict copy or `tojson`), so a key no template mentions is
  * invisible downstream, both in the pipe config and in the stored generation
  * record. `saved_strength` is such a key. `step_start`/`step_end` are NOT -
- * they are read by `LoraPicker.input()` (only when the field declares
- * `allow_step_window`) and forwarded by the Krea-2 pipelines into
- * `model_loader/krea2`, which is the whole point of them.
+ * they are read by `LoraPicker.input()` when the field declares them in
+ * `row_fields`, and forwarded by the Krea-2 pipelines into `model_loader/krea2`,
+ * which is the whole point of them.
  *
  * Residual note (not fixed here, backend-visible): a row parked at exactly
  * live strength 0 - enabled, mid-drag or deliberately - is still, on the

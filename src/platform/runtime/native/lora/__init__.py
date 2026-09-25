@@ -20,6 +20,15 @@ from .key_mapping import (
     build_minimax_h3_lora_key_map,
     map_lora_keys,
 )
+from .row_mask import (
+    FULL,
+    ROWS,
+    SKIP,
+    RowMaskTarget,
+    confine_bias_deltas,
+    lora_row_mask,
+    lora_row_window,
+)
 from .step_window import (
     WINDOW_KEYS,
     LoraStepWindow,
@@ -29,6 +38,13 @@ from .step_window import (
 )
 
 __all__ = [
+    "FULL",
+    "ROWS",
+    "SKIP",
+    "RowMaskTarget",
+    "confine_bias_deltas",
+    "lora_row_mask",
+    "lora_row_window",
     "AdapterApplication",
     "IgnoredContribution",
     "LoraDelta",

@@ -44,6 +44,13 @@ import torch.nn as nn
 from src.platform.observability.profiling import get_profiler
 from vendor.gpl.comfyui.ops import apply_lora_deltas
 from .key_mapping import LoraDelta, map_lora_keys
+from .row_mask import (
+    attach_masked_deltas,
+    keep_output_columns,
+    masked_delta_count,
+    row_mask_policy,
+    truncate_masked_deltas,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +151,7 @@ class AdapterApplication:
     staged_bytes: int = 0
     staged_device: "str | None" = None
     source_bytes: int = 0
+    masked_params: int = 0
     apply_seconds: float = field(default=0.0, compare=False)
     load_seconds: float = field(default=0.0, compare=False)
 
@@ -313,6 +321,7 @@ def _stage_runtime_deltas(
 def apply_loras(
     module: nn.Module,
     loras: list[tuple[dict[str, torch.Tensor], float]],
+    row_masked: "Optional[Sequence[bool]]" = None,
 ) -> tuple[int, list[str]]:
     """Apply a stack of LoRAs to ``module``.
 
@@ -326,7 +335,7 @@ def apply_loras(
     adapter apart from a working one in the same stack calls
     :func:`apply_loras_with_report` instead.
     """
-    patched, unmatched, _reports = apply_loras_with_report(module, loras)
+    patched, unmatched, _reports = apply_loras_with_report(module, loras, row_masked=row_masked)
     return patched, unmatched
 
 
@@ -334,6 +343,7 @@ def apply_loras_with_report(
     module: nn.Module,
     loras: list[tuple[dict[str, torch.Tensor], float]],
     names: "Optional[Sequence[str]]" = None,
+    row_masked: "Optional[Sequence[bool]]" = None,
 ) -> tuple[int, list[str], list[AdapterApplication]]:
     """Apply a stack of LoRAs to ``module``, like :func:`apply_loras`, plus a
     per-file :class:`AdapterApplication` report in the same order as ``loras``.
@@ -350,9 +360,11 @@ def apply_loras_with_report(
     # see _ScratchPool's docstring for why this, not per-Linear allocation,
     # is what actually fixes the host-RAM fragmentation.
     pool = _ScratchPool()
+    policy = row_mask_policy(module) if row_masked is not None and any(row_masked) else None
 
     for index, (lora_sd, strength) in enumerate(loras):
         source = names[index] if names is not None and index < len(names) else f"adapter[{index}]"
+        masked = policy is not None and index < len(row_masked) and bool(row_masked[index])
         started = time.perf_counter()
         mapped, unmatched = map_lora_keys(lora_sd, module)
         ignored = _dora_scale_contributions(lora_sd)
@@ -360,6 +372,8 @@ def apply_loras_with_report(
         file_matched: set[str] = set()
         inplace_targets = 0
         runtime_targets = 0
+        masked_targets = 0
+        masked_out = 0
         staged_bytes = 0
         staged_device: "str | None" = None
         for param_name, deltas in mapped.items():
@@ -374,7 +388,20 @@ def apply_loras_with_report(
                           kron=d.kron)
                 for d in deltas
             ]
-            if _needs_runtime_deltas(linear):
+            target = policy(param_name[: -len(".weight")]) if masked else None
+            if target is not None and target.keep_columns is not None:
+                scaled = keep_output_columns(scaled, target.keep_columns)
+            if target is not None and (target.mode == "skip" or not scaled):
+                masked_out += 1
+                continue
+            if target is not None and target.mode == "rows":
+                device = _runtime_delta_device(linear)
+                scaled, nbytes = _stage_runtime_deltas(scaled, device)
+                staged_bytes += nbytes
+                staged_device = str(device)
+                attach_masked_deltas(linear, scaled)
+                masked_targets += 1
+            elif _needs_runtime_deltas(linear):
                 device = _runtime_delta_device(linear)
                 scaled, nbytes = _stage_runtime_deltas(scaled, device)
                 staged_bytes += nbytes
@@ -391,6 +418,8 @@ def apply_loras_with_report(
 
         elapsed = time.perf_counter() - started
         all_unmatched.extend(file_unmatched)
+        if masked_out:
+            ignored = ignored + (IgnoredContribution(kind="row_masked_out", count=masked_out),)
         reports.append(AdapterApplication(
             source=source,
             matched_params=len(file_matched),
@@ -401,13 +430,14 @@ def apply_loras_with_report(
             runtime_params=runtime_targets,
             staged_bytes=staged_bytes,
             staged_device=staged_device,
+            masked_params=masked_targets,
             apply_seconds=elapsed,
         ))
         get_profiler().mark(
             "lora.apply", source=source, seconds=elapsed,
             matched_params=len(file_matched), unmatched_keys=len(file_unmatched),
             inplace_params=inplace_targets, runtime_params=runtime_targets,
-            staged_mb=staged_bytes / (1024 ** 2), staged_device=staged_device,
+            masked_params=masked_targets, staged_mb=staged_bytes / (1024 ** 2), staged_device=staged_device,
         )
 
     return len(patched_params), all_unmatched, reports
@@ -517,6 +547,7 @@ def remove_loras(module: nn.Module) -> None:
     for _, sub in module.named_modules():
         if getattr(sub, "lora_deltas", None):
             sub.lora_deltas = None
+        truncate_masked_deltas(sub, None)
 
         record = getattr(sub, _INPLACE_ATTR, None)
         if record:
@@ -538,22 +569,23 @@ def remove_loras(module: nn.Module) -> None:
             delattr(sub, _INPLACE_ATTR)
 
 
-def _snapshot_linear_states(module: nn.Module) -> List[Tuple[nn.Module, "int | None", "int | None"]]:
+def _snapshot_linear_states(module: nn.Module) -> List[Tuple[nn.Module, "int | None", "int | None", "int | None"]]:
     """Per-``Linear`` ``(sub, resident_len, inplace_record_len)`` before an
     :func:`apply_loras` call, so :func:`_restore_linear_states` can undo only
     what THAT call adds (``None`` = the attribute was unset/empty beforehand)."""
-    states: List[Tuple[nn.Module, "int | None", "int | None"]] = []
+    states: List[Tuple[nn.Module, "int | None", "int | None", "int | None"]] = []
     for _, sub in module.named_modules():
         if not isinstance(sub, nn.Linear):
             continue
         deltas = getattr(sub, "lora_deltas", None)
         record = getattr(sub, _INPLACE_ATTR, None)
-        states.append((sub, len(deltas) if deltas else None, len(record) if record else None))
+        states.append((sub, len(deltas) if deltas else None, len(record) if record else None,
+                       masked_delta_count(sub)))
     return states
 
 
 def _restore_linear_states(
-    states: List[Tuple[nn.Module, "int | None", "int | None"]],
+    states: List[Tuple[nn.Module, "int | None", "int | None", "int | None"]],
 ) -> None:
     """Undo exactly the tail entries a snapshotted :func:`apply_loras` call
     added, per ``sub`` -- resident ``lora_deltas`` are truncated back (list
@@ -564,10 +596,11 @@ def _restore_linear_states(
     LoRA already resident/baked on ``sub`` before the snapshot survives
     untouched."""
     pool = _ScratchPool()
-    for sub, deltas_len, record_len in states:
+    for sub, deltas_len, record_len, masked_len in states:
         deltas = getattr(sub, "lora_deltas", None)
         if deltas is not None:
             sub.lora_deltas = deltas[:deltas_len] if deltas_len else None
+        truncate_masked_deltas(sub, masked_len)
 
         record = getattr(sub, _INPLACE_ATTR, None)
         if record is None:
@@ -595,7 +628,7 @@ def _restore_linear_states(
 
 
 #: Opaque per-``Linear`` LoRA state captured by :func:`snapshot_lora_state`.
-LoraStateSnapshot = List[Tuple[nn.Module, "int | None", "int | None"]]
+LoraStateSnapshot = List[Tuple[nn.Module, "int | None", "int | None", "int | None"]]
 
 
 def snapshot_lora_state(module: nn.Module) -> LoraStateSnapshot:

@@ -565,7 +565,7 @@ def test_runtime_loras_are_staged_before_dit_placement_so_the_budget_sees_them()
     progress = ProgressEmitter([].append, title="test")
 
     with patch(f"{_MAIN}.snapshot_lora_state", side_effect=lambda m: calls.append("snapshot_lora_state") or "snap"), \
-         patch(f"{_MAIN}.apply_loras", side_effect=lambda m, loras: calls.append("apply_loras")), \
+         patch(f"{_MAIN}.apply_loras", side_effect=lambda m, loras, row_masked=None: calls.append("apply_loras")), \
          patch(f"{_MAIN}.place_dit_for_sequence",
                side_effect=lambda *a, **k: calls.append("place_dit_for_sequence") or DitPlacementDecision(
                    "cpu", 0.0, 0.0, 0.0, 0, 0)), \
@@ -573,6 +573,37 @@ def test_runtime_loras_are_staged_before_dit_placement_so_the_budget_sees_them()
         pipe.generate_one(ctx, 0, 7, progress)
 
     assert calls == ["snapshot_lora_state", "apply_loras", "place_dit_for_sequence"]
+    mock_restore.assert_called_once_with("snap")
+
+
+def test_runtime_loras_carry_the_audio_flag_into_the_context():
+    pipe = GeneratorMinimaxH3Pipe({
+        **GeneratorMinimaxH3Pipe.get_default_config(),
+        "runtime_loras": [
+            {"file_path": "/fake/style.safetensors", "weight": 0.8, "audio": False},
+            {"file_path": "/fake/turbo.safetensors", "weight": 1.0},
+        ],
+    })
+    with patch(f"{_MAIN}._load_lora_stack") as mock_load:
+        mock_load.return_value = [({"a": torch.zeros(1)}, 0.8), ({"b": torch.zeros(1)}, 1.0)]
+        ctx = pipe.build_context(_pipe_input(model=_fake_bundle(), conditioning=[_fake_conditioning(3)]))
+    assert ctx.extra.runtime_lora_masked == [True, False]
+
+
+def test_runtime_loras_apply_with_their_row_masks():
+    stack = [({"fake.key": torch.zeros(1)}, 0.8)]
+    _, ctx = _residency_bundle_and_ctx(runtime_lora_stack=stack)
+    ctx.extra.runtime_lora_masked = [True]
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    with patch(f"{_MAIN}.snapshot_lora_state", return_value="snap"), \
+         patch(f"{_MAIN}.apply_loras") as mock_apply, \
+         patch(f"{_MAIN}.restore_lora_state") as mock_restore:
+        pipe.generate_one(ctx, 0, 7, progress)
+
+    mock_apply.assert_called_once_with(ctx.extra.bundle.dit.module, stack, row_masked=[True])
     mock_restore.assert_called_once_with("snap")
 
 

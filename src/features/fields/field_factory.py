@@ -126,6 +126,9 @@ class FieldFactory:
             return self._default_field
         return self._get_or_create(definition.schema_cls)
 
+    def field_impl_for(self, field_type: str) -> BaseField:
+        return self._field_impl_for(field_type)
+
     def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
         """Map a field using the appropriate field implementation"""
         field_type = self._get_field_type(field)

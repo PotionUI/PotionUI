@@ -59,6 +59,7 @@ from src.pipelines.contracts import (
 from src.pipelines.pipes._shared.generation.loader_base import BaseModelLoaderPipe
 from src.pipelines.pipes._shared.generation.loader_helpers import (
     ComponentProgress,
+    LORA_OPTION_STEP_WINDOW as _LORA_OPTION_STEP_WINDOW,
     active_loras as _active_loras,
     apply_loras_to as _apply_loras_to,
     lora_stack_fingerprint as _lora_stack_fingerprint,
@@ -158,7 +159,7 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
 
     def _loras(self) -> List[Dict[str, Any]]:
         """Active LoRA entries, step windows permitted (see ``process``)."""
-        return _active_loras(self.config.get("loras"), step_windows=True, log_tag=_LOG_TAG)
+        return _active_loras(self.config.get("loras"), supported_options={_LORA_OPTION_STEP_WINDOW}, log_tag=_LOG_TAG)
 
     def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
         self.validate()

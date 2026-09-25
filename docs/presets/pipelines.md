@@ -254,8 +254,9 @@ Some distilled LoRAs require this. `F16/krea2-turbo-sda` states it "must only be
 first 2 of the 8 denoise steps, then switched off" — leaving it on for all 8 is a documented quality
 collapse, not a mild approximation.
 
-The form side is the `lora_picker` field's `allow_step_window: true` (see above), which turns on a
-per-row control writing `item.step_start` / `item.step_end`; the pipeline forwards them:
+The form side is the `lora_picker` field's `row_fields` (see above), declaring `step_start`/
+`step_end` as `number` fields; the row's values land on `item.step_start` / `item.step_end`
+exactly as any other row_fields value does, and the pipeline forwards them:
 
 ```yaml
 - name: "model_loader/krea2"

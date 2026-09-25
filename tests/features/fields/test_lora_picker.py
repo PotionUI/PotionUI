@@ -190,64 +190,76 @@ class TestLoraPickerField(unittest.TestCase):
         result = self.field.input('loras', value, validation_rules)
         self.assertEqual(len(result), 20)
 
-    # --- step windows ---
 
-    WINDOWED = {'allow_step_window': True}
+    STEP_ROW_FIELDS = {
+        'row_fields': [
+            {'name': 'step_start', 'type': 'number', 'label': 'From step', 'default': None},
+            {'name': 'step_end', 'type': 'number', 'label': 'To step', 'default': None},
+        ]
+    }
 
-    def test_input_keeps_a_step_window_when_the_field_offers_one(self):
+    def test_input_keeps_a_declared_row_field_value(self):
         value = [{'model': 'turbo-sda.safetensors', 'strength': 1.0, 'step_start': 1, 'step_end': 2}]
-        result = self.field.input('loras', value, self.WINDOWED)
+        result = self.field.input('loras', value, self.STEP_ROW_FIELDS)
         self.assertEqual(result, [{'model': 'turbo-sda.safetensors', 'strength': 1.0,
                                    'step_start': 1, 'step_end': 2}])
 
-    def test_input_keeps_a_half_open_window(self):
-        result = self.field.input('loras', [{'model': 'a.safetensors', 'strength': 1.0, 'step_end': 2}],
-                                  self.WINDOWED)
-        self.assertEqual(result, [{'model': 'a.safetensors', 'strength': 1.0, 'step_end': 2}])
+    def test_input_fills_a_missing_row_field_with_its_declared_default(self):
+        value = [{'model': 'a.safetensors', 'strength': 1.0, 'step_end': 2}]
+        result = self.field.input('loras', value, self.STEP_ROW_FIELDS)
+        self.assertEqual(result, [{'model': 'a.safetensors', 'strength': 1.0,
+                                   'step_start': None, 'step_end': 2}])
 
-    def test_input_coerces_string_step_bounds(self):
-        """Form JSON can deliver the numbers as strings."""
-        result = self.field.input('loras', [{'model': 'a.safetensors', 'strength': 1.0,
-                                             'step_start': '1', 'step_end': '2'}], self.WINDOWED)
-        self.assertEqual(result[0]['step_start'], 1)
-        self.assertEqual(result[0]['step_end'], 2)
-
-    def test_input_treats_blank_and_none_bounds_as_unwindowed(self):
-        for bounds in ({'step_start': None, 'step_end': None}, {'step_start': '', 'step_end': '  '}):
-            with self.subTest(bounds=bounds):
-                result = self.field.input('loras', [{'model': 'a.safetensors', 'strength': 1.0, **bounds}],
-                                          self.WINDOWED)
-                self.assertEqual(result, [{'model': 'a.safetensors', 'strength': 1.0}])
-
-    def test_input_drops_step_bounds_when_the_field_does_not_offer_them(self):
-        """A form without the control cannot legitimately have produced them, and
-        the families behind such a form reject a windowed entry anyway."""
+    def test_input_drops_row_fields_the_field_does_not_declare(self):
         value = [{'model': 'a.safetensors', 'strength': 1.0, 'step_start': 1, 'step_end': 2}]
         self.assertEqual(self.field.input('loras', value), [{'model': 'a.safetensors', 'strength': 1.0}])
 
-    def test_input_rejects_a_zero_or_negative_step(self):
-        for bad in (0, -3):
-            with self.subTest(bad=bad):
-                with self.assertRaisesRegex(ValueError, '1-based'):
-                    self.field.input('loras', [{'model': 'a.safetensors', 'strength': 1.0,
-                                                'step_start': bad}], self.WINDOWED)
+    def test_input_row_field_without_a_field_factory_passes_through_unvalidated(self):
+        value = [{'model': 'a.safetensors', 'strength': 1.0, 'step_end': 'two'}]
+        result = self.field.input('loras', value, self.STEP_ROW_FIELDS)
+        self.assertEqual(result[0]['step_end'], 'two')
 
-    def test_input_rejects_a_non_numeric_step(self):
-        with self.assertRaisesRegex(ValueError, 'step_end'):
-            self.field.input('loras', [{'model': 'a.safetensors', 'strength': 1.0,
-                                        'step_end': 'two'}], self.WINDOWED)
+    def test_input_row_field_runs_through_its_own_registered_input(self):
+        from src.features.fields.field_factory import FieldFactory
+        from src.features.fields.lora_picker import LoraPicker
 
-    def test_input_rejects_an_inverted_window(self):
-        with self.assertRaisesRegex(ValueError, 'permanently off'):
-            self.field.input('loras', [{'model': 'a.safetensors', 'strength': 1.0,
-                                        'step_start': 5, 'step_end': 2}], self.WINDOWED)
+        factory = FieldFactory(Mock())
+        field = LoraPicker(Mock(), field_factory=factory)
+        row_fields = {'row_fields': [
+            {'name': 'audio', 'type': 'checkbox', 'label': 'Affects audio', 'default': True},
+        ]}
 
-    def test_output_advertises_step_window_support(self):
-        base = {'type': 'lora_picker', 'name': 'loras', 'label': 'LoRAs'}
-        off = self.field.output({**base, 'configuration': {}})
-        on = self.field.output({**base, 'configuration': {'allow_step_window': True}})
-        self.assertFalse(off['configuration']['allow_step_window'])
-        self.assertTrue(on['configuration']['allow_step_window'])
+        value = [{'model': 'a.safetensors', 'strength': 1.0, 'audio': False}]
+        result = field.input('loras', value, row_fields)
+        self.assertEqual(result, [{'model': 'a.safetensors', 'strength': 1.0, 'audio': False}])
+
+        value_default = [{'model': 'a.safetensors', 'strength': 1.0}]
+        result_default = field.input('loras', value_default, row_fields)
+        self.assertEqual(result_default, [{'model': 'a.safetensors', 'strength': 1.0, 'audio': True}])
+
+    def test_output_maps_row_fields_through_the_field_factory(self):
+        from src.features.fields.field_factory import FieldFactory
+        from src.features.fields.lora_picker import LoraPicker
+
+        factory = FieldFactory(Mock())
+        field = LoraPicker(Mock(), field_factory=factory)
+        schema = field.output({
+            'type': 'lora_picker',
+            'name': 'loras',
+            'label': 'LoRAs',
+            'configuration': {'row_fields': [
+                {'name': 'step_start', 'type': 'number', 'label': 'From step', 'default': None},
+            ]},
+        })
+
+        [row_field_schema] = schema['configuration']['row_fields']
+        self.assertEqual(row_field_schema['name'], 'step_start')
+        self.assertEqual(row_field_schema['type'], 'number')
+        self.assertEqual(row_field_schema['title'], 'From step')
+
+    def test_output_row_fields_default_to_empty(self):
+        schema = self.field.output({'type': 'lora_picker', 'name': 'loras', 'configuration': {}})
+        self.assertEqual(schema['configuration']['row_fields'], [])
 
     # --- classmethod specs ---
 

@@ -69,6 +69,7 @@ pipeline:
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
+            audio: "{{ item.audio | default(true) }}"
 
   #############
   ## Keyframes (fl2va), single-shot Video Director documents only. ONE loader
@@ -329,6 +330,7 @@ pipeline:
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
+            audio: "{{ item.audio | default(true) }}"
 
   #############
   ## Enhance: stage-1 latent -> latent_upscaler -> stage-2 refine, same

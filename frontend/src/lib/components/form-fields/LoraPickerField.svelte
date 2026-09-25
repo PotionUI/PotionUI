@@ -23,7 +23,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
 	import { Button, IconButton, Switch } from '$lib/components/ui';
-	import type { Model as ModelBase, LoraPickerItem } from '$lib/types/models';
+	import type { Model as ModelBase, LoraPickerItem, LoraPickerRowFieldSchema } from '$lib/types/models';
 	import {
 		refFor,
 		matchesStoredValue,
@@ -42,16 +42,8 @@
 		formatStrength
 	} from '$lib/utils/loraStrength';
 	import { formatRange, normalizeRange, strengthWithinRange } from '$lib/utils/attributeRange';
-	import {
-		clearStepWindow,
-		describeStepWindow,
-		hasStepWindow,
-		parseStepInput,
-		setStepBound,
-		stepBound,
-		type StepBound
-	} from '$lib/utils/loraStepWindow';
 	import { moveItem, dropIndexFor } from '$lib/utils/reorder';
+	import FieldChildren from './FieldChildren.svelte';
 	import { LORA_STRENGTH_KEY, TRIGGERS_KEY } from '$lib/constants/modelMetadata';
 
 	// `file_path` can now be null (a model that exists only on a remote engine
@@ -80,11 +72,7 @@
 	$: allowInfoModal = fieldConfig.allow_info_modal !== false;
 	$: showTriggers = fieldConfig.show_triggers !== false;
 	$: allowTagFilters = fieldConfig.allow_tag_filters !== false;
-	// Opt-IN, unlike the flags above: only a preset whose model family can
-	// actually toggle a LoRA mid-sampling sets this. Families that bake LoRAs at
-	// load time reject a windowed entry outright, so offering the control there
-	// would build a form that can only fail.
-	$: allowStepWindow = fieldConfig.allow_step_window === true;
+	$: rowFieldSchemas = (Array.isArray(fieldConfig.row_fields) ? fieldConfig.row_fields : []) as LoraPickerRowFieldSchema[];
 	$: modelType = fieldConfig.model_type || 'lora';
 	// `preset_id` lives on the outer field config (see CarouselField for the
 	// same convention) - when present, options are sourced from this preset's
@@ -332,7 +320,7 @@
 
 	function openSwitch(index: number) {
 		closeSearch();
-		stepWindowIndex = null;
+		rowConfigIndex = null;
 		switchingIndex = switchingIndex === index ? null : index;
 		switchSearchQuery = '';
 	}
@@ -467,8 +455,7 @@
 		// `editingIndex` is a plain index into `rows` and has no way to know
 		// its row just moved.
 		editingIndex = null;
-		stepWindowIndex = null;
-		stepEditKey = null;
+		rowConfigIndex = null;
 		emit(moveItem(rows, from, dropIndexFor(from, index, position)));
 	}
 
@@ -478,8 +465,7 @@
 		if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
 		event.preventDefault();
 		editingIndex = null;
-		stepWindowIndex = null;
-		stepEditKey = null;
+		rowConfigIndex = null;
 		closeSwitch();
 		const target = event.key === 'ArrowUp' ? index - 1 : index + 1;
 		emit(moveItem(rows, index, target));
@@ -542,56 +528,27 @@
 		}
 	}
 
-	// --- Step window (advanced, per row) ---
-	// One row's panel open at a time, mirroring `switchingIndex`. The bounds
-	// commit on blur/Enter like the strength box rather than on every keystroke,
-	// so typing "12" doesn't briefly emit a window of "1".
-	let stepWindowIndex: number | null = null;
-	let stepEditKey: string | null = null;
-	let stepEditText = '';
+	let rowConfigIndex: number | null = null;
 
-	// Declared here (typed) rather than inlined in the `{#each}` so the loop
-	// variable arrives as a `StepBound` instead of a widened string.
-	const STEP_BOUNDS: [StepBound, string][] = [
-		['step_start', 'From step'],
-		['step_end', 'To step']
-	];
-
-	function toggleStepWindowPanel(index: number) {
+	function toggleRowConfigPanel(index: number) {
 		closeSwitch();
-		stepWindowIndex = stepWindowIndex === index ? null : index;
-		stepEditKey = null;
+		rowConfigIndex = rowConfigIndex === index ? null : index;
 	}
 
-	function focusStepEdit(index: number, bound: StepBound, current: number | null) {
-		stepEditKey = `${index}:${bound}`;
-		stepEditText = current === null ? '' : String(current);
+	function updateRowField(index: number, fieldName: string, value: unknown) {
+		emit(rows.map((r, i) => (i === index ? { ...r, [fieldName]: value } : r)));
 	}
 
-	function inputStepEdit(event: Event) {
-		stepEditText = (event.target as HTMLInputElement).value;
+	function rowDiffersFromDefaults(row: LoraPickerItem): boolean {
+		return rowFieldSchemas.some((schema) => (row[schema.name] ?? schema.default) !== schema.default);
 	}
 
-	function commitStepEdit(index: number, bound: StepBound) {
-		if (stepEditKey !== `${index}:${bound}`) return;
-		stepEditKey = null;
-		const parsed = parseStepInput(stepEditText);
-		if (parsed === undefined) return; // non-numeric reverts (no mutation)
-		emit(rows.map((r, i) => (i === index ? setStepBound(r, bound, parsed) : r)));
-	}
-
-	function handleStepEditKeydown(event: KeyboardEvent, index: number, bound: StepBound) {
-		if (event.key === 'Enter') {
-			(event.target as HTMLInputElement).blur();
-		} else if (event.key === 'Escape') {
-			stepEditKey = null; // revert - the blur below no-ops since the key no longer matches
-			(event.target as HTMLInputElement).blur();
+	function rowWithDefaults(row: LoraPickerItem): LoraPickerItem {
+		const merged = { ...row };
+		for (const schema of rowFieldSchemas) {
+			if (merged[schema.name] === undefined) merged[schema.name] = schema.default;
 		}
-	}
-
-	function clearRowStepWindow(index: number) {
-		stepEditKey = null;
-		emit(rows.map((r, i) => (i === index ? clearStepWindow(r) : r)));
+		return merged;
 	}
 
 	function handleOpenDetails(rowModelRef: string) {
@@ -863,13 +820,6 @@
 												</Tooltip>
 											{/if}
 										{/if}
-										{#if allowStepWindow && hasStepWindow(row)}
-											<Tooltip text="Applied only inside this step range" position="top">
-												<div class="mt-0.5 w-fit rounded border border-signal/25 bg-signal/10 px-1.5 py-0.5 font-mono text-2xs tabular-nums text-signal">
-													{describeStepWindow(row)}
-												</div>
-											</Tooltip>
-										{/if}
 										{#if model}
 											<div class="mt-1 flex min-w-0 items-center gap-1 overflow-hidden">
 												{#each summaryParts(model) as part, partIndex}
@@ -980,16 +930,24 @@
 											</button>
 										</Tooltip>
 									{/if}
-									{#if allowStepWindow}
-										<Tooltip text="Step window" position="top">
-											<IconButton
-												icon="sliders"
-												label="Step window"
-												size="sm"
-												active={stepWindowIndex === index || hasStepWindow(row)}
-												onclick={() => toggleStepWindowPanel(index)}
-											/>
-										</Tooltip>
+									{#if rowFieldSchemas.length > 0}
+										<div class="relative">
+											<Tooltip text="Configuration" position="top">
+												<IconButton
+													icon="settings"
+													label="Configuration"
+													size="sm"
+													active={rowConfigIndex === index}
+													onclick={() => toggleRowConfigPanel(index)}
+												/>
+											</Tooltip>
+											{#if rowDiffersFromDefaults(row)}
+												<span
+													class="lora-row-config-marker absolute top-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-signal"
+													aria-hidden="true"
+												></span>
+											{/if}
+										</div>
 									{/if}
 									<Tooltip text="Switch LoRA model" position="top">
 										<IconButton
@@ -1018,51 +976,16 @@
 						</div>
 					</div>
 
-					<!-- Step window and trigger chips span the full card width below the thumbnail row -
-					     inside the name/strength column they lost the thumbnail's 56px on every line.
-					     Step window (advanced): apply this LoRA only between two steps.
-					     Both bounds are 1-based and inclusive; an empty box means "no bound"
-					     on that side, and clearing both returns the row to the ordinary
-					     always-on behaviour. -->
-					{#if allowStepWindow && stepWindowIndex === index}
+					{#if rowFieldSchemas.length > 0 && rowConfigIndex === index}
 						<div class="mt-2 rounded border border-line bg-surface-1 p-2">
-							<div class="flex items-center justify-between gap-2">
-								<span class="text-2xs uppercase tracking-wide text-fg-subtle">Step window</span>
-								{#if hasStepWindow(row)}
-									<button
-										type="button"
-										class="text-2xs text-fg-muted transition-colors hover:text-fg"
-										on:click={() => clearRowStepWindow(index)}
-									>
-										Clear
-									</button>
-								{/if}
+							<span class="text-2xs uppercase tracking-wide text-fg-subtle">Configuration</span>
+							<div class="mt-1.5 flex flex-col gap-2">
+								<FieldChildren
+									children={rowFieldSchemas}
+									value={rowWithDefaults(row)}
+									onChange={(fieldName, value) => updateRowField(index, fieldName, value)}
+								/>
 							</div>
-							<div class="mt-1.5 flex items-center gap-3">
-								{#each STEP_BOUNDS as [bound, boundLabel] (bound)}
-									{@const current = stepBound(row, bound)}
-									<label class="flex items-center gap-1.5 text-2xs text-fg-muted">
-										{boundLabel}
-										<input
-											type="text"
-											inputmode="numeric"
-											autocomplete="off"
-											class="w-12 rounded border border-line bg-surface-3/40 px-1 py-0.5 text-right font-mono text-xs tabular-nums text-fg transition-colors hover:border-line-hover focus:border-line-strong focus:bg-surface-3 focus:outline-none"
-											placeholder={bound === 'step_start' ? '1' : 'end'}
-											value={stepEditKey === `${index}:${bound}` ? stepEditText : (current ?? '')}
-											on:focus={() => focusStepEdit(index, bound, current)}
-											on:input={inputStepEdit}
-											on:blur={() => commitStepEdit(index, bound)}
-											on:keydown={(e) => handleStepEditKeydown(e, index, bound)}
-										/>
-									</label>
-								{/each}
-							</div>
-							<p class="mt-1.5 text-2xs text-fg-subtle">
-								Steps count from 1 and both ends are included. Leave a box empty for no bound
-								on that side. Some distilled LoRAs must switch off early — check the model's
-								own notes.
-							</p>
 						</div>
 					{/if}
 

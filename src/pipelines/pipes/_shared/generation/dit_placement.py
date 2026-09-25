@@ -424,11 +424,12 @@ def _dit_lora_profile(dit: Any) -> DitLoraProfile:
     output_buffer_out_features = 0
     weight_side_bytes = 0
     for m in walk():
-        deltas = getattr(m, "lora_deltas", None)
-        if not deltas:
+        deltas = getattr(m, "lora_deltas", None) or []
+        masked = getattr(m, "lora_masked_deltas", None) or []
+        if not deltas and not masked:
             continue
         active = True
-        for delta in deltas:
+        for delta in [*deltas, *masked]:
             for tensor in (getattr(delta, "down", None), getattr(delta, "up", None)):
                 if isinstance(tensor, torch.Tensor):
                     delta_bytes += tensor.numel() * tensor.element_size()
@@ -439,7 +440,7 @@ def _dit_lora_profile(dit: Any) -> DitLoraProfile:
         output_side, weight_side = partition_output_branch_deltas(deltas, out_features)
         if output_side and _linear_takes_gemm_fast_path(m):
             output_buffer_out_features = max(output_buffer_out_features, out_features)
-        if weight_side and in_features:
+        if (weight_side or any(getattr(d, "kron", False) for d in masked)) and in_features:
             weight_side_bytes = max(
                 weight_side_bytes,
                 _LORA_WEIGHT_SIDE_ALLOCATIONS * out_features * in_features * _COMPUTE_DTYPE_BYTES,

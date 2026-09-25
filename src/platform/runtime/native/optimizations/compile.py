@@ -157,7 +157,8 @@ def _quantized(module: nn.Module) -> bool:
 
 def _has_runtime_lora(module: nn.Module) -> bool:
     return any(
-        isinstance(m, CastWeightBiasOp) and getattr(m, "lora_deltas", None)
+        (isinstance(m, CastWeightBiasOp) and getattr(m, "lora_deltas", None))
+        or getattr(m, "lora_masked_deltas", None)
         for m in module.modules()
     )
 

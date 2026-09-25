@@ -52,6 +52,7 @@ from src.pipelines.contracts import (
 from src.pipelines.pipes._shared.generation.loader_base import BaseModelLoaderPipe
 from src.pipelines.pipes._shared.generation.loader_helpers import (
     ComponentProgress,
+    LORA_OPTION_AUDIO as _LORA_OPTION_AUDIO,
     active_loras as _active_loras,
     lora_stack_fingerprint as _lora_stack_fingerprint,
     path_of as _path_of,
@@ -172,7 +173,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             cfg = self.config.get(key)
             if _path_of(cfg):
                 out.append(ModelGenerationOutput(name=cfg.get("name") or Path(_path_of(cfg)).stem, type=mtype))
-        for lora in _active_loras(self.config.get("loras")):
+        for lora in _active_loras(self.config.get("loras"), supported_options={_LORA_OPTION_AUDIO}):
             out.append(ModelGenerationOutput(name=Path(lora["file_path"]).stem, type="lora", weight=lora["weight"]))
         return out
 
@@ -191,7 +192,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
 
         device = self.config.get("device", "cuda")
         dtype = self.config.get("dtype", "bfloat16")
-        loras = _active_loras(self.config.get("loras"))
+        loras = _active_loras(self.config.get("loras"), supported_options={_LORA_OPTION_AUDIO})
         vram_gb = self._vram_budget(pipe_input)
         loader = NativeEngineLoader(device=device, vram_gb=vram_gb)
 

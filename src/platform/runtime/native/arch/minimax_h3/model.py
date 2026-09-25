@@ -72,11 +72,22 @@ from ...attention import attention as _dispatch_attention
 _fallback_sdpa = F.scaled_dot_product_attention
 from ...base import NativeArchModule
 from ...cache_identity import identity_usable, tensor_identity
+from ...lora.row_mask import FULL, ROWS, SKIP, RowMaskTarget, lora_row_mask, lora_row_window
 from ...sampling.step_cache import GroupedProbe
 from ...sla_attn import SlaAttnContext
 from ...sol_attn import SolAttnContext
 from ...sparse_attn import sparse_attention
-from .config import MINIMAX_H3_MODALITY_NUM, MiniMaxH3Config
+from .config import MINIMAX_H3_AUDIO_MODALITY, MINIMAX_H3_MODALITY_NUM, MiniMaxH3Config
+
+_ROW_MASKED_BLOCK_LINEARS = frozenset({
+    "attn.qkv_proj",
+    "attn.out_proj",
+    "attn.to_gate_compress",
+    "attn.linear.softmax_gate.up",
+    "mlp.fc1",
+    "mlp.fc2",
+})
+_AUDIO_ONLY_LINEARS = frozenset({"audio_patch_proj", "final_layer.audio_out", "final_layer.adaln_proj.linear"})
 
 
 def _cached_tensor_bytes(value: tuple[Tensor, Tensor] | None) -> int:
@@ -295,7 +306,13 @@ class MiniMaxH3Attention(nn.Module):
             # Released the moment the `with` block exits, before the caller's
             # next op runs.
             with self.out_proj.prepared_linear(out) as proj:
-                return torch.cat([proj(c) for c in out.split(seq_chunk_rows, dim=1)], dim=1)
+                chunks = []
+                start = 0
+                for c in out.split(seq_chunk_rows, dim=1):
+                    with lora_row_window(start, c.shape[1]):
+                        chunks.append(proj(c))
+                    start += c.shape[1]
+                return torch.cat(chunks, dim=1)
         return self.out_proj(out)
 
     def _chunked_qkv(self, x: Tensor, rotary_emb: tuple[Tensor, Tensor] | None,
@@ -327,7 +344,8 @@ class MiniMaxH3Attention(nn.Module):
         with self.qkv_proj.prepared_linear(x) as proj:
             for x_chunk in x.split(chunk_rows, dim=1):
                 n = x_chunk.shape[1]
-                q_c, k_c, v_c = proj(x_chunk).chunk(3, dim=-1)
+                with lora_row_window(start, n):
+                    q_c, k_c, v_c = proj(x_chunk).chunk(3, dim=-1)
                 q_c = self.q_norm(q_c.view(b, n, self.heads, self.head_dim))
                 k_c = self.k_norm(k_c.view(b, n, self.heads, self.head_dim))
                 v_c = v_c.view(b, n, self.heads, self.head_dim)
@@ -366,9 +384,12 @@ class MiniMaxH3MLP(nn.Module):
             # output only ever exists chunk-sized -- fc1/fc2 are per-row
             # linears, exact under chunking regardless of a ragged tail.
             chunks = []
+            start = 0
             for x_chunk in x.split(seq_chunk_rows, dim=-2):
-                gate, value = self.fc1(x_chunk).chunk(2, dim=-1)
-                chunks.append(self.fc2(F.silu(gate) * value))
+                with lora_row_window(start, x_chunk.shape[-2]):
+                    gate, value = self.fc1(x_chunk).chunk(2, dim=-1)
+                    chunks.append(self.fc2(F.silu(gate) * value))
+                start += x_chunk.shape[-2]
             return torch.cat(chunks, dim=-2)
         gate, value = self.fc1(x).chunk(2, dim=-1)
         return self.fc2(F.silu(gate) * value)
@@ -603,6 +624,23 @@ class MiniMaxH3Model(NativeArchModule):
         self._pe_cache_key: tuple | None = None
         self._pe_cache: tuple[Tensor, Tensor] | None = None
         self._pe_cache_sources: tuple[Tensor, Tensor] | None = None
+
+    def lora_row_mask_target(self, stem: str) -> RowMaskTarget:
+        if stem in _AUDIO_ONLY_LINEARS or stem.startswith("time_embedder."):
+            return SKIP
+        parts = stem.split(".")
+        if parts[0] != "blocks" or len(parts) < 3:
+            return FULL
+        tail = ".".join(parts[2:])
+        if tail in _ROW_MASKED_BLOCK_LINEARS:
+            return ROWS
+        if tail == "adaln_proj.linear":
+            adaln = self.blocks[int(parts[1])].adaln_proj
+            width = adaln.expand * adaln.hidden_size
+            keep = torch.ones(width * adaln.modalities, dtype=torch.bool)
+            keep[MINIMAX_H3_AUDIO_MODALITY * width:(MINIMAX_H3_AUDIO_MODALITY + 1) * width] = False
+            return RowMaskTarget("full", keep_columns=keep)
+        return FULL
 
     def release_derived_caches(self) -> int:
         """Drop the per-generation RoPE cos/sin cache; return its released byte count.
@@ -976,12 +1014,15 @@ class MiniMaxH3Model(NativeArchModule):
                 )
         num_condition_video_rows = int(kwargs.pop("num_condition_video_rows", 0))
         num_condition_audio_rows = int(kwargs.pop("num_condition_audio_rows", 0))
-        packed, probe, skipped = self._process_transformer_blocks(
-            packed, temb, adaln_indices, rotary_emb,
-            video_indices[num_condition_video_rows:], audio_indices[num_condition_audio_rows:],
-            step_cache=step_cache, sparse_attn=sparse_attn_ctx,
-            seq_chunk_rows=seq_chunk_rows, vdn_layout=vdn_layout,
-        )
+        row_mask = torch.ones(seq_len, dtype=torch.bool, device=packed.device)
+        row_mask[audio_indices] = False
+        with lora_row_mask(row_mask):
+            packed, probe, skipped = self._process_transformer_blocks(
+                packed, temb, adaln_indices, rotary_emb,
+                video_indices[num_condition_video_rows:], audio_indices[num_condition_audio_rows:],
+                step_cache=step_cache, sparse_attn=sparse_attn_ctx,
+                seq_chunk_rows=seq_chunk_rows, vdn_layout=vdn_layout,
+            )
         if skipped:
             return step_cache.record_skip()
 

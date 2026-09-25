@@ -8,6 +8,10 @@ from src.features.presets.configuration import resolve_field_filter_tags, resolv
 class LoraPicker(BaseField):
     """LoRA picker field - select multiple LoRAs with per-item strength"""
 
+    def __init__(self, preset_loader, field_factory=None):
+        super().__init__(preset_loader)
+        self.field_factory = field_factory
+
     def output(self, field, preset_id: str = None) -> Dict[str, Any]:
         """Transform lora_picker field data to frontend format"""
         field_info = self.get_field_info(field)
@@ -26,7 +30,7 @@ class LoraPicker(BaseField):
             'max_items': config.get('max_items', 6),
             'allow_info_modal': config.get('allow_info_modal', True),
             'show_triggers': config.get('show_triggers', True),
-            'allow_step_window': bool(config.get('allow_step_window', False)),
+            'row_fields': self._row_fields_schema(config.get('row_fields'), preset_id),
             # Resolved tag-id list (or None = no filtering), same admin-set
             # "base model" mechanism as the `model` field - see
             # resolve_field_filter_tags in src/features/presets/configuration.py.
@@ -41,37 +45,29 @@ class LoraPicker(BaseField):
 
         return schema
 
-    @staticmethod
-    def _step_bounds(field_name: str, item: Dict[str, Any]) -> Dict[str, int]:
-        """Read a row's optional `step_start`/`step_end` (1-based, inclusive).
+    def _row_fields_schema(self, row_fields: Any, preset_id: Optional[str]) -> List[Dict[str, Any]]:
+        if not isinstance(row_fields, list):
+            return []
+        if not self.field_factory:
+            return row_fields
+        schemas = []
+        for declaration in row_fields:
+            if isinstance(declaration, dict) and declaration.get('name'):
+                schemas.append(self.field_factory.map_field(declaration, preset_id))
+        return schemas
 
-        Absent/blank keys yield `{}` — the row is unwindowed and takes the
-        unchanged bake-at-load path. A present-but-unusable value is a rejected
-        submission rather than a silently dropped window: a LoRA that must
-        switch off partway through a run produces a materially different image
-        if it stays on, so quietly ignoring the bound would hand back a wrong
-        result that looks successful.
-        """
-        bounds: Dict[str, int] = {}
-        for key in ('step_start', 'step_end'):
-            raw = item.get(key)
-            if raw is None or (isinstance(raw, str) and not raw.strip()):
-                continue
-            try:
-                parsed = int(raw)
-            except (TypeError, ValueError):
-                raise ValueError(f"Invalid {key} for '{field_name}': expected a step number, got {raw!r}")
-            if parsed < 1:
-                raise ValueError(f"Invalid {key} for '{field_name}': steps are 1-based, got {parsed}")
-            bounds[key] = parsed
-
-        start, end = bounds.get('step_start'), bounds.get('step_end')
-        if start is not None and end is not None and end < start:
-            raise ValueError(
-                f"Invalid step window for '{field_name}': step_end ({end}) is before "
-                f"step_start ({start}), which would leave the LoRA permanently off"
-            )
-        return bounds
+    def _validate_row_field(self, field_name: str, declaration: Dict[str, Any], raw: Any) -> Any:
+        if not self.field_factory:
+            return raw
+        row_type = declaration.get('type')
+        if not isinstance(row_type, str):
+            return raw
+        impl = self.field_factory.field_impl_for(row_type)
+        row_name = declaration.get('name')
+        try:
+            return impl.input(row_name, raw, declaration.get('configuration') or {})
+        except ValueError as exc:
+            raise ValueError(f"Invalid '{row_name}' for '{field_name}': {exc}") from exc
 
     def input(self, field_name: str, value: Any, validation_rules: Optional[Dict[str, Any]] = None) -> Any:
         """Process lora_picker input - a list of {model, strength} entries"""
@@ -89,10 +85,8 @@ class LoraPicker(BaseField):
         strength_max = validation_rules.get('strength_max', 2.0)
         strength_default = validation_rules.get('strength_default', 1.0)
         max_items = validation_rules.get('max_items', 6)
-        # Step bounds are only read for a field that offers the control. A form
-        # without it can't have produced them legitimately, and the model family
-        # behind such a form rejects a windowed entry anyway.
-        allow_step_window = bool(validation_rules.get('allow_step_window', False))
+        row_fields = validation_rules.get('row_fields')
+        row_fields = [d for d in row_fields if isinstance(d, dict) and d.get('name')] if isinstance(row_fields, list) else []
 
         cleaned: List[Dict[str, Any]] = []
         for item in value:
@@ -116,8 +110,10 @@ class LoraPicker(BaseField):
                 'model': model.strip(),
                 'strength': strength,
             }
-            if allow_step_window:
-                entry.update(self._step_bounds(field_name, item))
+            for declaration in row_fields:
+                row_name = declaration['name']
+                raw = item.get(row_name, declaration.get('default'))
+                entry[row_name] = self._validate_row_field(field_name, declaration, raw)
             cleaned.append(entry)
 
         if max_items is not None and len(cleaned) > max_items:
@@ -199,17 +195,21 @@ class LoraPicker(BaseField):
                 example=True
             ),
             FieldConfigSpec(
-                name="allow_step_window",
-                param_type=bool,
-                default=False,
+                name="row_fields",
+                param_type=list,
+                default=None,
                 description=(
-                    "Offer per-LoRA step-window controls ('step_start'/'step_end', 1-based and "
-                    "inclusive) so a LoRA can be applied only between two denoise steps. Off by "
-                    "default and only correct for a model family whose generator can toggle a LoRA "
-                    "mid-sampling (Krea-2); a family that bakes LoRAs at load time rejects a "
-                    "windowed entry outright, so enabling it there builds a form that can only fail."
+                    "Per-row configuration fields shown behind a Configuration gear on each "
+                    "selected LoRA, declared with any registered field type (e.g. 'number', "
+                    "'checkbox') - {name, type, label, default, description, configuration}. "
+                    "The value lands on the row entry under `name` (falling back to `default`) "
+                    "when it differs from what the model family bakes in unasked; a row key "
+                    "with no matching declaration is dropped on submit. Only correct for a row "
+                    "key the model family's loader/generator actually reads - Krea-2's "
+                    "step_start/step_end (mid-sampling toggle) and MiniMax-H3's audio (row-masked "
+                    "LoRA) - a family that ignores the key rejects a non-default value outright."
                 ),
-                example=True
+                example=[{"name": "step_start", "type": "number", "label": "From step", "default": None}]
             ),
             FieldConfigSpec(
                 name="filter_tags",

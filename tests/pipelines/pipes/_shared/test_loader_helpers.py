@@ -118,7 +118,7 @@ class TestLoraStepWindows:
 
     def test_a_window_is_parsed_onto_the_entry(self):
         entry = {"file_path": "/a.safetensors", "weight": 1.0, "step_start": 1, "step_end": 2}
-        [out] = lh.active_loras([entry], step_windows=True)
+        [out] = lh.active_loras([entry], supported_options={lh.LORA_OPTION_STEP_WINDOW})
         assert out["window"] == LoraStepWindow(1, 2)
 
     def test_a_loader_that_bakes_refuses_a_windowed_entry(self):
@@ -128,21 +128,22 @@ class TestLoraStepWindows:
 
     def test_an_unwindowed_entry_is_accepted_by_every_loader(self):
         entry = {"file_path": "/a.safetensors", "weight": 1.0}
-        assert lh.active_loras([entry]) == lh.active_loras([entry], step_windows=True)
+        assert lh.active_loras([entry]) == lh.active_loras([entry], supported_options={lh.LORA_OPTION_STEP_WINDOW})
 
     def test_refiltering_already_parsed_entries_keeps_the_window(self):
         """wan22's ``acquire`` re-runs active_loras on its own output; a second
         pass must not drop the window (the raw keys are gone by then)."""
         once = lh.active_loras(
-            [{"file_path": "/a.safetensors", "weight": 1.0, "step_end": 2}], step_windows=True)
-        twice = lh.active_loras(once, step_windows=True)
+            [{"file_path": "/a.safetensors", "weight": 1.0, "step_end": 2}],
+            supported_options={lh.LORA_OPTION_STEP_WINDOW})
+        twice = lh.active_loras(once, supported_options={lh.LORA_OPTION_STEP_WINDOW})
         assert twice == once
 
     def test_partition_keeps_windowed_entries_out_of_the_baked_stack(self):
         loras = lh.active_loras([
             {"file_path": "/always.safetensors", "weight": 0.8},
             {"file_path": "/turbo-sda.safetensors", "weight": 1.0, "step_end": 2},
-        ], step_windows=True)
+        ], supported_options={lh.LORA_OPTION_STEP_WINDOW})
         baked, windowed = lh.partition_step_windows(loras)
         assert [l["file_path"] for l in baked] == ["/always.safetensors"]
         assert [l["file_path"] for l in windowed] == ["/turbo-sda.safetensors"]
@@ -280,6 +281,36 @@ class TestLoraReadCost:
         assert aggregate[0][1]["branch"] == "rebuilt"
         assert aggregate[0][1]["files"] == 1
         assert aggregate[0][1]["bytes"] == 8 * 8 * 4
+
+
+class TestLoraAudioFlag:
+    def test_an_absent_or_true_flag_leaves_the_entry_unchanged(self):
+        plain = lh.active_loras([{"file_path": "/a.safetensors", "weight": 1.0}], supported_options={lh.LORA_OPTION_AUDIO})
+        flagged = lh.active_loras([{"file_path": "/a.safetensors", "weight": 1.0, "audio": True}], supported_options={lh.LORA_OPTION_AUDIO})
+        assert plain == flagged == [{"file_path": "/a.safetensors", "weight": 1.0, "window": None}]
+
+    @pytest.mark.parametrize("value", [False, "false", "False", "0", "no"])
+    def test_a_false_flag_survives_to_the_entry(self, value):
+        [out] = lh.active_loras([{"file_path": "/a.safetensors", "weight": 1.0, "audio": value}], supported_options={lh.LORA_OPTION_AUDIO})
+        assert out["audio"] is False
+
+    def test_a_family_without_audio_masking_refuses_a_false_flag(self):
+        with pytest.raises(ValueError, match="cannot keep a LoRA out of its audio"):
+            lh.active_loras([{"file_path": "/a.safetensors", "weight": 1.0, "audio": False}], log_tag="X")
+
+    def test_an_unreadable_flag_is_refused(self):
+        with pytest.raises(ValueError, match="unreadable 'audio'"):
+            lh.active_loras([{"file_path": "/a.safetensors", "weight": 1.0, "audio": "sometimes"}],
+                            supported_options={lh.LORA_OPTION_AUDIO})
+
+    def test_refiltering_keeps_the_flag(self):
+        once = lh.active_loras([{"file_path": "/a.safetensors", "weight": 1.0, "audio": False}], supported_options={lh.LORA_OPTION_AUDIO})
+        assert lh.active_loras(once, supported_options={lh.LORA_OPTION_AUDIO}) == once
+
+    def test_the_flag_changes_the_stack_fingerprint_only_when_false(self):
+        entry = {"file_path": "/a.safetensors", "weight": 1.0, "window": None}
+        assert lh.lora_stack_fingerprint([entry]) == lh.lora_stack_fingerprint([{**entry, "audio": True}])
+        assert lh.lora_stack_fingerprint([entry]) != lh.lora_stack_fingerprint([{**entry, "audio": False}])
 
 
 class TestWindowedStackFingerprint:

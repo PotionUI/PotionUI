@@ -143,6 +143,7 @@ from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorP
 from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.loader_helpers import (
+    LORA_OPTION_AUDIO as _LORA_OPTION_AUDIO,
     active_loras as _active_loras,
     load_lora_stack as _load_lora_stack,
 )
@@ -912,6 +913,7 @@ class _MiniMaxH3Ctx:
     denoise: float = 1.0
     video_sigma_shift: float = VIDEO_SHIFT
     runtime_lora_stack: list = field(default_factory=list)
+    runtime_lora_masked: list = field(default_factory=list)
     # Request-local cache of clean, VAE-encoded visual keyframe/reference
     # latents (conditioning.py's `VisualLatentCache`) -- one instance per
     # request, released explicitly once every seed/window is done
@@ -1378,8 +1380,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "generator/video_minimax_h3: 'denoise' < 1.0 has no effect without 'initial_latent' "
                 "connected -- connect a refine seed latent, or leave 'denoise' at its default 1.0"
             )
-        runtime_loras_cfg = _active_loras(self.config.get("runtime_loras"))
+        runtime_loras_cfg = _active_loras(self.config.get("runtime_loras"), supported_options={_LORA_OPTION_AUDIO})
         runtime_lora_stack = _load_lora_stack(runtime_loras_cfg) if runtime_loras_cfg else []
+        runtime_lora_masked = [not lora.get("audio", True) for lora in runtime_loras_cfg]
         for name, loaded, limit in (
             ("reference_images", reference_images, _MAX_REFERENCE_IMAGES),
             ("reference_videos", reference_videos, _MAX_REFERENCE_VIDEOS),
@@ -1597,6 +1600,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 source_frame_count=int(source_frame_count) if source_frame_count else None,
                 denoise=denoise, video_sigma_shift=video_sigma_shift,
                 runtime_lora_stack=runtime_lora_stack,
+                runtime_lora_masked=runtime_lora_masked,
             ),
         )
 
@@ -2166,7 +2170,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
 
         lora_snapshot = snapshot_lora_state(c.bundle.dit.module) if c.runtime_lora_stack else None
         if lora_snapshot is not None:
-            apply_loras(c.bundle.dit.module, c.runtime_lora_stack)
+            apply_loras(c.bundle.dit.module, c.runtime_lora_stack, row_masked=c.runtime_lora_masked)
 
         placement = place_dit_for_sequence(
             c.bundle.dit, c.device,

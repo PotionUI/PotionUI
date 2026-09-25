@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 from src.pipelines.pipes._shared.generation.loader_helpers import (
+    LORA_OPTION_STEP_WINDOW,
     active_loras,
     apply_loras_to,
     lora_stack_fingerprint,
@@ -19,12 +20,12 @@ LOG_TAG = "FACE DETAILER"
 
 
 def face_loras(entries: Optional[Sequence[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-    return active_loras(entries, step_windows=False, log_tag=LOG_TAG)
+    return active_loras(entries, log_tag=LOG_TAG)
 
 
 def baked_loras(entries: Optional[Sequence[Dict[str, Any]]]) -> List[Dict[str, Any]]:
     return [
-        lora for lora in active_loras(entries, step_windows=True, log_tag=LOG_TAG)
+        lora for lora in active_loras(entries, supported_options={LORA_OPTION_STEP_WINDOW}, log_tag=LOG_TAG)
         if lora.get("window") is None
     ]
 

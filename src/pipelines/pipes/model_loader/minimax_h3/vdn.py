@@ -44,7 +44,7 @@ from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3TimeEmbed
 from src.platform.runtime.native.arch.minimax_h3.vdn import AttachReport, attach_vdn_branch
 from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.io.safetensors_loader import load_torch_file
-from src.platform.runtime.native.lora import AdapterApplication, apply_loras_with_report
+from src.platform.runtime.native.lora import AdapterApplication, apply_loras_with_report, confine_bias_deltas
 from src.pipelines.pipes._shared.generation.loader_helpers import (
     read_lora_state_dict as _read_lora_state_dict,
 )
@@ -291,6 +291,8 @@ def apply_loras_with_adaln_translation(
             translated, biases, consumed = _translate(lora_sd, module, fit)
             lora_sd = {k: v for k, v in lora_sd.items() if k not in consumed}
             lora_sd.update(translated)
+            if not lora.get("audio", True):
+                biases = confine_bias_deltas(module, biases)
             bias_deltas.append((biases, lora["weight"]))
             logger.info(
                 "[%s] %s: translated %d dense AdaLN target(s) onto the pruned projection "
@@ -299,7 +301,10 @@ def apply_loras_with_adaln_translation(
         stack.append((lora_sd, lora["weight"]))
 
     file_paths = [lora["file_path"] for lora in loras]
-    patched, unmatched, reports = apply_loras_with_report(module, stack, names=file_paths)
+    row_masked = [not lora.get("audio", True) for lora in loras]
+    patched, unmatched, reports = apply_loras_with_report(
+        module, stack, names=file_paths, row_masked=row_masked,
+    )
     for biases, strength in bias_deltas:
         apply_bias_deltas(module, biases, strength)
 

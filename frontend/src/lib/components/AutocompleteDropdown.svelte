@@ -31,15 +31,21 @@
 		preview_file_id?: string;
 		badge?: string;
 		description?: string;
+		kind?: 'image' | 'video' | 'audio';
 	}
 </script>
 
 <script lang="ts">
 	import { onMount, afterUpdate } from 'svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
+	import Icon from './Icon.svelte';
 	import portal from '$lib/actions/portal';
 	import { resolveMentionRowAction } from '$lib/utils/mentionRowAction';
-	import { computeAutocompletePlacement, caretLineAnchor } from '$lib/utils/autocompleteAnchor';
+	import {
+		computeAutocompletePlacement,
+		computeDockedPreviewPlacement,
+		caretLineAnchor
+	} from '$lib/utils/autocompleteAnchor';
 
 	// Props
 	export let categories: AutocompleteCategory[] = [];
@@ -69,10 +75,36 @@
 	// `.variable-picker`. Chat's ChatChipInput keeps `variant="default"`
 	// (today's Tailwind card) untouched.
 	export let variant: 'default' | 'segment-composer' = 'default';
+	export let onBrowseAll: (() => void) | undefined = undefined;
 
 	let dropdownRef: HTMLDivElement;
+	let pickerRef: HTMLElement | undefined;
 	let selectedItemRef: HTMLElement | null = null;
 	let dropdownPosition = { top: 0, bottom: 0, left: 0, width: 0, openAbove: false };
+	let previewPlacement: { left: number; top: number; side: 'right' | 'left' | 'below' } | null = null;
+
+	$: selectedValueItem =
+		triggerChar === '#' || triggerChar === '@'
+			? selectedIndex >= categories.length
+				? suggestions[selectedIndex - categories.length] ?? null
+				: null
+			: null;
+	$: selectedPreviewUrl =
+		selectedValueItem && selectedValueItem.preview_file_id && getImageUrl
+			? getImageUrl(selectedValueItem.preview_file_id)
+			: null;
+
+	function updatePreviewPlacement() {
+		if (!pickerRef || !selectedPreviewUrl) {
+			previewPlacement = null;
+			return;
+		}
+		previewPlacement = computeDockedPreviewPlacement(
+			pickerRef.getBoundingClientRect(),
+			{ width: window.innerWidth, height: window.innerHeight },
+			192
+		);
+	}
 
 	// `position: fixed` on the dropdown is viewport-relative only when no
 	// ancestor has a `transform` (e.g. GlobalChatPanel's translate-x-0/
@@ -97,12 +129,17 @@
 
 	onMount(() => {
 		updatePosition();
+		updatePreviewPlacement();
 		window.addEventListener('resize', updatePosition);
 		window.addEventListener('scroll', updatePosition, true);
+		window.addEventListener('resize', updatePreviewPlacement);
+		window.addEventListener('scroll', updatePreviewPlacement, true);
 
 		return () => {
 			window.removeEventListener('resize', updatePosition);
 			window.removeEventListener('scroll', updatePosition, true);
+			window.removeEventListener('resize', updatePreviewPlacement);
+			window.removeEventListener('scroll', updatePreviewPlacement, true);
 		};
 	});
 
@@ -152,6 +189,7 @@
 	// Scroll selected item into view when selection changes
 	afterUpdate(() => {
 		scrollSelectedIntoView();
+		updatePreviewPlacement();
 	});
 </script>
 
@@ -180,14 +218,17 @@
 				{dropdownPosition.openAbove
 				? `bottom: ${dropdownPosition.bottom}px; top: auto;`
 				: `top: ${dropdownPosition.top}px; bottom: auto;`}"
+			bind:this={pickerRef}
 		>
+			<div class="picker-accent" aria-hidden="true"></div>
 			<header class="picker-head">
 				<span class="picker-symbol">{triggerChar}</span>
-				<div class="picker-search">
-					<label for="acdd-path-{triggerChar}">{contextLabel}</label>
-					<input id="acdd-path-{triggerChar}" readonly tabindex="-1" value="{triggerChar}{currentPath}" aria-label="{contextLabel} path" />
-				</div>
-				<span class="esc">ESC</span>
+				<span class="picker-query">
+					{contextLabel}{#if currentPath}
+						&nbsp;·&nbsp;"<b>{currentPath}</b>"
+					{/if}
+				</span>
+				<span class="esc">Esc</span>
 			</header>
 
 			{#if triggerChar === '$'}
@@ -220,7 +261,7 @@
 			{#if isLoading}
 				<div class="px-3 py-2 text-sm text-fg-subtle">Loading suggestions...</div>
 			{:else if categories.length > 0 || suggestions.length > 0}
-				<div bind:this={dropdownRef} class="max-h-[300px] overflow-y-auto" role="listbox">
+				<div bind:this={dropdownRef} class="picker-rows" role="listbox">
 					{#if categories.length > 0}
 						<div class="picker-section-title">Categories <span>Browse deeper</span></div>
 						{#each categories as category, index}
@@ -235,7 +276,7 @@
 								role="option"
 								aria-selected={isSelected}
 							>
-								<span class="row-thumb"><svg class="icon"><use href="#i-folder" /></svg></span>
+								<span class="row-thumb"><Icon name="folder" className="icon" /></span>
 								<span class="row-copy"><strong>{displayName}</strong>{#if category.description}<span>{category.description}</span>{/if}</span>
 								<span class="row-meta">{isSelected ? 'Enter' : 'Open →'}</span>
 							</button>
@@ -259,13 +300,24 @@
 							>
 								<span class="row-thumb">
 									{#if suggestion.preview_file_id && getImageUrl}
-										<img src={getImageUrl(suggestion.preview_file_id)} alt={suggestion.label} />
+										<img src={getImageUrl(suggestion.preview_file_id)} alt={suggestion.label} loading="lazy" />
+										{#if suggestion.kind === 'video'}
+											<span class="row-thumb-badge"><Icon name="play" className="icon" /></span>
+										{/if}
+									{:else if triggerChar === '@'}
+										{#if suggestion.kind === 'video'}
+											<span class="row-thumb-badge"><Icon name="play" className="icon" /></span>
+										{:else}
+											<Icon name="image" className="icon" />
+										{/if}
+									{:else if triggerChar === '/'}
+										<Icon name="code" className="icon" />
 									{:else}
-										<svg class="icon"><use href="#i-braces" /></svg>
+										<span class="row-thumb-glyph">{triggerChar}</span>
 									{/if}
 								</span>
 								<span class="row-copy">
-									<strong>{suggestion.label}</strong>
+									<strong>{triggerChar === '@' ? `<${suggestion.label}>` : suggestion.label}</strong>
 									{#if suggestion.label !== suggestion.value}<span>{suggestion.value}</span>{/if}
 								</span>
 								<span class="row-meta">{isSelected ? 'Enter' : 'Value'}</span>
@@ -283,12 +335,36 @@
 				</div>
 			{/if}
 
+			{#if onBrowseAll}
+				<button type="button" class="picker-browse" on:click={onBrowseAll}>
+					<Icon name="search" className="icon" />
+					Browse all in {contextLabel}…
+					<Icon name="chevron-right" className="icon chev" />
+				</button>
+			{/if}
+
 			<footer class="picker-footer">
 				<span><span class="kbd">↑↓</span> Navigate</span>
 				<span><span class="kbd">↵</span> {triggerChar === '$' ? 'Insert ${name}' : 'Insert'}</span>
+				{#if onBrowseAll}<span><span class="kbd">Tab</span> Browse</span>{/if}
 				<span><span class="kbd">Esc</span> Close</span>
 			</footer>
 		</section>
+
+		{#if previewPlacement && selectedPreviewUrl && selectedValueItem}
+			<div
+				class="picker-preview"
+				style="position: fixed; z-index: 99999; left: {previewPlacement.left}px; top: {previewPlacement.top}px;"
+			>
+				<div class="picker-preview-image" style="background-image: url('{selectedPreviewUrl}')"></div>
+				<div class="picker-preview-cap">
+					<strong>{selectedValueItem.label}</strong>
+					{#if selectedValueItem.value && selectedValueItem.value !== selectedValueItem.label}
+						<span>{selectedValueItem.value}</span>
+					{/if}
+				</div>
+			</div>
+		{/if}
 	</div>
 {:else}
 	<div
@@ -298,42 +374,41 @@
 			? `bottom: ${dropdownPosition.bottom}px;`
 		: `top: ${dropdownPosition.top}px;`} left: {dropdownPosition.left}px; width: {dropdownPosition.width}px;"
 >
-	<div class="bg-surface-2 shadow-overlay border border-line-strong rounded-xl overflow-hidden">
+	<div class="bg-surface-2 shadow-overlay border border-line-strong rounded-xl overflow-hidden flex flex-col max-h-[340px]">
 		{#if isLoading}
 			<div class="px-3 py-2 text-sm text-fg-subtle">
 				Loading suggestions...
 			</div>
 		{:else if categories.length > 0 || suggestions.length > 0}
-			<div bind:this={dropdownRef} class="max-h-[300px] overflow-y-auto" role="listbox">
-				<!-- Command Palette Header -->
-				{#if currentPath || categories.length > 0 || suggestions.length > 0}
-					<div class="px-3 py-2 text-sm font-medium text-fg-muted border-b border-line bg-surface-2 sticky top-0 z-10 flex items-center justify-between gap-2">
-						<div class="flex items-center gap-2 flex-1 min-w-0">
-							{#if canNavigateUp && onNavigateUp}
-								<button
-									type="button"
-									class="h-6 w-6 min-w-6 flex items-center justify-center text-fg-muted hover:text-fg hover:bg-surface-3 rounded transition-colors duration-100"
-									on:click={onNavigateUp}
-									aria-label="Navigate up"
-								>
-									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-									</svg>
-								</button>
+			{#if currentPath || categories.length > 0 || suggestions.length > 0}
+				<div class="px-3 py-2 text-sm font-medium text-fg-muted border-b border-line bg-surface-2 flex-shrink-0 flex items-center justify-between gap-2">
+					<div class="flex items-center gap-2 flex-1 min-w-0">
+						{#if canNavigateUp && onNavigateUp}
+							<button
+								type="button"
+								class="h-6 w-6 min-w-6 flex items-center justify-center text-fg-muted hover:text-fg hover:bg-surface-3 rounded transition-colors duration-100"
+								on:click={onNavigateUp}
+								aria-label="Navigate up"
+							>
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+								</svg>
+							</button>
+						{/if}
+						<div class="flex-1 min-w-0">
+							{#if currentPath}
+								<span class="font-mono text-signal">{triggerChar}{currentPath}</span>
+								<span class="ml-2 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">{contextLabel}</span>
+							{:else}
+								<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">{emptyHint}</span>
 							{/if}
-							<div class="flex-1 min-w-0">
-								{#if currentPath}
-									<span class="font-mono text-signal">{triggerChar}{currentPath}</span>
-									<span class="ml-2 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">{contextLabel}</span>
-								{:else}
-									<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">{emptyHint}</span>
-								{/if}
-							</div>
 						</div>
-						<div class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-disabled">ESC</div>
 					</div>
-				{/if}
+					<div class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-disabled">ESC</div>
+				</div>
+			{/if}
 
+			<div bind:this={dropdownRef} class="flex-1 min-h-0 overflow-y-auto" role="listbox">
 				<!-- Categories Section -->
 				{#if categories.length > 0}
 					{#if categories.length > 0 && suggestions.length > 0}

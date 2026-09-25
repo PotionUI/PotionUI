@@ -34,4 +34,8 @@
 	<symbol id="i-save" viewBox="0 0 24 24"><path d="M5 3h12l2 2v16H5Z" /><path d="M8 3v6h8V3M8 21v-7h8v7" /></symbol>
 	<symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6" /></symbol>
 	<symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 2a5 5 0 0 0-5 5c0 3 2 5 3 7l2 6 2-6c1-2 3-4 3-7a5 5 0 0 0-5-5Z" /><circle cx="12" cy="7" r="2" /></symbol>
+	<symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" /></symbol>
+	<symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="9" cy="9" r="2" /><path d="M21 15l-5-5L5 21" /></symbol>
+	<symbol id="i-play" viewBox="0 0 24 24"><path d="M6 4v16l14-8Z" fill="currentColor" stroke="none" /></symbol>
+	<symbol id="i-code" viewBox="0 0 24 24"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6" /></symbol>
 </svg>

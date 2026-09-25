@@ -8,6 +8,8 @@
 		AutocompleteCategory as DropdownAutocompleteCategory,
 		AutocompleteValue as DropdownAutocompleteValue
 	} from './AutocompleteDropdown.svelte';
+	import PromptPickerBrowseModal from './PromptPickerBrowseModal.svelte';
+	import { buildPromptPickerContext } from '$lib/utils/promptPickerContext';
 	import InlineChip from './InlineChip.svelte';
 	import ChoiceGroupChip from './ChoiceGroupChip.svelte';
 	import VariableUsageChip from './VariableUsageChip.svelte';
@@ -223,6 +225,105 @@
 	let syntaxSelectedIndex = 0;
 	let pendingSyntaxSelection = '';
 
+	let browseModalTrigger: '#' | '$' | '@' | '/' | null = null;
+	let browseContext = { before: '', after: '' };
+
+	function triggerCharIndexInText(triggerNode: Text | null, triggerNodeOffset: number): number | null {
+		if (!editorRef || !triggerNode || triggerNodeOffset < 0) return null;
+		let triggerIndex = 0;
+		let foundTrigger = false;
+
+		function walk(node: Node): boolean {
+			if (foundTrigger) return true;
+			if (node === triggerNode) {
+				triggerIndex += triggerNodeOffset;
+				foundTrigger = true;
+				return true;
+			}
+			if (node.nodeType === Node.TEXT_NODE) {
+				triggerIndex += (node.textContent || '').length;
+			} else if (node.nodeType === Node.ELEMENT_NODE) {
+				const el = node as HTMLElement;
+				if (el.dataset.groupRaw !== undefined) {
+					triggerIndex += el.dataset.groupRaw.length;
+				} else if (el.dataset.variableRaw !== undefined) {
+					triggerIndex += el.dataset.variableRaw.length;
+				} else if (el.dataset.resourceMarker !== undefined) {
+					triggerIndex += el.dataset.resourceMarker.length;
+				} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
+					triggerIndex += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
+				} else if (el.tagName === 'BR') {
+					triggerIndex += 1;
+				} else {
+					for (const child of Array.from(node.childNodes)) {
+						if (walk(child)) return true;
+					}
+				}
+			}
+			return false;
+		}
+
+		for (const child of Array.from(editorRef.childNodes)) {
+			if (walk(child)) break;
+		}
+		return foundTrigger ? triggerIndex : null;
+	}
+
+	function openBrowseModal(trigger: '#' | '$' | '@' | '/', triggerNode: Text | null, triggerNodeOffset: number, typedLength: number) {
+		const { value: fullText } = extractContentFromDOM(editorRef, chips);
+		const triggerIndex = triggerCharIndexInText(triggerNode, triggerNodeOffset);
+		browseContext =
+			triggerIndex === null
+				? { before: '', after: '' }
+				: buildPromptPickerContext(fullText, triggerIndex, triggerIndex + typedLength);
+		browseModalTrigger = trigger;
+	}
+
+	function closeBrowseModal() {
+		browseModalTrigger = null;
+	}
+
+	function openPhrasebookBrowse() {
+		openBrowseModal('#', phrasebookTriggerNode, phrasebookTriggerOffset, 1 + phrasebookPath.length);
+	}
+
+	function openVariableBrowse() {
+		openBrowseModal('$', variableTriggerNode, variableTriggerOffset, 1 + variableQuery.length);
+	}
+
+	function openResourceBrowse() {
+		openBrowseModal('@', resourceTriggerNode, resourceTriggerOffset, 1 + resourceQuery.length);
+	}
+
+	function openSyntaxBrowse() {
+		openBrowseModal('/', syntaxTriggerNode, syntaxTriggerOffset, 1 + syntaxQuery.length);
+	}
+
+	function restoreCaretAtTrigger(triggerNode: Text | null, triggerOffset: number, queryLength: number): boolean {
+		if (!triggerNode) return false;
+		const selection = window.getSelection();
+		if (!selection) return false;
+		const offset = Math.min(triggerOffset + 1 + queryLength, triggerNode.textContent?.length ?? 0);
+		const range = document.createRange();
+		range.setStart(triggerNode, offset);
+		range.collapse(true);
+		selection.removeAllRanges();
+		selection.addRange(range);
+		return true;
+	}
+
+	function browseSelectPhrasebookCategory(category: DropdownAutocompleteCategory) {
+		const full = phrasebookCategories.find((c) => c.id === category.id);
+		if (!full) return;
+		restoreCaretAtTrigger(phrasebookTriggerNode, phrasebookTriggerOffset, phrasebookPath.length);
+		handleSelectCategory(full);
+	}
+
+	function browseSelectResourceGroup(field: string) {
+		restoreCaretAtTrigger(resourceTriggerNode, resourceTriggerOffset, resourceQuery.length);
+		handleSelectResourceGroup(field);
+	}
+
 	// Track if we're programmatically updating
 	let isInternalUpdate = false;
 
@@ -293,7 +394,8 @@
 						sort_order: index,
 						created_at: '',
 						updated_at: '',
-						preview_file_id: itemThumbUrl(item, activeResourceSpec!.kind)
+						preview_file_id: itemThumbUrl(item, activeResourceSpec!.kind),
+						kind: activeResourceSpec!.kind
 					};
 				})
 				.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
@@ -410,6 +512,10 @@
 					handleSelectVariable(variableSuggestions[variableSelectedIndex]);
 				}
 				return;
+			} else if (e.key === 'Tab' && variant === 'segment-composer') {
+				e.preventDefault();
+				openVariableBrowse();
+				return;
 			} else if (e.key === 'Escape') {
 				e.preventDefault();
 				closeVariablePicker();
@@ -434,6 +540,10 @@
 				e.preventDefault();
 				selectPhrasebookItem();
 				return;
+			} else if (e.key === 'Tab' && variant === 'segment-composer') {
+				e.preventDefault();
+				openPhrasebookBrowse();
+				return;
 			} else if (e.key === 'Escape') {
 				e.preventDefault();
 				closePhrasebook();
@@ -455,6 +565,10 @@
 			} else if (e.key === 'Enter' && !e.ctrlKey) {
 				e.preventDefault();
 				selectActiveResourceOption();
+				return;
+			} else if (e.key === 'Tab' && variant === 'segment-composer') {
+				e.preventDefault();
+				openResourceBrowse();
 				return;
 			} else if (e.key === 'Escape') {
 				e.preventDefault();
@@ -478,6 +592,10 @@
 				e.preventDefault();
 				const spec = syntaxSuggestions[syntaxSelectedIndex];
 				if (spec) handleSelectSyntax(spec);
+				return;
+			} else if (e.key === 'Tab' && variant === 'segment-composer') {
+				e.preventDefault();
+				openSyntaxBrowse();
 				return;
 			} else if (e.key === 'Escape') {
 				e.preventDefault();
@@ -1824,7 +1942,8 @@
 					item,
 					fieldLabel: resourceFieldLabels[ref.field],
 					disabled: isDisabled,
-					onRemove: () => handleResourceRemove(el)
+					onRemove: () => handleResourceRemove(el),
+					variant
 				}
 			});
 			mountedResourceComponents.set(trackId, component);
@@ -2207,7 +2326,7 @@
 	{/if}
 
 	<!-- Phrasebook Dropdown -->
-	{#if isPhrasebookOpen}
+	{#if isPhrasebookOpen && browseModalTrigger === null}
 		<AutocompleteDropdown
 			categories={phrasebookCategories}
 			suggestions={phrasebookSuggestions}
@@ -2222,12 +2341,13 @@
 			parentRef={containerRef}
 			getImageUrl={(fileId) => api.getFileURL(fileId, 'small')}
 			contextLabel="Phrasebook"
+			onBrowseAll={variant === 'segment-composer' ? openPhrasebookBrowse : undefined}
 			{variant}
 		/>
 	{/if}
 
 	<!-- $variable Picker -->
-	{#if isVariablePickerOpen}
+	{#if isVariablePickerOpen && browseModalTrigger === null}
 		<AutocompleteDropdown
 			categories={[]}
 			suggestions={variableSuggestions}
@@ -2241,11 +2361,12 @@
 			onClose={closeVariablePicker}
 			parentRef={containerRef}
 			contextLabel="Variables"
+			onBrowseAll={variant === 'segment-composer' ? openVariableBrowse : undefined}
 			{variant}
 		/>
 	{/if}
 
-	{#if isResourcePickerOpen}
+	{#if isResourcePickerOpen && browseModalTrigger === null}
 		<AutocompleteDropdown
 			categories={resourceGroupField ? [] : resourceGroupCategories}
 			suggestions={resourceGroupField ? resourceItemSuggestions : []}
@@ -2263,11 +2384,12 @@
 			parentRef={containerRef}
 			getImageUrl={(url) => url}
 			contextLabel="References"
+			onBrowseAll={variant === 'segment-composer' ? openResourceBrowse : undefined}
 			{variant}
 		/>
 	{/if}
 
-	{#if isSyntaxPickerOpen}
+	{#if isSyntaxPickerOpen && browseModalTrigger === null}
 		<AutocompleteDropdown
 			categories={[]}
 			suggestions={syntaxSuggestionItems}
@@ -2284,7 +2406,75 @@
 			onClose={closeSyntaxPicker}
 			parentRef={containerRef}
 			contextLabel="Syntax"
+			onBrowseAll={variant === 'segment-composer' ? openSyntaxBrowse : undefined}
 			{variant}
+		/>
+	{/if}
+
+	{#if browseModalTrigger === '#'}
+		<PromptPickerBrowseModal
+			triggerChar="#"
+			title="Insert from Phrasebook"
+			initialQuery={phrasebookPath}
+			contextBefore={browseContext.before}
+			contextMarker={`#${phrasebookPath}`}
+			contextAfter={browseContext.after}
+			mode="tree"
+			categories={phrasebookCategories.map((c) => ({ id: c.id, name: c.name || c.path.split('.').pop() || c.path, description: c.description }))}
+			values={phrasebookSuggestions}
+			getImageUrl={(fileId) => api.getFileURL(fileId, 'small')}
+			onSelectCategory={(category) => {
+				const full = phrasebookCategories.find((c) => c.id === category.id);
+				if (full) handleSelectCategory(full);
+			}}
+			onInsertValue={(value) => handleSelectValue(value)}
+			onClose={closeBrowseModal}
+		/>
+	{:else if browseModalTrigger === '$'}
+		<PromptPickerBrowseModal
+			triggerChar="$"
+			title="Insert a variable"
+			initialQuery={variableQuery}
+			contextBefore={browseContext.before}
+			contextMarker={`$${variableQuery}`}
+			contextAfter={browseContext.after}
+			mode="list"
+			values={variableSuggestions}
+			insertHint="Insert ${name}"
+			onInsertValue={(value) => handleSelectVariable(value)}
+			onClose={closeBrowseModal}
+		/>
+	{:else if browseModalTrigger === '@'}
+		<PromptPickerBrowseModal
+			triggerChar="@"
+			title="Insert a reference"
+			initialQuery={resourceQuery}
+			contextBefore={browseContext.before}
+			contextMarker={`@${resourceQuery}`}
+			contextAfter={browseContext.after}
+			mode="grid"
+			categories={resourceGroupField ? [] : resourceGroupCategories.map((c) => ({ id: c.id, name: c.name, description: c.description }))}
+			values={resourceGroupField ? resourceItemSuggestions : []}
+			getImageUrl={(url) => url}
+			onSelectCategory={(category) => handleSelectResourceGroup(category.id)}
+			onInsertValue={(value) => handleSelectResourceItem(value.id)}
+			onClose={closeBrowseModal}
+		/>
+	{:else if browseModalTrigger === '/'}
+		<PromptPickerBrowseModal
+			triggerChar="/"
+			title="Insert prompt syntax"
+			initialQuery={syntaxQuery}
+			contextBefore={browseContext.before}
+			contextMarker={`/${syntaxQuery}`}
+			contextAfter={browseContext.after}
+			mode="list"
+			values={syntaxSuggestionItems}
+			onInsertValue={(value) => {
+				const spec = syntaxSuggestions[value.sort_order];
+				if (spec) handleSelectSyntax(spec);
+			}}
+			onClose={closeBrowseModal}
 		/>
 	{/if}
 </div>

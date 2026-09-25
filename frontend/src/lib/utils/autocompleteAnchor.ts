@@ -77,6 +77,32 @@ export interface CaretRectSource {
 	getRangeAt(index: number): { startContainer: Node; getBoundingClientRect?: () => { top: number; bottom: number; height: number } };
 }
 
+export interface DockedPreviewPlacement {
+	left: number;
+	top: number;
+	side: 'right' | 'left' | 'below';
+}
+
+const PREVIEW_GAP = 12;
+
+export function computeDockedPreviewPlacement(
+	pickerRect: { top: number; left: number; right: number; bottom: number },
+	viewport: AnchorViewport,
+	previewWidth: number
+): DockedPreviewPlacement {
+	if (pickerRect.right + PREVIEW_GAP + previewWidth <= viewport.width) {
+		return { left: pickerRect.right + PREVIEW_GAP, top: pickerRect.top, side: 'right' };
+	}
+	if (pickerRect.left - PREVIEW_GAP - previewWidth >= 0) {
+		return { left: pickerRect.left - PREVIEW_GAP - previewWidth, top: pickerRect.top, side: 'left' };
+	}
+	return {
+		left: clamp(pickerRect.left, EDGE_GUTTER, Math.max(EDGE_GUTTER, viewport.width - previewWidth - EDGE_GUTTER)),
+		top: pickerRect.bottom + PREVIEW_GAP,
+		side: 'below'
+	};
+}
+
 export function caretLineAnchor(parent: HTMLElement, selection: CaretRectSource | null): AnchorRect {
 	const box = parent.getBoundingClientRect();
 	const fallback = { top: box.top, bottom: box.bottom, left: box.left, width: box.width };

@@ -8,7 +8,6 @@
 	// via ConsoleHeader.svelte), and the Variables entry point (moved back
 	// from PromptSection.svelte's standalone row, which now renders it only
 	// for Prompt Relay). ShotConsole.svelte renders no header row of its own
-	// any more -- it starts at the film rows -- and mirrors its derived
 	// header up here via `onHeaderChange` so there is still only ONE place
 	// (`deriveConsoleModel`, inside ShotConsole, against its own live `doc`)
 	// that ever derives it.
@@ -19,10 +18,12 @@
 	import type { VideoDirectorValue, DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { DirectorRunState } from '$lib/types/tabs';
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
+	import type { PromptResourceSpec } from '$lib/utils/promptResources';
+	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 	import type { ConsoleHeader as ConsoleHeaderModel } from './console/consoleModel';
 	import ShotConsole from './console/ShotConsole.svelte';
-	import ConsoleHeader from './console/ConsoleHeader.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 
 	let {
 		value,
@@ -40,7 +41,10 @@
 		onVariableDefChange,
 		onVariablesImport,
 		onCheckedChange,
-		onGenerateShots
+		onGenerateShots,
+		promptResources = [],
+		resourceFieldLabels = {},
+		promptSyntax = []
 	}: {
 		value: VideoDirectorValue | undefined;
 		capabilities: DirectorCapabilities;
@@ -68,6 +72,9 @@
 		/** See ShotConsole.svelte's own doc comments -- passed straight through. */
 		onCheckedChange?: (checked: Set<string>) => void;
 		onGenerateShots?: (shotIds: string[]) => void;
+		promptResources?: PromptResourceSpec[];
+		resourceFieldLabels?: Record<string, string>;
+		promptSyntax?: PromptSyntaxSpec[];
 	} = $props();
 
 	let header: ConsoleHeaderModel = $state({
@@ -77,28 +84,66 @@
 		capChips: [],
 		readiness: { ok: true, text: 'Ready' }
 	});
+
+	let globalPromptOpen = $state(false);
+	let hasGlobalPrompt = $derived(!!value?.global_prompt?.trim());
+	let hasNegativePrompt = $derived(!!value?.negative_prompt?.trim());
+	let globalPromptCount = $derived((hasGlobalPrompt ? 1 : 0) + (hasNegativePrompt ? 1 : 0));
+	let globalPromptTooltip = $derived.by(() => {
+		if (!hasGlobalPrompt && !hasNegativePrompt) return '';
+		if (!hasGlobalPrompt) return 'Negative prompt set';
+		const firstLine = (value?.global_prompt ?? '').split('\n')[0];
+		return hasNegativePrompt ? `${firstLine} + negative` : firstLine;
+	});
 </script>
 
 <section class="video-director space-y-4" aria-label="Video Director">
-	<header class="flex flex-wrap items-center gap-3 border-b border-line pb-3">
-		<h2 class="text-lg font-semibold leading-tight text-fg">Video Director</h2>
-		<div class="min-w-0 flex-1">
-			<ConsoleHeader {header} />
-		</div>
-		{#if onOpenVariables}
-			<button
-				type="button"
-				class="inline-flex h-8 flex-none items-center gap-1.5 rounded border border-line px-2.5 text-xs font-medium text-fg-muted transition-colors hover:border-line-hover hover:bg-surface-2 hover:text-fg"
-				onclick={onOpenVariables}
-			>
-				<Icon name="braces" className="h-3.5 w-3.5" />
-				<span>Variables</span>
-				{#if variableCount > 0}
-					<span class="rounded bg-signal/15 px-1.5 py-0.5 font-mono text-2xs tabular-nums text-signal">{variableCount}</span>
+	<div class="segment-composer">
+		<section class="composer plain">
+			<header class="composer-toolbar section-header">
+				<strong class="composer-title section-title">Video Director</strong>
+				<span class="composer-count section-count font-mono tabular-nums">
+					{header.shotCount} shot{header.shotCount === 1 ? '' : 's'} · {header.totalSeconds.toFixed(1)} s
+					{#if !header.totalQualified}
+						<Tooltip text="Motion latents unknown -- showing the requested total, not the generator's real output" position="top">
+							<span class="ml-1 inline-flex items-center rounded border border-line-strong px-[5px] py-px font-mono text-[9.5px] uppercase tracking-[0.04em] text-fg-subtle">
+								requested
+							</span>
+						</Tooltip>
+					{/if}
+				</span>
+
+				<div class="toolbar-spacer"></div>
+
+				{#if onOpenVariables}
+					<button
+						type="button"
+						class="inline-flex h-8 flex-none items-center gap-1.5 rounded border border-line px-2.5 text-xs font-medium text-fg-muted transition-colors hover:border-line-hover hover:bg-surface-2 hover:text-fg"
+						onclick={onOpenVariables}
+					>
+						<Icon name="braces" className="h-3.5 w-3.5" />
+						<span>Variables</span>
+						{#if variableCount > 0}
+							<span class="rounded bg-signal/15 px-1.5 py-0.5 font-mono text-2xs tabular-nums text-signal">{variableCount}</span>
+						{/if}
+					</button>
 				{/if}
-			</button>
-		{/if}
-	</header>
+				<Tooltip text={globalPromptTooltip} position="bottom">
+					<button
+						type="button"
+						class="inline-flex h-8 flex-none items-center gap-1.5 rounded border border-line px-2.5 text-xs font-medium text-fg-muted transition-colors hover:border-line-hover hover:bg-surface-2 hover:text-fg"
+						onclick={() => (globalPromptOpen = true)}
+					>
+						<Icon name="text-cursor-input" className="h-3.5 w-3.5" />
+						<span>Global prompt</span>
+						{#if globalPromptCount > 0}
+							<span class="rounded bg-signal/15 px-1.5 py-0.5 font-mono text-2xs tabular-nums text-signal">{globalPromptCount}</span>
+						{/if}
+					</button>
+				</Tooltip>
+			</header>
+		</section>
+	</div>
 
 	<ShotConsole
 		{value}
@@ -117,6 +162,12 @@
 		{onVariableDefChange}
 		{onVariablesImport}
 		onOpenVariableManager={onOpenVariables}
+		{globalPromptOpen}
+		onOpenGlobalPrompt={() => (globalPromptOpen = true)}
+		onCloseGlobalPrompt={() => (globalPromptOpen = false)}
+		{promptResources}
+		{resourceFieldLabels}
+		{promptSyntax}
 	/>
 </section>
 

@@ -1,6 +1,5 @@
 # Video Director mode -- the director editor (form_data.video_director, a
 # separate document submitted outside this dynamic form) owns prompts, frames,
-# fps, and start/end media per segment. This tab keeps only what the document
 # does NOT carry: model-run parameters shared by every segment of a request
 # (resolution is constant across a chain; the Speed profile below, and the
 # steps/cfg/sampler/expert boundary it bakes on the Advanced tab, are
@@ -34,6 +33,12 @@ fields:
             - { path: "{{ paths._shared }}/resolutions/video.yml", group: "Video" }
             - { path: "{{ paths._shared }}/resolutions/social_media_video.yml", group: "Social Media" }
         default: "832x480"
+
+      - name: "fps"
+        type: "slider"
+        label: "FPS"
+        default: 16
+        configuration: {min: 1, max: 60, step: 1}
 
   - type: "section"
     label: "Text Encoder & VAE"

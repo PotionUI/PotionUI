@@ -1,6 +1,5 @@
 # Video Director mode -- the director editor (form_data.video_director, a
 # separate document submitted outside this dynamic form) owns prompts, frames,
-# fps, and keyframe/reference/audio media. This tab keeps only what the
 # document does NOT carry: model-run parameters for the one generation this
 # preset always makes (t2v/i2v/flf/director all route through the same
 # generator/video_ltx call). Steps/Sampler/CFG live on the Advanced tab's
@@ -34,6 +33,12 @@ fields:
             - { path: "{{ paths._shared }}/resolutions/video.yml", group: "Video" }
             - { path: "{{ paths._shared }}/resolutions/social_media_video.yml", group: "Social Media" }
         default: "768x512"
+
+      - name: "fps"
+        type: "slider"
+        label: "FPS"
+        default: 25
+        configuration: {min: 1, max: 60, step: 1}
 
       - name: "generate_audio"
         type: "checkbox"

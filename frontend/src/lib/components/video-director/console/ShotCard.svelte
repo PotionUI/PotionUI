@@ -1,27 +1,13 @@
 <script lang="ts">
 	// `.shot-card` -- the expanded, active shot. Card head carries every fact
 	// (no per-shot Generate, no info band, per note09-decisions.md); the body
-	// is entirely `children` -- lane (c)'s ShotRail and lane (d)'s ShotStage,
-	// wired up by ShotConsole (lane a). The active-shot border is unconditional
-	// (a card only renders here because it IS the active shot, so it's not a
-	// prop) -- maintainer ruling (09-04): a subtle 1px signal-tinted border,
-	// no glow -- the earlier full-strength `border-signal` + shadow ring read
-	// as too loud/blue for what is just "which shot is expanded".
 	//
-	// Maintainer ruling (09-07): Duration/Frames/FPS live on the RIGHT of this
-	// header, before the overflow menu, as compact editables -- Duration and
-	// Frames are two views of one value (both go through ShotConsole's
-	// withShotDuration/withShotFrames, which already share every clamp), FPS
-	// is film-level (writes doc.chain.fps/doc.timeline.fps via withFilmFps,
-	// renders disabled+"fixed" instead of hidden when the mode locks it). A
-	// quiet MAX text button (same idiom as the console's own Clear/snap
-	// chips) sets the shot to `maxDurationSeconds` when the mode has a cap of
-	// either kind -- hidden entirely when it doesn't, disabled once the shot
-	// is already there.
 	import type { Snippet } from 'svelte';
 	import type { ConsoleShot } from './consoleModel';
 	import { badgeMeta, BADGE_TONE_CLASS } from './badgeMeta';
 	import ConsoleIcon from './ConsoleIcon.svelte';
+	import { Button } from '$lib/components/ui';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 
 	let {
 		shot,
@@ -33,7 +19,6 @@
 		onRetry,
 		onDuration,
 		onFrames,
-		onFps,
 		onSetMax,
 		onCollapse,
 		children
@@ -50,7 +35,6 @@
 		onDuration: (shotId: string, seconds: number) => void;
 		onFrames: (shotId: string, frames: number) => void;
 		onCollapse: (shotId: string) => void;
-		onFps: (shotId: string, fps: number) => void;
 		onSetMax: (shotId: string) => void;
 		children?: Snippet;
 	} = $props();
@@ -110,25 +94,6 @@
 		}
 	}
 
-	function commitFps(e: Event) {
-		const input = e.currentTarget as HTMLInputElement;
-		const fps = parseFloat(input.value);
-		if (!Number.isFinite(fps) || fps <= 0) {
-			input.value = String(shot.fps);
-			return;
-		}
-		onFps(shot.id, Math.round(fps));
-	}
-	function handleFpsKeydown(e: KeyboardEvent) {
-		const input = e.currentTarget as HTMLInputElement;
-		if (e.key === 'Enter') {
-			input.blur();
-		} else if (e.key === 'Escape') {
-			input.value = String(shot.fps);
-			input.blur();
-		}
-	}
-
 	function runLabel(): string {
 		const run = shot.run;
 		if (!run) return '';
@@ -141,7 +106,7 @@
 
 <svelte:window onclick={handleWindowClick} />
 
-<div class="rounded-md border bg-surface-1" style="border-color: rgb(var(--signal) / 0.35)">
+<div class="rounded-md border border-line bg-surface-1">
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="flex cursor-pointer flex-wrap items-center gap-2.5 border-b border-line px-3.5 py-2.5"
@@ -221,11 +186,11 @@
 		{/if}
 
 		<div class="flex flex-1 items-center justify-end gap-3">
-			<div class="flex items-center gap-1 font-mono text-[11px] text-fg-subtle">
+			<div class="flex items-center gap-1 font-mono text-xs text-fg-subtle">
 				<input
 					type="text"
 					inputmode="decimal"
-					class="h-6 w-14 rounded border border-line-strong bg-surface-2 px-1.5 text-right font-mono text-[11px] tabular-nums text-fg focus:outline-none focus:ring-1 focus:ring-signal"
+					class="h-6 w-14 rounded border border-line-strong bg-surface-2 px-1.5 text-right font-mono text-xs tabular-nums text-fg focus:outline-none focus:ring-1 focus:ring-signal"
 					value={shot.durationSeconds.toFixed(1)}
 					aria-label="Shot duration in seconds"
 					onclick={(e) => e.stopPropagation()}
@@ -233,11 +198,26 @@
 					onkeydown={handleDurationKeydown}
 				/>
 				<span>s</span>
+				{#if maxDurationSeconds != null}
+					<Tooltip text={`Set to the maximum this generator allows (${maxFrames} frames)`} position="top">
+						<Button
+							variant="secondary"
+							size="sm"
+							disabled={atMax}
+							onclick={(e) => {
+								e.stopPropagation();
+								onSetMax(shot.id);
+							}}
+						>
+							Max
+						</Button>
+					</Tooltip>
+				{/if}
 				<span>·</span>
 				<input
 					type="text"
 					inputmode="numeric"
-					class="h-6 w-12 rounded border border-line-strong bg-surface-2 px-1.5 text-right font-mono text-[11px] tabular-nums text-fg focus:outline-none focus:ring-1 focus:ring-signal"
+					class="h-6 w-12 rounded border border-line-strong bg-surface-2 px-1.5 text-right font-mono text-xs tabular-nums text-fg focus:outline-none focus:ring-1 focus:ring-signal"
 					value={shot.frames}
 					aria-label="Shot frame count"
 					onclick={(e) => e.stopPropagation()}
@@ -246,48 +226,15 @@
 				/>
 				<span>{shot.capFrames != null ? `/ ${shot.capFrames} frames` : 'frames'}</span>
 				{#if shot.newFrames != null}
-					<span class="text-[9px] uppercase tracking-[0.04em]">+{shot.newFrames} new</span>
+					<span class="text-xs uppercase tracking-[0.04em]">+{shot.newFrames} new</span>
 				{/if}
 				{#if timingUnknown}
 					<span
-						class="text-[9px] uppercase tracking-[0.04em]"
+						class="text-xs uppercase tracking-[0.04em]"
 						title="Motion latents unknown -- showing the requested length, not the generator's real output"
 					>
 						requested
 					</span>
-				{/if}
-				{#if maxDurationSeconds != null}
-					<button
-						type="button"
-						class="ml-2 border-none bg-none p-0 font-mono text-[10px] uppercase tracking-[0.04em] text-fg-subtle hover:text-fg disabled:cursor-not-allowed disabled:text-fg-disabled"
-						disabled={atMax}
-						title={`Set to the maximum this generator allows (${maxFrames} frames)`}
-						onclick={(e) => {
-							e.stopPropagation();
-							onSetMax(shot.id);
-						}}
-					>
-						Max
-					</button>
-				{/if}
-				<span>·</span>
-				<input
-					type="text"
-					inputmode="numeric"
-					class={shot.fpsLocked
-						? 'h-6 w-10 rounded border-none bg-transparent px-1.5 text-right font-mono text-[11px] tabular-nums text-fg-muted'
-						: 'h-6 w-10 rounded border border-line-strong bg-surface-2 px-1.5 text-right font-mono text-[11px] tabular-nums text-fg focus:outline-none focus:ring-1 focus:ring-signal'}
-					value={shot.fps}
-					disabled={shot.fpsLocked}
-					aria-label="Film frame rate"
-					title="Film frame rate"
-					onclick={(e) => e.stopPropagation()}
-					onchange={commitFps}
-					onkeydown={handleFpsKeydown}
-				/>
-				<span>fps</span>
-				{#if shot.fpsLocked}
-					<span class="text-[9px] uppercase tracking-[0.04em]">fixed</span>
 				{/if}
 			</div>
 
@@ -342,7 +289,7 @@
 		</div>
 	</div>
 
-	<div class="flex flex-col gap-3.5 p-3.5">
+	<div class="flex flex-col rounded-b-md bg-canvas">
 		{@render children?.()}
 	</div>
 </div>

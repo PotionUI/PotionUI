@@ -20,11 +20,14 @@
 	import { getContext } from 'svelte';
 	import { readable, type Readable } from 'svelte/store';
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
+	import ResolvedPromptPreview from '$lib/components/ResolvedPromptPreview.svelte';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import type { Segment } from '$lib/types/segments';
 	import { directorShotWirePrompt } from '$lib/utils/videoDirector';
 	import { resolvePromptSegments } from '$lib/utils/promptSegments';
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
+	import type { PromptResourceSpec } from '$lib/utils/promptResources';
+	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 
 	const presetSegmentTemplates =
 		getContext<Readable<PresetSegmentTemplate[]>>('presetSegmentTemplates') ?? readable<PresetSegmentTemplate[]>([]);
@@ -39,7 +42,11 @@
 		variableRolls = {},
 		onVariableDefChange,
 		onVariablesImport,
-		onOpenVariableManager
+		onOpenVariableManager,
+		promptResources = [],
+		resourceFieldValues,
+		resourceFieldLabels = {},
+		promptSyntax = []
 	}: {
 		model: StageShotModel;
 		doc: VideoDirectorValue;
@@ -53,10 +60,17 @@
 		onVariableDefChange?: (name: string, def: VariableDef) => void;
 		onVariablesImport?: (merged: VariablesMap) => void;
 		onOpenVariableManager?: () => void;
+		promptResources?: PromptResourceSpec[];
+		resourceFieldValues?: Record<string, unknown> | null | undefined;
+		resourceFieldLabels?: Record<string, string>;
+		promptSyntax?: PromptSyntaxSpec[];
 	} = $props();
 
 	let isTimeline = $derived(model.routing === 'timeline' && model.footer.startSeconds != null && model.footer.endSeconds != null);
 	let timelineShot = $derived(caps.segmentRouting ? undefined : doc.timeline.shots.find((s) => s.id === timelineShotId));
+	let resolvedPromptText = $derived(
+		directorShotWirePrompt(doc.global_prompt, resolvePromptSegments(model.promptSegments), model.routing, model.isFirst)
+	);
 
 	function updatePromptSegments(segments: Segment[]) {
 		onDoc(withShotPromptSegments(doc, caps, model.id, segments, timelineShotId));
@@ -99,16 +113,26 @@
 		segments={model.promptSegments}
 		presetSegmentTemplates={$presetSegmentTemplates}
 		label="Prompt"
-		previewSegments={[...doc.global_prompt_segments, ...model.promptSegments]}
-		previewText={directorShotWirePrompt(doc.global_prompt, resolvePromptSegments(model.promptSegments), model.routing, model.isFirst)}
-		compact
+		showPreview={false}
+		plain
 		placeholder={model.isFirst && model.isLast ? 'Describe the first shot…' : "Describe this shot's action, camera and composition…"}
 		{variables}
 		{variableRolls}
 		{onVariableDefChange}
 		{onVariablesImport}
 		{onOpenVariableManager}
+		{promptResources}
+		resourceFieldValues={resourceFieldValues || {}}
+		{resourceFieldLabels}
+		{promptSyntax}
 		on:segmentsChange={(e) => updatePromptSegments(e.detail)}
+	/>
+	<ResolvedPromptPreview
+		prompt={resolvedPromptText}
+		negativePrompt={doc.negative_prompt}
+		{promptResources}
+		resourceFieldValues={resourceFieldValues || {}}
+		{promptSyntax}
 	/>
 </div>
 

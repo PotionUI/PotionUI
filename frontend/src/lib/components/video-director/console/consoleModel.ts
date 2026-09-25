@@ -192,16 +192,8 @@ export interface ConsoleHeader {
 	readiness: { ok: boolean; text: string };
 }
 
-export interface ConsoleFilmRow {
-	kind: 'global' | 'negative';
-	label: string;
-	text: string;
-	segmentCount: number | null;
-}
-
 export interface ConsoleModel {
 	header: ConsoleHeader;
-	filmRows: ConsoleFilmRow[];
 	shots: ConsoleShot[];
 	joins: ConsoleJoin[];
 	canAddShot: boolean;
@@ -292,23 +284,6 @@ function buildHeader(
 		capChips: buildCapChips(doc, caps, rail),
 		readiness: { ok: result.ok, text: result.ok ? 'Ready' : (result.reasons[0] ?? 'Not ready') }
 	};
-}
-
-function buildFilmRows(doc: VideoDirectorValue): ConsoleFilmRow[] {
-	return [
-		{
-			kind: 'global',
-			label: 'Global prompt',
-			text: doc.global_prompt,
-			segmentCount: doc.global_prompt_segments.length > 0 ? doc.global_prompt_segments.length : null
-		},
-		{
-			kind: 'negative',
-			label: 'Negative prompt',
-			text: doc.negative_prompt,
-			segmentCount: null
-		}
-	];
 }
 
 // ─── Run state / dependency badges (W3) ────────────────────────────────────
@@ -804,7 +779,6 @@ export function deriveConsoleModel(
 		const joins = buildChainJoins(doc, rail, caps, runs, checked);
 		return {
 			header: buildHeader(doc, caps, rail, shots.length, rail.totalSeconds, runs),
-			filmRows: buildFilmRows(doc),
 			shots,
 			joins,
 			canAddShot: rail.canAddShot,
@@ -819,7 +793,6 @@ export function deriveConsoleModel(
 	const totalSeconds = shots.reduce((sum, s) => sum + s.durationSeconds, 0);
 	return {
 		header: buildHeader(doc, caps, rail, shots.length, totalSeconds, runs),
-		filmRows: buildFilmRows(doc),
 		shots,
 		joins,
 		canAddShot: true,

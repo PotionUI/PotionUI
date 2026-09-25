@@ -8,7 +8,7 @@
 	// Geometry/anatomy held literal to console.html; the 1440 container-query
 	// variant (gutter 60px, "Keyframes" -> "Kf") is CSS-only, keyed off the
 	// `video-director` container name VideoDirectorEditor.svelte already sets.
-	import { railTimeFromFraction, type ShotRailModel } from './shotRailModel';
+	import { railTimeFromFraction, shotRailIsInteractive, type ShotRailModel } from './shotRailModel';
 	import type { ConsoleSelection } from './consoleSelection';
 	import RailPromptLane from './RailPromptLane.svelte';
 	import RailKeyframesLane from './RailKeyframesLane.svelte';
@@ -43,6 +43,7 @@
 	let snapFraction = $derived((fraction: number) => railTimeFromFraction(rail, fraction));
 </script>
 
+{#if shotRailIsInteractive(rail)}
 <div class="rail">
 	<div class="rail-grid">
 		<div class="rail-gutter">
@@ -119,12 +120,10 @@
 		/>
 	</div>
 </div>
+{/if}
 
 <style>
 	.rail {
-		border: 1px solid rgb(var(--line));
-		border-radius: 6px;
-		background: rgb(var(--canvas));
 		padding: 12px 14px;
 	}
 	.rail-grid {

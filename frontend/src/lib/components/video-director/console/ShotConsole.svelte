@@ -9,28 +9,25 @@
 	// `railSelection.ts`), and the per-shot "generate this" checkbox set
 	// (`checked`, transient -- W3 wires a real run queue against it).
 	//
-	// Composes ConsoleHeader, two FilmPromptRow rows, the shot stack
-	// (ShotRow collapsed / ShotCard+ShotRail+ShotStage expanded), a
-	// JoinConnector between consecutive chain shots, and a trailing "Add
-	// shot" row -- the last has no template anatomy (PLAN.md D7 only rules on
-	// the empty-film case), so its markup here is this file's own, kept to
-	// existing semantic tokens.
 	import { untrack } from 'svelte';
 	import type { VideoDirectorValue, DirectorCapabilities, DirectorKeyframe, DirectorPromptSegment } from '$lib/types/videoDirector';
 	import type { Segment } from '$lib/types/segments';
 	import type { DirectorRunState } from '$lib/types/tabs';
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
+	import type { PromptResourceSpec } from '$lib/utils/promptResources';
+	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 	import {
 		normalizeDirectorValue,
 		toModelessDirectorValue,
 		deriveDirectorMode,
 		applyDirectorOperations,
 		isChainEdgeKeyframeId,
-		resolveDirectorTimingProfile
+		resolveDirectorTimingProfile,
+		resolveFilmFps
 	} from '$lib/utils/videoDirector';
 	import { resolvePromptSegments } from '$lib/utils/promptSegments';
 	import { deriveConsoleModel, type ConsoleHeader as ConsoleHeaderModel } from './consoleModel';
-	import { deriveShotRail, railTimeFromFraction } from './shotRailModel';
+	import { deriveShotRail, railTimeFromFraction, shotRailIsInteractive } from './shotRailModel';
 	import type { ConsoleSelection } from './consoleSelection';
 	import {
 		deriveRailModel,
@@ -55,7 +52,7 @@
 		resolveShotDurationMax
 	} from '../stage-rail/stageModel';
 	import { mintId, clamp } from '../timelineCore';
-	import FilmPromptRow from './FilmPromptRow.svelte';
+	import GlobalPromptModal from './GlobalPromptModal.svelte';
 	import ShotRow from './ShotRow.svelte';
 	import ShotCard from './ShotCard.svelte';
 	import ShotRail from './ShotRail.svelte';
@@ -79,7 +76,13 @@
 		variableRolls = {},
 		onVariableDefChange,
 		onVariablesImport,
-		onOpenVariableManager
+		onOpenVariableManager,
+		globalPromptOpen = false,
+		onOpenGlobalPrompt,
+		onCloseGlobalPrompt,
+		promptResources = [],
+		resourceFieldLabels = {},
+		promptSyntax = []
 	}: {
 		value: VideoDirectorValue | undefined;
 		capabilities: DirectorCapabilities;
@@ -127,6 +130,12 @@
 		onVariableDefChange?: (name: string, def: VariableDef) => void;
 		onVariablesImport?: (merged: VariablesMap) => void;
 		onOpenVariableManager?: () => void;
+		globalPromptOpen?: boolean;
+		onOpenGlobalPrompt?: () => void;
+		onCloseGlobalPrompt?: () => void;
+		promptResources?: PromptResourceSpec[];
+		resourceFieldLabels?: Record<string, string>;
+		promptSyntax?: PromptSyntaxSpec[];
 	} = $props();
 
 	function project(raw: unknown): VideoDirectorValue {
@@ -152,6 +161,13 @@
 		if (JSON.stringify(doc) === JSON.stringify(lastEmitted)) return;
 		lastEmitted = doc;
 		untrack(() => onChange(doc));
+	});
+
+	$effect(() => {
+		const formFps = resolveFilmFps(capabilities, formData);
+		const currentFps = capabilities.segmentRouting ? doc.chain.fps : doc.timeline.fps;
+		if (currentFps === formFps) return;
+		doc = withFilmFps(doc, capabilities, formFps);
 	});
 
 	function updateDoc(next: VideoDirectorValue) {
@@ -243,7 +259,6 @@
 	// existing setter for a rich `Segment[]` write on the FILM-level global/
 	// negative prompt (only `applySetPrompt`/`applySetNegativePrompt`'s
 	// flattened-single-segment-from-plain-text path, which the old Stage.svelte
-	// row used); FilmPromptRow.svelte's real SegmentedPromptEditor needs the
 	// richer write, same field, same flattened-text mirror.
 	function withGlobalPromptSegments(target: VideoDirectorValue, segments: Segment[]): VideoDirectorValue {
 		return { ...target, global_prompt_segments: segments, global_prompt: resolvePromptSegments(segments) };
@@ -392,10 +407,6 @@
 		doc = withShotFrames(doc, capabilities, shotId, frames);
 	}
 
-	function handleFps(shotId: string, fps: number) {
-		doc = withFilmFps(doc, capabilities, fps);
-	}
-
 	function handleSetMax(shotId: string) {
 		doc = withShotDurationToMax(doc, capabilities, shotId);
 	}
@@ -423,30 +434,23 @@
 	}
 </script>
 
-<div class="flex flex-col gap-3.5">
-	<div>
-		<FilmPromptRow
-			row={model.filmRows[0]}
-			position="first"
-			segments={doc.global_prompt_segments}
-			onSegmentsChange={(segments) => (doc = withGlobalPromptSegments(doc, segments))}
-			{variables}
-			{variableRolls}
-			{onVariableDefChange}
-			{onOpenVariableManager}
-		/>
-		<FilmPromptRow
-			row={model.filmRows[1]}
-			position="last"
-			segments={doc.negative_prompt_segments}
-			onSegmentsChange={(segments) => (doc = withNegativePromptSegments(doc, segments))}
-			{variables}
-			{variableRolls}
-			{onVariableDefChange}
-			{onOpenVariableManager}
-		/>
-	</div>
+<GlobalPromptModal
+	isOpen={globalPromptOpen}
+	{doc}
+	onClose={() => onCloseGlobalPrompt?.()}
+	onGlobalSegmentsChange={(segments) => (doc = withGlobalPromptSegments(doc, segments))}
+	onNegativeSegmentsChange={(segments) => (doc = withNegativePromptSegments(doc, segments))}
+	{variables}
+	{variableRolls}
+	{onVariableDefChange}
+	{onOpenVariableManager}
+	{promptResources}
+	resourceFieldValues={formData}
+	{resourceFieldLabels}
+	{promptSyntax}
+/>
 
+<div class="flex flex-col gap-3.5">
 	{#if checked.size > 0}
 		<!-- Maintainer ruling (09-04): there is no "Generate n selected" here --
 			the page's own Generate control always decides about the generation.
@@ -477,10 +481,10 @@
 					onRetry={handleRetry}
 					onDuration={handleDuration}
 					onFrames={handleFrames}
-					onFps={handleFps}
 					onSetMax={handleSetMax}
 					onCollapse={collapseShot}
 				>
+					<div>
 					<ShotRail
 						shotId={shot.id}
 						rail={deriveShotRail(doc, capabilities, shot.id, formData)}
@@ -494,6 +498,7 @@
 						onResizeBeat={(id, edge, atSeconds) => handleResizeBeat(shot.id, id, edge, atSeconds)}
 					/>
 					<ShotStage
+					promptOnly={!shotRailIsInteractive(deriveShotRail(doc, capabilities, shot.id, formData))}
 					{shot}
 					{doc}
 					caps={capabilities}
@@ -506,9 +511,16 @@
 					{onVariableDefChange}
 					{onVariablesImport}
 					{onOpenVariableManager}
+					{onOpenGlobalPrompt}
+					{promptResources}
+					{resourceFieldLabels}
+					{promptSyntax}
 				/>
+					</div>
 					{#if capabilities.segmentRouting}
-						<OverridesDisclosure {doc} caps={capabilities} shotId={shot.id} onDoc={updateDoc} />
+						<div class="rounded-b-md border-t border-line bg-surface-1 px-3.5 py-2.5">
+							<OverridesDisclosure {doc} caps={capabilities} shotId={shot.id} onDoc={updateDoc} />
+						</div>
 					{/if}
 				</ShotCard>
 			{:else}

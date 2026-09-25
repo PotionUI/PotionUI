@@ -3,6 +3,7 @@ import {
 	parseDirectorCapabilities,
 	resolveDirectorCapabilities,
 	resolveDirectorEdgeAllowances,
+	resolveFilmFps,
 	evaluateDirectorTiming,
 	createDefaultDirectorValue,
 	isDefaultDirectorDocument,
@@ -602,6 +603,21 @@ describe('chainKeyframeWindow', () => {
 	});
 });
 
+describe('resolveFilmFps', () => {
+	const caps = parseDirectorCapabilities(RAW_CAPS)!;
+
+	it('uses the generate form\'s own fps field when present and finite', () => {
+		expect(resolveFilmFps(caps, { fps: 30 })).toBe(30);
+	});
+
+	it('falls back to the capability default when the field is absent, non-numeric or non-finite', () => {
+		expect(resolveFilmFps(caps, {})).toBe(caps.defaultFps);
+		expect(resolveFilmFps(caps, null)).toBe(caps.defaultFps);
+		expect(resolveFilmFps(caps, { fps: 'thirty' })).toBe(caps.defaultFps);
+		expect(resolveFilmFps(caps, { fps: Number.NaN })).toBe(caps.defaultFps);
+	});
+});
+
 describe('createDefaultDirectorValue', () => {
 	const caps = parseDirectorCapabilities(RAW_CAPS)!;
 
@@ -955,7 +971,7 @@ describe('normalizeDirectorValue', () => {
 			caps
 		);
 
-		expect(v.global_prompt).toBe('first direction, second direction');
+		expect(v.global_prompt).toBe('first direction second direction');
 		expect(v.timeline.shots[0].segments[0].text).toBe('timed direction');
 		expect(v.chain.segments[0].prompt).toBe('shot direction');
 	});

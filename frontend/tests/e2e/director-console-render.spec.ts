@@ -125,9 +125,7 @@ test.describe('Video Director shot console', () => {
 		await expect(director.getByRole('heading', { name: 'Video Director' })).toBeVisible();
 		await expect(director.getByText(/shots? · [\d.]+ s/)).toBeVisible();
 
-		// Film rows: Global prompt / Negative prompt, never the pre-W1 labels.
-		await expect(director.getByText('Global prompt', { exact: true }).first()).toBeVisible();
-		await expect(director.getByText('Negative prompt', { exact: true }).first()).toBeVisible();
+		await expect(director.getByRole('button', { name: /Global prompt/ })).toBeVisible();
 		await expect(director.getByText('Direction', { exact: true })).toHaveCount(0);
 
 		// Exactly one shot card is expanded (signal ring) with a rail underneath

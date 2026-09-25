@@ -13,7 +13,6 @@ import type { ConsoleShot, ConsoleJoin, ConsoleHeader as ConsoleHeaderModel } fr
 const { default: ShotRow } = await import('../../src/lib/components/video-director/console/ShotRow.svelte');
 const { default: JoinConnector } = await import('../../src/lib/components/video-director/console/JoinConnector.svelte');
 const { default: ConsoleHeader } = await import('../../src/lib/components/video-director/console/ConsoleHeader.svelte');
-const { default: FilmPromptRow } = await import('../../src/lib/components/video-director/console/FilmPromptRow.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 
 function shot(overrides: Partial<ConsoleShot> = {}): ConsoleShot {
@@ -231,36 +230,6 @@ describe('JoinConnector', () => {
 		buttons.find((b) => b.textContent?.includes('Convert to fresh cut'))!.click();
 		expect(generated).toEqual(['shot-0', 'shot-1']);
 		expect(converted).toBe('shot-0');
-	});
-});
-
-describe('FilmPromptRow', () => {
-	it('renders the label, truncated text and segment chip read-only, with no chip when segmentCount is null', () => {
-		mounted = mount(FilmPromptRow, {
-			row: { kind: 'negative', label: 'Negative prompt', text: 'blurry, warped hands', segmentCount: null },
-			position: 'last',
-			segments: [],
-			onSegmentsChange: () => {}
-		});
-		expect(mounted.target.textContent).toContain('Negative prompt');
-		expect(mounted.target.textContent).toContain('blurry, warped hands');
-		expect(mounted.target.textContent).not.toContain('segment');
-	});
-
-	it('swaps to the segmented editor on click and reports edited segments back', async () => {
-		let latest: unknown = null;
-		mounted = mount(FilmPromptRow, {
-			row: { kind: 'global', label: 'Global prompt', text: 'Cinematic workshop', segmentCount: 1 },
-			position: 'first',
-			segments: [{ id: 's1', content: 'Cinematic workshop', chips: {}, type: 'content', enabled: true }],
-			onSegmentsChange: (segments: unknown) => (latest = segments)
-		});
-
-		expect(mounted.target.querySelector('[role="list"]')).toBeNull();
-		(mounted.target.querySelector('button') as HTMLButtonElement).click();
-		await tick();
-		expect(mounted.target.querySelector('[role="list"]')).toBeTruthy();
-		expect(latest).toBeNull();
 	});
 });
 

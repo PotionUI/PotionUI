@@ -179,9 +179,7 @@ describe('VideoDirectorEditor: typed shot edit reaches onChange, and a store rou
 		// Global-prompt fallback (nothing selected) -- click its one full-span
 		// rail beat (PLAN.md D3: one beat per chain shot) to select it before
 		// its own SegmentedPromptEditor appears.
-		const beat = target.querySelector('.beat-b') as HTMLElement | null;
-		expect(beat).toBeTruthy();
-		beat!.click();
+		expect(target.querySelector('.beat-b')).toBeNull();
 		await settle();
 
 		const editable = target.querySelector('[contenteditable="true"]') as HTMLElement | null;

@@ -544,6 +544,11 @@ export function resolveDirectorTimingProfile(
 	return { motionLatentCount: timing.motionLatentCountDefault };
 }
 
+export function resolveFilmFps(caps: DirectorCapabilities, formData: Record<string, unknown> | null | undefined): number {
+	const liveValue = formData ? formData.fps : undefined;
+	return typeof liveValue === 'number' && Number.isFinite(liveValue) ? liveValue : caps.defaultFps;
+}
+
 // ─── Edge/keyframe allowances ────────────────────────────────────────────────
 // The single source of truth for whether a shot's leading/trailing edge (the
 // Stage gate "well") and the free keyframes lane may exist at all, given a

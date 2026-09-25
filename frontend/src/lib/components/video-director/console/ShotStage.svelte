@@ -12,10 +12,13 @@
 	import type { ConsoleShot } from './consoleModel';
 	import type { ConsoleSelection } from './consoleSelection';
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
+	import type { PromptResourceSpec } from '$lib/utils/promptResources';
+	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 	import { deriveStageModel } from '../stage-rail/stageModel';
 	import type { RailSelectionId } from '../stage-rail/railModel';
 	import StageBeat from './StageBeat.svelte';
 	import StageGlobalFallback from './StageGlobalFallback.svelte';
+	import StageGlobalPromptNote from './StageGlobalPromptNote.svelte';
 	import StageLorasTab from './StageLorasTab.svelte';
 	import StageReferencesTab from './StageReferencesTab.svelte';
 	import StageKeyframe from '../stage-rail/StageKeyframe.svelte';
@@ -34,7 +37,12 @@
 		variableRolls = {},
 		onVariableDefChange,
 		onVariablesImport,
-		onOpenVariableManager
+		onOpenVariableManager,
+		onOpenGlobalPrompt,
+		promptOnly = false,
+		promptResources = [],
+		resourceFieldLabels = {},
+		promptSyntax = []
 	}: {
 		shot: ConsoleShot;
 		doc: VideoDirectorValue;
@@ -48,6 +56,11 @@
 		onVariableDefChange?: (name: string, def: VariableDef) => void;
 		onVariablesImport?: (merged: VariablesMap) => void;
 		onOpenVariableManager?: () => void;
+		onOpenGlobalPrompt?: () => void;
+		promptOnly?: boolean;
+		promptResources?: PromptResourceSpec[];
+		resourceFieldLabels?: Record<string, string>;
+		promptSyntax?: PromptSyntaxSpec[];
 	} = $props();
 
 	let activeTab: ConsoleShot['tabs'][number]['id'] = $state('selection');
@@ -105,7 +118,7 @@
 	{#if shot.tabs.length > 1}
 		<div class="stage-tabs" role="tablist" aria-label="{shot.title} stage tabs">
 			{#each shot.tabs as tab (tab.id)}
-				{@const [base, count] = splitLabel(tab.label)}
+				{@const [base, count] = splitLabel(promptOnly && tab.id === 'selection' ? 'Prompt' : tab.label)}
 				<button
 					type="button"
 					class="stage-tab"
@@ -122,8 +135,9 @@
 	{/if}
 
 	{#if activeTab === 'selection'}
-		{#if capText}<div class="stage-cap">{capText}</div>{/if}
+		{#if capText && !promptOnly}<div class="stage-cap">{capText}</div>{/if}
 		{#if stageModel.selected.kind === 'shot'}
+			<StageGlobalPromptNote globalPrompt={doc.global_prompt} negativePrompt={doc.negative_prompt} onEdit={onOpenGlobalPrompt} />
 			<StageBeat
 				model={stageModel.selected}
 				{doc}
@@ -135,6 +149,10 @@
 				{onVariableDefChange}
 				{onVariablesImport}
 				{onOpenVariableManager}
+				{promptResources}
+				resourceFieldValues={formData}
+				{resourceFieldLabels}
+				{promptSyntax}
 			/>
 		{:else if stageModel.selected.kind === 'keyframe'}
 			<StageKeyframe model={stageModel.selected} {doc} {caps} timelineShotId={shot.id} {formData} {onDoc} />
@@ -155,7 +173,10 @@
 <style>
 	.stage {
 		border-top: 1px solid rgb(var(--line));
-		padding-top: 14px;
+		padding: 14px;
+	}
+	.stage:first-child {
+		border-top: 0;
 	}
 	.stage-tabs {
 		display: flex;

@@ -452,3 +452,7 @@ export function deriveShotRail(
 	if (!shot) return emptyShotRail();
 	return deriveTimelineShotRail(caps, rail, shot, formData);
 }
+
+export function shotRailIsInteractive(rail: ShotRailModel): boolean {
+	return !!rail.lanes.keyframes || !!rail.lanes.audio || !!rail.lanes.prompt?.canAdd;
+}

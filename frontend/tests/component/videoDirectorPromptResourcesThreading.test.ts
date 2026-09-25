@@ -1,16 +1,6 @@
 // @vitest-environment jsdom
-//
-// PromptSection.svelte threads `variables`/`variableRolls`/`onVariableDefChange`
-// and reuses `onOpenVariables` as `onOpenVariableManager` into every plain-prompt
-// SegmentedPromptEditor it mounts, but VideoDirectorEditor only ever received
-// `onOpenVariables` + `variableCount` (for its own header button) -- the chain
-// down through ShotConsole -> ShotStage -> StageBeat never carried the four
-// variable props on to the shot's own SegmentedPromptEditor, so the `$`
-// variable dropdown was empty and every `${name}` usage rendered undefined
-// inside Video Director mode. This mounts the real VideoDirectorEditor,
-// selects a shot's prompt beat, and proves the props reach that beat's
-// SegmentedPromptEditor toolbar (same pattern as videoDirectorEditorRoundTrip.test.ts).
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import type { PromptResourceSpec } from '$lib/utils/promptResources';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -35,7 +25,6 @@ const { default: VideoDirectorEditor } = await import(
 const { resolveDirectorCapabilities } = await import('$lib/utils/videoDirector');
 
 import type { VideoDirectorValue, ChainSegment, DirectorCapabilities } from '$lib/types/videoDirector';
-import type { VariablesMap } from '$lib/utils/variableDefs';
 
 function baseDoc(): VideoDirectorValue {
 	return {
@@ -103,9 +92,30 @@ function h3RefsCaps(): DirectorCapabilities {
 	return resolveDirectorCapabilities(H3_REFS_PRESET_RAW, 'refs')!;
 }
 
+const H3_REFS_PROMPT_RESOURCES: PromptResourceSpec[] = [
+	{ field: 'references', kind: 'image', label: 'Pictures', token: '<Picture @>' },
+	{ field: 'reference_videos', kind: 'video', label: 'Videos', token: '<Video @>' },
+	{ field: 'reference_audios', kind: 'audio', label: 'Audio', token: '<Audio @>' }
+];
+
 async function settle() {
 	for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 	flushSync();
+}
+
+function typeAtSignInto(editorEl: HTMLElement) {
+	editorEl.focus();
+	const range = document.createRange();
+	range.selectNodeContents(editorEl);
+	range.collapse(false);
+	const textNode = document.createTextNode('@');
+	range.insertNode(textNode);
+	range.setStart(textNode, textNode.length);
+	range.collapse(true);
+	const selection = window.getSelection();
+	selection?.removeAllRanges();
+	selection?.addRange(range);
+	editorEl.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 let cleanup: (() => void) | undefined;
@@ -117,8 +127,8 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-describe('VideoDirectorEditor: prompt-variable state reaches the shot prompt editor', () => {
-	it('threads variables and onOpenVariableManager down to the selected beat SegmentedPromptEditor', async () => {
+describe('VideoDirectorEditor: prompt-resource `@` picker reaches the shot prompt editor', () => {
+	it('lists the mode\'s mapped reference groups when @ is typed inside a shot beat', async () => {
 		const caps = h3RefsCaps();
 		const initial = baseDoc();
 		initial.chain = {
@@ -128,9 +138,11 @@ describe('VideoDirectorEditor: prompt-variable state reaches the shot prompt edi
 			keyframes: [],
 			audio: []
 		};
-		const formData = { references: [{ path: '/pool/a.png' }] };
-		const variables: VariablesMap = { mood: { type: 'text', value: 'melancholy' } };
-		const onOpenVariables = vi.fn();
+		const formData = {
+			references: [{ relative_path: 'a.png' }, { relative_path: 'b.png' }],
+			reference_videos: [],
+			reference_audios: [{ relative_path: 'c.mp3' }]
+		};
 
 		const target = document.createElement('div');
 		document.body.appendChild(target);
@@ -143,10 +155,8 @@ describe('VideoDirectorEditor: prompt-variable state reaches the shot prompt edi
 				capabilities: caps,
 				presetId: 'test-preset',
 				formData,
-				variables,
-				variableCount: 1,
-				onChange: vi.fn(),
-				onOpenVariables
+				promptResources: H3_REFS_PROMPT_RESOURCES,
+				onChange: vi.fn()
 			}
 		});
 		cleanup = () => instance.$destroy();
@@ -156,15 +166,18 @@ describe('VideoDirectorEditor: prompt-variable state reaches the shot prompt edi
 		expect(target.querySelector('.beat-b')).toBeNull();
 		await settle();
 
-		const stageBeat = target.querySelector('.stage-beat');
-		expect(stageBeat).not.toBeNull();
-		const beatVariablesButton = Array.from(stageBeat!.querySelectorAll('button')).find((button) =>
-			button.textContent?.includes('Variables')
-		) as HTMLButtonElement | undefined;
-		expect(beatVariablesButton).not.toBeUndefined();
-		expect(beatVariablesButton!.textContent).toContain('1');
+		const editorEl = target.querySelector('.stage-beat .inline-chip-editor') as HTMLElement | null;
+		expect(editorEl).not.toBeNull();
 
-		beatVariablesButton!.click();
-		expect(onOpenVariables).toHaveBeenCalledTimes(1);
+		typeAtSignInto(editorEl!);
+		flushSync();
+
+		const picker = document.querySelector('.resource-picker');
+		expect(picker).not.toBeNull();
+		const text = picker!.textContent || '';
+		expect(text).toContain('Pictures');
+		expect(text).toContain('2 available');
+		expect(text).toContain('Audio');
+		expect(text).toContain('1 available');
 	});
 });

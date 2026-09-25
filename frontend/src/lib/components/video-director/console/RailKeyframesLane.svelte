@@ -9,6 +9,7 @@
 	import type { RailKeyframeMark } from './shotRailModel';
 	import type { ConsoleSelection } from './consoleSelection';
 	import { attachPointerDrag, tryCapturePointer, tryReleasePointer, clamp } from '../timelineCore';
+	import ConsoleIcon from './ConsoleIcon.svelte';
 
 	const NUDGE_SECONDS = 0.25;
 
@@ -178,6 +179,9 @@
 					: ''}"
 				onclick={(e) => selectMark(e, mark.id)}
 			>
+				{#if !mark.thumbUrl}
+					<span class="kf-anchor-icon"><ConsoleIcon name="image" class="h-3.5 w-3.5" /></span>
+				{/if}
 				<span class="tag" style={mark.thumbUrl ? undefined : 'color:rgb(var(--fg-subtle))'}>{mark.label}</span>
 			</button>
 		{:else}
@@ -199,7 +203,11 @@
 				aria-hidden="true"
 				onclick={(e) => selectMark(e, mark.id)}
 				onpointerdown={(e) => startDrag(mark, e)}
-			></button>
+			>
+				{#if mark.empty}
+					<span class="kf-thumb-icon"><ConsoleIcon name="image" class="h-3.5 w-3.5" /></span>
+				{/if}
+			</button>
 			{#if liveDrag?.id === mark.id}
 				<div class="drag-label" style="left:{displayPercent(mark)}%">{liveDrag.atSeconds.toFixed(2)}s</div>
 			{/if}
@@ -242,13 +250,26 @@
 	}
 	.kf-anchor .tag {
 		position: absolute;
-		left: 2px;
+		left: 0;
+		right: 0;
 		bottom: 2px;
+		text-align: center;
 		font-family: 'IBM Plex Mono', monospace;
 		font-size: 7.5px;
 		letter-spacing: 0.03em;
 		color: rgb(var(--fg));
 		text-shadow: 0 1px 2px rgb(0 0 0 / 0.8);
+	}
+	.kf-anchor-icon {
+		position: absolute;
+		top: 38%;
+		left: 50%;
+		display: flex;
+		width: 14px;
+		height: 14px;
+		transform: translate(-50%, -50%);
+		color: rgb(var(--fg-subtle));
+		pointer-events: none;
 	}
 	.kf-free {
 		position: absolute;
@@ -291,6 +312,17 @@
 	.kf-thumb40.is-empty {
 		background-color: rgb(var(--canvas));
 		border-style: dashed;
+	}
+	.kf-thumb-icon {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		display: flex;
+		width: 14px;
+		height: 14px;
+		transform: translate(-50%, -50%);
+		color: rgb(var(--fg-subtle));
+		pointer-events: none;
 	}
 	.kf-free.is-dragging,
 	.kf-thumb40.is-dragging {

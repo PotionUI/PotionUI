@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveShotRail, buildRailTicks, railTimeFromFraction } from './shotRailModel';
+import { deriveShotRail, buildRailTicks, railTimeFromFraction, shotRailIsInteractive, type ShotRailModel } from './shotRailModel';
 import { chainEdgeKeyframeId, parseChainEdgeKeyframeId } from '$lib/utils/videoDirector';
 import type { VideoDirectorValue, DirectorCapabilities, DirectorModeCapability, ChainSegment } from '$lib/types/videoDirector';
 
@@ -412,5 +412,20 @@ describe('deriveShotRail — timeline routing (LTX): already shot-local, no reba
 		const rail = deriveShotRail(ltxDoc(), ltxCaps(), 'shot-1');
 		expect(rail.lanes.keyframes!.cap).toBeNull();
 		expect(rail.lanes.keyframes!.canAdd).toBe(true);
+	});
+});
+
+describe('shotRailIsInteractive', () => {
+	const base = { durationSeconds: 5, ticks: [] } as unknown as ShotRailModel;
+	const lanes = (l: Partial<ShotRailModel['lanes']>) => ({ ...base, lanes: { prompt: null, keyframes: null, audio: null, ...l } }) as ShotRailModel;
+
+	it('is false for a one-prompt shot with no keyframes or audio lane', () => {
+		expect(shotRailIsInteractive(lanes({ prompt: { beats: [], canAdd: false, addDisabledReason: 'x' } }))).toBe(false);
+	});
+
+	it('is true when beats can be added, or a keyframes or audio lane exists', () => {
+		expect(shotRailIsInteractive(lanes({ prompt: { beats: [], canAdd: true, addDisabledReason: null } }))).toBe(true);
+		expect(shotRailIsInteractive(lanes({ keyframes: { marks: [], count: 0, cap: null, canAdd: true } }))).toBe(true);
+		expect(shotRailIsInteractive(lanes({ audio: { clips: [], canAdd: true } }))).toBe(true);
 	});
 });

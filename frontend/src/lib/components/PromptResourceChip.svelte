@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import Icon from './Icon.svelte';
+	import MediaThumb from './media/MediaThumb.svelte';
 	import { kindLabel, resourceHandleLabel, type PromptResourceSpec } from '$lib/utils/promptResources';
 
 	export let field: string;
@@ -30,7 +31,7 @@
 	}
 	$: displayLabel = spec && position !== null ? resourceHandleLabel(spec, position) : field;
 	$: resolvedFieldLabel = fieldLabel || field;
-	$: itemThumbUrl = item && typeof item === 'object' && typeof (item as Record<string, unknown>).url === 'string'
+	$: itemUrl = item && typeof item === 'object' && typeof (item as Record<string, unknown>).url === 'string'
 		? ((item as Record<string, unknown>).url as string)
 		: null;
 	$: itemName =
@@ -59,8 +60,8 @@
 		<Tooltip text={tooltipText}>
 			<span class="chip-main">
 				<span class="chip-thumb">
-					{#if !dangling && itemThumbUrl}
-						<img src={itemThumbUrl} alt={itemName} />
+					{#if !dangling}
+						<MediaThumb url={itemUrl} kind={spec?.kind} name={itemName} className="w-full h-full" rounded={false} iconClassName="icon" />
 					{:else}
 						<Icon name={kindIcon} className="icon" />
 					{/if}
@@ -80,10 +81,15 @@
 			<span class="relative inline-flex items-center gap-1.5 py-1 pl-1.5 pr-1.5">
 				{#if dangling}
 					<Icon name={kindIcon} className="w-3.5 h-3.5 flex-shrink-0" />
-				{:else if itemThumbUrl}
-					<img src={itemThumbUrl} alt={itemName} class="w-3.5 h-3.5 rounded-sm object-cover flex-shrink-0" />
 				{:else}
-					<Icon name={kindIcon} className="w-3.5 h-3.5 flex-shrink-0" />
+					<MediaThumb
+						url={itemUrl}
+						kind={spec?.kind}
+						name={itemName}
+						className="w-3.5 h-3.5 rounded-sm flex-shrink-0"
+						rounded={false}
+						iconClassName="w-3.5 h-3.5"
+					/>
 				{/if}
 				<span class="text-xs font-medium whitespace-nowrap font-mono tabular-nums">{displayLabel}</span>
 			</span>

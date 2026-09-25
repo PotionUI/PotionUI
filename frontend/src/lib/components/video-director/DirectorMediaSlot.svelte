@@ -13,6 +13,7 @@
 	import { resolveDirectorMediaDisplay, collectFormMediaOptions, formMediaOptionKeys, type FormMediaOption } from '$lib/utils/videoDirector';
 	import MediaLoaderField from '$lib/components/form-fields/MediaLoaderField.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import MediaThumb from '$lib/components/media/MediaThumb.svelte';
 
 	let {
 		name,
@@ -117,14 +118,14 @@
 							onclick={() => pickFormItem(opt)}
 						>
 							<span class="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded border border-line bg-surface-2">
-								{#if opt.item.type === 'image' && opt.item.url}
-									<img src={opt.item.url} alt="" class="h-full w-full object-cover" />
-								{:else}
-									<Icon
-										name={opt.item.type === 'video' ? 'video' : opt.item.type === 'audio' ? 'audio' : 'image'}
-										className="h-3.5 w-3.5 text-fg-subtle"
-									/>
-								{/if}
+								<MediaThumb
+									url={opt.item.url}
+									kind={opt.item.type}
+									name={opt.item.label || opt.item.name}
+									className="h-full w-full"
+									rounded={false}
+									iconClassName="h-3.5 w-3.5 text-fg-subtle"
+								/>
 							</span>
 							<span class="min-w-0 flex-1">
 								<span class="block truncate text-fg">{opt.item.label || opt.item.name || 'Untitled'}</span>

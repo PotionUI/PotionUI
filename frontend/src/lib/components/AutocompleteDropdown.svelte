@@ -46,6 +46,7 @@
 	import { onMount, afterUpdate } from 'svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import Icon from './Icon.svelte';
+	import MediaThumb from './media/MediaThumb.svelte';
 	import HighlightedText from './HighlightedText.svelte';
 	import { compileTextMatcher } from '$lib/utils/textMatch';
 	import portal from '$lib/actions/portal';
@@ -316,16 +317,19 @@
 								aria-selected={isSelected}
 							>
 								<span class="row-thumb">
-									{#if suggestion.preview_file_id && getImageUrl}
+									{#if triggerChar === '@'}
+										<MediaThumb
+											url={suggestion.preview_file_id && getImageUrl ? getImageUrl(suggestion.preview_file_id) : undefined}
+											kind={suggestion.kind}
+											name={suggestion.label}
+											className="w-full h-full"
+											rounded={false}
+											iconClassName="icon"
+										/>
+									{:else if suggestion.preview_file_id && getImageUrl}
 										<img src={getImageUrl(suggestion.preview_file_id)} alt={suggestion.label} loading="lazy" />
 										{#if suggestion.kind === 'video'}
 											<span class="row-thumb-badge"><Icon name="play" className="icon" /></span>
-										{/if}
-									{:else if triggerChar === '@'}
-										{#if suggestion.kind === 'video'}
-											<span class="row-thumb-badge"><Icon name="play" className="icon" /></span>
-										{:else}
-											<Icon name="image" className="icon" />
 										{/if}
 									{:else if triggerChar === '/'}
 										<Icon name="code" className="icon" />
@@ -378,7 +382,13 @@
 				class="picker-preview"
 				style="position: fixed; z-index: 99999; left: {previewPlacement.left}px; top: {previewPlacement.top}px;"
 			>
-				<div class="picker-preview-image" style="background-image: url('{selectedPreviewUrl}')"></div>
+				{#if triggerChar === '@'}
+					<div class="picker-preview-image">
+						<MediaThumb url={selectedPreviewUrl} kind={selectedValueItem.kind} name={selectedValueItem.label} className="w-full h-full" rounded={false} />
+					</div>
+				{:else}
+					<div class="picker-preview-image" style="background-image: url('{selectedPreviewUrl}')"></div>
+				{/if}
 				<div class="picker-preview-cap">
 					{#if triggerChar === '#'}
 						<strong>{selectedValueItem.value}</strong>
@@ -521,7 +531,16 @@
 						>
 							<div class="flex items-center justify-between gap-2">
 								<div class="flex items-center gap-2 flex-1 min-w-0">
-									{#if suggestion.preview_file_id && getImageUrl}
+									{#if triggerChar === '@'}
+										<MediaThumb
+											url={suggestion.preview_file_id && getImageUrl ? getImageUrl(suggestion.preview_file_id) : undefined}
+											kind={suggestion.kind}
+											name={suggestion.label}
+											className="w-8 h-8 rounded flex-shrink-0"
+											rounded={false}
+											iconClassName="w-4 h-4"
+										/>
+									{:else if suggestion.preview_file_id && getImageUrl}
 										<img
 											src={getImageUrl(suggestion.preview_file_id)}
 											alt={suggestion.label}

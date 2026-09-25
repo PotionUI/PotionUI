@@ -43,6 +43,32 @@ describe('PromptResourceChip', () => {
 		expect(mounted.target.querySelector('.resource-chip')?.className).not.toContain('text-danger');
 	});
 
+	it('never renders an img for an audio item, showing the audio icon instead', () => {
+		const audioSpec: PromptResourceSpec = { field: 'voices', kind: 'audio', label: 'Voices', token: '<Audio @>' };
+		mounted = mount({
+			field: 'voices',
+			itemKey: 'a.mp3',
+			spec: audioSpec,
+			position: 1,
+			item: { url: '/api/media/uploads/a.mp3', name: 'a.mp3' }
+		});
+		expect(mounted.target.querySelector('img')).toBeNull();
+		expect(mounted.target.querySelector('svg')).toBeTruthy();
+	});
+
+	it('renders a video element (not an img) for a video item', () => {
+		const videoSpec: PromptResourceSpec = { field: 'clips', kind: 'video', label: 'Clips', token: '<Video @>' };
+		mounted = mount({
+			field: 'clips',
+			itemKey: 'a.mp4',
+			spec: videoSpec,
+			position: 1,
+			item: { url: '/api/media/uploads/a.mp4', name: 'a.mp4' }
+		});
+		expect(mounted.target.querySelector('img')).toBeNull();
+		expect(mounted.target.querySelector('video')?.getAttribute('src')).toBe('/api/media/uploads/a.mp4');
+	});
+
 	it('has no native title anywhere on the chip', () => {
 		mounted = mount({
 			field: 'references',

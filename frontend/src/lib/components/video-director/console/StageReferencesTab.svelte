@@ -4,6 +4,7 @@
 	import { collectFormMediaOptions, formMediaOptionKeys } from '$lib/utils/videoDirector';
 	import { shotReferenceOverview, withMarkerAppendedToShot, type ShotReferenceEntry } from '$lib/utils/shotReferences';
 	import Icon from '$lib/components/Icon.svelte';
+	import MediaThumb from '$lib/components/media/MediaThumb.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge, IconButton } from '$lib/components/ui';
 	import StageCard from '../stage-rail/StageCard.svelte';
@@ -38,9 +39,7 @@
 
 {#snippet tile(entry: ShotReferenceEntry, size: 'lg' | 'sm')}
 	<div class="thumb {size}" class:audio={entry.kind === 'audio'}>
-		{#if entry.kind === 'image' && entry.url}
-			<img src={entry.url} alt="" />
-		{:else if entry.kind === 'audio'}
+		{#if entry.kind === 'audio'}
 			<div class="wave" aria-hidden="true">
 				{#each WAVE_BARS as height, i (i)}
 					<span style="height: {height}%"></span>
@@ -48,7 +47,7 @@
 			</div>
 			<Icon name="audio" className="kind-icon" />
 		{:else}
-			<Icon name={entry.kind === 'video' ? 'video' : 'image'} className="kind-icon" />
+			<MediaThumb url={entry.url} kind={entry.kind} name={entry.name} className="w-full h-full" rounded={false} iconClassName="kind-icon" />
 		{/if}
 	</div>
 {/snippet}
@@ -63,11 +62,14 @@
 				{#each referencePool as opt, i (referencePoolKeys[i])}
 					<div class="item readonly">
 						<div class="pool-thumb">
-							{#if opt.item.type === 'image' && opt.item.url}
-								<img src={opt.item.url} alt="" />
-							{:else}
-								<Icon name={opt.item.type === 'video' ? 'video' : opt.item.type === 'audio' ? 'audio' : 'image'} className="icon" />
-							{/if}
+							<MediaThumb
+								url={opt.item.url}
+								kind={opt.item.type}
+								name={opt.item.label || opt.item.name || opt.fieldLabel}
+								className="w-full h-full"
+								rounded={false}
+								iconClassName="icon"
+							/>
 						</div>
 						<span class="label">{opt.item.label || opt.item.name || opt.fieldLabel}</span>
 					</div>
@@ -173,11 +175,6 @@
 		align-items: center;
 		justify-content: center;
 	}
-	.pool-thumb img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
 	.pool-thumb :global(.icon) {
 		width: 14px;
 		height: 14px;
@@ -225,11 +222,6 @@
 	.thumb.sm {
 		width: 3rem;
 		height: 3rem;
-	}
-	.thumb img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
 	}
 	.thumb :global(.kind-icon) {
 		position: relative;

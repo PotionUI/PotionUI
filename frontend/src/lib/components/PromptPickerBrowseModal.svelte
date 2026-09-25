@@ -13,6 +13,7 @@
 	import ConfirmFooter from './modals/ConfirmFooter.svelte';
 	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './modals/confirmKeyboard';
 	import Icon from './Icon.svelte';
+	import MediaThumb from './media/MediaThumb.svelte';
 	import Button from './ui/Button.svelte';
 	import SegmentedControl from './ui/SegmentedControl.svelte';
 	import Kbd from './ui/Kbd.svelte';
@@ -426,11 +427,14 @@
 								ondblclick={() => pickValue(value)}
 							>
 								<span class="picker-gthumb">
-									{#if value.preview_file_id && getImageUrl}
-										<img src={getImageUrl(value.preview_file_id)} alt={value.label} loading="lazy" />
-									{:else}
-										<Icon name={value.kind === 'video' ? 'video' : value.kind === 'audio' ? 'audio' : 'image'} className="icon" />
-									{/if}
+									<MediaThumb
+										url={value.preview_file_id && getImageUrl ? getImageUrl(value.preview_file_id) : undefined}
+										kind={value.kind}
+										name={value.label}
+										className="w-full h-full"
+										rounded={false}
+										iconClassName="icon"
+									/>
 								</span>
 								<span class="picker-gcheck"><Icon name="check" className="icon" /></span>
 								<span class="picker-gcopy">
@@ -890,12 +894,6 @@
 			rgb(var(--surface-3)) 100%
 		);
 		overflow: hidden;
-	}
-
-	.picker-gthumb img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
 	}
 
 	.picker-gthumb :global(.icon) {

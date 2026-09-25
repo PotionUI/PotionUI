@@ -390,8 +390,7 @@
 		? promptResources.find((spec) => spec.field === effectiveResourceField) ?? null
 		: null;
 
-	function itemThumbUrl(item: unknown, kind: PromptResourceSpec['kind']): string | undefined {
-		if (kind !== 'image') return undefined;
+	function itemThumbUrl(item: unknown): string | undefined {
 		if (item && typeof item === 'object') {
 			const url = (item as Record<string, unknown>).url;
 			if (typeof url === 'string') return url;
@@ -420,7 +419,7 @@
 						sort_order: index,
 						created_at: '',
 						updated_at: '',
-						preview_file_id: itemThumbUrl(item, activeResourceSpec!.kind),
+						preview_file_id: itemThumbUrl(item),
 						kind: activeResourceSpec!.kind
 					};
 				})

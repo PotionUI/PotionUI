@@ -677,8 +677,7 @@
 		!!currentTab.selectedMode &&
 		(musicDirectorCaps.presetModes === null || musicDirectorCaps.presetModes.includes(currentTab.selectedMode));
 
-	// `Tab.videoDirector` is a field of its own — modeState.ts never routes it
-	// through the per-mode prompt cache — so a mode that only just gained
+	// A mode that only just gained
 	// Director (H3's `refs` did, alongside `video`) leaves whatever text a tab
 	// already carries in its plain prompt fields with nowhere to land in the
 	// fresh document the editor mounts with: the editor renders empty, the

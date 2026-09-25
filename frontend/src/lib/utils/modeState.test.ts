@@ -59,6 +59,15 @@ describe('captureModeState', () => {
 			formData: {}
 		});
 	});
+
+	it('carries videoDirector/musicDirector along when the tab has them', () => {
+		const videoDirector = { shots: [{ id: 'chain-shot' }] } as any;
+		const musicDirector = { sections: [{ id: 'verse' }] } as any;
+		const tab = makeTab({ videoDirector, musicDirector });
+		const state = captureModeState(tab);
+		expect(state.videoDirector).toBe(videoDirector);
+		expect(state.musicDirector).toBe(musicDirector);
+	});
 });
 
 describe('buildModeSwitchPatch', () => {
@@ -119,6 +128,26 @@ describe('buildModeSwitchPatch', () => {
 		expect(patch.formData).toEqual({});
 	});
 
+	it('reloads the Video Director document for the entered mode instead of leaking the left mode\'s', () => {
+		const refsDoc = { shots: [{ id: 'refs-shot-1' }] } as any;
+		let tab = makeTab({ selectedMode: 'refs', videoDirector: refsDoc });
+
+		let patch = buildModeSwitchPatch(tab, 'refs', 'chain');
+		tab = { ...tab, ...patch, selectedMode: 'chain' };
+		expect(tab.videoDirector).toBeUndefined();
+
+		const chainDoc = { shots: [{ id: 'chain-shot-1' }] } as any;
+		tab = { ...tab, videoDirector: chainDoc };
+
+		patch = buildModeSwitchPatch(tab, 'chain', 'refs');
+		tab = { ...tab, ...patch, selectedMode: 'refs' };
+		expect(tab.videoDirector).toEqual(refsDoc);
+
+		patch = buildModeSwitchPatch(tab, 'refs', 'chain');
+		tab = { ...tab, ...patch, selectedMode: 'chain' };
+		expect(tab.videoDirector).toEqual(chainDoc);
+	});
+
 	it('carries multi-prompt tab state along with the switch', () => {
 		const tab = makeTab({
 			selectedMode: 'txt2img',
@@ -163,6 +192,14 @@ describe('modeStateFromSessionData', () => {
 			activePromptTab: undefined,
 			formData: { steps: 30 }
 		});
+	});
+
+	it('carries videoDirector/musicDirector from the session payload', () => {
+		const videoDirector = { shots: [{ id: 'chain-shot' }] } as any;
+		const musicDirector = { sections: [{ id: 'verse' }] } as any;
+		const state = modeStateFromSessionData({ prompt: 'a cat', videoDirector, musicDirector });
+		expect(state.videoDirector).toBe(videoDirector);
+		expect(state.musicDirector).toBe(musicDirector);
 	});
 
 	it('falls back to the pre-rename segments/negativeSegments keys', () => {
@@ -217,6 +254,15 @@ describe('mergeCachedModesIntoSessionData', () => {
 		expect(merged.img2img.formData).toEqual({ steps: 12 });
 		// Fields the live cache never captured stay exactly as the baseline had them.
 		expect(merged.img2img.seed).toBe(42);
+	});
+
+	it('overlays a cached videoDirector document onto the saved baseline', () => {
+		const chainDoc = { shots: [{ id: 'chain-shot' }] } as any;
+		const baseline: ModeBasedSessionData = { chain: { prompt: 'stale', videoDirector: { shots: [] } as any } };
+		const merged = mergeCachedModesIntoSessionData(baseline, {
+			chain: { ...emptyModeState(), prompt: 'a cat', videoDirector: chainDoc }
+		});
+		expect(merged.chain.videoDirector).toEqual(chainDoc);
 	});
 
 	it('adds a mode the baseline never had', () => {

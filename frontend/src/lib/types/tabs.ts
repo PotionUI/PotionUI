@@ -285,6 +285,8 @@ export interface ModeState {
 	promptTabs?: PromptTabData[];
 	activePromptTab?: number;
 	formData: Record<string, unknown>;
+	videoDirector?: VideoDirectorValue;
+	musicDirector?: MusicDirectorValue;
 }
 
 export interface PromptRelaySegment {

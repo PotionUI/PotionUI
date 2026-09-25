@@ -20,7 +20,10 @@ import type { ModeState, Tab } from '$lib/types/tabs';
 import type { ModeBasedSessionData, SessionData } from '$lib/types/api';
 
 export function captureModeState(
-	tab: Pick<Tab, 'prompt' | 'negativePrompt' | 'promptSegments' | 'negativePromptSegments' | 'promptTabs' | 'activePromptTab' | 'formData'>
+	tab: Pick<
+		Tab,
+		'prompt' | 'negativePrompt' | 'promptSegments' | 'negativePromptSegments' | 'promptTabs' | 'activePromptTab' | 'formData' | 'videoDirector' | 'musicDirector'
+	>
 ): ModeState {
 	return {
 		prompt: tab.prompt,
@@ -29,7 +32,9 @@ export function captureModeState(
 		negativePromptSegments: tab.negativePromptSegments || [],
 		promptTabs: tab.promptTabs,
 		activePromptTab: tab.activePromptTab,
-		formData: tab.formData || {}
+		formData: tab.formData || {},
+		...(tab.videoDirector !== undefined ? { videoDirector: tab.videoDirector } : {}),
+		...(tab.musicDirector !== undefined ? { musicDirector: tab.musicDirector } : {})
 	};
 }
 
@@ -72,7 +77,9 @@ export function buildModeSwitchPatch(tab: Tab, fromMode: string | null, toMode: 
 		negativePromptSegments: restored.negativePromptSegments,
 		promptTabs: restored.promptTabs,
 		activePromptTab: restored.activePromptTab,
-		formData: restored.formData
+		formData: restored.formData,
+		videoDirector: restored.videoDirector,
+		musicDirector: restored.musicDirector
 	};
 }
 
@@ -94,7 +101,9 @@ export function modeStateFromSessionData(data: SessionData): ModeState {
 		negativePromptSegments: data.negativeSegments || data.negativePromptSegments || [],
 		promptTabs: data.promptTabs,
 		activePromptTab: data.activePromptTab,
-		formData: data.formData || {}
+		formData: data.formData || {},
+		videoDirector: data.videoDirector,
+		musicDirector: data.musicDirector
 	};
 }
 
@@ -141,7 +150,9 @@ export function mergeCachedModesIntoSessionData(
 			negativePromptSegments: state.negativePromptSegments,
 			promptTabs: state.promptTabs,
 			activePromptTab: state.activePromptTab,
-			formData: state.formData
+			formData: state.formData,
+			...(state.videoDirector !== undefined ? { videoDirector: state.videoDirector } : {}),
+			...(state.musicDirector !== undefined ? { musicDirector: state.musicDirector } : {})
 		};
 	}
 	return merged;

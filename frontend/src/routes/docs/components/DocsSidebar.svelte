@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { iconPaths } from '$lib/utils/IconLibrary';
-	import { Input, Spinner } from '$lib/components/ui';
+	import { Button, Input, Spinner } from '$lib/components/ui';
 	import { buildDocNavigation } from '$lib/stores/docs';
 	import { showsStatusDot, statusBadgeVariant } from '$lib/utils/docsMeta';
 	import type { DocItem, DocSection } from '$lib/types/api';
@@ -10,6 +10,7 @@
 	export let error: string | null = null;
 	export let selectedId: string | null = null;
 	export let onSelect: (id: string) => void;
+	export let onRetry: (() => void) | undefined = undefined;
 
 	let filterText = '';
 
@@ -92,7 +93,12 @@
 				<Spinner size="md" />
 			</div>
 		{:else if error}
-			<div class="px-4 py-6 text-sm text-danger">{error}</div>
+			<div class="flex flex-col gap-2 px-4 py-6">
+				<p class="text-sm text-danger">{error}</p>
+				{#if onRetry}
+					<Button variant="secondary" size="sm" icon="refresh" onclick={onRetry}>Retry</Button>
+				{/if}
+			</div>
 		{:else if sections.length === 0}
 			<div class="px-4 py-6 text-sm text-fg-subtle">No documentation available.</div>
 		{:else if filteredSections.length === 0}

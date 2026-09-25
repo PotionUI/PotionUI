@@ -21,7 +21,7 @@
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { adminWebSocket } from '$lib/services/adminWebsocket';
 	import { timeAgo } from '$lib/utils/relativeTime';
-	import { Button, Badge, Spinner, EmptyState, Switch, Alert, IconButton } from '$lib/components/ui';
+	import { Button, Badge, Spinner, EmptyState, LoadErrorState, Switch, Alert, IconButton } from '$lib/components/ui';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import BackendForm from './BackendForm.svelte';
@@ -1020,6 +1020,8 @@
 				{/if}
 			</div>
 		{/if}
+	{:else if loadError && backends.length === 0}
+		<LoadErrorState message={loadError} onRetry={loadBackends} retrying={loading} />
 	{:else}
 		<div class="flex flex-col gap-3 p-4">
 			{#if loadError}

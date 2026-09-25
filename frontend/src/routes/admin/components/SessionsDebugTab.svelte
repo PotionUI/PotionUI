@@ -13,7 +13,7 @@
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Badge, EmptyState, Spinner, IconButton } from '$lib/components/ui';
+	import { Badge, EmptyState, LoadErrorState, Spinner, IconButton } from '$lib/components/ui';
 	import { DetailHeader, DetailBody, DetailLayout, DetailSection, KVGrid, KVItem } from '$lib/components/detail';
 	import { sectionBoxClass } from '$lib/components/detail/detailSection';
 	import { DataTable, TablePager, pageCount, clampPage } from '$lib/components/table';
@@ -445,7 +445,7 @@
 			>
 				{#snippet emptyState()}
 					{#if listError}
-						<EmptyState title="Could not load sessions" description={listError} icon="warning" compact />
+						<LoadErrorState title="Could not load sessions" message={listError} onRetry={loadSessions} retrying={listLoading} />
 					{:else}
 						<EmptyState
 							icon="chat"

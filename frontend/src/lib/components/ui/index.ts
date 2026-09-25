@@ -10,6 +10,7 @@ export { default as Input } from './Input.svelte';
 export { default as Spinner } from './Spinner.svelte';
 export { default as PageContainer } from './PageContainer.svelte';
 export { default as EmptyState } from './EmptyState.svelte';
+export { default as LoadErrorState } from './LoadErrorState.svelte';
 export { default as SegmentedControl } from './SegmentedControl.svelte';
 export { default as Pagination } from './Pagination.svelte';
 export { default as Switch } from './Switch.svelte';

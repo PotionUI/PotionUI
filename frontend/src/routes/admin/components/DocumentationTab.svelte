@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { docsStore, findDocItem } from '$lib/stores/docs';
-	import { EmptyState, Spinner } from '$lib/components/ui';
+	import { EmptyState, LoadErrorState, Spinner } from '$lib/components/ui';
 	import { DetailHeader, DetailBody } from '$lib/components/detail';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import type { LibrarySectionMeta } from '$lib/components/library/librarySection';
@@ -60,6 +60,7 @@
 				error={state.error}
 				selectedId={state.selectedId}
 				onSelect={handleSelect}
+				onRetry={() => docsStore.loadTree()}
 			/>
 		</div>
 	{/snippet}
@@ -78,9 +79,7 @@
 			</DetailBody>
 		{:else if state.error}
 			<DetailBody>
-				<div class="flex h-full items-center justify-center">
-					<EmptyState title="Documentation unavailable" description={state.error} icon="warning" compact />
-				</div>
+				<LoadErrorState title="Documentation unavailable" message={state.error} onRetry={() => docsStore.loadTree()} retrying={state.loading} />
 			</DetailBody>
 		{:else}
 			<DetailBody>

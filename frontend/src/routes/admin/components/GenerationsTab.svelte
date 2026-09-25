@@ -14,7 +14,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
-	import { Button, EmptyState, Spinner } from '$lib/components/ui';
+	import { Button, EmptyState, LoadErrorState, Spinner } from '$lib/components/ui';
 	import { DataTable, StatusCell, TablePager, pageCount, type SortState } from '$lib/components/table';
 	import { selectPage, clearAll } from '$lib/components/table/selection';
 	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
@@ -367,7 +367,7 @@
 			>
 				{#snippet emptyState()}
 					{#if listError}
-						<EmptyState title="Could not load generations" description={listError} icon="warning" compact />
+						<LoadErrorState title="Could not load generations" message={listError} onRetry={loadGenerations} retrying={listLoading} />
 					{:else}
 						<EmptyState
 							icon="generation"

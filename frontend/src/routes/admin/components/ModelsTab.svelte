@@ -28,7 +28,7 @@
 	import { isModelUnassigned, applyAssignmentSummaryChange } from '$lib/components/assignment/assignmentSummary';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Button, IconButton, Badge, Spinner, EmptyState } from '$lib/components/ui';
+	import { Button, IconButton, Badge, Spinner, EmptyState, LoadErrorState } from '$lib/components/ui';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
 	import FilterPopoverFrame from '$lib/components/library/FilterPopoverFrame.svelte';
@@ -109,6 +109,7 @@
 	let isTagDropdownOpen = $state(false);
 	let unindexedCount = $state<UnindexedModelsCount | null>(null);
 	let totalCount = $state(0);
+	let modelsError = $state<string | null>(null);
 	let availabilityIndexed = $state(false);
 	let backendNames = $state<Record<string, string>>({});
 	let assignmentSummary = $state<AssignmentSummary>({});
@@ -280,9 +281,13 @@
 				models = response.data?.models || [];
 				totalCount = response.data?.total || 0;
 				availabilityIndexed = response.data?.availability_indexed ?? false;
+				modelsError = null;
+			} else {
+				modelsError = response.message || 'Failed to load models';
 			}
 		} catch (error) {
 			logger.error('Error loading models:', error);
+			modelsError = getApiErrorMessage(error, 'Failed to load models');
 		}
 	}
 
@@ -884,6 +889,8 @@
 				onClearFilters={() => updateAttrFilters({ q: '', sortBy: attrFilters.sortBy })}
 			/>
 		</div>
+	{:else if modelsError && models.length === 0}
+		<LoadErrorState message={modelsError} onRetry={loadModels} retrying={loading} />
 	{:else}
 		<div class="flex flex-col gap-3 p-4">
 			<SelectionActionBar

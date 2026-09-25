@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { logger } from '$lib/utils/logger';
+	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import { onMount } from 'svelte';
 	import { api } from '$lib/services/api/index';
 	import * as adminApi from '$lib/services/admin-api';
@@ -8,7 +8,7 @@
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Button, Badge, EmptyState, IconButton, Switch } from '$lib/components/ui';
+	import { Button, Badge, EmptyState, IconButton, LoadErrorState, Switch } from '$lib/components/ui';
 	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailFooter } from '$lib/components/detail';
 	import { DataTable, StatusCell } from '$lib/components/table';
 	import { selectPage, clearAll } from '$lib/components/table/selection';
@@ -39,6 +39,7 @@
 
 	let configurations = $state<any[]>([]);
 	let loading = $state(true);
+	let configError = $state<string | null>(null);
 	let selectedConfigId = $state<string | null>(null);
 	let showConfigModal = $state(false);
 	let preChatActions = $state<PreChatAction[]>([]);
@@ -102,8 +103,10 @@ Always be creative and helpful while staying focused on the image generation con
 	);
 
 	$effect(() => {
-		total = configurations.length;
-		visibleCount = filteredConfigurations.length;
+		if (!configError) {
+			total = configurations.length;
+			visibleCount = filteredConfigurations.length;
+		}
 		detailOpen = !!activeConfig;
 	});
 
@@ -141,9 +144,13 @@ Always be creative and helpful while staying focused on the image generation con
 			const response = await api.getLLMConfigurations();
 			if (response.success && response.data) {
 				configurations = response.data.configurations || [];
+				configError = null;
+			} else {
+				configError = response.message || 'Failed to load LLM configurations';
 			}
 		} catch (error) {
 			logger.error('Failed to load LLM configurations:', error);
+			configError = getApiErrorMessage(error, 'Failed to load LLM configurations');
 		} finally {
 			loading = false;
 		}
@@ -390,6 +397,8 @@ Always be creative and helpful while staying focused on the image generation con
 				onDiscard={discardEditForm}
 			/>
 		{/if}
+	{:else if configError && configurations.length === 0}
+		<LoadErrorState message={configError} onRetry={loadConfigurations} retrying={loading} />
 	{:else}
 		<div class="flex flex-col gap-3 p-4">
 			<SelectionActionBar

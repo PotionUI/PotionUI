@@ -5,7 +5,7 @@
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { pluginStore, plugins, frontendHooks, loading, error, pendingPluginIds, type Plugin, type PluginSettingSchema } from '$lib/stores/plugins';
 	import { authStore } from '$lib/stores/auth';
-	import { Button, Badge, Spinner, Input, EmptyState, Switch, Alert } from '$lib/components/ui';
+	import { Button, Badge, Spinner, Input, EmptyState, LoadErrorState, Switch, Alert } from '$lib/components/ui';
 	import {
 		DetailHeader,
 		DetailTabs,
@@ -253,7 +253,7 @@
 			</div>
 		</div>
 	{:else if $error}
-		<Alert variant="danger" icon title="Error loading plugins">{$error}</Alert>
+		<LoadErrorState title="Error loading plugins" message={$error} onRetry={() => pluginStore.loadPlugins()} retrying={$loading} />
 	{:else if $plugins.length === 0}
 		<EmptyState
 			icon="extension"

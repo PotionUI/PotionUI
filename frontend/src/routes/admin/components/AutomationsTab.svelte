@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { Button, EmptyState, Spinner, Switch } from '$lib/components/ui';
+	import { Button, EmptyState, LoadErrorState, Spinner, Switch } from '$lib/components/ui';
+	import { getApiErrorMessage } from '$lib/utils/logger';
 	import { DataTable, type DataTableColumn } from '$lib/components/table';
 	import { selectPage, clearAll } from '$lib/components/table/selection';
 	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
@@ -41,6 +42,7 @@
 	let automations = $state<Automation[]>([]);
 	let templates = $state<AutomationTemplate[]>([]);
 	let loading = $state(true);
+	let automationsError = $state<string | null>(null);
 	let showCreateModal = $state(false);
 	let importInput = $state<HTMLInputElement | null>(null);
 	let importing = $state(false);
@@ -120,6 +122,12 @@
 		if (automationsResult.status === 'fulfilled' && automationsResult.value.success) {
 			automations = automationsResult.value.data ?? [];
 			automationsFailed = false;
+			automationsError = null;
+		} else {
+			automationsError =
+				automationsResult.status === 'fulfilled'
+					? automationsResult.value.message || 'Failed to load automations'
+					: getApiErrorMessage(automationsResult.reason, 'Failed to load automations');
 		}
 
 		let templatesFailed = true;
@@ -129,8 +137,6 @@
 		}
 
 		if (automationsFailed && templatesFailed) {
-			toasts.error('Failed to load automations');
-		} else if (automationsFailed) {
 			toasts.error('Failed to load automations');
 		} else if (templatesFailed) {
 			toasts.error('Failed to load automation templates');
@@ -477,6 +483,8 @@
 				</div>
 			{/if}
 		</div>
+	{:else if automationsError && automations.length === 0}
+		<LoadErrorState message={automationsError} onRetry={loadAutomations} retrying={loading} />
 	{:else}
 		<div class="flex flex-col gap-3 p-4">
 			<SelectionActionBar

@@ -33,7 +33,7 @@
 		type DownloaderFilters,
 		type DownloadSortBy
 	} from './downloaderFilters';
-	import { Button, EmptyState, Alert, Spinner, IconButton } from '$lib/components/ui';
+	import { Button, EmptyState, LoadErrorState, Alert, Spinner, IconButton } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 
@@ -472,11 +472,15 @@
 				card={rowCard}
 			>
 				{#snippet emptyState()}
-					<EmptyState icon="download" title="No downloads yet" description="Queue a model or media file to download. Your download history will appear here.">
-						{#snippet actions()}
-							<Button variant="primary" icon="plus" onclick={() => (showAddModal = true)}>Add Your First Download</Button>
-						{/snippet}
-					</EmptyState>
+					{#if $error}
+						<LoadErrorState message={$error} onRetry={() => downloadStore.loadDownloads()} retrying={$loading} />
+					{:else}
+						<EmptyState icon="download" title="No downloads yet" description="Queue a model or media file to download. Your download history will appear here.">
+							{#snippet actions()}
+								<Button variant="primary" icon="plus" onclick={() => (showAddModal = true)}>Add Your First Download</Button>
+							{/snippet}
+						</EmptyState>
+					{/if}
 				{/snippet}
 				{#snippet filteredEmptyState()}
 					<EmptyState icon="search" title="No downloads match" description="No downloads match the current section and search." compact>

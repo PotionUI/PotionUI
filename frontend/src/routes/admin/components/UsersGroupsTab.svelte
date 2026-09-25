@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { logger } from '$lib/utils/logger';
+	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import { onMount, untrack } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
@@ -11,7 +11,7 @@
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import ModelAssignmentPicker from '$lib/components/modals/ModelAssignmentPicker.svelte';
-	import { Button, IconButton, Badge, Input, Spinner, EmptyState, Switch } from '$lib/components/ui';
+	import { Button, IconButton, Badge, Input, Spinner, EmptyState, LoadErrorState, Switch } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
@@ -123,6 +123,7 @@
 
 	let users = $state<User[]>([]);
 	let loadingUsers = $state(true);
+	let usersError = $state<string | null>(null);
 
 	let showUserModal = $state(false);
 	let userFormData = $state({ username: '', email: '', password: '', account_type: 'USER' });
@@ -138,6 +139,7 @@
 
 	let groups = $state<adminApi.UserGroup[]>([]);
 	let loadingGroups = $state(true);
+	let groupsError = $state<string | null>(null);
 
 	let showGroupModal = $state(false);
 	let groupFormData = $state({ name: '', description: '' });
@@ -230,9 +232,13 @@
 			const response = await adminApi.getUsers();
 			if (response.success && response.data) {
 				users = response.data;
+				usersError = null;
+			} else {
+				usersError = response.message || 'Failed to load users';
 			}
 		} catch (error) {
 			logger.error('Failed to load users:', error);
+			usersError = getApiErrorMessage(error, 'Failed to load users');
 		} finally {
 			loadingUsers = false;
 		}
@@ -244,9 +250,13 @@
 			const response = await adminApi.getUserGroups();
 			if (response.success) {
 				groups = response.data || [];
+				groupsError = null;
+			} else {
+				groupsError = response.message || 'Failed to load user groups';
 			}
 		} catch (error) {
 			logger.error('Failed to load user groups:', error);
+			groupsError = getApiErrorMessage(error, 'Failed to load user groups');
 		} finally {
 			loadingGroups = false;
 		}
@@ -1547,6 +1557,8 @@
 				<Spinner size="lg" />
 				<p class="text-sm text-fg-muted mt-4">Loading users…</p>
 			</div>
+		{:else if usersError && users.length === 0}
+			<LoadErrorState message={usersError} onRetry={loadUsers} retrying={loadingUsers} />
 		{:else}
 			<div class="flex flex-col gap-3 p-4">
 				<DataTable
@@ -1600,6 +1612,8 @@
 			<Spinner size="lg" />
 			<p class="text-sm text-fg-muted mt-4">Loading groups…</p>
 		</div>
+	{:else if groupsError && groups.length === 0}
+		<LoadErrorState message={groupsError} onRetry={loadGroups} retrying={loadingGroups} />
 	{:else}
 		<div class="flex flex-col gap-3 p-4">
 			<DataTable

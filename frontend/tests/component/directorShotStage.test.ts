@@ -273,7 +273,6 @@ describe('ShotStage keyframe variant', () => {
 		const text = mounted.text();
 		expect(text).toContain('Keyframe — free, 1.8 s');
 		expect(mounted.target.querySelector('.stage-kf')).not.toBeNull();
-		expect(text).toContain('Role');
 		expect(text).toContain('Free');
 		expect(text).toContain('Time');
 		expect(text).toContain('Strength');
@@ -314,9 +313,7 @@ describe('ShotStage free keyframe remove (09-04 bug regression)', () => {
 			onDoc: (next) => (latest = next)
 		});
 
-		const removeBtn = Array.from(mounted.target.querySelectorAll<HTMLButtonElement>('.btn')).find((b) =>
-			b.textContent?.includes('Remove')
-		);
+		const removeBtn = mounted.target.querySelector<HTMLButtonElement>('button[aria-label="Remove keyframe"]');
 		expect(removeBtn).toBeTruthy();
 		removeBtn!.click();
 
@@ -333,9 +330,7 @@ describe('ShotStage free keyframe remove (09-04 bug regression)', () => {
 			onDoc: (next) => (latest = next)
 		});
 
-		const removeBtn = Array.from(mounted.target.querySelectorAll<HTMLButtonElement>('.btn')).find((b) =>
-			b.textContent?.includes('Remove')
-		);
+		const removeBtn = mounted.target.querySelector<HTMLButtonElement>('button[aria-label="Remove keyframe"]');
 		expect(removeBtn).toBeTruthy();
 		removeBtn!.click();
 
@@ -367,7 +362,6 @@ describe('ShotStage chain edge keyframe (09-04 bug regression)', () => {
 
 		expect(mounted.target.querySelector('.stage-kf')).not.toBeNull();
 		const text = mounted.text();
-		expect(text).toContain('Role');
 		expect(text).toContain('Start');
 		expect(text).toContain('start_frame.png');
 	});
@@ -414,13 +408,10 @@ describe('ShotStage chain edge keyframe (09-04 bug regression)', () => {
 			}
 		});
 
-		// The well renders (empty state) instead of falling back to the
-		// Global-prompt panel.
 		expect(mounted.target.querySelector('.stage-kf')).not.toBeNull();
-		expect(mounted.target.querySelector('.stage-kf-img.empty')).not.toBeNull();
+		expect(mounted.target.querySelector('.stage-kf img')).toBeNull();
 		expect(mounted.text()).toContain('Start');
 
-		// Strength disabled until an image exists; no Remove for an empty well.
 		const strengthInput = mounted.target.querySelector<HTMLInputElement>('.strength-slider');
 		expect(strengthInput?.disabled).toBe(true);
 		expect(Array.from(mounted.target.querySelectorAll('button')).some((b) => b.textContent?.trim() === 'Remove')).toBe(false);

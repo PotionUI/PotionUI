@@ -8,6 +8,8 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { IconButton } from '$lib/components/ui';
+	import StageCard from './StageCard.svelte';
+	import StageField from './StageField.svelte';
 
 	let {
 		doc,
@@ -17,8 +19,6 @@
 		onDoc
 	}: {
 		doc: VideoDirectorValue;
-		/** Which shot's own `ic_lora` list this tab reads/writes (IC-LoRA is
-		 * per-shot, PLAN.md §B/W2's "13:20 ruling"). */
 		timelineShotId: string;
 		formData: Record<string, unknown> | null | undefined;
 		presetId: string;
@@ -52,58 +52,54 @@
 	{:else}
 		<div class="flex flex-col gap-3">
 			{#each entries as entry, index (entry.id)}
-				<div class="icl-card rounded-lg border border-line bg-surface-1 p-3">
-					<div class="mb-3 flex items-center justify-between gap-2">
+				<StageCard class="icl-card">
+					{#snippet title()}
 						<span class="font-mono text-2xs uppercase tracking-[0.06em] text-fg-subtle">
 							IC-LoRA <span class="tabular-nums">{index + 1}</span>
 						</span>
+					{/snippet}
+					{#snippet actions()}
 						<Tooltip text="Remove IC-LoRA" position="top">
 							<IconButton icon="close" label="Remove IC-LoRA" size="sm" onclick={() => removeEntry(entry.id)} />
 						</Tooltip>
-					</div>
+					{/snippet}
+					{#snippet media()}
+						<DirectorMediaSlot
+							name="{entry.id}-reference"
+							value={entry.ref_media}
+							{formData}
+							kind="image"
+							fill
+							onChange={(v) => setReference(entry.id, v)}
+							config={{ accept: 'image/*' }}
+						/>
+					{/snippet}
 
-					<div class="icl-body">
-						<div class="icl-media">
-							<DirectorMediaSlot
-								name="{entry.id}-reference"
-								value={entry.ref_media}
-								{formData}
-								kind="image"
-								fill
-								onChange={(v) => setReference(entry.id, v)}
-								config={{ accept: 'image/*' }}
+					<LoraPickerField
+						name="{entry.id}-lora"
+						value={entry.lora ? [entry.lora] : []}
+						onChange={(_n, v) => setLora(entry.id, v as LoraPickerItem[])}
+						config={{ title: 'IC-LoRA', preset_id: presetId, configuration: { model_type: 'lora', max_items: 1 } }}
+						compact
+					/>
+
+					<StageField label="Reference strength">
+						<div class="flex items-center gap-2">
+							<input
+								type="range"
+								min="0"
+								max="1"
+								step="0.01"
+								class="strength-slider h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-surface-3 accent-signal"
+								value={entry.strength}
+								oninput={(e) => setStrength(entry.id, parseFloat((e.currentTarget as HTMLInputElement).value))}
 							/>
+							<span class="w-12 shrink-0 text-right font-mono text-xs tabular-nums text-fg-muted">
+								{entry.strength.toFixed(2)}
+							</span>
 						</div>
-
-						<div class="icl-controls flex min-w-0 flex-col gap-3">
-							<LoraPickerField
-								name="{entry.id}-lora"
-								value={entry.lora ? [entry.lora] : []}
-								onChange={(_n, v) => setLora(entry.id, v as LoraPickerItem[])}
-								config={{ title: 'IC-LoRA', preset_id: presetId, configuration: { model_type: 'lora', max_items: 1 } }}
-								compact
-							/>
-
-							<div class="flex flex-col gap-1">
-								<span class="font-mono text-2xs uppercase tracking-[0.06em] text-fg-subtle">Reference strength</span>
-								<div class="flex items-center gap-2">
-									<input
-										type="range"
-										min="0"
-										max="1"
-										step="0.01"
-										class="strength-slider h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-surface-3 accent-signal"
-										value={entry.strength}
-										oninput={(e) => setStrength(entry.id, parseFloat((e.currentTarget as HTMLInputElement).value))}
-									/>
-									<span class="w-12 shrink-0 text-right font-mono text-xs tabular-nums text-fg-muted">
-										{entry.strength.toFixed(2)}
-									</span>
-								</div>
-							</div>
-						</div>
-					</div>
-				</div>
+					</StageField>
+				</StageCard>
 			{/each}
 		</div>
 	{/if}
@@ -115,40 +111,6 @@
 </div>
 
 <style>
-	.icl-card {
-		container-type: inline-size;
-		container-name: icl-card;
-	}
-
-	.icl-body {
-		display: grid;
-		grid-template-columns: 1fr;
-		gap: 12px;
-	}
-
-	@container icl-card (min-width: 30rem) {
-		.icl-body {
-			grid-template-columns: 16rem minmax(0, 1fr);
-			align-items: stretch;
-		}
-	}
-
-	.icl-media {
-		display: flex;
-		min-width: 0;
-		min-height: 11rem;
-	}
-
-	.icl-media > :global(*) {
-		flex: 1 1 auto;
-		min-width: 0;
-	}
-
-	.icl-controls {
-		min-width: 0;
-		padding-right: 2px;
-	}
-
 	.add-icl {
 		width: 100%;
 		height: 40px;

@@ -231,7 +231,7 @@ def test_latent_upscale_off_model_loader_bakes_form_loras_byte_identical_to_base
     })
     loader = _pipe(pipes, "model_loader")
     stage1 = _pipe(pipes, "generator_stage1")
-    assert loader["config"]["loras"] == [{"file_path": "/models/loras/style.safetensors", "weight": 0.8}]
+    assert loader["config"]["loras"] == [{"file_path": "/models/loras/style.safetensors", "weight": 0.8, "audio": True}]
     assert stage1["config"]["runtime_loras"] == []
 
 
@@ -247,7 +247,7 @@ def test_latent_upscale_on_model_loader_bakes_no_loras_stage1_applies_loras_at_r
     loader = _pipe(pipes, "model_loader")
     stage1 = _pipe(pipes, "generator_stage1")
     assert loader["config"]["loras"] == []
-    assert stage1["config"]["runtime_loras"] == [{"file_path": "/models/loras/style.safetensors", "weight": 0.8}]
+    assert stage1["config"]["runtime_loras"] == [{"file_path": "/models/loras/style.safetensors", "weight": 0.8, "audio": True}]
 
 
 def test_refine_loras_picker_flattens_to_file_path_and_weight_on_stage2_runtime_loras(h3_template):
@@ -273,7 +273,7 @@ def test_stage1_runtime_loras_never_carries_refine_loras_and_vice_versa(h3_templ
     })
     stage1 = _pipe(pipes, "generator_stage1")
     stage2 = _pipe(pipes, "generator_stage2")
-    assert stage1["config"]["runtime_loras"] == [{"file_path": "/models/loras/style.safetensors", "weight": 0.8}]
+    assert stage1["config"]["runtime_loras"] == [{"file_path": "/models/loras/style.safetensors", "weight": 0.8, "audio": True}]
     assert stage2["config"]["runtime_loras"] == [{"file_path": "/models/loras/distilled.safetensors", "weight": 1.0}]
 
 

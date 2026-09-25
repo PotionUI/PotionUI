@@ -121,8 +121,11 @@ test.describe('Video Director shot console', () => {
 		const director = page.locator('section.video-director[aria-label="Video Director"]');
 		await expect(director).toBeVisible({ timeout: 15000 });
 
-		// Header: title, model chip, shot count/duration, readiness dot.
-		await expect(director.getByRole('heading', { name: 'Video Director' })).toBeVisible();
+		// Header: title, model chip, shot count/duration, readiness dot. The
+		// title is a `.composer-title` <strong> (the segment-composer header
+		// pattern shared with SegmentedPromptEditor's Positive/Negative
+		// titles), not a heading role.
+		await expect(director.getByText('Video Director', { exact: true })).toBeVisible();
 		await expect(director.getByText(/shots? · [\d.]+ s/)).toBeVisible();
 
 		await expect(director.getByRole('button', { name: /Global prompt/ })).toBeVisible();

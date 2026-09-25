@@ -164,7 +164,10 @@ test('New workspace "Save & create new" saves a dirty existing session before wi
 	const sessionName = `E2E New Workspace Save ${Date.now()}`;
 	await page.getByPlaceholder('Enter session name').fill(sessionName);
 	await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
-	await expect(page.getByRole('button', { name: 'Session saved' })).toBeVisible({ timeout: 10000 });
+	// Network round trip (session create), not a pure UI transition like the
+	// other 10s waits in this file — matches the 20s budget already used for
+	// this spec's other network-bound wait (mainList above).
+	await expect(page.getByRole('button', { name: 'Session saved' })).toBeVisible({ timeout: 20000 });
 
 	// Edit further - dirty against the just-saved baseline, never re-saved.
 	await typeIntoSegment(page, 'Positive segments', 0, ' Gulls circle the empty pier.');

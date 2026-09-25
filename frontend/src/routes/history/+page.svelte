@@ -251,20 +251,15 @@
 	}
 </script>
 
-<div class="flex min-h-screen bg-canvas">
-	<!-- Left folder-tree panel (collapsible), pinned while the gallery scrolls -->
+<div class="flex h-[100dvh] bg-canvas">
 	{#if sidebarOpen}
-		<aside
-			class="hidden md:block w-60 flex-shrink-0 self-stretch min-h-screen border-r border-line bg-surface-1 z-20"
-		>
-			<div class="sticky top-0 h-screen overflow-hidden">
-				<HistorySidebar onCollapse={() => (sidebarOpen = false)} />
-			</div>
+		<aside class="hidden md:flex w-60 flex-shrink-0 flex-col border-r border-line bg-surface-1 z-20">
+			<HistorySidebar onCollapse={() => (sidebarOpen = false)} />
 		</aside>
 	{:else}
-		<aside class="hidden md:block w-8 flex-shrink-0 self-stretch min-h-screen border-r border-line bg-surface-1 z-20">
+		<aside class="hidden md:flex w-8 flex-shrink-0 flex-col border-r border-line bg-surface-1 z-20">
 			<button
-				class="sticky top-0 flex h-screen w-full flex-col items-center gap-2 pt-3 text-fg-subtle hover:text-fg hover:bg-surface-2 transition-colors"
+				class="flex h-full w-full flex-col items-center gap-2 pt-3 text-fg-subtle hover:text-fg hover:bg-surface-2 transition-colors"
 				on:click={() => (sidebarOpen = true)}
 				title="Show library"
 				aria-label="Show library"
@@ -275,10 +270,8 @@
 		</aside>
 	{/if}
 
-	<!-- Right column: existing gallery content -->
-	<div class="flex-1 min-w-0">
-		<!-- Top Bar with Filters -->
-		<div class="sticky top-0 z-30">
+	<div class="flex-1 min-w-0 flex flex-col min-h-0">
+		<div class="flex-shrink-0 z-30">
 			<HistoryToolbar
 				onOpenUpload={() => (showUploadModal = true)}
 				onOpenAddTag={() => (showAddTagModal = true)}
@@ -287,12 +280,14 @@
 			<HistoryTagsBar />
 		</div>
 
-		<HistorySelectionToolbar
-			onBulkDeleteClick={() => (showBulkDeleteModal = true)}
-			onToolSelect={handleToolSelect}
-		/>
+		<main class="flex-1 min-h-0 overflow-y-auto">
+			<HistorySelectionToolbar
+				onBulkDeleteClick={() => (showBulkDeleteModal = true)}
+				onToolSelect={handleToolSelect}
+			/>
 
-		<HistoryGrid onDeleteRequest={handleDeleteRequest} />
+			<HistoryGrid onDeleteRequest={handleDeleteRequest} />
+		</main>
 	</div>
 </div>
 

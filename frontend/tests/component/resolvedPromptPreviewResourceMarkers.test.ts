@@ -4,7 +4,7 @@ import { tick } from 'svelte';
 import type { PromptResourceSpec } from '$lib/utils/promptResources';
 
 const { default: ResolvedPromptPreview } = await import(
-	'../../src/routes/generate/components/ResolvedPromptPreview.svelte'
+	'../../src/lib/components/ResolvedPromptPreview.svelte'
 );
 const { createClassComponent } = await import('svelte/legacy');
 

@@ -22,7 +22,6 @@ A complete **Prompt** is also an ordered segment list, but represents reusable a
 Each rich segment supports:
 
 - content with phrasebook chips and their full selection and shuffle state,
-- **content** or **BREAK** type,
 - enabled or disabled state,
 - and optional name, color, and description.
 
@@ -40,7 +39,7 @@ Use **Save as Segment** on any editor card to open a form prefilled with its com
 
 ## Segment Templates
 
-A Segment Template stores an ordered set of rich slots. A slot can be blank or can provide starter content, chips, a BREAK, enabled state, name, color, and description. Templates themselves require a name and at least one slot, and their names are unique within your account.
+A Segment Template stores an ordered set of rich slots. A slot can be blank or can provide starter content, chips, enabled state, name, color, and description. Templates themselves require a name and at least one slot, and their names are unique within your account.
 
 Templates are useful for repeatable composition patterns. For example, a four-card template might provide **Subject**, **Environment**, **Lighting**, and **Camera** slots without prescribing a preset or any generation values.
 

@@ -11,7 +11,7 @@ import { buildVariablesForSubmit, type VariableRoll, type VariablesForSubmitOpti
 // ---------------------------------------------------------------------------
 
 /** Combine enabled prompt segments into one plain-text string. */
-export function combineSegmentsToString(segments: Segment[], join: SegmentJoin = 'comma'): string {
+export function combineSegmentsToString(segments: Segment[], join: SegmentJoin = 'space'): string {
 	return flattenRichSegments(segments, join);
 }
 
@@ -46,7 +46,7 @@ export function buildSegmentInput(
 		channel,
 		prompt_index: promptIndex,
 		segment_index: segmentIndex,
-		segment_type: segment.type === 'break' ? 'break' : 'content',
+		segment_type: 'content',
 		text,
 		is_disabled: segment.enabled === false || !!segment.isDisabled,
 		name: segment.name ?? null,

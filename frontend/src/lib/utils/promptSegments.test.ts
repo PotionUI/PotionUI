@@ -27,14 +27,13 @@ function makeChip(overrides: Partial<ChipData> = {}): ChipData {
 }
 
 describe('resolvePromptSegments', () => {
-	it('joins enabled content and preserves breaks', () => {
+	it('joins enabled content segments with a space', () => {
 		expect(
 			resolvePromptSegments([
 				{ id: 'one', content: 'portrait' },
-				{ id: 'break', content: '', type: 'break' },
 				{ id: 'two', content: 'studio light' }
 			])
-		).toBe('portrait BREAK studio light');
+		).toBe('portrait studio light');
 	});
 
 	it('omits disabled segments but treats collapsed state as presentation-only', () => {
@@ -44,10 +43,10 @@ describe('resolvePromptSegments', () => {
 				{ id: 'two', content: 'disabled', isDisabled: true },
 				{ id: 'three', content: 'collapsed', isCollapsed: true }
 			])
-		).toBe('visible, collapsed');
+		).toBe('visible collapsed');
 	});
 
-	it('joins with a blank line instead of a comma when the paragraph join is requested', () => {
+	it('joins with a blank line instead of a space when the paragraph join is requested', () => {
 		expect(
 			resolvePromptSegments(
 				[

@@ -84,12 +84,6 @@ describe('buildSegmentInput', () => {
 		});
 	});
 
-	it('marks break segments', () => {
-		const out = buildSegmentInput(segment({ id: 's', type: 'break', content: 'BREAK' }), 'positive', 0, 2);
-		expect(out.segment_type).toBe('break');
-		expect(out.segment_index).toBe(2);
-	});
-
 	it('persists disabled state independently from collapsed UI state', () => {
 		expect(buildSegmentInput(segment({ id: 's', isDisabled: true }), 'positive', 0, 0).is_disabled).toBe(true);
 		expect(buildSegmentInput(segment({ id: 's', enabled: false }), 'positive', 0, 0).is_disabled).toBe(true);
@@ -192,18 +186,18 @@ describe('buildSegmentsPayload', () => {
 		];
 		const out = buildSegmentsPayload(makeTab({ promptSegments: segments }), 1);
 		expect(out.map((s) => s.text)).toEqual(['(portrait:1.2)', 'rain']);
-		expect(out.map((s) => s.text).join(', ')).toBe(combineSegmentsToString(segments));
+		expect(out.map((s) => s.text).join(' ')).toBe(combineSegmentsToString(segments));
 	});
 });
 
 describe('combineSegmentsToString', () => {
-	it('defaults to a comma join, and threads a paragraph join into the flattened text', () => {
+	it('defaults to a space join, and threads a paragraph join into the flattened text', () => {
 		const segments = [
 			segment({ id: 'verse', content: '[Verse]\nrain on the window' }),
 			segment({ id: 'chorus', content: '[Chorus]\nnowhere to go' })
 		];
 
-		expect(combineSegmentsToString(segments)).toBe('[Verse]\nrain on the window, [Chorus]\nnowhere to go');
+		expect(combineSegmentsToString(segments)).toBe('[Verse]\nrain on the window [Chorus]\nnowhere to go');
 		expect(combineSegmentsToString(segments, 'paragraph')).toBe(
 			'[Verse]\nrain on the window\n\n[Chorus]\nnowhere to go'
 		);

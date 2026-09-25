@@ -148,7 +148,7 @@ def test_create_delegates_complete_ordered_segment_aggregate(client, collaborato
             "usage_hint": "positive",
             "segments": [
                 {"type": "content", "content": "a fox", "name": "Subject"},
-                {"type": "break", "enabled": True},
+                {"type": "content", "content": "watercolor", "enabled": True},
             ],
         },
     )
@@ -161,7 +161,7 @@ def test_create_delegates_complete_ordered_segment_aggregate(client, collaborato
     collab_arg, user_id, request = call.args
     assert collab_arg is collaborators
     assert user_id == "user-1"
-    assert [segment.type for segment in request.segments] == ["content", "break"]
+    assert [segment.type for segment in request.segments] == ["content", "content"]
 
 
 def test_list_delegates_browse_filters_without_generation_configuration(client, collaborators):

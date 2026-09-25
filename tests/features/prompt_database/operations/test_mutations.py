@@ -67,7 +67,7 @@ async def test_create_persists_complete_aggregate_and_refreshes_embedding(depend
         usage_hint="positive",
         segments=[
             RichSegment(content="a fox", name="Subject", color="#aabbcc"),
-            RichSegment(type="break"),
+            RichSegment(content="in a field"),
             RichSegment(content="watercolor", enabled=False),
         ],
     )
@@ -76,11 +76,11 @@ async def test_create_persists_complete_aggregate_and_refreshes_embedding(depend
 
     aggregate = repository.create.call_args.args[0]
     assert aggregate.user_id == "user-1"
-    assert [segment.type for segment in aggregate.segments] == ["content", "break", "content"]
+    assert [segment.type for segment in aggregate.segments] == ["content", "content", "content"]
     assert aggregate.segments[0].name == "Subject"
     assert aggregate.segments[0].color == "#aabbcc"
-    assert saved.flattened_text == "a fox BREAK"
-    embedding_provider.embed.assert_awaited_once_with(["a fox BREAK"])
+    assert saved.flattened_text == "a fox in a field"
+    embedding_provider.embed.assert_awaited_once_with(["a fox in a field"])
     vector_store.add.assert_called_once()
     repository.mark_embedded.assert_called_once_with("prompt-created")
     assert saved.embedded is True
@@ -261,8 +261,8 @@ async def test_replace_atomically_replaces_children_preserves_omitted_metadata_a
     assert replacement.source_id == "image-9"
     assert replacement.model_id == "model-1"
     assert replacement.tags == ["portrait"]
-    assert saved.flattened_text == "first, second"
-    embedding_provider.embed.assert_awaited_once_with(["first, second"])
+    assert saved.flattened_text == "first second"
+    embedding_provider.embed.assert_awaited_once_with(["first second"])
     vector_store.add.assert_called_once()
     repository.mark_embedded.assert_called_once_with("prompt-1")
     assert saved.embedded is True

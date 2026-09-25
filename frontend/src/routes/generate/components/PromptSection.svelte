@@ -18,9 +18,11 @@
 	import VariableManagerModal from '$lib/components/VariableManagerModal.svelte';
 	import StylesPicker from '$lib/components/StylesPicker.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import ResolvedPromptPreview from './ResolvedPromptPreview.svelte';
+	import ResolvedPromptPreview from '$lib/components/ResolvedPromptPreview.svelte';
 	import { getPresetPromptResources } from '$lib/utils/presetPromptResourcesCache';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
+	import { getPresetPromptSyntax } from '$lib/utils/presetPromptSyntaxCache';
+	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 
 	// Renders the prompt-relay / multi-prompt / segmented-prompt-pair choice for
 	// a single tab. Extracted verbatim from the mobile (Panel 2) and desktop
@@ -97,6 +99,23 @@
 	}
 	$: resourceFieldValues = tab.formData || {};
 
+	let promptSyntaxSpecs: PromptSyntaxSpec[] = [];
+	$: {
+		const preset = tab.selectedPreset;
+		const mode = tab.selectedMode;
+		const formName = tab.selectedVariant ?? undefined;
+		if (preset && mode) {
+			getPresetPromptSyntax(preset, mode, formName ?? undefined).then((specs) => {
+				if (tab.selectedPreset !== preset || tab.selectedMode !== mode || (tab.selectedVariant ?? undefined) !== formName) {
+					return;
+				}
+				promptSyntaxSpecs = specs;
+			});
+		} else {
+			promptSyntaxSpecs = [];
+		}
+	}
+
 	function handleVariablesChange(vars: VariablesMap) {
 		tabsStore.updateTab(tab.id, { variables: vars });
 	}
@@ -170,6 +189,9 @@
 			{variableCount}
 			onCheckedChange={onDirectorCheckedChange}
 			onGenerateShots={onDirectorGenerateShots}
+			promptResources={promptResourceSpecs}
+			resourceFieldLabels={promptResourceFieldLabels}
+			promptSyntax={promptSyntaxSpecs}
 		/>
 	{:else if musicDirectorActive && musicDirectorCaps}
 		<!-- Music Director Mode -->
@@ -201,6 +223,8 @@
 			promptResources={promptResourceSpecs}
 			{resourceFieldValues}
 			resourceFieldLabels={promptResourceFieldLabels}
+			promptSyntax={promptSyntaxSpecs}
+			plain
 			on:tabsChange={(e) => tabHandlers.handlePromptTabsChange(e.detail)}
 			on:activeTabChange={(e) => tabHandlers.handleActivePromptTabChange(e.detail)}
 		/>
@@ -227,6 +251,8 @@
 				promptResources={promptResourceSpecs}
 				{resourceFieldValues}
 				resourceFieldLabels={promptResourceFieldLabels}
+				promptSyntax={promptSyntaxSpecs}
+				plain
 				on:segmentsChange={(e) => tabHandlers.handlePromptSegmentsChange(e.detail)}
 				on:negativeSegmentsChange={(e) => tabHandlers.handleNegativePromptSegmentsChange(e.detail)}
 			/>
@@ -236,6 +262,7 @@
 					negativePrompt={tab.negativePrompt}
 					promptResources={promptResourceSpecs}
 					{resourceFieldValues}
+					promptSyntax={promptSyntaxSpecs}
 				/>
 			</div>
 		</div>

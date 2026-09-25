@@ -65,7 +65,7 @@ Some installations also show extra entries added by plugins, and an **Administra
 1. **Open the Generate page.** Click **Generate** in the sidebar. You start on an empty workspace tab.
 2. **Pick a preset.** Use the preset selector in the bar at the top of the page. Presets are named for the model and style they drive (for example, a photorealistic SDXL preset or a QwenImage text preset).
 3. **Pick a mode.** After choosing a preset, a mode selector appears next to it. Modes are the kinds of generation the preset supports, such as **txt2img** (make an image from text), **img2img**, or **inpaint**. Most presets start with txt2img.
-4. **Write a prompt.** The positive and negative editors each begin with a segment card. Describe what you want in the positive list and what to avoid in the negative list. Add cards to separate ideas, insert a `BREAK`, or accept phrasebook suggestions as chips.
+4. **Write a prompt.** The positive and negative editors each begin with a segment card. Describe what you want in the positive list and what to avoid in the negative list. Add cards to separate ideas, or accept phrasebook suggestions as chips.
 5. **Adjust the form (optional).** The panel beside the prompt holds the preset's controls — things like resolution, steps, guidance strength, seed, and how many images to make. The defaults are usually sensible, so you can skip this the first time.
 6. **Generate.** Click the **Generate** button in the panel at the bottom of the page. On a phone, use the floating sparkle button on the Generate panel.
 

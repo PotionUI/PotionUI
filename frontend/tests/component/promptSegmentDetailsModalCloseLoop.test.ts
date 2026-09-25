@@ -46,10 +46,23 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-function detailsButton() {
-	return Array.from(document.querySelectorAll('button')).find(
-		(b) => b.getAttribute('aria-label') === 'Details'
+function openMoreMenu() {
+	const trigger = Array.from(document.querySelectorAll('button')).find((b) =>
+		(b.getAttribute('aria-label') || '').startsWith('More actions for')
 	) as HTMLButtonElement;
+	trigger.click();
+}
+
+function detailsMenuItem() {
+	return Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+		(el) => (el.textContent || '').trim() === 'Details'
+	) as HTMLButtonElement;
+}
+
+async function clickDetails() {
+	openMoreMenu();
+	await wait(0);
+	detailsMenuItem().click();
 }
 
 function dialog() {
@@ -75,7 +88,7 @@ describe('PromptSegmentDetailsModal close loop', () => {
 	it('Save details actually removes the dialog before the next Details click, which is not intercepted', async () => {
 		mount();
 
-		detailsButton().click();
+		await clickDetails();
 		await wait(50);
 		expect(dialog()).toBeTruthy();
 
@@ -89,7 +102,7 @@ describe('PromptSegmentDetailsModal close loop', () => {
 		expect(document.querySelector('[aria-label="Close modal"].fixed.inset-0')).toBeNull();
 
 		// The next "Details" click must reach the button, not a leftover backdrop.
-		detailsButton().click();
+		await clickDetails();
 		await wait(50);
 		expect(dialog()).toBeTruthy();
 	});

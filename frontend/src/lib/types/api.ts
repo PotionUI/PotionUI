@@ -29,7 +29,7 @@ export interface SegmentInput {
 	channel: 'positive' | 'negative';
 	prompt_index: number; // default 0; multi-prompt tab index
 	segment_index: number; // order within channel
-	segment_type: 'content' | 'break';
+	segment_type: 'content';
 	text: string; // chip-resolved plain text
 	is_disabled: boolean;
 	name?: string | null;

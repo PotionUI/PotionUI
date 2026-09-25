@@ -128,9 +128,6 @@
 												style="background: {segment.effective_color || color}"
 											></span>
 											<span class="min-w-0 flex-1 truncate">{segment.name}</span>
-											<Badge size="sm" variant={segment.type === 'break' ? 'warning' : 'neutral'}>
-												{segment.type === 'break' ? 'break' : 'content'}
-											</Badge>
 										</a>
 									</li>
 								{/each}
@@ -165,10 +162,5 @@
 		</DetailLayout>
 	</DetailBody>
 
-	<DetailFooter {dirtyCount}>
-		<Button size="sm" variant="secondary" onclick={onDiscard}>Discard</Button>
-		<Button size="sm" variant="primary" loading={saving} disabled={!name.trim()} onclick={onSave}>
-			{mode === 'create' ? 'Create' : 'Save'}
-		</Button>
-	</DetailFooter>
+	<DetailFooter {dirtyCount} {mode} {saving} canSave={!!name.trim()} {onSave} {onDiscard} />
 </div>

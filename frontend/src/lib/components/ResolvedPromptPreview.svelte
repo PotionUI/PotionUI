@@ -4,11 +4,13 @@
 	import { copyText } from '$lib/utils/clipboard';
 	import { toasts } from '$lib/stores/toast';
 	import { resolveResourceMarkers, type PromptResourceSpec } from '$lib/utils/promptResources';
+	import { buildSyntaxSegments, syntaxToneClasses, type PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 
 	export let prompt = '';
 	export let negativePrompt = '';
 	export let promptResources: PromptResourceSpec[] = [];
 	export let resourceFieldValues: Record<string, unknown> = {};
+	export let promptSyntax: PromptSyntaxSpec[] = [];
 
 	let open = false;
 	let active: 'prompt' | 'negative' = 'prompt';
@@ -18,6 +20,7 @@
 	$: resolvedNegativePrompt = resolveResourceMarkers(negativePrompt, promptResources, resourceFieldValues);
 	$: activeText = active === 'prompt' ? resolvedPrompt : resolvedNegativePrompt;
 	$: wordCount = activeText.trim() ? activeText.trim().split(/\s+/).length : 0;
+	$: activeSegments = buildSyntaxSegments(activeText, promptSyntax);
 
 	async function copyActive() {
 		if (!activeText) return;
@@ -63,8 +66,24 @@
 				<button type="button" role="tab" aria-selected={active === 'prompt'} class="rounded px-2.5 py-1 text-xs {active === 'prompt' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:text-fg'}" on:click={() => (active = 'prompt')}>Prompt</button>
 				<button type="button" role="tab" aria-selected={active === 'negative'} class="rounded px-2.5 py-1 text-xs {active === 'negative' ? 'bg-danger/10 text-danger' : 'text-fg-muted hover:text-fg'}" on:click={() => (active = 'negative')}>Negative</button>
 			</div>
-			<div class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded bg-surface-2 p-3 text-sm leading-relaxed text-fg-muted">
-				{activeText || `No ${active === 'negative' ? 'negative ' : ''}prompt content`}
+			<div class="whitespace-pre-wrap rounded bg-surface-2 p-3 text-sm leading-relaxed text-fg-muted">
+				{#if activeText}
+					{#each activeSegments as segment}
+						{#if segment.match}
+							{#if segment.match.spec.help}
+								<Tooltip text={segment.match.spec.help} wrapperClass="inline">
+									<span class="rounded px-0.5 {syntaxToneClasses(segment.match.tone)}">{segment.text}</span>
+								</Tooltip>
+							{:else}
+								<span class="rounded px-0.5 {syntaxToneClasses(segment.match.tone)}">{segment.text}</span>
+							{/if}
+						{:else}
+							{segment.text}
+						{/if}
+					{/each}
+				{:else}
+					No {active === 'negative' ? 'negative ' : ''}prompt content
+				{/if}
 			</div>
 			<p class="mt-2 font-mono text-2xs tabular-nums text-fg-subtle">{wordCount} words · {activeText.length} characters</p>
 		</div>

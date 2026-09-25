@@ -31,7 +31,7 @@ The prompt area sits below (or beside, on desktop) the workbench. Depending on t
 - **Multi-prompt** — when a preset produces several distinct images per run, each output gets its own positive and negative segment lists.
 - **Video Director and timeline contexts** — video presets use the same segment-list composition for global, timed, chain, and negative directions, depending on the selected mode.
 
-Each segment card can contain rich text and phrasebook chips, be a content or `BREAK` card, and carry an optional name, color, and description. Reorder, duplicate, disable, or delete cards as you refine the list. Collapsing a card only reduces its editor footprint; disabling it is what excludes it from the generated prompt. Every list retains at least one card, so the final blank card cannot be deleted.
+Each segment card can contain rich text and phrasebook chips, and carry an optional name, color, and description. Reorder, duplicate, disable, or delete cards as you refine the list. Collapsing a card only reduces its editor footprint; disabling it is what excludes it from the generated prompt. Every list retains at least one card, so the final blank card cannot be deleted.
 
 Two prompt conveniences worth knowing:
 

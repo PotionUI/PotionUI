@@ -7,7 +7,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { Button, EmptyState, Spinner } from '$lib/components/ui';
 	import { PaneRow, PaneSectionLabel } from '$lib/components/pane';
-	import type { ChipData, CreateSavedSegmentInput, RichSegment, RichSegmentType, SavedSegment, SegmentCategory } from '$lib/types/segments';
+	import type { ChipData, CreateSavedSegmentInput, RichSegment, SavedSegment, SegmentCategory } from '$lib/types/segments';
 	import { applySegmentList } from '$lib/utils/richSegments';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
@@ -129,7 +129,6 @@
 	let selected = $state<SavedSegment | null>(null);
 	let name = $state('');
 	let categoryId = $state('');
-	let type = $state<RichSegmentType>('content');
 	let content = $state('');
 	let chipsData = $state<Record<string, ChipData>>({});
 	let enabled = $state(true);
@@ -150,9 +149,9 @@
 		return {
 			name: name.trim(),
 			category_id: categoryId,
-			type,
-			content: type === 'break' ? '' : content,
-			chips: type === 'break' ? {} : chipsData,
+			type: 'content',
+			content,
+			chips: chipsData,
 			enabled,
 			color: color || null,
 			description: description.trim() || null,
@@ -165,7 +164,6 @@
 		return {
 			name: payload.name,
 			category: payload.category_id,
-			type: payload.type,
 			content: JSON.stringify({ content: payload.content, chips: payload.chips }),
 			enabled: String(payload.enabled),
 			color: payload.color ?? '',
@@ -189,7 +187,6 @@
 	function fillFrom(segment: SavedSegment) {
 		name = segment.name;
 		categoryId = segment.category_id;
-		type = segment.type;
 		content = segment.content;
 		chipsData = $state.snapshot(segment.chips || {});
 		enabled = segment.enabled;
@@ -205,7 +202,6 @@
 		name = '';
 		const preset = params.get('category');
 		categoryId = preset && categories.some((category) => category.id === preset) ? preset : categories[0]?.id || '';
-		type = 'content';
 		content = '';
 		chipsData = {};
 		enabled = true;
@@ -529,7 +525,6 @@
 			categorySegmentCount={selectedCategoryCount}
 			bind:name
 			bind:categoryId
-			bind:type
 			bind:content
 			bind:chips={chipsData}
 			bind:enabled

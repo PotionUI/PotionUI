@@ -138,6 +138,28 @@ llm:
     are standard on SDXL: quality negatives (worst quality, low quality, bad
     anatomy, extra fingers) plus whatever the specific image risks.
 
+prompt_syntax:
+  txt2img:
+    - token: "(tag:1.2)"
+      kind: "weight"
+      pattern: '\(([^()]+?):(\d+(?:[.,]\d+)?)\)'
+      insert: "({}:{weight=1.2})"
+      help: "Explicit attention weight; above 1 emphasizes, below 1 de-emphasizes"
+    - token: "BREAK"
+      kind: "marker"
+      help: "Splits the prompt into separate ~75-token CLIP chunks, encoded independently"
+      tone: "accent"
+  inpaint:
+    - token: "(tag:1.2)"
+      kind: "weight"
+      pattern: '\(([^()]+?):(\d+(?:[.,]\d+)?)\)'
+      insert: "({}:{weight=1.2})"
+      help: "Explicit attention weight; above 1 emphasizes, below 1 de-emphasizes"
+    - token: "BREAK"
+      kind: "marker"
+      help: "Splits the prompt into separate ~75-token CLIP chunks, encoded independently"
+      tone: "accent"
+
 modes:
   - txt2img
   - inpaint

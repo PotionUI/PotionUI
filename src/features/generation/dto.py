@@ -22,7 +22,7 @@ class SegmentInput(BaseModel):
     channel: str = "positive"  # "positive" | "negative"
     prompt_index: int = 0  # multi-prompt tab index
     segment_index: int = 0  # order within channel
-    segment_type: str = "content"  # "content" | "break"
+    segment_type: str = "content"
     text: str = ""  # resolved plain text (chip values already resolved)
     is_disabled: bool = False
     name: Optional[str] = None

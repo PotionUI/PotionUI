@@ -6,6 +6,7 @@
 	import SegmentedPromptEditor from './SegmentedPromptEditor.svelte';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
+	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 	import { flattenRichSegments } from '$lib/utils/richSegments';
 
 	export let promptTabs: PromptTabData[] = [];
@@ -24,6 +25,8 @@
 	export let promptResources: PromptResourceSpec[] = [];
 	export let resourceFieldValues: Record<string, unknown> = {};
 	export let resourceFieldLabels: Record<string, string> = {};
+	export let promptSyntax: PromptSyntaxSpec[] = [];
+	export let plain = false;
 
 	const dispatch = createEventDispatcher();
 
@@ -111,6 +114,8 @@
 				{promptResources}
 				{resourceFieldValues}
 				{resourceFieldLabels}
+				{promptSyntax}
+				{plain}
 				on:segmentsChange={(e) => handleSegmentsChange(i, e.detail)}
 				on:negativeSegmentsChange={(e) => handleNegativeSegmentsChange(i, e.detail)}
 			/>

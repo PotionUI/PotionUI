@@ -1,8 +1,10 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import {
 	AUTOCOMPLETE_ESTIMATED_HEIGHT,
 	AUTOCOMPLETE_MIN_WIDTH,
-	computeAutocompletePlacement
+	computeAutocompletePlacement,
+	caretLineAnchor
 } from './autocompleteAnchor';
 
 const VIEWPORT = { width: 1440, height: 900 };
@@ -101,5 +103,35 @@ describe('computeAutocompletePlacement', () => {
 
 		expect(placement.top).toBeGreaterThanOrEqual(0);
 		expect(placement.bottom).toBeLessThanOrEqual(VIEWPORT.height);
+	});
+});
+
+describe('caretLineAnchor', () => {
+	function parentAt(box: { top: number; bottom: number; left: number; width: number }) {
+		const parent = document.createElement('div');
+		const text = document.createTextNode('hello');
+		parent.appendChild(text);
+		parent.getBoundingClientRect = () => ({ ...box, right: box.left + box.width, height: box.bottom - box.top, x: box.left, y: box.top, toJSON: () => ({}) }) as DOMRect;
+		return { parent, text };
+	}
+
+	it('anchors to the caret line inside a tall editor, keeping the editor horizontally', () => {
+		const { parent, text } = parentAt({ top: 50, bottom: 900, left: 80, width: 1500 });
+		const selection = {
+			rangeCount: 1,
+			getRangeAt: () => ({ startContainer: text, getBoundingClientRect: () => ({ top: 600, bottom: 620, height: 20 }) })
+		};
+		expect(caretLineAnchor(parent, selection)).toEqual({ top: 600, bottom: 620, left: 80, width: 1500 });
+	});
+
+	it('falls back to the editor box when the caret is elsewhere', () => {
+		const { parent } = parentAt({ top: 50, bottom: 900, left: 80, width: 1500 });
+		const outside = document.createTextNode('x');
+		const selection = {
+			rangeCount: 1,
+			getRangeAt: () => ({ startContainer: outside, getBoundingClientRect: () => ({ top: 600, bottom: 620, height: 20 }) })
+		};
+		expect(caretLineAnchor(parent, selection)).toEqual({ top: 50, bottom: 900, left: 80, width: 1500 });
+		expect(caretLineAnchor(parent, null)).toEqual({ top: 50, bottom: 900, left: 80, width: 1500 });
 	});
 });

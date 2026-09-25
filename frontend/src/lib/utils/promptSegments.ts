@@ -4,7 +4,7 @@ import { parseChipsFromText } from '$lib/utils/chipParser';
 import { logger } from '$lib/utils/logger';
 
 /** Resolve enabled segments; collapsed state is presentation-only. */
-export function resolvePromptSegments(segments: Segment[] = [], join: SegmentJoin = 'comma'): string {
+export function resolvePromptSegments(segments: Segment[] = [], join: SegmentJoin = 'space'): string {
 	return flattenRichSegments(segments, join);
 }
 

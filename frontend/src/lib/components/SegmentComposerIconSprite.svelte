@@ -1,7 +1,7 @@
 <!--
 	The mock's <symbol> sprite, trimmed to the glyphs the segment composer
 	actually uses (library/template/braces/sparkles/more/grip/copy/eye/eye-off/
-	pencil/save/trash/break/chevrons/plus/info). Rendered once per SegmentedPromptEditor
+	pencil/save/trash/chevrons/plus/info). Rendered once per SegmentedPromptEditor
 	instance — a hidden, zero-size <svg> — and referenced everywhere else in this
 	surface as `<svg class="icon"><use href="#i-name"/></svg>`, exactly as the
 	mock does. Symbol ids can legitimately repeat across multiple editor
@@ -31,7 +31,7 @@
 	<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m16 16 5 5" /></symbol>
 	<symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3Z" /></symbol>
 	<symbol id="i-pencil" viewBox="0 0 24 24"><path d="m4 20 4-1 11-11-3-3L5 16Z" /><path d="m14 7 3 3" /></symbol>
-	<symbol id="i-break" viewBox="0 0 24 24"><path d="M4 6h16M4 18h16M9 9l3 3-3 3M15 9l-3 3 3 3" /></symbol>
 	<symbol id="i-save" viewBox="0 0 24 24"><path d="M5 3h12l2 2v16H5Z" /><path d="M8 3v6h8V3M8 21v-7h8v7" /></symbol>
 	<symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6" /></symbol>
+	<symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 2a5 5 0 0 0-5 5c0 3 2 5 3 7l2 6 2-6c1-2 3-4 3-7a5 5 0 0 0-5-5Z" /><circle cx="12" cy="7" r="2" /></symbol>
 </svg>

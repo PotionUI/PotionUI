@@ -298,6 +298,61 @@ fields:
         assert issues == []
 
 
+class TestLintLoraPickerRowFields:
+
+    @staticmethod
+    def _write_form(preset_dir, mode, form_yaml):
+        form_file = preset_dir / "modes" / mode / "form.yml"
+        form_file.parent.mkdir(parents=True, exist_ok=True)
+        form_file.write_text(form_yaml)
+
+    def test_known_row_option_is_clean(self, tmp_path):
+        preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01LORAROWFIELDOKAAAAAAAAAAA", ["txt2img"])
+        self._write_form(preset_dir, "txt2img", """name: custom
+fields:
+  - name: loras
+    type: lora_picker
+    label: LoRAs
+    configuration:
+      row_fields:
+        - name: step_start
+          type: number
+          label: From step
+fields:
+  - name: loras
+    type: lora_picker
+    label: LoRAs
+    configuration:
+      row_fields:
+        - name: step_star
+          type: number
+          label: From step
+fields:
+  - name: loras
+    type: lora_picker
+    label: LoRAs
+    configuration:
+      row_fields:
+        - type: number
+          label: From step
+fields:
+  - name: loras
+    type: lora_picker
+    label: LoRAs
+    configuration:
+      row_fields:
+        - name: audio
+          type: some_plugin_field_type
+          label: Affects audio
+""")
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(
+            i.level == "warning" and "row_fields[0]" in i.message
+            and "unregistered field type 'some_plugin_field_type'" in i.message
+            for i in issues
+        )
+
+
 class TestLintAlertFieldConfig:
     """`alert` fields must use the declared `variant`/`content` keys, not the
     pre-fix `type`/`message` shape `alert.py` never reads. Scoped to `alert`
@@ -1003,7 +1058,7 @@ class TestLintSegmentTemplates:
         issues = PresetLinter([str(tmp_path)]).lint()
         assert any(
             i.level == "warning"
-            and "vars.prompt.segment_templates[0].segments[0]: type must be 'content' or 'break'" in i.message
+            and "vars.prompt.segment_templates[0].segments[0]: type must be 'content'" in i.message
             for i in issues
         )
 

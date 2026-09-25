@@ -36,7 +36,7 @@
 	import { onMount, afterUpdate } from 'svelte';
 	import portal from '$lib/actions/portal';
 	import { resolveMentionRowAction } from '$lib/utils/mentionRowAction';
-	import { computeAutocompletePlacement } from '$lib/utils/autocompleteAnchor';
+	import { computeAutocompletePlacement, caretLineAnchor } from '$lib/utils/autocompleteAnchor';
 
 	// Props
 	export let categories: AutocompleteCategory[] = [];
@@ -85,7 +85,7 @@
 
 	function updatePosition() {
 		if (!parentRef) return;
-		const rect = parentRef.getBoundingClientRect();
+		const rect = caretLineAnchor(parentRef, window.getSelection());
 		dropdownPosition = computeAutocompletePlacement(rect, {
 			width: window.innerWidth,
 			height: window.innerHeight
@@ -169,7 +169,9 @@
 				? 'variable-picker'
 				: triggerChar === '@'
 					? 'resource-picker'
-					: 'phrasebook-picker'}"
+					: triggerChar === '/'
+						? 'syntax-picker'
+						: 'phrasebook-picker'}"
 			aria-label={contextLabel}
 			style="position: fixed; z-index: 99999; left: {dropdownPosition.left}px; right: auto; width: {dropdownPosition.width}px;
 				{dropdownPosition.openAbove

@@ -102,7 +102,7 @@ function resolveSegmentLyrics(segment: Segment): string {
 }
 
 function isEnabledContentSegment(segment: Segment): boolean {
-	return isSegmentEnabled(segment) && segment.type !== 'break';
+	return isSegmentEnabled(segment);
 }
 
 // ─── Capability parsing ──────────────────────────────────────────────────────

@@ -6,8 +6,7 @@
 	import {
 		clearAllSegmentFilters,
 		type SegmentEnabledFilter,
-		type SegmentFilters,
-		type SegmentTypeFilter
+		type SegmentFilters
 	} from './segmentFilters';
 
 	let {
@@ -24,11 +23,6 @@
 		onClose: () => void;
 	} = $props();
 
-	const typeOptions: Array<{ value: SegmentTypeFilter; label: string }> = [
-		{ value: '', label: 'Any' },
-		{ value: 'content', label: 'Content' },
-		{ value: 'break', label: 'Break' }
-	];
 	const enabledOptions: Array<{ value: SegmentEnabledFilter; label: string }> = [
 		{ value: '', label: 'Any' },
 		{ value: 'on', label: 'Enabled' },
@@ -46,8 +40,6 @@
 </script>
 
 <FilterPopoverFrame onClearAll={() => onChange(clearAllSegmentFilters(filters))} {onClose}>
-	<SegmentedFilterGroup label="Type" options={typeOptions} value={filters.type} onChange={(type: SegmentTypeFilter) => set({ type })} />
-
 	<label class="flex flex-col gap-1.5">
 		<span class="text-xs font-medium text-fg-muted">Category</span>
 		<select

@@ -31,6 +31,7 @@
 	} from '$lib/utils/richSegments';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
+	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 	import { resolvedPromptStats, resolvedPromptTokens } from '$lib/utils/resolvedPrompt';
 	import PromptSegment from './PromptSegment.svelte';
 	import Tooltip from './Tooltip.svelte';
@@ -90,6 +91,7 @@
 	export let promptResources: PromptResourceSpec[] = [];
 	export let resourceFieldValues: Record<string, unknown> = {};
 	export let resourceFieldLabels: Record<string, string> = {};
+	export let promptSyntax: PromptSyntaxSpec[] = [];
 	// The Video Director's shot stage (StageBeat.svelte) already gives this
 	// editor its own caption/card — the mock's `.composer` shell (toolbar
 	// header + resolved panel) would just be a second, redundant container
@@ -97,6 +99,7 @@
 	// segment rail (`.segment-list` + its add-segment row); the `.segment-composer`
 	// scope class stays on the root either way, so chip/picker styling still applies.
 	export let embedded = false;
+	export let plain = false;
 
 	$: paired = negativeSegments !== undefined;
 	// aria-label for the sections role="list" — kept stable independent of the
@@ -301,17 +304,6 @@
 		);
 	}
 
-	function toggleSegmentBreak(target: ApplyTarget, id: string) {
-		commitList(
-			target,
-			getList(target).map((segment) =>
-				segment.id === id
-					? { ...segment, type: segment.type === 'break' ? 'content' : 'break' }
-					: segment
-			)
-		);
-	}
-
 	function handleSegmentUpdate(
 		target: ApplyTarget,
 		id: string,
@@ -455,7 +447,7 @@
 	$: previewSource = previewSegments ?? segments;
 	$: hasPreviewContent = (previewText ?? flattenRichSegments(previewSource)).length > 0;
 	$: resolvedTokens = showPreview && resolvedOpen ? resolvedPromptTokens(previewSource, previewText) : [];
-	$: resolvedStats = showPreview ? resolvedPromptStats(previewSource, previewText) : { chars: 0, breaks: 0 };
+	$: resolvedStats = showPreview ? resolvedPromptStats(previewSource, previewText) : { chars: 0 };
 </script>
 
 <svelte:window on:pointerdown={handleOutsidePointerDown} on:keydown={handleOutsideKeydown} />
@@ -482,12 +474,12 @@
 					{promptResources}
 					{resourceFieldValues}
 					{resourceFieldLabels}
+					{promptSyntax}
 					on:change={(e) => handleSegmentUpdate('main', segment.id, e.detail)}
 					on:metadataChange={(e) => handleMetadataUpdate('main', segment.id, e.detail)}
 					on:remove={() => removeSegment('main', segment.id)}
 					on:duplicate={() => duplicateSegment('main', segment.id)}
 					on:toggleDisabled={() => toggleSegmentDisabled('main', segment.id)}
-					on:toggleBreak={() => toggleSegmentBreak('main', segment.id)}
 					on:moveUp={() => moveSegment('main', segment.id, 'up')}
 					on:moveDown={() => moveSegment('main', segment.id, 'down')}
 					on:saveAsSegment={() => {
@@ -576,7 +568,7 @@
 	{#if embedded}
 		{@render mainRail()}
 	{:else}
-		<section class="composer edge-inline" class:compact>
+		<section class="composer edge-inline" class:compact class:plain>
 			<header class="composer-toolbar section-header">
 				<strong class="composer-title section-title">{headerWord}</strong>
 				<span class="composer-count section-count font-mono tabular-nums">{segmentCountLabel(segments.length)}</span>
@@ -657,7 +649,7 @@
 							<span class="resolved-title">What the model receives</span>
 						</button>
 						<span class="resolved-stats font-mono tabular-nums">
-							{resolvedStats.chars} chars · {resolvedStats.breaks} {resolvedStats.breaks === 1 ? 'break' : 'breaks'}
+							{resolvedStats.chars} chars
 						</span>
 						{#if hasPreviewContent}
 							<button type="button" class="resolved-copy small-button" on:click={() => handleCopyPrompt('main')}>
@@ -670,9 +662,7 @@
 						<div class="resolved-body font-mono">
 							{#if resolvedTokens.length}
 								{#each resolvedTokens as token}
-									{#if token.kind === 'break'}
-										<span class="resolved-break">{token.text}</span>
-									{:else if token.kind === 'value'}
+									{#if token.kind === 'value'}
 										<mark class="resolved-value">{token.text}</mark>
 									{:else if token.kind === 'emphasis'}
 										<span class="resolved-emphasis">{token.text}</span>
@@ -710,12 +700,12 @@
 						{promptResources}
 						{resourceFieldValues}
 						{resourceFieldLabels}
+						{promptSyntax}
 						on:change={(e) => handleSegmentUpdate('negative', segment.id, e.detail)}
 						on:metadataChange={(e) => handleMetadataUpdate('negative', segment.id, e.detail)}
 						on:remove={() => removeSegment('negative', segment.id)}
 						on:duplicate={() => duplicateSegment('negative', segment.id)}
 						on:toggleDisabled={() => toggleSegmentDisabled('negative', segment.id)}
-						on:toggleBreak={() => toggleSegmentBreak('negative', segment.id)}
 						on:moveUp={() => moveSegment('negative', segment.id, 'up')}
 						on:moveDown={() => moveSegment('negative', segment.id, 'down')}
 						on:saveAsSegment={() => {
@@ -738,7 +728,7 @@
 		{#if embedded}
 			{@render negativeRail()}
 		{:else}
-			<section class="composer edge-inline negative-composer" class:compact>
+			<section class="composer edge-inline negative-composer" class:compact class:plain>
 				<header class="composer-toolbar section-header negative-header">
 					<strong class="composer-title negative section-title negative">Negative</strong>
 					<span class="composer-count section-count font-mono tabular-nums">{segmentCountLabel(negativeCount)}</span>

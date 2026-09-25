@@ -704,6 +704,62 @@ def _validate_prompt_resources(prompt_resources: Dict[str, List[PromptResourceSp
     return problems
 
 
+PROMPT_SYNTAX_TONES = ("signal", "success", "warning", "info", "accent", "danger", "muted")
+
+_JS_LOOKBEHIND_RE = re.compile(r"\(\?<[=!]")
+
+
+class PromptSyntaxSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str
+    kind: Literal["label", "marker", "wrap", "weight"]
+    pattern: Optional[str] = None
+    insert: Optional[str] = None
+    help: Optional[str] = None
+    tone: Optional[Literal["signal", "success", "warning", "info", "accent", "danger", "muted"]] = None
+
+    @model_validator(mode="after")
+    def _validate_shape(self) -> "PromptSyntaxSpec":
+        problems = []
+        if not self.token or not self.token.strip():
+            problems.append("prompt_syntax entry needs a non-empty token")
+
+        pattern = self.pattern if self.pattern is not None else re.escape(self.token)
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            problems.append(f"prompt_syntax token '{self.token}': pattern '{pattern}' does not compile: {exc}")
+        else:
+            if _JS_LOOKBEHIND_RE.search(pattern):
+                problems.append(
+                    f"prompt_syntax token '{self.token}': pattern '{pattern}' uses lookbehind, which the "
+                    f"frontend's JS regex engine cannot be relied on to support"
+                )
+
+        insert = self.insert if self.insert is not None else self.token
+        if insert.count("{") != insert.count("}"):
+            problems.append(f"prompt_syntax token '{self.token}': insert template '{insert}' has unbalanced braces")
+
+        if problems:
+            raise ValueError("; ".join(problems))
+        return self
+
+
+def _validate_prompt_syntax(prompt_syntax: Dict[str, List[PromptSyntaxSpec]]) -> List[str]:
+    problems = []
+    for mode, entries in prompt_syntax.items():
+        if not mode or not mode.strip():
+            problems.append("prompt_syntax keys must be non-empty mode names")
+            continue
+        seen = set()
+        for entry in entries:
+            if entry.token in seen:
+                problems.append(f"prompt_syntax.{mode}: token '{entry.token}' is declared more than once")
+            seen.add(entry.token)
+    return problems
+
+
 # ---------------------------------------------------------------------------
 # preset.yml manifest
 # ---------------------------------------------------------------------------
@@ -744,12 +800,15 @@ class PresetManifest(BaseModel):
     # distinct from `requires:` above. See docs/presets.md "Requirements".
     requirements: List[RequirementEntry] = Field(default_factory=list)
     prompt_resources: Optional[Dict[str, List[PromptResourceSpec]]] = None
+    prompt_syntax: Optional[Dict[str, List[PromptSyntaxSpec]]] = None
 
     @model_validator(mode="after")
     def _validate_business_rules(self) -> "PresetManifest":
         problems = []
         if self.prompt_resources:
             problems.extend(_validate_prompt_resources(self.prompt_resources))
+        if self.prompt_syntax:
+            problems.extend(_validate_prompt_syntax(self.prompt_syntax))
         if self.schema_version != 1:
             problems.append(f"Unsupported schema version: {self.schema_version}. Only 1 is supported.")
         if not PRESET_ID_RE.match(self.id):

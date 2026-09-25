@@ -1089,9 +1089,8 @@
 
 	// The preset-declared separator between enabled prompt segments
 	// (`vars.prompt.segment_join` in preset.yml — `paragraph` for song-section-style
-	// presets, `comma` for every existing image/video preset).
 	function segmentJoinForPreset(presetId: string | null | undefined): SegmentJoin {
-		return presetVars[presetId || '']?.prompt?.segment_join === 'paragraph' ? 'paragraph' : 'comma';
+		return presetVars[presetId || '']?.prompt?.segment_join === 'paragraph' ? 'paragraph' : 'space';
 	}
 
 	// "Reuse in this tab" from the last-generations drawer — applies a past

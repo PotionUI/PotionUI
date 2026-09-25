@@ -1,36 +1,28 @@
 import type { RichSegment, Segment } from '$lib/types/segments';
 import { flattenRichSegments, isSegmentEnabled } from './richSegments';
 
-/** Counts for the resolved panel's header. Both describe what the model
- *  actually receives: a disabled segment is absent from the panel entirely,
- *  so it contributes neither characters nor breaks. */
 export interface ResolvedPromptStats {
 	chars: number;
-	breaks: number;
 }
 
 export function resolvedPromptStats(
 	segments: readonly (Segment | RichSegment)[] = [],
 	text: string = flattenRichSegments(segments)
 ): ResolvedPromptStats {
-	return {
-		chars: text.length,
-		breaks: segments.filter((segment) => segment.type === 'break' && isSegmentEnabled(segment)).length
-	};
+	return { chars: text.length };
 }
 
 /**
  * A span of the resolved string, tagged with how the panel should render it.
  * `value` is a substitution — a chip's chosen value or a `${variable}` marker —
  * and reads at full strength against the muted body. `emphasis` is attention
- * syntax, `muted` is bracketed de-emphasis, `break` is the BREAK pill.
+ * syntax, `muted` is bracketed de-emphasis.
  */
 export type ResolvedPromptToken =
 	| { kind: 'text'; text: string }
 	| { kind: 'value'; text: string }
 	| { kind: 'emphasis'; text: string }
-	| { kind: 'muted'; text: string }
-	| { kind: 'break'; text: string };
+	| { kind: 'muted'; text: string };
 
 interface Candidate {
 	start: number;
@@ -40,7 +32,6 @@ interface Candidate {
 }
 
 const PATTERNS: Array<{ regex: RegExp; kind: ResolvedPromptToken['kind'] }> = [
-	{ regex: /\bBREAK\b/g, kind: 'break' },
 	{ regex: /\$\{[^}]*\}/g, kind: 'value' },
 	{ regex: /\({2,}[^()]*\){2,}/g, kind: 'emphasis' },
 	{ regex: /\([^()]*\)/g, kind: 'emphasis' },
@@ -50,7 +41,7 @@ const PATTERNS: Array<{ regex: RegExp; kind: ResolvedPromptToken['kind'] }> = [
 function collectChipValues(segments: readonly (Segment | RichSegment)[]): string[] {
 	const values = new Set<string>();
 	for (const segment of segments) {
-		if (!isSegmentEnabled(segment) || segment.type === 'break') continue;
+		if (!isSegmentEnabled(segment)) continue;
 		for (const chip of Object.values(segment.chips || {})) {
 			const value = (chip?.value || '').trim();
 			if (value) values.add(value);

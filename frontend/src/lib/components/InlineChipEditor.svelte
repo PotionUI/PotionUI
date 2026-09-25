@@ -35,6 +35,18 @@
 	} from '$lib/utils/promptVariables';
 	import { findTriggerWordMatches } from '$lib/utils/triggerWords';
 	import {
+		applySyntaxInsert,
+		detectSyntaxPickerTrigger,
+		filterSyntaxSpecs,
+		findSyntaxMatches,
+		type PromptSyntaxSpec
+	} from '$lib/utils/promptSyntax';
+	import {
+		setOwnerSyntaxHighlightRanges,
+		clearOwnerSyntaxHighlightRanges,
+		buildSyntaxHighlightRanges
+	} from '$lib/utils/promptSyntaxHighlight';
+	import {
 		clearOwnerTriggerHighlightRanges,
 		setOwnerTriggerHighlightRanges
 	} from '$lib/utils/triggerWordHighlight';
@@ -107,6 +119,7 @@
 	export let promptResources: PromptResourceSpec[] = [];
 	export let resourceFieldValues: Record<string, unknown> = {};
 	export let resourceFieldLabels: Record<string, string> = {};
+	export let promptSyntax: PromptSyntaxSpec[] = [];
 
 	const dispatch = createEventDispatcher();
 
@@ -122,6 +135,7 @@
 
 	// Owns this instance's subset of ranges in the shared trigger-word Highlight.
 	const triggerHighlightOwner = Symbol('inline-chip-editor-trigger-highlight');
+	const syntaxHighlightOwner = Symbol('inline-chip-editor-syntax-highlight');
 
 	// Phrasebook state
 	let isPhrasebookOpen = false;
@@ -161,6 +175,17 @@
 			}))
 		: [];
 
+	$: syntaxSuggestions = isSyntaxPickerOpen ? filterSyntaxSpecs(promptSyntax, syntaxQuery) : [];
+	$: syntaxSuggestionItems = syntaxSuggestions.map((spec, index) => ({
+		id: `${spec.token}-${index}`,
+		category_id: '',
+		label: spec.token,
+		value: spec.help ?? '',
+		sort_order: index,
+		created_at: '',
+		updated_at: ''
+	}));
+
 	// Choice-group chip state. Groups have no persistent id/map
 	// of their own — `{a|b|c}` is already the source of truth in `value`, a
 	// group container's `data-group-raw` attribute just carries the current
@@ -190,6 +215,13 @@
 	let resourceTriggerNode: Text | null = null;
 	let resourceTriggerOffset = -1;
 	let resourceSelectedIndex = 0;
+
+	let isSyntaxPickerOpen = false;
+	let syntaxQuery = '';
+	let syntaxTriggerNode: Text | null = null;
+	let syntaxTriggerOffset = -1;
+	let syntaxSelectedIndex = 0;
+	let pendingSyntaxSelection = '';
 
 	// Track if we're programmatically updating
 	let isInternalUpdate = false;
@@ -303,6 +335,24 @@
 		setOwnerTriggerHighlightRanges(triggerHighlightOwner, ranges);
 	}
 
+	function refreshSyntaxHighlights(text: string) {
+		if (!editorRef) return;
+		const matches = findSyntaxMatches(text, promptSyntax);
+		if (matches.length === 0) {
+			clearOwnerSyntaxHighlightRanges(syntaxHighlightOwner);
+			return;
+		}
+
+		const spans = collectTextNodeSpans(editorRef, chips);
+		const rangesByTone = buildSyntaxHighlightRanges(matches, spans);
+		setOwnerSyntaxHighlightRanges(syntaxHighlightOwner, rangesByTone);
+	}
+
+	function refreshAllHighlights(text: string) {
+		refreshTriggerHighlights(text);
+		refreshSyntaxHighlights(text);
+	}
+
 	// =====================
 	// Input Handling
 	// =====================
@@ -315,6 +365,7 @@
 		detectPhrasebookTrigger();
 		detectVariablePickerTrigger();
 		detectResourceTrigger();
+		detectSyntaxTrigger();
 
 		// A group/variable container is contentEditable=false, so the user can
 		// only ever be typing in plain text here — a newly-*higher* count means
@@ -328,7 +379,7 @@
 		lastGroupCount = groupsNow;
 		lastVariableUsageCount = variablesNow;
 
-		refreshTriggerHighlights(newValue);
+		refreshAllHighlights(newValue);
 
 		// Emit change
 		dispatchChange(newValue, newChips);
@@ -408,6 +459,29 @@
 			} else if (e.key === 'Escape') {
 				e.preventDefault();
 				closeResourcePicker();
+				return;
+			}
+		}
+
+		if (isSyntaxPickerOpen) {
+			const totalItems = syntaxSuggestions.length;
+
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				syntaxSelectedIndex = totalItems ? (syntaxSelectedIndex + 1) % totalItems : 0;
+				return;
+			} else if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				syntaxSelectedIndex = syntaxSelectedIndex === 0 ? Math.max(totalItems - 1, 0) : syntaxSelectedIndex - 1;
+				return;
+			} else if (e.key === 'Enter' && !e.ctrlKey) {
+				e.preventDefault();
+				const spec = syntaxSuggestions[syntaxSelectedIndex];
+				if (spec) handleSelectSyntax(spec);
+				return;
+			} else if (e.key === 'Escape') {
+				e.preventDefault();
+				closeSyntaxPicker();
 				return;
 			}
 		}
@@ -509,6 +583,7 @@
 			if (/^[\w][\w.\s]*$/.test(path) || /^[\w]*$/.test(path)) {
 				closeVariablePicker(); // mutually exclusive with the $ picker
 				closeResourcePicker(); // mutually exclusive with the @ picker
+				closeSyntaxPicker();
 				phrasebookPath = path;
 				phrasebookTriggerNode = textNode; // Store the text node
 				phrasebookTriggerOffset = start; // Store the position of #
@@ -755,7 +830,7 @@
 		mountVariables();
 		mountResourceChips();
 		isInternalUpdate = false;
-		refreshTriggerHighlights(newValue);
+		refreshAllHighlights(newValue);
 
 		// Position cursor right after the newly inserted chip
 		tick().then(() => {
@@ -891,6 +966,7 @@
 		if (match) {
 			closePhrasebook(); // mutually exclusive with the # picker
 			closeResourcePicker(); // mutually exclusive with the @ picker
+			closeSyntaxPicker();
 			variableQuery = match.query;
 			variableTriggerNode = textNode;
 			variableTriggerOffset = match.start;
@@ -934,6 +1010,7 @@
 			if (/^[\w][\w .-]*$/.test(query) || /^[\w]*$/.test(query)) {
 				closePhrasebook();
 				closeVariablePicker();
+				closeSyntaxPicker();
 				if (!isResourcePickerOpen) resourceGroupField = null;
 				resourceQuery = query;
 				resourceTriggerNode = textNode;
@@ -1076,7 +1153,7 @@
 		mountResourceChips();
 		isInternalUpdate = false;
 		lastSyncedValue = newValue;
-		refreshTriggerHighlights(newValue);
+		refreshAllHighlights(newValue);
 
 		tick().then(() => placeCaretAtCharOffset(editorRef, chips, newCursorOffset));
 
@@ -1090,6 +1167,145 @@
 		resourceTriggerNode = null;
 		resourceTriggerOffset = -1;
 		resourceSelectedIndex = 0;
+	}
+
+	function detectSyntaxTrigger() {
+		const selection = window.getSelection();
+		if (!selection || !selection.rangeCount || !editorRef) return;
+
+		const range = selection.getRangeAt(0);
+		if (range.startContainer.nodeType !== Node.TEXT_NODE) {
+			closeSyntaxPicker();
+			return;
+		}
+
+		const textNode = range.startContainer as Text;
+		const text = textNode.textContent || '';
+		const cursorOffset = range.startOffset;
+
+		const match = detectSyntaxPickerTrigger(text, cursorOffset);
+		if (match) {
+			closePhrasebook();
+			closeVariablePicker();
+			closeResourcePicker();
+			syntaxQuery = match.query;
+			syntaxTriggerNode = textNode;
+			syntaxTriggerOffset = match.start;
+			syntaxSelectedIndex = 0;
+			isSyntaxPickerOpen = true;
+			return;
+		}
+
+		closeSyntaxPicker();
+	}
+
+	function selectCharRange(start: number, end: number) {
+		if (!editorRef) return;
+		placeCaretAtCharOffset(editorRef, chips, start);
+		const startSelection = window.getSelection();
+		if (!startSelection || !startSelection.rangeCount) return;
+		const startContainer = startSelection.getRangeAt(0).startContainer;
+		const startOffset = startSelection.getRangeAt(0).startOffset;
+
+		placeCaretAtCharOffset(editorRef, chips, end);
+		const endSelection = window.getSelection();
+		if (!endSelection || !endSelection.rangeCount) return;
+		const endBoundary = endSelection.getRangeAt(0);
+
+		const range = document.createRange();
+		range.setStart(startContainer, startOffset);
+		range.setEnd(endBoundary.startContainer, endBoundary.startOffset);
+		endSelection.removeAllRanges();
+		endSelection.addRange(range);
+	}
+
+	function handleSelectSyntax(spec: PromptSyntaxSpec) {
+		if (!editorRef || !syntaxTriggerNode || syntaxTriggerOffset < 0) {
+			closeSyntaxPicker();
+			return;
+		}
+
+		const triggerNode = syntaxTriggerNode;
+		const triggerNodeOffset = syntaxTriggerOffset;
+		const typedLength = 1 + syntaxQuery.length;
+
+		let triggerIndex = 0;
+		let foundTrigger = false;
+
+		function countCharsUntilTrigger(node: Node): boolean {
+			if (foundTrigger) return true;
+			if (node === triggerNode) {
+				triggerIndex += triggerNodeOffset;
+				foundTrigger = true;
+				return true;
+			}
+			if (node.nodeType === Node.TEXT_NODE) {
+				triggerIndex += (node.textContent || '').length;
+			} else if (node.nodeType === Node.ELEMENT_NODE) {
+				const el = node as HTMLElement;
+				if (el.dataset.groupRaw !== undefined) {
+					triggerIndex += el.dataset.groupRaw.length;
+				} else if (el.dataset.variableRaw !== undefined) {
+					triggerIndex += el.dataset.variableRaw.length;
+				} else if (el.dataset.resourceMarker !== undefined) {
+					triggerIndex += el.dataset.resourceMarker.length;
+				} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
+					triggerIndex += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
+				} else if (el.tagName === 'BR') {
+					triggerIndex += 1;
+				} else {
+					for (const child of Array.from(node.childNodes)) {
+						if (countCharsUntilTrigger(child)) return true;
+					}
+				}
+			}
+			return false;
+		}
+
+		for (const child of Array.from(editorRef.childNodes)) {
+			if (countCharsUntilTrigger(child)) break;
+		}
+
+		closeSyntaxPicker();
+		if (!foundTrigger) return;
+
+		const { value: fullText, chips: existingChips } = extractContentFromDOM(editorRef, chips);
+		const insertResult = applySyntaxInsert(spec.insert ?? spec.token, pendingSyntaxSelection);
+		pendingSyntaxSelection = '';
+		const newValue =
+			fullText.substring(0, triggerIndex) + insertResult.text + fullText.substring(triggerIndex + typedLength);
+
+		isInternalUpdate = true;
+		editorRef.innerHTML = '';
+		const segments = parseValueToSegments(newValue, existingChips, resources);
+		segments.forEach((segment) => {
+			editorRef.appendChild(buildSegmentNode(segment));
+		});
+		mountChips();
+		mountGroups();
+		mountVariables();
+		mountResourceChips();
+		isInternalUpdate = false;
+		lastSyncedValue = newValue;
+		refreshAllHighlights(newValue);
+
+		tick().then(() => {
+			if (insertResult.selectionStart !== null && insertResult.selectionEnd !== null) {
+				selectCharRange(triggerIndex + insertResult.selectionStart, triggerIndex + insertResult.selectionEnd);
+			} else {
+				placeCaretAtCharOffset(editorRef, chips, triggerIndex + insertResult.caretOffset);
+			}
+		});
+
+		dispatchChange(newValue, existingChips);
+	}
+
+	function closeSyntaxPicker() {
+		isSyntaxPickerOpen = false;
+		syntaxQuery = '';
+		syntaxTriggerNode = null;
+		syntaxTriggerOffset = -1;
+		syntaxSelectedIndex = 0;
 	}
 
 	// =====================
@@ -1163,6 +1379,17 @@
 	export function insertResourceTrigger(): void {
 		if (isDisabled) return;
 		insertTextAtCaret('@');
+		handleInput();
+	}
+
+	export function insertSyntaxTrigger(): void {
+		if (isDisabled) return;
+		const selection = window.getSelection();
+		pendingSyntaxSelection =
+			selection && !selection.isCollapsed && editorRef && editorRef.contains(selection.anchorNode)
+				? selection.toString()
+				: '';
+		insertTextAtCaret('/');
 		handleInput();
 	}
 
@@ -1242,7 +1469,7 @@
 		lastSyncedValue = newValue;
 		lastGroupCount = countChoiceGroups(newValue);
 		lastVariableUsageCount = countVariableUsages(newValue);
-		refreshTriggerHighlights(newValue);
+		refreshAllHighlights(newValue);
 
 		tick().then(() => placeCaretAtCharOffset(editorRef, chips, newCursorOffset));
 
@@ -1662,7 +1889,7 @@
 		mountResourceChips();
 		isInternalUpdate = false;
 		lastSyncedValue = newValue;
-		refreshTriggerHighlights(newValue);
+		refreshAllHighlights(newValue);
 
 		if (caretOffset !== null) {
 			tick().then(() => placeCaretAtCharOffset(editorRef, chips, caretOffset));
@@ -1703,7 +1930,7 @@
 			mountVariables();
 			mountResourceChips();
 			isInternalUpdate = false;
-			refreshTriggerHighlights(value);
+			refreshAllHighlights(value);
 		});
 	}
 
@@ -1776,7 +2003,7 @@
 			mountVariables();
 			mountResourceChips();
 			isInternalUpdate = false;
-			refreshTriggerHighlights(value);
+			refreshAllHighlights(value);
 		}
 	});
 
@@ -1799,11 +2026,13 @@
 		}
 		mountedResourceComponents.clear();
 		clearOwnerTriggerHighlightRanges(triggerHighlightOwner);
+		clearOwnerSyntaxHighlightRanges(syntaxHighlightOwner);
 	});
 
 	// React to the active-trigger-word list changing (LoRA added/removed/edited)
 	// independently of the text itself.
 	$: if (editorRef && activeTriggerWords) refreshTriggerHighlights(value);
+	$: if (editorRef && promptSyntax) refreshSyntaxHighlights(value);
 
 	// React to external value/chips changes (not from our own edits)
 	let lastSyncedValue = '';
@@ -2031,6 +2260,27 @@
 			{variant}
 		/>
 	{/if}
+
+	{#if isSyntaxPickerOpen}
+		<AutocompleteDropdown
+			categories={[]}
+			suggestions={syntaxSuggestionItems}
+			selectedIndex={syntaxSelectedIndex}
+			onSelectCategory={() => {}}
+			onSelectValue={(suggestion) => {
+				const spec = syntaxSuggestions[suggestion.sort_order];
+				if (spec) handleSelectSyntax(spec);
+			}}
+			isLoading={false}
+			currentPath={syntaxQuery}
+			triggerChar="/"
+			emptyHint="Prompt syntax — type / for this preset's notation"
+			onClose={closeSyntaxPicker}
+			parentRef={containerRef}
+			contextLabel="Syntax"
+			{variant}
+		/>
+	{/if}
 </div>
 
 <style>
@@ -2089,5 +2339,40 @@
 	:global(::highlight(potionui-trigger-word)) {
 		background-color: rgb(var(--signal) / 0.22);
 		color: rgb(var(--signal));
+	}
+
+	:global(::highlight(potionui-syntax-signal)) {
+		background-color: rgb(var(--signal) / 0.16);
+		color: rgb(var(--signal));
+	}
+
+	:global(::highlight(potionui-syntax-success)) {
+		background-color: rgb(var(--success) / 0.16);
+		color: rgb(var(--success));
+	}
+
+	:global(::highlight(potionui-syntax-warning)) {
+		background-color: rgb(var(--warning) / 0.18);
+		color: rgb(var(--warning));
+	}
+
+	:global(::highlight(potionui-syntax-info)) {
+		background-color: rgb(var(--info) / 0.16);
+		color: rgb(var(--info));
+	}
+
+	:global(::highlight(potionui-syntax-danger)) {
+		background-color: rgb(var(--danger) / 0.16);
+		color: rgb(var(--danger));
+	}
+
+	:global(::highlight(potionui-syntax-accent)) {
+		background-color: rgb(var(--fg) / 0.08);
+		color: rgb(var(--fg));
+	}
+
+	:global(::highlight(potionui-syntax-muted)) {
+		background-color: rgb(var(--fg-muted) / 0.12);
+		color: rgb(var(--fg-muted));
 	}
 </style>

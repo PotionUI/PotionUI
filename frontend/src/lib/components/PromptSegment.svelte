@@ -3,6 +3,7 @@
 	import type { Segment, ChipData } from '$lib/types/segments';
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
+	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 	import InlineChipEditor from './InlineChipEditor.svelte';
 	import Tooltip from './Tooltip.svelte';
 	import PromptSegmentActionMenu from './PromptSegmentActionMenu.svelte';
@@ -15,11 +16,13 @@
 		DISABLED_SEGMENT_NOTE,
 		UNNAMED_SEGMENT_PLACEHOLDER,
 		formatSegmentIndex,
-		isOptionalFooterAction,
 		segmentCharCount,
-		segmentDisplayName,
-		segmentFooterActions
+		segmentDisplayName
 	} from '$lib/utils/segmentFooter';
+	import { segmentMenuActions } from '$lib/utils/segmentActions';
+	import { promptSegmentActionPins } from '$lib/stores/promptSegmentActionPins';
+
+	promptSegmentActionPins.init();
 
 	export let segment: Segment;
 	export let index: number;
@@ -35,6 +38,7 @@
 	export let promptResources: PromptResourceSpec[] = [];
 	export let resourceFieldValues: Record<string, unknown> = {};
 	export let resourceFieldLabels: Record<string, string> = {};
+	export let promptSyntax: PromptSyntaxSpec[] = [];
 
 	const dispatch = createEventDispatcher();
 	let isDragging = false;
@@ -98,7 +102,6 @@
 		(containerWidth > 0 &&
 			containerWidth - nameWidth - HEADER_RESERVED_WIDTH < DESCRIPTION_MIN_WIDTH);
 
-	$: isBreakSegment = segment.type === 'break';
 	$: segmentDisabled = segment.enabled === false || !!segment.isDisabled;
 	$: displayName = segmentDisplayName(segment);
 	$: hasDescription = !!segment.description && segment.description.trim().length > 0;
@@ -106,7 +109,14 @@
 	$: suffixText = segment.suffix || '';
 	$: hasAffix = !!prefixText || !!suffixText;
 	$: hasBody = !!segment.content && segment.content.trim().length > 0;
-	$: footerActions = segmentFooterActions(segment);
+	$: menuActions = segmentMenuActions(segment, {
+		index,
+		total,
+		segmentDisabled,
+		hasPromptSyntax: promptSyntax.length > 0
+	});
+	$: pinnedIds = new Set($promptSegmentActionPins.ids);
+	$: pinnedActions = menuActions.filter((action) => pinnedIds.has(action.id));
 	$: charCount = segmentCharCount(segment);
 	$: dynamicTokenCount =
 		Object.keys(segment.chips || {}).length +
@@ -117,9 +127,7 @@
 		: dynamicTokenCount === 0
 			? 'No dynamic tokens'
 			: `${dynamicTokenCount} dynamic token${dynamicTokenCount === 1 ? '' : 's'}`;
-	$: segmentLabel = isBreakSegment
-		? `Break ${index + 1} of ${total}`
-		: `${isNegative ? 'Negative segment' : 'Positive segment'} ${index + 1} of ${total}`;
+	$: segmentLabel = `${isNegative ? 'Negative segment' : 'Positive segment'} ${index + 1} of ${total}`;
 	$: isLastApplied = $lastAppliedSegment?.segmentId === segment.id;
 	$: handleAppliedChange($lastAppliedSegment);
 	$: segColorStyle =
@@ -202,7 +210,7 @@
 	}
 
 	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') menuOpen = false;
+		if (event.key === 'Escape' && menuOpen) closeMenu();
 	}
 
 	function handleWindowScroll() {
@@ -215,17 +223,21 @@
 
 	function computeMenuPosition() {
 		if (!menuTriggerBtn) return;
-		menuStyle = computeFixedMenuPosition(menuTriggerBtn);
+		menuStyle = computeFixedMenuPosition(menuTriggerBtn, 540);
 	}
 
 	function toggleMenu() {
-		if (!menuOpen) computeMenuPosition();
-		menuOpen = !menuOpen;
+		if (menuOpen) {
+			closeMenu(false);
+			return;
+		}
+		computeMenuPosition();
+		menuOpen = true;
 	}
 
-	function runMenuAction(eventName: string, detail?: unknown) {
+	function closeMenu(returnFocus = true) {
 		menuOpen = false;
-		dispatch(eventName, detail);
+		if (returnFocus) menuTriggerBtn?.focus();
 	}
 
 	function openDetailsModal() {
@@ -247,12 +259,32 @@
 		dispatch('metadataChange', updates);
 	}
 
-	function runFooterAction(id: string) {
+	function runAction(id: string) {
 		if (id === 'editDetails') {
 			openDetailsModal();
 			return;
 		}
-		dispatch(id);
+		closeMenu(false);
+		switch (id) {
+			case 'insertPhrasebook':
+				inlineEditor?.insertPhrasebookTrigger();
+				break;
+			case 'insertVariable':
+				inlineEditor?.insertVariableTrigger();
+				break;
+			case 'insertChoice':
+				inlineEditor?.insertChoiceGroup();
+				break;
+			case 'insertSyntax':
+				inlineEditor?.insertSyntaxTrigger();
+				break;
+			default:
+				dispatch(id);
+		}
+	}
+
+	function togglePin(id: string) {
+		promptSegmentActionPins.togglePin(id);
 	}
 </script>
 
@@ -278,82 +310,14 @@
 	on:dragleave={handleDragLeave}
 	on:drop={handleDrop}
 >
-	{#if isBreakSegment}
-		<div class="break-row">
-			<span class="index font-mono tabular-nums" aria-hidden="true">{formatSegmentIndex(index)}</span>
-			<span class="break-line" aria-hidden="true"></span>
-			<span class="break-pill font-mono">BREAK</span>
-			<span class="break-line" aria-hidden="true"></span>
-
-			<div class="break-actions">
-				<Tooltip text={total <= 1 ? 'Every prompt needs at least one segment' : 'Remove segment'} position="top">
-					<button
-						type="button"
-						class="icon-btn head-action danger"
-						aria-label="Remove segment"
-						disabled={total <= 1}
-						on:click={() => dispatch('remove')}
-					>
-						<svg class="icon"><use href="#i-trash" /></svg>
-					</button>
-				</Tooltip>
-
-				<Tooltip text="Drag to reorder" position="top">
-					<button
-						type="button"
-						class="icon-btn grip cursor-grab active:cursor-grabbing"
-						aria-label={`Drag ${segmentLabel.toLowerCase()} to reorder`}
-						on:pointerdown={enableDrag}
-					>
-						<svg class="icon"><use href="#i-grip" /></svg>
-					</button>
-				</Tooltip>
-
-				<div class="relative" bind:this={menuRoot}>
-					<Tooltip text="Segment actions" position="top">
-						<button
-							type="button"
-							class="icon-btn head-action"
-							class:active={menuOpen}
-							aria-label={`Actions for ${segmentLabel.toLowerCase()}`}
-							aria-haspopup="menu"
-							aria-expanded={menuOpen}
-							bind:this={menuTriggerBtn}
-							on:click={toggleMenu}
-						>
-							<svg class="icon"><use href="#i-more" /></svg>
-						</button>
-					</Tooltip>
-					{#if menuOpen}
-						<PromptSegmentActionMenu
-							{index}
-							{total}
-							isBreakSegment={true}
-							{segmentDisabled}
-							ariaLabel={`Actions for ${segmentLabel.toLowerCase()}`}
-							style={menuStyle}
-							on:moveUp={() => runMenuAction('moveUp')}
-							on:moveDown={() => runMenuAction('moveDown')}
-							on:editDetails={openDetailsModal}
-							on:saveAsSegment={() => runMenuAction('saveAsSegment')}
-							on:replaceFromSaved={() => runMenuAction('replaceFromSaved')}
-							on:toggleBreak={() => runMenuAction('toggleBreak')}
-							on:duplicate={() => runMenuAction('duplicate')}
-							on:toggleDisabled={() => runMenuAction('toggleDisabled')}
-							on:remove={() => runMenuAction('remove')}
-						/>
-					{/if}
-				</div>
-			</div>
-		</div>
-	{:else}
-		<div
+	<div
 			class="card segment"
 			class:off={segmentDisabled}
 			class:dragging={isDragging}
 			class:drop-target={dragOverPosition !== 'none'}
 			class:last-applied={isLastApplied}
 			class:has-color={!segmentDisabled && !!segment.color}
+			class:menu-open={menuOpen}
 			data-drop-position={dragOverPosition === 'bottom' ? 'after' : undefined}
 			style={segColorStyle}
 			bind:this={cardEl}
@@ -409,13 +373,13 @@
 				{/if}
 
 				{#if !charCountHidden}
-					<Tooltip text={`${charCount} characters`} position="top">
-						<span class="char-count font-mono tabular-nums">{charCount}</span>
+					<Tooltip text={`${charCount} characters — ${dynamicTokenLabel}`} position="top">
+						<span class="char-count reveal font-mono tabular-nums">{charCount}</span>
 					</Tooltip>
 				{/if}
 
 				{#if !clusterCollapsed}
-					{#each footerActions as action (action.id)}
+					{#each pinnedActions as action (action.id)}
 						<Tooltip
 							text={action.id === 'editDetails' && charCountHidden
 								? `${action.label} — ${charCount} ch`
@@ -426,11 +390,15 @@
 							<button
 								type="button"
 								class="icon-btn head-action"
-								class:optional={isOptionalFooterAction(action.id)}
 								aria-label={action.label}
-								on:click={() => runFooterAction(action.id)}
+								disabled={action.disabled}
+								on:click={() => runAction(action.id)}
 							>
-								<svg class="icon"><use href={`#i-${action.icon}`} /></svg>
+								{#if action.glyph}
+									<span class="icon menu-glyph {action.glyphClass}">{action.glyph}</span>
+								{:else}
+									<svg class="icon"><use href={`#i-${action.icon}`} /></svg>
+								{/if}
 							</button>
 						</Tooltip>
 					{/each}
@@ -439,7 +407,7 @@
 				<Tooltip text={total <= 1 ? 'Every prompt needs at least one segment' : 'Remove segment'} position="top">
 					<button
 						type="button"
-						class="icon-btn head-action danger"
+						class="icon-btn head-action danger reveal"
 						aria-label="Remove segment"
 						disabled={total <= 1}
 						on:click={() => dispatch('remove')}
@@ -452,7 +420,7 @@
 					<Tooltip text="More segment actions" position="top">
 						<button
 							type="button"
-							class="icon-btn head-action"
+							class="icon-btn head-action reveal"
 							class:active={menuOpen}
 							aria-label={`More actions for ${segmentLabel.toLowerCase()}`}
 							aria-haspopup="menu"
@@ -466,22 +434,16 @@
 
 					{#if menuOpen}
 						<PromptSegmentActionMenu
+							{segment}
 							{index}
 							{total}
-							isBreakSegment={false}
 							{segmentDisabled}
-							footerActionsShown={!clusterCollapsed}
 							ariaLabel={`More actions for ${segmentLabel.toLowerCase()}`}
 							style={menuStyle}
-							on:moveUp={() => runMenuAction('moveUp')}
-							on:moveDown={() => runMenuAction('moveDown')}
-							on:editDetails={openDetailsModal}
-							on:saveAsSegment={() => runMenuAction('saveAsSegment')}
-							on:replaceFromSaved={() => runMenuAction('replaceFromSaved')}
-							on:toggleBreak={() => runMenuAction('toggleBreak')}
-							on:duplicate={() => runMenuAction('duplicate')}
-							on:toggleDisabled={() => runMenuAction('toggleDisabled')}
-							on:remove={() => runMenuAction('remove')}
+							{pinnedIds}
+							hasPromptSyntax={promptSyntax.length > 0}
+							on:run={(e) => runAction(e.detail)}
+							on:togglePin={(e) => togglePin(e.detail)}
 						/>
 					{/if}
 				</div>
@@ -523,6 +485,7 @@
 					{promptResources}
 					{resourceFieldValues}
 					{resourceFieldLabels}
+					{promptSyntax}
 					variant="segment-composer"
 				/>
 				{#if suffixText}
@@ -537,43 +500,7 @@
 					</Tooltip>
 				{/if}
 			</div>
-
-			<footer class="segment-foot">
-				<span class="insert-label">Insert</span>
-				<button
-					type="button"
-					class="insert-button"
-					disabled={segmentDisabled}
-					aria-label="Insert a phrasebook value"
-					on:click={() => inlineEditor?.insertPhrasebookTrigger()}
-				>
-					<span class="insert-glyph">#</span>Phrasebook
-				</button>
-				<button
-					type="button"
-					class="insert-button variable"
-					disabled={segmentDisabled}
-					aria-label="Insert a variable"
-					on:click={() => inlineEditor?.insertVariableTrigger()}
-				>
-					<span class="insert-glyph">$</span>Variable
-				</button>
-				<button
-					type="button"
-					class="insert-button choice"
-					disabled={segmentDisabled}
-					aria-label="Insert a choice group"
-					on:click={() => inlineEditor?.insertChoiceGroup()}
-				>
-					<span class="insert-glyph">{'{ }'}</span>Choice
-				</button>
-				<div class="segment-stats">
-					<span>{dynamicTokenLabel}</span>
-					<span>{charCount} ch</span>
-				</div>
-			</footer>
 		</div>
-	{/if}
 </div>
 
 <PromptSegmentDetailsModal

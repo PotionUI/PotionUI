@@ -252,6 +252,7 @@ def get_form_schema(
         'preset_id': preset_id,
         'form_schema': form_schema,
         'prompt_resources': list(found_preset.prompt_resources.get(mode, [])),
+        'prompt_syntax': list(found_preset.prompt_syntax.get(mode, [])),
         'debug_info': {
             'preset_name': found_preset.name,
             'has_form': hasattr(found_preset, 'form'),

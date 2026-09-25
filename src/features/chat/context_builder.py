@@ -108,8 +108,6 @@ def _truncate_prompt_content(text: str, limit: int) -> Tuple[str, int, bool]:
 
 def _render_prompt_state_line(seq: int, seg: Dict[str, Any]) -> str:
     num = f"{seq:02d}"
-    if (seg.get("type") or "content") == "break":
-        return f"  {num} ── break ──"
     parts = [f"  {num}"]
     name = seg.get("name")
     if name:

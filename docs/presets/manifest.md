@@ -33,6 +33,7 @@ The manifest is `PresetManifest` in `src/features/presets/schema.py`, validated 
 | `llm` | no | mapping | Preset/family-level prompting guide + chat-workspace context knobs. See [LLM context](#llm-context). |
 | `requires` | no | mapping | Optional VRAM/RAM guidance shown at preset-choice time. See [Hardware requirements](#hardware-requirements). |
 | `prompt_resources` | no | mapping | Per mode, the media picker fields a prompt may reference with `@`. See [Prompt resources](#prompt-resources). |
+| `prompt_syntax` | no | mapping | Per mode, the inline prompt notation the model actually understands (speaker markers, weighting, `BREAK`, ...), highlighted in the segment editor and offered with `/`. See [Prompt syntax](#prompt-syntax). |
 | `modes` | yes | list | Non-empty **list** of mode-name strings (each needs a `modes/<name>/` dir). |
 
 **Removed / rejected** (do not use — they fail validation): a top-level `form:`, an inline
@@ -117,8 +118,7 @@ vars:
 ```
 
 Each `segments:` entry is a plain `RichSegment` (`src/features/segments/dto.py`): `name`,
-`content`, `prefix`, `suffix`, `enabled`, `color`, `description`, and `type`
-(`content`/`break`, default `content`) — `chips` is not allowed.
+`content`, `prefix`, `suffix`, `enabled`, `color`, `description` — `chips` is not allowed.
 
 `vars.prompt.modes.<mode>.segment_templates`, when present, **replaces** the flat
 `vars.prompt.segment_templates` list for that mode only — a flat replace, not a merge. A mode
@@ -168,6 +168,47 @@ as `prompt_resources` next to `form_schema`.
 mode the preset does not declare, a field no form of that mode has, a non-media field, and a
 `kind` that contradicts an `image`/`video`/`audio` field's type. Only map a token the model was
 trained on (see its `llm:` guide or model notes); leave a field out rather than invent one.
+
+### Prompt syntax
+
+`prompt_syntax:` declares the inline notation a preset's own model was trained on — speaker
+markers, dialogue tags, section labels, attention weighting, `BREAK` — so the segment editor can
+highlight it and offer it through a `/` picker instead of the user having to memorize or copy it
+from the `llm:` guide. Keys are mode names; each entry is one token:
+
+```yaml
+prompt_syntax:
+  video:
+    - token: "(S1)"                       # display name in the / picker
+      kind: "marker"                      # label | marker | wrap | weight
+      pattern: '\(S\d+(?:,S\d+)*\)'        # regex highlighting matches against; optional, defaults to the escaped token
+      insert: "(S1)"                      # template inserted by the / picker; {} = selection/caret, {name=default} = an editable param
+      help: "Stable speaker ID, established at first appearance"
+      tone: "accent"                      # signal | success | warning | info | accent | danger | muted; omit to use the kind's default
+```
+
+`kind` shapes how the `/` picker inserts the token: `label` and `marker` insert `insert` (or
+`token`) as-is at the caret; `wrap` and `weight` wrap the current selection in `insert`'s `{}` when
+there is one, otherwise place the caret there, and select any `{name=default}` param so the user
+can type over it. `kind: "weight"` also derives its highlight tone from the parsed value instead
+of `tone` — above 1 warm/emphasis, below 1 cool/de-emphasis, exactly 1 muted — parsing `,` as a
+decimal separator the same way SDXL prompts do. The recommended pattern for an explicit
+`(tag:1.2)`-style weight is `'\(([^()]+?):(\d+(?:[.,]\d+)?)\)'`.
+
+`pattern` must compile as a Python regex and must not rely on lookbehind (the frontend matches
+with it too, and lookbehind support isn't guaranteed there); `insert` must have balanced `{}`.
+`scripts/preset_lint.py` also rejects a mode the preset does not declare. Declaring the same
+`token` twice in one mode is rejected — give the second entry a different display token even if
+its pattern matches the same text.
+
+Matching runs against the whole segment's text as one string, newlines included — a preset
+whose notation spans multiple lines (MiniMax-H3's `<d>...</d>` dialogue tag, which can wrap
+several lines of spoken text) writes `[\s\S]*?` rather than `.*?`: neither Python's `re` nor the
+frontend's JS regex makes `.` match `\n` by default, and this repo never relies on the `s`/`DOTALL`
+flag (the frontend engine can't be handed one through a plain pattern string), so `[\s\S]` is the
+one portable way to say "any character, including a line break." The segment editor's own
+highlight follows the same rule: a match that spans a line break decorates every line it touches,
+not just the one the caret happens to be on.
 
 ## Speed profiles
 

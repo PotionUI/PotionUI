@@ -28,7 +28,6 @@
 	let menuOpen = $state(false);
 	let menuEl: HTMLDivElement | undefined = $state();
 
-	const isBreak = $derived(segment.type === 'break');
 	const color = $derived(segment.effective_color || segment.color || '#3B82F6');
 	const tags = $derived((segment.tags ?? []).slice(0, 2));
 	const relativeLabel = $derived.by(() => {
@@ -91,23 +90,14 @@
 		<div class="flex min-w-0 items-center gap-2">
 			<span class="h-2.5 w-2.5 flex-shrink-0 rounded-full" style="background: {color}"></span>
 			<h3 class="min-w-0 flex-1 truncate text-sm font-semibold text-fg">{segment.name}</h3>
-			<Badge size="sm" variant={isBreak ? 'warning' : 'neutral'}>{isBreak ? 'break' : 'content'}</Badge>
 			{#if !segment.enabled}
 				<Badge size="sm">Disabled</Badge>
 			{/if}
 		</div>
 
-		{#if isBreak}
-			<p class="flex items-center gap-3 py-1 text-xs uppercase tracking-wide text-fg-subtle">
-				<span class="h-px flex-1 bg-line"></span>
-				Prompt break
-				<span class="h-px flex-1 bg-line"></span>
-			</p>
-		{:else}
-			<p class="line-clamp-3 text-sm leading-relaxed {segment.content ? 'text-fg-muted' : 'italic text-fg-subtle'}">
-				{segment.content || 'Empty starter content'}
-			</p>
-		{/if}
+		<p class="line-clamp-3 text-sm leading-relaxed {segment.content ? 'text-fg-muted' : 'italic text-fg-subtle'}">
+			{segment.content || 'Empty starter content'}
+		</p>
 
 		<div class="mt-auto flex h-6 min-w-0 items-center gap-1.5" data-card-footer>
 			{#if categoryName}

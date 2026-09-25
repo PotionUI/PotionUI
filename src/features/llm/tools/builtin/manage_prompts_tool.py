@@ -20,7 +20,7 @@ def _truncate(text: str, limit: int = 90) -> str:
 RICH_SEGMENT_SCHEMA = {
     "type": "object",
     "properties": {
-        "type": {"type": "string", "enum": ["content", "break"], "default": "content"},
+        "type": {"type": "string", "enum": ["content"], "default": "content"},
         "content": {"type": "string", "default": ""},
         "chips": {"type": "object", "description": "Complete phrasebook chip state keyed by chip id."},
         "enabled": {"type": "boolean", "default": True},

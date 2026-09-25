@@ -45,9 +45,9 @@ def make_prompt(prompt_id: str = "prompt-1") -> Prompt:
         usage_hint="positive",
         segments=[
             RichSegment(content="a fox", name="Subject", color="#d97706"),
-            RichSegment(type="break"),
+            RichSegment(content="a hound"),
         ],
-        flattened_text="a fox BREAK",
+        flattened_text="a fox a hound",
         source_provider="llm_tool",
         created_at=datetime(2026, 1, 1),
         updated_at=datetime(2026, 1, 1),
@@ -89,7 +89,7 @@ async def test_add_proposal_round_trips_rich_ordered_segments_without_mutating(m
                 "color": "#ef4444",
                 "description": "Avoid this",
             },
-            {"type": "break", "content": ""},
+            {"type": "content", "content": "sharp focus"},
         ],
         tags=["quality"],
     )
@@ -97,7 +97,7 @@ async def test_add_proposal_round_trips_rich_ordered_segments_without_mutating(m
     assert result.success is True
     proposal = json.loads(result.data)["proposal"]
     assert proposal["usage_hint"] == "negative"
-    assert [segment["type"] for segment in proposal["segments"]] == ["content", "break"]
+    assert [segment["type"] for segment in proposal["segments"]] == ["content", "content"]
     assert proposal["segments"][0]["enabled"] is False
     assert proposal["segments"][0]["name"] == "Quality"
     assert proposal["segments"][0]["color"] == "#ef4444"
@@ -209,7 +209,7 @@ async def test_edit_proposal_shows_old_and_new_ordered_aggregates():
     proposal = json.loads(result.data)["proposal"]
     assert [item["type"] for item in proposal["old"]["segments"]] == [
         "content",
-        "break",
+        "content",
     ]
     assert proposal["new"]["segments"][0]["content"] == "low quality"
     assert proposal["new"]["usage_hint"] == "negative"
@@ -231,7 +231,7 @@ async def test_edit_preview_carries_old_new_text_and_flags_changed_name():
     assert result.preview.kind == "text_edit"
     assert result.preview.target == "Study"  # existing.display_name
     text_block = result.preview.text_blocks[0]
-    assert text_block["old_text"] == "a fox BREAK"
+    assert text_block["old_text"] == "a fox a hound"
     assert text_block["text"] == "low quality"
     name_field = next(f for f in result.preview.fields if f["label"] == "Name")
     assert name_field == {"label": "Name", "value": "Reworked", "old": "Study"}
@@ -323,7 +323,7 @@ async def test_delete_proposal_and_confirmation_operate_on_one_detached_prompt(m
     assert json.loads(proposal.data)["proposal"] == {
         "prompt_id": "prompt-1",
         "name": "Study",
-        "preview": "a fox BREAK",
+        "preview": "a fox a hound",
     }
     assert applied.success is True
     mock_operations.delete_prompt.assert_called_once_with(prompt_database, "user-1", "prompt-1")
@@ -338,6 +338,6 @@ async def test_delete_preview_is_legacy_action_target_and_summary(mock_operation
 
     assert result.preview.action == "Delete prompt"
     assert result.preview.target == "Study"
-    assert result.preview.summary == "a fox BREAK"
+    assert result.preview.summary == "a fox a hound"
     assert result.preview.kind is None
     assert result.preview.fields is None

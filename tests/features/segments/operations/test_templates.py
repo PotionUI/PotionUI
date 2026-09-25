@@ -29,7 +29,7 @@ def template():
         id="template-1",
         user_id="user-1",
         name="Sequence",
-        segments=[RichSegment(content="opening"), RichSegment(type="break")],
+        segments=[RichSegment(content="opening"), RichSegment(content="closing")],
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -43,13 +43,13 @@ def test_template_create_passes_complete_ordered_aggregate(templates, plugins):
         tags=["video"],
         segments=[
             RichSegment(content="opening", name="A"),
-            RichSegment(type="break", enabled=False, name="B"),
+            RichSegment(content="closing", enabled=False, name="B"),
         ],
     )
 
     created = operations.create_template(templates, plugins, request, "user-1")
     assert [item.name for item in created.segments] == ["A", "B"]
-    assert created.segments[1].type == "break"
+    assert created.segments[1].type == "content"
     assert created.segments[1].enabled is False
 
 

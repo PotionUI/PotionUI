@@ -129,6 +129,7 @@ class TestPresetOperationsQuery:
         template.vars = {"key": "value"}
         template.llm = None
         template.prompt_resources = {}
+        template.prompt_syntax = {}
 
         mock_mode = Mock(spec=ModeTemplate)
         mock_form = Mock()

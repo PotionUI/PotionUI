@@ -19,8 +19,6 @@ _SQLITE_IN_CHUNK_SIZE = 500
 
 def resolve_rich_segment_text(segment: RichSegment) -> str:
     """Resolve chip markers using their complete, persisted editor state."""
-    if segment.type == "break":
-        return "BREAK"
     if not segment.content or not segment.chips:
         return segment.content
 
@@ -48,24 +46,18 @@ def resolve_rich_segment_text(segment: RichSegment) -> str:
 
 
 def flatten_segments(segments: Sequence[RichSegment]) -> str:
-    """Match the generation editor's enabled-content and BREAK joining rules."""
+    """Match the generation editor's enabled-content joining rules."""
     result = ""
-    previous_was_break = False
     for segment in segments:
         if not segment.enabled:
-            continue
-        if segment.type == "break":
-            result += " BREAK" if result else "BREAK"
-            previous_was_break = True
             continue
         text = resolve_rich_segment_text(segment).strip()
         if not text:
             continue
         text = (segment.prefix or "") + text + (segment.suffix or "")
         if result:
-            result += " " if previous_was_break else ", "
+            result += " "
         result += text
-        previous_was_break = False
     return result.strip()
 
 

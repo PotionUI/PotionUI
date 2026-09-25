@@ -44,7 +44,7 @@ export function isSegmentEnabled(segment: Pick<Segment, 'enabled' | 'isDisabled'
 export function toRichSegment(segment: Segment | RichSegment): RichSegment {
 	const editorSegment = segment as Segment;
 	return {
-		type: segment.type === 'break' ? 'break' : 'content',
+		type: 'content',
 		content: segment.content ?? '',
 		chips: cloneChips(segment.chips || {}),
 		...(segment.resources && Object.keys(segment.resources).length
@@ -244,29 +244,22 @@ export function applySegmentAffixes(
 }
 
 /** Preset-declared separator between enabled content segments (`vars.prompt.segment_join`
- *  in preset.yml). `comma` is the default every existing preset gets; `paragraph` is for
+ *  in preset.yml). `space` is the default every existing preset gets; `paragraph` is for
  *  presets whose segments are prose blocks (e.g. song sections) rather than tag fragments. */
-export type SegmentJoin = 'comma' | 'paragraph';
+export type SegmentJoin = 'space' | 'paragraph';
 
 /** Resolve enabled rich segments to the exact flattened text used for search and
  *  generation. A segment's `prefix`/`suffix` are joined to its resolved body
  *  byte-for-byte, and only when that body is non-empty. */
 export function flattenRichSegments(
 	segments: readonly (Segment | RichSegment)[] = [],
-	join: SegmentJoin = 'comma'
+	join: SegmentJoin = 'space'
 ): string {
 	let result = '';
-	let previousWasBreak = false;
 
 	for (const segment of segments) {
 		// Intentionally ignore legacy `isCollapsed`: collapse is presentation only.
 		if (!isSegmentEnabled(segment)) continue;
-
-		if (segment.type === 'break') {
-			result += result ? ' BREAK' : 'BREAK';
-			previousWasBreak = true;
-			continue;
-		}
 
 		const chips = segment.chips || {};
 		const resolved = Object.keys(chips).length
@@ -275,9 +268,8 @@ export function flattenRichSegments(
 		const trimmed = resolved.trim();
 		if (!trimmed) continue;
 
-		if (result) result += previousWasBreak ? ' ' : join === 'paragraph' ? '\n\n' : ', ';
+		if (result) result += join === 'paragraph' ? '\n\n' : ' ';
 		result += applySegmentAffixes(segment, trimmed);
-		previousWasBreak = false;
 	}
 
 	return result.trim();

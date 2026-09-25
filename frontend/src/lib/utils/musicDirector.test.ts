@@ -238,10 +238,10 @@ describe('deriveMusicDirectorMode', () => {
 		expect(deriveMusicDirectorMode(value, musicCaps)).toBe('director');
 	});
 
-	it('a disabled or break segment does not count toward the section total', () => {
+	it('a disabled segment does not count toward the section total', () => {
 		const value: MusicDirectorValue = {
 			...createDefaultMusicDirectorValue(musicCaps),
-			segments: [seg('Verse', 'a'), seg('Chorus', 'b', { enabled: false }), seg('', '', { type: 'break' })]
+			segments: [seg('Verse', 'a'), seg('Chorus', 'b', { enabled: false })]
 		};
 		expect(deriveMusicDirectorMode(value, musicCaps)).toBe('song');
 	});
@@ -547,11 +547,11 @@ describe('buildMusicDirectorSubmission', () => {
 		expect(Array.isArray(wire.sections)).toBe(true);
 	});
 
-	it('skips disabled and break segments when building sections', () => {
+	it('skips disabled segments when building sections', () => {
 		const caps = parseMusicDirectorCapabilities(YUE_RAW_CAPS)!;
 		const value: MusicDirectorValue = {
 			...createDefaultMusicDirectorValue(caps),
-			segments: [seg('Verse', 'kept'), seg('Chorus', 'dropped', { enabled: false }), seg('', '', { type: 'break' })]
+			segments: [seg('Verse', 'kept'), seg('Chorus', 'dropped', { enabled: false })]
 		};
 		const wire = buildMusicDirectorSubmission(value, caps);
 		const section = wire.sections as { lyrics: string };

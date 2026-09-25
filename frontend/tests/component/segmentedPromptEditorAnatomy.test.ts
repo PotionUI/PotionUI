@@ -209,14 +209,4 @@ describe('the resolved panel', () => {
 		expect(panel?.textContent).toBe('a forest');
 	});
 
-	it('counts breaks and renders BREAK as its own element, not as body text', () => {
-		const editor = mount({
-			showPreview: true,
-			segments: [segment('a', 'x'), segment('b', '', { type: 'break' }), segment('c', 'y')]
-		});
-
-		expect(editor.text()).toContain('1 break');
-		const pill = editor.target.querySelector('.resolved-break');
-		expect(pill?.textContent).toBe('BREAK');
-	});
 });

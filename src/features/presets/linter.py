@@ -62,6 +62,8 @@ _KNOWN_SAMPLING_FAMILIES = frozenset({
     "wan", "z_image", "seedvr2", "minimax_music3",
 })
 
+_KNOWN_LORA_ROW_OPTION_KEYS = frozenset({"step_start", "step_end", "audio"})
+
 # Runtime documents the orchestrator injects into the `form` context that are
 # not declared form fields (Video Director timeline, Music Director document,
 # prompt timeline, LLM block). A `{{ form.<key> }}` reference to one of these
@@ -470,6 +472,7 @@ class PresetLinter:
             issues.extend(self._lint_camera_shot_fields(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_pipeline_templates(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_field_config_keys(preset_file, mode_dir, mode_name))
+            issues.extend(self._lint_lora_picker_row_fields(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_tags_categories(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_sampling_fields(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_alert_field_config(preset_file, mode_dir, mode_name))
@@ -491,6 +494,8 @@ class PresetLinter:
         issues.extend(self._lint_segment_templates(preset_file, manifest))
 
         issues.extend(self._lint_prompt_resources(preset_file, manifest))
+
+        issues.extend(self._lint_prompt_syntax(preset_file, manifest))
 
         issues.extend(self._lint_requirements(preset_file, manifest))
 
@@ -578,6 +583,7 @@ class PresetLinter:
                 issues.extend(self._lint_field_defaults(synthetic_preset_file, mode_dir, mode_name))
                 issues.extend(self._lint_pipeline_templates(synthetic_preset_file, mode_dir, mode_name))
                 issues.extend(self._lint_field_config_keys(synthetic_preset_file, mode_dir, mode_name))
+                issues.extend(self._lint_lora_picker_row_fields(synthetic_preset_file, mode_dir, mode_name))
                 issues.extend(self._lint_tags_categories(synthetic_preset_file, mode_dir, mode_name))
                 issues.extend(self._lint_alert_field_config(synthetic_preset_file, mode_dir, mode_name))
 
@@ -668,6 +674,16 @@ class PresetLinter:
                 )
             )
 
+        return issues
+
+    def _lint_prompt_syntax(self, preset_file: Path, manifest) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+        for mode_name, entries in (getattr(manifest, "prompt_syntax", None) or {}).items():
+            loc = f"preset.yml: prompt_syntax.{mode_name}"
+            mode_dir = preset_file.parent / "modes" / mode_name
+            if mode_name not in manifest.modes or not mode_dir.exists():
+                issues.append(LintIssue("error", preset_str, f"{loc}: '{mode_name}' is not a mode of this preset"))
         return issues
 
     def _lint_prompt_resources(self, preset_file: Path, manifest) -> List[LintIssue]:
@@ -840,12 +856,12 @@ class PresetLinter:
                         )
                     )
                 segment_type = segment.get("type", "content")
-                if segment_type not in ("content", "break"):
+                if segment_type != "content":
                     issues.append(
                         LintIssue(
                             "warning",
                             preset_str,
-                            f"{segment_path}: type must be 'content' or 'break', got {segment_type!r}",
+                            f"{segment_path}: type must be 'content', got {segment_type!r}",
                         )
                     )
 
@@ -2125,6 +2141,59 @@ class PresetLinter:
                             f"(declared: {sorted(allowed)})",
                         )
                     )
+
+        return issues
+
+    def _lint_lora_picker_row_fields(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+        registry = self._field_type_registry()
+
+        for form_file in self._iter_form_yaml_files(mode_dir):
+            try:
+                with open(form_file, 'r', encoding='utf-8') as f:
+                    form_data = yaml.load(f, Loader=yaml.FullLoader) or {}
+            except Exception:
+                continue
+
+            rel = form_file.relative_to(mode_dir)
+            for path, node in self._iter_nodes(form_data, str(rel)):
+                if not isinstance(node, dict) or node.get("type") != "lora_picker":
+                    continue
+                config = node.get("configuration")
+                if not isinstance(config, dict):
+                    continue
+                row_fields = config.get("row_fields")
+                if not isinstance(row_fields, list):
+                    continue
+
+                loc = f"modes/{mode_name}/{path}"
+                for index, declaration in enumerate(row_fields):
+                    if not isinstance(declaration, dict):
+                        issues.append(LintIssue(
+                            "error", preset_str, f"{loc}: configuration.row_fields[{index}] must be an object",
+                        ))
+                        continue
+
+                    name = declaration.get("name")
+                    if not name:
+                        issues.append(LintIssue(
+                            "error", preset_str, f"{loc}: configuration.row_fields[{index}] is missing 'name'",
+                        ))
+                    elif name not in _KNOWN_LORA_ROW_OPTION_KEYS:
+                        issues.append(LintIssue(
+                            "warning", preset_str,
+                            f"{loc}: configuration.row_fields[{index}] names '{name}', not a known LoRA "
+                            f"row option (known: {sorted(_KNOWN_LORA_ROW_OPTION_KEYS)}) - "
+                            f"check it is read by the target family's loader/generator",
+                        ))
+
+                    row_type = declaration.get("type")
+                    if row_type and registry.get(row_type).type_name != row_type:
+                        issues.append(LintIssue(
+                            "warning", preset_str,
+                            f"{loc}: configuration.row_fields[{index}] names unregistered field type '{row_type}'",
+                        ))
 
         return issues
 

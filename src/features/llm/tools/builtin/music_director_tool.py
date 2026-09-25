@@ -275,13 +275,13 @@ def _normalize_segment_as_section_read(raw: Any, index: int) -> Optional[Dict[st
     shaped dict (id, kind, lyrics) so the rest of this module's mode
     derivation/operation machinery, written against that shape, needs no
     change. Mirrors `wireSection`/`canonicalizeSectionKind` in
-    utils/musicDirector.ts. Disabled or break-type segments are skipped
-    (return None), matching the frontend's own filter before it ever builds
-    `sections`. Per-section style_hint/duration_hint/references have no
-    editable surface any more (Segment carries none of them) -- always None
-    here, same as the frontend's own read-back would show."""
+    utils/musicDirector.ts. Disabled segments are skipped (return None),
+    matching the frontend's own filter before it ever builds `sections`.
+    Per-section style_hint/duration_hint/references have no editable surface
+    any more (Segment carries none of them) -- always None here, same as the
+    frontend's own read-back would show."""
     raw = raw if isinstance(raw, dict) else {}
-    if raw.get("type") == "break" or raw.get("enabled") is False:
+    if raw.get("enabled") is False:
         return None
     return {
         "id": raw.get("id") or f"section-{index + 1}",

@@ -20,13 +20,21 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .composer { container-type: inline-size; background: color-mix(in srgb, rgb(var(--surface-1)) 72%, transparent); border: 1px solid rgb(var(--line)); border-radius: 10px; box-shadow: 0 12px 35px rgba(0,0,0,.14); }
 
+.composer.plain { background: none; border: 0; border-radius: 0; box-shadow: none; }
+
+.composer.plain > .segment-lane { padding: 0; background: none; }
+
+.composer.plain > .segment-lane:last-child { border-radius: 0; }
+
 .composer-toolbar { min-height: 49px; display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px solid rgb(var(--line)); }
 
-.composer-title { font-size: 11px; font-weight: 650; }
+.composer.plain .composer-toolbar { padding-left: 0; padding-right: 0; border-bottom: 0; }
+
+.composer-title { font-size: 13px; font-weight: 600; }
 
 .composer-title.negative { color: rgb(var(--danger)); }
 
-.composer-count { color: rgb(var(--fg-subtle)); font: 400 7px "IBM Plex Mono"; }
+.composer-count { color: rgb(var(--fg-subtle)); font: 400 12px "IBM Plex Mono"; font-variant-numeric: tabular-nums; }
 
 .toolbar-spacer { flex: 1; }
 
@@ -126,39 +134,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .segment.off .segment-content { color: rgb(var(--fg-disabled)); opacity: .48; text-decoration-color: rgb(var(--fg-disabled)); }
 
-.segment.off .segment-foot { opacity: .58; }
-
 .segment.off .segment-head { opacity: 1; }
-
-.segment-foot { min-height: 35px; display: flex; align-items: center; gap: 5px; padding: 4px 8px 5px 12px; }
-
-.insert-label { margin-right: 1px; color: rgb(var(--fg-subtle)); font: 400 6px "IBM Plex Mono"; text-transform: uppercase; letter-spacing: .08em; }
-
-.insert-button { height: 24px; display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; color: rgb(var(--fg-subtle)); background: transparent; border: 1px solid transparent; border-radius: 4px; font-size: 7px; }
-
-.insert-button:hover, .insert-button.active { color: rgb(var(--fg)); background: rgb(var(--surface-2)); border-color: rgb(var(--line)); }
-
-.insert-glyph { color: rgb(var(--fg)); font: 600 9px "IBM Plex Mono"; }
-
-.insert-button[data-picker="phrasebook"] .insert-glyph { color: rgb(var(--signal)); }
-
-.insert-button.variable .insert-glyph { color: rgb(var(--ai-1)); }
-
-.insert-button.choice .insert-glyph { color: rgb(var(--warning)); }
-
-.segment-stats { margin-left: auto; display: flex; gap: 9px; color: rgb(var(--fg-subtle)); font: 400 6px "IBM Plex Mono"; text-transform: uppercase; letter-spacing: .05em; }
-
-.segment:hover .insert-label, .segment:hover .insert-button { opacity: 1; }
 
 .composer.compact .segment-content { font-size: 12px; line-height: 1.65; }
 
 .composer.compact .segment-content .inline-chip-editor { font-size: 12px; line-height: 1.65; }
 
 .composer.compact .segment-head { min-height: 35px; }
-
-.composer.compact .segment-foot { min-height: 30px; }
-
-.composer.compact .insert-button { height: 21px; }
 
 /* Recommended: order belongs to the header, not a permanent side panel. */
     .composer.edge-inline .segment { grid-template-columns: minmax(0, 1fr); }
@@ -174,12 +156,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 .composer.edge-inline .segment-rail .index { min-width: 25px; height: 21px; margin: 0 3px 0 1px; display: grid; place-items: center; color: rgb(var(--fg-muted)); background: rgb(var(--surface-2)); border: 1px solid rgb(var(--line)); border-radius: 4px; }
 
 .composer.edge-inline .segment-head { padding-left: 82px; }
-
-.composer.edge-inline .break-row .index { width: 25px; height: 21px; display: grid; place-items: center; color: rgb(var(--fg-muted)); background: rgb(var(--surface-1)); border: 1px solid rgb(var(--line)); border-radius: 4px; }
-
-@container (max-width: 43rem) {
-  .segment-head .head-action.optional { display: none; }
-}
 
 .chip { position: relative; display: inline-flex; vertical-align: baseline; align-items: center; max-width: 260px; min-height: 27px; margin: 0 2px; padding: 0 7px 0 5px; color: rgb(var(--fg)); background: rgb(var(--surface-3)); border: 1px solid rgb(var(--line-strong)); border-radius: 5px; white-space: nowrap; transform: translateY(1px); box-shadow: inset 0 1px rgba(255,255,255,.025); }
 
@@ -241,16 +217,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .chip-config .icon { width: 11px; height: 11px; margin: 0; }
 
-.break-row { display: flex; align-items: center; gap: 9px; min-height: 40px; padding: 0 5px; color: rgb(var(--fg-subtle)); }
-
-.break-row .index { width: 29px; margin: 0; text-align: center; }
-
-.break-line { flex: 1; height: 1px; background: rgb(var(--line)); }
-
-.break-pill { padding: 4px 7px; color: rgb(var(--fg-muted)); background: rgb(var(--surface-1)); border: 1px solid rgb(var(--line-strong)); border-radius: 4px; font: 500 6px "IBM Plex Mono"; text-transform: uppercase; letter-spacing: .12em; }
-
-.break-actions { display: flex; gap: 2px; }
-
 .add-segment { width: 100%; height: 40px; margin: 0; display: flex; align-items: center; justify-content: center; gap: 6px; color: rgb(var(--fg-muted)); background: transparent; border: 1px dashed rgb(var(--line-strong)); border-radius: 6px; font-size: 8px; }
 
 .add-segment:hover { color: rgb(var(--fg)); background: rgb(var(--surface-1)); border-color: rgb(var(--line-strong)); }
@@ -286,6 +252,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 .variable-picker .picker-symbol, .variable-picker .row-thumb { color: rgb(var(--ai-1)); }
 
 .resource-picker .picker-symbol, .resource-picker .row-thumb { color: rgb(var(--success)); }
+
+.syntax-picker .picker-symbol, .syntax-picker .row-thumb { color: rgb(var(--warning)); }
 
 .picker-search { min-width: 0; flex: 1; }
 
@@ -437,6 +405,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .menu-item.danger { color: rgb(var(--danger)); }
 
+.menu-glyph { display: inline-flex; align-items: center; justify-content: center; font: 600 9px "IBM Plex Mono"; }
+
+.menu-glyph.phrasebook { color: rgb(var(--signal)); }
+
+.menu-glyph.variable { color: rgb(var(--ai-1)); }
+
+.menu-glyph.choice { color: rgb(var(--warning)); }
+
 .modal-backdrop { position: fixed; z-index: 60; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(0,0,0,.62); backdrop-filter: blur(3px); }
 
 .modal { width: min(520px, calc(100vw - 30px)); background: rgb(var(--surface-1)); border: 1px solid rgb(var(--line-strong)); border-radius: 10px; box-shadow: var(--shadow-overlay); }
@@ -524,7 +500,7 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 @media (max-width: 760px) {
   .toolbar-label { display: none; }
   .segment { grid-template-columns: 34px minmax(0, 1fr); }
-  .segment-description, .insert-label, .segment-stats span:first-child { display: none; }
+  .segment-description { display: none; }
   .picker { left: 38px; width: calc(100% - 48px); }
   .popover { right: 8px; width: calc(100% - 50px); }
 }
@@ -553,14 +529,10 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 /* The mock's JS `.focused` (last-clicked, sticky across blur) is replaced by
    real `:focus-within` — no extra state to track, and equivalent visually: a
    segment reads as active exactly while it or one of its own controls has
-   focus, matching the header's raised border + insert-row reveal. */
+   focus, matching the header's raised border. */
 .segment:focus-within {
 	border-color: color-mix(in srgb, rgb(var(--fg)) 38%, rgb(var(--line)));
 	box-shadow: 0 0 0 1px color-mix(in srgb, rgb(var(--fg)) 6%, transparent);
-}
-.segment:not(:hover):not(:focus-within) .insert-label,
-.segment:not(:hover):not(:focus-within) .insert-button {
-	opacity: .48;
 }
 
 /* Mock's `.primary` was literal dark-theme hex (#111/#f2f2ee/#fff) with a
@@ -618,26 +590,16 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 }
 
 /* The resolved preview distinguishes more token kinds than the mock's single
-   sample string shows (plain text + one <mark> value + one [BREAK]): a
-   dynamicprompts choice/weight expansion reads as "emphasis", and a segment
-   excluded from the resolved prompt but shown for context reads "muted" —
-   both real, existing distinctions, styled in the mock's own muted-mono
-   idiom. The break pill is the app's existing nicer treatment of the mock's
-   plain dimmed "[BREAK]" text. */
+   sample string shows (plain text + one <mark> value): a dynamicprompts
+   choice/weight expansion reads as "emphasis", and a segment excluded from
+   the resolved prompt but shown for context reads "muted" — both real,
+   existing distinctions, styled in the mock's own muted-mono idiom. */
 .resolved-emphasis {
 	color: rgb(var(--signal));
 }
 .resolved-muted {
 	color: rgb(var(--fg-subtle));
 	text-decoration: line-through;
-}
-.resolved-break {
-	display: inline-block;
-	border-radius: 0.25rem;
-	background-color: rgb(var(--surface-3));
-	padding: 0.0625rem 0.3125rem;
-	letter-spacing: 0.08em;
-	color: rgb(var(--fg-muted));
 }
 .resolved-empty {
 	font-style: italic;
@@ -851,16 +813,6 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 .segment-head {
 	padding-left: 82px;
 }
-.break-row .index {
-	width: 25px;
-	height: 21px;
-	display: grid;
-	place-items: center;
-	color: rgb(var(--fg-muted));
-	background: rgb(var(--surface-1));
-	border: 1px solid rgb(var(--line));
-	border-radius: 4px;
-}
 
 /* Same reasoning for `.composer.compact` — embedded has no `.composer`
    ancestor either, so the compact content sizing needs a route that doesn't
@@ -877,12 +829,6 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 }
 .prompt-editor.compact .segment-head {
 	min-height: 35px;
-}
-.prompt-editor.compact .segment-foot {
-	min-height: 30px;
-}
-.prompt-editor.compact .insert-button {
-	height: 21px;
 }
 
 /* Maintainer, live: clicking the phrasebook chip's settings (chip-config)
@@ -921,3 +867,46 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 }
 
 .composer-count { font-size: 12px; }
+
+.segment-rail .type-dot { display: none; }
+
+.card.segment.has-color { border-left: 3px solid var(--segment-color); }
+
+.card.segment .segment-head { border-bottom: 0; min-height: 34px; }
+
+.card.segment .head-action { width: 26px; height: 26px; color: rgb(var(--fg-subtle)); background: transparent; border-color: transparent; }
+
+.card.segment .head-action:hover, .card.segment .head-action.active, .card.segment .head-action:focus-visible { color: rgb(var(--fg)); background: rgb(var(--surface-2)); border-color: rgb(var(--line)); }
+
+.card.segment .head-action.danger:hover { color: rgb(var(--danger)); }
+
+.card.segment .segment-head .head-action.danger::before { display: none; }
+
+.card.segment .segment-rail .grip, .card.segment .segment-rail .index { background: transparent; border-color: transparent; color: rgb(var(--fg-subtle)); }
+
+.card.segment .segment-rail .grip:hover { color: rgb(var(--fg)); background: rgb(var(--surface-2)); }
+
+.action-menu { min-width: 17rem; max-height: calc(100dvh - 16px); overflow-y: auto; }
+
+.action-menu .menu-item { min-height: 36px; gap: 10px; padding: 0 10px; font-size: 14px; }
+
+.action-menu .menu-item .icon { width: 16px; height: 16px; }
+
+.action-menu .menu-glyph { font-size: 13px; white-space: nowrap; letter-spacing: -0.08em; width: auto; min-width: 16px; }
+
+.action-menu .menu-item { white-space: nowrap; }
+
+.action-menu .menu-item .shortcut { font-size: 12px; }
+
+.card.segment .segment-head { min-height: 33px; padding-top: 7px; padding-bottom: 0; align-items: center; }
+
+.card.segment .segment-head .segment-identity { align-self: center; align-items: center; min-height: 26px; }
+
+.composer .card.segment .segment-rail .index, .card.segment .segment-rail .index { min-width: 0; height: auto; background: transparent; border: 0; font-size: 12px; color: rgb(var(--fg-subtle)); }
+
+.card.segment .reveal, .card.segment .segment-identity { opacity: 0; transition: opacity .12s ease; }
+
+.card.segment:hover .reveal, .card.segment:focus-within .reveal, .card.segment.menu-open .reveal, .card.segment.dragging .reveal,
+.card.segment:hover .segment-identity, .card.segment:focus-within .segment-identity, .card.segment.menu-open .segment-identity, .card.segment.dragging .segment-identity { opacity: 1; }
+
+@media (hover: none), (pointer: coarse) { .card.segment .reveal, .card.segment .segment-identity { opacity: 1; } }

@@ -52,9 +52,9 @@ def make_prompt(
         usage_hint=usage_hint,
         segments=[
             RichSegment(content=text, name="Subject", color="#f59e0b"),
-            RichSegment(type="break", enabled=True),
+            RichSegment(content="watercolor", enabled=True),
         ],
-        flattened_text=f"{text} BREAK",
+        flattened_text=f"{text} watercolor",
         model_name="Example XL",
         base_model="SDXL",
         cfg_scale=7.0,
@@ -106,9 +106,9 @@ async def test_search_returns_rich_aggregate_fields_without_negative_pair(mock_o
     entry = json.loads(result.data)["results"][0]["prompts"][0]
     assert entry["prompt_id"] == "prompt-1"
     assert entry["name"] == "Fox study"
-    assert entry["flattened_text"] == "a detailed fox BREAK"
+    assert entry["flattened_text"] == "a detailed fox watercolor"
     assert entry["usage_hint"] == "positive"
-    assert [segment["type"] for segment in entry["segments"]] == ["content", "break"]
+    assert [segment["type"] for segment in entry["segments"]] == ["content", "content"]
     assert entry["segments"][0]["name"] == "Subject"
     assert entry["segments"][0]["color"] == "#f59e0b"
     assert "negative_prompt" not in entry
@@ -140,7 +140,7 @@ async def test_negative_usage_hint_is_an_independent_search_record(mock_operatio
     entry = json.loads(result.data)["results"][0]["prompts"][0]
     assert entry["prompt_id"] == "prompt-negative"
     assert entry["usage_hint"] == "negative"
-    assert entry["flattened_text"] == "blurry, low quality BREAK"
+    assert entry["flattened_text"] == "blurry, low quality watercolor"
     assert "negative_prompt" not in entry
 
 

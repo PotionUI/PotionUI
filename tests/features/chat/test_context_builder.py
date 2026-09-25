@@ -21,7 +21,7 @@ def _block(segments):
     return content[len(_PREFIX):-len(_SUFFIX)]
 
 
-def test_renders_positive_negative_break_and_template_slot():
+def test_renders_positive_negative_and_template_slot():
     block = _block([
         {
             "index": 0, "id": "abc123", "name": "SUBJECT", "type": "content",
@@ -33,8 +33,7 @@ def test_renders_positive_negative_break_and_template_slot():
             "enabled": True, "content": "golden hour backlight",
             "template": {"id": "t1", "name": "Krea-2 photoreal", "slot": "light", "position": 4},
         },
-        {"index": 2, "id": "brk", "type": "break", "enabled": True, "content": ""},
-        {"index": 3, "id": "ghi789", "type": "content", "enabled": False,
+        {"index": 2, "id": "ghi789", "type": "content", "enabled": False,
          "content": "blurry, low quality", "negative": True},
     ])
     assert block.startswith("PROMPT STATE (current editor contents;")
@@ -42,7 +41,6 @@ def test_renders_positive_negative_break_and_template_slot():
     assert "Positive:" in block and "Negative:" in block
     assert "01 SUBJECT (slot 1) [on] id=abc123:" in block
     assert "02 LIGHTING (slot 4) [on] id=def456:" in block
-    assert "03 ── break ──" in block
     # negatives restart their own numbering
     assert '01 [off] id=ghi789: "blurry, low quality"' in block
 

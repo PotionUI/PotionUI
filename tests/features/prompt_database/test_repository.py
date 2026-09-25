@@ -69,7 +69,6 @@ class TestPromptRepository(PersistenceTestBase):
                         color="#123456",
                         description="Opening card",
                     ),
-                    RichSegment(type="break", enabled=True, name="Pause"),
                     RichSegment(content="must not appear", enabled=False),
                     RichSegment(content="close-up"),
                 ],
@@ -78,14 +77,14 @@ class TestPromptRepository(PersistenceTestBase):
 
         self.assertEqual(
             created.flattened_text,
-            "portrait in warm golden light BREAK close-up",
+            "portrait in warm golden light close-up",
         )
         self.assertEqual([item.type for item in created.segments], [
-            "content", "break", "content", "content"
+            "content", "content", "content"
         ])
         self.assertEqual(created.segments[0].chips["chip-1"].valueId, "golden")
         self.assertTrue(created.segments[0].chips["chip-1"].shuffle)
-        self.assertFalse(created.segments[2].enabled)
+        self.assertFalse(created.segments[1].enabled)
         self.assertEqual(created.segments[0].name, "Subject")
         self.assertEqual(created.usage_hint, "negative")
         self.assertIn("portrait in warm", created.display_name)
@@ -287,18 +286,16 @@ class TestPromptRepository(PersistenceTestBase):
                 Prompt(id=generate_ulid(), user_id=self.user_1, segments=[])
             )
 
-    def test_flattening_break_and_disabled_parity(self):
+    def test_flattening_joins_enabled_segments_with_a_space(self):
         self.assertEqual(
             flatten_segments(
                 [
-                    RichSegment(type="break"),
                     RichSegment(content="alpha"),
-                    RichSegment(type="break"),
                     RichSegment(content="ignored", enabled=False),
                     RichSegment(content="omega"),
                 ]
             ),
-            "BREAK alpha BREAK omega",
+            "alpha omega",
         )
 
     def test_flattening_wraps_prefix_and_suffix_byte_for_byte(self):
@@ -309,13 +306,7 @@ class TestPromptRepository(PersistenceTestBase):
                     RichSegment(content="omega"),
                 ]
             ),
-            "(alpha), omega",
-        )
-        self.assertEqual(
-            flatten_segments(
-                [RichSegment(type="break"), RichSegment(content="alpha", prefix="  <", suffix=">  ")]
-            ),
-            "BREAK   <alpha>",
+            "(alpha) omega",
         )
 
     def test_flattening_empty_body_with_prefix_contributes_nothing(self):

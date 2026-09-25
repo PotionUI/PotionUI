@@ -49,9 +49,8 @@ const segments: SavedSegment[] = [
 	}),
 	segment({
 		id: 'seg-3',
-		name: 'Break',
+		name: 'Ambient wide shot',
 		category_id: 'cat-cam',
-		type: 'break',
 		content: '',
 		tags: [],
 		enabled: false,
@@ -63,13 +62,12 @@ const segments: SavedSegment[] = [
 describe('segment filters URL round-trip', () => {
 	it('parses every param and serialises it back identically', () => {
 		const params = new URLSearchParams(
-			'q=gold&category=cat-light&type=break&enabled=off&tags=portrait,motion&sort_by=created'
+			'q=gold&category=cat-light&enabled=off&tags=portrait,motion&sort_by=created'
 		);
 		const filters = segmentFiltersFromSearchParams(params);
 		expect(filters).toEqual<SegmentFilters>({
 			q: 'gold',
 			category: 'cat-light',
-			type: 'break',
 			enabled: 'off',
 			tags: ['portrait', 'motion'],
 			sortBy: 'created'
@@ -83,8 +81,7 @@ describe('segment filters URL round-trip', () => {
 	});
 
 	it('falls back to defaults for unknown values', () => {
-		const filters = segmentFiltersFromSearchParams(new URLSearchParams('type=video&enabled=maybe&sort_by=usage'));
-		expect(filters.type).toBe('');
+		const filters = segmentFiltersFromSearchParams(new URLSearchParams('enabled=maybe&sort_by=usage'));
 		expect(filters.enabled).toBe('');
 		expect(filters.sortBy).toBe('name');
 	});
@@ -104,13 +101,10 @@ describe('applySegmentFilters', () => {
 		expect(byCategory.map((s) => s.id).sort()).toEqual(['seg-2', 'seg-3']);
 	});
 
-	it('narrows by category, type, enabled and any-of tags', () => {
+	it('narrows by category, enabled and any-of tags', () => {
 		expect(
 			applySegmentFilters(segments, categories, { ...DEFAULT_SEGMENT_FILTERS, category: 'cat-cam' }).map((s) => s.id)
 		).toEqual(['seg-3', 'seg-2']);
-		expect(applySegmentFilters(segments, categories, { ...DEFAULT_SEGMENT_FILTERS, type: 'break' }).map((s) => s.id)).toEqual([
-			'seg-3'
-		]);
 		expect(applySegmentFilters(segments, categories, { ...DEFAULT_SEGMENT_FILTERS, enabled: 'off' }).map((s) => s.id)).toEqual([
 			'seg-3'
 		]);
@@ -139,7 +133,6 @@ describe('segment filter chips', () => {
 		...DEFAULT_SEGMENT_FILTERS,
 		q: 'keep',
 		category: 'cat-light',
-		type: 'content',
 		enabled: 'on',
 		tags: ['portrait'],
 		sortBy: 'created'
@@ -148,17 +141,15 @@ describe('segment filter chips', () => {
 	it('labels the category chip with the category name and counts active filters', () => {
 		expect(segmentFilterChips(filters, categories)).toEqual([
 			{ key: 'category', label: 'category = Lighting' },
-			{ key: 'type', label: 'content' },
 			{ key: 'enabled', label: 'enabled' },
 			{ key: 'tag:portrait', label: '#portrait' }
 		]);
-		expect(segmentFilterActiveCount(filters)).toBe(4);
+		expect(segmentFilterActiveCount(filters)).toBe(3);
 		expect(segmentFilterActiveCount(DEFAULT_SEGMENT_FILTERS)).toBe(0);
 	});
 
 	it('clears one chip at a time and keeps query and sort on clear all', () => {
 		expect(clearSegmentFilterChip(filters, 'category').category).toBe('');
-		expect(clearSegmentFilterChip(filters, 'type').type).toBe('');
 		expect(clearSegmentFilterChip(filters, 'enabled').enabled).toBe('');
 		expect(clearSegmentFilterChip(filters, 'tag:portrait').tags).toEqual([]);
 		expect(clearSegmentFilterChip(filters, 'unknown')).toBe(filters);

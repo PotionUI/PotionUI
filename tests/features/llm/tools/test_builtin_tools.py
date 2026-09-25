@@ -322,7 +322,7 @@ class TestGetSegmentTemplatesTool:
                 tags=["film"],
                 segments=[
                     RichSegment(content="cinematic shot"),
-                    RichSegment(type="break"),
+                    RichSegment(content="wide angle"),
                 ],
             ),
         ]
@@ -337,7 +337,7 @@ class TestGetSegmentTemplatesTool:
         assert data["count"] == 1
         assert data["templates"][0]["id"] == "t1"
         assert data["templates"][0]["segments"][0]["content"] == "cinematic shot"
-        assert data["templates"][0]["segments"][1]["type"] == "break"
+        assert data["templates"][0]["segments"][1]["type"] == "content"
         assert data["templates"][0]["tags"] == ["film"]
         repo.get_all.assert_called_once_with("user-test")
 

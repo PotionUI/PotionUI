@@ -114,18 +114,6 @@ describe('TemplateCard', () => {
 		expect(row.textContent).not.toContain('Empty slot');
 	});
 
-	it('renders a break slot as the prompt break divider', () => {
-		mountCard({
-			template: template({
-				segments: [slot('Subject', { content: 'a cat' }), slot(null, { type: 'break' }), slot('Style')]
-			})
-		});
-		const rows = slotRows();
-		expect(rows[1].dataset.templateSlot).toBe('break');
-		expect(rows[1].textContent?.trim()).toBe('Prompt break');
-		expect(rows[1].querySelectorAll('.h-px').length).toBe(2);
-	});
-
 	it('marks a disabled slot Off and dims it', () => {
 		mountCard({
 			template: template({

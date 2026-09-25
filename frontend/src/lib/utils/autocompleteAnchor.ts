@@ -71,3 +71,19 @@ export function computeAutocompletePlacement(
 		openAbove
 	};
 }
+
+export interface CaretRectSource {
+	rangeCount: number;
+	getRangeAt(index: number): { startContainer: Node; getBoundingClientRect?: () => { top: number; bottom: number; height: number } };
+}
+
+export function caretLineAnchor(parent: HTMLElement, selection: CaretRectSource | null): AnchorRect {
+	const box = parent.getBoundingClientRect();
+	const fallback = { top: box.top, bottom: box.bottom, left: box.left, width: box.width };
+	if (!selection || selection.rangeCount === 0) return fallback;
+	const range = selection.getRangeAt(0);
+	if (!parent.contains(range.startContainer) || typeof range.getBoundingClientRect !== 'function') return fallback;
+	const caret = range.getBoundingClientRect();
+	if (caret.height === 0 && caret.top === 0) return fallback;
+	return { top: caret.top, bottom: caret.bottom, left: box.left, width: box.width };
+}

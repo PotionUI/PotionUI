@@ -58,7 +58,7 @@ describe('previewGenerationStore.handleGeneratePreviews — segments flatten to 
 
 		expect(generatePreviews).toHaveBeenCalledWith(
 			'cat-1',
-			expect.objectContaining({ prompt_template: 'a photo of, << value >>' })
+			expect.objectContaining({ prompt_template: 'a photo of << value >>' })
 		);
 	});
 

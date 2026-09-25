@@ -80,8 +80,8 @@ class TestGenerationSegmentRepository(PersistenceTestBase):
                 "channel": "negative",
                 "prompt_index": 0,
                 "segment_index": 0,
-                "segment_type": "break",
-                "text": "",
+                "segment_type": "content",
+                "text": "negative segment",
             },
         ]
 

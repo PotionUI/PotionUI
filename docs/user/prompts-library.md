@@ -20,7 +20,6 @@ A Prompt is an ordered list containing at least one rich segment. Each segment c
 
 - prompt content and phrasebook chips, including each chip's selected value and shuffle settings,
 - an enabled or disabled state,
-- a **content** or **BREAK** type,
 - and optional name, color, and description metadata.
 
 Empty segments are allowed, which is useful for starter slots in a template. Collapsing a card is only an editor display choice; it is not part of the saved composition. Disabling a card is the way to retain it without including it in the resolved prompt.
@@ -31,7 +30,7 @@ Prompts are channel-agnostic. The same Prompt can be applied to a positive or ne
 
 ### Prompts
 
-Use this tab to create, edit, search, import, and remove complete Prompt compositions. Search and duplicate detection use the resolved, flattened text of enabled segments, including chip values and `BREAK` separators.
+Use this tab to create, edit, search, import, and remove complete Prompt compositions. Search and duplicate detection use the resolved, flattened text of enabled segments, including chip values.
 
 Imported items may also carry model, provider, source, tags, dimensions, sampler, steps, CFG, and community reaction information. This is browsing and search metadata only. Applying the Prompt never changes generation configuration.
 

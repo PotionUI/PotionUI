@@ -19,7 +19,7 @@ export interface ChipData {
 	autoRegen: boolean;
 }
 
-export type RichSegmentType = 'content' | 'break';
+export type RichSegmentType = 'content';
 
 /**
  * Persisted, channel-agnostic prompt composition.

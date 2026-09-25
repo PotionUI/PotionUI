@@ -28,29 +28,14 @@ describe('resolvedPromptStats', () => {
 		expect(resolvedPromptStats(segments).chars).toBe(flattenRichSegments(segments).length);
 	});
 
-	it('includes the joining punctuation between segments', () => {
+	it('includes the joining space between segments', () => {
 		const segments = [editor('a', 'a forest'), editor('b', 'at dusk')];
-		expect(resolvedPromptStats(segments).chars).toBe('a forest, at dusk'.length);
-	});
-
-	it('counts enabled breaks', () => {
-		const segments = [editor('a', 'x'), editor('b', '', { type: 'break' }), editor('c', 'y')];
-		expect(resolvedPromptStats(segments).breaks).toBe(1);
-	});
-
-	it('does not count a disabled break', () => {
-		const segments = [
-			editor('a', 'x'),
-			editor('b', '', { type: 'break', enabled: false }),
-			editor('c', 'y')
-		];
-		expect(resolvedPromptStats(segments).breaks).toBe(0);
-		expect(resolvedPromptStats(segments).chars).toBe('x, y'.length);
+		expect(resolvedPromptStats(segments).chars).toBe('a forest at dusk'.length);
 	});
 
 	it('is zero for an empty list and for a blank placeholder card', () => {
-		expect(resolvedPromptStats([])).toEqual({ chars: 0, breaks: 0 });
-		expect(resolvedPromptStats([editor('a', '')])).toEqual({ chars: 0, breaks: 0 });
+		expect(resolvedPromptStats([])).toEqual({ chars: 0 });
+		expect(resolvedPromptStats([editor('a', '')])).toEqual({ chars: 0 });
 	});
 });
 
@@ -64,7 +49,6 @@ describe('resolvedPromptTokens', () => {
 	it('reproduces the resolved string exactly when concatenated', () => {
 		const segments = [
 			editor('a', 'cinematic portrait, (35mm anamorphic:1.2)'),
-			editor('b', '', { type: 'break' }),
 			editor('c', 'shallow depth of field, [oversaturated]')
 		];
 		expect(joined(segments)).toBe(flattenRichSegments(segments));
@@ -74,17 +58,6 @@ describe('resolvedPromptTokens', () => {
 		const segments = [editor('a', 'a forest'), editor('b', 'harsh noon sun', { enabled: false })];
 		expect(joined(segments)).toBe('a forest');
 		expect(resolvedPromptTokens(segments).every((token) => !token.text.includes('harsh'))).toBe(true);
-	});
-
-	it('tags BREAK as its own token, not as body text', () => {
-		const segments = [editor('a', 'x'), editor('b', '', { type: 'break' }), editor('c', 'y')];
-		const breaks = resolvedPromptTokens(segments).filter((token) => token.kind === 'break');
-		expect(breaks).toEqual([{ kind: 'break', text: 'BREAK' }]);
-	});
-
-	it('does not tag BREAK inside a longer word', () => {
-		const segments = [editor('a', 'BREAKWATER at dawn')];
-		expect(resolvedPromptTokens(segments).some((token) => token.kind === 'break')).toBe(false);
 	});
 
 	it('tags attention syntax as emphasis and bracketed text as muted', () => {

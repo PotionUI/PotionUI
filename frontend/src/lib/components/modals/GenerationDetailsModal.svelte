@@ -937,11 +937,7 @@
 											</div>
 										{/if}
 
-										{#if seg.segment_type === 'break'}
-											<span class="inline-flex items-center px-2 py-0.5 rounded bg-surface-1 border border-line font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted">
-												BREAK
-											</span>
-										{:else if seg.text}
+										{#if seg.text}
 											<div class="bg-surface-1 border border-line rounded p-2.5 text-xs text-fg leading-relaxed break-words">
 												{seg.text}
 											</div>

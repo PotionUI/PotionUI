@@ -3,7 +3,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { DetailHeader, DetailBody, DetailLayout, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
 	import { Badge, Button, IconButton, Input } from '$lib/components/ui';
-	import type { ChipData, RichSegmentType, SavedSegment, SegmentCategory } from '$lib/types/segments';
+	import type { ChipData, SavedSegment, SegmentCategory } from '$lib/types/segments';
 	import { PRESET_COLORS } from '$lib/types/segments';
 	import { timeAgo } from '$lib/utils/relativeTime';
 
@@ -16,7 +16,6 @@
 		categorySegmentCount,
 		name = $bindable(),
 		categoryId = $bindable(),
-		type = $bindable(),
 		content = $bindable(),
 		chips = $bindable(),
 		enabled = $bindable(),
@@ -38,7 +37,6 @@
 		categorySegmentCount: number;
 		name: string;
 		categoryId: string;
-		type: RichSegmentType;
 		content: string;
 		chips: Record<string, ChipData>;
 		enabled: boolean;
@@ -59,14 +57,13 @@
 	const category = $derived(categories.find((entry) => entry.id === categoryId) ?? null);
 	const effectiveColor = $derived(color || category?.color || '#3B82F6');
 	const canSave = $derived(!!name.trim() && !!categoryId);
-	const canInsert = $derived(type === 'break' || !!content.trim());
+	const canInsert = $derived(!!content.trim());
 </script>
 
 <div class="flex h-full flex-col">
 	<DetailHeader {title} icon="list" backLabel="Segments" {onBack}>
 		{#snippet chips()}
 			<span class="h-2.5 w-2.5 flex-shrink-0 rounded-full" style="background: {effectiveColor}"></span>
-			<Badge size="sm" variant={type === 'break' ? 'warning' : 'neutral'}>{type}</Badge>
 			{#if category}
 				<Badge size="sm">{category.name}</Badge>
 			{/if}
@@ -111,13 +108,6 @@
 								{#each categories as entry (entry.id)}
 									<option value={entry.id}>{entry.name}</option>
 								{/each}
-							</select>
-						</label>
-						<label>
-							<span class="mb-1.5 block text-xs font-medium text-fg-muted">Card type</span>
-							<select class="input text-sm" bind:value={type}>
-								<option value="content">Content</option>
-								<option value="break">Break</option>
 							</select>
 						</label>
 						<label>
@@ -167,26 +157,16 @@
 					</label>
 				</DetailSection>
 
-				<DetailSection label="Content" padded={type === 'break'}>
-					{#if type === 'content'}
-						<InlineChipEditor
-							value={content}
-							{chips}
-							borderless={true}
-							on:change={(event) => {
-								content = event.detail.value;
-								chips = event.detail.chips;
-							}}
-						/>
-					{:else}
-						<div class="rounded-lg border border-dashed border-line-strong px-3">
-							<div class="flex items-center gap-3 py-3 text-xs uppercase tracking-wide text-fg-muted">
-								<span class="h-px flex-1 bg-line"></span>
-								Prompt break
-								<span class="h-px flex-1 bg-line"></span>
-							</div>
-						</div>
-					{/if}
+				<DetailSection label="Content">
+					<InlineChipEditor
+						value={content}
+						{chips}
+						borderless={true}
+						on:change={(event) => {
+							content = event.detail.value;
+							chips = event.detail.chips;
+						}}
+					/>
 				</DetailSection>
 			{/snippet}
 
@@ -211,10 +191,5 @@
 		</DetailLayout>
 	</DetailBody>
 
-	<DetailFooter {dirtyCount}>
-		<Button size="sm" variant="secondary" onclick={onDiscard}>Discard</Button>
-		<Button size="sm" variant="primary" loading={saving} disabled={!canSave} onclick={onSave}>
-			{mode === 'create' ? 'Create' : 'Save'}
-		</Button>
-	</DetailFooter>
+	<DetailFooter {dirtyCount} {mode} {saving} canSave={canSave} {onSave} {onDiscard} />
 </div>

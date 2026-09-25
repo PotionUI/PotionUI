@@ -82,21 +82,18 @@ afterEach(() => {
 });
 
 describe('SegmentCard', () => {
-	it('renders the name, type badge, category badge and at most two tags', () => {
+	it('renders the name, category badge and at most two tags', () => {
 		const card = mountSegmentCard();
 		expect(card).toBeTruthy();
 		expect(card.textContent).toContain('Golden hour');
-		expect(card.textContent).toContain('content');
 		expect(card.textContent).toContain('Lighting');
 		expect(card.textContent).toContain('#portrait');
 		expect(card.textContent).toContain('#outdoor');
 		expect(card.textContent).not.toContain('#warm');
 	});
 
-	it('shows the break placeholder and a Disabled badge for a disabled break segment', () => {
-		const card = mountSegmentCard({ segment: segment({ type: 'break', content: '', enabled: false }) });
-		expect(card.textContent).toContain('Prompt break');
-		expect(card.textContent).toContain('break');
+	it('shows a Disabled badge for a disabled segment', () => {
+		const card = mountSegmentCard({ segment: segment({ content: '', enabled: false }) });
 		expect(card.textContent).toContain('Disabled');
 	});
 

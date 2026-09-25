@@ -78,7 +78,7 @@ class RichSegment(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     id: Optional[str] = None
-    type: Literal["content", "break"] = "content"
+    type: Literal["content"] = "content"
     content: str = ""
     chips: Dict[str, PhrasebookChip] = Field(default_factory=dict)
     resources: Dict[str, PromptResourceRef] = Field(default_factory=dict)
@@ -143,7 +143,7 @@ class SavedSegment(BaseModel):
     id: str
     name: str
     category_id: str
-    type: Literal["content", "break"] = "content"
+    type: Literal["content"] = "content"
     content: str = ""
     chips: Dict[str, PhrasebookChip] = Field(default_factory=dict)
     resources: Dict[str, PromptResourceRef] = Field(default_factory=dict)
@@ -176,7 +176,7 @@ class SavedSegment(BaseModel):
 class SavedSegmentRequest(BaseModel):
     name: str
     category_id: str
-    type: Literal["content", "break"] = "content"
+    type: Literal["content"] = "content"
     content: str = ""
     chips: Dict[str, PhrasebookChip] = Field(default_factory=dict)
     resources: Dict[str, PromptResourceRef] = Field(default_factory=dict)

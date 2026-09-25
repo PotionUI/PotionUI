@@ -94,7 +94,7 @@ def template():
         id="template-1",
         user_id="user-1",
         name="Sequence",
-        segments=[RichSegment(content="opening"), RichSegment(type="break")],
+        segments=[RichSegment(content="opening"), RichSegment(content="closing")],
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -208,11 +208,11 @@ def test_template_crud_uses_aggregate_contract(controller, templates, mock_opera
     assert listed.success
     assert [
         item["type"] for item in listed.data["templates"][0]["segments"]
-    ] == ["content", "break"]
+    ] == ["content", "content"]
 
     request = SegmentTemplateRequest(
         name="Sequence",
-        segments=[RichSegment(content="opening"), RichSegment(type="break")],
+        segments=[RichSegment(content="opening"), RichSegment(content="closing")],
     )
     mock_operations.create_template.return_value = template
     assert controller.create_template(request, "user-1").success

@@ -122,12 +122,12 @@ export interface MusicDirectorValue {
 	 * "[instrumental]" lyrics whenever the submitted mode is `t2m`). */
 	instrumental: boolean;
 	/** `song`/`director` only; empty for every other mode. One segment = one
-	 * song section: `type: 'content'`'s `name` canonicalizes to that section's
-	 * `SectionKind` (`canonicalizeSectionKind`), `content` is its lyrics.
-	 * `type: 'break'` segments carry no lyric content and are skipped at the
-	 * wire (see `wireSection` in utils/musicDirector.ts). Edited by the same
-	 * shared `SegmentedPromptEditor` every other segment list in the app
-	 * uses -- Music Director owns no bespoke section-editing UI. */
+	 * song section: `name` canonicalizes to that section's `SectionKind`
+	 * (`canonicalizeSectionKind`), `content` is its lyrics. A disabled
+	 * segment carries no lyric content and is skipped at the wire (see
+	 * `wireSection` in utils/musicDirector.ts). Edited by the same shared
+	 * `SegmentedPromptEditor` every other segment list in the app uses --
+	 * Music Director owns no bespoke section-editing UI. */
 	segments: Segment[];
 	/** Inline reference-audio pool -- addressed by id from a `director`
 	 * per-section selection, or used wholesale otherwise. Gated by

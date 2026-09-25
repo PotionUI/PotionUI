@@ -3,14 +3,12 @@ import { parseServerDate } from '$lib/utils/relativeTime';
 import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
 import type { FilterChip } from '$lib/components/library/librarySection';
 
-export type SegmentTypeFilter = '' | 'content' | 'break';
 export type SegmentEnabledFilter = '' | 'on' | 'off';
 export type SegmentSortBy = 'name' | 'created';
 
 export interface SegmentFilters {
 	q: string;
 	category: string;
-	type: SegmentTypeFilter;
 	enabled: SegmentEnabledFilter;
 	tags: string[];
 	sortBy: SegmentSortBy;
@@ -19,7 +17,6 @@ export interface SegmentFilters {
 export const DEFAULT_SEGMENT_FILTERS: SegmentFilters = {
 	q: '',
 	category: '',
-	type: '',
 	enabled: '',
 	tags: [],
 	sortBy: 'name'
@@ -32,7 +29,6 @@ export const SEGMENT_SORT_OPTIONS: ReadonlyArray<{ value: SegmentSortBy; label: 
 
 const FIELDS: readonly FilterFieldDescriptor<SegmentFilters>[] = [
 	{ kind: 'text', key: 'category', param: 'category', label: 'Category' },
-	{ kind: 'enum', key: 'type', param: 'type', label: 'Type', values: ['content', 'break'], default: '' },
 	{
 		kind: 'enum',
 		key: 'enabled',
@@ -90,7 +86,6 @@ export function applySegmentFilters(
 	const wantedTags = filters.tags.map((tag) => tag.toLowerCase());
 	const matched = segments.filter((segment) => {
 		if (filters.category && segment.category_id !== filters.category) return false;
-		if (filters.type && segment.type !== filters.type) return false;
 		if (filters.enabled === 'on' && !segment.enabled) return false;
 		if (filters.enabled === 'off' && segment.enabled) return false;
 		const segmentTags = (segment.tags ?? []).map((tag) => tag.toLowerCase());

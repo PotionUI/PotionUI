@@ -219,7 +219,6 @@ describe('list invariants and flattening', () => {
 		const blank = createBlankEditorSegment(() => 'blank');
 		expect(isPristineBlankSegment(blank)).toBe(true);
 		expect(isPristineBlankSegment({ ...blank, name: 'Empty slot' })).toBe(false);
-		expect(isPristineBlankSegment({ ...blank, type: 'break' })).toBe(false);
 		expect(isPristineBlankSegment({ ...blank, enabled: false, isDisabled: true })).toBe(false);
 	});
 
@@ -229,20 +228,19 @@ describe('list invariants and flattening', () => {
 		expect(removeSegmentKeepingOne([...only, editor('two', 'B')], 'only').map((s) => s.id)).toEqual(['two']);
 	});
 
-	it('flattens enabled content, breaks, and chip values while ignoring collapsed UI state', () => {
+	it('flattens enabled content and chip values while ignoring collapsed UI state', () => {
 		expect(
 			flattenRichSegments([
 				editor('one', 'portrait', { isCollapsed: true }),
 				editor('disabled', 'hidden', { enabled: false, isDisabled: true }),
-				editor('break', '', { type: 'break' }),
 				editor('chip', '#palette.color light', { chips: { c1: chip() } })
 			])
-		).toBe('portrait BREAK crimson light');
+		).toBe('portrait crimson light');
 	});
 
-	it('defaults to a comma join between enabled content segments', () => {
+	it('defaults to a space join between enabled content segments', () => {
 		expect(flattenRichSegments([editor('one', 'Verse one'), editor('two', 'Chorus one')])).toBe(
-			'Verse one, Chorus one'
+			'Verse one Chorus one'
 		);
 	});
 
@@ -300,7 +298,7 @@ describe('segment affixes', () => {
 			editor('one', 'portrait', { prefix: '(', suffix: ')' }),
 			editor('two', 'rain', { suffix: ':0.8' })
 		];
-		expect(flattenRichSegments(segments)).toBe('(portrait), rain:0.8');
+		expect(flattenRichSegments(segments)).toBe('(portrait) rain:0.8');
 		expect(flattenRichSegments(segments, 'paragraph')).toBe('(portrait)\n\nrain:0.8');
 	});
 

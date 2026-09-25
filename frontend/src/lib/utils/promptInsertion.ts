@@ -36,14 +36,7 @@ export function insertTriggerIntoActivePrompt(trigger: string): InsertTriggerRes
 
 	let updatedSegments: Segment[];
 
-	// Find the last content-type segment (skip breaks) to append to.
-	let lastContentIndex = -1;
-	for (let i = segments.length - 1; i >= 0; i--) {
-		if (segments[i].type !== 'break') {
-			lastContentIndex = i;
-			break;
-		}
-	}
+	const lastContentIndex = segments.length - 1;
 
 	if (lastContentIndex >= 0) {
 		updatedSegments = segments.map((seg, i) => {

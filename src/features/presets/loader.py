@@ -300,6 +300,10 @@ class PresetTemplateLoader:
             mode_name: [entry.model_dump(exclude_none=True) for entry in entries]
             for mode_name, entries in (manifest.prompt_resources or {}).items()
         }
+        prompt_syntax = {
+            mode_name: [entry.model_dump(exclude_none=True) for entry in entries]
+            for mode_name, entries in (manifest.prompt_syntax or {}).items()
+        }
         styles, styles_preview = self._load_styles(preset_path)
 
         return PresetTemplate(
@@ -323,6 +327,7 @@ class PresetTemplateLoader:
             requires=requires,
             requirements=requirements,
             prompt_resources=prompt_resources,
+            prompt_syntax=prompt_syntax,
         )
 
     _NO_STYLES_PREVIEW: Dict[str, str] = {"prompt_prefix": "", "negative": "", "example_prompt": ""}

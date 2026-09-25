@@ -114,49 +114,38 @@
 		{:else}
 			<div class="space-y-1.5" data-template-slots>
 				{#each shownSlots as row, index (index)}
-					{#if row.segment.type === 'break'}
-						<div
-							class="flex items-center gap-3 py-1 text-xs uppercase tracking-wide text-fg-muted"
-							data-template-slot="break"
-						>
-							<span class="h-px flex-1 bg-line"></span>
-							Prompt break
-							<span class="h-px flex-1 bg-line"></span>
+					<div
+						class="min-w-0 rounded border border-line-strong bg-surface-2 px-2.5 py-1.5 {row.text
+							? ''
+							: 'border-dashed'} {row.segment.enabled === false ? 'opacity-60' : ''}"
+						data-template-slot={row.text ? 'content' : 'empty'}
+					>
+						<div class="flex min-w-0 items-center gap-2">
+							<span
+								class="h-2 w-2 flex-shrink-0 rounded-full {row.segment.color ? '' : 'bg-fg-subtle'}"
+								style={row.segment.color ? `background: ${row.segment.color}` : undefined}
+							></span>
+							<span class="min-w-0 flex-1 truncate text-xs font-medium text-fg">{row.label}</span>
+							{#if row.segment.enabled === false}
+								<span class="flex-shrink-0 font-mono text-xs text-fg-subtle" data-template-slot-off>Off</span>
+							{/if}
 						</div>
-					{:else}
-						<div
-							class="min-w-0 rounded border border-line-strong bg-surface-2 px-2.5 py-1.5 {row.text
-								? ''
-								: 'border-dashed'} {row.segment.enabled === false ? 'opacity-60' : ''}"
-							data-template-slot={row.text ? 'content' : 'empty'}
-						>
-							<div class="flex min-w-0 items-center gap-2">
-								<span
-									class="h-2 w-2 flex-shrink-0 rounded-full {row.segment.color ? '' : 'bg-fg-subtle'}"
-									style={row.segment.color ? `background: ${row.segment.color}` : undefined}
-								></span>
-								<span class="min-w-0 flex-1 truncate text-xs font-medium text-fg">{row.label}</span>
-								{#if row.segment.enabled === false}
-									<span class="flex-shrink-0 font-mono text-xs text-fg-subtle" data-template-slot-off>Off</span>
-								{/if}
-							</div>
-							<div class="mt-0.5 flex min-w-0 items-baseline gap-1 pl-4">
-								{#if row.text && row.segment.prefix}
-									<span class="flex-shrink-0 font-mono text-xs text-fg-subtle" data-template-slot-prefix
-										>{affix(row.segment.prefix)}</span
-									>
-								{/if}
-								<span class="min-w-0 truncate text-xs {row.text ? 'text-fg-muted' : 'text-fg-subtle'}">
-									{row.text || 'Empty slot'}
-								</span>
-								{#if row.text && row.segment.suffix}
-									<span class="flex-shrink-0 font-mono text-xs text-fg-subtle" data-template-slot-suffix
-										>{affix(row.segment.suffix)}</span
-									>
-								{/if}
-							</div>
+						<div class="mt-0.5 flex min-w-0 items-baseline gap-1 pl-4">
+							{#if row.text && row.segment.prefix}
+								<span class="flex-shrink-0 font-mono text-xs text-fg-subtle" data-template-slot-prefix
+									>{affix(row.segment.prefix)}</span
+								>
+							{/if}
+							<span class="min-w-0 truncate text-xs {row.text ? 'text-fg-muted' : 'text-fg-subtle'}">
+								{row.text || 'Empty slot'}
+							</span>
+							{#if row.text && row.segment.suffix}
+								<span class="flex-shrink-0 font-mono text-xs text-fg-subtle" data-template-slot-suffix
+									>{affix(row.segment.suffix)}</span
+								>
+							{/if}
 						</div>
-					{/if}
+					</div>
 				{/each}
 				{#if hiddenSlots > 0}
 					<p class="px-2.5 text-xs text-fg-subtle" data-template-slots-more>

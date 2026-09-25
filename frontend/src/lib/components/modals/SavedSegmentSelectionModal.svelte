@@ -74,7 +74,7 @@
 				{#each filtered as segment (segment.id)}
 					<button type="button" class="flex w-full items-start gap-3 rounded-lg border border-line bg-surface-2 p-3 text-left hover:border-line-hover hover:bg-surface-3" on:click={() => choose(segment)}>
 						<span class="mt-1 h-2.5 w-2.5 flex-shrink-0 rounded-full" style={`background:${segment.effective_color || '#3B82F6'}`}></span>
-						<span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">{segment.name}</span><span class="mt-1 block line-clamp-2 text-xs text-fg-muted">{segment.type === 'break' ? 'Prompt break' : segment.content || 'Blank starter content'}</span></span>
+						<span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">{segment.name}</span><span class="mt-1 block line-clamp-2 text-xs text-fg-muted">{segment.content || 'Blank starter content'}</span></span>
 					</button>
 				{/each}
 			</div>

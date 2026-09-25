@@ -172,11 +172,11 @@ class TestSegmentLibraryRepository(PersistenceTestBase):
                         color="#123456",
                         description="Starter content",
                     ),
-                    RichSegment(type="break", enabled=False, name="Pause"),
+                    RichSegment(content="", enabled=False, name="Pause"),
                 ],
             )
         )
-        self.assertEqual([item.type for item in original.segments], ["content", "break"])
+        self.assertEqual([item.type for item in original.segments], ["content", "content"])
         self.assertEqual(original.segments[0].chips["chip-1"].valueId, "value-1")
         self.assertFalse(original.segments[1].enabled)
 
@@ -185,7 +185,7 @@ class TestSegmentLibraryRepository(PersistenceTestBase):
             update={
                 "name": "Replaced template",
                 "segments": [
-                    RichSegment(type="break", enabled=True, name="First"),
+                    RichSegment(content="new opening", name="First"),
                     RichSegment(content="new ending", name="Second"),
                 ],
             }

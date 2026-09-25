@@ -23,9 +23,6 @@ export const UNNAMED_SEGMENT_PLACEHOLDER = 'Unnamed';
 
 export const DISABLED_SEGMENT_NOTE = 'excluded from the resolved prompt';
 
-/** Segments are numbered by position in the list, from one. A BREAK row and a
- *  disabled card each consume a number, so "#3" means the same segment
- *  wherever you read it. */
 
 /** The card gutter: zero-padded so a column of numbers aligns. */
 export function formatSegmentIndex(index: number): string {
@@ -65,10 +62,4 @@ export function segmentFooterActions(segment: Segment): SegmentFooterAction[] {
 			icon: disabled ? 'eye' : 'eye-off'
 		}
 	];
-}
-
-/** The two footer actions the mock's `.optional` class folds away first at a
- *  narrow container width — everything else in the cluster stays put. */
-export function isOptionalFooterAction(id: SegmentFooterActionId): boolean {
-	return id === 'editDetails' || id === 'saveAsSegment';
 }

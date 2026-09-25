@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
-//
-// The v3 card drops the separate footer strip: every action now lives in a
-// single-line header, as an icon-only button with its old label carried over
-// as its aria-label (and tooltip). These mount the real card and ask what a
-// user can actually see and click in each state, the same way the old footer
-// tests did.
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
+import { tick } from 'svelte';
+
+vi.mock('$lib/services/api/index', () => ({
+	api: {
+		getClient: () => ({
+			get: vi.fn().mockResolvedValue({ data: { data: {} } }),
+			put: vi.fn().mockResolvedValue({ data: { success: true } })
+		})
+	}
+}));
 
 // jsdom has no ResizeObserver. PromptSegment falls back to its widest,
 // most-expanded shape without one — most of these tests rely on exactly
@@ -43,6 +47,7 @@ class FakeResizeObserver {
 
 const { default: PromptSegment } = await import('../../src/lib/components/PromptSegment.svelte');
 const { createClassComponent } = await import('svelte/legacy');
+const { promptSegmentActionPins } = await import('../../src/lib/stores/promptSegmentActionPins');
 
 function segment(partial: Record<string, unknown> = {}) {
 	return {
@@ -75,9 +80,19 @@ function mount(props: Record<string, unknown> = {}) {
 	};
 }
 
+function openMenu(card: ReturnType<typeof mount>, startsWith: string) {
+	const trigger = card.buttons().find((b) => (b.getAttribute('aria-label') || '').startsWith(startsWith));
+	trigger?.click();
+}
+
+function menuItemLabels(): string[] {
+	return Array.from(document.querySelectorAll('[role="menuitem"]')).map((el) => (el.textContent || '').trim());
+}
+
 beforeEach(() => {
 	FakeResizeObserver.instances = [];
 	(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = FakeResizeObserver;
+	promptSegmentActionPins.reset();
 });
 
 afterEach(() => {
@@ -85,17 +100,17 @@ afterEach(() => {
 });
 
 describe('the header action cluster', () => {
-	it('exposes all four content actions as icon-only buttons, aria-labelled, without any hover', () => {
+	it('shows no per-segment actions inline by default — everything lives in the overflow menu', () => {
 		const card = mount();
-		expect(card.byLabel('Disable')).toBeTruthy();
-		expect(card.byLabel('Duplicate')).toBeTruthy();
-		expect(card.byLabel('Details')).toBeTruthy();
-		expect(card.byLabel('Save')).toBeTruthy();
+		expect(card.byLabel('Disable')).toBeUndefined();
+		expect(card.byLabel('Duplicate')).toBeUndefined();
+		expect(card.byLabel('Details')).toBeUndefined();
+		expect(card.byLabel('Save')).toBeUndefined();
 	});
 
-	it('always shows a seventh icon for Remove segment, alongside drag and more', () => {
+	it('always shows exactly drag, Remove segment and the overflow trigger when nothing is pinned', () => {
 		const card = mount();
-		expect(card.target.querySelectorAll('.icon-btn')).toHaveLength(7);
+		expect(card.target.querySelectorAll('.icon-btn')).toHaveLength(3);
 		expect(card.byLabel('Remove segment')).toBeTruthy();
 	});
 
@@ -125,43 +140,56 @@ describe('the header action cluster', () => {
 		});
 	});
 
-	it('offers Enable instead of Disable once the segment is disabled', () => {
-		const card = mount({ segment: segment({ enabled: false }) });
+	it('reaches every action through the overflow menu, Disable/Enable flipped by state', async () => {
+		const enabled = mount();
+		openMenu(enabled, 'More actions for');
+		await Promise.resolve();
+		expect(menuItemLabels()).toEqual(
+			expect.arrayContaining(['Duplicate', 'Disable', 'Details', 'Save'])
+		);
 
-		expect(card.byLabel('Enable')).toBeTruthy();
-		expect(card.byLabel('Disable')).toBeUndefined();
-		expect(card.byLabel('Duplicate')).toBeTruthy();
-		expect(card.byLabel('Details')).toBeTruthy();
-		expect(card.byLabel('Save')).toBeTruthy();
+		document.body.innerHTML = '';
+		const disabled = mount({ segment: segment({ enabled: false }) });
+		openMenu(disabled, 'More actions for');
+		await Promise.resolve();
+		expect(menuItemLabels()).toEqual(expect.arrayContaining(['Enable']));
+		expect(menuItemLabels()).not.toContain('Disable');
 	});
 
-	it('renders the same four actions whether the segment is named or not', () => {
+	it('renders the same actions in the menu whether the segment is named or not', async () => {
 		const named = mount({ segment: segment({ name: 'Subject' }) });
+		openMenu(named, 'More actions for');
+		await Promise.resolve();
+		const namedItems = menuItemLabels();
+		document.body.innerHTML = '';
+
 		const unnamed = mount();
-
-		const labelsOf = (card: ReturnType<typeof mount>) =>
-			['Disable', 'Duplicate', 'Details', 'Save'].filter((label) => card.byLabel(label));
-
-		expect(labelsOf(named)).toEqual(labelsOf(unnamed));
-		expect(labelsOf(named)).toHaveLength(4);
+		openMenu(unnamed, 'More actions for');
+		await Promise.resolve();
+		expect(menuItemLabels()).toEqual(namedItems);
 	});
 
 	it('has no separate footer element left in the card', () => {
 		const card = mount();
-		expect(card.target.querySelector('.card-footer')).toBeNull();
+		expect(card.target.querySelector('.segment-foot')).toBeNull();
 	});
 
-	it('reaches the drag handle and overflow menu alongside the four actions', () => {
+	it('reaches the drag handle and overflow menu alongside Remove segment', () => {
 		const card = mount();
 		expect(card.byLabel('Drag positive segment 1 of 3 to reorder')).toBeTruthy();
 		expect(card.byLabel('More actions for positive segment 1 of 3')).toBeTruthy();
 	});
 
-	it('clicking Details opens the details modal, not an inline reveal', async () => {
+	it('opens the details modal from the menu, not an inline reveal', async () => {
 		const card = mount();
 		expect(card.target.querySelector('.card-details')).toBeNull();
 
-		card.byLabel('Details')?.click();
+		openMenu(card, 'More actions for');
+		await Promise.resolve();
+		const details = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+			(el) => (el.textContent || '').trim() === 'Details'
+		) as HTMLButtonElement | undefined;
+		details?.click();
 		await Promise.resolve();
 
 		expect(document.body.textContent).toContain('Segment details');
@@ -174,6 +202,108 @@ describe('the header action cluster', () => {
 		await Promise.resolve();
 
 		expect(document.body.textContent).toContain('Segment details');
+	});
+});
+
+describe('pinning an action', () => {
+	function pinToggle(label: string) {
+		const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+			(el) => (el.textContent || '').trim() === label
+		);
+		return item?.parentElement?.querySelector('.menu-pin') as HTMLButtonElement | undefined;
+	}
+
+	it('starts unpressed and, once pinned, adds an inline header button', async () => {
+		const card = mount();
+		openMenu(card, 'More actions for');
+		await Promise.resolve();
+
+		const pin = pinToggle('Duplicate');
+		expect(pin).toBeTruthy();
+		expect(pin?.getAttribute('aria-pressed')).toBe('false');
+		expect(card.byLabel('Duplicate')).toBeUndefined();
+
+		pin?.click();
+		await tick();
+		await tick();
+
+		expect(card.byLabel('Duplicate')).toBeTruthy();
+		expect(pinToggle('Duplicate')?.getAttribute('aria-pressed')).toBe('true');
+	});
+
+	it('un-pins from the same menu toggle, dropping the inline button again', async () => {
+		const card = mount();
+		openMenu(card, 'More actions for');
+		await Promise.resolve();
+		pinToggle('Duplicate')?.click();
+		await Promise.resolve();
+		expect(card.byLabel('Duplicate')).toBeTruthy();
+
+		pinToggle('Duplicate')?.click();
+		await Promise.resolve();
+
+		expect(card.byLabel('Duplicate')).toBeUndefined();
+	});
+
+	it('is a global preference shared by every mounted segment', async () => {
+		const first = mount();
+		openMenu(first, 'More actions for');
+		await Promise.resolve();
+		pinToggle('Duplicate')?.click();
+		await Promise.resolve();
+
+		const second = mount({ index: 1 });
+		expect(second.byLabel('Duplicate')).toBeTruthy();
+	});
+
+	it('clicking the inline pinned button runs the action itself', async () => {
+		const card = mount();
+		openMenu(card, 'More actions for');
+		await Promise.resolve();
+		pinToggle('Duplicate')?.click();
+		await Promise.resolve();
+
+		const onDuplicate = vi.fn();
+		(card.component as unknown as { $on: (event: string, cb: () => void) => void }).$on('duplicate', onDuplicate);
+		card.byLabel('Duplicate')?.click();
+
+		expect(onDuplicate).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('the content card overflow menu', () => {
+	it('offers every action, including the three inserts, on a content segment', async () => {
+		const card = mount();
+		openMenu(card, 'More actions for');
+		await Promise.resolve();
+
+		expect(menuItemLabels()).toEqual(
+			expect.arrayContaining([
+				'Move up',
+				'Move down',
+				'Details',
+				'Save',
+				'Replace from saved',
+				'Duplicate',
+				'Disable'
+			])
+		);
+	});
+
+	it('runs an insert action against this segment\'s own editor and closes the menu', async () => {
+		const card = mount();
+		openMenu(card, 'More actions for');
+		await Promise.resolve();
+		expect(document.querySelector('[role="menu"]')).toBeTruthy();
+
+		const insertChoice = Array.from(document.querySelectorAll('[role="menuitem"]')).find((el) =>
+			(el.textContent || '').includes('Insert a choice group')
+		) as HTMLButtonElement | undefined;
+		expect(insertChoice).toBeTruthy();
+		insertChoice?.click();
+		await Promise.resolve();
+
+		expect(document.querySelector('[role="menu"]')).toBeNull();
 	});
 });
 
@@ -203,16 +333,6 @@ describe('the card head', () => {
 		const count = card.target.querySelector('.char-count');
 		expect(count?.textContent?.trim()).toBe('28');
 		expect(card.text()).not.toContain('28 chars');
-	});
-
-	// The mock's footer `.segment-stats` row repeats the same count as "28 ch"
-	// (alongside the dynamic-token count) — real anatomy the header's own
-	// bare-number badge doesn't replace, not a second, conflicting count.
-	it('also reports it in the footer stats row, alongside the dynamic-token count', () => {
-		const card = mount({ segment: segment({ content: 'harsh noon sun, hard shadows' }) });
-		const stats = card.target.querySelector('.segment-stats');
-		expect(stats?.textContent).toContain('28 ch');
-		expect(stats?.textContent).toContain('No dynamic tokens');
 	});
 
 	it('numbers the card from one, zero-padded', () => {
@@ -267,106 +387,5 @@ describe('colour', () => {
 		const card = mount();
 		const cardEl = card.target.querySelector('.card') as HTMLElement;
 		expect(cardEl.classList.contains('has-color')).toBe(false);
-	});
-});
-
-describe('the break row', () => {
-	it('is a divider with its own handle and menu, not a card with header actions', () => {
-		const row = mount({ segment: segment({ type: 'break', content: '' }) });
-
-		expect(row.text()).toContain('BREAK');
-		// None of the four content actions belong to a break.
-		expect(row.byLabel('Disable')).toBeUndefined();
-		expect(row.byLabel('Duplicate')).toBeUndefined();
-		expect(row.byLabel('Details')).toBeUndefined();
-		expect(row.byLabel('Save')).toBeUndefined();
-	});
-
-	it('also gets an always-visible Remove segment icon, wired to the same remove event', () => {
-		const row = mount({ segment: segment({ type: 'break', content: '' }) });
-		const onRemove = vi.fn();
-		(row.component as unknown as { $on: (event: string, cb: () => void) => void }).$on(
-			'remove',
-			onRemove
-		);
-
-		expect(row.byLabel('Remove segment')).toBeTruthy();
-		row.byLabel('Remove segment')?.click();
-
-		expect(onRemove).toHaveBeenCalledTimes(1);
-	});
-
-	it('still reaches every action through its overflow menu', async () => {
-		const row = mount({ segment: segment({ type: 'break', content: '' }) });
-		const trigger = row
-			.buttons()
-			.find((b) => (b.getAttribute('aria-label') || '').startsWith('Actions for'));
-
-		trigger?.click();
-		await Promise.resolve();
-
-		const items = Array.from(document.querySelectorAll('[role="menuitem"]')).map((el) =>
-			(el.textContent || '').trim()
-		);
-		expect(items).toEqual(expect.arrayContaining(['Duplicate', 'Disable', 'Edit details']));
-	});
-
-	it('opens the same details modal from its overflow menu', async () => {
-		const row = mount({ segment: segment({ type: 'break', content: '' }) });
-		const trigger = row
-			.buttons()
-			.find((b) => (b.getAttribute('aria-label') || '').startsWith('Actions for'));
-		trigger?.click();
-		await Promise.resolve();
-
-		const editDetails = Array.from(document.querySelectorAll('[role="menuitem"]')).find((el) =>
-			(el.textContent || '').includes('Edit details')
-		) as HTMLButtonElement | undefined;
-		editDetails?.click();
-		await Promise.resolve();
-
-		expect(document.body.textContent).toContain('Segment details');
-	});
-});
-
-describe('the content card overflow menu', () => {
-	it('does not repeat the actions the header cluster already shows', async () => {
-		const card = mount();
-		const trigger = card
-			.buttons()
-			.find((b) => (b.getAttribute('aria-label') || '').startsWith('More actions for'));
-
-		trigger?.click();
-		await Promise.resolve();
-
-		const items = Array.from(document.querySelectorAll('[role="menuitem"]')).map((el) =>
-			(el.textContent || '').trim()
-		);
-
-		expect(items).toEqual(expect.arrayContaining(['Move up', 'Move down', 'Delete']));
-		expect(items).not.toContain('Duplicate');
-		expect(items).not.toContain('Disable');
-		expect(items).not.toContain('Edit details');
-	});
-
-	it('opens the details modal from Edit details once the header has collapsed it into the menu', async () => {
-		const card = mount();
-		FakeResizeObserver.instances.at(-1)?.trigger(300);
-		await Promise.resolve();
-
-		const trigger = card
-			.buttons()
-			.find((b) => (b.getAttribute('aria-label') || '').startsWith('More actions for'));
-		trigger?.click();
-		await Promise.resolve();
-
-		const editDetails = Array.from(document.querySelectorAll('[role="menuitem"]')).find((el) =>
-			(el.textContent || '').includes('Edit details')
-		) as HTMLButtonElement | undefined;
-		expect(editDetails).toBeTruthy();
-		editDetails?.click();
-		await Promise.resolve();
-
-		expect(document.body.textContent).toContain('Segment details');
 	});
 });

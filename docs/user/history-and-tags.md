@@ -31,7 +31,7 @@ When any filter is active a **Clear** control appears to reset everything at onc
 
 Clicking a generation opens its details, which show everything recorded about that run:
 
-- The detached positive and negative **segment composition**, including resolved text, content or `BREAK` type, enabled state, phrasebook values, and optional segment name, color, and description.
+- The detached positive and negative **segment composition**, including resolved text, enabled state, phrasebook values, and optional segment name, color, and description.
 - The **preset** and its **version**.
 - The **models** used (checkpoint, LoRAs, and so on), or "No models" if none were recorded.
 - The generation **parameters** (such as resolution, and other settings the pipeline captured).

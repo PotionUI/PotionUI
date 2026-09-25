@@ -113,14 +113,14 @@ def test_saved_segment_update_replaces_complete_rich_state(categories, segments,
     request = SavedSegmentRequest(
         name="Hero",
         category_id=category.id,
-        type="break",
+        type="content",
         content="",
         enabled=False,
         description="pause",
     )
 
     updated = operations.update_segment(segments, categories, plugins, saved_segment.id, request, "user-1")
-    assert updated.type == "break"
+    assert updated.type == "content"
     assert updated.enabled is False
     assert updated.description == "pause"
     segments.update.assert_called_once()

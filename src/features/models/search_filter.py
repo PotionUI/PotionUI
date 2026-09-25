@@ -2,9 +2,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import List, Optional, Tuple
 
-from src.platform.database.sql_functions import InvalidRegex, compile_regex
+from src.platform.util.safe_regex import InvalidRegex, compile_user_regex
 
-REGEX_MAX_LENGTH = 200
 USAGE_STATES = ("any", "used", "never")
 USAGE_SORT_FIELDS = {
     "uses": "COALESCE(gu.use_count, 0)",
@@ -77,14 +76,10 @@ def parse_model_search(
 
     regex = None
     if mode == "regex" and search:
-        if len(search) > REGEX_MAX_LENGTH:
-            raise InvalidModelSearch(f"Regular expression is longer than {REGEX_MAX_LENGTH} characters")
         try:
-            compile_regex(search)
+            compile_user_regex(search)
         except InvalidRegex as exc:
-            raise InvalidModelSearch(
-                f"Invalid regular expression: {exc}. Backreferences and lookarounds are not supported."
-            )
+            raise InvalidModelSearch(str(exc))
         regex = search
         search = None
 

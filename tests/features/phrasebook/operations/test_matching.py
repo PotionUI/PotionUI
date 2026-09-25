@@ -1,4 +1,6 @@
 """The matcher shared by phrasebook find and batch replace."""
+import time
+
 import pytest
 
 from src.features.phrasebook.operations.matching import (
@@ -73,7 +75,32 @@ class TestRegex:
     def test_invalid_pattern(self):
         with pytest.raises(InvalidPattern) as excinfo:
             compile_matcher("(dog", "regex")
-        assert "unterminated subpattern" in str(excinfo.value)
+        assert "missing )" in str(excinfo.value)
+
+    def test_backreference_is_rejected(self):
+        with pytest.raises(InvalidPattern) as excinfo:
+            compile_matcher(r"(dog)\1", "regex")
+        assert "Backreferences" in str(excinfo.value)
+
+    def test_lookaround_is_rejected(self):
+        with pytest.raises(InvalidPattern):
+            compile_matcher(r"dog(?=s)", "regex")
+
+    def test_overlong_pattern_is_rejected(self):
+        with pytest.raises(InvalidPattern) as excinfo:
+            compile_matcher("a" * 201, "regex")
+        assert "longer than 200" in str(excinfo.value)
+
+    def test_pathological_pattern_finishes_quickly(self):
+        m = compile_matcher(r"(a+)+$", "regex")
+        started = time.perf_counter()
+        assert find_spans(m, "a" * 50_000 + "b") == []
+        assert time.perf_counter() - started < 1.0
+
+    def test_trailing_backslash_in_replacement(self):
+        m = compile_matcher("(dog)", "regex")
+        with pytest.raises(InvalidPattern):
+            substitute(m, "dog", "\\")
 
     def test_invalid_replacement_template(self):
         m = compile_matcher("(dog)", "regex")

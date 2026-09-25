@@ -267,7 +267,7 @@ class PhrasebookController(BaseController):
                 limit=limit,
             )
         except operations.InvalidPattern as e:
-            self.error_response(error="invalid_pattern", message=str(e), status_code=400)
+            self.error_response(error="invalid_pattern", message=str(e), status_code=422)
         except Exception as e:
             return self.error_api_response(error="find_failed", message=str(e))
         hook_data, _ = execute_hook(

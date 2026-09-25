@@ -46,6 +46,8 @@
 	import { onMount, afterUpdate } from 'svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import Icon from './Icon.svelte';
+	import HighlightedText from './HighlightedText.svelte';
+	import { compileTextMatcher } from '$lib/utils/textMatch';
 	import portal from '$lib/actions/portal';
 	import { resolveMentionRowAction } from '$lib/utils/mentionRowAction';
 	import {
@@ -87,6 +89,9 @@
 	export let onBrowseAll: (() => void) | undefined = undefined;
 
 	let dropdownRef: HTMLDivElement;
+
+	$: highlightMatcher =
+		triggerChar === '#' ? compileTextMatcher(currentPath.split('.').pop() ?? '').matcher : null;
 	let pickerRef: HTMLElement | undefined;
 	let selectedItemRef: HTMLElement | null = null;
 	let dropdownPosition = { top: 0, bottom: 0, left: 0, width: 0, openAbove: false };
@@ -289,7 +294,7 @@
 								aria-selected={isSelected}
 							>
 								<span class="row-thumb"><Icon name="folder" className="icon" /></span>
-								<span class="row-copy"><strong>{displayName}</strong>{#if category.description}<span>{category.description}</span>{/if}</span>
+								<span class="row-copy"><strong><HighlightedText text={displayName ?? ''} matcher={highlightMatcher} /></strong>{#if category.description}<span>{category.description}</span>{/if}</span>
 								<span class="row-meta">{isSelected ? 'Enter' : 'Open →'}</span>
 							</button>
 						{/each}
@@ -330,8 +335,8 @@
 								</span>
 								<span class="row-copy">
 									{#if triggerChar === '#'}
-										<strong class="row-copy-value">{suggestion.value}</strong>
-										{#if suggestion.label && suggestion.label !== suggestion.value}<span class="row-copy-label"><span class="row-copy-label-prefix">Title:</span> {suggestion.label}</span>{/if}
+										<strong class="row-copy-value"><HighlightedText text={suggestion.value} matcher={highlightMatcher} /></strong>
+										{#if suggestion.label && suggestion.label !== suggestion.value}<span class="row-copy-label"><span class="row-copy-label-prefix">Title:</span> <HighlightedText text={suggestion.label} matcher={highlightMatcher} /></span>{/if}
 									{:else}
 										<strong>{triggerChar === '@' ? `<${suggestion.label}>` : suggestion.label}</strong>
 										{#if suggestion.label !== suggestion.value}<span>{suggestion.value}</span>{/if}
@@ -460,7 +465,7 @@
 									</svg>
 									<div class="flex-1 min-w-0">
 										<div class="font-medium text-sm truncate">
-											{displayName}
+											<HighlightedText text={displayName ?? ''} matcher={highlightMatcher} />
 										</div>
 										{#if category.description}
 											<div class="text-xs text-fg-subtle mt-0.5 truncate">
@@ -530,11 +535,11 @@
 									<div class="flex-1 min-w-0">
 										{#if triggerChar === '#'}
 											<div class="text-sm text-fg font-medium line-clamp-3">
-												{suggestion.value}
+												<HighlightedText text={suggestion.value} matcher={highlightMatcher} />
 											</div>
 											{#if suggestion.label && suggestion.label !== suggestion.value}
 												<div class="text-xs text-fg-muted mt-0.5 truncate">
-													<span class="text-fg-subtle">Title:</span> {suggestion.label}
+													<span class="text-fg-subtle">Title:</span> <HighlightedText text={suggestion.label} matcher={highlightMatcher} />
 												</div>
 											{/if}
 										{:else}

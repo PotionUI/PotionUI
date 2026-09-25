@@ -1,5 +1,6 @@
 """find_phrasebook: parameter handling, span reporting and ranking over
 repository-supplied candidates."""
+import time
 from datetime import datetime
 from unittest.mock import Mock
 
@@ -116,6 +117,22 @@ def test_invalid_regex_raises(category_repository, value_repository):
     with pytest.raises(InvalidPattern):
         find(category_repository, value_repository, "(dog", mode="regex")
     value_repository.list_for_find.assert_not_called()
+
+
+def test_backreference_regex_raises_before_scanning(category_repository, value_repository):
+    with pytest.raises(InvalidPattern):
+        find(category_repository, value_repository, r"(dog)\1", mode="regex")
+    value_repository.list_for_find.assert_not_called()
+
+
+def test_pathological_regex_over_long_values_is_fast(category_repository, value_repository):
+    value_repository.list_for_find.return_value = [value("v1", "a" * 30_000 + "b", "a" * 30_000 + "b")]
+
+    started = time.perf_counter()
+    result = find(category_repository, value_repository, r"(a+)+$", mode="regex", scope="values")
+
+    assert time.perf_counter() - started < 1.0
+    assert result["values"] == []
 
 
 def test_case_sensitive(category_repository, value_repository):

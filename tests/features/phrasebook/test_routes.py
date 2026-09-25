@@ -194,17 +194,17 @@ async def test_find_defaults(controller, mock_operations, category_repository, v
     )
 
 
-async def test_find_invalid_regex_is_a_400(controller, mock_operations, user):
+async def test_find_invalid_regex_is_a_422(controller, mock_operations, user):
     mock_operations.parse_fields.return_value = ["label", "value"]
     mock_operations.InvalidPattern = InvalidPattern
-    mock_operations.find_phrasebook.side_effect = InvalidPattern("missing ), unterminated subpattern")
+    mock_operations.find_phrasebook.side_effect = InvalidPattern("Invalid regular expression: missing )")
 
     with pytest.raises(HTTPException) as excinfo:
         await controller.find(user, "(dog", mode=PhrasebookFindMode.REGEX)
 
-    assert excinfo.value.status_code == 400
+    assert excinfo.value.status_code == 422
     assert excinfo.value.detail["error"] == "invalid_pattern"
-    assert "unterminated" in excinfo.value.detail["message"]
+    assert "missing )" in excinfo.value.detail["message"]
 
 
 async def test_find_invalid_fields_is_a_400(controller, mock_operations, user):

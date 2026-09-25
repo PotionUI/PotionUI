@@ -7,6 +7,7 @@ import type {
 	PhrasebookStateFilter,
 	PhrasebookValueField
 } from '$lib/types/api';
+import { segmentsFromRanges, type HighlightSegment } from '$lib/utils/textMatch';
 
 export interface FindFilters {
 	query: string;
@@ -75,40 +76,15 @@ export function buildFindParams(filters: FindFilters, limit = FIND_LIMIT): Phras
 	};
 }
 
-export interface HighlightSegment {
-	text: string;
-	match: boolean;
-}
-
 export function highlightSegments(
 	text: string,
 	spans: PhrasebookMatchSpan[],
 	field: string
 ): HighlightSegment[] {
-	if (!text) return [];
-	const ranges = spans
-		.filter((s) => s.field === field)
-		.map((s) => [Math.max(0, Math.min(text.length, s.start)), Math.max(0, Math.min(text.length, s.end))] as const)
-		.filter(([start, end]) => end > start)
-		.sort((a, b) => a[0] - b[0]);
-	const merged: [number, number][] = [];
-	for (const [start, end] of ranges) {
-		const last = merged[merged.length - 1];
-		if (last && start <= last[1]) {
-			last[1] = Math.max(last[1], end);
-		} else {
-			merged.push([start, end]);
-		}
-	}
-	const segments: HighlightSegment[] = [];
-	let cursor = 0;
-	for (const [start, end] of merged) {
-		if (start > cursor) segments.push({ text: text.slice(cursor, start), match: false });
-		segments.push({ text: text.slice(start, end), match: true });
-		cursor = end;
-	}
-	if (cursor < text.length) segments.push({ text: text.slice(cursor), match: false });
-	return segments;
+	return segmentsFromRanges(
+		text,
+		spans.filter((s) => s.field === field).map((s) => [s.start, s.end] as const)
+	);
 }
 
 export function toggleId(selected: Set<string>, id: string): Set<string> {

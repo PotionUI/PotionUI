@@ -24,7 +24,7 @@ def _matcher(find: str, mode: str, case_sensitive: bool) -> Matcher:
     try:
         return compile_matcher(find, mode, case_sensitive)
     except InvalidPattern as e:
-        raise BatchOperationError("invalid_pattern", str(e)) from e
+        raise BatchOperationError("invalid_pattern", str(e), status=422) from e
 
 
 def _substitutions(
@@ -38,7 +38,7 @@ def _substitutions(
             try:
                 after = substitute(matcher, before, replacement)
             except InvalidPattern as e:
-                raise BatchOperationError("invalid_pattern", str(e)) from e
+                raise BatchOperationError("invalid_pattern", str(e), status=422) from e
             if after != before:
                 items.append({"id": value["id"], "field": field, "before": before, "after": after})
     return items

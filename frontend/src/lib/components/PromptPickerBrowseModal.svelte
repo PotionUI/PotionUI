@@ -17,6 +17,9 @@
 	import SegmentedControl from './ui/SegmentedControl.svelte';
 	import Kbd from './ui/Kbd.svelte';
 	import Tooltip from './Tooltip.svelte';
+	import IconButton from './ui/IconButton.svelte';
+	import HighlightedText from './HighlightedText.svelte';
+	import { compileTextMatcher, textMatches, type TextMatchMode } from '$lib/utils/textMatch';
 	import type { AutocompleteValue } from './AutocompleteDropdown.svelte';
 
 	const TRIGGER_COLOR: Record<string, string> = {
@@ -75,6 +78,7 @@
 	} = $props();
 
 	let query = $state(initialQuery);
+	let matchMode = $state<TextMatchMode>('contains');
 	let selectedId = $state<string | null>(initialSelectedId);
 	let pendingShuffle = $state(initialShuffle);
 	let previewOpen = $state(false);
@@ -83,25 +87,21 @@
 	let lastFocusedBeforePreview: HTMLElement | null = null;
 	const settlementGate = createConfirmSettlementGate();
 
+	let compiledSearch = $derived(compileTextMatcher(query, matchMode));
+	let searchMatcher = $derived(compiledSearch.matcher);
+
 	let filteredCategories = $derived.by(() => {
 		if (categories.length <= 1) return categories;
-		const q = query.trim().toLowerCase();
-		if (!q) return categories;
-		return categories.filter(
-			(c) => c.name.toLowerCase().includes(q) || (c.description ?? '').toLowerCase().includes(q)
-		);
+		return categories.filter((c) => textMatches(searchMatcher, c.name, c.description));
 	});
 
-	let filteredValues = $derived.by(() => {
-		const q = query.trim().toLowerCase();
-		if (!q) return values;
-		return values.filter(
-			(v) =>
-				v.label.toLowerCase().includes(q) ||
-				v.value.toLowerCase().includes(q) ||
-				(v.description ?? '').toLowerCase().includes(q)
-		);
-	});
+	let filteredValues = $derived(
+		values.filter((v) => textMatches(searchMatcher, v.label, v.value, v.description))
+	);
+
+	function toggleMatchMode() {
+		matchMode = matchMode === 'regex' ? 'contains' : 'regex';
+	}
 
 	$effect(() => {
 		if (filteredValues.some((v) => v.id === selectedId)) return;
@@ -266,11 +266,30 @@
 	</svelte:fragment>
 	<svelte:fragment slot="header">
 		<strong class="picker-modal-title">{title}</strong>
-		<div class="picker-modal-search">
+		<div class="picker-modal-search" class:invalid={!!compiledSearch.error}>
 			<Icon name="search" className="icon" />
-			<input bind:value={query} aria-label="Search {title}" />
+			<input
+				bind:value={query}
+				aria-label="Search {title}"
+				aria-invalid={compiledSearch.error ? 'true' : undefined}
+				placeholder={matchMode === 'regex' ? 'Regular expression…' : undefined}
+			/>
+			<Tooltip text="Regular expression" position="bottom">
+				<IconButton
+					icon="regex"
+					label="Regular expression"
+					size="xs"
+					active={matchMode === 'regex'}
+					ariaPressed={matchMode === 'regex'}
+					onclick={toggleMatchMode}
+				/>
+			</Tooltip>
 		</div>
 	</svelte:fragment>
+
+	{#if compiledSearch.error}
+		<div class="picker-search-error" role="alert">{compiledSearch.error}</div>
+	{/if}
 
 	<div class="picker-context">
 		{#if contextBefore}…{contextBefore}&nbsp;{/if}<span class="k" style="--trig: {TRIGGER_COLOR[triggerChar]}">{contextMarker}<span class="care"></span></span>&nbsp;{contextAfter}{#if contextAfter}…{/if}
@@ -319,8 +338,8 @@
 				</div>
 				<div class="picker-preview-foot">
 					<div class="picker-preview-copy">
-						<strong class="picker-preview-value">{current?.value}</strong>
-						{#if current?.label && current.label !== current.value}<p class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> {current.label}</p>{/if}
+						<strong class="picker-preview-value"><HighlightedText text={current?.value ?? ''} matcher={searchMatcher} /></strong>
+						{#if current?.label && current.label !== current.value}<p class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> <HighlightedText text={current.label} matcher={searchMatcher} /></p>{/if}
 					</div>
 					<Button variant="primary" onclick={useThisValue}>Use this value</Button>
 				</div>
@@ -338,7 +357,7 @@
 							onclick={() => onSelectCategory?.(category)}
 						>
 							<Icon name={category.icon ?? 'folder'} className="icon" />
-							{category.name}
+							<HighlightedText text={category.name} matcher={searchMatcher} />
 							{#if category.count !== undefined}<span class="n">{category.count}</span>{/if}
 						</button>
 					{/each}
@@ -368,8 +387,8 @@
 										{/if}
 									</span>
 									<span class="picker-pgcopy">
-										<strong class="picker-value-primary">{value.value}</strong>
-										{#if value.label && value.label !== value.value}<span class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> {value.label}</span>{/if}
+										<strong class="picker-value-primary"><HighlightedText text={value.value} matcher={searchMatcher} /></strong>
+										{#if value.label && value.label !== value.value}<span class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> <HighlightedText text={value.label} matcher={searchMatcher} /></span>{/if}
 									</span>
 									{#if isCurrent}
 										<span class="picker-vbadge" class:signal={isSelected} class:neutral={!isSelected}>Current</span>
@@ -415,8 +434,8 @@
 								</span>
 								<span class="picker-gcheck"><Icon name="check" className="icon" /></span>
 								<span class="picker-gcopy">
-									<strong>{rowLabel(value)}</strong>
-									{#if value.value !== value.label}<span>{value.value}</span>{/if}
+									<strong><HighlightedText text={rowLabel(value)} matcher={searchMatcher} /></strong>
+									{#if value.value !== value.label}<span><HighlightedText text={value.value} matcher={searchMatcher} /></span>{/if}
 								</span>
 							</button>
 						{/each}
@@ -444,11 +463,11 @@
 							</span>
 							<span class="picker-vcopy">
 								{#if triggerChar === '#'}
-									<strong class="picker-value-primary">{value.value}</strong>
-									{#if value.label && value.label !== value.value}<span class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> {value.label}</span>{/if}
+									<strong class="picker-value-primary"><HighlightedText text={value.value} matcher={searchMatcher} /></strong>
+									{#if value.label && value.label !== value.value}<span class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> <HighlightedText text={value.label} matcher={searchMatcher} /></span>{/if}
 								{:else}
-									<strong class="picker-label-primary">{rowLabel(value)}</strong>
-									{#if value.description || value.value !== value.label}<span class="picker-label-secondary">{value.description ?? value.value}</span>{/if}
+									<strong class="picker-label-primary"><HighlightedText text={rowLabel(value)} matcher={searchMatcher} /></strong>
+									{#if value.description || value.value !== value.label}<span class="picker-label-secondary"><HighlightedText text={value.description ?? value.value} matcher={searchMatcher} /></span>{/if}
 								{/if}
 							</span>
 							{#if isCurrent}
@@ -554,6 +573,17 @@
 		border: 1px solid rgb(var(--line-strong));
 		border-radius: 5px;
 		font-size: 13px;
+	}
+
+	.picker-modal-search.invalid {
+		border-color: rgb(var(--danger));
+	}
+
+	.picker-search-error {
+		padding: 6px 14px;
+		font-size: 12px;
+		color: rgb(var(--danger));
+		border-bottom: 1px solid rgb(var(--line));
 	}
 
 	.picker-modal-search :global(.icon) {

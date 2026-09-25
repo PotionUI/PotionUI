@@ -56,6 +56,7 @@
 	export let config: any = {};
 	export let value: any;
 	export let onChange: (fieldName: string, value: any) => void;
+	export let compact: boolean = false;
 
 	$: label = config.title || name || '';
 	$: description = config.description || '';
@@ -660,25 +661,27 @@
 <svelte:window on:pointerup={disarmDrag} />
 
 <div class="field-card">
-	<div class="flex items-center justify-between mb-2">
-		<div class="flex items-baseline gap-1.5">
-			<label class="label !mb-0" for={name || undefined}>{label}</label>
-			{#if maxItems != null}
-				<span class="font-mono text-2xs tabular-nums text-fg-subtle">{rows.length} / {maxItems}</span>
+	{#if !compact}
+		<div class="flex items-center justify-between mb-2">
+			<div class="flex items-baseline gap-1.5">
+				<label class="label !mb-0" for={name || undefined}>{label}</label>
+				{#if maxItems != null}
+					<span class="font-mono text-2xs tabular-nums text-fg-subtle">{rows.length} / {maxItems}</span>
+				{/if}
+			</div>
+			{#if rows.length > 0}
+				<Button
+					size="xs"
+					variant="secondary"
+					icon="plus"
+					disabled={atMaxItems || showSearch}
+					onclick={openSearch}
+				>
+					Add LoRA
+				</Button>
 			{/if}
 		</div>
-		{#if rows.length > 0}
-			<Button
-				size="xs"
-				variant="secondary"
-				icon="plus"
-				disabled={atMaxItems || showSearch}
-				onclick={openSearch}
-			>
-				Add LoRA
-			</Button>
-		{/if}
-	</div>
+	{/if}
 
 	{#if description}
 		<p id={name ? `${name}-desc` : undefined} class="text-xs text-fg-muted mb-2">{description}</p>
@@ -686,8 +689,10 @@
 
 	<!-- Tag + favorites filters for the add-search - sticky while the field stays mounted.
 	     Inert (but harmless) while the add panel is showing its Collections view, which
-	     doesn't consult tagFilters/favoritesOnly - see ModelBrowserPanel.svelte. -->
-	{#if allowTagFilters}
+	     doesn't consult tagFilters/favoritesOnly - see ModelBrowserPanel.svelte.
+	     Compact hosts only surface this row while a search/switch popover is
+	     actually open, so it never sits above the picker on the page itself. -->
+	{#if allowTagFilters && (!compact || showSearch || switchingIndex !== null)}
 		<div class="flex flex-wrap items-center gap-1.5 mb-2">
 			<span class="inline-flex items-center gap-1 text-2xs text-fg-subtle uppercase tracking-wide">
 				<Icon name="search" className="w-3 h-3" />
@@ -747,6 +752,19 @@
 
 	{#if rows.length === 0 && !showSearch}
 		<!-- Empty state -->
+		{#if compact}
+			<button
+				type="button"
+				class="flex w-full items-center justify-between gap-2 rounded border border-dashed border-line-strong bg-surface-2 px-2.5 py-2 text-left text-sm text-fg-muted transition-colors hover:border-line-hover hover:text-fg disabled:pointer-events-none disabled:opacity-50"
+				disabled={atMaxItems}
+				on:click={openSearch}
+			>
+				<span class="inline-flex items-center gap-1.5">
+					<Icon name="plus" className="w-3.5 h-3.5" />
+					Choose {label}…
+				</span>
+			</button>
+		{:else}
 		<div class="flex flex-col items-center justify-center gap-2 py-6 bg-surface-2 border border-dashed border-line-strong rounded-lg text-center">
 			<div class="w-10 h-10 rounded-full bg-surface-3 flex items-center justify-center text-fg-subtle">
 				<Icon name="image" className="w-5 h-5" />
@@ -756,6 +774,7 @@
 				Add LoRA
 			</Button>
 		</div>
+		{/if}
 	{:else}
 		<div class="flex flex-col gap-2">
 			{#each rows as row, index (rowKeys[index])}

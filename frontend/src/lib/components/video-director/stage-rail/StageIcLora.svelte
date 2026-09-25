@@ -1,32 +1,13 @@
 <script lang="ts">
-	// IC-LoRA stage tab: console.html moves IC-LoRA off the rail entirely
-	// (PLAN.md §A: "a stage tab on LTX shots, not a film-level row") and
-	// renders the whole `ic_lora[]` list as `.icl-item` rows -- reference
-	// well, LoRA picker, strength, remove -- plus "Add IC-LoRA". This
-	// replaces the old single-entry, rail-selection-driven StageIcLoraModel
-	// render (StageIcLoraModel/buildIcLoraModel/RailIcLoraHead go unused by
-	// the console -- selection no longer includes an 'ic_lora' kind; only
-	// consoleSelection.ts's keyframe/beat/audio do) with a list editor over
-	// the ACTIVE shot's own `ic_lora` (W2: per-shot, not document-level).
-	// `withIcLoraPatch` already
-	// upserts-by-id (mintId + a not-yet-present id inserts), so "Add" needs
-	// no new op builder; `withRemoveIcLora` (stageModel.ts) is the one
-	// addition, filtering the list the way no existing op needed to.
-	//
-	// Deviation: each row's reference well renders the existing
-	// DirectorMediaSlot widget (fill mode) rather than the mock's flat
-	// 96x54 background-image box -- same rationale as StageKeyframe (keeps
-	// upload/library/"from form" working); MediaLoaderField's fill layout
-	// enforces a larger minimum height than 54px, so rows run taller than
-	// the mock. The LoRA picker is the existing full LoraPickerField widget
-	// (search, triggers, its own strength control) rather than the mock's
-	// compact chip -- a dedicated compact single-LoRA chip is future work.
 	import type { VideoDirectorValue, DirectorLoraRef, DirectorMediaValue } from '$lib/types/videoDirector';
 	import type { LoraPickerItem } from '$lib/types/models';
 	import { withIcLoraPatch, withRemoveIcLora } from './stageModel';
 	import { mintId } from '../timelineCore';
 	import DirectorMediaSlot from '../DirectorMediaSlot.svelte';
 	import LoraPickerField from '$lib/components/form-fields/LoraPickerField.svelte';
+	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { IconButton } from '$lib/components/ui';
 
 	let {
 		doc,
@@ -63,155 +44,114 @@
 	}
 </script>
 
-<div class="icl-tab">
-	{#if entries.length > 0}
-		<div class="icl-list">
-			{#each entries as entry (entry.id)}
-				<div class="icl-item">
-					<div class="icl-well">
-						<DirectorMediaSlot
-							name="{entry.id}-reference"
-							value={entry.ref_media}
-							{formData}
-							kind="image"
-							fill
-							onChange={(v) => setReference(entry.id, v)}
-							config={{ accept: 'image/*' }}
-						/>
+<div class="icl-tab flex flex-col gap-3">
+	{#if entries.length === 0}
+		<p class="text-xs text-fg-subtle">
+			Drives generation from a reference image through a dedicated LoRA. Add one to get started.
+		</p>
+	{:else}
+		<div class="flex flex-col gap-3">
+			{#each entries as entry, index (entry.id)}
+				<div class="icl-card rounded-lg border border-line bg-surface-1 p-3">
+					<div class="mb-3 flex items-center justify-between gap-2">
+						<span class="font-mono text-2xs uppercase tracking-[0.06em] text-fg-subtle">
+							IC-LoRA <span class="tabular-nums">{index + 1}</span>
+						</span>
+						<Tooltip text="Remove IC-LoRA" position="top">
+							<IconButton icon="close" label="Remove IC-LoRA" size="sm" onclick={() => removeEntry(entry.id)} />
+						</Tooltip>
 					</div>
-					<div class="icl-lora">
-						<LoraPickerField
-							name="{entry.id}-lora"
-							value={entry.lora ? [entry.lora] : []}
-							onChange={(_n, v) => setLora(entry.id, v as LoraPickerItem[])}
-							config={{ preset_id: presetId, title: 'IC-LoRA', configuration: { model_type: 'lora' } }}
-						/>
+
+					<div class="icl-body">
+						<div class="icl-media">
+							<DirectorMediaSlot
+								name="{entry.id}-reference"
+								value={entry.ref_media}
+								{formData}
+								kind="image"
+								compactFullWidth
+								onChange={(v) => setReference(entry.id, v)}
+								config={{ accept: 'image/*' }}
+							/>
+						</div>
+
+						<div class="icl-controls flex min-w-0 flex-col gap-3">
+							<LoraPickerField
+								name="{entry.id}-lora"
+								value={entry.lora ? [entry.lora] : []}
+								onChange={(_n, v) => setLora(entry.id, v as LoraPickerItem[])}
+								config={{ title: 'IC-LoRA', preset_id: presetId, configuration: { model_type: 'lora', max_items: 1 } }}
+								compact
+							/>
+
+							<div class="flex flex-col gap-1">
+								<span class="font-mono text-2xs uppercase tracking-[0.06em] text-fg-subtle">Reference strength</span>
+								<div class="flex items-center gap-2">
+									<input
+										type="range"
+										min="0"
+										max="1"
+										step="0.01"
+										class="strength-slider h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-surface-3 accent-signal"
+										value={entry.strength}
+										oninput={(e) => setStrength(entry.id, parseFloat((e.currentTarget as HTMLInputElement).value))}
+									/>
+									<span class="w-10 shrink-0 text-right font-mono text-xs tabular-nums text-fg-muted">
+										{entry.strength.toFixed(2)}
+									</span>
+								</div>
+							</div>
+						</div>
 					</div>
-					<div class="icl-strength">
-						<span class="fl">Strength</span>
-						<input
-							type="range"
-							min="0"
-							max="1"
-							step="0.01"
-							class="strength-slider"
-							value={entry.strength}
-							oninput={(e) => setStrength(entry.id, parseFloat((e.currentTarget as HTMLInputElement).value))}
-						/>
-						<span class="mono tabular">{entry.strength.toFixed(2)}</span>
-					</div>
-					<button type="button" class="icon-btn sm" onclick={() => removeEntry(entry.id)} aria-label="Remove IC-LoRA">
-						<svg class="icon" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M6 18L18 6M6 6l12 12" /></svg>
-					</button>
 				</div>
 			{/each}
 		</div>
 	{/if}
-	<button type="button" class="btn icl-add" onclick={addEntry}>
-		<svg class="icon" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M12 4v16m8-8H4" /></svg>
-		Add IC-LoRA
+
+	<button type="button" class="add-icl" onclick={addEntry}>
+		<Icon name="plus" className="w-3 h-3" />
+		<span>Add IC-LoRA</span>
 	</button>
 </div>
 
 <style>
-	.icl-tab {
-		display: flex;
-		flex-direction: column;
+	.icl-card {
+		container-type: inline-size;
+		container-name: icl-card;
+	}
+
+	.icl-body {
+		display: grid;
+		grid-template-columns: 1fr;
 		gap: 12px;
 	}
-	.icl-list {
+
+	@container icl-card (min-width: 30rem) {
+		.icl-body {
+			grid-template-columns: 16rem minmax(0, 1fr);
+			align-items: start;
+		}
+	}
+
+	.add-icl {
+		width: 100%;
+		height: 40px;
+		margin: 0;
 		display: flex;
-		flex-direction: column;
-		gap: 14px;
-	}
-	.icl-item {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: flex-start;
-		gap: 12px;
-	}
-	.icl-well {
-		flex: 1 1 220px;
-		min-width: 200px;
-		max-width: 320px;
-		aspect-ratio: 16 / 9;
-		border-radius: 4px;
-		border: 1px solid rgb(var(--line-strong));
-		overflow: hidden;
-	}
-	.icl-lora {
-		flex: 1 1 260px;
-		min-width: 0;
-	}
-	.icl-strength {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		flex: none;
-		padding-top: 6px;
-	}
-	.icl-strength .fl {
-		font-family: 'IBM Plex Mono', monospace;
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: rgb(var(--fg-subtle));
-	}
-	.strength-slider {
-		width: 100px;
-		accent-color: rgb(var(--signal));
-	}
-	.mono {
-		font-family: 'IBM Plex Mono', monospace;
-	}
-	.tabular {
-		font-variant-numeric: tabular-nums;
-	}
-	.icon-btn.sm {
-		width: 20px;
-		height: 20px;
-		border-radius: 4px;
-		border: 1px solid transparent;
-		background: transparent;
-		color: rgb(var(--fg-subtle));
-		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		cursor: pointer;
-		flex: none;
-		margin-top: 6px;
-	}
-	.icon-btn.sm:hover {
-		background: rgb(var(--surface-2));
-		color: rgb(var(--fg));
-	}
-	.icon-btn.sm .icon {
-		width: 11px;
-		height: 11px;
-	}
-	.icl-add {
-		align-self: flex-start;
-		margin-top: 2px;
-		height: 27px;
-		padding: 0 10px;
-		border-radius: 4px;
-		border: 1px solid rgb(var(--line-strong));
-		background: rgb(var(--surface-2));
-		color: rgb(var(--fg));
-		font-size: 12px;
-		display: inline-flex;
-		align-items: center;
 		gap: 6px;
+		color: rgb(var(--fg-muted));
+		background: transparent;
+		border: 1px dashed rgb(var(--line-strong));
+		border-radius: 6px;
+		font-size: 12px;
 		cursor: pointer;
 	}
-	.icl-add:hover {
-		background: rgb(var(--surface-3));
-	}
-	.icon {
-		width: 12px;
-		height: 12px;
-		stroke: currentColor;
-		fill: none;
-		flex: none;
+
+	.add-icl:hover {
+		color: rgb(var(--fg));
+		background: rgb(var(--surface-1));
+		border-color: rgb(var(--line-hover));
 	}
 </style>

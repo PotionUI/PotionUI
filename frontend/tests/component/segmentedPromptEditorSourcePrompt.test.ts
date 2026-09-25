@@ -60,7 +60,7 @@ async function settle() {
 }
 
 function buttonByText(root: ParentNode, text: string): HTMLButtonElement | undefined {
-	return Array.from(root.querySelectorAll('button')).find((button) => (button.textContent || '').trim() === text) as
+	return Array.from(root.querySelectorAll('button')).find((button) => (button.textContent || '').includes(text)) as
 		| HTMLButtonElement
 		| undefined;
 }

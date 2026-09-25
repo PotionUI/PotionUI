@@ -1,8 +1,10 @@
 <script lang="ts" generics="Item">
 	import type { Snippet } from 'svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
+	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, Input, EmptyState } from '$lib/components/ui';
+	import { Input, EmptyState } from '$lib/components/ui';
 
 	let {
 		isOpen,
@@ -36,24 +38,44 @@
 
 	let query = $state('');
 	let selectedId = $state<string | null>(null);
+	const settlementGate = createConfirmSettlementGate();
 
 	$effect(() => {
 		if (isOpen) return;
 		query = '';
 		selectedId = null;
 	});
+	$effect(() => {
+		if (isOpen) settlementGate.reset();
+	});
+	$effect(() => {
+		if (!busy) settlementGate.reset();
+	});
 
 	const filtered = $derived(
 		query.trim() ? items.filter((item) => getSearchText(item).toLowerCase().includes(query.trim().toLowerCase())) : items
 	);
 
+	function handleCancel() {
+		settlementGate.settle(onClose);
+	}
+
 	function handleConfirm() {
-		if (!selectedId) return;
-		onConfirm(selectedId);
+		settleIfEligible(settlementGate, !!selectedId && !busy, () => onConfirm(selectedId!));
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (!isOpen) return;
+		const { action, suppress } = getConfirmKeyboardAction(e);
+		if (action === 'cancel') handleCancel();
+		else if (action === 'confirm') handleConfirm();
+		if (suppress) e.preventDefault();
 	}
 </script>
 
-<BaseModal {isOpen} {title} subtitle={description ?? ''} size="md" on:close={onClose}>
+<svelte:window on:keydown|capture={handleKeydown} />
+
+<BaseModal {isOpen} {title} subtitle={description ?? ''} size="md" handleEscapeKey={false} on:close={handleCancel}>
 	<div class="p-4 space-y-3">
 		{#if items.length > 0}
 			<div class="relative">
@@ -91,9 +113,12 @@
 	</div>
 
 	<svelte:fragment slot="footer">
-		<div class="flex justify-end gap-3 px-6 py-4">
-			<Button variant="secondary" onclick={onClose}>Cancel</Button>
-			<Button variant="primary" loading={busy} disabled={!selectedId || busy} onclick={handleConfirm}>{confirmLabel}</Button>
-		</div>
+		<ConfirmFooter
+			{confirmLabel}
+			busy={busy}
+			confirmDisabled={!selectedId}
+			onCancel={handleCancel}
+			onConfirm={handleConfirm}
+		/>
 	</svelte:fragment>
 </BaseModal>

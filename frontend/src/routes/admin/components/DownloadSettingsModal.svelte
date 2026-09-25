@@ -2,9 +2,12 @@
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { downloadStore, downloadSettings, type DownloadSettings } from '$lib/stores/downloads';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import { Button, Spinner, Switch, Alert } from '$lib/components/ui';
+	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
+	import { Switch, Alert } from '$lib/components/ui';
 
 	const dispatch = createEventDispatcher();
+	const settlementGate = createConfirmSettlementGate();
 
 	let settings: DownloadSettings = {
 		max_concurrent_downloads: 2,
@@ -50,16 +53,34 @@
 			errorMessage = err.message || 'Failed to save settings';
 		} finally {
 			saving = false;
+			settlementGate.reset();
 		}
 	}
 
 	function close() {
 		dispatch('close');
 	}
+
+	function handleCancel() {
+		settlementGate.settle(close);
+	}
+
+	function handleConfirm() {
+		settleIfEligible(settlementGate, !saving, handleSubmit);
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		const { action, suppress } = getConfirmKeyboardAction(e);
+		if (action === 'cancel') handleCancel();
+		else if (action === 'confirm') handleConfirm();
+		if (suppress) e.preventDefault();
+	}
 </script>
 
-<BaseModal isOpen={true} title="Download Settings" sizeClass="md:max-w-lg md:w-full" on:close={close}>
-	<form on:submit|preventDefault={handleSubmit} class="px-6 py-4 space-y-5">
+<svelte:window on:keydown|capture={handleKeydown} />
+
+<BaseModal isOpen={true} title="Download Settings" sizeClass="md:max-w-lg md:w-full" handleEscapeKey={false} on:close={handleCancel}>
+	<form on:submit|preventDefault={handleConfirm} class="px-6 py-4 space-y-5">
 		<!-- Error Message -->
 		{#if errorMessage}
 			<Alert variant="danger" density="compact">{errorMessage}</Alert>
@@ -189,19 +210,14 @@
 			/>
 		</div>
 
-		<!-- Submit Button -->
-		<div class="flex gap-3 pt-2">
-			<Button type="submit" variant="primary" class="flex-1" disabled={saving}>
-				{#if saving}
-					<Spinner size="sm" />
-					Saving...
-				{:else}
-					Save Settings
-				{/if}
-			</Button>
-			<Button type="button" variant="secondary" onclick={close}>
-				Close
-			</Button>
-		</div>
 	</form>
+
+	<svelte:fragment slot="footer">
+		<ConfirmFooter
+			confirmLabel="Save Settings"
+			busy={saving}
+			onCancel={handleCancel}
+			onConfirm={handleConfirm}
+		/>
+	</svelte:fragment>
 </BaseModal>

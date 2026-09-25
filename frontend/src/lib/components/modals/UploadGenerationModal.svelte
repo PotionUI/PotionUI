@@ -6,8 +6,9 @@
 	import { createEventDispatcher } from 'svelte';
 	import type { Tag } from '$lib/types/history';
 	import BaseModal from './BaseModal.svelte';
+	import ConfirmFooter from './ConfirmFooter.svelte';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './confirmKeyboard';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button } from '$lib/components/ui';
 
 	export let isOpen = false;
 	export let availableTags: Tag[] = [];
@@ -18,6 +19,9 @@
 	let selectedTagIds: string[] = [];
 	let uploading = false;
 	let fileInput: HTMLInputElement;
+	let previousOpen = false;
+	const settlementGate = createConfirmSettlementGate();
+	$: if (isOpen !== previousOpen) { previousOpen = isOpen; if (isOpen) settlementGate.reset(); }
 
 	function handleClose() {
 		if (!uploading) {
@@ -25,6 +29,21 @@
 			selectedTagIds = [];
 			dispatch('close');
 		}
+	}
+
+	function handleCancel() {
+		settlementGate.settle(handleClose);
+	}
+
+	function handleConfirm() {
+		settleIfEligible(settlementGate, !uploading && !!files && files.length > 0, handleUpload);
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		const { action, suppress } = getConfirmKeyboardAction(e);
+		if (action === 'cancel') handleCancel();
+		else if (action === 'confirm') handleConfirm();
+		if (suppress) e.preventDefault();
 	}
 
 	function toggleTag(tagId: string) {
@@ -62,7 +81,9 @@
 	}
 </script>
 
-<BaseModal {isOpen} title="Upload Generations" size="lg" closeable={!uploading} on:close={handleClose}>
+<svelte:window on:keydown|capture={handleKeydown} />
+
+<BaseModal {isOpen} title="Upload Generations" size="lg" closeable={!uploading} handleEscapeKey={false} on:close={handleCancel}>
 	<svelte:fragment slot="headerIcon">
 		<Icon name="upload" className="w-5 h-5 text-fg-muted flex-shrink-0" />
 	</svelte:fragment>
@@ -136,17 +157,12 @@
 	</div>
 
 	<svelte:fragment slot="footer">
-		<div class="flex items-center justify-end gap-3 px-4 py-4 md:px-6">
-			<Button variant="secondary" disabled={uploading} onclick={handleClose}>Cancel</Button>
-			<Button
-				variant="primary"
-				icon={uploading ? undefined : 'upload'}
-				loading={uploading}
-				disabled={!files || files.length === 0 || uploading}
-				onclick={handleUpload}
-			>
-				{uploading ? 'Uploading...' : 'Upload'}
-			</Button>
-		</div>
+		<ConfirmFooter
+			confirmLabel={uploading ? 'Uploading...' : 'Upload'}
+			busy={uploading}
+			confirmDisabled={!files || files.length === 0}
+			onCancel={handleCancel}
+			onConfirm={handleConfirm}
+		/>
 	</svelte:fragment>
 </BaseModal>

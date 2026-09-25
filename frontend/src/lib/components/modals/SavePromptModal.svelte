@@ -7,7 +7,8 @@
 	import { selectReferencedVariables, summarizeVariables } from '$lib/utils/variablesTransfer';
 	import { toasts } from '$lib/stores/toast';
 	import BaseModal from './BaseModal.svelte';
-	import { Button } from '$lib/components/ui';
+	import ConfirmFooter from './ConfirmFooter.svelte';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './confirmKeyboard';
 	import Icon from '$lib/components/Icon.svelte';
 
 	export let isOpen = false;
@@ -18,7 +19,8 @@
 	let name = '';
 	let saving = false;
 	let previousOpen = false;
-	$: if (isOpen !== previousOpen) { previousOpen = isOpen; if (isOpen) name = ''; }
+	const settlementGate = createConfirmSettlementGate();
+	$: if (isOpen !== previousOpen) { previousOpen = isOpen; if (isOpen) { name = ''; settlementGate.reset(); } }
 	$: preview = flattenRichSegments(segments);
 	$: referencedVariables = selectReferencedVariables(preview, variables);
 	$: referencedSummary = summarizeVariables(referencedVariables);
@@ -45,9 +47,26 @@
 			saving = false;
 		}
 	}
+
+	function handleCancel() {
+		settlementGate.settle(() => dispatch('close'));
+	}
+
+	function handleConfirm() {
+		settleIfEligible(settlementGate, !saving, save);
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		const { action, suppress } = getConfirmKeyboardAction(e);
+		if (action === 'cancel') handleCancel();
+		else if (action === 'confirm') handleConfirm();
+		if (suppress) e.preventDefault();
+	}
 </script>
 
-<BaseModal {isOpen} title="Save as Prompt" sizeClass="md:max-w-lg md:w-full" on:close={() => dispatch('close')}>
+<svelte:window on:keydown|capture={handleKeydown} />
+
+<BaseModal {isOpen} title="Save as Prompt" sizeClass="md:max-w-lg md:w-full" handleEscapeKey={false} on:close={handleCancel}>
 	<svelte:fragment slot="headerIcon"><Icon name="save" className="h-5 w-5 text-fg-muted" /></svelte:fragment>
 	<div class="space-y-4 p-4 sm:p-6">
 		<div><label class="mb-1.5 block text-sm font-medium text-fg" for="saved-prompt-name">Name <span class="font-normal text-fg-subtle">(optional)</span></label><input id="saved-prompt-name" class="input w-full" bind:value={name} placeholder="Content preview is used when unnamed" /></div>
@@ -57,5 +76,7 @@
 		{/if}
 		<p class="text-xs text-fg-subtle">Only this segment list is saved. Preset, mode, form values, session, backend, seed, tags, and generation settings are not included.</p>
 	</div>
-	<svelte:fragment slot="footer"><div class="flex justify-end gap-2 px-4 py-3 sm:px-6"><Button variant="secondary" onclick={() => dispatch('close')}>Cancel</Button><Button variant="primary" loading={saving} onclick={save}>Save Prompt</Button></div></svelte:fragment>
+	<svelte:fragment slot="footer">
+		<ConfirmFooter confirmLabel="Save Prompt" busy={saving} onCancel={handleCancel} onConfirm={handleConfirm} />
+	</svelte:fragment>
 </BaseModal>

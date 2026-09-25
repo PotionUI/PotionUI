@@ -80,7 +80,7 @@ function selectOption(el: Element | null, value: string) {
 }
 
 function clickButtonWithText(target: HTMLElement, text: string) {
-	const button = Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.trim() === text);
+	const button = Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.includes(text));
 	if (!button) throw new Error(`button "${text}" not found`);
 	button.click();
 }

@@ -9,8 +9,10 @@
 	import TabsOverflowMenu from '$lib/components/layout/TabsOverflowMenu.svelte';
 	import { shortcutLabels } from '$lib/stores/keybindings';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
+	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
 	import NewWorkspaceModal from '$lib/components/modals/NewWorkspaceModal.svelte';
-	import { Button, Input } from '$lib/components/ui';
+	import { Input } from '$lib/components/ui';
 	import { workspaceHasUnsavedChanges, hasUnsavedWorkOutsideTab } from '$lib/utils/newWorkspace';
 	import { requestTabSave } from '$lib/stores/workspaceSaveRequest';
 	import { queryTabDirty } from '$lib/stores/workspaceDirtyQuery';
@@ -60,12 +62,15 @@
 		};
 	}
 
+	const saveWorkspaceGate = createConfirmSettlementGate();
+
 	function openCreateWorkspaceModal() {
 		workspaceModalMode = 'create';
 		workspaceToUpdate = null;
 		workspaceName = '';
 		showSaveWorkspaceModal = true;
 		showWorkspaceMenu = false;
+		saveWorkspaceGate.reset();
 	}
 
 	function openUpdateWorkspaceModal(workspace: Workspace) {
@@ -74,6 +79,23 @@
 		workspaceName = workspace.name;
 		showSaveWorkspaceModal = true;
 		showWorkspaceMenu = false;
+		saveWorkspaceGate.reset();
+	}
+
+	function cancelSaveWorkspace() {
+		saveWorkspaceGate.settle(() => (showSaveWorkspaceModal = false));
+	}
+
+	function confirmSaveWorkspace() {
+		settleIfEligible(saveWorkspaceGate, !!workspaceName.trim() && !savingWorkspace, saveCurrentWorkspace);
+	}
+
+	function handleSaveWorkspaceKeydown(e: KeyboardEvent) {
+		if (!showSaveWorkspaceModal) return;
+		const { action, suppress } = getConfirmKeyboardAction(e);
+		if (action === 'cancel') cancelSaveWorkspace();
+		else if (action === 'confirm') confirmSaveWorkspace();
+		if (suppress) e.preventDefault();
 	}
 
 	async function saveCurrentWorkspace() {
@@ -104,6 +126,7 @@
 			toasts.error(e instanceof Error ? e.message : 'Failed to save workspace');
 		} finally {
 			savingWorkspace = false;
+			saveWorkspaceGate.reset();
 		}
 	}
 
@@ -406,14 +429,15 @@
 	</div>
 </div>
 
-<svelte:window on:click={handleWorkspaceClickOutside} />
+<svelte:window on:click={handleWorkspaceClickOutside} on:keydown|capture={handleSaveWorkspaceKeydown} />
 
 <!-- Save Workspace Modal -->
 <BaseModal
 	isOpen={showSaveWorkspaceModal}
 	title={workspaceModalMode === 'update' ? 'Update Workspace' : 'Save Workspace'}
 	size="sm"
-	on:close={() => showSaveWorkspaceModal = false}
+	handleEscapeKey={false}
+	on:close={cancelSaveWorkspace}
 >
 	<div class="p-6">
 		<p class="text-sm text-fg-muted mb-4">
@@ -426,30 +450,20 @@
 			class="mb-4"
 			placeholder="Workspace name..."
 			bind:value={workspaceName}
-			onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && saveCurrentWorkspace()}
+			onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && confirmSaveWorkspace()}
 			data-autofocus
 		/>
-		<div class="flex justify-end gap-2">
-			<Button
-				variant="ghost"
-				size="sm"
-				onclick={() => showSaveWorkspaceModal = false}
-			>
-				Cancel
-			</Button>
-			<Button
-				variant="primary"
-				size="sm"
-				disabled={!workspaceName.trim() || savingWorkspace}
-				loading={savingWorkspace}
-				onclick={saveCurrentWorkspace}
-			>
-				{savingWorkspace
-					? workspaceModalMode === 'update' ? 'Updating...' : 'Saving...'
-					: workspaceModalMode === 'update' ? 'Update workspace' : 'Save as new'}
-			</Button>
-		</div>
 	</div>
+
+	<svelte:fragment slot="footer">
+		<ConfirmFooter
+			confirmLabel={workspaceModalMode === 'update' ? 'Update workspace' : 'Save as new'}
+			busy={savingWorkspace}
+			confirmDisabled={!workspaceName.trim()}
+			onCancel={cancelSaveWorkspace}
+			onConfirm={confirmSaveWorkspace}
+		/>
+	</svelte:fragment>
 </BaseModal>
 
 <NewWorkspaceModal

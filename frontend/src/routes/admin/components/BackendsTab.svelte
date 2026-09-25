@@ -24,6 +24,8 @@
 	import { Button, Badge, Spinner, EmptyState, LoadErrorState, Switch, Alert, IconButton } from '$lib/components/ui';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
+	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
 	import BackendForm from './BackendForm.svelte';
 	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailSection, KVGrid, KVItem, DetailFooter } from '$lib/components/detail';
 	import type { DetailHeaderChip, DetailHeaderChipTone } from '$lib/components/detail/detailHeaderChips';
@@ -331,6 +333,32 @@
 		formData = emptyFormData();
 	}
 
+	const createBackendGate = createConfirmSettlementGate();
+	$effect(() => {
+		if (showModal) createBackendGate.reset();
+	});
+
+	function cancelCreateBackend() {
+		createBackendGate.settle(closeModal);
+	}
+
+	function confirmCreateBackend() {
+		settleIfEligible(createBackendGate, canCreateBackend, saveBackend);
+	}
+
+	function handleCreateBackendKeydown(e: KeyboardEvent) {
+		if (!showModal) return;
+		const { action, suppress } = getConfirmKeyboardAction(e);
+		if (action === 'cancel') cancelCreateBackend();
+		else if (action === 'confirm') confirmCreateBackend();
+		if (suppress) e.preventDefault();
+	}
+
+	$effect(() => {
+		window.addEventListener('keydown', handleCreateBackendKeydown, true);
+		return () => window.removeEventListener('keydown', handleCreateBackendKeydown, true);
+	});
+
 	async function saveBackend() {
 		if (!canCreateBackend) return;
 		saving = true;
@@ -350,6 +378,7 @@
 			toasts.error(getApiErrorMessage(e, 'Failed to save backend'));
 		} finally {
 			saving = false;
+			createBackendGate.reset();
 		}
 	}
 
@@ -1062,7 +1091,7 @@
 	{/if}
 </LibraryShell>
 
-<BaseModal isOpen={showModal} title="Add Backend" sizeClass="md:max-w-2xl md:w-full" on:close={closeModal}>
+<BaseModal isOpen={showModal} title="Add Backend" sizeClass="md:max-w-2xl md:w-full" handleEscapeKey={false} on:close={cancelCreateBackend}>
 	<div class="px-6 py-4">
 		<BackendForm
 			bind:draft={formData}
@@ -1079,12 +1108,13 @@
 	</div>
 
 	<svelte:fragment slot="footer">
-		<div class="px-6 py-4 flex gap-3">
-			<Button variant="primary" class="flex-1" loading={saving} disabled={!canCreateBackend} onclick={saveBackend}>
-				{saving ? 'Creating…' : 'Create Backend'}
-			</Button>
-			<Button variant="secondary" onclick={closeModal}>Cancel</Button>
-		</div>
+		<ConfirmFooter
+			confirmLabel="Create Backend"
+			busy={saving}
+			confirmDisabled={!canCreateBackend}
+			onCancel={cancelCreateBackend}
+			onConfirm={confirmCreateBackend}
+		/>
 	</svelte:fragment>
 </BaseModal>
 

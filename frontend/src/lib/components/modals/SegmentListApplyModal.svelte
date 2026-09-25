@@ -9,8 +9,10 @@
 	import { parseVariableUsageTokens } from '$lib/utils/promptVariables';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import BaseModal from './BaseModal.svelte';
+	import ConfirmFooter from './ConfirmFooter.svelte';
 	import ConfirmModal from './ConfirmModal.svelte';
 	import ModelAssignmentModal from './ModelAssignmentModal.svelte';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './confirmKeyboard';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge, Button, Spinner, Alert } from '$lib/components/ui';
@@ -70,6 +72,7 @@
 	let bodyEl: HTMLDivElement | undefined;
 	let listEl: HTMLDivElement | undefined;
 	let filtersTriggerEl: HTMLDivElement | undefined;
+	const settlementGate = createConfirmSettlementGate();
 
 	$: items = kind === 'template' ? [...presetTemplates, ...loadedItems] : loadedItems;
 	$: normalizedSearch = searchTerm.trim().toLowerCase();
@@ -141,6 +144,7 @@
 		selectedId = null;
 		applyMode = null;
 		showReplaceConfirmation = false;
+		settlementGate.reset();
 	}
 
 	function resetLibrary() {
@@ -257,13 +261,6 @@
 		filtersOpen = false;
 	}
 
-	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && filtersOpen && !showModelPicker) {
-			event.preventDefault();
-			filtersOpen = false;
-		}
-	}
-
 	function moveSelection(step: 1 | -1) {
 		if (!visibleItems.length) return;
 		const index = visibleItems.findIndex((item) => item.id === selectedId);
@@ -282,7 +279,7 @@
 		} else if (event.key === 'Enter') {
 			if (!selectedItem || !applyMode) return;
 			event.preventDefault();
-			requestApply();
+			handleConfirm();
 		}
 	}
 
@@ -292,6 +289,29 @@
 		filtersOpen = false;
 		showModelPicker = false;
 		dispatch('close');
+	}
+
+	function handleCancel() {
+		settlementGate.settle(handleClose);
+	}
+
+	function handleConfirm() {
+		settleIfEligible(settlementGate, !!selectedItem && !!applyMode, requestApply);
+	}
+
+	function handleWindowKeydown(event: KeyboardEvent) {
+		if (showModelPicker) return;
+		if (filtersOpen) {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				filtersOpen = false;
+			}
+			return;
+		}
+		const { action, suppress } = getConfirmKeyboardAction(event);
+		if (action === 'cancel') handleCancel();
+		else if (action === 'confirm') handleConfirm();
+		if (suppress) event.preventDefault();
 	}
 
 	function requestApply() {
@@ -316,8 +336,8 @@
 	{isOpen}
 	title={kind === 'prompt' ? 'Apply Prompt' : 'Apply Segment Template'}
 	sizeClass={kind === 'prompt' ? 'md:max-w-5xl md:w-full md:max-h-[88vh]' : 'md:max-w-3xl md:w-full md:max-h-[85vh]'}
-	handleEscapeKey={!filtersOpen && !showModelPicker}
-	on:close={handleClose}
+	handleEscapeKey={false}
+	on:close={handleCancel}
 >
 	<svelte:fragment slot="headerIcon">
 		<Icon name={kind === 'prompt' ? 'book-open' : 'layout-template'} className="h-5 w-5 text-fg-muted" />
@@ -568,12 +588,12 @@
 	</div>
 
 	<svelte:fragment slot="footer">
-		<div class="flex items-center justify-end gap-2 px-4 py-3 sm:px-6">
-			<Button variant="secondary" onclick={handleClose}>Cancel</Button>
-			<Button variant="primary" disabled={!selectedItem || !applyMode} onclick={requestApply}>
-				Apply
-			</Button>
-		</div>
+		<ConfirmFooter
+			confirmLabel="Apply"
+			confirmDisabled={!selectedItem || !applyMode}
+			onCancel={handleCancel}
+			onConfirm={handleConfirm}
+		/>
 	</svelte:fragment>
 </BaseModal>
 

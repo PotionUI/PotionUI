@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import BaseModal from './BaseModal.svelte';
+	import ConfirmFooter from './ConfirmFooter.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Button } from '$lib/components/ui';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './confirmKeyboard';
 
 	export let isOpen: boolean = false;
 	/** Whether a tab OTHER than the one "Save" will act on also has unsaved
@@ -12,24 +14,44 @@
 	export let busy: boolean = false;
 
 	const dispatch = createEventDispatcher<{ save: void; discard: void; cancel: void }>();
+	const settlementGate = createConfirmSettlementGate();
+	$: if (isOpen) settlementGate.reset();
 
 	const titleId = `new-workspace-title-${Math.random().toString(36).slice(2, 9)}`;
 
-	function save() {
-		if (busy) return;
+	function saveAction() {
 		dispatch('save');
 	}
 
-	function discard() {
-		if (busy) return;
+	function discardAction() {
 		dispatch('discard');
 	}
 
-	function cancel() {
-		if (busy) return;
+	function cancelAction() {
 		dispatch('cancel');
 	}
+
+	function handleCancel() {
+		settleIfEligible(settlementGate, !busy, cancelAction);
+	}
+
+	function handleDiscard() {
+		settleIfEligible(settlementGate, !busy, discardAction);
+	}
+
+	function handleConfirm() {
+		settleIfEligible(settlementGate, !busy, saveAction);
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		const { action, suppress } = getConfirmKeyboardAction(e);
+		if (action === 'cancel') handleCancel();
+		else if (action === 'confirm') handleConfirm();
+		if (suppress) e.preventDefault();
+	}
 </script>
+
+<svelte:window on:keydown|capture={handleKeydown} />
 
 <BaseModal
 	{isOpen}
@@ -37,12 +59,13 @@
 	size="md"
 	hideCloseButton
 	closeable={!busy}
+	handleEscapeKey={false}
 	dialogRole="alertdialog"
 	labelledBy={titleId}
-	on:close={cancel}
+	on:close={handleCancel}
 >
 	<div class="p-7">
-		<div class="flex items-start gap-4 mb-7">
+		<div class="flex items-start gap-4">
 			<div class="w-11 h-11 bg-warning/10 rounded-full flex items-center justify-center flex-shrink-0">
 				<Icon name="warning" className="w-5 h-5 text-warning" strokeWidth={1.5} />
 			</div>
@@ -56,12 +79,17 @@
 				</p>
 			</div>
 		</div>
-		<div class="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2">
-			<Button variant="ghost" disabled={busy} onclick={cancel}>Cancel</Button>
-			<Button variant="danger" disabled={busy} onclick={discard}>Discard &amp; create new</Button>
-			<Button variant="primary" disabled={busy} loading={busy} initialFocus onclick={save}>
-				{busy ? 'Saving…' : 'Save & create new'}
-			</Button>
-		</div>
 	</div>
+	<svelte:fragment slot="footer">
+		<ConfirmFooter
+			confirmLabel={busy ? 'Saving…' : 'Save & create new'}
+			busy={busy}
+			onCancel={handleCancel}
+			onConfirm={handleConfirm}
+		>
+			{#snippet leftActions()}
+				<Button variant="danger" disabled={busy} onclick={handleDiscard}>Discard &amp; create new</Button>
+			{/snippet}
+		</ConfirmFooter>
+	</svelte:fragment>
 </BaseModal>

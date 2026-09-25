@@ -2,9 +2,11 @@
 	import { api } from '$lib/services/api';
 	import type { PromptImportFileOutcome, PromptImportResult } from '$lib/services/api/prompts';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
+	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Alert, Badge, Button, IconButton, Input, Spinner } from '$lib/components/ui';
+	import { Alert, Badge, IconButton, Input, Spinner } from '$lib/components/ui';
 	import { toasts } from '$lib/stores/toast';
 	import { formatBytes } from '$lib/utils/format';
 	import {
@@ -102,6 +104,7 @@
 			toasts.error(error instanceof Error ? error.message : 'Failed to import prompts');
 		} finally {
 			submitting = false;
+			settlementGate.reset();
 		}
 	}
 
@@ -112,15 +115,40 @@
 
 	function importMore() {
 		resetForm();
+		settlementGate.reset();
+	}
+
+	const settlementGate = createConfirmSettlementGate();
+
+	function handleCancel() {
+		settlementGate.settle(onClose);
+	}
+
+	function handleConfirm() {
+		if (result) {
+			settlementGate.settle(done);
+		} else {
+			settleIfEligible(settlementGate, canSubmit, submit);
+		}
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (modelPickerOpen) return;
+		const { action, suppress } = getConfirmKeyboardAction(e);
+		if (action === 'cancel') handleCancel();
+		else if (action === 'confirm') handleConfirm();
+		if (suppress) e.preventDefault();
 	}
 </script>
+
+<svelte:window on:keydown|capture={handleKeydown} />
 
 <BaseModal
 	isOpen={true}
 	title="Import prompts"
 	sizeClass="md:max-w-2xl md:w-full"
-	handleEscapeKey={!modelPickerOpen}
-	on:close={onClose}
+	handleEscapeKey={false}
+	on:close={handleCancel}
 >
 	<svelte:fragment slot="headerIcon">
 		<Icon name="upload" className="h-5 w-5 flex-shrink-0 text-fg-muted" />
@@ -287,16 +315,23 @@
 	{/if}
 
 	<svelte:fragment slot="footer">
-		<div class="flex items-center justify-end gap-3 px-6 py-4">
-			{#if result}
-				<Button variant="secondary" onclick={importMore}>Import more</Button>
-				<Button variant="primary" onclick={done}>Done</Button>
-			{:else}
-				<Button variant="secondary" onclick={onClose} disabled={submitting}>Cancel</Button>
-				<Button variant="primary" onclick={submit} loading={submitting} disabled={!canSubmit}>
-					Import
-				</Button>
-			{/if}
-		</div>
+		{#if result}
+			<ConfirmFooter
+				confirmLabel="Done"
+				hideCancel
+				secondaryLabel="Import more"
+				onSecondary={importMore}
+				onCancel={handleCancel}
+				onConfirm={handleConfirm}
+			/>
+		{:else}
+			<ConfirmFooter
+				confirmLabel="Import"
+				busy={submitting}
+				confirmDisabled={!canSubmit}
+				onCancel={handleCancel}
+				onConfirm={handleConfirm}
+			/>
+		{/if}
 	</svelte:fragment>
 </BaseModal>

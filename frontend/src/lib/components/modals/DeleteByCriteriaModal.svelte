@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import BaseModal from './BaseModal.svelte';
+	import ConfirmFooter from './ConfirmFooter.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, Alert, Kbd, Switch } from '$lib/components/ui';
+	import { Alert, Switch } from '$lib/components/ui';
 	import {
 		createConfirmSettlementGate,
 		getConfirmKeyboardAction,
@@ -340,19 +341,13 @@
 		{/if}
 	</div>
 	<svelte:fragment slot="footer">
-		<div class="flex items-center justify-end gap-3 px-6 py-4">
-			<Button variant="secondary" disabled={deleting} onclick={handleCancel}>
-				<span class="inline-flex items-center gap-2">
-					Cancel
-					<Kbd keys="Esc" />
-				</span>
-			</Button>
-			<Button variant="danger" disabled={!canConfirm} loading={deleting} onclick={handleConfirm}>
-				<span class="inline-flex items-center gap-2">
-					Confirm
-					<Kbd keys="Enter" />
-				</span>
-			</Button>
-		</div>
+		<ConfirmFooter
+			confirmLabel="Confirm"
+			confirmVariant="danger"
+			confirmDisabled={!canConfirm}
+			busy={deleting}
+			onCancel={handleCancel}
+			onConfirm={handleConfirm}
+		/>
 	</svelte:fragment>
 </BaseModal>

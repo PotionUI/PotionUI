@@ -342,7 +342,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .picker-preview-cap strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; font-family: "IBM Plex Mono", monospace; }
 
-.picker-preview-cap span { display: block; margin-top: 4px; color: rgb(var(--fg-subtle)); font-size: 12px; line-height: 1.4; }
+.picker-preview-cap span { display: block; margin-top: 4px; color: rgb(var(--fg-muted)); font-size: 12px; line-height: 1.4; }
+
+.picker-preview-cap .picker-preview-cap-prefix { display: inline; color: rgb(var(--fg-subtle)); }
 
 .row-copy { min-width: 0; flex: 1; }
 
@@ -351,6 +353,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 .row-copy strong { color: inherit; font-size: 9px; font-weight: 600; }
 
 .row-copy span { margin-top: 3px; color: rgb(var(--fg-subtle)); font-size: 7px; }
+
+.row-copy .row-copy-value { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; white-space: normal; color: rgb(var(--fg)); font-size: 14px; font-weight: 500; }
+
+.row-copy .row-copy-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; color: rgb(var(--fg-muted)); font-size: 12px; }
+
+.row-copy .row-copy-label-prefix { display: inline; color: rgb(var(--fg-subtle)); }
 
 .row-meta { flex: 0 0 auto; color: rgb(var(--fg-subtle)); font: 400 6px "IBM Plex Mono"; text-transform: uppercase; }
 

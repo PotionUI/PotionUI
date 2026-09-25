@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import BaseModal from './BaseModal.svelte';
+	import ConfirmFooter from './ConfirmFooter.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, Kbd } from '$lib/components/ui';
 	import { createConfirmSettlementGate, resolveConfirmKeydown } from './confirmKeyboard';
 
 	export let isOpen: boolean = false;
@@ -87,7 +87,7 @@
 	on:close={handleCancel}
 >
 	<div class="p-7">
-		<div class="flex items-start gap-4 mb-7">
+		<div class="flex items-start gap-4">
 			<div class="w-11 h-11 {style.iconBg} rounded-full flex items-center justify-center flex-shrink-0">
 				<Icon name={style.icon} className="w-5 h-5 {style.iconColor}" strokeWidth={1.5} />
 			</div>
@@ -96,25 +96,14 @@
 				<p class="text-sm leading-relaxed text-fg-muted whitespace-pre-line break-words">{message}</p>
 			</div>
 		</div>
-		<div class="flex items-center justify-end gap-3">
-			<Button variant="secondary" disabled={busy} onclick={handleCancel}>
-				<span class="inline-flex items-center gap-2">
-					Cancel
-					<Kbd keys="Esc" />
-				</span>
-			</Button>
-			<Button
-				variant={style.confirmVariant}
-				disabled={busy}
-				loading={busy}
-				initialFocus
-				onclick={handleConfirm}
-			>
-				<span class="inline-flex items-center gap-2">
-					Confirm
-					<Kbd keys="Enter" />
-				</span>
-			</Button>
-		</div>
 	</div>
+	<svelte:fragment slot="footer">
+		<ConfirmFooter
+			confirmLabel="Confirm"
+			confirmVariant={style.confirmVariant}
+			{busy}
+			onCancel={handleCancel}
+			onConfirm={handleConfirm}
+		/>
+	</svelte:fragment>
 </BaseModal>

@@ -77,7 +77,7 @@ function selectFirstRow(target: HTMLElement) {
 }
 
 function clickButtonNamed(target: HTMLElement, text: string) {
-	const button = Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.trim() === text) as
+	const button = Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.includes(text)) as
 		| HTMLButtonElement
 		| undefined;
 	expect(button).toBeTruthy();

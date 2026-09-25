@@ -223,7 +223,7 @@ describe('UsersGroupsTab', () => {
 		(groupOption as HTMLElement).click();
 		flushSync();
 
-		const confirmButton = Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Add to group')!;
+		const confirmButton = Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent?.includes('Add to group'))!;
 		expect(confirmButton).toBeTruthy();
 		expect(confirmButton.disabled).toBe(false);
 		confirmButton.click();

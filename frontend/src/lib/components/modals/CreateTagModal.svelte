@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import BaseModal from './BaseModal.svelte';
-	import Tooltip from '$lib/components/Tooltip.svelte';
+	import ConfirmFooter from './ConfirmFooter.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button } from '$lib/components/ui';
 	import {
 		createConfirmSettlementGate,
 		getConfirmKeyboardAction,
@@ -99,20 +98,14 @@
 			/>
 			<p class="text-sm text-fg-muted mt-2">{description}</p>
 		</div>
-		<div class="flex items-center justify-end gap-3">
-			<Tooltip text="Cancel" kbd="Esc" position="top">
-				<Button variant="secondary" onclick={dismiss}>Cancel</Button>
-			</Tooltip>
-			<Tooltip text="Create Tag" kbd="Enter" position="top">
-				<Button
-					variant="primary"
-					disabled={!newTagName.trim() || creatingTag}
-					loading={creatingTag}
-					onclick={submit}
-				>
-					Confirm
-				</Button>
-			</Tooltip>
-		</div>
 	</div>
+	<svelte:fragment slot="footer">
+		<ConfirmFooter
+			confirmLabel="Confirm"
+			confirmDisabled={!newTagName.trim() || creatingTag}
+			busy={creatingTag}
+			onCancel={dismiss}
+			onConfirm={submit}
+		/>
+	</svelte:fragment>
 </BaseModal>

@@ -6,9 +6,11 @@
 	import { detectUrl } from '$lib/utils/downloadUrlDetect';
 	import { buildSubdirNodes } from '$lib/utils/subdirTree';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
+	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Button, Spinner, Alert, Badge, SegmentedControl } from '$lib/components/ui';
+	import { Spinner, Alert, Badge, SegmentedControl } from '$lib/components/ui';
 
 	interface ApiModelTypeItem {
 		type: string;
@@ -46,6 +48,7 @@
 	let submitting = false;
 	let errorMessage = '';
 	let advancedOpen = false;
+	const settlementGate = createConfirmSettlementGate();
 
 	// Loaded data
 	let modelTypes: { type: string; directory: string; count: number; subdirectories: string[] }[] = [];
@@ -275,6 +278,21 @@
 		dispatch('close');
 	}
 
+	function handleCancel() {
+		settlementGate.settle(close);
+	}
+
+	function handleConfirm() {
+		settleIfEligible(settlementGate, !loadingData && !submitting && !!url.trim(), handleSubmit);
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		const { action, suppress } = getConfirmKeyboardAction(e);
+		if (action === 'cancel') handleCancel();
+		else if (action === 'confirm') handleConfirm();
+		if (suppress) e.preventDefault();
+	}
+
 	function handleClickOutsideTagDropdown(e: MouseEvent) {
 		const target = e.target as HTMLElement;
 		if (!target.closest('.tag-search-container')) {
@@ -283,9 +301,9 @@
 	}
 </script>
 
-<svelte:window onclick={handleClickOutsideTagDropdown} />
+<svelte:window onclick={handleClickOutsideTagDropdown} on:keydown|capture={handleKeydown} />
 
-<BaseModal isOpen={true} title="Add download" sizeClass="md:max-w-lg md:w-full" on:close={close}>
+<BaseModal isOpen={true} title="Add download" sizeClass="md:max-w-lg md:w-full" handleEscapeKey={false} on:close={handleCancel}>
 	<svelte:fragment slot="headerIcon">
 		<Icon name="download" className="h-4 w-4 flex-shrink-0 text-fg-muted" />
 	</svelte:fragment>
@@ -622,17 +640,12 @@
 	{/if}
 
 	<svelte:fragment slot="footer">
-		<div class="flex items-center justify-end gap-2 px-6 py-3.5">
-			<Button type="button" variant="ghost" onclick={close}>Cancel</Button>
-			<Button
-				type="button"
-				variant="primary"
-				icon="download"
-				disabled={loadingData || submitting || !url.trim()}
-				onclick={handleSubmit}
-			>
-				{submitting ? 'Queueing…' : 'Queue download'}
-			</Button>
-		</div>
+		<ConfirmFooter
+			confirmLabel={submitting ? 'Queueing…' : 'Queue download'}
+			busy={submitting}
+			confirmDisabled={loadingData || !url.trim()}
+			onCancel={handleCancel}
+			onConfirm={handleConfirm}
+		/>
 	</svelte:fragment>
 </BaseModal>

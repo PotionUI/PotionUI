@@ -6,7 +6,8 @@
 	import { toasts } from '$lib/stores/toast';
 	import { resolveResourceMarkers, textHasResourceMarkers, type PromptResourceSpec } from '$lib/utils/promptResources';
 	import BaseModal from './BaseModal.svelte';
-	import { Button } from '$lib/components/ui';
+	import ConfirmFooter from './ConfirmFooter.svelte';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './confirmKeyboard';
 	import Icon from '$lib/components/Icon.svelte';
 
 	export let isOpen = false;
@@ -23,12 +24,16 @@
 	let saving = false;
 	let previousOpen = false;
 	let convertReferences = true;
+	const settlementGate = createConfirmSettlementGate();
 
 	$: hasReferences = textHasResourceMarkers(segment?.content);
 
 	$: if (isOpen !== previousOpen) {
 		previousOpen = isOpen;
-		if (isOpen) initialize();
+		if (isOpen) {
+			initialize();
+			settlementGate.reset();
+		}
 	}
 
 	async function initialize() {
@@ -78,9 +83,26 @@
 			saving = false;
 		}
 	}
+
+	function handleCancel() {
+		settlementGate.settle(() => dispatch('close'));
+	}
+
+	function handleConfirm() {
+		settleIfEligible(settlementGate, !saving && !!name.trim() && !!categoryId, save);
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		const { action, suppress } = getConfirmKeyboardAction(e);
+		if (action === 'cancel') handleCancel();
+		else if (action === 'confirm') handleConfirm();
+		if (suppress) e.preventDefault();
+	}
 </script>
 
-<BaseModal {isOpen} title="Save as Segment" sizeClass="md:max-w-lg md:w-full" on:close={() => dispatch('close')}>
+<svelte:window on:keydown|capture={handleKeydown} />
+
+<BaseModal {isOpen} title="Save as Segment" sizeClass="md:max-w-lg md:w-full" handleEscapeKey={false} on:close={handleCancel}>
 	<svelte:fragment slot="headerIcon"><Icon name="save" className="h-5 w-5 text-fg-muted" /></svelte:fragment>
 	<div class="space-y-4 p-4 sm:p-6">
 		<label class="block text-sm font-medium text-fg" for="saved-segment-name">Name <span class="text-danger">*</span></label>
@@ -108,5 +130,13 @@
 		{/if}
 		<p class="text-xs text-fg-subtle">This creates a detached reusable card; later edits to either copy do not stay linked.</p>
 	</div>
-	<svelte:fragment slot="footer"><div class="flex justify-end gap-2 px-4 py-3 sm:px-6"><Button variant="secondary" onclick={() => dispatch('close')}>Cancel</Button><Button variant="primary" loading={saving} disabled={!name.trim() || !categoryId} onclick={save}>Save Segment</Button></div></svelte:fragment>
+	<svelte:fragment slot="footer">
+		<ConfirmFooter
+			confirmLabel="Save Segment"
+			busy={saving}
+			confirmDisabled={!name.trim() || !categoryId}
+			onCancel={handleCancel}
+			onConfirm={handleConfirm}
+		/>
+	</svelte:fragment>
 </BaseModal>

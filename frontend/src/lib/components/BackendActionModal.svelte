@@ -6,8 +6,14 @@
 	import { waitForHealthy } from '$lib/utils/healthPoll';
 	import { Button, Spinner, Alert } from '$lib/components/ui';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
+	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
+	import {
+		createConfirmSettlementGate,
+		getConfirmKeyboardAction,
+		settleIfEligible
+	} from '$lib/components/modals/confirmKeyboard';
 
 	// Shared confirm -> running -> (waiting) -> done/error/timeout flow for a
 	// backend's self-described quick action (Backend.quick_actions). Used by
@@ -248,7 +254,24 @@
 		pendingAction && pendingBackendName
 			? `Backend: ${pendingBackendName}\n\n${pendingAction.confirm}`
 			: (pendingAction?.confirm ?? '');
+
+	const settlementGate = createConfirmSettlementGate();
+	$: if (phase === 'error' || phase === 'timeout' || phase === 'done') settlementGate.reset();
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (!modalOpen || phase === 'confirm') return;
+		const { action, suppress } = getConfirmKeyboardAction(e);
+		if (action === 'cancel') {
+			if (canDismiss) settleIfEligible(settlementGate, true, closeModal);
+		} else if (action === 'confirm') {
+			if (phase === 'error') settleIfEligible(settlementGate, true, retry);
+			else if (phase === 'timeout') settleIfEligible(settlementGate, true, refreshPage);
+		}
+		if (suppress) e.preventDefault();
+	}
 </script>
+
+<svelte:window on:keydown|capture={handleKeydown} />
 
 {#if pendingAction && phase === 'confirm'}
 	<ConfirmModal
@@ -260,7 +283,17 @@
 		on:cancel={closeModal}
 	/>
 {:else}
-<BaseModal isOpen={modalOpen} title="" size="md" hideCloseButton closeable={canDismiss} on:close={closeModal}>
+<BaseModal
+	isOpen={modalOpen}
+	title=""
+	size="md"
+	hideCloseButton
+	closeable={canDismiss}
+	handleEscapeKey={false}
+	on:close={() => {
+		if (canDismiss) settleIfEligible(settlementGate, true, closeModal);
+	}}
+>
 	{#if pendingAction}
 		<div class="p-7">
 			<div class="flex items-start gap-4 mb-6">
@@ -344,26 +377,34 @@
 					{/if}
 				</div>
 			{/if}
-
-			<div class="flex items-center justify-end gap-3">
-				{#if phase === 'running' || phase === 'waiting'}
-					<Button variant="secondary" disabled loading>
-						{phase === 'waiting' ? 'Waiting…' : 'Working…'}
-					</Button>
-				{:else if phase === 'error'}
-					<Button variant="secondary" onclick={closeModal}>Close</Button>
-					<Button variant={pendingAction.danger ? 'danger' : 'primary'} onclick={retry}>
-						Retry
-					</Button>
-				{:else if phase === 'done'}
-					<Button variant="secondary" onclick={closeModal}>Close</Button>
-				{:else if phase === 'timeout'}
-					<Button variant="secondary" onclick={closeModal}>Close</Button>
-					<Button variant="secondary" onclick={keepWaiting}>Keep waiting</Button>
-					<Button variant="primary" onclick={refreshPage}>Refresh page</Button>
-				{/if}
-			</div>
 		</div>
 	{/if}
+	<svelte:fragment slot="footer">
+		{#if phase === 'running' || phase === 'waiting'}
+			<div class="flex items-center justify-end gap-3 px-6 py-4">
+				<Button variant="secondary" disabled loading>
+					{phase === 'waiting' ? 'Waiting…' : 'Working…'}
+				</Button>
+			</div>
+		{:else if phase === 'error' && pendingAction}
+			<ConfirmFooter
+				cancelLabel="Close"
+				confirmLabel="Retry"
+				confirmVariant={pendingAction.danger ? 'danger' : 'primary'}
+				onCancel={closeModal}
+				onConfirm={retry}
+			/>
+		{:else if phase === 'done'}
+			<div class="flex items-center justify-end gap-3 px-6 py-4">
+				<Button variant="secondary" onclick={closeModal}>Close</Button>
+			</div>
+		{:else if phase === 'timeout'}
+			<ConfirmFooter cancelLabel="Close" confirmLabel="Refresh page" onCancel={closeModal} onConfirm={refreshPage}>
+				{#snippet leftActions()}
+					<Button variant="secondary" size="sm" onclick={keepWaiting}>Keep waiting</Button>
+				{/snippet}
+			</ConfirmFooter>
+		{/if}
+	</svelte:fragment>
 </BaseModal>
 {/if}

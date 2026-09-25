@@ -10,6 +10,8 @@
 	import type { User } from '$lib/stores/auth';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
+	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
 	import ModelAssignmentPicker from '$lib/components/modals/ModelAssignmentPicker.svelte';
 	import { Button, IconButton, Badge, Input, Spinner, EmptyState, LoadErrorState, Switch } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
@@ -127,6 +129,11 @@
 
 	let showUserModal = $state(false);
 	let userFormData = $state({ username: '', email: '', password: '', account_type: 'USER' });
+	let savingNewUser = $state(false);
+	const createUserGate = createConfirmSettlementGate();
+	$effect(() => {
+		if (showUserModal) createUserGate.reset();
+	});
 
 	type UserEditFormData = { username: string; email: string; password: string; account_type: string };
 	function emptyUserFormData(): UserEditFormData {
@@ -143,6 +150,11 @@
 
 	let showGroupModal = $state(false);
 	let groupFormData = $state({ name: '', description: '' });
+	let savingNewGroup = $state(false);
+	const createGroupGate = createConfirmSettlementGate();
+	$effect(() => {
+		if (showGroupModal) createGroupGate.reset();
+	});
 
 	type GroupEditFormData = { name: string; description: string };
 	let editGroupFormData = $state<GroupEditFormData>({ name: '', description: '' });
@@ -356,6 +368,7 @@
 	}
 
 	async function handleSaveNewUser() {
+		savingNewUser = true;
 		try {
 			const response: any = await adminApi.createUser(userFormData);
 			await loadUsers();
@@ -365,7 +378,26 @@
 		} catch (error) {
 			logger.error('Failed to save user:', error);
 			toasts.error('Failed to save user. Please check the form and try again.');
+		} finally {
+			savingNewUser = false;
+			createUserGate.reset();
 		}
+	}
+
+	function closeCreateUserModal() {
+		showUserModal = false;
+	}
+
+	function cancelCreateUser() {
+		createUserGate.settle(closeCreateUserModal);
+	}
+
+	function confirmCreateUser() {
+		settleIfEligible(
+			createUserGate,
+			!!userFormData.username && !!userFormData.email && !!userFormData.password && !savingNewUser,
+			handleSaveNewUser
+		);
 	}
 
 	async function handleDeleteUser(userId: string, username: string) {
@@ -513,6 +545,7 @@
 	}
 
 	async function handleSaveNewGroup() {
+		savingNewGroup = true;
 		try {
 			const response: any = await adminApi.createUserGroup(groupFormData);
 			await loadGroups();
@@ -523,6 +556,35 @@
 		} catch (error) {
 			logger.error('Failed to save group:', error);
 			toasts.error('Failed to save group. Please check the form and try again.');
+		} finally {
+			savingNewGroup = false;
+			createGroupGate.reset();
+		}
+	}
+
+	function closeCreateGroupModal() {
+		showGroupModal = false;
+	}
+
+	function cancelCreateGroup() {
+		createGroupGate.settle(closeCreateGroupModal);
+	}
+
+	function confirmCreateGroup() {
+		settleIfEligible(createGroupGate, !!groupFormData.name && !savingNewGroup, handleSaveNewGroup);
+	}
+
+	function handleCreateModalsKeydown(e: KeyboardEvent) {
+		if (showUserModal) {
+			const { action, suppress } = getConfirmKeyboardAction(e);
+			if (action === 'cancel') cancelCreateUser();
+			else if (action === 'confirm') confirmCreateUser();
+			if (suppress) e.preventDefault();
+		} else if (showGroupModal) {
+			const { action, suppress } = getConfirmKeyboardAction(e);
+			if (action === 'cancel') cancelCreateGroup();
+			else if (action === 'confirm') confirmCreateGroup();
+			if (suppress) e.preventDefault();
 		}
 	}
 
@@ -1728,7 +1790,9 @@
 	{/snippet}
 </BulkPickerModal>
 
-<BaseModal isOpen={showUserModal} title="Create New User" size="md" on:close={() => (showUserModal = false)}>
+<svelte:window on:keydown|capture={handleCreateModalsKeydown} />
+
+<BaseModal isOpen={showUserModal} title="Create New User" size="md" handleEscapeKey={false} on:close={cancelCreateUser}>
 	<div class="p-6 space-y-4">
 		<div>
 			<label class="block text-sm font-medium text-fg-muted mb-2" for="user-username-input">Username</label>
@@ -1751,16 +1815,17 @@
 		</div>
 	</div>
 	<svelte:fragment slot="footer">
-		<div class="flex justify-end gap-3 px-6 py-4">
-			<Button variant="secondary" onclick={() => (showUserModal = false)}>Cancel</Button>
-			<Button variant="primary" disabled={!userFormData.username || !userFormData.email || !userFormData.password} onclick={handleSaveNewUser}>
-				Create User
-			</Button>
-		</div>
+		<ConfirmFooter
+			confirmLabel="Create User"
+			busy={savingNewUser}
+			confirmDisabled={!userFormData.username || !userFormData.email || !userFormData.password}
+			onCancel={cancelCreateUser}
+			onConfirm={confirmCreateUser}
+		/>
 	</svelte:fragment>
 </BaseModal>
 
-<BaseModal isOpen={showGroupModal} title="Create New Group" size="md" on:close={() => (showGroupModal = false)}>
+<BaseModal isOpen={showGroupModal} title="Create New Group" size="md" handleEscapeKey={false} on:close={cancelCreateGroup}>
 	<div class="p-6 space-y-4">
 		<div>
 			<label class="block text-sm font-medium text-fg-muted mb-2" for="group-name-input">Group Name</label>
@@ -1772,9 +1837,12 @@
 		</div>
 	</div>
 	<svelte:fragment slot="footer">
-		<div class="flex justify-end gap-3 px-6 py-4">
-			<Button variant="secondary" onclick={() => (showGroupModal = false)}>Cancel</Button>
-			<Button variant="primary" disabled={!groupFormData.name} onclick={handleSaveNewGroup}>Create Group</Button>
-		</div>
+		<ConfirmFooter
+			confirmLabel="Create Group"
+			busy={savingNewGroup}
+			confirmDisabled={!groupFormData.name}
+			onCancel={cancelCreateGroup}
+			onConfirm={confirmCreateGroup}
+		/>
 	</svelte:fragment>
 </BaseModal>

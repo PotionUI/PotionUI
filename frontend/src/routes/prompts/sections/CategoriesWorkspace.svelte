@@ -5,6 +5,8 @@
 	import { api } from '$lib/services/api';
 	import Icon from '$lib/components/Icon.svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
+	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
 	import { Button, EmptyState, Spinner } from '$lib/components/ui';
 	import type { SavedSegment, SegmentCategory } from '$lib/types/segments';
 	import { toasts } from '$lib/stores/toast';
@@ -236,15 +238,27 @@
 	function askMove(category: SegmentCategory): Promise<boolean> {
 		moveTarget = category;
 		moveTargetId = categories.find((entry) => entry.id !== category.id)?.id ?? '';
+		moveGate.reset();
 		return new Promise((resolve) => {
 			moveResolve = resolve;
 		});
 	}
 
+	const moveGate = createConfirmSettlementGate();
+
 	function settleMove(ok: boolean) {
 		moveResolve?.(ok);
 		moveResolve = null;
 		moveTarget = null;
+		moveGate.reset();
+	}
+
+	function cancelMove() {
+		moveGate.settle(() => settleMove(false));
+	}
+
+	function confirmMoveKeyboard() {
+		settleIfEligible(moveGate, moveOptions.length > 0 && !!moveTargetId && !moveBusy, confirmMoveAndDelete);
 	}
 
 	async function moveSegmentsTo(list: SavedSegment[], targetId: string) {
@@ -361,11 +375,18 @@
 	}
 
 	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && selectedIds.size > 0 && !moveTarget) clearSelection();
+		if (moveTarget) {
+			const { action, suppress } = getConfirmKeyboardAction(event);
+			if (action === 'cancel') cancelMove();
+			else if (action === 'confirm') confirmMoveKeyboard();
+			if (suppress) event.preventDefault();
+			return;
+		}
+		if (event.key === 'Escape' && selectedIds.size > 0) clearSelection();
 	}
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} />
+<svelte:window on:keydown|capture={handleWindowKeydown} />
 
 <LibraryShell
 	title="Prompt Library"
@@ -496,7 +517,7 @@
 </SelectionActionBar>
 
 {#if moveTarget}
-	<BaseModal isOpen={true} title={`Delete “${moveTarget.name}”?`} size="sm" on:close={() => settleMove(false)}>
+	<BaseModal isOpen={true} title={`Delete “${moveTarget.name}”?`} size="sm" handleEscapeKey={false} on:close={cancelMove}>
 		<div class="space-y-3 px-6 py-4">
 			<p class="text-sm text-fg-muted">
 				<span class="font-mono tabular-nums text-fg">{moveSegments.length}</span>
@@ -517,18 +538,14 @@
 			{/if}
 		</div>
 		<svelte:fragment slot="footer">
-			<div class="flex justify-end gap-2 px-6 py-4">
-				<Button size="sm" variant="secondary" disabled={moveBusy} onclick={() => settleMove(false)}>Cancel</Button>
-				<Button
-					size="sm"
-					variant="danger"
-					loading={moveBusy}
-					disabled={moveOptions.length === 0 || !moveTargetId}
-					onclick={confirmMoveAndDelete}
-				>
-					Move {moveSegments.length} segment{moveSegments.length === 1 ? '' : 's'} and delete
-				</Button>
-			</div>
+			<ConfirmFooter
+				confirmLabel={`Move ${moveSegments.length} segment${moveSegments.length === 1 ? '' : 's'} and delete`}
+				confirmVariant="danger"
+				busy={moveBusy}
+				confirmDisabled={moveOptions.length === 0 || !moveTargetId}
+				onCancel={cancelMove}
+				onConfirm={confirmMoveKeyboard}
+			/>
 		</svelte:fragment>
 	</BaseModal>
 {/if}

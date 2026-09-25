@@ -1,8 +1,4 @@
 // @vitest-environment jsdom
-//
-// jsdom reports 0 for every layout metric (offsetTop/offsetHeight/
-// clientHeight), so this stubs them per row to stand in for a real 20-row
-// list taller than the scroller's viewport.
 import { describe, it, expect, afterEach, vi } from 'vitest';
 
 const { default: AutocompleteDropdown } = await import('$lib/components/AutocompleteDropdown.svelte');

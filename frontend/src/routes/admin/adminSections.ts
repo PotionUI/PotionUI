@@ -20,7 +20,7 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
 	{ key: 'stats', label: 'Stats', icon: 'gauge' }
 ];
 
-export const ADMIN_PLUGIN_TAB_FALLBACK_ICON = 'box';
+export const ADMIN_PLUGIN_TAB_FALLBACK_ICON = 'plug';
 
 export function adminSectionIcon(key: string): string {
 	return ADMIN_SECTIONS.find((section) => section.key === key)?.icon ?? ADMIN_PLUGIN_TAB_FALLBACK_ICON;

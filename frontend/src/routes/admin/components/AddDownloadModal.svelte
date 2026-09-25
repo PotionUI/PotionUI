@@ -7,6 +7,7 @@
 	import { buildSubdirNodes } from '$lib/utils/subdirTree';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button, Spinner, Alert, Badge, SegmentedControl } from '$lib/components/ui';
 
 	interface ApiModelTypeItem {
@@ -335,9 +336,11 @@
 						<span class="text-line-hover flex-shrink-0">·</span>
 					{/if}
 					{#if detection.filename}
-						<span class="flex-1 min-w-0 truncate font-mono text-xs text-fg-muted" title={detection.filename}>
-							{detection.filename}
-						</span>
+						<Tooltip text={detection.filename} wrapperClass="flex-1 min-w-0">
+							<span class="truncate font-mono text-xs text-fg-muted block">
+								{detection.filename}
+							</span>
+						</Tooltip>
 					{/if}
 					{#if destinationType}
 						<span class="flex-shrink-0 font-mono text-2xs uppercase tracking-wide font-semibold text-signal bg-signal/14 px-1.5 py-0.5 rounded">

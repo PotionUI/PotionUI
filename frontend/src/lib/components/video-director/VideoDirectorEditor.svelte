@@ -106,7 +106,7 @@
 					{header.shotCount} shot{header.shotCount === 1 ? '' : 's'} · {header.totalSeconds.toFixed(1)} s
 					{#if !header.totalQualified}
 						<Tooltip text="Motion latents unknown -- showing the requested total, not the generator's real output" position="top">
-							<span class="ml-1 inline-flex items-center rounded border border-line-strong px-[5px] py-px font-mono text-[9.5px] uppercase tracking-[0.04em] text-fg-subtle">
+							<span class="ml-1 inline-flex items-center rounded border border-line-strong px-1.5 py-px font-mono text-xs uppercase tracking-[0.04em] text-fg-subtle">
 								requested
 							</span>
 						</Tooltip>

@@ -168,6 +168,7 @@ export const iconPaths: Record<string, string | string[]> = {
 		'M18 9a9 9 0 0 1 -9 9'
 	],
 	split: ['M16 3h5v5', 'M8 3H3v5', 'M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3', 'm15 9 6-6'],
+	plug: ['M12 22v-5', 'M9 8V2', 'M15 8V2', 'M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z'],
 	database: [
 		'M21 5a9 3 0 1 1 -18 0a9 3 0 0 1 18 0z',
 		'M3 5V19A9 3 0 0 0 21 19V5',

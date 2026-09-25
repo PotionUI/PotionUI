@@ -8,6 +8,7 @@
 	import { buildPipeTimeline, type GroupedStatusEntry } from './runReport';
 	import { formatDurationMs } from '$lib/components/generation-panel/barState';
 	import { DetailSection } from '$lib/components/detail';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 
 	let {
 		report,
@@ -40,9 +41,11 @@
 
 	<div class="grid" style="grid-template-columns: minmax(96px, 12ch) 1fr;">
 		{#each timeline.bars as bar (bar.pipeKey)}
-			<div class="flex items-center pr-3 py-1.5 text-xs font-mono text-fg-muted truncate" title={bar.pipeLabel}>
-				{bar.pipeLabel}
-			</div>
+			<Tooltip text={bar.pipeLabel} wrapperClass="flex min-w-0">
+				<div class="flex items-center pr-3 py-1.5 text-xs font-mono text-fg-muted truncate">
+					{bar.pipeLabel}
+				</div>
+			</Tooltip>
 			<div class="relative h-7 py-1.5 border-l border-line">
 				<div class="relative h-full rounded bg-surface-2/60">
 					{#each timeline.axisTicks as tick (tick.pct)}

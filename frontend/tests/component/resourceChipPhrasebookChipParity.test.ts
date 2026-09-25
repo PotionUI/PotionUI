@@ -1,11 +1,4 @@
 // @vitest-environment jsdom
-//
-// The `@` resource chip and the `#` phrasebook chip (InlineChip.svelte,
-// segment-composer variant) are meant to read as the same chip family in a
-// segment's text — same `.chip` sizing rule, same single `.chip-main` box.
-// jsdom does no layout, so this asserts the structural contract that keeps
-// them the same size (one `.chip-main` per chip, no doubled-up wrapper) and
-// class parity, rather than a computed pixel height.
 import { describe, it, expect, afterEach, vi } from 'vitest';
 
 const { default: PromptResourceChip } = await import('$lib/components/PromptResourceChip.svelte');

@@ -863,7 +863,9 @@
 								<div class="flex items-center justify-between px-3 py-2">
 									<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Preset</span>
 									<div class="flex items-center gap-1">
-										<span class="font-mono text-xs text-fg truncate max-w-[220px]" title={resolveReusePresetLabel(activeGeneration, resolvePresetName)}>{resolveReusePresetLabel(activeGeneration, resolvePresetName)}</span>
+										<Tooltip text={resolveReusePresetLabel(activeGeneration, resolvePresetName)} wrapperClass="min-w-0">
+										<span class="font-mono text-xs text-fg truncate max-w-[220px] block">{resolveReusePresetLabel(activeGeneration, resolvePresetName)}</span>
+									</Tooltip>
 										<CopyButton
 											text={activeGeneration.preset_id ?? ''}
 											ariaLabel="Copy preset"

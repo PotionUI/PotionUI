@@ -4,6 +4,7 @@
 	import { Button, Badge, Spinner, Switch } from '$lib/components/ui';
 	import { DetailSection, KVGrid, KVItem, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { api } from '$lib/services/api/index';
 	import {
 		getBackendOptimizations,
@@ -409,9 +410,9 @@
 									<td class="pr-3 py-0.5">{row.ok ? row.ms?.toFixed(2) : '—'}</td>
 									<td class="py-0.5">
 										{#if !row.ok}
-											<span title={row.error ?? undefined}
-												>{(row.error ?? 'error').slice(0, 40)}</span
-											>
+											<Tooltip text={row.error ?? ''}>
+												<span>{(row.error ?? 'error').slice(0, 40)}</span>
+											</Tooltip>
 										{:else if row.speedup != null}
 											{row.speedup.toFixed(2)}x
 										{:else}

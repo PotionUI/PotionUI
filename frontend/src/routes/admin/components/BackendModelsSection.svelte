@@ -3,6 +3,7 @@
 	import { Alert, Badge, Button, CopyButton, Input, Spinner, EmptyState } from '$lib/components/ui';
 	import { DetailSection } from '$lib/components/detail';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { getApiErrorMessage } from '$lib/utils/logger';
 	import { toasts } from '$lib/stores/toast';
 	import { formatBytes } from '$lib/utils/format';
@@ -281,7 +282,9 @@
 			<div class="px-3 py-2.5 border-b border-line space-y-1.5">
 				<div class="flex items-center gap-2">
 					<span class="font-mono text-2xs uppercase tracking-[0.06em] text-fg-subtle flex-shrink-0">Worker depot</span>
-					<span class="font-mono text-xs text-fg truncate" title={depotDir}>{depotDir}</span>
+					<Tooltip text={depotDir} wrapperClass="min-w-0">
+						<span class="font-mono text-xs text-fg truncate block">{depotDir}</span>
+					</Tooltip>
 					<CopyButton text={depotDir} title="Copy depot path" size="xs" />
 				</div>
 				<p class="text-2xs text-fg-subtle">
@@ -416,11 +419,15 @@
 								/>
 								<div class="min-w-0 flex-1">
 									<div class="flex items-center gap-2 min-w-0">
-										<span class="truncate font-mono text-xs text-fg" title={row.filename}>{row.filename}</span>
+										<Tooltip text={row.filename} wrapperClass="min-w-0">
+											<span class="truncate font-mono text-xs text-fg block">{row.filename}</span>
+										</Tooltip>
 										<Badge variant="neutral" size="sm" class="flex-shrink-0">{row.model_type}</Badge>
 									</div>
 									{#if workerPath}
-										<span class="block truncate font-mono text-2xs text-fg-subtle" title={workerPath}>{workerPath}</span>
+										<Tooltip text={workerPath} wrapperClass="block">
+											<span class="block truncate font-mono text-2xs text-fg-subtle">{workerPath}</span>
+										</Tooltip>
 									{/if}
 									{#if activeTransfer}
 										{@const percent = transferProgressPercent(activeTransfer)}
@@ -431,7 +438,9 @@
 											<span class="font-mono text-2xs tabular-nums text-fg-subtle flex-shrink-0">{percent}%</span>
 										</div>
 									{:else if error}
-										<p class="text-2xs text-danger truncate mt-0.5" title={error}>{error}</p>
+										<Tooltip text={error} wrapperClass="block mt-0.5">
+											<p class="text-2xs text-danger truncate">{error}</p>
+										</Tooltip>
 									{/if}
 								</div>
 								<span class="font-mono text-2xs tabular-nums text-fg-subtle flex-shrink-0 w-16 text-right">

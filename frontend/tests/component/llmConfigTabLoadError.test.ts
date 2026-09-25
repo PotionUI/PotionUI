@@ -1,11 +1,4 @@
 // @vitest-environment jsdom
-//
-// LLMConfigTab.loadConfigurations() used to log a failed GET
-// /api/llm/configurations and leave `configurations = []`, so the template
-// rendered the empty state ("No LLM configurations yet") instead of telling
-// the admin the load failed. Drives the real tab end to end: a failed load
-// must show an error state with a Retry action, and Retry re-running the
-// same loader successfully must render the list.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { LLMConfig } from '$lib/types/llm';
 

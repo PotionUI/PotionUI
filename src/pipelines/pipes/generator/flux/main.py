@@ -20,7 +20,6 @@ from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutput
 from src.pipelines.pipes._shared.generation.flow_generator_pipe import (
     FlowMatchGeneratorPipe,
     iterate_mode_config_specs,
-    spectral_progressive_config_specs,
 )
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
 from src.pipelines.pipes._shared.generation.guidance_options import (
@@ -80,7 +79,6 @@ class GeneratorFluxPipe(FlowMatchGeneratorPipe):
             PipeConfigSpec("preview", bool, True, "Emit live latent previews to the workbench during sampling", required=False),
             *schedule_settings_config_specs(),
             *iterate_mode_config_specs(),
-            *spectral_progressive_config_specs(),
             PipeConfigSpec(
                 "step_cache", dict, {},
                 "FBCache step-skipping options, forwarded to NativeGenerator.sample() "

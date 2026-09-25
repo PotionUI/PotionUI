@@ -66,7 +66,6 @@ class NativeGeneratorHandle(Protocol):
         step_cache_options: "dict | None" = None,
         warm_start: bool = False,
         schedule_settings: "dict | None" = None,
-        spectral_progressive: "dict | None" = None,
     ) -> torch.Tensor: ...
 
     def decode(self, latents: torch.Tensor, *, vram_free_gb: "float | None" = None) -> np.ndarray: ...

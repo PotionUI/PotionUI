@@ -22,7 +22,6 @@ complete index of every file in this directory.
 - [Prompt Embedding Cache](prompt-embed-cache.md) — skip re-encoding a prompt you've already run.
 - [SLA (Sparse–Linear Attention)](sla-attn.md) — block-sparse attention for MiniMax-H3, vendored from thu-ml's SLA.
 - [Sol-Attn](sol-attn.md) — block-sparse attention for MiniMax-H3 that scores KV blocks by pooled summary vectors.
-- [Spectral Progressive Diffusion](spectral-progressive.md) — run early denoising steps at reduced resolution.
 - [Speed Profiles](speed-profiles.md) — a preset-authoring convention for draft/standard/max toggles.
 - [Streaming Prefetch Overlap](stream-prefetch.md) — overlap weight transfer with compute on low-VRAM setups.
 - [Regional `torch.compile`](torch-compile.md) — regional graph compilation for resident models.

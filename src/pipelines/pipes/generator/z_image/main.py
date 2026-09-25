@@ -15,12 +15,6 @@ negative. The default here is the turbo profile; the preset overrides both.
 ``build_context``/``generate_one`` (shared by every native flow-matching family)
 live in ``FlowMatchGeneratorPipe``; this module only carries Z-Image's own
 config schema/defaults.
-
-Z-Image is one of the two families (with Flux2) eligible for Spectral
-Progressive Diffusion (``engine._spectral_progressive_config`` gates on a
-CONSTANT-shift family + 4D latent + txt2img; Z-Image's shift is the fixed 3.0)
--- surfaced here as the ``spectral_progressive`` config key, read generically
-by ``FlowMatchGeneratorPipe.build_context``.
 """
 
 from __future__ import annotations
@@ -28,10 +22,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
-from src.pipelines.pipes._shared.generation.flow_generator_pipe import (
-    FlowMatchGeneratorPipe,
-    spectral_progressive_config_specs,
-)
+from src.pipelines.pipes._shared.generation.flow_generator_pipe import FlowMatchGeneratorPipe
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
 from src.pipelines.pipes._shared.generation.guidance_options import (
     apply_schedule_settings,
@@ -100,7 +91,6 @@ class GeneratorZImagePipe(FlowMatchGeneratorPipe):
                 "video pipes use (this family has no such resolver).",
                 required=False,
             ),
-            *spectral_progressive_config_specs(),
         ]
 
     @classmethod

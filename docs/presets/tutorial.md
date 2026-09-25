@@ -20,7 +20,7 @@ build. If you only read one page before writing a preset, read this one, then ke
 
 A minimal but complete Z-Image `txt2img` preset: a scaffold, a real pipeline wired pipe-by-pipe, a
 three-tab form, and a passing lint + render. It is deliberately smaller than the shipped ZImage
-preset (no step-cache, no spectral-progressive knob, one resolution group instead of three) — once
+preset (no step-cache knob, one resolution group instead of three) — once
 this works, [Pipelines](pipelines.md) and [Forms](forms.md) cover everything left out.
 
 ## 1. Scaffold it

@@ -16,7 +16,6 @@ Techniques that make generation faster without changing what comes out (or with 
 
 - [Attention backends](techniques/attention-backends.md) — the shared attention dispatcher (sdpa, sage, sage2, sage3, flash, sparge).
 - [First-block cache](techniques/first-block-cache.md) — skip most of a diffusion step when the model's output barely changed.
-- [Spectral progressive diffusion](techniques/spectral-progressive.md) — run early denoising steps at reduced resolution.
 - [`torch.compile`](techniques/torch-compile.md) — regional graph compilation for resident models.
 - [Native fp8 matmul](techniques/fp8-matmul.md) — run the GEMM itself in fp8 instead of dequantizing first.
 - [Streaming prefetch](techniques/stream-prefetch.md) — overlap weight transfer with compute on low-VRAM setups.

@@ -104,16 +104,11 @@ def test_emits_image_gallery():
     assert gallery[0].images[0].seed == 9
 
 
-# -- step_cache / spectral_progressive config -------------------------------
+# -- step_cache config -------------------------------------------------
 
 
 def test_step_cache_declared_in_configuration():
     spec = next(s for s in GeneratorZImagePipe.configuration() if s.name == "step_cache")
-    assert spec.param_type is dict
-
-
-def test_spectral_progressive_declared_in_configuration():
-    spec = next(s for s in GeneratorZImagePipe.configuration() if s.name == "spectral_progressive")
     assert spec.param_type is dict
 
 
@@ -134,25 +129,6 @@ def test_step_cache_defaults_to_none():
     pipe.process(_pipe_input(), lambda o: None)
     call = _FakeGenerator.instances[-1].sample_calls[0]
     assert call["step_cache_options"] is None
-
-
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
-def test_sample_receives_spectral_progressive():
-    sp = {"enabled": True, "scales": [0.5, 1.0]}
-    pipe = _make_pipe(spectral_progressive=sp)
-    pipe.process(_pipe_input(), lambda o: None)
-    call = _FakeGenerator.instances[-1].sample_calls[0]
-    assert call["spectral_progressive"] == sp
-
-
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
-@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
-def test_spectral_progressive_defaults_to_none():
-    pipe = _make_pipe()
-    pipe.process(_pipe_input(), lambda o: None)
-    call = _FakeGenerator.instances[-1].sample_calls[0]
-    assert call["spectral_progressive"] is None
 
 
 # -- schedule / schedule_options (flat sigma-schedule knobs) ---------------

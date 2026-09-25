@@ -4,10 +4,8 @@ tabs: a "Sampling" section (steps/sampler/guidance -- Flux's cfg-equivalent is
 the embedded distilled guidance scale, not a real CFG value -- in that order,
 then shift and iterate_mode), and a "Step cache (FBCache)" section, all
 rendered with the `section` field type rather than the `group` type the
-pre-rework file used. Flux2 additionally carries a "Spectral Progressive
-Diffusion" section and a `shift` field with a default; Flux1 has neither --
-Flux1 uses its own dynamic-mu shift schedule and Spectral Progressive
-Diffusion is silently ignored on that architecture.
+pre-rework file used. Flux2 additionally carries a `shift` field with a
+default; Flux1 does not -- Flux1 uses its own dynamic-mu shift schedule.
 
 The assertions run through the same path that serves `GET /api/presets/{id}/form`
 (PresetTemplateLoader -> PresetFormSerializer.process_form_fields) since a tab
@@ -37,8 +35,6 @@ FLUX2_FIELD_NAMES = {
     "step_cache_threshold",
     "step_cache_warmup_steps",
     "step_cache_max_skips",
-    "spectral_progressive_enabled",
-    "spectral_progressive_start_scale",
 }
 
 FLUX1_FIELD_NAMES = {
@@ -113,11 +109,10 @@ def test_flux2_advanced_tab_keeps_every_field_name(flux2_advanced_tab):
 
 def test_flux2_advanced_tab_top_level_is_named_sections(flux2_advanced_tab):
     top_level = flux2_advanced_tab["children"]
-    assert [c.get("type") for c in top_level] == ["section", "section", "gate"]
+    assert [c.get("type") for c in top_level] == ["section", "section"]
     assert [c.get("title") or c.get("label") for c in top_level] == [
         "Sampling",
         "Step cache (FBCache)",
-        "Spectral Progressive Diffusion",
     ]
 
 
@@ -131,8 +126,6 @@ def test_flux1_advanced_tab_keeps_every_field_name(flux1_advanced_tab):
 
 
 def test_flux1_advanced_tab_top_level_is_named_sections(flux1_advanced_tab):
-    """Flux1 has no Spectral Progressive Diffusion section -- that knob is
-    silently ignored on the Flux1 architecture, so it isn't offered."""
     top_level = flux1_advanced_tab["children"]
     assert [c.get("type") for c in top_level] == ["section", "section"]
     assert [c.get("title") for c in top_level] == [

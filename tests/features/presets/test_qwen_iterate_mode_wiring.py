@@ -5,7 +5,7 @@
 tests/pipelines/pipes/generator/qwen/test_qwen_generator.py for the
 declaration-level test).
 
-Mirrors tests/features/presets/test_flux_iterate_spectral_wiring.py.
+Mirrors tests/features/presets/test_flux_iterate_mode_wiring.py.
 """
 
 from __future__ import annotations

@@ -7,9 +7,8 @@ sampler_step_cache_kwargs()-style flat-key resolver for this family (that's
 a Wan/LTX video-pipe mechanism) -- so the Advanced tab's three flat sliders
 are assembled into that dict shape by the preset itself, not by the pipe.
 
-Step cache works identically on both Flux1 and Flux2 (unlike shift/spectral
-progressive, which are Flux2-only), so every case here is parametrized across
-both presets.
+Step cache works identically on both Flux1 and Flux2 (unlike shift, which is
+Flux2-only), so every case here is parametrized across both presets.
 """
 
 from __future__ import annotations

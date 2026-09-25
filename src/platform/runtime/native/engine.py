@@ -1570,7 +1570,6 @@ class NativeGenerator:
         step_cache_options: dict | None = None,
         warm_start: bool = False,
         schedule_settings: dict | None = None,
-        spectral_progressive: dict | None = None,
         sigmas: "Sequence[float] | torch.Tensor | None" = None,
     ) -> torch.Tensor:
         """Denoise from seeded noise to a clean latent (model-native space).
@@ -1622,15 +1621,12 @@ class NativeGenerator:
         ``sigmas[0] <= 1.0``, ``sigmas[-1] == 0.0`` -- raises ``ValueError``
         naming the offense otherwise. The effective step count becomes
         ``len(sigmas) - 1`` for every ``steps``-derived decision below (progress
-        hooks, warm-start/trajectory-cache keys, spectral-progressive gating);
-        the ``steps`` argument itself is ignored when ``sigmas`` is given, same
-        as ``denoise_strength`` (an explicit sigma list already encodes its own
-        starting noise level via ``sigmas[0]`` -- a second truncation input
-        would be ambiguous about which one wins, so ``denoise_strength`` is
-        simply inert here, matching ``denoise()``'s own documented contract for
-        this kwarg). Spectral-progressive is unconditionally skipped when
-        ``sigmas`` is set (that path builds its own schedule and has no way to
-        honour an explicit one).
+        hooks, warm-start/trajectory-cache keys); the ``steps`` argument itself
+        is ignored when ``sigmas`` is given, same as ``denoise_strength`` (an
+        explicit sigma list already encodes its own starting noise level via
+        ``sigmas[0]`` -- a second truncation input would be ambiguous about
+        which one wins, so ``denoise_strength`` is simply inert here, matching
+        ``denoise()``'s own documented contract for this kwarg).
         """
         opts = guidance_options or {}
         sigmas_tensor = _validate_explicit_sigmas(sigmas) if sigmas is not None else None
@@ -1690,19 +1686,6 @@ class NativeGenerator:
         merged_settings = self._sampling_settings_for(guidance_options, schedule_settings)
 
         with self._run_cache():
-            # Spectral Progressive Diffusion (opt-in prototype): run early steps at a
-            sp_config = None
-            if sigmas_tensor is None:
-                sp_config = self._spectral_progressive_config(
-                    spectral_progressive, init_latent, latents, merged_settings, ref_latents)
-            if sp_config is not None:
-                return self._sample_spectral_progressive(
-                    model_forward, latents, cond, uncond, steps=effective_steps, sampler=sampler,
-                    merged_settings=merged_settings, cfg_scale=cfg_scale, opts=opts,
-                    seed_noise=seed_noise, hooks=hooks, is_cancelled=is_cancelled,
-                    sampler_options=sampler_options, sp_config=sp_config,
-                )
-
             # Trajectory warm-start ("iterate mode"): resume from a cached mid-run
             # latent when the conditioning barely changed. txt2img + euler only (the
             # only path that reproduces a bit-identical tail); an explicit noise tensor
@@ -1847,54 +1830,6 @@ class NativeGenerator:
             plan.resume_step, steps, plan.similarity,
         )
         return (plan.resume_step, plan.latent), run_hooks
-
-    def _spectral_progressive_config(self, spectral_progressive, init_latent, latents, settings,
-                                     ref_latents=None):
-        opts = dict(spectral_progressive or {})
-        if not opts or not opts.pop("enabled", True):
-            return None
-        if init_latent is not None or ref_latents:
-            logger.debug("[NATIVE] spectral-progressive ignored (needs txt2img, no reference latents)")
-            return None
-        if latents.ndim == 5 and latents.shape[-3] != 1:
-            logger.debug("[NATIVE] spectral-progressive ignored (multi-frame video latent)")
-            return None
-        if latents.ndim not in (4, 5):
-            logger.debug("[NATIVE] spectral-progressive ignored (needs a 4D or single-frame 5D latent)")
-            return None
-        from .sampling.spectral_progressive import SpectralProgressiveConfig
-        for k in ("scales", "transitions"):
-            if isinstance(opts.get(k), list):
-                opts[k] = tuple(opts[k])
-        return SpectralProgressiveConfig(**opts)
-
-    def _sample_spectral_progressive(self, model_forward, latents, cond, uncond, *,
-                                     steps, sampler, merged_settings, cfg_scale, opts,
-                                     seed_noise, hooks, is_cancelled, sampler_options, sp_config):
-        """Route a sample() call through the staged spectral-progressive orchestrator."""
-        from .sampling.denoise_loop import make_guidance
-        from .sampling.registry import sampler_registry
-        from .sampling.spectral_progressive import denoise_spectral_progressive
-
-        guidance = make_guidance(
-            merged_settings, cfg_scale,
-            opts.get("cfg_zero_star", True), opts.get("zero_init_steps", 0),
-        )
-        shift_settings = {
-            k: merged_settings.get(k)
-            for k in ("shift", "base_shift", "max_shift", "dynamic_shift", "fixed_mu")
-        }
-        latent = denoise_spectral_progressive(
-            model_forward, latents, cond, uncond, steps=steps,
-            sampler=sampler_registry.get(sampler).sample, sampler_name=sampler, guidance=guidance,
-            shift_settings=shift_settings, cfg=sp_config,
-            seed_noise=seed_noise, hooks=hooks, is_cancelled=is_cancelled,
-            sampler_options=sampler_options,
-            generator=(sampler_options or {}).get("generator"),
-            patch_multiple=int(getattr(self.dit.module, "patch_size", 2) or 2),
-        )
-        self._release_dit_after_sampling()
-        return latent
 
     @torch.no_grad()
     def decode(self, latents: torch.Tensor, *, vram_free_gb: float | None = None) -> np.ndarray:

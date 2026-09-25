@@ -1525,21 +1525,6 @@ def test_sample_accepts_sigma0_below_one_and_equal_to_one(dit_path, vae_path, mo
     assert captured["sigmas"] is not None
 
 
-def test_sample_explicit_sigmas_skips_spectral_progressive(dit_path, vae_path, monkeypatch):
-    import src.platform.runtime.native.engine as engine_mod
-
-    def _boom(*a, **kw):
-        raise AssertionError("spectral-progressive must not engage with explicit sigmas")
-
-    monkeypatch.setattr(NativeGenerator, "_sample_spectral_progressive", _boom)
-    gen = _apg_gen(dit_path, vae_path)
-    captured = _capture_denoise_kwargs(
-        monkeypatch, gen, sigmas=[1.0, 0.5, 0.0],
-        spectral_progressive={"enabled": True, "scales": [0.5, 1.0], "transitions": [1]},
-    )
-    assert captured["sigmas"] is not None
-
-
 def _apg_gen(dit_path, vae_path):
     loader = NativeEngineLoader(device="cpu")
     return NativeGenerator(

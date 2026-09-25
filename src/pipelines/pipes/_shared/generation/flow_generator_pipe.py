@@ -43,44 +43,6 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
 )
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter, native_step_hooks
 
-# `spectral_progressive`'s only recognised sub-keys -- everything
-# `SpectralProgressiveConfig` (sampling/spectral_progressive.py) accepts, plus
-# the engine's own `enabled` toggle (popped before construction; see
-# NativeGenerator._spectral_progressive_config).
-_SPECTRAL_PROGRESSIVE_KEYS = frozenset({
-    "enabled", "scales", "delta", "power_beta", "power_amplitude", "basis", "transitions",
-})
-
-
-def _validate_spectral_progressive(raw: Any) -> None:
-    """Eagerly validate `spectral_progressive` at config-validation time
-    (``FlowMatchGeneratorPipe.validate_config``) instead of only inside
-    ``NativeGenerator.sample()`` -- a malformed preset fails before a
-    generation starts. Mirrors ``NativeGenerator._spectral_progressive_config``'s
-    own opts handling (pop ``enabled``, tuple-ize list sub-keys) so the same
-    dict that would be accepted at runtime is what gets validated here.
-    A falsy/absent ``raw`` (the off state) is a no-op.
-    """
-    if not raw:
-        return
-    if not isinstance(raw, dict):
-        raise ValueError(f"'spectral_progressive' must be a dict, got {type(raw).__name__}")
-    unknown = set(raw) - _SPECTRAL_PROGRESSIVE_KEYS
-    if unknown:
-        raise ValueError(f"'spectral_progressive' has unknown keys: {sorted(unknown)}")
-    opts = dict(raw)
-    opts.pop("enabled", None)
-    if not opts:
-        return
-    for key in ("scales", "transitions"):
-        if isinstance(opts.get(key), list):
-            opts[key] = tuple(opts[key])
-    from src.platform.runtime.native.sampling.spectral_progressive import SpectralProgressiveConfig
-    try:
-        SpectralProgressiveConfig(**opts)
-    except TypeError as exc:
-        raise ValueError(f"'spectral_progressive': {exc}") from exc
-
 
 def iterate_mode_config_specs() -> List[PipeConfigSpec]:
     """Shared ``iterate_mode`` (trajectory warm-start) declaration. A family
@@ -100,33 +62,6 @@ def iterate_mode_config_specs() -> List[PipeConfigSpec]:
             "(needs GPU validation). Only engages on the 'euler' sampler, "
             "txt2img (no input image), with APG momentum unset/0 -- every "
             "other combination silently falls back to a normal cold run.",
-            required=False,
-        ),
-    ]
-
-
-def spectral_progressive_config_specs() -> List[PipeConfigSpec]:
-    """Shared ``spectral_progressive`` declaration -- same splice contract as
-    :func:`iterate_mode_config_specs`. See
-    ``NativeGenerator._spectral_progressive_config``/
-    ``_sample_spectral_progressive`` (engine.py) for the eligibility gate and
-    ``sampling/spectral_progressive.py`` for the math/sub-key semantics."""
-    return [
-        PipeConfigSpec(
-            "spectral_progressive", dict, None,
-            "Spectral Progressive Diffusion (opt-in prototype): denoise the "
-            "early, high-sigma steps at a reduced latent resolution and grow "
-            "to full resolution as the schedule's frequency bands stop being "
-            "noise-dominated. {'scales': [0.5, 1.0], 'delta': 0.01, "
-            "'power_beta': 2.5, 'power_amplitude': 1.0, 'basis': 'fft'|'dct', "
-            "'transitions': null, 'enabled': true} -- usually only 'scales' is "
-            "worth setting, the rest derive a sensible schedule from it. Off "
-            "by default (needs GPU validation). Only engages on a txt2img, "
-            "4D-image (or single-frame 5D causal-3D) family with no reference "
-            "latents; a dynamic-mu family (Flux1, Krea-2, Qwen-Image-2.1) has "
-            "its mu re-resolved per stage from that stage's own token count. "
-            "A multi-frame video latent, an img2img run, or a reference-"
-            "conditioned (edit) run silently falls back to the normal path.",
             required=False,
         ),
     ]
@@ -235,11 +170,6 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
                         self.family_tag)
             iterate_mode = False
 
-        # Spectral Progressive Diffusion (opt-in prototype): a nested config
-        # {scales, delta, basis, ...}. The engine gates it to eligible families
-        # (4D image latents, txt2img); ineligible families no-op with a log.
-        spectral_progressive = self.config.get("spectral_progressive") or None
-
         device_plan = make_device_plan(preferred=device, dit_gb=bundle.dit.estimated_vram_gb)
         generator = self._generator_class()(bundle.dit, bundle.te_encoder, bundle.vae, device_plan)
 
@@ -276,7 +206,6 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
                 "schedule_settings": schedule_settings,
                 "iterate_mode": iterate_mode,
                 "lora_window_stack": lora_window_stack,
-                "spectral_progressive": spectral_progressive,
                 "sampler": sampler,
                 "width": width,
                 "height": height,
@@ -401,7 +330,6 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
             step_cache_options=ctx.extra.get("step_cache_options"),
             schedule_settings=ctx.extra.get("schedule_settings"),
             warm_start=ctx.extra.get("iterate_mode", False),
-            spectral_progressive=ctx.extra.get("spectral_progressive"),
             hooks=native_step_hooks(gen, progress, on_progress, preview=self.config.get("preview", True),
                                     extra=self.extra_step_hooks()),
             is_cancelled=ctx.is_cancelled,
@@ -436,20 +364,18 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
 
     @classmethod
     def validate_config(cls, config: Dict[str, Any]) -> None:
-        """Cross-field validation for the two opt-in engine knobs every
-        flow-matching family shares (``iterate_mode``/``spectral_progressive``).
-        Lives here, not in each family's own ``configuration()``, so it applies
-        uniformly even to a family whose ``configuration()`` doesn't (yet)
-        carry these keys -- ``validate_pipe_configuration``
-        (``src/features/generation/engine.py``) calls this hook on the
-        fully resolved config (declared specs applied AND unknown/passthrough
-        keys preserved) for every pipe, regardless of what its own
-        ``configuration()`` declares.
+        """Cross-field validation for the opt-in engine knob every
+        flow-matching family shares (``iterate_mode``). Lives here, not in
+        each family's own ``configuration()``, so it applies uniformly even
+        to a family whose ``configuration()`` doesn't (yet) carry this key --
+        ``validate_pipe_configuration`` (``src/features/generation/engine.py``)
+        calls this hook on the fully resolved config (declared specs applied
+        AND unknown/passthrough keys preserved) for every pipe, regardless of
+        what its own ``configuration()`` declares.
         """
         iterate_mode = config.get("iterate_mode")
         if iterate_mode is not None and not isinstance(iterate_mode, bool):
             raise ValueError(f"'iterate_mode' must be a bool, got {type(iterate_mode).__name__}")
-        _validate_spectral_progressive(config.get("spectral_progressive"))
 
     # -- helpers -----------------------------------------------------------
 

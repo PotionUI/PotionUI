@@ -139,14 +139,6 @@ pipeline:
         rel_threshold: "{{ form.step_cache_threshold }}"
         warmup_steps: "{{ form.step_cache_warmup_steps }}"
         max_consecutive_skips: "{{ form.step_cache_max_skips }}"
-      # Spectral Progressive Diffusion (Advanced tab, off by default -- prototype).
-      # The "enabled" key is popped by the engine's own eligibility check
-      # (SpectralProgressiveConfig doesn't declare it), so an empty/false toggle
-      # renders a config the engine treats as disabled without needing a
-      # separate presence check here.
-      spectral_progressive:
-        enabled: "{{ form.spectral_progressive_enabled }}"
-        scales: ["{{ form.spectral_progressive_start_scale }}", 1.0]
 
   #############
   ## Gallery

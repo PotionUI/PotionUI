@@ -147,14 +147,6 @@ pipeline:
       # Trajectory warm-start (Advanced tab). Only engages on the Euler
       # sampler for this txt2img pass -- ignored elsewhere by the engine.
       iterate_mode: "{{ form.iterate_mode }}"
-      # Spectral Progressive Diffusion (Advanced tab). `enabled` is always
-      # rendered explicitly (rather than the dict being present/absent) so an
-      # untouched form never engages it -- FlowMatchGeneratorPipe.build_context
-      # forwards any non-empty dict, and the engine's own opts.pop("enabled",
-      # True) default would otherwise turn this on the moment the dict exists.
-      spectral_progressive:
-        enabled: "{{ form.spectral_progressive_enabled }}"
-        scales: ["{{ form.spectral_progressive_start_scale }}", 1.0]
 
   #############
   ## Gallery

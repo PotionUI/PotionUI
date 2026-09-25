@@ -12,7 +12,6 @@ knobs:
     surface: preset
     default: false
     effect: "Resume a follow-up generation from a cached mid-trajectory latent instead of pure noise"
-related: [spectral-progressive]
 ---
 
 # Trajectory Warm-Start (Iterate Mode)
@@ -73,4 +72,3 @@ It is not available on video pipes (Wan, LTX) — only on the shared image-famil
   favoring speed, not an oversight.
 - Only applies to `euler` sampling and text-to-image; any other sampler, img2img, or a changed model
   identity/seed/resolution/schedule falls back to a cold start with no error.
-- Mutually exclusive with spectral progressive diffusion on the same request.

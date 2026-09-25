@@ -99,20 +99,3 @@ fields:
             default: 3
             ai_hint: "Only has an effect when Cache threshold is above 0. Lower to 1-2 if a cached run drifts or loses detail late in the trajectory."
             configuration: {min: 0, max: 10, step: 1}
-
-  - name: "spectral_progressive_enabled"
-    type: "gate"
-    label: "Spectral Progressive Diffusion"
-    default: false
-    audience: "advanced"
-    ai_hint: "An experimental speed knob, not a quality feature. Only suggest enabling it if the user explicitly asks to try the prototype spectral-progressive speedup; leave off otherwise."
-    configuration:
-      experimental: true
-      summary: "Runs the early denoising steps at a reduced resolution and grows to full size, for a faster render."
-    children:
-      - name: "spectral_progressive_start_scale"
-        type: "slider"
-        label: "Start scale"
-        default: 0.5
-        ai_hint: "Only has an effect when the gate is on. 0.5 is the recommended starting point; suggest lowering toward 0.3-0.4 only if the user wants more speed and can accept softer early structure."
-        configuration: {min: 0.1, max: 0.9, step: 0.05}

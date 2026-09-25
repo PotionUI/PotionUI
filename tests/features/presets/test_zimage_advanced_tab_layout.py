@@ -1,9 +1,9 @@
 """The Z-Image txt2img Advanced tab groups its fields into named sections, the
 same idiom Krea-2/Anima/Flux/Flux2 use on their own Advanced tabs: a
 "Sampling" section (steps/sampler/cfg, in that order, then the Z-Image
-sigma-shift override), a "Step cache (FBCache)" section, and a "Spectral
-Progressive Diffusion" section, all three rendered with the `section` field
-type rather than a bare `row` or the `group` type the pre-rework file used.
+sigma-shift override) and a "Step cache (FBCache)" section, both rendered
+with the `section` field type rather than a bare `row` or the `group` type
+the pre-rework file used.
 
 The assertions run through the same path that serves `GET /api/presets/{id}/form`
 (PresetTemplateLoader -> PresetFormSerializer.process_form_fields) since a tab
@@ -32,8 +32,6 @@ EXPECTED_FIELD_NAMES = {
     "step_cache_threshold",
     "step_cache_warmup_steps",
     "step_cache_max_skips",
-    "spectral_progressive_enabled",
-    "spectral_progressive_start_scale",
 }
 
 
@@ -88,11 +86,10 @@ def test_advanced_tab_keeps_every_field_name(advanced_tab):
 
 def test_advanced_tab_top_level_is_named_sections(advanced_tab):
     top_level = advanced_tab["children"]
-    assert [c.get("type") for c in top_level] == ["section", "section", "gate"]
+    assert [c.get("type") for c in top_level] == ["section", "section"]
     assert [c.get("title") or c.get("label") for c in top_level] == [
         "Sampling",
         "Step cache (FBCache)",
-        "Spectral Progressive Diffusion",
     ]
 
 

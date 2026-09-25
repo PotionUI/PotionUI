@@ -282,3 +282,115 @@ describe('directorRuns wiring through generation message handlers', () => {
 		expect(typeof tab.directorRuns!['shot-1'].finishedAt).toBe('number');
 	});
 });
+
+describe('directorRuns wiring for two independent per-shot generations (LTX timeline)', () => {
+	beforeEach(() => tabsStore.reset());
+
+	it('both shots resolve done with their own poster when the background shot completes before the owning shot', () => {
+		const tabId = defaultTabId();
+		seedDirectorRun(tabId, 'shot-1', baseRun({ generationId: 'gen-1', status: 'generating' }), {
+			'gen-1': ['shot-1']
+		});
+		seedDirectorRun(tabId, 'shot-2', baseRun({ generationId: 'gen-2', status: 'generating' }), {
+			'gen-2': ['shot-2']
+		});
+		const tab0 = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: 'gen-1',
+			generation: {
+				...tab0.generation,
+				currentGeneration: { id: 'gen-1', generation_id: 'gen-1', status: 'running' },
+				queue: [
+					{ generation_id: 'gen-1', queue_position: null, status: 'running' },
+					{ generation_id: 'gen-2', queue_position: null, status: 'running' }
+				]
+			}
+		});
+
+		dispatchGenerationMessage(
+			{
+				type: 'gallery_update',
+				generation_id: 'gen-2',
+				videos: [{ path: '/api/media/generations/gen-2/0.mp4' }],
+				video_urls_list: [{ path: '/api/media/generations/gen-2/0.mp4' }]
+			} as any,
+			{ unsubscribe: vi.fn() }
+		);
+		dispatchGenerationMessage({ type: 'generation_complete', data: { id: 'gen-2' } } as any, { unsubscribe: vi.fn() });
+
+		dispatchGenerationMessage(
+			{
+				type: 'gallery_update',
+				generation_id: 'gen-1',
+				videos: [{ path: '/api/media/generations/gen-1/0.mp4' }],
+				video_urls_list: [{ path: '/api/media/generations/gen-1/0.mp4' }]
+			} as any,
+			{ unsubscribe: vi.fn() }
+		);
+		dispatchGenerationMessage({ type: 'generation_complete', data: { id: 'gen-1' } } as any, { unsubscribe: vi.fn() });
+
+		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		expect(tab.directorRuns!['shot-1']).toMatchObject({
+			status: 'done',
+			posterUrl: '/api/media/generations/gen-1/0.mp4'
+		});
+		expect(tab.directorRuns!['shot-2']).toMatchObject({
+			status: 'done',
+			posterUrl: '/api/media/generations/gen-2/0.mp4'
+		});
+	});
+
+	it('both shots resolve done with their own poster when the owning shot finishes first and hands off to the backgrounded one', () => {
+		const tabId = defaultTabId();
+		seedDirectorRun(tabId, 'shot-1', baseRun({ generationId: 'gen-1', status: 'generating' }), {
+			'gen-1': ['shot-1']
+		});
+		seedDirectorRun(tabId, 'shot-2', baseRun({ generationId: 'gen-2', status: 'generating' }), {
+			'gen-2': ['shot-2']
+		});
+		const tab0 = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: 'gen-1',
+			generation: {
+				...tab0.generation,
+				currentGeneration: { id: 'gen-1', generation_id: 'gen-1', status: 'running' },
+				queue: [
+					{ generation_id: 'gen-1', queue_position: null, status: 'running' },
+					{ generation_id: 'gen-2', queue_position: null, status: 'running' }
+				]
+			}
+		});
+
+		dispatchGenerationMessage(
+			{
+				type: 'gallery_update',
+				generation_id: 'gen-1',
+				videos: [{ path: '/api/media/generations/gen-1/0.mp4' }],
+				video_urls_list: [{ path: '/api/media/generations/gen-1/0.mp4' }]
+			} as any,
+			{ unsubscribe: vi.fn() }
+		);
+		dispatchGenerationMessage({ type: 'generation_complete', data: { id: 'gen-1' } } as any, { unsubscribe: vi.fn() });
+
+		dispatchGenerationMessage(
+			{
+				type: 'gallery_update',
+				generation_id: 'gen-2',
+				videos: [{ path: '/api/media/generations/gen-2/0.mp4' }],
+				video_urls_list: [{ path: '/api/media/generations/gen-2/0.mp4' }]
+			} as any,
+			{ unsubscribe: vi.fn() }
+		);
+		dispatchGenerationMessage({ type: 'generation_complete', data: { id: 'gen-2' } } as any, { unsubscribe: vi.fn() });
+
+		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		expect(tab.directorRuns!['shot-1']).toMatchObject({
+			status: 'done',
+			posterUrl: '/api/media/generations/gen-1/0.mp4'
+		});
+		expect(tab.directorRuns!['shot-2']).toMatchObject({
+			status: 'done',
+			posterUrl: '/api/media/generations/gen-2/0.mp4'
+		});
+	});
+});

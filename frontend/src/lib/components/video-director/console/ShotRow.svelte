@@ -8,6 +8,7 @@
 	import type { ConsoleShot } from './consoleModel';
 	import { badgeMeta, BADGE_TONE_CLASS } from './badgeMeta';
 	import ConsoleIcon from './ConsoleIcon.svelte';
+	import { isVideoExample } from '$lib/utils/presetMedia';
 
 	let {
 		shot,
@@ -25,6 +26,9 @@
 	} = $props();
 
 	let meta = $derived(badgeMeta(shot.badge));
+	let thumbIsVideo = $derived(
+		!!shot.thumb.url && shot.thumb.source === 'output' && isVideoExample({ src: shot.thumb.url.split('?')[0] })
+	);
 
 	function runLabel(): string {
 		const run = shot.run;
@@ -67,12 +71,22 @@
 	</button>
 
 	<div
-		class="h-[72px] w-32 flex-none rounded-md bg-cover bg-center shadow-raised {shot.thumb.url
-			? ''
+		class="h-[72px] w-32 flex-none overflow-hidden rounded-md shadow-raised {shot.thumb.url
+			? 'bg-cover bg-center'
 			: 'flex items-center justify-center border border-dashed border-line-strong bg-canvas'}"
-		style={shot.thumb.url ? `background-image:url(${JSON.stringify(shot.thumb.url)})` : ''}
+		style={shot.thumb.url && !thumbIsVideo ? `background-image:url(${JSON.stringify(shot.thumb.url)})` : ''}
 	>
-		{#if !shot.thumb.url}
+		{#if thumbIsVideo}
+			<video
+				src={shot.thumb.url}
+				class="h-full w-full object-cover"
+				muted
+				playsinline
+				preload="metadata"
+			>
+				<track kind="captions" />
+			</video>
+		{:else if !shot.thumb.url}
 			<ConsoleIcon name="image" class="h-[18px] w-[18px] text-fg-disabled" />
 		{/if}
 	</div>

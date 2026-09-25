@@ -720,3 +720,40 @@ describe('deriveConsoleModel — W3 dependency badge/missing-join (LTX timeline 
 		expect(model.joins[0].kind).toBe('cut');
 	});
 });
+
+describe('deriveConsoleModel — two independent LTX timeline shots each get their own run poster', () => {
+	it('both thumbs read their OWN done run poster, keyed by shot id', () => {
+		const doc = ltxDoc();
+		doc.timeline = {
+			...doc.timeline,
+			shots: [
+				{ ...doc.timeline.shots[0], id: 'shot-1' },
+				{ id: 'shot-2', duration: 3, continue_from_previous: false, segments: [], keyframes: [], audio: [], ic_lora: [] }
+			]
+		};
+		const runs: Record<string, DirectorRunState> = {
+			'shot-1': {
+				generationId: 'gen-1',
+				status: 'done',
+				progress: 1,
+				finishedAt: 1000,
+				posterUrl: '/api/media/generations/gen-1/0.mp4',
+				inputsHash: 'h1',
+				predecessorRef: null
+			},
+			'shot-2': {
+				generationId: 'gen-2',
+				status: 'done',
+				progress: 1,
+				finishedAt: 2000,
+				posterUrl: '/api/media/generations/gen-2/0.mp4',
+				inputsHash: 'h2',
+				predecessorRef: null
+			}
+		};
+		const model = deriveConsoleModel(doc, ltxCaps(), { activeShotId: null }, null, runs);
+		expect(model.shots).toHaveLength(2);
+		expect(model.shots[0].thumb).toEqual({ url: '/api/media/generations/gen-1/0.mp4', source: 'output' });
+		expect(model.shots[1].thumb).toEqual({ url: '/api/media/generations/gen-2/0.mp4', source: 'output' });
+	});
+});

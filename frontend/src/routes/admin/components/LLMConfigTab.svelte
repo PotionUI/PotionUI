@@ -357,6 +357,7 @@ Always be creative and helpful while staying focused on the image generation con
 							layout="panel"
 							idPrefix="edit-config"
 							apiKeySet={!!activeConfig?.api_key_set}
+							configId={activeConfig?.id ?? null}
 							{preChatActions}
 						/>
 					{/snippet}

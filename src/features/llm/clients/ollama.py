@@ -14,6 +14,7 @@ from src.features.llm.clients.ollama_wire import (
     build_ollama_chat_request,
     build_ollama_generate_request,
 )
+from src.features.llm.model_listing import DiscoveredModel, ModelListingError, fetch_json, sorted_models
 from src.features.llm.clients.wire_events import Done, TextDelta, ToolCalls, Usage
 from src.features.llm.repository import LLMConfig
 
@@ -33,6 +34,40 @@ class OllamaClient:
         return httpx.Timeout(
             connect=config.timeout, read=None, write=config.timeout, pool=config.timeout
         )
+
+    display_name = "Ollama"
+
+    async def list_models(self, base_url: str, api_key: Optional[str] = None) -> List[DiscoveredModel]:
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        payload = await fetch_json(self.display_name, base_url, "/api/tags", headers)
+        entries = payload.get("models") if isinstance(payload, dict) else None
+        if not isinstance(entries, list):
+            raise ModelListingError(f"{self.display_name} returned no model list.")
+        models = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name") or entry.get("model")
+            if not name:
+                continue
+            raw_details = entry.get("details") if isinstance(entry.get("details"), dict) else {}
+            details = {
+                key: raw_details[source]
+                for key, source in (
+                    ("parameter_size", "parameter_size"),
+                    ("quantization", "quantization_level"),
+                    ("family", "family"),
+                )
+                if raw_details.get(source)
+            }
+            size = entry.get("size")
+            models.append(DiscoveredModel(
+                id=str(name),
+                size=size if isinstance(size, int) else None,
+                modified_at=entry.get("modified_at") if isinstance(entry.get("modified_at"), str) else None,
+                details=details or None,
+            ))
+        return sorted_models(models)
 
     @staticmethod
     def _usage_event(event: Usage) -> Dict[str, Any]:

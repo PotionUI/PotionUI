@@ -180,6 +180,13 @@ class LLMConfigRequest(BaseModel):
 # Tool Governance DTOs
 # ============================================================================
 
+class ModelDiscoveryRequest(BaseModel):
+    type: str
+    base_url: str = ""
+    api_key: Optional[str] = None
+    config_id: Optional[str] = None
+
+
 class ToolGovernanceUpdateRequest(BaseModel):
     """Admin update to one tool's governance row. Both fields optional so a
     client can flip just `enabled` or just `locked` in one call."""

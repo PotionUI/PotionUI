@@ -19,11 +19,12 @@
 
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import type { NativeCheckpoint, PreChatAction } from '$lib/types/llm';
+	import type { LLMProviderType, NativeCheckpoint, PreChatAction } from '$lib/types/llm';
 	import { api } from '$lib/services/api/index';
 	import { Badge, Input, Spinner, Switch } from '$lib/components/ui';
 	import { DetailSection, DetailField, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import { coerceProviderOptionText } from './llmProviderOptions';
+	import LLMModelCombobox from './llm/LLMModelCombobox.svelte';
 
 	/**
 	 * Shared Model / Prompting / Sampling / Capabilities / Ollama Options /
@@ -44,6 +45,7 @@
 		layout = 'plain',
 		idPrefix,
 		apiKeySet = false,
+		configId = null,
 		preChatActions = []
 	}: {
 		draft: LLMConfigFormData;
@@ -51,6 +53,7 @@
 		layout?: 'panel' | 'plain';
 		idPrefix: string;
 		apiKeySet?: boolean;
+		configId?: string | null;
 		preChatActions?: PreChatAction[];
 	} = $props();
 
@@ -222,6 +225,23 @@
 	// `quant_modes` — never a fixed list, since what a checkpoint can be
 	// loaded as depends on what native.py's loader actually supports for it.
 	const quantOptions = $derived(selectedCheckpoint?.quant_modes ?? []);
+
+	let providerTypes = $state<LLMProviderType[]>([]);
+
+	async function loadProviderTypes() {
+		try {
+			const response = await api.getLLMProviderTypes();
+			if (response.success && response.data) providerTypes = response.data.types ?? [];
+		} catch {
+			providerTypes = [];
+		}
+	}
+
+	loadProviderTypes();
+
+	const supportsModelListing = $derived(
+		providerTypes.some((t) => t.type === draft.type && t.supports_model_listing)
+	);
 </script>
 
 {#snippet section(title: string, isFirst: boolean, body: Snippet, headerExtra?: Snippet)}
@@ -296,6 +316,15 @@
 				The saved checkpoint "{draft.model}" is no longer listed under models/llm/ — kept as-is; pick a different one below to replace it.
 			</p>
 		{/if}
+	{:else if supportsModelListing}
+		<LLMModelCombobox
+			id="{idPrefix}-model"
+			bind:value={draft.model}
+			type={draft.type}
+			baseUrl={draft.base_url}
+			apiKey={draft.api_key}
+			configId={apiKeySet ? configId : null}
+		/>
 	{:else}
 		<Input id="{idPrefix}-model" type="text" bind:value={draft.model} placeholder="e.g. gpt-4o, claude-sonnet-4-20250514" />
 	{/if}

@@ -99,6 +99,25 @@ export interface NativeOptions {
  * under `models/llm/`. `supported: false` entries are listed (with `reason`)
  * so the admin can see why a directory doesn't qualify, not silently hidden.
  */
+export interface LLMProviderType {
+	type: string;
+	supports_model_listing: boolean;
+}
+
+export interface DiscoveredLLMModel {
+	id: string;
+	label?: string | null;
+	size?: number | null;
+	modified_at?: string | null;
+	details?: Record<string, string> | null;
+}
+
+export interface LLMModelDiscovery {
+	supported: boolean;
+	models: DiscoveredLLMModel[];
+	error: string | null;
+}
+
 export interface NativeCheckpoint {
 	name: string;
 	path: string;

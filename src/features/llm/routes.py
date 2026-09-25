@@ -18,6 +18,7 @@ from src.platform.security.current_user import get_current_active_user, get_curr
 from src.features.llm.dto import (
     LLMConfigRequest,
     LLMGenerateRequest,
+    ModelDiscoveryRequest,
     UserLLMAssignmentRequest,
 )
 from src.features.llm import (
@@ -35,6 +36,7 @@ from src.features.llm import (
 )
 from src.features.llm import operations
 from src.features.llm.mappers import config_to_response, assignment_config_to_response
+from src.features.llm.model_listing import ModelListingError
 from src.features.llm.repository import LLMRepository
 from src.features.llm.gateway import LLMGateway
 from src.platform.plugins import PluginRegistry
@@ -94,6 +96,30 @@ class LLMController(BaseController):
                 error="get_configurations_failed",
                 message=f"Failed to get LLM configurations: {str(e)}"
             )
+
+    def list_provider_types(self) -> APIResponse:
+        return self.success_response(data={"types": self.llm_service.provider_types()})
+
+    async def discover_models(self, request: ModelDiscoveryRequest) -> APIResponse:
+        if not self.llm_service.supports_model_listing(request.type):
+            return self.success_response(data={"supported": False, "models": [], "error": None})
+        api_key = request.api_key or None
+        if not api_key and request.config_id:
+            stored = self.repository.get_configuration(request.config_id)
+            if stored is not None and stored.type == request.type:
+                api_key = stored.api_key or None
+        try:
+            models = await self.llm_service.list_models(request.type, request.base_url, api_key)
+        except ModelListingError as exc:
+            return self.success_response(data={"supported": True, "models": [], "error": str(exc)})
+        except Exception:
+            logger.exception("Model discovery failed for LLM type %s", request.type)
+            return self.success_response(
+                data={"supported": True, "models": [], "error": "Model discovery failed unexpectedly."}
+            )
+        return self.success_response(
+            data={"supported": True, "models": [m.model_dump() for m in models], "error": None}
+        )
 
     def list_native_checkpoints(self) -> APIResponse:
         """List HF-layout checkpoints under models/llm/, for the 'native'
@@ -496,6 +522,16 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_llm_configurations(current_user: User = Depends(get_current_admin_user)):
         """Get all configured LLM providers and their settings."""
         return controller.get_all_configurations()
+
+    @router.get("/types", response_model=APIResponse, summary="List LLM Provider Types")
+    async def list_llm_provider_types(current_user: User = Depends(get_current_admin_user)):
+        return controller.list_provider_types()
+
+    @router.post("/models/discover", response_model=APIResponse, summary="Discover Provider Models")
+    async def discover_llm_models(
+        request: ModelDiscoveryRequest, current_user: User = Depends(get_current_admin_user)
+    ):
+        return await controller.discover_models(request)
 
     @router.get("/native/checkpoints", response_model=APIResponse, summary="List Native LLM Checkpoints")
     async def list_native_llm_checkpoints(current_user: User = Depends(get_current_admin_user)):

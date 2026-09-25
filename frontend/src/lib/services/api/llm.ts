@@ -1,6 +1,12 @@
 import type { AxiosInstance } from 'axios';
 import type { APIResponse } from '$lib/types/api';
-import type { LLMConfig, NativeCheckpoint, UserToolPreference } from '$lib/types/llm';
+import type {
+	LLMConfig,
+	LLMModelDiscovery,
+	LLMProviderType,
+	NativeCheckpoint,
+	UserToolPreference
+} from '$lib/types/llm';
 
 export function createLlmApi(client: AxiosInstance) {
 	return {
@@ -12,6 +18,21 @@ export function createLlmApi(client: AxiosInstance) {
 		/** HF-layout checkpoints under `models/llm/`, for the native provider's config.model picker. */
 		async listNativeCheckpoints(): Promise<APIResponse<NativeCheckpoint[]>> {
 			const response = await client.get('/api/llm/native/checkpoints');
+			return response.data;
+		},
+
+		async getLLMProviderTypes(): Promise<APIResponse<{ types: LLMProviderType[] }>> {
+			const response = await client.get('/api/llm/types');
+			return response.data;
+		},
+
+		async discoverLLMModels(request: {
+			type: string;
+			base_url: string;
+			api_key?: string | null;
+			config_id?: string | null;
+		}): Promise<APIResponse<LLMModelDiscovery>> {
+			const response = await client.post('/api/llm/models/discover', request);
 			return response.data;
 		},
 

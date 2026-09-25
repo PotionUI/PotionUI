@@ -13,6 +13,7 @@ from src.features.llm.clients.openai_wire import (
     build_openai_request,
     prompt_from,
 )
+from src.features.llm.model_listing import DiscoveredModel, ModelListingError, fetch_json, sorted_models
 from src.features.llm.clients.wire_events import Done, RecordTooLarge, TextDelta, ToolCallDelta, Usage
 from src.features.llm.repository import LLMConfig
 
@@ -33,6 +34,25 @@ class OpenAIClient:
         return httpx.Timeout(
             connect=config.timeout, read=None, write=config.timeout, pool=config.timeout
         )
+
+    display_name = "OpenAI-compatible server"
+
+    async def list_models(self, base_url: str, api_key: Optional[str] = None) -> List[DiscoveredModel]:
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        payload = await fetch_json(self.display_name, base_url, "/models", headers)
+        entries = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(entries, list):
+            raise ModelListingError(f"{self.display_name} returned no model list.")
+        models = []
+        for entry in entries:
+            if not isinstance(entry, dict) or not entry.get("id"):
+                continue
+            owner = entry.get("owned_by")
+            models.append(DiscoveredModel(
+                id=str(entry["id"]),
+                details={"owned_by": owner} if owner else None,
+            ))
+        return sorted_models(models)
 
     async def generate(
         self,

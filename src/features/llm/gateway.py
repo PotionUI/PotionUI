@@ -4,6 +4,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from src.features.llm import context_budget
 from src.features.llm.clients import LLMClient, LLMResponse, NativeLLMClient, OllamaClient, OpenAIClient
+from src.features.llm.model_listing import DiscoveredModel
 from src.features.llm.repository import LLMConfig, LLMRepository
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 
@@ -23,15 +24,31 @@ class LLMGateway:
         self._ollama = OllamaClient()
         self._openai = OpenAIClient()
         self._native = NativeLLMClient(model_lifecycle)
+        self._clients: Dict[str, LLMClient] = {
+            "ollama": self._ollama,
+            "openai": self._openai,
+            "native": self._native,
+        }
 
     def _client_for(self, config: LLMConfig) -> LLMClient:
-        if config.type == "ollama":
-            return self._ollama
-        elif config.type == "openai":
-            return self._openai
-        elif config.type == "native":
-            return self._native
-        raise ValueError(f"Unsupported LLM type: {config.type}")
+        client = self._clients.get(config.type)
+        if client is None:
+            raise ValueError(f"Unsupported LLM type: {config.type}")
+        return client
+
+    def provider_types(self) -> List[Dict[str, Any]]:
+        return [
+            {"type": type_id, "supports_model_listing": self.supports_model_listing(type_id)}
+            for type_id in self._clients
+        ]
+
+    def supports_model_listing(self, type_id: str) -> bool:
+        return callable(getattr(self._clients.get(type_id), "list_models", None))
+
+    async def list_models(self, type_id: str, base_url: str, api_key: Optional[str] = None) -> List[DiscoveredModel]:
+        if not self.supports_model_listing(type_id):
+            raise ValueError(f"LLM type '{type_id}' cannot list models")
+        return await self._clients[type_id].list_models(base_url, api_key)
 
     @staticmethod
     def _safe_provider_hook(provider_method: Optional[Any], config: LLMConfig, label: str) -> Optional[Any]:

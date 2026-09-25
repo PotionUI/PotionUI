@@ -44,6 +44,7 @@ export interface PersistedTab {
 	promptPanelWidth?: number;
 	/** See the matching field on `Tab` below (Video Director auto-widen). */
 	promptPanelWidthBeforeDirector?: number;
+	promptPanelWidthFolded?: number;
 	positiveSegmentsCollapsed?: boolean;
 	negativeSegmentsCollapsed?: boolean;
 	/** Per-section fold state for `type: section` form fields; see the
@@ -464,6 +465,7 @@ export interface Tab {
 	 *  (`PersistedTab`, same tier as `promptPanelWidth`) so a reload mid-session
 	 *  still knows what to restore to. */
 	promptPanelWidthBeforeDirector?: number;
+	promptPanelWidthFolded?: number;
 	/** Per-tab prompt composer layout, also stored in generation sessions. */
 	positiveSegmentsCollapsed?: boolean;
 	negativeSegmentsCollapsed?: boolean;

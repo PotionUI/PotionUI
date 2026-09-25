@@ -29,6 +29,17 @@ export function settingsPaneContentWidth(viewportWidth: number): number {
 	return settingsPaneWidth(viewportWidth) - SETTINGS_PANE_CONTENT_PADDING;
 }
 
+export const PROMPT_PANEL_FOLDED_MIN_WIDTH = 448;
+export const PROMPT_PANEL_FOLDED_MAX_WIDTH = 896;
+export const PROMPT_PANEL_FOLDED_SHARE = 0.42;
+
+export function foldedPromptPanelWidth(availableWidth: number): number {
+	const share = availableWidth * PROMPT_PANEL_FOLDED_SHARE;
+	return Math.round(
+		Math.min(PROMPT_PANEL_FOLDED_MAX_WIDTH, Math.max(PROMPT_PANEL_FOLDED_MIN_WIDTH, share))
+	);
+}
+
 // Video Director auto-widen: while the Director is active, the prompts pane
 // (which hosts the console) grows to the widest it can be; on deactivation it
 // returns to whatever the user had it at before. Both directions are pure

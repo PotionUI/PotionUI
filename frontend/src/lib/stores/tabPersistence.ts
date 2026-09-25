@@ -47,6 +47,7 @@ export function toPersistedTab(t: Tab): PersistedTab {
 		layoutMode: t.layoutMode,
 		promptPanelWidth: t.promptPanelWidth,
 		promptPanelWidthBeforeDirector: t.promptPanelWidthBeforeDirector,
+		promptPanelWidthFolded: t.promptPanelWidthFolded,
 		positiveSegmentsCollapsed: t.positiveSegmentsCollapsed,
 		negativeSegmentsCollapsed: t.negativeSegmentsCollapsed,
 		sectionCollapsed: t.sectionCollapsed,

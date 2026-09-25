@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { widenPromptPanelForDirector, restorePromptPanelFromDirector } from './generationLayout';
+import {
+	widenPromptPanelForDirector,
+	restorePromptPanelFromDirector,
+	foldedPromptPanelWidth,
+	PROMPT_PANEL_FOLDED_MIN_WIDTH,
+	PROMPT_PANEL_FOLDED_MAX_WIDTH
+} from './generationLayout';
 
 // Video Director auto-widen (PLAN.md §C W4): pure reducers only — the
 // stashing/restoring of the prompts pane width around Director activation.
@@ -69,5 +75,22 @@ describe('restorePromptPanelFromDirector', () => {
 		const stateAfterRemount = { promptPanelWidth: 1068, promptPanelWidthBeforeDirector: 420 };
 		const patch = restorePromptPanelFromDirector(stateAfterRemount);
 		expect(patch).toEqual({ promptPanelWidth: 420, promptPanelWidthBeforeDirector: undefined });
+	});
+});
+
+describe('foldedPromptPanelWidth', () => {
+	it('takes a 42% share at 1280px and 1440px', () => {
+		expect(foldedPromptPanelWidth(1280)).toBe(538);
+		expect(foldedPromptPanelWidth(1440)).toBe(605);
+	});
+
+	it('clamps to the minimum on a narrow row', () => {
+		expect(foldedPromptPanelWidth(320)).toBe(PROMPT_PANEL_FOLDED_MIN_WIDTH);
+		expect(foldedPromptPanelWidth(0)).toBe(PROMPT_PANEL_FOLDED_MIN_WIDTH);
+	});
+
+	it('clamps to the maximum on a wide row', () => {
+		expect(foldedPromptPanelWidth(1920)).toBe(806);
+		expect(foldedPromptPanelWidth(2560)).toBe(PROMPT_PANEL_FOLDED_MAX_WIDTH);
 	});
 });

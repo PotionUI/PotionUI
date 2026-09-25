@@ -13,7 +13,8 @@
 	import {
 		PROMPT_PANEL_MIN_WIDTH,
 		widenPromptPanelForDirector,
-		restorePromptPanelFromDirector
+		restorePromptPanelFromDirector,
+		foldedPromptPanelWidth
 	} from '$lib/stores/generationLayout';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { shortcutLabels } from '$lib/stores/keybindings';
@@ -94,11 +95,15 @@
 	// sidebar/form widths.
 	let panelsEl: HTMLDivElement;
 	let promptPaneEl: HTMLDivElement;
+	let panelsWidth = 0;
 	let isResizingPrompt = false;
 	const WORKBENCH_MIN_WIDTH = 320;
 	const RESIZE_HANDLE_WIDTH = 4;
 	$: formPanelWidth = tab.leftPanelCollapsed ? '0.75rem' : `min(${leftPanelWidth}px, 45vw)`;
 	$: floatingPresetName = presets.find((p) => p.id === tab.selectedPreset)?.name;
+	$: activePromptPanelWidth = tab.leftPanelCollapsed
+		? tab.promptPanelWidthFolded ?? foldedPromptPanelWidth(panelsWidth)
+		: tab.promptPanelWidth;
 
 	// The floating workbench opens at the inline pane's own width —
 	// captured here (the pane container's width doesn't change when its
@@ -132,7 +137,7 @@
 	}
 
 	function promptWidthForClientX(clientX: number): number {
-		if (!panelsEl || !promptPaneEl) return tab.promptPanelWidth;
+		if (!panelsEl || !promptPaneEl) return activePromptPanelWidth;
 		const promptLeft = promptPaneEl.getBoundingClientRect().left;
 		const panelRight = panelsEl.getBoundingClientRect().right;
 		const availableMaximum = Math.max(
@@ -144,8 +149,12 @@
 	}
 
 	function setPromptWidth(width: number) {
-		const nextWidth = promptWidthForClientX(promptPaneEl.getBoundingClientRect().left + width);
-		tabsStore.updateTab(tab.id, { promptPanelWidth: Math.round(nextWidth) });
+		const nextWidth = Math.round(promptWidthForClientX(promptPaneEl.getBoundingClientRect().left + width));
+		if (tab.leftPanelCollapsed) {
+			tabsStore.updateTab(tab.id, { promptPanelWidthFolded: nextWidth });
+		} else {
+			tabsStore.updateTab(tab.id, { promptPanelWidth: nextWidth });
+		}
 	}
 
 	// Video Director auto-widen (PLAN.md §C W4): while the Director is
@@ -221,7 +230,7 @@
 	function handlePromptResizeKeydown(event: KeyboardEvent) {
 		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
 		event.preventDefault();
-		setPromptWidth(tab.promptPanelWidth + (event.key === 'ArrowLeft' ? -24 : 24));
+		setPromptWidth(activePromptPanelWidth + (event.key === 'ArrowLeft' ? -24 : 24));
 	}
 
 	function stopPromptResize() {
@@ -243,7 +252,7 @@
 	onDestroy(stopPromptResize);
 </script>
 
-<div bind:this={panelsEl} data-testid="generation-panels-root" class="flex h-full">
+<div bind:this={panelsEl} bind:clientWidth={panelsWidth} data-testid="generation-panels-root" class="flex h-full">
 	<!-- Left Panel: Form -->
 	{#if tab.leftPanelCollapsed}
 		<Tooltip text="Expand generation settings" kbd={$shortcutLabels['toggle_left_panel']} position="right" delay={150} wrapperClass="flex h-full flex-shrink-0">
@@ -313,7 +322,7 @@
 				: 'flex-shrink-0 overflow-y-auto bg-surface-1/20 pb-[var(--dock-height)]'}
 			style={tab.workbenchCollapsed
 				? ''
-				: `width: ${tab.promptPanelWidth}px; max-width: calc(100% - ${formPanelWidth} - ${workbenchBoundWidth})`}
+				: `width: ${activePromptPanelWidth}px; max-width: calc(100% - ${formPanelWidth} - ${workbenchBoundWidth})`}
 		>
 			<div class="p-4">
 				<PromptSection

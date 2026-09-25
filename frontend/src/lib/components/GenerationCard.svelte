@@ -398,16 +398,14 @@
 				</div>
 			{/if}
 
-			<!-- Actions - top right on hover (favorite persists when set) -->
+			<!-- Actions - top right on hover -->
 			{#if showActions && !selectable}
 				{#if tile && chromeBucket}
 					<div class="absolute top-2 right-2 z-30 flex items-center gap-1">
 						{#each chromeActions as action (action)}
 							{#if action === 'favorite'}
 								<div
-									class="bg-black/60 hover:bg-black/80 rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 flex items-center {generation.is_favorite
-										? 'opacity-100'
-										: 'opacity-0 group-hover:opacity-100'}"
+									class="bg-black/60 hover:bg-black/80 rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 flex items-center opacity-0 group-hover:opacity-100 focus-within:opacity-100"
 								>
 									<FavoriteButton
 										active={generation.is_favorite}
@@ -451,9 +449,7 @@
 				{:else if !tile && density.actionMode !== 'none'}
 					<div class="absolute top-2 right-2 z-30 flex items-center gap-1">
 						<div
-							class="bg-black/60 hover:bg-black/80 rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 flex items-center {generation.is_favorite
-								? 'opacity-100'
-								: 'opacity-0 group-hover:opacity-100'}"
+							class="bg-black/60 hover:bg-black/80 rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 flex items-center opacity-0 group-hover:opacity-100 focus-within:opacity-100"
 						>
 							<FavoriteButton
 								active={generation.is_favorite}

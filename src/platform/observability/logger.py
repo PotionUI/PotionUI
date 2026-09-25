@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import logging.handlers
 import os
+import re
 from pathlib import Path
 
 from rich.logging import RichHandler
@@ -42,6 +43,35 @@ _FILE_MARK = "_potionui_file_handler"
 # would keep server and access lines out of the file. Emptying them and letting
 # them propagate puts every line through the same two handlers.
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
+
+_SECRET_QUERY_PARAMS = ("token", "access_token", "api_key")
+_SECRET_QUERY_PATTERN = re.compile(
+    r"(?i)\b(" + "|".join(_SECRET_QUERY_PARAMS) + r")=([^&\s\"']+)"
+)
+
+
+def _redact_secret_query_params(text: str) -> str:
+    return _SECRET_QUERY_PATTERN.sub(lambda m: f"{m.group(1)}=***", text)
+
+
+class _SecretQueryParamFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = _redact_secret_query_params(record.msg)
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                _redact_secret_query_params(arg) if isinstance(arg, str) else arg
+                for arg in record.args
+            )
+        elif isinstance(record.args, dict):
+            record.args = {
+                key: (_redact_secret_query_params(value) if isinstance(value, str) else value)
+                for key, value in record.args.items()
+            }
+        return True
+
+
+_secret_query_param_filter = _SecretQueryParamFilter()
 
 logger = logging.getLogger("is")
 
@@ -87,6 +117,7 @@ def _build_console_handler(level: int) -> logging.Handler:
     handler = RichHandler()
     handler.setFormatter(logging.Formatter(CONSOLE_FORMAT, datefmt=CONSOLE_DATE_FORMAT))
     handler.setLevel(level)
+    handler.addFilter(_secret_query_param_filter)
     setattr(handler, _CONSOLE_MARK, True)
     return handler
 
@@ -111,6 +142,7 @@ def _build_file_handler(level: int) -> logging.Handler | None:
         return None
     handler.setFormatter(logging.Formatter(FILE_FORMAT, datefmt=FILE_DATE_FORMAT))
     handler.setLevel(level)
+    handler.addFilter(_secret_query_param_filter)
     setattr(handler, _FILE_MARK, True)
     return handler
 
@@ -138,5 +170,7 @@ def configure_logging() -> logging.Logger:
         for handler in list(uvicorn_logger.handlers):
             uvicorn_logger.removeHandler(handler)
         uvicorn_logger.propagate = True
+        if not any(isinstance(f, _SecretQueryParamFilter) for f in uvicorn_logger.filters):
+            uvicorn_logger.addFilter(_secret_query_param_filter)
 
     return logger

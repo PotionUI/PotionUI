@@ -219,6 +219,33 @@ def test_importing_the_module_configures_nothing_and_creates_no_directory(tmp_pa
     assert not (tmp_path / "storage").exists()
 
 
+def test_uvicorn_websocket_access_line_redacts_token_from_args_and_from_a_plain_message(
+    root_logger, log_env
+):
+    configure_logging()
+
+    access = logging.getLogger("uvicorn.error")
+    access.info(
+        '%s - "%s %s" [accepted]',
+        "127.0.0.1:54321",
+        "WebSocket",
+        "/ws/notifications?token=eyJhbGciOiJIUzI1NiJ9.secretpayload.sig",
+    )
+    access.info(
+        'plain "WebSocket /ws/system?access_token=abc123&api_key=def456" [accepted]'
+    )
+    _file_handlers(root_logger)[0].flush()
+
+    lines = (log_env / "potionui.log").read_text(encoding="utf-8").splitlines()[-2:]
+    for line in lines:
+        assert "eyJhbGciOiJIUzI1NiJ9.secretpayload.sig" not in line
+        assert "abc123" not in line
+        assert "def456" not in line
+    assert "token=***" in lines[0]
+    assert "access_token=***" in lines[1]
+    assert "api_key=***" in lines[1]
+
+
 def test_default_directory_is_under_storage(monkeypatch):
     monkeypatch.delenv("POTIONUI_LOG_DIR", raising=False)
     monkeypatch.delenv("POTIONUI_LOG_FILE", raising=False)

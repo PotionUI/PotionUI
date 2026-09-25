@@ -82,6 +82,8 @@ class ResourceContext:
     # search composition itself is not reachable here as a class.
     phrasebook_search: Optional[Any] = None
     preset_collaborators: Optional[Any] = None
+    preset_lookup: Optional[Any] = None
+    preset_form_schema_lookup: Optional[Any] = None
     generation_repository: Optional[Any] = None
     generation_parameter_repository: Optional[Any] = None
     generation_model_repository: Optional[Any] = None

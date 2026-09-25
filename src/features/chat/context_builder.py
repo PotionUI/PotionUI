@@ -25,6 +25,7 @@ from src.features.llm import context_budget
 from src.features.llm.tools.governance import ToolGovernanceRepository, compute_allowed_tool_names
 from src.features.llm.ttl_cache import TTLCache
 from src.features.llm_memory import operations as memory_operations
+from src.features.presets import operations
 from src.platform.resources import ResolvedResource, ResourceContext, ResourceSuggestion
 
 logger = logging.getLogger(__name__)
@@ -362,6 +363,8 @@ class ChatContextBuilder:
             phrasebook_value_repository=self._m.phrasebook_value_repository,
             phrasebook_search=self._m.phrasebook_search,
             preset_collaborators=self._m.preset_collaborators,
+            preset_lookup=self._m.preset_lookup,
+            preset_form_schema_lookup=self._m.preset_form_schema_lookup,
             generation_repository=self._m.generation_repository,
             generation_parameter_repository=self._m.generation_parameter_repository,
             generation_model_repository=self._m.generation_model_repository,
@@ -864,10 +867,16 @@ class ChatContextBuilder:
         media_fields: List[str] = []
         if self._m.preset_collaborators and preset_id:
             try:
-                schema_data = self._m.preset_collaborators.get_form_schema(preset_id, mode=mode, form_name=variant)
+                schema_data = operations.get_form_schema(
+                    self._m.preset_collaborators, preset_id, mode=mode, form_name=variant
+                )
                 props = (schema_data.get("form_schema") or {}).get("properties")
                 media_fields = sorted(media_field_names(props))
             except Exception:
+                logger.warning(
+                    "form schema lookup failed for preset '%s' mode '%s'; Video Director media fields empty",
+                    preset_id, mode, exc_info=True,
+                )
                 media_fields = []
 
         try:
@@ -931,8 +940,14 @@ class ChatContextBuilder:
         if not self._m.preset_collaborators:
             return []
         try:
-            schema_data = self._m.preset_collaborators.get_form_schema(preset_id, mode=mode, form_name=variant)
+            schema_data = operations.get_form_schema(
+                self._m.preset_collaborators, preset_id, mode=mode, form_name=variant
+            )
         except Exception:
+            logger.warning(
+                "form schema lookup failed for preset '%s' mode '%s'; form context block empty",
+                preset_id, mode, exc_info=True,
+            )
             return []
         props = (schema_data.get("form_schema") or {}).get("properties") or {}
         if not props:

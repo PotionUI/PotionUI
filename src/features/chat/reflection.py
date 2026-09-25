@@ -70,6 +70,7 @@ from src.features.llm import context_budget, trace_collector
 from src.features.llm.tools.builtin.utils import resolve_active_preset_id
 from src.features.llm_memory import operations as memory_operations
 from src.features.llm_memory.operations import MAX_CONTENT_LENGTH
+from src.features.presets import operations as preset_operations
 
 logger = logging.getLogger(__name__)
 
@@ -638,9 +639,9 @@ class ChatReflectionGenerator:
         label = preset_id
         if self._m.preset_collaborators:
             try:
-                label = self._m.preset_collaborators.get_preset(preset_id).get("name") or preset_id
+                label = preset_operations.get_preset(self._m.preset_collaborators, preset_id).get("name") or preset_id
             except Exception:
-                pass
+                logger.warning("preset lookup failed for '%s'; using id as label", preset_id, exc_info=True)
         return label
 
     def _build_span(self, session: SessionResponse, messages: List[Any], char_budget: int) -> "_ReflectionSpan":

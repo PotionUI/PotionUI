@@ -59,6 +59,8 @@ class ChatRuntime:
         segment_template_repository: Optional[Any] = None,
         model_index_manager: Optional[Any] = None,
         preset_collaborators: Optional[Any] = None,
+        preset_lookup: Optional[Any] = None,
+        preset_form_schema_lookup: Optional[Any] = None,
         phrasebook_category_repository: Optional[Any] = None,
         phrasebook_value_repository: Optional[Any] = None,
         phrasebook_search: Optional[Any] = None,
@@ -123,6 +125,8 @@ class ChatRuntime:
         self.segment_template_repository = segment_template_repository
         self.model_index_manager = model_index_manager
         self.preset_collaborators = preset_collaborators
+        self.preset_lookup = preset_lookup
+        self.preset_form_schema_lookup = preset_form_schema_lookup
         self.phrasebook_category_repository = phrasebook_category_repository
         self.phrasebook_value_repository = phrasebook_value_repository
         self.phrasebook_search = phrasebook_search

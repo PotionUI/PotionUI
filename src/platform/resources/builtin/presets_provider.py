@@ -62,7 +62,7 @@ class PresetsResourceProvider(BaseResourceProvider):
             return []
         needle = partial.lower()
         suggestions = []
-        for field_item in self._option_fields(preset):
+        for field_item in self._option_fields(ctx, path[0]):
             name = field_item.get("name", "")
             if needle and needle not in name.lower() and needle not in (field_item.get("label") or "").lower():
                 continue
@@ -84,39 +84,62 @@ class PresetsResourceProvider(BaseResourceProvider):
             return None
 
         if len(path) == 1:
-            return self._preset_summary(path[0], preset)
+            return self._preset_summary(ctx, path[0], preset)
 
         field_name = ".".join(path[1:])
-        for field_item in self._option_fields(preset):
+        for field_item in self._option_fields(ctx, path[0]):
             if field_item.get("name") == field_name:
                 return self._field_options(path[0], preset, field_item)
         return None
 
     @staticmethod
     def _get_preset(ctx: ResourceContext, preset_id: str) -> Optional[Dict[str, Any]]:
+        if not ctx.preset_lookup:
+            return None
         try:
-            data = ctx.preset_collaborators.get_preset(preset_id)
-            return data.get("preset", data)
+            return ctx.preset_lookup(preset_id)
         except Exception:
-            logger.debug(f"Preset '{preset_id}' not found for @resource resolution")
+            logger.warning("preset lookup failed for '%s' during @resource resolution", preset_id, exc_info=True)
             return None
 
     @staticmethod
-    def _option_fields(preset: Dict[str, Any]) -> List[Dict[str, Any]]:
-        form = preset.get("form")
-        if not isinstance(form, list):
+    def _option_fields(ctx: ResourceContext, preset_id: str) -> List[Dict[str, Any]]:
+        if not ctx.preset_form_schema_lookup:
             return []
-        return [f for f in form if isinstance(f.get("options"), list) and f["options"]]
+        try:
+            schema_data = ctx.preset_form_schema_lookup(preset_id)
+        except Exception:
+            logger.warning("form schema lookup failed for '%s' during @resource resolution", preset_id, exc_info=True)
+            return []
+        props = ((schema_data or {}).get("form_schema") or {}).get("properties") or {}
+        found: Dict[str, Dict[str, Any]] = {}
 
-    def _preset_summary(self, preset_id: str, preset: Dict[str, Any]) -> ResolvedResource:
+        def walk(name: Optional[str], node: Any) -> None:
+            if isinstance(node, list):
+                for child in node:
+                    walk(None, child)
+                return
+            if not isinstance(node, dict):
+                return
+            key = node.get("name") if isinstance(node.get("name"), str) else name
+            if key and key not in found:
+                found[key] = node
+            walk(None, node.get("children") or [])
+
+        for prop_name, spec in props.items():
+            walk(prop_name, spec)
+
+        return [
+            {"name": name, "label": node.get("title") or name, "options": node.get("options")}
+            for name, node in found.items()
+            if isinstance(node.get("options"), list) and node["options"]
+        ]
+
+    def _preset_summary(self, ctx: ResourceContext, preset_id: str, preset: Dict[str, Any]) -> ResolvedResource:
         lines = [f"## Preset: {preset.get('name', preset_id)}"]
         if preset.get("description"):
             lines.append(preset["description"])
-        modes = preset.get("modes")
-        if modes:
-            mode_names = list(modes.keys()) if isinstance(modes, dict) else modes
-            lines.append(f"- Modes: {', '.join(str(m) for m in mode_names)}")
-        option_fields = self._option_fields(preset)
+        option_fields = self._option_fields(ctx, preset_id)
         if option_fields:
             lines.append("- Form fields with options:")
             for f in option_fields:

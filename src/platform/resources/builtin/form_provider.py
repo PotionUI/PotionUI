@@ -5,7 +5,7 @@ chat LLM can reason about what the user has actually configured. A bare
 ``@form`` dumps every non-empty scalar (and model-valued) field.
 
 Field resolution is TYPE-aware, keyed on the bound form's field types (via
-``preset_collaborators.get_form_schema``), never on field names:
+``ctx.preset_form_schema_lookup``), never on field names:
 
 - Model-reference fields (schema type ``model``/``models``, plus any field
   whose value carries the self-describing ``model:<id>`` ref — the shape every
@@ -171,14 +171,15 @@ class FormResourceProvider(BaseResourceProvider):
     @staticmethod
     def _field_schemas(ctx: ResourceContext) -> Dict[str, Dict[str, Any]]:
         form_state = getattr(ctx, "form_state", None)
-        if not isinstance(form_state, dict) or not ctx.preset_collaborators:
+        if not isinstance(form_state, dict) or not ctx.preset_form_schema_lookup:
             return {}
         preset_id = form_state.get("preset")
         if not preset_id:
             return {}
         try:
-            schema = ctx.preset_collaborators.get_form_schema(preset_id, mode=form_state.get("mode"))
+            schema = ctx.preset_form_schema_lookup(preset_id, mode=form_state.get("mode"))
         except Exception:
+            logger.warning("form schema lookup failed for '%s' during @form resolution", preset_id, exc_info=True)
             return {}
         props = ((schema or {}).get("form_schema") or {}).get("properties")
         if not isinstance(props, dict):

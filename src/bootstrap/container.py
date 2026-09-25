@@ -1358,6 +1358,9 @@ def build_container() -> AppContainer:
         backend_registry=backend_registry,
         requirements_cache=requirements_cache,
     )
+    from src.features.presets import operations as preset_operations
+    preset_lookup = functools.partial(preset_operations.get_preset, preset_collaborators)
+    preset_form_schema_lookup = functools.partial(preset_operations.get_form_schema, preset_collaborators)
     recipe_preset_links = RecipePresetLinks(
         recipe_catalog,
         recipe_runner,
@@ -1513,6 +1516,8 @@ def build_container() -> AppContainer:
             segment_template_repository=segment_template_repo,
             model_index_manager=model_index_manager,
             preset_collaborators=preset_collaborators,
+            preset_lookup=preset_lookup,
+            preset_form_schema_lookup=preset_form_schema_lookup,
             prompt_database=prompt_database,
             prompt_enhancement_manager=prompt_enhancement_manager,
             generation_orchestrator=generation_orchestrator,

@@ -1,6 +1,8 @@
 """Tests for ChatReflectionGenerator: trigger gating, tolerant JSON parsing,
 validation pass-through, and reflected-up-to bookkeeping."""
 
+from types import SimpleNamespace
+
 import pytest
 from unittest.mock import Mock, AsyncMock
 
@@ -8,6 +10,24 @@ from src.features.chat.reflection import (
     ChatReflectionGenerator,
     MIN_UNREFLECTED_USER_MESSAGES,
 )
+from src.features.presets.dto import PresetInfo
+
+
+def _wire_preset_lookup(manager, name_by_id):
+    manager.preset_collaborators.requirements_cache = None
+    if isinstance(name_by_id, str):
+        fixed_name = name_by_id
+        manager.preset_collaborators.file_repo.find_preset_by_id.return_value = SimpleNamespace(id="any")
+        manager.preset_collaborators.file_repo.preset_to_info.return_value = PresetInfo(
+            id="any", name=fixed_name, version="1",
+        )
+        return
+    manager.preset_collaborators.file_repo.find_preset_by_id.side_effect = (
+        lambda pid: SimpleNamespace(id=pid) if pid in name_by_id else None
+    )
+    manager.preset_collaborators.file_repo.preset_to_info.side_effect = (
+        lambda tmpl, **kw: PresetInfo(id=tmpl.id, name=name_by_id[tmpl.id], version="1")
+    )
 
 
 def _message(role: str, content: str, msg_id: str = "m", metadata: dict = None) -> Mock:
@@ -490,7 +510,7 @@ class TestReflectScoping:
         response.content = response_content
         manager.llm_service.generate_with_history = AsyncMock(return_value=response)
 
-        manager.preset_collaborators.get_preset.return_value = {"name": "My Preset"}
+        _wire_preset_lookup(manager, "My Preset")
         model = Mock()
         model.filename = "my_model.safetensors"
         manager.model_index_manager.model_repo.get_by_id.return_value = model
@@ -847,9 +867,7 @@ class TestBuildSpanPresetAnnotation:
         manager = _manager(monkeypatch)
         generator = ChatReflectionGenerator(manager)
         session = _session(mode="generation")
-        manager.preset_collaborators.get_preset.side_effect = lambda pid: {
-            "preset-A": {"name": "Krea-2"}, "preset-B": {"name": "SDXL"},
-        }[pid]
+        _wire_preset_lookup(manager, {"preset-A": "Krea-2", "preset-B": "SDXL"})
         messages = [
             _message("user", "question 0", "u0", metadata={"preset_id": "preset-A"}),
             _message("assistant", "answer 0", "a0"),
@@ -903,9 +921,7 @@ class TestResolveActiveContext:
         manager = _manager(monkeypatch)
         generator = ChatReflectionGenerator(manager)
         session = _session(mode="generation")
-        manager.preset_collaborators.get_preset.side_effect = lambda pid: {
-            "preset-A": {"name": "Krea-2"}, "preset-B": {"name": "SDXL"},
-        }[pid]
+        _wire_preset_lookup(manager, {"preset-A": "Krea-2", "preset-B": "SDXL"})
 
         offered_presets, offered_mode = generator._resolve_active_context(
             session, {"preset": "preset-B", "form_data": {}}, frozenset({"preset-A"}),

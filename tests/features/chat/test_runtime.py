@@ -24,6 +24,7 @@ from src.features.chat.exceptions import (
     SessionCreationFailedException,
 )
 from src.features.chat.hooks import CHAT_SESSION_HOOKS
+from src.features.presets.templates import FormTemplate, ModeTemplate
 
 
 class TestChatRuntimeInit:
@@ -1852,7 +1853,9 @@ class TestInjectWorkspaceBlockVideoDirector:
         )
 
     def _wire_form_schema(self, properties):
-        self.mock_preset_collaborators.get_form_schema.return_value = {"form_schema": {"properties": properties}}
+        self.mock_preset_collaborators.file_repo.find_preset_by_id.return_value = _make_preset_template()
+        self.mock_preset_collaborators.form_serializer.process_form_fields.return_value = {"properties": properties}
+        self.mock_preset_collaborators.db_repo.get_preset_form_overrides.return_value = {}
 
     def _chain_capabilities(self, max_segments=8):
         return {
@@ -1946,9 +1949,24 @@ class TestInjectWorkspaceBlockVideoDirector:
         assert "Shots (" not in block
 
 
+class _AnyModeLookup:
+    def __init__(self, mode_template):
+        self._mode_template = mode_template
+
+    def get(self, key, default=None):
+        return self._mode_template
+
+    def keys(self):
+        return ["default"]
+
+
 def _make_preset_template(name="Some Preset", llm=None):
     """Just enough of a PresetTemplate for inject_workspace_block's lookup."""
-    return SimpleNamespace(name=name, llm=llm)
+    mode_template = ModeTemplate(forms=[FormTemplate(name="default", fields=[])], pipes=[])
+    return SimpleNamespace(
+        name=name, llm=llm, modes=_AnyModeLookup(mode_template),
+        prompt_resources={}, prompt_syntax={},
+    )
 
 
 class TestInjectWorkspaceBlockLLMContext:
@@ -1979,7 +1997,8 @@ class TestInjectWorkspaceBlockLLMContext:
         self.mock_preset_collaborators.file_repo.find_preset_by_id.return_value = preset_template
 
     def _wire_form_schema(self, properties):
-        self.mock_preset_collaborators.get_form_schema.return_value = {"form_schema": {"properties": properties}}
+        self.mock_preset_collaborators.form_serializer.process_form_fields.return_value = {"properties": properties}
+        self.mock_preset_collaborators.db_repo.get_preset_form_overrides.return_value = {}
 
     def test_header_uses_preset_name_not_raw_id(self):
         self._wire_preset(_make_preset_template(name="Qwen Image"))

@@ -1,9 +1,16 @@
 """Tests for the builtin @resource providers."""
 
-import pytest
+import functools
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
+from src.features.presets import PresetTemplateLoader
+from src.features.presets import operations as preset_operations
+from src.features.presets.collaborators import PresetCollaborators
+from src.features.presets.file_repository import FilePresetRepository
 from src.platform.resources.base import ResourceContext
 from src.platform.resources.builtin import (
     PhrasebookResourceProvider,
@@ -15,6 +22,7 @@ from src.platform.resources.builtin import (
 )
 from src.platform.resources import ResourceRegistry
 from src.platform.security.user import AccountType
+from src.platform.templating.processor import TemplateProcessor
 
 
 def _ctx(**kwargs) -> ResourceContext:
@@ -435,52 +443,82 @@ class TestPhrasebookProvider:
         resolved = await self.provider.resolve(["nope"], self._ctx())
         assert resolved is None
 
+@pytest.fixture(scope="module")
+def sdxl_resources():
+    loader = PresetTemplateLoader(["content/presets/marketplace"])
+    loader.load_presets()
+    matches = [p for p in loader.presets if str(p.path).replace("\\", "/").endswith("presets/marketplace/SDXL")]
+    assert len(matches) == 1
+    preset_id = matches[0].id
+
+    db_repo = Mock()
+    db_repo.get_preset_form_overrides.return_value = {}
+    collaborators = PresetCollaborators(
+        preset_loader=loader,
+        preset_processor=Mock(),
+        template_processor=TemplateProcessor(settings=Mock()),
+        file_repo=FilePresetRepository(loader),
+        db_repo=db_repo,
+        user_repo=Mock(),
+        group_repo=Mock(),
+        pipeline_builder=Mock(),
+        pipe_catalog=Mock(),
+        plugins=Mock(),
+        settings=Mock(),
+    )
+    preset_lookup = functools.partial(preset_operations.get_preset, collaborators)
+    preset_form_schema_lookup = functools.partial(preset_operations.get_form_schema, collaborators)
+
+    def make_ctx(**overrides):
+        kwargs = dict(
+            preset_collaborators=collaborators,
+            preset_lookup=preset_lookup,
+            preset_form_schema_lookup=preset_form_schema_lookup,
+        )
+        kwargs.update(overrides)
+        return _ctx(**kwargs)
+
+    return SimpleNamespace(preset_id=preset_id, make_ctx=make_ctx)
+
+
 class TestPresetsProvider:
     def setup_method(self):
         self.provider = PresetsResourceProvider()
-        self.manager = Mock()
-        self.manager.file_repo.list_all_presets.return_value = [
-            {"id": "01ABC", "name": "SDXL Realistic", "description": "Photo preset"},
-        ]
-        self.manager.get_preset.return_value = {"preset": {
-            "id": "01ABC",
-            "name": "SDXL Realistic",
-            "description": "Photo preset",
-            "modes": {"txt2img": {}},
-            "form": [
-                {"name": "angles", "label": "Camera angle",
-                 "options": [{"label": "Dutch", "value": "dutch angle"}]},
-                {"name": "prompt", "label": "Prompt"},  # no options → not suggested
-            ],
-        }}
 
     @pytest.mark.asyncio
-    async def test_suggest_presets(self):
-        suggestions = await self.provider.suggest([], "real", _ctx(preset_collaborators=self.manager))
-        assert suggestions[0].uri == "presets.01ABC"
-        assert suggestions[0].has_children is True
+    async def test_suggest_presets(self, sdxl_resources):
+        suggestions = await self.provider.suggest([], "sdxl", sdxl_resources.make_ctx())
+        matched = next(s for s in suggestions if s.uri == f"presets.{sdxl_resources.preset_id}")
+        assert matched.has_children is True
 
     @pytest.mark.asyncio
-    async def test_suggest_option_fields_only(self):
-        suggestions = await self.provider.suggest(["01ABC"], "", _ctx(preset_collaborators=self.manager))
-        assert [s.uri for s in suggestions] == ["presets.01ABC.angles"]
+    async def test_suggest_option_fields_only(self, sdxl_resources):
+        suggestions = await self.provider.suggest([sdxl_resources.preset_id], "sampler", sdxl_resources.make_ctx())
+        assert [s.uri for s in suggestions] == [f"presets.{sdxl_resources.preset_id}.sampler"]
 
     @pytest.mark.asyncio
-    async def test_resolve_field_options(self):
-        resolved = await self.provider.resolve(["01ABC", "angles"], _ctx(preset_collaborators=self.manager))
+    async def test_resolve_field_options(self, sdxl_resources):
+        resolved = await self.provider.resolve(
+            [sdxl_resources.preset_id, "sampler"], sdxl_resources.make_ctx(),
+        )
         assert resolved.kind == "form_field"
-        assert "Dutch: dutch angle" in resolved.content
+        assert "EULER: EULER" in resolved.content
 
     @pytest.mark.asyncio
-    async def test_resolve_preset_summary(self):
-        resolved = await self.provider.resolve(["01ABC"], _ctx(preset_collaborators=self.manager))
+    async def test_resolve_preset_summary(self, sdxl_resources):
+        resolved = await self.provider.resolve([sdxl_resources.preset_id], sdxl_resources.make_ctx())
         assert resolved.kind == "preset"
-        assert "angles: 1 options" in resolved.content
+        assert "sampler:" in resolved.content
 
     @pytest.mark.asyncio
-    async def test_resolve_missing_preset_returns_none(self):
-        self.manager.get_preset.side_effect = Exception("not found")
-        resolved = await self.provider.resolve(["nope"], _ctx(preset_collaborators=self.manager))
+    async def test_resolve_missing_preset_returns_none(self, sdxl_resources):
+        resolved = await self.provider.resolve(["does-not-exist"], sdxl_resources.make_ctx())
+        assert resolved is None
+
+    @pytest.mark.asyncio
+    async def test_resolve_returns_none_without_injected_lookup(self, sdxl_resources):
+        ctx = sdxl_resources.make_ctx(preset_lookup=None)
+        resolved = await self.provider.resolve([sdxl_resources.preset_id], ctx)
         assert resolved is None
 
 
@@ -505,21 +543,19 @@ class TestFormProvider:
         model.prompting_guidance = prompting_guidance
         return model
 
-    def _ctx(self, form_data, preset_collaborators=None):
+    def _ctx(self, form_data, preset_form_schema_lookup=None):
         return _ctx(
             model_index_manager=self.manager,
-            preset_collaborators=preset_collaborators,
+            preset_form_schema_lookup=preset_form_schema_lookup,
             form_state={"preset": "01ABC", "mode": "txt2img", "form_data": form_data},
         )
 
-    def _preset_collaborators(self, field_types):
-        manager = Mock()
-        manager.get_form_schema.return_value = {
+    def _form_schema_lookup(self, field_types):
+        return Mock(return_value={
             "form_schema": {
                 "properties": {name: {"type": t} for name, t in field_types.items()}
             }
-        }
-        return manager
+        })
 
     @pytest.mark.asyncio
     async def test_no_form_state_returns_none(self):
@@ -583,10 +619,10 @@ class TestFormProvider:
 
     @pytest.mark.asyncio
     async def test_resolve_model_typed_field_by_schema_without_ref_value(self):
-        preset_collaborators = self._preset_collaborators({"model": "model"})
+        preset_form_schema_lookup = self._form_schema_lookup({"model": "model"})
         self.repo.get_by_file_path.return_value = self._model()
         resolved = await self.provider.resolve(
-            ["model"], self._ctx({"model": "checkpoints/dreamshaper.safetensors"}, preset_collaborators)
+            ["model"], self._ctx({"model": "checkpoints/dreamshaper.safetensors"}, preset_form_schema_lookup)
         )
         assert "## Model: dreamshaper" in resolved.content
         self.repo.get_by_file_path.assert_called_once()
@@ -601,10 +637,10 @@ class TestFormProvider:
 
     @pytest.mark.asyncio
     async def test_suggest_marks_lora_picker_field_browsable(self):
-        preset_collaborators = self._preset_collaborators({"loras": "lora_picker", "steps": "slider"})
+        preset_form_schema_lookup = self._form_schema_lookup({"loras": "lora_picker", "steps": "slider"})
         suggestions = await self.provider.suggest(
             [], "",
-            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.8}], "steps": 30}, preset_collaborators),
+            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.8}], "steps": 30}, preset_form_schema_lookup),
         )
         lora = next(s for s in suggestions if s.uri == "form.loras")
         assert lora.has_children is True
@@ -615,7 +651,7 @@ class TestFormProvider:
 
     @pytest.mark.asyncio
     async def test_suggest_lora_rows_lists_selected_loras_with_weights(self):
-        preset_collaborators = self._preset_collaborators({"loras": "lora_picker"})
+        preset_form_schema_lookup = self._form_schema_lookup({"loras": "lora_picker"})
         self.repo.get_by_id.side_effect = lambda model_id, **kw: {
             "l-1": self._model("l-1", "detail.safetensors", "Detail LoRA", model_type="lora"),
             "l-2": self._model("l-2", "grain.safetensors", "Film Grain", model_type="lora"),
@@ -627,7 +663,7 @@ class TestFormProvider:
                     {"model": "model:l-1", "strength": 0.8},
                     {"model": "model:l-2", "strength": 1.0},
                 ]},
-                preset_collaborators,
+                preset_form_schema_lookup,
             ),
         )
         assert suggestions[0].uri == "form.loras"
@@ -641,8 +677,7 @@ class TestFormProvider:
 
     @pytest.mark.asyncio
     async def test_resolve_lora_row_includes_row_fields_and_edit_identifier(self):
-        preset_collaborators = Mock()
-        preset_collaborators.get_form_schema.return_value = {"form_schema": {"properties": {"tabs": {
+        preset_form_schema_lookup = Mock(return_value={"form_schema": {"properties": {"tabs": {
             "type": "tabs",
             "children": [{"type": "tab", "children": [{
                 "name": "adapters",
@@ -651,7 +686,7 @@ class TestFormProvider:
                     {"name": "audio", "type": "checkbox", "label": "Affects audio", "default": True},
                 ]},
             }]}],
-        }}}}
+        }}}})
         tag = Mock()
         tag.name = "style"
         model = self._model("l-2", "grain.safetensors", "Film Grain", model_type="lora", triggers=["grainy"])
@@ -663,7 +698,7 @@ class TestFormProvider:
             {"model": "model:l-1", "strength": 0.8},
             {"model": "model:l-2", "strength": 0.5, "audio": False, "step_end": 12},
         ]}
-        resolved = await self.provider.resolve(["adapters", "l-2"], self._ctx(form, preset_collaborators))
+        resolved = await self.provider.resolve(["adapters", "l-2"], self._ctx(form, preset_form_schema_lookup))
         content = resolved.content
         assert "- Field: adapters (row 2 of 2, index 1)" in content
         assert "- Current strength: 0.5" in content
@@ -679,33 +714,32 @@ class TestFormProvider:
 
     @pytest.mark.asyncio
     async def test_resolve_lora_row_uses_row_field_default_when_unset(self):
-        preset_collaborators = Mock()
-        preset_collaborators.get_form_schema.return_value = {"form_schema": {"properties": {
+        preset_form_schema_lookup = Mock(return_value={"form_schema": {"properties": {
             "loras": {"type": "lora_picker", "configuration": {"row_fields": [
                 {"name": "audio", "label": "Affects audio", "default": True},
             ]}},
-        }}}
+        }}})
         self.repo.get_by_id.return_value = self._model("l-1", "detail.safetensors", "Detail LoRA", model_type="lora")
         resolved = await self.provider.resolve(
-            ["loras", "0"], self._ctx({"loras": [{"model": "model:l-1", "strength": 1}]}, preset_collaborators)
+            ["loras", "0"], self._ctx({"loras": [{"model": "model:l-1", "strength": 1}]}, preset_form_schema_lookup)
         )
         assert "- Affects audio (`audio`): true" in resolved.content
 
     @pytest.mark.asyncio
     async def test_suggest_non_lora_field_has_no_children(self):
-        preset_collaborators = self._preset_collaborators({"steps": "slider"})
-        assert await self.provider.suggest(["steps"], "", self._ctx({"steps": 30}, preset_collaborators)) == []
+        preset_form_schema_lookup = self._form_schema_lookup({"steps": "slider"})
+        assert await self.provider.suggest(["steps"], "", self._ctx({"steps": 30}, preset_form_schema_lookup)) == []
 
     @pytest.mark.asyncio
     async def test_resolve_lora_row_attaches_model_resource_with_weight(self):
-        preset_collaborators = self._preset_collaborators({"loras": "lora_picker"})
+        preset_form_schema_lookup = self._form_schema_lookup({"loras": "lora_picker"})
         self.repo.get_by_id.return_value = self._model(
             "l-1", "detail.safetensors", "Detail LoRA", model_type="lora",
             triggers=["add detail"], prompting_guidance="Keep weight under 1.",
         )
         resolved = await self.provider.resolve(
             ["loras", "l-1"],
-            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.8}]}, preset_collaborators),
+            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.8}]}, preset_form_schema_lookup),
         )
         assert resolved is not None
         assert resolved.kind == "lora"
@@ -717,31 +751,31 @@ class TestFormProvider:
 
     @pytest.mark.asyncio
     async def test_resolve_lora_row_by_index(self):
-        preset_collaborators = self._preset_collaborators({"loras": "lora_picker"})
+        preset_form_schema_lookup = self._form_schema_lookup({"loras": "lora_picker"})
         self.repo.get_by_id.return_value = self._model("l-1", "detail.safetensors", "Detail LoRA", model_type="lora")
         resolved = await self.provider.resolve(
             ["loras", "0"],
-            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.5}]}, preset_collaborators),
+            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.5}]}, preset_form_schema_lookup),
         )
         assert resolved is not None
         assert "Detail LoRA at weight 0.5" in resolved.content
 
     @pytest.mark.asyncio
     async def test_resolve_lora_row_unknown_selector_returns_none(self):
-        preset_collaborators = self._preset_collaborators({"loras": "lora_picker"})
+        preset_form_schema_lookup = self._form_schema_lookup({"loras": "lora_picker"})
         resolved = await self.provider.resolve(
             ["loras", "nope"],
-            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.5}]}, preset_collaborators),
+            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.5}]}, preset_form_schema_lookup),
         )
         assert resolved is None
 
     @pytest.mark.asyncio
     async def test_resolve_lora_row_unindexed_model_falls_back(self):
-        preset_collaborators = self._preset_collaborators({"loras": "lora_picker"})
+        preset_form_schema_lookup = self._form_schema_lookup({"loras": "lora_picker"})
         self.repo.get_by_id.return_value = None
         resolved = await self.provider.resolve(
             ["loras", "l-1"],
-            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.5}]}, preset_collaborators),
+            self._ctx({"loras": [{"model": "model:l-1", "strength": 0.5}]}, preset_form_schema_lookup),
         )
         assert resolved is not None
         assert resolved.kind == "form_value"
@@ -749,9 +783,9 @@ class TestFormProvider:
 
     @pytest.mark.asyncio
     async def test_resolve_selector_on_non_lora_field_returns_none(self):
-        preset_collaborators = self._preset_collaborators({"steps": "slider"})
+        preset_form_schema_lookup = self._form_schema_lookup({"steps": "slider"})
         assert await self.provider.resolve(
-            ["steps", "0"], self._ctx({"steps": 30}, preset_collaborators)
+            ["steps", "0"], self._ctx({"steps": 30}, preset_form_schema_lookup)
         ) is None
 
     @pytest.mark.asyncio

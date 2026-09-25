@@ -36,16 +36,22 @@
         })
       });
 
-      if (!response.ok) {
-        throw new Error(`Fetch failed (${response.status})`);
+      let result = null;
+      try {
+        result = await response.json();
+      } catch (_e) {
       }
 
-      const result = await response.json();
+      if (!response.ok || result?.success === false) {
+        throw new Error(result?.message || `Fetch failed (${response.status})`);
+      }
+
       if (result?.data?.successful > 0) {
         notify('success', 'CivitAI data added');
         await context.refresh?.();
       } else {
-        notify('warning', 'Not found on CivitAI');
+        const reason = result?.data?.errors?.[0]?.reason || 'Not found on CivitAI';
+        notify('warning', reason);
       }
     };
 
@@ -56,7 +62,7 @@
         await run();
       }
     } catch (e) {
-      notify('error', 'Fetching CivitAI data failed');
+      notify('error', e?.message || 'Fetching CivitAI data failed');
     } finally {
       fetching = false;
     }

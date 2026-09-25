@@ -13,8 +13,12 @@ from src.features.models.repository import ModelRepository
 from src.features.models.collaborators import build_model_index_collaborators
 from src.features.models.records import Model
 from src.features.models import operations
-from src.features.models.provider_info import MAX_PROVIDER_PREVIEW_MEDIA, _infer_preview_type
-from src.features.providers.base_provider import ProviderModelInfo
+from src.features.models.provider_info import MAX_PROVIDER_PREVIEW_MEDIA, ProviderInfoFetcher, _infer_preview_type
+from src.features.providers.base_provider import (
+    ProviderConnectionError,
+    ProviderModelInfo,
+    ProviderRateLimitError,
+)
 from src.platform.filesystem.storage_driver import LocalFileStorageDriver
 
 
@@ -284,3 +288,52 @@ class TestProviderInfoPreviewMedia(PersistenceTestBase):
         metadata = self.repo.get_by_id(model.id).model_metadata
         assert metadata.get("triggers") == ["mine"]
         assert metadata.get("strength") == [0.5, 0.8]
+
+
+class TestFetchModelInfoWithRetry:
+    def setup_method(self):
+        self.fetcher = ProviderInfoFetcher(Mock(), Mock())
+
+    def test_rate_limit_is_retried_with_the_provider_backoff_and_then_succeeds(self):
+        info = ProviderModelInfo(provider_id="civitai", provider_model_id="1", name="X")
+        fake_registry = Mock()
+        fake_registry.get_model_by_hash = AsyncMock(
+            side_effect=[ProviderRateLimitError("rate limited", retry_after=0.01), info]
+        )
+
+        with patch("src.features.models.provider_info.asyncio.sleep", AsyncMock()) as mock_sleep:
+            result, reason = asyncio.run(
+                self.fetcher._fetch_model_info_with_retry(fake_registry, "civitai", "a" * 64)
+            )
+
+        assert result is info
+        assert reason is None
+        assert fake_registry.get_model_by_hash.await_count == 2
+        mock_sleep.assert_awaited_once_with(0.01)
+
+    def test_exhausting_retries_reports_the_real_failure_reason(self):
+        fake_registry = Mock()
+        fake_registry.get_model_by_hash = AsyncMock(
+            side_effect=ProviderConnectionError("upstream unavailable")
+        )
+
+        with patch("src.features.models.provider_info.asyncio.sleep", AsyncMock()):
+            result, reason = asyncio.run(
+                self.fetcher._fetch_model_info_with_retry(fake_registry, "civitai", "a" * 64)
+            )
+
+        assert result is None
+        assert reason == "upstream unavailable"
+        assert fake_registry.get_model_by_hash.await_count == 3
+
+    def test_a_genuine_not_found_is_returned_without_any_retry(self):
+        fake_registry = Mock()
+        fake_registry.get_model_by_hash = AsyncMock(return_value=None)
+
+        result, reason = asyncio.run(
+            self.fetcher._fetch_model_info_with_retry(fake_registry, "civitai", "a" * 64)
+        )
+
+        assert result is None
+        assert reason == "Not found on Civitai"
+        assert fake_registry.get_model_by_hash.await_count == 1

@@ -220,7 +220,7 @@ class CivitaiProvider(MarketplaceProviderBase):
                 else:
                     error_text = await response.text()
                     logger.warning(f"CivitAI API error {response.status}: {error_text}")
-                    return None
+                    raise ProviderConnectionError(f"CivitAI API error {response.status}: {error_text}")
 
             if info is not None:
                 await self._enrich_model_details(info)

@@ -1,5 +1,6 @@
 """Fetches marketplace metadata for indexed models via the provider registry."""
 
+import asyncio
 import logging
 import uuid
 from pathlib import PurePosixPath
@@ -13,12 +14,17 @@ from src.features.models.hooks import MODEL_INDEX_HOOKS
 from src.features.models.metadata_editor import ModelMetadataEditor
 from src.features.models.records import ModelInfo
 from src.features.models.repository import ModelRepository
+from src.features.providers import ProviderConnectionError, ProviderError, ProviderRateLimitError
 from src.platform.filesystem.storage_driver import FileStorageDriver, LocalFileStorageDriver
 from src.platform.plugins import PluginRegistry
 
 logger = logging.getLogger(__name__)
 
 MAX_PROVIDER_PREVIEW_MEDIA = 10
+
+_MAX_FETCH_ATTEMPTS = 3
+_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
+_MAX_RATE_LIMIT_WAIT_SECONDS = 30.0
 
 _PREVIEW_MEDIA_TIMEOUT_SECONDS = 30
 _PREVIEW_MEDIA_MAX_BYTES = 25 * 1024 * 1024
@@ -114,7 +120,7 @@ class ProviderInfoFetcher:
         provider: str,
         model_ids: Optional[List[str]] = None,
         force_refresh: bool = False
-    ) -> Dict[str, int]:
+    ) -> Dict[str, Any]:
         """Execute the actual provider fetch (background task); fires after_fetch_info."""
         try:
             from src.features.providers.registry import get_provider_registry
@@ -132,6 +138,7 @@ class ProviderInfoFetcher:
 
             successful = 0
             failed = 0
+            errors: List[Dict[str, Any]] = []
 
             for model in models:
                 if getattr(model, 'is_directory', False):
@@ -144,11 +151,15 @@ class ProviderInfoFetcher:
                 if not model.sha256:
                     logger.warning(f"Model {model.id} has no SHA256 hash, skipping")
                     failed += 1
+                    errors.append({
+                        "model_id": model.id,
+                        "reason": "No SHA256 hash yet - the model is still being indexed",
+                    })
                     continue
 
                 try:
-                    model_info = await provider_registry.get_model_by_hash(
-                        provider, model.sha256
+                    model_info, failure_reason = await self._fetch_model_info_with_retry(
+                        provider_registry, provider, model.sha256
                     )
                     if model_info:
                         # Store provider info in database
@@ -175,11 +186,18 @@ class ProviderInfoFetcher:
                             )
                     else:
                         failed += 1
+                        errors.append({
+                            "model_id": model.id,
+                            "reason": failure_reason or f"Not found on {provider.title()}",
+                        })
                 except Exception as e:
                     logger.error(f"Error fetching info for model {model.id}: {e}")
                     failed += 1
+                    errors.append({"model_id": model.id, "reason": str(e)})
 
             logger.info(f"Provider fetch completed: {successful} successful, {failed} failed")
+            if errors:
+                logger.warning(f"Provider fetch failures for {provider}: {errors}")
 
             execute_hook(
                 self.plugins,
@@ -190,11 +208,42 @@ class ProviderInfoFetcher:
                     "failed": failed
                 }
             )
-            return {"successful": successful, "failed": failed}
+            result: Dict[str, Any] = {"successful": successful, "failed": failed}
+            if errors:
+                result["errors"] = errors
+            return result
 
         except Exception as e:
             logger.error(f"Error during background provider fetch: {e}")
-            return {"successful": 0, "failed": len(model_ids or [])}
+            return {"successful": 0, "failed": len(model_ids or []), "errors": [{"reason": str(e)}]}
+
+    async def _fetch_model_info_with_retry(
+        self,
+        provider_registry: Any,
+        provider: str,
+        sha256: str,
+    ) -> Tuple[Optional[Any], Optional[str]]:
+        reason: Optional[str] = None
+        for attempt in range(_MAX_FETCH_ATTEMPTS):
+            try:
+                info = await provider_registry.get_model_by_hash(provider, sha256, raise_errors=True)
+                if info is not None:
+                    return info, None
+                return None, f"Not found on {provider.title()}"
+            except ProviderRateLimitError as e:
+                reason = str(e)
+                if attempt == _MAX_FETCH_ATTEMPTS - 1:
+                    break
+                wait_seconds = min(e.retry_after or _RETRY_BACKOFF_SECONDS[attempt], _MAX_RATE_LIMIT_WAIT_SECONDS)
+                await asyncio.sleep(wait_seconds)
+            except ProviderConnectionError as e:
+                reason = str(e)
+                if attempt == _MAX_FETCH_ATTEMPTS - 1:
+                    break
+                await asyncio.sleep(_RETRY_BACKOFF_SECONDS[attempt])
+            except ProviderError as e:
+                return None, str(e)
+        return None, reason
 
     def _fill_trigger_words(self, model: Any, trigger_words: List[str]) -> None:
         if self.metadata_editor is None:
@@ -250,7 +299,7 @@ class ProviderInfoFetcher:
             suffix = _DEFAULT_EXTENSION.get(media_type, '')
 
         key = f"models/previews/{model_id}/{uuid.uuid4().hex}{suffix}"
-        driver.put_bytes(key, data)
+        await asyncio.to_thread(driver.put_bytes, key, data)
         self.metadata_editor.add_model_preview(model_id, {'source_path': key, 'type': media_type})
 
     async def _fetch_media_bytes(self, url: str) -> Optional[Tuple[bytes, Optional[str]]]:

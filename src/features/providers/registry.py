@@ -18,6 +18,7 @@ from src.features.providers.hooks import PROVIDER_HOOKS
 from src.features.providers import (
     MarketplaceProviderBase,
     ProviderCapability,
+    ProviderConnectionError,
     ProviderError,
     ProviderMetadata,
     ProviderModelInfo,
@@ -236,7 +237,8 @@ class ProviderRegistry:
     async def get_model_by_hash(
         self,
         provider_id: str,
-        sha256: str
+        sha256: str,
+        raise_errors: bool = False,
     ) -> Optional[ProviderModelInfo]:
         """
         Get model information by hash from a specific provider.
@@ -244,6 +246,14 @@ class ProviderRegistry:
         Args:
             provider_id: ID of the provider to use
             sha256: SHA256 hash of the model file
+            raise_errors: when True, a technical failure (rate limit,
+                connection error, timeout, or any other unexpected
+                exception) is re-raised as a `ProviderError` instead of
+                being swallowed into a plain `None`. A caller that needs to
+                tell "the provider has no record for this hash" apart from
+                "the lookup itself failed" - to retry or report the real
+                reason - passes this as True. `None` returned here always
+                means the former.
 
         Returns:
             ProviderModelInfo if found, None otherwise
@@ -261,9 +271,13 @@ class ProviderRegistry:
             return await provider.get_model_by_hash(sha256)
         except ProviderError as e:
             logger.error(f"Provider error from {provider_id}: {e}")
+            if raise_errors:
+                raise
             return None
         except Exception as e:
             logger.error(f"Unexpected error from provider {provider_id}: {e}")
+            if raise_errors:
+                raise ProviderConnectionError(str(e)) from e
             return None
 
     async def get_model_by_hash_any(

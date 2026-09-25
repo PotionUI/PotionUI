@@ -387,25 +387,23 @@ class ModelController(BaseController):
             )
 
             if request.wait and request.model_ids:
-                result = await asyncio.to_thread(
-                    lambda: asyncio.run(operations.run_provider_fetch(
-                        self.collaborators,
-                        provider=request.provider,
-                        model_ids=request.model_ids,
-                        force_refresh=request.force_refresh or False,
-                    ))
-                )
-                return self.success_response(data={**data, "status": "completed", **result})
-
-            # Run provider fetch in background
-            def background_wrapper():
-                asyncio.run(operations.run_provider_fetch(self.collaborators, 
+                result = await operations.run_provider_fetch(
+                    self.collaborators,
                     provider=request.provider,
                     model_ids=request.model_ids,
-                    force_refresh=request.force_refresh or False
-                ))
+                    force_refresh=request.force_refresh or False,
+                )
+                completed_data = {**data, "status": "completed", **result}
+                completed_data["message"] = f"{request.provider.title()} info fetch completed"
+                return self.success_response(data=completed_data)
 
-            background_tasks.add_task(background_wrapper)
+            background_tasks.add_task(
+                operations.run_provider_fetch,
+                self.collaborators,
+                provider=request.provider,
+                model_ids=request.model_ids,
+                force_refresh=request.force_refresh or False,
+            )
             return self.success_response(data=data)
         except ProviderFetchException as e:
             return self.error_api_response(

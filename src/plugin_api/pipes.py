@@ -42,6 +42,8 @@ from src.pipelines.outputs import (
     MeshGenerationOutput,
     Progress,
     ProgressGenerationOutput,
+    TextArtifactAction,
+    TextGenerationOutput,
     VideoGenerationOutput,
 )
 from src.features.generation.output_types import (
@@ -74,6 +76,8 @@ __all__ = [
     "Progress",
     "ProgressGenerationOutput",
     "SerializeContext",
+    "TextArtifactAction",
+    "TextGenerationOutput",
     "VideoGenerationOutput",
     "asset_subdir",
     "output_type_registry",

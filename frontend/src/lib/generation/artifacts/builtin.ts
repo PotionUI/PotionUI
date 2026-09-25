@@ -6,6 +6,7 @@ import DiffTextArtifact from '$lib/components/generation/artifacts/DiffTextArtif
 import ImageArtifact from '$lib/components/generation/artifacts/ImageArtifact.svelte';
 import WorkflowArtifact from '$lib/components/generation/artifacts/WorkflowArtifact.svelte';
 import RenderedPromptArtifact from '$lib/components/generation/artifacts/RenderedPromptArtifact.svelte';
+import TextArtifact from '$lib/components/generation/artifacts/TextArtifact.svelte';
 
 artifactRendererRegistry.register('seed', { component: SeedArtifact });
 artifactRendererRegistry.register('models', { component: ModelsArtifact });
@@ -14,3 +15,4 @@ artifactRendererRegistry.register('diff_text', { component: DiffTextArtifact });
 artifactRendererRegistry.register('image', { component: ImageArtifact });
 artifactRendererRegistry.register('workflow', { component: WorkflowArtifact });
 artifactRendererRegistry.register('rendered_prompt', { component: RenderedPromptArtifact });
+artifactRendererRegistry.register('text', { component: TextArtifact });

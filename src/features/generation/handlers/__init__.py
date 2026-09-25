@@ -28,6 +28,7 @@ from src.features.generation.handlers.artifact_handlers import (
     WarmStartGenerationOutputHandler,
     ComfyUIWorkflowGenerationOutputHandler,
     DiffTextGenerationOutputHandler,
+    TextGenerationOutputHandler,
 )
 from src.features.generation.handlers.error_handler import serialize_error_output
 
@@ -50,5 +51,6 @@ __all__ = [
     'WarmStartGenerationOutputHandler',
     'ComfyUIWorkflowGenerationOutputHandler',
     'DiffTextGenerationOutputHandler',
+    'TextGenerationOutputHandler',
     'serialize_error_output',
 ]

@@ -58,6 +58,20 @@ Two sequential passes per song, both driven by the same seed:
 
 `duration=0` (auto) generates until the AR stage's own stop token, up to the 360s hard cap (`MAX_SEMANTIC_TOKENS = 360 * 25`); with `auto_duration` set, hitting the token budget without stopping is treated as a failed generation, not a silent cutoff — the same policy MiniMax-Music3 uses for its own duration cap.
 
+## Editing the score
+
+With Chain of thought on Melody or Full, the model writes an ABC score before it samples any audio. That score is shown as soon as it exists: `generator/audio_yue2` emits it as a `text` pipe artifact (`TextGenerationOutput`, serialized as `artifact_type: "text"`) titled `ABC transcription · melody` or `ABC transcription · full`. It appears under the Workbench in the live workspace and in the generation's Artifacts section in history, rendered in mono with a copy button. When you supplied your own ABC, the pipe emits that text instead, titled `ABC (yours) · <mode>`, so every run records the score it actually performed.
+
+To edit the model's score and play it again:
+
+1. Generate with Chain of thought on Melody or Full and a fixed seed.
+2. On the ABC artifact, press **Use as ABC**. It writes the text into the Advanced tab's ABC field and sets Chain of thought to the mode that produced it. The action is generic: a text artifact names a form field and extra field values, and the Workbench writes them into the active tab's form.
+3. Edit the score in the ABC field (mono, 12 rows), for example change a phrase, transpose a bar or swap a chord symbol under Full, then generate again with the same seed.
+
+The model skips its own transcription stage and conditions the codec stage on your edited score. It still samples audio from that score, so a same-seed rerun follows your edits but is not a note-for-note render.
+
+The ABC field is checked before the model runs. A non-empty score needs an `X:` (reference number) line and a `K:` (key) header line. The field shows this inline as you type, and the server rejects a submission without them with a field error (a `pattern` on the `string` field, enforced by the form binder). The check is skipped while Chain of thought is Off, because the field is hidden and ignored then.
+
 ## Limitations
 
 - **Text-to-music only.** No audio encoder ships, so there is no style/reference-audio, extend, or repaint mode — the same limitation MiniMax-Music3 documents for the same reason.

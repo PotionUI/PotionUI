@@ -65,8 +65,11 @@ fields:
         audience: "advanced"
         configuration:
           input_type: "textarea"
-          rows: 6
-          placeholder: "Only used when Chain of thought (Generation tab) is Melody or Full"
+          rows: 12
+          mono: true
+          placeholder: "X:1\nM:4/4\nL:1/8\nK:C\n\"C\"E2 G2 c2 G2 | \"F\"A2 c2 \"G\"B4 |]\n\nNeeds an X: and a K: header line. Use as ABC on a generated transcription fills this in."
+          pattern: '^(?=[\s\S]*^[ \t]*X:)(?=[\s\S]*^[ \t]*K:)'
+          pattern_message: "ABC needs an X: (reference number) and a K: (key) header line"
         ai_hint: "A hand-written ABC transcription to condition the codec stage on directly, skipping the model's own ABC-writing pass. Only meaningful when Chain of thought (Generation tab) is Melody or Full -- ignored, and hidden, when it's Off."
         reactions:
           - when: { field: "cot", equals: "off" }

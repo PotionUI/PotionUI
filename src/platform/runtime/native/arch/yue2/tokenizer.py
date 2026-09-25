@@ -40,3 +40,6 @@ class YuE2Tokenizer:
     def encode(self, text: str) -> list[int]:
         normalized = unicodedata.normalize("NFC", text)
         return self._tok.encode(normalized, add_special_tokens=False, split_special_tokens=True)
+
+    def decode(self, ids: list[int]) -> str:
+        return self._tok.decode(list(ids), skip_special_tokens=True)

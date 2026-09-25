@@ -13,7 +13,7 @@ import pytest
 import torch
 
 from src.pipelines.contracts import PipeInput
-from src.pipelines.outputs import AudioGenerationOutput, GalleryGenerationOutput
+from src.pipelines.outputs import AudioGenerationOutput, GalleryGenerationOutput, TextGenerationOutput
 from src.pipelines.pipes.generator.audio_yue2.main import GeneratorAudioYuE2Pipe, MAX_DURATION
 from src.platform.runtime.native.arch.yue2 import protocol
 from src.platform.runtime.native.errors import SamplingCancelled
@@ -149,8 +149,16 @@ def _fake_vae_decode(latents, chunk_size=0, overlap=0):
     return torch.zeros(1, 2, latents.shape[-1] * 1920)
 
 
+GENERATED_ABC = "X:1\nT:Generated\nM:4/4\nL:1/8\nK:D\n\"D\"d2 f2 a2 f2 | \"G\"g2 b2 d'4 |]\n"
+
+
+def _fake_decode(ids):
+    assert list(ids) == [1, 2, 3, 4, 5]
+    return GENERATED_ABC
+
+
 def _make_bundle(order):
-    tokenizer = SimpleNamespace(encode=lambda text: [10, 11, 12])
+    tokenizer = SimpleNamespace(encode=lambda text: [10, 11, 12], decode=_fake_decode)
     lm_module = SimpleNamespace(cfg=SimpleNamespace(max_position_embeddings=24576))
     vae_module = SimpleNamespace(sample_rate=48000, decode=_fake_vae_decode)
 
@@ -299,6 +307,76 @@ def test_cot_full_with_user_abc_skips_abc_phase():
 
     ar_calls = [entry for entry in order if entry[0] == "ar"]
     assert ar_calls == [("ar", "semantic")]
+
+
+def _text_artifacts(outputs):
+    return [o for o in outputs if isinstance(o, TextGenerationOutput)]
+
+
+@pytest.mark.parametrize("cot", ["melody", "full"])
+def test_generated_abc_is_emitted_as_text_artifact_with_exact_text(cot):
+    order = []
+    bundle, lm, vae = _make_bundle(order)
+    pipe = _pipe(cot=cot)
+    _result, _order, outputs = _run_generate_one(pipe, bundle, order)
+
+    [artifact] = _text_artifacts(outputs)
+    assert artifact.text == GENERATED_ABC
+    assert artifact.title == f"ABC transcription · {cot}"
+    assert artifact.mono is True
+    assert artifact.index == 0
+    assert artifact.action.field == "abc"
+    assert artifact.action.values == {"cot": cot}
+    assert artifact.action.label == "Use as ABC"
+
+
+def test_generated_abc_artifact_is_emitted_before_the_codec_stage():
+    order = []
+    bundle, lm, vae = _make_bundle(order)
+    pipe = _pipe(cot="full")
+    events = []
+
+    def fake_generate(model, prefix_ids, sampling, seed, phase, **kwargs):
+        events.append(("ar", phase))
+        if phase == "abc":
+            return [1, 2, 3, 4, 5], True
+        return [protocol.CODEC_OFFSET + 1, protocol.CODEC_OFFSET + 2], True
+
+    from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
+
+    def record(output):
+        if isinstance(output, TextGenerationOutput):
+            events.append(("text", output.title))
+
+    with patch(f"{MODULE}.ar_loop.generate", side_effect=fake_generate), \
+         patch(f"{MODULE}.nar.synthesize", side_effect=_fake_nar_synthesize_factory(order)):
+        pipe._models = _FakeModels(order)
+        ctx = pipe.build_context(PipeInput(input={"model": bundle}))
+        pipe.generate_one(ctx, 0, 7, ProgressEmitter(record, title="generator"))
+
+    assert events == [("ar", "abc"), ("text", "ABC transcription · full"), ("ar", "semantic")]
+
+
+def test_user_supplied_abc_is_emitted_verbatim_as_yours():
+    order = []
+    bundle, lm, vae = _make_bundle(order)
+    user_abc = "X:1\nK:C\nCDEF|"
+    pipe = _pipe(cot="melody", abc=user_abc)
+    _result, _order, outputs = _run_generate_one(pipe, bundle, order)
+
+    [artifact] = _text_artifacts(outputs)
+    assert artifact.text == user_abc
+    assert artifact.title == "ABC (yours) · melody"
+    assert artifact.action.values == {"cot": "melody"}
+
+
+def test_cot_off_emits_no_text_artifact():
+    order = []
+    bundle, lm, vae = _make_bundle(order)
+    pipe = _pipe(cot="off")
+    _result, _order, outputs = _run_generate_one(pipe, bundle, order)
+
+    assert _text_artifacts(outputs) == []
 
 
 def test_abc_stage_truncated_raises():

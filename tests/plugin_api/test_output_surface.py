@@ -20,6 +20,8 @@ EMITTABLE = [
     "ImageGenerationOutput",
     "MeshGenerationOutput",
     "ProgressGenerationOutput",
+    "TextArtifactAction",
+    "TextGenerationOutput",
     "VideoGenerationOutput",
 ]
 

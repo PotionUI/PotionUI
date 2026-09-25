@@ -110,6 +110,7 @@ MEDIA_FIELD_TYPES = frozenset({"image", "video", "audio", "media", "file"})
 _BOOL_FIELD_TYPES = frozenset({"checkbox", "boolean"})
 _NUMERIC_FIELD_TYPES = frozenset({"slider", "number", "seed", "integer", "stepper"})
 _SELECT_FIELD_TYPES = frozenset({"select"})
+_TEXT_FIELD_TYPES = frozenset({"string", "textbox"})
 
 # Field types whose own registered `input()` implements validation that none
 # of the generic buckets above cover (resolution format, LoRA strength
@@ -296,6 +297,8 @@ def bind_form(
         value = values[name]
         value = _coerce_leniently(value, spec, name, coercions)
         _validate_field(name, value, spec, errors, field_errors)
+        if not _hidden_by_reactions(spec, values, preset_id=preset_id, mode=mode, field_name=name):
+            _check_pattern(name, value, spec, errors, field_errors)
         if spec.type == "tags" and not is_model_ref(value):
             value = _bind_tags_field(name, value, spec, preset_template, errors, field_errors, values)
         else:
@@ -771,6 +774,51 @@ def _validate_field(
             allowed = {opt.get("value") for opt in static_options if isinstance(opt, dict)}
             if allowed and value not in allowed:
                 _fail(f"{value!r} is not one of the declared options")
+
+
+def _hidden_by_reactions(
+    field: FieldTemplate, values: Dict[str, Any], *, preset_id: str, mode: str, field_name: str
+) -> bool:
+    hidden = False
+    for reaction in field.reactions or []:
+        if not isinstance(reaction, dict):
+            continue
+        then = reaction.get("then") or {}
+        if "set_visibility" not in then:
+            continue
+        if _reaction_matches(reaction.get("when"), values, preset_id=preset_id, mode=mode, field_name=field_name):
+            hidden = then["set_visibility"] is False
+    return hidden
+
+
+def _check_pattern(
+    name: str,
+    value: Any,
+    field: FieldTemplate,
+    errors: List[str],
+    field_errors: Dict[str, List[str]],
+) -> None:
+    if field.type not in _TEXT_FIELD_TYPES or not isinstance(value, str) or not value.strip():
+        return
+    message = _pattern_violation(value, field.configuration or {})
+    if message:
+        errors.append(f"{name}: {message}")
+        field_errors.setdefault(name, []).append(message)
+
+
+def _pattern_violation(value: str, config: Dict[str, Any]) -> Optional[str]:
+    pattern = config.get("pattern")
+    if not isinstance(pattern, str) or not pattern:
+        return None
+    try:
+        matched = re.search(pattern, value, re.MULTILINE)
+    except re.error:
+        logger.warning(f"bind_form: ignoring invalid pattern {pattern!r}")
+        return None
+    if matched:
+        return None
+    message = config.get("pattern_message")
+    return message if isinstance(message, str) and message else "does not match the expected format"
 
 
 def _run_input_validator(

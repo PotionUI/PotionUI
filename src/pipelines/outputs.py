@@ -170,6 +170,22 @@ class CompareImagesGenerationOutput(GenerationOutput):
 
 
 @dataclass
+class TextArtifactAction:
+    label: str
+    field: str
+    values: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class TextGenerationOutput(GenerationOutput):
+    title: str
+    text: str
+    index: int = 0
+    mono: bool = False
+    action: TextArtifactAction = None
+
+
+@dataclass
 class TimerGenerationOutput(GenerationOutput):
     name: str
     value: float

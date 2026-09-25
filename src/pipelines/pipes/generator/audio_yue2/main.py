@@ -10,7 +10,9 @@ from typing import Any, Dict, List, Optional
 import torch
 
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutput, PipeOutputSpec, PipeConfigSpec
-from src.pipelines.outputs import AudioGenerationOutput, GalleryGenerationOutput
+from src.pipelines.outputs import (
+    AudioGenerationOutput, GalleryGenerationOutput, TextArtifactAction, TextGenerationOutput,
+)
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.generation.seed_plan import plan_seeds
@@ -235,6 +237,7 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
                     tokenizer.encode, instruction, c.style, c.lyrics, abc=c.abc, cot=c.cot,
                 )
                 negative_abc_ids = tokenizer.encode(c.abc)
+                self._emit_abc(progress, index, c.abc, c.cot, supplied=True)
             else:
                 abc_last_emit = -_AR_PROGRESS_MIN_INTERVAL
 
@@ -254,6 +257,7 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
                         "without reaching its end token -- no music was generated for this seed"
                     )
                 progress.step(len(abc_ids), len(abc_ids), state="transcribing")
+                self._emit_abc(progress, index, tokenizer.decode(abc_ids), c.cot, supplied=False)
                 semantic_prefix_ids = base_prompt_ids + abc_ids + [protocol.ABC_END, protocol.MUSIC_START]
                 negative_abc_ids = abc_ids
 
@@ -319,6 +323,16 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
             duration=duration_seconds, sample_rate=sample_rate,
             channels=int(waveform.shape[1]), guidance_scale=c.cfg_scale,
         )
+
+    def _emit_abc(self, progress: ProgressEmitter, index: int, abc: str, cot: str, supplied: bool) -> None:
+        title = f"ABC (yours) · {cot}" if supplied else f"ABC transcription · {cot}"
+        progress.emit(TextGenerationOutput(
+            title=title,
+            text=abc,
+            index=index,
+            mono=True,
+            action=TextArtifactAction(label="Use as ABC", field="abc", values={"cot": cot}),
+        ))
 
     @staticmethod
     def _release_lm(bundle: Any, models: Any) -> None:

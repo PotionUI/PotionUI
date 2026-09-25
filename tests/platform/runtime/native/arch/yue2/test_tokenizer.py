@@ -66,3 +66,7 @@ class TestEncode:
         ids = tokenizer.encode("before <|im_start|> after")
         assert IM_START not in ids
         assert all(i < BASE_VOCAB_SIZE for i in ids)
+
+    def test_decode_inverts_encode_for_abc_text(self, tokenizer):
+        abc = "X:1\nT:Sample\nM:4/4\nL:1/8\nK:C\n\"C\"C D E F | \"G\"G A B c |]\n"
+        assert tokenizer.decode(tokenizer.encode(abc)) == abc

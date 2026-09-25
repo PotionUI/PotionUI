@@ -122,6 +122,8 @@ from src.plugin_api.pipes import (
     Progress,
     ProgressGenerationOutput,
     SerializeContext,
+    TextArtifactAction,
+    TextGenerationOutput,
     VideoGenerationOutput,
     output_type_registry,
 )
@@ -298,6 +300,8 @@ __all__ = [
     "Progress",
     "ProgressGenerationOutput",
     "SerializeContext",
+    "TextArtifactAction",
+    "TextGenerationOutput",
     "VideoGenerationOutput",
     "output_type_registry",
     # Native engine generation

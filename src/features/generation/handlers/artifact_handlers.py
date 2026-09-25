@@ -34,6 +34,7 @@ from src.pipelines.outputs import (
     WarmStartGenerationOutput,
     ComfyUIWorkflowGenerationOutput,
     DiffTextGenerationOutput,
+    TextGenerationOutput,
 )
 
 # Import base handler from core
@@ -266,6 +267,19 @@ class DiffTextGenerationOutputHandler(BaseGenerationOutputHandler):
         }
 
 
+class TextGenerationOutputHandler(BaseGenerationOutputHandler):
+
+    def can_handle(self, output: GenerationOutput) -> bool:
+        return isinstance(output, TextGenerationOutput)
+
+    def handle(self, output: TextGenerationOutput) -> Dict[str, Any]:
+        return {
+            'handler': 'TextGenerationOutputHandler',
+            'processed': True,
+            'index': output.index,
+        }
+
+
 class ComfyUIWorkflowGenerationOutputHandler(BaseGenerationOutputHandler):
     """Handler for ComfyUIWorkflowGenerationOutput - processes workflow artifacts for display."""
 
@@ -421,6 +435,24 @@ def serialize_diff_text_output(output: DiffTextGenerationOutput, ctx: SerializeC
     }
 
 
+def serialize_text_output(output: TextGenerationOutput, ctx: SerializeContext) -> Dict[str, Any]:
+    action = output.action
+    return {
+        'artifact_type': 'text',
+        'artifact_data': {
+            'index': output.index,
+            'title': output.title,
+            'text': output.text,
+            'mono': bool(output.mono),
+            'action': None if action is None else {
+                'label': action.label,
+                'field': action.field,
+                'values': dict(action.values or {}),
+            },
+        }
+    }
+
+
 def serialize_models_output(output: ModelsGenerationOutput, ctx: SerializeContext) -> Dict[str, Any]:
     """Serialize ModelsGenerationOutput for pipe_artifact messages."""
     result = {
@@ -556,4 +588,12 @@ output_type_registry.register(OutputTypeSpec(
     message_type='pipe_artifact',
     serializer=serialize_diff_text_output,
     handler_cls=DiffTextGenerationOutputHandler,
+))
+
+output_type_registry.register(OutputTypeSpec(
+    output_cls=TextGenerationOutput,
+    key='text',
+    message_type='pipe_artifact',
+    serializer=serialize_text_output,
+    handler_cls=TextGenerationOutputHandler,
 ))

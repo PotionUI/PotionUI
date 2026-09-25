@@ -123,6 +123,12 @@ class GrantConsentRequest(BaseModel):
     selections: Dict[str, str] = Field(default_factory=dict)
 
 
+class VariantDownloadRequest(BaseModel):
+    recipe_id: str = Field(min_length=1)
+    artifact_id: str = Field(min_length=1)
+    variant_id: str = Field(min_length=1)
+
+
 # --- response DTOs ---------------------------------------------------------
 
 

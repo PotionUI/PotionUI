@@ -25,7 +25,7 @@ updating this attempt's progress fields as the download advances.
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from src.features.models.repository import ModelRepository
 from src.features.recipes.executors._artifact_lookup import find_artifact_model, find_slot_model
@@ -51,6 +51,50 @@ _STALL_SECONDS = 600
 # problem" - matched structurally (HTTP status, HTML-instead-of-a-file), never
 # against a provider name.
 _AUTH_FAILURE_SIGNALS = ("HTTP 401", "HTTP 403", "returned HTML instead of a file")
+
+
+def resolve_download_url(artifact, get_registry: Callable[[], Any]) -> Tuple[Optional[str], str]:
+    provider_hint = artifact.provider_hint or {}
+
+    explicit_url = provider_hint.get("download_url")
+    if explicit_url:
+        return explicit_url, "the recipe's own source"
+
+    registry = get_registry()
+    if registry is None:
+        return None, "no marketplace provider plugin is available to look up a source"
+
+    source = provider_hint.get("source")
+    model_id = provider_hint.get("model_id")
+    if source and model_id:
+        try:
+            url = run_sync(registry.get_download_url(source, model_id, provider_hint.get("version_id")))
+        except Exception:
+            url = None
+        if url:
+            return url, f"{source} (matched by id)"
+
+    checksum = artifact.checksum.value if artifact.checksum else None
+    if checksum:
+        try:
+            info = run_sync(registry.get_model_by_hash_any(checksum))
+        except Exception:
+            info = None
+        if info and info.download_url:
+            return info.download_url, f"{info.provider_id} (matched by checksum)"
+
+    if source:
+        query = artifact.display_name or artifact.filename
+        try:
+            results = run_sync(
+                registry.search_models(source, query, model_type=artifact.model_type, limit=1)
+            )
+        except Exception:
+            results = []
+        if results and results[0].download_url:
+            return results[0].download_url, f"{source} (matched by search)"
+
+    return None, "no checksum, direct source, or provider id/search match was available"
 
 
 class ArtifactsFetchExecutor:
@@ -181,47 +225,7 @@ class ArtifactsFetchExecutor:
         return "Add an API key for this download's provider in Administration -> Plugins, then retry setup."
 
     def _resolve_download_url(self, artifact) -> Tuple[Optional[str], str]:
-        provider_hint = artifact.provider_hint or {}
-
-        explicit_url = provider_hint.get("download_url")
-        if explicit_url:
-            return explicit_url, "the recipe's own source"
-
-        registry = self._get_provider_registry()
-        if registry is None:
-            return None, "no marketplace provider plugin is available to look up a source"
-
-        source = provider_hint.get("source")
-        model_id = provider_hint.get("model_id")
-        if source and model_id:
-            try:
-                url = run_sync(registry.get_download_url(source, model_id, provider_hint.get("version_id")))
-            except Exception:
-                url = None
-            if url:
-                return url, f"{source} (matched by id)"
-
-        checksum = artifact.checksum.value if artifact.checksum else None
-        if checksum:
-            try:
-                info = run_sync(registry.get_model_by_hash_any(checksum))
-            except Exception:
-                info = None
-            if info and info.download_url:
-                return info.download_url, f"{info.provider_id} (matched by checksum)"
-
-        if source:
-            query = artifact.display_name or artifact.filename
-            try:
-                results = run_sync(
-                    registry.search_models(source, query, model_type=artifact.model_type, limit=1)
-                )
-            except Exception:
-                results = []
-            if results and results[0].download_url:
-                return results[0].download_url, f"{source} (matched by search)"
-
-        return None, "no checksum, direct source, or provider id/search match was available"
+        return resolve_download_url(artifact, self._get_provider_registry)
 
     # --- progress polling ----------------------------------------------------
 

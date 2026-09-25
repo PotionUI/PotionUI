@@ -4,6 +4,8 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { formatBytes } from '$lib/utils/format';
+	import VariantAttributionNote from './VariantAttributionNote.svelte';
+	import { collectAttributions } from './variantAttribution';
 
 	let {
 		gpu,
@@ -37,29 +39,7 @@
 		}, 0)
 	);
 
-	interface Attribution {
-		uploader: string;
-		source_url: string | null;
-		repo_id: string | null;
-	}
-
-	const attributions = $derived.by(() => {
-		const seen = new Map<string, Attribution>();
-		for (const slot of slots) {
-			for (const variant of slot.variants) {
-				if (!variant.uploader) continue;
-				const key = `${variant.uploader}|${variant.source_url ?? variant.repo_id ?? ''}`;
-				if (!seen.has(key)) {
-					seen.set(key, {
-						uploader: variant.uploader,
-						source_url: variant.source_url,
-						repo_id: variant.repo_id
-					});
-				}
-			}
-		}
-		return Array.from(seen.values());
-	});
+	const attributions = $derived(collectAttributions(slots.flatMap((slot) => slot.variants)));
 </script>
 
 <div class="space-y-4">
@@ -199,23 +179,7 @@
 	{/each}
 
 	{#each attributions as attribution (attribution.uploader + '|' + (attribution.source_url ?? ''))}
-		<div class="flex items-start gap-2 rounded border border-line bg-surface-2 px-3 py-2 text-sm text-fg-subtle">
-			<Icon name="info" className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-			<span>
-				Free to download thanks to Hugging Face and {attribution.uploader}, who uploaded this
-				model.
-				{#if attribution.source_url}
-					<a
-						href={attribution.source_url}
-						target="_blank"
-						rel="noreferrer"
-						class="text-signal hover:underline"
-					>
-						{attribution.repo_id ?? attribution.source_url}
-					</a>
-				{/if}
-			</span>
-		</div>
+		<VariantAttributionNote {attribution} />
 	{/each}
 
 	<div class="flex items-center justify-between text-sm border-t border-line pt-2">

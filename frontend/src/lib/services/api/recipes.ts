@@ -1,7 +1,39 @@
 import type { AxiosInstance } from 'axios';
-import type { ReadinessReport, RecipePresetLink, RecipeRunMode, SetupRun, SetupRunAction } from './setup';
+import type {
+	ReadinessReport,
+	RecipePresetLink,
+	RecipeRunMode,
+	SetupConsentGpuProfile,
+	SetupConsentSlot,
+	SetupRun,
+	SetupRunAction
+} from './setup';
 
 export type { RecipePresetLink, RecipeRunMode };
+
+export interface RecipeSlotVariants extends SetupConsentSlot {
+	recipe_id: string;
+	recipe_name: string;
+	suggested_variant_id: string;
+	suggested_reason: string;
+	current_variant_id?: string;
+}
+
+export interface PresetSlotVariantsResponse {
+	gpu: SetupConsentGpuProfile;
+	slots: RecipeSlotVariants[];
+}
+
+export interface ModelSlotVariantsResponse {
+	gpu: SetupConsentGpuProfile;
+	slot: RecipeSlotVariants | null;
+}
+
+export interface SlotVariantDownloadRequest {
+	recipe_id: string;
+	artifact_id: string;
+	variant_id: string;
+}
 
 /** Where a recipe was scanned from — the same three roots presets use. */
 export type RecipeSource = 'marketplace' | 'local' | 'plugin';
@@ -131,6 +163,25 @@ export function createRecipesApi(client: AxiosInstance) {
 			const response = await client.post(`/api/recipes/runs/${runId}/consent/${stepKey}`, {
 				selections: selections ?? {}
 			});
+			return response.data;
+		},
+
+		async getPresetSlotVariants(presetId: string, modelType?: string): Promise<PresetSlotVariantsResponse> {
+			const response = await client.get(`/api/recipes/variants/preset/${encodeURIComponent(presetId)}`, {
+				params: modelType ? { model_type: modelType } : undefined
+			});
+			return response.data;
+		},
+
+		async getModelSlotVariants(modelId: string): Promise<ModelSlotVariantsResponse> {
+			const response = await client.get(`/api/recipes/variants/model/${encodeURIComponent(modelId)}`);
+			return response.data;
+		},
+
+		async downloadSlotVariant(
+			payload: SlotVariantDownloadRequest
+		): Promise<{ download_id: string; filename: string }> {
+			const response = await client.post('/api/recipes/variants/download', payload);
 			return response.data;
 		},
 

@@ -8,7 +8,8 @@ difference is the run's `mode`: an onboarding run executes every step, an
 admin run skips the ones a recipe marks `onboarding_only`.
 """
 
-from typing import TYPE_CHECKING, Dict, List, Optional
+import asyncio
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -20,8 +21,10 @@ from src.features.recipes.dto import (
     RecipeSummary,
     StartRecipeRunRequest,
     StepKindView,
+    VariantDownloadRequest,
 )
 from src.features.recipes.records import MODE_ADMIN
+from src.features.recipes.slot_variants import VariantDownloadError
 from src.features.recipes.runner import (
     ActiveRecipeRunExists,
     IllegalRecipeRunTransition,
@@ -99,6 +102,41 @@ def build_router(container: "AppContainer") -> APIRouter:
                 for k in registry.list_kinds()
             ]
         }
+
+    @router.get("/variants/preset/{preset_id}", summary="Download variants a preset's recipes offer")
+    async def get_preset_slot_variants(
+        preset_id: str,
+        model_type: Optional[str] = None,
+        current_user: User = Depends(get_current_admin_user),
+    ) -> Dict[str, Any]:
+        return await asyncio.to_thread(container.recipe_slot_variants.for_preset, preset_id, model_type)
+
+    @router.get("/variants/model/{model_id}", summary="The recipe slot an installed model belongs to")
+    async def get_model_slot_variants(
+        model_id: str,
+        current_user: User = Depends(get_current_admin_user),
+    ) -> Dict[str, Any]:
+        result = await asyncio.to_thread(container.recipe_slot_variants.for_model_id, model_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        return result
+
+    @router.post("/variants/download", status_code=202, summary="Download one variant of a recipe slot")
+    async def download_slot_variant(
+        body: VariantDownloadRequest,
+        current_user: User = Depends(get_current_admin_user),
+    ) -> Dict[str, Any]:
+        try:
+            return await asyncio.to_thread(
+                container.recipe_slot_variants.queue_download,
+                body.recipe_id,
+                body.artifact_id,
+                body.variant_id,
+                current_user.id,
+            )
+        except VariantDownloadError as e:
+            status = {"variant_not_found": 404, "already_installed": 409}.get(e.code, 400)
+            raise HTTPException(status_code=status, detail={"code": e.code, "message": e.message})
 
     # --- runs -------------------------------------------------------------
 

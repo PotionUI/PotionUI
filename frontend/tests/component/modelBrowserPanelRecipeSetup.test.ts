@@ -11,7 +11,8 @@ vi.mock('$lib/services/api/index', () => ({
 		getModelDownloadStatus: vi.fn(),
 		startModelDownload: vi.fn(),
 		getUnindexedModelsCount: vi.fn(),
-		listPresets: vi.fn()
+		listPresets: vi.fn(),
+		getPresetSlotVariants: vi.fn().mockResolvedValue({ gpu: {}, slots: [] })
 	}
 }));
 

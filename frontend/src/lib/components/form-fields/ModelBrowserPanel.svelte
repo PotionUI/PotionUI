@@ -24,6 +24,7 @@
 	import { loadPresets as loadPresetCatalog } from '$lib/stores/presetsCatalog';
 	import ModelResultRow from './ModelResultRow.svelte';
 	import ModelCollectionBrowser from './ModelCollectionBrowser.svelte';
+	import PickerVariantSuggestions from '../recipes/PickerVariantSuggestions.svelte';
 	import { buildModelSearchRequest } from '$lib/utils/modelSearchParams';
 	import { toggleModelFavoriteOptimistic } from '$lib/utils/modelFavorite';
 	import { buildModelPickerEntries, downloadPayloadForRecommendation } from '$lib/utils/modelRecommendations';
@@ -456,6 +457,10 @@
 			<p class="min-w-0 flex-1 text-sm text-fg-muted">No model installed yet. An admin can set it up.</p>
 		{/if}
 	</div>
+{/if}
+
+{#if pickerView === 'global' && isAdmin && presetId && !searchQuery}
+	<PickerVariantSuggestions {presetId} {modelType} onInstalled={() => fetchModels()} />
 {/if}
 
 {#if pickerView === 'collections'}

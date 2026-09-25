@@ -26,30 +26,17 @@ inside that attempt's `safe_output`, which `artifacts.fetch` reads back out.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 from src.features.models.repository import ModelRepository
 from src.features.recipes.executors._provider_credentials import (
     credential_prompt_for_provider,
     resolve_provider_registry,
 )
-from src.features.recipes.executors._artifact_lookup import find_artifact_model
 from src.features.recipes.executors.base import StepContext, StepResult
-from src.features.recipes.variants import (
-    VariantChoice,
-    choose_variant,
-    describe_single_file,
-    describe_variant,
-    resolve_selection,
-)
+from src.features.recipes.executors._slot_description import describe_slot, found_as
+from src.features.recipes.variants import resolve_selection
 from src.platform.runtime.gpu_profile import GpuProfile, detect_gpu_profile
-
-
-def _found_as(model: Any, expected_filename: str) -> Optional[str]:
-    found = getattr(model, "file_path", None) if model is not None else None
-    if found and getattr(model, "filename", None) != expected_filename:
-        return found
-    return None
 
 
 class ArtifactsPlanExecutor:
@@ -83,7 +70,7 @@ class ArtifactsPlanExecutor:
                     "ARTIFACTS_PLAN_MISCONFIGURED",
                     f"This step references an artifact ('{artifact_id}') the recipe doesn't declare.",
                 )
-            slot, choice, installed = self._describe_slot(artifact, gpu)
+            slot, choice, installed = describe_slot(self.model_repository, artifact, gpu)
             slots.append(slot)
             chosen = resolve_selection(artifact, choice.variant_id)
             entry = {
@@ -96,9 +83,9 @@ class ArtifactsPlanExecutor:
                 "license_url": chosen.license_url,
             }
             if choice.variant_id in installed:
-                found_as = _found_as(installed[choice.variant_id], chosen.filename)
-                if found_as:
-                    entry["found_as"] = found_as
+                found = found_as(installed[choice.variant_id], chosen.filename)
+                if found:
+                    entry["found_as"] = found
                 present.append(entry)
             else:
                 missing.append(entry)
@@ -130,50 +117,6 @@ class ArtifactsPlanExecutor:
             consent_request,
             safe_output={"already_present": present} if present else None,
         )
-
-    def _describe_slot(self, artifact, gpu: GpuProfile) -> Tuple[Dict[str, Any], VariantChoice, Dict[str, Any]]:
-        installed: Dict[str, Any] = {}
-        if artifact.variants:
-            for variant in artifact.variants:
-                model = find_artifact_model(self.model_repository, artifact.resolve(variant.id))
-                if model is not None:
-                    installed[variant.id] = model
-            choice = choose_variant(artifact, gpu, installed.keys())
-            variants = [
-                describe_variant(
-                    variant,
-                    gpu,
-                    installed=variant.id in installed,
-                    found_as=_found_as(installed.get(variant.id), variant.filename),
-                )
-                for variant in artifact.variants
-            ]
-        else:
-            model = find_artifact_model(self.model_repository, artifact)
-            if model is not None:
-                installed[artifact.id] = model
-            choice = VariantChoice(
-                artifact.id,
-                "Already installed" if model is not None else "The only file this recipe offers here",
-            )
-            variants = [
-                describe_single_file(
-                    artifact,
-                    installed=model is not None,
-                    found_as=_found_as(model, artifact.filename),
-                )
-            ]
-        slot = {
-            "id": artifact.id,
-            "label": artifact.display_name or artifact.filename,
-            "kind": artifact.kind,
-            "model_type": artifact.model_type,
-            "required": artifact.required,
-            "variants": variants,
-            "recommended_variant_id": choice.variant_id,
-            "reason": choice.reason,
-        }
-        return slot, choice, installed
 
     def _get_provider_registry(self):
         return resolve_provider_registry(self._provider_registry_factory)

@@ -64,6 +64,7 @@ from src.features.setup import InstanceClaimRepository
 from src.features.recipes.runner import RecipeRunner
 from src.features.recipes.catalog import RecipeCatalog
 from src.features.recipes.preset_links import RecipePresetLinks
+from src.features.recipes.slot_variants import RecipeSlotVariants
 from src.features.phrasebook.preview_generator import PhrasebookPreviewGenerator
 from src.features.chat import ChatRuntime, ResponseProcessor
 from src.features.downloads import DownloadQueue, DownloadRepository
@@ -292,6 +293,7 @@ class AppContainer:
     recipe_runner: RecipeRunner
     recipe_catalog: RecipeCatalog
     recipe_preset_links: RecipePresetLinks
+    recipe_slot_variants: RecipeSlotVariants
     user_controller: "UserController"
 
     # Downloads
@@ -1375,6 +1377,11 @@ def build_container() -> AppContainer:
         recipe_runner,
         preset_loader=preset_template_loader,
         preset_db_repo=database_preset_repository,
+    )
+    recipe_slot_variants = RecipeSlotVariants(
+        recipe_catalog,
+        model_repository,
+        download_queue=download_queue,
     )
     preset_controller = PresetController(
         preset_collaborators, backend_registry, media_store,

@@ -24,6 +24,7 @@ from typing import Dict, List
 
 from src.platform.plugins.automation_nodes import NodeField, NodeTypeSpec, node_type_registry
 from src.features.automation.triggers.filesystem import CUSTOM_PATH_VALUE, list_app_directories
+from src.features.generation.error_classification import ERROR_CATEGORIES
 
 
 def _hook_name_options() -> List[Dict[str, str]]:
@@ -38,6 +39,15 @@ def _hook_name_options() -> List[Dict[str, str]]:
         for spec in sorted(hooks_registry.all(), key=lambda s: s.name)
         if spec.type == "backend"
     ]
+
+
+def _error_category_options() -> List[Dict[str, str]]:
+    return [{"value": category, "label": category.replace("_", " ").capitalize()} for category in ERROR_CATEGORIES]
+
+
+def _user_filter_options() -> List[Dict[str, str]]:
+    from src.features.users.repository import user_repo
+    return [{"value": user.id, "label": user.username} for user in user_repo.get_all()]
 
 
 def register(registry=node_type_registry) -> None:
@@ -61,6 +71,33 @@ def register(registry=node_type_registry) -> None:
         # Payload is the hook's own `context.data` (see triggers/hook_bridge.py) -
         # its shape is whatever the selected hook publishes, so it can't be declared here.
         dynamic_outputs=True,
+    ))
+
+    registry.register(NodeTypeSpec(
+        key="trigger.generation_failed",
+        kind="trigger",
+        title="Generation Failed",
+        description="Fires once when a generation fails (never on cancel). Empty filters match every failure.",
+        icon="warning",
+        category="events",
+        config_schema=[
+            {"name": "category", "type": "select", "title": "Error Category (optional)", "default": "",
+             "allow_empty": True, "options_provider": _error_category_options},
+            {"name": "preset_id", "type": "string", "title": "Preset ID (optional)", "default": ""},
+            {"name": "user_id", "type": "select", "title": "User (optional)", "default": "",
+             "allow_empty": True, "options_provider": _user_filter_options},
+        ],
+        outputs=(
+            NodeField("generation_id", "string", "Generation ID", "The failed generation, also its error ID.",
+                      "01J9ZX3Q4K8M2N6P7R5T0V1W2Y"),
+            NodeField("user_id", "string", "User ID", "Owning user, or null.", "01J9ZX0A1B2C3D4E5F6G7H8J9K"),
+            NodeField("preset_id", "string", "Preset ID", "Preset the generation used.", "sdxl/juggernaut"),
+            NodeField("error_code", "string", "Error Code", "Error category code.", "cuda_oom"),
+            NodeField("category", "string", "Category", "Same as error_code.", "cuda_oom"),
+            NodeField("message", "string", "Message", "Safe user-facing failure summary.",
+                      "Ran out of GPU memory (VRAM) during generation."),
+            NodeField("failed_pipe", "string", "Failed Pipe", "Pipe that failed, or null.", "generator"),
+        ),
     ))
 
     registry.register(NodeTypeSpec(

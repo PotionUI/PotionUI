@@ -4,7 +4,7 @@ from src.platform.plugins.hooks import hooks_registry
 
 GENERATION_HOOKS = hooks_registry.declare(
     "generation", "backend",
-    "before_start", "after_complete",
+    "before_start", "after_complete", "failed",
     "before_delete", "after_delete",
     "before_bulk_delete", "after_bulk_delete",
     "before_upload", "after_upload",
@@ -69,6 +69,32 @@ GENERATION_HOOKS = hooks_registry.declare(
                 "# hooks/generation_hooks.py\n"
                 "def on_after_complete(context: HookContext) -> HookContext:\n"
                 "    logger.info(f\"generation {context.data['generation_id']} -> {context.data['status']}\")\n"
+                "    return context\n"
+            ),
+        },
+        "failed": {
+            "description": (
+                "Fired once when a generation fails, right after the failure is recorded and before "
+                "generation.after_complete. Not fired for cancellations or successful runs. The message "
+                "is the safe, user-facing summary; the raw error and traceback stay on the generation row."
+            ),
+            "payload": {
+                "generation_id": {"type": "str", "description": "ID of the generation that failed (also its error ID)"},
+                "user_id": {"type": "Optional[str]", "description": "Owning user, if known"},
+                "preset_id": {"type": "Optional[str]", "description": "Preset the generation used"},
+                "error_code": {"type": "str", "description": "Error category code, e.g. 'cuda_oom', 'missing_model_file', 'unclassified'"},
+                "category": {"type": "str", "description": "Same value as error_code, named for filtering"},
+                "message": {"type": "str", "description": "Safe user-facing failure summary"},
+                "failed_pipe": {"type": "Optional[str]", "description": "Key or name of the pipe that failed, or null when the failure happened outside a pipe"},
+            },
+            "use_when": [
+                "Alert someone (webhook, chat, email) when generations fail",
+                "Track failure rates per preset, user or error category",
+            ],
+            "example": (
+                "# hooks/generation_hooks.py\n"
+                "def on_failed(context: HookContext) -> HookContext:\n"
+                "    logger.warning(f\"{context.data['generation_id']} failed: {context.data['error_code']}\")\n"
                 "    return context\n"
             ),
         },

@@ -75,6 +75,13 @@ notification_type_registry.register(NotificationTypeSpec(
     category="generation",
 ))
 notification_type_registry.register(NotificationTypeSpec(
+    key="generation.failed_admin_alert",
+    label="Failed generations (all users)",
+    description="Any user's generation failed. Sent only while failure alerts are on in Admin -> Settings.",
+    category="generation",
+    admin_only=True,
+))
+notification_type_registry.register(NotificationTypeSpec(
     key="system.plugins",
     label="Plugin lifecycle events",
     description="A plugin was installed/enabled/disabled, or a lifecycle operation failed.",

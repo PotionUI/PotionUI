@@ -90,6 +90,8 @@ _CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     ),
 }
 
+ERROR_CATEGORIES: Tuple[str, ...] = tuple(_CATEGORIES)
+
 
 @dataclass
 class ErrorClassification:

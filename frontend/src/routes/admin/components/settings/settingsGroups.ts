@@ -82,6 +82,8 @@ export const SETTINGS_KEY_GROUP: Record<string, SettingsGroupId> = {
 	media_vision_auto_download: 'search_tagging',
 	mcp_enabled: 'access',
 	workbench_single_result_gallery: 'generation',
+	notify_admins_on_generation_failure: 'generation',
+	notify_admins_on_generation_failure_categories: 'generation',
 	external_login_auto_create: 'external_login',
 	external_login_link_by_email: 'external_login',
 	external_login_default_group: 'external_login'

@@ -1196,8 +1196,7 @@ class GenerationOrchestrator:
         except Exception as e:
             logger.error(f"Failed to build pipeline: {str(e)}", exc_info=True)
             failure = failure_from_exception(e, traceback.format_exc())
-            await self.status_tracker.transition_async(generation_id, GenerationState.FAILED, failure)
-            self._notify_generation_failure(generation_id, failure)
+            await self._record_failure(generation_id, failure)
             self._queue_dispatcher.prune_finished()
             raise
 
@@ -1226,7 +1225,16 @@ class GenerationOrchestrator:
         await backend.start_generation(built_pipeline.to_backend_payload(), bridge.emit)
         logger.info(f"Generation {generation_id} started successfully on {backend.name}")
 
-    def _notify_generation_failure(self, generation_id: str, failure: GenerationFailure) -> None:
+    async def _record_failure(self, generation_id: str, failure: GenerationFailure) -> None:
+        before = self.status_tracker.get(generation_id)
+        already_terminal = before is not None and before.state.value in TERMINAL_STATES
+        record = await self.status_tracker.transition_async(generation_id, GenerationState.FAILED, failure)
+        generation = self._notify_generation_failure(generation_id, failure)
+        if already_terminal or record is None or record.state != GenerationState.FAILED:
+            return
+        self._fire_failed_hook(generation_id, record, generation, failure)
+
+    def _notify_generation_failure(self, generation_id: str, failure: GenerationFailure):
         generation = generation_repo.get_by_id(generation_id)
         user_id = generation.user_id if generation else None
         self._notifier.notify_failure(
@@ -1235,6 +1243,30 @@ class GenerationOrchestrator:
             failure,
             include_detail=self._is_admin_user(user_id),
         )
+        return generation
+
+    def _fire_failed_hook(self, generation_id: str, record, generation, failure: GenerationFailure) -> None:
+        if not self.plugin_registry:
+            return
+        context = HookContext(
+            hook_name=GENERATION_HOOKS.failed,
+            plugin_id="system",
+            data={
+                "generation_id": generation_id,
+                "user_id": record.user_id or (generation.user_id if generation else None),
+                "preset_id": record.preset_id or (getattr(generation, "preset_id", None) if generation else None),
+                "error_code": failure.error_code,
+                "category": failure.error_code,
+                "message": failure.message,
+                "failed_pipe": failure.failed_pipe_id or failure.failed_pipe_name,
+            },
+        )
+        try:
+            _, success = self.plugin_registry.execute_hook(GENERATION_HOOKS.failed, context)
+            if not success:
+                logger.warning(f"Some plugins failed during {GENERATION_HOOKS.failed} hook")
+        except Exception:
+            logger.error(f"Error executing {GENERATION_HOOKS.failed} hook for {generation_id}", exc_info=True)
 
     def _is_admin_user(self, user_id: Optional[str]) -> bool:
         if not user_id or self.user_repository is None:
@@ -1301,8 +1333,7 @@ class GenerationOrchestrator:
         if isinstance(output, ErrorGenerationOutput):
             failure = failure_from_output(output)
             apply_failure(output, failure)
-            await self.status_tracker.transition_async(generation_id, GenerationState.FAILED, failure)
-            self._notify_generation_failure(generation_id, failure)
+            await self._record_failure(generation_id, failure)
         else:
             self.status_tracker.update_from_output(generation_id, output)
 
@@ -1338,8 +1369,7 @@ class GenerationOrchestrator:
             )
             failure = failure_from_output(output)
             apply_failure(output, failure)
-            await self.status_tracker.transition_async(generation_id, GenerationState.FAILED, failure)
-            self._notify_generation_failure(generation_id, failure)
+            await self._record_failure(generation_id, failure)
 
         # Notify callback if provided (this triggers WebSocket broadcast in controller)
         if output_callback:

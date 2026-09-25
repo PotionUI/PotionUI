@@ -23,6 +23,7 @@ from src.platform.plugins.automation_templates import (
 from src.features.automation.triggers.base import TriggerSource
 from src.features.automation.triggers.filesystem import FilesystemTrigger, FilesystemWatchRegistry, resolve_effective_directory
 from src.features.automation.triggers.hook_bridge import HookEventBridge, HookEventTrigger
+from src.features.automation.triggers.generation_failed import GenerationFailedTrigger
 from src.features.automation.triggers.manual import ManualTrigger
 from src.features.automation.triggers.resource import ResourceTrigger
 from src.features.automation.triggers.schedule import ScheduleTrigger
@@ -558,6 +559,12 @@ class AutomationRuntime:
                 return None
             return HookEventTrigger(automation_id, node_id, config, enqueue, self._hook_bridge,
                                     schedule_run=self.engine.schedule_run)
+
+        if node_type == "trigger.generation_failed":
+            if self._hook_bridge is None:
+                logger.error(f"[AUTOMATION_MANAGER] trigger.generation_failed node {node_id}: no PluginRegistry configured")
+                return None
+            return GenerationFailedTrigger(automation_id, node_id, config, enqueue, self._hook_bridge)
 
         spec = self.registry.get(node_type)
         if spec is not None and spec.start is not None and spec.stop is not None:

@@ -307,6 +307,12 @@ class TestOutputDeclarationInvariants(unittest.TestCase):
 
         self.assertEqual(set(payload.keys()), {field.key for field in spec.outputs})
 
+    def test_generation_failed_trigger_outputs_match_its_event(self):
+        from src.features.automation.triggers.generation_failed import failure_event
+        spec = _registry().get("trigger.generation_failed")
+
+        self.assertEqual(set(failure_event({}).keys()), {field.key for field in spec.outputs})
+
     def test_output_field_types_are_from_the_known_vocabulary(self):
         allowed = {"string", "number", "boolean", "array", "object", "any"}
         for spec in _registry().all():

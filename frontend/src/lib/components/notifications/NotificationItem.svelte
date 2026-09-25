@@ -30,6 +30,18 @@
 			: null
 	);
 
+	let link = $derived(
+		typeof notification.metadata?.link === 'string' && notification.metadata.link.startsWith('/')
+			? notification.metadata.link
+			: null
+	);
+
+	let linkLabel = $derived(
+		typeof notification.metadata?.link_label === 'string' && notification.metadata.link_label.trim()
+			? notification.metadata.link_label
+			: 'Open'
+	);
+
 	let copied = $state(false);
 
 	function handleClick() {
@@ -65,6 +77,18 @@
 		</div>
 		{#if notification.message}
 			<p class="text-xs text-fg-muted mt-0.5 leading-snug break-words">{notification.message}</p>
+		{/if}
+		{#if link}
+			<a
+				href={link}
+				class="inline-block mt-1 text-xs text-signal hover:underline"
+				onclick={(e) => {
+					e.stopPropagation();
+					handleClick();
+				}}
+			>
+				{linkLabel}
+			</a>
 		{/if}
 		{#if detail}
 			<details class="mt-1.5">

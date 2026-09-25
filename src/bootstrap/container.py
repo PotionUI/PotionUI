@@ -878,6 +878,15 @@ def build_container() -> AppContainer:
     _rr._global_notification_manager = notification_manager
     notification_controller = NotificationController(notification_collaborators)
 
+    from src.features.generation.hooks import GENERATION_HOOKS
+    from src.features.notifications.admin_alerts import HANDLER_ID as _ADMIN_ALERTS_ID, GenerationFailureAdminAlerts
+
+    plugin_registry.hook_chain.register(
+        GENERATION_HOOKS.failed,
+        _ADMIN_ALERTS_ID,
+        GenerationFailureAdminAlerts(settings, user_repository, notification_manager),
+    )
+
     # Initialize LLM memory components
     from src.features.llm_memory.repository import LLMMemoryRepository
 

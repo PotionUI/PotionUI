@@ -72,6 +72,10 @@ report = {
         "history_executor": hasattr(c.generation_history_facade.executor, "shutdown"),
         "trace_recorder": hasattr(c.chat_call_trace_recorder, "shutdown"),
     },
+    "failure_alerts_wired": any(
+        pid == "core.admin_failure_alerts"
+        for pid, _ in c.plugin_registry.hook_chain._handlers.get("generation.failed", [])
+    ),
     "inference_imports": [
         m for m in ("torch", "diffusers", "transformers") if m in sys.modules
     ],
@@ -120,6 +124,10 @@ def test_chat_components_share_the_container_instances(report):
 def test_shutdown_dependent_components_are_present(report):
     """The lifespan's shutdown sequence has something to drain."""
     assert [k for k, v in report["shutdownable"].items() if not v] == []
+
+
+def test_admin_failure_alerts_listen_to_generation_failed(report):
+    assert report["failure_alerts_wired"] is True
 
 
 def test_building_the_container_imports_no_inference_stack(report):

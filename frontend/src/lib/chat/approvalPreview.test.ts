@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildApprovalDiff, buildArgumentTree, buildDirectorChangeGroups, deriveCompactSummary } from './approvalPreview';
+import {
+	buildApprovalDiff,
+	buildArgumentTree,
+	buildDirectorChangeGroups,
+	deriveCompactSummary,
+	resolveApprovalFieldValue
+} from './approvalPreview';
 import type { ToolApprovalPreview, ToolExecution } from '$lib/types/chat';
 
 function execution(data: string | undefined, args: Record<string, unknown> = {}): ToolExecution {
@@ -277,5 +283,22 @@ describe('deriveCompactSummary', () => {
 		expect(deriveCompactSummary(execution(undefined, {}), 'Update Segment Template', null)).toBe(
 			'Update Segment Template'
 		);
+	});
+});
+
+describe('resolveApprovalFieldValue', () => {
+	it('resolves a Preset field to the catalog name', () => {
+		const field = { label: 'Preset', value: '4TK1KBQZ2XMB8ME0PTMXS1YJQP' };
+		expect(resolveApprovalFieldValue(field, () => 'Krea-2')).toBe('Krea-2');
+	});
+
+	it('falls back to Unknown preset when the id has no catalog match', () => {
+		const field = { label: 'Preset', value: '4TK1KBQZ2XMB8ME0PTMXS1YJQP' };
+		expect(resolveApprovalFieldValue(field, () => null)).toBe('Unknown preset');
+	});
+
+	it('leaves non-Preset fields untouched', () => {
+		const field = { label: 'Mode', value: 'txt2img' };
+		expect(resolveApprovalFieldValue(field, () => 'Krea-2')).toBe('txt2img');
 	});
 });

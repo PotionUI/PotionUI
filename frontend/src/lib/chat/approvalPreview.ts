@@ -1,5 +1,15 @@
 import type { ToolApprovalChange, ToolApprovalPreview, ToolExecution } from '$lib/types/chat';
 
+const UNKNOWN_PRESET_LABEL = 'Unknown preset';
+
+export function resolveApprovalFieldValue(
+	field: { label: string; value: string },
+	resolvePresetName: (presetId: string) => string | null
+): string {
+	if (field.label !== 'Preset') return field.value;
+	return resolvePresetName(field.value) || UNKNOWN_PRESET_LABEL;
+}
+
 /** One field change row for the mono diff block. */
 export interface ApprovalDiffRow {
 	field: string;

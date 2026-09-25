@@ -17,7 +17,8 @@
 	import { historyCollectionsStore as collectionsStore } from '$lib/stores/collections';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { WebSocketService, createGenerationSocket, type WebSocketMessage } from '$lib/services/websocket';
-	import { buildHistoryReuseTabData } from '$lib/utils/historyReuse';
+	import { buildHistoryReuseTabData, buildReuseTabTitle } from '$lib/utils/historyReuse';
+	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import GenerationDetailsModal from '$lib/components/modals/GenerationDetailsModal.svelte';
 	import UploadGenerationModal from '$lib/components/modals/UploadGenerationModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -54,6 +55,11 @@
 	let showUploadModal = false;
 	let showDeleteByCriteriaModal = false;
 	let sidebarOpen = true;
+	let presetNamesCache: Record<string, string> = {};
+
+	function resolvePresetName(id: string): string | null {
+		return presetNamesCache[id] ?? null;
+	}
 
 	// The tool picked from the selection bar's Tools menu, with the selection
 	// snapshot it was picked for.
@@ -167,6 +173,9 @@
 		historyStore.loadFacets();
 		collectionsStore.load();
 		void loadPluginMediaTools();
+		loadPresetNameMap()
+			.then((map) => (presetNamesCache = map))
+			.catch((err) => logger.error('Failed to load preset names:', err));
 
 		versionWatcher = createHistoryVersionWatcher({
 			fetchVersion: async () => {
@@ -241,7 +250,7 @@
 	function handleReuseRequest(generation: GenerationHistoryItem) {
 		if (!generation.preset_id) return;
 
-		const tabName = `Reused: ${generation.preset_name ?? generation.preset_id.split('/').pop()}`;
+		const tabName = buildReuseTabTitle('Reused', generation, resolvePresetName);
 		const { tabData } = buildHistoryReuseTabData(generation);
 
 		tabsStore.addTabWithData(tabName, tabData);

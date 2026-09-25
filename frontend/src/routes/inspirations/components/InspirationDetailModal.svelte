@@ -13,7 +13,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { inspirationsStore } from '$lib/stores/inspirations';
 	import { tabsStore } from '$lib/stores/tabs';
-	import { buildImportBundleTabData } from '$lib/utils/historyReuse';
+	import { buildImportBundleTabData, UNKNOWN_PRESET_LABEL } from '$lib/utils/historyReuse';
 	import { buildInspirationReuseSource, formatOmittedFieldsHint } from '$lib/inspirations/reuseAdapter';
 	import type { PresetInfo } from '$lib/types/api';
 	import { canModerateInspiration } from '$lib/inspirations/inspirationCardMeta';
@@ -109,7 +109,7 @@
 				}
 				const presetAvailable = availablePresets.some((p) => p.id === presetId);
 				if (!presetAvailable) {
-					const presetLabel = paramsResponse.data.preset_name ?? presetId;
+					const presetLabel = paramsResponse.data.preset_name ?? UNKNOWN_PRESET_LABEL;
 					toasts.error(`This inspiration requires preset "${presetLabel}", which isn't available.`);
 					return;
 				}

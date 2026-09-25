@@ -2,7 +2,9 @@
 	import { logger } from '$lib/utils/logger';
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
-	import { createEventDispatcher, onDestroy } from 'svelte';
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
+	import { resolveReusePresetLabel } from '$lib/utils/historyReuse';
 	import type { GenerationHistoryItem, Tag } from '$lib/types/history';
 	import { api } from '$lib/services/api/index';
 	import TagSelector from '$lib/components/TagSelector.svelte';
@@ -45,6 +47,16 @@
 	export let position: { index: number; total: number } | null = null;
 
 	const dispatch = createEventDispatcher();
+
+	let presetNamesCache: Record<string, string> = {};
+	onMount(() => {
+		loadPresetNameMap()
+			.then((map) => (presetNamesCache = map))
+			.catch((err) => logger.error('Failed to load preset names:', err));
+	});
+	function resolvePresetName(id: string): string | null {
+		return presetNamesCache[id] ?? null;
+	}
 
 	$: canNavigate = typeof onNavigate === 'function';
 	let navigating = false;
@@ -851,7 +863,7 @@
 								<div class="flex items-center justify-between px-3 py-2">
 									<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Preset</span>
 									<div class="flex items-center gap-1">
-										<span class="font-mono text-xs text-fg truncate max-w-[220px]" title={activeGeneration.preset_id}>{activeGeneration.preset_id}</span>
+										<span class="font-mono text-xs text-fg truncate max-w-[220px]" title={resolveReusePresetLabel(activeGeneration, resolvePresetName)}>{resolveReusePresetLabel(activeGeneration, resolvePresetName)}</span>
 										<CopyButton
 											text={activeGeneration.preset_id ?? ''}
 											ariaLabel="Copy preset"

@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
 	buildHistoryReuseTabData,
 	buildImportBundleTabData,
-	buildActiveTabReuseUpdate
+	buildActiveTabReuseUpdate,
+	buildReuseTabTitle,
+	resolveReusePresetLabel
 } from './historyReuse';
 import type { GenerationHistoryItem, ImportBundleReuse } from '$lib/types/history';
 
@@ -149,5 +151,45 @@ describe('buildActiveTabReuseUpdate', () => {
 		expect(tabData.positiveSegmentsCollapsed).toBeUndefined();
 		expect(tabData.negativeSegmentsCollapsed).toBeUndefined();
 		expect(tabData.modeStateByMode).toEqual({});
+	});
+});
+
+describe('resolveReusePresetLabel', () => {
+	it('prefers the given preset_name over any resolver lookup', () => {
+		const label = resolveReusePresetLabel(
+			{ preset_id: '4TK1KBQZ2XMB8ME0PTMXS1YJQP', preset_name: 'Krea-2' },
+			() => 'Some Other Name'
+		);
+		expect(label).toBe('Krea-2');
+	});
+
+	it('falls back to the resolver when preset_name is absent', () => {
+		const label = resolveReusePresetLabel(
+			{ preset_id: '4TK1KBQZ2XMB8ME0PTMXS1YJQP' },
+			(id) => (id === '4TK1KBQZ2XMB8ME0PTMXS1YJQP' ? 'Krea-2' : null)
+		);
+		expect(label).toBe('Krea-2');
+	});
+
+	it('falls back to "Unknown preset", never the raw id', () => {
+		const label = resolveReusePresetLabel({ preset_id: '4TK1KBQZ2XMB8ME0PTMXS1YJQP' }, () => null);
+		expect(label).toBe('Unknown preset');
+		expect(label).not.toContain('4TK1KBQZ2XMB8ME0PTMXS1YJQP');
+	});
+
+	it('falls back to "Unknown preset" with no preset_id at all', () => {
+		expect(resolveReusePresetLabel({}, () => null)).toBe('Unknown preset');
+	});
+});
+
+describe('buildReuseTabTitle', () => {
+	it('builds "<prefix>: <name>" from a resolved preset name', () => {
+		const title = buildReuseTabTitle('Reused', { preset_id: 'p1', preset_name: 'Krea-2' }, () => null);
+		expect(title).toBe('Reused: Krea-2');
+	});
+
+	it('never surfaces the raw ULID when the name cannot be resolved', () => {
+		const title = buildReuseTabTitle('Reused', { preset_id: '4TK1KBQZ2XMB8ME0PTMXS1YJQP' }, () => null);
+		expect(title).toBe('Reused: Unknown preset');
 	});
 });

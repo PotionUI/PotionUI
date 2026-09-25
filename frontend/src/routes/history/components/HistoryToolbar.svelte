@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import portal from '$lib/actions/portal';
 	import { historyStore } from '$lib/stores/history';
@@ -7,7 +7,8 @@
 	import { tabsStore } from '$lib/stores/tabs';
 	import { toasts } from '$lib/stores/toast';
 	import { logger } from '$lib/utils/logger';
-	import { buildImportBundleTabData } from '$lib/utils/historyReuse';
+	import { buildImportBundleTabData, buildReuseTabTitle, resolveReusePresetLabel } from '$lib/utils/historyReuse';
+	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import { PageHeader, PageTitle, IconButton, Badge } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { api } from '$lib/services/api/index';
@@ -218,6 +219,17 @@
 
 	let importInput: HTMLInputElement;
 	let importing = false;
+	let presetNamesCache: Record<string, string> = {};
+
+	onMount(() => {
+		loadPresetNameMap()
+			.then((map) => (presetNamesCache = map))
+			.catch((err) => logger.error('Failed to load preset names:', err));
+	});
+
+	function resolvePresetName(id: string): string | null {
+		return presetNamesCache[id] ?? null;
+	}
 
 	function triggerImportBundle() {
 		importInput?.click();
@@ -243,11 +255,13 @@
 			}
 
 			if (!preset_available) {
-				toasts.error(`Preset "${reuse.preset_id}" is not installed — install it before reusing this bundle.`);
+				toasts.error(
+					`Preset "${resolveReusePresetLabel(reuse, resolvePresetName)}" is not installed — install it before reusing this bundle.`
+				);
 				return;
 			}
 
-			const tabName = `Imported: ${reuse.preset_id.split('/').pop()}`;
+			const tabName = buildReuseTabTitle('Imported', reuse, resolvePresetName);
 			const { tabData } = buildImportBundleTabData(reuse);
 			tabsStore.addTabWithData(tabName, tabData);
 			goto('/generate');

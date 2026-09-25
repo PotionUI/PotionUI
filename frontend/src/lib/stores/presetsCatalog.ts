@@ -49,3 +49,12 @@ export function invalidatePresets(): void {
 	cached = null;
 	pending = false;
 }
+
+export async function loadPresetNameMap(options: { force?: boolean } = {}): Promise<Record<string, string>> {
+	const response = await loadPresets(options);
+	const map: Record<string, string> = {};
+	if (response.success) {
+		for (const preset of response.data || []) map[preset.id] = preset.name;
+	}
+	return map;
+}

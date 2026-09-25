@@ -14,6 +14,7 @@
 	 * Legacy previews (no `kind`) keep their existing changeGroups/diff/items
 	 * renderers, just inside the same compact/expand shell.
 	 */
+	import { onMount } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import { logger } from '$lib/utils/logger';
 	import type { UnifiedChatMessageData, ToolExecution } from '$lib/types/chat';
@@ -24,8 +25,10 @@
 		buildApprovalDiff,
 		buildArgumentTree,
 		buildDirectorChangeGroups,
-		deriveCompactSummary
+		deriveCompactSummary,
+		resolveApprovalFieldValue
 	} from '$lib/chat/approvalPreview';
+	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import { Badge } from '$lib/components/ui';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import ApprovalArgTree from './approval/ApprovalArgTree.svelte';
@@ -48,6 +51,18 @@
 	let expandedBlocks = new Set<number>();
 	let working: 'one' | 'all' | null = null;
 	let error: string | null = null;
+
+	let presetNamesCache: Record<string, string> = {};
+	onMount(async () => {
+		try {
+			presetNamesCache = await loadPresetNameMap();
+		} catch (err) {
+			logger.error('Failed to load preset names:', err);
+		}
+	});
+	function resolvePresetName(id: string): string | null {
+		return presetNamesCache[id] ?? null;
+	}
 
 	$: queue = deriveApprovalQueue(messages);
 	$: current = queue[0] ?? null;
@@ -209,7 +224,7 @@
 								{#if isChangedField(field)}
 									<span class="text-fg-disabled line-through mr-1">{field.old}</span><span class="text-fg-subtle mr-1">→</span>
 								{/if}
-								{field.value}
+								{resolveApprovalFieldValue(field, resolvePresetName)}
 							</div>
 						</div>
 					{/each}
@@ -401,7 +416,7 @@
 							{#each previewData.fields as field}
 								<span class="inline-flex items-center gap-1 rounded border border-line-strong bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-fg-muted">
 									{#if isChangedField(field)}<span class="w-1.5 h-1.5 rounded-full bg-signal flex-shrink-0" aria-hidden="true"></span>{/if}
-									{field.label.toLowerCase()} {field.value}
+									{field.label.toLowerCase()} {resolveApprovalFieldValue(field, resolvePresetName)}
 								</span>
 							{/each}
 						</div>

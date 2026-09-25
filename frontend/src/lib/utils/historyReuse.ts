@@ -62,6 +62,29 @@ export function buildImportBundleTabData(reuse: ImportBundleReuse): HistoryReuse
 	return buildReuseTabData(reuse);
 }
 
+export const UNKNOWN_PRESET_LABEL = 'Unknown preset';
+
+export interface ReusePresetInfo {
+	preset_id?: string | null;
+	preset_name?: string | null;
+}
+
+export function resolveReusePresetLabel(
+	info: ReusePresetInfo,
+	resolvePresetName: (presetId: string) => string | null
+): string {
+	const resolved = info.preset_name || (info.preset_id ? resolvePresetName(info.preset_id) : null);
+	return resolved || UNKNOWN_PRESET_LABEL;
+}
+
+export function buildReuseTabTitle(
+	prefix: string,
+	info: ReusePresetInfo,
+	resolvePresetName: (presetId: string) => string | null
+): string {
+	return `${prefix}: ${resolveReusePresetLabel(info, resolvePresetName)}`;
+}
+
 export interface ActiveTabReuseResult extends HistoryReuseResult {
 	/** True when the reused generation's preset differs from the tab's
 	 *  current one — callers drop their own per-tab mode-manifest cache on

@@ -236,7 +236,7 @@ class ModelJobs:
             # Index the downloaded model
             logger.debug(f"Indexing {name}")
             file_size = file_path.stat().st_size
-            model = self.scanner.index_single_model(str(file_path), model_type, file_size)
+            model = await asyncio.to_thread(self.scanner.index_single_model, str(file_path), model_type, file_size)
 
             if model:
                 await self.native_availability_reconciler.reconcile(self.backend_registry)

@@ -146,7 +146,7 @@ async def _execute_index_model(ctx: NodeExecutionContext) -> NodeResult:
     except OSError as exc:
         raise RuntimeError(f"action.index_model: cannot stat '{file_path}': {exc}") from exc
 
-    model = indexer.index_single_model(file_path, model_type, file_size)
+    model = await asyncio.to_thread(indexer.index_single_model, file_path, model_type, file_size)
 
     availability, availability_notes = await _single_model_availability(ctx, model)
 

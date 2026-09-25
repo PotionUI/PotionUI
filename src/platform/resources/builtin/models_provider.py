@@ -49,6 +49,14 @@ def _display_name(model: Any) -> str:
     return _text(getattr(model, "display_name", None)) or stem(model.filename) or str(model.id)
 
 
+def _provider_description(model: Any) -> Optional[str]:
+    for info in (model.providers or []):
+        desc = _text(getattr(info, "description", None))
+        if desc:
+            return desc[:MAX_PROVIDER_DESC_CHARS] + "…" if len(desc) > MAX_PROVIDER_DESC_CHARS else desc
+    return None
+
+
 def _allowed_ids(ctx: ResourceContext) -> Optional[List[str]]:
     stand_in = User(
         username="", email="", password_hash="",
@@ -159,13 +167,12 @@ class ModelsResourceProvider(BaseResourceProvider):
 
     def _model_suggestion(self, model: Any) -> ResourceSuggestion:
         name = _display_name(model)
-        file_stem = stem(model.filename)
         model_type = model.model_type or "model"
         return ResourceSuggestion(
             uri=f"models.{model_type}.{model.id}",
             label=name,
             kind=model_type,
-            description=file_stem if file_stem and file_stem != name else None,
+            description=_provider_description(model),
             has_children=False,
             icon=self.icon,
             badge=model_type,

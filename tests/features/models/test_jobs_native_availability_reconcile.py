@@ -1,5 +1,6 @@
 
 import asyncio
+import threading
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -65,3 +66,27 @@ def test_run_download_and_index_skips_reconcile_when_indexing_fails(tmp_path):
         ))
 
     reconciler.reconcile.assert_not_awaited()
+
+def test_run_download_and_index_hashes_off_the_event_loop_thread(tmp_path):
+    reconciler = MagicMock()
+    reconciler.reconcile = AsyncMock()
+
+    job = _job(tmp_path, reconciler=reconciler)
+    loop_thread = threading.get_ident()
+    index_threads = []
+
+    def recording_index(file_path, model_type, file_size):
+        index_threads.append(threading.get_ident())
+        return MagicMock(id="m1")
+
+    job.scanner.index_single_model.side_effect = recording_index
+
+    with patch("src.features.models.jobs.asyncio.sleep", new=AsyncMock()), \
+         patch("src.platform.settings.repository.SettingRepository") as mock_settings:
+        mock_settings.return_value.get_setting_by_key.return_value = None
+        asyncio.run(job.run_download_and_index(
+            name="test-model", link="https://1.1.1.1/model.safetensors", sha256="",
+        ))
+
+    assert len(index_threads) == 1
+    assert index_threads[0] != loop_thread

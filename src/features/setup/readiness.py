@@ -255,8 +255,6 @@ class ReadinessAggregator:
             admin_action="Open Administration -> Backends and repair or replace the failing backend.",
         )
 
-    # --- content --------------------------------------------------------
-
     def _content(self, user: "User", is_admin: bool, recipe_id: Optional[str]) -> _Row:
         area = "content"
 

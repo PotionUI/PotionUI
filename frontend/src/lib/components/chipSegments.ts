@@ -93,7 +93,6 @@ export function parseChipSegments(
 
 		const categoryPath = decodePathFromMatch(match);
 
-		// Find matching chip (not yet used)
 		const matchingEntry = Object.entries(chipsObj).find(
 			([id, chip]) => chip.categoryPath === categoryPath && !usedChipIds.has(id)
 		);

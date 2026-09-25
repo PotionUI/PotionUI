@@ -1,6 +1,7 @@
 """Tests for src/core/automation/nodes/actions.py's execute() implementations."""
 
 import os
+import threading
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -80,6 +81,28 @@ class TestExecuteIndexModelOutput(unittest.IsolatedAsyncioTestCase):
         with tempfile.NamedTemporaryFile() as f:
             with self.assertRaises(RuntimeError):
                 await _execute_index_model(_ctx(config={"path": f.name}, services=AutomationServices()))
+
+    async def test_hashing_runs_off_the_event_loop_thread(self):
+        indexer = MagicMock()
+        loop_thread = threading.get_ident()
+        index_threads = []
+
+        def recording_index(file_path, model_type, file_size):
+            index_threads.append(threading.get_ident())
+            return FakeModel(id="model-123", filename="krea2_lora_v1.safetensors")
+
+        indexer.index_single_model.side_effect = recording_index
+        services = AutomationServices(model_indexer=indexer)
+
+        import tempfile
+        with tempfile.NamedTemporaryFile() as f:
+            await _execute_index_model(_ctx(
+                config={"path": f.name, "model_type": "lora"},
+                services=services,
+            ))
+
+        self.assertEqual(len(index_threads), 1)
+        self.assertNotEqual(index_threads[0], loop_thread)
 
 
 def _fake_backend(backend_id: str, name: str, supports_listing: bool = True) -> MagicMock:

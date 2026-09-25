@@ -87,9 +87,18 @@ class TestModelsProvider:
         assert suggestions[0].label == "Detailer XL"
         assert suggestions[0].badge == "lora"
         assert suggestions[0].has_children is False
+        assert suggestions[0].description == "Provider description"
         kwargs = self.repo.get_all.call_args.kwargs
         assert kwargs["model_type"] == "lora"
         assert kwargs["search"] == "det"
+
+    @pytest.mark.asyncio
+    async def test_suggest_description_omitted_when_no_provider_description(self):
+        model = self._model()
+        model.providers = []
+        self.repo.get_all.return_value = [model]
+        suggestions = await self.provider.suggest(["lora"], "det", _ctx(model_index_manager=self.manager))
+        assert suggestions[0].description is None
 
     @pytest.mark.asyncio
     async def test_resolve_surfaces_trigger_words(self):
@@ -206,7 +215,7 @@ class TestModelsProvider:
         hits = await self.provider.search("detail", _ctx(model_index_manager=self.manager), limit=10)
         assert [h.uri for h in hits] == ["models.lora.L1", "models.checkpoint.C1"]
         assert [h.badge for h in hits] == ["lora", "checkpoint"]
-        assert hits[0].description == "detailer"
+        assert hits[0].description == "Provider description"
         assert all(c.kwargs["search"] == "detail" for c in self.repo.get_all.call_args_list)
 
     @pytest.mark.asyncio
